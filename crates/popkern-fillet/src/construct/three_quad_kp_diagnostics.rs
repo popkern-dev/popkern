@@ -138,6 +138,36 @@ pub(super) fn boundary_candidate_selection(
     )
 }
 
+/// PK-275: outcome of the armed outer-fillet G1 rung
+/// (`POPKERN_OUTER_FILLET_G1=1`) for one optimizer candidate. The
+/// rung previously declined at six optimizer sites with no record —
+/// engagement was unverifiable, so its coverage was silently zero.
+/// `candidate` is `guide` or `exact`; `outcome` is the optimizer's
+/// outcome string (`served_lm;…` / `kept_phase2;…` /
+/// `declined:<site>` / `lm_rejected:<why>`).
+pub(super) fn outer_fillet_rung_outcome(
+    candidate: &str,
+    outcome: &str,
+    n_sides: usize,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "kp_binonic.promotion.outer_fillet_rung".to_string(),
+            code: "kp_binonic.promotion.outer_fillet_rung".to_string(),
+            detail_code: Some(format!("candidate={candidate};{outcome}")),
+            sector_name: format!("kp_binonic_ring_n{n_sides}"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
 /// PK-240: the balanced-spoke fan engaged — the natural sector split
 /// at the ring center was degenerate and the spoke tangents were
 /// redistributed to a regular 2π/N spacing so the fan matches the

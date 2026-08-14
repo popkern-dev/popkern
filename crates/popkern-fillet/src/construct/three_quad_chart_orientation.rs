@@ -312,6 +312,7 @@ pub(in crate::construct) fn repair_chart_orientation(
             x0: pack_seam_rows(ring),
             outer_fillets: outer_fillets.map(|f| f.to_vec()),
             char_len,
+            selector_m: None,
         };
         let lm = run_lm(
             eval,

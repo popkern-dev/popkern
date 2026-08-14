@@ -25,6 +25,10 @@ pub(super) struct SelectedCandidate {
     pub binonic: Vec<RectangularGregoryBiNonic>,
     pub provenance: &'static str,
     pub selection_fact: Option<crate::types::ApexConstructionDiagnostic>,
+    /// PK-275: the exact candidate's armed outer-fillet rung
+    /// outcome, for the promotion's rung fact (None when unarmed or
+    /// when the exact candidate never ran the bi-nonic optimizer).
+    pub exact_rung_outcome: Option<String>,
 }
 
 /// Choose between the guide candidate, the exact-injection
@@ -44,19 +48,22 @@ pub(super) fn select_boundary_candidate(
             binonic: guide_binonic,
             provenance: "guide",
             selection_fact: None,
+            exact_rung_outcome: None,
         };
     };
     let mut binonic = guide_binonic.clone();
     let mut provenance = "guide";
     let exact_outcome;
     let mut relock_outcome = String::from("not_attempted");
+    let mut exact_rung_outcome: Option<String> = None;
     let exact_candidate = if n < 6 {
         match optimize_kp_binonic_candidate(input, options, outer_fillets) {
             None => {
                 exact_outcome = String::from("unavailable");
                 None
             }
-            Some(candidate) => {
+            Some((candidate, rung_outcome)) => {
+                exact_rung_outcome = rung_outcome;
                 // PK-249: a fold is the severe end of the chart
                 // orientation defect — attempt the transactional
                 // unfold before rejecting the exact candidate; the
@@ -150,6 +157,7 @@ pub(super) fn select_boundary_candidate(
         binonic,
         provenance,
         selection_fact: Some(selection_fact),
+        exact_rung_outcome,
     }
 }
 

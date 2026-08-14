@@ -28,7 +28,10 @@
 
 #[path = "kp_binonic_jacobian.rs"]
 mod kp_binonic_jacobian;
-pub(super) use kp_binonic_jacobian::{analytic_ring_jacobian, flatten_ring};
+use kp_binonic_jacobian::outer_fillet_jacobian;
+pub(super) use kp_binonic_jacobian::{
+    analytic_ring_jacobian, flatten_ring, outer_fillet_jacobian_sampled, ring_idx,
+};
 
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
 use super::kp_exact_boundary_binonic_optimizer::optimize_exact_boundary_binonic;
@@ -44,6 +47,12 @@ pub(super) struct KpBiNonicOptimizerResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
     #[allow(dead_code)]
     pub final_residual: f64,
+    /// PK-275 rung observability: outcome of the phase-3 L-M when
+    /// the outer-fillet block is armed (`None` when unarmed). The
+    /// rung previously declined at six sites with no record; the
+    /// promotion turns this into a structured
+    /// `kp_binonic.promotion.outer_fillet_rung` fact.
+    pub outer_rung_outcome: Option<String>,
 }
 
 /// Three-phase optimizer: delegates phases 1–2 to the bi-quintic
@@ -80,10 +89,14 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     // the outer-fillet residual is independent and may still be
     // large.
     let force_engage = outer_fillets.is_some();
+    // Rung-outcome recorder: only populated when the outer block is
+    // armed, so the unarmed path carries no new state.
+    let rung = |outcome: &str| force_engage.then(|| outcome.to_string());
     if bq_result.final_residual < PHASE3_ENGAGE_RESIDUAL && !force_engage {
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
+            outer_rung_outcome: None,
         });
     }
 
@@ -92,6 +105,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
+            outer_rung_outcome: rung("declined:no_guides"),
         });
     }
 
@@ -108,6 +122,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
+            outer_rung_outcome: rung("declined:initial_ring_self_intersects"),
         });
     }
     if input.hex_boundaries.is_some()
@@ -118,6 +133,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         return Some(KpBiNonicOptimizerResult {
             binonic: direct.binonic,
             final_residual: direct.final_residual,
+            outer_rung_outcome: None,
         });
     }
 
@@ -128,6 +144,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
+            outer_rung_outcome: rung("declined:dof_cap"),
         });
     }
 
@@ -161,6 +178,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     );
 
     // Unpack optimal parameter back into guides; rebuild ring.
+    let lm_stats = format!("iters={};accepted={}", lm_result.iters, lm_result.accepted);
     let mut best_guides = bn_guides;
     unpack_guides(&lm_result.x, &mut best_guides);
     let best_binonic = match build_binonic_ring_from_binonic_guides(&best_guides, input) {
@@ -169,6 +187,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             return Some(KpBiNonicOptimizerResult {
                 binonic: bq_result.binonic,
                 final_residual: bq_result.final_residual,
+                outer_rung_outcome: rung(&format!("lm_rejected:rebuild_or_fold;{lm_stats}")),
             });
         }
     };
@@ -197,11 +216,17 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         Some(KpBiNonicOptimizerResult {
             binonic: best_binonic,
             final_residual: post,
+            outer_rung_outcome: rung(&format!(
+                "served_lm;{lm_stats};post={post:.3e};phase2={bq_post:.3e}"
+            )),
         })
     } else {
         Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_post,
+            outer_rung_outcome: rung(&format!(
+                "kept_phase2;{lm_stats};post={post:.3e};phase2={bq_post:.3e}"
+            )),
         })
     }
 }
@@ -288,24 +313,25 @@ impl<'a> LmEval for BinonicEval<'a> {
     }
 
     fn jacobian(&mut self, x: &[f64]) -> Option<Vec<Vec<f64>>> {
-        // Phase 6c-B: when outer_fillets is set, the residual vector
-        // includes outer-fillet samples that the analytic Jacobian
-        // doesn't cover. Fall back to the L-M solver's FD Jacobian
-        // (slower but correct). Future optimisation: extend the
-        // analytic Jacobian to handle the outer-fillet block.
-        if self.outer_fillets.is_some() {
-            return None;
-        }
+        // PK-275: both residual blocks have analytic Jacobians now.
+        // The inner-spoke block chains ∂f/∂(cap tangents) through the
+        // constant ring linearization M; the outer-fillet block adds
+        // the ∂f/∂(u=0 boundary) chain including footpoint motion on
+        // the fillet. Before this, `outer_fillets.is_some()` returned
+        // `None` here, forcing the LM driver onto full-DoF FD — one
+        // complete ring rebuild per DoF per iteration (576 rebuilds ×
+        // iteration at N = 3).
         if self.m_matrix.is_none() {
             self.precompute_m_matrix()?;
         }
         let ring = self.build_ring(x)?;
         let d_guide = self.guide_cp_count();
-        Some(analytic_ring_jacobian(
-            &ring,
-            self.m_matrix.as_ref()?,
-            d_guide,
-        ))
+        let m = self.m_matrix.as_ref()?;
+        let mut jac = analytic_ring_jacobian(&ring, m, d_guide);
+        if let Some(fillets) = &self.outer_fillets {
+            jac.extend(outer_fillet_jacobian(&ring, fillets, m, d_guide));
+        }
+        Some(jac)
     }
 }
 
@@ -442,3 +468,7 @@ fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
 fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
     residual_vector(patches).iter().map(|v| v * v).sum()
 }
+
+#[cfg(test)]
+#[path = "kp_binonic_jacobian_fd_tests.rs"]
+mod kp_binonic_jacobian_fd_tests;

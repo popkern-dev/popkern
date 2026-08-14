@@ -65,6 +65,19 @@ impl LmEval for DirectSpokeRowEval {
     fn fold_safe(&mut self, x: &[f64]) -> bool {
         !any_self_intersects(&self.build_ring(x))
     }
+
+    // PK-275 measured decision: this eval deliberately KEEPS the FD
+    // Jacobian. An analytic selector-chain Jacobian was implemented
+    // and FD-agreement-verified here, but (a) it bought no wall time
+    // — this optimizer's cost is the fold-safety Gregory
+    // self-intersection check, not derivatives (gdb profile,
+    // PK-282) — and (b) its more-accurate trajectory converged
+    // pyramid4_uniform to a lower-residual ring whose ADJACENT
+    // patches intersect each other, a class the per-patch fold gates
+    // cannot see (validate_all catches it downstream; PK-283 owns
+    // the pairwise ring gate). Until the acceptance is
+    // crossing-honest at ring level, the serving-stable FD
+    // trajectory is the keep-better choice.
 }
 
 fn pack_spoke_rows(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {

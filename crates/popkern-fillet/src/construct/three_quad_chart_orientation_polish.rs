@@ -7,6 +7,9 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 
+use super::super::super::kp_binonic_optimizer::{
+    analytic_ring_jacobian, outer_fillet_jacobian_sampled, ring_idx,
+};
 use super::super::super::kp_lm_solver::LmEval;
 use super::three_quad_chart_orientation_metrics::{
     any_self_intersects, g2_residual_at, outer_fillet_sin,
@@ -109,6 +112,11 @@ pub(super) struct SeamPolishEval {
     pub x0: Vec<f64>,
     pub outer_fillets: Option<Vec<SurfaceGeometry>>,
     pub char_len: f64,
+    /// Lazily built 0/1 selector `∂ring_CP/∂x` for the seam-row
+    /// parameterization (shared spoke blocks contribute TWO entries
+    /// per column). Cached because it is constant across iterates
+    /// (PK-275 mixed analytic Jacobian).
+    pub selector_m: Option<Vec<Vec<f64>>>,
 }
 
 impl SeamPolishEval {
@@ -116,6 +124,22 @@ impl SeamPolishEval {
         let mut ring = self.base.clone();
         unpack_seam_rows(x, &mut ring);
         ring
+    }
+
+    /// The folded-G2 residual block, exactly as `residual` emits it
+    /// (weighted, zero-padded on unreadable samples).
+    fn g2_block(&self, ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
+        let n = ring.len();
+        let mut out = Vec::with_capacity(n * 25);
+        for k in 0..n {
+            let a = &ring[k];
+            let b = &ring[(k + 1) % n];
+            for sample in 0..25 {
+                let t = 0.05 + 0.90 * (sample as f64) / 24.0;
+                out.push(G2_WEIGHT * g2_residual_at(a, b, t).unwrap_or(0.0));
+            }
+        }
+        out
     }
 }
 
@@ -127,15 +151,7 @@ impl LmEval for SeamPolishEval {
         // must optimize what the G2 gate measures, or it sacrifices
         // curvature for coplanarity (unreadable samples contribute
         // zero so the vector length stays fixed).
-        let n = ring.len();
-        for k in 0..n {
-            let a = &ring[k];
-            let b = &ring[(k + 1) % n];
-            for sample in 0..25 {
-                let t = 0.05 + 0.90 * (sample as f64) / 24.0;
-                r.push(G2_WEIGHT * g2_residual_at(a, b, t).unwrap_or(0.0));
-            }
-        }
+        r.extend(self.g2_block(&ring));
         if let Some(fillets) = &self.outer_fillets {
             for (k, binonic) in ring.iter().enumerate() {
                 let Some(fillet) = fillets.get(k) else {
@@ -175,6 +191,99 @@ impl LmEval for SeamPolishEval {
         }
         !any_self_intersects(&ring, 1.0e-7)
     }
+
+    /// Mixed analytic Jacobian (PK-275). Full-DoF FD cost one
+    /// residual evaluation — including 25N NURBS fillet projections
+    /// — per column per iteration (measured D = 504, 40 iterations,
+    /// twice per repair on the extreme ladder). Per block:
+    ///
+    /// - coplanarity rows: analytic, shared ring Jacobian chained
+    ///   through the constant seam-row selector;
+    /// - folded-G2 rows: per-column FD of ONLY this block — the
+    ///   rebuild is a CP overwrite and the samples are projection-
+    ///   free arithmetic, so this keeps the branch-gated curvature
+    ///   formula's exact FD behavior at negligible cost;
+    /// - outer-fillet rows: analytic (footpoint chain), 6
+    ///   projections per SAMPLE instead of one full projection
+    ///   sweep per COLUMN;
+    /// - tether rows: exact diagonal.
+    fn jacobian(&mut self, x: &[f64]) -> Option<Vec<Vec<f64>>> {
+        let n = self.base.len();
+        let d = x.len();
+        if self.selector_m.is_none() {
+            self.selector_m = Some(seam_row_selector_m(n));
+        }
+        let m = self.selector_m.as_ref()?;
+        let ring = self.build(x);
+
+        let mut jac = analytic_ring_jacobian(&ring, m, d);
+
+        // Folded-G2 block: forward FD per column at the same eps the
+        // full-FD driver used (LmConfig.fd_eps mirrors this formula).
+        let eps = 1e-6 * self.char_len.max(1e-6);
+        let g2_base = self.g2_block(&ring);
+        let mut g2_rows = vec![vec![0.0; d]; n * 25];
+        let mut x_pert = x.to_vec();
+        for k in 0..d {
+            let saved = x_pert[k];
+            x_pert[k] = saved + eps;
+            let ring_pert = self.build(&x_pert);
+            let g2_pert = self.g2_block(&ring_pert);
+            for (row, (gp, gb)) in g2_rows.iter_mut().zip(g2_pert.iter().zip(g2_base.iter())) {
+                row[k] = (gp - gb) / eps;
+            }
+            x_pert[k] = saved;
+        }
+        jac.extend(g2_rows);
+
+        if let Some(fillets) = &self.outer_fillets {
+            jac.extend(outer_fillet_jacobian_sampled(&ring, fillets, m, d, 25));
+        }
+
+        // Tether block: exact diagonal.
+        let tether_scale = TETHER_WEIGHT / self.char_len.max(1e-12);
+        for i in 0..d {
+            let mut row = vec![0.0; d];
+            row[i] = tether_scale;
+            jac.push(row);
+        }
+        Some(jac)
+    }
+}
+
+/// 0/1 selector matrix mapping the packed seam-row parameter vector
+/// onto flat ring-CP coordinates, mirroring [`pack_seam_rows`]'s
+/// order exactly: per-patch seam cells first, then the shared
+/// per-spoke blocks — each spoke column carries TWO unit entries
+/// because `unpack_seam_rows` writes `grid[9][j]` of patch `k` and
+/// `grid[9−j][0]` of patch `k+1` from the same parameter.
+#[cfg(test)]
+#[path = "three_quad_chart_orientation_polish_fd_tests.rs"]
+mod three_quad_chart_orientation_polish_fd_tests;
+
+fn seam_row_selector_m(n: usize) -> Vec<Vec<f64>> {
+    let cells = seam_row_cells();
+    let d = n * cells.len() * 3 + n * 8 * 3;
+    let mut m = vec![vec![0.0_f64; d]; n * 300];
+    let mut k = 0;
+    for p in 0..n {
+        for &(i, j) in &cells {
+            for axis in 0..3 {
+                m[ring_idx(p, i, j, axis)][k] = 1.0;
+                k += 1;
+            }
+        }
+    }
+    for p in 0..n {
+        for j in 1..=8 {
+            for axis in 0..3 {
+                m[ring_idx(p, 9, j, axis)][k] = 1.0;
+                m[ring_idx((p + 1) % n, 9 - j, 0, axis)][k] = 1.0;
+                k += 1;
+            }
+        }
+    }
+    m
 }
 
 /// Per-sample spoke coplanarity, matching the promotion metric's

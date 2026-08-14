@@ -157,25 +157,26 @@ pub(super) fn run_lm<E: LmEval>(
             }
         }
 
-        // H = JᵀJ  (n_dof × n_dof), lower triangle only — we
-        // mirror on solve.
-        let mut h = vec![vec![0.0_f64; n_dof]; n_dof];
+        // H = JᵀJ, flat row-major n_dof × n_dof (PK-275: the
+        // Vec<Vec> form cost one allocation per row plus pointer
+        // chasing in the O(m·n²) accumulation). Lower triangle
+        // accumulated, then mirrored.
+        let mut h = vec![0.0_f64; n_dof * n_dof];
         for jac_row in jac.iter() {
             for a in 0..n_dof {
                 let v = jac_row[a];
                 if v == 0.0 {
                     continue;
                 }
-                for (b, hab) in h[a].iter_mut().enumerate().take(a + 1) {
+                let h_row = &mut h[a * n_dof..a * n_dof + a + 1];
+                for (b, hab) in h_row.iter_mut().enumerate() {
                     *hab += v * jac_row[b];
                 }
             }
         }
-        // Mirror to upper triangle.
-        #[allow(clippy::needless_range_loop)]
         for a in 0..n_dof {
             for b in (a + 1)..n_dof {
-                h[a][b] = h[b][a];
+                h[a * n_dof + b] = h[b * n_dof + a];
             }
         }
 
@@ -185,15 +186,18 @@ pub(super) fn run_lm<E: LmEval>(
         }
 
         // Inner damping loop: grow λ until we find an accepted
-        // step or hit the cap.
+        // step or hit the cap. `a_scratch` is a flat copy of H per
+        // attempt (memcpy, no per-row allocations — PK-275; the
+        // previous code cloned the whole Vec<Vec> per λ level).
         let mut accepted_this_iter = false;
+        let mut a_scratch = vec![0.0_f64; n_dof * n_dof];
         while lambda <= config.lambda_max {
-            let mut a = h.clone();
-            #[allow(clippy::needless_range_loop)]
+            a_scratch.copy_from_slice(&h);
             for d in 0..n_dof {
-                a[d][d] += lambda;
+                a_scratch[d * n_dof + d] += lambda;
             }
-            let Some(delta) = solve_dense(a, neg(&g)) else {
+            let mut rhs = neg(&g);
+            let Some(delta) = solve_dense_flat(&mut a_scratch, &mut rhs, n_dof) else {
                 lambda *= 10.0;
                 continue;
             };
@@ -254,19 +258,23 @@ fn neg(v: &[f64]) -> Vec<f64> {
     v.iter().map(|x| -x).collect()
 }
 
-/// In-place Gaussian elimination with partial pivoting for a
-/// dense square SPD-plus-damping system `A · x = b`. Mirrors
+/// In-place Gaussian elimination with partial pivoting for a dense
+/// square SPD-plus-damping system `A · x = b`, on flat row-major
+/// storage (PK-275: the Vec<Vec> version cloned the pivot row on
+/// every elimination step — O(n³) copying at n = 576). `m` and `b`
+/// are destroyed. Semantics mirror
 /// `popkern-core::geometry::gregory::direct_linalg::solve_dense`
 /// (that helper is `pub(crate)` to its crate, so we keep a local
-/// copy here rather than widen its visibility across the fillet
-/// boundary).
-fn solve_dense(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
-    let n = m.len();
+/// implementation rather than widen its visibility across the
+/// fillet boundary).
+fn solve_dense_flat(m: &mut [f64], b: &mut [f64], n: usize) -> Option<Vec<f64>> {
+    debug_assert_eq!(m.len(), n * n);
+    debug_assert_eq!(b.len(), n);
     for i in 0..n {
         let mut pivot = i;
-        let mut best = m[i][i].abs();
-        for (r, row) in m.iter().enumerate().skip(i + 1) {
-            let v = row[i].abs();
+        let mut best = m[i * n + i].abs();
+        for r in (i + 1)..n {
+            let v = m[r * n + i].abs();
             if v > best {
                 best = v;
                 pivot = r;
@@ -276,25 +284,33 @@ fn solve_dense(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
             return None;
         }
         if pivot != i {
-            m.swap(i, pivot);
+            for c in 0..n {
+                m.swap(i * n + c, pivot * n + c);
+            }
             b.swap(i, pivot);
         }
+        // Split so the pivot row can be read while rows below are
+        // eliminated in place — no pivot-row clone.
+        let (top, bottom) = m.split_at_mut((i + 1) * n);
+        let pivot_row = &top[i * n..(i + 1) * n];
         for r in (i + 1)..n {
-            let factor = m[r][i] / m[i][i];
-            let pivot_row = m[i].clone();
-            for (c, pc) in pivot_row.iter().enumerate().skip(i) {
-                m[r][c] -= factor * pc;
+            let row = &mut bottom[(r - i - 1) * n..(r - i) * n];
+            let factor = row[i] / pivot_row[i];
+            if factor != 0.0 {
+                for (c, pc) in pivot_row.iter().enumerate().skip(i) {
+                    row[c] -= factor * pc;
+                }
+                b[r] -= factor * b[i];
             }
-            b[r] -= factor * b[i];
         }
     }
     let mut x = vec![0.0_f64; n];
     for i in (0..n).rev() {
         let mut s = b[i];
         for (c, xc) in x.iter().enumerate().skip(i + 1) {
-            s -= m[i][c] * xc;
+            s -= m[i * n + c] * xc;
         }
-        x[i] = s / m[i][i];
+        x[i] = s / m[i * n + i];
     }
     Some(x)
 }
