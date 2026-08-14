@@ -14,6 +14,7 @@ mod precision;
 pub use material_sense::MaterialSense;
 mod face_trim_query;
 pub use face_trim_query::FaceUvContainment;
+mod region;
 mod self_intersection;
 mod self_intersection_trim;
 pub use self_intersection_trim::InteriorOverlapSample;
@@ -67,6 +68,24 @@ impl BRep {
     /// terminate in practical time (PK-094: >16 CPU-minutes on a
     /// 5-fillet pyramid apex).
     pub fn validate_collect_fast(&self) -> Vec<ValidationError> {
+        let mut errors = self.validate_collect_structural();
+        if let Err(e) = self.validate_gregory_self_intersection() {
+            errors.push(e);
+        }
+        errors
+    }
+
+    /// Everything in [`BRep::validate_collect_fast`] EXCEPT the
+    /// per-face Gregory self-intersection sweep — the sweep was
+    /// measured as the binding term of fast validation on
+    /// Gregory-laden bodies (~25 ms × patch count; 2.4 s on a
+    /// 96-patch body, PK-273), while every other check here totals
+    /// well under a millisecond. Acceptance gates that only inspect
+    /// structural error classes (`BrokenCycle`/`ShellGap`/`OpenLoop`)
+    /// use this variant; callers that need the Gregory verdict take
+    /// [`BRep::validate_collect_fast`] or scope the sweep with
+    /// [`BRep::validate_region_collect_fast`].
+    pub fn validate_collect_structural(&self) -> Vec<ValidationError> {
         let mut errors = Vec::new();
         if let Err(e) = self.validate_euler_poincare_any_genus() {
             errors.push(e);
@@ -96,9 +115,6 @@ impl BRep {
             errors.push(e);
         }
         errors.extend(self.validate_precision_thorough());
-        if let Err(e) = self.validate_gregory_self_intersection() {
-            errors.push(e);
-        }
         errors
     }
 

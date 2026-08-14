@@ -29,6 +29,9 @@ use super::GregoryPatch;
 #[cfg(test)]
 use crate::geometry::Point3;
 
+#[path = "self_intersection_cache.rs"]
+mod cache;
+
 /// Measured decision terms for Gregory self-intersection validation.
 #[derive(Clone, Debug, PartialEq)]
 pub struct GregorySelfIntersectionReport {
@@ -74,10 +77,18 @@ pub(super) fn gregory_self_intersects(patch: &GregoryPatch, tolerance: f64) -> b
     gregory_self_intersection_report(patch, tolerance).intersects()
 }
 
+/// Memoized by patch content + tolerance (PK-273): the report is a
+/// pure function, and its slow subdivision tier was the measured
+/// binding term of whole-model fast validation. See
+/// [`cache`] for the key and bounding policy.
 pub(super) fn gregory_self_intersection_report(
     patch: &GregoryPatch,
     tolerance: f64,
 ) -> GregorySelfIntersectionReport {
+    cache::cached_report(patch, tolerance, || compute_report(patch, tolerance))
+}
+
+fn compute_report(patch: &GregoryPatch, tolerance: f64) -> GregorySelfIntersectionReport {
     let mut report = jacobian_report(patch);
     if !report.intersects() {
         report.subdivision_intersection = subdivision_surface_intersection(patch, tolerance);
