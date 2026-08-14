@@ -120,8 +120,9 @@ fn twelve_edge_cube_fillet_within_budget() {
         fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None)
             .expect("12-edge cube fillet succeeds");
     });
-    // Measured 105.3 ms best-of-5 release (2026-08-13) × 5 ≈ 525 ms.
-    assert_budget("12-edge cube fillet (G1)", measured, 525);
+    // Measured 85.4 ms best-of-5 release (2026-08-14, PK-281 NURBS
+    // eval rewrite; was 105.3 ms) × 5 ≈ 425 ms.
+    assert_budget("12-edge cube fillet (G1)", measured, 425);
 }
 
 /// Full 12-edge cube fillet through the G2 construction ladder
@@ -139,14 +140,15 @@ fn twelve_edge_cube_g2_fillet_within_budget() {
         continuity: ContinuityLevel::G2,
         ..FilletOptions::default()
     };
-    // Single timed run: the op is ~38 s, so best-of-N would dominate
+    // Single timed run: the op is ~10 s, so best-of-N would dominate
     // the whole perf job for precision the 5× headroom doesn't need.
     let measured = best_of(1, || {
         fillet_edges(&cube, &specs, &options, tol(), None)
             .expect("12-edge G2 cube fillet succeeds");
     });
-    // Measured 38.5 s single-run release (2026-08-13) × 5 ≈ 195 s.
-    assert_budget("12-edge cube fillet (G2 ladder)", measured, 195000);
+    // Measured 10.0 s single-run release (2026-08-14, PK-281 span-local
+    // de Boor + fused analytic partials; was 38.5 s) × 5 ≈ 50 s.
+    assert_budget("12-edge cube fillet (G2 ladder)", measured, 50000);
 }
 
 /// Cylinder base-circle fillet — the curved-support seam-crossing
