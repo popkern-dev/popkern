@@ -567,7 +567,6 @@ pub(crate) fn execute_boolean_full(
         })
         .map(|f| f.message.clone())
         .collect();
-    log_validation_issues(&result, op);
     let elapsed_validate = t_validate.elapsed();
     let count_validate = result.faces.len();
     metrics.push(PhaseMetric {
@@ -587,6 +586,12 @@ pub(crate) fn execute_boolean_full(
     }
 
     run_output_postprocess(&mut result, tolerance);
+
+    // Debug/PK_BOOL_TRACE diagnostics on the SERVED result. This runs
+    // after run_output_postprocess deliberately (PK-272): the earlier
+    // placement fired before reconcile_orientation_flags and reported
+    // transient winding findings that the served result doesn't have.
+    log_validation_issues(&result, op);
 
     // Post-processing diagnostics: sliver detection and watertightness.
     log_post_processing_diagnostics(&result, tolerance);

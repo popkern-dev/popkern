@@ -16,6 +16,25 @@ fn workspace_root() -> std::path::PathBuf {
         .expect("Could not resolve workspace root")
 }
 
+/// True if `cargo_toml` declares a dependency on `dep` — as an inline
+/// key (`popkern-x = { ... }`) or a table header
+/// (`[dependencies.popkern-x]`, `[dev-dependencies.popkern-x]`).
+///
+/// A plain `contains(dep)` scan is too blunt: it fires on crate names
+/// mentioned in comments (a Cargo.toml comment naming a sibling crate
+/// once failed the bool gate, PK-272). Comments are stripped before
+/// matching.
+fn declares_dependency(cargo_toml: &str, dep: &str) -> bool {
+    cargo_toml.lines().any(|line| {
+        let code = line.split('#').next().unwrap_or("").trim();
+        let key_form = code
+            .strip_prefix(dep)
+            .is_some_and(|rest| rest.trim_start().starts_with('='));
+        let table_form = code.starts_with('[') && code.contains(&format!("dependencies.{dep}"));
+        key_form || table_form
+    })
+}
+
 #[test]
 fn core_has_no_internal_crate_dependencies() {
     let cargo_toml_path = workspace_root().join("crates/popkern-core/Cargo.toml");
@@ -32,7 +51,7 @@ fn core_has_no_internal_crate_dependencies() {
 
     for dep in &forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-core must not depend on {}. \
              Move shared types to popkern-core or restructure the dependency.",
             dep
@@ -51,7 +70,7 @@ fn bool_depends_only_on_core() {
 
     for dep in &forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-bool must not depend on {}. \
              Move shared types to popkern-core or restructure the dependency.",
             dep
@@ -71,7 +90,7 @@ fn mesh_depends_only_on_core() {
 
     for dep in &forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-mesh must not depend on {}. \
              Move shared types to popkern-core or restructure the dependency.",
             dep
@@ -80,7 +99,7 @@ fn mesh_depends_only_on_core() {
 
     // Verify popkern-core is a dependency
     assert!(
-        cargo_toml.contains("popkern-core"),
+        declares_dependency(&cargo_toml, "popkern-core"),
         "popkern-mesh must depend on popkern-core"
     );
 }
@@ -96,7 +115,7 @@ fn viz_depends_only_on_core_and_mesh() {
 
     for dep in &forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-viz must not depend on {}. \
              Move shared types to popkern-core or restructure the dependency.",
             dep
@@ -105,11 +124,11 @@ fn viz_depends_only_on_core_and_mesh() {
 
     // Verify required dependencies
     assert!(
-        cargo_toml.contains("popkern-core"),
+        declares_dependency(&cargo_toml, "popkern-core"),
         "popkern-viz must depend on popkern-core"
     );
     assert!(
-        cargo_toml.contains("popkern-mesh"),
+        declares_dependency(&cargo_toml, "popkern-mesh"),
         "popkern-viz must depend on popkern-mesh"
     );
 }
@@ -129,7 +148,7 @@ fn measure_depends_only_on_core_and_mesh() {
 
     for dep in &forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-measure must not depend on {}. \
              Move shared types to popkern-core or restructure the dependency.",
             dep
@@ -137,11 +156,11 @@ fn measure_depends_only_on_core_and_mesh() {
     }
 
     assert!(
-        cargo_toml.contains("popkern-core"),
+        declares_dependency(&cargo_toml, "popkern-core"),
         "popkern-measure must depend on popkern-core"
     );
     assert!(
-        cargo_toml.contains("popkern-mesh"),
+        declares_dependency(&cargo_toml, "popkern-mesh"),
         "popkern-measure must depend on popkern-mesh"
     );
 }
@@ -159,12 +178,12 @@ fn part_is_a_top_tier_facade() {
     let forbidden = ["popkern-ffi", "popkern-viz"];
     for dep in forbidden {
         assert!(
-            !cargo_toml.contains(dep),
+            !declares_dependency(&cargo_toml, dep),
             "popkern-part must not depend on {dep}"
         );
     }
     assert!(
-        cargo_toml.contains("popkern-core"),
+        declares_dependency(&cargo_toml, "popkern-core"),
         "popkern-part must depend on popkern-core"
     );
 
@@ -182,7 +201,7 @@ fn part_is_a_top_tier_facade() {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
             .unwrap_or_default();
         assert!(
-            !toml.contains("popkern-part"),
+            !declares_dependency(&toml, "popkern-part"),
             "{below} must not depend on popkern-part (facade is top-tier)"
         );
     }

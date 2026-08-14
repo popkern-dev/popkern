@@ -65,6 +65,9 @@ jobs:
       - name: Smooth-mesh perf budgets
         run: cargo test --release -p popkern-part --test perf_budget -- --nocapture
 
+      - name: Boolean perf budgets
+        run: cargo test --release -p popkern-bool --test perf_budget -- --nocapture
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

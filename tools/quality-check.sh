@@ -44,6 +44,8 @@ if [[ "$mode" == "--perf" ]]; then
         -- --nocapture
     run_step "smooth-mesh perf budgets" \
         cargo test --release -p popkern-part --test perf_budget -- --nocapture
+    run_step "boolean perf budgets" \
+        cargo test --release -p popkern-bool --test perf_budget -- --nocapture
     echo "Quality gate passed ($mode)."
     exit 0
 fi

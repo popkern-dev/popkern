@@ -3261,6 +3261,7 @@ name = "popkern-bool"
 version = "0.1.0"
 dependencies = [
  "popkern-core",
+ "popkern-fillet",
  "rayon",
  "slotmap",
  "thiserror 2.0.18",

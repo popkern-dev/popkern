@@ -14,7 +14,20 @@ use crate::error::BoolOperation;
 /// Runs `validate_all()` and prints a summary to stderr. Does not fail the
 /// operation — this is purely diagnostic to surface topological problems early.
 /// Catches panics from validation on corrupted topology.
+///
+/// Debug/`PK_BOOL_TRACE`-only (PK-272): `validate_all()` includes the
+/// O(n²) surface-surface self-intersection sweep, and running it on
+/// every release boolean purely to print stderr was measurable
+/// overhead the caller can't act on. The correctness gate for boolean
+/// results is `validate::post_check` in `operation.rs`, which runs
+/// unconditionally either way. On the main pipeline this is called
+/// after `run_output_postprocess` (so it describes the served result,
+/// not a transient pre-reconcile state); the no-intersection paths
+/// serve their result directly and log it as-is.
 pub(crate) fn log_validation_issues(result: &BRep, op: BoolOperation) {
+    if !(cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some()) {
+        return;
+    }
     let op_name = match op {
         BoolOperation::Union => "union",
         BoolOperation::Intersection => "intersection",
@@ -119,19 +132,19 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
             // Validate after removal — if topology is corrupted, stop
             if result.validate().is_err() {
                 // Revert is impossible, but at least stop making it worse
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "[boolean] KEF corrupted topology after removing edge, stopping. \
-                     Before: V={pre_v} E={pre_e} F={pre_f}"
-                );
+                if cfg!(debug_assertions) {
+                    eprintln!(
+                        "[boolean] KEF corrupted topology after removing edge, stopping. \
+                         Before: V={pre_v} E={pre_e} F={pre_f}"
+                    );
+                }
                 break;
             }
             removed += 1;
         }
     }
 
-    if removed > 0 {
-        #[cfg(debug_assertions)]
+    if removed > 0 && cfg!(debug_assertions) {
         eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
     }
 }
@@ -140,10 +153,20 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
 ///
 /// Runs sliver analysis on each face and watertightness validation on all
 /// edges. Results are logged to stderr (diagnostic only, does not fail).
+///
+/// Debug/`PK_BOOL_TRACE`-only (PK-272): before the gate, release
+/// builds computed the full sliver and watertightness sweeps and then
+/// discarded them — the eprintlns were `#[cfg(debug_assertions)]` but
+/// the computation was not. Now nothing is computed unless the output
+/// can be observed.
 pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
     use crate::clip::face_vertex_positions;
     use crate::imprint::shared_geometry::validate_watertightness;
     use crate::imprint::sliver::{SliverThresholds, analyze_face_polygon};
+
+    if !(cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some()) {
+        return;
+    }
 
     let sliver_thresholds = SliverThresholds::from_tolerance(tolerance.linear() * 5.0);
 
@@ -159,14 +182,12 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
         }
     }
     if sliver_count > 0 {
-        #[cfg(debug_assertions)]
         eprintln!("[boolean] post-processing: {sliver_count} sliver face(s) detected");
     }
 
     // Watertightness validation
     let wt_report = validate_watertightness(result, tolerance.linear() * 10.0, 3);
     if !wt_report.is_watertight() {
-        #[cfg(debug_assertions)]
         eprintln!(
             "[boolean] post-processing: {} watertightness gap(s), max deviation: {:.2e}",
             wt_report.gaps.len(),
