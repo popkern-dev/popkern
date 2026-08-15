@@ -16,6 +16,12 @@
 # never kill them.
 slow-timeout = { period = "120s" }
 
+# This machine does other development work alongside test runs: cap
+# the suite at 12 of the 16 hardware threads so a sweep never
+# saturates the box. (Wall-clock baselines recorded before
+# 2026-08-15 were measured at the default 16.)
+test-threads = 12
+
 # PK-268: the KP20-recovery candidate-ranking battery is the nightly
 # tier, not the default sweep. Measured 2026-08-15: the four battery
 # modules held 9,048 s of the suite's 12,362 s total CPU (73%) —
