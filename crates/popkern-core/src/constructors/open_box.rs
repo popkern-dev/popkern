@@ -130,7 +130,21 @@ impl BRep {
             let twin_h = brep.half_edges[heh].twin;
             let edge_h = brep.half_edges[heh].edge;
             // Point the edge's canonical half-edge at the surviving
-            // twin (it may currently point at the doomed one).
+            // twin (it may currently point at the doomed one) — and
+            // keep the canonical-forward convention true: the twin
+            // traverses the edge curve BACKWARD, so the stored curve
+            // range reverses with the repoint (PK-274: without this,
+            // the forward-oriented pcurve trace measure pairs the
+            // ends crosswise and its direction-free fallback bottoms
+            // at half its sampling spacing — the four rim edges
+            // measured permanently "stale" at exactly 3.125e-3 and
+            // every downstream fix_stale pass re-cleared and
+            // reverted them forever).
+            if brep.edges[edge_h].half_edge == heh
+                && let Some(curve) = brep.edges[edge_h].curve.as_mut()
+            {
+                std::mem::swap(&mut curve.t_start, &mut curve.t_end);
+            }
             brep.edges[edge_h].half_edge = twin_h;
             // Null out the twin pointer on the surviving half-edge.
             brep.half_edges[twin_h].twin = HalfEdgeHandle::default();
@@ -212,6 +226,28 @@ mod tests {
                 "boundary edge's surviving half-edge should have null twin"
             );
         }
+    }
+
+    /// PK-274 pin: the rim repoint keeps the canonical-forward curve
+    /// convention (the stored curve reverses with the canonical), so
+    /// the builder ships zero stale-measuring pcurves. Regression
+    /// mode: the four rim edges measure exactly half the trace
+    /// sampling spacing (3.125e-3 on the unit box) forever, and
+    /// every downstream fix_stale pass re-clears and reverts them.
+    #[test]
+    fn open_box_ships_no_stale_pcurves() {
+        let ob = BRep::open_box(Tolerance::default()).unwrap();
+        assert_eq!(
+            ob.stale_pcurve_handles(),
+            vec![],
+            "open_box rim repoint must preserve the canonical-forward curve convention"
+        );
+    }
+
+    #[test]
+    fn open_prism_ships_no_stale_pcurves() {
+        let prism = BRep::open_prism(5, 1.0, 2.0, Tolerance::default()).unwrap();
+        assert_eq!(prism.stale_pcurve_handles(), vec![]);
     }
 
     #[test]

@@ -10,12 +10,19 @@ pub(super) fn edge_curve_completion_knowledge(
     brep: &BRep,
     options: BrepEdgeCurveCompletionOptions,
 ) -> BrepRepairKnowledgeGraph {
+    // PK-274: seed only the MISSING-curve edges — the completion is
+    // the graph's sole consumer here and queries facts exclusively
+    // for the edges it inspects (`edge.curve.is_none()`), yet the
+    // build was seeded with every edge of the model and measured
+    // measuring every pcurve deviation at the export-repair tail
+    // (18/68 profile samples on the 5-valence direct-apex matrix).
     BrepRepairKnowledgeGraph::build_with_local_tolerance(
         brep,
         BrepRepairKnowledgeScope::seeds_only(
             brep.edges
-                .keys()
-                .map(BrepRepairScopeSeed::Edge)
+                .iter()
+                .filter(|(_, edge)| edge.curve.is_none())
+                .map(|(handle, _)| BrepRepairScopeSeed::Edge(handle))
                 .collect::<Vec<_>>(),
         ),
         options.tolerance,

@@ -19,8 +19,20 @@ impl BRep {
     /// and `fix_pcurve_endpoints` is run per face so the rebuilt pcurves
     /// land exactly on their loop vertices.
     pub fn fix_stale_pcurves(&mut self) {
-        use crate::geometry::surface::SurfaceEval;
+        let faces: Vec<_> = self.faces.keys().collect();
+        self.fix_stale_pcurves_among(&faces);
+    }
 
+    /// As [`BRep::fix_stale_pcurves`], restricted to the half-edges
+    /// of `faces` (PK-274): whole-model staleness repair at operator
+    /// tails is priced by model size, while an operation only
+    /// invalidates pcurves in the neighbourhood it rewired. Callers
+    /// pass the dirty faces dilated by one ring (see
+    /// `BRep::validation_region`); the whole-model form remains the
+    /// serving-boundary and debug cross-check path
+    /// ([`BRep::stale_pcurve_handles`]). Same detection gate,
+    /// recompute, endpoint fix, and improve-or-revert contract.
+    pub fn fix_stale_pcurves_among(&mut self, faces: &[crate::topology::FaceHandle]) {
         // Improve-or-revert contract (PK-125): remember every cleared
         // pcurve with its measured staleness. Recomputation projects
         // walks through the surface chart, and near collapsed or
@@ -31,55 +43,23 @@ impl BRep {
         // boundary-row relock then chased into a genuine surface
         // fold). A repair pass must never replace evidence with
         // something it can measure to be worse.
-        let mut cleared: Vec<(
-            crate::topology::HalfEdgeHandle,
-            crate::geometry::pcurve::Pcurve,
-            f64,
-        )> = Vec::new();
-
-        let he_keys: Vec<_> = self.half_edges.keys().collect();
-        for heh in he_keys {
-            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
-                Some(pc) => pc.clone(),
-                None => continue,
-            };
-
-            let loop_handle = self.half_edges[heh].loop_;
-            let face_handle = match self.loops.get(loop_handle) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                Some(s) => s.geometry.clone(),
-                None => continue,
-            };
-
-            let (t0, t1) = pcurve.parameter_range();
-            let uv_start = pcurve.point_at(t0);
-            let uv_end = pcurve.point_at(t1);
-            let start_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
-            let end_from_pcurve = surface.point_at(uv_end.x, uv_end.y);
-            let actual_start = self.vertices[self.half_edges[heh].origin].position;
-            let next_heh = self.half_edges[heh].next;
-            let actual_end = self.vertices[self.half_edges[next_heh].origin].position;
-
-            let endpoint_error = start_from_pcurve
-                .distance_to(&actual_start)
-                .max(end_from_pcurve.distance_to(&actual_end));
-            let trace_error = self
-                .measure_half_edge_pcurve_deviation(heh)
-                .map_or(0.0, |report| report.max_deviation);
-            let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
-            if endpoint_error > stale_tolerance || trace_error > stale_tolerance {
-                cleared.push((heh, pcurve, endpoint_error.max(trace_error)));
-                self.half_edges[heh].pcurve = None;
-            }
+        let region: Vec<crate::topology::FaceHandle> = {
+            let mut seen = std::collections::BTreeSet::new();
+            faces
+                .iter()
+                .copied()
+                .filter(|fh| self.faces.contains_key(*fh) && seen.insert(*fh))
+                .collect()
+        };
+        let he_keys = self.region_half_edges(&region);
+        let cleared = self.stale_pcurve_scan(&he_keys);
+        for (heh, _, _) in &cleared {
+            self.half_edges[*heh].pcurve = None;
         }
 
-        let _ = self.recompute_all_pcurves();
+        let _ = self.recompute_pcurves_for(&region);
 
-        let face_keys: Vec<_> = self.faces.keys().collect();
-        for fh in face_keys {
+        for &fh in &region {
             self.fix_pcurve_endpoints(fh);
         }
 
@@ -113,6 +93,115 @@ impl BRep {
                 half_edge.pcurve = Some(original);
             }
         }
+    }
+
+    /// Read-only staleness detection over the WHOLE model: every
+    /// half-edge whose stored pcurve fails the same endpoint/trace
+    /// gate [`BRep::fix_stale_pcurves`] repairs. This is the
+    /// cross-check face of the scoped repair (PK-274): after a
+    /// scoped tail pass, debug builds assert that no stale pcurve
+    /// survives OUTSIDE the scoped region — a miss here means the
+    /// dirty-region derivation lost a face, which would otherwise
+    /// surface as a silent mesher/export defect.
+    pub fn stale_pcurve_handles(&self) -> Vec<crate::topology::HalfEdgeHandle> {
+        let he_keys: Vec<_> = self.half_edges.keys().collect();
+        self.stale_pcurve_scan(&he_keys)
+            .into_iter()
+            .map(|(heh, _, _)| heh)
+            .collect()
+    }
+
+    /// Every half-edge of every loop (outer + inner) of `faces`.
+    fn region_half_edges(
+        &self,
+        faces: &[crate::topology::FaceHandle],
+    ) -> Vec<crate::topology::HalfEdgeHandle> {
+        let mut out = Vec::new();
+        for &fh in faces {
+            let Some(face) = self.faces.get(fh) else {
+                continue;
+            };
+            let loops = std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied());
+            for loop_handle in loops {
+                let Some(loop_data) = self.loops.get(loop_handle) else {
+                    continue;
+                };
+                let start = loop_data.half_edge;
+                let mut cursor = start;
+                for _ in 0..=self.half_edges.len() {
+                    if !self.half_edges.contains_key(cursor) {
+                        break;
+                    }
+                    out.push(cursor);
+                    cursor = self.half_edges[cursor].next;
+                    if cursor == start {
+                        break;
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// The detection half of the stale repair: measure each
+    /// half-edge's stored pcurve against its vertices (endpoint
+    /// error) and its edge's 3-D curve (trace error); return the
+    /// ones beyond the stale tolerance with their pcurves and
+    /// measured errors. Read-only.
+    fn stale_pcurve_scan(
+        &self,
+        half_edges: &[crate::topology::HalfEdgeHandle],
+    ) -> Vec<(
+        crate::topology::HalfEdgeHandle,
+        crate::geometry::pcurve::Pcurve,
+        f64,
+    )> {
+        use crate::geometry::surface::SurfaceEval;
+
+        let mut stale = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for &heh in half_edges {
+            if !seen.insert(heh) {
+                continue;
+            }
+            let Some(half_edge) = self.half_edges.get(heh) else {
+                continue;
+            };
+            let Some(pcurve) = half_edge.pcurve.clone() else {
+                continue;
+            };
+
+            let loop_handle = half_edge.loop_;
+            let face_handle = match self.loops.get(loop_handle) {
+                Some(l) => l.face,
+                None => continue,
+            };
+            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                Some(s) => s.geometry.clone(),
+                None => continue,
+            };
+
+            let (t0, t1) = pcurve.parameter_range();
+            let uv_start = pcurve.point_at(t0);
+            let uv_end = pcurve.point_at(t1);
+            let start_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
+            let end_from_pcurve = surface.point_at(uv_end.x, uv_end.y);
+            let actual_start = self.vertices[self.half_edges[heh].origin].position;
+            let next_heh = self.half_edges[heh].next;
+            let actual_end = self.vertices[self.half_edges[next_heh].origin].position;
+
+            let endpoint_error = start_from_pcurve
+                .distance_to(&actual_start)
+                .max(end_from_pcurve.distance_to(&actual_end));
+            let trace_error = self
+                .measure_half_edge_pcurve_deviation(heh)
+                .map_or(0.0, |report| report.max_deviation);
+            let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
+            if endpoint_error > stale_tolerance || trace_error > stale_tolerance {
+                stale.push((heh, pcurve, endpoint_error.max(trace_error)));
+            }
+        }
+        stale
     }
 
     /// Translate `heh`'s pcurve by whole surface periods so its

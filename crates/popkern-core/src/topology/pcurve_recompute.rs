@@ -696,6 +696,9 @@ impl BRep {
 
 #[path = "pcurve_stale_repair.rs"]
 mod pcurve_stale_repair;
+
+#[path = "pcurve_region_recompute.rs"]
+mod pcurve_region_recompute;
 #[path = "pcurve_survival.rs"]
 mod pcurve_survival;
 use pcurve_survival::pcurve_fraction_contract_error;
