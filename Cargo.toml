@@ -9,6 +9,11 @@ license = "AGPL-3.0-only"
 # Test profile optimisation. Numerical hotspots (Bernstein evaluations,
 # ~32×32 QP solves, dense G1/G2 sampling) run 10-12× faster at
 # opt-level=2 than debug (measured on `validation_sweep`: 291s → 25s).
+# Measured 2026-08-15 (PK-266 falsified): this profile applies to the
+# WHOLE test-unit dependency graph — popkern_core and faer both
+# compile at opt-level=2, debug-assertions=on in `cargo test` builds
+# (verified via rustc -v flags), so a [profile.dev] opt-level would
+# not change suite time. Debug integration wall ≈ release confirms it.
 # `debug-assertions = true` preserves `debug_assert!` coverage.
 # `debug = "line-tables-only"` keeps file:line in backtraces while
 # shrinking the ~185 test binaries 5-10× (full-debuginfo deps grew to

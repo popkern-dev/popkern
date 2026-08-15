@@ -1,0 +1,22 @@
+# cargo-nextest configuration (PK-267).
+#
+# nextest schedules all test binaries into one parallel run (cargo
+# test runs binaries strictly sequentially — measured 2026-08-14:
+# popkern-fillet's 67 integration binaries ran an essentially serial
+# ~57 min phase on 16 cores) and runs each test in its own process,
+# which isolates the env::set_var test files and the alloc-profile
+# lock by construction.
+#
+# nextest does NOT run doctests: every suite leg pairs `cargo nextest
+# run` with a `cargo test --doc` leg (quality-check.sh, ci.yml).
+
+[profile.default]
+# Long-running kernel gates (validation_sweep, apex contract
+# matrices) are legitimate multi-minute tests: report slowness but
+# never kill them.
+slow-timeout = { period = "120s" }
+
+[profile.ci]
+# CI wants the complete failure picture in one run.
+fail-fast = false
+failure-output = "immediate-final"

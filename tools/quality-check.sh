@@ -58,7 +58,17 @@ if [[ "$mode" == "--fast" ]]; then
     run_step "workspace check" cargo check --workspace
 else
     run_step "clippy" cargo clippy --workspace -- -D warnings
-    run_step "workspace tests" cargo test --workspace
+    # PK-267: nextest schedules all test binaries into one parallel
+    # run (cargo test runs them strictly sequentially) and isolates
+    # each test in its own process. nextest does not run doctests, so
+    # a --doc leg always follows.
+    if command -v cargo-nextest >/dev/null 2>&1; then
+        run_step "workspace tests (nextest)" cargo nextest run --workspace
+    else
+        echo "note: cargo-nextest not installed (https://nexte.st) — falling back to serial cargo test" >&2
+        run_step "workspace tests" cargo test --workspace
+    fi
+    run_step "doc tests" cargo test --doc --workspace
 fi
 
 echo "Quality gate passed ($mode)."

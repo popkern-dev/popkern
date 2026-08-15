@@ -36,8 +36,20 @@ jobs:
       - name: Build
         run: cargo build --all-targets
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # PK-267: nextest runs all test binaries in one parallel
+      # schedule (cargo test runs them sequentially — the fillet
+      # integration phase alone was measured essentially serial for
+      # ~57 min) and isolates each test in its own process. nextest
+      # does not run doctests; the --doc leg follows (cargo test
+      # --all-targets never ran them either).
       - name: Test
-        run: cargo test --all-targets
+        run: cargo nextest run --workspace --all-targets --profile ci
+
+      - name: Doc tests
+        run: cargo test --doc --workspace
 
       - name: Doc build
         run: cargo doc --no-deps --document-private-items
