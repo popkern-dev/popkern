@@ -395,61 +395,8 @@ fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
     }
 }
 
-/// Main discovery test. Each fixture's results print to stdout;
-/// invariants asserted via `assert_rung_invariants`. Runs all 9
-/// fixtures × 5 variants = 45 fillet operations.
-#[test]
-fn validation_sweep_all_fixtures() {
-    #[allow(clippy::type_complexity)]
-    let fixtures: Vec<(&str, fn() -> VertexEdges, Vec<f64>)> = vec![
-        ("cube_mixed", fixture_cube, vec![0.08, 0.10, 0.12]),
-        ("cube_uniform", fixture_cube, vec![0.10, 0.10, 0.10]),
-        ("cube_extreme", fixture_cube, vec![0.02, 0.10, 0.20]),
-        (
-            "pyramid4_uniform",
-            fixture_square_pyramid,
-            vec![0.05, 0.05, 0.05, 0.05],
-        ),
-        (
-            "pyramid4_mixed",
-            fixture_square_pyramid,
-            vec![0.04, 0.06, 0.05, 0.07],
-        ),
-        (
-            "pyramid5_uniform",
-            || fixture_n_gonal_pyramid(5),
-            vec![0.04; 5],
-        ),
-        (
-            "pyramid5_mixed",
-            || fixture_n_gonal_pyramid(5),
-            vec![0.03, 0.04, 0.045, 0.05, 0.055],
-        ),
-        (
-            "pyramid6_uniform",
-            || fixture_n_gonal_pyramid(6),
-            vec![0.04; 6],
-        ),
-        (
-            "pyramid6_mixed",
-            || fixture_n_gonal_pyramid(6),
-            vec![0.025, 0.035, 0.04, 0.045, 0.05, 0.055],
-        ),
-    ];
-    // cylinder_cap fixture deferred — cylinder primitive topology
-    // does not expose a valence-3 vertex, and constructing a
-    // curved-support corner requires a different approach. Phase
-    // 11 work.
-    let _ = fixture_cylinder_cap_corner;
-    let mut all_results: Vec<(String, Vec<RungResult>)> = Vec::new();
-    for (name, fixture_fn, radii) in &fixtures {
-        let rungs = run_fixture_all_rungs(name, *fixture_fn, radii);
-        assert_rung_invariants(name, &rungs);
-        assert_end_to_end_improvement(name, &rungs);
-        all_results.push((name.to_string(), rungs));
-    }
-    print_summary(&all_results);
-}
+#[path = "support/validation_sweep_fixture_shards.rs"]
+mod fixture_shards;
 
 fn print_summary(all: &[(String, Vec<RungResult>)]) {
     println!();
