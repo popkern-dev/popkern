@@ -30,7 +30,6 @@ impl BRep {
                 continue;
             }
             self.recompute_face_pcurves(fh)?;
-            self.close_periodic_loop_winding(fh);
         }
         Ok(())
     }
@@ -65,7 +64,6 @@ impl BRep {
                 continue;
             }
             let _ = self.recompute_face_pcurves(fh);
-            self.close_periodic_loop_winding(fh);
         }
     }
 }

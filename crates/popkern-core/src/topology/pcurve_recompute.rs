@@ -170,51 +170,65 @@ impl BRep {
                 };
                 let (t_lo, t_hi) = edge_direction;
 
-                // Quick linearity check: if the UV midpoint lies on the
-                // line between start/end UV, the pcurve is a straight
-                // line in UV space.  Use degree-1 (exact) instead of the
-                // 64-point degree-3 fit, avoiding control-point overshoot.
+                // Quick linearity check: if the UV quarter points lie
+                // on the line between start/end UV, the pcurve is a
+                // straight line in UV space.  Use degree-1 (exact)
+                // instead of the 64-point degree-3 fit, avoiding
+                // control-point overshoot.
                 let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
-                let (u_e, v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
+                let (raw_u_e, raw_v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
-                // A CLOSED edge on a u-periodic surface must sweep a
-                // full period in UV: both endpoints project to the
-                // same u, and walks pinned to equal endpoint seeds
-                // collapse the rim to a zero-span pcurve (measured:
-                // drafted-cone rims at (2π,v)→(2π,v), the mesher then
-                // drops the cone side of both rims — ~640 cracked
-                // weld edges on an otherwise exact frustum). Unwrap
-                // the destination seed by ±period, direction taken
-                // from an early interior sample; the unwrapped u must
-                // NOT be clamped back into the base period.
-                let closed_edge = he_origin_pos.distance_to(&he_dest_pos) < 1e-9;
-                let period_unwrapped =
-                    closed_edge && (t_hi - t_lo).abs() > 1e-9 && surface.periodicity().0.is_some();
-                let (u_e, v_e) = if period_unwrapped {
-                    let period = surface.periodicity().0.unwrap_or(std::f64::consts::TAU);
-                    let t_probe = t_lo + (t_hi - t_lo) / 16.0;
-                    let p_probe = curve_on_edge.geometry.point_at(t_probe);
-                    match project_point_to_uv(&surface, &p_probe) {
-                        Some((u_probe, _)) => {
-                            let mut du = u_probe - u_s;
-                            while du > period / 2.0 {
-                                du -= period;
-                            }
-                            while du < -period / 2.0 {
-                                du += period;
-                            }
-                            (u_s + period * du.signum(), v_e)
+                // Branch-honest sampling on periodic charts (PK-286):
+                // cold projections live in the principal branch, so an
+                // edge hovering AT a chart's wrap (mekr seam, u = 0 ==
+                // 2π; atan2(±1e-15, ·) picks the side by ULP)
+                // scattered its samples across both sides of the seam
+                // and spuriously failed linearity — a 7e-15 upstream
+                // change flipped a torus-strip seam pcurve degree-1 ↔
+                // degree-3 (double_boss_plate). Walk the samples as a
+                // continuation chain instead: each successive sample
+                // aligns to the branch nearest its predecessor, in
+                // every periodic direction. The chain also subsumes
+                // the CLOSED-edge full-period unwrap (drafted-cone
+                // rims at (2π,v)→(2π,v) collapsed to zero-span
+                // pcurves and the mesher dropped the cone side of both
+                // rims — ~640 cracked weld edges on an otherwise exact
+                // frustum): quarter points of a full-period sweep each
+                // advance by period/4, so the chained destination
+                // lands at u_s ± period, not back at u_s.
+                let (period_u, period_v) = surface.periodicity();
+                let align = |value: f64, reference: f64, period: Option<f64>| -> f64 {
+                    match period {
+                        Some(period) if period > 0.0 => {
+                            value - ((value - reference) / period).round() * period
                         }
-                        None => (u_e, v_e),
+                        _ => value,
                     }
-                } else {
-                    (u_e, v_e)
                 };
+                let mut chain = (u_s, v_s);
+                let mut quarter_samples = Vec::with_capacity(3);
+                let mut all_projected = true;
+                for fraction in [0.25, 0.5, 0.75] {
+                    let t = t_lo + (t_hi - t_lo) * fraction;
+                    let p = curve_on_edge.geometry.point_at(t);
+                    match project_point_to_uv(&surface, &p) {
+                        Some((u, v)) => {
+                            chain = (align(u, chain.0, period_u), align(v, chain.1, period_v));
+                            quarter_samples.push((fraction, chain.0, chain.1));
+                        }
+                        None => {
+                            all_projected = false;
+                            break;
+                        }
+                    }
+                }
+                let u_e = align(raw_u_e, chain.0, period_u);
+                let v_e = align(raw_v_e, chain.1, period_v);
                 // A degree-1 pcurve is uniform-speed in UV, so the
                 // shortcut is only exact when the curve's
                 // PARAMETERIZATION maps uniformly onto the UV line —
@@ -224,56 +238,45 @@ impl BRep {
                 // cap seam, fraction-matched deviation 1.42e-2 while
                 // the image was 3.8e-4 off); the quarter points catch
                 // the skew the symmetric midpoint cannot.
-                let uv_linear = [0.25, 0.5, 0.75].iter().all(|&fraction| {
-                    let t = t_lo + (t_hi - t_lo) * fraction;
-                    let p = curve_on_edge.geometry.point_at(t);
-                    match project_point_to_uv(&surface, &p) {
-                        Some((u, v)) => {
-                            let expected_u = u_s + (u_e - u_s) * fraction;
-                            // Compare u on the expected branch: raw
-                            // projections live in the base period,
-                            // while an unwrapped sweep walks out of it.
-                            let u = if period_unwrapped {
-                                let period =
-                                    surface.periodicity().0.unwrap_or(std::f64::consts::TAU);
-                                let mut u = u;
-                                while u - expected_u > period / 2.0 {
-                                    u -= period;
-                                }
-                                while u - expected_u < -period / 2.0 {
-                                    u += period;
-                                }
-                                u
-                            } else {
-                                u
-                            };
-                            let expected_v = v_s + (v_e - v_s) * fraction;
-                            let deviation =
-                                ((u - expected_u).powi(2) + (v - expected_v).powi(2)).sqrt();
-                            deviation < 1e-4
-                        }
-                        None => false,
-                    }
-                });
+                let uv_linear = all_projected
+                    && quarter_samples.iter().all(|&(fraction, u, v)| {
+                        let expected_u = u_s + (u_e - u_s) * fraction;
+                        let expected_v = v_s + (v_e - v_s) * fraction;
+                        let deviation =
+                            ((u - expected_u).powi(2) + (v - expected_v).powi(2)).sqrt();
+                        deviation < 1e-4
+                    });
 
                 if uv_linear {
                     // UV path is linear -- exact degree-1 pcurve.
-                    // Periodic-unwrapped u endpoints stay unclamped —
-                    // clamping would fold the full-period sweep back
-                    // onto a zero-span line.
+                    // Endpoints stay unclamped in a periodic direction
+                    // whose chain left the principal branch — clamping
+                    // would fold an unwrapped sweep back onto a
+                    // zero-span line. (`align` shifts by exact period
+                    // multiples, so an unshifted value compares
+                    // bit-equal to its raw projection.)
+                    let u_unwrapped = u_e != raw_u_e;
+                    let v_unwrapped = v_e != raw_v_e;
                     let clamp_u = |val: f64| {
-                        if period_unwrapped {
+                        if u_unwrapped {
                             val
                         } else {
                             clamp_if_finite(val, u_min, u_max)
+                        }
+                    };
+                    let clamp_v = |val: f64| {
+                        if v_unwrapped {
+                            val
+                        } else {
+                            clamp_if_finite(val, v_min, v_max)
                         }
                     };
                     NurbsCurve {
                         degree: 1,
                         knots: vec![0.0, 0.0, 1.0, 1.0],
                         control_points: vec![
-                            Point3::new(clamp_u(u_s), clamp_if_finite(v_s, v_min, v_max), 0.0),
-                            Point3::new(clamp_u(u_e), clamp_if_finite(v_e, v_min, v_max), 0.0),
+                            Point3::new(clamp_u(u_s), clamp_v(v_s), 0.0),
+                            Point3::new(clamp_u(u_e), clamp_v(v_e), 0.0),
                         ],
                         weights: vec![1.0, 1.0],
                     }
@@ -409,6 +412,17 @@ impl BRep {
 
         self.fix_pcurve_endpoints(face_handle);
 
+        // Per-loop chart coherence is part of THIS operation's
+        // postcondition (PK-286), not a batch-wrapper courtesy: the
+        // independent projections above land each pcurve in the
+        // principal branch, so a seam-adjacent recompute could leave
+        // one loop member a whole period from its mates. Direct
+        // per-face callers (seam welds, cap authors, repair tails)
+        // hit exactly that tear — measured: the PK-159 parallel-seam
+        // completion meshed 12 cracked weld edges when a seam-vertex
+        // projection anchored one rim arc a period below its loop.
+        self.close_periodic_loop_winding(face_handle);
+
         Ok(())
     }
 
@@ -417,7 +431,6 @@ impl BRep {
         let faces: Vec<_> = self.faces.keys().collect();
         for fh in faces {
             self.recompute_face_pcurves(fh)?;
-            self.close_periodic_loop_winding(fh);
         }
         Ok(())
     }
@@ -435,167 +448,6 @@ impl BRep {
         let faces: Vec<_> = self.faces.keys().collect();
         for fh in faces {
             let _ = self.recompute_face_pcurves(fh);
-            self.close_periodic_loop_winding(fh);
-        }
-    }
-
-    /// Zero the net U-winding of every loop of a face on a
-    /// U-periodic chart.
-    ///
-    /// The closed-edge pcurve direction convention (canonical
-    /// half-edge forward, twin backward) makes the two uses of ONE
-    /// edge consistent, but says nothing about a LOOP that chains
-    /// several closed rims: a recess wall bounded by its bottom
-    /// circle and the mouth ellipse got both rims wound the same
-    /// way, the ring's net winding came to ±2 periods, and the
-    /// boundary-first mesher rightly declined to chart it. The
-    /// chart-valid invariant is per loop: after branch-chaining each
-    /// pcurve to its predecessor, the net winding must be zero.
-    /// Full-period members are flipped (via [`Pcurve::reversed`])
-    /// until it is.
-    fn close_periodic_loop_winding(&mut self, face_handle: FaceHandle) {
-        let Some(u_period) = self
-            .faces
-            .get(face_handle)
-            .and_then(|f| f.surface.as_ref())
-            .and_then(|s| s.geometry.periodicity().0)
-        else {
-            return;
-        };
-
-        let Some(face) = self.faces.get(face_handle) else {
-            return;
-        };
-        let mut loop_handles = vec![face.outer_loop];
-        loop_handles.extend(face.inner_loops.iter().copied());
-
-        for lh in loop_handles {
-            let Some(loop_data) = self.loops.get(lh) else {
-                continue;
-            };
-            let start = loop_data.half_edge;
-            if !self.half_edges.contains_key(start) {
-                continue;
-            }
-            let mut hes = Vec::new();
-            let mut cursor = start;
-            let limit = self.half_edges.len() + 1;
-            for _ in 0..limit {
-                hes.push(cursor);
-                cursor = self.half_edges[cursor].next;
-                if cursor == start {
-                    break;
-                }
-            }
-            if hes.len() < 2 {
-                continue;
-            }
-
-            // Iterate: chain branches, measure net winding, flip one
-            // reversible full-period member, repeat. Bounded by the
-            // loop length.
-            for _ in 0..hes.len() {
-                let mut prev_end: Option<f64> = None;
-                let mut first_start: Option<f64> = None;
-                let mut deltas: Vec<f64> = Vec::with_capacity(hes.len());
-                let mut complete = true;
-                for &heh in &hes {
-                    let Some(pc) = self.half_edges[heh].pcurve.as_ref() else {
-                        complete = false;
-                        break;
-                    };
-                    let (t0, t1) = pc.parameter_range();
-                    let mut su = pc.point_at(t0).x;
-                    let mut eu = pc.point_at(t1).x;
-                    if let Some(pe) = prev_end {
-                        let k = ((pe - su) / u_period).round();
-                        if k != 0.0 {
-                            if let Some(pc_mut) = self.half_edges[heh].pcurve.as_mut() {
-                                pc_mut.shift_u(k * u_period);
-                            }
-                            su += k * u_period;
-                            eu += k * u_period;
-                        }
-                    } else {
-                        first_start = Some(su);
-                    }
-                    deltas.push(eu - su);
-                    prev_end = Some(eu);
-                }
-                if !complete {
-                    break;
-                }
-                let (Some(fs), Some(pe)) = (first_start, prev_end) else {
-                    break;
-                };
-                let net = pe - fs;
-                if net.abs() <= 0.5 * u_period {
-                    break;
-                }
-                let mut flipped = false;
-                for (i, &heh) in hes.iter().enumerate() {
-                    let d = deltas[i];
-                    if d.abs() >= u_period * (1.0 - 1e-6)
-                        && (net - 2.0 * d).abs() < net.abs() - 0.25 * u_period
-                        && let Some(rev) =
-                            self.half_edges[heh].pcurve.as_ref().map(|p| p.reversed())
-                    {
-                        self.half_edges[heh].pcurve = Some(rev);
-                        flipped = true;
-                        break;
-                    }
-                }
-                if !flipped {
-                    break;
-                }
-            }
-            // PRINCIPAL-CELL NORMALIZATION: branch-chaining anchors
-            // the loop to whatever cell its first pcurve landed on,
-            // and analytic inversion of a rim whose arc starts past
-            // +π puts the whole loop on the 2π..4π cell. That is
-            // chart-equivalent for the kernel but OUTSIDE the
-            // surface's principal parameter cell for interchange
-            // (measured: OCC's BRepCheck rejected a twice-chamfered
-            // column's bottom cone strip while the mesh welded
-            // clean). Shift the WHOLE loop by whole periods so its
-            // mean u lands in [0, period) — a rigid translation that
-            // preserves every relative relationship.
-            {
-                let mut min_u = f64::MAX;
-                let mut max_u = f64::MIN;
-                for &heh in &hes {
-                    if let Some(pc) = self.half_edges[heh].pcurve.as_ref() {
-                        let (t0, t1) = pc.parameter_range();
-                        for t in [t0, t1] {
-                            let u = pc.point_at(t).x;
-                            min_u = min_u.min(u);
-                            max_u = max_u.max(u);
-                        }
-                    }
-                }
-                // Scoped to loops WHOLLY outside [0, period): loops
-                // that merely straddle a cell edge (charts anchored
-                // at −π, seam-adjacent trims) are tuned behavior and
-                // must not move (measured: shifting by the mean
-                // broke eight direct-apex cap gates).
-                if min_u <= max_u {
-                    let eps = 1e-9 * u_period;
-                    let k = if min_u >= u_period - eps {
-                        (min_u / u_period + eps).floor()
-                    } else if max_u <= eps {
-                        (max_u / u_period - eps).ceil() - 1.0
-                    } else {
-                        0.0
-                    };
-                    if k != 0.0 {
-                        for &heh in &hes {
-                            if let Some(pc) = self.half_edges[heh].pcurve.as_mut() {
-                                pc.shift_u(-k * u_period);
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -693,6 +545,9 @@ impl BRep {
         }
     }
 }
+
+#[path = "pcurve_loop_chart_coherence.rs"]
+mod pcurve_loop_chart_coherence;
 
 #[path = "pcurve_stale_repair.rs"]
 mod pcurve_stale_repair;
