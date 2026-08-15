@@ -7,12 +7,16 @@ use super::brep::BRep;
 use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::pcurve::Pcurve;
+use crate::geometry::pcurve_trace::{TraceNearest, nearest_on_trace as pcurve_trace_nearest};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::brep_edge_surface_compatibility_helpers::unique_edge_half_edges;
 use crate::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 /// Number of sample points along an edge curve for deviation measurement.
 const DEFAULT_EDGE_SAMPLES: usize = 20;
+
+/// Coarse bracketing samples for the refined trace-distance measurement.
+const TRACE_COARSE_SAMPLES: usize = 128;
 
 /// Per-edge report describing how well adjacent pcurves reproduce a 3D edge.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,13 +36,22 @@ pub struct HalfEdgePcurveDeviation {
     pub half_edge: HalfEdgeHandle,
     /// Adjacent face that owns the half-edge pcurve.
     pub face: FaceHandle,
-    /// Maximum accepted disagreement. This is the minimum of same-fraction
-    /// and trace-distance disagreement at each sample, then maxed over samples.
+    /// Maximum accepted disagreement. When the trace direction agrees
+    /// this is the minimum of same-fraction and trace-distance
+    /// disagreement at each sample, maxed over samples; otherwise the
+    /// trace measure is rejected and only same-fraction counts.
     pub max_deviation: f64,
     /// Maximum disagreement when edge and pcurve are evaluated at the same fraction.
     pub max_same_fraction_deviation: f64,
-    /// Maximum closest sampled distance from edge point to the pcurve trace.
+    /// Maximum refined distance from edge sample points to the pcurve trace.
     pub max_trace_deviation: f64,
+    /// Whether the nearest-trace parameters advance forward along the
+    /// oriented half-edge (seam wraps on closed traces allowed). When
+    /// false the pcurve traces the right point set in the wrong
+    /// direction — a reversed pcurve — and trace agreement must not
+    /// excuse it (PK-287: direction honesty is a designed contract,
+    /// not an accident of sampling resolution).
+    pub trace_direction_agrees: bool,
     /// Fraction along the oriented half-edge at which `max_deviation` occurred.
     pub worst_fraction: f64,
     /// Oriented 3D edge parameter range used for this half-edge.
@@ -244,24 +257,39 @@ fn measure_pcurve_deviation(
         return None;
     }
 
-    let mut max_deviation = 0.0_f64;
     let mut max_same_fraction_deviation = 0.0_f64;
     let mut max_trace_deviation = 0.0_f64;
-    let mut worst_fraction = 0.0_f64;
+    let mut per_sample: Vec<(f64, f64, TraceNearest)> = Vec::with_capacity(samples + 1);
 
     for (frac, p3d) in edge_points_for_half_edge(curve_on_edge, forward, samples) {
         let pc_t = pc_range.0 + (pc_range.1 - pc_range.0) * frac;
         let uv = pcurve.point_at(pc_t);
         let same_fraction_point = surface.point_at(uv.x, uv.y);
         let same_fraction_dev = p3d.distance_to(&same_fraction_point);
-        let trace_dev = pcurve_trace_distance(pcurve, surface, &p3d);
-        let accepted_dev = same_fraction_dev.min(trace_dev);
+        let trace = pcurve_trace_nearest(pcurve, surface, &p3d, TRACE_COARSE_SAMPLES);
 
         max_same_fraction_deviation = max_same_fraction_deviation.max(same_fraction_dev);
-        max_trace_deviation = max_trace_deviation.max(trace_dev);
+        max_trace_deviation = max_trace_deviation.max(trace.distance);
+        per_sample.push((frac, same_fraction_dev, trace));
+    }
+
+    let trace_direction_agrees = trace_parameters_advance_forward(
+        per_sample.iter().map(|(_, _, trace)| trace.t),
+        pc_range,
+        samples,
+    );
+
+    let mut max_deviation = 0.0_f64;
+    let mut worst_fraction = 0.0_f64;
+    for (frac, same_fraction_dev, trace) in &per_sample {
+        let accepted_dev = if trace_direction_agrees {
+            same_fraction_dev.min(trace.distance)
+        } else {
+            *same_fraction_dev
+        };
         if accepted_dev > max_deviation {
             max_deviation = accepted_dev;
-            worst_fraction = frac;
+            worst_fraction = *frac;
         }
     }
 
@@ -272,9 +300,52 @@ fn measure_pcurve_deviation(
         max_same_fraction_deviation,
         max_trace_deviation,
         worst_fraction,
+        trace_direction_agrees,
         edge_parameter_range: (t_lo, t_hi),
         pcurve_parameter_range: pc_range,
     })
+}
+
+/// Whether nearest-trace parameters advance forward along the oriented
+/// half-edge samples. "Forward" is the pcurve's own declared direction:
+/// deltas are oriented by `sign(t_end - t_start)`, so descending
+/// parameter ranges (twin-side and STEP descending-domain pcurves,
+/// PK-215) are first-class.
+///
+/// Oriented deltas are classified against the pcurve's parameter range
+/// (scale-free, no global tolerance): |delta| within
+/// `range / (4 · samples)` is projection noise; a backward step of at
+/// least half the range is a seam wrap on a closed trace (the nearest
+/// parameter legitimately jumps from one end to the other); any other
+/// backward step means the pcurve is traversed against the half-edge
+/// direction and trace agreement must be rejected. A fully reversed
+/// pcurve steps backward by ~range/samples at every sample — squarely
+/// in the rejected band at any model scale.
+fn trace_parameters_advance_forward(
+    trace_ts: impl Iterator<Item = f64>,
+    pc_range: (f64, f64),
+    samples: usize,
+) -> bool {
+    let span = pc_range.1 - pc_range.0;
+    let range = span.abs();
+    // Degenerate or NaN range: no direction to disagree with.
+    if range <= 0.0 || range.is_nan() {
+        return true;
+    }
+    let orientation = span.signum();
+    let noise_slack = range / (4.0 * samples.max(1) as f64);
+    let wrap_threshold = range * 0.5;
+    let mut previous: Option<f64> = None;
+    for t in trace_ts {
+        if let Some(prev) = previous {
+            let delta = (t - prev) * orientation;
+            if delta < -noise_slack && delta > -wrap_threshold {
+                return false;
+            }
+        }
+        previous = Some(t);
+    }
+    true
 }
 
 fn oriented_edge_parameter_range(curve_on_edge: &CurveOnEdge, forward: bool) -> (f64, f64) {
@@ -299,19 +370,6 @@ fn edge_points_for_half_edge(
             (frac, curve_on_edge.geometry.point_at(t))
         })
         .collect()
-}
-
-fn pcurve_trace_distance(pcurve: &Pcurve, surface: &impl SurfaceEval, point: &Point3) -> f64 {
-    let (t0, t1) = pcurve.parameter_range();
-    let samples = 128usize;
-    let mut best = f64::INFINITY;
-    for i in 0..=samples {
-        let t = t0 + (t1 - t0) * (i as f64 / samples as f64);
-        let uv = pcurve.point_at(t);
-        let p_surface = surface.point_at(uv.x, uv.y);
-        best = best.min(point.distance_to(&p_surface));
-    }
-    best
 }
 
 #[cfg(test)]

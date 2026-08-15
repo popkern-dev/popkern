@@ -346,7 +346,7 @@ impl BRep {
             let mut candidate: crate::geometry::pcurve::Pcurve = edge_curve
                 .as_ref()
                 .and_then(|c| {
-                    super::pcurve_recompute_analytic::exact_plane_arc_pcurve(
+                    super::pcurve_recompute_analytic::exact_plane_pcurve(
                         &surface,
                         &c.geometry,
                         edge_direction.0,

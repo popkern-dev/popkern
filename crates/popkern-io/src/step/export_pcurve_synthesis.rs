@@ -231,36 +231,21 @@ fn edge_curve_to_pcurve_trace_gap(
         let fraction = index as f64 / (samples - 1) as f64;
         let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
         let point = curve.geometry.point_at(t);
-        max_gap = max_gap.max(pcurve_trace_distance(
-            pcurve,
-            surface,
-            &point,
-            samples * 2 + 1,
-        ));
+        // Refined true distance-to-trace (PK-287): the previous
+        // nearest-of-samples scan was floored at half its sample
+        // spacing, over-reporting the gap of exact pcurves whose
+        // parameterization differs from the edge curve's.
+        max_gap = max_gap.max(
+            popkern_core::geometry::pcurve_trace::nearest_on_trace(
+                pcurve,
+                surface,
+                &point,
+                samples * 2 + 1,
+            )
+            .distance,
+        );
     }
     max_gap
-}
-
-fn pcurve_trace_distance(
-    pcurve: &Pcurve,
-    surface: &SurfaceGeometry,
-    point: &Point3,
-    samples: usize,
-) -> f64 {
-    let samples = samples.max(2);
-    let (t0, t1) = pcurve.parameter_range();
-    if !t0.is_finite() || !t1.is_finite() {
-        return f64::INFINITY;
-    }
-    let mut best = f64::INFINITY;
-    for index in 0..samples {
-        let fraction = index as f64 / (samples - 1) as f64;
-        let t = t0 + (t1 - t0) * fraction;
-        let uv = pcurve.point_at(t);
-        let surface_point = surface.point_at(uv.x, uv.y);
-        best = best.min(surface_point.distance_to(point));
-    }
-    best
 }
 
 fn half_edge_curve_forward(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<bool> {
