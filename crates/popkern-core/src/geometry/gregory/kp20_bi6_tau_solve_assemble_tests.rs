@@ -8248,9 +8248,13 @@ fn solve_test_regularized_least_squares(
     let mut normal = vec![vec![0.0_f64; variable_count]; variable_count];
     let mut target = vec![0.0_f64; variable_count];
     for (row, &rhs_value) in design.iter().zip(rhs) {
-        for i in 0..variable_count {
+        // Sparse-support accumulation; same value-identity argument
+        // as the production `solve_regularized_least_squares`
+        // (PK-289): skipped terms are exact ±0.0 products.
+        let support: Vec<usize> = (0..variable_count).filter(|&i| row[i] != 0.0).collect();
+        for &i in &support {
             target[i] += row[i] * rhs_value;
-            for j in 0..variable_count {
+            for &j in &support {
                 normal[i][j] += row[i] * row[j];
             }
         }
@@ -9653,7 +9657,7 @@ fn rotational_endpoint_aware_tensor_projection_collapse_is_measured() {
     let tensor_border = planar_regular_sector_tensor_border(valence);
 
     let projected =
-        solve_kp20_planar_tau_rotational_paper_sector_f3(&Kp20PlanarTauPaperSolveInput {
+        solve_kp20_planar_tau_rotational_paper_sector_f3_diagnosed(&Kp20PlanarTauPaperSolveInput {
             valence,
             sector,
             characteristic_tensor_border: &tensor_border,
@@ -9669,14 +9673,15 @@ fn rotational_endpoint_aware_tensor_projection_collapse_is_measured() {
             &[],
         )
         .expect("fixed tensor-target row set builds");
-    let fixed =
-        solve_kp20_planar_tau_f3_with_scalar_constraints(&Kp20PlanarTauF3ScalarSolveInput {
+    let fixed = solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed(
+        &Kp20PlanarTauF3ScalarSolveInput {
             initial: planar_tau_seed_macro_patch(valence, sector),
             vector_constraints: fixed_row_set.vector_constraints,
             scalar_constraints: fixed_row_set.scalar_constraints,
             regularization_weight: 1.0e-10,
-        })
-        .expect("fixed tensor-target solve succeeds");
+        },
+    )
+    .expect("fixed tensor-target solve succeeds");
     let projection_report = kp20_planar_tau_rotational_section42_source_projection_report(
         valence,
         sector,
@@ -9701,7 +9706,7 @@ fn rotational_endpoint_aware_tensor_projection_collapse_is_measured() {
         eprintln!(
             "endpoint-aware tensor-target policy {label}: residual={residual:e} kkt={kkt:e} max_family={max_family:e} outside={outside}/{domain_samples} max_excess={max_excess:e} neg={neg}/{orientation_samples} zero={zero} det=[{min_det:e},{max_det:e}] worst={worst:?}@({u:.2},{v:.2}) families={residuals:?}",
             residual = solved.max_constraint_residual,
-            kkt = solved.kkt_condition_number,
+            kkt = solved.kkt_condition_number.unwrap_or(f64::NAN),
             max_family = max_family_residual,
             outside = validity.domain.outside_triangle_samples,
             domain_samples = validity.domain.sample_count,

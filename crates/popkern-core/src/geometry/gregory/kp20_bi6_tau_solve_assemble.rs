@@ -6,6 +6,7 @@
 
 use super::bernstein_bi5::bernstein_bi5_all;
 use super::bernstein_bi6::bernstein_bi6_all;
+use super::direct_linalg::solve_dense_finite_guarded;
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
@@ -23,10 +24,9 @@ use super::kp20_bi6_tau_f3_solve::{
     kp20_planar_tau_fig8_indicated_averaging_constraints, kp20_planar_tau_internal_c2_constraints,
     kp20_planar_tau_sector_g1_g2_constraints, kp20_planar_tau_tensor_border_constraints,
     solve_kp20_planar_tau_f3_with_scalar_constraints,
+    solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed,
 };
 use crate::geometry::Point3;
-use faer::Mat;
-use faer::prelude::SpSolver;
 
 /// Secondary source-movement penalty for the §4.2 equation (14) projection.
 ///
@@ -648,6 +648,10 @@ fn kp20_project_section42_source_tensor_rows_with_free_coeffs(
 
 /// Solve one KP20 §4.3 paper-style planar τ sector against a supplied
 /// characteristic tensor-border.
+///
+/// Skips the KKT condition diagnostic (`kkt_condition_number` is
+/// `None`); use [`solve_kp20_planar_tau_paper_sector_f3_diagnosed`]
+/// to measure it.
 pub fn solve_kp20_planar_tau_paper_sector_f3(
     input: &Kp20PlanarTauPaperSolveInput<'_>,
 ) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauPaperSolveError> {
@@ -666,8 +670,34 @@ pub fn solve_kp20_planar_tau_paper_sector_f3(
     )?)
 }
 
+/// As [`solve_kp20_planar_tau_paper_sector_f3`], additionally
+/// measuring the exact-SVD condition number of the scalar KKT
+/// matrix — an O(n³) diagnostic, for diagnostic runs only.
+pub fn solve_kp20_planar_tau_paper_sector_f3_diagnosed(
+    input: &Kp20PlanarTauPaperSolveInput<'_>,
+) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauPaperSolveError> {
+    let row_set = kp20_planar_tau_paper_row_set(
+        input.valence,
+        input.sector,
+        input.characteristic_tensor_border,
+    )?;
+    Ok(solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed(
+        &Kp20PlanarTauF3ScalarSolveInput {
+            initial: input.initial,
+            vector_constraints: row_set.vector_constraints,
+            scalar_constraints: row_set.scalar_constraints,
+            regularization_weight: input.regularization_weight,
+        },
+    )?)
+}
+
 /// Solve one KP20 §4.3 planar τ sector using adjacent-sector equation (8)/(9)
 /// rows.
+///
+/// Skips the KKT condition diagnostic (`kkt_condition_number` is
+/// `None`); use
+/// [`solve_kp20_planar_tau_rotational_paper_sector_f3_diagnosed`] to
+/// measure it.
 pub fn solve_kp20_planar_tau_rotational_paper_sector_f3(
     input: &Kp20PlanarTauPaperSolveInput<'_>,
 ) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauPaperSolveError> {
@@ -677,6 +707,27 @@ pub fn solve_kp20_planar_tau_rotational_paper_sector_f3(
         input.characteristic_tensor_border,
     )?;
     Ok(solve_kp20_planar_tau_f3_with_scalar_constraints(
+        &Kp20PlanarTauF3ScalarSolveInput {
+            initial: input.initial,
+            vector_constraints: row_set.vector_constraints,
+            scalar_constraints: row_set.scalar_constraints,
+            regularization_weight: input.regularization_weight,
+        },
+    )?)
+}
+
+/// As [`solve_kp20_planar_tau_rotational_paper_sector_f3`],
+/// additionally measuring the exact-SVD condition number of the
+/// scalar KKT matrix — an O(n³) diagnostic, for diagnostic runs only.
+pub fn solve_kp20_planar_tau_rotational_paper_sector_f3_diagnosed(
+    input: &Kp20PlanarTauPaperSolveInput<'_>,
+) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauPaperSolveError> {
+    let row_set = kp20_planar_tau_rotational_paper_row_set(
+        input.valence,
+        input.sector,
+        input.characteristic_tensor_border,
+    )?;
+    Ok(solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed(
         &Kp20PlanarTauF3ScalarSolveInput {
             initial: input.initial,
             vector_constraints: row_set.vector_constraints,
@@ -2566,15 +2617,19 @@ fn solve_regularized_least_squares(
     let mut normal = vec![vec![0.0_f64; variable_count]; variable_count];
     let mut target = vec![0.0_f64; variable_count];
     for (row, &rhs_value) in design.iter().zip(rhs) {
-        if !rhs_value.is_finite() {
+        if !rhs_value.is_finite() || row.iter().any(|value| !value.is_finite()) {
             return vec![0.0; variable_count];
         }
-        for i in 0..variable_count {
-            if !row[i].is_finite() {
-                return vec![0.0; variable_count];
-            }
+        // Constraint rows are sparse over the ~400 scalar variables:
+        // accumulate only the nonzero support (PK-289). Skipped
+        // terms are exact ±0.0 products, which cannot change an
+        // accumulator's value — only, in principle, the sign of an
+        // exactly-zero entry, which no downstream consumer
+        // distinguishes.
+        let support: Vec<usize> = (0..variable_count).filter(|&i| row[i] != 0.0).collect();
+        for &i in &support {
             target[i] += row[i] * rhs_value;
-            for j in 0..variable_count {
+            for &j in &support {
                 normal[i][j] += row[i] * row[j];
             }
         }
@@ -2582,96 +2637,7 @@ fn solve_regularized_least_squares(
     for (i, row) in normal.iter_mut().enumerate() {
         row[i] += regularization;
     }
-    solve_dense_linear_system(normal, target).unwrap_or_else(|| vec![0.0; variable_count])
-}
-
-fn solve_dense_linear_system(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<f64>> {
-    let n = rhs.len();
-    if matrix.iter().flatten().any(|value| !value.is_finite())
-        || rhs.iter().any(|value| !value.is_finite())
-    {
-        return None;
-    }
-    let mut faer_matrix = Mat::<f64>::zeros(n, n);
-    let mut faer_rhs = Mat::<f64>::zeros(n, 1);
-    for row in 0..n {
-        faer_rhs.write(row, 0, rhs[row]);
-        for (column, &value) in matrix[row][..n].iter().enumerate() {
-            faer_matrix.write(row, column, value);
-        }
-    }
-    let lu = faer_matrix.partial_piv_lu();
-    let solution = lu.solve(&faer_rhs);
-    let out = (0..n).map(|row| solution.read(row, 0)).collect::<Vec<_>>();
-    if out.iter().all(|value| value.is_finite()) {
-        return Some(out);
-    }
-
-    for pivot in 0..n {
-        let mut best = pivot;
-        let mut best_abs = matrix[pivot][pivot].abs();
-        if !best_abs.is_finite() {
-            return None;
-        }
-        for (candidate, row) in matrix.iter().enumerate().skip(pivot + 1) {
-            let value = row[pivot].abs();
-            if !value.is_finite() {
-                return None;
-            }
-            if value > best_abs {
-                best = candidate;
-                best_abs = value;
-            }
-        }
-        if best_abs < 1.0e-18 {
-            return None;
-        }
-        if best != pivot {
-            matrix.swap(best, pivot);
-            rhs.swap(best, pivot);
-        }
-        let pivot_value = matrix[pivot][pivot];
-        if !pivot_value.is_finite() {
-            return None;
-        }
-        for value in matrix[pivot].iter_mut().skip(pivot) {
-            *value /= pivot_value;
-            if !value.is_finite() {
-                return None;
-            }
-        }
-        rhs[pivot] /= pivot_value;
-        if !rhs[pivot].is_finite() {
-            return None;
-        }
-        let pivot_row = matrix[pivot].clone();
-        for row_index in 0..n {
-            if row_index == pivot {
-                continue;
-            }
-            let factor = matrix[row_index][pivot];
-            if !factor.is_finite() {
-                return None;
-            }
-            if factor == 0.0 {
-                continue;
-            }
-            for column in pivot..n {
-                matrix[row_index][column] -= factor * pivot_row[column];
-                if !matrix[row_index][column].is_finite() {
-                    return None;
-                }
-            }
-            rhs[row_index] -= factor * rhs[pivot];
-            if !rhs[row_index].is_finite() {
-                return None;
-            }
-        }
-    }
-    if rhs.iter().any(|value| !value.is_finite()) {
-        return None;
-    }
-    Some(rhs)
+    solve_dense_finite_guarded(normal, target).unwrap_or_else(|| vec![0.0; variable_count])
 }
 
 fn max_dense_row_residual(design: &[Vec<f64>], solution: &[f64], rhs: &[f64]) -> f64 {

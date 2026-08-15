@@ -1,18 +1,22 @@
-//! Small dense linear algebra helpers shared across the
-//! direct-construction modules.
+//! Dense linear algebra primitives shared across the
+//! direct-construction and KP20-recovery modules.
 //!
 //! The direct-construction pipeline (corner-C Shirman-Séquin,
-//! blend-coefficient 2×2 solves, row-1 KKT min-norm) all need
-//! the same small-system primitives. Collecting them here
-//! keeps the math-layer modules focused on the construction
-//! logic and makes the numerical primitives auditable in one
-//! place.
+//! blend-coefficient 2×2 solves, row-1 KKT min-norm) and the KP20
+//! §4.2/§4.3 scalar τ solves all route through the same primitives.
+//! Collecting them here keeps the math-layer modules focused on the
+//! construction logic and makes the numerical primitives auditable
+//! in one place.
 //!
-//! All helpers are deterministic, allocation-disciplined (no
-//! hidden heap allocations beyond the input sizes), and use
-//! partial-pivoting Gaussian elimination suitable for systems
-//! up to ~30×30 — appropriate for this stage of the pipeline
-//! where per-spoke constraint systems are at most 27×36.
+//! All helpers are deterministic partial-pivoting Gaussian
+//! elimination. The module originally served per-spoke constraint
+//! systems (≤ ~30×36); the KP20 scalar KKT systems now push order
+//! ~500–800 matrices through [`solve_dense`], so its elimination
+//! loop is allocation-free (PK-289) and its arithmetic order is
+//! pinned bit-for-bit by the clone-based reference oracle in the
+//! test module — any future solver rework (blocked elimination,
+//! factorization reuse) must either preserve that pin or replace it
+//! deliberately alongside a battery-wide ranking/verdict re-check.
 
 use crate::geometry::Vec3;
 use faer::Mat;
@@ -29,7 +33,8 @@ use faer::Mat;
 /// matrices here are small enough that parallel SVD buys nothing.
 ///
 /// Returns `None` only if the workspace size computation overflows
-/// (not reachable for our ≤~100×100 systems).
+/// (not reachable for our systems — the largest are the ~800×800
+/// KKT matrices measured by the `*_diagnosed` solve entry points).
 fn sequential_singular_values(mat: &Mat<f64>) -> Option<Vec<f64>> {
     use faer::dyn_stack::{GlobalPodBuffer, PodStack};
     use faer::linalg::svd::{ComputeVectors, SvdParams, compute_svd, compute_svd_req};
@@ -112,6 +117,12 @@ pub(crate) fn condition_number_dense(m: &[Vec<f64>]) -> Option<DenseConditionRep
 /// In-place Gaussian elimination with partial pivoting. Solves
 /// `M · x = b` for a dense square system. Returns `None` if the
 /// matrix is singular to machine precision.
+///
+/// The elimination's floating-point operation order is a contract:
+/// results are bit-identical to the pre-PK-289 clone-based loop
+/// (see the reference-oracle test), so KP20 battery rankings and
+/// every downstream verdict are unchanged by the allocation-free
+/// rewrite.
 pub(crate) fn solve_dense(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
     let n = m.len();
     for i in 0..n {
@@ -131,13 +142,14 @@ pub(crate) fn solve_dense(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f
             m.swap(i, pivot);
             b.swap(i, pivot);
         }
-        for r in (i + 1)..n {
-            let factor = m[r][i] / m[i][i];
-            let pivot_row = m[i].clone();
+        let (pivot_rows, elimination_rows) = m.split_at_mut(i + 1);
+        let pivot_row = &pivot_rows[i];
+        for (offset, row) in elimination_rows.iter_mut().enumerate() {
+            let factor = row[i] / pivot_row[i];
             for (c, pc) in pivot_row.iter().enumerate().skip(i) {
-                m[r][c] -= factor * pc;
+                row[c] -= factor * pc;
             }
-            b[r] -= factor * b[i];
+            b[i + 1 + offset] -= factor * b[i];
         }
     }
     let mut x = vec![0.0_f64; n];
@@ -149,6 +161,113 @@ pub(crate) fn solve_dense(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f
         x[i] = s / m[i][i];
     }
     Some(x)
+}
+
+/// Finite-guarded dense solve: faer partial-pivot LU first, falling
+/// back to a normalized Gauss–Jordan elimination when the LU
+/// solution carries non-finite entries. Returns `None` on any
+/// non-finite input or intermediate, or when a pivot falls below
+/// `1e-18`.
+///
+/// This is the regularized-least-squares route of the KP20 τ
+/// assembly (normal equations of campaign-diagnostic fits), moved
+/// here verbatim (PK-289) so the dense primitives live in one
+/// auditable place. It intentionally differs from [`solve_dense`]:
+/// the faer LU fast path and the explicit finiteness guards suit
+/// normal-equation systems that may carry non-finite contamination,
+/// while `solve_dense`'s fixed elimination order is the
+/// bit-identity contract for the KKT solves.
+pub(crate) fn solve_dense_finite_guarded(
+    mut matrix: Vec<Vec<f64>>,
+    mut rhs: Vec<f64>,
+) -> Option<Vec<f64>> {
+    use faer::prelude::SpSolver;
+    let n = rhs.len();
+    if matrix.iter().flatten().any(|value| !value.is_finite())
+        || rhs.iter().any(|value| !value.is_finite())
+    {
+        return None;
+    }
+    let mut faer_matrix = Mat::<f64>::zeros(n, n);
+    let mut faer_rhs = Mat::<f64>::zeros(n, 1);
+    for row in 0..n {
+        faer_rhs.write(row, 0, rhs[row]);
+        for (column, &value) in matrix[row][..n].iter().enumerate() {
+            faer_matrix.write(row, column, value);
+        }
+    }
+    let lu = faer_matrix.partial_piv_lu();
+    let solution = lu.solve(&faer_rhs);
+    let out = (0..n).map(|row| solution.read(row, 0)).collect::<Vec<_>>();
+    if out.iter().all(|value| value.is_finite()) {
+        return Some(out);
+    }
+
+    for pivot in 0..n {
+        let mut best = pivot;
+        let mut best_abs = matrix[pivot][pivot].abs();
+        if !best_abs.is_finite() {
+            return None;
+        }
+        for (candidate, row) in matrix.iter().enumerate().skip(pivot + 1) {
+            let value = row[pivot].abs();
+            if !value.is_finite() {
+                return None;
+            }
+            if value > best_abs {
+                best = candidate;
+                best_abs = value;
+            }
+        }
+        if best_abs < 1.0e-18 {
+            return None;
+        }
+        if best != pivot {
+            matrix.swap(best, pivot);
+            rhs.swap(best, pivot);
+        }
+        let pivot_value = matrix[pivot][pivot];
+        if !pivot_value.is_finite() {
+            return None;
+        }
+        for value in matrix[pivot].iter_mut().skip(pivot) {
+            *value /= pivot_value;
+            if !value.is_finite() {
+                return None;
+            }
+        }
+        rhs[pivot] /= pivot_value;
+        if !rhs[pivot].is_finite() {
+            return None;
+        }
+        let pivot_row = matrix[pivot].clone();
+        for row_index in 0..n {
+            if row_index == pivot {
+                continue;
+            }
+            let factor = matrix[row_index][pivot];
+            if !factor.is_finite() {
+                return None;
+            }
+            if factor == 0.0 {
+                continue;
+            }
+            for column in pivot..n {
+                matrix[row_index][column] -= factor * pivot_row[column];
+                if !matrix[row_index][column].is_finite() {
+                    return None;
+                }
+            }
+            rhs[row_index] -= factor * rhs[pivot];
+            if !rhs[row_index].is_finite() {
+                return None;
+            }
+        }
+    }
+    if rhs.iter().any(|value| !value.is_finite()) {
+        return None;
+    }
+    Some(rhs)
 }
 
 /// Deterministic choice of an orthonormal basis `(t1, t2)` in

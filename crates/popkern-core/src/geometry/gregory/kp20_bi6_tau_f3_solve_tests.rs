@@ -124,7 +124,7 @@ fn planar_tensor_border(n: usize) -> TensorBorderBi3 {
 fn planar_tau_f3_solver_preserves_fully_pinned_affine_tau() {
     let initial = affine_tau_macro_patch();
 
-    let solved = solve_kp20_planar_tau_f3(&Kp20PlanarTauF3SolveInput {
+    let solved = solve_kp20_planar_tau_f3_diagnosed(&Kp20PlanarTauF3SolveInput {
         initial,
         constraints: all_coeff_pins(&initial),
         regularization_weight: 1.0e-12,
@@ -133,7 +133,7 @@ fn planar_tau_f3_solver_preserves_fully_pinned_affine_tau() {
 
     assert!(solved.max_constraint_residual <= 1.0e-10);
     assert!(kp20_planar_bi6_tau_f3_energy(&solved.tau_macro_patch) <= 1.0e-16);
-    assert!(solved.kkt_condition_number.is_finite());
+    assert!(solved.kkt_condition_number.is_some_and(f64::is_finite));
     assert_macro_patch_close(&solved.tau_macro_patch, &initial, 1.0e-10);
 }
 

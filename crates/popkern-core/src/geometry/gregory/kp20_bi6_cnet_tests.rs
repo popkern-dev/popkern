@@ -4,7 +4,7 @@
 
 use super::super::kp20_bi6_cap::Kp20MacroPatch;
 use super::super::kp20_bi6_tau_solve_assemble::{
-    Kp20PlanarTauPaperSolveInput, solve_kp20_planar_tau_paper_sector_f3,
+    Kp20PlanarTauPaperSolveInput, solve_kp20_planar_tau_paper_sector_f3_diagnosed,
 };
 use super::*;
 use crate::geometry::gregory::catmull_clark_star_point;
@@ -144,7 +144,7 @@ fn figure_tensor_border_rows_are_rejected_by_paper_tau_constraints() {
     let cap_net = kp20_characteristic_cap_net(5).unwrap();
     let rows = kp20_cap_net_figure_tensor_border_rows(&cap_net).unwrap();
     let tensor_border = kp20_tensor_border_from_regular_cnet_rows(&rows).unwrap();
-    let solved = solve_kp20_planar_tau_paper_sector_f3(&Kp20PlanarTauPaperSolveInput {
+    let solved = solve_kp20_planar_tau_paper_sector_f3_diagnosed(&Kp20PlanarTauPaperSolveInput {
         valence: 5,
         sector: 0,
         characteristic_tensor_border: &tensor_border,
@@ -153,7 +153,7 @@ fn figure_tensor_border_rows_are_rejected_by_paper_tau_constraints() {
     })
     .unwrap();
 
-    assert!(solved.kkt_condition_number.is_finite());
+    assert!(solved.kkt_condition_number.is_some_and(f64::is_finite));
     assert!(
         solved.max_constraint_residual > 1.0,
         "diagnostic Fig. 9 tensor-border rows should remain rejected until the regular Catmull-Clark ring is derived; residual {}",

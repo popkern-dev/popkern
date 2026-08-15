@@ -30,9 +30,9 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_piece_maps.rs 1627
 crates/popkern-core/src/geometry/gregory/kp20_bi6_piece_maps_tests.rs 766
 crates/popkern-core/src/geometry/gregory/kp20_bi6_stam_eval_tests.rs 556
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau.rs 522
-crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_f3_solve.rs 1317
-crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble.rs 2896
-crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests.rs 22339
+crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_f3_solve.rs 1303
+crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble.rs 2740
+crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests.rs 20748
 crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 689
 crates/popkern-core/src/geometry/gregory/mod.rs 542
 crates/popkern-core/src/geometry/pcurve.rs 503

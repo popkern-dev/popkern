@@ -96,7 +96,9 @@ pub use super::kp20_bi6_tau_f3_solve::{
     kp20_planar_tau_diagonal_symmetry_constraints,
     kp20_planar_tau_fig8_indicated_averaging_constraints, kp20_planar_tau_internal_c2_constraints,
     kp20_planar_tau_sector_g1_g2_constraints, kp20_planar_tau_tensor_border_constraints,
-    solve_kp20_planar_tau_f3, solve_kp20_planar_tau_f3_with_scalar_constraints,
+    solve_kp20_planar_tau_f3, solve_kp20_planar_tau_f3_diagnosed,
+    solve_kp20_planar_tau_f3_with_scalar_constraints,
+    solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed,
 };
 pub use super::kp20_bi6_tau_solve_assemble::{
     Kp20PlanarTauAppendixAFig6cSolveInput, Kp20PlanarTauAppendixAFig6cSolveOutput,
@@ -107,8 +109,10 @@ pub use super::kp20_bi6_tau_solve_assemble::{
     kp20_planar_tau_sector_local_diagonal_symmetry_constraints,
     kp20_planar_tau_sector_local_self_diagonal_symmetry_constraints,
     solve_kp20_planar_tau_appendix_a_fig6c_active_set, solve_kp20_planar_tau_paper_sector_f3,
+    solve_kp20_planar_tau_paper_sector_f3_diagnosed,
     solve_kp20_planar_tau_rotational_paper_sector_f3,
     solve_kp20_planar_tau_rotational_paper_sector_f3_checked,
+    solve_kp20_planar_tau_rotational_paper_sector_f3_diagnosed,
 };
 pub use super::kp20_bi6_validate::{
     Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,

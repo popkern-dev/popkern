@@ -127,8 +127,11 @@ pub struct Kp20PlanarTauF3SolveOutput {
     pub tau_macro_patch: Kp20MacroPatch,
     /// Maximum absolute constraint residual across x/y rows.
     pub max_constraint_residual: f64,
-    /// Condition number of the scalar KKT matrix.
-    pub kkt_condition_number: f64,
+    /// Exact-SVD condition number of the scalar KKT matrix. `Some`
+    /// only when solved through a `*_diagnosed` entry point; the
+    /// default entry points skip the O(n³) SVD measurement (PK-289)
+    /// because no production consumer reads it.
+    pub kkt_condition_number: Option<f64>,
 }
 
 /// One scalar coefficient in an augmented planar τ solve.
@@ -177,8 +180,11 @@ pub struct Kp20PlanarTauAugmentedF3SolveOutput {
     pub extra_values: Vec<f64>,
     /// Maximum absolute constraint residual across all scalar rows.
     pub max_constraint_residual: f64,
-    /// Condition number of the augmented scalar KKT matrix.
-    pub kkt_condition_number: f64,
+    /// Exact-SVD condition number of the augmented scalar KKT
+    /// matrix. `Some` only when solved through a `*_diagnosed` entry
+    /// point; the default entry points skip the O(n³) SVD
+    /// measurement (PK-289) because no production consumer reads it.
+    pub kkt_condition_number: Option<f64>,
 }
 
 /// Test-only rank/nullity report for a planar τ constraint system.
@@ -222,6 +228,9 @@ impl std::fmt::Display for Kp20PlanarTauF3SolveError {
 impl std::error::Error for Kp20PlanarTauF3SolveError {}
 
 /// Minimize KP20 §4.3 `F3` subject to caller-supplied linear constraints.
+///
+/// Skips the KKT condition diagnostic (`kkt_condition_number` is
+/// `None`); use [`solve_kp20_planar_tau_f3_diagnosed`] to measure it.
 pub fn solve_kp20_planar_tau_f3(
     input: &Kp20PlanarTauF3SolveInput,
 ) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauF3SolveError> {
@@ -233,9 +242,44 @@ pub fn solve_kp20_planar_tau_f3(
     })
 }
 
+/// As [`solve_kp20_planar_tau_f3`], additionally measuring the
+/// exact-SVD condition number of the scalar KKT matrix — an O(n³)
+/// diagnostic on an order ~500–800 system, for diagnostic runs only.
+pub fn solve_kp20_planar_tau_f3_diagnosed(
+    input: &Kp20PlanarTauF3SolveInput,
+) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauF3SolveError> {
+    solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed(&Kp20PlanarTauF3ScalarSolveInput {
+        initial: input.initial,
+        vector_constraints: input.constraints.clone(),
+        scalar_constraints: Vec::new(),
+        regularization_weight: input.regularization_weight,
+    })
+}
+
 /// Minimize KP20 §4.3 `F3` with rows that may couple x and y axes.
+///
+/// Skips the KKT condition diagnostic (`kkt_condition_number` is
+/// `None`); use
+/// [`solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed`]
+/// to measure it.
 pub fn solve_kp20_planar_tau_f3_with_scalar_constraints(
     input: &Kp20PlanarTauF3ScalarSolveInput,
+) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauF3SolveError> {
+    solve_planar_tau_f3_scalar_constrained(input, KktConditionPolicy::Skip)
+}
+
+/// As [`solve_kp20_planar_tau_f3_with_scalar_constraints`],
+/// additionally measuring the exact-SVD condition number of the
+/// scalar KKT matrix — an O(n³) diagnostic, for diagnostic runs only.
+pub fn solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed(
+    input: &Kp20PlanarTauF3ScalarSolveInput,
+) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauF3SolveError> {
+    solve_planar_tau_f3_scalar_constrained(input, KktConditionPolicy::ExactSvd)
+}
+
+fn solve_planar_tau_f3_scalar_constrained(
+    input: &Kp20PlanarTauF3ScalarSolveInput,
+    condition: KktConditionPolicy,
 ) -> Result<Kp20PlanarTauF3SolveOutput, Kp20PlanarTauF3SolveError> {
     if !input.regularization_weight.is_finite() || input.regularization_weight < 0.0 {
         return Err(Kp20PlanarTauF3SolveError::InvalidRegularization);
@@ -260,6 +304,7 @@ pub fn solve_kp20_planar_tau_f3_with_scalar_constraints(
         &active_targets,
         &initial,
         input.regularization_weight,
+        condition,
     )?;
 
     let mut tau_macro_patch = input.initial;
@@ -286,8 +331,20 @@ pub fn solve_kp20_planar_tau_f3_with_scalar_constraints(
 /// The live KP20 §4.2 source projection uses this as a lexicographic solve:
 /// close the accepted paper rows first, minimize F3, and use source movement
 /// only as a secondary selector in the remaining null space.
+///
+/// Skips the KKT condition diagnostic (`kkt_condition_number` is
+/// `None`): no consumer reads it on this route (PK-289). Thread
+/// `KktConditionPolicy::ExactSvd` through a `*_diagnosed` twin if
+/// one becomes needed.
 pub fn solve_kp20_planar_tau_augmented_f3_with_scalar_constraints(
     input: &Kp20PlanarTauAugmentedF3ScalarSolveInput,
+) -> Result<Kp20PlanarTauAugmentedF3SolveOutput, Kp20PlanarTauF3SolveError> {
+    solve_planar_tau_augmented_f3_scalar_constrained(input, KktConditionPolicy::Skip)
+}
+
+fn solve_planar_tau_augmented_f3_scalar_constrained(
+    input: &Kp20PlanarTauAugmentedF3ScalarSolveInput,
+    condition: KktConditionPolicy,
 ) -> Result<Kp20PlanarTauAugmentedF3SolveOutput, Kp20PlanarTauF3SolveError> {
     if !input.regularization_weight.is_finite()
         || input.regularization_weight < 0.0
@@ -337,6 +394,7 @@ pub fn solve_kp20_planar_tau_augmented_f3_with_scalar_constraints(
         &active_targets,
         &initial,
         &regularization_weights,
+        condition,
     )?;
 
     let mut tau_macro_patch = input.initial;
@@ -875,9 +933,22 @@ fn add_v_c2_join(
     }
 }
 
+/// Whether a scalar KKT solve measures the exact-SVD condition
+/// diagnostic alongside the solution.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KktConditionPolicy {
+    /// Skip the O(n³) SVD: the fast path for solves whose caller
+    /// discards the diagnostic (every production route and the bulk
+    /// of the KP20 ranking battery — PK-289).
+    Skip,
+    /// Measure [`condition_number_dense`] on the assembled KKT
+    /// matrix before solving.
+    ExactSvd,
+}
+
 struct ScalarSolution {
     values: Vec<f64>,
-    kkt_condition_number: f64,
+    kkt_condition_number: Option<f64>,
 }
 
 fn solve_scalar_system(
@@ -886,6 +957,7 @@ fn solve_scalar_system(
     targets: &[f64],
     initial: &[f64],
     regularization_weight: f64,
+    condition: KktConditionPolicy,
 ) -> Result<ScalarSolution, Kp20PlanarTauF3SolveError> {
     let regularization_weights = vec![regularization_weight; SCALAR_VARS];
     solve_general_scalar_system(
@@ -894,6 +966,7 @@ fn solve_scalar_system(
         targets,
         initial,
         &regularization_weights,
+        condition,
     )
 }
 
@@ -903,6 +976,7 @@ fn solve_general_scalar_system(
     targets: &[f64],
     initial: &[f64],
     regularization_weights: &[f64],
+    condition: KktConditionPolicy,
 ) -> Result<ScalarSolution, Kp20PlanarTauF3SolveError> {
     let variable_count = objective.len();
     let size = variable_count + constraints.len();
@@ -928,9 +1002,14 @@ fn solve_general_scalar_system(
             }
         }
     }
-    let kkt_condition_number = condition_number_dense(&a)
-        .map(|report| report.condition_number)
-        .unwrap_or(f64::INFINITY);
+    let kkt_condition_number = match condition {
+        KktConditionPolicy::Skip => None,
+        KktConditionPolicy::ExactSvd => Some(
+            condition_number_dense(&a)
+                .map(|report| report.condition_number)
+                .unwrap_or(f64::INFINITY),
+        ),
+    };
     let values = solve_dense(a, b).ok_or(Kp20PlanarTauF3SolveError::SingularSystem)?
         [..variable_count]
         .to_vec();
