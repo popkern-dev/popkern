@@ -29,25 +29,55 @@ pub(crate) fn detect_coincident_regions(
     const GRID: usize = 8;
     let total = GRID * GRID;
 
-    let mut within_count: usize = 0;
+    // The verdict is a pure count threshold (> 80% of samples within
+    // tolerance), so it is decided as soon as either bound is reached:
+    // with `hits_needed` hits the region is certain, and once
+    // `total - hits_needed + 1` samples have missed it is impossible.
+    // The miss abort carries the measured cost (PK-282): the LM
+    // fold-safety gate intersects diagonal Gregory sub-patch pairs
+    // whose shared split-centre corner seeds a tangent, and this
+    // detector ran its full 64-sample Gauss-Newton budget per accepted
+    // polish candidate only to report "not coincident" every time.
+    let hits_needed = total * 4 / 5 + 1;
+    let misses_allowed = total - hits_needed;
 
-    for i in 0..GRID {
+    // Rigorous per-sample far screen: a NURBS surface with positive
+    // weights lies in the convex hull of its control points, so a
+    // sample farther from the hull's AABB than the tolerance cannot
+    // be within tolerance of the surface — the Gauss-Newton
+    // projection (an upper bound on the true distance) would have
+    // reported the same verdict at ~50 surface evaluations' cost.
+    let far_screen = nurbs_control_point_aabb(surface2);
+
+    let mut within_count: usize = 0;
+    let mut miss_count: usize = 0;
+
+    'grid: for i in 0..GRID {
         for j in 0..GRID {
             let u1 = u1_range.0 + (u1_range.1 - u1_range.0) * (i as f64 + 0.5) / (GRID as f64);
             let v1 = v1_range.0 + (v1_range.1 - v1_range.0) * (j as f64 + 0.5) / (GRID as f64);
 
             let p1 = surface1.point_at(u1, v1);
 
-            let dist = closest_point_distance(p1, surface2, u2_range, v2_range);
+            let provably_far = far_screen
+                .as_ref()
+                .is_some_and(|aabb| aabb.distance_to_point(&p1) >= tolerance.linear());
+            let within = !provably_far
+                && closest_point_distance(p1, surface2, u2_range, v2_range) < tolerance.linear();
 
-            if dist < tolerance.linear() {
+            if within {
                 within_count += 1;
+            } else {
+                miss_count += 1;
+            }
+            if within_count >= hits_needed || miss_count > misses_allowed {
+                break 'grid;
             }
         }
     }
 
     // Require > 80% of samples to be within tolerance.
-    if within_count * 5 > total * 4 {
+    if within_count >= hits_needed {
         vec![SurfaceSurfaceIntersection::CoincidentRegion {
             u1_range,
             v1_range,
@@ -57,6 +87,49 @@ pub(crate) fn detect_coincident_regions(
     } else {
         vec![]
     }
+}
+
+/// Axis-aligned bound of a NURBS surface's control points. By the
+/// convex-hull property (positive weights), every surface point lies
+/// inside this box, so `distance_to_point` is a LOWER bound on the
+/// distance from a query point to the surface — a rigorous far
+/// certificate that costs no surface evaluations.
+struct ControlPointAabb {
+    lo: Point3,
+    hi: Point3,
+}
+
+impl ControlPointAabb {
+    fn distance_to_point(&self, p: &Point3) -> f64 {
+        let dx = (self.lo.x - p.x).max(0.0).max(p.x - self.hi.x);
+        let dy = (self.lo.y - p.y).max(0.0).max(p.y - self.hi.y);
+        let dz = (self.lo.z - p.z).max(0.0).max(p.z - self.hi.z);
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+}
+
+/// Control-point AABB for a NURBS surface with positive weights;
+/// `None` for analytic forms (cheap to evaluate directly) and for
+/// non-positive weights, where the convex-hull property does not
+/// hold.
+fn nurbs_control_point_aabb(surface: &SurfaceGeometry) -> Option<ControlPointAabb> {
+    let SurfaceGeometry::Nurbs(nurbs) = surface else {
+        return None;
+    };
+    if nurbs.control_points.is_empty() || nurbs.weights.iter().any(|&w| w <= 0.0) {
+        return None;
+    }
+    let mut lo = nurbs.control_points[0];
+    let mut hi = lo;
+    for p in &nurbs.control_points {
+        lo.x = lo.x.min(p.x);
+        lo.y = lo.y.min(p.y);
+        lo.z = lo.z.min(p.z);
+        hi.x = hi.x.max(p.x);
+        hi.y = hi.y.max(p.y);
+        hi.z = hi.z.max(p.z);
+    }
+    Some(ControlPointAabb { lo, hi })
 }
 
 /// Closest-point distance from a point to a surface, used by the

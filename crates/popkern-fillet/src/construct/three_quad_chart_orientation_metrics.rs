@@ -92,6 +92,47 @@ pub(super) fn worst_ring_folded_g2(ring: &[RectangularGregoryBiNonic]) -> f64 {
     worst
 }
 
+/// The derivative stack one folded-G2 sample reads: first and
+/// second partials of both patches at their matched spoke points.
+/// The bi-nonic patch is a plain tensor Bézier, so every entry is
+/// LINEAR in the control points — the polish Jacobian exploits this
+/// by perturbing the STACK by exact basis sensitivities instead of
+/// re-evaluating the surfaces per parameter column (PK-282).
+#[derive(Clone, Copy)]
+pub(super) struct G2SampleStack {
+    /// Patch `a` at `(1, t)`: `[su, sv, suu, suv, svv]`.
+    pub a: [Vec3; 5],
+    /// Patch `b` at `(1−t, 0)`: `[su, sv, suu, suv, svv]`.
+    pub b: [Vec3; 5],
+}
+
+/// Gather the folded-G2 derivative stack for the spoke shared by
+/// patch `a` (its `u=1` side at `t`) and patch `b` (its `v=0` side
+/// at `1−t`).
+pub(super) fn g2_sample_stack(
+    a: &RectangularGregoryBiNonic,
+    b: &RectangularGregoryBiNonic,
+    t: f64,
+) -> G2SampleStack {
+    let t_b = 1.0 - t;
+    G2SampleStack {
+        a: [
+            a.partial_u(1.0, t),
+            a.partial_v(1.0, t),
+            a.second_partial_uu(1.0, t),
+            a.second_partial_uv(1.0, t),
+            a.second_partial_vv(1.0, t),
+        ],
+        b: [
+            b.partial_u(t_b, 0.0),
+            b.partial_v(t_b, 0.0),
+            b.second_partial_uu(t_b, 0.0),
+            b.second_partial_uv(t_b, 0.0),
+            b.second_partial_vv(t_b, 0.0),
+        ],
+    }
+}
+
 /// One folded normal-curvature agreement sample across the spoke
 /// shared by patch `a` (its `u=1` side at `t`) and patch `b` (its
 /// `v=0` side at `1−t`). `None` when the sample is unreadable
@@ -102,16 +143,21 @@ pub(super) fn g2_residual_at(
     b: &RectangularGregoryBiNonic,
     t: f64,
 ) -> Option<f64> {
-    let t_b = 1.0 - t;
-    let t_unit = a.partial_v(1.0, t).normalized()?;
-    let ka = normal_curvature_along(a, 1.0, t, t_unit)?;
-    let kb = normal_curvature_along(b, t_b, 0.0, t_unit)?;
-    let na = a.partial_u(1.0, t).cross(&a.partial_v(1.0, t));
-    let nb = b.partial_u(t_b, 0.0).cross(&b.partial_v(t_b, 0.0));
-    let sin_a =
-        na.length() / (a.partial_u(1.0, t).length() * a.partial_v(1.0, t).length()).max(1e-300);
-    let sin_b =
-        nb.length() / (b.partial_u(t_b, 0.0).length() * b.partial_v(t_b, 0.0).length()).max(1e-300);
+    g2_residual_from_stack(&g2_sample_stack(a, b, t))
+}
+
+/// The pure folded-G2 formula over a gathered derivative stack —
+/// branch gates included, no surface evaluations.
+pub(super) fn g2_residual_from_stack(stack: &G2SampleStack) -> Option<f64> {
+    let [su_a, sv_a, ..] = stack.a;
+    let [su_b, sv_b, ..] = stack.b;
+    let t_unit = sv_a.normalized()?;
+    let ka = normal_curvature_from_stack(&stack.a, t_unit)?;
+    let kb = normal_curvature_from_stack(&stack.b, t_unit)?;
+    let na = su_a.cross(&sv_a);
+    let nb = su_b.cross(&sv_b);
+    let sin_a = na.length() / (su_a.length() * sv_a.length()).max(1e-300);
+    let sin_b = nb.length() / (su_b.length() * sv_b.length()).max(1e-300);
     if sin_a < 5.0e-2 || sin_b < 5.0e-2 {
         return None;
     }
@@ -128,17 +174,11 @@ pub(super) fn g2_residual_at(
     Some((ka - kb).abs() / (1.0 + kmax))
 }
 
-/// Normal curvature of the patch at `(u, v)` along the ambient
-/// direction `t_ambient` (projected into the tangent plane and
-/// normalized through the first fundamental form).
-fn normal_curvature_along(
-    patch: &RectangularGregoryBiNonic,
-    u: f64,
-    v: f64,
-    t_ambient: Vec3,
-) -> Option<f64> {
-    let su = patch.partial_u(u, v);
-    let sv = patch.partial_v(u, v);
+/// Normal curvature along the ambient direction `t_ambient`
+/// (projected into the tangent plane and normalized through the
+/// first fundamental form), over a `[su, sv, suu, suv, svv]` stack.
+fn normal_curvature_from_stack(d: &[Vec3; 5], t_ambient: Vec3) -> Option<f64> {
+    let [su, sv, suu, suv, svv] = *d;
     let normal = su.cross(&sv).normalized()?;
     let e = su.dot(&su);
     let f = su.dot(&sv);
@@ -157,9 +197,6 @@ fn normal_curvature_along(
     }
     let a = a / norm_sq.sqrt();
     let b = b / norm_sq.sqrt();
-    let suu = patch.second_partial_uu(u, v);
-    let suv = patch.second_partial_uv(u, v);
-    let svv = patch.second_partial_vv(u, v);
     let l = suu.dot(&normal);
     let m = suv.dot(&normal);
     let nn = svv.dot(&normal);

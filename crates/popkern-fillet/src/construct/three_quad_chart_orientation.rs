@@ -31,6 +31,8 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use super::super::kp_lm_solver::{LmConfig, run_lm};
 use super::three_quad_kp_promote::{worst_ring_coplanarity, worst_ring_g0_gap};
 
+#[path = "three_quad_chart_orientation_g2_jacobian.rs"]
+mod three_quad_chart_orientation_g2_jacobian;
 #[path = "three_quad_chart_orientation_metrics.rs"]
 mod three_quad_chart_orientation_metrics;
 #[path = "three_quad_chart_orientation_polish.rs"]

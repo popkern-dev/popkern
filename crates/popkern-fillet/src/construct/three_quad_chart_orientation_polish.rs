@@ -218,23 +218,20 @@ impl LmEval for SeamPolishEval {
 
         let mut jac = analytic_ring_jacobian(&ring, m, d);
 
-        // Folded-G2 block: forward FD per column at the same eps the
-        // full-FD driver used (LmConfig.fd_eps mirrors this formula).
+        // Folded-G2 block: stack-linear forward FD at the same eps
+        // the full-FD driver used (LmConfig.fd_eps mirrors this
+        // formula). The rebuild-based per-column FD re-evaluated
+        // every seam sample's bidegree-9 derivatives D times per
+        // iteration and was the measured binding term once the
+        // Gregory SI gate was cut (PK-282); the Bézier stack is
+        // linear in the CPs, so the same forward differences come
+        // from closed-form stack deltas plus the pure gated formula.
         let eps = 1e-6 * self.char_len.max(1e-6);
-        let g2_base = self.g2_block(&ring);
-        let mut g2_rows = vec![vec![0.0; d]; n * 25];
-        let mut x_pert = x.to_vec();
-        for k in 0..d {
-            let saved = x_pert[k];
-            x_pert[k] = saved + eps;
-            let ring_pert = self.build(&x_pert);
-            let g2_pert = self.g2_block(&ring_pert);
-            for (row, (gp, gb)) in g2_rows.iter_mut().zip(g2_pert.iter().zip(g2_base.iter())) {
-                row[k] = (gp - gb) / eps;
-            }
-            x_pert[k] = saved;
-        }
-        jac.extend(g2_rows);
+        jac.extend(
+            super::three_quad_chart_orientation_g2_jacobian::g2_jacobian_stack_linear(
+                &ring, d, eps, G2_WEIGHT,
+            ),
+        );
 
         if let Some(fillets) = &self.outer_fillets {
             jac.extend(outer_fillet_jacobian_sampled(&ring, fillets, m, d, 25));
@@ -316,7 +313,7 @@ fn coplanarity_residuals(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
 /// own spoke coplanarity and outer tangency. Outer boundary rows
 /// never enter the parameter vector; the spoke rows enter only via
 /// the SHARED per-spoke blocks in [`pack_seam_rows`].
-fn seam_row_cells() -> Vec<(usize, usize)> {
+pub(super) fn seam_row_cells() -> Vec<(usize, usize)> {
     let mut cells = Vec::with_capacity(48);
     for j in 1..=8 {
         cells.push((1, j));
