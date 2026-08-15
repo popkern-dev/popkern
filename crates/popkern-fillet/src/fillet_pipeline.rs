@@ -136,8 +136,6 @@ pub(crate) fn fillet_edges_attempt(
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces for naming.
     let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
-    // PK-274 cross-check baseline (debug-only cost; empty in release).
-    let entry_stale = crate::fillet_tail_region::entry_stale_snapshot(brep);
     // PHASE 1: Analyze edges.
     let t1 = Instant::now();
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
@@ -280,9 +278,16 @@ pub(crate) fn fillet_edges_attempt(
     );
     check_cancel!();
     let t5 = Instant::now();
-    // PK-274: tail pcurve passes scoped to the blend neighbourhood
-    // (`fillet_tail_region` has the derivation + debug cross-check).
-    crate::fillet_tail_region::recompute_and_fix_tail(&mut apply_result.brep, &pre_faces);
+    // Whole-model by measurement (PK-274 postmortem): apply-phase
+    // repairs (edge reconcile chord rebuilds, vertex snaps) touch
+    // faces arbitrarily far from the blend region, so no k-ring
+    // scoping of this heal is sound — the blend-on-blend torus
+    // fixture shipped a silent 7.7e-2-stale pcurve two rings out
+    // under a scoped pass. The passes PK-274 kept scoped (per-corner
+    // consolidation heals, boolean fill-only tails) carry their own
+    // touched-face inventories; this pipeline-tail net stays global.
+    let _ = apply_result.brep.recompute_all_pcurves();
+    apply_result.brep.fix_stale_pcurves();
     check_cancel!();
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
@@ -317,13 +322,9 @@ pub(crate) fn fillet_edges_attempt(
     // Final pcurve fidelity pass: intermediate repair stages can
     // (re)write low-fidelity pcurves after the first fix_stale run
     // (PK-095: straight 2-point pcurves on fillet-sweep trims, 5e-2
-    // off, were the dominant tessellation seam crack). Scoped +
-    // cross-checked (PK-274); see `fillet_tail_region`.
-    crate::fillet_tail_region::final_fix_and_cross_check(
-        &mut apply_result.brep,
-        &pre_faces,
-        &entry_stale,
-    );
+    // off, were the dominant tessellation seam crack). Whole-model —
+    // see the PK-274 postmortem note on the first pass above.
+    apply_result.brep.fix_stale_pcurves();
     check_cancel!();
     // PK-141 strip cleanup: seam slits + foreign pockets (see
     // cleanup_strip_slits_and_pockets docs).
