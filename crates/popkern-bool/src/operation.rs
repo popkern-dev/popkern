@@ -542,11 +542,13 @@ pub(crate) fn execute_boolean_full(
     });
     report_phase(&mut progress, Stage::Merge, 4, elapsed_merge, count_merge);
 
-    // Recompute pcurves on all faces so that the tessellation pipeline
-    // can build accurate trim loops. Boolean merge may leave seam edges
-    // and original-operand edges without pcurves.
+    // Recompute pcurves so that the tessellation pipeline can build
+    // accurate trim loops. Boolean merge may leave seam edges and
+    // original-operand edges without pcurves — only faces with a gap
+    // in their pcurve inventory are recomputed (PK-274): a face the
+    // merge carried over intact keeps its authoritative pcurves.
     let mut result = result;
-    let _ = result.recompute_all_pcurves();
+    let _ = result.recompute_pcurves_where_missing();
 
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
     // post-check (manifold, Euler, half-edge cycles, watertightness).

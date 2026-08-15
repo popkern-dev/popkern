@@ -264,7 +264,9 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
             result, tolerance,
         );
         if dissolved > 0 {
-            let _ = result.recompute_all_pcurves();
+            // PK-274: each dissolution is a transactional kve that
+            // cleared the pcurves it touched — refill exactly those.
+            let _ = result.recompute_pcurves_where_missing();
             if std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions) {
                 eprintln!(
                     "[boolean] post-processing: dissolved {dissolved} collinear valence-2 vertex(es)"

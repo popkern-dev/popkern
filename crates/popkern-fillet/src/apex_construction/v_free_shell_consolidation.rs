@@ -136,12 +136,27 @@ fn consolidate_vestigial_support_shell_impl(
     }
     let rollback = brep.clone();
 
+    // PK-274 dirty inventory: every mutation below contributes the
+    // faces it touches, so the pcurve heal at the end can be scoped
+    // to their one-ring instead of the whole model (this impl runs
+    // up to 3 fixpoint rounds PER CORNER). Deleted-face handles are
+    // harmless — the scoped passes ignore dead handles — but their
+    // NEIGHBOURS must be noted BEFORE removal. The pipeline-tail
+    // whole-model stale cross-check guards the inventory.
+    let mut dirty: std::collections::BTreeSet<FaceHandle> = std::collections::BTreeSet::new();
+    for face in brep.validation_region(&flaps) {
+        dirty.insert(face);
+    }
     for face in &flaps {
         remove_face(brep, *face);
         report.flap_faces += 1;
     }
     if !flaps.is_empty() {
-        for face in detect_slivers(brep) {
+        let slivers = detect_slivers(brep);
+        for face in brep.validation_region(&slivers) {
+            dirty.insert(face);
+        }
+        for face in slivers {
             remove_face(brep, face);
             report.sliver_faces += 1;
         }
@@ -163,6 +178,7 @@ fn consolidate_vestigial_support_shell_impl(
         report.reversed_faces = winding.reversed_faces;
         report.rebuilt_rings = winding.rebuilt_rings;
         seam_vertices_from_winding = winding.seam_vertices;
+        dirty.extend(winding.touched_faces);
     }
 
     let (welded, mut seam_vertices) =
@@ -178,11 +194,25 @@ fn consolidate_vestigial_support_shell_impl(
     // periodic branch choices (a reversed or welded strip loop can
     // carry a long-way arc image whose net UV winding is ±period —
     // the full-drum area/tessellation misread), then validate.
-    let faces: Vec<_> = brep.faces.keys().collect();
+    // Scoped to the dirty inventory's one-ring (PK-274): welds and
+    // vertex merges touch faces incident to the seam vertices; the
+    // deletions, reversals, and rebuilds contributed above. The
+    // scaffolding retire is exempt by construction — it retires
+    // ghost face/loop records "without touching a single half-edge".
+    let seam_set: std::collections::BTreeSet<_> = seam_vertices.iter().copied().collect();
+    for data in brep.half_edges.values() {
+        if seam_set.contains(&data.origin)
+            && let Some(loop_data) = brep.loops.get(data.loop_)
+        {
+            dirty.insert(loop_data.face);
+        }
+    }
+    let dirty: Vec<FaceHandle> = dirty.into_iter().collect();
+    let faces = brep.validation_region(&dirty);
     for face in &faces {
         let _ = brep.recompute_face_pcurves(*face);
     }
-    brep.fix_stale_pcurves();
+    brep.fix_stale_pcurves_among(&faces);
     for face in &faces {
         brep.reconcile_periodic_pcurve_branches(*face);
     }
@@ -206,6 +236,7 @@ fn consolidate_vestigial_support_shell_impl(
 /// weld, merge seam vertices, and heal pcurves. Returns the number
 /// of rebuilt rings. Callers are transactional.
 pub(crate) fn complete_partnerless_chord_rings(brep: &mut BRep) -> usize {
+    let entry_faces: std::collections::BTreeSet<FaceHandle> = brep.faces.keys().collect();
     let (rebuilt, mut seam_vertices) = shell_orientation::rebuild_partnerless_chord_rings(brep);
     if rebuilt == 0 {
         return 0;
@@ -214,12 +245,32 @@ pub(crate) fn complete_partnerless_chord_rings(brep: &mut BRep) -> usize {
     seam_vertices.extend(more);
     merge_coincident_seam_vertices(brep, &seam_vertices, &std::collections::BTreeSet::new());
     repair_vertex_outgoing(brep);
-    let faces: Vec<_> = brep.faces.keys().collect();
-    for face in &faces {
+    // PK-274: heal pcurves over the faces this completion touched —
+    // the ring-rebuild's new faces plus every face incident to a
+    // reported seam vertex, dilated one ring — instead of the whole
+    // model per corner (this ran once PER CORNER; measured 13/68
+    // profile samples on the 5-valence matrix). The pipeline-tail
+    // whole-model stale cross-check guards the derivation.
+    let seam_set: std::collections::BTreeSet<_> = seam_vertices.iter().copied().collect();
+    let mut dirty: std::collections::BTreeSet<FaceHandle> = brep
+        .faces
+        .keys()
+        .filter(|f| !entry_faces.contains(f))
+        .collect();
+    for data in brep.half_edges.values() {
+        if seam_set.contains(&data.origin)
+            && let Some(loop_data) = brep.loops.get(data.loop_)
+        {
+            dirty.insert(loop_data.face);
+        }
+    }
+    let dirty: Vec<FaceHandle> = dirty.into_iter().collect();
+    let region = brep.validation_region(&dirty);
+    for face in &region {
         let _ = brep.recompute_face_pcurves(*face);
     }
-    brep.fix_stale_pcurves();
-    for face in &faces {
+    brep.fix_stale_pcurves_among(&region);
+    for face in &region {
         brep.reconcile_periodic_pcurve_branches(*face);
     }
     shell_authority::retire_stale_face_use_pcurve_authorities(brep);

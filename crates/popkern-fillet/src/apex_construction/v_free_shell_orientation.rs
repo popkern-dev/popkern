@@ -63,6 +63,10 @@ pub(super) struct WindingReconciliationOutcome {
     /// Vertex handles that welds/rebuilds may have duplicated; the
     /// caller merges coincident records among these.
     pub(super) seam_vertices: Vec<VertexHandle>,
+    /// Every face this reconciliation mutated (reversed class +
+    /// contorted rebuild targets) — the caller's dirty set for
+    /// region-scoped pcurve healing (PK-274).
+    pub(super) touched_faces: Vec<FaceHandle>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -144,6 +148,11 @@ pub(super) fn reconcile_shell_winding(brep: &mut BRep) -> WindingReconciliationO
     }
 
     outcome.reversed_faces = reverse_class_loops(brep, &reversal_faces);
+    outcome.touched_faces = reversal_faces
+        .iter()
+        .copied()
+        .chain(rebuild_plans.iter().map(|(face, _)| *face))
+        .collect();
     for (face, trusted) in rebuild_plans {
         match rebuild_face_ring(brep, face, &trusted) {
             Some(mut seam) => {

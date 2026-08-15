@@ -249,6 +249,58 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let p1 = brep.vertices[v1].position;
     let p2 = brep.vertices[v2].position;
 
+    // Futility pre-gate (PK-274): the acceptance below requires the
+    // reconciled curve's trim endpoints to land within `snap_tol` of
+    // the existing vertices, and every point of a surface×surface
+    // intersection lies ON both surfaces — so a vertex farther than
+    // `snap_tol` from either surface makes acceptance PROVABLY
+    // impossible and the intersection solve is skipped. This is what
+    // the analytic dispatchers already do (AnchorOffSurface, µs);
+    // the marching catch-all has no such check and was measured
+    // spending 0.75–24.7 s PER EDGE concluding NoIntersection on
+    // legacy-fallback corner seams whose anchors sit 4.1e-2 off both
+    // surfaces (56.1 s of a 75.7 s matrix test, zero rewrites).
+    // Closed-form distances only (Plane/Cylinder/Sphere); pairs with
+    // a Cone keep the full dispatch — the cone distance is slant-
+    // corrected and PK-171's notched-flange reconcile depends on
+    // this path staying permissive.
+    let snap_tol = 5.0e-3;
+    let exact_distance =
+        |sfc: &SurfaceGeometry, p: &popkern_core::geometry::Point3| -> Option<f64> {
+            match sfc {
+                SurfaceGeometry::Plane { origin, normal, .. } => {
+                    let n = normal.length();
+                    (n > 1e-300).then(|| ((*p - *origin).dot(normal) / n).abs())
+                }
+                SurfaceGeometry::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                } => {
+                    let d = *p - *origin;
+                    let along = d.dot(axis);
+                    Some(((d - *axis * along).length() - radius).abs())
+                }
+                SurfaceGeometry::Sphere { center, radius } => {
+                    Some(((*p - *center).length() - radius).abs())
+                }
+                _ => None,
+            }
+        };
+    for p in [&p1, &p2] {
+        for sfc in [&sof_1.geometry, &sof_2.geometry] {
+            if exact_distance(sfc, p).is_some_and(|d| d > snap_tol) {
+                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                    eprintln!(
+                        "  [reconcile] edge {edge:?}: skipped, endpoint provably off-surface \
+                         (> snap gate {snap_tol:.1e})"
+                    );
+                }
+                return false;
+            }
+        }
+    }
+
     // Analytic combos go through the EdgeTriple factory (stage
     // 2b.51). The trig dispatcher resolves cyl/sphere/plane pairs
     // in microseconds.
@@ -293,7 +345,6 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     // off-surface (the flagship chain's dominant tessellation
     // opens). Anything beyond the snap gate is a genuine mismatch.
     let strict_tol = tolerance.linear().max(1e-9);
-    let snap_tol = 5.0e-3;
     let trim_start = triple.curve_3d.point_at(triple.t_start);
     let trim_end = triple.curve_3d.point_at(triple.t_end);
     let gap = trim_start.distance_to(&p1).max(trim_end.distance_to(&p2));
