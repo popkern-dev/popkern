@@ -1,7 +1,15 @@
 //! Direct exact-boundary K-P binonic spoke-row optimizer.
 
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
-use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
+use popkern_core::geometry::gregory::{
+    GregoryPatch, RectangularGregoryBiNonic, binonic_ring_crossing,
+    binonic_ring_feasible_start_crossing,
+};
+
+/// Linear tolerance of the PK-283 ring-level crossing gates — the same
+/// value every per-patch fold gate on the promotion ladder uses, so the
+/// two gate families measure the same geometry class at the same scale.
+pub(in crate::construct) const RING_CROSSING_TOLERANCE: f64 = 1.0e-6;
 
 pub(super) struct ExactBoundaryBinonicResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
@@ -11,7 +19,7 @@ pub(super) struct ExactBoundaryBinonicResult {
 pub(super) fn optimize_exact_boundary_binonic(
     initial: &[RectangularGregoryBiNonic],
 ) -> Option<ExactBoundaryBinonicResult> {
-    if initial.is_empty() || any_self_intersects(initial) {
+    if initial.is_empty() || !feasible_start(initial) {
         return None;
     }
     let baseline = measure_ring_residual(initial);
@@ -36,7 +44,7 @@ pub(super) fn optimize_exact_boundary_binonic(
     }
     let mut binonic = initial.to_vec();
     unpack_spoke_rows(&result.x, &mut binonic);
-    if any_self_intersects(&binonic) {
+    if !acceptable_ring(&binonic) {
         return None;
     }
     Some(ExactBoundaryBinonicResult {
@@ -74,10 +82,14 @@ impl LmEval for DirectSpokeRowEval {
     // PK-282) — and (b) its more-accurate trajectory converged
     // pyramid4_uniform to a lower-residual ring whose ADJACENT
     // patches intersect each other, a class the per-patch fold gates
-    // cannot see (validate_all catches it downstream; PK-283 owns
-    // the pairwise ring gate). Until the acceptance is
-    // crossing-honest at ring level, the serving-stable FD
-    // trajectory is the keep-better choice.
+    // could not see. PK-283 closed (b): the acceptance is now
+    // crossing-honest at ring level (`binonic_ring_crossing` gates
+    // entry and accept above), so any trajectory landing in that
+    // class is declined rather than served. (a) still holds, so FD
+    // remains the keep-better choice on measurement; a future
+    // analytic Jacobian is safe to reconsider purely on wall-time
+    // evidence. The reverted implementation was never committed
+    // (verified against 77894f2a and dangling objects, 2026-08-16).
 }
 
 fn pack_spoke_rows(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
@@ -117,6 +129,49 @@ fn push_point(x: &mut Vec<f64>, point: popkern_core::geometry::Point3) {
     x.push(point.z);
 }
 
+/// Entry feasibility: every patch individually fold-free AND no
+/// macro-scale pairwise crossing (PK-283). The coarse feasible-start
+/// screen — not the full accept semantics — because raw guide rings
+/// legitimately carry spoke-hover contact an order deeper than
+/// converged rings (measured: pyramid3_uniform's initial ring at
+/// 1.886e-3, polished to 2.38e-5 by this optimizer and served clean).
+fn feasible_start(binonic: &[RectangularGregoryBiNonic]) -> bool {
+    if any_self_intersects(binonic) {
+        return false;
+    }
+    if let Some(crossing) = binonic_ring_feasible_start_crossing(binonic, RING_CROSSING_TOLERANCE) {
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            eprintln!(
+                "[exact-boundary-binonic] feasible-start ring decline: {}",
+                crossing.diagnostic_label()
+            );
+        }
+        return false;
+    }
+    true
+}
+
+/// Accept feasibility: per-patch fold gate plus the full ring-level
+/// crossing semantics (PK-283 — a class the per-patch fold gates and
+/// the per-step `fold_safe` cannot see). Run once per acceptance, not
+/// per LM step.
+fn acceptable_ring(binonic: &[RectangularGregoryBiNonic]) -> bool {
+    !any_self_intersects(binonic) && ring_crossing_decline_label(binonic).is_none()
+}
+
+/// PK-283 accept-gate shared arm: the full ring-crossing scan, with the
+/// codebase-standard `POPKERN_KP_TRACE` decline trace. Returns the
+/// crossing's diagnostic label so optimizer callers can record it as a
+/// structured rung outcome.
+pub(super) fn ring_crossing_decline_label(binonic: &[RectangularGregoryBiNonic]) -> Option<String> {
+    let crossing = binonic_ring_crossing(binonic, RING_CROSSING_TOLERANCE)?;
+    let label = crossing.diagnostic_label();
+    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        eprintln!("[kp-ring-gate] accept decline: {label}");
+    }
+    Some(label)
+}
+
 fn any_self_intersects(binonic: &[RectangularGregoryBiNonic]) -> bool {
     binonic.iter().any(|patch| {
         GregoryPatch::RectangularBiNonic(Box::new(patch.clone()))
@@ -151,3 +206,7 @@ fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
 fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
     residual_vector(patches).iter().map(|v| v * v).sum()
 }
+
+#[cfg(test)]
+#[path = "kp_exact_boundary_ring_gate_tests.rs"]
+mod kp_exact_boundary_ring_gate_tests;

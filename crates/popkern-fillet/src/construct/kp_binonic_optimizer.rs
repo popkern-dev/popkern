@@ -34,7 +34,9 @@ pub(super) use kp_binonic_jacobian::{
 };
 
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
-use super::kp_exact_boundary_binonic_optimizer::optimize_exact_boundary_binonic;
+use super::kp_exact_boundary_binonic_optimizer::{
+    optimize_exact_boundary_binonic, ring_crossing_decline_label,
+};
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, KpGuidePatchBiNonic,
@@ -182,7 +184,22 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     let mut best_guides = bn_guides;
     unpack_guides(&lm_result.x, &mut best_guides);
     let best_binonic = match build_binonic_ring_from_binonic_guides(&best_guides, input) {
-        Ok(ring) if !any_self_intersects(&ring) => ring,
+        // PK-283 ring-level crossing honesty: the per-patch arm cannot
+        // see two ring patches crossing each other. Reject the LM
+        // product and keep the phase-2 ring (whose own honesty the
+        // promotion-level gate enforces).
+        Ok(ring) if !any_self_intersects(&ring) => match ring_crossing_decline_label(&ring) {
+            None => ring,
+            Some(label) => {
+                return Some(KpBiNonicOptimizerResult {
+                    binonic: bq_result.binonic,
+                    final_residual: bq_result.final_residual,
+                    outer_rung_outcome: rung(&format!(
+                        "lm_rejected:ring_crossing;{label};{lm_stats}"
+                    )),
+                });
+            }
+        },
         _ => {
             return Some(KpBiNonicOptimizerResult {
                 binonic: bq_result.binonic,

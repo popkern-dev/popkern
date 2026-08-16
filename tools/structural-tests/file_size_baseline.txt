@@ -34,7 +34,7 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_f3_solve.rs 1303
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble.rs 2740
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests.rs 20748
 crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 689
-crates/popkern-core/src/geometry/gregory/mod.rs 542
+crates/popkern-core/src/geometry/gregory/mod.rs 402
 crates/popkern-core/src/geometry/pcurve.rs 503
 crates/popkern-core/src/geometry/uv_projection.rs 662
 crates/popkern-core/src/topology/brep.rs 572

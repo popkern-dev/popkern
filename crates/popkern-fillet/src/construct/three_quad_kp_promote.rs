@@ -159,6 +159,28 @@ pub(super) fn promote_decomp_to_kp_binonic(
             );
         }
     }
+    // PK-283 ring-level crossing gate (validate_all's face-pair class the
+    // per-patch check cannot see). Single choke point for every candidate arm.
+    if let Some(crossing) = popkern_core::geometry::gregory::binonic_ring_crossing(
+        &binonic,
+        crate::construct::kp_exact_boundary_binonic_optimizer::RING_CROSSING_TOLERANCE,
+    ) {
+        let detail = format!(
+            "{}; candidate={candidate_provenance}",
+            crossing.diagnostic_label()
+        );
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            eprintln!("[kp_binonic.promotion] ring_crossing decline: {detail}");
+        }
+        return declined_with_selection(
+            "ring_crossing",
+            n,
+            Some(detail),
+            Some(crossing.separation),
+            Some(crossing.exemption_band),
+            selection_fact.into_iter().chain(rung_facts).collect(),
+        );
+    }
     const COMMERCIAL_G0_GATE: f64 = RING_G0_GATE;
     let post_g0 = worst_ring_g0_gap(&binonic_gp);
     if post_g0 > COMMERCIAL_G0_GATE {
