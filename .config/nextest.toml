@@ -22,19 +22,13 @@ slow-timeout = { period = "120s" }
 # 2026-08-15 were measured at the default 16.)
 test-threads = 12
 
-# PK-268: the KP20-recovery candidate-ranking battery is the nightly
-# tier, not the default sweep. Measured 2026-08-15: the four battery
-# modules held 9,048 s of the suite's 12,362 s total CPU (73%) —
-# hundreds of exhaustive candidate × chart-variant ranking sweeps
-# whose findings are long promoted into the selected construction
-# (the serving path is gated by the kp_* commercial-gate suites,
-# which stay in the default sweep, as do the fast kp20_bi6
-# construction pins in cnet/assemble/validate/stam_eval/math).
-# The battery still runs nightly in full (nightly.yml kp20-battery
-# job). To run it locally:
-#   cargo nextest run -p popkern-core --ignore-default-filter \
-#     -E 'test(/kp20_bi6_(tau_solve_assemble|cc_ring|guide_lsq|local_constraint)::/)'
-default-filter = "not test(/kp20_bi6_(tau_solve_assemble|cc_ring|guide_lsq|local_constraint)::/)"
+# The KP20-recovery candidate-ranking battery (kp20_bi6
+# tau_solve_assemble / cc_ring / guide_lsq / local_constraint) runs
+# in the default sweep. PK-268 carved it out to a nightly tier when
+# it held 9,048 s of the suite's 12,362 s CPU (73%); PK-289 cut the
+# battery to 3,108 s CPU (~315 s wall at 12 threads), and on
+# 2026-08-16 Graeme chose per-push coverage over the saved minutes,
+# so the carve-out and the nightly kp20-battery job were removed.
 
 [profile.ci]
 # CI wants the complete failure picture in one run.

@@ -46,33 +46,6 @@ jobs:
           cargo test --release -p popkern-examples \
             --test pns_toms_fixture_matrix -- --ignored --nocapture
 
-  kp20-battery:
-    name: KP20 candidate-ranking battery
-    runs-on: ubuntu-latest
-    # PK-268: the four kp20_bi6 battery modules are excluded from the
-    # default sweep by .config/nextest.toml's default-filter (measured
-    # 9,048 s CPU = 73% of the whole suite, re-deriving campaign
-    # rankings whose findings are promoted into the selected
-    # construction). This job keeps the full battery running daily.
-    # Budget: 9,048 s CPU on the dev box at ~16-way parallelism; a
-    # 4-vCPU hosted runner at ~1.9× dev cost ≈ 72 min → 240 min is
-    # ~3× headroom.
-    timeout-minutes: 240
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-nextest
-        uses: taiki-e/install-action@nextest
-
-      - name: KP20 ranking battery (kp20_bi6 tau/cc_ring/guide_lsq/local_constraint)
-        run: |
-          cargo nextest run -p popkern-core --ignore-default-filter \
-            -E 'test(/kp20_bi6_(tau_solve_assemble|cc_ring|guide_lsq|local_constraint)::/)'
-
   heavy-roundtrip:
     name: Heavy STEP round-trip (release)
     runs-on: ubuntu-latest
