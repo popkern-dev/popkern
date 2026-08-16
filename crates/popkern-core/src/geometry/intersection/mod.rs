@@ -3,6 +3,7 @@
 pub(crate) mod adaptive_step;
 mod bezier_clipping;
 mod circle_circle;
+mod circle_of_revolution;
 pub mod coincident;
 pub mod coincident_analytic;
 pub(crate) mod cylinder_cone;
@@ -23,6 +24,9 @@ pub(crate) mod plane_cone;
 pub(crate) mod plane_cylinder;
 pub(crate) mod plane_plane;
 pub(crate) mod plane_sphere;
+pub(crate) mod plane_torus;
+mod plane_torus_spiric;
+mod plane_torus_spiric_frame;
 mod rational_bezier;
 pub mod starting_points;
 pub mod surface_curve;
@@ -31,6 +35,7 @@ mod surface_curve_newton;
 mod surface_curve_overlap;
 pub mod surface_subdivision;
 pub mod surface_surface;
+pub(crate) mod torus_coaxial;
 
 pub use surface_curve::{
     SurfaceCurveIntersection, SurfaceCurveIntersectionResult, intersect_surface_curve,

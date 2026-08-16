@@ -21,7 +21,9 @@ use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
-use crate::geometry::intersection::{cylinder_cone, cylinder_cylinder, plane_cone};
+use crate::geometry::intersection::{
+    cylinder_cone, cylinder_cylinder, plane_cone, plane_torus, torus_coaxial,
+};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
@@ -129,9 +131,8 @@ pub fn intersect_surfaces_with_handler(
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
     }
 
-    // Fast path: COAXIAL cylinder-cone pair → exact circle(s). The
-    // marching path fragmented this everyday class (countersunk
-    // bore) into gapped arc copies (PK-147).
+    // Fast path: COAXIAL cylinder-cone pair → exact circle(s); the
+    // marching path fragmented this everyday class (PK-147).
     if let Some(intersections) = cylinder_cone::try_cylinder_cone(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
@@ -146,6 +147,30 @@ pub fn intersect_surfaces_with_handler(
         cylinder_cylinder::try_cylinder_cylinder(surface1, v1_range, surface2, v2_range, tolerance)
     {
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
+    // PK-279 torus analytic arms: plane×torus in any orientation
+    // (exact circles / sampled-analytic spiric sections) and coaxial
+    // {cylinder, cone, sphere, torus}×torus (exact circles). A `None`
+    // (non-torus pair, skew/offset axes, numeric-guard decline) keeps
+    // the marching fallback; coincident coaxial tori fall through to
+    // the coincident detector. POPKERN_ANALYTIC_TORUS_SSI=0 is the
+    // diagnostic kill-switch (PK-239 precedent) pinning the marching
+    // path for A/B measurement and containment.
+    let torus_arms_enabled = std::env::var_os("POPKERN_ANALYTIC_TORUS_SSI")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    if torus_arms_enabled {
+        if let Some(intersections) = plane_torus::try_plane_torus(
+            surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+        ) {
+            return Ok(SurfaceSurfaceIntersectionResult { intersections });
+        }
+        if let Some(intersections) = torus_coaxial::try_torus_coaxial(
+            surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+        ) {
+            return Ok(SurfaceSurfaceIntersectionResult { intersections });
+        }
     }
 
     // Fast path: coincident surfaces → return CoincidentRegion immediately.
