@@ -76,11 +76,22 @@ pub(crate) fn normalize_low_valence_face_for_poke(
             .ok_or_else(|| CoreError::InvalidHandle("edge has no curve".into()))?
             .clone();
         let he_curve = &curve_on_edge.geometry;
-        let (t_min, t_max) = he_curve.parameter_range();
+        // The EDGE's stored window, not the geometry's intrinsic
+        // parameter_range(): a Line's intrinsic range is (−inf, inf),
+        // which disarmed the endpoint-exclusion guards below and let
+        // a junction that projects exactly onto an edge endpoint
+        // split the edge AT its end — the split's empty half then
+        // panicked in `parameter_range` (PK-294, flagship boss
+        // plate).
+        let (t_min, t_max) = (
+            curve_on_edge.t_start.min(curve_on_edge.t_end),
+            curve_on_edge.t_start.max(curve_on_edge.t_end),
+        );
         let mut best: Option<(f64, f64)> = None;
         for jp in &junctions {
             if let Some(t) = he_curve.closest_point(jp) {
-                if t <= t_min + 1e-9 || t >= t_max - 1e-9 {
+                let band = ((t_max - t_min) * 1e-6).max(1e-9);
+                if !t.is_finite() || t <= t_min + band || t >= t_max - band {
                     continue;
                 }
                 let d = he_curve.point_at(t).distance_to(jp);

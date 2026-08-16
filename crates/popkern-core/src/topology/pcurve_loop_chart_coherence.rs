@@ -219,6 +219,112 @@ impl BRep {
     }
 }
 
+impl BRep {
+    /// Repair faces whose stored pcurve loops violate the periodic
+    /// winding invariant by MORE than one period, by re-running
+    /// [`BRep::recompute_face_pcurves`] (whose postcondition includes
+    /// the per-loop closure) on exactly those faces. Returns the
+    /// number of faces repaired.
+    ///
+    /// A net winding of ±1 period is the honest form for an annulus
+    /// loop on a seamless periodic chart and is NOT touched; ≥2
+    /// periods can only come from a loop whose pcurves were written
+    /// by topology surgery AFTER the last recompute (measured: the
+    /// flagship boss plate's mitred seam sliver mixed late-surgery
+    /// seam pcurves with older rim pcurves, the boundary-first mesher
+    /// declined the ±2-period ring, and the fallback grid left 98
+    /// open weld edges). Pipelines that re-topologize faces after
+    /// their last pcurve recompute call this as a final sweep.
+    pub fn repair_periodic_loop_winding(&mut self) -> usize {
+        let faces: Vec<FaceHandle> = self.faces.iter().map(|(fh, _)| fh).collect();
+        let mut repaired = 0usize;
+        for fh in faces {
+            let Some((period_u, period_v)) = self
+                .faces
+                .get(fh)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| s.geometry.periodicity())
+            else {
+                continue;
+            };
+            let mut broken = false;
+            for (axis, period) in [(ChartAxis::U, period_u), (ChartAxis::V, period_v)] {
+                let Some(period) = period.filter(|p| *p > 0.0) else {
+                    continue;
+                };
+                if self.loop_winding_exceeds(fh, period, axis, 1.5) {
+                    broken = true;
+                    break;
+                }
+            }
+            if broken && self.recompute_face_pcurves(fh).is_ok() {
+                repaired += 1;
+            }
+        }
+        repaired
+    }
+
+    /// True when any loop of `face_handle` has stored-chain net
+    /// winding along `axis` exceeding `factor` periods.
+    fn loop_winding_exceeds(
+        &self,
+        face_handle: FaceHandle,
+        period: f64,
+        axis: ChartAxis,
+        factor: f64,
+    ) -> bool {
+        let Some(face) = self.faces.get(face_handle) else {
+            return false;
+        };
+        let mut loop_handles = vec![face.outer_loop];
+        loop_handles.extend(face.inner_loops.iter().copied());
+        for lh in loop_handles {
+            let Some(loop_data) = self.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            if !self.half_edges.contains_key(start) {
+                continue;
+            }
+            let mut prev_end: Option<f64> = None;
+            let mut first_start: Option<f64> = None;
+            let mut complete = true;
+            let mut cursor = start;
+            let limit = self.half_edges.len() + 1;
+            for _ in 0..limit {
+                let Some(pc) = self.half_edges[cursor].pcurve.as_ref() else {
+                    complete = false;
+                    break;
+                };
+                let (t0, t1) = pc.parameter_range();
+                let mut sc = axis.coord(pc.point_at(t0));
+                let mut ec = axis.coord(pc.point_at(t1));
+                if let Some(pe) = prev_end {
+                    let k = ((pe - sc) / period).round();
+                    sc += k * period;
+                    ec += k * period;
+                } else {
+                    first_start = Some(sc);
+                }
+                prev_end = Some(ec);
+                cursor = self.half_edges[cursor].next;
+                if cursor == start {
+                    break;
+                }
+            }
+            if !complete {
+                continue;
+            }
+            if let (Some(fs), Some(pe)) = (first_start, prev_end)
+                && (pe - fs).abs() > factor * period
+            {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 #[path = "pcurve_loop_chart_coherence_tests.rs"]
 mod pcurve_loop_chart_coherence_tests;

@@ -441,9 +441,13 @@ pub(crate) fn fillet_edges_attempt(
     if let Some(ctx) = tracking.as_deref_mut() {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
     }
-    // Displaced-pcurve backstop (PK-211): see
-    // `fillet_pipeline_pcurve_backstop` for the defect class.
-    crate::fillet_pipeline_pcurve_backstop::recompute_displaced_pcurves(&mut apply_result.brep);
+    // PK-211 displaced-pcurve + PK-294 loop-winding backstops: see
+    // `fillet_pipeline_pcurve_backstop` for both defect classes.
+    let winding_repairs =
+        crate::fillet_pipeline_pcurve_backstop::final_pcurve_backstops(&mut apply_result.brep);
+    apply_result
+        .repair_report
+        .edge_curve_endpoint_coherence_repairs += winding_repairs;
     // PK-244 serving-boundary flag reconcile: the orientation flag is
     // derived state (loop winding × surface geometry), so once every
     // pcurve author above has run, each measurable face's flag is set

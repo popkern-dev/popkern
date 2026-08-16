@@ -367,7 +367,6 @@ fn main() {
         result.edge_warnings.len(),
         result.corner_patches.len()
     );
-
     if std::env::var_os("FLAGSHIP_FRAGMENT_PROBE").is_some() {
         for (fh, f) in result.brep.faces.iter() {
             if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder {
@@ -680,9 +679,7 @@ fn main() {
         }
         let open = counts.values().filter(|&&c| c == 1).count();
         println!("stage 4 open edges: {open}");
-        // All three configurations (seam-only, verticals-only, full
-        // 12-edge chain) are watertight gates.
-        assert_eq!(open, 0, "flagship must tessellate watertight");
+        // Sample open edges print BEFORE the gate: localizable failures.
         let mut shown = 0;
         for (&(a, b), &c) in &counts {
             if c == 1 && shown < 6 {
@@ -695,6 +692,9 @@ fn main() {
                 shown += 1;
             }
         }
+        // All three configurations (seam-only, verticals-only, full
+        // 12-edge chain) are watertight gates.
+        assert_eq!(open, 0, "flagship must tessellate watertight");
     }
     let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output");
     std::fs::create_dir_all(&out_dir).expect("out dir");

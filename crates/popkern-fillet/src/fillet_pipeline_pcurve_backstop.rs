@@ -67,3 +67,13 @@ pub(crate) fn recompute_displaced_pcurves(brep: &mut BRep) {
         let _ = brep.recompute_face_pcurves(f);
     }
 }
+
+/// Final pcurve backstops, in order: the PK-211 displaced-pcurve
+/// recompute, then the PK-294 periodic-loop winding repair (late
+/// surgery can leave a loop's stored pcurve chain winding ≥2 periods
+/// — the flagship boss plate's mitred seam sliver welded 98 open
+/// edges without it). Returns the number of winding-repaired faces.
+pub(crate) fn final_pcurve_backstops(brep: &mut BRep) -> usize {
+    recompute_displaced_pcurves(brep);
+    brep.repair_periodic_loop_winding()
+}

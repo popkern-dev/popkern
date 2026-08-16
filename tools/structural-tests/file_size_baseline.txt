@@ -51,7 +51,7 @@ crates/popkern-fillet/src/center_curve.rs 509
 crates/popkern-fillet/src/center_curve_helpers.rs 501
 crates/popkern-fillet/src/chamfer_curve.rs 853
 crates/popkern-fillet/src/construct/blend_insert.rs 619
-crates/popkern-fillet/src/construct/closed_fillet.rs 692
+crates/popkern-fillet/src/construct/closed_fillet.rs 632
 crates/popkern-fillet/src/construct/edge_reconcile.rs 527
 crates/popkern-fillet/src/construct/end_runoff.rs 578
 crates/popkern-fillet/src/construct/kp20_paper_border_extract.rs 1060

@@ -338,11 +338,20 @@ fn baseline_12_edge_cube_fillet_allocation_profile() {
          regression",
         delta.count
     );
+    // Bytes re-pinned 35 → 48 MiB (PK-294): fixing the poke
+    // normalization's infinite-window endpoint guards means the n=3
+    // corner PnS attempts now run to their genuine decline point
+    // (mid-edge junction splits + snapshot/restore per corner)
+    // instead of aborting on an empty-curve split error. Measured
+    // 40.07 MB with allocation COUNT simultaneously improving
+    // (195k → 177k), so this is deeper legitimate exploration, not
+    // buffer growth; headroom keeps the gate sensitive to a further
+    // ~20% regression.
     assert!(
-        delta.bytes < 35 * 1024 * 1024,
+        delta.bytes < 48 * 1024 * 1024,
         "§18 regression: 12-edge cube fillet allocated {} bytes \
-         (threshold 35 MiB; allocation-free NURBS surface eval \
-         baseline ~26 MB) — check for unbounded buffer growth",
+         (threshold 48 MiB; measured 40.07 MB at PK-294 close) \
+         — check for unbounded buffer growth",
         delta.bytes
     );
 }

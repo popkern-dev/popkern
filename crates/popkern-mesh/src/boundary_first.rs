@@ -221,6 +221,9 @@ pub(crate) fn tessellate_face_boundary_first(
             if let Some(p) = period_u
                 && !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate)
             {
+                if std::env::var_os("PK_BF_TRACE").is_some() {
+                    eprintln!("    [bf] face {face_handle:?} u-wrap decline");
+                }
                 dump_ring(&ring, "u");
                 return None;
             }

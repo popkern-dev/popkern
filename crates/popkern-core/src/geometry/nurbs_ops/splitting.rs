@@ -31,9 +31,13 @@ pub(crate) fn split_1d(
 > {
     let t_min = knots[degree];
     let t_max = knots[knots.len() - degree - 1];
-    if t <= t_min || t >= t_max {
+    // The non-finite check matters: NaN compares false against both
+    // bounds and used to sail through, and the downstream partition
+    // then returned an EMPTY half whose parameter_range() panicked
+    // (PK-294).
+    if !t.is_finite() || t <= t_min || t >= t_max {
         return Err(CoreError::PreconditionFailed(format!(
-            "split parameter {} must be strictly inside ({}, {})",
+            "split parameter {} must be finite and strictly inside ({}, {})",
             t, t_min, t_max
         )));
     }
@@ -81,6 +85,18 @@ pub(crate) fn split_1d(
     let right_pts = pts[first_t_idx..].to_vec();
     let right_wts = wts[first_t_idx..].to_vec();
     let right_knots: Vec<f64> = k[first_t_idx..].to_vec();
+
+    // A split must never yield an empty half — an empty NurbsCurve
+    // panics in every accessor. This can only happen on inconsistent
+    // input (mis-clamped knots, split point at a boundary that the
+    // range gate could not see); fail as a typed error instead.
+    if left_pts.is_empty() || right_pts.is_empty() {
+        return Err(CoreError::PreconditionFailed(format!(
+            "split at {t} produced an empty half (left {}, right {})",
+            left_pts.len(),
+            right_pts.len()
+        )));
+    }
 
     // Defensive checks
     debug_assert_eq!(
