@@ -95,7 +95,7 @@ pub(super) fn run_perpendicular_splits(
             );
         }
         if closed_fillet::is_closed_fillet_edge(result, eg.analysis.edge) {
-            match closed_fillet::apply_closed_fillet(result, eg) {
+            match closed_fillet::apply_closed_fillet(result, eg, tolerance) {
                 Ok(strip_face) => {
                     if std::env::var_os("PK_FILLET_TRACE").is_some() {
                         let f = &result.faces[strip_face];

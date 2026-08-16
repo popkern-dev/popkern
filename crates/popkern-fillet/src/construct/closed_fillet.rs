@@ -71,6 +71,7 @@ pub(crate) fn is_closed_fillet_edge(brep: &BRep, edge: EdgeHandle) -> bool {
 pub(crate) fn apply_closed_fillet(
     brep: &mut BRep,
     eg: &EdgeGeometry,
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<popkern_core::topology::FaceHandle, BlendFailure> {
     let fillet_edge = eg.analysis.edge;
     let edge_loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);
@@ -471,11 +472,15 @@ pub(crate) fn apply_closed_fillet(
     //     the Arc edge curves: without them the STEP exporter's
     //     pcurve synthesis disagrees with the exact Arc and swaps it
     //     for a resampled B-spline (the wall face then imports
-    //     broken in OpenCASCADE). Analytic inversion per sample; a
-    //     degree-1 pcurve through 17 samples in each face's own
-    //     chart, parameterized by the SAME angles as the Arc.
+    //     broken in OpenCASCADE). Authored by the shared adaptive
+    //     chart fit (`fit_chart_pcurve`), parameterized by the SAME
+    //     angles as the Arc and mid-knot verified to the linear
+    //     tolerance — the earlier fixed 17-sample polyline left the
+    //     PLANE-side image with ~1.5e-2 chord sag, and a boolean
+    //     trim endpoint solved against it landed 1.8e-5 off the rim
+    //     arc, outside the split stage's vertex-insertion band
+    //     (PK-292).
     {
-        use popkern_core::geometry::curve::CurveEval;
         let author = |brep: &mut BRep, he: popkern_core::topology::HalfEdgeHandle| {
             let (edge_h, face_h) = {
                 let d = &brep.half_edges[he];
@@ -487,35 +492,24 @@ pub(crate) fn apply_closed_fillet(
             let Some(sof) = brep.faces[face_h].surface.clone() else {
                 return;
             };
-            let ceval: &dyn CurveEval = &curve.geometry;
-            let n = 17usize;
-            let mut uv_pts = Vec::with_capacity(n);
-            let mut prev_uv: Option<(f64, f64)> = None;
-            for i in 0..n {
-                let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / (n - 1) as f64;
-                let p = ceval.point_at(t);
-                let uv = popkern_core::geometry::uv_projection::project_point_to_uv_analytic(
-                    &sof.geometry,
-                    &p,
-                    prev_uv,
-                );
-                let Some(uv) = uv else { return };
-                prev_uv = Some(uv);
-                uv_pts.push(Point3::new(uv.0, uv.1, 0.0));
+            // Analytic-first: exact plane arcs / iso-lines agree to
+            // machine precision across seam sides; the adaptive fit
+            // is the fallback for genuinely transcendental images.
+            if let Some(pc) = popkern_core::geometry::chart_pcurve::analytic_chart_pcurve(
+                &sof.geometry,
+                &curve.geometry,
+                (curve.t_start, curve.t_end),
+            ) {
+                brep.half_edges[he].pcurve = Some(pc);
+                return;
             }
-            let mut knots = Vec::with_capacity(n + 2);
-            knots.push(curve.t_start);
-            for i in 0..n {
-                knots.push(
-                    curve.t_start + (curve.t_end - curve.t_start) * i as f64 / (n - 1) as f64,
-                );
-            }
-            knots.push(curve.t_end);
-            let pc = popkern_core::geometry::NurbsCurve {
-                degree: 1,
-                knots,
-                control_points: uv_pts,
-                weights: vec![1.0; n],
+            let Some(pc) = popkern_core::geometry::chart_pcurve::fit_chart_pcurve(
+                &sof.geometry,
+                &curve.geometry,
+                (curve.t_start, curve.t_end),
+                tolerance,
+            ) else {
+                return;
             };
             brep.half_edges[he].pcurve = Some(pc.into());
         };
