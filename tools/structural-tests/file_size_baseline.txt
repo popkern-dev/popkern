@@ -21,7 +21,7 @@ crates/popkern-core/src/geometry/gregory/kp15_bi6_local_constraint.rs 2570
 crates/popkern-core/src/geometry/gregory/kp15_bi6_local_constraint_tests.rs 2347
 crates/popkern-core/src/geometry/gregory/kp20_bi6_assemble.rs 811
 crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring.rs 1912
-crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests.rs 23931
+crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests.rs 17588
 crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq.rs 503
 crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq_tests.rs 15315
 crates/popkern-core/src/geometry/gregory/kp20_bi6_local_constraint.rs 1548

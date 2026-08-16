@@ -34,3 +34,20 @@ test-threads = 12
 # CI wants the complete failure picture in one run.
 fail-fast = false
 failure-output = "immediate-final"
+
+# Ranking-identity audit harness for the kp20_bi6 candidate-ranking
+# battery (PK-291). Runs only the battery and stores every test's
+# captured output in JUnit XML so two runs can be compared
+# structurally (ranking orders, verdict labels, counts) across a
+# solver change whose floating-point path differs in ULPs. Compare
+# with tools/battery-ranking-diff.py.
+#   cargo nextest run -p popkern-core --profile battery-audit
+# Output: target/nextest/battery-audit/battery-audit.xml
+[profile.battery-audit]
+default-filter = "test(/kp20_bi6_(tau_solve_assemble|cc_ring|guide_lsq|local_constraint)::/)"
+fail-fast = false
+
+[profile.battery-audit.junit]
+path = "battery-audit.xml"
+store-success-output = true
+store-failure-output = true

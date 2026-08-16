@@ -4609,11 +4609,17 @@ fn pr08_best_exact_stam_side_source_projection_weight_pareto_is_measured() {
     );
     assert_eq!(best_by_domain.0, 0);
     assert_eq!(best_by_domain.1, 0);
-    assert!(best_by_domain.3 < 4.0e-14);
+    // Roundoff-only bound: the winner's max simplex excess is
+    // boundary-sample rounding noise (measured 3.3e-14 under the
+    // scalar KKT solve, 5.0e-14 under the blocked LU — PK-291),
+    // twelve orders below the rejected candidates' real excess
+    // (~1.4e0 at weight=1e4). 1e-13 keeps 2× margin over the
+    // measured noise while still separating the classes.
+    assert!(best_by_domain.3 < 1.0e-13);
     assert!(best_by_domain.7 > 0.49 && best_by_domain.7 < 0.50);
     assert_eq!(best_by_orientation.1, 0);
     assert_eq!(best_by_orientation.0, 0);
-    assert!(best_by_orientation.3 < 4.0e-14);
+    assert!(best_by_orientation.3 < 1.0e-13);
     assert_eq!(fine_validity.domain.outside_triangle_samples, 0);
     assert_eq!(fine_validity.orientation.negative_determinants, 0);
 }
@@ -13558,6 +13564,7 @@ fn stam_appendix_a_scaled_pr08_q13_q2_eq9_source_sweep_remains_rejected() {
         origin_terms: Kp20Eq9DiagnosticTerms::paper(),
         midpoint_terms: Kp20Eq9DiagnosticTerms::paper(),
     };
+    let mut least_bad_class: Vec<Kp20Eq9DiagnosticTerms> = Vec::new();
 
     for midpoint_signs in kp20_eq9_term_sign_variants() {
         for midpoint_terms in kp20_eq9_term_source_variants(midpoint_signs) {
@@ -13594,6 +13601,19 @@ fn stam_appendix_a_scaled_pr08_q13_q2_eq9_source_sweep_remains_rejected() {
                 },
             )
             .unwrap();
+            eprintln!(
+                "eq9 source sweep variant duv={:?} duu={:?} du={:?} signs=({},{},{}) residual={:e}",
+                midpoint_terms.duv_source,
+                midpoint_terms.duu_source,
+                midpoint_terms.du_source,
+                midpoint_terms.signs.two_b_duv,
+                midpoint_terms.signs.b_sq_duu,
+                midpoint_terms.signs.b_bprime_du,
+                solved.max_constraint_residual
+            );
+            if solved.max_constraint_residual > 19.4 && solved.max_constraint_residual < 19.5 {
+                least_bad_class.push(midpoint_terms);
+            }
             if solved.max_constraint_residual < best.residual {
                 best = Kp20Eq9TermSourceDiagnostic {
                     residual: solved.max_constraint_residual,
@@ -13608,12 +13628,37 @@ fn stam_appendix_a_scaled_pr08_q13_q2_eq9_source_sweep_remains_rejected() {
         best.residual > 19.4 && best.residual < 19.5,
         "corrected scaled q13/q2 source should remain rejected after midpoint eq9 source/sign sweep, got {best:?}"
     );
-    assert_eq!(best.midpoint_terms.duv_source, Kp20Eq9TermSource::Current);
-    assert_eq!(best.midpoint_terms.duu_source, Kp20Eq9TermSource::Previous);
-    assert_eq!(best.midpoint_terms.du_source, Kp20Eq9TermSource::Previous);
-    assert_eq!(best.midpoint_terms.signs.two_b_duv, 1.0);
-    assert_eq!(best.midpoint_terms.signs.b_sq_duu, -1.0);
-    assert_eq!(best.midpoint_terms.signs.b_bprime_du, 1.0);
+    // The least-bad class is an 8-way tie (identical residuals to
+    // ~11 significant digits — measured 2026-08-16, PK-291): the
+    // argmin's identity within it is solver rounding noise, so the
+    // pinned facts are the class's structure, not which member the
+    // sweep happens to visit at the lowest noise. Every member
+    // shares duu/du sourced from the previous sector with the
+    // b²·d_uu and b·b′·d_u sign flips anti-correlated; the d_uv
+    // source and the 2b·d_uv sign are fully degenerate. The
+    // remaining sign combinations of the same source class are
+    // rejected far away (≈41.2), as are the other source classes
+    // (≈26.3, ≈34.0).
+    assert_eq!(least_bad_class.len(), 8, "{least_bad_class:?}");
+    for terms in &least_bad_class {
+        assert_eq!(terms.duu_source, Kp20Eq9TermSource::Previous);
+        assert_eq!(terms.du_source, Kp20Eq9TermSource::Previous);
+        assert_eq!(terms.signs.b_sq_duu * terms.signs.b_bprime_du, -1.0);
+    }
+    for duv in [Kp20Eq9TermSource::Previous, Kp20Eq9TermSource::Current] {
+        assert!(
+            least_bad_class.iter().any(|terms| terms.duv_source == duv),
+            "d_uv source {duv:?} missing from the tied class"
+        );
+    }
+    for sign in [1.0, -1.0] {
+        assert!(
+            least_bad_class
+                .iter()
+                .any(|terms| terms.signs.two_b_duv == sign),
+            "2b·d_uv sign {sign} missing from the tied class"
+        );
+    }
 }
 
 #[test]

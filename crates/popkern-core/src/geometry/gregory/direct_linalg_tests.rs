@@ -94,28 +94,38 @@ fn lcg_next(state: &mut u64) -> f64 {
     ((*state >> 11) as f64) / ((1u64 << 53) as f64) * 2.0 - 1.0
 }
 
+/// Deterministic dense system with row-magnitude spread so the
+/// partial-pivot search actually swaps rows, exercising the same
+/// elimination paths the KKT solves take.
+fn lcg_system(state: &mut u64, n: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
+    let mut m = vec![vec![0.0_f64; n]; n];
+    for row in m.iter_mut() {
+        for entry in row.iter_mut() {
+            *entry = lcg_next(state);
+        }
+    }
+    for (r, row) in m.iter_mut().enumerate() {
+        let scale = if r % 3 == 0 { 100.0 } else { 1.0 };
+        for entry in row.iter_mut() {
+            *entry *= scale;
+        }
+    }
+    let b: Vec<f64> = (0..n).map(|_| lcg_next(state)).collect();
+    (m, b)
+}
+
 #[test]
-fn solve_dense_is_bit_identical_to_the_clone_based_reference() {
+fn scalar_branch_is_bit_identical_to_the_clone_based_reference() {
     let mut state = 0x5eed_u64;
     for n in [1usize, 2, 3, 7, 24, 61, 128] {
-        // Dense systems with magnitudes spread across rows so the
-        // partial-pivot search actually swaps rows, exercising the
-        // same elimination paths the KKT solves take.
-        let mut m = vec![vec![0.0_f64; n]; n];
-        for row in m.iter_mut() {
-            for entry in row.iter_mut() {
-                *entry = lcg_next(&mut state);
-            }
-        }
-        for (r, row) in m.iter_mut().enumerate() {
-            let scale = if r % 3 == 0 { 100.0 } else { 1.0 };
-            for entry in row.iter_mut() {
-                *entry *= scale;
-            }
-        }
-        let b: Vec<f64> = (0..n).map(|_| lcg_next(&mut state)).collect();
+        let (m, b) = lcg_system(&mut state, n);
         let reference = solve_dense_reference(m.clone(), b.clone());
-        let solved = solve_dense(m, b);
+        // The scalar branch is called directly: the bit-identity
+        // contract is branch-scoped (PK-291) — sizes at or above
+        // FAER_LU_DISPATCH_DIM dispatch to the blocked LU, which is
+        // held to ranking/verdict identity instead (see the
+        // agreement test below and tools/battery-ranking-diff.py).
+        let solved = solve_dense_scalar(m, b);
         match (reference, solved) {
             (Some(reference), Some(solved)) => {
                 assert_eq!(reference.len(), solved.len(), "n={n}");
@@ -131,6 +141,80 @@ fn solve_dense_is_bit_identical_to_the_clone_based_reference() {
             (reference, solved) => {
                 panic!("solvability diverged at n={n}: reference={reference:?} solved={solved:?}")
             }
+        }
+    }
+}
+
+#[test]
+fn faer_lu_branch_agrees_with_scalar_elimination() {
+    let mut state = 0xfae5_u64;
+    for n in [FAER_LU_DISPATCH_DIM, 128, 300] {
+        let (m, b) = lcg_system(&mut state, n);
+        let scalar = solve_dense_scalar(m.clone(), b.clone()).expect("scalar solved");
+        let blocked = solve_dense_faer_lu(m.clone(), b.clone()).expect("faer solved");
+        // Same system, same elimination in exact arithmetic — the
+        // two solutions differ only by summation-order rounding.
+        // Compare through the residual scale: both must reproduce
+        // the right-hand side to the same accuracy class.
+        let scale: f64 = b.iter().map(|v| v.abs()).fold(1.0, f64::max);
+        for (i, (row, &target)) in m.iter().zip(&b).enumerate() {
+            let scalar_residual: f64 =
+                row.iter().zip(&scalar).map(|(&c, &x)| c * x).sum::<f64>() - target;
+            let blocked_residual: f64 =
+                row.iter().zip(&blocked).map(|(&c, &x)| c * x).sum::<f64>() - target;
+            assert!(
+                scalar_residual.abs() <= 1e-8 * scale,
+                "n={n} row {i}: scalar residual {scalar_residual:e}"
+            );
+            assert!(
+                blocked_residual.abs() <= 1e-8 * scale,
+                "n={n} row {i}: blocked residual {blocked_residual:e}"
+            );
+        }
+        let solution_scale: f64 = scalar.iter().map(|v| v.abs()).fold(1.0, f64::max);
+        for (i, (s, f)) in scalar.iter().zip(&blocked).enumerate() {
+            assert!(
+                (s - f).abs() <= 1e-6 * solution_scale,
+                "n={n} x[{i}]: scalar {s:e} vs blocked {f:e}"
+            );
+        }
+    }
+}
+
+#[test]
+fn faer_lu_branch_declines_singular_systems() {
+    // An all-zero column makes the chosen pivot exactly zero in both
+    // branches — a deterministic decline. (A merely rank-deficient
+    // matrix, e.g. a duplicated row, is NOT a robust decline case
+    // for either branch: with O(100) entries the elimination residue
+    // where the zero pivot should be lands near n·ε·‖A‖ ≈ 1e-13,
+    // above the absolute 1e-14 threshold. The threshold is a
+    // machine-precision guard, not a rank test — callers needing
+    // rank semantics use `dense_rank`/SVD.)
+    let n = FAER_LU_DISPATCH_DIM.max(80);
+    let mut state = 0x51e6_u64;
+    let (mut m, b) = lcg_system(&mut state, n);
+    let dead_column = n / 2;
+    for row in m.iter_mut() {
+        row[dead_column] = 0.0;
+    }
+    assert!(solve_dense_faer_lu(m.clone(), b.clone()).is_none());
+    assert!(solve_dense_scalar(m, b).is_none());
+}
+
+#[test]
+fn solve_dense_dispatch_serves_both_sides_of_the_threshold() {
+    let mut state = 0xd15b_u64;
+    for n in [FAER_LU_DISPATCH_DIM - 1, FAER_LU_DISPATCH_DIM] {
+        let (m, b) = lcg_system(&mut state, n);
+        let x = solve_dense(m.clone(), b.clone()).expect("solved");
+        let scale: f64 = b.iter().map(|v| v.abs()).fold(1.0, f64::max);
+        for (i, (row, &target)) in m.iter().zip(&b).enumerate() {
+            let residual: f64 = row.iter().zip(&x).map(|(&c, &xi)| c * xi).sum::<f64>() - target;
+            assert!(
+                residual.abs() <= 1e-8 * scale,
+                "n={n} row {i}: residual {residual:e}"
+            );
         }
     }
 }
