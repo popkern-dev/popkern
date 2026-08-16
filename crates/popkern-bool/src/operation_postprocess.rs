@@ -282,6 +282,22 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
         crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
     }
 
+    // Post-processing: retire degenerate spur edges (PK-293). Runs
+    // AFTER the micro-edge position pass so spurs that pass squashed
+    // to zero length are caught along with walk-emitted stubs; each
+    // removal is a transactional kev.
+    let spur_report =
+        crate::postprocess::spur_edge::collapse_degenerate_spur_edges(result, tolerance);
+    if spur_report.spurs_removed > 0
+        && (std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions))
+    {
+        eprintln!(
+            "[boolean] post-processing: retired {} degenerate spur edge(s)",
+            spur_report.spurs_removed
+        );
+    }
+    trace_face_census("post-spur", result);
+
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than
     // original entities due to numerical approximation.

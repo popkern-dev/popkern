@@ -381,7 +381,11 @@ pub(crate) fn assemble_result(
 
     for (heh, twin_h) in &twin_fixups {
         // Point the surviving twin's twin to itself so it doesn't
-        // reference a removed handle.
+        // reference a removed handle. A self-twinned survivor whose
+        // edge later degenerates to zero length is retired by the
+        // spur/self-twin postprocess pass (PK-293) — the walk-level
+        // half-wiring that strands these halves is the recorded
+        // follow-up.
         if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
             twin.twin = *twin_h;
         }

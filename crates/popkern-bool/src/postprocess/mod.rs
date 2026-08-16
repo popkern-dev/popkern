@@ -6,6 +6,7 @@ pub mod loop_repair;
 pub mod quality;
 pub mod redundant_edge;
 pub mod sliver_removal;
+pub mod spur_edge;
 
 #[cfg(test)]
 #[path = "postprocess_tests.rs"]
