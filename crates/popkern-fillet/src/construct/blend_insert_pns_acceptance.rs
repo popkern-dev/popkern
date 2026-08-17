@@ -163,12 +163,31 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     // best pcurve the kernel can compute still sits 4.6e-2 off, the
     // curve and the surface may simply disagree — which would be a G0
     // defect underneath, not a trim-curve problem.
+    //
+    // Probe-gated (PK-298): this audit is PK-203 investigation
+    // instrumentation, not a gate input — nothing downstream reads
+    // it. Its 21 Newton `closest_point` projections per half-edge
+    // across every audited face measured 42ms of the 52ms n=3
+    // dispatch attempt (~80%), and with PNS_MIN_VALENCE=3 that cost
+    // lands on every cube-class corner that ultimately declines —
+    // the 12-edge cube fillet regressed 106ms → 515ms past its CI
+    // budget. `POPKERN_PNS_CURVE_AUDIT=1` restores the measurement;
+    // the diagnostic records that the audit was skipped otherwise.
     let mut worst_curve_off_surface = 0.0_f64;
     // Identity of the worst curve/surface disagreement — the scalar
     // alone cannot say WHOSE edge is off WHICH surface, which is the
     // whole PK-203 question.
-    let mut worst_off_detail = String::from("none");
-    for &face in &audited {
+    let mut worst_off_detail = if pns_curve_audit_enabled() {
+        String::from("none")
+    } else {
+        String::from("skipped:set POPKERN_PNS_CURVE_AUDIT=1")
+    };
+    let audit_faces: &[popkern_core::topology::FaceHandle] = if pns_curve_audit_enabled() {
+        &audited
+    } else {
+        &[]
+    };
+    for &face in audit_faces {
         let Some(fd) = brep.faces.get(face) else {
             continue;
         };
@@ -400,6 +419,17 @@ fn surface_kind_name(surface: &popkern_core::geometry::SurfaceGeometry) -> &'sta
         SurfaceGeometry::Gregory(_) => "Gregory",
         SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
+}
+
+/// PK-203 diagnostic-probe switch: `POPKERN_PNS_CURVE_AUDIT=1`
+/// enables the curve-off-surface audit inside the PnS acceptance
+/// harness (21 Newton projections per half-edge over the audited
+/// faces — ~80% of a declining n=3 attempt's cost, see PK-298).
+/// Default off; the acceptance decision never reads its output.
+fn pns_curve_audit_enabled() -> bool {
+    std::env::var("POPKERN_PNS_CURVE_AUDIT")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 /// PK-203 diagnostic-probe switch: `POPKERN_PNS_FORCE_ACCEPT=1`

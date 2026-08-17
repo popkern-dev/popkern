@@ -120,9 +120,17 @@ fn twelve_edge_cube_fillet_within_budget() {
         fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None)
             .expect("12-edge cube fillet succeeds");
     });
-    // Measured 85.4 ms best-of-5 release (2026-08-14, PK-281 NURBS
-    // eval rewrite; was 105.3 ms) × 5 ≈ 425 ms.
-    assert_budget("12-edge cube fillet (G1)", measured, 425);
+    // Measured 186 ms best-of-5 release (2026-08-17, PK-298) × 5 ≈
+    // 930 ms. Re-baselined from 85.4 ms (2026-08-14, PK-281): the
+    // PK-294 endpoint-window fix un-crashed the n=3 PnS dispatch, so
+    // each of the 8 corners now honestly constructs and measures a
+    // PnS cap candidate (~10 ms) before declining to the sphere —
+    // real acceptance work, where before the attempt died free on a
+    // split error. The other 330 ms of that regression was the
+    // PK-203 curve-off-surface audit running unconditionally; PK-298
+    // gated it behind POPKERN_PNS_CURVE_AUDIT (decision-neutral —
+    // nothing reads its output).
+    assert_budget("12-edge cube fillet (G1)", measured, 930);
 }
 
 /// Full 12-edge cube fillet through the G2 construction ladder
