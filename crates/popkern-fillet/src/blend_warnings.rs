@@ -218,10 +218,14 @@ pub enum BlendWarning {
     /// the blend (mesh tessellation, boolean consumers) may
     /// show a visible seam where the bridge leaves the face.
     ///
-    /// Callers can surface this warning in a UI as "curved-
-    /// support blend fell back to planar approximation" — in
-    /// the common case (planar supports), this variant is never
-    /// emitted.
+    /// Callers can surface this warning in a UI as "blend
+    /// boundary fell back to a straight-line bridge". Two paths
+    /// emit it: (a) a curved support whose surface bridge failed
+    /// to build, and (b) the saddle/mixed-convexity path where
+    /// neither bridge endpoint sits on ANY support within
+    /// tolerance — there `surface_kind` names the BEST-EFFORT
+    /// face the bridge was attributed to, which can be `"Plane"`
+    /// (the endpoints are off-plane trim ends, not on it).
     SurfaceBridgeFallback {
         /// The vertex whose blend boundary triggered the fallback.
         vertex: VertexHandle,
