@@ -7,6 +7,7 @@
 mod chains;
 mod convexity;
 
+pub(crate) use chains::vertex_incidences;
 pub use chains::{detect_chains, group_vertices};
 
 use popkern_core::geometry::Vec3;

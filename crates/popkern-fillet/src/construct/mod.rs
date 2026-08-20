@@ -124,6 +124,7 @@ mod promotion_ladder;
 mod route_decision;
 mod sliver_absorb;
 mod sliver_absorb_classifiers;
+mod sliver_absorb_measure;
 mod sphere_fit_edge_wire;
 mod sphere_fit_edge_wire_cap_identity;
 pub(crate) mod stale_vertex_settle;
@@ -273,18 +274,14 @@ pub fn apply_blend_geometry(
     // a cancel poll fired (early return happens outside the timing wrapper).
     let (blend_cancelled, ms) = pipeline_timing::timed(|| {
         if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
-            let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
-                std::collections::BTreeMap::new();
-            for (idx, eg) in edge_geometries.iter().enumerate() {
-                vertex_edges
-                    .entry(eg.analysis.vertex_start)
-                    .or_default()
-                    .push(idx);
-                vertex_edges
-                    .entry(eg.analysis.vertex_end)
-                    .or_default()
-                    .push(idx);
-            }
+            // Closed edges count ONCE at their closure vertex — a
+            // closure vertex is not a corner and must not enter the
+            // vertex-blend dispatch as one (PK-296).
+            let vertex_edges = crate::analysis::vertex_incidences(
+                edge_geometries
+                    .iter()
+                    .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
+            );
             // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
             // A-through-C). Post-modification, original edge handles are
             // stale and `classify_vertex_blend` silently defaults to

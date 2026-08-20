@@ -15,8 +15,13 @@
 //! architectural invariants (restart-after-mutation, directional
 //! kef, iteration cap).
 //!
-//! No function bodies were modified during the extraction — these
-//! are byte-for-byte the originals from `sliver_absorb.rs`.
+//! Measurement contract (PK-296): vertex positions are the
+//! pipeline's live truth — mid-pipeline surgery moves vertices
+//! without re-authoring curves. Stored curves arbitrate only where
+//! the vertex skeleton is STRUCTURALLY silent: topologically closed
+//! edges (hole rims, contact circles), whose endpoint span is 0 by
+//! construction. Classes A and B give such loops a curve-sampled
+//! second look before classifying them as slivers.
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -108,8 +113,15 @@ pub(super) fn find_corner_fragment_target(
     None
 }
 
+use super::sliver_absorb_measure::{outer_loop_has_closed_edge, sampled_boundary_area};
+
 /// Class A: face whose outer-loop polygonal area is below
 /// `tolerance.linear()²`. Returns `(sliver_face, neighbour_side_he, area)`.
+///
+/// Vertex-polygon first (the pipeline's live truth); a degenerate
+/// reading on a loop that walks a closed edge is re-measured through
+/// the stored curves before classifying (PK-296 — closed circle
+/// edges collapse the vertex skeleton of macroscopic faces).
 pub(super) fn find_zero_area_target(
     brep: &BRep,
     tolerance: &Tolerance,
@@ -133,6 +145,9 @@ pub(super) fn find_zero_area_target(
         }
         let area = total.length() * 0.5;
         if area >= tol_sq {
+            continue;
+        }
+        if outer_loop_has_closed_edge(brep, fh) && sampled_boundary_area(brep, fh) >= tol_sq {
             continue;
         }
         // Zero-area face. Find a half-edge on its outer loop whose
@@ -265,7 +280,42 @@ pub(super) fn find_short_edge_target(
             };
             let p_start = start_vertex.position;
             let p_end = end_vertex.position;
-            let length = (p_end - p_start).length();
+            // Endpoint distance is the live truth (mid-pipeline
+            // surgery moves vertices without re-authoring curves) —
+            // EXCEPT on a topologically CLOSED edge (start == end,
+            // e.g. a hole rim or contact circle), where it is 0 by
+            // construction despite up to 2πr of arc (PK-296). There
+            // the stored curve's chord sum is the only honest
+            // measure; a closed edge with no stored curve cannot be
+            // measured and is not classified.
+            let mut length = (p_end - p_start).length();
+            let edge_is_closed = he.origin == next_he.origin && he.next != cursor;
+            let self_loop = he.next == cursor;
+            if length < tol && (edge_is_closed || self_loop) {
+                match brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
+                    Some(curve) => {
+                        use popkern_core::geometry::curve::CurveEval;
+                        let eval: &dyn CurveEval = &curve.geometry;
+                        let mut sum = 0.0_f64;
+                        let mut prev = eval.point_at(curve.t_start);
+                        for i in 1..=9 {
+                            let t =
+                                curve.t_start + (curve.t_end - curve.t_start) * (i as f64 / 9.0);
+                            let p = eval.point_at(t);
+                            sum += prev.distance_to(&p);
+                            prev = p;
+                        }
+                        length = sum;
+                    }
+                    None => {
+                        cursor = he.next;
+                        if cursor == start_he {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
             if length < tol {
                 // Short edge. Return `cursor` — the half-edge
                 // whose face is the current face. kef will kill

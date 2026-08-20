@@ -84,18 +84,14 @@ pub(super) fn promoted_apexes_for_mode(
     if *vertex_mode != super::VertexMode::Smooth || edge_geometries.len() < 2 {
         return std::collections::BTreeSet::new();
     }
-    let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
-        std::collections::BTreeMap::new();
-    for (index, geometry) in edge_geometries.iter().enumerate() {
-        vertex_edges
-            .entry(geometry.analysis.vertex_start)
-            .or_default()
-            .push(index);
-        vertex_edges
-            .entry(geometry.analysis.vertex_end)
-            .or_default()
-            .push(index);
-    }
+    // Closed edges count ONCE at their closure vertex (PK-296) —
+    // mirrors the dispatch loop's map so promotion can never target
+    // a closure vertex the dispatch loop will not visit.
+    let vertex_edges = crate::analysis::vertex_incidences(
+        edge_geometries
+            .iter()
+            .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
+    );
     vertex_edges
         .into_iter()
         .filter(|(vertex, edge_indices)| {

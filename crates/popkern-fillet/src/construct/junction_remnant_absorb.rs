@@ -214,15 +214,15 @@ fn smooth_junctions(
     brep: &BRep,
     edge_geometries: &[EdgeGeometry],
 ) -> Vec<(VertexHandle, usize, usize)> {
-    use std::collections::BTreeMap;
-    let mut by_vertex: BTreeMap<VertexHandle, Vec<usize>> = BTreeMap::new();
-    for (i, eg) in edge_geometries.iter().enumerate() {
-        by_vertex
-            .entry(eg.analysis.vertex_start)
-            .or_default()
-            .push(i);
-        by_vertex.entry(eg.analysis.vertex_end).or_default().push(i);
-    }
+    // Closed edges count ONCE at their closure vertex (PK-296): a
+    // closure vertex previously read as a valence-2 "junction" of an
+    // edge with itself and got a remnant dividing plane built from
+    // one edge's two end tangents.
+    let by_vertex = crate::analysis::vertex_incidences(
+        edge_geometries
+            .iter()
+            .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
+    );
     let trace = std::env::var_os("PK_JUNCTION_TRACE").is_some();
     let mut out = Vec::new();
     for (v, egs) in by_vertex {

@@ -182,25 +182,41 @@ fn edge_tangent_at_vertex(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -
     Some(tangent)
 }
 
+/// Vertex → indices of DISTINCT blend edges incident there, built
+/// from each edge's `(vertex_start, vertex_end)` pair.
+///
+/// A closed edge (start == end — a circular hole rim, a boss seam
+/// circle) contributes ONE incidence at its closure vertex. The
+/// closure vertex is the closed loop's parameterization seam, not a
+/// junction between two fillets: counting it twice manufactured a
+/// phantom 2-edge corner there, and the smooth vertex blend then
+/// declined against a corner that does not exist (PK-296 — every
+/// closed fillet in Smooth mode shipped a spurious Smooth→Mitred
+/// fallback warning). The closed-fillet surgery owns that vertex;
+/// vertex-blend machinery engages only when a SECOND distinct
+/// fillet edge genuinely ends there.
+pub(crate) fn vertex_incidences(
+    ends: impl Iterator<Item = (VertexHandle, VertexHandle)>,
+) -> std::collections::BTreeMap<VertexHandle, Vec<usize>> {
+    let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (idx, (start, end)) in ends.enumerate() {
+        vertex_edges.entry(start).or_default().push(idx);
+        if end != start {
+            vertex_edges.entry(end).or_default().push(idx);
+        }
+    }
+    vertex_edges
+}
+
 /// Group vertices where multiple fillet edges meet.
 ///
 /// Returns a list of (vertex, vec of edge indices) for each vertex
-/// touched by two or more edges in `analyses`.
+/// touched by two or more DISTINCT edges in `analyses` (a closed
+/// edge counts once at its closure vertex — see
+/// [`vertex_incidences`]).
 pub fn group_vertices(analyses: &[EdgeAnalysis]) -> Vec<(VertexHandle, Vec<usize>)> {
-    use std::collections::HashMap;
-
-    let mut vertex_edges: HashMap<VertexHandle, Vec<usize>> = HashMap::new();
-
-    for (idx, analysis) in analyses.iter().enumerate() {
-        vertex_edges
-            .entry(analysis.vertex_start)
-            .or_default()
-            .push(idx);
-        vertex_edges
-            .entry(analysis.vertex_end)
-            .or_default()
-            .push(idx);
-    }
+    let vertex_edges = vertex_incidences(analyses.iter().map(|a| (a.vertex_start, a.vertex_end)));
 
     // Keep only vertices with 2+ edges.
     let mut groups: Vec<(VertexHandle, Vec<usize>)> = vertex_edges
@@ -269,6 +285,28 @@ mod tests {
     fn group_vertices_empty() {
         let groups = group_vertices(&[]);
         assert!(groups.is_empty());
+    }
+
+    /// PK-296: a closed edge (start == end) contributes ONE incidence
+    /// at its closure vertex — the closure vertex is a parameterization
+    /// seam, not a junction, and must not read as a phantom 2-edge
+    /// corner in the vertex-blend dispatch.
+    #[test]
+    fn vertex_incidences_counts_closed_edge_once() {
+        let cube = make_cube();
+        let v: Vec<VertexHandle> = cube.vertices.keys().collect();
+        // One closed edge (v0→v0) plus one open edge (v0→v1).
+        let incidences = vertex_incidences([(v[0], v[0]), (v[0], v[1])].into_iter());
+        assert_eq!(
+            incidences[&v[0]],
+            vec![0, 1],
+            "closure vertex: one incidence from the closed edge, one from the open edge"
+        );
+        assert_eq!(incidences[&v[1]], vec![1]);
+        // A lone closed edge yields valence 1 at its closure vertex —
+        // below the >= 2 corner threshold everywhere it is consumed.
+        let lone = vertex_incidences([(v[0], v[0])].into_iter());
+        assert_eq!(lone[&v[0]], vec![0]);
     }
 
     #[test]

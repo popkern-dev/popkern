@@ -19,6 +19,13 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
+// NOTE: the collapsed-face fixtures below move VERTICES and leave
+// the cube's stored Line curves stale. That is deliberate and pinned:
+// mid-pipeline surgery does exactly this (PK-159 interference seam),
+// so vertex positions are the classifiers' live truth for open edges
+// — stored curves arbitrate only on topologically closed edges,
+// where the vertex skeleton is structurally silent (PK-296).
+
 // ---------------------------------------------------------------------------
 // Negative path — clean cube has no slivers at all.
 // ---------------------------------------------------------------------------
@@ -147,6 +154,28 @@ fn short_edge_not_detected_on_pristine_cube() {
     assert!(
         result.is_none(),
         "pristine cube has unit-length edges — no short-edge detection"
+    );
+}
+
+/// PK-296: vertex-skeleton measurements lie about loops carrying
+/// closed circle edges. A cylinder primitive's lateral loop has the
+/// vertex skeleton [bot, bot, top, top] (vertex-polygon area exactly
+/// 0) and its rim edges are closed circles (endpoint distance exactly
+/// 0 despite 2πr of arc). Both classifiers previously flagged these
+/// macroscopic faces as slivers — on the flagship boss plate the
+/// closed-fillet strip and both supports shipped three spurious
+/// SliverRetained warnings per operation.
+#[test]
+fn classifiers_do_not_flag_closed_circle_loops() {
+    let brep = BRep::cylinder(0.35, 1.0, tol()).unwrap();
+    let retained = std::collections::HashSet::new();
+    assert!(
+        find_zero_area_target(&brep, &tol(), &retained).is_none(),
+        "cylinder faces are macroscopic — the curve-sampled boundary area must see them"
+    );
+    assert!(
+        find_short_edge_target(&brep, &tol(), &retained).is_none(),
+        "closed rim circles have 2πr of arc — endpoint distance must not classify them short"
     );
 }
 

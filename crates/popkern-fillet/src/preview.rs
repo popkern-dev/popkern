@@ -273,18 +273,14 @@ pub fn preview_corner_patches(
         }
     }
 
-    let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
-        std::collections::BTreeMap::new();
-    for (idx, eg) in edge_geometries.iter().enumerate() {
-        vertex_edges
-            .entry(eg.analysis.vertex_start)
-            .or_default()
-            .push(idx);
-        vertex_edges
-            .entry(eg.analysis.vertex_end)
-            .or_default()
-            .push(idx);
-    }
+    // Closed edges count ONCE at their closure vertex (PK-296) —
+    // the preview must not advertise a corner patch the apply path
+    // will never construct.
+    let vertex_edges = crate::analysis::vertex_incidences(
+        edge_geometries
+            .iter()
+            .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
+    );
 
     let mut out: Vec<CornerPatchPreview> = Vec::new();
     for (vertex, edge_indices) in &vertex_edges {

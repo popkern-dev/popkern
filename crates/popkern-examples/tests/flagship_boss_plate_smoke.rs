@@ -126,6 +126,44 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
         .expect("flagship fillet must complete");
     result.brep.validate().expect("filleted flagship validates");
 
+    // PK-296: the circular seam is a CLOSED fillet — its closure
+    // vertex is a parameterization seam, not a corner, and the
+    // closed-fillet faces (strip + both supports) are macroscopic.
+    // Serving it must not manufacture a phantom corner at the
+    // closure vertex (Smooth→Mitred fallback) or misclassify the
+    // closed-fillet faces as retained slivers. The plate's open-chain
+    // 2-fillet corners legitimately serve Mitred here (their sharp
+    // vertical edge must survive), so the vertex-mode check is
+    // scoped to the closure vertex.
+    let closure_vertices: Vec<_> = specs
+        .iter()
+        .filter_map(|s| {
+            let he = &unioned.half_edges[unioned.edges[s.edge].half_edge];
+            let twin_origin = unioned.half_edges[he.twin].origin;
+            (he.origin == twin_origin).then_some(he.origin)
+        })
+        .collect();
+    assert_eq!(
+        closure_vertices.len(),
+        1,
+        "exactly one closed edge (the boss seam) in the flagship chain"
+    );
+    let seam_noise: Vec<_> = result
+        .edge_warnings
+        .iter()
+        .filter(|(_, w)| match w {
+            popkern_fillet::BlendWarning::VertexModeFallback { vertex, .. } => {
+                vertex.is_some_and(|v| closure_vertices.contains(&v))
+            }
+            popkern_fillet::BlendWarning::SliverRetained { .. } => true,
+            _ => false,
+        })
+        .collect();
+    assert!(
+        seam_noise.is_empty(),
+        "flagship closed-seam fillet must serve without phantom-corner or sliver-retention noise: {seam_noise:?}"
+    );
+
     // Tessellate and weld-count exactly as the example does.
     let mesh =
         popkern_mesh::tessellate(&result.brep, &popkern_mesh::TessellationOptions::default())
