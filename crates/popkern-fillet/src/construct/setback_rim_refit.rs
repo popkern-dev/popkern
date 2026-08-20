@@ -269,12 +269,32 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         let mut knots = Vec::with_capacity(20);
         knots.extend(std::iter::repeat_n(0.0, 10));
         knots.extend(std::iter::repeat_n(1.0, 10));
+        // Edge-curve direction convention (PK-303): the CANONICAL
+        // half-edge's origin sits at t_start. `seg` runs va→vb along
+        // the CAP-side half-edge; when that half-edge is the twin,
+        // store the segment reversed so fraction-sampling consumers
+        // (deviation metric, mesher boundary conformity, declared
+        // accuracy, STEP trace sync) read the curve forward. Measured
+        // before the fix: every rim edge whose cap side was the twin
+        // carried a reversed curve — 300/528 half-edges persistently
+        // "stale" at exactly the rim chord length (4.96e-2) on the
+        // 12-edge G2 cube, unrepairable because the geometry itself
+        // was exact.
+        let canonical_forward = brep
+            .edges
+            .get(job.edge)
+            .is_none_or(|e| e.half_edge == job.cap_he);
+        let stored_cps: Vec<Point3> = if canonical_forward {
+            seg.to_vec()
+        } else {
+            seg.iter().rev().copied().collect()
+        };
         if let Some(edge) = brep.edges.get_mut(job.edge) {
             edge.curve = Some(popkern_core::geometry::CurveOnEdge {
                 geometry: popkern_core::geometry::CurveGeometry::Nurbs(NurbsCurve {
                     degree: 9,
                     knots,
-                    control_points: seg.to_vec(),
+                    control_points: stored_cps,
                     weights: vec![1.0; 10],
                 }),
                 t_start: 0.0,
