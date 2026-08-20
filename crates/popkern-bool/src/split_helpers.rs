@@ -552,14 +552,14 @@ pub(super) fn find_fragment_for_curve(
     let (t0, t1) = curve_uv.parameter_range();
     let mid_uv = curve_uv.point_at((t0 + t1) / 2.0);
 
-    // Collect all fragment faces that descended from `original_face`.
-    let candidates: Vec<FaceHandle> = fragments
+    // BTreeSet, not `origin`'s hash order: the FIRST containing fragment
+    // wins, and a midpoint near a shared boundary can pass for two (PK-300).
+    let candidates: std::collections::BTreeSet<FaceHandle> = fragments
         .origin
         .iter()
         .filter(|&(_, &orig)| orig == original_face)
         .map(|(&frag, _)| frag)
         .collect();
-
     for candidate in &candidates {
         if !brep.faces.contains_key(*candidate) {
             continue;

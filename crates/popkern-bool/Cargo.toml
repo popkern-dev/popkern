@@ -21,6 +21,8 @@ thiserror = "2"
 
 [dev-dependencies]
 slotmap = "1"
+# The boolean determinism pins build their own rayon pools (PK-300).
+rayon = "1"
 # Test-only sibling dependency (the mesh crate uses the same pattern
 # for this crate): the boolean perf budget (PK-272) needs a
 # filleted-operand fixture, and fillet strips can only come from the

@@ -122,12 +122,16 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
         }
     }
 
-    // 6. Remove now-orphaned vertices.
+    // 6. Remove now-orphaned vertices. `vertices_to_check` is a
+    // HashSet, and slotmap removal order shapes the free list — later
+    // insertions would get run-dependent handles. Sort so handle
+    // assignment stays deterministic (PK-300 hash-iteration audit).
     let in_use: HashSet<VertexHandle> = brep.half_edges.values().map(|he| he.origin).collect();
-    let to_remove: Vec<VertexHandle> = vertices_to_check
+    let mut to_remove: Vec<VertexHandle> = vertices_to_check
         .into_iter()
         .filter(|v| !in_use.contains(v))
         .collect();
+    to_remove.sort_unstable();
     for vh in to_remove {
         if brep.vertices.remove(vh).is_some() {
             report.vertices_removed += 1;

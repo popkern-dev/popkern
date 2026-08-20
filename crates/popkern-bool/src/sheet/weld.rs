@@ -97,6 +97,13 @@ pub(super) fn weld_coincident_edges(brep: &mut BRep) -> usize {
 
     let mut welds = 0;
 
+    // Canonical group order: `groups` is a HashMap, and the losers'
+    // `edges.remove()` calls below execute per group — hash order
+    // would permute the edge slotmap's free list in the SERVED result
+    // BRep, so later insertions would allocate run-varying handles
+    // (PK-300 hash-iteration audit). Keys are canonical vertex pairs.
+    let mut groups: Vec<_> = groups.into_iter().collect();
+    groups.sort_unstable_by_key(|(key, _)| *key);
     for (_, edges) in groups {
         if edges.len() < 2 {
             continue;

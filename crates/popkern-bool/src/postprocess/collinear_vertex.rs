@@ -145,9 +145,15 @@ fn find_candidate(
     popkern_core::geometry::Point3,
     popkern_core::geometry::Point3,
 )> {
-    use std::collections::HashMap;
-    let mut outgoing: HashMap<VertexHandle, Vec<popkern_core::topology::HalfEdgeHandle>> =
-        HashMap::new();
+    // BTreeMap, not HashMap: this scan returns the FIRST passing
+    // vertex, and the fixpoint caller breaks on the first kve
+    // decline — hash order would make the dissolved set and the
+    // surviving-edge authoring order run-to-run nondeterministic
+    // (PK-300 hash-iteration audit).
+    let mut outgoing: std::collections::BTreeMap<
+        VertexHandle,
+        Vec<popkern_core::topology::HalfEdgeHandle>,
+    > = std::collections::BTreeMap::new();
     for (h, he) in brep.half_edges.iter() {
         outgoing.entry(he.origin).or_default().push(h);
     }

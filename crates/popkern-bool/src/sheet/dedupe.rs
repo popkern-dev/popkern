@@ -23,8 +23,14 @@ use std::collections::HashSet;
 /// [`super::dispatch::boolean_with_sheets`] can use it to drop
 /// coincident duplicate faces during [`crate::sheet::SheetOperationKind::SheetSheetUnion`].
 pub(super) fn drop_faces_and_prune(brep: &mut BRep, faces_to_remove: &HashSet<FaceHandle>) {
-    // Step 1: remove the targeted faces + their loops.
-    for fh in faces_to_remove {
+    // Step 1: remove the targeted faces + their loops, in canonical
+    // handle order — HashSet iteration order would permute the face
+    // and loop slotmap free lists of a served result BRep, making
+    // handle allocation in any later insertion run-varying (PK-300
+    // hash-iteration audit).
+    let mut face_order: Vec<FaceHandle> = faces_to_remove.iter().copied().collect();
+    face_order.sort_unstable();
+    for fh in &face_order {
         if let Some(face) = brep.faces.get(*fh) {
             let outer_loop = face.outer_loop;
             let inner_loops = face.inner_loops.clone();

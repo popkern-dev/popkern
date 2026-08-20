@@ -119,6 +119,11 @@ pub(crate) fn detect_multi_incident_edges(graph: &IntersectionGraph) -> Manifold
             });
         }
     }
+    // `groups` is a HashMap, so the loop above pushed entries in hash
+    // order; the report Vec is destined for BoolDiagnostics::entries,
+    // where order must be canonical (PK-300 hash-iteration audit).
+    // Endpoints are already canonical min/max node pairs.
+    multi_incident.sort_unstable_by_key(|e| e.endpoints);
 
     ManifoldReport {
         multi_incident,
