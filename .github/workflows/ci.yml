@@ -80,6 +80,9 @@ jobs:
       - name: Boolean perf budgets
         run: cargo test --release -p popkern-bool --test perf_budget -- --nocapture
 
+      - name: Tessellation perf budgets
+        run: cargo test --release -p popkern-mesh --test perf_budget -- --nocapture
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

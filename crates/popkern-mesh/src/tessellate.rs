@@ -263,7 +263,7 @@ pub(crate) fn tessellate_face_with_samples(
 /// True when every half-edge of the face's outer loop has its twin on
 /// the SAME face — the outer boundary is a periodic seam spine (two
 /// meridian copies bounding a full-period chart), not a real border.
-fn outer_loop_is_seam_spine(brep: &BRep, face_handle: FaceHandle) -> bool {
+pub(crate) fn outer_loop_is_seam_spine(brep: &BRep, face_handle: FaceHandle) -> bool {
     let Some(face) = brep.faces.get(face_handle) else {
         return false;
     };
@@ -330,23 +330,36 @@ pub(crate) fn tessellate_brep(
     // construction. Bounded rounds; convergence is guaranteed by the
     // no-new-fraction check.
     const ENCROACHMENT_ROUNDS: usize = 8;
+    let bf_trace = std::env::var_os("PK_BF_TRACE").is_some();
+    // Incremental rounds (PK-277): round 0 checks every face; later
+    // rounds only faces incident to an edge whose canonical samples
+    // were refined last round. A face's requests are a pure function
+    // of its own boundary samples, and every skip reason below is
+    // monotone (fractions only grow, per-edge caps only fill), so an
+    // unchanged-boundary face can only reproduce requests that were
+    // already inserted or are permanently deduped.
+    let mut active: Option<std::collections::HashSet<FaceHandle>> = None;
     for round in 0..ENCROACHMENT_ROUNDS {
-        let mut requests: Vec<crate::boundary_first::SplitRequest> = Vec::new();
-        for face_handle in brep.faces.keys() {
-            if brep.faces[face_handle].surface.is_none() {
-                continue;
-            }
-            crate::boundary_first::tessellate_face_boundary_first(
-                brep,
-                face_handle,
-                &edge_samples,
-                options,
-                &mut requests,
-            );
-        }
+        // Slotmap key order, filtered — request order matches the
+        // retired all-faces loop with the no-op faces removed.
+        let faces: Vec<FaceHandle> = brep
+            .faces
+            .keys()
+            .filter(|&fh| brep.faces[fh].surface.is_some())
+            .filter(|fh| active.as_ref().is_none_or(|set| set.contains(fh)))
+            .collect();
+        let requests = crate::face_pass::collect_split_requests(
+            brep,
+            &faces,
+            &edge_samples,
+            options,
+            bf_trace,
+        );
         if requests.is_empty() {
             break;
         }
+        let mut split_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
+            std::collections::BTreeSet::new();
         let mut inserted = 0usize;
         for (eh, fraction) in requests {
             let Some(samples) = edge_samples.get_mut(&eh) else {
@@ -370,63 +383,47 @@ pub(crate) fn tessellate_brep(
             let point = ceval.point_at(curve.t_start + (curve.t_end - curve.t_start) * fraction);
             samples.fractions.insert(idx, fraction);
             samples.points.insert(idx, point);
+            split_edges.insert(eh);
             inserted += 1;
         }
-        if std::env::var_os("PK_BF_TRACE").is_some() && inserted > 0 {
+        if bf_trace && inserted > 0 {
             eprintln!("  [bf] encroachment round {round}: split {inserted} edge spans");
         }
         if inserted == 0 {
             break;
         }
+        active = Some(crate::face_pass::faces_incident_to_edges(
+            brep,
+            &split_edges,
+        ));
     }
     let mut face_meshes = Vec::new();
     let mut legacy_faces = Vec::new();
-    for face_handle in brep.faces.keys() {
-        if brep.faces[face_handle].surface.is_none() {
-            continue;
+    let faces: Vec<FaceHandle> = brep
+        .faces
+        .keys()
+        .filter(|&fh| brep.faces[fh].surface.is_some())
+        .collect();
+    for outcome in
+        crate::face_pass::tessellate_face_pass(brep, &faces, &edge_samples, options, bf_trace)
+    {
+        match outcome {
+            crate::face_pass::FacePassOutcome::BoundaryFirst(fm) => face_meshes.push(fm),
+            crate::face_pass::FacePassOutcome::Legacy { seam_spine, mesh } => {
+                // Seam-spine wall faces (full-periodic charts) keep
+                // their exact chart sampling: their boundary IS the
+                // seam iso-line plus pcurve-sampled hole rims, and the
+                // generous projection gate (20% of the face diagonal —
+                // the WHOLE model for a full sphere wall) drags rim
+                // vertices onto unrelated edge polylines (measured:
+                // cube∪sphere wall area inflated 7.93 → 8.95 by
+                // sewing flaps).
+                if !seam_spine {
+                    legacy_faces.push(face_meshes.len());
+                }
+                face_meshes.push(mesh?);
+            }
         }
-        let mut sink = Vec::new();
-        if let Some(fm) = crate::boundary_first::tessellate_face_boundary_first(
-            brep,
-            face_handle,
-            &edge_samples,
-            options,
-            &mut sink,
-        ) {
-            face_meshes.push(fm);
-            continue;
-        }
-        if std::env::var_os("PK_BF_TRACE").is_some() {
-            let kind = brep
-                .faces
-                .get(face_handle)
-                .and_then(|f| f.surface.as_ref())
-                .map(|sof| match &sof.geometry {
-                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
-                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                    popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
-                    _ => "Other",
-                })
-                .unwrap_or("None");
-            eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
-        }
-        // Seam-spine wall faces (full-periodic charts) keep their
-        // exact chart sampling: their boundary IS the seam iso-line
-        // plus pcurve-sampled hole rims, and the generous projection
-        // gate (20% of the face diagonal — the WHOLE model for a full
-        // sphere wall) drags rim vertices onto unrelated edge
-        // polylines (measured: cube∪sphere wall area inflated 7.93 →
-        // 8.95 by sewing flaps).
-        if !outer_loop_is_seam_spine(brep, face_handle) {
-            legacy_faces.push(face_meshes.len());
-        }
-        face_meshes.push(tessellate_face_with_samples(
-            brep,
-            face_handle,
-            options,
-            Some(&edge_samples),
-        )?);
     }
     // The projection-based sewing stopgap applies ONLY to legacy-path
     // faces: boundary-first faces carry exact canonical boundary

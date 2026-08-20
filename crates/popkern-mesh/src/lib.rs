@@ -9,6 +9,7 @@ mod adaptive;
 mod boundary_first;
 mod crack_zipper;
 mod export;
+mod face_pass;
 mod mesh;
 mod tessellate;
 mod trim;

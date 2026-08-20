@@ -6,6 +6,12 @@ license.workspace = true
 description = "Boolean operations (union, intersection, subtraction) on BRep solids"
 
 [features]
+# Parallel face-face intersection is on by default (PK-277): output is
+# positionally identical to sequential processing at any thread count
+# (ordered collect over a deterministic task list), so opting out is a
+# resource decision, not a correctness one. rayon is already in the
+# workspace tree via faer, so the default adds no new transitive dep.
+default = ["parallel"]
 parallel = ["rayon"]
 
 [dependencies]

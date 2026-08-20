@@ -57,11 +57,21 @@ pub(super) fn bowyer_watson(points: &[(f64, f64)]) -> Option<Vec<[usize; 3]>> {
         for ti in bad {
             tris.swap_remove(ti);
         }
-        for (key, count) in edge_count {
-            if count == 1 {
-                let (a, b) = edge_dir[&key];
-                tris.push([a, b, pi]);
-            }
+        // Deterministic cavity fill: HashMap iteration order varies
+        // with the hasher's per-thread seed, so filling in map order
+        // reordered the emitted triangles thread-to-thread and
+        // run-to-run (caught by the PK-277 thread-count identity
+        // pin). The triangle SET is order-independent; the emission
+        // order must be too.
+        let mut cavity_boundary: Vec<(usize, usize)> = edge_count
+            .iter()
+            .filter(|&(_, &count)| count == 1)
+            .map(|(&key, _)| key)
+            .collect();
+        cavity_boundary.sort_unstable();
+        for key in cavity_boundary {
+            let (a, b) = edge_dir[&key];
+            tris.push([a, b, pi]);
         }
     }
     tris.retain(|t| t.iter().all(|&i| i < s0));

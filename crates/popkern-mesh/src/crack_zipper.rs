@@ -184,7 +184,16 @@ fn zip_round(mesh: &mut TriMesh, near_tolerant_edge: &dyn Fn(&Point3) -> Option<
     if open_edges.is_empty() {
         return 0;
     }
-    let candidates: Vec<(usize, Point3)> = open_vertex_pos.into_iter().collect();
+    // Canonical candidate order: `open_vertex_pos` is a HashMap, and
+    // draining it in map order made the nearest-candidate scan's
+    // distance TIES hash-ordered — the zipper's split choices (and so
+    // the final triangle count) varied call-to-call (measured: 27304
+    // vs 27333 tris on the PK-295 fixture at chord 5e-5, PK-277
+    // probe). Weld ids are insertion-ordered, so sorting by id is
+    // deterministic; ties in the scan then resolve to the lowest
+    // weld id.
+    let mut candidates: Vec<(usize, Point3)> = open_vertex_pos.into_iter().collect();
+    candidates.sort_unstable_by_key(|&(wv, _)| wv);
 
     // One split per triangle per round keeps the bookkeeping simple;
     // subsequent rounds finish the job.

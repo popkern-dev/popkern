@@ -1,15 +1,14 @@
-//! Parallel face-face intersection infrastructure.
+//! Parallel dispatch for face-face intersection (PK-277).
 //!
-//! Provides a framework for parallelizing the most expensive part of the
-//! boolean pipeline: face-face intersection computation. Face pairs are
-//! independent and can be processed in parallel.
-//!
-//! The current implementation uses sequential processing. When the `rayon`
-//! dependency is added, the parallel path can be enabled by switching
-//! `process_pairs_sequential` to `process_pairs_parallel`.
+//! Stage 1's per-pair intersection work is embarrassingly parallel:
+//! each candidate face pair reads `&BRep` (plain `SlotMap` storage, no
+//! interior mutability) and produces its own records. `ff_parallel`
+//! holds the per-pair body and dispatches over rayon when the
+//! `parallel` feature (default) is enabled, collecting results in
+//! candidate order so output is identical at any thread count.
 
 pub mod ff_parallel;
 
 #[cfg(test)]
 #[path = "parallel_tests.rs"]
-mod tests;
+mod parallel_tests;

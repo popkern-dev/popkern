@@ -5,17 +5,12 @@
 
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::{
-    geometry::{
-        CurveEval,
-        intersection::{SurfaceSurfaceIntersection, intersect_surfaces, surface_subdivision::Aabb},
-        surface::SurfaceEval,
-    },
+    geometry::{intersection::surface_subdivision::Aabb, surface::SurfaceEval},
     tolerance::Tolerance,
     topology::{BRep, FaceHandle},
 };
 
-use crate::clip::clip_curve_to_faces;
-use crate::error::{BoolDiagnostics, BoolError, Stage};
+use crate::error::BoolDiagnostics;
 use crate::intersect_edge_face::{EdgeFaceHit, detect_edge_face_intersections};
 
 /// Compute bounded parameter ranges for a face's surface.
@@ -355,7 +350,8 @@ pub(crate) fn find_intersections_with_aabbs(
     let bvh = Bvh::build(&combined);
     let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear());
 
-    if std::env::var_os("PK_PAIR_TRACE").is_some() {
+    let trace = crate::parallel::ff_parallel::TraceFlags::from_env();
+    if trace.pair {
         eprintln!("  [pairs] {} candidate pairs", candidate_pairs.len());
         for (side, aabbs) in [("A", aabbs_a), ("B", aabbs_b)] {
             for (fh, aabb) in aabbs.iter() {
@@ -366,190 +362,35 @@ pub(crate) fn find_intersections_with_aabbs(
             }
         }
     }
-    for (id_x, id_y) in &candidate_pairs {
-        if std::env::var_os("PK_PAIR_TRACE").is_some() {
-            eprintln!("  [pair] {id_x:?} x {id_y:?}");
-        }
-        let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
-            (*id_x, *id_y - n_a)
-        } else if *id_y < n_a && *id_x >= n_a {
-            (*id_y, *id_x - n_a)
-        } else {
-            continue;
-        };
-
-        let face_a = aabbs_a[a_idx].0;
-        let face_b = aabbs_b[b_idx].0;
-
-        let surf_a = match a.faces[face_a].surface.as_ref() {
-            Some(s) => &s.geometry,
-            None => continue,
-        };
-        let surf_b = match b.faces[face_b].surface.as_ref() {
-            Some(s) => &s.geometry,
-            None => continue,
-        };
-
-        let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
-        let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
-
-        if std::env::var_os("PK_PAIR_TRACE").is_some() {
-            let kind = |s: &popkern_core::geometry::surface::SurfaceGeometry| match s {
-                popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
-                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
-                popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
-                popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
-                _ => "Nurbs/other",
+    // Resolve BVH index pairs into face-pair tasks, in BVH order. The
+    // task list is a deterministic pure function of the two solids, and
+    // ff_parallel::process_pairs returns outcomes in task order, so the
+    // record sequence below is identical at any thread count — and
+    // positionally identical to the retired sequential pair loop.
+    let tasks: Vec<crate::parallel::ff_parallel::FacePairTask> = candidate_pairs
+        .iter()
+        .filter_map(|(id_x, id_y)| {
+            let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
+                (*id_x, *id_y - n_a)
+            } else if *id_y < n_a && *id_x >= n_a {
+                (*id_y, *id_x - n_a)
+            } else {
+                return None;
             };
-            eprintln!(
-                "  [pair-surf] {face_a:?}({}) u[{u1_min:.1},{u1_max:.1}] v[{v1_min:.1},{v1_max:.1}] x {face_b:?}({}) u[{u2_min:.1},{u2_max:.1}] v[{v2_min:.1},{v2_max:.1}]",
-                kind(surf_a),
-                kind(surf_b)
-            );
-            if let popkern_core::geometry::surface::SurfaceGeometry::Plane {
-                u_axis, v_axis, ..
-            } = surf_a
-            {
-                eprintln!(
-                    "    [pair-axes] A ua=({:.2},{:.2},{:.2}) va=({:.2},{:.2},{:.2})",
-                    u_axis.x, u_axis.y, u_axis.z, v_axis.x, v_axis.y, v_axis.z
-                );
-            }
-        }
+            Some(crate::parallel::ff_parallel::FacePairTask {
+                face_a: aabbs_a[a_idx].0,
+                face_b: aabbs_b[b_idx].0,
+            })
+        })
+        .collect();
 
-        match intersect_surfaces(
-            surf_a,
-            (u1_min, u1_max),
-            (v1_min, v1_max),
-            surf_b,
-            (u2_min, u2_max),
-            (v2_min, v2_max),
-            tolerance,
-        ) {
-            Ok(result) => {
-                for isect in result.intersections {
-                    match isect {
-                        SurfaceSurfaceIntersection::Curve(curve) => {
-                            let clipped_list = clip_curve_to_faces(a, face_a, b, face_b, &curve);
-                            if std::env::var_os("PK_CLIP_TRACE").is_some() {
-                                use popkern_core::geometry::curve::CurveEval;
-                                let (t0, t1) = curve.curve_3d.parameter_range();
-                                let p0 = curve.curve_3d.point_at(t0);
-                                let p1 = curve.curve_3d.point_at(t1);
-                                let plane_dist =
-                                    |s: &popkern_core::geometry::surface::SurfaceGeometry,
-                                     p: &popkern_core::geometry::Point3|
-                                     -> f64 {
-                                        match s {
-                                        popkern_core::geometry::surface::SurfaceGeometry::Plane {
-                                            origin,
-                                            normal,
-                                            ..
-                                        } => ((p.x - origin.x) * normal.x
-                                            + (p.y - origin.y) * normal.y
-                                            + (p.z - origin.z) * normal.z)
-                                            .abs(),
-                                        _ => f64::NAN,
-                                    }
-                                    };
-                                eprintln!(
-                                    "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) dA={:.1e} dB={:.1e} kept={}",
-                                    p0.x,
-                                    p0.y,
-                                    p0.z,
-                                    p1.x,
-                                    p1.y,
-                                    p1.z,
-                                    plane_dist(surf_a, &p0),
-                                    plane_dist(surf_b, &p0),
-                                    clipped_list.len()
-                                );
-                            }
-                            for clipped in clipped_list {
-                                if std::env::var_os("PK_CLIP_TRACE").is_some() {
-                                    use popkern_core::geometry::curve::CurveEval;
-                                    let (t0, t1) = clipped.curve_3d.parameter_range();
-                                    let p0 = clipped.curve_3d.point_at(t0);
-                                    let p1 = clipped.curve_3d.point_at(t1);
-                                    eprintln!(
-                                        "  [clip-out] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) closed={}",
-                                        p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, clipped.is_closed
-                                    );
-                                }
-                                // Classify tangency at curve midpoint.
-                                // Uses popkern_core::adaptive_precision::
-                                // adaptive_cross_ratio_sq_lt so near-parallel
-                                // normals produce deterministic decisions —
-                                // the f64 fast path handles clear cases,
-                                // and double-precision recomputation kicks
-                                // in only when the comparison lands inside
-                                // the ambiguity margin.
-                                let (t0, t1) = clipped.curve_3d.parameter_range();
-                                let t_mid = (t0 + t1) * 0.5;
-                                let mid_uv1 = clipped.curve_uv1.point_at(t_mid);
-                                let mid_uv2 = clipped.curve_uv2.point_at(t_mid);
-                                let n1 = surf_a.normal_at(mid_uv1.x, mid_uv1.y);
-                                let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
-                                let is_tangent =
-                                    popkern_core::adaptive_precision::adaptive_cross_ratio_sq_lt(
-                                        (n1.x, n1.y, n1.z),
-                                        (n2.x, n2.y, n2.z),
-                                        tolerance.angular(),
-                                    );
-
-                                records.push(IntersectionRecord {
-                                    face_a,
-                                    face_b,
-                                    curve: clipped,
-                                    is_tangent,
-                                    is_coincident: false,
-                                    start_boundary: Default::default(),
-                                    end_boundary: Default::default(),
-                                });
-                            }
-                        }
-                        SurfaceSurfaceIntersection::CoincidentRegion { .. } => {
-                            // Coincident face pair — skip. Coincidence engine
-                            // records the overlap separately.
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                // §13.1: report a 3D location for the failure. The midpoint
-                // of face_a's bounded UV range is the closest cheap proxy
-                // for "where" the intersection solver gave up.
-                let u_mid = 0.5 * (u1_min + u1_max);
-                let v_mid = 0.5 * (v1_min + v1_max);
-                let location = surf_a.point_at(u_mid, v_mid);
-                return Err(BoolDiagnostics {
-                    error: Some(BoolError::IntersectionFailed(format!(
-                        "face_a={face_a:?} face_b={face_b:?}: {e}"
-                    ))),
-                    intersection_curves: records.into_iter().map(|r| r.curve).collect(),
-                    face_classifications: Vec::new(),
-                    failed_stage: Some(Stage::Intersection),
-                    entries: vec![crate::error::DiagnosticEntry {
-                        severity: crate::error::Severity::Error,
-                        phase: Stage::Intersection,
-                        message: format!("Surface intersection failed: {e}"),
-                        entities: vec![crate::error::EntityRef::FacePair(face_a, face_b)],
-                        location: Some(location),
-                        measured_value: None,
-                        remediation: Some(crate::error::Remediation {
-                            action: crate::error::RemediationAction::RetryWithPerturbation,
-                            parameter: None,
-                            value: None,
-                            rationale: "Surface intersection solver failed. \
-                                Try boolean_with_perturbation() to slightly \
-                                offset the geometry and retry."
-                                .into(),
-                        }),
-                    }],
-                    phase_metrics: Vec::new(),
-                });
-            }
+    // First-failure fold in task order: records from pairs before the
+    // failing pair are preserved in the diagnostics, exactly as the
+    // sequential loop reported them.
+    for outcome in crate::parallel::ff_parallel::process_pairs(&tasks, a, b, tolerance, trace) {
+        match outcome {
+            Ok(mut recs) => records.append(&mut recs),
+            Err(failure) => return Err(failure.into_diagnostics(records)),
         }
     }
 
