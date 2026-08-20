@@ -165,3 +165,47 @@ fn sort_by_overlap_t1_range() {
     // Identical curves => overlap
     assert!(!result.is_empty());
 }
+
+#[test]
+fn tangential_out_of_window_contact_terminates() {
+    // PK-295/PK-297 pin: a query curve tangentially TOUCHING a
+    // boundary line's extension OUTSIDE the requested window used to
+    // explode bezier clipping (un-clipped terminal spans put the
+    // contact inside the segment boxes; the stall path then 4-way
+    // bisected under only a depth cap — O(4^50) with zero candidates
+    // for the candidate cap to catch; measured as a 25-minute
+    // boolean). Window-clipped decomposition removes the phantom
+    // contact and the node budget bounds any real tangency; this
+    // test simply terminating is the regression pin.
+    let boundary = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.464, 1.8, 0.0), Point3::new(0.464, 0.0, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    // Vertical-tangent departure from (0.464, 1.8) — tangentially
+    // aligned with the boundary line at its off-window endpoint.
+    let query = NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.464, 1.8, 0.0),
+            Point3::new(0.464, 1.9, 0.0),
+            Point3::new(0.6, 1.97, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    // Window covers only the LOWER third of the boundary — far from
+    // the tangential contact.
+    let hits = intersect_nurbs_nurbs(
+        &boundary,
+        (0.667, 1.0),
+        &query,
+        (0.0, 1.0),
+        &Tolerance::default(),
+    );
+    assert!(
+        hits.is_empty(),
+        "no true intersection exists inside the window, got {hits:?}"
+    );
+}

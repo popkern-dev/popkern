@@ -420,3 +420,56 @@ fn find_uv_crossings_far_from_seam_unaffected() {
         crossings.len()
     );
 }
+
+#[test]
+fn find_uv_crossings_full_period_angle_ranged_linear_boundary_terminates() {
+    // PK-297 pin: a closed rim spelled as a full-period,
+    // ANGLE-RANGED `Pcurve::Linear` ((u0,v) -> (u0+2π,v), t in
+    // (θ0, θ0+2π)) historically spun the clip/split consumer for
+    // >36 CPU-min (bezier clipping exploded on the tangential
+    // configuration its un-window-clipped terminal spans
+    // manufactured). With window-clipped decomposition and the
+    // clipping node budget (PK-295) the crossing scan terminates and
+    // reports the honest crossings.
+    let (mut brep, face) = build_face_with_pcurves([
+        (Point3::new(0.0, 0.0, 0.0), Point3::new(6.2832, 0.0, 0.0)),
+        (Point3::new(6.2832, 0.0, 0.0), Point3::new(6.2832, 1.0, 0.0)),
+        (Point3::new(6.2832, 1.0, 0.0), Point3::new(0.0, 1.0, 0.0)),
+        (Point3::new(0.0, 1.0, 0.0), Point3::new(0.0, 0.0, 0.0)),
+    ]);
+    brep.faces[face].surface = Some(popkern_core::geometry::SurfaceOnFace {
+        geometry: popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        },
+        orientation: true,
+    });
+    // Overwrite the bottom rim pcurve with the exact Linear spelling,
+    // angle-unit window offset from zero (the historical author's
+    // form: t = θ, θ0 = −π/2).
+    let face_data = &brep.faces[face];
+    let start = brep.loops[face_data.outer_loop].half_edge;
+    brep.half_edges[start].pcurve = Some(popkern_core::geometry::pcurve::Pcurve {
+        geometry: popkern_core::geometry::pcurve::PcurveGeometry::Linear {
+            start: (0.0, 0.0),
+            end: (std::f64::consts::TAU, 0.0),
+        },
+        t_start: -std::f64::consts::FRAC_PI_2,
+        t_end: -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU,
+    });
+
+    let curve_uv = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(2.7, -0.5, 0.0), Point3::new(2.7, 1.5, 0.0)],
+        weights: vec![1.0, 1.0],
+    };
+    let crossings = super::find_uv_crossings(&brep, face, &curve_uv, &tol());
+    let crossings = crossings.expect("crossings result");
+    assert!(
+        crossings.len() >= 2,
+        "vertical trim must cross the full-period Linear rim and the top edge, got {}",
+        crossings.len()
+    );
+}
