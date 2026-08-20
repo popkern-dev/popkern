@@ -49,7 +49,7 @@ use serde::{Deserialize, Serialize};
 
 /// Biseptic (degree 7) rectangular Gregory patch with 32 free-
 /// curvature interior CPs in addition to 4 corner inner-CP pairs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryBiseptic {
     /// 8×8 control-point grid, row-major. `grid[i][j]` is at
     /// Bezier index `(i, j)`. Boundary positions are fixed.

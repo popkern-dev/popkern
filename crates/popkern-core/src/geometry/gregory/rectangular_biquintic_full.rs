@@ -63,7 +63,7 @@ use serde::{Deserialize, Serialize};
 
 /// Biquintic rectangular Gregory patch with 12 free-curvature
 /// interior CPs in addition to 4 corner inner-CP pairs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryBiquinticFull {
     /// 6×6 control-point grid, row-major. `grid[i][j]` is at
     /// Bezier index `(i, j)`. Boundary positions are fixed.

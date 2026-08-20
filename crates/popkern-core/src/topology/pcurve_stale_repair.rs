@@ -59,20 +59,58 @@ impl BRep {
 
         let _ = self.recompute_pcurves_for(&region);
 
-        for &fh in &region {
-            self.fix_pcurve_endpoints(fh);
+        // Endpoint fixes: compute per face in parallel (read-only,
+        // face-independent — see `compute_pcurve_endpoint_fixes`),
+        // apply serially in the unchanged region/loop order (PK-302).
+        #[cfg(feature = "parallel")]
+        let endpoint_fixes: Vec<Vec<_>> = {
+            use rayon::prelude::*;
+            let brep: &Self = self;
+            region
+                .par_iter()
+                .map(|&fh| brep.compute_pcurve_endpoint_fixes(fh))
+                .collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let endpoint_fixes: Vec<Vec<_>> = region
+            .iter()
+            .map(|&fh| self.compute_pcurve_endpoint_fixes(fh))
+            .collect();
+        for (heh, fixed) in endpoint_fixes.into_iter().flatten() {
+            self.half_edges[heh].pcurve = Some(fixed);
         }
 
-        for (heh, original, original_error) in cleared {
-            let Some(half_edge) = self.half_edges.get(heh) else {
+        // Improve-or-revert: the recomputed-deviation measurement is
+        // read-only and per-half-edge (each reads only its own stored
+        // pcurve, its face surface, and its edge curve), so it runs
+        // in parallel with an ordered collect; the keep/snap/revert
+        // decisions stay serial in the unchanged order (PK-302).
+        let measure_recomputed = |heh: crate::topology::HalfEdgeHandle| -> Option<f64> {
+            self.half_edges
+                .get(heh)
+                .filter(|half_edge| half_edge.pcurve.is_some())?;
+            self.measure_half_edge_pcurve_deviation(heh)
+                .map(|report| report.max_deviation)
+        };
+        #[cfg(feature = "parallel")]
+        let recomputed_errors: Vec<Option<f64>> = {
+            use rayon::prelude::*;
+            cleared
+                .par_iter()
+                .map(|(heh, _, _)| measure_recomputed(*heh))
+                .collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let recomputed_errors: Vec<Option<f64>> = cleared
+            .iter()
+            .map(|(heh, _, _)| measure_recomputed(*heh))
+            .collect();
+        for ((heh, original, original_error), recomputed_error) in
+            cleared.into_iter().zip(recomputed_errors)
+        {
+            if !self.half_edges.contains_key(heh) {
                 continue;
-            };
-            let recomputed_error = if half_edge.pcurve.is_some() {
-                self.measure_half_edge_pcurve_deviation(heh)
-                    .map(|report| report.max_deviation)
-            } else {
-                None
-            };
+            }
             let keep_recomputed =
                 recomputed_error.is_some_and(|error| error <= original_error.max(1.0e-12));
             if keep_recomputed {
@@ -156,30 +194,34 @@ impl BRep {
         crate::geometry::pcurve::Pcurve,
         f64,
     )> {
-        use crate::geometry::surface::SurfaceEval;
-
-        let mut stale = Vec::new();
+        // Deduplicate in first-appearance order, then measure each
+        // half-edge independently. The measurement is read-only and
+        // per-half-edge, so it runs in parallel under the `parallel`
+        // feature; the indexed ordered collect keeps the result
+        // sequence identical to the serial scan (PK-302).
         let mut seen = std::collections::BTreeSet::new();
-        for &heh in half_edges {
-            if !seen.insert(heh) {
-                continue;
-            }
-            let Some(half_edge) = self.half_edges.get(heh) else {
-                continue;
-            };
-            let Some(pcurve) = half_edge.pcurve.clone() else {
-                continue;
-            };
+        let deduped: Vec<crate::topology::HalfEdgeHandle> = half_edges
+            .iter()
+            .copied()
+            .filter(|heh| seen.insert(*heh))
+            .collect();
+        let measure = |heh: crate::topology::HalfEdgeHandle| -> Option<(
+            crate::topology::HalfEdgeHandle,
+            crate::geometry::pcurve::Pcurve,
+            f64,
+        )> {
+            use crate::geometry::surface::SurfaceEval;
+            let half_edge = self.half_edges.get(heh)?;
+            let pcurve = half_edge.pcurve.clone()?;
 
             let loop_handle = half_edge.loop_;
-            let face_handle = match self.loops.get(loop_handle) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                Some(s) => s.geometry.clone(),
-                None => continue,
-            };
+            let face_handle = self.loops.get(loop_handle)?.face;
+            let surface = self
+                .faces
+                .get(face_handle)
+                .and_then(|f| f.surface.as_ref())?
+                .geometry
+                .clone();
 
             let (t0, t1) = pcurve.parameter_range();
             let uv_start = pcurve.point_at(t0);
@@ -197,11 +239,17 @@ impl BRep {
                 .measure_half_edge_pcurve_deviation(heh)
                 .map_or(0.0, |report| report.max_deviation);
             let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
-            if endpoint_error > stale_tolerance || trace_error > stale_tolerance {
-                stale.push((heh, pcurve, endpoint_error.max(trace_error)));
-            }
-        }
-        stale
+            (endpoint_error > stale_tolerance || trace_error > stale_tolerance)
+                .then(|| (heh, pcurve, endpoint_error.max(trace_error)))
+        };
+        #[cfg(feature = "parallel")]
+        let measured: Vec<_> = {
+            use rayon::prelude::*;
+            deduped.par_iter().map(|&heh| measure(heh)).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let measured: Vec<_> = deduped.iter().map(|&heh| measure(heh)).collect();
+        measured.into_iter().flatten().collect()
     }
 
     /// Translate `heh`'s pcurve by whole surface periods so its

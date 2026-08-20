@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 /// matches the cross-tangent of the boundary in the `u` direction
 /// at that corner and `P_v` matches the boundary in the `v`
 /// direction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregory {
     /// 4×4 control-point grid stored row-major: `boundary_cps[i][j]`
     /// is the control point at Bezier index `(i, j)` with `i` the

@@ -38,6 +38,31 @@ pub(super) fn assign_blend_surface(
     Ok((method, continuity))
 }
 
+/// Minimum incident-fillet count for the setback rung at this corner
+/// (`usize::MAX` disables it). Single source of truth shared by the
+/// serial dispatch in `insert_vertex_blend` and the PK-278 parallel
+/// presolve — the two must agree or the presolve wastes work /
+/// misses corners.
+pub(crate) fn setback_min_n_for(
+    edge_indices: &[usize],
+    edge_geometries: &[crate::construct::EdgeGeometry],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    tolerance: &Tolerance,
+) -> usize {
+    if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
+        usize::MAX
+    } else if std::env::var_os("POPKERN_SETBACK_N3").is_some()
+        || !sphere_owns_corner(
+            corner_radii_uniform(edge_indices, edge_geometries, tolerance),
+            fillet_surfaces,
+        )
+    {
+        3
+    } else {
+        5
+    }
+}
+
 /// §6c-X.A.7 helper: detect whether all incident fillets at this
 /// apex have the same effective radius within tolerance.
 ///
@@ -48,8 +73,8 @@ pub(super) fn assign_blend_surface(
 ///
 /// Used by the cap-kind dispatch: uniform → Sphere cap path
 /// (suppress sphere-fit substitution, run topology rebuild post-
-/// loop); non-uniform → Gregory cap path (substitution + Path A
-/// vertex relocation).
+/// loop); non-uniform → Gregory cap path (substitution + apex
+/// topology-rebuild vertex relocation).
 pub(super) fn corner_radii_uniform(
     edge_indices: &[usize],
     edge_geometries: &[crate::construct::EdgeGeometry],
@@ -170,6 +195,7 @@ mod tests {
             false,
             false,
             None,
+            None,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
     }
@@ -196,6 +222,7 @@ mod tests {
             false,
             false,
             false,
+            None,
             None,
         );
         // This should fail (no edge geometries -> empty fillet surfaces

@@ -249,3 +249,68 @@ fn bit_identical_output_on_repeat_run_pyramid4_mixed() {
         "determinism failure: pyramid4_mixed serialized output body differs (hash {a:#x} vs {b:#x})"
     );
 }
+
+/// The 12-edge G2 cube fillet — the PK-278 two-phase corner path:
+/// every corner's KP20 cap solve is precomputed on the parallel
+/// presolve and consumed by the serial apply. Whole-body
+/// fingerprint of the served result.
+fn fillet_cube_g2_ladder() -> u64 {
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .take(12)
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let opts = FilletOptions {
+        continuity: popkern_fillet::ContinuityLevel::G2,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
+        .expect("12-edge G2 cube fillet serves");
+    assert!(
+        result.brep.faces.len() > cube.faces.len(),
+        "G2 cube fillet must commit blend faces"
+    );
+    body_fingerprint(&result.brep)
+}
+
+/// PK-278 acceptance (row 416): the parallel corner presolve and
+/// the parallel tail measurement passes must not perturb a single
+/// output bit run-to-run.
+#[test]
+fn bit_identical_output_on_repeat_run_g2_cube() {
+    let a = fillet_cube_g2_ladder();
+    let b = fillet_cube_g2_ladder();
+    assert_eq!(
+        a, b,
+        "determinism failure: G2 cube serialized output body differs (hash {a:#x} vs {b:#x})"
+    );
+}
+
+/// PK-278 acceptance (row 416): the output must be bit-identical
+/// at any worker-thread count. The presolve is a pure solve gated
+/// on exact input equality and every parallel measurement pass
+/// uses an indexed ordered collect, so 1 thread and 8 threads must
+/// reproduce the serial sequence exactly.
+#[test]
+fn thread_count_does_not_change_g2_cube() {
+    let one = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("1-thread pool builds")
+        .install(fillet_cube_g2_ladder);
+    let eight = rayon::ThreadPoolBuilder::new()
+        .num_threads(8)
+        .build()
+        .expect("8-thread pool builds")
+        .install(fillet_cube_g2_ladder);
+    assert_eq!(
+        one, eight,
+        "determinism failure: G2 cube output differs between 1-thread and 8-thread pools \
+         (hash {one:#x} vs {eight:#x})"
+    );
+}

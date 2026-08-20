@@ -29,62 +29,53 @@ pub(crate) fn coparameterize_strip_rails(
     let gate = tolerance.linear().max(1.0e-9) * 10.0;
     let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
     let mut improved = 0_usize;
-    for &face in faces {
-        let is_nurbs = result
-            .faces
-            .get(face)
-            .and_then(|f| f.surface.as_ref())
-            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Nurbs(_)));
-        if !is_nurbs {
-            continue;
-        }
-        let Some(loop_handle) = result.faces.get(face).map(|f| f.outer_loop) else {
-            continue;
+    // Measurement phase: per-face offender detection is read-only and
+    // face-local (a refit rewrites only that face's own half-edge
+    // pcurves), so it runs in parallel under the `parallel` feature
+    // (PK-302), returning each offending half-edge with its measured
+    // deviation — the exact values the serial walk would compute,
+    // since no mutation precedes them. The refit loop below stays
+    // serial in the unchanged face order and consumes the recorded
+    // deviations instead of re-measuring.
+    let offenders: Vec<Vec<(popkern_core::topology::HalfEdgeHandle, f64)>> = {
+        let result_ref: &BRep = result;
+        let per_face = |&face: &FaceHandle| -> Vec<(popkern_core::topology::HalfEdgeHandle, f64)> {
+            face_loop_half_edges(result_ref, face)
+                .map(|hes| {
+                    hes.iter()
+                        .filter_map(|&he| {
+                            let report = result_ref.measure_half_edge_pcurve_deviation(he)?;
+                            (report.max_same_fraction_deviation > gate)
+                                .then_some((he, report.max_same_fraction_deviation))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         };
-        let Some(start) = result.loops.get(loop_handle).map(|l| l.half_edge) else {
-            continue;
-        };
-        let mut hes = Vec::new();
-        let mut cursor = start;
-        for _ in 0..result.half_edges.len() {
-            hes.push(cursor);
-            let Some(data) = result.half_edges.get(cursor) else {
-                break;
-            };
-            cursor = data.next;
-            if cursor == start {
-                break;
-            }
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            faces.par_iter().map(per_face).collect()
         }
-        let mut needs_refit = false;
-        for &he in &hes {
-            let Some(report) = result.measure_half_edge_pcurve_deviation(he) else {
-                continue;
-            };
-            if report.max_same_fraction_deviation <= gate {
-                continue;
-            }
-            needs_refit = true;
+        #[cfg(not(feature = "parallel"))]
+        {
+            faces.iter().map(per_face).collect()
         }
-        if !needs_refit {
+    };
+    for (&face, face_offenders) in faces.iter().zip(offenders) {
+        if face_offenders.is_empty() {
             continue;
         }
         // Improve-or-revert per half-edge: clear the offenders, refit
         // the whole face through the projection recompute, and keep
         // each replacement only when it measures strictly better.
         let mut cleared = Vec::new();
-        for &he in &hes {
-            let Some(report) = result.measure_half_edge_pcurve_deviation(he) else {
-                continue;
-            };
-            if report.max_same_fraction_deviation <= gate {
-                continue;
-            }
+        for (he, deviation) in face_offenders {
             let Some(original) = result.half_edges.get(he).and_then(|h| h.pcurve.clone()) else {
                 continue;
             };
             result.half_edges[he].pcurve = None;
-            cleared.push((he, original, report.max_same_fraction_deviation));
+            cleared.push((he, original, deviation));
         }
         if cleared.is_empty() {
             continue;
@@ -121,4 +112,39 @@ pub(crate) fn coparameterize_strip_rails(
         }
     }
     improved
+}
+
+/// The outer-loop half-edges of a NURBS-surfaced face, or `None` when
+/// the face is absent, unsurfaced, non-NURBS, or loop-broken. Shared
+/// by the parallel pre-filter and the serial refit loop so both walk
+/// the same sequence.
+fn face_loop_half_edges(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Option<Vec<popkern_core::topology::HalfEdgeHandle>> {
+    let is_nurbs = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Nurbs(_)));
+    if !is_nurbs {
+        return None;
+    }
+    let loop_handle = brep.faces.get(face)?.outer_loop;
+    let start = brep.loops.get(loop_handle)?.half_edge;
+    let mut hes = Vec::new();
+    let mut cursor = start;
+    for _ in 0..brep.half_edges.len() {
+        hes.push(cursor);
+        // A broken loop keeps the partial walk (matching the historic
+        // serial measurement) rather than skipping the face.
+        let Some(data) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        cursor = data.next;
+        if cursor == start {
+            break;
+        }
+    }
+    Some(hes)
 }

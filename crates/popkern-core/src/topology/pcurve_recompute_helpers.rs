@@ -17,17 +17,37 @@ impl BRep {
     /// for edges that span the seam (e.g., self-loop circles), so the fix
     /// is skipped when the error is close to a multiple of the period.
     pub(super) fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
+        for (heh, fixed) in self.compute_pcurve_endpoint_fixes(face_handle) {
+            self.half_edges[heh].pcurve = Some(fixed);
+        }
+    }
+
+    /// The read-only compute half of [`BRep::fix_pcurve_endpoints`]:
+    /// per half-edge of `face_handle`, the endpoint-snapped
+    /// replacement pcurve (when a fix is needed), in loop order. Each
+    /// half-edge's fix reads only its own stored pcurve, the face
+    /// surface, and vertex positions, so faces (and half-edges) are
+    /// independent — callers may compute several faces in parallel
+    /// and apply the writes serially (PK-302).
+    pub(super) fn compute_pcurve_endpoint_fixes(
+        &self,
+        face_handle: FaceHandle,
+    ) -> Vec<(
+        crate::topology::HalfEdgeHandle,
+        crate::geometry::pcurve::Pcurve,
+    )> {
         use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
+        let mut fixes = Vec::new();
         let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
             Some(s) => s.geometry.clone(),
-            None => return,
+            None => return fixes,
         };
         let (period_u, period_v) = surface.periodicity();
 
         let face = match self.faces.get(face_handle) {
             Some(f) => f,
-            None => return,
+            None => return fixes,
         };
         let outer_loop = face.outer_loop;
         let inner_loops = face.inner_loops.clone();
@@ -173,8 +193,9 @@ impl BRep {
                 }
             }
 
-            self.half_edges[heh].pcurve = Some(fixed.into());
+            fixes.push((heh, fixed.into()));
         }
+        fixes
     }
 }
 

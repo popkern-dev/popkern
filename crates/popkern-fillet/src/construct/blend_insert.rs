@@ -38,8 +38,8 @@ use blend_insert_diagnostics::{
     pns_dispatch_declined_diagnostic, rational_gregory_dispatch_declined_diagnostic,
     rational_gregory_dispatch_precondition_reason,
 };
-pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform, sphere_owns_corner};
+pub(crate) use blend_insert_surface::{reclassify_corner_methods, setback_min_n_for};
 use blend_insert_three_quad_acceptance::record_fallback_cap_support_continuity;
 pub(crate) use blend_insert_topology::{kev_v_bridge, remove_orphaned_vertex};
 use blend_insert_topology::{normalize_underresolved_face_loop_to_n, split_corner_triangles};
@@ -76,6 +76,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
+    cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<InsertVertexBlendOutput, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
@@ -117,15 +118,12 @@ pub(crate) fn insert_vertex_blend(
     // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
     // pin the legacy fallback dispatch (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
-    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
-        usize::MAX
-    } else if std::env::var_os("POPKERN_SETBACK_N3").is_some()
-        || !sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre)
-    {
-        3
-    } else {
-        5
-    };
+    let setback_min_n = setback_min_n_for(
+        edge_indices,
+        edge_geometries,
+        &fillet_surfaces_pre,
+        tolerance,
+    );
     let setback_attempted =
         crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
             && edge_indices.len() >= setback_min_n;
@@ -138,6 +136,7 @@ pub(crate) fn insert_vertex_blend(
         requested_continuity,
         classification,
         setback_min_n,
+        cap_presolve,
     ) {
         return outcome;
     }

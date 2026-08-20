@@ -17,7 +17,7 @@ use super::*;
 ///
 /// Use [`SurfaceGeometry::Gregory`](crate::geometry::SurfaceGeometry::Gregory)
 /// to attach to a face.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum GregoryPatch {
     /// N=4 rectangular cubic patch (bidegree 3×3).
     Rectangular(Box<RectangularGregory>),

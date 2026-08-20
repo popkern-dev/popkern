@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 /// inner-CP pair placeholders. The K-P guided-surface
 /// construction sets every CP explicitly via the formulas in
 /// `kp_g1_construction.rs` + `kp_g2_construction.rs`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryBiNonic {
     /// 10×10 control-point grid, row-major.
     pub grid: [[Point3; 10]; 10],

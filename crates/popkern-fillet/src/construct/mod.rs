@@ -45,6 +45,7 @@ mod setback_commit_gate;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
 pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
+pub(crate) mod setback_cap_presolve;
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
@@ -116,7 +117,7 @@ mod pcurve_measured_repair;
 mod pcurve_refit;
 mod perpendicular_splits;
 mod phase_split;
-mod pipeline_timing;
+pub(crate) mod pipeline_timing;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
 pub(crate) mod post_pipeline;
@@ -188,16 +189,10 @@ pub fn apply_blend_geometry(
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
     let mut repair_report = crate::types::BlendRepairReport::default();
-    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for a
-    // post-`sliver_absorb` wire pass (sphere-fit substitution only).
-    let mut late_wire_jobs: Vec<(
-        crate::blend::BlendBoundary,
-        Vec<popkern_core::topology::FaceHandle>,
-    )> = Vec::new();
-    let mut support_seam_jobs: Vec<(
-        crate::blend::BlendBoundary,
-        Vec<popkern_core::topology::FaceHandle>,
-    )> = Vec::new();
+    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for the post-sliver_absorb wire pass.
+    type BoundaryFaceJobs = Vec<(crate::blend::BlendBoundary, Vec<FaceHandle>)>;
+    let mut late_wire_jobs: BoundaryFaceJobs = Vec::new();
+    let mut support_seam_jobs: BoundaryFaceJobs = Vec::new();
     // §6c-direct-apex dispatch.d — faces authored by `try_direct_apex_construction`,
     // protected so sliver_absorb/cap_insert/late re-wiring don't re-author the cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
@@ -301,10 +296,17 @@ pub fn apply_blend_geometry(
                     (*v, c)
                 })
                 .collect();
+            // PK-278 parallel solve phase (contract: presolve module docs).
+            let cap_presolve = setback_cap_presolve::presolve_setback_caps(
+                &result,
+                &vertex_edges,
+                edge_geometries,
+                tolerance,
+                apply_cancel_poll(cancel).is_err(),
+            );
             for (vertex, edge_indices) in &vertex_edges {
                 // §17 per-corner poll: corner construction dominates apply
-                // wall-clock (measured 34.1 s of 34.3 s, 12-edge G2 cube) —
-                // this poll bounds a cancelled run's stretch to one corner.
+                // wall-clock — bounds a cancelled run's stretch to one corner.
                 if apply_cancel_poll(cancel).is_err() {
                     return true;
                 }
@@ -464,6 +466,7 @@ pub fn apply_blend_geometry(
                         use_kp_binonic_gregory,
                         use_kp_polar_gregory,
                         Some(pre),
+                        cap_presolve.get(vertex),
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
                             repair_report.apex_diagnostics.extend(diagnostics);

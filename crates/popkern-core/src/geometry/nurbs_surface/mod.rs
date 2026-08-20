@@ -11,7 +11,7 @@ mod iso_curve;
 mod knot_ops;
 
 /// A Non-Uniform Rational B-Spline surface.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NurbsSurface {
     /// Polynomial degree in the u direction.
     pub degree_u: usize,

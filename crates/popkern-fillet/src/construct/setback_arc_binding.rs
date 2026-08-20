@@ -41,6 +41,21 @@ pub(super) fn find_fillet_face(
         let Some(surface) = face.surface.as_ref() else {
             continue;
         };
+        // Cap-family skip (PK-301): fillet strips are authored as
+        // NURBS sweeps or analytic surfaces — the Gregory and
+        // polyhedral-spline variants exist only as corner CAP
+        // geometry and can never be the strip this binder looks for.
+        // Skipping them keeps this scan O(strips) instead of paying a
+        // Newton projection against every accumulated cap piece
+        // (measured: +14 ms per corner on the 12-edge G2 cube, the
+        // dominant per-corner growth term).
+        if matches!(
+            surface.geometry,
+            popkern_core::geometry::SurfaceGeometry::Gregory(_)
+                | popkern_core::geometry::SurfaceGeometry::PolyhedralSpline(_)
+        ) {
+            continue;
+        }
         let mut worst = 0.0_f64;
         for sample in &samples {
             let d = popkern_core::geometry::uv_projection::project_point_to_uv(

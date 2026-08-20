@@ -56,7 +56,7 @@ use serde::{Deserialize, Serialize};
 /// placeholders. Corner tangent-plane compatibility is
 /// enforced by the joint solver's corner-G1 constraints rather
 /// than by an evaluator-level rational blend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryTwoStripe {
     /// 8×8 control-point grid, row-major. All 64 entries are
     /// plain-Bezier CPs with no special semantics — unlike

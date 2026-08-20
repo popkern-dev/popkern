@@ -25,20 +25,17 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
     let mut measured = 0usize;
     let mut skipped_large = 0usize;
     let edges: Vec<_> = brep.edges.keys().collect();
-    for edge in edges {
-        let Some(ed) = brep.edges.get(edge) else {
-            continue;
-        };
-        let Some(curve) = ed.curve.clone() else {
-            continue;
-        };
-        let current = ed.tolerance.unwrap_or(0.0);
-        let Some(he) = brep.half_edges.get(ed.half_edge) else {
-            continue;
-        };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
-            continue;
-        };
+    // Measurement phase: per-edge worst residual, read-only and
+    // independent per edge (the write below touches only that edge's
+    // declared tolerance, which the measurement never reads) — so it
+    // runs in parallel under the `parallel` feature with an indexed
+    // ordered collect (PK-302); the recording phase below is serial
+    // in the unchanged edge order.
+    let measure = |brep: &BRep, edge: popkern_core::topology::EdgeHandle| -> Option<f64> {
+        let ed = brep.edges.get(edge)?;
+        let curve = ed.curve.clone()?;
+        let he = brep.half_edges.get(ed.half_edge)?;
+        let tw = brep.half_edges.get(he.twin)?;
         let faces = [
             brep.loops.get(he.loop_).map(|l| l.face),
             brep.loops.get(tw.loop_).map(|l| l.face),
@@ -118,6 +115,28 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
                 }
             }
         }
+        Some(worst)
+    };
+    #[cfg(feature = "parallel")]
+    let worsts: Vec<Option<f64>> = {
+        use rayon::prelude::*;
+        let brep_ref: &BRep = brep;
+        edges
+            .par_iter()
+            .map(|&edge| measure(brep_ref, edge))
+            .collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let worsts: Vec<Option<f64>> = edges.iter().map(|&edge| measure(brep, edge)).collect();
+    for (edge, worst) in edges.into_iter().zip(worsts) {
+        let Some(worst) = worst else {
+            continue;
+        };
+        let current = brep
+            .edges
+            .get(edge)
+            .and_then(|ed| ed.tolerance)
+            .unwrap_or(0.0);
         measured += 1;
         if worst >= 6.6e-5 {
             skipped_large += 1;

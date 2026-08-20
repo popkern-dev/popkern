@@ -24,6 +24,7 @@ pub(super) fn try_setback_rung(
     requested_continuity: ContinuityLevel,
     classification: VertexBlendClassification,
     setback_min_n: usize,
+    cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Option<Result<InsertVertexBlendOutput, String>> {
     if crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
         && edge_indices.len() >= setback_min_n
@@ -49,11 +50,13 @@ pub(super) fn try_setback_rung(
         };
         match crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
+            &commit_snapshot,
             vertex,
             fillet_surfaces_pre,
             tolerance,
             family,
             requested_continuity == ContinuityLevel::G2,
+            cap_presolve,
         ) {
             Ok(outcome) => {
                 if let Err(e) = brep.validate() {

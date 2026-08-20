@@ -27,7 +27,7 @@ use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Bi-nonic patch with rational dual-twist corner controls.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryBiNonicDualTwist {
     /// 10×10 control-point grid, row-major (`grid[i][j]`, `i`
     /// indexes `u`). Entries `(1,1)`, `(1,8)`, `(8,1)`, `(8,8)`

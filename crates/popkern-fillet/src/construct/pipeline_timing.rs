@@ -66,6 +66,53 @@ pub(super) fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
     (value, start.elapsed().as_millis())
 }
 
+/// Structured timing for the post-apply repair tail of
+/// `fillet_edges_attempt` — the passes the PK-278 profile measured as
+/// the tail's dominant costs. Emitted as a diagnostic fact so tail
+/// regressions are observable without ad-hoc tracing.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct RepairTailTiming {
+    pub(crate) fix_stale_first_ms: u128,
+    pub(crate) fix_stale_second_ms: u128,
+    pub(crate) coparameterize_ms: u128,
+    pub(crate) declared_accuracy_ms: u128,
+}
+
+impl RepairTailTiming {
+    pub(crate) fn diagnostic(self) -> ApexConstructionDiagnostic {
+        let total = self.fix_stale_first_ms
+            + self.fix_stale_second_ms
+            + self.coparameterize_ms
+            + self.declared_accuracy_ms;
+        ApexConstructionDiagnostic::ExactBoundaryCap(ExactBoundaryCapDiagnostic {
+            stage: "fillet.pipeline.tail.timing".to_string(),
+            code: "fillet.pipeline.tail.fact".to_string(),
+            detail_code: Some(format!(
+                "timing_tail_dominant_ms={};timing_fix_stale_first_ms={};timing_fix_stale_second_ms={};timing_coparameterize_ms={};timing_declared_accuracy_ms={}",
+                total,
+                self.fix_stale_first_ms,
+                self.fix_stale_second_ms,
+                self.coparameterize_ms,
+                self.declared_accuracy_ms,
+            )),
+            sector_name: "fillet_pipeline_repair_tail".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: Some(total as f64),
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        })
+    }
+}
+
+/// `timed` twin for callers outside the `construct` module tree.
+pub(crate) fn timed_ms<T>(f: impl FnOnce() -> T) -> (T, u128) {
+    timed(f)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

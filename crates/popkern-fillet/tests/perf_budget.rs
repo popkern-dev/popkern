@@ -154,9 +154,11 @@ fn twelve_edge_cube_g2_fillet_within_budget() {
         fillet_edges(&cube, &specs, &options, tol(), None)
             .expect("12-edge G2 cube fillet succeeds");
     });
-    // Measured 10.0 s single-run release (2026-08-14, PK-281 span-local
-    // de Boor + fused analytic partials; was 38.5 s) × 5 ≈ 50 s.
-    assert_budget("12-edge cube fillet (G2 ladder)", measured, 50000);
+    // Measured 2.7-2.8 s single-run release (2026-08-20, PK-278
+    // parallel corner presolve + PK-301 strip-binder locality +
+    // PK-302 parallel tail measurement; was 5.9 s after PK-289/291,
+    // 10.0 s at PK-281, 38.5 s before that) × 5 ≈ 14 s.
+    assert_budget("12-edge cube fillet (G2 ladder)", measured, 14000);
 }
 
 /// Cylinder base-circle fillet — the curved-support seam-crossing

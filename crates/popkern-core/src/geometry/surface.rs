@@ -77,7 +77,7 @@ pub use super::surface_helpers::{
 use super::surface_helpers::{crop_nurbs_surface_to_range, sample_to_nurbs};
 
 /// Geometric surface types.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SurfaceGeometry {
     /// An infinite plane.
     Plane {

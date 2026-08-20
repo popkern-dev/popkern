@@ -57,7 +57,7 @@ use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Degree-5 rectangular rational Gregory patch.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryDeg5 {
     /// 6×6 control-point grid, row-major. `boundary_cps[i][j]`
     /// is at Bezier index `(i, j)` where `i` indexes `u` and

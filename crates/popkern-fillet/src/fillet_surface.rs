@@ -14,7 +14,7 @@ use crate::fillet_surface_analytic::{
 use crate::types::ContinuityLevel;
 
 /// Result of a fillet surface construction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FilletSurfaceResult {
     /// The constructed fillet surface.
     pub surface: SurfaceGeometry,

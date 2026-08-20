@@ -11,7 +11,6 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
-use crate::construct::EdgeGeometry;
 use crate::error::{BlendError, BlendFailure, BlendWarning};
 use crate::geometry_compute::{build_overlap_inputs, compute_fillet_geometry};
 use crate::naming::assign_fillet_names;
@@ -278,6 +277,10 @@ pub(crate) fn fillet_edges_attempt(
     );
     check_cancel!();
     let t5 = Instant::now();
+    // Structured tail timing (PK-278 profile): the four passes below
+    // carried ~2.9 s of the 5.9 s G2 cube before parallelization —
+    // recorded as a diagnostic fact so tail regressions stay visible.
+    let mut tail_timing = construct::pipeline_timing::RepairTailTiming::default();
     // Whole-model by measurement (PK-274 postmortem): apply-phase
     // repairs (edge reconcile chord rebuilds, vertex snaps) touch
     // faces arbitrarily far from the blend region, so no k-ring
@@ -287,7 +290,8 @@ pub(crate) fn fillet_edges_attempt(
     // consolidation heals, boolean fill-only tails) carry their own
     // touched-face inventories; this pipeline-tail net stays global.
     let _ = apply_result.brep.recompute_all_pcurves();
-    apply_result.brep.fix_stale_pcurves();
+    let ((), ms) = construct::pipeline_timing::timed_ms(|| apply_result.brep.fix_stale_pcurves());
+    tail_timing.fix_stale_first_ms = ms;
     check_cancel!();
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
@@ -324,7 +328,8 @@ pub(crate) fn fillet_edges_attempt(
     // (PK-095: straight 2-point pcurves on fillet-sweep trims, 5e-2
     // off, were the dominant tessellation seam crack). Whole-model —
     // see the PK-274 postmortem note on the first pass above.
-    apply_result.brep.fix_stale_pcurves();
+    let ((), ms) = construct::pipeline_timing::timed_ms(|| apply_result.brep.fix_stale_pcurves());
+    tail_timing.fix_stale_second_ms = ms;
     check_cancel!();
     // PK-141 strip cleanup: seam slits + foreign pockets (see
     // cleanup_strip_slits_and_pockets docs).
@@ -376,11 +381,14 @@ pub(crate) fn fillet_edges_attempt(
             .keys()
             .filter(|f| !pre_faces.contains(f))
             .collect();
-        let _ = construct::strip_rail_coparameterization::coparameterize_strip_rails(
-            &mut apply_result.brep,
-            &created,
-            &tolerance,
-        );
+        let (_, ms) = construct::pipeline_timing::timed_ms(|| {
+            construct::strip_rail_coparameterization::coparameterize_strip_rails(
+                &mut apply_result.brep,
+                &created,
+                &tolerance,
+            )
+        });
+        tail_timing.coparameterize_ms = ms;
     }
     // PK-175 final bounded-UV clamp; PK-141 period-branch reconcile
     // on periodic supports; PK-177 declared-accuracy recording.
@@ -421,8 +429,14 @@ pub(crate) fn fillet_edges_attempt(
         residual_scaffolding::retire_unglued_construction_residual_scaffolding(
             &mut apply_result.brep,
         );
-    let _ =
-        construct::final_declared_accuracy::record_final_declared_accuracy(&mut apply_result.brep);
+    let (_, ms) = construct::pipeline_timing::timed_ms(|| {
+        construct::final_declared_accuracy::record_final_declared_accuracy(&mut apply_result.brep)
+    });
+    tail_timing.declared_accuracy_ms = ms;
+    apply_result
+        .repair_report
+        .apex_diagnostics
+        .push(tail_timing.diagnostic());
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
         return Err(BlendError::PartialFailure {
             failed: 1,
@@ -469,32 +483,6 @@ pub(crate) fn fillet_edges_attempt(
         repair_report: apply_result.repair_report,
     })
 }
-fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry]) -> EdgeHandle {
-    specs
-        .first()
-        .map(|s| s.edge)
-        .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
-        .unwrap_or_default()
-}
-fn first_structural_validation_error(brep: &BRep) -> Option<String> {
-    [
-        brep.validate_half_edge_pairing().err(),
-        brep.validate_half_edge_cycles().err(),
-        brep.validate_vertex_consistency().err(),
-        brep.validate_manifold_edges().err(),
-        brep.validate_loop_closure().err(),
-    ]
-    .into_iter()
-    .flatten()
-    .find(|err| {
-        matches!(
-            err,
-            popkern_core::error::ValidationError::BrokenCycle { .. }
-                | popkern_core::error::ValidationError::BrokenTwin { .. }
-                | popkern_core::error::ValidationError::InconsistentVertex { .. }
-                | popkern_core::error::ValidationError::NonManifoldEdge { .. }
-                | popkern_core::error::ValidationError::OpenLoop { .. }
-        )
-    })
-    .map(|err| format!("post-blend structural validation failed: {err:?}"))
-}
+#[path = "fillet_pipeline_postconditions.rs"]
+mod fillet_pipeline_postconditions;
+use fillet_pipeline_postconditions::{fallback_edge_for_specs, first_structural_validation_error};

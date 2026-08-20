@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 /// `[300, 030, 003, 210, 120, 021, 012, 102, 201]` —
 /// corner0, corner1, corner2, then two CPs along each edge
 /// (edge 01: 210 and 120; edge 12: 021 and 012; edge 20: 102 and 201).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriangularGregory {
     /// The 9 boundary control points in triangular-Bezier index
     /// order: three corners followed by six edge-thirds CPs.

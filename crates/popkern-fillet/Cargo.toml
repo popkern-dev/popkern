@@ -5,12 +5,22 @@ edition.workspace = true
 license.workspace = true
 description = "Fillets and chamfers for the popkern BRep kernel"
 
+[features]
+# Parallel corner presolve (PK-278). Default-on: output is bit-identical
+# with or without it (the presolve is a pure solve gated on exact input
+# equality), so opting out is a resource decision, not a correctness one.
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
+rayon = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 
 [dev-dependencies]
+# Thread-pool control for the PK-278 determinism pins.
+rayon = "1"
 popkern-bool = { path = "../popkern-bool" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-io = { path = "../popkern-io" }

@@ -123,15 +123,22 @@ pub(crate) enum CapFamily {
     PnsG1,
 }
 
+/// `snapshot` is the caller-held pre-surgery state (the rung's commit
+/// snapshot): the surgery restores from it on any inner error via a
+/// clone-on-restore, so the success path pays no snapshot clone of
+/// its own (PK-278 — the second per-corner whole-model clone was pure
+/// duplication of the rung's).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn try_setback_boundary_surgery(
     brep: &mut BRep,
+    snapshot: &BRep,
     vertex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
     family: CapFamily,
     gate_seam_g2: bool,
+    cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<SetbackTopologyOutcome, String> {
-    let snapshot = brep.clone();
     match surgery_inner(
         brep,
         vertex,
@@ -139,15 +146,17 @@ pub(crate) fn try_setback_boundary_surgery(
         tolerance,
         family,
         gate_seam_g2,
+        cap_presolve,
     ) {
         Ok(outcome) => Ok(outcome),
         Err(e) => {
-            *brep = snapshot;
+            *brep = snapshot.clone();
             Err(e)
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn surgery_inner(
     brep: &mut BRep,
     vertex: VertexHandle,
@@ -155,6 +164,7 @@ fn surgery_inner(
     tolerance: &Tolerance,
     family: CapFamily,
     gate_seam_g2: bool,
+    cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<SetbackTopologyOutcome, String> {
     let n = fillet_surfaces.len();
     if n < 3 {
@@ -167,9 +177,20 @@ fn surgery_inner(
         .ok_or_else(|| "apex vertex not in BRep".to_string())?;
 
     // Setback arcs from the extractor (the same geometry the stage-1
-    // candidate assembles the cap on).
-    let (_border, extract) =
-        kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?;
+    // candidate assembles the cap on). PK-278: consume the parallel
+    // presolve when its recorded inputs match this call's inputs
+    // exactly; otherwise solve inline (byte-identical either way —
+    // the extractor is a pure function of these two arguments).
+    let presolved: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve> =
+        match cap_presolve.and_then(|entry| entry.matching(fillet_surfaces, vertex_position)) {
+            Some(Ok(solve)) => Some(solve),
+            Some(Err(e)) => return Err(e.clone()),
+            None => None,
+        };
+    let extract = match presolved {
+        Some(solve) => solve.extract.clone(),
+        None => kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?.1,
+    };
     if extract.setback_arcs.len() != n {
         return Err(format!(
             "extractor returned {} arcs for {} fillets",
@@ -457,7 +478,6 @@ fn surgery_inner(
     // arc (design: [arc, trim, base-end, trim]), so scaffold edges
     // between same-surface fillet pieces are dissolved.
     absorb_same_surface_bands(brep, &arc_edges, blend_face)?;
-
     // ---- cap face fan (family-specific) ---------------------------------
     let cap_faces = match family {
         CapFamily::Kp20G2 => {
@@ -467,6 +487,7 @@ fn surgery_inner(
                 &arc_edges,
                 fillet_surfaces,
                 vertex_position,
+                presolved,
             )?;
             // Rim refit: exact cap-row edge curves (PK-096). The PnS
             // family does not need this — its border equals the
@@ -499,12 +520,8 @@ fn surgery_inner(
     // declining lets the legacy sphere-fit path serve the gentle
     // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
     // g1 ≤ 2e-3 here — orders under the gates.
-    let stage_timer = std::time::Instant::now();
     let (seam_g0, seam_g1, seam_g2) =
         setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
-        eprintln!("  [stage-timing] seam quality: {:?}", stage_timer.elapsed());
-    }
     if std::env::var_os("PK_SETBACK_PROBE").is_some() {
         eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e} g2={seam_g2:.3e}");
     }
@@ -522,27 +539,33 @@ fn surgery_inner(
     // unsigned min-regularity 8.7e-5 slid past a gate inflated by the
     // creased-border corner mismatch). Decline HERE with the class
     // named; the legacy path serves the corner instead.
-    let fold_timer = std::time::Instant::now();
-    for &fh in &cap_faces {
-        let folded = brep
-            .faces
-            .get(fh)
+    // Read-only per-piece measurement; ordered collect keeps the
+    // first-folded-face report identical to the serial walk (PK-302).
+    let fold_of = |fh: &FaceHandle| -> bool {
+        brep.faces
+            .get(*fh)
             .and_then(|f| f.surface.as_ref())
             .is_some_and(|sof| match &sof.geometry {
                 popkern_core::geometry::SurfaceGeometry::Gregory(patch) => {
                     patch.self_intersects_with_tolerance(brep.tolerance.linear().max(1e-6))
                 }
                 _ => false,
-            });
+            })
+    };
+    #[cfg(feature = "parallel")]
+    let folds: Vec<bool> = {
+        use rayon::prelude::*;
+        cap_faces.par_iter().map(fold_of).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let folds: Vec<bool> = cap_faces.iter().map(fold_of).collect();
+    for (&fh, folded) in cap_faces.iter().zip(folds) {
         if folded {
             return Err(format!(
                 "fan fold postcondition failed: cap piece {fh:?} self-intersects \
                  (assembly-born fold — creased-border wide-sector class)"
             ));
         }
-    }
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
-        eprintln!("  [stage-timing] fold gate: {:?}", fold_timer.elapsed());
     }
     // Strip-conflict postcondition (PK-225): the setback extends the
     // strips to the arcs, and flat conic sections at small radii
@@ -596,39 +619,35 @@ fn build_cap_face_fan(
     arc_edges: &[EdgeHandle],
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
+    presolved: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve>,
 ) -> Result<Vec<FaceHandle>, String> {
     use popkern_core::geometry::gregory::Kp20PieceId;
     let n = arc_edges.len();
     // Assemble the cap (the same call the stage-1 candidate makes).
-    let (border, _extract) =
-        kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?;
-    let centroid = {
-        let mut acc = [0.0_f64; 3];
-        let mut count = 0.0;
-        for sector in &border.sectors {
-            for piece in sector {
-                for cp in &piece.rows[0] {
-                    acc[0] += cp.x;
-                    acc[1] += cp.y;
-                    acc[2] += cp.z;
-                    count += 1.0;
-                }
-            }
+    // PK-278: the border/assembly pair is pure in (fillet_surfaces,
+    // vertex_position); when the caller verified a presolve match the
+    // precomputed values are bitwise what the inline calls produce.
+    let (border, report) = match presolved {
+        Some(solve) => (
+            solve.border.clone(),
+            solve.assembly.as_ref().map_err(Clone::clone)?.clone(),
+        ),
+        None => {
+            let (border, _extract) =
+                kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?;
+            let star =
+                crate::construct::setback_cap_presolve::kp20_cap_star(&border, vertex_position);
+            let report = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
+                &border,
+                star,
+                popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
+                0.0,
+            )
+            .map_err(|e| format!("cap assembly: {e}"))?;
+            (border, report)
         }
-        Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
     };
-    let star = Point3::new(
-        centroid.x + (vertex_position.x - centroid.x) * 0.25,
-        centroid.y + (vertex_position.y - centroid.y) * 0.25,
-        centroid.z + (vertex_position.z - centroid.z) * 0.25,
-    );
-    let report = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
-        &border,
-        star,
-        popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
-        0.0,
-    )
-    .map_err(|e| format!("cap assembly: {e}"))?;
+    let star = crate::construct::setback_cap_presolve::kp20_cap_star(&border, vertex_position);
     // Acceptance gate: the paper residuals must close at the relative
     // tolerance (the same criterion as the stage-1 candidate) before
     // any topology is committed. The floor is the INPUT corner
