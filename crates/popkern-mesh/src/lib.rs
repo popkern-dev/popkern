@@ -12,7 +12,9 @@ mod export;
 mod mesh;
 mod tessellate;
 mod trim;
+mod trim_canonical;
 mod trim_clip;
+mod trim_sampling;
 
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;

@@ -10,7 +10,7 @@ fn cube_face_produces_one_outer_trim_loop() {
     let face = &brep.faces[face_handle];
     let surface = &face.surface.as_ref().unwrap().geometry;
 
-    let loops = build_trim_loops(&brep, face_handle, surface, 0.01);
+    let loops = build_trim_loops_with_samples(&brep, face_handle, surface, 0.01, None);
     assert_eq!(loops.len(), 1, "cube face should have exactly 1 loop");
     assert!(loops[0].is_outer, "the loop should be outer");
     assert!(
@@ -27,7 +27,7 @@ fn trim_loop_from_pcurves_is_closed() {
     let face = &brep.faces[face_handle];
     let surface = &face.surface.as_ref().unwrap().geometry;
 
-    let loops = build_trim_loops(&brep, face_handle, surface, 0.01);
+    let loops = build_trim_loops_with_samples(&brep, face_handle, surface, 0.01, None);
     assert!(!loops.is_empty(), "should have at least one loop");
     // Closure is implicit: the loop stores each corner ONCE (PK-095
     // removed the per-half-edge endpoint duplicates whose zero-length
@@ -69,7 +69,7 @@ fn boolean_face_with_hole_produces_outer_and_inner_loops() {
             continue;
         }
         let surface = &face.surface.as_ref().unwrap().geometry;
-        let loops = build_trim_loops(&result, fh, surface, 0.01);
+        let loops = build_trim_loops_with_samples(&result, fh, surface, 0.01, None);
 
         let outer_count = loops.iter().filter(|l| l.is_outer).count();
         let inner_count = loops.iter().filter(|l| !l.is_outer).count();
@@ -160,7 +160,7 @@ fn boolean_hole_face_inner_trim_loop_has_points() {
         let face = &result.faces[fh];
         if !face.inner_loops.is_empty() {
             let surface = &face.surface.as_ref().unwrap().geometry;
-            let loops = build_trim_loops(&result, fh, surface, 0.01);
+            let loops = build_trim_loops_with_samples(&result, fh, surface, 0.01, None);
             let inner_count = loops.iter().filter(|l| !l.is_outer).count();
             assert!(
                 inner_count >= 1,

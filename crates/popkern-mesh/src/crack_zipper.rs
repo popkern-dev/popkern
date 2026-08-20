@@ -58,7 +58,11 @@ const DEFAULT_BAND: f64 = 2.0e-4;
 
 /// Close T-junction cracks along two-sided BRep edges. Returns the
 /// number of junction splits performed.
-pub(crate) fn zip_recorded_tolerance_cracks(brep: &BRep, mesh: &mut TriMesh) -> usize {
+pub(crate) fn zip_recorded_tolerance_cracks(
+    brep: &BRep,
+    mesh: &mut TriMesh,
+    chord_height: f64,
+) -> usize {
     // Sampled polylines of every TWO-SIDED edge (distinct faces on
     // the two half-edges — the topology says the mesh must close
     // here), with the per-edge matching band.
@@ -85,7 +89,18 @@ pub(crate) fn zip_recorded_tolerance_cracks(brep: &BRep, mesh: &mut TriMesh) -> 
         let pts: Vec<Point3> = (0..=64)
             .map(|i| ce.point_at(curve.t_start + (curve.t_end - curve.t_start) * i as f64 / 64.0))
             .collect();
-        let band = DEFAULT_BAND.max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
+        // The matching band must cover the DISCRETIZATION's own
+        // accepted sag: clip-introduced T-vertices on a fallback
+        // face's canonical chords sit up to the tessellation chord
+        // height off the exact curve (PK-299, measured: 4.2e-3 on a
+        // rim sampled at ~10° spans), and a fixed 2e-4 band rejected
+        // exactly the junctions the zipper exists to close. Geometry
+        // finer than the chord height is below the mesh's resolution
+        // contract, so openness within it along a two-sided edge is
+        // a sampling artifact by construction.
+        let band = DEFAULT_BAND
+            .max(chord_height)
+            .max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
         closed_edges.push((pts, band));
     }
     if closed_edges.is_empty() {

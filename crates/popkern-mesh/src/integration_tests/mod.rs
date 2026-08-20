@@ -496,14 +496,14 @@ fn cylinder_mesh_wedge_volume_is_outward_and_closed() {
         "cylinder wedge volume should be ~{expected}, got {vol}"
     );
 }
-
 // ── Trim regression diagnostics ──────────────────────────────────────
 
 #[path = "diagnostic_trim_tests.rs"]
 mod diagnostic_trim;
+#[path = "fallback_weld_tests.rs"]
+mod fallback_weld;
 #[path = "setback_blend_export_tests.rs"]
 mod setback_blend_export;
 #[path = "sphere_union_gap_tests.rs"]
 mod sphere_union_gap;
-// whole_object_closure_tests.rs (13 ignored PK-095 print-only
-// diagnostics) was retired with PK-183; findings in the ledger.
+// whole_object_closure_tests.rs retired with PK-183; findings in ledger.

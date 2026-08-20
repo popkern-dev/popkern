@@ -25,6 +25,23 @@ pub fn tessellate_face(
     face_handle: FaceHandle,
     options: &TessellationOptions,
 ) -> Result<FaceMesh, MeshError> {
+    tessellate_face_with_samples(brep, face_handle, options, None)
+}
+
+/// [`tessellate_face`] with canonical per-edge stations (PK-299) so a
+/// legacy-fallback face's trim boundary matches its boundary-first
+/// neighbours exactly.
+pub(crate) fn tessellate_face_with_samples(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    options: &TessellationOptions,
+    edge_samples: Option<
+        &std::collections::HashMap<
+            popkern_core::topology::EdgeHandle,
+            crate::boundary_first::EdgeSamples,
+        >,
+    >,
+) -> Result<FaceMesh, MeshError> {
     let face = brep
         .faces
         .get(face_handle)
@@ -39,8 +56,13 @@ pub fn tessellate_face(
     let (mut u_range, mut v_range) = bounded_parameter_range(brep, face_handle, surface);
 
     // Trim loops drive both the padding decision and the clip below.
-    let mut trim_loops =
-        crate::trim::build_trim_loops(brep, face_handle, surface, options.chord_height);
+    let mut trim_loops = crate::trim::build_trim_loops_with_samples(
+        brep,
+        face_handle,
+        surface,
+        options.chord_height,
+        edge_samples,
+    );
 
     // FULL-PERIODIC wall face: the outer loop is a seam-pair spine
     // (every outer half-edge's twin lives on this same face — e.g. a
@@ -399,7 +421,12 @@ pub(crate) fn tessellate_brep(
         if !outer_loop_is_seam_spine(brep, face_handle) {
             legacy_faces.push(face_meshes.len());
         }
-        face_meshes.push(tessellate_face(brep, face_handle, options)?);
+        face_meshes.push(tessellate_face_with_samples(
+            brep,
+            face_handle,
+            options,
+            Some(&edge_samples),
+        )?);
     }
     // The projection-based sewing stopgap applies ONLY to legacy-path
     // faces: boundary-first faces carry exact canonical boundary
@@ -417,7 +444,8 @@ pub(crate) fn tessellate_brep(
     // subdivided to share their points, so the weld closes. Unrecorded
     // gaps are left open — see crack_zipper for why that scoping is
     // the whole design.
-    mesh.zipped_t_junctions = crate::crack_zipper::zip_recorded_tolerance_cracks(brep, &mut mesh);
+    mesh.zipped_t_junctions =
+        crate::crack_zipper::zip_recorded_tolerance_cracks(brep, &mut mesh, options.chord_height);
     Ok(mesh)
 }
 

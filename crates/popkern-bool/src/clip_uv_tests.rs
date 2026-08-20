@@ -432,9 +432,18 @@ fn find_uv_crossings_full_period_angle_ranged_linear_boundary_terminates() {
     // clipping node budget (PK-295) the crossing scan terminates and
     // reports the honest crossings.
     let (mut brep, face) = build_face_with_pcurves([
-        (Point3::new(0.0, 0.0, 0.0), Point3::new(6.2832, 0.0, 0.0)),
-        (Point3::new(6.2832, 0.0, 0.0), Point3::new(6.2832, 1.0, 0.0)),
-        (Point3::new(6.2832, 1.0, 0.0), Point3::new(0.0, 1.0, 0.0)),
+        (
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(std::f64::consts::TAU, 0.0, 0.0),
+        ),
+        (
+            Point3::new(std::f64::consts::TAU, 0.0, 0.0),
+            Point3::new(std::f64::consts::TAU, 1.0, 0.0),
+        ),
+        (
+            Point3::new(std::f64::consts::TAU, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ),
         (Point3::new(0.0, 1.0, 0.0), Point3::new(0.0, 0.0, 0.0)),
     ]);
     brep.faces[face].surface = Some(popkern_core::geometry::SurfaceOnFace {

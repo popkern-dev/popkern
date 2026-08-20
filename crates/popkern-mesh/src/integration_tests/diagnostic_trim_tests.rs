@@ -7,7 +7,7 @@ use popkern_core::topology::BRep;
 
 use crate::TessellationOptions;
 use crate::tessellate::tessellate_face;
-use crate::trim::{build_trim_loops, trim_loop_area};
+use crate::trim::{build_trim_loops_with_samples, trim_loop_area};
 
 /// Return a human-readable name for a [`SurfaceGeometry`] variant.
 fn surface_type_name(s: &SurfaceGeometry) -> &'static str {
@@ -127,7 +127,7 @@ fn diagnose_model(name: &str, brep: &BRep) {
         }
 
         // Build trim loops.
-        let trim_loops = build_trim_loops(brep, fh, surface, 0.01);
+        let trim_loops = build_trim_loops_with_samples(brep, fh, surface, 0.01, None);
         let area = trim_loop_area(&trim_loops);
         println!(
             "    Trim loops: count={}, outer_area={area:.6}",
@@ -324,7 +324,7 @@ fn diagnostic_trim_regression() {
                 found_inner = true;
                 if let Some(sof) = &face.surface {
                     let surface = &sof.geometry;
-                    let trim_loops = build_trim_loops(&brep, fh, surface, 0.01);
+                    let trim_loops = build_trim_loops_with_samples(&brep, fh, surface, 0.01, None);
                     let inner_count = trim_loops.iter().filter(|tl| !tl.is_outer).count();
                     println!(
                         "  Boolean inner-loop face: total trim loops={}, \
