@@ -91,7 +91,23 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
             }
             let positions = face_vertex_positions(brep, *fh);
             if positions.len() < 3 {
-                return true;
+                // A face with fewer than three VERTICES is not
+                // necessarily degenerate: a bigon bounded by two
+                // CURVED edges (a torus bulge between its rim arc
+                // and a cutter's spiric) encloses macroscopic area
+                // the vertex polygon cannot see (PK-295, measured:
+                // three 0.87 × 0.10 bulge faces of a rim-filleted
+                // cylinder subtraction were "slivers" by vertex
+                // count and KEF-eaten; the served body carried three
+                // edges 1.0e-1 off their wired faces and 150 open
+                // mesh edges). Rebuild the polygon from sampled edge
+                // curves and judge THAT; only a curve-sampled
+                // polygon that is itself degenerate is a sliver.
+                let sampled = sampled_boundary_polygon(brep, *fh);
+                if sampled.len() < 3 {
+                    return true;
+                }
+                return analyze_face_polygon(&sampled, &thresholds).is_sliver;
             }
             analyze_face_polygon(&positions, &thresholds).is_sliver
         })
@@ -268,6 +284,51 @@ fn sliver_lies_on_face_surface(
         );
     }
     contained
+}
+
+/// Boundary polygon of a face sampled from its EDGE CURVES (9
+/// stations per half-edge, oriented along the walk), for faces whose
+/// vertex polygon is degenerate (< 3 vertices). Curveless edges
+/// contribute their chord endpoints.
+fn sampled_boundary_polygon(brep: &BRep, face: FaceHandle) -> Vec<popkern_core::geometry::Point3> {
+    use popkern_core::geometry::curve::CurveEval;
+    let Some(fd) = brep.faces.get(face) else {
+        return Vec::new();
+    };
+    let Some(ld) = brep.loops.get(fd.outer_loop) else {
+        return Vec::new();
+    };
+    let start = ld.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return Vec::new();
+    }
+    let mut poly = Vec::new();
+    let mut he = start;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        let hd = &brep.half_edges[he];
+        let origin = brep.vertices[hd.origin].position;
+        if let Some(curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
+            let eval: &dyn CurveEval = &curve.geometry;
+            // Orient the samples along THIS half-edge: the stored
+            // curve runs the edge's canonical direction, which is
+            // the twin's direction half the time.
+            let forward = eval.point_at(curve.t_start).distance_to(&origin)
+                <= eval.point_at(curve.t_end).distance_to(&origin);
+            for i in 0..9 {
+                let f = i as f64 / 9.0;
+                let f = if forward { f } else { 1.0 - f };
+                poly.push(eval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f));
+            }
+        } else {
+            poly.push(origin);
+        }
+        he = hd.next;
+        if he == start {
+            break;
+        }
+    }
+    poly
 }
 
 #[cfg(test)]

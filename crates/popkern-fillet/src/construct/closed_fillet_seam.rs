@@ -119,3 +119,163 @@ pub(super) fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle) {
         t_end: 1.0,
     });
 }
+
+/// Author the strip's transverse seam curve between the two contact
+/// anchors `p_out` (outer-loop vertex) and `p_in` (inner-ring
+/// vertex).
+///
+/// Exact-first (PK-295): on a torus strip the seam is a tube
+/// cross-section — an exact circular arc in the plane spanned by the
+/// surface axis and the station's radial direction. The 17-point
+/// polyline fallback carries ~2.4e-4 chord sag at unit scales, which
+/// is 100× the boolean's 2e-6 junction snap: an edge-face hit
+/// against the polyline lands off every true intersection curve, the
+/// pierce node never joins the record graph, and the fragments
+/// flanking the seam cannot close (measured: the θ=0 torus bulge of
+/// a rim-filleted cylinder minus a cuboid dropped out of the
+/// subtraction, stranding three self-twinned half-edges).
+///
+/// Non-toroidal strips keep the UV-interpolated polyline (branch
+/// alignment per PK-285), authored by the caller.
+pub(super) fn exact_torus_seam_arc(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    p_out: Point3,
+    p_in: Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<popkern_core::geometry::CurveOnEdge> {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let popkern_core::geometry::surface::SurfaceGeometry::Torus {
+        center,
+        axis,
+        major_radius,
+        minor_radius,
+    } = surface
+    else {
+        return None;
+    };
+    let d = p_out - *center;
+    let h = d.dot(axis);
+    let radial = d - *axis * h;
+    let radial_len = radial.length();
+    if radial_len < 1e-12 {
+        return None;
+    }
+    let radial_dir = radial * (1.0 / radial_len);
+    let c = *center + radial_dir * *major_radius;
+    // Tube-circle normal: the center circle's tangent at this station.
+    let normal = axis.cross(&radial_dir);
+    // The Arc evaluator walks ASCENDING angles in its own
+    // `circle_basis` frame; pick whichever normal orientation makes
+    // the p_out → p_in sweep positive, recomputing angles in that
+    // frame (a mirrored frame is NOT a sign flip of the original
+    // basis — circle_basis chooses its own e1).
+    let mut chosen: Option<(Vec3, f64, f64)> = None;
+    for n in [normal, -normal] {
+        let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(n);
+        let ang = |p: Point3| -> f64 {
+            let q = p - c;
+            q.dot(&e2).atan2(q.dot(&e1))
+        };
+        let a0 = ang(p_out);
+        let mut sweep = ang(p_in) - a0;
+        while sweep > std::f64::consts::PI {
+            sweep -= std::f64::consts::TAU;
+        }
+        while sweep < -std::f64::consts::PI {
+            sweep += std::f64::consts::TAU;
+        }
+        if sweep > 1e-9 {
+            chosen = Some((n, a0, sweep));
+            break;
+        }
+    }
+    let (n, a0, sweep) = chosen?;
+    let arc = popkern_core::geometry::CurveOnEdge {
+        geometry: CurveGeometry::Arc {
+            center: c,
+            normal: n,
+            radius: *minor_radius,
+            start_angle: a0,
+            end_angle: a0 + sweep,
+        },
+        t_start: a0,
+        t_end: a0 + sweep,
+    };
+    // Endpoint honesty gate: the arc must START at p_out and END at
+    // p_in within the authoring band, else decline to the fallback.
+    let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
+    let s = (&arc.geometry as &dyn CurveEval).point_at(arc.t_start);
+    let e = (&arc.geometry as &dyn CurveEval).point_at(arc.t_end);
+    if s.distance_to(&p_out) > pos_tol || e.distance_to(&p_in) > pos_tol {
+        return None;
+    }
+    Some(arc)
+}
+
+/// Author the strip's transverse seam curve: exact torus tube arc
+/// first ([`exact_torus_seam_arc`]), else the 17-point
+/// UV-interpolated polyline with PK-285 period-branch alignment
+/// (moved verbatim from `closed_fillet.rs` step 14).
+pub(super) fn author_strip_seam_curve(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    p_out: Point3,
+    p_in: Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<popkern_core::geometry::CurveOnEdge> {
+    if let Some(arc) = exact_torus_seam_arc(surface, p_out, p_in, tolerance) {
+        return Some(arc);
+    }
+    use popkern_core::geometry::surface::SurfaceEval;
+    let uv_of = |p: &Point3| popkern_core::geometry::uv_projection::project_point_to_uv(surface, p);
+    let (uv_a, mut uv_b) = (uv_of(&p_out)?, uv_of(&p_in)?);
+    // The two projections can land on DIFFERENT period branches (one
+    // endpoint at u = 2π, the other at u = 0): interpolating across
+    // that gap sweeps the "cross-section" a full lap around the
+    // chart, and the seam's pcurves become a diagonal through every
+    // u (measured: OCC flagged the strip wire self-intersecting).
+    // Align u_b to u_a's branch — the seam is a single station.
+    if let Some(period) = surface.parameter_periodicity().0 {
+        uv_b.0 -= period * ((uv_b.0 - uv_a.0) / period).round();
+    }
+    // The v direction needs the same branch discipline (PK-285): on
+    // a torus strip the outer contact point sits at tube angle
+    // v = 0 ≡ 2π, and atan2(±ε, ·) puts the raw projection on either
+    // side of the wrap by ULP luck. Unaligned, the seam interpolates
+    // the LONG way around the tube (measured: 270° instead of 90°;
+    // its 17-point polyline chords then sag 2.2e-2 into the tube,
+    // the boundary-first tessellator rejects the ring and the strip
+    // cracks open along both contact circles).
+    if let Some(period) = surface.parameter_periodicity().1 {
+        uv_b.1 -= period * ((uv_b.1 - uv_a.1) / period).round();
+    }
+    let n = 17usize;
+    let mut pts: Vec<Point3> = (0..n)
+        .map(|i| {
+            let f = i as f64 / (n - 1) as f64;
+            let u = uv_a.0 + (uv_b.0 - uv_a.0) * f;
+            let v = uv_a.1 + (uv_b.1 - uv_a.1) * f;
+            surface.point_at(u, v)
+        })
+        .collect();
+    // Endpoints exactly at the vertices.
+    pts[0] = p_out;
+    pts[n - 1] = p_in;
+    let mut knots = Vec::with_capacity(n + 2);
+    knots.push(0.0);
+    for i in 0..n {
+        knots.push(i as f64 / (n - 1) as f64);
+    }
+    knots.push(1.0);
+    Some(popkern_core::geometry::CurveOnEdge {
+        geometry: popkern_core::geometry::CurveGeometry::Nurbs(
+            popkern_core::geometry::NurbsCurve {
+                degree: 1,
+                knots,
+                control_points: pts,
+                weights: vec![1.0; n],
+            },
+        ),
+        t_start: 0.0,
+        t_end: 1.0,
+    })
+}

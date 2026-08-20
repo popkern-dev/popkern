@@ -105,7 +105,16 @@ fn detect_edges_vs_faces(
         let stored = edge.curve.as_ref().filter(|c| {
             !matches!(c.geometry, CurveGeometry::Line { .. })
                 && match &c.geometry {
-                    CurveGeometry::Nurbs(n) => n.degree > 1,
+                    // A degree-1 NURBS is straight ONLY as a 2-point
+                    // segment: a multi-CP polyline is a curved edge
+                    // spelled piecewise, and reducing it to its
+                    // vertex chord puts the hit up to the full
+                    // sagitta off the real edge (PK-295, measured: a
+                    // torus strip's 17-point seam polyline chord-hit
+                    // a cutter wall 0.073 from the true crossing, the
+                    // split guard rightly rejected the off-curve
+                    // point, and the pierce node never existed).
+                    CurveGeometry::Nurbs(n) => n.degree > 1 || n.control_points.len() > 2,
                     _ => true,
                 }
         });

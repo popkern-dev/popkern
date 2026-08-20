@@ -81,7 +81,12 @@ pub(crate) fn classify_endpoint(
 /// Returns `Some(t)` where t in (0,1) is the parameter, or `None`.
 /// Endpoints (t near 0 or 1) are excluded — they would be caught by
 /// the vertex check.
-fn point_on_segment(point: &Point3, p0: &Point3, p1: &Point3, tolerance: f64) -> Option<f64> {
+pub(super) fn point_on_segment(
+    point: &Point3,
+    p0: &Point3,
+    p1: &Point3,
+    tolerance: f64,
+) -> Option<f64> {
     let seg = *p1 - *p0;
     let seg_len_sq = seg.length_squared();
     if seg_len_sq < tolerance * tolerance {
@@ -302,7 +307,7 @@ pub(crate) fn expand_self_loops(
 /// edge's REAL curve within `tolerance`. Straight/curveless edges
 /// are trivially true; curved edges get a local ternary-search
 /// refinement around the chord-parameter estimate.
-fn point_on_graph_edge_curve(
+pub(super) fn point_on_graph_edge_curve(
     graph: &IntersectionGraph,
     he_idx: usize,
     point: &Point3,
@@ -399,7 +404,7 @@ fn nearest_param_on_curve(
 /// test), return its chord-equivalent fraction. Coarse scan +
 /// local ternary refinement; interior hits only (endpoint
 /// matches are the caller's node-snap job).
-fn point_on_curved_graph_edge(
+pub(super) fn point_on_curved_graph_edge(
     graph: &IntersectionGraph,
     he_idx: usize,
     point: &Point3,
@@ -463,65 +468,6 @@ fn point_on_curved_graph_edge(
         return None;
     }
     Some(f)
-}
-
-pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
-    // Collect shared edge endpoint node indices.
-    let shared_nodes: Vec<usize> = {
-        let set: std::collections::HashSet<usize> = graph
-            .half_edges
-            .iter()
-            .filter(|he| matches!(he.source, EdgeSource::Shared { .. }))
-            .flat_map(|he| [he.origin, graph.half_edges[he.twin].origin])
-            .collect();
-        set.into_iter().collect()
-    };
-
-    // For each shared node, check if any non-shared edge passes through it.
-    // Restart after each split since indices change.
-    let mut did_split = true;
-    while did_split {
-        did_split = false;
-        for &node_idx in &shared_nodes {
-            let pos = graph.nodes[node_idx].position;
-            let mut i = 0;
-            while i < graph.half_edges.len() {
-                let he = &graph.half_edges[i];
-                if i >= he.twin || matches!(he.source, EdgeSource::Shared { .. }) {
-                    i += 2;
-                    continue;
-                }
-                let twin_origin = graph.half_edges[he.twin].origin;
-                if he.origin == node_idx || twin_origin == node_idx {
-                    i += 2;
-                    continue;
-                }
-                let p0 = graph.nodes[he.origin].position;
-                let p1 = graph.nodes[twin_origin].position;
-                if let Some(t) = point_on_segment(&pos, &p0, &p1, tolerance) {
-                    // Chord test only — verify against the real
-                    // curve for curved edges (same defect as
-                    // classify_endpoint: a 180° arc was split at
-                    // points on its chord, off-surface).
-                    if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
-                        split_at_existing_node(graph, i, node_idx);
-                        did_split = true;
-                        break;
-                    }
-                } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
-                    // Mirror case: the node sits ON the curve but
-                    // off its chord.
-                    split_at_existing_node(graph, i, node_idx);
-                    did_split = true;
-                    break;
-                }
-                i += 2;
-            }
-            if did_split {
-                break;
-            }
-        }
-    }
 }
 
 /// Remove non-shared edges that duplicate a shared edge on the same face.
@@ -684,7 +630,7 @@ pub(crate) fn split_shared_edges_at_nodes(
     }
 }
 
-fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
+pub(super) fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
     if std::env::var_os("PK_SPLIT_TRACE").is_some() {

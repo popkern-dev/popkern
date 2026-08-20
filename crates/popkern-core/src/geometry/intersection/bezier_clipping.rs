@@ -103,6 +103,7 @@ pub(crate) fn bezier_intersect(
     let b_h = to_homogeneous(b_points, b_weights);
 
     let first_new = results.len();
+    let mut budget = MAX_NODES;
     bezier_intersect_inner(
         &a_h,
         (0.0, 1.0),
@@ -111,6 +112,7 @@ pub(crate) fn bezier_intersect(
         tolerance,
         max_depth,
         results,
+        &mut budget,
     );
     for r in results[first_new..].iter_mut() {
         r.0 = a_range.0 + r.0 * (a_range.1 - a_range.0);
@@ -120,6 +122,17 @@ pub(crate) fn bezier_intersect(
 
 /// Maximum number of intersection candidates to prevent runaway recursion.
 const MAX_CANDIDATES: usize = 100;
+
+/// Global subdivision-node budget per `bezier_intersect` call. The
+/// stall path 4-way bisects under only a DEPTH cap, so a persistent
+/// tangency — curves hugging inside the fat line for a stretch while
+/// staying outside linear tolerance — visits O(4^depth) nodes and
+/// emits zero candidates for MAX_CANDIDATES to cap (PK-295, measured:
+/// a spiric pcurve tangential to a chart boundary line spun one
+/// boolean for 25 minutes). Honest configurations use well under a
+/// thousand nodes; on exhaustion the node reports its midpoint like
+/// the depth fail-safe and lets Newton polishing downstream decide.
+const MAX_NODES: usize = 20_000;
 
 /// Evaluate the midpoint of a Bezier curve using De Casteljau.
 fn evaluate_bezier_midpoint(points: &[Point3]) -> Point3 {
@@ -145,9 +158,10 @@ fn bezier_intersect_inner(
     tolerance: &Tolerance,
     max_depth: usize,
     results: &mut Vec<(f64, f64)>,
+    budget: &mut usize,
 ) {
     bezier_intersect_inner_with_stalls(
-        a_points, a_range, b_points, b_range, tolerance, max_depth, results, 0,
+        a_points, a_range, b_points, b_range, tolerance, max_depth, results, 0, budget,
     );
 }
 
@@ -161,11 +175,21 @@ fn bezier_intersect_inner_with_stalls(
     max_depth: usize,
     results: &mut Vec<(f64, f64)>,
     consecutive_stalls: usize,
+    budget: &mut usize,
 ) {
     // Safety: cap results to prevent runaway recursion
     if results.len() >= MAX_CANDIDATES {
         return;
     }
+    // Node-budget fail-safe (see MAX_NODES): report the midpoint —
+    // exactly the depth-exhaustion contract — instead of recursing.
+    if *budget == 0 {
+        let t1 = (a_range.0 + a_range.1) * 0.5;
+        let t2 = (b_range.0 + b_range.1) * 0.5;
+        results.push((t1, t2));
+        return;
+    }
+    *budget -= 1;
 
     let a_span = a_range.1 - a_range.0;
     let b_span = b_range.1 - b_range.0;
@@ -292,6 +316,7 @@ fn bezier_intersect_inner_with_stalls(
                     max_depth - 1,
                     results,
                     0, // reset stall counter after bisection
+                    budget,
                 );
             }
         }
@@ -309,6 +334,7 @@ fn bezier_intersect_inner_with_stalls(
             max_depth - 1,
             results,
             0, // good convergence resets stall counter
+            budget,
         );
     } else {
         // Slow convergence (near-tangent case): bisect the curve with the longer range
@@ -323,6 +349,7 @@ fn bezier_intersect_inner_with_stalls(
                 max_depth - 1,
                 results,
                 new_stalls,
+                budget,
             );
             bezier_intersect_inner_with_stalls(
                 a_points,
@@ -333,6 +360,7 @@ fn bezier_intersect_inner_with_stalls(
                 max_depth - 1,
                 results,
                 new_stalls,
+                budget,
             );
         } else {
             let b_mid = (clipped_b_range.0 + clipped_b_range.1) * 0.5;
@@ -345,6 +373,7 @@ fn bezier_intersect_inner_with_stalls(
                 max_depth - 1,
                 results,
                 new_stalls,
+                budget,
             );
             bezier_intersect_inner_with_stalls(
                 a_points,
@@ -355,6 +384,7 @@ fn bezier_intersect_inner_with_stalls(
                 max_depth - 1,
                 results,
                 new_stalls,
+                budget,
             );
         }
     }

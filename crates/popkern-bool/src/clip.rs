@@ -7,7 +7,9 @@
 //!
 //! Line (degree-1) clipping is in the [`clip_line`] submodule.
 
+mod clip_crossings_rescue;
 mod clip_line;
+mod clip_seam_shift;
 mod clip_uv;
 mod clip_windows;
 
@@ -19,9 +21,11 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
-pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, find_uv_crossings};
 #[cfg(test)]
-use clip_uv::{is_near_seam, shift_curve_u, uv_range_from_crossings};
+use clip_seam_shift::{is_near_seam, shift_curve_u};
+#[cfg(test)]
+use clip_uv::uv_range_from_crossings;
+pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, find_uv_crossings};
 pub(crate) use clip_windows::clip_curve_uv_space;
 
 /// Stage 2b.58: extract the underlying `CurveOnSurface` (NURBS

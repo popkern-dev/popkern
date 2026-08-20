@@ -18,8 +18,24 @@ use super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
     let midpoint_of = |he_idx: usize| -> Point3 {
         let he = &graph.half_edges[he_idx];
-        let start = graph.nodes[he.origin].position;
         let twin_idx = he.twin;
+        // Curve-true midpoint: a curved edge's CHORD midpoint is off
+        // the curve, and it can land exactly ON the opposite operand's
+        // boundary (PK-295, measured: the rim arc through θ=π between
+        // wall crossings at (−0.9,±0.436,1.8) chord-mids to
+        // (−0.9,0,1.8) — precisely on the cutter's x=−0.9 wall — and
+        // the knife-edge in/out verdict discarded three of the four
+        // torus bulge fragments). Graph splits rewindow the stored
+        // curve per piece, so the mid-parameter evaluation is honest.
+        let curve = he
+            .curve
+            .as_ref()
+            .or(graph.half_edges[twin_idx].curve.as_ref());
+        if let Some(c) = curve {
+            use popkern_core::geometry::curve::CurveEval;
+            return (&c.geometry as &dyn CurveEval).point_at(0.5 * (c.t_start + c.t_end));
+        }
+        let start = graph.nodes[he.origin].position;
         let end = graph.nodes[graph.half_edges[twin_idx].origin].position;
         Point3::new(
             (start.x + end.x) * 0.5,
@@ -152,5 +168,55 @@ pub(crate) fn sample_point_uv(
 
     let u = cu / (3.0 * area_2);
     let v = cv / (3.0 * area_2);
-    Some(surface.geometry.point_at(u, v))
+    // The polygon centroid of a NON-CONVEX loop can lie outside the
+    // loop (PK-295, measured: a cutter wall's notched frame fragment —
+    // a square outline with the pocket strip notched out — centroids
+    // into the notch, maps into the pocket interior, reads Inside the
+    // other operand, and the keep-biased retry ships a frame that is
+    // almost entirely outside it). A sample that does not lie in the
+    // fragment's own UV polygon classifies a DIFFERENT region — only
+    // in-polygon samples are honest. Fall back to inward-nudged edge
+    // midpoints when the centroid misses.
+    if point_in_uv_polygon(u, v, &uv_verts) {
+        return Some(surface.geometry.point_at(u, v));
+    }
+    let orient = area_2.signum();
+    for i in 0..n {
+        let (u0, v0) = uv_verts[i];
+        let (u1, v1) = uv_verts[(i + 1) % n];
+        let (mu, mv) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        let (du, dv) = (u1 - u0, v1 - v0);
+        let len = (du * du + dv * dv).sqrt();
+        if len < 1e-12 {
+            continue;
+        }
+        // Inward normal for a CCW (positive-area) polygon is the left
+        // normal; flipped for CW.
+        let (nu, nv) = (-dv / len * orient, du / len * orient);
+        for scale in [1e-3, 1e-2, 1e-1] {
+            let step = scale * len;
+            let (su, sv) = (mu + nu * step, mv + nv * step);
+            if point_in_uv_polygon(su, sv, &uv_verts) {
+                return Some(surface.geometry.point_at(su, sv));
+            }
+        }
+    }
+    None
+}
+
+/// Even-odd containment of a UV point in a polygon.
+fn point_in_uv_polygon(u: f64, v: f64, poly: &[(f64, f64)]) -> bool {
+    let n = poly.len();
+    let mut inside = false;
+    for i in 0..n {
+        let (u0, v0) = poly[i];
+        let (u1, v1) = poly[(i + 1) % n];
+        if (v0 > v) != (v1 > v) {
+            let cross_u = u0 + (v - v0) / (v1 - v0) * (u1 - u0);
+            if u < cross_u {
+                inside = !inside;
+            }
+        }
+    }
+    inside
 }

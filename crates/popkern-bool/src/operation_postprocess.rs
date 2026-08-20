@@ -298,6 +298,22 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     }
     trace_face_census("post-spur", result);
 
+    // Slit-seam dissolution (PK-295): a fragment of a periodic face
+    // that no longer wraps the period can carry the original seam as
+    // a chart-co-located slit, which pinches the UV ring and forces
+    // the tessellator's grid fallback (57 open mesh edges on the
+    // rim-filleted-cylinder subtraction's seam-side bulge).
+    let slit_report = crate::postprocess::slit_seam::dissolve_slit_seams(result, tolerance);
+    if slit_report.dissolved > 0
+        && (std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions))
+    {
+        eprintln!(
+            "[boolean] post-processing: dissolved {} slit seam edge(s)",
+            slit_report.dissolved
+        );
+    }
+    trace_face_census("post-slit-seam", result);
+
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than
     // original entities due to numerical approximation.

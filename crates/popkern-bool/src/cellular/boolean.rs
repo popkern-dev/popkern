@@ -22,9 +22,10 @@ use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_build::insert_operand_topology;
 use crate::merge::graph_intersect::insert_intersection_curves;
 use crate::merge::graph_split::{
-    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
-    split_graph_edge, split_shared_edges_at_nodes,
+    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_graph_edge,
+    split_shared_edges_at_nodes,
 };
+use crate::merge::graph_split_shared::split_edges_at_shared_nodes;
 use crate::merge::radial::sort_all_radial;
 use crate::merge::walk::{Fragment, walk_all_fragments_ext};
 

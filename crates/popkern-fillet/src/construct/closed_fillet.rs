@@ -538,75 +538,15 @@ pub(crate) fn apply_closed_fillet(
         let p_in = brep.vertices[brep.half_edges[he_inner].origin].position;
         match brep.mekr(he_outer, he_inner) {
             Ok(mekr) => {
-                // Seam curve: the strip's cross-section arc between
-                // the two boundary vertices — a 17-point polyline
-                // sampled from the FILLET SURFACE (chord sagitta
-                // ~1e-7 at demo scales; exact-arc upgrade rides the
-                // matched-pcurve follow-up recorded in trim.rs).
-                let surface = &eg.surface;
-                use popkern_core::geometry::surface::SurfaceEval;
-                let uv_of = |p: &Point3| -> Option<(f64, f64)> {
-                    popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)
-                };
-                if let (Some(uv_a), Some(mut uv_b)) = (uv_of(&p_out), uv_of(&p_in)) {
-                    // The two projections can land on DIFFERENT
-                    // period branches (one endpoint at u = 2π, the
-                    // other at u = 0): interpolating across that gap
-                    // sweeps the "cross-section" a full lap around
-                    // the chart, and the seam's pcurves become a
-                    // diagonal through every u (measured: OCC flagged
-                    // the strip wire self-intersecting). Align u_b to
-                    // u_a's branch — the seam is a single station.
-                    if let Some(period) = surface.parameter_periodicity().0 {
-                        uv_b.0 -= period * ((uv_b.0 - uv_a.0) / period).round();
-                    }
-                    // The v direction needs the same branch discipline
-                    // (PK-285): on a torus strip the outer contact
-                    // point sits at tube angle v = 0 ≡ 2π, and
-                    // atan2(±ε, ·) puts the raw projection on either
-                    // side of the wrap by ULP luck. Unaligned, the
-                    // seam interpolates the LONG way around the tube
-                    // (measured: 270° instead of 90°; its 17-point
-                    // polyline chords then sag 2.2e-2 into the tube,
-                    // the boundary-first tessellator rejects the ring
-                    // and the strip cracks open along both contact
-                    // circles).
-                    if let Some(period) = surface.parameter_periodicity().1 {
-                        uv_b.1 -= period * ((uv_b.1 - uv_a.1) / period).round();
-                    }
-                    let n = 17usize;
-                    let pts: Vec<Point3> = (0..n)
-                        .map(|i| {
-                            let f = i as f64 / (n - 1) as f64;
-                            let u = uv_a.0 + (uv_b.0 - uv_a.0) * f;
-                            let v = uv_a.1 + (uv_b.1 - uv_a.1) * f;
-                            surface.point_at(u, v)
-                        })
-                        .collect();
-                    // Endpoints exactly at the vertices.
-                    let mut pts = pts;
-                    pts[0] = p_out;
-                    pts[n - 1] = p_in;
-                    let mut knots = Vec::with_capacity(n + 2);
-                    knots.push(0.0);
-                    for i in 0..n {
-                        knots.push(i as f64 / (n - 1) as f64);
-                    }
-                    knots.push(1.0);
-                    if let Some(edge) = brep.edges.get_mut(mekr.edge) {
-                        edge.curve = Some(popkern_core::geometry::CurveOnEdge {
-                            geometry: popkern_core::geometry::CurveGeometry::Nurbs(
-                                popkern_core::geometry::NurbsCurve {
-                                    degree: 1,
-                                    knots,
-                                    control_points: pts,
-                                    weights: vec![1.0; n],
-                                },
-                            ),
-                            t_start: 0.0,
-                            t_end: 1.0,
-                        });
-                    }
+                // Seam curve, exact-first (PK-295): see
+                // `closed_fillet_seam::author_strip_seam_curve` for
+                // the exact torus tube arc and the UV-interpolated
+                // polyline fallback (PK-285 branch alignment).
+                if let Some(curve) =
+                    closed_fillet_seam::author_strip_seam_curve(&eg.surface, p_out, p_in, tolerance)
+                    && let Some(edge) = brep.edges.get_mut(mekr.edge)
+                {
+                    edge.curve = Some(curve);
                 }
             }
             Err(e) => {

@@ -5,6 +5,7 @@ pub mod face_simplify;
 pub mod loop_repair;
 pub mod quality;
 pub mod redundant_edge;
+pub mod slit_seam;
 pub mod sliver_removal;
 pub mod spur_edge;
 

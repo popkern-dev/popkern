@@ -12,8 +12,10 @@ use super::graph::IntersectionGraph;
 use super::graph_build::insert_operand_topology;
 use super::graph_intersect::insert_intersection_curves;
 use super::graph_split::{
-    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
-    split_graph_edge,
+    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_graph_edge,
+};
+use super::graph_split_shared::{
+    split_edges_at_shared_nodes, split_shared_edges_at_interior_nodes,
 };
 use super::radial::sort_all_radial;
 use super::walk::walk_all_fragments;
@@ -58,6 +60,13 @@ pub(crate) fn graph_merge(
 
     // Phase 3: Insert intersection curves as shared edges.
     insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
+
+    // Phase 3.05: split record edges at pre-existing pierce nodes on
+    // their interior (a record crossing a periodic face's seam passes
+    // through the seam's phase-2 pierce node; unsplit, the walk
+    // cannot route through it and the flanking fragments never close
+    // — PK-295).
+    split_shared_edges_at_interior_nodes(&mut graph, snap_tol);
 
     // Phase 3.1–3.2: Handle coincident face boundaries.
     // Only needed when partially overlapping faces exist (e.g., two cubes

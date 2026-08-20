@@ -1,216 +1,22 @@
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::intersection::intersect_curves;
+
+use super::clip_crossings_rescue::sampled_uv_crossings;
+use super::clip_seam_shift::{is_near_seam, shift_curve_u};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::face_uv_boundary;
 
-const TWO_PI: f64 = std::f64::consts::TAU;
-
-pub(super) fn is_near_seam(curve: &NurbsCurve) -> bool {
-    let quarter = std::f64::consts::FRAC_PI_4;
-    let seven_quarter = 7.0 * quarter;
-    curve
-        .control_points
-        .iter()
-        .any(|p| p.x < quarter || p.x > seven_quarter)
-}
-
-pub(super) fn shift_curve_u(curve: &NurbsCurve, shift: f64) -> NurbsCurve {
-    let shifted_points = curve
-        .control_points
-        .iter()
-        .map(|p| {
-            let mut u = p.x + shift;
-            u = u.rem_euclid(TWO_PI);
-            Point3::new(u, p.y, p.z)
-        })
-        .collect();
-    NurbsCurve {
-        degree: curve.degree,
-        knots: curve.knots.clone(),
-        control_points: shifted_points,
-        weights: curve.weights.clone(),
-    }
-}
+pub(super) const TWO_PI: f64 = std::f64::consts::TAU;
 
 /// A crossing between a UV intersection curve and a face's UV boundary.
 pub(crate) struct UvCrossing {
     pub t_curve: f64,
     pub boundary_he: popkern_core::topology::HalfEdgeHandle,
     pub t_boundary: f64,
-}
-
-/// Sampled crossing scan: march the query curve densely (adaptive,
-/// chords bounded by the trim scale), classify each sample with the
-/// face containment predicate, and bisect every in/out transition to
-/// a parameter-accurate crossing. Honest by construction — each
-/// sample is normalized to the boundary's period branch as a POINT
-/// (points cannot tear the way per-control-point curve folding
-/// does), and `point_inside_face_uv` is the same predicate the rest
-/// of the kernel trusts. Used only as a rescue when the precise pass
-/// verifies to nothing.
-fn sampled_uv_crossings(
-    brep: &BRep,
-    face: FaceHandle,
-    curve_uv: &NurbsCurve,
-    boundary_nurbs: &[(popkern_core::topology::HalfEdgeHandle, NurbsCurve)],
-    period: f64,
-    tolerance: &Tolerance,
-) -> Vec<UvCrossing> {
-    use popkern_core::geometry::curve::CurveEval as _;
-    let (t0, t1) = curve_uv.parameter_range();
-    if !(t1 - t0).is_finite() || t1 - t0 <= 0.0 {
-        return Vec::new();
-    }
-    const NB: usize = 32;
-    // ADAPTIVE query polyline: a uniform sampling under-resolves the
-    // starvation geometry this rescue exists for — the gusset-web
-    // ellipse plunges through the whole 40-unit trim inside one of
-    // 512 uniform chords (measured: the rescue found nothing and the
-    // phantom window survived). Subdivide until each chord is short
-    // relative to the TRIM scale, so no in-face span can hide inside
-    // a chord.
-    let (b_lu, b_hu, trim_scale) = {
-        let (mut lu, mut hu, mut lv, mut hv) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-        for (_, pc) in boundary_nurbs {
-            for p in &pc.control_points {
-                lu = lu.min(p.x);
-                hu = hu.max(p.x);
-                lv = lv.min(p.y);
-                hv = hv.max(p.y);
-            }
-        }
-        if lu > hu {
-            return Vec::new();
-        }
-        (
-            lu,
-            hu,
-            ((hu - lu).powi(2) + (hv - lv).powi(2)).sqrt().max(1e-9),
-        )
-    };
-    let max_chord = trim_scale * 0.25;
-    let mut q: Vec<(f64, f64, f64)> = Vec::new();
-    // Iterative stack subdivision, capped to stay bounded on
-    // pathological curves.
-    const MAX_POINTS: usize = 65_536;
-    type TSample = (f64, f64, f64); // (t, u, v)
-    let eval = |t: f64| -> TSample {
-        let p = curve_uv.point_at(t);
-        (t, p.x, p.y)
-    };
-    let mut stack: Vec<(TSample, TSample, u32)> = Vec::new();
-    // Seed with 64 uniform spans so closed curves cannot collapse.
-    let seeds: Vec<TSample> = (0..=64)
-        .map(|i| eval(t0 + (t1 - t0) * i as f64 / 64.0))
-        .collect();
-    for w in seeds.windows(2).rev() {
-        stack.push((w[0], w[1], 0));
-    }
-    q.push(seeds[0]);
-    while let Some((a, b, depth)) = stack.pop() {
-        let chord = ((b.1 - a.1).powi(2) + (b.2 - a.2).powi(2)).sqrt();
-        if chord > max_chord && depth < 16 && q.len() + stack.len() < MAX_POINTS {
-            let m = eval(0.5 * (a.0 + b.0));
-            stack.push((m, b, depth + 1));
-            stack.push((a, m, depth + 1));
-        } else {
-            q.push(b);
-        }
-    }
-    if std::env::var_os("PK_XING_TRACE").is_some() {
-        let (mut lu, mut hu, mut lv, mut hv) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-        for &(_, u, v) in &q {
-            lu = lu.min(u);
-            hu = hu.max(u);
-            lv = lv.min(v);
-            hv = hv.max(v);
-        }
-        eprintln!(
-            "      [xing-scan] {} pts u[{lu:.2},{hu:.2}] v[{lv:.2},{hv:.2}] trim_scale={trim_scale:.2}",
-            q.len()
-        );
-    }
-    // Containment per sample; each sample's u is normalized into the
-    // boundary's period cell as an independent POINT.
-    let b_center_u = 0.5 * (b_lu + b_hu);
-    let norm_u = |u: f64| -> f64 {
-        if period > 0.0 && period.is_finite() {
-            u - period * ((u - b_center_u) / period).round()
-        } else {
-            u
-        }
-    };
-    let inside_at = |t: f64| -> bool {
-        let p = curve_uv.point_at(t);
-        crate::split_inner_loop::point_inside_face_uv(
-            brep,
-            face,
-            Point3::new(norm_u(p.x), p.y, 0.0),
-            tolerance,
-        )
-    };
-    let flags: Vec<bool> = q.iter().map(|&(t, _, _)| inside_at(t)).collect();
-    let mut found: Vec<UvCrossing> = Vec::new();
-    for i in 0..q.len().saturating_sub(1) {
-        if flags[i] == flags[i + 1] {
-            continue;
-        }
-        // Bisect the transition to a parameter-accurate crossing.
-        let (mut ta, mut tb) = (q[i].0, q[i + 1].0);
-        let side_a = flags[i];
-        for _ in 0..48 {
-            let tm = 0.5 * (ta + tb);
-            if inside_at(tm) == side_a {
-                ta = tm;
-            } else {
-                tb = tm;
-            }
-        }
-        let t_hit = 0.5 * (ta + tb);
-        let ph = curve_uv.point_at(t_hit);
-        let (phu, phv) = (norm_u(ph.x), ph.y);
-        // Attribute the crossing to the nearest boundary pcurve
-        // station (period-normalized u distance).
-        let mut best: Option<(f64, popkern_core::topology::HalfEdgeHandle, f64)> = None;
-        for (he, pc) in boundary_nurbs {
-            let (bp0, bp1) = pc.parameter_range();
-            if !(bp1 - bp0).is_finite() || (bp1 - bp0).abs() < 1e-15 {
-                continue;
-            }
-            for i in 0..=NB {
-                let tb2 = bp0 + (bp1 - bp0) * i as f64 / NB as f64;
-                let p = pc.point_at(tb2);
-                let du = norm_u(phu - p.x + b_center_u) - b_center_u;
-                let d = du.hypot(phv - p.y);
-                if best.map(|(bd, _, _)| d < bd).unwrap_or(true) {
-                    best = Some((d, *he, tb2));
-                }
-            }
-        }
-        let Some((_, he, t_boundary)) = best else {
-            continue;
-        };
-        if std::env::var_os("PK_XING_TRACE").is_some() {
-            eprintln!("      [xing-sampled] he {he:?} t2={t_hit:.4} uv=({phu:.4},{phv:.4})");
-        }
-        let min_sep = (t1 - t0) * 1e-7;
-        if found
-            .iter()
-            .all(|c: &UvCrossing| (c.t_curve - t_hit).abs() > min_sep)
-        {
-            found.push(UvCrossing {
-                t_curve: t_hit,
-                boundary_he: he,
-                t_boundary,
-            });
-        }
-    }
-    found
 }
 
 /// Find where a UV intersection curve crosses the face's UV boundary.
@@ -328,6 +134,22 @@ pub(crate) fn find_uv_crossings(
                 boundary_pcurve.clone()
             };
 
+            if std::env::var_os("PK_XING_TRACE").is_some() {
+                use popkern_core::geometry::curve::CurveEval;
+                let b0 = working_boundary.point_at(boundary_range.0);
+                let b1 = working_boundary.point_at(boundary_range.1);
+                eprintln!(
+                    "      [xing-try] he {he_handle:?} bnd({:.3},{:.3})->({:.3},{:.3}) brange({:.3},{:.3}) bcps={} qcps={}",
+                    b0.x,
+                    b0.y,
+                    b1.x,
+                    b1.y,
+                    boundary_range.0,
+                    boundary_range.1,
+                    working_boundary.control_points.len(),
+                    working_curve.control_points.len()
+                );
+            }
             let result = intersect_curves(
                 &CurveGeometry::Nurbs(working_boundary),
                 boundary_range,
@@ -435,7 +257,33 @@ pub(crate) fn find_uv_crossings(
             .unwrap_or(std::f64::consts::TAU)
     };
 
-    crossings.extend(collect_crossings(needs_shift));
+    // The plain (unshifted) pass ALWAYS runs: its crossings are honest
+    // by construction (branch normalization above put the query on the
+    // boundary's period branch). The π-shifted seam dance AUGMENTS it
+    // for crossings the plain pass loses near the seam — it must never
+    // REPLACE it, because the shift's per-control-point rem_euclid
+    // fold TEARS any single-span boundary pcurve spanning the full
+    // period (a cylinder rim stored as one degree-1 span [2π → 0]
+    // folds to the degenerate [π → π] and its crossing vanishes).
+    // Measured (PK-295, rim-filleted cylinder minus cuboid): every
+    // wall×cylinder line record lost its bottom-rim crossing in the
+    // shifted-only pass, the odd crossing count read as Outside, all
+    // eight records dropped, no face was ever split, and the
+    // subtraction served a five-face open box as a clean result.
+    crossings.extend(collect_crossings(false));
+    if needs_shift {
+        let span = (curve_range.1 - curve_range.0).abs().max(1e-12);
+        let dedup_eps = span * 1e-6;
+        let extra: Vec<UvCrossing> = collect_crossings(true)
+            .into_iter()
+            .filter(|c| {
+                !crossings.iter().any(|p| {
+                    p.boundary_he == c.boundary_he && (p.t_curve - c.t_curve).abs() < dedup_eps
+                })
+            })
+            .collect();
+        crossings.extend(extra);
+    }
     if crossings.is_empty() && surface_is_periodic {
         // The precise curve×curve intersector can miss real
         // crossings when the query's UV extent dwarfs the trim (a
