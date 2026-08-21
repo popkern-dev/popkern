@@ -6,7 +6,7 @@ use surface_surface_tangential::tangential_crossing_certificate;
 
 #[path = "surface_surface_fitting.rs"]
 mod surface_surface_fitting;
-pub(crate) use surface_surface_fitting::fit_march_samples;
+pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
@@ -361,7 +361,6 @@ pub fn intersect_surfaces_with_handler(
         if samples.len() < 2 {
             continue; // too few samples to fit
         }
-
         // A demoted-tangent trace must certify an actual CROSSING
         // before emission: probes offset to either side of the traced
         // curve must flip the sign of the analytic operand's implicit
@@ -376,17 +375,13 @@ pub fn intersect_surfaces_with_handler(
         // Mark the traced polyline as consumed.
         consumed.push(samples.iter().map(|s| s.point).collect());
 
-        // 4. Fit NURBS curves.
-        match fit_march_samples(&samples, is_closed) {
-            Ok(curve_on_surface) => {
-                results.push(SurfaceSurfaceIntersection::Curve(curve_on_surface));
-            }
-            Err(_) => {
-                // Fitting failed -- skip this curve (don't crash)
-            }
-        }
+        // 4. Segment at UV period jumps, weld marched closure, fit
+        //    (PK-304) — mechanism and measured rationale in
+        //    `surface_surface_fitting::fit_marched_trace`.
+        fit_marched_trace(&samples, is_closed, surface1, surface2, &mut results);
 
-        // 5. Branch detection: look for additional intersection branches near this seed.
+        // 5. Branch detection: look for additional intersection
+        //    branches near this seed.
         if results.len() < MAX_CURVES {
             let new_branches = find_branch_points(
                 surface1, u1_range, v1_range, surface2, u2_range, v2_range, &samples, &seed,

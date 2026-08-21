@@ -344,15 +344,14 @@ pub(super) fn split_one_face(
             return Ok(());
         }
     }
-    // T-junction pre-split: a trim curve's endpoint may land in the
-    // MIDDLE of a boundary edge — most commonly on an edge created by
-    // an earlier split of the same face (a bounded cutter's bottom
-    // and side planes cross a wall in an L; the second curve ends ON
-    // the first curve's edge). The face split's entry/exit machinery
-    // matches endpoints against VERTICES only, so without a vertex at
-    // the junction the whole boolean failed with "trim curve end
-    // point does not match any vertex". Split the boundary edge at
-    // the endpoint first.
+    // T-junction pre-split: a trim curve's endpoint may land MID-EDGE
+    // — most commonly on an edge created by an earlier split of the
+    // same face (a bounded cutter's bottom and side planes cross a
+    // wall in an L; the second curve ends ON the first curve's edge).
+    // The face split's entry/exit machinery matches endpoints against
+    // VERTICES only, so without a vertex at the junction the whole
+    // boolean failed with "trim curve end point does not match any
+    // vertex". Split the boundary edge at the endpoint first.
     presplit_boundary_at_endpoints(brep, face_handle, curve_3d, tolerance);
 
     if std::env::var_os("PK_SPLIT_TRACE").is_some() {
@@ -360,7 +359,8 @@ pub(super) fn split_one_face(
         let p0 = curve_3d.point_at(t0);
         let p1 = curve_3d.point_at(t1);
         eprintln!(
-            "  [split1] {face_handle:?} pcurves={} reflex={} trim ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+            "  [split1] {face_handle:?} rec_closed={} pcurves={} reflex={} trim ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+            full_curve.is_closed,
             face_has_pcurves(brep, face_handle),
             crate::clip::face_polygon_is_reflex(brep, face_handle),
             p0.x,

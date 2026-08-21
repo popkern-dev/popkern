@@ -133,6 +133,33 @@ pub(crate) fn find_uv_crossings(
             } else {
                 boundary_pcurve.clone()
             };
+            // TORN-BOUNDARY guard (PK-304): the ±π dance's per-point
+            // wrap legitimately HEALS a boundary stored the long way
+            // (span shrinks), but on a short-literal boundary it
+            // fabricates a bridge sweeping most of the chart (span
+            // GROWS — measured: a torus quadrant pcurve u 3.142→1.571
+            // became 0.000→4.712 and its phantom "crossings" claimed
+            // intersection arcs for patches on the far side of the
+            // surface). A shifted image that widened its u-span is a
+            // tear, never a heal — skip it; the unshifted pass judges
+            // that boundary honestly.
+            if shifted {
+                let uspan = |c: &NurbsCurve| {
+                    let (lo, hi) = c
+                        .control_points
+                        .iter()
+                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                            (lo.min(p.x), hi.max(p.x))
+                        });
+                    hi - lo
+                };
+                if uspan(&working_boundary) > uspan(boundary_pcurve) + 1e-9 {
+                    if std::env::var_os("PK_XING_TRACE").is_some() {
+                        eprintln!("      [xing-torn-bnd] he {he_handle:?} skipped (span grew)");
+                    }
+                    continue;
+                }
+            }
 
             if std::env::var_os("PK_XING_TRACE").is_some() {
                 use popkern_core::geometry::curve::CurveEval;

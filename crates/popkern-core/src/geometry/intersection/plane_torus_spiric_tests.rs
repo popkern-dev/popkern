@@ -315,8 +315,15 @@ fn dispatch_serves_spiric_sections_in_both_operand_orders() {
     .expect("torus-first");
     let pf_curves = curves_of(pf.intersections);
     let tf_curves = curves_of(tf.intersections);
-    assert_eq!(pf_curves.len(), 2);
-    assert_eq!(tf_curves.len(), 2);
+    // Since PK-304 the marching fitter emits SEAM-SEGMENTED records:
+    // each piece's UV tracks stay continuous on the principal branch
+    // (one whole-loop record used to sweep the entire chart at the
+    // wrap parameter, and boolean face-window clipping saw phantom
+    // traversals through every patch). The two spiric loops therefore
+    // arrive as fragment chains; the pin verifies the chains assemble
+    // into exactly two closed loops instead of pinning a record count.
+    assert_eq!(closed_chain_count(&pf_curves), 2, "plane-first loops");
+    assert_eq!(closed_chain_count(&tf_curves), 2, "torus-first loops");
     for c in &tf_curves {
         // Operand order swaps the pcurve assignment.
         for i in 0..=64 {
@@ -326,4 +333,57 @@ fn dispatch_serves_spiric_sections_in_both_operand_orders() {
             assert!(torus.point_at(uv1.x, uv1.y).distance_to(&p) < 1e-5);
         }
     }
+}
+
+/// Chain fragments by 3D endpoint proximity and count closed loops
+/// (the same trust model as the boolean split stage's island
+/// chaining: junctions carry marching slop, so the gate sits above
+/// the measured 1e-3 class while staying far below fragment scale).
+fn closed_chain_count(curves: &[crate::geometry::curve_on_surface::CurveOnSurface]) -> usize {
+    let ends: Vec<(Point3, Point3)> = curves
+        .iter()
+        .map(|c| {
+            let (t0, t1) = c.curve_3d.parameter_range();
+            (c.curve_3d.point_at(t0), c.curve_3d.point_at(t1))
+        })
+        .collect();
+    let gate = 5e-3;
+    let mut used = vec![false; curves.len()];
+    let mut loops = 0;
+    for seed in 0..curves.len() {
+        if used[seed] {
+            continue;
+        }
+        used[seed] = true;
+        let (start, mut tip) = ends[seed];
+        loop {
+            if tip.distance_to(&start) < gate {
+                loops += 1;
+                break;
+            }
+            let mut extended = false;
+            for k in 0..curves.len() {
+                if used[k] {
+                    continue;
+                }
+                let (ks, ke) = ends[k];
+                if ks.distance_to(&tip) < gate {
+                    used[k] = true;
+                    tip = ke;
+                    extended = true;
+                    break;
+                }
+                if ke.distance_to(&tip) < gate {
+                    used[k] = true;
+                    tip = ks;
+                    extended = true;
+                    break;
+                }
+            }
+            if !extended {
+                break; // open chain — not a loop
+            }
+        }
+    }
+    loops
 }

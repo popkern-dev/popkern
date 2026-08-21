@@ -129,93 +129,171 @@ pub(crate) fn process_pairs(
     tolerance: &Tolerance,
     trace: TraceFlags,
 ) -> Vec<Result<Vec<IntersectionRecord>, PairFailure>> {
+    // Phase 1 (sequential, cheap): resolve each pair's surfaces and
+    // bounded UV windows.
+    let inputs: Vec<Option<PairInputs<'_>>> = tasks
+        .iter()
+        .map(|task| resolve_pair_inputs(task, a, b, trace))
+        .collect();
+
+    // Phase 2: SSI memo over EXACTLY-equal inputs (PK-304). Analytic
+    // primitives arrive as N trimmed patches of ONE surface with
+    // identical full-period windows — a 16-patch torus × cylinder
+    // boolean re-marched the same complete intersection per pair
+    // (measured 48 s of the 54 s repro). Exact structural equality is
+    // the consumption gate (the PK-278 pattern): the memo only fires
+    // when the solver inputs are bit-identical, so the records are
+    // byte-for-byte what the per-pair solves produced.
+    let mut unique_of_task: Vec<Option<usize>> = vec![None; tasks.len()];
+    let mut unique: Vec<&PairInputs<'_>> = Vec::new();
+    for (ti, inp) in inputs.iter().enumerate() {
+        if let Some(inp) = inp {
+            let idx = match unique.iter().position(|u| u.same_solver_inputs(inp)) {
+                Some(existing) => existing,
+                None => {
+                    unique.push(inp);
+                    unique.len() - 1
+                }
+            };
+            unique_of_task[ti] = Some(idx);
+        }
+    }
+    let solve = |inp: &PairInputs<'_>| {
+        intersect_surfaces(
+            inp.surf_a, inp.r1.0, inp.r1.1, inp.surf_b, inp.r2.0, inp.r2.1, tolerance,
+        )
+        .map_err(|e| e.to_string())
+    };
+    let ssi: Vec<
+        Result<popkern_core::geometry::intersection::SurfaceSurfaceIntersectionResult, String>,
+    > = {
+        #[cfg(feature = "parallel")]
+        {
+            if !trace.any() {
+                use rayon::prelude::*;
+                unique.par_iter().map(|u| solve(u)).collect()
+            } else {
+                unique.iter().map(|u| solve(u)).collect()
+            }
+        }
+        #[cfg(not(feature = "parallel"))]
+        {
+            unique.iter().map(|u| solve(u)).collect()
+        }
+    };
+
+    // Phase 3: per-task clip + classify from the shared solve, in task
+    // order (rayon's ordered collect keeps the output positionally
+    // identical to sequential processing at any thread count). Pairs
+    // after a failing pair still compute in parallel mode (discarded
+    // by the caller's first-failure fold).
+    let one_task = |ti: usize| -> Result<Vec<IntersectionRecord>, PairFailure> {
+        let (Some(ui), Some(inp)) = (unique_of_task[ti], inputs[ti].as_ref()) else {
+            return Ok(Vec::new());
+        };
+        let task = &tasks[ti];
+        match &ssi[ui] {
+            Err(message) => {
+                // §13.1: report a 3D location for the failure. The
+                // midpoint of face_a's bounded UV range is the closest
+                // cheap proxy for "where" the solver gave up.
+                let u_mid = 0.5 * (inp.r1.0.0 + inp.r1.0.1);
+                let v_mid = 0.5 * (inp.r1.1.0 + inp.r1.1.1);
+                Err(PairFailure {
+                    face_a: task.face_a,
+                    face_b: task.face_b,
+                    message: message.clone(),
+                    location: inp.surf_a.point_at(u_mid, v_mid),
+                })
+            }
+            Ok(result) => Ok(clip_and_classify(task, inp, result, a, b, tolerance, trace)),
+        }
+    };
     #[cfg(feature = "parallel")]
     {
         if !trace.any() {
             use rayon::prelude::*;
-            return tasks
-                .par_iter()
-                .map(|task| process_one_pair(task, a, b, tolerance, trace))
-                .collect();
+            return (0..tasks.len()).into_par_iter().map(one_task).collect();
         }
     }
-    tasks
-        .iter()
-        .map(|task| process_one_pair(task, a, b, tolerance, trace))
-        .collect()
+    (0..tasks.len()).map(one_task).collect()
 }
 
-/// Intersect one face pair and classify each clipped curve.
-///
-/// Faces without surface geometry yield no records (the sequential loop
-/// skipped them). Coincident regions are skipped here as well — the
-/// coincidence engine records overlaps separately.
-fn process_one_pair(
+/// Resolved SSI solver inputs for one pair: surface references plus
+/// bounded UV windows. [`Self::same_solver_inputs`] is the exact
+/// structural equality that keys the SSI memo.
+struct PairInputs<'x> {
+    surf_a: &'x popkern_core::geometry::surface::SurfaceGeometry,
+    r1: ((f64, f64), (f64, f64)),
+    surf_b: &'x popkern_core::geometry::surface::SurfaceGeometry,
+    r2: ((f64, f64), (f64, f64)),
+}
+
+impl PairInputs<'_> {
+    /// Bit-exact equality of everything `intersect_surfaces` reads.
+    fn same_solver_inputs(&self, other: &Self) -> bool {
+        self.r1 == other.r1
+            && self.r2 == other.r2
+            && self.surf_a == other.surf_a
+            && self.surf_b == other.surf_b
+    }
+}
+
+/// Surface + window resolution for one pair. Faces without surface
+/// geometry yield `None` (the sequential loop skipped them).
+fn resolve_pair_inputs<'x>(
     task: &FacePairTask,
-    a: &BRep,
-    b: &BRep,
-    tolerance: &Tolerance,
+    a: &'x BRep,
+    b: &'x BRep,
     trace: TraceFlags,
-) -> Result<Vec<IntersectionRecord>, PairFailure> {
+) -> Option<PairInputs<'x>> {
     let FacePairTask { face_a, face_b } = *task;
     if trace.pair {
         eprintln!("  [pair] {face_a:?} x {face_b:?}");
     }
-    let surf_a = match a.faces[face_a].surface.as_ref() {
-        Some(s) => &s.geometry,
-        None => return Ok(Vec::new()),
-    };
-    let surf_b = match b.faces[face_b].surface.as_ref() {
-        Some(s) => &s.geometry,
-        None => return Ok(Vec::new()),
-    };
+    let surf_a = &a.faces[face_a].surface.as_ref()?.geometry;
+    let surf_b = &b.faces[face_b].surface.as_ref()?.geometry;
 
-    let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
-    let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
+    let r1 = bounded_parameter_range(a, face_a, surf_a);
+    let r2 = bounded_parameter_range(b, face_b, surf_b);
 
     if trace.pair {
-        trace_pair_surfaces(
-            face_a,
-            face_b,
-            surf_a,
-            surf_b,
-            ((u1_min, u1_max), (v1_min, v1_max)),
-            ((u2_min, u2_max), (v2_min, v2_max)),
-        );
+        trace_pair_surfaces(face_a, face_b, surf_a, surf_b, r1, r2);
     }
-
-    let result = match intersect_surfaces(
+    Some(PairInputs {
         surf_a,
-        (u1_min, u1_max),
-        (v1_min, v1_max),
+        r1,
         surf_b,
-        (u2_min, u2_max),
-        (v2_min, v2_max),
-        tolerance,
-    ) {
-        Ok(result) => result,
-        Err(e) => {
-            // §13.1: report a 3D location for the failure. The midpoint
-            // of face_a's bounded UV range is the closest cheap proxy
-            // for "where" the intersection solver gave up.
-            let u_mid = 0.5 * (u1_min + u1_max);
-            let v_mid = 0.5 * (v1_min + v1_max);
-            return Err(PairFailure {
-                face_a,
-                face_b,
-                message: e.to_string(),
-                location: surf_a.point_at(u_mid, v_mid),
-            });
-        }
-    };
+        r2,
+    })
+}
 
+/// Clip one pair's shared SSI curves to the two faces and classify
+/// tangency — the per-pair tail of the retired `process_one_pair`.
+fn clip_and_classify(
+    task: &FacePairTask,
+    inp: &PairInputs<'_>,
+    result: &popkern_core::geometry::intersection::SurfaceSurfaceIntersectionResult,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    trace: TraceFlags,
+) -> Vec<IntersectionRecord> {
+    let FacePairTask { face_a, face_b } = *task;
     let mut records = Vec::new();
-    for isect in result.intersections {
+    for isect in &result.intersections {
         match isect {
             SurfaceSurfaceIntersection::Curve(curve) => {
-                let clipped_list = clip_curve_to_faces(a, face_a, b, face_b, &curve);
+                let clipped_list = clip_curve_to_faces(a, face_a, b, face_b, curve);
                 if trace.clip {
-                    trace_clip_input(face_a, face_b, surf_a, surf_b, &curve, clipped_list.len());
+                    trace_clip_input(
+                        face_a,
+                        face_b,
+                        inp.surf_a,
+                        inp.surf_b,
+                        curve,
+                        clipped_list.len(),
+                    );
                 }
                 for clipped in clipped_list {
                     if trace.clip {
@@ -233,8 +311,8 @@ fn process_one_pair(
                     let t_mid = (t0 + t1) * 0.5;
                     let mid_uv1 = clipped.curve_uv1.point_at(t_mid);
                     let mid_uv2 = clipped.curve_uv2.point_at(t_mid);
-                    let n1 = surf_a.normal_at(mid_uv1.x, mid_uv1.y);
-                    let n2 = surf_b.normal_at(mid_uv2.x, mid_uv2.y);
+                    let n1 = inp.surf_a.normal_at(mid_uv1.x, mid_uv1.y);
+                    let n2 = inp.surf_b.normal_at(mid_uv2.x, mid_uv2.y);
                     let is_tangent = popkern_core::adaptive_precision::adaptive_cross_ratio_sq_lt(
                         (n1.x, n1.y, n1.z),
                         (n2.x, n2.y, n2.z),
@@ -258,7 +336,7 @@ fn process_one_pair(
             }
         }
     }
-    Ok(records)
+    records
 }
 
 fn trace_pair_surfaces(
