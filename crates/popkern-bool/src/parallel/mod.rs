@@ -7,6 +7,7 @@
 //! `parallel` feature (default) is enabled, collecting results in
 //! candidate order so output is identical at any thread count.
 
+mod ff_junction_refine;
 pub mod ff_parallel;
 
 #[cfg(test)]

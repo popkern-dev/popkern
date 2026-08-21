@@ -142,3 +142,99 @@ pub(crate) fn march_project_with_iters(
         surface1, u1, v1, surface2, u2, v2, target, march_dir, tolerance,
     )
 }
+
+/// Which chart coordinate a boundary-constrained refinement pins, and
+/// to what value (a face iso-boundary in that surface's chart).
+#[derive(Debug, Clone, Copy)]
+pub struct BoundaryPin {
+    /// Pin a coordinate of surface 1's chart (else surface 2's).
+    pub on_surface_one: bool,
+    /// Pin the u coordinate (else v).
+    pub axis_u: bool,
+    /// The pinned chart value.
+    pub value: f64,
+}
+
+/// Newton 4×4 refinement of a surface×surface intersection point onto
+/// a chart iso-boundary: rows 0–2 are `S1 − S2`, row 3 pins one chart
+/// coordinate to `pin.value`. The pinned coordinate is seeded AT the
+/// value, and the pin row is linear, so every iterate satisfies the
+/// pin exactly — the system is effectively a well-posed 3-unknown
+/// solve for the boundary crossing of the TRUE intersection curve
+/// (fitted-curve clip crossings carry the fit's lateral slop instead;
+/// measured up to ~1e-3 at grazing junction clusters, PK-313).
+///
+/// Returns `None` when the Jacobian goes singular (e.g. the curve is
+/// tangent to the pinned iso-line) or convergence fails — callers keep
+/// their unrefined endpoint in that case.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn newton_boundary_crossing(
+    surface1: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    surface2: &SurfaceGeometry,
+    u2: f64,
+    v2: f64,
+    pin: BoundaryPin,
+    tolerance: &Tolerance,
+) -> Option<MarchSample> {
+    let max_iter = 20;
+    let mut u1 = u1;
+    let mut v1 = v1;
+    let mut u2 = u2;
+    let mut v2 = v2;
+    match (pin.on_surface_one, pin.axis_u) {
+        (true, true) => u1 = pin.value,
+        (true, false) => v1 = pin.value,
+        (false, true) => u2 = pin.value,
+        (false, false) => v2 = pin.value,
+    }
+    for _ in 0..max_iter {
+        let p1 = surface1.point_at(u1, v1);
+        let p2 = surface2.point_at(u2, v2);
+        let f = p1 - p2;
+        if crate::adaptive_precision::adaptive_dist_sq_lt(
+            (p1.x, p1.y, p1.z),
+            (p2.x, p2.y, p2.z),
+            tolerance.linear() * tolerance.linear(),
+        ) {
+            return Some(MarchSample {
+                u1,
+                v1,
+                u2,
+                v2,
+                point: p1,
+            });
+        }
+        let s1u = surface1.partial_u(u1, v1);
+        let s1v = surface1.partial_v(u1, v1);
+        let s2u = surface2.partial_u(u2, v2);
+        let s2v = surface2.partial_v(u2, v2);
+        let mut pin_row = [0.0; 4];
+        pin_row[match (pin.on_surface_one, pin.axis_u) {
+            (true, true) => 0,
+            (true, false) => 1,
+            (false, true) => 2,
+            (false, false) => 3,
+        }] = 1.0;
+        let pin_residual = match (pin.on_surface_one, pin.axis_u) {
+            (true, true) => u1 - pin.value,
+            (true, false) => v1 - pin.value,
+            (false, true) => u2 - pin.value,
+            (false, false) => v2 - pin.value,
+        };
+        let j = [
+            [s1u.x, s1v.x, -s2u.x, -s2v.x],
+            [s1u.y, s1v.y, -s2u.y, -s2v.y],
+            [s1u.z, s1v.z, -s2u.z, -s2v.z],
+            pin_row,
+        ];
+        let rhs = [f.x, f.y, f.z, pin_residual];
+        let delta = solve_4x4(j, rhs)?;
+        u1 -= delta[0];
+        v1 -= delta[1];
+        u2 -= delta[2];
+        v2 -= delta[3];
+    }
+    None
+}

@@ -11,12 +11,29 @@ fn main() {
             ))
             .expect("t");
         match popkern_bool::boolean(popkern_bool::BoolOperation::Union, ta, tb, tol, None) {
-            Ok(b) => println!(
-                "depth {depth}: SERVES {} faces validate={:?} validate_all={}",
-                b.faces.len(),
-                b.validate().err().map(|e| e.to_string()),
-                b.validate_all().len()
-            ),
+            Ok(b) => {
+                let vol =
+                    popkern_mesh::tessellate(&b, &popkern_mesh::TessellationOptions::default())
+                        .ok()
+                        .map(|mesh| {
+                            let mut vol6 = 0.0_f64;
+                            for tri in &mesh.triangles {
+                                let a = mesh.vertices[tri[0]].position;
+                                let bb = mesh.vertices[tri[1]].position;
+                                let c = mesh.vertices[tri[2]].position;
+                                vol6 += a.x * (bb.y * c.z - bb.z * c.y)
+                                    - a.y * (bb.x * c.z - bb.z * c.x)
+                                    + a.z * (bb.x * c.y - bb.y * c.x);
+                            }
+                            vol6.abs() / 6.0
+                        });
+                println!(
+                    "depth {depth}: SERVES {} faces validate={:?} validate_all={} vol {vol:?}",
+                    b.faces.len(),
+                    b.validate().err().map(|e| e.to_string()),
+                    b.validate_all().len()
+                );
+            }
             Err(e) => println!("depth {depth}: DECLINES {e}"),
         }
     }

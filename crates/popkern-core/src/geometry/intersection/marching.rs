@@ -12,8 +12,10 @@ mod marching_helpers;
 use marching_helpers::{
     estimate_normal_near_singularity, find_tangent_march_direction, wrap_parameter,
 };
+pub use marching_newton::BoundaryPin;
 pub(crate) use marching_newton::march_project;
 use marching_newton::march_project_with_iters;
+use marching_newton::newton_boundary_crossing;
 
 use crate::geometry::intersection::adaptive_step::{
     curvature_based_step, estimate_intersection_curvature,
@@ -415,6 +417,31 @@ pub(crate) fn march_one_direction(
     }
 
     samples
+}
+
+/// Refine a surface×surface intersection point exactly onto a chart
+/// iso-boundary (see [`BoundaryPin`]): Newton on `S1 = S2` with one
+/// chart coordinate pinned to the boundary value. Used by boolean
+/// junction-endpoint refinement — per-pair clip crossings evaluate
+/// FITTED record curves and carry the fit's lateral slop (~1e-4–1e-3
+/// measured at grazing junction clusters), while this solve lands on
+/// the TRUE intersection∩boundary point. Returns the refined chart
+/// coordinates of both surfaces and the 3D point, or `None` when the
+/// solve is singular (curve tangent to the boundary) or does not
+/// converge — callers keep the unrefined endpoint then.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_boundary_crossing(
+    surface1: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    surface2: &SurfaceGeometry,
+    u2: f64,
+    v2: f64,
+    pin: BoundaryPin,
+    tolerance: &Tolerance,
+) -> Option<(f64, f64, f64, f64, Point3)> {
+    newton_boundary_crossing(surface1, u1, v1, surface2, u2, v2, pin, tolerance)
+        .map(|s| (s.u1, s.v1, s.u2, s.v2, s.point))
 }
 
 #[cfg(test)]

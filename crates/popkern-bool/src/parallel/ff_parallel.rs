@@ -358,6 +358,19 @@ fn clip_and_classify(
             }
         }
     }
+    // PK-313: land clip-crossing endpoints exactly on their face
+    // iso-boundaries (mechanism and honesty bounds in
+    // `ff_junction_refine`).
+    super::ff_junction_refine::refine_record_junction_endpoints(
+        &mut records,
+        a,
+        face_a,
+        inp.surf_a,
+        b,
+        face_b,
+        inp.surf_b,
+        tolerance,
+    );
     records
 }
 

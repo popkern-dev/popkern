@@ -174,3 +174,46 @@ fn grazing_torus_torus_union_never_serves_uncut_overlay() {
         }
     }
 }
+
+/// PK-313: the grazing micro-lens SERVES down to 5e-4 penetration.
+/// The lens loop's junction clusters (three-plus boundary events
+/// within fit-slop of each other, curve tangent to one boundary) once
+/// left per-pair clip endpoints ~1e-3 apart on their own fitted
+/// curves — no record bridged the gap and assembly declined on a
+/// half-claimed strand. Junction-endpoint boundary refinement (the
+/// pinned Newton in `ff_junction_refine`) lands agreeing pairs on the
+/// same junction point and the whole depth ladder serves clean.
+#[test]
+fn grazing_micro_lens_serves_with_exact_junctions() {
+    if debug_skip("micro lens torus x torus") {
+        return;
+    }
+    let tol = Tolerance::default();
+    for depth in [0.0005_f64, 0.002] {
+        let d = 2.0 * (1.0 + 0.35) - depth;
+        let ta = BRep::torus(1.0, 0.35, tol).expect("torus a");
+        let tb = BRep::torus(1.0, 0.35, tol)
+            .expect("torus b")
+            .transform(&Transform3::translation(d, 0.0, 0.0))
+            .expect("translate");
+        let b = boolean(BoolOperation::Union, ta, tb, tol, None)
+            .unwrap_or_else(|e| panic!("depth {depth}: micro-lens union must serve, got {e}"));
+        assert!(
+            b.validate().is_ok(),
+            "depth {depth}: served union must validate: {:?}",
+            b.validate().err()
+        );
+        let findings = b.validate_all();
+        assert!(
+            findings.is_empty(),
+            "depth {depth}: full validation must be clean, got {findings:?}"
+        );
+        // Volume-envelope companion pin lives in popkern-mesh
+        // (tests/torus_micro_lens_volume.rs) — mesh depends on bool,
+        // never the reverse.
+        assert!(
+            b.faces.len() < 32,
+            "depth {depth}: all 32 input faces retained — the uncut-overlay class"
+        );
+    }
+}
