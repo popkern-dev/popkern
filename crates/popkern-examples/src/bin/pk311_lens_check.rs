@@ -6,7 +6,9 @@ fn main() {
         let ta = popkern_core::topology::BRep::torus(1.0, 0.35, tol).expect("a");
         let tb = popkern_core::topology::BRep::torus(1.0, 0.35, tol)
             .expect("b")
-            .transform(&popkern_core::geometry::Transform3::translation(d, 0.0, 0.0))
+            .transform(&popkern_core::geometry::Transform3::translation(
+                d, 0.0, 0.0,
+            ))
             .expect("t");
         match popkern_bool::boolean(popkern_bool::BoolOperation::Union, ta, tb, tol, None) {
             Ok(b) => println!(
