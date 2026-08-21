@@ -52,6 +52,30 @@ pub fn recompute_vertices(
             }
         }
 
+        // Opening-rim vertex (PK-307): faces adjacent in the OUTER
+        // body but absent from the inner skin were removed — the rim
+        // vertex must stay ON each removed face's ORIGINAL surface so
+        // the opening remains flush. Without this constraint a rim
+        // corner sees only two kept offsets and lands wherever the
+        // averaging iteration stops (measured ~9e-7 off the exact
+        // corner — a ShellGap right at the tolerance boundary); with
+        // it, three planes solve exactly.
+        if let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
+            let kept: HashSet<FaceHandle> = adjacent_outer_faces.iter().copied().collect();
+            for outer_fh in faces_at_vertex(outer, outer_vh) {
+                if kept.contains(&outer_fh) {
+                    continue;
+                }
+                if let Some(sof) = outer.faces.get(outer_fh).and_then(|f| f.surface.as_ref()) {
+                    surfaces.push(&sof.geometry);
+                    if let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry {
+                        let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
+                        planes.push((*normal, d));
+                    }
+                }
+            }
+        }
+
         if surfaces.is_empty() {
             continue;
         }
@@ -76,6 +100,32 @@ pub fn recompute_vertices(
     }
 
     Ok(())
+}
+
+/// Faces adjacent to `vertex` in `brep`, by walking the outgoing fan.
+fn faces_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
+    let mut faces = HashSet::new();
+    let start_he = brep.vertices[vertex].outgoing;
+    if !brep.half_edges.contains_key(start_he) {
+        return Vec::new();
+    }
+    let mut current = start_he;
+    loop {
+        let he = &brep.half_edges[current];
+        if let Some(lp) = brep.loops.get(he.loop_) {
+            faces.insert(lp.face);
+        }
+        let twin = he.twin;
+        if !brep.half_edges.contains_key(twin) {
+            break;
+        }
+        let next_outgoing = brep.half_edges[twin].next;
+        if next_outgoing == start_he || !brep.half_edges.contains_key(next_outgoing) {
+            break;
+        }
+        current = next_outgoing;
+    }
+    faces.into_iter().collect()
 }
 
 /// Find outer face handles adjacent to an inner vertex.

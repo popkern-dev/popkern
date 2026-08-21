@@ -1,9 +1,22 @@
 //! Side wall construction at shell openings.
 //!
-//! When faces are removed from a shell, the resulting gap between the outer
-//! and inner skins must be closed with side wall faces. This module identifies
-//! boundary edges (edges where a removed face meets a kept face) and builds
-//! quadrilateral side wall faces connecting the outer and inner skins.
+//! When faces are removed from a shell, the gap between the outer and
+//! inner skins must be closed with side wall faces. This module
+//! identifies boundary edges (edges where a removed face meets a kept
+//! face) and builds quadrilateral side wall faces connecting the two
+//! skins.
+//!
+//! Topology contract (PK-307): a wall ADOPTS existing rim topology
+//! instead of fabricating parallel edges. Each boundary edge already
+//! carries two free half-edges in the assembled builder — the removed
+//! face's side on the outer skin and its image on the inner skin
+//! (whose face was likewise never copied) — and the wall's loop claims
+//! exactly those two, plus ONE vertical edge per boundary vertex
+//! shared with the adjacent wall. Before PK-307 each wall added four
+//! fresh edges, which left the rim half-edges loopless (structural
+//! `BrokenCycle`), duplicated every vertical, and attached the walls
+//! to the skins at vertices only — the open-shell output was never
+//! edge-manifold.
 
 use std::collections::{HashMap, HashSet};
 
@@ -13,7 +26,6 @@ use popkern_core::constructors::BRepBuilder;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, ShellHandle, VertexHandle,
 };
@@ -25,15 +37,28 @@ pub struct SideWallResult {
     pub faces: Vec<FaceHandle>,
 }
 
+/// One vertical (thickness-direction) edge at a boundary vertex,
+/// shared by the two walls adjacent along the opening's rim ring.
+struct VerticalEdge {
+    /// Half-edge running outer → inner.
+    down: HalfEdgeHandle,
+    /// Half-edge running inner → outer.
+    up: HalfEdgeHandle,
+}
+
 /// Build side wall faces connecting outer and inner skins at shell openings.
 ///
-/// For each removed face, walks its outer loop edges. An edge whose opposite
-/// face is NOT in the removed set is a boundary edge. For each boundary edge,
-/// a quad face is created connecting the outer and inner vertices.
+/// For each removed face, walks its outer loop edges. An edge whose
+/// opposite face is NOT in the removed set is a boundary edge; each
+/// yields one wall quad whose loop is
+/// `outer rim (removed side) → vertical down → inner rim (free side) →
+/// vertical up`.
 ///
 /// # Errors
 ///
-/// Returns [`ShellError::Topology`] if handle lookups fail.
+/// Returns [`ShellError::Topology`] if handle lookups fail or a rim
+/// half-edge does not run the direction the topology promises (the
+/// error names the half-edge and the expected/actual vertices).
 #[allow(clippy::too_many_arguments)]
 pub fn build_side_walls(
     builder: &mut BRepBuilder,
@@ -42,32 +67,35 @@ pub fn build_side_walls(
     skin_map: &SkinMap,
     outer_vertex_map: &HashMap<VertexHandle, VertexHandle>,
     inner_vertex_map: &HashMap<VertexHandle, VertexHandle>,
+    outer_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    inner_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
     shell_handle: ShellHandle,
-    tolerance: &Tolerance,
 ) -> Result<SideWallResult, ShellError> {
     let removed_set: HashSet<FaceHandle> = removed_faces.iter().copied().collect();
     let mut faces = Vec::new();
-    // Track which outer edges already have a side wall to avoid duplicates.
+    // One shared vertical edge per boundary vertex (builder outer handle).
+    let mut verticals: HashMap<VertexHandle, VerticalEdge> = HashMap::new();
+    // Each boundary edge yields exactly one wall (it is only ever seen
+    // from its single removed side); the set guards adjacent removed
+    // faces re-listing a shared rim.
     let mut processed_edges: HashSet<EdgeHandle> = HashSet::new();
 
     for &removed_fh in removed_faces {
-        let boundary_edges = find_boundary_edges(outer, removed_fh, &removed_set)?;
-
-        for (outer_eh, outer_he) in boundary_edges {
-            if processed_edges.contains(&outer_eh) {
+        for (outer_eh, rim_he) in find_boundary_edges(outer, removed_fh, &removed_set)? {
+            if !processed_edges.insert(outer_eh) {
                 continue;
             }
-            processed_edges.insert(outer_eh);
-
             let face = build_one_side_wall(
                 builder,
                 outer,
-                outer_he,
+                rim_he,
                 skin_map,
                 outer_vertex_map,
                 inner_vertex_map,
+                outer_he_map,
+                inner_he_map,
+                &mut verticals,
                 shell_handle,
-                tolerance,
             )?;
             faces.push(face);
         }
@@ -111,83 +139,127 @@ fn find_boundary_edges(
     Ok(result)
 }
 
-/// Build a single side wall quad face.
+/// The shared vertical edge at one boundary vertex, created on first
+/// use (with a straight-line curve) and reused by the adjacent wall.
+fn vertical_at(
+    builder: &mut BRepBuilder,
+    verticals: &mut HashMap<VertexHandle, VerticalEdge>,
+    builder_outer_v: VertexHandle,
+    builder_inner_v: VertexHandle,
+) -> (HalfEdgeHandle, HalfEdgeHandle) {
+    if let Some(v) = verticals.get(&builder_outer_v) {
+        return (v.down, v.up);
+    }
+    let p_out = builder.brep().vertices[builder_outer_v].position;
+    let p_in = builder.brep().vertices[builder_inner_v].position;
+    let (edge, down, up) = builder.add_edge(builder_outer_v, builder_inner_v);
+    set_line_curve(builder, edge, p_out, p_in);
+    verticals.insert(builder_outer_v, VerticalEdge { down, up });
+    (down, up)
+}
+
+/// Expect `he`'s origin in the builder to be `expected`; a mismatch is
+/// a structural error naming the site (never silently mis-wired).
+fn expect_origin(
+    builder: &BRepBuilder,
+    he: HalfEdgeHandle,
+    expected: VertexHandle,
+    role: &str,
+) -> Result<(), ShellError> {
+    let actual = builder.brep().half_edges[he].origin;
+    if actual != expected {
+        return Err(ShellError::Topology(format!(
+            "side wall {role} half-edge {he:?} runs from {actual:?}, expected origin \
+             {expected:?} — rim adoption direction contract violated"
+        )));
+    }
+    Ok(())
+}
+
+/// Build a single side wall quad face by adopting the free rim
+/// half-edges and the shared verticals.
 ///
-/// Given a boundary half-edge on the outer skin (belonging to a removed face),
-/// creates a quad connecting outer_v0 -> outer_v1 -> inner_v1 -> inner_v0.
+/// `rim_he` is the boundary half-edge on the ORIGINAL outer body,
+/// belonging to the removed face and running `v0 → v1` in that face's
+/// loop. Its builder image is loopless (the removed face was never
+/// copied), as is the builder image of its inner-skin counterpart —
+/// which runs `v1' → v0'` because the inner skin's orientation was
+/// reversed. The wall loop is therefore
+/// `v0 → v1 → v1' → v0'` using existing rim half-edges on both skins.
 #[allow(clippy::too_many_arguments)]
 fn build_one_side_wall(
     builder: &mut BRepBuilder,
     outer: &BRep,
-    outer_he: HalfEdgeHandle,
+    rim_he: HalfEdgeHandle,
     skin_map: &SkinMap,
     outer_vertex_map: &HashMap<VertexHandle, VertexHandle>,
     inner_vertex_map: &HashMap<VertexHandle, VertexHandle>,
+    outer_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    inner_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    verticals: &mut HashMap<VertexHandle, VerticalEdge>,
     shell_handle: ShellHandle,
-    _tolerance: &Tolerance,
 ) -> Result<FaceHandle, ShellError> {
-    let he = &outer.half_edges[outer_he];
+    let he = &outer.half_edges[rim_he];
     let twin = &outer.half_edges[he.twin];
+    let (v0_orig, v1_orig) = (he.origin, twin.origin);
 
-    // Outer vertices (in the original outer BRep).
-    let outer_v0_orig = he.origin;
-    let outer_v1_orig = twin.origin;
+    let map_err = |what: &str| ShellError::Topology(format!("side wall: {what} not in map"));
 
-    // Map to builder vertices.
-    let builder_outer_v0 = *outer_vertex_map
-        .get(&outer_v0_orig)
-        .ok_or_else(|| ShellError::Topology("outer vertex not in vertex map".into()))?;
-    let builder_outer_v1 = *outer_vertex_map
-        .get(&outer_v1_orig)
-        .ok_or_else(|| ShellError::Topology("outer vertex not in vertex map".into()))?;
-
-    // Inner vertices: map outer -> inner via skin_map, then to builder.
-    let inner_v0_orig = *skin_map
+    // Builder-space skin vertices.
+    let b_v0 = *outer_vertex_map
+        .get(&v0_orig)
+        .ok_or_else(|| map_err("outer vertex v0"))?;
+    let b_v1 = *outer_vertex_map
+        .get(&v1_orig)
+        .ok_or_else(|| map_err("outer vertex v1"))?;
+    let iv0_orig = *skin_map
         .vertices
-        .get(&outer_v0_orig)
-        .ok_or_else(|| ShellError::Topology("vertex not in skin map".into()))?;
-    let inner_v1_orig = *skin_map
+        .get(&v0_orig)
+        .ok_or_else(|| map_err("skin vertex v0"))?;
+    let iv1_orig = *skin_map
         .vertices
-        .get(&outer_v1_orig)
-        .ok_or_else(|| ShellError::Topology("vertex not in skin map".into()))?;
+        .get(&v1_orig)
+        .ok_or_else(|| map_err("skin vertex v1"))?;
+    let b_iv0 = *inner_vertex_map
+        .get(&iv0_orig)
+        .ok_or_else(|| map_err("inner vertex v0"))?;
+    let b_iv1 = *inner_vertex_map
+        .get(&iv1_orig)
+        .ok_or_else(|| map_err("inner vertex v1"))?;
 
-    let builder_inner_v0 = *inner_vertex_map
-        .get(&inner_v0_orig)
-        .ok_or_else(|| ShellError::Topology("inner vertex not in vertex map".into()))?;
-    let builder_inner_v1 = *inner_vertex_map
-        .get(&inner_v1_orig)
-        .ok_or_else(|| ShellError::Topology("inner vertex not in vertex map".into()))?;
+    // The free rim half-edges to adopt.
+    let b_outer_rim = *outer_he_map
+        .get(&rim_he)
+        .ok_or_else(|| map_err("outer rim half-edge"))?;
+    let inner_rim_orig = *skin_map
+        .half_edges
+        .get(&rim_he)
+        .ok_or_else(|| map_err("skin rim half-edge"))?;
+    let b_inner_rim = *inner_he_map
+        .get(&inner_rim_orig)
+        .ok_or_else(|| map_err("inner rim half-edge"))?;
 
-    // Get 3D positions for geometry.
-    let p0 = builder.brep().vertices[builder_outer_v0].position;
-    let p1 = builder.brep().vertices[builder_outer_v1].position;
-    let p2 = builder.brep().vertices[builder_inner_v1].position;
-    let p3 = builder.brep().vertices[builder_inner_v0].position;
+    // Direction contract: outer rim runs v0 → v1; the inner image runs
+    // v1' → v0' (the inner skin's winding was mirrored honestly).
+    expect_origin(builder, b_outer_rim, b_v0, "outer rim")?;
+    expect_origin(builder, b_inner_rim, b_iv1, "inner rim")?;
 
-    // Create 4 edges for the quad: outer, thickness_end, inner_rev, thickness_start.
-    let (e_top, he_top_fwd, _he_top_rev) = builder.add_edge(builder_outer_v0, builder_outer_v1);
-    let (e_right, he_right_fwd, _he_right_rev) =
-        builder.add_edge(builder_outer_v1, builder_inner_v1);
-    let (e_bottom, he_bottom_fwd, _he_bottom_rev) =
-        builder.add_edge(builder_inner_v1, builder_inner_v0);
-    let (e_left, he_left_fwd, _he_left_rev) = builder.add_edge(builder_inner_v0, builder_outer_v0);
+    // Shared verticals: down (outer → inner) at v1, up (inner → outer)
+    // at v0.
+    let (down_v1, _) = vertical_at(builder, verticals, b_v1, b_iv1);
+    let (_, up_v0) = vertical_at(builder, verticals, b_v0, b_iv0);
 
-    // Set edge curves (straight lines).
-    set_line_curve(builder, e_top, p0, p1);
-    set_line_curve(builder, e_right, p1, p2);
-    set_line_curve(builder, e_bottom, p2, p3);
-    set_line_curve(builder, e_left, p3, p0);
+    // Positions for the wall plane, in loop order.
+    let p0 = builder.brep().vertices[b_v0].position;
+    let p1 = builder.brep().vertices[b_v1].position;
+    let p2 = builder.brep().vertices[b_iv1].position;
+    let p3 = builder.brep().vertices[b_iv0].position;
 
-    // Create the face and its loop.
     let face = builder.add_face(shell_handle);
     builder
-        .add_loop(
-            &[he_top_fwd, he_right_fwd, he_bottom_fwd, he_left_fwd],
-            face,
-        )
+        .add_loop(&[b_outer_rim, down_v1, b_inner_rim, up_v0], face)
         .map_err(ShellError::Core)?;
 
-    // Compute and set a planar surface for the quad.
     if let Some(surface) = plane_from_quad(p0, p1, p2, p3) {
         builder.set_face_surface(
             face,
@@ -240,6 +312,7 @@ fn plane_from_quad(p0: Point3, p1: Point3, p2: Point3, _p3: Point3) -> Option<Su
 #[cfg(test)]
 mod tests {
     use super::*;
+    use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
 
     fn tol() -> Tolerance {

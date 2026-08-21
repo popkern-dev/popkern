@@ -45,11 +45,11 @@ fn hollow_cube_shell_records_two_shells_and_validates() {
 }
 
 /// Open shell (one face removed → side walls connect the skins):
-/// stays ONE shell. (Validation cleanliness of this path is PK-307:
-/// the current side-wall builder leaves rim half-edges loopless and
-/// duplicates vertical edges, a distinct pre-existing defect.)
+/// ONE shell, edge-manifold, validating clean. Before PK-307 the wall
+/// builder fabricated all four wall edges, leaving the rim half-edges
+/// loopless (`BrokenCycle`) and duplicating every vertical.
 #[test]
-fn open_shell_stays_one_connected_shell() {
+fn open_shell_is_one_connected_manifold_shell() {
     let cube = BRep::unit_cube(tol()).expect("cube builds");
     let first_face = cube.faces.keys().next().expect("cube has faces");
     let result = shell(
@@ -67,6 +67,27 @@ fn open_shell_stays_one_connected_shell() {
         result.brep.shells.len(),
         1,
         "side walls connect outer and inner skins into one shell"
+    );
+    // Honest entity accounting (5+5 skin faces + 4 walls; rims are
+    // ADOPTED, so edges = 12 outer + 12 inner + 4 verticals, and
+    // χ = V−E+F = 16−28+14 = 2 for the one genus-0 shell).
+    assert_eq!(result.brep.faces.len(), 14);
+    assert_eq!(result.brep.vertices.len(), 16);
+    assert_eq!(
+        result.brep.edges.len(),
+        28,
+        "wall rims must be adopted, not duplicated (12 outer + 12 inner + 4 verticals)"
+    );
+    assert!(
+        result.brep.validate().is_ok(),
+        "open shell must validate: {:?}",
+        result.brep.validate().err()
+    );
+    // Full screen incl. self-intersection — cheap on 14 faces.
+    let findings = result.brep.validate_all();
+    assert!(
+        findings.is_empty(),
+        "open shell must pass validate_all: {findings:?}"
     );
 }
 

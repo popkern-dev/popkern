@@ -28,6 +28,12 @@ type SkinCopyMaps = (
 /// inner BRep into a single BRepBuilder, then builds side wall faces at
 /// the openings.
 ///
+/// Precondition: `inner` must already be orientation-mirrored
+/// (`reverse_body_orientation`), as the shell pipeline does — the side
+/// walls adopt the free inner rim half-edges and rely on the mirrored
+/// direction (PK-307); a same-winding inner skin fails the direction
+/// contract with a structural error.
+///
 /// # Errors
 ///
 /// Returns [`ShellError`] if handle mapping or side wall construction fails.
@@ -63,7 +69,7 @@ pub fn assemble_shell(
     };
 
     // Copy inner skin (all faces).
-    let (inner_vertex_map, _inner_edge_map, _inner_he_map) =
+    let (inner_vertex_map, _inner_edge_map, inner_he_map) =
         copy_skin_entities(&mut builder, inner, inner_shell, |_| true)?;
 
     // Build side walls if there are removed faces.
@@ -75,13 +81,13 @@ pub fn assemble_shell(
             skin_map,
             &outer_vertex_map,
             &inner_vertex_map,
+            &outer_he_map,
+            &inner_he_map,
             shell,
-            &Tolerance::default(),
         )?;
     }
 
     let _ = outer_edge_map;
-    let _ = outer_he_map;
 
     Ok(builder.build_unchecked())
 }
@@ -249,7 +255,8 @@ mod tests {
     fn assemble_cube_one_removed() {
         let outer = BRep::unit_cube(tol()).unwrap();
         let first_face = outer.faces.keys().next().unwrap();
-        let (inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
+        inner.reverse_body_orientation();
         let result = assemble_shell(&outer, &inner, &[first_face], &skin_map, tol()).unwrap();
         // Outer (5 faces) + inner (5 faces) + side walls (4 faces) = 14 faces.
         assert_eq!(result.faces.len(), 14);
@@ -273,7 +280,8 @@ mod tests {
     fn assemble_one_removed_has_correct_face_count() {
         let outer = BRep::unit_cube(tol()).unwrap();
         let first_face = outer.faces.keys().next().unwrap();
-        let (inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
+        inner.reverse_body_orientation();
         let result = assemble_shell(&outer, &inner, &[first_face], &skin_map, tol()).unwrap();
         // Outer (5) + inner (5) + side walls (4) = 14 faces.
         assert_eq!(result.faces.len(), 14);
@@ -298,7 +306,8 @@ mod tests {
         // The key invariant: the call must succeed without panicking.
         let outer = BRep::unit_cube(tol()).unwrap();
         let all_faces: Vec<FaceHandle> = outer.faces.keys().collect();
-        let (inner, skin_map) = build_inner_skin(&outer, &all_faces).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &all_faces).unwrap();
+        inner.reverse_body_orientation();
         let result = assemble_shell(&outer, &inner, &all_faces, &skin_map, tol());
         // Whether it succeeds or returns an error is acceptable — the important
         // thing is that the code path is exercised without a panic.
@@ -309,7 +318,8 @@ mod tests {
     fn assemble_two_faces_removed() {
         let outer = BRep::unit_cube(tol()).unwrap();
         let removed: Vec<FaceHandle> = outer.faces.keys().take(2).collect();
-        let (inner, skin_map) = build_inner_skin(&outer, &removed).unwrap();
+        let (mut inner, skin_map) = build_inner_skin(&outer, &removed).unwrap();
+        inner.reverse_body_orientation();
         let result = assemble_shell(&outer, &inner, &removed, &skin_map, tol());
         // Outer (4 faces) + inner (4 faces) + side walls for 2 openings.
         // Exact face count depends on side wall geometry. Just verify it succeeds.

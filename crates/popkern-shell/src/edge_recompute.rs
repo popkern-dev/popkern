@@ -24,10 +24,11 @@ pub fn recompute_edges(
     inner: &mut BRep,
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     skin_map: &SkinMap,
-    _outer: &BRep,
+    outer: &BRep,
     tolerance: &Tolerance,
 ) -> Result<(), ShellError> {
     let reverse_face = skin_map.reverse_face_map();
+    let reverse_edge = skin_map.reverse_edge_map();
 
     let inner_edge_handles: Vec<EdgeHandle> = inner.edges.keys().collect();
 
@@ -51,41 +52,79 @@ pub fn recompute_edges(
 
         let loop1 = he.loop_;
         let loop2 = twin.loop_;
+        let side1 = inner
+            .loops
+            .get(loop1)
+            .and_then(|l| reverse_face.get(&l.face).copied());
+        let side2 = inner
+            .loops
+            .get(loop2)
+            .and_then(|l| reverse_face.get(&l.face).copied());
 
-        if !inner.loops.contains_key(loop1) || !inner.loops.contains_key(loop2) {
-            continue;
-        }
-
-        let face1 = inner.loops[loop1].face;
-        let face2 = inner.loops[loop2].face;
-
-        // Map to outer faces.
-        let outer_face1 = match reverse_face.get(&face1) {
-            Some(&fh) => fh,
-            None => continue,
-        };
-        let outer_face2 = match reverse_face.get(&face2) {
-            Some(&fh) => fh,
-            None => continue,
-        };
-
-        // Get offset surfaces for both faces.
-        let surf1 = match offset_surfaces.get(&outer_face1) {
-            Some(s) => s,
-            None => continue,
-        };
-        let surf2 = match offset_surfaces.get(&outer_face2) {
-            Some(s) => s,
-            None => continue,
+        let (surf1, surf2) = match (side1, side2) {
+            // Interior edge: intersection of the two offset surfaces.
+            (Some(f1), Some(f2)) => match (offset_surfaces.get(&f1), offset_surfaces.get(&f2)) {
+                (Some(s1), Some(s2)) => (s1.clone(), s2.clone()),
+                _ => continue,
+            },
+            // Opening rim edge (PK-307): one side's face was removed,
+            // so its loop never existed in the inner skin and the
+            // cloned curve is the STALE pre-offset original — measured
+            // gap √2·thickness on the open-cube shell, invisible until
+            // the side walls became manifold and validation reached
+            // geometry. The honest rim curve is the intersection of
+            // the KEPT face's offset surface with the REMOVED face's
+            // ORIGINAL surface: the opening stays flush with the
+            // original boundary while the kept wall recedes.
+            (kept @ Some(_), None) | (None, kept @ Some(_)) => {
+                let Some(kept_face) = kept else { continue };
+                let Some(kept_offset) = offset_surfaces.get(&kept_face) else {
+                    continue;
+                };
+                let Some(&outer_eh) = reverse_edge.get(&inner_eh) else {
+                    continue;
+                };
+                let Some(removed_face) = other_face_of_edge(outer, outer_eh, kept_face) else {
+                    continue;
+                };
+                let Some(original) = outer
+                    .faces
+                    .get(removed_face)
+                    .and_then(|f| f.surface.as_ref())
+                else {
+                    continue;
+                };
+                (kept_offset.clone(), original.geometry.clone())
+            }
+            (None, None) => continue,
         };
 
         // Compute edge curve from surface intersection.
-        if let Some(curve_on_edge) = compute_edge_curve(inner, inner_eh, surf1, surf2, tolerance)? {
+        if let Some(curve_on_edge) = compute_edge_curve(inner, inner_eh, &surf1, &surf2, tolerance)?
+        {
             inner.edges[inner_eh].curve = Some(curve_on_edge);
         }
     }
 
     Ok(())
+}
+
+/// The face on the other side of `outer_eh` from `known_face`, if any.
+fn other_face_of_edge(
+    outer: &BRep,
+    outer_eh: EdgeHandle,
+    known_face: FaceHandle,
+) -> Option<FaceHandle> {
+    let edge = outer.edges.get(outer_eh)?;
+    let he = outer.half_edges.get(edge.half_edge)?;
+    let twin = outer.half_edges.get(he.twin)?;
+    let f1 = outer.loops.get(he.loop_).map(|l| l.face);
+    let f2 = outer.loops.get(twin.loop_).map(|l| l.face);
+    match (f1, f2) {
+        (Some(a), Some(b)) if a == known_face => Some(b),
+        (Some(a), Some(b)) if b == known_face => Some(a),
+        _ => None,
+    }
 }
 
 /// Compute the edge curve from the intersection of two offset surfaces.

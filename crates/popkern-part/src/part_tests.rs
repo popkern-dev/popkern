@@ -234,29 +234,24 @@ fn chamfer_verticals() {
 }
 
 #[test]
-fn shell_surfaces_the_kernel_validity_gap_as_a_typed_error() {
-    // The shell kernel's open-shell (cup) output does not currently
-    // satisfy strict Euler–Poincaré validation (the shelled_box
-    // example works only because it never validates: 16 − 40 + 14 ≠
-    // 2). The Part invariant — every Ok(Part) wraps a validated
-    // body — makes that a typed Validation error instead of a
-    // silently-invalid part. Recorded as a kernel frontier in the
-    // PK-100 ledger notes; this test pins BOTH the selector
-    // resolution (exactly one +Z face) and the honest failure mode,
-    // and will fail deliberately when the kernel gap closes so the
-    // expectation gets flipped to success.
+fn shell_serves_a_validated_open_cup() {
+    // FLIPPED by PK-307 (2026-08-21): this test previously pinned the
+    // kernel validity gap as a typed Validation error (the open-shell
+    // output had loopless rim half-edges, duplicated wall edges, and
+    // stale rim geometry — 16 − 40 + 14 ≠ 2). The side walls now
+    // adopt the rim topology and the rim geometry is recomputed
+    // exactly, so the cup validates and Part::shell serves it — the
+    // Part invariant (every Ok(Part) wraps a validated body) holds on
+    // the success path.
     let cube = popkern_core::topology::BRep::unit_cube(Tolerance::default()).expect("unit cube");
     let part = Part::from_brep(cube, Tolerance::default(), "unit cube").expect("wrap");
-    let err = part.shell(0.08, |f| f.facing(Dir::Z)).unwrap_err();
-    match err {
-        PartError::Validation { feature, .. } => {
-            assert!(
-                feature.contains("1 openings"),
-                "selector must match exactly one face: {feature}"
-            );
-        }
-        other => panic!("expected Validation (kernel gap), got {other:?}"),
-    }
+    let cup = part
+        .shell(0.08, |f| f.facing(Dir::Z))
+        .expect("open cup shell serves validated");
+    // 5 outer + 5 inner + 4 walls, rims adopted: χ = 16 − 28 + 14 = 2.
+    assert_eq!(cup.face_count(), 14);
+    assert_eq!(cup.brep().edges.len(), 28);
+    assert!(cup.brep().validate().is_ok());
 }
 
 #[test]
