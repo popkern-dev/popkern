@@ -26,8 +26,10 @@
 //! if token.is_cancelled() { return; }
 //! ```
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub use crate::cancellation::CancellationToken;
 
 /// Progress callback trait for healing operations.
 ///
@@ -48,41 +50,11 @@ pub trait ProgressCallback: Send + Sync {
     fn is_cancelled(&self) -> bool;
 }
 
-/// A simple cancellation token using atomic operations.
-///
-/// Thread-safe and cheap to clone. The token starts in the
-/// non-cancelled state and can be cancelled exactly once.
-#[derive(Debug, Clone)]
-pub struct CancellationToken {
-    cancelled: Arc<AtomicBool>,
-}
-
-impl CancellationToken {
-    /// Create a new token in the non-cancelled state.
-    pub fn new() -> Self {
-        Self {
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Signal cancellation.
-    ///
-    /// All clones of this token will observe the cancellation.
-    pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::Relaxed);
-    }
-
-    /// Check whether cancellation has been requested.
-    pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::Relaxed)
-    }
-}
-
-impl Default for CancellationToken {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// The healing `CancellationToken` is the kernel-wide token from
+// `crate::cancellation` (PK-276 unification — this module carried its
+// own near-identical definition before; re-exporting keeps every
+// `popkern_core::healing::CancellationToken` caller compiling while
+// letting one token cancel healing, booleans, fillets, and meshing).
 
 /// No-op progress callback (for when progress reporting isn't needed).
 ///
@@ -188,6 +160,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn cancellation_token_starts_uncancelled() {

@@ -163,7 +163,7 @@ mod fillet_serving_retry;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;
-pub use lib_chamfer::chamfer_edges;
+pub use lib_chamfer::{chamfer_edges, chamfer_edges_cancellable};
 /// Fillet the specified edges and bundle the result with post-op
 /// [`BlendQuality`] metrics. Same parameter validation and error
 /// taxonomy as [`fillet_edges`]; quality comes from the new-face

@@ -291,11 +291,21 @@ pub fn boolean_with_diagnostics(
     Ok((result, diagnostics))
 }
 
-/// Perform a boolean with cooperative cancellation support (§15).
+/// Perform a boolean with cooperative cancellation support (§15) and
+/// the structural "< 1 s clean termination" guarantee.
 ///
-/// Behaves identically to [`boolean`] but checks `cancel` between
-/// pipeline phases and returns [`BoolError::Cancelled`] as soon as a
-/// cancellation request is observed. The input model is unchanged.
+/// Behaves identically to [`boolean`] when the token never fires and
+/// returns [`BoolError::Cancelled`] as soon as a cancellation request
+/// is observed. The input model is unchanged.
+///
+/// The pipeline runs on a worker thread over private clones (PK-276,
+/// the same detach-on-cancel layer as
+/// `popkern_fillet::fillet_edges_cancellable`): when the token fires,
+/// this function returns immediately — the latency does not depend on
+/// any stage's internal poll granularity. The abandoned worker
+/// observes the token at its next stage-boundary poll, discards its
+/// clones, and exits; completion wins a tie so a finished result is
+/// never thrown away.
 ///
 /// Pair this with [`cancellation::CancellationToken`] held by a UI
 /// progress dialog or signal handler.
@@ -306,16 +316,22 @@ pub fn boolean_cancellable(
     tol: Tolerance,
     cancel: &cancellation::CancellationToken,
 ) -> Result<BRep, BoolError> {
-    let mut metrics = Vec::new();
-    operation::execute_boolean_full(
-        op,
-        a.clone(),
-        b.clone(),
-        &tol,
-        &mut metrics,
-        Some(cancel),
-        None,
-    )
+    let (worker_a, worker_b, worker_token) = (a.clone(), b.clone(), cancel.clone());
+    match popkern_core::cancellation::run_detach_on_cancel(cancel, move || {
+        let mut metrics = Vec::new();
+        operation::execute_boolean_full(
+            op,
+            worker_a,
+            worker_b,
+            &tol,
+            &mut metrics,
+            Some(&worker_token),
+            None,
+        )
+    }) {
+        popkern_core::cancellation::DetachOutcome::Completed(result) => result,
+        popkern_core::cancellation::DetachOutcome::Detached => Err(BoolError::Cancelled),
+    }
 }
 
 /// Perform a boolean and report progress through a [`progress::ProgressReporter`] (§15).

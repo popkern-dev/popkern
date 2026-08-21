@@ -8,6 +8,79 @@ pub fn chamfer_edges(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<BlendResult, BlendError> {
+    chamfer_edges_internal(brep, specs, options, tolerance, tracking, None)
+}
+
+/// Cancellable variant of [`chamfer_edges`] — returns
+/// [`BlendError::Cancelled`] within one second of the token firing
+/// (§17: clean termination < 1 s, model unchanged), via the shared
+/// detach-on-cancel layer (PK-276; same contract as
+/// [`crate::fillet_edges_cancellable`], including the
+/// [`TrackingContext`] handoff: on cancellation the caller holds a
+/// fresh context for the same operation and nothing is recorded).
+pub fn chamfer_edges_cancellable(
+    brep: &BRep,
+    specs: &[ChamferSpec],
+    options: &ChamferOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: &crate::cancellation::CancellationToken,
+) -> Result<BlendResult, BlendError> {
+    if cancel.is_cancelled() {
+        return Err(BlendError::Cancelled);
+    }
+    let mut tracking = tracking;
+    let worker_tracking: Option<TrackingContext> = tracking.as_deref_mut().map(|ctx| {
+        let operation = ctx.operation;
+        std::mem::replace(ctx, TrackingContext::new(operation))
+    });
+    let worker_brep = brep.clone();
+    let worker_specs = specs.to_vec();
+    let worker_options = options.clone();
+    let worker_token = cancel.clone();
+    match popkern_core::cancellation::run_detach_on_cancel(cancel, move || {
+        let mut worker_tracking = worker_tracking;
+        let result = chamfer_edges_internal(
+            &worker_brep,
+            &worker_specs,
+            &worker_options,
+            tolerance,
+            worker_tracking.as_mut(),
+            Some(&worker_token),
+        );
+        (result, worker_tracking)
+    }) {
+        popkern_core::cancellation::DetachOutcome::Completed((result, recorded)) => {
+            if let (Some(caller_ctx), Some(recorded)) = (tracking.take(), recorded) {
+                *caller_ctx = recorded;
+            }
+            result
+        }
+        popkern_core::cancellation::DetachOutcome::Detached => Err(BlendError::Cancelled),
+    }
+}
+
+/// Shared chamfer pipeline: cooperative polls between stages and the
+/// per-edge loop; `cancel` also rides into the apply phase's per-stage
+/// and per-corner polls.
+fn chamfer_edges_internal(
+    brep: &BRep,
+    specs: &[ChamferSpec],
+    options: &ChamferOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: Option<&cancellation::CancellationToken>,
+) -> Result<BlendResult, BlendError> {
+    macro_rules! check_cancel {
+        () => {
+            if let Some(tok) = cancel
+                && tok.is_cancelled()
+            {
+                return Err(BlendError::Cancelled);
+            }
+        };
+    }
+    check_cancel!();
     // §10.1 — reject invalid parameters at the API boundary.
     validate::validate_chamfer_specs(brep, specs)?;
 
@@ -27,6 +100,8 @@ pub fn chamfer_edges(
         if i >= analyses.len() {
             continue;
         }
+        // Per-edge cancellation point (§17).
+        check_cancel!();
         match compute_chamfer_geometry(&analyses[i], &spec.kind, brep, &tolerance) {
             Ok(geom) => edge_geometries.push(geom),
             Err(failure) => failures.push((spec.edge, failure)),
@@ -50,6 +125,7 @@ pub fn chamfer_edges(
     // only runs when EVERY requested edge belongs to a chain — a
     // mixed request falls through whole to the per-edge path so the
     // operation stays all-or-nothing either way.
+    check_cancel!();
     let chains = construct::rim_chain_chamfer::detect_closed_rim_chains(brep, &edge_geometries);
     let chain_edge_count: usize = chains.iter().map(|c| c.geometry_indices().count()).sum();
     if !chains.is_empty() && chain_edge_count == edge_geometries.len() && failures.is_empty() {
@@ -159,7 +235,8 @@ pub fn chamfer_edges(
         false, // chamfers don't go through the DirectApex apex builder
         crate::types::ContinuityLevel::G1,
         &std::collections::BTreeSet::new(),
-        None, // chamfer entry points expose no cancellation token
+        cancel,
+        None, // chamfers report no per-corner progress (mitred corners are cheap)
     )
     .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
 

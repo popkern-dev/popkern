@@ -63,6 +63,64 @@ fn capture_reporter_records_one_edge_event_per_spec() {
 }
 
 // ---------------------------------------------------------------------------
+// Per-corner event emission (PK-276, acceptance row 413)
+// ---------------------------------------------------------------------------
+
+/// The 12-edge cube fillet constructs 8 vertex-blend corners inside
+/// ApplyTopology; the reporter must tick once per corner with
+/// monotone 0-based indices and an honest total. Before PK-276 the
+/// dominant apply phase emitted exactly one event, at completion.
+#[test]
+fn capture_reporter_records_one_corner_event_per_vertex_blend() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    assert_eq!(specs.len(), 12);
+
+    let mut reporter = CaptureReporter::default();
+    let result = fillet_edges_with_progress(
+        &cube,
+        &specs,
+        &FilletOptions::default(),
+        tol(),
+        None,
+        &mut reporter,
+    );
+    assert!(result.is_ok(), "12-edge cube fillet serves: {result:?}");
+
+    assert_eq!(
+        reporter.corner_events.len(),
+        8,
+        "cube has 8 corners; expected one corner event each, got {}",
+        reporter.corner_events.len()
+    );
+    let mut seen_vertices = std::collections::BTreeSet::new();
+    for (i, ev) in reporter.corner_events.iter().enumerate() {
+        assert_eq!(
+            ev.corner_index, i,
+            "corner indices must be 0-based monotone"
+        );
+        assert_eq!(ev.total_corners, 8, "total must be the honest corner count");
+        assert!(
+            ev.duration.as_nanos() > 0,
+            "corner event should have measurable duration, got {:?}",
+            ev.duration
+        );
+        assert!(
+            seen_vertices.insert(ev.vertex),
+            "corner vertices must be distinct, {:?} repeated",
+            ev.vertex
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Phase + edge coverage
 // ---------------------------------------------------------------------------
 

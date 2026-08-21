@@ -164,7 +164,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use route_decision::{ApexRouteDecisionInput, apex_route_decision};
-/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions. `cancel` = §17 cooperative cancellation, polled between stages and corners.
+/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions. `cancel` = §17 cooperative cancellation, polled between stages and corners. `corner_reporter` = per-corner progress inside the dominant vertex-blend loop (PK-276).
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
@@ -182,6 +182,9 @@ pub fn apply_blend_geometry(
     requested_continuity: crate::types::ContinuityLevel,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
     cancel: Option<&crate::cancellation::CancellationToken>,
+    // `+ '_` keeps the trait object's pointee lifetime independent of
+    // the reborrow so callers can reuse their reporter after this call.
+    mut reporter: Option<&mut (dyn crate::progress::ProgressReporter + '_)>,
 ) -> Result<ApplyBlendResult, ApplyBlendError> {
     let mut result = brep.clone();
     post_pipeline::determinism_trace_mod::pre_apply_trace(brep, edge_geometries);
@@ -304,6 +307,13 @@ pub fn apply_blend_geometry(
                 tolerance,
                 apply_cancel_poll(cancel).is_err(),
             );
+            // PK-276 per-corner progress: corners are the dominant
+            // apply cost, so each completed corner ticks the reporter.
+            let total_corners = vertex_edges
+                .values()
+                .filter(|edge_indices| edge_indices.len() >= 2)
+                .count();
+            let mut corner_index = 0usize;
             for (vertex, edge_indices) in &vertex_edges {
                 // §17 per-corner poll: corner construction dominates apply
                 // wall-clock — bounds a cancelled run's stretch to one corner.
@@ -311,6 +321,7 @@ pub fn apply_blend_geometry(
                     return true;
                 }
                 if edge_indices.len() >= 2 {
+                    let corner_started = std::time::Instant::now();
                     let pre = precomputed.get(vertex).copied().unwrap_or(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );
@@ -391,29 +402,14 @@ pub fn apply_blend_geometry(
                                 let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
                                 let reason = error.reason;
                                 repair_report.apex_diagnostics.extend(error.diagnostics);
-                                repair_report
-                                .apex_routes
-                                .push(apex_route_decision(ApexRouteDecisionInput {
-                                vertex: *vertex,
-                                edge_indices,
-                                edge_geometries,
-                                route:
-                                    crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
-                                built_faces: Vec::new(),
-                                corner_patch_count: 0,
-                                exact_boundary_sector_count: 0,
-                                exact_boundary_prepared_curve_count: 0,
-                                exact_boundary_inner_spoke_count: 0,
-                                exact_boundary_ribbon_count: 0,
-                                exact_boundary_solved_surface_count: 0,
-                                exact_boundary_pcurve_pair_count: 0,
-                                exact_boundary_performance: Default::default(),
-                                exact_boundary_report:
-                                    crate::types::ExactBoundaryCapReport::not_applicable(
-                                        "direct_apex_fallback_to_legacy",
+                                repair_report.apex_routes.push(
+                                    route_decision::direct_apex_fallback_route(
+                                        *vertex,
+                                        edge_indices,
+                                        edge_geometries,
+                                        reason.clone(),
                                     ),
-                                fallback_reason: Some(reason.clone()),
-                            }));
+                                );
                                 warnings.push((
                                     warn_edge,
                                     BlendWarning::DirectApexFellBackToLegacy {
@@ -426,29 +422,23 @@ pub fn apply_blend_geometry(
                         }
                     }
                     if direct_apex_succeeded {
+                        apply_types::emit_corner_progress(
+                            &mut reporter,
+                            *vertex,
+                            &mut corner_index,
+                            total_corners,
+                            corner_started,
+                        );
                         continue;
                     }
                     if !use_direct_apex_for_this_apex {
-                        repair_report.apex_routes.push(apex_route_decision(
-                            ApexRouteDecisionInput {
-                                vertex: *vertex,
+                        repair_report
+                            .apex_routes
+                            .push(route_decision::legacy_dispatch_route(
+                                *vertex,
                                 edge_indices,
                                 edge_geometries,
-                                route: crate::types::ApexConstructionRoute::Legacy,
-                                built_faces: Vec::new(),
-                                corner_patch_count: 0,
-                                exact_boundary_sector_count: 0,
-                                exact_boundary_prepared_curve_count: 0,
-                                exact_boundary_inner_spoke_count: 0,
-                                exact_boundary_ribbon_count: 0,
-                                exact_boundary_solved_surface_count: 0,
-                                exact_boundary_pcurve_pair_count: 0,
-                                exact_boundary_performance: Default::default(),
-                                exact_boundary_report:
-                                    crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
-                                fallback_reason: None,
-                            },
-                        ));
+                            ));
                     }
 
                     match blend_insert::insert_vertex_blend(
@@ -518,6 +508,14 @@ pub fn apply_blend_geometry(
                             }
                         }
                     }
+                    // Corner done (served, fell back, or mitred).
+                    apply_types::emit_corner_progress(
+                        &mut reporter,
+                        *vertex,
+                        &mut corner_index,
+                        total_corners,
+                        corner_started,
+                    );
                 }
                 post_pipeline::determinism_trace(&format!("post_vertex_{vertex:?}"), &result);
             }

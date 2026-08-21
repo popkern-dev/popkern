@@ -254,6 +254,9 @@ pub(crate) fn fillet_edges_attempt(
         options.continuity,
         excluded_direct_apex_vertices,
         cancel,
+        // PK-276: the apply phase ticks the reporter once per
+        // vertex-blend corner (the dominant cost inside ApplyTopology).
+        reporter.as_deref_mut(),
     )
     .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
     let stale_anchor_failure = |reason: String| BlendError::PartialFailure {

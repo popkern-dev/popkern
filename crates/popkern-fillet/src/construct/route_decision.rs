@@ -50,6 +50,61 @@ pub(super) fn apex_route_decision(
     }
 }
 
+/// Route record for a corner dispatched straight to the legacy path
+/// (no direct-apex attempt was made).
+pub(super) fn legacy_dispatch_route(
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+) -> crate::types::ApexConstructionRouteDecision {
+    apex_route_decision(ApexRouteDecisionInput {
+        vertex,
+        edge_indices,
+        edge_geometries,
+        route: crate::types::ApexConstructionRoute::Legacy,
+        built_faces: Vec::new(),
+        corner_patch_count: 0,
+        exact_boundary_sector_count: 0,
+        exact_boundary_prepared_curve_count: 0,
+        exact_boundary_inner_spoke_count: 0,
+        exact_boundary_ribbon_count: 0,
+        exact_boundary_solved_surface_count: 0,
+        exact_boundary_pcurve_pair_count: 0,
+        exact_boundary_performance: Default::default(),
+        exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
+        fallback_reason: None,
+    })
+}
+
+/// Route record for a direct-apex attempt that fell back to the
+/// legacy path, carrying the decline reason.
+pub(super) fn direct_apex_fallback_route(
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    reason: String,
+) -> crate::types::ApexConstructionRouteDecision {
+    apex_route_decision(ApexRouteDecisionInput {
+        vertex,
+        edge_indices,
+        edge_geometries,
+        route: crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
+        built_faces: Vec::new(),
+        corner_patch_count: 0,
+        exact_boundary_sector_count: 0,
+        exact_boundary_prepared_curve_count: 0,
+        exact_boundary_inner_spoke_count: 0,
+        exact_boundary_ribbon_count: 0,
+        exact_boundary_solved_surface_count: 0,
+        exact_boundary_pcurve_pair_count: 0,
+        exact_boundary_performance: Default::default(),
+        exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable(
+            "direct_apex_fallback_to_legacy",
+        ),
+        fallback_reason: Some(reason),
+    })
+}
+
 /// PK-258: a completed legacy corner serve records its cap faces on
 /// the vertex's route (so the serving-retry keep-better contract can
 /// measure BOTH candidates uniformly) and, when the corner FELL BACK

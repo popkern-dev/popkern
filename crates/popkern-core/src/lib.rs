@@ -7,6 +7,7 @@
 //! geometric entities (Point, Curve, Surface), and validation utilities.
 
 pub mod adaptive_precision;
+pub mod cancellation;
 pub mod check_finite;
 pub mod constructors;
 pub mod diagnostics;
@@ -19,6 +20,7 @@ pub mod naming;
 pub mod naming_criteria;
 pub mod naming_resolve;
 pub mod precision;
+pub mod progress;
 pub mod tolerance;
 pub mod topology;
 pub mod validation;

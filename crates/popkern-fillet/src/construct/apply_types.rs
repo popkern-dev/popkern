@@ -43,6 +43,27 @@ impl ApplyBlendError {
     }
 }
 
+/// Emit one PK-276 per-corner progress event and advance the corner
+/// cursor. Factored out of the vertex-blend loop (two exits per
+/// corner: direct-apex success `continue` and the legacy tail).
+pub(crate) fn emit_corner_progress(
+    reporter: &mut Option<&mut (dyn crate::progress::ProgressReporter + '_)>,
+    vertex: popkern_core::topology::VertexHandle,
+    corner_index: &mut usize,
+    total_corners: usize,
+    started: std::time::Instant,
+) {
+    if let Some(r) = reporter.as_deref_mut() {
+        r.on_corner(crate::progress::CornerProgress {
+            vertex,
+            corner_index: *corner_index,
+            total_corners,
+            duration: started.elapsed(),
+        });
+    }
+    *corner_index += 1;
+}
+
 /// Poll a cancellation token between apply stages: `Err(Cancelled)`
 /// the moment any holder has fired it, `Ok(())` otherwise (including
 /// when no token was supplied).

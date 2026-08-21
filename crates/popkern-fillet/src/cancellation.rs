@@ -30,40 +30,12 @@
 //! assert!(matches!(result, Err(popkern_fillet::BlendError::Cancelled)));
 //! ```
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// A cooperative cancellation flag shared across threads.
-///
-/// The fillet pipeline polls [`Self::is_cancelled`] between phases.
-/// Calling [`Self::cancel`] from any thread causes the next poll to
-/// return `true`, which triggers a clean teardown — no inconsistent
-/// state survives a cancellation.
-#[derive(Debug, Clone, Default)]
-pub struct CancellationToken {
-    flag: Arc<AtomicBool>,
-}
-
-impl CancellationToken {
-    /// Create a fresh, non-cancelled token.
-    pub fn new() -> Self {
-        Self {
-            flag: Arc::new(AtomicBool::new(false)),
-        }
-    }
-
-    /// Signal cancellation. All clones of this token observe the
-    /// request.
-    pub fn cancel(&self) {
-        self.flag.store(true, Ordering::SeqCst);
-    }
-
-    /// Returns `true` if any holder of this token has called
-    /// [`Self::cancel`].
-    pub fn is_cancelled(&self) -> bool {
-        self.flag.load(Ordering::SeqCst)
-    }
-}
+// The fillet `CancellationToken` is the kernel-wide token from
+// `popkern_core::cancellation` (PK-276 unification): one token held by
+// a UI Cancel button cancels a fillet, a boolean, a healing pass, and
+// a tessellation at once. The next poll after `cancel()` triggers a
+// clean teardown — no inconsistent state survives a cancellation.
+pub use popkern_core::cancellation::CancellationToken;
 
 #[cfg(test)]
 mod tests {

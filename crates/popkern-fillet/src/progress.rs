@@ -99,6 +99,25 @@ impl ProgressEvent {
     }
 }
 
+/// One per-corner progress event emitted from inside the
+/// `ApplyTopology` phase (PK-276). Vertex-blend corner construction
+/// dominates that phase's wall clock, so phase-level events alone
+/// leave the UI frozen through the longest stretch of a multi-edge
+/// fillet; these events tick once per corner.
+#[derive(Debug, Clone, Copy)]
+pub struct CornerProgress {
+    /// The vertex whose corner construction just completed (success
+    /// or per-corner fallback — either way the corner is done).
+    pub vertex: popkern_core::topology::VertexHandle,
+    /// 0-based corner position in the deterministic (`BTreeMap`)
+    /// vertex order.
+    pub corner_index: usize,
+    /// Number of corners this apply phase will construct.
+    pub total_corners: usize,
+    /// Wall-clock duration of this corner's construction.
+    pub duration: Duration,
+}
+
 /// Per-edge §18 telemetry captured by the fillet pipeline's
 /// compute loop. One record per edge in the spec list, emitted
 /// immediately after `compute_fillet_geometry` returns for that
@@ -287,6 +306,11 @@ pub trait ProgressReporter: Send {
     /// a no-op so existing `ProgressReporter` impls don't need
     /// updating; override to capture per-edge telemetry.
     fn on_edge(&mut self, _telemetry: EdgeTelemetry) {}
+    /// Called immediately after each vertex-blend corner construction
+    /// inside the `ApplyTopology` phase (PK-276). Default is a no-op
+    /// so existing impls don't need updating; override to drive
+    /// fine-grained progress through the dominant phase.
+    fn on_corner(&mut self, _event: CornerProgress) {}
 }
 
 /// A no-op reporter that ignores all events. Useful as a default
@@ -309,6 +333,9 @@ pub struct CaptureReporter {
     /// All edge events recorded so far, in the order edges were
     /// processed.
     pub edge_events: Vec<EdgeTelemetry>,
+    /// All per-corner events recorded so far, in deterministic
+    /// corner order (PK-276).
+    pub corner_events: Vec<CornerProgress>,
 }
 
 impl CaptureReporter {
@@ -329,6 +356,9 @@ impl ProgressReporter for CaptureReporter {
     }
     fn on_edge(&mut self, telemetry: EdgeTelemetry) {
         self.edge_events.push(telemetry);
+    }
+    fn on_corner(&mut self, event: CornerProgress) {
+        self.corner_events.push(event);
     }
 }
 

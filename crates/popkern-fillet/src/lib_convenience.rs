@@ -121,7 +121,12 @@ pub fn fillet_edges_cancellable(
     let worker_specs = specs.to_vec();
     let worker_options = options.clone();
     let worker_token = cancel.clone();
-    let worker = std::thread::spawn(move || {
+    // Detach-on-cancel via the shared kernel helper (PK-276): the
+    // worker runs over private clones; completion wins a tie so
+    // finished work is never thrown away; a worker panic is re-raised
+    // here. On detach the worker sees the token at its next
+    // cooperative poll and discards its clones.
+    match popkern_core::cancellation::run_detach_on_cancel(cancel, move || {
         let mut worker_tracking = worker_tracking;
         let result = crate::fillet_edges_internal(
             &worker_brep,
@@ -133,26 +138,14 @@ pub fn fillet_edges_cancellable(
             None,
         );
         (result, worker_tracking)
-    });
-    // Wait for completion or cancellation, whichever comes first.
-    // Completion wins a tie so finished work is never thrown away.
-    loop {
-        if worker.is_finished() {
-            let (result, recorded) = match worker.join() {
-                Ok(output) => output,
-                Err(panic) => std::panic::resume_unwind(panic),
-            };
-            if let (Some(caller_ctx), Some(recorded)) = (tracking.as_deref_mut(), recorded) {
+    }) {
+        popkern_core::cancellation::DetachOutcome::Completed((result, recorded)) => {
+            if let (Some(caller_ctx), Some(recorded)) = (tracking.take(), recorded) {
                 *caller_ctx = recorded;
             }
-            return result;
+            result
         }
-        if cancel.is_cancelled() {
-            // Detach: the worker sees the token at its next poll and
-            // discards its clone. Control returns to the caller now.
-            return Err(BlendError::Cancelled);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
+        popkern_core::cancellation::DetachOutcome::Detached => Err(BlendError::Cancelled),
     }
 }
 
