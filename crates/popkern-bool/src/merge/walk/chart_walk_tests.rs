@@ -79,6 +79,7 @@ fn transversal_trim_yields_two_four_loops() {
         true,
         &[],
         &BRep::new(popkern_core::tolerance::Tolerance::default()),
+        &popkern_core::tolerance::Tolerance::default(),
     );
     assert!(
         sub.complete(),
@@ -112,6 +113,7 @@ fn walk_turns_onto_trim_at_boundary_t() {
         true,
         &[],
         &BRep::new(popkern_core::tolerance::Tolerance::default()),
+        &popkern_core::tolerance::Tolerance::default(),
     );
     let orbits = walk_chart_orbits(&sub, &g).expect("orbits");
     // hes[0] = bottom-left (SW→T), hes[6] = trim up (T→top).
@@ -143,6 +145,7 @@ fn orientation_false_mirrors_the_partition() {
         true,
         &[],
         &BRep::new(popkern_core::tolerance::Tolerance::default()),
+        &popkern_core::tolerance::Tolerance::default(),
     );
     let sub_f = build_face_subdivision(
         &g,
@@ -152,6 +155,7 @@ fn orientation_false_mirrors_the_partition() {
         false,
         &[],
         &BRep::new(popkern_core::tolerance::Tolerance::default()),
+        &popkern_core::tolerance::Tolerance::default(),
     );
     // σ self-calibrates from the stored boundary winding, so BOTH
     // orientations resolve to the same (correct) handedness — the

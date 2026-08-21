@@ -44,7 +44,12 @@ fn triangle_produces_one_outer_loop() {
     let (graph, _face_ref) = triangle_graph();
     let (ba, bb) = empty_breps();
 
-    let fragments = walk_all_fragments(&graph, &ba, &bb);
+    let fragments = walk_all_fragments(
+        &graph,
+        &ba,
+        &bb,
+        &popkern_core::tolerance::Tolerance::default(),
+    );
 
     assert_eq!(fragments.len(), 1, "Expected 1 fragment for triangle");
     assert_eq!(
@@ -81,7 +86,12 @@ fn square_face_produces_one_outer_loop() {
     graph.set_half_edge_face(fwd30, face_ref);
     let (ba, bb) = empty_breps();
 
-    let fragments = walk_all_fragments(&graph, &ba, &bb);
+    let fragments = walk_all_fragments(
+        &graph,
+        &ba,
+        &bb,
+        &popkern_core::tolerance::Tolerance::default(),
+    );
 
     assert_eq!(fragments.len(), 1, "Expected 1 fragment for square");
     assert_eq!(

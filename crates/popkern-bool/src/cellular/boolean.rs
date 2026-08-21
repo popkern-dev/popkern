@@ -167,6 +167,7 @@ pub(crate) fn cellular_graph_merge(
         true,
         &overlap_pairs,
         &mut walk_fallbacks,
+        tolerance,
     );
 
     // Phase 6 (CELLULAR): Classify fragments by cell membership.

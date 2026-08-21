@@ -201,11 +201,13 @@ pub(crate) fn build_face_subdivision(
         popkern_core::topology::FaceHandle,
     )],
     original_brep: &popkern_core::topology::BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> FaceChartSubdivision {
     let sub = build_face_subdivision_inner(
         graph,
         face,
         he_indices,
+        tolerance,
         surface,
         orientation,
         overlap_pairs,
@@ -251,6 +253,7 @@ fn build_face_subdivision_inner(
     graph: &IntersectionGraph,
     face: &FaceRef,
     he_indices: &[usize],
+    tolerance: &popkern_core::tolerance::Tolerance,
     surface: &SurfaceGeometry,
     orientation: bool,
     overlap_pairs: &[(
@@ -265,10 +268,25 @@ fn build_face_subdivision_inner(
     };
 
     let (u_period, v_period) = surface.parameter_periodicity();
-    if v_period.is_some() {
-        sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
-        return sub;
-    }
+    // Doubly-periodic (torus) charts: a SUB-PERIOD face (quarter
+    // patch — the popkern torus primitive's native granularity) needs
+    // no seam machinery at all. Its chart cell is computed from the
+    // stored boundary ring, every embedding is folded into that cell
+    // by whole-period shifts, and the rest of the pipeline runs the
+    // aperiodic path. Faces that WRAP a period (no resolvable cell)
+    // remain out of scope and take the recorded legacy fallback.
+    let cell_fold = if v_period.is_some() {
+        match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
+            Some(cell) => Some((cell, u_period, v_period)),
+            None => {
+                sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
+                return sub;
+            }
+        }
+    } else {
+        None
+    };
+    let u_period = if cell_fold.is_some() { None } else { u_period };
 
     // I1: embed every registered half-edge; drop zero-extent records.
     for &h in he_indices {
@@ -295,6 +313,28 @@ fn build_face_subdivision_inner(
     }
     if !sub.report.issues.is_empty() {
         return sub;
+    }
+    if let Some((cell, pu, pv)) = &cell_fold {
+        // Whole-period fold per RUN (a sub-period face's runs never
+        // straddle a seam, so one shift per run is exact): anchor the
+        // run's midpoint into the cell on both axes.
+        let shift = |x: f64, range: (f64, f64), p: &Option<f64>| match p {
+            Some(p) if p.is_finite() && *p > 0.0 => {
+                ((0.5 * (range.0 + range.1) - x) / p).round() * p
+            }
+            _ => 0.0,
+        };
+        for emb in sub.embeddings.values_mut() {
+            let mid = emb.uv[emb.uv.len() / 2];
+            let du = shift(mid.0, cell.u_range, pu);
+            let dv = shift(mid.1, cell.v_range, pv);
+            if du != 0.0 || dv != 0.0 {
+                for q in emb.uv.iter_mut() {
+                    q.0 += du;
+                    q.1 += dv;
+                }
+            }
+        }
     }
     sub.u_period = u_period;
 

@@ -66,6 +66,16 @@ pub(crate) fn assemble_result(
     for &frag_idx in &ordered_indices {
         let fragment = &fragments[frag_idx];
         let selection = &selections[frag_idx];
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [gm-assemble] kept {:?} outer {} inner {} flip={} ghes={:?}",
+                fragment.face,
+                fragment.outer_loop.len(),
+                fragment.inner_loops.len(),
+                selection.flip,
+                fragment.outer_loop
+            );
+        }
 
         // Collect all graph half-edge indices this fragment needs,
         // resolving flips (graph twin) where necessary.  For shared

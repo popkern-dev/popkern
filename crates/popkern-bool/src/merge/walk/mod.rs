@@ -46,8 +46,18 @@ pub(crate) fn walk_all_fragments(
     graph: &IntersectionGraph,
     brep_a: &BRep,
     brep_b: &BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Vec<Fragment> {
-    walk_all_fragments_ext(graph, brep_a, brep_b, false, true, &[], &mut Vec::new())
+    walk_all_fragments_ext(
+        graph,
+        brep_a,
+        brep_b,
+        false,
+        true,
+        &[],
+        &mut Vec::new(),
+        tolerance,
+    )
 }
 
 /// `coincident_interface`: the boolean carries coplanar face
@@ -75,6 +85,7 @@ pub(crate) fn walk_all_fragments_ext(
         popkern_core::topology::FaceHandle,
     )],
     walk_fallbacks: &mut Vec<(FaceRef, String)>,
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Vec<Fragment> {
     let mut fragments = Vec::new();
 
@@ -157,6 +168,7 @@ pub(crate) fn walk_all_fragments_ext(
                     super::graph::Operand::A => brep_a,
                     super::graph::Operand::B => brep_b,
                 },
+                tolerance,
             );
             if sub.complete() {
                 if let Some(orbits) = chart_walk::walk_chart_orbits(&sub, graph) {

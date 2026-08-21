@@ -453,5 +453,23 @@ fn normalize_loop(
         eprintln!(
             "  [step-export] periodic loop on face {face:?} does not close in UV after branch normalization (gap {score:.3e})"
         );
+        // Re-walk the winning assignment and print per-use spans +
+        // chain gaps so the defective pcurve is identifiable.
+        let mut cursor: Option<(f64, f64)> = None;
+        for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
+            let (start, end) = if *fwd {
+                (use_.end_a, use_.end_b)
+            } else {
+                (use_.end_b, use_.end_a)
+            };
+            let s = (start.0 + du, start.1 + dv);
+            let e = (end.0 + du, end.1 + dv);
+            let gap = cursor.map(|c| ((s.0 - c.0).powi(2) + (s.1 - c.1).powi(2)).sqrt());
+            eprintln!(
+                "      [chain] he {:?} fwd={fwd} ({:.3},{:.3})->({:.3},{:.3}) gap {gap:?}",
+                use_.half_edge, s.0, s.1, e.0, e.1
+            );
+            cursor = Some(e);
+        }
     }
 }

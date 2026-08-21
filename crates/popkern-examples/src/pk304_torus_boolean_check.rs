@@ -202,10 +202,11 @@ fn main() {
                 .filter(|(_, he)| !b.loops.contains_key(he.loop_))
                 .count();
             println!(
-                "torus x torus: {} faces validate={:?} boundary_hes={}",
+                "torus x torus: {} faces validate={:?} boundary_hes={} validate_all={}",
                 b.faces.len(),
                 b.validate().err().map(|e| e.to_string()),
-                boundary_hes
+                boundary_hes,
+                b.validate_all().len()
             );
             helpers::export(&b, "PK-305 torus x torus union", "pk305_torus_torus.step");
             helpers::render_multi_angle(&b, "pk305_torus_torus");

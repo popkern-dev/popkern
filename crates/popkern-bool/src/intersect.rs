@@ -575,6 +575,48 @@ fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolera
                 }
             }
         }
+        // COVERED records: junction-adjacent marching can deliver a
+        // span AND overlapping micro-fragments of the same span from
+        // different seeds (measured on the rotated torus × torus
+        // union: pair (9v1,7v1) carried [0→0.025], [0→0.003] and
+        // [0.005→0.025] of one junction arc — the walk chewed the
+        // overlap into duplicate edge pairs and stranded halves).
+        // A record whose start, mid and end all lie ON another
+        // record's sampled polyline, with smaller-or-equal extent, is
+        // duplicate authority and drops.
+        for a in 0..idxs.len() {
+            if drop[idxs[a]] {
+                continue;
+            }
+            let poly_a: Vec<popkern_core::geometry::Point3> = {
+                let c = &records[idxs[a]].curve.curve_3d;
+                let (t0, t1) = c.parameter_range();
+                (0..=32)
+                    .map(|k| c.point_at(t0 + (t1 - t0) * k as f64 / 32.0))
+                    .collect()
+            };
+            let on_poly = |p: &popkern_core::geometry::Point3| -> bool {
+                poly_a.windows(2).any(|w| {
+                    let d = w[1] - w[0];
+                    let l2 = d.dot(&d).max(1e-300);
+                    let t = ((*p - w[0]).dot(&d) / l2).clamp(0.0, 1.0);
+                    let q = w[0] + d * t;
+                    q.distance_to(p) < gate
+                })
+            };
+            for b in 0..idxs.len() {
+                if a == b || drop[idxs[b]] {
+                    continue;
+                }
+                if info[b].3 <= info[a].3 + gate
+                    && on_poly(&info[b].0)
+                    && on_poly(&info[b].2)
+                    && on_poly(&info[b].1)
+                {
+                    drop[idxs[b]] = true;
+                }
+            }
+        }
         // Loop-level dedupe: the walker can deliver the SAME closed
         // intersection loop several times, split at different
         // parameter offsets (piecewise dedupe can't see those).

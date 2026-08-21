@@ -43,13 +43,29 @@ pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[u
             (start.z + end.z) * 0.5,
         )
     };
+    let picked = |he_idx: usize, p: Point3| -> Point3 {
+        if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+            let c = graph.half_edges[he_idx]
+                .curve
+                .as_ref()
+                .or(graph.half_edges[graph.half_edges[he_idx].twin]
+                    .curve
+                    .as_ref())
+                .map(|c| (c.t_start, c.t_end));
+            eprintln!(
+                "  [sample] he {he_idx} src {:?} w {c:?} -> ({:.3},{:.3},{:.3})",
+                graph.half_edges[he_idx].source, p.x, p.y, p.z
+            );
+        }
+        p
+    };
     // Try split edges first.
     for &he_idx in loop_hes {
         if matches!(
             graph.half_edges[he_idx].source,
             EdgeSource::SplitA { .. } | EdgeSource::SplitB { .. }
         ) {
-            return midpoint_of(he_idx);
+            return picked(he_idx, midpoint_of(he_idx));
         }
     }
     // Then try original edges.
@@ -58,8 +74,11 @@ pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[u
             graph.half_edges[he_idx].source,
             EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
         ) {
-            return midpoint_of(he_idx);
+            return picked(he_idx, midpoint_of(he_idx));
         }
+    }
+    if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+        eprintln!("  [sample] centroid fallback over {} hes", loop_hes.len());
     }
     compute_centroid(graph, loop_hes)
 }

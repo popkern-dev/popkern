@@ -68,17 +68,26 @@ pub(crate) fn graph_merge(
     // — PK-295).
     split_shared_edges_at_interior_nodes(&mut graph, snap_tol);
 
-    // Phase 3.1–3.2: Handle coincident face boundaries.
-    // Only needed when partially overlapping faces exist (e.g., two cubes
-    // sharing a z-face). Splits edges on coincident boundaries and removes
-    // collinear duplicates.
+    // Phase 3.1: split ORIGINAL edges at shared-record endpoint
+    // nodes. Phase 2 pierces edges named by edge-face hits, but its
+    // OnVertex short-circuit assumes an existing node means every
+    // edge through that point is already split — false when a SECOND
+    // original edge passes through the same point (measured: the
+    // cylinder wall's seam runs through both torus pierce nodes;
+    // unsplit, the wall fragment's loop carried the FULL seam, its
+    // curve-midpoint classification sample landed inside the torus,
+    // and the union discarded the entire wall). Runs unconditionally
+    // — the pass is node-driven and curve-verified, and a shared
+    // node genuinely mid-edge always means a missed split.
+    split_edges_at_shared_nodes(&mut graph, snap_tol);
+    // Phase 3.2: collinear-duplicate removal stays scoped to partial
+    // coincident overlaps (its reason to exist).
     if intersection_result
         .coincidence
         .face_overlaps
         .iter()
         .any(|o| !o.full_overlap)
     {
-        split_edges_at_shared_nodes(&mut graph, snap_tol);
         remove_collinear_duplicates(&mut graph);
     }
 
@@ -104,7 +113,7 @@ pub(crate) fn graph_merge(
     }
 
     // Phase 5: Walk loops to find face fragments.
-    let fragments = walk_all_fragments(&graph, original_a, original_b);
+    let fragments = walk_all_fragments(&graph, original_a, original_b, tolerance);
 
     // Phase 6: Classify and select fragments.
     let selections = classify_and_select_fragments(

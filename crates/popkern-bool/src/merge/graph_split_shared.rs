@@ -68,6 +68,82 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
             }
         }
     }
+
+    // COMPLETE-THE-CUT pass (PK-305): a record chain legitimately
+    // dead-ends ON a face boundary edge, but its endpoint carries the
+    // marching/window slop class (~1e-3) — far beyond the snap
+    // tolerance the passes above use — so the boundary edge never
+    // split, the fragment walk carried the record as a slit inside
+    // the un-cut face, and the served loop's UV chain kept a
+    // half-period gap (measured: rotated torus × torus faces 18v1 /
+    // 29v1, STEP refused by OCC). Scope: the node must END a Shared
+    // record he, and the candidate edge must belong to one of that
+    // record's OWN faces — the record's registration is the warrant
+    // for cutting that face's boundary. Verification stays
+    // curve-true at the widened gate.
+    let loose = tolerance * 1.0e3;
+    let mut did_split = true;
+    while did_split {
+        did_split = false;
+        // (node, faces-of-record) pairs for shared endpoints.
+        let mut shared_ends: Vec<(
+            usize,
+            popkern_core::topology::FaceHandle,
+            popkern_core::topology::FaceHandle,
+        )> = Vec::new();
+        for he in graph.half_edges.iter() {
+            if let EdgeSource::Shared { face_a, face_b } = &he.source {
+                shared_ends.push((he.origin, *face_a, *face_b));
+            }
+        }
+        'outer: for &(node_idx, rec_fa, rec_fb) in &shared_ends {
+            let pos = graph.nodes[node_idx].position;
+            let mut i = 0;
+            while i < graph.half_edges.len() {
+                let he = &graph.half_edges[i];
+                if i >= he.twin || matches!(he.source, EdgeSource::Shared { .. }) {
+                    i += 2;
+                    continue;
+                }
+                let edge_face_matches = he
+                    .face
+                    .as_ref()
+                    .is_some_and(|f| f.face == rec_fa || f.face == rec_fb)
+                    || graph.half_edges[he.twin]
+                        .face
+                        .as_ref()
+                        .is_some_and(|f| f.face == rec_fa || f.face == rec_fb);
+                if !edge_face_matches {
+                    i += 2;
+                    continue;
+                }
+                let twin_origin = graph.half_edges[he.twin].origin;
+                if he.origin == node_idx || twin_origin == node_idx {
+                    i += 2;
+                    continue;
+                }
+                let p0 = graph.nodes[he.origin].position;
+                let p1 = graph.nodes[twin_origin].position;
+                // Endpoint guard at the widened gate: a node within
+                // the slop class of an edge VERTEX is a vertex touch,
+                // not a mid-edge crossing.
+                if pos.distance_to(&p0) < loose || pos.distance_to(&p1) < loose {
+                    i += 2;
+                    continue;
+                }
+                let on_edge = match point_on_segment(&pos, &p0, &p1, loose) {
+                    Some(t) => point_on_graph_edge_curve(graph, i, &pos, t, loose),
+                    None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
+                };
+                if on_edge {
+                    split_at_existing_node(graph, i, node_idx);
+                    did_split = true;
+                    break 'outer;
+                }
+                i += 2;
+            }
+        }
+    }
 }
 
 pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
@@ -124,6 +200,82 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
             }
             if did_split {
                 break;
+            }
+        }
+    }
+
+    // COMPLETE-THE-CUT pass (PK-305): a record chain legitimately
+    // dead-ends ON a face boundary edge, but its endpoint carries the
+    // marching/window slop class (~1e-3) — far beyond the snap
+    // tolerance the passes above use — so the boundary edge never
+    // split, the fragment walk carried the record as a slit inside
+    // the un-cut face, and the served loop's UV chain kept a
+    // half-period gap (measured: rotated torus × torus faces 18v1 /
+    // 29v1, STEP refused by OCC). Scope: the node must END a Shared
+    // record he, and the candidate edge must belong to one of that
+    // record's OWN faces — the record's registration is the warrant
+    // for cutting that face's boundary. Verification stays
+    // curve-true at the widened gate.
+    let loose = tolerance * 1.0e3;
+    let mut did_split = true;
+    while did_split {
+        did_split = false;
+        // (node, faces-of-record) pairs for shared endpoints.
+        let mut shared_ends: Vec<(
+            usize,
+            popkern_core::topology::FaceHandle,
+            popkern_core::topology::FaceHandle,
+        )> = Vec::new();
+        for he in graph.half_edges.iter() {
+            if let EdgeSource::Shared { face_a, face_b } = &he.source {
+                shared_ends.push((he.origin, *face_a, *face_b));
+            }
+        }
+        'outer: for &(node_idx, rec_fa, rec_fb) in &shared_ends {
+            let pos = graph.nodes[node_idx].position;
+            let mut i = 0;
+            while i < graph.half_edges.len() {
+                let he = &graph.half_edges[i];
+                if i >= he.twin || matches!(he.source, EdgeSource::Shared { .. }) {
+                    i += 2;
+                    continue;
+                }
+                let edge_face_matches = he
+                    .face
+                    .as_ref()
+                    .is_some_and(|f| f.face == rec_fa || f.face == rec_fb)
+                    || graph.half_edges[he.twin]
+                        .face
+                        .as_ref()
+                        .is_some_and(|f| f.face == rec_fa || f.face == rec_fb);
+                if !edge_face_matches {
+                    i += 2;
+                    continue;
+                }
+                let twin_origin = graph.half_edges[he.twin].origin;
+                if he.origin == node_idx || twin_origin == node_idx {
+                    i += 2;
+                    continue;
+                }
+                let p0 = graph.nodes[he.origin].position;
+                let p1 = graph.nodes[twin_origin].position;
+                // Endpoint guard at the widened gate: a node within
+                // the slop class of an edge VERTEX is a vertex touch,
+                // not a mid-edge crossing.
+                if pos.distance_to(&p0) < loose || pos.distance_to(&p1) < loose {
+                    i += 2;
+                    continue;
+                }
+                let on_edge = match point_on_segment(&pos, &p0, &p1, loose) {
+                    Some(t) => point_on_graph_edge_curve(graph, i, &pos, t, loose),
+                    None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
+                };
+                if on_edge {
+                    split_at_existing_node(graph, i, node_idx);
+                    did_split = true;
+                    break 'outer;
+                }
+                i += 2;
             }
         }
     }
