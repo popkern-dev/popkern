@@ -41,20 +41,63 @@ pub fn revolve(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    revolve_impl(
+        profile,
+        axis_origin,
+        axis_direction,
+        angle,
+        tolerance,
+        tracking,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
+}
+
+/// Honest per-run stage count of [`revolve_impl`] for progress totals
+/// (PK-276).
+pub(crate) const REVOLVE_STAGE_COUNT: usize = 3;
+
+/// Shared implementation for [`revolve`]. `tracker` threads PK-276
+/// interactive control: a cancellation poll before each stage
+/// (`SweepError::Cancelled`, nothing produced) and one progress event
+/// per stage; the surface stage polls per profile span.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn revolve_impl(
+    profile: &SweepProfile,
+    axis_origin: &Point3,
+    axis_direction: &Vec3,
+    angle: f64,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<SweepResult, SweepError> {
+    use std::time::Instant;
+    macro_rules! stage_gate {
+        () => {
+            if tracker.cancelled() {
+                return Err(SweepError::Cancelled);
+            }
+        };
+    }
     // 1. Analyze profile into smooth spans.
+    stage_gate!();
+    let t0 = Instant::now();
     let analyzed = analyze_profile(profile, &tolerance)?;
 
     if analyzed.spans.is_empty() {
         return Err(SweepError::InvalidProfile("no profile spans".into()));
     }
+    tracker.finish_stage("revolve.analyze_profile", t0, analyzed.spans.len());
 
-    // 2. Build a revolution surface for each span.
+    // 2. Build a revolution surface for each span (per-span poll).
+    let t0 = Instant::now();
     let mut surfaces = Vec::with_capacity(analyzed.spans.len());
     for span in &analyzed.spans {
+        stage_gate!();
         let surface = revolution_surface(span, axis_origin, axis_direction, angle)
             .map_err(SweepError::Core)?;
         surfaces.push(surface);
     }
+    tracker.finish_stage("revolve.surfaces", t0, surfaces.len());
 
     // 3. Build cap curves (rotated profile endpoints) for partial revolutions.
     let is_full_revolution = (angle - std::f64::consts::TAU).abs() < 1e-10;
@@ -80,6 +123,8 @@ pub fn revolve(
     // so we build with is_closed_profile = false to avoid cap faces.
     let use_closed_topology = analyzed.is_closed && !is_full_revolution;
 
+    stage_gate!();
+    let t0 = Instant::now();
     let brep = build_sweep_topology(
         &surfaces,
         &start_caps,
@@ -88,6 +133,7 @@ pub fn revolve(
         tolerance,
         tracking,
     )?;
+    tracker.finish_stage("revolve.topology", t0, brep.faces.len());
 
     Ok(SweepResult {
         brep,

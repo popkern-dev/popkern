@@ -9,3 +9,7 @@ description = "Shell and offset solid operations for the popkern BRep kernel"
 popkern-core = { path = "../popkern-core" }
 popkern-fillet = { path = "../popkern-fillet" }
 thiserror = "2"
+
+[dev-dependencies]
+# PK-276 identity-pin fingerprints.
+serde_json = "1"

@@ -3412,6 +3412,7 @@ dependencies = [
  "popkern-mesh",
  "popkern-shell",
  "popkern-sweep",
+ "serde_json",
  "thiserror 2.0.18",
  "ttf-parser",
 ]
@@ -3422,6 +3423,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-core",
  "popkern-fillet",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 
@@ -3450,6 +3452,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-bool",
  "popkern-core",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 

@@ -29,6 +29,13 @@ pub enum ShellError {
     /// An error propagated from popkern-core.
     #[error("core: {0}")]
     Core(#[from] CoreError),
+
+    /// A cancellation token fired (PK-276, §17-style clean
+    /// termination): the operation stopped between stages and the
+    /// caller's model is unchanged — a cancelled shell is
+    /// indistinguishable from one that failed before writing.
+    #[error("shell operation cancelled by token")]
+    Cancelled,
 }
 
 /// Non-fatal warnings produced during shell operations.

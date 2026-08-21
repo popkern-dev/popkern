@@ -44,6 +44,11 @@ pub enum SweepError {
     /// An error from popkern-core.
     #[error("core: {0}")]
     Core(#[from] CoreError),
+    /// A cancellation token fired (PK-276, §17-style clean
+    /// termination): the operation stopped between stages; nothing was
+    /// produced and the caller's inputs are untouched.
+    #[error("sweep operation cancelled by token")]
+    Cancelled,
 }
 
 /// Non-fatal warning emitted during sweep/loft.

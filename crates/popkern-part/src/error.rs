@@ -106,4 +106,9 @@ pub enum PartError {
     /// and the reason.
     #[error("operation not applicable: {0}")]
     NotApplicable(String),
+    /// A cancellation token fired (PK-276, §17-style clean
+    /// termination): the operation stopped between stages; nothing was
+    /// produced and the caller's inputs are untouched.
+    #[error("part operation cancelled by token")]
+    Cancelled,
 }

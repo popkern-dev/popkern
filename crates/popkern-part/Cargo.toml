@@ -20,3 +20,7 @@ ttf-parser = { version = "0.25", optional = true }
 [features]
 default = []
 text = ["dep:ttf-parser"]
+
+[dev-dependencies]
+# PK-276 identity-pin fingerprints.
+serde_json = "1"

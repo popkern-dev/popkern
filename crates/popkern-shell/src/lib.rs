@@ -10,6 +10,7 @@ pub mod collision;
 pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;
+pub mod interactive;
 pub mod offset;
 pub mod side_walls;
 pub mod skin_map;
@@ -19,6 +20,10 @@ pub mod types;
 pub mod vertex_recompute;
 
 pub use error::{ShellError, ShellWarning};
+pub use interactive::{
+    offset_solid_variable_with_control, offset_solid_with_control, shell_variable_with_control,
+    shell_with_control, thicken_with_control,
+};
 pub use types::*;
 
 use popkern_core::geometry::{Point3, Vec3};
@@ -28,7 +33,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Collected face data for ancestry matching during shell naming.
-struct InputFaceData {
+pub(crate) struct InputFaceData {
     /// The entity name (or placeholder).
     name: EntityName,
     /// Boundary centroid.
@@ -72,6 +77,7 @@ pub fn shell(
         face_thicknesses,
         options,
         tolerance,
+        &mut popkern_core::progress::StageTracker::inert(),
     )?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
@@ -112,6 +118,7 @@ pub fn shell_variable(
         face_thicknesses,
         options,
         tolerance,
+        &mut popkern_core::progress::StageTracker::inert(),
     )?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
@@ -119,8 +126,17 @@ pub fn shell_variable(
     Ok(result)
 }
 
+/// Honest per-run stage count of [`shell_impl`] for progress totals
+/// (PK-276).
+pub(crate) const SHELL_STAGE_COUNT: usize = 8;
+
 /// Shared implementation for [`shell`] and [`shell_variable`].
-fn shell_impl(
+///
+/// `tracker` threads PK-276 interactive control: a cancellation poll
+/// before every stage (`ShellError::Cancelled`, model untouched — the
+/// working skins are private) and one progress event per stage.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn shell_impl(
     brep: &BRep,
     thickness: f64,
     direction: ShellDirection,
@@ -128,12 +144,26 @@ fn shell_impl(
     face_thicknesses: &[(FaceHandle, f64)],
     options: &ShellOptions,
     tolerance: Tolerance,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
+    use std::time::Instant;
+    macro_rules! stage_gate {
+        () => {
+            if tracker.cancelled() {
+                return Err(ShellError::Cancelled);
+            }
+        };
+    }
     // Stage 1: classify faces.
+    stage_gate!();
+    let t0 = Instant::now();
     let classification =
         classify::classify_faces(brep, thickness, face_thicknesses, direction, removed_faces)?;
+    tracker.finish_stage("shell.classify_faces", t0, brep.faces.len());
 
     // Stage 2: compute offset surfaces.
+    stage_gate!();
+    let t0 = Instant::now();
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result = surface_offset::compute_offset_surfaces(
         brep,
@@ -141,15 +171,21 @@ fn shell_impl(
         options.allow_partial,
         &stage_tol,
     )?;
+    tracker.finish_stage("shell.offset_surfaces", t0, offset_result.surfaces.len());
 
     // Merge auto-removed faces into the removed list.
     let mut all_removed = classification.removed_faces.clone();
     all_removed.extend_from_slice(&offset_result.auto_removed);
 
     // Stage 3: build inner skin.
+    stage_gate!();
+    let t0 = Instant::now();
     let (mut inner, skin_map) = inner_skin::build_inner_skin(brep, &all_removed)?;
+    tracker.finish_stage("shell.inner_skin", t0, inner.faces.len());
 
     // Stage 4: recompute inner skin geometry.
+    stage_gate!();
+    let t0 = Instant::now();
     vertex_recompute::recompute_vertices(
         &mut inner,
         &offset_result.surfaces,
@@ -157,6 +193,9 @@ fn shell_impl(
         brep,
         &stage_tol,
     )?;
+    tracker.finish_stage("shell.vertex_recompute", t0, inner.vertices.len());
+    stage_gate!();
+    let t0 = Instant::now();
     edge_recompute::recompute_edges(
         &mut inner,
         &offset_result.surfaces,
@@ -164,7 +203,11 @@ fn shell_impl(
         brep,
         &stage_tol,
     )?;
+    tracker.finish_stage("shell.edge_recompute", t0, inner.edges.len());
+    stage_gate!();
+    let t0 = Instant::now();
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
+    tracker.finish_stage("shell.apply_offset_geometry", t0, inner.faces.len());
 
     // Mirror the inner skin's material side honestly: winding and
     // orientation flags flip together, so the void skin keeps the
@@ -173,12 +216,18 @@ fn shell_impl(
     inner.reverse_body_orientation();
 
     // Stage 5: assemble outer + inner + side walls.
+    stage_gate!();
+    let t0 = Instant::now();
     let mut result = assemble::assemble_shell(brep, &inner, &all_removed, &skin_map, tolerance)?;
+    tracker.finish_stage("shell.assemble", t0, result.faces.len());
 
     // Stage 6: recompute pcurves for all faces.
+    stage_gate!();
+    let t0 = Instant::now();
     result
         .recompute_all_pcurves()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
+    tracker.finish_stage("shell.pcurve_recompute", t0, result.faces.len());
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;
@@ -196,7 +245,7 @@ fn shell_impl(
 }
 
 /// Collect face names, centroids, and normals from a BRep for ancestry matching.
-fn collect_shell_face_data(brep: &BRep) -> Vec<InputFaceData> {
+pub(crate) fn collect_shell_face_data(brep: &BRep) -> Vec<InputFaceData> {
     use popkern_core::naming::{EntityRole, OperationId, RoleCategory};
     use popkern_core::naming_criteria::capture_face;
 
@@ -245,7 +294,7 @@ fn collect_shell_face_data(brep: &BRep) -> Vec<InputFaceData> {
 /// faces that match an input face (opposite normal) also get `Modified`
 /// with the input face as ancestor. Side wall faces (no match) get
 /// `Generated`.
-fn assign_shell_names(
+pub(crate) fn assign_shell_names(
     brep: &mut BRep,
     ctx: &mut TrackingContext,
     input_faces: &[InputFaceData],

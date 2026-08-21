@@ -140,6 +140,24 @@ struct AttemptFailure {
     detail: String,
 }
 
+/// Why an attempt did not serve: a construction decline (retryable
+/// with a refined cage) or a cancellation (terminal, PK-276).
+enum AttemptError {
+    Failure(AttemptFailure),
+    Cancelled,
+}
+
+impl From<AttemptFailure> for AttemptError {
+    fn from(failure: AttemptFailure) -> Self {
+        Self::Failure(failure)
+    }
+}
+
+/// Stages one serving attempt reports/polls (PK-276): spline
+/// construction, boundary weld, part validation, self-intersection
+/// screen.
+pub(crate) const ATTEMPT_STAGE_COUNT: usize = 4;
+
 /// Build a smooth solid from a control net.
 ///
 /// # Errors
@@ -155,16 +173,35 @@ pub fn smooth_solid_from_control_net(
     tolerance: Tolerance,
     options: SmoothMeshOptions,
 ) -> Result<(Part, SmoothMeshReport), PartError> {
+    smooth_solid_impl(
+        net,
+        tolerance,
+        options,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
+}
+
+/// Shared attempt loop for the smooth-mesh entry points. `tracker`
+/// threads PK-276 interactive control through every attempt's stages;
+/// a fired token surfaces as [`PartError::Cancelled`] (terminal — no
+/// refinement retry follows a cancellation).
+pub(crate) fn smooth_solid_impl(
+    net: &ControlNet,
+    tolerance: Tolerance,
+    options: SmoothMeshOptions,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<(Part, SmoothMeshReport), PartError> {
     let mut cage = net.clone();
     let mut attempts: Vec<String> = Vec::new();
     for step in 0..=options.max_refinement_steps {
-        match attempt(&cage, tolerance, options) {
+        match attempt(&cage, tolerance, options, tracker) {
             Ok((part, mut report)) => {
                 report.refinement_steps = step;
                 report.attempts = attempts;
                 return Ok((part, report));
             }
-            Err(failure) => {
+            Err(AttemptError::Cancelled) => return Err(PartError::Cancelled),
+            Err(AttemptError::Failure(failure)) => {
                 attempts.push(format!(
                     "step {step}: {}: {}",
                     failure.stage, failure.detail
@@ -198,7 +235,16 @@ fn attempt(
     cage: &ControlNet,
     tolerance: Tolerance,
     options: SmoothMeshOptions,
-) -> Result<(Part, SmoothMeshReport), AttemptFailure> {
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<(Part, SmoothMeshReport), AttemptError> {
+    use std::time::Instant;
+    macro_rules! stage_gate {
+        () => {
+            if tracker.cancelled() {
+                return Err(AttemptError::Cancelled);
+            }
+        };
+    }
     let coverage = PolyhedralCoverageOptions {
         tolerance,
         samples: options.samples,
@@ -206,20 +252,27 @@ fn attempt(
         ..PolyhedralCoverageOptions::default()
     };
 
+    stage_gate!();
+    let t0 = Instant::now();
     let complex =
         build_control_net_surface_complex(cage, coverage).map_err(|source| AttemptFailure {
             stage: "spline construction",
             detail: source.to_string(),
         })?;
+    tracker.finish_stage(
+        "smooth_mesh.spline_construction",
+        t0,
+        complex.components.len(),
+    );
 
     if complex.components.is_empty() {
-        return Err(AttemptFailure {
+        return Err(AttemptError::Failure(AttemptFailure {
             stage: "spline construction",
             detail: format!(
                 "the spline family covers none of the cage; {}",
                 unserved_census(cage, &complex)
             ),
-        });
+        }));
     }
 
     let rejections: Vec<String> = complex
@@ -228,12 +281,15 @@ fn attempt(
         .map(|r| format!("{:?} ({:?}): {}", r.origin, r.family, r.reason))
         .collect();
 
+    stage_gate!();
+    let t0 = Instant::now();
     let welded = weld_clean_surface_complex_boundaries(&complex, coverage).map_err(|detail| {
         AttemptFailure {
             stage: "boundary weld",
             detail,
         }
     })?;
+    tracker.finish_stage("smooth_mesh.boundary_weld", t0, welded.report.welded_pairs);
 
     let report = SmoothMeshReport {
         source_vertices: complex.source_vertices,
@@ -250,7 +306,7 @@ fn attempt(
     };
 
     if options.require_closed && report.remaining_boundary_edges > 0 {
-        return Err(AttemptFailure {
+        return Err(AttemptError::Failure(AttemptFailure {
             stage: "closure",
             detail: format!(
                 "{} boundary edge(s) remain unwelded after {} weld(s) (max gap {:.3e}); \
@@ -260,29 +316,43 @@ fn attempt(
                 report.max_weld_gap,
                 unserved_census(cage, &complex),
             ),
-        });
+        }));
     }
 
+    stage_gate!();
+    let t0 = Instant::now();
     let part = Part::from_brep(welded.brep, tolerance, "smooth mesh").map_err(|source| {
         AttemptFailure {
             stage: "validation",
             detail: source.to_string(),
         }
     })?;
+    tracker.finish_stage("smooth_mesh.part_validation", t0, part.brep().faces.len());
 
+    // The O(n²) self-intersection screen is the worst poll-free
+    // stretch of this pipeline (multi-second on cage-scale bodies);
+    // the detach layer owns the user-facing latency, this poll merely
+    // bounds abandoned-worker burn.
+    stage_gate!();
+    let t0 = Instant::now();
     if options.check_self_intersections {
         let findings = part.brep().validate_all();
         if !findings.is_empty() {
             let summary: Vec<String> = findings.iter().take(4).map(|f| format!("{f}")).collect();
-            return Err(AttemptFailure {
+            return Err(AttemptError::Failure(AttemptFailure {
                 stage: "self-intersection",
                 detail: format!(
                     "the smooth body fails the full validation screen: {}",
                     summary.join("; ")
                 ),
-            });
+            }));
         }
     }
+    tracker.finish_stage(
+        "smooth_mesh.self_intersection_screen",
+        t0,
+        part.brep().faces.len(),
+    );
 
     Ok((part, report))
 }

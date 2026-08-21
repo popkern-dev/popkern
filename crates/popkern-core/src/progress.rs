@@ -191,6 +191,12 @@ impl<'a, 'r> StageTracker<'a, 'r> {
         self.cancel.is_some_and(CancellationToken::is_cancelled)
     }
 
+    /// The tracked token, for pipelines that must poll inside code the
+    /// tracker cannot reach (e.g. rayon-parallel per-item closures).
+    pub fn token(&self) -> Option<&'a CancellationToken> {
+        self.cancel
+    }
+
     /// Emit the completed stage's event and advance the cursor.
     /// `started` is the instant the stage began.
     pub fn finish_stage(
@@ -280,14 +286,15 @@ mod tests {
     fn stage_tracker_polls_and_numbers_stages() {
         let token = CancellationToken::new();
         let mut reporter = CaptureReporter::default();
-        let mut tracker = StageTracker::new(Some(&token), Some(&mut reporter), 3);
-        assert!(!tracker.cancelled());
-        let t0 = std::time::Instant::now();
-        tracker.finish_stage("op.first", t0, 5);
-        tracker.finish_stage("op.second", t0, 6);
-        token.cancel();
-        assert!(tracker.cancelled());
-        drop(tracker);
+        {
+            let mut tracker = StageTracker::new(Some(&token), Some(&mut reporter), 3);
+            assert!(!tracker.cancelled());
+            let t0 = std::time::Instant::now();
+            tracker.finish_stage("op.first", t0, 5);
+            tracker.finish_stage("op.second", t0, 6);
+            token.cancel();
+            assert!(tracker.cancelled());
+        }
         assert_eq!(reporter.events.len(), 2);
         assert_eq!(reporter.events[0].stage, "op.first");
         assert_eq!(reporter.events[0].stage_index, 0);

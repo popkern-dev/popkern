@@ -15,6 +15,10 @@ use crate::vertex_recompute::recompute_vertices;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
+/// Honest per-run stage count of [`offset_impl`] for progress totals
+/// (PK-276).
+pub(crate) const OFFSET_STAGE_COUNT: usize = 6;
+
 /// Offset all faces of a solid by a uniform distance.
 ///
 /// A positive `distance` expands the solid outward; a negative distance
@@ -29,55 +33,14 @@ pub fn offset_solid(
     options: &ShellOptions,
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
-    // ShellDirection controls offset relative to the face normal.
-    // classify_faces names directions from the shell operator's
-    // inner-skin viewpoint: Inward pushes against the original
-    // normal's material side, which for a whole-body offset moves
-    // faces outward in world space, and Outward does the reverse.
-    // Therefore positive distance (grow outward) maps to Inward, and
-    // negative distance (shrink inward) maps to Outward.
-    let direction = if distance >= 0.0 {
-        ShellDirection::Inward
-    } else {
-        ShellDirection::Outward
-    };
-    let abs_dist = distance.abs();
-
-    let classification = classify_faces(brep, abs_dist, &[], direction, &[])?;
-    let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
-    let offset_result =
-        compute_offset_surfaces(brep, &classification, options.allow_partial, &stage_tol)?;
-
-    let (mut result, skin_map) = build_inner_skin(brep, &[])?;
-
-    recompute_vertices(
-        &mut result,
-        &offset_result.surfaces,
-        &skin_map,
+    offset_solid_impl(
         brep,
-        &stage_tol,
-    )?;
-    recompute_edges(
-        &mut result,
-        &offset_result.surfaces,
-        &skin_map,
-        brep,
-        &stage_tol,
-    )?;
-    apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
-
-    let mut warnings = offset_result.warnings;
-    for face in &offset_result.auto_removed {
-        warnings.push(ShellWarning::FaceAutoRemoved {
-            face: *face,
-            reason: "offset failed".into(),
-        });
-    }
-
-    Ok(ShellResult {
-        brep: result,
-        warnings,
-    })
+        distance,
+        &[],
+        options,
+        tolerance,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
 }
 
 /// Offset all faces with per-face variable distances.
@@ -94,6 +57,46 @@ pub fn offset_solid_variable(
     options: &ShellOptions,
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
+    offset_solid_impl(
+        brep,
+        default_distance,
+        face_distances,
+        options,
+        tolerance,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
+}
+
+/// Shared offset ladder for [`offset_solid`] and
+/// [`offset_solid_variable`] (identical stage sequence; the variable
+/// entry adds per-face distances).
+///
+/// `tracker` threads PK-276 interactive control: a cancellation poll
+/// before every stage (`ShellError::Cancelled`, model untouched) and
+/// one progress event per stage.
+pub(crate) fn offset_solid_impl(
+    brep: &BRep,
+    default_distance: f64,
+    face_distances: &[(FaceHandle, f64)],
+    options: &ShellOptions,
+    tolerance: Tolerance,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<ShellResult, ShellError> {
+    use std::time::Instant;
+    macro_rules! stage_gate {
+        () => {
+            if tracker.cancelled() {
+                return Err(ShellError::Cancelled);
+            }
+        };
+    }
+    // ShellDirection controls offset relative to the face normal.
+    // classify_faces names directions from the shell operator's
+    // inner-skin viewpoint: Inward pushes against the original
+    // normal's material side, which for a whole-body offset moves
+    // faces outward in world space, and Outward does the reverse.
+    // Therefore positive distance (grow outward) maps to Inward, and
+    // negative distance (shrink inward) maps to Outward.
     let direction = if default_distance >= 0.0 {
         ShellDirection::Inward
     } else {
@@ -105,13 +108,25 @@ pub fn offset_solid_variable(
         .map(|&(fh, d)| (fh, d.abs()))
         .collect();
 
+    stage_gate!();
+    let t0 = Instant::now();
     let classification = classify_faces(brep, abs_default, &abs_faces, direction, &[])?;
+    tracker.finish_stage("offset.classify_faces", t0, brep.faces.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result =
         compute_offset_surfaces(brep, &classification, options.allow_partial, &stage_tol)?;
+    tracker.finish_stage("offset.offset_surfaces", t0, offset_result.surfaces.len());
 
+    stage_gate!();
+    let t0 = Instant::now();
     let (mut result, skin_map) = build_inner_skin(brep, &[])?;
+    tracker.finish_stage("offset.skin", t0, result.faces.len());
 
+    stage_gate!();
+    let t0 = Instant::now();
     recompute_vertices(
         &mut result,
         &offset_result.surfaces,
@@ -119,6 +134,10 @@ pub fn offset_solid_variable(
         brep,
         &stage_tol,
     )?;
+    tracker.finish_stage("offset.vertex_recompute", t0, result.vertices.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
     recompute_edges(
         &mut result,
         &offset_result.surfaces,
@@ -126,7 +145,12 @@ pub fn offset_solid_variable(
         brep,
         &stage_tol,
     )?;
+    tracker.finish_stage("offset.edge_recompute", t0, result.edges.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
+    tracker.finish_stage("offset.apply_offset_geometry", t0, result.faces.len());
 
     let mut warnings = offset_result.warnings;
     for face in &offset_result.auto_removed {

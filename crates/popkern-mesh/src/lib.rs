@@ -7,7 +7,9 @@
 
 mod adaptive;
 mod boundary_first;
+mod boundary_sew;
 mod crack_zipper;
+mod error;
 mod export;
 mod face_pass;
 mod mesh;
@@ -17,13 +19,13 @@ mod trim_canonical;
 mod trim_clip;
 mod trim_sampling;
 
+pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;
 
 use popkern_core::topology::BRep;
 use std::io::Write;
 use std::path::Path;
-use thiserror::Error;
 
 /// Options controlling the quality of adaptive tessellation.
 #[derive(Debug, Clone)]
@@ -52,28 +54,70 @@ impl Default for TessellationOptions {
     }
 }
 
-/// Errors that can occur during tessellation or mesh export.
-#[derive(Debug, Error)]
-pub enum MeshError {
-    /// Tessellation of a face or solid failed.
-    #[error("tessellation failed: {0}")]
-    TessellationFailed(String),
-    /// A face has no surface geometry and cannot be tessellated.
-    #[error("face has no surface geometry")]
-    NoSurfaceGeometry,
-    /// Serialisation of the exported mesh format failed.
-    #[error("export failed: {0}")]
-    ExportFailed(String),
-    /// An I/O error occurred while writing mesh output.
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
-}
-
 /// Tessellate every face of `brep` into a combined [`TriMesh`].
 ///
 /// The `options` parameter controls chord-height tolerance and subdivision limits.
 pub fn tessellate(brep: &BRep, options: &TessellationOptions) -> Result<TriMesh, MeshError> {
-    tessellate::tessellate_brep(brep, options)
+    tessellate::tessellate_brep(
+        brep,
+        options,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
+}
+
+/// [`tessellate`] with PK-276 interactive control (cooperative
+/// cancellation + per-round/stage progress).
+///
+/// With a cancel token the tessellation runs detached on a worker
+/// thread over a private clone of `brep`
+/// ([`popkern_core::cancellation::run_detach_on_cancel_with_events`]):
+/// the call returns [`MeshError::Cancelled`] within milliseconds of the
+/// token firing, and the abandoned worker exits at its next round or
+/// stage poll (per-face closures also short-circuit on a fired token).
+/// Without a token the pipeline runs inline. A call with a never-fired
+/// token and a null reporter produces a mesh identical to
+/// [`tessellate`]'s.
+pub fn tessellate_with_control(
+    brep: &BRep,
+    options: &TessellationOptions,
+    control: popkern_core::progress::OperationControl<'_>,
+) -> Result<TriMesh, MeshError> {
+    use popkern_core::cancellation::{DetachOutcome, run_detach_on_cancel_with_events};
+    use popkern_core::progress::StageTracker;
+    let popkern_core::progress::OperationControl {
+        cancel,
+        mut reporter,
+    } = control;
+    match cancel {
+        None => tessellate::tessellate_brep(
+            brep,
+            options,
+            &mut StageTracker::new(None, reporter, tessellate::TESSELLATE_STAGE_CEILING),
+        ),
+        Some(token) => {
+            let (worker_brep, worker_options, worker_token) =
+                (brep.clone(), options.clone(), token.clone());
+            match run_detach_on_cancel_with_events(
+                token,
+                move |mut sink| {
+                    let mut tracker = StageTracker::new(
+                        Some(&worker_token),
+                        Some(&mut sink),
+                        tessellate::TESSELLATE_STAGE_CEILING,
+                    );
+                    tessellate::tessellate_brep(&worker_brep, &worker_options, &mut tracker)
+                },
+                |event| {
+                    if let Some(r) = reporter.as_mut() {
+                        r.on_stage(event);
+                    }
+                },
+            ) {
+                DetachOutcome::Completed(result) => result,
+                DetachOutcome::Detached => Err(MeshError::Cancelled),
+            }
+        }
+    }
 }
 
 /// Export a [`TriMesh`] to an STL file at `path`.

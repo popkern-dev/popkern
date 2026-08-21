@@ -36,50 +36,117 @@ pub fn thicken(
     options: &ShellOptions,
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
+    thicken_impl(
+        brep,
+        thickness,
+        options,
+        tolerance,
+        &mut popkern_core::progress::StageTracker::inert(),
+    )
+}
+
+/// Honest per-run stage count of [`thicken_impl`] for progress totals
+/// (PK-276): one skin ladder per side plus assembly.
+pub(crate) const THICKEN_STAGE_COUNT: usize = 2 * SKIN_STAGE_COUNT + 1;
+const SKIN_STAGE_COUNT: usize = 5;
+
+/// One directional skin ladder (classify → offset surfaces → skin →
+/// vertex/edge recompute → apply), shared by the outward and inward
+/// halves of [`thicken`]. `label_*` are the per-side stage labels.
+#[allow(clippy::too_many_arguments)]
+fn thicken_skin(
+    brep: &BRep,
+    half: f64,
+    direction: ShellDirection,
+    allow_partial: bool,
+    stage_tol: &Tolerance,
+    labels: [&'static str; SKIN_STAGE_COUNT],
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<(BRep, SkinMap, crate::surface_offset::OffsetResult), ShellError> {
+    use std::time::Instant;
+    macro_rules! stage_gate {
+        () => {
+            if tracker.cancelled() {
+                return Err(ShellError::Cancelled);
+            }
+        };
+    }
+    stage_gate!();
+    let t0 = Instant::now();
+    let classification = classify_faces(brep, half, &[], direction, &[])?;
+    tracker.finish_stage(labels[0], t0, brep.faces.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
+    let offset = compute_offset_surfaces(brep, &classification, allow_partial, stage_tol)?;
+    tracker.finish_stage(labels[1], t0, offset.surfaces.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
+    let (mut skin, skin_map) = build_inner_skin(brep, &[])?;
+    tracker.finish_stage(labels[2], t0, skin.faces.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
+    recompute_vertices(&mut skin, &offset.surfaces, &skin_map, brep, stage_tol)?;
+    recompute_edges(&mut skin, &offset.surfaces, &skin_map, brep, stage_tol)?;
+    tracker.finish_stage(labels[3], t0, skin.edges.len());
+
+    stage_gate!();
+    let t0 = Instant::now();
+    apply_offset_geometry(&mut skin, &offset.surfaces, &skin_map)?;
+    tracker.finish_stage(labels[4], t0, skin.faces.len());
+
+    Ok((skin, skin_map, offset))
+}
+
+/// Shared implementation for [`thicken`], with PK-276 interactive
+/// control threaded through both directional skin ladders and the
+/// assembly stage.
+pub(crate) fn thicken_impl(
+    brep: &BRep,
+    thickness: f64,
+    options: &ShellOptions,
+    tolerance: Tolerance,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<ShellResult, ShellError> {
+    use std::time::Instant;
     let half = thickness / 2.0;
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
 
     // Offset outward to create the outer skin.
-    let class_out = classify_faces(brep, half, &[], ShellDirection::Outward, &[])?;
-    let offset_out = compute_offset_surfaces(brep, &class_out, options.allow_partial, &stage_tol)?;
-
-    let (mut outer, outer_map) = build_inner_skin(brep, &[])?;
-    recompute_vertices(
-        &mut outer,
-        &offset_out.surfaces,
-        &outer_map,
+    let (outer, outer_map, offset_out) = thicken_skin(
         brep,
+        half,
+        ShellDirection::Outward,
+        options.allow_partial,
         &stage_tol,
+        [
+            "thicken.outward.classify_faces",
+            "thicken.outward.offset_surfaces",
+            "thicken.outward.skin",
+            "thicken.outward.recompute",
+            "thicken.outward.apply_offset_geometry",
+        ],
+        tracker,
     )?;
-    recompute_edges(
-        &mut outer,
-        &offset_out.surfaces,
-        &outer_map,
-        brep,
-        &stage_tol,
-    )?;
-    apply_offset_geometry(&mut outer, &offset_out.surfaces, &outer_map)?;
 
     // Offset inward to create the inner skin.
-    let class_in = classify_faces(brep, half, &[], ShellDirection::Inward, &[])?;
-    let offset_in = compute_offset_surfaces(brep, &class_in, options.allow_partial, &stage_tol)?;
-
-    let (mut inner, inner_map) = build_inner_skin(brep, &[])?;
-    recompute_vertices(
-        &mut inner,
-        &offset_in.surfaces,
-        &inner_map,
+    let (mut inner, inner_map, offset_in) = thicken_skin(
         brep,
+        half,
+        ShellDirection::Inward,
+        options.allow_partial,
         &stage_tol,
+        [
+            "thicken.inward.classify_faces",
+            "thicken.inward.offset_surfaces",
+            "thicken.inward.skin",
+            "thicken.inward.recompute",
+            "thicken.inward.apply_offset_geometry",
+        ],
+        tracker,
     )?;
-    recompute_edges(
-        &mut inner,
-        &offset_in.surfaces,
-        &inner_map,
-        brep,
-        &stage_tol,
-    )?;
-    apply_offset_geometry(&mut inner, &offset_in.surfaces, &inner_map)?;
 
     // Mirror the inner skin's material side honestly: winding and
     // orientation flags flip together (a flag-only flip ships the
@@ -90,7 +157,12 @@ pub fn thicken(
     let combined_skin_map = build_combined_skin_map(&outer_map, &inner_map);
 
     // Assemble: outer + inner, no removed faces (side walls at free edges).
+    if tracker.cancelled() {
+        return Err(ShellError::Cancelled);
+    }
+    let t0 = Instant::now();
     let result = assemble_shell(&outer, &inner, &[], &combined_skin_map, tolerance)?;
+    tracker.finish_stage("thicken.assemble", t0, result.faces.len());
 
     let mut warnings = offset_out.warnings;
     warnings.extend(offset_in.warnings);

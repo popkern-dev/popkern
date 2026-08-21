@@ -39,6 +39,7 @@ mod select;
 mod select_surface_kind;
 mod shaping;
 pub mod smooth_mesh;
+pub mod smooth_mesh_control;
 #[cfg(feature = "text")]
 pub mod text;
 
@@ -60,6 +61,9 @@ pub use profile::{Plane, Profile};
 pub use select::{Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
 pub use smooth_mesh::{
     SmoothMeshOptions, SmoothMeshReport, smooth_solid_from_control_net, smooth_solid_from_obj,
+};
+pub use smooth_mesh_control::{
+    smooth_solid_from_control_net_with_control, smooth_solid_from_obj_with_control,
 };
 
 /// Everything a modeling script usually needs.

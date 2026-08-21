@@ -46,8 +46,16 @@ pub(crate) fn collect_split_requests(
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     options: &TessellationOptions,
     trace: bool,
+    cancel: Option<&popkern_core::cancellation::CancellationToken>,
 ) -> Vec<SplitRequest> {
     let per_face = |face_handle: FaceHandle| -> Vec<SplitRequest> {
+        // PK-276: a fired token short-circuits the remaining per-face
+        // work; the caller's round poll surfaces the cancellation, and
+        // a cancelled run's output is discarded wholesale, so the
+        // truncated request list never reaches a served mesh.
+        if cancel.is_some_and(|t| t.is_cancelled()) {
+            return Vec::new();
+        }
         let mut requests = Vec::new();
         crate::boundary_first::tessellate_face_boundary_first(
             brep,
@@ -74,8 +82,18 @@ pub(crate) fn tessellate_face_pass(
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     options: &TessellationOptions,
     trace: bool,
+    cancel: Option<&popkern_core::cancellation::CancellationToken>,
 ) -> Vec<FacePassOutcome> {
     let per_face = |face_handle: FaceHandle| -> FacePassOutcome {
+        // PK-276: a fired token short-circuits remaining faces with a
+        // Cancelled outcome; the caller polls before consuming, so the
+        // whole pass surfaces as MeshError::Cancelled.
+        if cancel.is_some_and(|t| t.is_cancelled()) {
+            return FacePassOutcome::Legacy {
+                seam_spine: false,
+                mesh: Err(MeshError::Cancelled),
+            };
+        }
         let mut sink = Vec::new();
         if let Some(fm) = crate::boundary_first::tessellate_face_boundary_first(
             brep,
