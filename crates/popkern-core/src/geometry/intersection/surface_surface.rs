@@ -7,6 +7,8 @@ use surface_surface_tangential::tangential_crossing_certificate;
 #[path = "surface_surface_fitting.rs"]
 mod surface_surface_fitting;
 pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
+#[path = "surface_surface_torus_seed.rs"]
+mod surface_surface_torus_seed;
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
@@ -160,8 +162,17 @@ pub fn intersect_surfaces_with_handler(
     let mut results = Vec::new();
 
     // 1. Find starting points
-    let starting_points = find_starting_points(
+    let mut starting_points = find_starting_points(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    );
+    // CLOSEST-APPROACH seeding fallback for torus pairs (PK-310) —
+    // mechanics and measured rationale in
+    // `surface_surface_torus_seed.rs`.
+    surface_surface_torus_seed::push_torus_closest_approach_seeds(
+        &mut starting_points,
+        surface1,
+        surface2,
+        tolerance,
     );
 
     // 2. Handle tangent starting points -> coincident region detection

@@ -120,3 +120,45 @@ fn rotated_torus_torus_union_is_fast_and_transactional() {
     );
     assert!(!body.faces.is_empty(), "served union must carry faces");
 }
+
+/// PK-310: outer-outer grazing torus pair — the lens class. The
+/// sampling to_nurbs fallback's sag once blinded the SSI seeder
+/// entirely and the union SERVED BOTH OPERANDS OVERLAID UNCUT with
+/// validate_all silent. Pins: the union either serves volume-correct
+/// cuts or declines transactionally — never the uncut-overlay-clean
+/// class (detected here structurally: an uncut overlay keeps all
+/// 16+16 original faces and no intersection curves).
+#[test]
+fn grazing_torus_torus_union_never_serves_uncut_overlay() {
+    if debug_skip("grazing torus x torus") {
+        return;
+    }
+    let tol = Tolerance::default();
+    for depth in [0.002_f64, 0.05] {
+        let d = 2.0 * (1.0 + 0.35) - depth;
+        let ta = BRep::torus(1.0, 0.35, tol).expect("torus a");
+        let tb = BRep::torus(1.0, 0.35, tol)
+            .expect("torus b")
+            .transform(&Transform3::translation(d, 0.0, 0.0))
+            .expect("translate");
+        let n_input_faces = ta.faces.len() + tb.faces.len();
+        match boolean(BoolOperation::Union, ta, tb, tol, None) {
+            Ok(b) => {
+                assert!(
+                    b.validate().is_ok(),
+                    "depth {depth}: served union must validate: {:?}",
+                    b.validate().err()
+                );
+                assert!(
+                    b.faces.len() < n_input_faces,
+                    "depth {depth}: served union with all {n_input_faces} input faces \
+                     and no cuts is the uncut-overlay class"
+                );
+            }
+            Err(_) => {
+                // Honest transactional decline is acceptable for
+                // shallow grazes below the serving floor.
+            }
+        }
+    }
+}
