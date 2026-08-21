@@ -7,7 +7,7 @@
 //!
 //! Line (degree-1) clipping is in the [`clip_line`] submodule.
 
-mod chart_cell;
+pub(crate) mod chart_cell;
 mod clip_crossings_rescue;
 mod clip_line;
 mod clip_seam_shift;
@@ -169,6 +169,31 @@ pub(crate) fn face_uv_boundary_chained(
         }
     }
     Some(boundary)
+}
+
+/// PK-304 classification gate: is a torus-surface hit at `(u, v)` on
+/// `face`'s chart cell? `Some(true/false)` = decisive; `None` = the
+/// hit sits within a border sliver of the cell (ambiguous — belongs
+/// to the neighbouring patch as much as this one) or the face is not
+/// cell-resolvable, and the caller should treat the ray as poisoned.
+pub(crate) fn torus_hit_in_face_cell(
+    brep: &BRep,
+    face: FaceHandle,
+    u: f64,
+    v: f64,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<bool> {
+    let cell = chart_cell::face_chart_cell(brep, face, tolerance)?;
+    let (fu, fv) = cell.fold(u, v);
+    let border = 1.0e-7;
+    let near_border = (fu - cell.u_range.0).abs() < border
+        || (fu - cell.u_range.1).abs() < border
+        || (fv - cell.v_range.0).abs() < border
+        || (fv - cell.v_range.1).abs() < border;
+    if near_border {
+        return None;
+    }
+    Some(cell.contains(u, v))
 }
 
 /// True when any edge of the face's outer loop carries CURVED

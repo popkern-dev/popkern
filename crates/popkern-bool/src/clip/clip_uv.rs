@@ -26,6 +26,13 @@ pub(crate) fn find_uv_crossings(
     curve_uv: &NurbsCurve,
     tolerance: &Tolerance,
 ) -> Option<Vec<UvCrossing>> {
+    // Chart-cell route (PK-304): doubly-periodic faces compute
+    // crossings from folded-containment window ends — the ±π dance
+    // below cannot represent their two-axis lattice.
+    if let Some(cell_crossings) = super::chart_cell::cell_crossings(brep, face, curve_uv, tolerance)
+    {
+        return Some(cell_crossings);
+    }
     let boundary = face_uv_boundary(brep, face)?;
     let mut crossings = Vec::new();
 
@@ -484,7 +491,7 @@ pub(super) fn uv_range_from_crossings(
     }
 }
 
-pub(super) enum UvClipResult {
+pub(crate) enum UvClipResult {
     NoPcurves,
     Outside,
     /// In-face parameter windows, ascending and disjoint. On a CLOSED

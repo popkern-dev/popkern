@@ -461,6 +461,42 @@ fn ray_crossing_count(
                             }
                         }
                     }
+                    // TORUS hits: accept only within the face's chart
+                    // CELL (PK-304). The torus's finite native range
+                    // made the window the WHOLE surface, so one
+                    // geometric crossing counted once per patch face —
+                    // parity always even, every fragment classified
+                    // Outside, and the union retained both operands
+                    // whole (measured: 22 of 22 fragments kept,
+                    // validate_all flagged 7 retained interior
+                    // interpenetrations). Fold-containment against the
+                    // cell is the trim truth; a hit within a sliver of
+                    // the cell border is ambiguous (it belongs to the
+                    // neighbouring patch as much as this one) and
+                    // poisons the ray like a near-tangent hit.
+                    if matches!(
+                        surface,
+                        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+                    ) {
+                        match crate::clip::torus_hit_in_face_cell(
+                            brep,
+                            *face_handle,
+                            *u,
+                            *v,
+                            tolerance,
+                        ) {
+                            Some(true) => {}
+                            Some(false) => {
+                                if ray_trace {
+                                    eprintln!(
+                                        "  [ray-rej-cell] {face_handle:?} uv=({u:.3},{v:.3})"
+                                    );
+                                }
+                                continue;
+                            }
+                            None => return Err(()),
+                        }
+                    }
                     // A hit OUTSIDE the face's outer pcurve polygon is
                     // not on the face at all — the padded parameter box
                     // is a solver window, not a trim (measured: a ray

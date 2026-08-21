@@ -8,7 +8,7 @@ use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle
 
 #[path = "torus_pcurves.rs"]
 mod torus_pcurves;
-use torus_pcurves::attach_torus_pcurves;
+use torus_pcurves::{attach_torus_edge_curves, attach_torus_pcurves};
 
 impl BRep {
     /// Build a torus by revolving a circular profile 360° around the Z axis,
@@ -115,7 +115,9 @@ impl BRep {
             });
         }
 
-        // Attach pcurves to all half-edges.
+        // Author exact arc edge curves, then pcurves (which anchor
+        // their branch to the edge curve's midpoint).
+        attach_torus_edge_curves(&mut brep, major_radius);
         attach_torus_pcurves(&mut brep)?;
 
         Ok(brep)

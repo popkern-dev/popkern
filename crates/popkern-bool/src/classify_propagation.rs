@@ -94,9 +94,13 @@ fn build_face_adjacency(
 ) -> HashMap<FaceHandle, Vec<FaceHandle>> {
     let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::new();
 
+    let prop_trace = std::env::var_os("PK_PROP_TRACE").is_some();
     for (eh, edge) in &brep.edges {
         // Skip intersection edges — classification may differ across these
         if intersection_edges.contains(&eh) {
+            if prop_trace {
+                eprintln!("  [prop-barrier] {eh:?}");
+            }
             continue;
         }
 
@@ -120,6 +124,31 @@ fn build_face_adjacency(
         };
 
         if face_a != face_b {
+            if prop_trace {
+                let mid = brep
+                    .vertices
+                    .get(brep.half_edges[edge.half_edge].origin)
+                    .map(|v| v.position);
+                let mid2 = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|t| brep.vertices.get(t.origin))
+                    .map(|v| v.position);
+                if let (Some(a), Some(b)) = (mid, mid2) {
+                    eprintln!(
+                        "  [prop-adj] {face_a:?} <-> {face_b:?} via {eh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) len {:.3e}",
+                        a.x,
+                        a.y,
+                        a.z,
+                        b.x,
+                        b.y,
+                        b.z,
+                        a.distance_to(&b)
+                    );
+                } else {
+                    eprintln!("  [prop-adj] {face_a:?} <-> {face_b:?} via {eh:?}");
+                }
+            }
             adjacency.entry(face_a).or_default().push(face_b);
             adjacency.entry(face_b).or_default().push(face_a);
         }

@@ -242,10 +242,34 @@ pub(crate) fn intersect_line_torus(
     // Normalize coefficients by a4 for better numerical conditioning
     let coeffs = [a0 / a4, a1 / a4, a2 / a4, a3 / a4, 1.0];
 
-    // Search range: use t_range with generous padding to catch roots near boundaries
-    let search_pad = (t_range.1 - t_range.0).max(10.0);
-    let search_lo = t_range.0 - search_pad;
-    let search_hi = t_range.1 + search_pad;
+    // Ball-clip the root search (PK-304): every intersection point
+    // lies inside the torus's bounding ball |X_local| ≤ R + r, so
+    // roots can only exist in the ray's transit through that ball.
+    // The old "t_range with generous padding" interval broke on huge
+    // caller ranges — classification rays pass t ∈ (0, 1e6), and 2048
+    // uniform samples over ±1e6 step ~1500 units wide, straddling all
+    // four roots inside ONE step with no sign change (measured: every
+    // ray vs every torus face reported zero hits, so every boolean
+    // fragment classified Outside and unions retained both operands
+    // whole).
+    let ball_r = big_r + small_r + tolerance.linear();
+    let t_center = -p_local.dot(&d_local) / alpha;
+    let closest = Vec3::new(
+        p_local.x + t_center * d_local.x,
+        p_local.y + t_center * d_local.y,
+        p_local.z + t_center * d_local.z,
+    );
+    let closest2 = closest.dot(&closest);
+    if closest2 > ball_r * ball_r {
+        return Vec::new();
+    }
+    let reach = ((ball_r * ball_r - closest2) / alpha).sqrt();
+    let pad = reach * 1.0e-3 + tolerance.parametric_base();
+    let search_lo = (t_center - reach - pad).max(t_range.0 - pad);
+    let search_hi = (t_center + reach + pad).min(t_range.1 + pad);
+    if search_lo >= search_hi {
+        return Vec::new();
+    }
 
     let raw_roots = find_quartic_roots(&coeffs, search_lo, search_hi);
 

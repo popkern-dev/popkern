@@ -9,14 +9,23 @@
 //! `docs/architecture/periodic-chart-cell-clipping.md`.
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+
+/// One boundary pcurve's chained sample run.
+pub(crate) struct RingRun {
+    he: HalfEdgeHandle,
+    t0: f64,
+    t1: f64,
+    samples: Vec<(f64, f64)>,
+}
 
 /// One face's chart cell: its continuous boundary ring in a single
 /// branch, the ring's bounding box, and the surface periods.
 pub(crate) struct ChartCell {
     /// Boundary sample runs, chained to continuity (one run per
-    /// pcurve; consecutive runs meet end-to-start).
-    ring: Vec<Vec<(f64, f64)>>,
+    /// pcurve; consecutive runs meet end-to-start), each tagged with
+    /// its half-edge and the pcurve parameter range.
+    ring: Vec<RingRun>,
     /// Bounding box of the ring.
     pub u_range: (f64, f64),
     /// Bounding box of the ring (v).
@@ -71,11 +80,11 @@ pub(crate) fn face_chart_cell(
         }
     };
     let samples_per_edge = 32;
-    let mut ring: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut ring: Vec<RingRun> = Vec::new();
     let (mut u_lo, mut u_hi) = (f64::INFINITY, f64::NEG_INFINITY);
     let (mut v_lo, mut v_hi) = (f64::INFINITY, f64::NEG_INFINITY);
     let mut prev_end: Option<(f64, f64)> = None;
-    for (_he, pcurve) in &boundary {
+    for (he, pcurve) in &boundary {
         let (t0, t1) = pcurve.parameter_range();
         if (t1 - t0).abs() < tolerance.linear() {
             continue;
@@ -116,7 +125,12 @@ pub(crate) fn face_chart_cell(
             run.push((x, y));
         }
         prev_end = run.last().copied();
-        ring.push(run);
+        ring.push(RingRun {
+            he: *he,
+            t0,
+            t1,
+            samples: run,
+        });
     }
     if ring.is_empty() || !u_lo.is_finite() || !v_lo.is_finite() {
         return None;
@@ -124,8 +138,8 @@ pub(crate) fn face_chart_cell(
     // Closure: the chained ring's tail must meet its head without a
     // whole-period jump (net lattice winding zero). A winding ring
     // (full-period wall) is not a planar polygon — not cell-resolvable.
-    let head = *ring.first().and_then(|r| r.first())?;
-    let tail = *ring.last().and_then(|r| r.last())?;
+    let head = *ring.first().and_then(|r| r.samples.first())?;
+    let tail = *ring.last().and_then(|r| r.samples.last())?;
     let gap_gate = |period: Option<f64>, span: f64| {
         period
             .map(|p| p * 0.25)
@@ -152,7 +166,7 @@ pub(crate) fn face_chart_cell(
     let mut prev: Option<(f64, f64)> = None;
     let mut first: Option<(f64, f64)> = None;
     for run in &ring {
-        for &p in run {
+        for &p in &run.samples {
             if let Some(q) = prev {
                 area2 += q.0 * p.1 - p.0 * q.1;
             }
@@ -231,7 +245,7 @@ impl ChartCell {
         let mut prev: Option<(f64, f64)> = None;
         let mut first: Option<(f64, f64)> = None;
         for run in &self.ring {
-            for &p in run {
+            for &p in &run.samples {
                 if let Some(q) = prev {
                     test_segment(q, p);
                 }
@@ -335,6 +349,94 @@ pub(crate) fn cell_clip(
     })
 }
 
+impl ChartCell {
+    /// Locate the boundary half-edge nearest a folded UV point, with
+    /// the boundary parameter at the closest approach. Used to
+    /// attribute a window end (an in/out transition of the query) to
+    /// the boundary edge it crosses, for the split stage's
+    /// vertex-creation machinery.
+    pub(crate) fn nearest_boundary(&self, fu: f64, fv: f64) -> Option<(HalfEdgeHandle, f64, f64)> {
+        let mut best: Option<(HalfEdgeHandle, f64, f64)> = None;
+        for run in &self.ring {
+            let n = run.samples.len();
+            for i in 0..n.saturating_sub(1) {
+                let a = run.samples[i];
+                let b = run.samples[i + 1];
+                let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                let l2 = dx * dx + dy * dy;
+                let s = if l2 < 1e-30 {
+                    0.0
+                } else {
+                    (((fu - a.0) * dx + (fv - a.1) * dy) / l2).clamp(0.0, 1.0)
+                };
+                let (px, py) = (a.0 + s * dx, a.1 + s * dy);
+                let d2 = (fu - px) * (fu - px) + (fv - py) * (fv - py);
+                if best.as_ref().is_none_or(|(_, _, bd)| d2 < *bd) {
+                    let frac = (i as f64 + s) / (n - 1) as f64;
+                    let t_boundary = run.t0 + (run.t1 - run.t0) * frac;
+                    best = Some((run.he, t_boundary, d2));
+                }
+            }
+        }
+        best.map(|(he, t, d2)| (he, t, d2.sqrt()))
+    }
+}
+
+/// Cell-based boundary crossings for the SPLIT stage: window ends of
+/// the folded query, each attributed to the boundary half-edge it
+/// crosses (PK-304 — the legacy crossing search silently missed
+/// splits on negative-branch and seam-band cells, leaving disc
+/// regions connected and classification flood-fill leaking through).
+/// `None` when the face is not cell-resolvable.
+pub(crate) fn cell_crossings(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+    tolerance: &Tolerance,
+) -> Option<Vec<super::clip_uv::UvCrossing>> {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let on = std::env::var_os("POPKERN_CELL_CLIP")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    if !on {
+        return None;
+    }
+    let cell = face_chart_cell(brep, face, tolerance)?;
+    let (t0, t1) = curve_uv.parameter_range();
+    let windows = cell_windows(&cell, curve_uv);
+    let mut crossings = Vec::new();
+    let _ = (t0, t1);
+    for (enter, exit) in windows {
+        for t_cross in [enter, exit] {
+            // Window ends at the CURVE ends are kept when they sit on
+            // the boundary: pair-level clipping already trims records
+            // to in-face spans, so a clipped record's endpoints ARE
+            // boundary crossings — the split stage needs them to
+            // create junction vertices (skipping them re-broke every
+            // split: 0 crossings, midpoint-inside, no partition).
+            // Interior truncations are rejected by the
+            // boundary-distance gate below either way.
+            let q = curve_uv.point_at(t_cross);
+            let (fu, fv) = cell.fold(q.x, q.y);
+            let (he, t_boundary, dist) = cell.nearest_boundary(fu, fv)?;
+            // The transition must actually sit on the boundary — a
+            // fold artifact far from the ring is not a crossing.
+            let scale = (cell.u_range.1 - cell.u_range.0)
+                .abs()
+                .max((cell.v_range.1 - cell.v_range.0).abs());
+            if dist > scale * 1.0e-2 {
+                continue;
+            }
+            crossings.push(super::clip_uv::UvCrossing {
+                t_curve: t_cross,
+                boundary_he: he,
+                t_boundary,
+            });
+        }
+    }
+    Some(crossings)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -356,7 +458,20 @@ mod tests {
                     );
                     cells.push((fh, c));
                 }
-                None => eprintln!("{fh:?}: NOT cell-resolvable"),
+                None => {
+                    eprintln!("{fh:?}: NOT cell-resolvable");
+                    if let Some(bnd) = crate::clip::face_uv_boundary(&torus, fh) {
+                        for (he, pc) in &bnd {
+                            let (t0, t1) = pc.parameter_range();
+                            let p0 = pc.point_at(t0);
+                            let p1 = pc.point_at(t1);
+                            eprintln!(
+                                "    he {he:?} ({:.4},{:.4})->({:.4},{:.4})",
+                                p0.x, p0.y, p1.x, p1.y
+                            );
+                        }
+                    }
+                }
             }
         }
         // Chart coverage probe: every (u, v) grid point must be inside
