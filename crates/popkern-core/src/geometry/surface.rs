@@ -1,6 +1,8 @@
 //! Surface geometry types, evaluation trait, and topology binding.
 
 use crate::geometry::gregory::GregoryPatch;
+#[path = "surface_torus_nurbs.rs"]
+mod surface_torus_nurbs;
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
@@ -287,17 +289,34 @@ impl SurfaceGeometry {
                 major_radius,
                 minor_radius,
             } if std::env::var_os("POPKERN_EXACT_TORUS_NURBS").is_none_or(|v| v != "0")
-                && (u_range.1 - u_range.0 - std::f64::consts::TAU).abs() < 1.0e-9
-                && (v_range.1 - v_range.0 - std::f64::consts::TAU).abs() < 1.0e-9 =>
+                && span_within_period(u_range)
+                && span_within_period(v_range) =>
             {
-                exact_full_torus_nurbs(
-                    *center,
-                    *axis,
-                    *major_radius,
-                    *minor_radius,
-                    u_range,
-                    v_range,
-                )
+                let full =
+                    |range: (f64, f64)| (range.1 - range.0 - std::f64::consts::TAU).abs() < 1.0e-9;
+                if full(u_range) && full(v_range) {
+                    // Byte-stable full-period arm (PK-310).
+                    exact_full_torus_nurbs(
+                        *center,
+                        *axis,
+                        *major_radius,
+                        *minor_radius,
+                        u_range,
+                        v_range,
+                    )
+                } else {
+                    // Partial windows: exact arc decomposition
+                    // (PK-312) — the sampling fallback's sag here was
+                    // the PK-310 seeder-blinding class.
+                    surface_torus_nurbs::exact_torus_arc_nurbs(
+                        *center,
+                        *axis,
+                        *major_radius,
+                        *minor_radius,
+                        u_range,
+                        v_range,
+                    )
+                }
             }
             _ => sample_to_nurbs(self, u_range, v_range),
         }
@@ -327,6 +346,14 @@ impl SurfaceGeometry {
     ) -> NurbsSurface {
         sample_to_nurbs(self, u_range, v_range)
     }
+}
+
+/// True when the window is a usable angular span for the exact torus
+/// conversions: non-degenerate and at most one full period (plus fp
+/// slack). Wider or degenerate windows keep the sampling fallback.
+fn span_within_period(range: (f64, f64)) -> bool {
+    let span = range.1 - range.0;
+    span > 1.0e-9 && span < std::f64::consts::TAU + 1.0e-9
 }
 
 /// Exact rational NURBS of a full torus (see the `to_nurbs_in_range`
@@ -375,12 +402,19 @@ fn exact_full_torus_nurbs(
     };
     let mut control_points = Vec::with_capacity(81);
     let mut weights = Vec::with_capacity(81);
-    // Row-major, u varies within each row (see NurbsSurface docs).
-    for (cv, wv) in pat.iter().zip(w.iter()) {
-        // Profile CP in (radial, axial) coordinates.
-        let rho = major_radius + minor_radius * cv.0;
-        let z = minor_radius * cv.1;
-        for (cu, wu) in pat.iter().zip(w.iter()) {
+    // Storage is u-major: index = i_u * num_v + i_v (see
+    // `NurbsSurface::control_point`). u is the major angle, v the
+    // profile angle. (The original PK-310 landing nested the loops
+    // the other way — invisible on the full torus because the point
+    // SET and hull are unchanged and every consumer is geometric,
+    // but the parameter correspondence was transposed; fixed with
+    // the PK-312 partial-window arm, where a transpose is a real
+    // geometry error.)
+    for (cu, wu) in pat.iter().zip(w.iter()) {
+        for (cv, wv) in pat.iter().zip(w.iter()) {
+            // Profile CP in (radial, axial) coordinates.
+            let rho = major_radius + minor_radius * cv.0;
+            let z = minor_radius * cv.1;
             let p = center + (perp1 * cu.0 + perp2 * cu.1) * rho + axis * z;
             control_points.push(p);
             weights.push(wu * wv);

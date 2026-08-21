@@ -265,6 +265,35 @@ pub(crate) fn split_samples_at_period_jumps(
 /// boundary crossings, and clipped a phantom exterior span. Applied
 /// here, never inside [`fit_march_samples`]: analytic arms share the
 /// fitter with exactly-closed loops that must stay untouched.
+/// Rejoin the first and last segments of a seam-split CLOSED trace
+/// across the seed/closure cut (see the call site in
+/// `fit_marched_trace`). Merges only when the junction is
+/// branch-continuous on every uv axis — a genuine seam jump there
+/// (seed exactly on a seam) is left split.
+fn rejoin_closed_trace_ends(mut segments: Vec<Vec<MarchSample>>) -> Vec<Vec<MarchSample>> {
+    let Some(first) = segments.first().and_then(|s| s.first()) else {
+        return segments;
+    };
+    let Some(last) = segments.last().and_then(|s| s.last()) else {
+        return segments;
+    };
+    const BRANCH_SLACK: f64 = std::f64::consts::FRAC_PI_2;
+    let continuous = (first.u1 - last.u1).abs() < BRANCH_SLACK
+        && (first.v1 - last.v1).abs() < BRANCH_SLACK
+        && (first.u2 - last.u2).abs() < BRANCH_SLACK
+        && (first.v2 - last.v2).abs() < BRANCH_SLACK;
+    if !continuous {
+        return segments;
+    }
+    let head = segments.remove(0);
+    match segments.last_mut() {
+        Some(tail) => tail.extend(head),
+        None => return vec![head],
+    }
+    segments.rotate_right(1);
+    segments
+}
+
 pub(crate) fn fit_marched_trace(
     samples: &[MarchSample],
     is_closed: bool,
@@ -291,6 +320,24 @@ pub(crate) fn fit_marched_trace(
         split_samples_at_period_jumps(samples.to_vec(), surface1, surface2, tolerance)
     } else {
         vec![samples.to_vec()]
+    };
+    // A CLOSED trace that seam-splits into multiple segments leaves
+    // its first and last segments as two pieces of ONE arc, cut at
+    // the arbitrary seed/closure point instead of a seam. The cut
+    // point depends only on where seeding happened to land, and when
+    // the seed falls near (but not on) a seam the tail piece is a
+    // micro-segment that downstream record handling drops — leaving
+    // a gap in the intersection loop and a half-claimed strand
+    // decline (measured: torus × cylinder union under the exact
+    // partial-window torus NURBS, whose seeds land at different
+    // patch midpoints than the sampled fallback's; the loop lost a
+    // 0.016-wide connector at the cylinder seam). Rejoin the ends
+    // when their junction is branch-continuous; a seed exactly ON a
+    // seam yields a near-period jump there and correctly skips.
+    let segments = if is_closed && segments.len() > 1 {
+        rejoin_closed_trace_ends(segments)
+    } else {
+        segments
     };
     // Drop degenerate blips: a jump adjacent to a sample already AT
     // the seam leaves a segment whose whole chord is one point (the

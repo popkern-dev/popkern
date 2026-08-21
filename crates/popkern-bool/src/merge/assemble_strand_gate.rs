@@ -107,6 +107,31 @@ pub(super) fn decline_on_lethal_strands(
     if lethal.is_empty() {
         return Ok(());
     }
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        for &heh in &lethal {
+            let Some(he) = brep.half_edges.get(heh) else {
+                continue;
+            };
+            let a = brep.vertices.get(he.origin).map(|v| v.position);
+            let b = brep
+                .half_edges
+                .get(he.twin)
+                .and_then(|t| brep.vertices.get(t.origin))
+                .map(|v| v.position);
+            if let (Some(a), Some(b)) = (a, b) {
+                eprintln!(
+                    "  [lethal-strand] {heh:?} ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}) ghe {:?}",
+                    a.x,
+                    a.y,
+                    a.z,
+                    b.x,
+                    b.y,
+                    b.z,
+                    rev_map.get(&heh)
+                );
+            }
+        }
+    }
     Err(BoolDiagnostics::from_error(
         BoolError::MergeFailed {
             stage: format!("{:?}", Stage::Merge),
