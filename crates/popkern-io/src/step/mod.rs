@@ -10,6 +10,7 @@ mod export_pcurve;
 mod export_pcurve_synthesis;
 mod export_periodic_branches;
 mod export_product;
+mod export_surface_curve_wrap;
 mod export_topology;
 mod export_topology_face_edges;
 mod export_topology_face_uses;

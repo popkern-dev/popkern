@@ -15,7 +15,7 @@ use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
 use crate::step::export_pcurve_synthesis::step_export_pcurve_association_tolerance;
 use crate::step::export_topology_face_edges::pre_export_face_use_edges;
-use crate::step::export_topology_face_uses::{EdgeFaceUse, edge_face_uses, unique_edge_half_edges};
+use crate::step::export_topology_face_uses::EdgeFaceUse;
 use crate::step::export_topology_helpers::{
     collapsed_trim_missing_curve_edges, edge_curve_surface_trim_disagreement, edge_end_vertex,
     synthesize_missing_edge_curve_from_surface_trims, synthesize_plane,
@@ -23,7 +23,7 @@ use crate::step::export_topology_helpers::{
 use crate::step::parser::types::EntityId;
 
 #[derive(Clone)]
-pub(super) struct ExportedFaceSurface {
+pub(crate) struct ExportedFaceSurface {
     pub id: EntityId,
     pub surface: SurfaceOnFace,
 }
@@ -343,78 +343,14 @@ impl ExportContext {
         Ok(surface_map)
     }
 
-    /// If both half-edges have pcurves, wrap the 3-D curve in a SURFACE_CURVE
-    /// (or SEAM_CURVE if both half-edges belong to the same face).
-    ///
-    /// Returns either the original `curve_3d_id` (no pcurves) or a new
-    /// SURFACE_CURVE / SEAM_CURVE entity ID.
-    fn maybe_wrap_surface_curve(
-        &mut self,
-        brep: &BRep,
-        curve_3d_id: EntityId,
-        edge_handle: EdgeHandle,
-        surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
-        branch_shifts: &super::export_periodic_branches::PeriodicNormalization,
-    ) -> EntityId {
-        let mut pcurve_ids: Vec<EntityId> = Vec::new();
-        let mut face_uses = edge_face_uses(brep, edge_handle);
-        // Canonical half-edge's pcurve FIRST: OpenCASCADE assigns the
-        // first associated pcurve to the edge's FORWARD use in a
-        // loop, and `export_loop_as_bound` writes forward exactly for
-        // the canonical half-edge. For SEAM_CURVEs (both uses on one
-        // face, branch-separated pcurves) the wrong order swaps the
-        // seam's two branches and the trim contour breaks.
-        if let Some(edge) = brep.edges.get(edge_handle) {
-            let canonical = edge.half_edge;
-            face_uses.sort_by_key(|face_use| face_use.half_edge != canonical);
-        }
-        for face_use in &face_uses {
-            if let Some(pcurve_id) = self.try_export_he_pcurve(
-                brep,
-                edge_handle,
-                face_use.half_edge,
-                face_use.face,
-                surface_map,
-                branch_shifts,
-            ) {
-                pcurve_ids.push(pcurve_id);
-            }
-        }
-        if pcurve_ids.is_empty() {
-            for he_handle in unique_edge_half_edges(brep, edge_handle) {
-                if let Some(pcurve_id) = self.try_export_he_pcurve_via_stored_loop(
-                    brep,
-                    edge_handle,
-                    he_handle,
-                    surface_map,
-                    branch_shifts,
-                ) {
-                    pcurve_ids.push(pcurve_id);
-                }
-            }
-        }
-
-        if pcurve_ids.is_empty() {
-            curve_3d_id
-        } else {
-            // Detect seam edges: both half-edges belong to the same face
-            let mut faces = face_uses.iter().map(|face_use| face_use.face);
-            let first_face = faces.next();
-            let is_seam = first_face.is_some() && faces.all(|face| Some(face) == first_face);
-
-            if is_seam {
-                self.export_seam_curve(curve_3d_id, &pcurve_ids)
-            } else {
-                self.export_surface_curve(curve_3d_id, &pcurve_ids)
-            }
-        }
-    }
+    // `maybe_wrap_surface_curve` lives in
+    // `export_surface_curve_wrap.rs` (file-size ratchet).
 
     /// Try to export the pcurve for a single half-edge.
     ///
     /// Returns `None` if the half-edge has no pcurve or its face surface was
     /// not pre-exported.
-    fn try_export_he_pcurve(
+    pub(crate) fn try_export_he_pcurve(
         &mut self,
         brep: &BRep,
         edge_handle: EdgeHandle,
@@ -464,7 +400,7 @@ impl ExportContext {
         Some(self.export_pcurve(&nurbs, surface.id))
     }
 
-    fn try_export_he_pcurve_via_stored_loop(
+    pub(crate) fn try_export_he_pcurve_via_stored_loop(
         &mut self,
         brep: &BRep,
         edge_handle: EdgeHandle,

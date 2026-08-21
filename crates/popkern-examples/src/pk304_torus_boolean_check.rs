@@ -207,6 +207,83 @@ fn main() {
                 boundary_hes,
                 b.validate_all().len()
             );
+            for (fh0, fd0) in &b.faces {
+                let Some(sof) = fd0.surface.as_ref() else {
+                    continue;
+                };
+                let popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } = sof.geometry
+                else {
+                    continue;
+                };
+                let Some(ld0) = b.loops.get(fd0.outer_loop) else {
+                    continue;
+                };
+                let start0 = ld0.half_edge;
+                let mut cur0 = start0;
+                for _ in 0..b.half_edges.len() + 1 {
+                    let Some(hd0) = b.half_edges.get(cur0) else {
+                        break;
+                    };
+                    let vpos = b.vertices[hd0.origin].position;
+                    let vuv = popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &sof.geometry,
+                        &vpos,
+                    );
+                    let pc_span = hd0.pcurve.as_ref().map(|pc| {
+                        let a = pc.point_at(pc.t_start);
+                        let z = pc.point_at(pc.t_end);
+                        ((a.x, a.y), (z.x, z.y))
+                    });
+                    let ed0 = &b.edges[hd0.edge];
+                    let clen = ed0.curve.as_ref().map(|c| {
+                        use popkern_core::geometry::curve::CurveEval;
+                        c.geometry
+                            .point_at(c.t_start)
+                            .distance_to(&c.geometry.point_at(c.t_end))
+                    });
+                    let vnext = b
+                        .half_edges
+                        .get(hd0.next)
+                        .map(|n| b.vertices[n.origin].position.distance_to(&vpos));
+                    println!(
+                        "  [loop-uv] {fh0:?} he {cur0:?} v_uv {vuv:?} pc {pc_span:?} clen {clen:?} vspan {vnext:?}"
+                    );
+                    cur0 = hd0.next;
+                    if cur0 == start0 {
+                        break;
+                    }
+                }
+            }
+            for (eh2, ed2) in &b.edges {
+                use popkern_core::geometry::curve::CurveEval;
+                let Some(c) = ed2.curve.as_ref() else {
+                    continue;
+                };
+                let Some(he2) = b.half_edges.get(ed2.half_edge) else {
+                    continue;
+                };
+                let (Some(va), Some(vb)) = (
+                    b.vertices.get(he2.origin),
+                    b.half_edges
+                        .get(he2.twin)
+                        .and_then(|t| b.vertices.get(t.origin)),
+                ) else {
+                    continue;
+                };
+                let ca = c.geometry.point_at(c.t_start);
+                let cb = c.geometry.point_at(c.t_end);
+                let d = |p: popkern_core::geometry::Point3, q: popkern_core::geometry::Point3| {
+                    p.distance_to(&q)
+                };
+                let fwd = d(ca, va.position).min(d(cb, va.position));
+                let slop = d(ca, va.position)
+                    .min(d(ca, vb.position))
+                    .max(d(cb, va.position).min(d(cb, vb.position)));
+                let _ = fwd;
+                if slop > 1e-6 {
+                    println!("  [curve-slop] {eh2:?} end-to-vertex {slop:.3e}");
+                }
+            }
             for (heh, hd) in &b.half_edges {
                 if let Some(pc) = hd.pcurve.as_ref() {
                     let (mut lo_u, mut hi_u) = (f64::MAX, f64::MIN);

@@ -43,7 +43,7 @@ type ChainAssignment = Vec<((f64, f64), bool)>;
 
 /// Result of the periodic loop normalization pre-pass.
 #[derive(Default)]
-pub(super) struct PeriodicNormalization {
+pub(crate) struct PeriodicNormalization {
     pub shifts: BranchShifts,
     pub directions: ChainDirections,
 }
