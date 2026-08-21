@@ -405,10 +405,9 @@ fn main() {
                             let p = mesh.vertices[i].position;
                             (q(p.x), q(p.y), q(p.z))
                         };
-                        let mut welded: std::collections::HashMap<
-                            ((i64, i64, i64), (i64, i64, i64)),
-                            i64,
-                        > = std::collections::HashMap::new();
+                        type QuantPoint = (i64, i64, i64);
+                        let mut welded: std::collections::HashMap<(QuantPoint, QuantPoint), i64> =
+                            std::collections::HashMap::new();
                         for tri in &mesh.triangles {
                             for k in 0..3 {
                                 let (a, bkey) = (key(tri[k]), key(tri[(k + 1) % 3]));

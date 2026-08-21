@@ -333,6 +333,21 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     }
     trace_face_census("post-slit-seam", result);
 
+    // Weld the two masked halves of a collapsed near-tangential gore
+    // into one twin pair (PK-309) — postprocess/parallel_weld.rs.
+    if result.validate().is_ok() {
+        let weld = crate::postprocess::parallel_weld::weld_parallel_self_twins(result, tolerance);
+        if weld.welded > 0
+            && (cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some())
+        {
+            eprintln!(
+                "[boolean] post-processing: welded {} collapsed-gore rim pair(s) ({} declined)",
+                weld.welded, weld.declined
+            );
+        }
+    }
+    trace_face_census("post-parallel-weld", result);
+
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than
     // original entities due to numerical approximation.

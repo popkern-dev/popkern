@@ -3,6 +3,7 @@
 pub mod collinear_vertex;
 pub mod face_simplify;
 pub mod loop_repair;
+pub mod parallel_weld;
 pub mod quality;
 pub mod redundant_edge;
 pub mod slit_seam;
