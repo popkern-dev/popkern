@@ -207,6 +207,88 @@ fn main() {
                 boundary_hes,
                 b.validate_all().len()
             );
+            for (heh, hd) in &b.half_edges {
+                if let Some(pc) = hd.pcurve.as_ref() {
+                    let (mut lo_u, mut hi_u) = (f64::MAX, f64::MIN);
+                    for k in 0..=8 {
+                        let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
+                        let q = pc.point_at(t);
+                        lo_u = lo_u.min(q.x);
+                        hi_u = hi_u.max(q.x);
+                    }
+                    if hi_u - lo_u > 4.0 {
+                        let f = b.loops.get(hd.loop_).map(|l| l.face);
+                        println!(
+                            "  [pc-long] {heh:?} face {f:?} u-span {:.3} t[{:.3},{:.3}]",
+                            hi_u - lo_u,
+                            pc.t_start,
+                            pc.t_end
+                        );
+                    }
+                }
+            }
+            for (fh, fd) in &b.faces {
+                let mut missing = 0;
+                let mut total = 0;
+                let mut walk = |lh: popkern_core::topology::LoopHandle| {
+                    let Some(ld) = b.loops.get(lh) else { return };
+                    let start = ld.half_edge;
+                    let mut cur = start;
+                    for _ in 0..b.half_edges.len() + 1 {
+                        let Some(hd) = b.half_edges.get(cur) else {
+                            break;
+                        };
+                        total += 1;
+                        if hd.pcurve.is_none() {
+                            missing += 1;
+                        }
+                        cur = hd.next;
+                        if cur == start {
+                            break;
+                        }
+                    }
+                };
+                walk(fd.outer_loop);
+                for &il in &fd.inner_loops {
+                    walk(il);
+                }
+                if missing > 0 {
+                    println!("  [pc-missing] {fh:?} {missing}/{total} uses without pcurve");
+                }
+            }
+            {
+                let opts = popkern_mesh::TessellationOptions::default();
+                match popkern_mesh::tessellate(&b, &opts) {
+                    Ok(mesh) => {
+                        let mut vol6 = 0.0_f64;
+                        for tri in &mesh.triangles {
+                            let a = mesh.vertices[tri[0]].position;
+                            let bb = mesh.vertices[tri[1]].position;
+                            let c = mesh.vertices[tri[2]].position;
+                            vol6 += a.x * (bb.y * c.z - bb.z * c.y)
+                                - a.y * (bb.x * c.z - bb.z * c.x)
+                                + a.z * (bb.x * c.y - bb.y * c.x);
+                        }
+                        let mut edge_uses: std::collections::HashMap<(usize, usize), i64> =
+                            std::collections::HashMap::new();
+                        for tri in &mesh.triangles {
+                            for k in 0..3 {
+                                let (x, y) = (tri[k], tri[(k + 1) % 3]);
+                                *edge_uses.entry((x.min(y), x.max(y))).or_default() +=
+                                    if x < y { 1 } else { -1 };
+                            }
+                        }
+                        let opens = edge_uses.values().filter(|&&v| v != 0).count();
+                        println!(
+                            "torus x torus mesh volume: {:.6} ({} tris, {} open/odd edges)",
+                            vol6.abs() / 6.0,
+                            mesh.triangles.len(),
+                            opens
+                        );
+                    }
+                    Err(e) => println!("torus x torus tessellate ERR: {e}"),
+                }
+            }
             helpers::export(&b, "PK-305 torus x torus union", "pk305_torus_torus.step");
             helpers::render_multi_angle(&b, "pk305_torus_torus");
         }

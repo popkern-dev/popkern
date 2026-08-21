@@ -64,40 +64,91 @@ pub(crate) fn next_in_chart(
         return best.map(|(_, c)| c);
     }
 
-    let arrive = sub.embeddings.get(&h)?.end_dir()?;
-    let back = (-arrive.0, -arrive.1);
-
-    let mut best: Option<(f64, usize)> = None;
-    for &c in deps {
-        let angle = if c == twin {
-            // U-turn along the twin: strictly last. Still eligible so
-            // a genuine spur walks back rather than dead-ending.
-            std::f64::consts::TAU + 1.0
-        } else {
-            let Some(dep) = sub.embeddings.get(&c).and_then(|e| e.start_dir()) else {
-                continue;
-            };
-            // Clockwise angle from `back` to `dep` in oriented UV:
-            // positive cross = CCW in raw UV; sigma flips handedness
-            // for orientation-false faces; negation converts to CW.
-            let cross = back.0 * dep.1 - back.1 * dep.0;
-            let dot = back.0 * dep.0 + back.1 * dep.1;
-            let a = (-sub.sigma * cross).atan2(dot);
-            if a <= 1e-12 {
-                a + std::f64::consts::TAU
-            } else {
-                a
-            }
-        };
-        let better = match best {
-            None => true,
-            Some((ba, bc)) => angle < ba - 1e-15 || ((angle - ba).abs() <= 1e-15 && c < bc),
-        };
-        if better {
-            best = Some((angle, c));
+    // GLOBAL WEDGE PAIRING (permutation by construction): the former
+    // per-arrival min-CW rule picked each arrival's successor
+    // independently, and at a slop-cluster junction two arrivals
+    // could elect the SAME departure — the "orbits" then stop being a
+    // permutation, the walk collides, and the face falls back to the
+    // legacy walker mis-partitioned (measured: rotated torus × torus,
+    // a node where the correct matching requires one arrival to
+    // U-turn; the mis-partition cost 5.5% of the union volume before
+    // the strand gate declined it). The DCEL-correct assignment is
+    // the cyclic wedge matching over ALL slots at the branch point:
+    // arrivals (at their back directions) and departures (at their
+    // start directions) sort into one σ-oriented circular order and
+    // match parenthesis-style sweeping clockwise — each departure
+    // pairs the nearest pending arrival, injective by construction.
+    let bp_key = *bp;
+    let psi = |d: (f64, f64)| -> f64 {
+        (sub.sigma * d.1)
+            .atan2(d.0)
+            .rem_euclid(std::f64::consts::TAU)
+    };
+    // Slots: (angle, is_departure, he). Tie order in the clockwise
+    // sweep puts the DEPARTURE first so an exactly-parallel departure
+    // is NOT taken by its parallel arrival (the historic strictly-
+    // positive-angle rule; the twin's departure is exactly parallel
+    // to its arrival's back and ranks last this way).
+    let mut slots: Vec<(f64, bool, usize)> = Vec::new();
+    for (hh, e) in sub.end_bp.iter() {
+        if *e == bp_key
+            && let Some(d) = sub.embeddings.get(hh).and_then(|em| em.end_dir())
+        {
+            slots.push((psi((-d.0, -d.1)), false, *hh));
         }
     }
-    best.map(|(_, c)| c)
+    for &c in deps {
+        if let Some(d) = sub.embeddings.get(&c).and_then(|em| em.start_dir()) {
+            slots.push((psi(d), true, c));
+        }
+    }
+    let _ = twin;
+    // Clockwise = descending ψ. Deterministic ties: departures first,
+    // then half-edge index.
+    slots.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.1.cmp(&a.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
+    // Two clockwise passes with a pending-arrival stack: a departure
+    // matches the most recent pending arrival (wedge nesting); the
+    // second pass closes pairs straddling the angular origin.
+    let mut pending: Vec<usize> = Vec::new();
+    let mut matched: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut used_deps: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for _pass in 0..2 {
+        for &(_, is_dep, hh) in &slots {
+            if is_dep {
+                if used_deps.contains(&hh) {
+                    continue;
+                }
+                if let Some(a) = pending.pop() {
+                    matched.insert(a, hh);
+                    used_deps.insert(hh);
+                }
+            } else if !matched.contains_key(&hh) && !pending.contains(&hh) {
+                pending.push(hh);
+            }
+        }
+    }
+    // Exact-tie degeneracy fallback: pair leftovers deterministically.
+    let mut leftover_deps: Vec<usize> = deps
+        .iter()
+        .copied()
+        .filter(|d| !used_deps.contains(d))
+        .collect();
+    leftover_deps.sort_unstable();
+    pending.sort_unstable();
+    for a in pending {
+        if matched.contains_key(&a) {
+            continue;
+        }
+        if let Some(d) = leftover_deps.pop() {
+            matched.insert(a, d);
+        }
+    }
+    matched.get(&h).copied()
 }
 
 /// Enumerate the permutation's orbits, ascending from the lowest
@@ -109,6 +160,7 @@ pub(crate) fn walk_chart_orbits(
     graph: &IntersectionGraph,
 ) -> Option<Vec<Vec<usize>>> {
     let mut consumed: BTreeSet<usize> = BTreeSet::new();
+    let mut consumed_by: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut orbits = Vec::new();
     let budget = sub.embeddings.len() + 1;
     for &seed in sub.embeddings.keys() {
@@ -117,19 +169,56 @@ pub(crate) fn walk_chart_orbits(
         }
         let mut orbit = vec![seed];
         consumed.insert(seed);
+        consumed_by.insert(seed, seed);
         let mut h = seed;
         loop {
-            let n = next_in_chart(sub, graph, h)?;
+            let Some(n) = next_in_chart(sub, graph, h) else {
+                if std::env::var_os("PK_WALK_TRACE").is_some() {
+                    eprintln!("      [orbit-fail] no successor from he {h}");
+                }
+                return None;
+            };
             if n == seed {
                 break;
             }
             // A permutation orbit cannot revisit a non-seed member; if
             // it does, the substrate lied — bail to fallback.
             if consumed.contains(&n) || orbit.len() > budget {
+                if std::env::var_os("PK_WALK_TRACE").is_some() {
+                    eprintln!(
+                        "      [orbit-fail] revisit/budget: he {h} -> {n} (seed {seed}, len {}, {n} consumed by orbit {:?})",
+                        orbit.len(),
+                        consumed_by.get(&n)
+                    );
+                    if let Some(bp) = sub.end_bp.get(&h) {
+                        for (hh, e) in sub.end_bp.iter() {
+                            if e == bp {
+                                eprintln!(
+                                    "        arrival {hh}: end_dir {:?}",
+                                    sub.embeddings.get(hh).and_then(|em| em.end_dir())
+                                );
+                            }
+                        }
+                        let arrive = sub.embeddings.get(&h).and_then(|e| e.end_dir());
+                        eprintln!("        arrive dir {arrive:?} at bp {bp:?}");
+                        if let Some(deps) = sub.departures.get(bp) {
+                            for &c in deps {
+                                let d = sub.embeddings.get(&c).and_then(|e| e.start_dir());
+                                let uv0 = sub.embeddings.get(&c).map(|e| e.uv[0]);
+                                let uvl = sub.embeddings.get(&c).and_then(|e| e.uv.last().copied());
+                                eprintln!(
+                                    "        dep {c}: dir {d:?} uv {uv0:?}->{uvl:?} consumed={}",
+                                    consumed.contains(&c)
+                                );
+                            }
+                        }
+                    }
+                }
                 return None;
             }
             orbit.push(n);
             consumed.insert(n);
+            consumed_by.insert(n, seed);
             h = n;
         }
         orbits.push(orbit);

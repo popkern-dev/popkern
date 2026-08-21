@@ -6,6 +6,8 @@
 
 #[path = "operation_helpers.rs"]
 pub(crate) mod helpers;
+#[path = "operation_pcurve_coherence.rs"]
+mod helpers_pcurve_coherence;
 
 #[path = "operation_postprocess.rs"]
 mod postprocess;
@@ -479,51 +481,7 @@ pub(crate) fn execute_boolean_full(
                             "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
                         );
                     }
-                    if std::env::var_os("PK_CELL_TRACE").is_some() {
-                        // Dump every edge's use count + position for
-                        // non-manifold diagnosis.
-                        for (eh, edge) in r.edges.iter() {
-                            let mut uses = 0;
-                            for (_, he) in r.half_edges.iter() {
-                                if he.edge == eh && r.loops.contains_key(he.loop_) {
-                                    uses += 1;
-                                }
-                            }
-                            if uses != 2 {
-                                use popkern_core::geometry::curve::CurveEval;
-                                let pos = edge
-                                    .curve
-                                    .as_ref()
-                                    .map(|c| {
-                                        let p = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
-                                        format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z)
-                                    })
-                                    .unwrap_or_else(|| {
-                                        let p = r.vertices[r.half_edges[edge.half_edge].origin]
-                                            .position;
-                                        format!("v({:.2},{:.2},{:.2})", p.x, p.y, p.z)
-                                    });
-                                let mut endpoints = String::new();
-                                {
-                                    use std::fmt::Write as _;
-                                    let he0 = edge.half_edge;
-                                    if r.half_edges.contains_key(he0) {
-                                        let a = r.vertices[r.half_edges[he0].origin].position;
-                                        let tw = r.half_edges[he0].twin;
-                                        if r.half_edges.contains_key(tw) {
-                                            let b = r.vertices[r.half_edges[tw].origin].position;
-                                            let _ = write!(
-                                                endpoints,
-                                                " span ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
-                                                a.x, a.y, a.z, b.x, b.y, b.z
-                                            );
-                                        }
-                                    }
-                                }
-                                eprintln!("  [nm] {eh:?} uses={uses} at {pos}{endpoints}");
-                            }
-                        }
-                    }
+                    helpers_pcurve_coherence::trace_cellular_nonmanifold(r);
                     false
                 }
             }
@@ -595,6 +553,11 @@ pub(crate) fn execute_boolean_full(
     }
 
     run_output_postprocess(&mut result, tolerance);
+
+    // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
+    // mechanics and measured rationale in
+    // `operation_pcurve_coherence.rs`.
+    helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
 
     // Debug/PK_BOOL_TRACE diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier

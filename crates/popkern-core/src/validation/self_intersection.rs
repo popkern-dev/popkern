@@ -22,6 +22,9 @@ use std::collections::HashSet;
 mod self_intersection_helpers;
 #[path = "self_intersection_pair_fast_paths.rs"]
 mod self_intersection_pair_fast_paths;
+#[path = "self_intersection_same_surface.rs"]
+mod self_intersection_same_surface;
+use self_intersection_same_surface::same_surface_domains_disjoint;
 
 impl BRep {
     /// Check #11: no face intersects another non-adjacent face.
@@ -234,6 +237,17 @@ impl BRep {
                 continue;
             }
 
+            // SAME-SURFACE patch exemption (PK-308) — see
+            // `self_intersection_same_surface.rs`.
+            if same_surface_domains_disjoint(
+                &surf_i.geometry,
+                &surf_j.geometry,
+                &positions_i,
+                &positions_j,
+                &self.tolerance,
+            ) {
+                continue;
+            }
             pairs_checked += 1;
             trace_self_intersection_candidate(
                 self,

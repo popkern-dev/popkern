@@ -12,10 +12,12 @@ use std::collections::HashMap;
 use popkern_core::{
     constructors::builder::BRepBuilder,
     tolerance::Tolerance,
-    topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle},
+    topology::{BRep, HalfEdgeHandle, VertexHandle},
 };
 
 use super::fragment_classify::FragmentSelection;
+#[path = "assemble_strand_gate.rs"]
+mod strand_gate;
 use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
@@ -418,118 +420,21 @@ pub(crate) fn assemble_result(
         .map(|(heh, _)| heh)
         .collect();
 
-    // Collect twin info before mutating.
-    let twin_fixups: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = dangling_hes
-        .iter()
-        .filter_map(|&heh| brep.half_edges.get(heh).map(|he| (heh, he.twin)))
-        .collect();
+    // HONEST-DECLINE strand gate (PK-304/305) — mechanics and the
+    // calibrated benign classes live in `assemble_strand_gate.rs`.
+    strand_gate::decline_on_lethal_strands(
+        brep,
+        graph,
+        &he_map,
+        &dangling_hes,
+        brep_a,
+        brep_b,
+        &tolerance,
+    )?;
 
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
-        let rev: std::collections::HashMap<HalfEdgeHandle, usize> =
-            he_map.iter().map(|(g, h)| (*h, *g)).collect();
-        for (heh, _) in &twin_fixups {
-            if let Some(he) = brep.half_edges.get(*heh) {
-                let a = brep.vertices.get(he.origin).map(|v| v.position);
-                let b = brep
-                    .half_edges
-                    .get(he.twin)
-                    .and_then(|t| brep.vertices.get(t.origin))
-                    .map(|v| v.position);
-                let src = rev
-                    .get(heh)
-                    .map(|&g| format!("ghe {g} {:?}", graph.half_edges[g].source));
-                if let (Some(a), Some(b)) = (a, b) {
-                    eprintln!(
-                        "  [assemble-strand] {heh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) {src:?}",
-                        a.x, a.y, a.z, b.x, b.y, b.z
-                    );
-                }
-            }
-        }
-    }
-    for (heh, twin_h) in &twin_fixups {
-        // Point the surviving twin's twin to itself so it doesn't
-        // reference a removed handle. A self-twinned survivor whose
-        // edge later degenerates to zero length is retired by the
-        // spur/self-twin postprocess pass (PK-293) — the walk-level
-        // half-wiring that strands these halves is the recorded
-        // follow-up.
-        if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
-            twin.twin = *twin_h;
-        }
-        // Remove curve geometry from the edge — the watertight check
-        // evaluates curves at endpoints and compares to vertex positions,
-        // but with a self-pointing twin the check would fail.
-        if let Some(surviving) = brep.half_edges.get(*twin_h) {
-            let edge_h = surviving.edge;
-            if let Some(edge) = brep.edges.get_mut(edge_h) {
-                edge.curve = None;
-            }
-        }
-        brep.half_edges.remove(*heh);
-    }
-
-    // Remove edges where BOTH half-edges were removed.  If either
-    // half-edge survives, update `edge.half_edge` to point to the
-    // surviving one so validation finds a valid handle.
-    let mut edges_to_remove: Vec<EdgeHandle> = Vec::new();
-    let mut edges_to_fixup: Vec<(EdgeHandle, HalfEdgeHandle)> = Vec::new();
-
-    for (eh, edge) in brep.edges.iter() {
-        let canonical_alive = brep.half_edges.contains_key(edge.half_edge);
-        if canonical_alive {
-            continue; // Edge is fine.
-        }
-        // Canonical was removed — check if any other half-edge references
-        // this edge.
-        let survivor = brep
-            .half_edges
-            .iter()
-            .find(|(_, he)| he.edge == eh)
-            .map(|(heh, _)| heh);
-        match survivor {
-            Some(surviving_he) => edges_to_fixup.push((eh, surviving_he)),
-            None => edges_to_remove.push(eh),
-        }
-    }
-
-    for (eh, surviving_he) in &edges_to_fixup {
-        if let Some(edge) = brep.edges.get_mut(*eh) {
-            edge.half_edge = *surviving_he;
-        }
-    }
-
-    for eh in &edges_to_remove {
-        brep.edges.remove(*eh);
-    }
-
-    // Fix up vertex outgoing handles that point to removed half-edges.
-    let outgoing_map: HashMap<VertexHandle, HalfEdgeHandle> = brep
-        .half_edges
-        .iter()
-        .map(|(heh, he)| (he.origin, heh))
-        .collect();
-    for (vh, vertex) in &mut brep.vertices {
-        if !brep.half_edges.contains_key(vertex.outgoing) {
-            if let Some(&heh) = outgoing_map.get(&vh) {
-                vertex.outgoing = heh;
-            } else {
-                vertex.outgoing = HalfEdgeHandle::default();
-            }
-        }
-    }
-
-    // Remove orphaned vertices.
-    let orphan_verts: Vec<VertexHandle> = brep
-        .vertices
-        .iter()
-        .filter(|(_, v)| v.outgoing == HalfEdgeHandle::default())
-        .map(|(vh, _)| vh)
-        .collect();
-
-    for vh in &orphan_verts {
-        brep.vertices.remove(*vh);
-    }
+    // Mask remaining benign dangling halves (self-twin + curve strip)
+    // and clean up edges/vertices — `assemble_strand_gate.rs`.
+    strand_gate::mask_dangling_halves(brep, graph, &he_map, &dangling_hes);
 
     Ok(builder.build_unchecked())
 }

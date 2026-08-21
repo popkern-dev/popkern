@@ -10,7 +10,6 @@ pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
-use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::intersection::coincident::{
     closest_point_distance_pub, detect_coincident_regions,
 };
@@ -26,32 +25,10 @@ use crate::geometry::intersection::{
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
-use serde::{Deserialize, Serialize};
 
-/// A single intersection result between two surfaces.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SurfaceSurfaceIntersection {
-    /// The two surfaces intersect along a curve.
-    Curve(CurveOnSurface),
-    /// The two surfaces are coincident over a rectangular parameter region.
-    CoincidentRegion {
-        /// Parameter range in u for surface 1.
-        u1_range: (f64, f64),
-        /// Parameter range in v for surface 1.
-        v1_range: (f64, f64),
-        /// Parameter range in u for surface 2.
-        u2_range: (f64, f64),
-        /// Parameter range in v for surface 2.
-        v2_range: (f64, f64),
-    },
-}
-
-/// Result of a surface-surface intersection operation.
-#[derive(Debug, Clone)]
-pub struct SurfaceSurfaceIntersectionResult {
-    /// All intersections found between the two surfaces.
-    pub intersections: Vec<SurfaceSurfaceIntersection>,
-}
+#[path = "surface_surface_types.rs"]
+mod surface_surface_types;
+pub use surface_surface_types::{SurfaceSurfaceIntersection, SurfaceSurfaceIntersectionResult};
 
 /// Intersect two surfaces with default degeneracy handling.
 pub fn intersect_surfaces(

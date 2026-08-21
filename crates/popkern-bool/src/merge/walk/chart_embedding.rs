@@ -137,10 +137,14 @@ pub(crate) fn build_embedding(
         let a = graph.nodes[graph.half_edges[h].origin].position;
         let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
         let ua = project_point_to_uv(surface, &a)?;
-        let (mut ub, vb) = project_point_to_uv_near(surface, &b, ua.0, ua.1)
+        let (mut ub, mut vb) = project_point_to_uv_near(surface, &b, ua.0, ua.1)
             .or_else(|| project_point_to_uv(surface, &b))?;
-        if let Some(pp) = surface.parameter_periodicity().0 {
+        let (pp_u, pp_v) = surface.parameter_periodicity();
+        if let Some(pp) = pp_u {
             ub += ((ua.0 - ub) / pp).round() * pp;
+        }
+        if let Some(pv) = pp_v {
+            vb += ((ua.1 - vb) / pv).round() * pv;
         }
         run = Some((vec![ua, (ub, vb)], EmbeddingSource::EndpointProjection));
     }
@@ -269,7 +273,7 @@ fn projection_run(
     curve_is_own: bool,
     surface: &SurfaceGeometry,
 ) -> Option<Vec<(f64, f64)>> {
-    let u_period = surface.parameter_periodicity().0;
+    let (u_period, v_period) = surface.parameter_periodicity();
     let (t0, t1) = if curve_is_own {
         (c.t_start, c.t_end)
     } else {
@@ -283,10 +287,18 @@ fn projection_run(
     let p_mid = c.geometry.point_at(ts[mid]);
     run[mid] = project_point_to_uv(surface, &p_mid)?;
     let proj_near = |p: &popkern_core::geometry::Point3, seed: (f64, f64)| -> Option<(f64, f64)> {
-        let (mut u, v) = project_point_to_uv_near(surface, p, seed.0, seed.1)
+        let (mut u, mut v) = project_point_to_uv_near(surface, p, seed.0, seed.1)
             .or_else(|| project_point_to_uv(surface, p))?;
         if let Some(pp) = u_period {
             u += ((seed.0 - u) / pp).round() * pp;
+        }
+        // Unwrap v too: a doubly-periodic (torus) run crossing the
+        // v-seam tore mid-run without it — the torn embedding flipped
+        // its face's boundary shoelace and σ mis-calibrated (measured:
+        // the seam-adjacent quarter of a torus operand walked σ = −1
+        // and its whole partition classified as one Inside fragment).
+        if let Some(pv) = v_period {
+            v += ((seed.1 - v) / pv).round() * pv;
         }
         Some((u, v))
     };

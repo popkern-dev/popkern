@@ -108,4 +108,15 @@ fn rotated_torus_torus_union_is_fast_and_transactional() {
         torus.validate().is_ok(),
         "the operation must leave inputs untouched"
     );
+    // PK-305: the campaign's serving gate — the union completes and
+    // the result validates (was: 1050 s then split failure; then an
+    // honest decline; serving landed with the wedge-pairing walk +
+    // v-unwrap embeddings + seam-exact segmentation, 2026-08-21).
+    let body = result.expect("rotated torus x torus union serves");
+    assert!(
+        body.validate().is_ok(),
+        "served union must validate: {:?}",
+        body.validate().err()
+    );
+    assert!(!body.faces.is_empty(), "served union must carry faces");
 }

@@ -7,7 +7,9 @@
 mod boundary_predicates;
 pub(crate) mod chart_boundary_substitute;
 pub(crate) mod chart_branches;
+pub(crate) mod chart_cell_fold;
 pub(crate) mod chart_embedding;
+pub(crate) mod chart_poles;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]

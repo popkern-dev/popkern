@@ -227,13 +227,24 @@ pub(crate) fn split_graph_edge(
         pcurve: None,
         source: split_source,
     });
-    // Trim the ORIGINAL pair's curve to the head window.
+    // Trim the ORIGINAL pair's curve to the head window, and DROP its
+    // pcurves: a split parent's stored pcurve still spans the WHOLE
+    // original edge, and every consumer that trusted it inherited the
+    // lie — the chart embedding ran the full original extent (one
+    // wrong-branch run flipped a face's boundary shoelace, σ
+    // mis-calibrated, and the role assembly turned region-separating
+    // records into holes), and the assembled result carried the
+    // full-span pcurve so the STEP export's branch normalization saw
+    // whole-period UV gaps. With no pcurve the embedding falls back
+    // to projection of the trimmed 3D curve and the result pcurve
+    // recompute re-derives the correct sub-span.
     if let Some(((ha, hb), _)) = curve_windows {
         for idx in [he_idx, twin_idx] {
             if let Some(c) = graph.half_edges[idx].curve.as_mut() {
                 c.t_start = ha;
                 c.t_end = hb;
             }
+            graph.half_edges[idx].pcurve = None;
         }
     }
     if std::env::var_os("PK_SPLIT_TRACE").is_some()
@@ -739,6 +750,11 @@ pub(super) fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usiz
         graph.half_edges[he_idx].curve = Some(trimmed.clone());
         // The parent's twin walks the same sub-range.
         graph.half_edges[twin_idx].curve = Some(trimmed);
+        // Stale full-span pcurves poison embeddings and the exported
+        // result (see split_graph_edge) — drop them; consumers
+        // re-derive from the trimmed curve.
+        graph.half_edges[he_idx].pcurve = None;
+        graph.half_edges[twin_idx].pcurve = None;
     }
 
     graph.nodes[node].outgoing.push(new_fwd);
