@@ -1,6 +1,7 @@
 //! PK-304/PK-305 verification renders: torus × cylinder and
 //! torus × torus unions. Transient inspection aid.
 
+#[allow(dead_code)]
 mod helpers;
 
 use popkern_bool::{BoolOperation, boolean};
@@ -17,10 +18,17 @@ fn main() {
         .expect("translate");
     match boolean(BoolOperation::Union, torus.clone(), cyl, tol, None) {
         Ok(b) => {
+            let boundary_hes = b
+                .half_edges
+                .iter()
+                .filter(|(_, he)| !b.loops.contains_key(he.loop_))
+                .count();
             println!(
-                "torus x cylinder: {} faces validate={:?}",
+                "torus x cylinder: {} faces validate={:?} boundary_hes={} validate_all={}",
                 b.faces.len(),
-                b.validate().err().map(|e| e.to_string())
+                b.validate().err().map(|e| e.to_string()),
+                boundary_hes,
+                b.validate_all().len()
             );
             // Dump open loops: walk each loop, report face + endpoint gap.
             for (lh, lp) in &b.loops {
@@ -89,10 +97,16 @@ fn main() {
         .expect("transform");
     match boolean(BoolOperation::Union, torus, torus_b, tol, None) {
         Ok(b) => {
+            let boundary_hes = b
+                .half_edges
+                .iter()
+                .filter(|(_, he)| !b.loops.contains_key(he.loop_))
+                .count();
             println!(
-                "torus x torus: {} faces validate={:?}",
+                "torus x torus: {} faces validate={:?} boundary_hes={}",
                 b.faces.len(),
-                b.validate().err().map(|e| e.to_string())
+                b.validate().err().map(|e| e.to_string()),
+                boundary_hes
             );
             helpers::export(&b, "PK-305 torus x torus union", "pk305_torus_torus.step");
             helpers::render_multi_angle(&b, "pk305_torus_torus");

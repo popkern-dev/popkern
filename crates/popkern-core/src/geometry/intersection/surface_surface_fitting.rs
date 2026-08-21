@@ -5,7 +5,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::marching::MarchSample;
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::surface::SurfaceGeometry;
 
 /// Fit NURBS curves (3D + UV1 + UV2) to a sequence of march samples.
 ///

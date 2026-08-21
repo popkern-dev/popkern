@@ -7,6 +7,7 @@
 //!
 //! Line (degree-1) clipping is in the [`clip_line`] submodule.
 
+mod chart_cell;
 mod clip_crossings_rescue;
 mod clip_line;
 mod clip_seam_shift;
@@ -133,7 +134,7 @@ pub(crate) fn face_uv_boundary(
 /// the same per-use normalization STEP export performs. Scoped to
 /// CONTAINMENT tests; the crossing machinery has its own tuned
 /// branch handling and double-shifts if fed normalized input.
-#[allow(dead_code)]
+#[allow(dead_code)] // prior art kept for the chart-cell campaign
 pub(crate) fn face_uv_boundary_chained(
     brep: &BRep,
     face: FaceHandle,

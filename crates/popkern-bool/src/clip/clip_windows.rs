@@ -321,20 +321,29 @@ pub(crate) fn clip_curve_uv_space(
     // normals) keep the tuned crossing-hull contract (PK-114).
     let open_windows_allowed =
         !curve.is_closed && record_is_transversal(brep_a, face_a, brep_b, face_b, curve);
-    let clip_a = uv_clip_one_face(
-        brep_a,
-        face_a,
-        &curve.curve_uv1,
-        curve.is_closed,
-        open_windows_allowed,
-    );
-    let clip_b = uv_clip_one_face(
-        brep_b,
-        face_b,
-        &curve.curve_uv2,
-        curve.is_closed,
-        open_windows_allowed,
-    );
+    // Chart-cell route (PK-304): doubly-periodic faces take
+    // folded-containment windows (see `chart_cell`); everything else
+    // keeps the tuned crossing machinery. POPKERN_CELL_CLIP=0 is the
+    // diagnostic kill-switch (PK-239 precedent).
+    let cell_clip = super::chart_cell::cell_clip;
+    let clip_a = cell_clip(brep_a, face_a, &curve.curve_uv1).unwrap_or_else(|| {
+        uv_clip_one_face(
+            brep_a,
+            face_a,
+            &curve.curve_uv1,
+            curve.is_closed,
+            open_windows_allowed,
+        )
+    });
+    let clip_b = cell_clip(brep_b, face_b, &curve.curve_uv2).unwrap_or_else(|| {
+        uv_clip_one_face(
+            brep_b,
+            face_b,
+            &curve.curve_uv2,
+            curve.is_closed,
+            open_windows_allowed,
+        )
+    });
 
     let name = |r: &UvClipResult| match r {
         UvClipResult::NoPcurves => "NoPcurves".to_string(),
