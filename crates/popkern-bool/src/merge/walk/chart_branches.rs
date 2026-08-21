@@ -296,6 +296,12 @@ pub(super) fn anchor_periodic(
             // a border-straddling component keeps the search below.
             (nmax <= u_low + period + 1e-9).then_some(k * period)
         });
+        if std::env::var_os("PK_BP_TRACE").is_some() {
+            eprintln!(
+                "  [comp] ci {ci} hes {:?} span [{cmin:.3},{cmax:.3}] seam_low {seam_low:?} strip_shift {strip_shift:?}",
+                components[ci]
+            );
+        }
         let applied = match strip_shift {
             Some(shift) => {
                 if shift != 0.0 {
@@ -362,8 +368,22 @@ pub(super) fn anchor_periodic(
         let mut u_end: BTreeMap<usize, f64> = BTreeMap::new();
         for &h in &hes {
             let emb = &sub.embeddings[&h];
-            u_start.insert(h, emb.uv[0].0);
-            u_end.insert(h, emb.uv[emb.uv.len() - 1].0);
+            // Cluster by the BODY-SIDE sample, not the exact
+            // endpoint: an endpoint landing exactly ON the chart
+            // border (u = 0 with the run's body at negative u — the
+            // exact-seeded junction class) clusters into the WRONG
+            // border's branch by its own u, splitting a record chain
+            // away from its seam-copy partners (measured under
+            // POPKERN_EXACT_TORUS_NURBS: the cylinder wall's y<0
+            // chain walked as a degenerate out-and-back region and
+            // the union declined). The sample one step inside the run
+            // carries the body's side; off-border endpoints cluster
+            // identically either way.
+            let n = emb.uv.len();
+            let s_idx = if n > 2 { 1 } else { 0 };
+            let e_idx = if n > 2 { n - 2 } else { n - 1 };
+            u_start.insert(h, emb.uv[s_idx].0);
+            u_end.insert(h, emb.uv[e_idx].0);
         }
         for (fi, &ci) in floating.iter().enumerate() {
             if (config >> fi) & 1 == 1 {
@@ -416,6 +436,18 @@ pub(super) fn anchor_periodic(
         }
     }
 
+    if std::env::var_os("PK_BP_TRACE").is_some() {
+        let mut per_bp: BTreeMap<BranchPoint, Vec<String>> = BTreeMap::new();
+        for (&h, &bp) in &start_bp {
+            per_bp.entry(bp).or_default().push(format!("dep {h}"));
+        }
+        for (&h, &bp) in &end_bp {
+            per_bp.entry(bp).or_default().push(format!("arr {h}"));
+        }
+        for (bp, members) in &per_bp {
+            eprintln!("  [bp] n{} b{}: {:?}", bp.node, bp.branch, members);
+        }
+    }
     for (&h, &bp) in &start_bp {
         sub.departures.entry(bp).or_default().push(h);
     }
