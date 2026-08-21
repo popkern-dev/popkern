@@ -32,11 +32,10 @@ fn main() {
             );
             for f in b.validate_all() {
                 println!("  [va] {f:?}");
-                if let popkern_core::error::ValidationError::CurveSurfaceDeviation {
-                    edge, ..
-                } = &f
+                if let popkern_core::error::ValidationError::CurveSurfaceDeviation { edge, .. } = &f
+                    && let Some(ed) = b.edges.get(*edge)
                 {
-                    if let Some(ed) = b.edges.get(*edge) {
+                    {
                         use popkern_core::geometry::curve::CurveEval;
                         if let Some(c) = ed.curve.as_ref() {
                             let pm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));

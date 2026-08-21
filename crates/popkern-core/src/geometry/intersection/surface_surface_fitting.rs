@@ -218,7 +218,6 @@ pub(crate) fn split_samples_at_period_jumps(
                 u2: rebranch(refined.u2, near.u2, p2u),
                 v2: rebranch(refined.v2, near.v2, p2v),
                 point: refined.point,
-                ..refined.clone()
             };
             Some((for_side(a), for_side(b)))
         };

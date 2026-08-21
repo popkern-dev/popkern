@@ -74,6 +74,7 @@ pub(crate) fn walk_all_fragments(
 /// `overlap_pairs`: the coplanar face-overlap pairs from coincidence
 /// detection — the substrate's partial-cover dedup is scoped to
 /// records authored by exactly these pairs (PK-106).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_all_fragments_ext(
     graph: &IntersectionGraph,
     brep_a: &BRep,

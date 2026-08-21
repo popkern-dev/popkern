@@ -437,66 +437,6 @@ pub(crate) fn cell_crossings(
     Some(crossings)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Ground-truth dump + coverage check of the primitive torus's
-    /// face cells: every chart point must be covered by some
-    /// cell-resolvable face (ignored dump helper).
-    #[test]
-    fn primitive_torus_cells_cover_the_chart() {
-        let tol = Tolerance::default();
-        let torus = popkern_core::topology::BRep::torus(1.0, 0.35, tol).expect("torus");
-        let mut cells = Vec::new();
-        for (fh, _) in &torus.faces {
-            match face_chart_cell(&torus, fh, &tol) {
-                Some(c) => {
-                    eprintln!(
-                        "{fh:?}: u[{:.3},{:.3}] v[{:.3},{:.3}]",
-                        c.u_range.0, c.u_range.1, c.v_range.0, c.v_range.1
-                    );
-                    cells.push((fh, c));
-                }
-                None => {
-                    eprintln!("{fh:?}: NOT cell-resolvable");
-                    if let Some(bnd) = crate::clip::face_uv_boundary(&torus, fh) {
-                        for (he, pc) in &bnd {
-                            let (t0, t1) = pc.parameter_range();
-                            let p0 = pc.point_at(t0);
-                            let p1 = pc.point_at(t1);
-                            eprintln!(
-                                "    he {he:?} ({:.4},{:.4})->({:.4},{:.4})",
-                                p0.x, p0.y, p1.x, p1.y
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // Chart coverage probe: every (u, v) grid point must be inside
-        // at least one cell (fold-containment), else records there are
-        // droppable by every face.
-        let mut uncovered = 0;
-        for i in 0..48 {
-            for j in 0..48 {
-                let u = (i as f64 + 0.5) / 48.0 * std::f64::consts::TAU;
-                let v = (j as f64 + 0.5) / 48.0 * std::f64::consts::TAU;
-                if !cells.iter().any(|(_, c)| c.contains(u, v)) {
-                    uncovered += 1;
-                    if uncovered <= 5 {
-                        eprintln!("uncovered: u={u:.3} v={v:.3}");
-                    }
-                }
-            }
-        }
-        assert_eq!(
-            uncovered, 0,
-            "{uncovered}/2304 chart points uncovered by face cells"
-        );
-    }
-}
-
 /// Would dissolving `edge` (merging its two incident faces) keep the
 /// merged face cell-resolvable? `true` for non-doubly-periodic
 /// surfaces (unchanged legacy behaviour). For torus faces the merge
@@ -560,4 +500,64 @@ pub(crate) fn edge_dissolve_keeps_cell_resolvable(
     let span_u = cell_a.u_range.1.max(bhi_u) - cell_a.u_range.0.min(blo_u);
     let span_v = cell_a.v_range.1.max(bhi_v) - cell_a.v_range.0.min(blo_v);
     span_u < p_u - 1.0e-9 && span_v < p_v - 1.0e-9
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ground-truth dump + coverage check of the primitive torus's
+    /// face cells: every chart point must be covered by some
+    /// cell-resolvable face (ignored dump helper).
+    #[test]
+    fn primitive_torus_cells_cover_the_chart() {
+        let tol = Tolerance::default();
+        let torus = popkern_core::topology::BRep::torus(1.0, 0.35, tol).expect("torus");
+        let mut cells = Vec::new();
+        for (fh, _) in &torus.faces {
+            match face_chart_cell(&torus, fh, &tol) {
+                Some(c) => {
+                    eprintln!(
+                        "{fh:?}: u[{:.3},{:.3}] v[{:.3},{:.3}]",
+                        c.u_range.0, c.u_range.1, c.v_range.0, c.v_range.1
+                    );
+                    cells.push((fh, c));
+                }
+                None => {
+                    eprintln!("{fh:?}: NOT cell-resolvable");
+                    if let Some(bnd) = crate::clip::face_uv_boundary(&torus, fh) {
+                        for (he, pc) in &bnd {
+                            let (t0, t1) = pc.parameter_range();
+                            let p0 = pc.point_at(t0);
+                            let p1 = pc.point_at(t1);
+                            eprintln!(
+                                "    he {he:?} ({:.4},{:.4})->({:.4},{:.4})",
+                                p0.x, p0.y, p1.x, p1.y
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // Chart coverage probe: every (u, v) grid point must be inside
+        // at least one cell (fold-containment), else records there are
+        // droppable by every face.
+        let mut uncovered = 0;
+        for i in 0..48 {
+            for j in 0..48 {
+                let u = (i as f64 + 0.5) / 48.0 * std::f64::consts::TAU;
+                let v = (j as f64 + 0.5) / 48.0 * std::f64::consts::TAU;
+                if !cells.iter().any(|(_, c)| c.contains(u, v)) {
+                    uncovered += 1;
+                    if uncovered <= 5 {
+                        eprintln!("uncovered: u={u:.3} v={v:.3}");
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            uncovered, 0,
+            "{uncovered}/2304 chart points uncovered by face cells"
+        );
+    }
 }

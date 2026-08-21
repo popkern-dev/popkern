@@ -190,6 +190,7 @@ impl FaceChartSubdivision {
 /// `original_brep`: the operand BRep this face belongs to — the
 /// boundary-substitute resolution reads the face's ORIGINAL outer
 /// loop from it (the graph registration can carry weld gaps).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_face_subdivision(
     graph: &IntersectionGraph,
     face: &FaceRef,
@@ -249,6 +250,7 @@ pub(crate) fn build_face_subdivision(
     sub
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_face_subdivision_inner(
     graph: &IntersectionGraph,
     face: &FaceRef,
