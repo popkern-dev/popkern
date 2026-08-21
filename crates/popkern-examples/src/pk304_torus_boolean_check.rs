@@ -333,6 +333,30 @@ fn main() {
                     println!("  [pc-missing] {fh:?} {missing}/{total} uses without pcurve");
                 }
             }
+            for f in b.validate_all() {
+                println!("  [va305] {f:?}");
+            }
+            {
+                let mut inner_total = 0;
+                let mut listed: std::collections::HashSet<popkern_core::topology::LoopHandle> =
+                    std::collections::HashSet::new();
+                for (_, fd9) in &b.faces {
+                    inner_total += fd9.inner_loops.len();
+                    listed.insert(fd9.outer_loop);
+                    listed.extend(fd9.inner_loops.iter().copied());
+                }
+                let orphans: Vec<_> = b
+                    .loops
+                    .iter()
+                    .filter(|(lh, _)| !listed.contains(lh))
+                    .map(|(lh, ld)| (lh, ld.face))
+                    .collect();
+                println!(
+                    "  [loops] faces {} inner_total {inner_total} orphan_loops {:?}",
+                    b.faces.len(),
+                    orphans
+                );
+            }
             for (eh3, ed3) in &b.edges {
                 use popkern_core::geometry::curve::CurveEval;
                 let Some(c) = ed3.curve.as_ref() else {

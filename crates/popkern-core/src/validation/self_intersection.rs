@@ -75,35 +75,47 @@ impl BRep {
 
         for (i, &fk) in face_keys.iter().enumerate() {
             let face = &self.faces[fk];
-            let start_he_handle = self.loops[face.outer_loop].half_edge;
-            // Empty loop — skip
-            if !self.half_edges.contains_key(start_he_handle) {
-                continue;
-            }
-            let mut he_handle = start_he_handle;
-            // Walk the outer loop; guard against cycles larger than the mesh.
-            let bound = self.half_edges.len().max(1);
-            for _ in 0..=bound {
-                let he = match self.half_edges.get(he_handle) {
-                    Some(h) => h,
-                    None => break,
+            // ALL loops: faces welded along an INNER rim are
+            // adjacent exactly like outer-loop neighbours; the
+            // outer-only walk missed them and ran the SI probe
+            // against the pair's own shared weld.
+            let loop_handles: Vec<crate::topology::LoopHandle> = std::iter::once(face.outer_loop)
+                .chain(face.inner_loops.iter().copied())
+                .collect();
+            for lh in loop_handles {
+                let Some(loop_data) = self.loops.get(lh) else {
+                    continue;
                 };
-                let twin_handle = he.twin;
-                if let Some(twin) = self.half_edges.get(twin_handle) {
-                    let twin_loop_handle = twin.loop_;
-                    if let Some(twin_loop) = self.loops.get(twin_loop_handle) {
-                        let twin_face = twin_loop.face;
-                        if let Some(j) = face_keys.iter().position(|&k| k == twin_face)
-                            && i != j
-                        {
-                            let pair = if i < j { (i, j) } else { (j, i) };
-                            adjacent.insert(pair);
+                let start_he_handle = loop_data.half_edge;
+                // Empty loop — skip
+                if !self.half_edges.contains_key(start_he_handle) {
+                    continue;
+                }
+                let mut he_handle = start_he_handle;
+                // Walk the outer loop; guard against cycles larger than the mesh.
+                let bound = self.half_edges.len().max(1);
+                for _ in 0..=bound {
+                    let he = match self.half_edges.get(he_handle) {
+                        Some(h) => h,
+                        None => break,
+                    };
+                    let twin_handle = he.twin;
+                    if let Some(twin) = self.half_edges.get(twin_handle) {
+                        let twin_loop_handle = twin.loop_;
+                        if let Some(twin_loop) = self.loops.get(twin_loop_handle) {
+                            let twin_face = twin_loop.face;
+                            if let Some(j) = face_keys.iter().position(|&k| k == twin_face)
+                                && i != j
+                            {
+                                let pair = if i < j { (i, j) } else { (j, i) };
+                                adjacent.insert(pair);
+                            }
                         }
                     }
-                }
-                he_handle = he.next;
-                if he_handle == start_he_handle {
-                    break;
+                    he_handle = he.next;
+                    if he_handle == start_he_handle {
+                        break;
+                    }
                 }
             }
         }

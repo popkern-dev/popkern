@@ -291,6 +291,28 @@ impl BRep {
             v.outgoing = he_next;
         }
 
+        // Transfer the killed face's REMAINING loops to the survivor:
+        // removing the face without re-homing them orphans inner
+        // loops (loop.face → dead handle); the exporter and every
+        // per-face walker skip loops no face lists (measured: two
+        // orphaned inner rims = once-used STEP edges, OCC free-bound
+        // wires, and mesh holes on the torus × torus union).
+        let surviving_face = self.loops[surviving_loop].face;
+        let transferred: Vec<LoopHandle> = {
+            let killed = &self.faces[killed_face];
+            std::iter::once(killed.outer_loop)
+                .chain(killed.inner_loops.iter().copied())
+                .filter(|&l| l != killed_loop && self.loops.contains_key(l))
+                .collect()
+        };
+        for lh in transferred {
+            self.loops[lh].face = surviving_face;
+            let surv = &mut self.faces[surviving_face];
+            if surv.outer_loop != lh && !surv.inner_loops.contains(&lh) {
+                surv.inner_loops.push(lh);
+            }
+        }
+
         // Remove entities.
         self.half_edges.remove(half_edge);
         self.half_edges.remove(he_twin_handle);
