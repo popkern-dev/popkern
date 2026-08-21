@@ -292,7 +292,9 @@ pub(crate) fn cellular_assemble(
                     std::mem::swap(&mut rev.t_start, &mut rev.t_end);
                     Some(rev)
                 } else {
-                    None
+                    // SPLIT piece with a full-span stored curve:
+                    // subrange + end-heal (see graph-merge assemble).
+                    crate::merge::assemble::subrange_healed_curve(c, &p_start, &p_end)
                 }
             });
             if let Some(curve) = adopted {

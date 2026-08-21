@@ -367,7 +367,7 @@ pub(super) fn point_on_graph_edge_curve(
 /// of a gusset cap arc lost their windows, the stale full window
 /// kept re-matching, and the edge was split five ways with
 /// duplicate pairs).
-fn nearest_param_on_curve(
+pub(crate) fn nearest_param_on_curve(
     curve: &popkern_core::geometry::CurveOnEdge,
     point: &Point3,
 ) -> (f64, f64) {

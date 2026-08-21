@@ -16,6 +16,9 @@ use popkern_core::{
 };
 
 use super::fragment_classify::FragmentSelection;
+#[path = "assemble_curve_adopt.rs"]
+mod curve_adopt;
+pub(crate) use curve_adopt::subrange_healed_curve;
 #[path = "assemble_strand_gate.rs"]
 mod strand_gate;
 use super::graph::{IntersectionGraph, Operand};
@@ -186,12 +189,28 @@ pub(crate) fn assemble_result(
                         std::mem::swap(&mut rev.t_start, &mut rev.t_end);
                         Some(rev)
                     } else {
-                        None
+                        // SPLIT piece with a full-span stored curve:
+                        // subrange + end-heal (see
+                        // `subrange_healed_curve`).
+                        subrange_healed_curve(c, &p_start, &p_end)
                     }
                 });
                 if let Some(curve) = adopted {
                     builder.set_edge_curve(edge_h, curve);
                 } else {
+                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!(
+                            "  [line-fallback] ghe {ghe_idx} src {:?} stored={} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                            graph.half_edges[ghe_idx].source,
+                            actual_curve.is_some(),
+                            p_start.x,
+                            p_start.y,
+                            p_start.z,
+                            p_end.x,
+                            p_end.y,
+                            p_end.z
+                        );
+                    }
                     let dir = p_end - p_start;
                     let len = dir.length();
                     if len > 1e-12 {

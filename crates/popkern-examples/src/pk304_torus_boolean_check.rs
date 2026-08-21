@@ -333,6 +333,47 @@ fn main() {
                     println!("  [pc-missing] {fh:?} {missing}/{total} uses without pcurve");
                 }
             }
+            for (eh3, ed3) in &b.edges {
+                use popkern_core::geometry::curve::CurveEval;
+                let Some(c) = ed3.curve.as_ref() else {
+                    continue;
+                };
+                // report curves that deviate from BOTH adjacent surfaces
+                let he3 = &b.half_edges[ed3.half_edge];
+                let f1 = b.loops.get(he3.loop_).map(|l| l.face);
+                let f2 = b
+                    .half_edges
+                    .get(he3.twin)
+                    .and_then(|t| b.loops.get(t.loop_))
+                    .map(|l| l.face);
+                let mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                let dev = |fh: Option<popkern_core::topology::FaceHandle>| -> Option<f64> {
+                    let sof = b.faces.get(fh?)?.surface.as_ref()?;
+                    let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &sof.geometry,
+                        &mid,
+                    )?;
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    Some(sof.geometry.point_at(u, v).distance_to(&mid))
+                };
+                let d1 = dev(f1);
+                let d2 = dev(f2);
+                if d1.is_some_and(|d| d > 1e-3) || d2.is_some_and(|d| d > 1e-3) {
+                    let kind = match &c.geometry {
+                        popkern_core::geometry::curve::CurveGeometry::Arc { .. } => "Arc",
+                        popkern_core::geometry::curve::CurveGeometry::Line { .. } => "Line",
+                        popkern_core::geometry::curve::CurveGeometry::Circle { .. } => "Circle",
+                        popkern_core::geometry::curve::CurveGeometry::Nurbs(_) => "Nurbs",
+                        _ => "other",
+                    };
+                    let a = c.geometry.point_at(c.t_start);
+                    let z = c.geometry.point_at(c.t_end);
+                    println!(
+                        "  [edge-dev] {eh3:?} {kind} d1 {d1:?} d2 {d2:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) faces {f1:?}/{f2:?}",
+                        a.x, a.y, a.z, z.x, z.y, z.z
+                    );
+                }
+            }
             {
                 let opts = popkern_mesh::TessellationOptions::default();
                 match popkern_mesh::tessellate(&b, &opts) {
