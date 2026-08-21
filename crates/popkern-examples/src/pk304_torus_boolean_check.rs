@@ -337,6 +337,58 @@ fn main() {
                 println!("  [va305] {f:?}");
             }
             {
+                // Witness chart-distance to face 1v1's rim pcurves.
+                let witness = popkern_core::geometry::Point3::new(1.295304, 0.056062, 0.185951);
+                for (fh, fd) in &b.faces {
+                    let Some(sof) = fd.surface.as_ref() else {
+                        continue;
+                    };
+                    let Some((wu, wv)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &sof.geometry,
+                        &witness,
+                    ) else {
+                        continue;
+                    };
+                    let mut best = (f64::MAX, popkern_core::topology::HalfEdgeHandle::default());
+                    let mut walk = |lh: popkern_core::topology::LoopHandle| {
+                        let Some(ld) = b.loops.get(lh) else { return };
+                        let start = ld.half_edge;
+                        let mut cur = start;
+                        for _ in 0..b.half_edges.len() + 1 {
+                            let Some(hd) = b.half_edges.get(cur) else {
+                                break;
+                            };
+                            if let Some(pc) = hd.pcurve.as_ref() {
+                                for k in 0..=32 {
+                                    let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 32.0;
+                                    let q = pc.point_at(t);
+                                    let du = (q.x - wu).abs().min((q.x - wu).abs() % 6.283_185_307);
+                                    let dv = (q.y - wv).abs();
+                                    let d = (du * du + dv * dv).sqrt();
+                                    if d < best.0 {
+                                        best = (d, cur);
+                                    }
+                                }
+                            }
+                            cur = hd.next;
+                            if cur == start {
+                                break;
+                            }
+                        }
+                    };
+                    walk(fd.outer_loop);
+                    for &il in &fd.inner_loops {
+                        walk(il);
+                    }
+                    if best.0 < 0.1 {
+                        println!(
+                            "  [witness-rim] {fh:?} chart-dist {:.3e} nearest he {:?} (witness uv {wu:.4},{wv:.4})",
+                            best.0, best.1
+                        );
+                    }
+                }
+            }
+            {
                 let mut inner_total = 0;
                 let mut listed: std::collections::HashSet<popkern_core::topology::LoopHandle> =
                     std::collections::HashSet::new();
