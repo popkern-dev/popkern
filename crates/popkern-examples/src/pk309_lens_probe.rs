@@ -13,9 +13,6 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 fn main() {
-    // Exercise the exact torus→NURBS arm (PK-310 containment flag).
-    // SAFETY: single-threaded probe entry, before any reader.
-    unsafe { std::env::set_var("POPKERN_EXACT_TORUS_NURBS", "1") };
     let tol = Tolerance::default();
     // Depth sweep: translate the second torus along x so the tubes
     // graze at varying depth. Tube centers R=1, r=0.35; two coplanar

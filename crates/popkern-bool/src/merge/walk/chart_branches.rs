@@ -292,9 +292,17 @@ pub(super) fn anchor_periodic(
             }
             let k = ((u_low - cmin) / period - 1e-9).ceil();
             let nmax = cmax + k * period;
-            // Only shift when the whole component fits the strip;
-            // a border-straddling component keeps the search below.
-            (nmax <= u_low + period + 1e-9).then_some(k * period)
+            // Only shift when the whole component fits the strip; a
+            // border-straddling component keeps the search below.
+            // CHART-SCALE fit epsilon: an absolute 1e-9 rejected a
+            // component whose endpoint sits EXACTLY on the high
+            // border (u = 2π + fp jitter ~2e-9 under exact-arm
+            // seeding); the low_shift fallback then dropped the whole
+            // chain a full period low, its records clustered with the
+            // OPPOSITE border's branch, and the wedge pairing walked
+            // it as a degenerate out-and-back region (measured:
+            // torus × cylinder wall under POPKERN_EXACT_TORUS_NURBS).
+            (nmax <= u_low + period + period * 1.0e-6).then_some(k * period)
         });
         if std::env::var_os("PK_BP_TRACE").is_some() {
             eprintln!(

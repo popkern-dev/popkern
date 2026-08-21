@@ -704,7 +704,12 @@ fn build_face_subdivision_inner(
     }
 
     match u_period {
-        Some(period) => anchor_periodic(graph, &mut sub, period, &ends),
+        Some(period) => {
+            if std::env::var_os("PK_BP_TRACE").is_some() {
+                eprintln!("  [bp-face] {face:?}");
+            }
+            anchor_periodic(graph, &mut sub, period, &ends)
+        }
         None => {
             // σ self-calibration: the operand face's stored boundary
             // loops wind CCW about outward (winding census E1), so

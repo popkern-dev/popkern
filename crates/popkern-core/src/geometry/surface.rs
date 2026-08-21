@@ -278,20 +278,15 @@ impl SurfaceGeometry {
             // the surface, so seeding boxes are conservative. Knots
             // scaled to the requested range (four 90° arcs per
             // quarter). Non-full ranges keep the sampling fallback.
-            // TEMPORARY CONTAINMENT (PK-310): opt-in until the wall
-            // chart's seam-branch pairing handles junction nodes that
-            // land EXACTLY on the seam — with exact hulls the
-            // torus×cylinder seeding produces exactly-on-seam
-            // junctions and the wall walk isolates one record chain
-            // (measured: honest strand decline). Default stays on the
-            // sampling fallback; the lens fixture (pk309_lens_probe)
-            // sets the flag to exercise the exact arm.
+            // Default ON since the chart-branch strip-fit epsilon fix
+            // (the one measured regression); POPKERN_EXACT_TORUS_NURBS=0
+            // is the kill-switch (PK-239 precedent).
             SurfaceGeometry::Torus {
                 center,
                 axis,
                 major_radius,
                 minor_radius,
-            } if std::env::var_os("POPKERN_EXACT_TORUS_NURBS").is_some_and(|v| v == "1")
+            } if std::env::var_os("POPKERN_EXACT_TORUS_NURBS").is_none_or(|v| v != "0")
                 && (u_range.1 - u_range.0 - std::f64::consts::TAU).abs() < 1.0e-9
                 && (v_range.1 - v_range.0 - std::f64::consts::TAU).abs() < 1.0e-9 =>
             {

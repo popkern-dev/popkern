@@ -417,8 +417,20 @@ pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_
         let (t0, t1) = c.parameter_range();
         let s = c.point_at(t0);
         let e = c.point_at(t1);
+        let uv_span = |c: &popkern_core::geometry::NurbsCurve| -> (f64, f64) {
+            let (t0, t1) = c.parameter_range();
+            let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+            for k in 0..=16 {
+                let u = c.point_at(t0 + (t1 - t0) * k as f64 / 16.0).x;
+                lo = lo.min(u);
+                hi = hi.max(u);
+            }
+            (lo, hi)
+        };
+        let (u1lo, u1hi) = uv_span(&r.curve.curve_uv1);
+        let (u2lo, u2hi) = uv_span(&r.curve.curve_uv2);
         eprintln!(
-            "    [rec {i}] ({:?},{:?}) ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) chord {:.3}",
+            "    [rec {i}] ({:?},{:?}) ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) chord {:.3} u1[{u1lo:.2},{u1hi:.2}] u2[{u2lo:.2},{u2hi:.2}]",
             r.face_a,
             r.face_b,
             s.x,
