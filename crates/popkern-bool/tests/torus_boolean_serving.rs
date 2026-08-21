@@ -119,6 +119,18 @@ fn rotated_torus_torus_union_is_fast_and_transactional() {
         body.validate().err()
     );
     assert!(!body.faces.is_empty(), "served union must carry faces");
+    // PK-309: full validation must be clean too. The last standing
+    // finding on this fixture was a phantom SelfIntersection from
+    // u-only period unwrapping in the validator's trim containment —
+    // a v-seam-crossing torus loop tore the polygon by a full period
+    // and even-odd fabricated interior coverage 0.267 from the face's
+    // true boundary. Bi-periodic unwrapping closed it; this pin keeps
+    // validate_all clean end-to-end.
+    let findings = body.validate_all();
+    assert!(
+        findings.is_empty(),
+        "served union must pass full validation, got {findings:?}"
+    );
 }
 
 /// PK-310: outer-outer grazing torus pair — the lens class. The

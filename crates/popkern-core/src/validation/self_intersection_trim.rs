@@ -303,16 +303,17 @@ impl BRep {
             .max(1.0e-9)
             * 10.0;
 
-        let periodic_u = surface_u_is_periodic(surface);
+        let (periodic_u, periodic_v) = surface.is_periodic();
         let outer = self.loop_uv_polygon(face.outer_loop, surface, query)?;
-        let mut containment = point_in_uv_loop_periodic(query, &outer, param_tol, periodic_u);
+        let mut containment =
+            point_in_uv_loop_periodic(query, &outer, param_tol, periodic_u, periodic_v);
         if containment == TrimContainment::Outside {
             return Some(TrimContainment::Outside);
         }
 
         for &inner_loop in &face.inner_loops {
             if let Some(inner) = self.loop_uv_polygon(inner_loop, surface, query) {
-                match point_in_uv_loop_periodic(query, &inner, param_tol, periodic_u) {
+                match point_in_uv_loop_periodic(query, &inner, param_tol, periodic_u, periodic_v) {
                     TrimContainment::Interior => return Some(TrimContainment::Outside),
                     TrimContainment::Boundary => containment = TrimContainment::Boundary,
                     TrimContainment::Outside => {}
@@ -366,7 +367,11 @@ impl BRep {
             // containment for query points the trim never covers
             // (measured: half-period cylinder wall vs rear facet on
             // the laptop-stand block — phantom self-intersection).
-            let periodic_u = surface_u_is_periodic(surface);
+            // Both axes unwrap: v-seam-crossing torus loops otherwise
+            // tear the polygon by a full period (measured: rotated
+            // torus×torus union, phantom SelfIntersection deep inside
+            // a B-face).
+            let (periodic_u, periodic_v) = surface.is_periodic();
             if let Some(pcurve) = &he.pcurve {
                 for sample in 0..SAMPLES_PER_PCURVE {
                     let t = pcurve.t_start
@@ -376,7 +381,12 @@ impl BRep {
                     let reference = polygon.last().copied().unwrap_or(query);
                     push_distinct_uv(
                         &mut polygon,
-                        unwrap_uv_for_query(UvPoint { u: uv.x, v: uv.y }, reference, periodic_u),
+                        unwrap_uv_for_query(
+                            UvPoint { u: uv.x, v: uv.y },
+                            reference,
+                            periodic_u,
+                            periodic_v,
+                        ),
                     );
                 }
             } else {
@@ -386,7 +396,7 @@ impl BRep {
                 let reference = polygon.last().copied().unwrap_or(query);
                 push_distinct_uv(
                     &mut polygon,
-                    unwrap_uv_for_query(UvPoint { u, v }, reference, periodic_u),
+                    unwrap_uv_for_query(UvPoint { u, v }, reference, periodic_u, periodic_v),
                 );
             }
 
@@ -437,16 +447,6 @@ pub(super) fn intersection_sample_points(
             points
         }
     }
-}
-
-fn surface_u_is_periodic(surface: &SurfaceGeometry) -> bool {
-    matches!(
-        surface,
-        SurfaceGeometry::Cylinder { .. }
-            | SurfaceGeometry::Cone { .. }
-            | SurfaceGeometry::Sphere { .. }
-            | SurfaceGeometry::Torus { .. }
-    )
 }
 
 pub(super) fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {

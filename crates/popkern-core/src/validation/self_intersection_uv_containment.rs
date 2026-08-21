@@ -20,19 +20,31 @@ pub(in crate::validation) enum TrimContainment {
     Interior,
 }
 
-pub(super) fn unwrap_uv_for_query(uv: UvPoint, query: UvPoint, periodic_u: bool) -> UvPoint {
-    if !periodic_u {
-        return uv;
-    }
-
+pub(super) fn unwrap_uv_for_query(
+    uv: UvPoint,
+    query: UvPoint,
+    periodic_u: bool,
+    periodic_v: bool,
+) -> UvPoint {
     let mut u = uv.u;
-    while u - query.u > TAU * 0.5 {
-        u -= TAU;
+    if periodic_u {
+        while u - query.u > TAU * 0.5 {
+            u -= TAU;
+        }
+        while query.u - u > TAU * 0.5 {
+            u += TAU;
+        }
     }
-    while query.u - u > TAU * 0.5 {
-        u += TAU;
+    let mut v = uv.v;
+    if periodic_v {
+        while v - query.v > TAU * 0.5 {
+            v -= TAU;
+        }
+        while query.v - v > TAU * 0.5 {
+            v += TAU;
+        }
     }
-    UvPoint { u, v: uv.v }
+    UvPoint { u, v }
 }
 
 pub(super) fn push_distinct_uv(polygon: &mut Vec<UvPoint>, uv: UvPoint) {
@@ -44,40 +56,58 @@ pub(super) fn push_distinct_uv(polygon: &mut Vec<UvPoint>, uv: UvPoint) {
     }
 }
 
-/// Periodic-aware containment: a point on a u-periodic surface is
+/// Periodic-aware containment: a point on a periodic surface is
 /// covered by the trim if ANY period image of it lies inside the
-/// chain-unwrapped loop polygon. The polygon is branch-coherent (see
-/// `loop_uv_polygon`), so testing the query shifted by the whole
-/// periods that land inside the polygon's u-extent is exact.
+/// chain-unwrapped loop polygon. The polygon is branch-coherent per
+/// axis (see `loop_uv_polygon`), so testing the query shifted by the
+/// whole periods that land inside the polygon's extent is exact.
+/// Both axes are handled — a torus is periodic in u AND v, and
+/// u-only image search left v-seam-crossing loops classified against
+/// a torn polygon (measured: rotated torus×torus union, phantom
+/// SelfIntersection between an A-face and a B-face 0.267 from the
+/// B-face's true boundary; 18.75% of the B-chart read as
+/// double-covered under a 48×48 sweep).
 pub(super) fn point_in_uv_loop_periodic(
     point: UvPoint,
     loop_polygon: &[UvPoint],
     tolerance: f64,
     periodic_u: bool,
+    periodic_v: bool,
 ) -> TrimContainment {
-    if !periodic_u {
-        return point_in_uv_loop(point, loop_polygon, tolerance);
-    }
-    let (mut min_u, mut max_u) = (f64::INFINITY, f64::NEG_INFINITY);
-    for p in loop_polygon {
-        min_u = min_u.min(p.u);
-        max_u = max_u.max(p.u);
-    }
-    if !min_u.is_finite() || !max_u.is_finite() {
-        return point_in_uv_loop(point, loop_polygon, tolerance);
-    }
-    let k_lo = ((min_u - tolerance - point.u) / TAU).floor() as i64;
-    let k_hi = ((max_u + tolerance - point.u) / TAU).ceil() as i64;
+    let image_range = |periodic: bool, coord: f64, extent: Option<(f64, f64)>| -> (i64, i64) {
+        if !periodic {
+            return (0, 0);
+        }
+        match extent {
+            Some((lo, hi)) => (
+                ((lo - tolerance - coord) / TAU).floor() as i64,
+                ((hi + tolerance - coord) / TAU).ceil() as i64,
+            ),
+            None => (0, 0),
+        }
+    };
+    let extent = |pick: fn(&UvPoint) -> f64| -> Option<(f64, f64)> {
+        let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+        for p in loop_polygon {
+            lo = lo.min(pick(p));
+            hi = hi.max(pick(p));
+        }
+        (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+    };
+    let (ku_lo, ku_hi) = image_range(periodic_u, point.u, extent(|p| p.u));
+    let (kv_lo, kv_hi) = image_range(periodic_v, point.v, extent(|p| p.v));
     let mut strongest = TrimContainment::Outside;
-    for k in k_lo..=k_hi {
-        let shifted = UvPoint {
-            u: point.u + k as f64 * TAU,
-            v: point.v,
-        };
-        match point_in_uv_loop(shifted, loop_polygon, tolerance) {
-            TrimContainment::Interior => return TrimContainment::Interior,
-            TrimContainment::Boundary => strongest = TrimContainment::Boundary,
-            TrimContainment::Outside => {}
+    for ku in ku_lo..=ku_hi {
+        for kv in kv_lo..=kv_hi {
+            let shifted = UvPoint {
+                u: point.u + ku as f64 * TAU,
+                v: point.v + kv as f64 * TAU,
+            };
+            match point_in_uv_loop(shifted, loop_polygon, tolerance) {
+                TrimContainment::Interior => return TrimContainment::Interior,
+                TrimContainment::Boundary => strongest = TrimContainment::Boundary,
+                TrimContainment::Outside => {}
+            }
         }
     }
     strongest
@@ -136,4 +166,49 @@ fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
         v: a.v + ab_v * t,
     };
     (point.u - closest.u).hypot(point.v - closest.v)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A v-seam-crossing torus trim: the loop's coherent (chain-
+    /// unwrapped) polygon spans v ∈ [5.8, 6.9] — beyond the canonical
+    /// cell. A query at the canonical image v = 0.35 lies inside only
+    /// via its +τ period image; u-only image search misses it (the
+    /// measured pk305 phantom-SelfIntersection class, inverted: here
+    /// the miss direction is a false OUTSIDE, the boolean fixture hit
+    /// the paired false INTERIOR from the torn polygon).
+    #[test]
+    fn v_periodic_image_found_for_seam_crossing_loop() {
+        let polygon = [
+            UvPoint { u: 1.0, v: 5.8 },
+            UvPoint { u: 2.0, v: 5.8 },
+            UvPoint { u: 2.0, v: 6.9 },
+            UvPoint { u: 1.0, v: 6.9 },
+        ];
+        let query = UvPoint { u: 1.5, v: 0.35 };
+        assert_eq!(
+            point_in_uv_loop_periodic(query, &polygon, 1.0e-9, true, true),
+            TrimContainment::Interior,
+            "query's +tau v-image lies inside the seam-crossing loop"
+        );
+        assert_eq!(
+            point_in_uv_loop_periodic(query, &polygon, 1.0e-9, true, false),
+            TrimContainment::Outside,
+            "without v-periodicity the canonical query is outside"
+        );
+    }
+
+    /// Bi-axis chain unwrapping: a sample one period away in v snaps
+    /// to the branch of its reference point.
+    #[test]
+    fn unwrap_resolves_v_branch_against_reference() {
+        let reference = UvPoint { u: 1.0, v: 6.0 };
+        let sample = UvPoint { u: 1.0, v: 0.2 };
+        let unwrapped = unwrap_uv_for_query(sample, reference, true, true);
+        assert!((unwrapped.v - (0.2 + TAU)).abs() < 1.0e-12);
+        let clamped = unwrap_uv_for_query(sample, reference, true, false);
+        assert!((clamped.v - 0.2).abs() < 1.0e-12);
+    }
 }
