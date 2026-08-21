@@ -119,13 +119,18 @@ fn never_fired_token_matches_plain_shell_and_reports_stages() {
     assert_eq!(plain.brep.edges.len(), controlled.brep.edges.len());
     assert_eq!(plain.brep.vertices.len(), controlled.brep.vertices.len());
     // Whole-body fingerprint identity: the detached run must be
-    // byte-identical to the plain call, warts included (the hollow
-    // shell output currently fails the shell-count-blind
-    // Euler-Poincaré check either way — PK-306).
+    // byte-identical to the plain call.
     assert_eq!(
         body_fingerprint(&plain.brep),
         body_fingerprint(&controlled.brep),
         "controlled shell must be fingerprint-identical to the plain run"
+    );
+    // The hollow body validates since PK-306 (void skin is its own
+    // shell; χ = 2 per shell).
+    assert!(
+        controlled.brep.validate().is_ok(),
+        "hollow shell output must validate: {:?}",
+        controlled.brep.validate().err()
     );
 
     // All 8 shell stages, monotone, honest total, known labels.

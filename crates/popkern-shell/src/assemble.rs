@@ -49,9 +49,22 @@ pub fn assemble_shell(
     let (outer_vertex_map, outer_edge_map, outer_he_map) =
         copy_skin_entities(&mut builder, outer, shell, |fh| !removed_set.contains(&fh))?;
 
+    // Shell ownership is topological truth (PK-306): with no removed
+    // faces there are no side walls, so the inner skin is a
+    // DISCONNECTED closed void skin — its own shell of the solid
+    // (χ = 2 per genus-0 shell; one dishonest merged record made every
+    // hollow body fail the shell-aware Euler–Poincaré check, χ=4 vs
+    // 2·1). With removed faces the side walls connect the skins into
+    // one shell, which stays merged.
+    let inner_shell = if removed_faces.is_empty() {
+        builder.add_shell(solid)
+    } else {
+        shell
+    };
+
     // Copy inner skin (all faces).
     let (inner_vertex_map, _inner_edge_map, _inner_he_map) =
-        copy_skin_entities(&mut builder, inner, shell, |_| true)?;
+        copy_skin_entities(&mut builder, inner, inner_shell, |_| true)?;
 
     // Build side walls if there are removed faces.
     if !removed_faces.is_empty() {
