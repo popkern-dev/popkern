@@ -64,8 +64,18 @@ fn torus_cylinder_union_completes_within_budget() {
     );
 }
 
+/// PK-305 state pin: the rotated torus × torus union currently
+/// DECLINES honestly (transactional split failure, input unchanged) —
+/// and does so in seconds, not the 17.5 minutes it burned before this
+/// session. A transient intermediate state during PK-304 "served" a
+/// 2-face body OpenCASCADE reports as a NULL shape (wrong shape served
+/// clean — the worst class); the torn-boundary guard converted that to
+/// this honest decline. This test fails DELIBERATELY when the
+/// chart-cell clip (docs/architecture/periodic-chart-cell-clipping.md)
+/// makes the union serve, so the expectation gets flipped to
+/// completion + validation gates.
 #[test]
-fn rotated_torus_torus_union_completes_within_budget() {
+fn rotated_torus_torus_union_declines_fast_and_transactionally() {
     if debug_skip("torus x torus") {
         return;
     }
@@ -76,12 +86,19 @@ fn rotated_torus_torus_union_completes_within_budget() {
         .transform(&Transform3::rotation_x(0.5).compose(&Transform3::translation(0.7, 0.4, 0.15)))
         .expect("transform");
     let t0 = Instant::now();
-    let result = boolean(BoolOperation::Union, torus, torus_b, tol, None);
+    let result = boolean(BoolOperation::Union, torus.clone(), torus_b, tol, None);
     let wall = t0.elapsed();
-    let _brep = result.expect("rotated torus x torus union completes (PK-305)");
-    // Measured 9.5 s release (2026-08-21) × 5 ≈ 48 s; was 1050 s.
     assert!(
-        wall < Duration::from_secs(48),
-        "torus x torus union took {wall:?} (budget 48 s = measured 9.5 s x 5)"
+        result.is_err(),
+        "torus x torus now SERVES — flip this pin to completion + \
+         validate()/OCC gates (PK-305 chart-cell milestone)"
+    );
+    assert!(
+        wall < Duration::from_secs(60),
+        "the decline must stay fast (was 1050 s before PK-304), took {wall:?}"
+    );
+    assert!(
+        torus.validate().is_ok(),
+        "decline must leave inputs untouched"
     );
 }
