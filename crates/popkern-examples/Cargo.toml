@@ -130,3 +130,7 @@ path = "src/pk304_stage_probe.rs"
 [[bin]]
 name = "torus_va_probe"
 path = "src/torus_va_probe.rs"
+
+[[bin]]
+name = "pk309_lens_probe"
+path = "src/pk309_lens_probe.rs"

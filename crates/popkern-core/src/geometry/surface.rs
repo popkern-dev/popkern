@@ -264,6 +264,46 @@ impl SurfaceGeometry {
                 }
                 crop_nurbs_surface_to_range(full, u_range, v_range)
             }
+            // EXACT rational torus for full-period ranges: the
+            // sampling fallback's interpolation sag shrank the patch
+            // hulls up to 0.13 below the true surface, and the SSI
+            // seeder's AABB cull then found ZERO overlapping patch
+            // pairs for an outer-outer grazing torus pair — the
+            // boolean served both operands overlaid UNCUT and even
+            // validate_all stayed silent because the self-intersection
+            // probe consults the same blind SSI (measured, PK-310).
+            // Standard 9×9 surface-of-revolution construction: two
+            // rational-quadratic full circles, weights the tensor of
+            // the [1, √2/2, …] pattern; control hulls circumscribe
+            // the surface, so seeding boxes are conservative. Knots
+            // scaled to the requested range (four 90° arcs per
+            // quarter). Non-full ranges keep the sampling fallback.
+            // TEMPORARY CONTAINMENT (PK-310): opt-in until the wall
+            // chart's seam-branch pairing handles junction nodes that
+            // land EXACTLY on the seam — with exact hulls the
+            // torus×cylinder seeding produces exactly-on-seam
+            // junctions and the wall walk isolates one record chain
+            // (measured: honest strand decline). Default stays on the
+            // sampling fallback; the lens fixture (pk309_lens_probe)
+            // sets the flag to exercise the exact arm.
+            SurfaceGeometry::Torus {
+                center,
+                axis,
+                major_radius,
+                minor_radius,
+            } if std::env::var_os("POPKERN_EXACT_TORUS_NURBS").is_some_and(|v| v == "1")
+                && (u_range.1 - u_range.0 - std::f64::consts::TAU).abs() < 1.0e-9
+                && (v_range.1 - v_range.0 - std::f64::consts::TAU).abs() < 1.0e-9 =>
+            {
+                exact_full_torus_nurbs(
+                    *center,
+                    *axis,
+                    *major_radius,
+                    *minor_radius,
+                    u_range,
+                    v_range,
+                )
+            }
             _ => sample_to_nurbs(self, u_range, v_range),
         }
     }
@@ -291,6 +331,75 @@ impl SurfaceGeometry {
         v_range: (f64, f64),
     ) -> NurbsSurface {
         sample_to_nurbs(self, u_range, v_range)
+    }
+}
+
+/// Exact rational NURBS of a full torus (see the `to_nurbs_in_range`
+/// arm for the measured seeding failure this replaces). 9×9 rational
+/// biquadratic; the control hull circumscribes the surface.
+fn exact_full_torus_nurbs(
+    center: Point3,
+    axis: Vec3,
+    major_radius: f64,
+    minor_radius: f64,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> NurbsSurface {
+    let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis);
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    // Unit-circle 9-CP pattern (four 90° rational-quadratic arcs).
+    let pat: [(f64, f64); 9] = [
+        (1.0, 0.0),
+        (1.0, 1.0),
+        (0.0, 1.0),
+        (-1.0, 1.0),
+        (-1.0, 0.0),
+        (-1.0, -1.0),
+        (0.0, -1.0),
+        (1.0, -1.0),
+        (1.0, 0.0),
+    ];
+    let w: [f64; 9] = [1.0, s, 1.0, s, 1.0, s, 1.0, s, 1.0];
+    let knots = |range: (f64, f64)| -> Vec<f64> {
+        let (a, b) = range;
+        let q = |f: f64| a + (b - a) * f;
+        vec![
+            a,
+            a,
+            a,
+            q(0.25),
+            q(0.25),
+            q(0.5),
+            q(0.5),
+            q(0.75),
+            q(0.75),
+            b,
+            b,
+            b,
+        ]
+    };
+    let mut control_points = Vec::with_capacity(81);
+    let mut weights = Vec::with_capacity(81);
+    // Row-major, u varies within each row (see NurbsSurface docs).
+    for (cv, wv) in pat.iter().zip(w.iter()) {
+        // Profile CP in (radial, axial) coordinates.
+        let rho = major_radius + minor_radius * cv.0;
+        let z = minor_radius * cv.1;
+        for (cu, wu) in pat.iter().zip(w.iter()) {
+            let p = center + (perp1 * cu.0 + perp2 * cu.1) * rho + axis * z;
+            control_points.push(p);
+            weights.push(wu * wv);
+        }
+    }
+    NurbsSurface {
+        degree_u: 2,
+        degree_v: 2,
+        knots_u: knots(u_range),
+        knots_v: knots(v_range),
+        control_points,
+        num_u: 9,
+        num_v: 9,
+        weights,
     }
 }
 

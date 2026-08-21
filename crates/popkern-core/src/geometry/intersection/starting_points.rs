@@ -59,6 +59,25 @@ pub(crate) fn find_starting_points(
         })
         .collect();
 
+    if std::env::var_os("PK_SEED_TRACE").is_some() {
+        let hull = |ps: &[SurfacePatch]| -> (f64, f64) {
+            let mut lo = f64::MAX;
+            let mut hi = f64::MIN;
+            for p in ps {
+                lo = lo.min(p.bbox.min.x);
+                hi = hi.max(p.bbox.max.x);
+            }
+            (lo, hi)
+        };
+        let (a0, a1) = hull(&patches1);
+        let (b0, b1) = hull(&patches2);
+        eprintln!(
+            "  [seed] patches {}x{} initial overlapping pairs {} | x-hulls a[{a0:.3},{a1:.3}] b[{b0:.3},{b1:.3}]",
+            patches1.len(),
+            patches2.len(),
+            initial_pairs.len()
+        );
+    }
     let mut queue = initial_pairs;
 
     // Stage 2b.56: depth cap reduced from 6 → 4 and diag threshold
@@ -101,6 +120,9 @@ pub(crate) fn find_starting_points(
     // on the served pyramid4 strip×cap pair).
     let mut raw_samples: Vec<MarchSample> = Vec::new();
 
+    if std::env::var_os("PK_SEED_TRACE").is_some() {
+        eprintln!("  [seed] candidates {}", candidate_pairs.len());
+    }
     for (patch1, patch2) in &candidate_pairs {
         // Use the midpoint of each patch as the initial guess.
         let u1_mid = (patch1.u_range.0 + patch1.u_range.1) / 2.0;
@@ -140,6 +162,9 @@ pub(crate) fn find_starting_points(
     }
 
     // Step 6: Deduplicate points within linear tolerance.
+    if std::env::var_os("PK_SEED_TRACE").is_some() {
+        eprintln!("  [seed] raw samples {}", raw_samples.len());
+    }
     let unique_samples = deduplicate(raw_samples, tolerance);
 
     // Step 7: Classify each point as transversal or tangent.

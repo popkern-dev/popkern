@@ -152,25 +152,6 @@ fn main() {
                     pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
                 );
             }
-            for (heh, he) in &b.half_edges {
-                let self_twin = he.twin == heh;
-                if !self_twin {
-                    continue;
-                }
-                let nxt = b.half_edges.get(he.next);
-                let d_next = nxt
-                    .and_then(|n| b.vertices.get(n.origin))
-                    .zip(b.vertices.get(he.origin))
-                    .map(|(a, o)| a.position.distance_to(&o.position));
-                println!(
-                    "  [selftwin] {heh:?} edge {:?} next-orig-dist {d_next:?} in_loop {:?} outer={:?}",
-                    he.edge,
-                    he.loop_,
-                    b.loops
-                        .get(he.loop_)
-                        .map(|l| b.faces[l.face].outer_loop == he.loop_)
-                );
-            }
             for (fh, fd) in &b.faces {
                 let sk = fd
                     .surface
@@ -254,36 +235,6 @@ fn main() {
                     }
                 }
             }
-            for (eh2, ed2) in &b.edges {
-                use popkern_core::geometry::curve::CurveEval;
-                let Some(c) = ed2.curve.as_ref() else {
-                    continue;
-                };
-                let Some(he2) = b.half_edges.get(ed2.half_edge) else {
-                    continue;
-                };
-                let (Some(va), Some(vb)) = (
-                    b.vertices.get(he2.origin),
-                    b.half_edges
-                        .get(he2.twin)
-                        .and_then(|t| b.vertices.get(t.origin)),
-                ) else {
-                    continue;
-                };
-                let ca = c.geometry.point_at(c.t_start);
-                let cb = c.geometry.point_at(c.t_end);
-                let d = |p: popkern_core::geometry::Point3, q: popkern_core::geometry::Point3| {
-                    p.distance_to(&q)
-                };
-                let fwd = d(ca, va.position).min(d(cb, va.position));
-                let slop = d(ca, va.position)
-                    .min(d(ca, vb.position))
-                    .max(d(cb, va.position).min(d(cb, vb.position)));
-                let _ = fwd;
-                if slop > 1e-6 {
-                    println!("  [curve-slop] {eh2:?} end-to-vertex {slop:.3e}");
-                }
-            }
             for (heh, hd) in &b.half_edges {
                 if let Some(pc) = hd.pcurve.as_ref() {
                     let (mut lo_u, mut hi_u) = (f64::MAX, f64::MIN);
@@ -362,7 +313,9 @@ fn main() {
                                 for k in 0..=32 {
                                     let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 32.0;
                                     let q = pc.point_at(t);
-                                    let du = (q.x - wu).abs().min((q.x - wu).abs() % 6.283_185_307);
+                                    let du = (q.x - wu)
+                                        .abs()
+                                        .min((q.x - wu).abs() % std::f64::consts::TAU);
                                     let dv = (q.y - wv).abs();
                                     let d = (du * du + dv * dv).sqrt();
                                     if d < best.0 {
