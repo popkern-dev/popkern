@@ -59,23 +59,48 @@ pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[u
         }
         p
     };
+    // Among candidates of one source class, pick the LONGEST edge:
+    // taking the first hit sampled the midpoint of a 0.009-long
+    // junction micro-piece lying ON the opposite operand's surface —
+    // a knife-edge verdict 5e-4 outside kept a region that was inside
+    // (measured: rotated torus × torus, face B/13v1's second fragment
+    // classified Outside from a slop-scale split sliver and BOTH
+    // sides of the record served).
+    let span_of = |he_idx: usize| -> f64 {
+        let he = &graph.half_edges[he_idx];
+        let a = graph.nodes[he.origin].position;
+        let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+        a.distance_to(&b)
+    };
+    let longest = |pred: &dyn Fn(usize) -> bool| -> Option<usize> {
+        loop_hes
+            .iter()
+            .copied()
+            .filter(|&h| pred(h))
+            .max_by(|&x, &y| {
+                span_of(x)
+                    .partial_cmp(&span_of(y))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| y.cmp(&x))
+            })
+    };
     // Try split edges first.
-    for &he_idx in loop_hes {
-        if matches!(
-            graph.half_edges[he_idx].source,
+    if let Some(he_idx) = longest(&|h| {
+        matches!(
+            graph.half_edges[h].source,
             EdgeSource::SplitA { .. } | EdgeSource::SplitB { .. }
-        ) {
-            return picked(he_idx, midpoint_of(he_idx));
-        }
+        )
+    }) {
+        return picked(he_idx, midpoint_of(he_idx));
     }
     // Then try original edges.
-    for &he_idx in loop_hes {
-        if matches!(
-            graph.half_edges[he_idx].source,
+    if let Some(he_idx) = longest(&|h| {
+        matches!(
+            graph.half_edges[h].source,
             EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
-        ) {
-            return picked(he_idx, midpoint_of(he_idx));
-        }
+        )
+    }) {
+        return picked(he_idx, midpoint_of(he_idx));
     }
     if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
         eprintln!("  [sample] centroid fallback over {} hes", loop_hes.len());
