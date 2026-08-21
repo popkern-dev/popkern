@@ -26,6 +26,65 @@ fn main() {
             );
         }
     }
+    {
+        // PK-309: SSI branch census for the rotated torus pair + witness probe.
+        use popkern_core::geometry::Transform3;
+        use popkern_core::geometry::curve::CurveEval;
+        let tb = popkern_core::topology::BRep::torus(1.0, 0.35, tol)
+            .expect("torus")
+            .transform(
+                &Transform3::rotation_x(0.5).compose(&Transform3::translation(0.7, 0.4, 0.15)),
+            )
+            .expect("transform");
+        let sa = t
+            .faces
+            .iter()
+            .next()
+            .and_then(|(_, f)| f.surface.clone())
+            .expect("surf");
+        let sb = tb
+            .faces
+            .iter()
+            .next()
+            .and_then(|(_, f)| f.surface.clone())
+            .expect("surf");
+        let tau = std::f64::consts::TAU;
+        let r = popkern_core::geometry::intersection::intersect_surfaces(
+            &sa.geometry,
+            (0.0, tau),
+            (0.0, tau),
+            &sb.geometry,
+            (0.0, tau),
+            (0.0, tau),
+            &tol,
+        );
+        let witness = popkern_core::geometry::Point3::new(1.295304, 0.056062, 0.185951);
+        match r {
+            Ok(res) => {
+                println!("SSI curves: {}", res.intersections.len());
+                for (i, isect) in res.intersections.iter().enumerate() {
+                    if let popkern_core::geometry::intersection::SurfaceSurfaceIntersection::Curve(
+                        c,
+                    ) = isect
+                    {
+                        let (t0, t1) = c.curve_3d.parameter_range();
+                        let mut best = f64::MAX;
+                        for k in 0..=256 {
+                            let tt = t0 + (t1 - t0) * k as f64 / 256.0;
+                            best = best.min(c.curve_3d.point_at(tt).distance_to(&witness));
+                        }
+                        let s0 = c.curve_3d.point_at(t0);
+                        let s1 = c.curve_3d.point_at(t1);
+                        println!(
+                            "  curve {i}: witness-dist {best:.3e} span ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
+                            s0.x, s0.y, s0.z, s1.x, s1.y, s1.z
+                        );
+                    }
+                }
+            }
+            Err(e) => println!("SSI err: {e:?}"),
+        }
+    }
     use popkern_core::geometry::curve::CurveEval;
     for (eh, ed) in t.edges.iter().take(4) {
         if let Some(c) = ed.curve.as_ref() {
