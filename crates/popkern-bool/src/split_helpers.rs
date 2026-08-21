@@ -436,8 +436,18 @@ fn presplit_boundary_at_endpoints(
         loops.extend(face.inner_loops.iter().copied());
         let mut on_vertex = false;
         let mut split_target: Option<popkern_core::topology::EdgeHandle> = None;
-        'search: for lh in loops {
-            let Some(loop_data) = brep.loops.get(lh) else {
+        // PASS 1 — the COMPLETE boundary vertex scan. An existing
+        // vertex within tolerance always wins over splitting an edge:
+        // when a neighbouring face's trim already minted the junction
+        // vertex, a single interleaved walk could reach a splittable
+        // edge FIRST (loop-order dependent) and re-split at the same
+        // point, minting a ~1e-13 stub edge between two coincident
+        // vertices. Such a stub is a point contact, not an edge — and
+        // it bridged classification flood-fill across the intersection
+        // loop (measured: torus × cylinder union kept all 27
+        // fragments; the y<0 junctions were saved only by loop order).
+        'vertex_scan: for lh in &loops {
+            let Some(loop_data) = brep.loops.get(*lh) else {
                 continue;
             };
             let start = loop_data.half_edge;
@@ -447,8 +457,27 @@ fn presplit_boundary_at_endpoints(
                 let vpos = brep.vertices[he_data.origin].position;
                 if tolerance.points_coincident(&vpos, &endpoint) {
                     on_vertex = true;
-                    break 'search;
+                    break 'vertex_scan;
                 }
+                he = he_data.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        // PASS 2 — only a boundary with NO coincident vertex may have
+        // an edge split at the endpoint.
+        'search: for lh in loops {
+            if on_vertex {
+                break;
+            }
+            let Some(loop_data) = brep.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            let mut he = start;
+            loop {
+                let he_data = &brep.half_edges[he];
                 let edge = he_data.edge;
                 if let Some(curve) = brep.edges[edge].curve.as_ref() {
                     let inv = invert_curve_at_point(curve, endpoint, tolerance);

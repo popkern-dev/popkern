@@ -29,52 +29,57 @@ pub struct RedundantEdgeReport {
 pub fn find_redundant_edges(brep: &BRep, tolerance: &Tolerance) -> RedundantEdgeReport {
     let mut report = RedundantEdgeReport::default();
 
-    for (eh, edge) in &brep.edges {
+    for (eh, _) in &brep.edges {
         report.edges_analyzed += 1;
+        if edge_redundant_now(brep, eh, tolerance) {
+            report.redundant_edges.push(eh);
+        }
+    }
 
-        let he = match brep.half_edges.get(edge.half_edge) {
-            Some(h) => h,
-            None => continue,
-        };
-        let twin = match brep.half_edges.get(he.twin) {
-            Some(t) => t,
-            None => continue,
-        };
+    report
+}
 
-        let loop_a = match brep.loops.get(he.loop_) {
-            Some(l) => l,
-            None => continue,
-        };
-        let loop_b = match brep.loops.get(twin.loop_) {
-            Some(l) => l,
-            None => continue,
-        };
+/// The full redundancy predicate against the CURRENT topology. The
+/// KEF loop re-evaluates this immediately before each dissolution:
+/// the report is computed once, and earlier KEFs change which edges
+/// two faces share — a stale single-share verdict dissolved one edge
+/// of a (by then) multi-edge shared boundary, and the survivor came
+/// out SELF-TWINNED inside the merged loop (measured on the torus ×
+/// cylinder union: 20 self-twinned grid edges, kemr −1 half-edge
+/// delta, STEP demoted to OPEN_SHELL).
+pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolerance) -> bool {
+    (|| -> Option<bool> {
+        let edge = brep.edges.get(eh)?;
+
+        let he = brep.half_edges.get(edge.half_edge)?;
+        let twin = brep.half_edges.get(he.twin)?;
+        // A self-twinned half-edge is already residue, never a
+        // dissolution candidate.
+        if he.twin == edge.half_edge {
+            return Some(false);
+        }
+        let loop_a = brep.loops.get(he.loop_)?;
+        let loop_b = brep.loops.get(twin.loop_)?;
 
         let face_a = loop_a.face;
         let face_b = loop_b.face;
 
         // Skip seam edges (face_a == face_b)
         if face_a == face_b {
-            continue;
+            return Some(false);
         }
 
-        let surf_a = match brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) {
-            Some(s) => s,
-            None => continue,
-        };
-        let surf_b = match brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) {
-            Some(s) => s,
-            None => continue,
-        };
+        let surf_a = brep.faces.get(face_a).and_then(|f| f.surface.as_ref())?;
+        let surf_b = brep.faces.get(face_b).and_then(|f| f.surface.as_ref())?;
 
         // Check same orientation
         if surf_a.orientation != surf_b.orientation {
-            continue;
+            return Some(false);
         }
 
         // Check same surface (analytic comparison only)
         if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
-            continue;
+            return Some(false);
         }
 
         // KEF on this edge is only sound when it is the ONLY edge the
@@ -104,10 +109,7 @@ pub fn find_redundant_edges(brep: &BRep, tolerance: &Tolerance) -> RedundantEdge
                     || (ola.face == face_b && olb.face == face_a)
             })
             .count();
-        if shared_count == 1 {
-            report.redundant_edges.push(eh);
-        }
-    }
-
-    report
+        Some(shared_count == 1)
+    })()
+    .unwrap_or(false)
 }

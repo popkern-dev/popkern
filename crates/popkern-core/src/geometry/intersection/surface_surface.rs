@@ -378,7 +378,14 @@ pub fn intersect_surfaces_with_handler(
         // 4. Segment at UV period jumps, weld marched closure, fit
         //    (PK-304) — mechanism and measured rationale in
         //    `surface_surface_fitting::fit_marched_trace`.
-        fit_marched_trace(&samples, is_closed, surface1, surface2, &mut results);
+        fit_marched_trace(
+            &samples,
+            is_closed,
+            surface1,
+            surface2,
+            tolerance,
+            &mut results,
+        );
 
         // 5. Branch detection: look for additional intersection
         //    branches near this seed.

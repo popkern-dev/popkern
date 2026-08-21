@@ -126,3 +126,7 @@ path = "src/pk304_torus_boolean_check.rs"
 [[bin]]
 name = "pk304_stage_probe"
 path = "src/pk304_stage_probe.rs"
+
+[[bin]]
+name = "torus_va_probe"
+path = "src/torus_va_probe.rs"

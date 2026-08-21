@@ -152,19 +152,48 @@ pub(crate) fn assemble_result(
             } else {
                 let p_start = graph.nodes[origin_node].position;
                 let p_end = graph.nodes[end_node].position;
-                let dir = p_end - p_start;
-                let len = dir.length();
-                if len > 1e-12 {
-                    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-                    let line_curve = CurveOnEdge {
-                        geometry: CurveGeometry::Line {
-                            origin: p_start,
-                            direction: dir * (1.0 / len),
-                        },
-                        t_start: 0.0,
-                        t_end: len,
-                    };
-                    builder.set_edge_curve(edge_h, line_curve);
+                // Original/split edge: ADOPT the stored curve when its
+                // endpoints coincide with this edge's nodes — the
+                // unconditional line synthesis degraded every curved
+                // ORIGINAL boundary edge to its chord (measured on the
+                // first torus union: eight grid arcs flattened, each a
+                // CurveSurfaceDeviation up to 0.30 on the served body,
+                // and OCC read the STEP as a NULL shape). Same rule as
+                // cellular assemble: fragments of a SPLIT curved edge
+                // whose stored curve spans the whole original fail the
+                // endpoint match and keep the line fallback.
+                let adopted = actual_curve.and_then(|c| {
+                    use popkern_core::geometry::curve::CurveEval;
+                    let c0 = c.geometry.point_at(c.t_start);
+                    let c1 = c.geometry.point_at(c.t_end);
+                    let tol = 1.0e-6;
+                    if c0.distance_to(&p_start) < tol && c1.distance_to(&p_end) < tol {
+                        Some(c.clone())
+                    } else if c0.distance_to(&p_end) < tol && c1.distance_to(&p_start) < tol {
+                        let mut rev = c.clone();
+                        std::mem::swap(&mut rev.t_start, &mut rev.t_end);
+                        Some(rev)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(curve) = adopted {
+                    builder.set_edge_curve(edge_h, curve);
+                } else {
+                    let dir = p_end - p_start;
+                    let len = dir.length();
+                    if len > 1e-12 {
+                        use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+                        let line_curve = CurveOnEdge {
+                            geometry: CurveGeometry::Line {
+                                origin: p_start,
+                                direction: dir * (1.0 / len),
+                            },
+                            t_start: 0.0,
+                            t_end: len,
+                        };
+                        builder.set_edge_curve(edge_h, line_curve);
+                    }
                 }
             }
 
@@ -260,6 +289,12 @@ pub(crate) fn assemble_result(
                 }
                 // Both wired — create a new edge pair and update the map
                 // so subsequent fragments can use the twin.
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [assemble-dup] ghe {ghe} (twin {graph_twin}) for {:?} src {:?}",
+                        fragment.face, graph.half_edges[ghe].source
+                    );
+                }
                 let origin_node = graph.half_edges[ghe].origin;
                 let end_node = graph.half_edges[graph_twin].origin;
                 let Some(&vh_start) = nmap.get(&origin_node) else {
@@ -379,6 +414,29 @@ pub(crate) fn assemble_result(
         .filter_map(|&heh| brep.half_edges.get(heh).map(|he| (heh, he.twin)))
         .collect();
 
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        let rev: std::collections::HashMap<HalfEdgeHandle, usize> =
+            he_map.iter().map(|(g, h)| (*h, *g)).collect();
+        for (heh, _) in &twin_fixups {
+            if let Some(he) = brep.half_edges.get(*heh) {
+                let a = brep.vertices.get(he.origin).map(|v| v.position);
+                let b = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|t| brep.vertices.get(t.origin))
+                    .map(|v| v.position);
+                let src = rev
+                    .get(heh)
+                    .map(|&g| format!("ghe {g} {:?}", graph.half_edges[g].source));
+                if let (Some(a), Some(b)) = (a, b) {
+                    eprintln!(
+                        "  [assemble-strand] {heh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) {src:?}",
+                        a.x, a.y, a.z, b.x, b.y, b.z
+                    );
+                }
+            }
+        }
+    }
     for (heh, twin_h) in &twin_fixups {
         // Point the surviving twin's twin to itself so it doesn't
         // reference a removed handle. A self-twinned survivor whose

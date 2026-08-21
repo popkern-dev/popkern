@@ -397,8 +397,9 @@ pub(crate) fn walk_all_fragments_ext(
                             .iter()
                             .map(|&h| {
                                 let n = graph.half_edges[h].origin;
+                                let e = graph.half_edges[graph.half_edges[h].twin].origin;
                                 let p = graph.nodes[n].position;
-                                format!("{h}@n{n}({:.1},{:.1},{:.1})", p.x, p.y, p.z)
+                                format!("{h}:n{n}->n{e}({:.2},{:.2},{:.2})", p.x, p.y, p.z)
                             })
                             .collect();
                         eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));

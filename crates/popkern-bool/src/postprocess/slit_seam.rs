@@ -67,26 +67,41 @@ pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamR
             if pu.is_none() && pv.is_none() {
                 return None;
             }
-            let pc_a = he.pcurve.as_ref()?;
-            let pc_b = twin.pcurve.as_ref()?;
-            let mid = |pc: &popkern_core::geometry::pcurve::Pcurve| {
-                pc.point_at(0.5 * (pc.t_start + pc.t_end))
-            };
-            let (ma, mb) = (mid(pc_a), mid(pc_b));
-            // Co-located on every periodic axis ⇒ slit. A real seam
-            // reads a whole period apart on its seam axis.
-            let co_located = |d: f64, period: Option<f64>| match period {
-                Some(p) if p > 0.0 => d.abs() < p * 0.25,
-                _ => true,
-            };
-            if std::env::var_os("PK_SLIT_TRACE").is_some() {
-                eprintln!(
-                    "  [slit] candidate {eh:?} mids ({:.4},{:.4})/({:.4},{:.4}) periods {pu:?}/{pv:?}",
-                    ma.x, ma.y, mb.x, mb.y
-                );
-            }
-            if !(co_located(ma.x - mb.x, pu) && co_located(ma.y - mb.y, pv)) {
-                return None;
+            match (he.pcurve.as_ref(), twin.pcurve.as_ref()) {
+                (Some(pc_a), Some(pc_b)) => {
+                    let mid = |pc: &popkern_core::geometry::pcurve::Pcurve| {
+                        pc.point_at(0.5 * (pc.t_start + pc.t_end))
+                    };
+                    let (ma, mb) = (mid(pc_a), mid(pc_b));
+                    // Co-located on every periodic axis ⇒ slit. A real
+                    // seam reads a whole period apart on its seam axis.
+                    let co_located = |d: f64, period: Option<f64>| match period {
+                        Some(p) if p > 0.0 => d.abs() < p * 0.25,
+                        _ => true,
+                    };
+                    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                        eprintln!(
+                            "  [slit] candidate {eh:?} mids ({:.4},{:.4})/({:.4},{:.4}) periods {pu:?}/{pv:?}",
+                            ma.x, ma.y, mb.x, mb.y
+                        );
+                    }
+                    if !(co_located(ma.x - mb.x, pu) && co_located(ma.y - mb.y, pv)) {
+                        return None;
+                    }
+                }
+                _ => {
+                    // No pcurves to arbitrate with: admit only a
+                    // geometrically ZERO-LENGTH edge — co-located by
+                    // definition (junction residue: curve-less
+                    // same-vertex loop edges left by graph assembly,
+                    // measured as un-exportable face uses demoting
+                    // the STEP shell to OPEN_SHELL).
+                    let a = brep.vertices.get(he.origin)?.position;
+                    let b = brep.vertices.get(twin.origin)?.position;
+                    if a.distance_to(&b) > _tolerance.linear() {
+                        return None;
+                    }
+                }
             }
             // Both endpoints must keep OTHER incident edges: a slit
             // whose tip has no other edge is a chart-necessary
@@ -134,6 +149,36 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
         return false;
     };
     let loop_h = hd.loop_;
+
+    // A NON-consecutive slit threads the loop through the edge twice:
+    // removing it necessarily splits the cycle in two — that is kemr
+    // (kill edge, make ring), the island rim becoming a proper inner
+    // loop. The splice below is only sound for the consecutive
+    // out-and-back flap, where both halves drop from ONE surviving
+    // cycle (the old cycle check declined every keyhole slit and the
+    // merged torus faces kept their grid slits un-dissolved).
+    let consecutive = hd.next == t || td.next == h;
+    if !consecutive {
+        match brep.kemr(h) {
+            Ok(_) => {
+                if let Err(e) = brep.validate() {
+                    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                        eprintln!("  [slit] kemr {eh:?} validate failed: {e}");
+                    }
+                    *brep = snapshot;
+                    return false;
+                }
+                return true;
+            }
+            Err(e) => {
+                if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                    eprintln!("  [slit] kemr {eh:?} declined: {e}");
+                }
+                *brep = snapshot;
+                return false;
+            }
+        }
+    }
 
     // Members of the loop before the splice (for the cycle check).
     let mut members = 0usize;

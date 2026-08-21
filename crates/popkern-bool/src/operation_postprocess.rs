@@ -118,6 +118,19 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
 
     let mut removed = 0;
     for eh in &report.redundant_edges {
+        // Re-check against the CURRENT topology: the report is
+        // computed once, and earlier KEFs in this loop change both
+        // which edges two faces share (a stale single-share verdict
+        // dissolves one edge of a multi-edge boundary and leaves the
+        // survivor self-twinned) and how far a merged face spans the
+        // chart (a merge that was span-safe at report time can wrap
+        // a period by the time its edge comes up).
+        if !crate::postprocess::redundant_edge::edge_redundant_now(result, *eh, tolerance) {
+            continue;
+        }
+        if !crate::clip::chart_cell::edge_dissolve_keeps_cell_resolvable(result, *eh, tolerance) {
+            continue;
+        }
         let he = match result.edges.get(*eh) {
             Some(e) => e.half_edge,
             None => continue,
@@ -202,10 +215,16 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
 /// post pipeline visible.
 pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        let self_twins = brep
+            .half_edges
+            .iter()
+            .filter(|(heh, he)| he.twin == *heh)
+            .count();
         eprintln!(
-            "  [post] {label}: {} faces {} edges",
+            "  [post] {label}: {} faces {} edges {} self-twinned",
             brep.faces.len(),
-            brep.edges.len()
+            brep.edges.len(),
+            self_twins
         );
     }
 }

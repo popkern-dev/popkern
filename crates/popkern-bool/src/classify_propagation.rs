@@ -41,7 +41,7 @@ pub fn classify_with_propagation(
     tolerance: &Tolerance,
 ) -> Result<(HashMap<FaceHandle, Classification>, usize), BoolError> {
     // Step 1: Build face adjacency (exclude intersection edges)
-    let adjacency = build_face_adjacency(brep, intersection_edges);
+    let adjacency = build_face_adjacency(brep, intersection_edges, tolerance);
 
     // Step 2: Find connected components
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
@@ -91,6 +91,7 @@ pub fn classify_with_propagation(
 fn build_face_adjacency(
     brep: &BRep,
     intersection_edges: &HashSet<EdgeHandle>,
+    tolerance: &Tolerance,
 ) -> HashMap<FaceHandle, Vec<FaceHandle>> {
     let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::new();
 
@@ -123,6 +124,48 @@ fn build_face_adjacency(
             None => continue,
         };
 
+        // A sub-tolerance edge is a POINT contact, not shared
+        // boundary: classification may legitimately differ across a
+        // point (two regions of a split face meet at the junction
+        // vertex where the intersection loop crosses a grid corner).
+        // Propagating across one bridged inside/outside components
+        // (measured: three ~1e-13 stub edges merged the torus disc
+        // into the rest and the union kept every fragment). Skipping
+        // only ever DISCONNECTS — the cost is one extra ray cast.
+        let degenerate = {
+            let a = brep.vertices.get(he.origin).map(|v| v.position);
+            let b = brep
+                .half_edges
+                .get(he.twin)
+                .and_then(|t| brep.vertices.get(t.origin))
+                .map(|v| v.position);
+            match (a, b) {
+                (Some(a), Some(b)) if tolerance.points_coincident(&a, &b) => {
+                    // Coincident endpoints alone do not make an edge
+                    // degenerate — every topologically CLOSED edge
+                    // (cylinder rim, seam circle) closes on one
+                    // vertex (PK-296). The curve arbitrates: a real
+                    // closed edge sweeps away from the vertex at its
+                    // midpoint; residue has no curve or never leaves
+                    // the point.
+                    match edge.curve.as_ref() {
+                        None => true,
+                        Some(c) => {
+                            use popkern_core::geometry::curve::CurveEval;
+                            let mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                            tolerance.points_coincident(&a, &mid)
+                        }
+                    }
+                }
+                _ => false,
+            }
+        };
+        if degenerate {
+            if prop_trace {
+                eprintln!("  [prop-degen] {eh:?} skipped (point contact)");
+            }
+            continue;
+        }
         if face_a != face_b {
             if prop_trace {
                 let mid = brep

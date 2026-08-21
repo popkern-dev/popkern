@@ -129,29 +129,114 @@ pub(crate) fn split_samples_at_period_jumps(
     samples: Vec<MarchSample>,
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
+    tolerance: &crate::tolerance::Tolerance,
 ) -> Vec<Vec<MarchSample>> {
     let (p1u, p1v) = surface1.periodicity();
     let (p2u, p2v) = surface2.periodicity();
     if p1u.is_none() && p1v.is_none() && p2u.is_none() && p2v.is_none() {
         return vec![samples];
     }
+    let periods = [p1u, p1v, p2u, p2v];
+    let coords = |s: &MarchSample| [s.u1, s.v1, s.u2, s.v2];
     let jumps = |a: &MarchSample, b: &MarchSample| -> bool {
-        let jump = |x: f64, y: f64, period: Option<f64>| match period {
-            Some(p) if p.is_finite() && p > 0.0 => (x - y).abs() > p * 0.5,
-            _ => false,
-        };
-        jump(a.u1, b.u1, p1u)
-            || jump(a.v1, b.v1, p1v)
-            || jump(a.u2, b.u2, p2u)
-            || jump(a.v2, b.v2, p2v)
+        coords(a)
+            .iter()
+            .zip(coords(b))
+            .zip(periods)
+            .any(|((&x, y), period)| match period {
+                Some(p) if p.is_finite() && p > 0.0 => (x - y).abs() > p * 0.5,
+                _ => false,
+            })
     };
+    // Refine the exact seam crossing between the two straddling
+    // samples and emit it as BOTH the tail's last sample and the
+    // head's first sample (each on its own branch). Cutting at the
+    // raw samples left every segment endpoint up to a marching step
+    // (~1e-3) short of the seam — far beyond snap tolerance — so the
+    // merge graph minted a dangling record node NEXT TO the exact
+    // edge-pierce node, the fragment walk dropped the record as an
+    // open chain, and the face served UNSPLIT with its disc fragment
+    // missing (measured: torus × cylinder faces adjacent to the u=0
+    // seam; 15 stranded half-edges in the assembled union).
+    let refine_crossing =
+        |a: &MarchSample, b: &MarchSample| -> Option<(MarchSample, MarchSample)> {
+            let ca = coords(a);
+            let cb = coords(b);
+            // Unwrap b to a's branch and find the FIRST seam crossing.
+            let mut best: Option<(f64, usize)> = None;
+            let mut cb_unwrapped = cb;
+            for i in 0..4 {
+                let Some(p) = periods[i] else { continue };
+                if !(p.is_finite() && p > 0.0) || (ca[i] - cb[i]).abs() <= p * 0.5 {
+                    continue;
+                }
+                let shift = ((ca[i] - cb[i]) / p).round() * p;
+                let bu = cb[i] + shift;
+                cb_unwrapped[i] = bu;
+                // Seam multiples of p strictly between ca[i] and bu.
+                let lo = ca[i].min(bu);
+                let hi = ca[i].max(bu);
+                let k = (lo / p).floor() + 1.0;
+                let seam = k * p;
+                if seam <= lo || seam >= hi {
+                    continue;
+                }
+                let t = (seam - ca[i]) / (bu - ca[i]);
+                if best.is_none_or(|(bt, _)| t < bt) {
+                    best = Some((t, i));
+                }
+            }
+            let (t, _) = best?;
+            let lerp = |x: f64, y: f64| x + t * (y - x);
+            let guess_point = crate::geometry::Point3::new(
+                lerp(a.point.x, b.point.x),
+                lerp(a.point.y, b.point.y),
+                lerp(a.point.z, b.point.z),
+            );
+            let g: Vec<f64> = (0..4).map(|i| lerp(ca[i], cb_unwrapped[i])).collect();
+            let dir = (b.point - a.point).normalized()?;
+            let refined = crate::geometry::intersection::marching::marching_newton::march_project(
+                surface1,
+                g[0],
+                g[1],
+                surface2,
+                g[2],
+                g[3],
+                &guess_point,
+                &dir,
+                tolerance,
+            )?;
+            // Both copies carry the SAME 3D point; each side's UVs are
+            // rebranched nearest its neighbour sample.
+            let rebranch = |val: f64, near: f64, period: Option<f64>| match period {
+                Some(p) if p.is_finite() && p > 0.0 => val - ((val - near) / p).round() * p,
+                _ => val,
+            };
+            let for_side = |near: &MarchSample| MarchSample {
+                u1: rebranch(refined.u1, near.u1, p1u),
+                v1: rebranch(refined.v1, near.v1, p1v),
+                u2: rebranch(refined.u2, near.u2, p2u),
+                v2: rebranch(refined.v2, near.v2, p2v),
+                point: refined.point,
+                ..refined.clone()
+            };
+            Some((for_side(a), for_side(b)))
+        };
     let mut segments: Vec<Vec<MarchSample>> = Vec::new();
     let mut current: Vec<MarchSample> = Vec::new();
     for sample in samples {
         if let Some(last) = current.last()
             && jumps(last, &sample)
         {
+            let mut head_extra: Option<MarchSample> = None;
+            if let Some((tail_x, head_x)) = refine_crossing(last, &sample) {
+                current.push(tail_x);
+                head_extra = Some(head_x);
+            }
             segments.push(std::mem::take(&mut current));
+            if let Some(hx) = head_extra {
+                current.push(hx);
+            }
         }
         current.push(sample);
     }
@@ -186,6 +271,7 @@ pub(crate) fn fit_marched_trace(
     is_closed: bool,
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
+    tolerance: &crate::tolerance::Tolerance,
     results: &mut Vec<crate::geometry::intersection::SurfaceSurfaceIntersection>,
 ) {
     // Segmentation is scoped to pairs where BOTH surfaces carry a
@@ -203,10 +289,27 @@ pub(crate) fn fit_marched_trace(
         (p1u.is_some() || p1v.is_some()) && (p2u.is_some() || p2v.is_some())
     };
     let segments = if both_periodic {
-        split_samples_at_period_jumps(samples.to_vec(), surface1, surface2)
+        split_samples_at_period_jumps(samples.to_vec(), surface1, surface2, tolerance)
     } else {
         vec![samples.to_vec()]
     };
+    // Drop degenerate blips: a jump adjacent to a sample already AT
+    // the seam leaves a segment whose whole chord is one point (the
+    // refined crossing plus its own near-duplicate). Fitted, it became
+    // a zero-length shared record self-loop that the fragment walk
+    // chewed into a mixed 10-he loop (measured: torus × cylinder face
+    // adjacent to the u = 0 seam at the tangent junction).
+    let min_chord = tolerance.linear();
+    let segments: Vec<Vec<MarchSample>> = segments
+        .into_iter()
+        .filter(|seg| {
+            let chord: f64 = seg
+                .windows(2)
+                .map(|w| w[0].point.distance_to(&w[1].point))
+                .sum();
+            chord > min_chord
+        })
+        .collect();
     let single_segment = segments.len() == 1;
     let segments: Vec<Vec<MarchSample>> = if is_closed && single_segment {
         segments

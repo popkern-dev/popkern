@@ -450,89 +450,96 @@ pub(crate) fn execute_boolean_full(
     // Falls back to standard graph-merge if cellular fails or produces
     // invalid topology.
     let t_merge = Instant::now();
-    let result = crate::cellular::boolean::cellular_graph_merge(
-        &original_a,
-        &original_b,
-        &intersection_result,
-        op,
-        tolerance,
-    )
-    .ok()
-    .filter(|r| {
-        // Explicit fallback boundary: record why the stronger
-        // (order-independent cellular) path didn't apply. Debug-only
-        // logging hid this in release — a whole campaign's worth of
-        // pcurve archaeology traced a defect to graph-merge before
-        // discovering graph-merge was even running.
-        match r.validate() {
-            Ok(()) => true,
-            Err(e) => {
-                if cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some() {
-                    eprintln!(
-                        "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
-                    );
-                }
-                if std::env::var_os("PK_CELL_TRACE").is_some() {
-                    // Dump every edge's use count + position for
-                    // non-manifold diagnosis.
-                    for (eh, edge) in r.edges.iter() {
-                        let mut uses = 0;
-                        for (_, he) in r.half_edges.iter() {
-                            if he.edge == eh && r.loops.contains_key(he.loop_) {
-                                uses += 1;
-                            }
-                        }
-                        if uses != 2 {
-                            use popkern_core::geometry::curve::CurveEval;
-                            let pos = edge
-                                .curve
-                                .as_ref()
-                                .map(|c| {
-                                    let p = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
-                                    format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z)
-                                })
-                                .unwrap_or_else(|| {
-                                    let p =
-                                        r.vertices[r.half_edges[edge.half_edge].origin].position;
-                                    format!("v({:.2},{:.2},{:.2})", p.x, p.y, p.z)
-                                });
-                            let mut endpoints = String::new();
-                            {
-                                use std::fmt::Write as _;
-                                let he0 = edge.half_edge;
-                                if r.half_edges.contains_key(he0) {
-                                    let a = r.vertices[r.half_edges[he0].origin].position;
-                                    let tw = r.half_edges[he0].twin;
-                                    if r.half_edges.contains_key(tw) {
-                                        let b = r.vertices[r.half_edges[tw].origin].position;
-                                        let _ = write!(
-                                            endpoints,
-                                            " span ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
-                                            a.x, a.y, a.z, b.x, b.y, b.z
-                                        );
-                                    }
+    // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
+    // kill-switch mirroring POPKERN_CELL_CLIP (PK-239 precedent).
+    let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
+    let result = cellular_enabled
+        .then(|| {
+            crate::cellular::boolean::cellular_graph_merge(
+                &original_a,
+                &original_b,
+                &intersection_result,
+                op,
+                tolerance,
+            )
+            .ok()
+        })
+        .flatten()
+        .filter(|r| {
+            // Explicit fallback boundary: record why the stronger
+            // (order-independent cellular) path didn't apply. Debug-only
+            // logging hid this in release — a whole campaign's worth of
+            // pcurve archaeology traced a defect to graph-merge before
+            // discovering graph-merge was even running.
+            match r.validate() {
+                Ok(()) => true,
+                Err(e) => {
+                    if cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!(
+                            "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
+                        );
+                    }
+                    if std::env::var_os("PK_CELL_TRACE").is_some() {
+                        // Dump every edge's use count + position for
+                        // non-manifold diagnosis.
+                        for (eh, edge) in r.edges.iter() {
+                            let mut uses = 0;
+                            for (_, he) in r.half_edges.iter() {
+                                if he.edge == eh && r.loops.contains_key(he.loop_) {
+                                    uses += 1;
                                 }
                             }
-                            eprintln!("  [nm] {eh:?} uses={uses} at {pos}{endpoints}");
+                            if uses != 2 {
+                                use popkern_core::geometry::curve::CurveEval;
+                                let pos = edge
+                                    .curve
+                                    .as_ref()
+                                    .map(|c| {
+                                        let p = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                                        format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+                                    })
+                                    .unwrap_or_else(|| {
+                                        let p = r.vertices[r.half_edges[edge.half_edge].origin]
+                                            .position;
+                                        format!("v({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+                                    });
+                                let mut endpoints = String::new();
+                                {
+                                    use std::fmt::Write as _;
+                                    let he0 = edge.half_edge;
+                                    if r.half_edges.contains_key(he0) {
+                                        let a = r.vertices[r.half_edges[he0].origin].position;
+                                        let tw = r.half_edges[he0].twin;
+                                        if r.half_edges.contains_key(tw) {
+                                            let b = r.vertices[r.half_edges[tw].origin].position;
+                                            let _ = write!(
+                                                endpoints,
+                                                " span ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+                                                a.x, a.y, a.z, b.x, b.y, b.z
+                                            );
+                                        }
+                                    }
+                                }
+                                eprintln!("  [nm] {eh:?} uses={uses} at {pos}{endpoints}");
+                            }
                         }
                     }
+                    false
                 }
-                false
             }
-        }
-    })
-    .map(Ok)
-    .unwrap_or_else(|| {
-        // Fallback: standard graph-merge
-        graph_merge(
-            &original_a,
-            &original_b,
-            &intersection_result,
-            op,
-            tolerance,
-        )
-    })
-    .map_err(|diag| diag.into_error())?;
+        })
+        .map(Ok)
+        .unwrap_or_else(|| {
+            // Fallback: standard graph-merge
+            graph_merge(
+                &original_a,
+                &original_b,
+                &intersection_result,
+                op,
+                tolerance,
+            )
+        })
+        .map_err(|diag| diag.into_error())?;
     let elapsed_merge = t_merge.elapsed();
     let count_merge = result.faces.len();
     metrics.push(PhaseMetric {

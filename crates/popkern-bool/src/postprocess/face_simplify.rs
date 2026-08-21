@@ -69,6 +69,35 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
         let mut group = vec![fh];
         visited.insert(fh);
 
+        // Chart-span budget for DOUBLY-periodic surfaces (torus):
+        // merging every co-surfacial patch of a torus produced one
+        // full-wrap mega-face whose loop cannot close in any UV
+        // branch (measured: 31-use loop, UV gap 0.67, STEP demoted
+        // to OPEN_SHELL, OCC NULL shape). A merge is admitted only
+        // while the group's combined chart cell stays strictly
+        // inside one period per axis — the same cell-resolvability
+        // contract as clipping and classification. Singly-periodic
+        // surfaces (cylinder walls) keep the long-tuned unguarded
+        // behavior.
+        let (u_period, v_period) = surf.geometry.periodicity();
+        let doubly_periodic = u_period.is_some() && v_period.is_some();
+        let mut group_span: Option<(f64, f64, f64, f64)> = None;
+        if doubly_periodic {
+            match crate::clip::chart_cell::face_chart_cell(brep, fh, tolerance) {
+                Some(cell) => {
+                    group_span = Some((
+                        cell.u_range.0,
+                        cell.u_range.1,
+                        cell.v_range.0,
+                        cell.v_range.1,
+                    ));
+                }
+                // A non-cell-resolvable periodic face (already
+                // winding) must not seed further growth.
+                None => continue,
+            }
+        }
+
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(fh);
 
@@ -115,6 +144,41 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
                         tolerance,
                     )
                 {
+                    if doubly_periodic {
+                        let Some((lo_u, hi_u, lo_v, hi_v)) = group_span else {
+                            continue;
+                        };
+                        let Some(ncell) =
+                            crate::clip::chart_cell::face_chart_cell(brep, neighbor, tolerance)
+                        else {
+                            continue;
+                        };
+                        // Align the neighbour's cell to the group's
+                        // branch (shift by whole periods toward the
+                        // group centre), then check the combined span.
+                        let align = |lo: f64, hi: f64, glo: f64, ghi: f64, period: f64| {
+                            let centre = 0.5 * (lo + hi);
+                            let gcentre = 0.5 * (glo + ghi);
+                            let shift = ((gcentre - centre) / period).round() * period;
+                            (lo + shift, hi + shift)
+                        };
+                        let (p_u, p_v) = match (u_period, v_period) {
+                            (Some(pu), Some(pv)) => (pu, pv),
+                            _ => continue,
+                        };
+                        let (nlo_u, nhi_u) =
+                            align(ncell.u_range.0, ncell.u_range.1, lo_u, hi_u, p_u);
+                        let (nlo_v, nhi_v) =
+                            align(ncell.v_range.0, ncell.v_range.1, lo_v, hi_v, p_v);
+                        let clo_u = lo_u.min(nlo_u);
+                        let chi_u = hi_u.max(nhi_u);
+                        let clo_v = lo_v.min(nlo_v);
+                        let chi_v = hi_v.max(nhi_v);
+                        if chi_u - clo_u >= p_u - 1.0e-9 || chi_v - clo_v >= p_v - 1.0e-9 {
+                            continue;
+                        }
+                        group_span = Some((clo_u, chi_u, clo_v, chi_v));
+                    }
                     group.push(neighbor);
                     visited.insert(neighbor);
                     queue.push_back(neighbor);

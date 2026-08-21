@@ -299,6 +299,28 @@ fn clip_and_classify(
                     if trace.clip {
                         trace_clip_output(face_a, face_b, &clipped);
                     }
+                    // Zero-extent clip residue: a record whose whole
+                    // clipped span is one point (seam-touch junction
+                    // windows on periodic pairs) mints a self-loop
+                    // shared edge in the merge graph that the fragment
+                    // walk chews into mixed loops (measured: torus ×
+                    // cylinder seam-tangent junction; the walk closed
+                    // one 10-he loop over both fragments of the face).
+                    {
+                        use popkern_core::geometry::curve::CurveEval as _;
+                        let (c0, c1) = clipped.curve_3d.parameter_range();
+                        let chord_span = clipped
+                            .curve_3d
+                            .point_at(c0)
+                            .distance_to(&clipped.curve_3d.point_at(c1));
+                        let mid_span = clipped
+                            .curve_3d
+                            .point_at(c0)
+                            .distance_to(&clipped.curve_3d.point_at(0.5 * (c0 + c1)));
+                        if chord_span.max(mid_span) < tolerance.linear() {
+                            continue;
+                        }
+                    }
                     // Classify tangency at curve midpoint.
                     // Uses popkern_core::adaptive_precision::
                     // adaptive_cross_ratio_sq_lt so near-parallel
