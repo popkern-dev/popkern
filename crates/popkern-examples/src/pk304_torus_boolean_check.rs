@@ -397,6 +397,34 @@ fn main() {
                             }
                         }
                         let opens = edge_uses.values().filter(|&&v| v != 0).count();
+                        // Positionally-welded recount: index-distinct
+                        // duplicate vertices at face borders are not
+                        // geometric cracks.
+                        let q = |x: f64| (x / 1e-6).round() as i64;
+                        let key = |i: usize| {
+                            let p = mesh.vertices[i].position;
+                            (q(p.x), q(p.y), q(p.z))
+                        };
+                        let mut welded: std::collections::HashMap<
+                            ((i64, i64, i64), (i64, i64, i64)),
+                            i64,
+                        > = std::collections::HashMap::new();
+                        for tri in &mesh.triangles {
+                            for k in 0..3 {
+                                let (a, bkey) = (key(tri[k]), key(tri[(k + 1) % 3]));
+                                if a == bkey {
+                                    continue;
+                                }
+                                let (lo, hi, sgn) = if a < bkey {
+                                    (a, bkey, 1)
+                                } else {
+                                    (bkey, a, -1)
+                                };
+                                *welded.entry((lo, hi)).or_default() += sgn;
+                            }
+                        }
+                        let geo_opens = welded.values().filter(|&&v| v != 0).count();
+                        println!("  [mesh-weld] geometric open edges: {geo_opens}");
                         println!(
                             "torus x torus mesh volume: {:.6} ({} tris, {} open/odd edges)",
                             vol6.abs() / 6.0,
