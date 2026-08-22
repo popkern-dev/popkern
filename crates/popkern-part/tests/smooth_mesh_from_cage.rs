@@ -74,6 +74,9 @@ fn truncated_corner_cage() -> ControlNet {
 
 #[test]
 fn cube_cage_becomes_a_smooth_part() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     let (part, report) = smooth_solid_from_obj(
         cube_cage(),
         Tolerance::default(),
@@ -117,6 +120,9 @@ fn cube_cage_becomes_a_smooth_part() {
 
 #[test]
 fn smooth_body_is_ordinary_geometry_downstream() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     // The point of returning a Part: the body is not a special case.
     // Tessellation is the cheapest proof that downstream consumers
     // accept it.
@@ -137,6 +143,9 @@ fn smooth_body_is_ordinary_geometry_downstream() {
 
 #[test]
 fn n_gon_and_high_valence_cage_serves_through_cage_normalization() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     // PK-198: the direct enumeration covers exactly one vertex of this
     // cage (the only all-quad neighbourhood), so the family cannot
     // close it as given. One Catmull–Clark step normalizes it into an
@@ -165,6 +174,9 @@ fn n_gon_and_high_valence_cage_serves_through_cage_normalization() {
 
 #[test]
 fn concave_hexagonal_cage_serves_through_cage_normalization() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     // PK-198 l_block class: hexagon end caps put a valence-6 face
     // point into the refined cage, whose star tables tile at
     // half-quarter granularity — the complex-level tiling unification
@@ -255,6 +267,9 @@ fn non_manifold_cage_declines_naming_the_edge() {
 
 #[test]
 fn self_intersecting_body_declines_naming_the_faces() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     // A cube cage with one corner pulled just past the opposite
     // corner: the direct smooth body grazes itself, and the
     // validate_all screen declines naming the face pair. (Deeper
@@ -356,4 +371,16 @@ fn malformed_obj_declines_at_the_parse_stage() {
         message.contains("obj parse"),
         "parse failure must be attributed to the parse stage, got: {message}"
     );
+}
+
+/// The PnS mask tables are optional (ACM ToMS package, untracked —
+/// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
+/// runtime; on checkouts without the package they skip with a visible
+/// notice instead of failing.
+fn toms_tables_or_skip() -> bool {
+    if popkern_core::geometry::polyhedral_spline::toms_tables_available() {
+        return true;
+    }
+    eprintln!("[toms] ACM ToMS 1032 package absent — smooth-mesh test skipped (PK-314/PK-315)");
+    false
 }

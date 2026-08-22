@@ -1,3 +1,5 @@
+#![cfg(toms_package)]
+
 use popkern_core::geometry::polyhedral_spline::{
     ControlNet, PolyhedralCoverageOptions, analyze_surface_complex_sewing,
     build_control_net_surface_complex, weld_clean_surface_complex_boundaries,

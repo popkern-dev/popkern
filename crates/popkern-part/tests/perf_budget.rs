@@ -94,6 +94,9 @@ fn assert_budget(name: &str, measured: Duration, budget_ms: u64) {
 /// weld, transactional repair, validation, `Part` wrap.
 #[test]
 fn smooth_mesh_cube_cage_within_budget() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     if debug_skip("smooth-mesh cube cage") {
         return;
     }
@@ -116,6 +119,9 @@ fn smooth_mesh_cube_cage_within_budget() {
 /// serving families.
 #[test]
 fn smooth_mesh_normalized_cage_within_budget() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     if debug_skip("smooth-mesh truncated-corner cage (1 CC step)") {
         return;
     }
@@ -135,4 +141,16 @@ fn smooth_mesh_normalized_cage_within_budget() {
         measured,
         85000,
     );
+}
+
+/// The PnS mask tables are optional (ACM ToMS package, untracked —
+/// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
+/// runtime; on checkouts without the package they skip with a visible
+/// notice instead of failing.
+fn toms_tables_or_skip() -> bool {
+    if popkern_core::geometry::polyhedral_spline::toms_tables_available() {
+        return true;
+    }
+    eprintln!("[toms] ACM ToMS 1032 package absent — smooth-mesh test skipped (PK-314/PK-315)");
+    false
 }

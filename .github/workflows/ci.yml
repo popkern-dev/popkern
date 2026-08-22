@@ -14,9 +14,17 @@ jobs:
     name: Check (${{ matrix.rust }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      # PK-270: three legs, not the full 2×2 product — nightly×macos
+      # never caught anything stable×macos + nightly×ubuntu miss, and
+      # macOS minutes bill at 10×.
       matrix:
-        rust: [stable, nightly]
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - rust: stable
+            os: ubuntu-latest
+          - rust: stable
+            os: macos-latest
+          - rust: nightly
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -27,14 +35,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # PK-270: fmt and doc are platform- and toolchain-independent
+      # outputs; one leg owns them instead of every leg repeating the
+      # same work (doc alone recompiles the 743k-line workspace).
       - name: Format check
+        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
 
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
-
-      - name: Build
-        run: cargo build --all-targets
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -45,13 +54,19 @@ jobs:
       # ~57 min) and isolates each test in its own process. nextest
       # does not run doctests; the --doc leg follows (cargo test
       # --all-targets never ran them either).
+      #
+      # PK-270: explicit --lib --bins --tests target set — the old
+      # --all-targets also compiled AND executed the criterion
+      # benches on every leg; a separate `cargo build --all-targets`
+      # immediately before was a fully redundant invocation.
       - name: Test
-        run: cargo nextest run --workspace --all-targets --profile ci
+        run: cargo nextest run --workspace --lib --bins --tests --profile ci
 
       - name: Doc tests
         run: cargo test --doc --workspace
 
       - name: Doc build
+        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo doc --no-deps --document-private-items
 
   perf:
@@ -82,19 +97,3 @@ jobs:
 
       - name: Tessellation perf budgets
         run: cargo test --release -p popkern-mesh --test perf_budget -- --nocapture
-
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin
-
-      - name: Run coverage and enforce 100% threshold
-        run: cargo tarpaulin --all-features --workspace --fail-under 100

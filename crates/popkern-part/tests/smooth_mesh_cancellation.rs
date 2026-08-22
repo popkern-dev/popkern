@@ -68,6 +68,9 @@ fn pre_signalled_token_cancels_smooth_mesh_before_any_work() {
 /// 0-based indices, honest total, known labels).
 #[test]
 fn never_fired_token_matches_plain_smooth_mesh_and_reports_stages() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     let options = SmoothMeshOptions::default();
     let (plain_part, plain_report) =
         smooth_solid_from_obj(CUBE_CAGE, tol(), options).expect("plain cube cage serves");
@@ -114,6 +117,9 @@ fn never_fired_token_matches_plain_smooth_mesh_and_reports_stages() {
 /// Release-only — enforced by the CI release perf job.
 #[test]
 fn mid_flight_smooth_mesh_cancellation_terminates_within_one_second() {
+    if !toms_tables_or_skip() {
+        return;
+    }
     if cfg!(debug_assertions) {
         eprintln!(
             "§17 smooth-mesh cancellation latency: skipped in debug — release-build \
@@ -167,4 +173,16 @@ fn mid_flight_smooth_mesh_cancellation_terminates_within_one_second() {
         latency < Duration::from_secs(1),
         "§17 violation: smooth-mesh cancellation took {latency:?} (required < 1 s)"
     );
+}
+
+/// The PnS mask tables are optional (ACM ToMS package, untracked —
+/// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
+/// runtime; on checkouts without the package they skip with a visible
+/// notice instead of failing.
+fn toms_tables_or_skip() -> bool {
+    if popkern_core::geometry::polyhedral_spline::toms_tables_available() {
+        return true;
+    }
+    eprintln!("[toms] ACM ToMS 1032 package absent — smooth-mesh test skipped (PK-314/PK-315)");
+    false
 }

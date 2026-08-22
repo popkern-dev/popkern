@@ -1,6 +1,14 @@
 use super::mask::MaskSpec;
 use super::types::PolyhedralSplineError;
 
+// The PnS mask tables come from the ACM ToMS 1032 package, which is
+// deliberately NOT in the repository (license — PK-315). When the
+// package is present at build time (cfg emitted by build.rs) the
+// tables embed exactly as before; when absent, every table lookup
+// returns a structured `ToMsTablesUnavailable` error instead of the
+// whole crate failing to compile (measured: every CI leg died at
+// `include_str!` for over a week before this gate, PK-314).
+#[cfg(toms_package)]
 macro_rules! table {
     ($name:literal) => {
         include_str!(concat!(
@@ -22,6 +30,42 @@ pub const REGULAR_MASK: [[f64; 9]; 9] = [
     [0.0, 0.0, 0.0, 0.0, 0.25, 0.25, 0.0, 0.25, 0.25],
 ];
 
+#[cfg(not(toms_package))]
+fn tables_unavailable(family: &'static str) -> PolyhedralSplineError {
+    PolyhedralSplineError::ToMsTablesUnavailable { family }
+}
+
+#[cfg(not(toms_package))]
+pub fn extraordinary(_valence: usize) -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("extraordinary star"))
+}
+
+#[cfg(not(toms_package))]
+pub fn ngon(_sides: usize) -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("n-gon"))
+}
+
+#[cfg(not(toms_package))]
+pub fn polar(_sectors: usize) -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("polar"))
+}
+
+#[cfg(not(toms_package))]
+pub fn t0() -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("T0"))
+}
+
+#[cfg(not(toms_package))]
+pub fn t1() -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("T1"))
+}
+
+#[cfg(not(toms_package))]
+pub fn t2() -> Result<MaskSpec, PolyhedralSplineError> {
+    Err(tables_unavailable("T2"))
+}
+
+#[cfg(toms_package)]
 pub fn extraordinary(valence: usize) -> Result<MaskSpec, PolyhedralSplineError> {
     match valence {
         3 => Ok(spec("eopSct3.csv", 48, 7, table!("eopSct3.csv"))),
@@ -37,6 +81,7 @@ pub fn extraordinary(valence: usize) -> Result<MaskSpec, PolyhedralSplineError> 
     }
 }
 
+#[cfg(toms_package)]
 pub fn ngon(sides: usize) -> Result<MaskSpec, PolyhedralSplineError> {
     match sides {
         3 => Ok(spec("ngonSct3.csv", 48, 12, table!("ngonSct3.csv"))),
@@ -52,6 +97,7 @@ pub fn ngon(sides: usize) -> Result<MaskSpec, PolyhedralSplineError> {
     }
 }
 
+#[cfg(toms_package)]
 pub fn polar(sectors: usize) -> Result<MaskSpec, PolyhedralSplineError> {
     match sectors {
         3 => Ok(spec("polarSct3.csv", 36, 4, table!("polarSct3.csv"))),
@@ -68,18 +114,22 @@ pub fn polar(sectors: usize) -> Result<MaskSpec, PolyhedralSplineError> {
     }
 }
 
-pub fn t0() -> MaskSpec {
-    spec("T0.csv", 64, 14, table!("T0.csv"))
+#[cfg(toms_package)]
+pub fn t0() -> Result<MaskSpec, PolyhedralSplineError> {
+    Ok(spec("T0.csv", 64, 14, table!("T0.csv")))
 }
 
-pub fn t1() -> MaskSpec {
-    spec("T1.csv", 128, 18, table!("T1.csv"))
+#[cfg(toms_package)]
+pub fn t1() -> Result<MaskSpec, PolyhedralSplineError> {
+    Ok(spec("T1.csv", 128, 18, table!("T1.csv")))
 }
 
-pub fn t2() -> MaskSpec {
-    spec("T2.csv", 256, 20, table!("T2.csv"))
+#[cfg(toms_package)]
+pub fn t2() -> Result<MaskSpec, PolyhedralSplineError> {
+    Ok(spec("T2.csv", 256, 20, table!("T2.csv")))
 }
 
+#[cfg(toms_package)]
 fn spec(name: &'static str, rows: usize, cols: usize, text: &'static str) -> MaskSpec {
     MaskSpec {
         name,

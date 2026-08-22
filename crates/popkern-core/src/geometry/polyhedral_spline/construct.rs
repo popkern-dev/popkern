@@ -64,19 +64,19 @@ pub fn construct_polar(
 
 pub fn construct_t0(stencil: [Point3; 14]) -> Result<PolyhedralSpline, PolyhedralSplineError> {
     let family = PolyhedralSplineFamily::T0;
-    let patches = apply_mask_to_patches(tables::t0(), family, 3, 3, &stencil)?;
+    let patches = apply_mask_to_patches(tables::t0()?, family, 3, 3, &stencil)?;
     spline(family, patches)
 }
 
 pub fn construct_t1(stencil: [Point3; 18]) -> Result<PolyhedralSpline, PolyhedralSplineError> {
     let family = PolyhedralSplineFamily::T1;
-    let patches = apply_mask_to_patches(tables::t1(), family, 3, 3, &stencil)?;
+    let patches = apply_mask_to_patches(tables::t1()?, family, 3, 3, &stencil)?;
     spline(family, patches)
 }
 
 pub fn construct_t2(stencil: [Point3; 20]) -> Result<PolyhedralSpline, PolyhedralSplineError> {
     let family = PolyhedralSplineFamily::T2;
-    let patches = apply_mask_to_patches(tables::t2(), family, 3, 3, &stencil)?;
+    let patches = apply_mask_to_patches(tables::t2()?, family, 3, 3, &stencil)?;
     spline(family, patches)
 }
 

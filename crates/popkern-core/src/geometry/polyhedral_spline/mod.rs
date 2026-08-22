@@ -34,6 +34,16 @@ pub use construct::{
     construct_t0, construct_t1, construct_t2, construct_two_triangles_two_quads,
 };
 pub use net::{ControlFace, ControlNet, ControlVertex};
+
+/// True when the ACM ToMS 1032 mask tables were embedded at build
+/// time (the optional, deliberately untracked package was present —
+/// see `PolyhedralSplineError::ToMsTablesUnavailable`). Table-backed
+/// construction fails with that structured error when this is false;
+/// tests exercising PnS at runtime should skip WITH A NOTICE instead
+/// of failing on checkouts without the package.
+pub const fn toms_tables_available() -> bool {
+    cfg!(toms_package)
+}
 pub use readiness::{
     PatchDomain, PatchEdgeRole, PatchEdgeUse, PolyhedralSplineBrepReadinessReport,
     validate_brep_readiness,
@@ -47,25 +57,39 @@ pub use validate::{
     validate_patch_interior_regularity, validate_polyhedral_spline,
 };
 
-#[cfg(test)]
+// The PnS test modules embed ACM ToMS fixtures and mask tables; they
+// gate on the optional package the same way `tables.rs` does. The
+// notice module keeps the skip VISIBLE in test output when the
+// package is absent (fresh clones, CI) — the OCC-oracle
+// skip-with-notice precedent.
+#[cfg(all(test, not(toms_package)))]
+mod toms_package_notice {
+    #[test]
+    fn toms_package_absent_notice() {
+        eprintln!(
+            "[toms] ACM ToMS 1032 package absent — PnS table tests skipped              (tables.rs returns ToMsTablesUnavailable; see PK-314/PK-315)"
+        );
+    }
+}
+#[cfg(all(test, toms_package))]
 #[path = "brep_export_tests.rs"]
 mod brep_export_tests;
 #[cfg(test)]
 #[path = "catmull_clark_tests.rs"]
 mod catmull_clark_tests;
-#[cfg(test)]
+#[cfg(all(test, toms_package))]
 #[path = "complex_tests.rs"]
 mod complex_tests;
-#[cfg(test)]
+#[cfg(all(test, toms_package))]
 #[path = "coverage_tests.rs"]
 mod coverage_tests;
-#[cfg(test)]
+#[cfg(all(test, toms_package))]
 #[path = "diagnostics_tests.rs"]
 mod diagnostics_tests;
-#[cfg(test)]
+#[cfg(all(test, toms_package))]
 #[path = "readiness_tests.rs"]
 mod readiness_tests;
-#[cfg(test)]
+#[cfg(all(test, toms_package))]
 #[path = "tests.rs"]
 mod tests;
 pub use atlas::{

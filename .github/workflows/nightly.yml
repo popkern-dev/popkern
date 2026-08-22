@@ -19,6 +19,14 @@ name: Nightly heavy tier
 #    airplane) rather than raising past the cap.
 # The two tests run as PARALLEL jobs so neither steals the other's
 # budget; the first real CI runs calibrate these numbers downward.
+#
+# PK-314/PK-315: both heavy suites are built from the ACM ToMS 1032
+# package, which is deliberately NOT in the repository (license).
+# The suites now gate on cfg(toms_package), so without the guard
+# below a hosted runner would compile EMPTY test binaries and report
+# a vacuous green — worse than an honest red. The guard fails fast
+# with the real reason until PK-315 decides how CI obtains the
+# package (vendor the tables vs checksummed fetch vs keep skipping).
 
 on:
   schedule:
@@ -37,6 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Require the ToMS fixture package (PK-315)
+        run: |
+          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table ]; then
+            echo "::error::ACM ToMS 1032 package unavailable on this runner — the heavy tier would be vacuous. Resolution is PK-315 (vendor vs fetch vs skip)."
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -53,6 +68,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Require the ToMS fixture package (PK-315)
+        run: |
+          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table ]; then
+            echo "::error::ACM ToMS 1032 package unavailable on this runner — the heavy tier would be vacuous. Resolution is PK-315 (vendor vs fetch vs skip)."
+            exit 1
+          fi
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -61,3 +83,29 @@ jobs:
         run: |
           cargo test --release -p popkern-examples \
             --test pns_toms_step_roundtrip -- --ignored --nocapture
+
+  coverage:
+    # PK-270: moved off the per-push gate — tarpaulin's RUSTFLAGS
+    # guarantee a cold instrumented rebuild of the whole workspace
+    # plus a serial 8,500-test run, which is nightly-scale work. The
+    # prebuilt binary replaces the from-source `cargo install` that
+    # rebuilt tarpaulin itself on every run. The 100% threshold is
+    # the recorded repo target; the first green nightly runs are the
+    # calibration data (PK-265).
+    name: Coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+
+      - name: Run coverage and enforce 100% threshold
+        run: cargo tarpaulin --all-features --workspace --fail-under 100

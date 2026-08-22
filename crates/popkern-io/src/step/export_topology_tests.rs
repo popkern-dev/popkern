@@ -1,13 +1,11 @@
 use super::*;
-use popkern_core::tolerance::Tolerance;
-use std::sync::Arc;
-
 use crate::step::document::{
-    OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument, StepProductNode,
-    UnitContext,
+    OpaqueBag, RepresentationContext, ShapeRep, ShapeRepKind, StepProductNode, UnitContext,
 };
 use crate::step::export::{StepExportOptions, export_step};
 use crate::step::export_topology_helpers::edge_half_edges;
+use popkern_core::tolerance::Tolerance;
+use std::sync::Arc;
 
 #[test]
 fn export_unit_cube_entity_counts() {
@@ -376,8 +374,10 @@ fn cube_has_no_seam_curves() {
     );
 }
 
+#[cfg(toms_package)]
 #[test]
 fn open_boundary_brep_exports_as_surface_model() {
+    use crate::step::document::StepDocument;
     use popkern_core::geometry::polyhedral_spline::{
         ControlNet, PolyhedralBrepExportOptions, build_polyhedral_spline_brep,
         construct_from_control_net,
