@@ -2282,8 +2282,8 @@ fn pr08_labels_best_match_stam_top_vector_rings_by_similarity() {
     assert!(best_odd.residual < 1.0e-12 && best_even.residual < 1.0e-12);
     // Near-tie winners flip with platform libm (macOS: even-label 4); the
     // residual is the class pin, members are Linux measurements (PK-291).
-    #[cfg(target_os = "linux")]
-    assert_eq!((best_odd.label_index, best_even.label_index), (12, 1));
+    let members = (best_odd.label_index, best_even.label_index);
+    assert!(cfg!(not(target_os = "linux")) || members == (12, 1));
 }
 
 #[test]
@@ -13415,8 +13415,7 @@ fn stam_appendix_a_scaled_pr08_q13_q2_dyadic_level_sweep_closes_finite_level() {
         "finite dyadic level sweep should expose pre-solved §4.2/§4.3 closure, got {finite_level_best:?}"
     );
     // Near-tie (macOS libm picks 2); class pin = closure bound above.
-    #[cfg(target_os = "linux")]
-    assert_eq!(finite_level_best.level_exponent, 4);
+    assert!(cfg!(not(target_os = "linux")) || finite_level_best.level_exponent == 4);
 
     let collapsed_rows = scale_tensor_border_rows(&base_rows, ring.lambda.powi(12));
     let collapsed_tensor_border =
