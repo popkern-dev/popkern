@@ -199,20 +199,23 @@ def main():
     import sys
     sys.path.insert(0, 'tools/reference/pns-tables')
     from polar import load_package_csv
-    ref = load_package_csv(
-        "docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table/T0.csv"
-    )
-    gen = t0_mask()
-    if gen.shape != ref.shape:
-        print(f"T0 SHAPE {gen.shape} vs {ref.shape}")
-        sys.exit(1)
-    dev = float(np.abs(gen - ref).max())
-    print(f"T0: shape {gen.shape} max|dev| {dev:.3e}")
-    sys.exit(0 if dev < 2e-9 else 1)
+    worst = 0.0
+    for name, fn in (("T0", t0_mask), ("T1", t1_mask), ("T2", t2_mask)):
+        ref = load_package_csv(
+            f"docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table/{name}.csv"
+        )
+        gen = fn()
+        if gen.shape != ref.shape:
+            print(f"{name} SHAPE {gen.shape} vs {ref.shape}")
+            sys.exit(1)
+        dev = float(np.abs(gen - ref).max())
+        worst = max(worst, dev)
+        print(f"{name}: shape {gen.shape} max|dev| {dev:.3e}")
+    print(f"worst: {worst:.3e}")
+    sys.exit(0 if worst < 2e-9 else 1)
 
 
-if __name__ == "__main__":
-    main()
+
 
 
 # ---------------------------------------------------------------------------
@@ -583,3 +586,229 @@ def t1_mask():
             for c in range(c0, c1):
                 rows.append([float(x) for x in g[r][c]])
     return np.array(rows)
+
+
+# ---------------------------------------------------------------------------
+# T2 (tau2): 20-node hexagon net, 4x4 bi-3 macro-patches = 13x13 grid.
+#
+# Net (0-based indices; labels n1..n20 are index+1):
+#   top strip    inner [14,13,12,11,10], outer [19,18,17,16,15] (dense)
+#   bottom strip inner [7,6,5,4],        outer [3,2,1,0]        (sparse)
+#   left side    inner [18,13,6,2],      outer [19,14,7,3]      (sparse)
+#   right side   inner [16,11,9,5,1],    outer [15,10,8,4,0]    (dense;
+#     n9/n10 are the right-side mid-column pair)
+#
+# Construction (20quaT.pdf tau2 + Appendix A):
+# - four split-bi-2 tensor-borders with Table-1 reparameterized first
+#   layers (a on the alpha(u)=1-u/3 grid {1,8/9,5/6,7/9,2/3};
+#   beta = -+2/18 dense, +-3/18 sparse; all measured to 5e-10 against
+#   the oracle and equal to the printed constants);
+# - central coefficient q: the paper's PRINTED 12 weights (3 digits,
+#   adjusted to sum to 1), diagonally symmetric over the net;
+# - central row and column: two C2-joined cubics through two
+#   coefficients at each end and q (Appendix A's curve rule);
+# - every other interior cell: the AVERAGE of the row-wise and
+#   column-wise five-anchor constructions (Appendix A step 4).
+# ---------------------------------------------------------------------------
+
+T2_COLS = 20
+
+T2_TOP = ([14, 13, 12, 11, 10], [19, 18, 17, 16, 15])
+T2_BOTTOM = ([7, 6, 5, 4], [3, 2, 1, 0])
+T2_LEFT = ([18, 13, 6, 2], [19, 14, 7, 3])
+T2_RIGHT = ([16, 11, 9, 5, 1], [15, 10, 8, 4, 0])
+
+# alpha grid: alpha(t) = 1 - t/3 at t = 0, 1/3, 1/2, 2/3, 1.
+_A = [F(1), F(8, 9), F(5, 6), F(7, 9), F(2, 3)]
+T2_A_DENSE = [(_A[4], _A[3]), (_A[3], _A[2]), (_A[2], _A[1]), (_A[1], _A[0])]
+T2_A_SIDE = [(_A[0], _A[1]), (_A[1], _A[2]), (_A[2], _A[3]), (_A[3], _A[4])]
+T2_B_DENSE = [F(-1, 9), F(1, 9), F(-1, 9), F(1, 9)]
+T2_B_SPARSE = [F(1, 6), F(-1, 6), F(1, 6), F(-1, 6)]
+
+# Printed central-coefficient weights (20quaT.pdf Appendix A), at the
+# measured node positions (0-based).
+T2_Q = {
+    15: F(1, 100),
+    4: F(-14, 1000), 10: F(-14, 1000), 16: F(-14, 1000), 18: F(-14, 1000),
+    8: F(-19, 1000), 17: F(-19, 1000),
+    0: F(8, 1000), 19: F(8, 1000),
+    11: F(71, 1000),
+    9: F(217, 1000), 12: F(217, 1000),
+    5: F(179, 1000), 13: F(179, 1000),
+    1: F(-22, 1000), 14: F(-22, 1000),
+    6: F(286, 1000),
+    2: F(-2, 100), 7: F(-2, 100),
+    3: F(3, 1000),
+}
+
+
+def t2_quad_pieces(count):
+    idx = list(range(count))
+    if count == 4:
+        a = split_quad(bb2_piece((idx[0], idx[1], idx[2])), F(2, 3))
+        b = split_quad(bb2_piece((idx[1], idx[2], idx[3])), F(1, 3))
+        return [a[0], a[1], b[0], b[1]]
+    left, right = split_quad(bb2_piece((idx[1], idx[2], idx[3])), F(1, 2))
+    return [
+        bb2_piece((idx[0], idx[1], idx[2])),
+        left,
+        right,
+        bb2_piece((idx[2], idx[3], idx[4])),
+    ]
+
+
+def t2_border_and_layer(inner, outer, a_list, b_list):
+    """Boundary + first-layer 13-cell lines for one side."""
+    boundary = [None] * 13
+    layer = [None] * 13
+
+    def elev(q):
+        return [
+            q[0],
+            [a * F(1, 3) + b * F(2, 3) for a, b in zip(q[0], q[1])],
+            [a * F(2, 3) + b * F(1, 3) for a, b in zip(q[1], q[2])],
+            q[2],
+        ]
+
+    def c2l(q0, q1, beta, a0, a1):
+        n = T2_COLS
+        def qp(q):
+            return [q[0], [2 * (b - a) for a, b in zip(q[0], q[1])],
+                    [a - 2 * b + c for a, b, c in zip(q[0], q[1], q[2])]]
+        Pw = qp(q0)
+        Dw = [Pw[1], [2 * x for x in Pw[2]], [F(0)] * n]
+        Rw = qp([[x - y for x, y in zip(a, b)] for a, b in zip(q1, q0)])
+        Lp = [[F(0)] * n for _ in range(4)]
+        for k in range(3):
+            for i in range(n):
+                Lp[k][i] += Pw[k][i]
+        for k in range(2):
+            for i in range(n):
+                Lp[k + 1][i] += beta * Dw[k][i] / 3
+                Lp[k + 2][i] -= beta * Dw[k][i] / 3
+        da = a1 - a0
+        for k in range(3):
+            for i in range(n):
+                Lp[k][i] += F(2, 3) * a0 * Rw[k][i]
+                Lp[k + 1][i] += F(2, 3) * da * Rw[k][i]
+        b0 = Lp[0]
+        b1 = [p0 + p1 / 3 for p0, p1 in zip(Lp[0], Lp[1])]
+        b2 = [p0 + F(2, 3) * p1 + p2 / 3 for p0, p1, p2 in zip(Lp[0], Lp[1], Lp[2])]
+        b3 = [p0 + p1 + p2 + p3 for p0, p1, p2, p3 in zip(Lp[0], Lp[1], Lp[2], Lp[3])]
+        return [b0, b1, b2, b3]
+
+    for pc, piece in enumerate(t2_quad_pieces(len(inner))):
+        q0 = []
+        q1 = []
+        for j in range(3):
+            v0 = [F(0)] * T2_COLS
+            v1 = [F(0)] * T2_COLS
+            for pos, w in piece[j]:
+                v0[inner[pos]] += w / 2
+                v0[outer[pos]] += w / 2
+                v1[inner[pos]] += w
+            q0.append(v0)
+            q1.append(v1)
+        bnd = elev(q0)
+        a0, a1 = a_list[pc]
+        lay = c2l(q0, q1, b_list[pc], a0, a1)
+        for j in range(4):
+            c = 3 * pc + j
+            if boundary[c] is None:
+                boundary[c] = bnd[j]
+                layer[c] = lay[j]
+    return boundary, layer
+
+
+def t2_five_anchor(e0, e1, m, e1p, e0p):
+    """Two C2-joined cubics (each split 2:1 outward) through two
+    coefficients at each end and the central coefficient."""
+    p0 = e0
+    p1 = [(3 * b - a) / 2 for a, b in zip(e0, e1)]
+    q3 = e0p
+    q2 = [(3 * b - a) / 2 for a, b in zip(e0p, e1p)]
+    p2 = [(b + 4 * c - d) / 4 for b, c, d in zip(p1, m, q2)]
+    q1 = [2 * b - c for b, c in zip(m, p2)]
+
+    def split(q, s):
+        def lerp(a, b):
+            return [(1 - s) * x + s * y for x, y in zip(a, b)]
+
+        left = [q[0]]
+        right = [q[-1]]
+        work = q
+        while len(work) > 1:
+            work = [lerp(a, b) for a, b in zip(work, work[1:])]
+            left.append(work[0])
+            right.insert(0, work[-1])
+        return left, right
+
+    L, Lr = split([p0, p1, p2, m], F(2, 3))
+    Rl, R = split([m, q1, q2, q3], F(1, 3))
+    return L + Lr[1:] + Rl[1:] + R[1:]
+
+
+def t2_grid():
+    g = [[None] * 13 for _ in range(13)]
+    top_b, top_l = t2_border_and_layer(*T2_TOP, T2_A_DENSE, T2_B_DENSE)
+    bot_b, bot_l = t2_border_and_layer(*T2_BOTTOM, T2_A_DENSE, T2_B_SPARSE)
+    left_b, left_l = t2_border_and_layer(*T2_LEFT, T2_A_SIDE, T2_B_SPARSE)
+    right_b, right_l = t2_border_and_layer(*T2_RIGHT, T2_A_SIDE, T2_B_DENSE)
+    for c in range(13):
+        g[0][c] = top_b[c]
+        g[1][c] = top_l[c]
+        g[12][c] = bot_b[c]
+        g[11][c] = bot_l[c]
+    for r in range(2, 11):
+        g[r][0] = left_b[r]
+        g[r][1] = left_l[r]
+        g[r][12] = right_b[r]
+        g[r][11] = right_l[r]
+
+    q = [F(0)] * T2_COLS
+    for idx, w in T2_Q.items():
+        q[idx] = w
+    g[6][6] = q
+
+    # Central row and column.
+    row6 = t2_five_anchor(g[6][0], g[6][1], q, g[6][11], g[6][12])
+    col6 = t2_five_anchor(g[0][6], g[1][6], q, g[11][6], g[12][6])
+    for c in range(2, 11):
+        if c != 6:
+            g[6][c] = row6[c]
+    for r in range(2, 11):
+        if r != 6:
+            g[r][6] = col6[r]
+
+    # Interior: average of row-wise and column-wise constructions.
+    rows = {}
+    cols = {}
+    for r in range(2, 11):
+        if r != 6:
+            rows[r] = t2_five_anchor(g[r][0], g[r][1], g[r][6], g[r][11], g[r][12])
+    for c in range(2, 11):
+        if c != 6:
+            cols[c] = t2_five_anchor(g[0][c], g[1][c], g[6][c], g[11][c], g[12][c])
+    for r in range(2, 11):
+        for c in range(2, 11):
+            if r == 6 or c == 6:
+                continue
+            g[r][c] = [
+                (a + b) / 2 for a, b in zip(rows[r][c], cols[c][r])
+            ]
+    return g
+
+
+def t2_mask():
+    g = t2_grid()
+    rows = []
+    for rb in range(4):
+        for cb in (3, 2, 1, 0):
+            for r in range(3 * rb, 3 * rb + 4):
+                for c in range(3 * cb, 3 * cb + 4):
+                    rows.append([float(x) for x in g[r][c]])
+    return np.array(rows)
+
+
+if __name__ == "__main__":
+    main()
