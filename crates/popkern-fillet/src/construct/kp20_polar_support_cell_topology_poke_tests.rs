@@ -104,7 +104,9 @@ fn batched_eight_cell_poke_emits_bindable_rectangular_support_cells() {
     .expect("macro support-cell poke");
     let support_faces = macro_poke
         .sub_faces
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|sector| sector[3])
         .collect::<Vec<_>>();
     let support_faces = pattern

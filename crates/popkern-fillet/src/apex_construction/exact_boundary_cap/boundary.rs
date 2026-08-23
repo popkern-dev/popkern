@@ -241,12 +241,8 @@ pub(crate) fn prepare_exact_boundary_curves(
         };
         let weld = shared_endpoint(&fillet.prepared, &next_fillet.prepared);
         let mut prepared = fillet.prepared.clone();
-        for control_point in &mut prepared.control_points {
-            *control_point = weld;
-        }
-        for weight in &mut prepared.weights {
-            *weight = 1.0;
-        }
+        prepared.control_points.fill(weld);
+        prepared.weights.fill(1.0);
         curves.push(PreparedSourceCurve {
             sector_index: sector.sector_index,
             sector_name: sector.sector_name.clone(),

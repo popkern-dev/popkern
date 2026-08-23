@@ -212,9 +212,7 @@ fn transactional_commit_rolls_back_post_validation_failure() {
     let before_counts = topology_counts(&brep);
     let source_surface_before = brep.faces[sector.cap_face].surface.clone();
     let collapsed = candidate.inner_patch.surface.control_points[0];
-    for point in &mut candidate.inner_patch.surface.control_points {
-        *point = collapsed;
-    }
+    candidate.inner_patch.surface.control_points.fill(collapsed);
 
     let diagnostic = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
         .expect_err("degenerate committed surface must fail post-validation");

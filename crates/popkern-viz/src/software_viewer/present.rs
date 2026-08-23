@@ -7,8 +7,10 @@ pub fn rgba_to_u32(rgba: [u8; 4]) -> u32 {
 
 /// Convert an RGBA byte buffer to a u32 buffer for softbuffer.
 pub fn rgba_buf_to_u32_buf(rgba: &[u8]) -> Vec<u32> {
-    rgba.chunks_exact(4)
-        .map(|px| rgba_to_u32([px[0], px[1], px[2], px[3]]))
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|px| rgba_to_u32(*px))
         .collect()
 }
 
