@@ -25,8 +25,24 @@ jobs:
             os: macos-latest
           - rust: nightly
             os: ubuntu-latest
+    env:
+      # Hosted runners exhaust their ~14 GB free disk linking the full
+      # nextest binary set with debuginfo (ld dies with SIGBUS once the
+      # disk fills). CI stack traces come from test names, not debug
+      # symbols, so drop debuginfo in CI builds only.
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
+
+      # Reclaim ~25 GB of preinstalled toolchains we never use; the
+      # workspace's test dep graph at opt-2 does not fit otherwise.
+      - name: Free runner disk space
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android \
+            /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
 
       - uses: dtolnay/rust-toolchain@master
         with:
