@@ -276,9 +276,32 @@ def _gram(deg):
 # against the tables for every n).
 SIGMA_Z = {6: 0.129234080, 7: 0.200304429, 8: 0.270169851}
 
+# F3 tie-break weight of the extension-agreement interior objective, one
+# tuned scalar per valence (PK-318; same category as SIGMA_Z — fitted against
+# the reference oracle by golden-section on max table deviation). With these
+# the guided tables agree with the package to 2.4e-3 / 3.3e-3 / 4.1e-3
+# (ngon, n = 6/7/8; eop tighter still) versus ~2e-2..4.3e-2 for pure F3.
+# A 3rd-derivative seam-jump term was tried and FALSIFIED: every per-valence
+# fit drove its weight to ~0 (n=6: 8.7e-14) without improving agreement.
+EXT_EPS = {6: 0.0600736082, 7: 0.0905387318, 8: 0.10741284}
 
-def ngon_macro(n, sigma_x=None, sigma_z=None):
+
+def ngon_macro(n, sigma_x=None, sigma_z=None, interior='guided', ext_weights=None):
     """2x2 bi-3 macro n-gon cap for n >= 6 (self-derived, 14bi234-faithful).
+
+    interior selects the objective that sets the interior coefficients under
+    the pinned borders/G1/central-jet constraints:
+      'guided' (default) — extension-agreement functional: minimize the
+                 squared jump of the 2nd cross-seam derivative over the
+                 internal C1 junctions of each sector's 2x2 macro (drives
+                 neighbouring sub-patches toward extensions of one
+                 polynomial — the measured character of the reference
+                 package's guided interiors) plus EXT_EPS[n] times F3 as
+                 tie-break. ext_weights = (w2, w3, eps) overrides
+                 (w3 kept for the falsification record; fits drive it to 0).
+      'f3'     — the published F3 fairness functional (14bi234 Fig. 23c)
+                 alone; kept as the paper-literal fallback and for the
+                 falsification/tuning harness.
 
     Package-verified structure: split borders and transversal layers under
     beta = (3^{2x2}) with gamma*c, gamma = (n-2.3)/(2n-7.72) (4.7e-11); G1
@@ -288,12 +311,14 @@ def ngon_macro(n, sigma_x=None, sigma_z=None):
     e = (0.02n+1.5)/(n+1.75) (exact); central cells are a quadratic jet
     composed with the sigma map (2-jet: SIGMA_Z + assignment (2-bar)).
 
-    The remaining interior coefficients minimize F3 as published in
-    14bi234 Fig. 23c. The reference package sets
-    them by an unpublished guided-sampling pipeline instead (19bi34-style),
-    so these tables deviate from the package by up to ~3e-2 in interior
-    cells only — borders, junction C1, sector G1, centre and central jet
-    are identical. All continuity contracts are exact by construction.
+    The reference package sets the remaining interior coefficients by an
+    unpublished guided-sampling pipeline (19bi34-style). The default
+    'guided' objective reproduces that pipeline's measured character —
+    neighbouring sub-patches close to polynomial extensions of one another —
+    leaving <= 4.1e-3 interior-only deviation from the package (borders,
+    junction C1, sector G1, centre and central jet identical; all
+    continuity contracts exact by construction). See EXT_EPS and the
+    interior parameter above.
     """
     if sigma_z is None:
         sigma_z = SIGMA_Z[n]
@@ -495,8 +520,9 @@ def ngon_macro(n, sigma_x=None, sigma_z=None):
     Q = np.zeros((N, N))
     L = np.zeros((N, m))
 
-    def accumulate(coeff_x, coeff_d, gram_pair, weight):
+    def accumulate(coeff_x, coeff_d, gram_pair, weight, into=None):
         # coeff arrays: list-of-lists BB grid of (x_row, d_row)
+        Qt, Lt = (Q, L) if into is None else into
         Gi, Gj = gram_pair
         ni, nj = len(coeff_x), len(coeff_x[0])
         for i1 in range(ni):
@@ -507,9 +533,9 @@ def ngon_macro(n, sigma_x=None, sigma_z=None):
                         if wgt == 0.0:
                             continue
                         Q_ = np.outer(coeff_x[i1][j1], coeff_x[i2][j2])
-                        Q[:, :] += wgt * (Q_ + Q_.T) / 2 * 2
-                        L[:, :] += wgt * (np.outer(coeff_x[i1][j1], coeff_d[i2][j2])
-                                          + np.outer(coeff_x[i2][j2], coeff_d[i1][j1]))
+                        Qt[:, :] += wgt * (Q_ + Q_.T) / 2 * 2
+                        Lt[:, :] += wgt * (np.outer(coeff_x[i1][j1], coeff_d[i2][j2])
+                                           + np.outer(coeff_x[i2][j2], coeff_d[i1][j1]))
 
     DIFFW = {1: ((0, -1), (1, 1)), 2: ((0, 1), (1, -2), (2, 1)),
              3: ((0, -1), (1, 3), (2, -3), (3, 1))}
@@ -539,6 +565,47 @@ def ngon_macro(n, sigma_x=None, sigma_z=None):
                                          for b, wj in DIFFW.get(dj, ((0, 1),)))
                            for j0 in range(nj)] for i0 in range(ni)]
                     accumulate(gx, gd, (GRAM[3 - di], GRAM[3 - dj]), w)
+
+    # ---- optional guided interior: extension-agreement objective ----
+    # Minimize the squared cross-seam jump of the 2nd and 3rd derivatives
+    # over each sector's two internal C1 junction lines (both directions).
+    # Sub-patches cover equal halves, so equal local derivatives across a
+    # junction == a continuous global derivative; zeroing both jumps would
+    # make the four sub-patches extensions of a single bi-3 — the measured
+    # character of the reference package's guided interiors. The G1
+    # constraints keep that unreachable, so the minimizer balances toward
+    # it; a small F3 term breaks the remaining indifference fairly.
+    if interior == 'guided':
+        w2, w3, eps = ext_weights if ext_weights is not None else (1.0, 0.0, EXT_EPS[n])
+        Qe = np.zeros((N, N))
+        Le = np.zeros((N, m))
+
+        def seam_jump_terms(k, direction):
+            """Yield (grid_x, grid_d, gram_pair, weight) jump terms for the
+            internal seam in the given direction ('u': between I=0/1)."""
+            for other in range(2):
+                if direction == 'u':
+                    gL = [[cell(k, i, 4 * other + j) for j in range(4)] for i in range(4)]
+                    gR = [[cell(k, 4 + i, 4 * other + j) for j in range(4)] for i in range(4)]
+                else:
+                    gL = [[cell(k, 4 * other + i, j) for i in range(4)] for j in range(4)]
+                    gR = [[cell(k, 4 * other + i, 4 + j) for i in range(4)] for j in range(4)]
+                # rows indexed by distance along the seam-normal direction
+                j2 = [tuple(6 * ((gR[0][j][t] - 2 * gR[1][j][t] + gR[2][j][t])
+                                 - (gL[1][j][t] - 2 * gL[2][j][t] + gL[3][j][t]))
+                            for t in range(2)) for j in range(4)]
+                j3 = [tuple(6 * ((gR[3][j][t] - 3 * gR[2][j][t] + 3 * gR[1][j][t] - gR[0][j][t])
+                                 - (gL[3][j][t] - 3 * gL[2][j][t] + 3 * gL[1][j][t] - gL[0][j][t]))
+                            for t in range(2)) for j in range(4)]
+                yield ([[e[0] for e in j2]], [[e[1] for e in j2]], (GRAM[0], G3d), w2)
+                yield ([[e[0] for e in j3]], [[e[1] for e in j3]], (GRAM[0], G3d), w3)
+
+        for k in range(n):
+            for direction in ('u', 'v'):
+                for gx, gd, gram, w in seam_jump_terms(k, direction):
+                    accumulate(gx, gd, gram, w, into=(Qe, Le))
+        Q = Qe + eps * Q
+        L = Le + eps * L
 
     # ---- KKT solve ----
     nc = A.shape[0]
@@ -648,11 +715,12 @@ def eop_small(n):
     return out
 
 
-def eop_macro(n):
+def eop_macro(n, interior='guided', ext_weights=None):
     """eop macro table for n >= 6: ngon macro composed with virtual
     refinement (macro sector pairing; row layouts coincide — verified
     against the package tables at <=7.2e-10 for n = 6,7,8)."""
-    return ngon_macro(n) @ refinement_matrix(n, macro=True)
+    return ngon_macro(n, interior=interior,
+                      ext_weights=ext_weights) @ refinement_matrix(n, macro=True)
 
 
 def emit_all(out_dir):
@@ -681,7 +749,10 @@ if __name__ == '__main__':
         worst = max(worst, verify(f'ngonSct{n}', ngon_small(n), BASE + f'ngonSct{n}.csv'))
         worst = max(worst, verify(f'eopSct{n}', eop_small(n), BASE + f'eopSct{n}.csv'))
     print('small-family worst (reproduction gate 5e-9):', worst)
+    macro_worst = 0.0
     for n in (6, 7, 8):
-        verify(f'ngonSct{n}', ngon_macro(n), BASE + f'ngonSct{n}.csv')
-        verify(f'eopSct{n}', eop_macro(n), BASE + f'eopSct{n}.csv')
-    print('macro family: deviations are the documented interior-only, self-derived difference')
+        macro_worst = max(macro_worst, verify(f'ngonSct{n}', ngon_macro(n), BASE + f'ngonSct{n}.csv'))
+        macro_worst = max(macro_worst, verify(f'eopSct{n}', eop_macro(n), BASE + f'eopSct{n}.csv'))
+    print('macro family: interior-only self-derived deviation (guided interiors, '
+          f'documented bound 5e-3): {macro_worst:.3e}')
+    assert macro_worst < 5e-3, 'macro interior deviation regressed past the documented bound'

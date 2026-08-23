@@ -45,6 +45,20 @@ def main():
     for n in (6, 7, 8):
         write(f'ngonSct{n}', eop_ngon.ngon_macro(n))
         write(f'eopSct{n}', eop_ngon.eop_macro(n))
+    # shape-quality gate for the freshly written macro tables (PK-318): only
+    # enforceable when the reference oracle is present locally.
+    import shape_quality
+    rows, failures = shape_quality.run_battery()
+    if failures:
+        for f in failures:
+            print('SHAPE GATE FAIL:', f)
+        raise SystemExit(1)
+    if 'ref' in rows[0]:
+        print('shape-quality gate: PASS (macro caps within '
+              f'{shape_quality.GATE_JUMP_FACTOR}x jump / '
+              f'{shape_quality.GATE_TV_FACTOR}x TV of the reference oracle)')
+    else:
+        print('shape-quality gate: reference oracle absent, skipped')
 
 
 if __name__ == '__main__':

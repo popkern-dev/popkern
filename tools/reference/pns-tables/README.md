@@ -25,15 +25,22 @@ eop tables, which stack two tables' noise).
 
 Reproduction status: polar (6 tables), T0/T1/T2 and the n in {3,5}
 star/ngon caps reproduce the reference package within the gate. The
-2x2 bi-3 macro caps (star/ngon, n in {6,7,8}) are SELF-DERIVED per
-14bi234 Appendix C / Fig. 23c: the reference package fills their
-interior coefficients from an unpublished guided-sampling pipeline,
-so interiors differ by up to ~4e-2 while every continuity-bearing
-quantity (borders, G1 machinery, centre, central G2 jet) matches the
-reference exactly. See `eop_ngon.py` docstrings and
-`crates/popkern-core/data/pns-masks/README.md`.
+2x2 bi-3 macro caps (star/ngon, n in {6,7,8}) are SELF-DERIVED:
+borders/G1/centre/central-G2-jet follow 14bi234 Appendix C exactly
+(matching the reference numerically), and the interior coefficients
+use the extension-agreement objective (PK-318) — minimize squared
+2nd-derivative jumps across the internal C1 junctions with a
+per-valence tuned F3 tie-break (`EXT_EPS`). This reproduces the
+character of the reference package's unpublished guided-sampling
+interiors to <= 4.1e-3 in mask weight; the paper-literal pure-F3
+interior (`interior='f3'`) is kept for the record and measured 5-10x
+worse on junction curvature jumps. See `eop_ngon.py` docstrings,
+`shape_quality.py`, `crates/popkern-core/data/pns-masks/README.md`
+and `docs/reports/pk318-macro-shape-quality.md`.
 
 `emit_all.py` regenerates and writes all 19 CSVs into
-`crates/popkern-core/data/pns-masks/` (the tables `tables.rs` embeds).
+`crates/popkern-core/data/pns-masks/` (the tables `tables.rs` embeds),
+then runs the `shape_quality.py` battery as an acceptance gate when
+the reference oracle is present locally.
 
 Run with the ocp venv python (`~/venvs/ocp/bin/python`, has numpy).

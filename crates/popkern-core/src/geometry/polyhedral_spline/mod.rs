@@ -88,6 +88,9 @@ mod diagnostics_tests;
 #[cfg(all(test, toms_package))]
 #[path = "readiness_tests.rs"]
 mod readiness_tests;
+#[cfg(test)]
+#[path = "shape_fairness_tests.rs"]
+mod shape_fairness_tests;
 #[cfg(all(test, toms_package))]
 #[path = "tests.rs"]
 mod tests;

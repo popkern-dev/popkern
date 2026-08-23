@@ -22,7 +22,7 @@ citations inline):
 | polarSct3..8 | `polar.py` | 20polar.pdf closed forms | reproduces ≤ 7.1e-10 |
 | T0, T1, T2 | `t_tables.py` | 20quaT.pdf | reproduces ≤ 8.1e-10 |
 | ngonSct3, ngonSct5 | `eop_ngon.py` (`ngon_small`) | 14bi234.pdf §4.2 | reproduces ≤ 7.8e-10 |
-| ngonSct6..8 | `eop_ngon.py` (`ngon_macro`) | 14bi234.pdf App. C | self-derived (see below) |
+| ngonSct6..8 | `eop_ngon.py` (`ngon_macro`) | 14bi234.pdf App. C + PK-318 guided interiors | self-derived (see below) |
 | eopSct3..8 | `eop_ngon.py` (`eop_small`/`eop_macro`) | composition | follows the ngon tables |
 
 Two structural facts keep the star (`eop`) family from being independent
@@ -35,10 +35,17 @@ verified against the reference package at ≤ 7.2e-10 for **all** valences.
 The reference package's 2×2 bi-3 macro caps set their interior coefficients
 by an unpublished guided-sampling pipeline (19bi34-style; TOMS 1032
 describes the residual degrees of freedom as line-searched tuned weights).
-Our tables instead follow the *published* recipe of 14bi234 Appendix C /
-Fig. 23c: centre by eq. (5), tensor-border and G1 machinery as printed, and
-F3 minimization for the remaining coefficients. Everything that carries a
-continuity contract is identical to the reference (verified numerically):
+Our tables follow the *published* machinery of 14bi234 Appendix C — centre
+by eq. (5), tensor-border and G1 exactly as printed — and set the interior
+coefficients by the **extension-agreement objective** (PK-318): minimize
+the squared 2nd-derivative jump across each sector's internal C1 junctions
+(driving neighbouring sub-patches toward extensions of one polynomial, the
+measured character of the reference's guided interiors) with a per-valence
+tuned F3 tie-break (`EXT_EPS` in `eop_ngon.py`; the paper-literal pure-F3
+interior is kept as `interior='f3'` and was measured 5–10× worse on
+junction curvature jumps — see `docs/reports/pk318-macro-shape-quality.md`).
+Everything that carries a continuity contract is identical to the reference
+(verified numerically):
 
 - split borders + transversal layers under β = (3^{2×2}) with γ·c,
   γ = (n−2.3)/(2n−7.72) — 4.7e-11;
@@ -49,6 +56,13 @@ continuity contract is identical to the reference (verified numerically):
   by the paper's assignment (2̄) and σ_st the single measured tuned scalar
   per valence (`SIGMA_Z` in `eop_ngon.py`).
 
-Only shape-interior cells differ from the reference (≤ 4.3e-2 in mask
-weight, ≤ 3.5e-3 after the eop composition). All popkern validation gates
+Only shape-interior cells differ from the reference (≤ 4.1e-3 in mask
+weight; ≤ 3.7e-3 after the eop composition). Shape quality is gated at
+regeneration time by `tools/reference/pns-tables/shape_quality.py` (run
+from `emit_all.py` whenever the reference oracle is present): on a
+dome/saddle/wavy canonical-net battery, internal-junction mean-curvature
+jumps within 1.8×, curvature total-variation within 1.2×, and normal
+deviation < 0.8° of the reference caps; in-repo, the oracle-free
+`polyhedral_spline/shape_fairness_tests.rs` pins the guided fairness
+level directly on the committed tables. All popkern validation gates
 (C0 seams, G1 sector continuity, finiteness, regularity) hold identically.
