@@ -196,25 +196,41 @@ fn attach_loop_geometry(
     let mut cursor = start_he;
     loop {
         let origin = brep.half_edges[cursor].origin;
-        let origin_pos = brep.vertices[origin].position;
-        let origin_2d = ctx.plane.to_2d(origin_pos);
+        let next = brep.half_edges[cursor].next;
+        let origin_2d = ctx.plane.to_2d(brep.vertices[origin].position);
+        let next_origin = brep.half_edges[next].origin;
+        let next_2d = ctx.plane.to_2d(brep.vertices[next_origin].position);
 
-        if let Some(idx) = find_matching_edge(traced, origin_2d, n) {
+        // The half-edge's SEGMENT is origin → next origin; match the
+        // traced edge by BOTH endpoints. Start-only matching attached
+        // the sketch's OTHER edge leaving the origin whenever a loop's
+        // winding ran opposite the traced direction (measured: every
+        // curve one segment off on the replay sheet — validate red
+        // with a full-edge-length loop gap on both faces, PK-317).
+        if let Some((idx, forward)) = find_matching_segment(traced, origin_2d, next_2d, n) {
             let directed = &traced.edges[idx];
             let edge_handle = brep.half_edges[cursor].edge;
 
-            // Attach 3D curve.
+            // Attach 3D curve (canonical per edge; consumers resolve
+            // the sense through the half-edge).
             if brep.edges[edge_handle].curve.is_none() {
                 let curve = curve_convert::convert_to_3d(directed, ctx.sketch, ctx.plane)?;
                 brep.edges[edge_handle].curve = Some(curve);
             }
 
-            // Attach pcurve.
+            // Attach pcurve FOLLOWING THE HALF-EDGE: a half-edge that
+            // runs opposite the traced direction stores the reversed
+            // span (t-swap — the canonical-direction convention,
+            // PK-303).
             let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-            brep.half_edges[cursor].pcurve = Some(pcurve.into());
+            let mut pcurve: popkern_core::geometry::pcurve::Pcurve = pcurve.into();
+            if !forward {
+                std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
+            }
+            brep.half_edges[cursor].pcurve = Some(pcurve);
         }
 
-        cursor = brep.half_edges[cursor].next;
+        cursor = next;
         if cursor == start_he {
             break;
         }
@@ -236,19 +252,25 @@ fn attach_twin_pcurves(
 
     let mut cursor = start_he;
     loop {
+        let next = brep.half_edges[cursor].next;
         if brep.half_edges[cursor].pcurve.is_none() {
             let origin = brep.half_edges[cursor].origin;
-            let origin_pos = brep.vertices[origin].position;
-            let origin_2d = ctx.plane.to_2d(origin_pos);
+            let origin_2d = ctx.plane.to_2d(brep.vertices[origin].position);
+            let next_origin = brep.half_edges[next].origin;
+            let next_2d = ctx.plane.to_2d(brep.vertices[next_origin].position);
 
-            if let Some(idx) = find_matching_edge(traced, origin_2d, n) {
+            if let Some((idx, forward)) = find_matching_segment(traced, origin_2d, next_2d, n) {
                 let directed = &traced.edges[idx];
                 let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-                brep.half_edges[cursor].pcurve = Some(pcurve.into());
+                let mut pcurve: popkern_core::geometry::pcurve::Pcurve = pcurve.into();
+                if !forward {
+                    std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
+                }
+                brep.half_edges[cursor].pcurve = Some(pcurve);
             }
         }
 
-        cursor = brep.half_edges[cursor].next;
+        cursor = next;
         if cursor == start_he {
             break;
         }
@@ -258,12 +280,29 @@ fn attach_twin_pcurves(
 }
 
 /// Find the traced edge whose start position matches the given 2D point.
-fn find_matching_edge(traced: &TracedLoop, pos_2d: (f64, f64), n: usize) -> Option<usize> {
+/// Match a half-edge SEGMENT (both endpoints) to a traced directed
+/// edge. Returns the traced index and whether the half-edge runs the
+/// traced (forward) direction. A directed edge's end is the next
+/// traced edge's start (the loop is a directed cycle).
+fn find_matching_segment(
+    traced: &TracedLoop,
+    a_2d: (f64, f64),
+    b_2d: (f64, f64),
+    n: usize,
+) -> Option<(usize, bool)> {
+    let close = |p: (f64, f64), q: (f64, f64)| -> bool {
+        let dx = p.0 - q.0;
+        let dy = p.1 - q.1;
+        (dx * dx + dy * dy).sqrt() < 1e-6
+    };
     for i in 0..n {
-        let dx = traced.edges[i].start.0 - pos_2d.0;
-        let dy = traced.edges[i].start.1 - pos_2d.1;
-        if (dx * dx + dy * dy).sqrt() < 1e-6 {
-            return Some(i);
+        let start = traced.edges[i].start;
+        let end = traced.edges[(i + 1) % n].start;
+        if close(start, a_2d) && close(end, b_2d) {
+            return Some((i, true));
+        }
+        if close(start, b_2d) && close(end, a_2d) {
+            return Some((i, false));
         }
     }
     None

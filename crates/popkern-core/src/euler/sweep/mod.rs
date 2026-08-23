@@ -4,6 +4,10 @@
 //! - [`revolve`](crate::topology::BRep::revolve): rotational sweep around an axis.
 
 mod extrude;
+mod extrude_geometry;
+#[cfg(test)]
+#[path = "extrude_geometry_tests.rs"]
+mod extrude_geometry_tests;
 mod revolve;
 
 pub use extrude::ExtrudeResult;

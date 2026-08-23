@@ -178,3 +178,125 @@ fn edge_set_change_falls_back_to_full_replay() {
         "a non-tweak edit must fall back to full invalidation"
     );
 }
+
+/// PK-316 acceptance: the sketch→extrude replay body validates, a
+/// fillet feature EXECUTES through replay (impossible before — every
+/// lateral face carried the base plane's surface), and a radius tweak
+/// then takes the in-place route end-to-end through modify_feature.
+#[test]
+fn replay_extrude_validates_and_fillet_routes_in_place() {
+    let mut tree = FeatureTree::new();
+    tree.set_cache_strategy(CacheStrategy::EveryStep);
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: rectangle_sketch_json(),
+        },
+        "sketch",
+    );
+    let height = tree
+        .parameters_mut()
+        .add_global("height", 1.0, Unit::Meters)
+        .expect("height param");
+    let extrude = tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: height },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
+        },
+        "extrude",
+    );
+    tree.replay(Tolerance::default()).expect("base replay");
+    {
+        let timeline = tree.timeline().to_vec();
+        let sketch_state = tree.cache.get(None, timeline[0]).expect("sketch cached");
+        sketch_state
+            .validate()
+            .expect("replay-built sketch sheet validates (PK-317)");
+    }
+    let extruded = tree.cache.get(None, extrude).expect("extrude cached");
+    extruded
+        .validate()
+        .expect("replay-built extrude body validates (PK-316)");
+
+    // A named lateral edge with a genuine dihedral.
+    let edge_name = {
+        let state = extruded;
+        state
+            .name_pool
+            .names
+            .iter()
+            .find(|n| {
+                crate::resolve::resolve_edge(n, state).is_ok_and(|eh| {
+                    let ed = &state.edges[eh];
+                    if ed.curve.is_none() {
+                        return false;
+                    }
+                    let hed = &state.half_edges[ed.half_edge];
+                    let twin = &state.half_edges[hed.twin];
+                    let nf = |lh| {
+                        let f = state.loops.get(lh).map(|l| l.face)?;
+                        match &state.faces.get(f)?.surface.as_ref()?.geometry {
+                            popkern_core::geometry::surface::SurfaceGeometry::Plane {
+                                normal,
+                                ..
+                            } => Some(*normal),
+                            _ => None,
+                        }
+                    };
+                    match (nf(hed.loop_), nf(twin.loop_)) {
+                        (Some(a), Some(b)) => a.dot(&b).abs() < 0.9,
+                        _ => false,
+                    }
+                })
+            })
+            .cloned()
+            .expect("extruded body carries a filletable named edge")
+    };
+
+    let r_old = tree
+        .parameters_mut()
+        .add_global("r", 0.1, Unit::Meters)
+        .expect("param");
+    let fillet = tree.add_feature(
+        Feature::Fillet {
+            edges: vec![edge_name.clone()],
+            radius: r_old,
+        },
+        "fillet",
+    );
+    let rr = tree.replay(Tolerance::default()).expect("fillet replay");
+    assert!(
+        matches!(
+            rr.feature_results.get(&fillet),
+            Some(crate::FeatureResult::Success { .. })
+        ),
+        "fillet feature executes through replay (PK-316), got {:?}",
+        rr.feature_results.get(&fillet)
+    );
+
+    // The end-to-end route: modify_feature with a new radius must
+    // refresh the cache entry at the fillet in place.
+    let r_new = tree
+        .parameters_mut()
+        .add_global("r2", 0.2, Unit::Meters)
+        .expect("param");
+    tree.modify_feature(
+        fillet,
+        Feature::Fillet {
+            edges: vec![edge_name],
+            radius: r_new,
+        },
+    );
+    assert!(
+        tree.cache.get(None, fillet).is_some(),
+        "radius tweak takes the in-place route through modify_feature"
+    );
+    tree.replay(Tolerance::default())
+        .expect("post-tweak replay");
+    let final_brep = tree.current_brep.clone().expect("final body");
+    final_brep.validate().expect("tweaked body validates");
+}

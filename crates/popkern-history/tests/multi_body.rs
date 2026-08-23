@@ -230,12 +230,21 @@ fn boolean_union_of_two_bodies() {
         other => panic!("expected Boolean Success, got: {other:?}"),
     }
 
-    // The combined shape should have more faces than a single box.
+    // Both extrudes build the SAME [0,1]^3 cube (the shared unit
+    // square on XY extruded +z, and on XZ extruded +y), so the
+    // correct union is that cube: exactly 6 faces and a valid body.
+    // The historical `> 6 faces` assertion pinned the union of
+    // GEOMETRICALLY BROKEN inputs — before PK-316/PK-317 the
+    // replay-built boxes carried the base plane's surface on every
+    // face and no side curves, and the boolean's output face count
+    // reflected that garbage rather than the true shape.
     let brep = tree.current_brep().expect("should have BRep after boolean");
-    assert!(
-        brep.faces.len() > 6,
-        "union of two intersecting boxes should have > 6 faces, got {}",
-        brep.faces.len()
+    brep.validate()
+        .expect("union of coincident cubes validates");
+    assert_eq!(
+        brep.faces.len(),
+        6,
+        "union of two coincident unit cubes is the cube itself"
     );
 }
 

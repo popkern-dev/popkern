@@ -32,7 +32,7 @@ use crate::topology::BRep;
 /// Produces orthonormal `u_axis` and `v_axis` via Gram-Schmidt
 /// orthogonalization. The u-axis is aligned with `p1 - p0` (normalized),
 /// and the v-axis is the component of `p2 - p0` perpendicular to u-axis.
-pub(super) fn plane_from_points(
+pub(crate) fn plane_from_points(
     p0: Point3,
     p1: Point3,
     p2: Point3,
@@ -63,7 +63,7 @@ pub(super) fn plane_from_points(
 }
 
 /// Create a line `CurveOnEdge` between two points.
-pub(super) fn line_between(start: Point3, end: Point3) -> CurveOnEdge {
+pub(crate) fn line_between(start: Point3, end: Point3) -> CurveOnEdge {
     let direction = end - start;
     CurveOnEdge {
         geometry: CurveGeometry::Line {
@@ -81,7 +81,7 @@ impl BRep {
     /// For each edge, computes the line from the origin of one half-edge
     /// to the origin of its twin. For each face, computes a plane from
     /// three vertices of the face's outer loop.
-    pub(super) fn attach_geometry(&mut self) -> Result<(), CoreError> {
+    pub(crate) fn attach_geometry(&mut self) -> Result<(), CoreError> {
         // Attach curves to edges.
         let edge_handles: Vec<_> = self.edges.keys().collect();
         for eh in edge_handles {

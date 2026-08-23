@@ -43,7 +43,7 @@ fn unit_direction(t: &Transform3, v: &crate::geometry::Vec3) -> crate::geometry:
 /// instead of 0.08). Metric fields (radii) carry the scale instead.
 /// Chart consequences of axis normalization (cylinder/cone V is arc
 /// length) are handled by the caller via [`Pcurve::scale_v`].
-pub(super) fn transform_surface(
+pub(crate) fn transform_surface(
     surface: &SurfaceGeometry,
     t: &Transform3,
     scale: f64,
@@ -143,7 +143,7 @@ pub(super) fn transform_surface(
 /// declined at the rotate). The angular kinds get their angles and
 /// trim range remapped into the NEW derived basis; reflections flip
 /// the sweep faithfully.
-pub(super) fn transform_curve_on_edge(
+pub(crate) fn transform_curve_on_edge(
     curve: &mut crate::geometry::curve::CurveOnEdge,
     t: &Transform3,
     scale: f64,

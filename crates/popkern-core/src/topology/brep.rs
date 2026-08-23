@@ -495,3 +495,4 @@ impl BRep {
 mod brep_tests;
 #[path = "brep_transforms.rs"]
 mod brep_transforms;
+pub(crate) use brep_transforms::{transform_curve_on_edge, transform_surface};

@@ -196,12 +196,18 @@ impl BRep {
             );
         }
 
-        Ok(ExtrudeResult {
+        let result = ExtrudeResult {
             cap_face,
             side_faces,
             new_edges,
             new_vertices,
-        })
+        };
+        // PK-316: author the geometry the sweep created — the Euler
+        // topology alone leaves mef-inherited base surfaces on every
+        // new face and no curves on the new edges (mechanism and
+        // measured failure in `extrude_geometry`).
+        super::extrude_geometry::author_extrude_geometry(self, &result, face, displacement)?;
+        Ok(result)
     }
 }
 
