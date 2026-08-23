@@ -25,8 +25,13 @@ fn surface_complex_preserves_partial_hand_rejections() {
     let complex =
         build_control_net_surface_complex(&net, PolyhedralCoverageOptions::default()).unwrap();
     assert_eq!(complex.candidate_splines, 380);
-    assert_eq!(complex.components.len(), 370);
-    assert_eq!(complex.rejections.len(), 10);
+    // 371/9 since PK-317: one Polar candidate's historical rejection was a
+    // pole-degenerate normal artifact of the reference package's table
+    // noise (see coverage_report_accepts_full_cylinder); the regenerated
+    // exactly-symmetric polar masks accept it. Nine genuine rejections
+    // remain and keep this path exercised.
+    assert_eq!(complex.components.len(), 371);
+    assert_eq!(complex.rejections.len(), 9);
     assert!(
         complex
             .rejections

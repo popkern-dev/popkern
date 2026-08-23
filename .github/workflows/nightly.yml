@@ -20,13 +20,15 @@ name: Nightly heavy tier
 # The two tests run as PARALLEL jobs so neither steals the other's
 # budget; the first real CI runs calibrate these numbers downward.
 #
-# PK-314/PK-315: both heavy suites are built from the ACM ToMS 1032
-# package, which is deliberately NOT in the repository (license).
-# The suites now gate on cfg(toms_package), so without the guard
+# PK-314/PK-315/PK-317: the mask TABLES are now popkern's own and
+# committed (crates/popkern-core/data/pns-masks — PK-317), but the
+# heavy suites also read OBJ input FIXTURES (suzanne/hand/airplane)
+# from the ACM ToMS 1032 package, which stays deliberately untracked
+# (license). The suites gate on cfg(toms_package), so without the guard
 # below a hosted runner would compile EMPTY test binaries and report
 # a vacuous green — worse than an honest red. The guard fails fast
-# with the real reason until PK-315 decides how CI obtains the
-# package (vendor the tables vs checksummed fetch vs keep skipping).
+# until CI has a way to obtain the fixture OBJs (checksummed fetch,
+# or re-authored fixtures).
 
 on:
   schedule:
@@ -45,10 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require the ToMS fixture package (PK-315)
+      - name: Require the ToMS OBJ fixtures (PK-315/PK-317)
         run: |
-          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table ]; then
-            echo "::error::ACM ToMS 1032 package unavailable on this runner — the heavy tier would be vacuous. Resolution is PK-315 (vendor vs fetch vs skip)."
+          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile ]; then
+            echo "::error::ACM ToMS 1032 OBJ fixtures unavailable on this runner — the heavy tier would be vacuous. Mask tables are committed (PK-317); only the input OBJ fixtures still come from the untracked package."
             exit 1
           fi
 
@@ -68,10 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require the ToMS fixture package (PK-315)
+      - name: Require the ToMS OBJ fixtures (PK-315/PK-317)
         run: |
-          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/Source/src/Patch/Table ]; then
-            echo "::error::ACM ToMS 1032 package unavailable on this runner — the heavy tier would be vacuous. Resolution is PK-315 (vendor vs fetch vs skip)."
+          if [ ! -d docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile ]; then
+            echo "::error::ACM ToMS 1032 OBJ fixtures unavailable on this runner — the heavy tier would be vacuous. Mask tables are committed (PK-317); only the input OBJ fixtures still come from the untracked package."
             exit 1
           fi
 

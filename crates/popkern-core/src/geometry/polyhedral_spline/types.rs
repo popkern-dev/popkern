@@ -231,13 +231,6 @@ pub enum PolyhedralSplineError {
         row: usize,
         col: usize,
     },
-    #[error(
-        "PnS {family} mask tables unavailable: the ACM ToMS 1032 package \
-         (docs/code/ACM-ToMS-PnS-1032, deliberately untracked — license) \
-         was absent when this build compiled, so the tables were not \
-         embedded"
-    )]
-    ToMsTablesUnavailable { family: &'static str },
     #[error("{family:?} contains a non-finite control point at index {index}")]
     NonFinitePoint {
         family: PolyhedralSplineFamily,

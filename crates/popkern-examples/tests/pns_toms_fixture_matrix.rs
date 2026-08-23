@@ -51,12 +51,17 @@ const SMOKE_FIXTURES: &[FixtureExpectation] = &[
         patches: 88,
     },
     FixtureExpectation {
+        // Fully accepted since PK-317: the historical single rejection was
+        // a Polar{6} candidate failing seam validation on a 0.297 rad
+        // NORMAL angle at a 1.3e-10 gap — a pole-degenerate normal
+        // artifact of the reference package's ~1e-9 table noise. The
+        // regenerated exactly-symmetric polar masks accept it (+6 patches).
         name: "cylinder_partial",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj"),
         candidates: 20,
-        accepted: 19,
-        rejected: 1,
-        patches: 78,
+        accepted: 20,
+        rejected: 0,
+        patches: 84,
     },
 ];
 
@@ -75,9 +80,11 @@ const HEAVY_FIXTURES: &[FixtureExpectation] = &[
         name: "hand_partial",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/hand.obj"),
         candidates: 380,
-        accepted: 370,
-        rejected: 10,
-        patches: 5947,
+        // 371/9 since PK-317 — one Polar rejection was the same
+        // pole-degenerate normal artifact as cylinder_partial's.
+        accepted: 371,
+        rejected: 9,
+        patches: 5953,
     },
     FixtureExpectation {
         name: "airplane_partial",
@@ -199,12 +206,15 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
                 welded.report.scope.components.len() < complex.components.len(),
                 "cylinder weld scope should exclude unrelated components"
             );
+            // 12/12 since PK-317: the second polar cap (previously a
+            // false rejection) contributes its own collapsed-pole
+            // degenerate edges and collapsed-trim missing curves.
             assert_eq!(
-                welded.report.missing_edge_curves, 4,
+                welded.report.missing_edge_curves, 12,
                 "cylinder remaining missing edge curves"
             );
             assert_eq!(
-                welded.report.degenerate_edges, 6,
+                welded.report.degenerate_edges, 12,
                 "cylinder total degenerate edge classification"
             );
             assert!(

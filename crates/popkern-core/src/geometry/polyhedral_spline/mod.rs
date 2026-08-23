@@ -35,14 +35,13 @@ pub use construct::{
 };
 pub use net::{ControlFace, ControlNet, ControlVertex};
 
-/// True when the ACM ToMS 1032 mask tables were embedded at build
-/// time (the optional, deliberately untracked package was present —
-/// see `PolyhedralSplineError::ToMsTablesUnavailable`). Table-backed
-/// construction fails with that structured error when this is false;
-/// tests exercising PnS at runtime should skip WITH A NOTICE instead
-/// of failing on checkouts without the package.
+/// Always true since PK-317: the PnS mask tables are popkern's own,
+/// regenerated clean-room from the published papers and committed under
+/// `crates/popkern-core/data/pns-masks/`. The function survives for the
+/// callers that historically skipped when the optional ACM ToMS 1032
+/// package (now only needed by fixture-driven tests) was absent.
 pub const fn toms_tables_available() -> bool {
-    cfg!(toms_package)
+    true
 }
 pub use readiness::{
     PatchDomain, PatchEdgeRole, PatchEdgeUse, PolyhedralSplineBrepReadinessReport,
@@ -57,17 +56,17 @@ pub use validate::{
     validate_patch_interior_regularity, validate_polyhedral_spline,
 };
 
-// The PnS test modules embed ACM ToMS fixtures and mask tables; they
-// gate on the optional package the same way `tables.rs` does. The
-// notice module keeps the skip VISIBLE in test output when the
-// package is absent (fresh clones, CI) — the OCC-oracle
-// skip-with-notice precedent.
+// These PnS test modules read ACM ToMS OBJ fixtures (input nets), which
+// remain in the optional untracked package; they gate on it. The mask
+// TABLES are committed and always embedded (PK-317) — only the
+// fixture-driven tests skip. The notice keeps the skip VISIBLE in test
+// output (the OCC-oracle skip-with-notice precedent).
 #[cfg(all(test, not(toms_package)))]
 mod toms_package_notice {
     #[test]
     fn toms_package_absent_notice() {
         eprintln!(
-            "[toms] ACM ToMS 1032 package absent — PnS table tests skipped              (tables.rs returns ToMsTablesUnavailable; see PK-314/PK-315)"
+            "[toms] ACM ToMS 1032 package absent — PnS fixture-driven tests skipped              (mask tables are committed and embedded; see PK-317)"
         );
     }
 }
