@@ -3,6 +3,10 @@
 //! Provides both windowed (human) and headless (agent) modes for
 //! inspecting BRep topology, geometry, and boolean operation results.
 
+// The eframe/wgpu callback-resources type-map recurses deeply through
+// auto-trait resolution for GpuResources; nightly rustc now lints the
+// default depth (recursion_depth_exceeding_limit, future hard error).
+#![recursion_limit = "256"]
 // Always available
 pub mod backend;
 pub mod camera;
