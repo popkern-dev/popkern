@@ -34,6 +34,7 @@ pub mod health;
 pub(crate) mod measure_cache;
 pub mod measure_query;
 pub(crate) mod measure_resolve;
+pub(crate) mod modify_inplace_route;
 pub mod node;
 pub mod param_api;
 pub mod parameter;

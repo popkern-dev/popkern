@@ -277,6 +277,14 @@ impl FeatureTree {
         }
 
         let old = self.features[id].feature.clone();
+
+        // PK-280: a pure parameter tweak of an analytic dress-up
+        // feature can refresh the cached post-feature snapshot in
+        // place (crate-level in-place modifiers), so only DOWNSTREAM
+        // features replay. Attempted before the edit is applied;
+        // any decline falls through to the full invalidation below.
+        let in_place = self.try_parameter_tweak_in_place(id, &old, &feature);
+
         self.features[id].feature = feature.clone();
 
         // Re-infer dependencies using the op_index for O(1) lookup.
@@ -289,10 +297,15 @@ impl FeatureTree {
             new: feature,
         });
 
-        // Invalidate cache from this feature onward.
+        // Invalidate cache from this feature onward — then, when the
+        // in-place route served, restore the refreshed snapshot at
+        // the feature itself so evaluation resumes downstream of it.
         if let Some(pos) = self.timeline.iter().position(|&fid| fid == id) {
             let timeline_snap = self.timeline.clone();
             self.cache.invalidate_from(pos, &timeline_snap);
+            if let Some(refreshed) = in_place {
+                self.cache.store_explicit(None, id, refreshed);
+            }
         }
     }
 
