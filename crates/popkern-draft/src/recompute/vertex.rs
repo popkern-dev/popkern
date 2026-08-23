@@ -24,9 +24,10 @@ pub fn recompute_draft_vertices(
     brep: &mut BRep,
     drafted: &HashMap<FaceHandle, SurfaceGeometry>,
     tolerance: &Tolerance,
-) -> Result<(), DraftError> {
+) -> Result<Vec<VertexHandle>, DraftError> {
+    let mut moved = Vec::new();
     if drafted.is_empty() {
-        return Ok(());
+        return Ok(moved);
     }
 
     let vertex_handles: Vec<VertexHandle> = brep.vertices.keys().collect();
@@ -68,6 +69,7 @@ pub fn recompute_draft_vertices(
             continue;
         }
 
+        let old_pos = brep.vertices[vh].position;
         // Try 3-plane intersection if we have 3+ planes.
         let new_pos = if planes.len() >= 3 {
             solve_3_planes(&planes[0], &planes[1], &planes[2])
@@ -83,12 +85,15 @@ pub fn recompute_draft_vertices(
             // or Newton convergence failures. Keep the original position if the
             // computed point is non-finite.
             if pos.x.is_finite() && pos.y.is_finite() && pos.z.is_finite() {
+                if old_pos.distance_to(&pos) > tolerance.linear() {
+                    moved.push(vh);
+                }
                 brep.vertices[vh].position = pos;
             }
         }
     }
 
-    Ok(())
+    Ok(moved)
 }
 
 /// Find all faces adjacent to a vertex.

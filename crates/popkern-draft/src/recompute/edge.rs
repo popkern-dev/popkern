@@ -29,6 +29,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 pub fn recompute_draft_edges(
     brep: &mut BRep,
     drafted: &HashMap<FaceHandle, SurfaceGeometry>,
+    moved_vertices: &[popkern_core::topology::VertexHandle],
     tolerance: &Tolerance,
     warnings: &mut Vec<DraftWarning>,
 ) -> Result<Vec<EdgeHandle>, DraftError> {
@@ -66,10 +67,22 @@ pub fn recompute_draft_edges(
         let face1 = brep.loops[loop1].face;
         let face2 = brep.loops[loop2].face;
 
-        // Check if at least one face is drafted.
+        // An edge needs its curve rebuilt when a drafted face flanks
+        // it — OR when either endpoint vertex moved. The second-ring
+        // case (both faces undrafted, a corner vertex shared with the
+        // drafted face relocated) previously kept its STALE curve and
+        // shipped a validate-red ShellGap the size of the draft
+        // displacement (measured: tan(angle) on every plane-neutral
+        // cube draft; invisible to open-edge counting, which is what
+        // the historical tests checked).
         let f1_drafted = drafted.contains_key(&face1);
         let f2_drafted = drafted.contains_key(&face2);
-        if !f1_drafted && !f2_drafted {
+        let endpoint_moved = {
+            let origin = he.origin;
+            let twin_origin = twin.origin;
+            moved_vertices.contains(&origin) || moved_vertices.contains(&twin_origin)
+        };
+        if !f1_drafted && !f2_drafted && !endpoint_moved {
             continue;
         }
 
@@ -398,7 +411,7 @@ mod tests {
     fn recompute_empty_drafted_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let drafted = HashMap::new();
-        recompute_draft_edges(&mut brep, &drafted, &tol(), &mut Vec::new()).unwrap();
+        recompute_draft_edges(&mut brep, &drafted, &[], &tol(), &mut Vec::new()).unwrap();
     }
 
     #[test]
@@ -416,7 +429,7 @@ mod tests {
         let mut drafted = HashMap::new();
         drafted.insert(face, tilted);
 
-        let result = recompute_draft_edges(&mut brep, &drafted, &tol(), &mut Vec::new());
+        let result = recompute_draft_edges(&mut brep, &drafted, &[], &tol(), &mut Vec::new());
         assert!(result.is_ok());
     }
 

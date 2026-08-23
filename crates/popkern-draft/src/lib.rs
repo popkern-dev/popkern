@@ -8,6 +8,7 @@
 
 pub mod adjacent;
 pub mod error;
+pub mod modify;
 pub mod neutral;
 pub mod parting;
 pub mod recompute;
@@ -17,6 +18,7 @@ pub mod transition;
 pub mod types;
 
 pub use error::{DraftError, DraftWarning};
+pub use modify::modify_draft_angle;
 pub use parting::draft_parting_line;
 pub use types::*;
 

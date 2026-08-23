@@ -64,6 +64,7 @@ pub(crate) mod identify_helpers;
 mod interference_seam;
 pub(crate) mod loft_chart_extension;
 pub mod modify;
+pub mod modify_chamfer_inplace;
 pub mod modify_inplace;
 pub(crate) mod modify_inplace_chart;
 pub(crate) mod modify_inplace_closed_sweep;
@@ -129,6 +130,7 @@ pub use identify::{
     blend_support_faces, identify_all_blends, identify_blend,
 };
 pub use modify::{modify_fillet_radius, modify_fillet_radius_via_record};
+pub use modify_chamfer_inplace::modify_chamfer_distance;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
