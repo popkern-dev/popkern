@@ -246,5 +246,5 @@ fn interpolate_frame_vector(start: Vec3, mid: Vec3, end: Vec3, f: f64) -> Vec3 {
         let t = (f - 0.5) * 2.0;
         mid * (1.0 - t) + end * t
     };
-    v.normalized().map_or(mid, |unit| unit)
+    v.normalized().unwrap_or(mid)
 }
