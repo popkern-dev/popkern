@@ -6,7 +6,7 @@
 
 pub mod assemble;
 pub mod classify;
-pub mod collision;
+pub mod collapse_check;
 pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;
@@ -154,6 +154,13 @@ pub(crate) fn shell_impl(
             }
         };
     }
+    // Midplane containment: the outer skin never moves in this
+    // pipeline, so a served "midplane" body would silently be an inward
+    // shell at half thickness (see ShellError::MidplaneUnsupported).
+    if matches!(direction, ShellDirection::Midplane) {
+        return Err(ShellError::MidplaneUnsupported);
+    }
+
     // Stage 1: classify faces.
     stage_gate!();
     let t0 = Instant::now();
@@ -203,6 +210,10 @@ pub(crate) fn shell_impl(
         brep,
         &stage_tol,
     )?;
+    // Collapse gate (part of the recompute stage, O(E) and sub-stage
+    // cheap): a thickness past the local feature size inverts skin
+    // edges; the fold would serve structurally-clean wrong geometry.
+    collapse_check::check_skin_collapse(brep, &inner, &skin_map, thickness, &tolerance)?;
     tracker.finish_stage("shell.edge_recompute", t0, inner.edges.len());
     stage_gate!();
     let t0 = Instant::now();
@@ -228,6 +239,17 @@ pub(crate) fn shell_impl(
         .recompute_all_pcurves()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("shell.pcurve_recompute", t0, result.faces.len());
+
+    // Serve gate: never hand back a body a validator would reject. The
+    // structural collection is the affordable in-pipeline form (PK-273);
+    // tests and acceptance batteries additionally hold results to
+    // validate_all.
+    let validation_errors = result.validate_collect_structural();
+    if !validation_errors.is_empty() {
+        return Err(ShellError::ValidationFailed {
+            errors: validation_errors,
+        });
+    }
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;

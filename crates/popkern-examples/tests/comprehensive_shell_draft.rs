@@ -161,18 +161,17 @@ fn t36_shell_cube_one_face_removed() {
     );
     assert_finite_vertices(brep);
     assert_all_faces_have_surfaces(brep);
-    // Note: validate_all() panics with "invalid SlotMap key" on shelled-with-removal
-    // results, indicating a kernel bug in topology cleanup. Skipping structural validation.
+    // The historical "invalid SlotMap key" validator panic on
+    // face-removed shells is gone (PK-306/307 root fixes); PK-321
+    // re-armed full validation here.
+    let errors = brep.validate_all();
+    assert!(errors.is_empty(), "validation errors: {errors:?}");
 }
 
 #[test]
 fn t37_shell_cube_inward_outward_midplane() {
     let cube_orig = BRep::unit_cube(tol()).unwrap();
-    for direction in [
-        ShellDirection::Inward,
-        ShellDirection::Outward,
-        ShellDirection::Midplane,
-    ] {
+    for direction in [ShellDirection::Inward, ShellDirection::Outward] {
         let face = cube_orig.faces.keys().next().unwrap();
         let result = shell(
             &cube_orig,
@@ -192,9 +191,33 @@ fn t37_shell_cube_inward_outward_midplane() {
             direction
         );
         assert_finite_vertices(brep);
-        // Skipping validate_all() — panics with "invalid SlotMap key" on
-        // face-removed shells (kernel topology cleanup bug).
+        // Full validation re-armed (PK-321): the historical SlotMap-key
+        // panic on face-removed shells is fixed.
+        let errors = brep.validate_all();
+        assert!(
+            errors.is_empty(),
+            "{direction:?}: validation errors: {errors:?}"
+        );
     }
+
+    // Midplane is honest containment: the pipeline cannot move the
+    // outer skin yet, so it declines instead of serving an inward
+    // half-shell under a midplane label (PK-321).
+    let face = cube_orig.faces.keys().next().unwrap();
+    let mid = shell(
+        &cube_orig,
+        0.1,
+        ShellDirection::Midplane,
+        &[face],
+        &[],
+        &ShellOptions::default(),
+        tol(),
+        None,
+    );
+    assert!(
+        matches!(mid, Err(popkern_shell::ShellError::MidplaneUnsupported)),
+        "expected MidplaneUnsupported decline, got {mid:?}"
+    );
 }
 
 #[test]

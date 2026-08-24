@@ -87,32 +87,62 @@ pub fn compute_offset_surfaces(
         let positions = face_vertex_positions(brep, face_handle);
         let (u_range, v_range) = bounded_parameter_range(&positions, surface);
 
-        // Check self-intersection before computing offset.
-        if let Some(_max_safe) =
+        // Self-intersection veto: the offset surface does not exist past
+        // the local curvature radius. This is a property of the request,
+        // not of one face's health — auto-removing the face would punch
+        // an opening the user never asked for, so it declines outright
+        // (honest OffsetTooLarge with the binding face named).
+        if let Some(max_safe) =
             popkern_fillet::offset::self_intersect::check_offset_self_intersection(
                 surface, distance, inward, u_range, v_range,
             )
         {
-            let msg = format!("offset distance {distance} would cause self-intersection");
-            if allow_partial {
-                auto_removed.push(face_handle);
-                warnings.push(ShellWarning::FaceAutoRemoved {
-                    face: face_handle,
-                    reason: msg.clone(),
-                });
-                failed.push((face_handle, msg));
-            } else {
-                failed.push((face_handle, msg));
-            }
-            continue;
+            return Err(ShellError::OffsetTooLarge {
+                requested: distance,
+                max_safe,
+                binding: format!("face {face_handle:?}: offset exceeds its local curvature radius"),
+            });
         }
 
-        // Compute the offset surface.
-        match popkern_fillet::offset::offset_surface(
+        // Compute the offset surface with an honest quality record.
+        match popkern_fillet::offset::offset_surface_measured(
             surface, distance, inward, u_range, v_range, tolerance,
         ) {
-            Ok(offset_surface) => {
-                surfaces.insert(face_handle, offset_surface);
+            Ok(outcome) => {
+                if let Some(achieved) = outcome.approximation_deviation {
+                    if achieved > tolerance.linear() {
+                        // The finest sampling grid still missed the stage
+                        // tolerance. Under allow_partial the face follows
+                        // the existing failed-face contract (auto-removed
+                        // with a warning); otherwise the operation
+                        // declines with the measured gap.
+                        if allow_partial {
+                            let msg = format!(
+                                "offset approximation deviation {achieved:.3e} exceeds \
+                                 tolerance {:.3e}",
+                                tolerance.linear()
+                            );
+                            auto_removed.push(face_handle);
+                            warnings.push(ShellWarning::FaceAutoRemoved {
+                                face: face_handle,
+                                reason: msg.clone(),
+                            });
+                            failed.push((face_handle, msg));
+                        } else {
+                            return Err(ShellError::ApproximationOutOfTolerance {
+                                face: face_handle,
+                                achieved,
+                                requested: tolerance.linear(),
+                            });
+                        }
+                        continue;
+                    }
+                    warnings.push(ShellWarning::FaceOffsetApproximated {
+                        face: face_handle,
+                        achieved_deviation: achieved,
+                    });
+                }
+                surfaces.insert(face_handle, outcome.surface);
             }
             Err(msg) => {
                 if allow_partial {

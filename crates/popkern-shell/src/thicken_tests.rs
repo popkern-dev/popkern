@@ -77,12 +77,27 @@ fn thicken_cube_negative_vs_positive_symmetry() {
 }
 
 #[test]
-fn thicken_cube_large_thickness() {
-    // A very large thickness should still succeed for a cube since
-    // planar faces can be offset arbitrarily far.
+fn thicken_cube_large_thickness_declines() {
+    // A 100.0 wall in a unit cube cannot exist: the inward half-offset
+    // (50.0) inverts the body. The old pipeline "succeeded" by serving
+    // an inside-out inner skin; the collapse gate declines with the
+    // caller's thickness units (max total wall just under 1.0).
     let brep = BRep::unit_cube(tol()).unwrap();
-    let result = thicken(&brep, 100.0, &ShellOptions::default(), tol()).unwrap();
-    assert_eq!(result.brep.faces.len(), 12);
+    let result = thicken(&brep, 100.0, &ShellOptions::default(), tol());
+    match result {
+        Err(ShellError::OffsetTooLarge {
+            requested,
+            max_safe,
+            ..
+        }) => {
+            assert!((requested - 100.0).abs() < 1e-9, "requested {requested}");
+            assert!(
+                max_safe > 0.9 && max_safe < 1.0,
+                "unit cube max wall must sit just under 1.0, got {max_safe}"
+            );
+        }
+        other => panic!("expected OffsetTooLarge decline, got {other:?}"),
+    }
 }
 
 #[test]
@@ -108,66 +123,51 @@ fn thicken_cube_topology_counts() {
 }
 
 #[test]
-fn thicken_cylinder_produces_result() {
-    // Thicken a cylinder: 3 faces (lateral + 2 caps).
-    // Result should have 6 faces (3 outer + 3 inner).
+fn thicken_cylinder_declines_until_curved_recompute() {
+    // Curved-body thicken is geometrically wrong today: edge recompute
+    // keeps the un-offset clone curves for non-planar surface pairs
+    // (the cap-rim circles stay at the original radius while both skins
+    // moved), so the assembled body fails structural validation. The
+    // serve gate turns silent wrong geometry into a diagnosed decline.
+    // PK-324 un-narrows this — when curved recompute lands, these pins
+    // flip to validate_all-clean serving tests with the old expected
+    // counts (6 faces, 4 vertices, 6 edges, Euler 4).
     let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
-    assert_eq!(result.brep.faces.len(), 6);
-}
 
-#[test]
-fn thicken_cylinder_topology_counts() {
-    // Input cylinder: V=2, E=3, F=3, Euler = 2 - 3 + 3 = 2.
-    // Thickened (outer + inner):
-    //   F = 6 (3 outer + 3 inner)
-    //   V = 4 (2 outer + 2 inner)
-    //   E = 6 (3 outer + 3 inner)
-    //   Euler = 4 - 6 + 6 = 4 (two disjoint shells)
-    let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
-    let f = result.brep.faces.len();
-    let e = result.brep.edges.len();
-    let v = result.brep.vertices.len();
-    assert_eq!(f, 6, "expected 6 faces (3 outer + 3 inner)");
-    assert_eq!(v, 4, "expected 4 vertices (2 outer + 2 inner)");
-    assert_eq!(e, 6, "expected 6 edges (3 outer + 3 inner)");
-    let euler = (v as i64) - (e as i64) + (f as i64);
-    assert_eq!(euler, 4, "expected Euler characteristic 4 for two shells");
-}
+    // A wall thinner than the validator tolerance band serves honestly:
+    // the stale rim curves (clone curves, PK-324 scope) deviate from
+    // the offset skins by half the thickness, which at 1e-6 sits inside
+    // tolerance — the geometry is RIGHT to within the contract.
+    let tiny = thicken(&brep, 1e-6, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(tiny.brep.faces.len(), 6);
 
-#[test]
-fn thicken_cylinder_small_thickness() {
-    // A very small thickness on a cylinder should still work.
-    let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let result = thicken(&brep, 1e-6, &ShellOptions::default(), tol()).unwrap();
-    assert_eq!(result.brep.faces.len(), 6);
-}
-
-#[test]
-fn thicken_cylinder_negative_thickness() {
-    // Negative thickness on a cylinder should still produce valid topology.
-    let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let result = thicken(&brep, -0.2, &ShellOptions::default(), tol()).unwrap();
-    assert_eq!(result.brep.faces.len(), 6);
-}
-
-#[test]
-fn thicken_cylinder_large_thickness() {
-    // Large thickness on a cylinder. Planar caps can offset arbitrarily,
-    // and the cylindrical face offset should also succeed.
-    let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
-    let result = thicken(&brep, 50.0, &ShellOptions::default(), tol());
-    // Large offset on a cylinder may or may not succeed depending on
-    // whether the inner cylinder radius goes negative. Accept either.
-    match result {
-        Ok(r) => {
-            assert!(r.brep.faces.len() >= 4);
-        }
-        Err(e) => {
-            let _ = format!("{e}");
+    for thickness in [0.2, -0.2] {
+        let result = thicken(&brep, thickness, &ShellOptions::default(), tol());
+        match result {
+            Err(ShellError::ValidationFailed { errors }) => {
+                assert!(!errors.is_empty(), "thickness {thickness}");
+            }
+            Ok(_) => panic!(
+                "cylinder thicken served at {thickness} — if curved recompute \
+                 landed (PK-324), upgrade these pins to serving tests"
+            ),
+            Err(other) => panic!("thickness {thickness}: expected ValidationFailed, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn thicken_cylinder_past_radius_declines_offset_too_large() {
+    // A 50.0 wall on a radius-1.0 cylinder: the inward half-offset (25.0)
+    // exceeds the lateral face's curvature radius, so the offset surface
+    // does not exist. Honest decline names the binding face; the old
+    // dispatch silently NURBS-approximated inverted geometry.
+    let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
+    let result = thicken(&brep, 50.0, &ShellOptions::default(), tol());
+    assert!(
+        matches!(result, Err(ShellError::OffsetTooLarge { .. })),
+        "expected OffsetTooLarge decline, got {result:?}"
+    );
 }
 
 #[test]

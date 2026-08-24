@@ -17,19 +17,21 @@ use crate::vertex_recompute::recompute_vertices;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-/// Thicken a sheet body into a solid.
+/// Thicken a closed body into a hollow wall solid.
 ///
-/// Offsets the input sheet body by `thickness / 2` in both directions
-/// (outward and inward relative to face normals), then connects the
-/// free boundary edges with side wall faces.
+/// Offsets the input by `thickness / 2` in both material directions and
+/// assembles the two skins into a two-shell hollow body.
 ///
-/// The input BRep should be an open sheet body. All faces are kept;
-/// side walls are generated at free boundary edges.
+/// Open sheets (free boundary half-edges) DECLINE with
+/// [`ShellError::OpenBoundary`]: closing a free rim needs the side-wall
+/// join machinery, which is not built yet (temporary containment — the
+/// historical doc claimed rim walls were generated; they never were).
 ///
 /// # Errors
 ///
-/// Returns [`ShellError`] if the BRep has no faces or offset computation
-/// fails.
+/// Returns [`ShellError`] if the BRep has no faces, has free boundary
+/// half-edges, the wall does not fit (`OffsetTooLarge`), or the
+/// assembled result fails structural validation.
 pub fn thicken(
     brep: &BRep,
     thickness: f64,
@@ -90,6 +92,24 @@ fn thicken_skin(
     let t0 = Instant::now();
     recompute_vertices(&mut skin, &offset.surfaces, &skin_map, brep, stage_tol)?;
     recompute_edges(&mut skin, &offset.surfaces, &skin_map, brep, stage_tol)?;
+    // Collapse gate (part of the recompute stage): a half-thickness past
+    // the local feature size inverts this skin. The gate runs in
+    // half-thickness units; the decline reports the caller's full
+    // thickness so a GUI can bound its slider directly.
+    crate::collapse_check::check_skin_collapse(brep, &skin, &skin_map, half, stage_tol).map_err(
+        |e| match e {
+            ShellError::OffsetTooLarge {
+                requested,
+                max_safe,
+                binding,
+            } => ShellError::OffsetTooLarge {
+                requested: requested * 2.0,
+                max_safe: max_safe * 2.0,
+                binding,
+            },
+            other => other,
+        },
+    )?;
     tracker.finish_stage(labels[3], t0, skin.edges.len());
 
     stage_gate!();
@@ -111,6 +131,21 @@ pub(crate) fn thicken_impl(
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
+
+    // Open-boundary precondition (temporary containment, recorded in
+    // docs/architecture/solid-offset-shell-design.md §6): a free rim
+    // needs side walls the join stage does not build yet. Without this
+    // gate an open sheet used to serve as TWO disconnected skins with an
+    // unclosed rim while this function's docs claimed otherwise.
+    let free_half_edges = brep
+        .half_edges
+        .iter()
+        .filter(|(_, he)| !brep.loops.contains_key(he.loop_))
+        .count();
+    if free_half_edges > 0 {
+        return Err(ShellError::OpenBoundary { free_half_edges });
+    }
+
     let half = thickness / 2.0;
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
 
@@ -163,6 +198,14 @@ pub(crate) fn thicken_impl(
     let t0 = Instant::now();
     let result = assemble_shell(&outer, &inner, &[], &combined_skin_map, tolerance)?;
     tracker.finish_stage("thicken.assemble", t0, result.faces.len());
+
+    // Serve gate: never hand back a body a validator would reject.
+    let validation_errors = result.validate_collect_structural();
+    if !validation_errors.is_empty() {
+        return Err(ShellError::ValidationFailed {
+            errors: validation_errors,
+        });
+    }
 
     let mut warnings = offset_out.warnings;
     warnings.extend(offset_in.warnings);

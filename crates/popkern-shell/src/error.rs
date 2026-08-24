@@ -1,6 +1,6 @@
 //! Error types for shell and offset operations.
 
-use popkern_core::error::CoreError;
+use popkern_core::error::{CoreError, ValidationError};
 use popkern_core::topology::FaceHandle;
 use thiserror::Error;
 
@@ -19,8 +19,83 @@ pub enum ShellError {
     },
 
     /// The requested offset distance exceeds what the geometry can support.
-    #[error("offset too large: {0}")]
-    OffsetTooLarge(String),
+    #[error(
+        "offset {requested} exceeds the maximum {max_safe:.6} supported by the \
+         geometry ({binding})"
+    )]
+    OffsetTooLarge {
+        /// The offset/thickness the caller asked for.
+        requested: f64,
+        /// Estimated largest magnitude this geometry supports.
+        max_safe: f64,
+        /// Human-readable description of the binding entity (the face or
+        /// edge that constrains the offset).
+        binding: String,
+    },
+
+    /// A face's offset could only be approximated and the approximation
+    /// missed the requested tolerance even at the finest sampling grid.
+    #[error(
+        "offset of face {face:?} could not be approximated within tolerance: \
+         achieved {achieved:.3e}, requested {requested:.3e}"
+    )]
+    ApproximationOutOfTolerance {
+        /// The face whose offset approximation missed tolerance.
+        face: FaceHandle,
+        /// Measured maximum deviation of the approximation.
+        achieved: f64,
+        /// The tolerance the approximation had to meet.
+        requested: f64,
+    },
+
+    /// The assembled result failed structural validation; serving it
+    /// would hand the caller a broken body, so the operation declines
+    /// instead (the input model is untouched).
+    #[error(
+        "result failed structural validation with {} error(s); first: {}",
+        errors.len(),
+        errors.first().map(|e| e.to_string()).unwrap_or_default()
+    )]
+    ValidationFailed {
+        /// The structural validation errors found on the assembled result.
+        errors: Vec<ValidationError>,
+    },
+
+    /// The material side of a component could not be measured, so
+    /// offset directions have no meaning for it.
+    #[error(
+        "cannot resolve which side of the body is material (component \
+         containing face {face:?}); offset direction is undefined"
+    )]
+    MaterialSenseUnresolved {
+        /// A seed face of the unresolvable component.
+        face: FaceHandle,
+    },
+
+    /// Midplane shells need the OUTER skin moved outward by half the
+    /// thickness; the current pipeline keeps the outer skin at the
+    /// original surface, so serving would silently deliver an inward
+    /// shell at half thickness. Temporary containment: the two-skin
+    /// midplane construction is filed as its own task
+    /// (docs/architecture/solid-offset-shell-design.md §6).
+    #[error(
+        "midplane shells are not yet supported: the outer skin must move \
+         outward by half the thickness; use Inward or Outward"
+    )]
+    MidplaneUnsupported,
+
+    /// The input sheet has free boundary half-edges and the operation
+    /// cannot yet close them with side walls. Temporary containment:
+    /// open-rim closure lands with the topology-changing join stage
+    /// (docs/architecture/solid-offset-shell-design.md §5, PK-325).
+    #[error(
+        "input sheet has {free_half_edges} free boundary half-edge(s); \
+         closing open rims into side walls is not yet supported"
+    )]
+    OpenBoundary {
+        /// Number of half-edges with no owning loop.
+        free_half_edges: usize,
+    },
 
     /// A topological inconsistency was encountered.
     #[error("topology: {0}")]
@@ -45,6 +120,9 @@ pub enum ShellWarning {
     FaceOffsetApproximated {
         /// The face whose offset was approximated.
         face: FaceHandle,
+        /// Measured maximum deviation of the approximation from the
+        /// exact offset (mid-sample check at the final sampling grid).
+        achieved_deviation: f64,
     },
     /// A face was automatically removed because its offset failed.
     FaceAutoRemoved {
@@ -73,8 +151,48 @@ mod tests {
 
     #[test]
     fn shell_error_offset_too_large() {
-        let err = ShellError::OffsetTooLarge("radius exceeded".into());
-        assert!(err.to_string().contains("radius exceeded"));
+        let err = ShellError::OffsetTooLarge {
+            requested: 5.0,
+            max_safe: 3.2,
+            binding: "edge between Face#3 and Face#7".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains('5') && msg.contains("3.2"), "{msg}");
+        assert!(msg.contains("Face#3"), "{msg}");
+    }
+
+    #[test]
+    fn shell_error_validation_failed_reports_first() {
+        let err = ShellError::ValidationFailed {
+            errors: vec![ValidationError::DanglingReference {
+                what: "test ref".into(),
+            }],
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("1 error(s)") && msg.contains("test ref"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn shell_error_open_boundary() {
+        let err = ShellError::OpenBoundary { free_half_edges: 4 };
+        assert!(err.to_string().contains("4 free boundary"));
+    }
+
+    #[test]
+    fn shell_error_approximation_out_of_tolerance() {
+        let err = ShellError::ApproximationOutOfTolerance {
+            face: Default::default(),
+            achieved: 1e-3,
+            requested: 1e-6,
+        };
+        let msg = err.to_string();
+        assert!(
+            msg.contains("1.000e-3") && msg.contains("1.000e-6"),
+            "{msg}"
+        );
     }
 
     #[test]
@@ -94,6 +212,7 @@ mod tests {
     fn shell_warning_variants() {
         let w1 = ShellWarning::FaceOffsetApproximated {
             face: Default::default(),
+            achieved_deviation: 1e-7,
         };
         let w2 = ShellWarning::FaceAutoRemoved {
             face: Default::default(),

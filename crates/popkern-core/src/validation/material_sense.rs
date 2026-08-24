@@ -84,7 +84,12 @@ impl BRep {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
-            let positions = self.face_outer_loop_positions(face);
+            // Boundary CURVE samples, not just vertices: a min-vertex
+            // analytic body (cylinder: two seam vertices, caps: one rim
+            // vertex each) collapses every vertex-derived window to zero
+            // width, which used to make the whole component unsampleable
+            // (None) — the sign contract needs the loop's real extent.
+            let positions = self.face_boundary_sample_points(face, 8);
             let ((u0, u1), (v0, v1)) =
                 crate::geometry::uv_projection::exact_bounded_parameter_range(
                     &positions,

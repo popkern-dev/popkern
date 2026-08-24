@@ -23,16 +23,23 @@ pub fn check_offset_self_intersection(
     u_range: (f64, f64),
     v_range: (f64, f64),
 ) -> Option<f64> {
-    // Outward offsets never self-intersect for convex analytic surfaces.
-    if !inward {
-        // For NURBS/cone we still check because the surface can be concave.
-        match surface {
-            SurfaceGeometry::Plane { .. }
-            | SurfaceGeometry::Cylinder { .. }
-            | SurfaceGeometry::Sphere { .. }
-            | SurfaceGeometry::Torus { .. } => return None,
-            _ => {}
+    // The veto applies when the offset moves TOWARD the center of
+    // curvature — for radius-form surfaces that is the radius-shrinking
+    // direction, which depends on the stored normal's radial sign
+    // (contract: `inward` means "along -n"). Radius-growing offsets on
+    // analytic surfaces never self-intersect.
+    let sign = if inward { -1.0 } else { 1.0 };
+    match surface {
+        SurfaceGeometry::Plane { .. } => return None,
+        SurfaceGeometry::Cylinder { .. }
+        | SurfaceGeometry::Sphere { .. }
+        | SurfaceGeometry::Torus { .. } => {
+            let radial = super::analytic::radial_normal_sign(surface)?;
+            if sign * radial > 0.0 {
+                return None; // radius grows: safe
+            }
         }
+        _ => {} // NURBS/cone: sampled curvature check both ways
     }
 
     let min_curvature_radius = min_curvature_radius(surface, u_range, v_range);
@@ -311,7 +318,22 @@ mod tests {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
         };
-        let result = check_offset_self_intersection(
+        // The standalone Sphere parametrization's normal points toward
+        // the center, so the radius-GROWING (always-safe) direction is
+        // the along--n flag (inward=true); along +n shrinks and must
+        // veto past the radius.
+        let grow = check_offset_self_intersection(
+            &sphere,
+            1000.0,
+            true,
+            (0.0, std::f64::consts::TAU),
+            (0.0, std::f64::consts::PI),
+        );
+        assert!(
+            grow.is_none(),
+            "radius-growing offset on sphere is always safe"
+        );
+        let shrink = check_offset_self_intersection(
             &sphere,
             1000.0,
             false,
@@ -319,8 +341,8 @@ mod tests {
             (0.0, std::f64::consts::PI),
         );
         assert!(
-            result.is_none(),
-            "outward offset on sphere should always be safe"
+            shrink.is_some(),
+            "radius-shrinking offset past the sphere radius must veto"
         );
     }
 
@@ -354,10 +376,12 @@ mod tests {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 5.0,
         };
+        // Radius-shrinking direction for the sphere parametrization is
+        // along +n (inward=false; its stored normal points center-ward).
         let result = check_offset_self_intersection(
             &sphere,
             10.0,
-            true,
+            false,
             (0.0, std::f64::consts::TAU),
             (0.0, std::f64::consts::PI),
         );

@@ -39,21 +39,27 @@ fn offset_point(surface: &SurfaceGeometry, u: f64, v: f64, distance: f64, sign: 
     pt + n * (sign * distance)
 }
 
-/// Compute an offset of an arbitrary surface using adaptive NURBS sampling.
+/// Compute an offset of an arbitrary surface using adaptive NURBS sampling,
+/// reporting the measured deviation of the final grid.
 ///
 /// The algorithm samples the surface on a uniform grid in UV space, offsets
 /// each sample by `distance` along the surface normal, then builds a
 /// degree-1 NURBS surface through the offset points. The grid is refined
 /// (doubled) until the maximum deviation at inter-sample midpoints is within
 /// `tolerance.linear() / 4`, up to a 64x64 ceiling.
-pub fn offset_nurbs(
+///
+/// Returns the surface together with the measured maximum mid-sample
+/// deviation at the final grid. At the grid ceiling the deviation may
+/// exceed the stage tolerance — the caller decides whether that is
+/// acceptable (the surface never silently claims to be in tolerance).
+pub fn offset_nurbs_measured(
     surface: &SurfaceGeometry,
     distance: f64,
     inward: bool,
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
-) -> Result<SurfaceGeometry, String> {
+) -> Result<(SurfaceGeometry, f64), String> {
     let sign = if inward { -1.0 } else { 1.0 };
     let stage_tol = tolerance.linear() / 4.0;
     let degree: usize = 1;
@@ -111,13 +117,29 @@ pub fn offset_nurbs(
         }
 
         if max_dev <= stage_tol || (n_u >= 64 && n_v >= 64) {
-            return Ok(SurfaceGeometry::Nurbs(nurbs));
+            return Ok((SurfaceGeometry::Nurbs(nurbs), max_dev));
         }
 
         // Refine: double the grid.
         n_u = (n_u * 2).min(64);
         n_v = (n_v * 2).min(64);
     }
+}
+
+/// Compute an offset of an arbitrary surface using adaptive NURBS sampling.
+///
+/// Convenience wrapper over [`offset_nurbs_measured`] that discards the
+/// measured deviation. Quality-gated callers use the measured form.
+pub fn offset_nurbs(
+    surface: &SurfaceGeometry,
+    distance: f64,
+    inward: bool,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    tolerance: &Tolerance,
+) -> Result<SurfaceGeometry, String> {
+    offset_nurbs_measured(surface, distance, inward, u_range, v_range, tolerance)
+        .map(|(surface, _deviation)| surface)
 }
 
 #[cfg(test)]

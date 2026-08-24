@@ -92,7 +92,9 @@ pub fn assemble_shell(
     Ok(builder.build_unchecked())
 }
 
-/// Copy all entities from a BRep into the builder, filtering faces.
+/// Copy a skin's entities into the builder, filtering faces and keeping
+/// only edges/vertices reachable from kept faces or opening rims (see
+/// the reachability rule below).
 ///
 /// Returns maps from the source BRep handles to the new builder handles
 /// for vertices, edges, and half-edges.
@@ -102,17 +104,60 @@ fn copy_skin_entities(
     shell: popkern_core::topology::ShellHandle,
     face_filter: impl Fn(FaceHandle) -> bool,
 ) -> Result<SkinCopyMaps, ShellError> {
-    // 1. Copy vertices.
+    // 0. Decide which edges the copy needs. An edge is reachable iff at
+    //    least one of its half-edges belongs to a live loop whose face
+    //    passes the filter: kept-face interior edges (both sides live)
+    //    and opening-rim edges (one live kept side; the free side is the
+    //    loopless half-edge the side walls adopt, PK-307). An edge whose
+    //    sides BOTH belong to removed faces (removed×removed, e.g. the
+    //    edge between two adjacent removed faces) is interior to the
+    //    opening and must not be copied — copying it used to strand a
+    //    loopless half-edge pair no wall ever adopts (DanglingReference
+    //    + BrokenCycle on two-adjacent-removed shells).
+    let edge_reachable = |eh: EdgeHandle| -> bool {
+        let edge = &source.edges[eh];
+        let he = &source.half_edges[edge.half_edge];
+        for heh in [edge.half_edge, he.twin] {
+            let loop_h = source.half_edges[heh].loop_;
+            if source.loops.contains_key(loop_h) {
+                let face = source.loops[loop_h].face;
+                if source.faces.contains_key(face) && face_filter(face) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
+    // 1. Copy vertices incident to at least one reachable edge (a vertex
+    //    used only by removed-interior edges must not survive either).
+    let mut needed_vertices: std::collections::HashSet<VertexHandle> =
+        std::collections::HashSet::new();
+    for (eh, edge) in &source.edges {
+        if !edge_reachable(eh) {
+            continue;
+        }
+        let he = &source.half_edges[edge.half_edge];
+        let twin = &source.half_edges[he.twin];
+        needed_vertices.insert(he.origin);
+        needed_vertices.insert(twin.origin);
+    }
     let mut vertex_map = HashMap::new();
     for (vh, vertex) in &source.vertices {
+        if !needed_vertices.contains(&vh) {
+            continue;
+        }
         let new_vh = builder.add_vertex(vertex.position);
         vertex_map.insert(vh, new_vh);
     }
 
-    // 2. Copy edges (and their half-edge pairs).
+    // 2. Copy reachable edges (and their half-edge pairs).
     let mut edge_map = HashMap::new();
     let mut he_map = HashMap::new();
     for (eh, edge) in &source.edges {
+        if !edge_reachable(eh) {
+            continue;
+        }
         let he_handle = edge.half_edge;
         let he = &source.half_edges[he_handle];
         let twin_handle = he.twin;

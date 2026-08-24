@@ -39,57 +39,13 @@ fn assert_euler_compound(brep: &BRep, expected_components: i64) {
     );
 }
 
-/// Assert no structural validation errors (broken cycles, twins, etc.).
-///
-/// Uses `catch_unwind` because some assembled BReps may have stale handles
-/// that cause the validator to panic -- which is itself a notable defect
-/// but should not mask the rest of the test suite.
+/// Assert the body passes the FULL validator with zero errors. Served
+/// shell results carry a structural serve gate in the pipeline (PK-321),
+/// so tests hold them to the stronger validate_all bar; the historical
+/// catch_unwind shim died with the stale-handle defect it tolerated.
 fn assert_structurally_valid(brep: &BRep) {
     let errors = brep.validate_all();
-    let structural: Vec<_> = errors
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                popkern_core::error::ValidationError::BrokenCycle { .. }
-                    | popkern_core::error::ValidationError::BrokenTwin { .. }
-                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
-                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
-                    | popkern_core::error::ValidationError::OpenLoop { .. }
-            )
-        })
-        .collect();
-    assert!(structural.is_empty(), "structural errors: {:?}", structural);
-}
-
-/// Best-effort structural validation that tolerates panics from stale handles.
-/// Returns true if validation passed, false if it panicked or found errors.
-fn try_structurally_valid(brep: &BRep) -> bool {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let errors = brep.validate_all();
-        errors
-            .iter()
-            .filter(|e| {
-                matches!(
-                    e,
-                    popkern_core::error::ValidationError::BrokenCycle { .. }
-                        | popkern_core::error::ValidationError::BrokenTwin { .. }
-                        | popkern_core::error::ValidationError::InconsistentVertex { .. }
-                        | popkern_core::error::ValidationError::NonManifoldEdge { .. }
-                        | popkern_core::error::ValidationError::OpenLoop { .. }
-                )
-            })
-            .count()
-            == 0
-    }));
-    match result {
-        Ok(valid) => valid,
-        Err(_) => {
-            eprintln!("WARNING: validate_all() panicked (stale handles in assembled BRep)");
-            false
-        }
-    }
+    assert!(errors.is_empty(), "validation errors: {errors:?}");
 }
 #[test]
 fn shell_cube_no_removal() {
@@ -128,8 +84,7 @@ fn shell_cube_one_face_removed() {
     .unwrap();
     // Outer (5) + inner (5) + side walls (4) = 14 faces.
     assert_eq!(result.brep.faces.len(), 14);
-    // Face-removed shell assemblies may have stale handles; use best-effort check.
-    let _ = try_structurally_valid(&result.brep);
+    assert_structurally_valid(&result.brep);
 }
 
 #[test]
@@ -147,15 +102,10 @@ fn shell_cube_two_adjacent_removed() {
         None,
     )
     .unwrap();
-    // Outer (4) + inner (4) + side walls (varies, 6-8 depending on adjacency).
-    // Just verify we get a result with reasonable face count.
-    assert!(
-        result.brep.faces.len() >= 12 && result.brep.faces.len() <= 16,
-        "face count {} outside expected range",
-        result.brep.faces.len()
-    );
-    // Face-removed shell assemblies may have stale handles; use best-effort check.
-    let _ = try_structurally_valid(&result.brep);
+    // Outer (4) + inner (4) + side walls around the merged opening.
+    // Two adjacent removed faces open one 6-edge rim: 4 + 4 + 6 = 14.
+    assert_eq!(result.brep.faces.len(), 14);
+    assert_structurally_valid(&result.brep);
 }
 
 #[test]
@@ -212,6 +162,9 @@ fn shell_inward_outward_midplane() {
     assert_euler_compound(&r_out.brep, 2);
     assert_structurally_valid(&r_out.brep);
 
+    // Midplane is honest containment now: the pipeline cannot move the
+    // outer skin, so serving would deliver an inward half-shell under a
+    // midplane label. The two-skin construction is its own filed task.
     let r_mid = shell(
         &brep,
         0.1,
@@ -221,11 +174,11 @@ fn shell_inward_outward_midplane() {
         &ShellOptions::default(),
         tol(),
         None,
-    )
-    .unwrap();
-    assert_eq!(r_mid.brep.faces.len(), 12);
-    assert_euler_compound(&r_mid.brep, 2);
-    assert_structurally_valid(&r_mid.brep);
+    );
+    assert!(
+        matches!(r_mid, Err(ShellError::MidplaneUnsupported)),
+        "expected MidplaneUnsupported decline, got {r_mid:?}"
+    );
 }
 
 #[test]
@@ -304,22 +257,46 @@ fn shell_empty_brep_error() {
 }
 
 #[test]
-fn collision_detection_no_collisions() {
+fn shell_past_feature_size_declines_offset_too_large() {
+    // A 0.6 wall on a unit cube crosses the opposite walls — a pure
+    // plane-plane collision the retired midpoint-normal detector was
+    // structurally blind to. The collapse gate declines it with the
+    // binding edge and a usable max-safe estimate.
     let brep = BRep::unit_cube(tol()).unwrap();
-    let mut surfaces = std::collections::HashMap::new();
-    for (fh, face) in &brep.faces {
-        if let Some(sof) = &face.surface {
-            surfaces.insert(fh, sof.geometry.clone());
+    let result = shell(
+        &brep,
+        0.6,
+        ShellDirection::Inward,
+        &[],
+        &[],
+        &ShellOptions::default(),
+        tol(),
+        None,
+    );
+    match result {
+        Err(ShellError::OffsetTooLarge {
+            requested,
+            max_safe,
+            binding,
+        }) => {
+            assert!((requested - 0.6).abs() < 1e-12);
+            assert!(max_safe > 0.0 && max_safe < 0.6, "max_safe {max_safe}");
+            assert!(binding.contains("edge"), "{binding}");
         }
+        other => panic!("expected OffsetTooLarge decline, got {other:?}"),
     }
-    let collisions = popkern_shell::collision::detect_collisions(&brep, &surfaces, &tol());
-    assert!(collisions.is_empty());
 }
 
 // ---- New tests below ----
 
 #[test]
-fn shell_cylinder() {
+fn shell_cylinder_declines_until_curved_recompute() {
+    // Curved-body shells are geometrically wrong today: edge recompute
+    // keeps the un-offset clone curves for non-planar surface pairs, so
+    // the assembled body fails structural validation. The serve gate
+    // turns that from silent wrong geometry into a diagnosed decline.
+    // PK-324 (general SSI edge/vertex recompute) un-narrows this — when
+    // it lands, this pin flips to a validate_all-clean serving test.
     let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
     let result = shell(
         &brep,
@@ -332,25 +309,14 @@ fn shell_cylinder() {
         None,
     );
     match result {
-        Ok(r) => {
-            // Cylinder: 3 outer + 3 inner = 6 faces.
-            assert_eq!(r.brep.faces.len(), 6);
-            assert_euler_compound(&r.brep, 2);
-            // Curved face offsets may produce small geometric gaps; use
-            // best-effort validation.
-            let valid = try_structurally_valid(&r.brep);
-            if !valid {
-                eprintln!(
-                    "cylinder shell produced structural issues (acceptable for curved offsets)"
-                );
-            }
+        Err(ShellError::ValidationFailed { errors }) => {
+            assert!(!errors.is_empty());
         }
-        Err(e) => {
-            // If cylinder offset fails geometrically, that's acceptable
-            // (cylinder faces are non-planar, offset may fail).
-            // Just verify it's not a panic.
-            eprintln!("cylinder shell failed: {e} (acceptable for curved faces)");
-        }
+        Ok(_) => panic!(
+            "cylinder shell served — if curved recompute landed (PK-324), \
+             upgrade this test to assert validate_all-clean serving"
+        ),
+        Err(other) => panic!("expected ValidationFailed decline, got {other:?}"),
     }
 }
 
@@ -372,66 +338,15 @@ fn offset_solid_variable_per_face() {
 }
 
 #[test]
-fn collision_detection_detects_crossing_planes() {
-    // Build two offset surfaces whose normals oppose each other, simulating
-    // what happens when a thin wall is offset too far. We use the cube's
-    // topology and replace two adjacent face surfaces with planes that cross.
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    use popkern_core::geometry::{Point3, Vec3};
-
+fn offset_shrink_past_feature_size_declines() {
+    // Shrinking a unit cube by 0.6 per side inverts it — the collapse
+    // gate must decline rather than serve an inside-out body.
     let brep = BRep::unit_cube(tol()).unwrap();
-    let mut surfaces = std::collections::HashMap::new();
-
-    // Collect face handles in order.
-    let face_handles: Vec<_> = brep.faces.keys().collect();
-
-    // For the first two faces, assign opposing normals that will produce a
-    // sign change along shared edges (collision).
-    for (i, &fh) in face_handles.iter().enumerate() {
-        if i == 0 {
-            // Push this face's normal far enough that it crosses its neighbor.
-            surfaces.insert(
-                fh,
-                SurfaceGeometry::Plane {
-                    origin: Point3::new(0.0, 0.0, 5.0),
-                    normal: Vec3::new(0.0, 0.0, -1.0),
-                    u_axis: Vec3::new(1.0, 0.0, 0.0),
-                    v_axis: Vec3::new(0.0, 1.0, 0.0),
-                },
-            );
-        } else if i == 1 {
-            surfaces.insert(
-                fh,
-                SurfaceGeometry::Plane {
-                    origin: Point3::new(0.0, 0.0, -5.0),
-                    normal: Vec3::new(0.0, 0.0, 1.0),
-                    u_axis: Vec3::new(1.0, 0.0, 0.0),
-                    v_axis: Vec3::new(0.0, 1.0, 0.0),
-                },
-            );
-        } else if let Some(sof) = &brep.faces[fh].surface {
-            surfaces.insert(fh, sof.geometry.clone());
-        }
-    }
-
-    let collisions = popkern_shell::collision::detect_collisions(&brep, &surfaces, &tol());
-    // The two synthetic planes have opposing normals, so any edge between
-    // them should trigger a collision. If adjacent faces 0 and 1 don't share
-    // an edge the collision list may be empty -- that's still a valid outcome.
-    // The key property: no panic, and the function returns successfully.
-    // If they do share an edge, we expect at least one collision.
-    if !collisions.is_empty() {
-        // Verify the collision involves at least one of the two modified faces.
-        let f0 = face_handles[0];
-        let f1 = face_handles[1];
-        let involves_modified = collisions
-            .iter()
-            .any(|&(a, b)| a == f0 || a == f1 || b == f0 || b == f1);
-        assert!(
-            involves_modified,
-            "collision should involve the modified faces"
-        );
-    }
+    let result = popkern_shell::offset::offset_solid(&brep, -0.6, &ShellOptions::default(), tol());
+    assert!(
+        matches!(result, Err(ShellError::OffsetTooLarge { .. })),
+        "expected OffsetTooLarge decline, got {result:?}"
+    );
 }
 
 #[test]
@@ -447,21 +362,29 @@ fn thicken_prism_slab() {
         Point3::new(0.0, 1.0, 0.0),
     ];
     let brep = BRep::prism(profile, Vec3::new(0.0, 0.0, 1.0), 0.05, tol()).unwrap();
+    // A 0.02 wall fits inside the 0.05-thick slab (0.01 inward per side).
     let result =
-        popkern_shell::thicken::thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
+        popkern_shell::thicken::thicken(&brep, 0.02, &ShellOptions::default(), tol()).unwrap();
     // Thicken a closed solid: outer (6) + inner (6) = 12 faces.
     assert_eq!(result.brep.faces.len(), 12);
     assert_euler_compound(&result.brep, 2);
     assert_structurally_valid(&result.brep);
+
+    // A 0.2 wall does NOT fit: the inward half-offset (0.1) inverts the
+    // 0.05-thick slab. This used to serve an inverted "hollow" body.
+    let too_thick = popkern_shell::thicken::thicken(&brep, 0.2, &ShellOptions::default(), tol());
+    assert!(
+        matches!(too_thick, Err(ShellError::OffsetTooLarge { .. })),
+        "expected OffsetTooLarge decline, got {too_thick:?}"
+    );
 }
 
 #[test]
-fn shell_thin_prism_collision_or_error() {
-    // Create a very thin rectangular prism (0.05 thick in Z) and try to
-    // shell inward with thickness 0.2 (larger than the wall thickness).
-    // The collision detection should prevent a bad result: either the
-    // operation produces a valid result (with faces auto-removed) or
-    // returns an error. Either outcome is acceptable; a panic is not.
+fn shell_thin_prism_declines_offset_too_large() {
+    // A 0.2 wall in a prism only 0.05 thick in Z cannot exist: the skin
+    // inverts. The collapse gate declines with the binding edge (the old
+    // contract accepted "any valid result or error"; the honest outcome
+    // is exactly one thing).
     use popkern_core::geometry::{Point3, Vec3};
 
     let profile = &[
@@ -481,19 +404,62 @@ fn shell_thin_prism_collision_or_error() {
         tol(),
         None,
     );
+    assert!(
+        matches!(result, Err(ShellError::OffsetTooLarge { .. })),
+        "expected OffsetTooLarge decline, got {result:?}"
+    );
+}
+
+#[test]
+fn thicken_open_sheet_declines_open_boundary() {
+    // Manufacture an open sheet: delete one face and its loop from a
+    // cube, leaving its half-edges with dangling loop references — the
+    // exact free-rim shape thicken's precondition detects. The old
+    // pipeline served this as two disconnected skins with an unclosed
+    // rim while claiming to build side walls.
+    let mut brep = BRep::unit_cube(tol()).unwrap();
+    let fh = brep.faces.keys().next().unwrap();
+    let outer_loop = brep.faces[fh].outer_loop;
+    brep.loops.remove(outer_loop);
+    brep.faces.remove(fh);
+
+    let result = popkern_shell::thicken::thicken(&brep, 0.05, &ShellOptions::default(), tol());
     match result {
-        Ok(r) => {
-            // If it succeeds, it should still be topologically valid.
-            assert_structurally_valid(&r.brep);
-            eprintln!(
-                "thin prism shell succeeded with {} faces, {} warnings",
-                r.brep.faces.len(),
-                r.warnings.len()
+        Err(ShellError::OpenBoundary { free_half_edges }) => {
+            assert_eq!(
+                free_half_edges, 4,
+                "one deleted cube face frees 4 half-edges"
             );
         }
-        Err(e) => {
-            // An error is an acceptable outcome for overconstrained geometry.
-            eprintln!("thin prism shell failed as expected: {e}");
-        }
+        other => panic!("expected OpenBoundary decline, got {other:?}"),
     }
+}
+
+#[test]
+fn nurbs_offset_path_emits_approximation_warning() {
+    // A cone face has no closed-form offset yet (PK-322), so its offset
+    // goes through the NURBS sampler. The dispatch must SAY so: every
+    // NURBS-path face carries FaceOffsetApproximated with the measured
+    // deviation (the warning existed for years and was never emitted).
+    use popkern_shell::classify::classify_faces;
+    use popkern_shell::surface_offset::compute_offset_surfaces;
+
+    let brep = BRep::cone(1.0, 2.0, tol()).unwrap();
+    // 0.01 sits inside the cone's sampled near-apex curvature radius
+    // (~0.037), so the veto stays quiet and the NURBS path runs.
+    let classification = classify_faces(&brep, 0.01, &[], ShellDirection::Inward, &[]).unwrap();
+    let result = compute_offset_surfaces(&brep, &classification, true, &tol()).unwrap();
+    let approx_warnings: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|w| matches!(w, ShellWarning::FaceOffsetApproximated { .. }))
+        .collect();
+    assert!(
+        !approx_warnings.is_empty() || !result.failed.is_empty(),
+        "the cone lateral face must either warn (approximated within \
+         tolerance) or fail out loud (out of tolerance) — never silence: \
+         warnings {:?}, failed {:?}",
+        result.warnings,
+        result.failed
+    );
 }

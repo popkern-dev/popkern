@@ -90,17 +90,15 @@ pub(crate) fn offset_solid_impl(
             }
         };
     }
-    // ShellDirection controls offset relative to the face normal.
-    // classify_faces names directions from the shell operator's
-    // inner-skin viewpoint: Inward pushes against the original
-    // normal's material side, which for a whole-body offset moves
-    // faces outward in world space, and Outward does the reverse.
-    // Therefore positive distance (grow outward) maps to Inward, and
-    // negative distance (shrink inward) maps to Outward.
+    // Directions are MATERIAL directions (classify resolves the
+    // component material sense): positive distance grows the solid —
+    // every face moves out of the material — and negative shrinks it.
+    // (The historical mapping compensated for an inverted flag chain
+    // that moved "Inward" skins outward; both lies died together.)
     let direction = if default_distance >= 0.0 {
-        ShellDirection::Inward
-    } else {
         ShellDirection::Outward
+    } else {
+        ShellDirection::Inward
     };
     let abs_default = default_distance.abs();
     let abs_faces: Vec<(FaceHandle, f64)> = face_distances
@@ -145,12 +143,29 @@ pub(crate) fn offset_solid_impl(
         brep,
         &stage_tol,
     )?;
+    // Collapse gate (part of the recompute stage): a shrink past the
+    // local feature size inverts the skin.
+    crate::collapse_check::check_skin_collapse(
+        brep,
+        &result,
+        &skin_map,
+        default_distance,
+        &tolerance,
+    )?;
     tracker.finish_stage("offset.edge_recompute", t0, result.edges.len());
 
     stage_gate!();
     let t0 = Instant::now();
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
     tracker.finish_stage("offset.apply_offset_geometry", t0, result.faces.len());
+
+    // Serve gate: never hand back a body a validator would reject.
+    let validation_errors = result.validate_collect_structural();
+    if !validation_errors.is_empty() {
+        return Err(ShellError::ValidationFailed {
+            errors: validation_errors,
+        });
+    }
 
     let mut warnings = offset_result.warnings;
     for face in &offset_result.auto_removed {
