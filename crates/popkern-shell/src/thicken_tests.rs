@@ -123,37 +123,52 @@ fn thicken_cube_topology_counts() {
 }
 
 #[test]
-fn thicken_cylinder_declines_until_curved_recompute() {
-    // Curved-body thicken is geometrically wrong today: edge recompute
-    // keeps the un-offset clone curves for non-planar surface pairs
-    // (the cap-rim circles stay at the original radius while both skins
-    // moved), so the assembled body fails structural validation. The
-    // serve gate turns silent wrong geometry into a diagnosed decline.
-    // PK-324 un-narrows this — when curved recompute lands, these pins
-    // flip to validate_all-clean serving tests with the old expected
-    // counts (6 faces, 4 vertices, 6 edges, Euler 4).
+fn thicken_cylinder_serves_with_exact_curved_recompute() {
+    // PK-322: the analytic recompute arms (coaxial circles by affine
+    // map, straight-ruling seams, curved vertex projection) make the
+    // cylinder thicken geometrically exact — the pin that documented
+    // the stale-clone decline flips to a measured serving test.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
     let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
+    let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
 
-    // A wall thinner than the validator tolerance band serves honestly:
-    // the stale rim curves (clone curves, PK-324 scope) deviate from
-    // the offset skins by half the thickness, which at 1e-6 sits inside
-    // tolerance — the geometry is RIGHT to within the contract.
-    let tiny = thicken(&brep, 1e-6, &ShellOptions::default(), tol()).unwrap();
-    assert_eq!(tiny.brep.faces.len(), 6);
+    assert_eq!(result.brep.faces.len(), 6, "3 outer + 3 inner faces");
+    assert_eq!(result.brep.vertices.len(), 4);
+    assert_eq!(result.brep.edges.len(), 6);
+    assert!(
+        result.brep.validate_all().is_empty(),
+        "thickened cylinder must be validate_all-clean: {:?}",
+        result.brep.validate_all()
+    );
 
-    for thickness in [0.2, -0.2] {
-        let result = thicken(&brep, thickness, &ShellOptions::default(), tol());
-        match result {
-            Err(ShellError::ValidationFailed { errors }) => {
-                assert!(!errors.is_empty(), "thickness {thickness}");
-            }
-            Ok(_) => panic!(
-                "cylinder thicken served at {thickness} — if curved recompute \
-                 landed (PK-324), upgrade these pins to serving tests"
-            ),
-            Err(other) => panic!("thickness {thickness}: expected ValidationFailed, got {other:?}"),
-        }
+    // Measured skins: lateral radii 1.1 (outward half) and 0.9 (inward
+    // half); every vertex sits exactly on its skin's lateral radius.
+    let mut radii: Vec<f64> = result
+        .brep
+        .faces
+        .values()
+        .filter_map(|f| f.surface.as_ref())
+        .filter_map(|s| match &s.geometry {
+            SurfaceGeometry::Cylinder { radius, .. } => Some(*radius),
+            _ => None,
+        })
+        .collect();
+    radii.sort_by(f64::total_cmp);
+    assert_eq!(radii.len(), 2, "one lateral face per skin");
+    assert!((radii[0] - 0.9).abs() < 1e-12, "inner radius {}", radii[0]);
+    assert!((radii[1] - 1.1).abs() < 1e-12, "outer radius {}", radii[1]);
+    for v in result.brep.vertices.values() {
+        let r = (v.position.x * v.position.x + v.position.y * v.position.y).sqrt();
+        assert!(
+            (r - 0.9).abs() < 1e-9 || (r - 1.1).abs() < 1e-9,
+            "vertex at radius {r}"
+        );
     }
+
+    // Negative thickness mirrors the walls; still serves clean.
+    let neg = thicken(&brep, -0.2, &ShellOptions::default(), tol()).unwrap();
+    assert!(neg.brep.validate_all().is_empty());
 }
 
 #[test]

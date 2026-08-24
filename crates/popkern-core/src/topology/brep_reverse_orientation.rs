@@ -80,6 +80,28 @@ impl BRep {
                 sof.orientation = !sof.orientation;
             }
         }
+
+        // 4. Swap every edge's canonical half-edge to its twin. Each
+        //    half-edge HANDLE now traverses the opposite 3D direction
+        //    (its origin moved to the old destination), so the half the
+        //    canonical bit points at would traverse the stored curve
+        //    BACKWARD — breaking both the canonical-origin-at-t_start
+        //    convention (PK-303) and the closed-edge pcurve direction
+        //    rule (`recompute_face_pcurves`: canonical half = forward).
+        //    Leaving the bit unswapped made every pcurve re-authoring
+        //    of a reversed skin wind its loops against the (flipped)
+        //    orientation flags — WindingDishonest on shell/offset
+        //    assembly output while the un-re-authored body looked fine.
+        let canonical_swaps: Vec<(crate::topology::EdgeHandle, crate::topology::HalfEdgeHandle)> =
+            self.edges
+                .iter()
+                .filter_map(|(eh, edge)| {
+                    self.half_edges.get(edge.half_edge).map(|he| (eh, he.twin))
+                })
+                .collect();
+        for (eh, twin) in canonical_swaps {
+            self.edges[eh].half_edge = twin;
+        }
     }
 }
 

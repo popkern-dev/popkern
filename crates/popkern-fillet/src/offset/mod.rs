@@ -1,10 +1,15 @@
 //! Surface offset computation.
 
 pub mod analytic;
+pub mod error;
 pub mod nurbs;
+mod nurbs_fit;
 pub mod self_intersect;
 
-pub use analytic::{AnalyticOffset, offset_analytic, offset_analytic_classified};
+pub use analytic::{
+    AnalyticOffset, corresponding_offset_window, offset_analytic, offset_analytic_classified,
+};
+pub use error::OffsetError;
 pub use nurbs::{offset_nurbs, offset_nurbs_measured};
 
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -26,16 +31,21 @@ pub struct OffsetSurfaceOutcome {
 /// Compute a surface offset with an honest quality record.
 ///
 /// Dispatches to the closed-form analytic path when the surface class
-/// supports one, and falls back to NURBS-based adaptive sampling for
-/// classes with no closed form (cone, NURBS, Gregory, polyhedral
-/// spline).
+/// supports one (plane, cylinder, cone, sphere, torus), and falls back
+/// to degree-3 least-squares fitting for classes with no closed form
+/// (NURBS, Gregory, polyhedral spline).
 ///
 /// # Errors
 ///
-/// A genuine geometric decline (e.g. an inward offset that would drive
-/// a radius through zero) is returned as `Err` and is NOT converted
-/// into an approximation — the offset surface does not exist at that
-/// distance, and approximating it would serve inverted geometry.
+/// A genuine geometric decline (an offset that would drive a radius
+/// through zero, or grow a torus into a spindle) is returned as `Err`
+/// and is NOT converted into an approximation — the offset surface does
+/// not exist at that distance, and approximating it would serve
+/// inverted geometry. On the approximation path, a distance exceeding
+/// the local curvature radius inside the window folds the offset map,
+/// so fitting is declined ([`OffsetError::OffsetMapFolds`]) — exact-arm
+/// classes instead handle folds downstream via trimming and the
+/// collapse gate.
 pub fn offset_surface_measured(
     surface: &SurfaceGeometry,
     distance: f64,
@@ -43,13 +53,21 @@ pub fn offset_surface_measured(
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
-) -> Result<OffsetSurfaceOutcome, String> {
+) -> Result<OffsetSurfaceOutcome, OffsetError> {
     match offset_analytic_classified(surface, distance, inward)? {
         AnalyticOffset::Exact(s) => Ok(OffsetSurfaceOutcome {
             surface: s,
             approximation_deviation: None,
         }),
         AnalyticOffset::Unsupported => {
+            if let Some(max_safe) = self_intersect::check_offset_self_intersection(
+                surface, distance, inward, u_range, v_range,
+            ) {
+                return Err(OffsetError::OffsetMapFolds {
+                    requested: distance,
+                    max_safe,
+                });
+            }
             let (s, dev) =
                 offset_nurbs_measured(surface, distance, inward, u_range, v_range, tolerance)?;
             Ok(OffsetSurfaceOutcome {
@@ -73,7 +91,7 @@ pub fn offset_surface(
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
-) -> Result<SurfaceGeometry, String> {
+) -> Result<SurfaceGeometry, OffsetError> {
     offset_surface_measured(surface, distance, inward, u_range, v_range, tolerance)
         .map(|outcome| outcome.surface)
 }
@@ -104,7 +122,10 @@ mod tests {
     }
 
     #[test]
-    fn offset_surface_dispatches_nurbs_for_cone() {
+    fn offset_surface_dispatches_exact_for_cone() {
+        // The cone gained a closed-form arm (PK-322): same half-angle,
+        // apex translated d/sin(half_angle) along the axis — never the
+        // NURBS fitting path.
         let cone = SurfaceGeometry::Cone {
             apex: Point3::new(0.0, 0.0, 1.0),
             axis: Vec3::new(0.0, 0.0, -1.0),
@@ -113,9 +134,36 @@ mod tests {
         let tol = Tolerance::default();
         let result = offset_surface(&cone, 0.1, false, (0.1, 1.0), (0.1, 1.0), &tol).unwrap();
         match result {
-            SurfaceGeometry::Nurbs(_) => {} // expected
-            _ => panic!("expected NURBS fallback for cone"),
+            SurfaceGeometry::Cone { apex, .. } => {
+                let shift = 0.1 / std::f64::consts::FRAC_PI_4.sin();
+                assert!((apex.z - (1.0 + shift)).abs() < 1e-12, "apex.z {}", apex.z);
+            }
+            other => panic!("expected exact Cone offset, got {other:?}"),
         }
+    }
+
+    fn bump_nurbs() -> SurfaceGeometry {
+        use popkern_core::geometry::NurbsSurface;
+        SurfaceGeometry::Nurbs(NurbsSurface {
+            degree_u: 2,
+            degree_v: 2,
+            knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 0.0, 0.3),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 0.5, 0.3),
+                Point3::new(0.5, 0.5, 0.6),
+                Point3::new(1.0, 0.5, 0.3),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 1.0, 0.3),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 3,
+            num_v: 3,
+            weights: vec![1.0; 9],
+        })
     }
 
     #[test]
@@ -131,17 +179,33 @@ mod tests {
             offset_surface_measured(&plane, 1.0, false, (-1.0, 1.0), (-1.0, 1.0), &tol).unwrap();
         assert!(exact.approximation_deviation.is_none(), "plane is exact");
 
-        let cone = SurfaceGeometry::Cone {
-            apex: Point3::new(0.0, 0.0, 1.0),
-            axis: Vec3::new(0.0, 0.0, -1.0),
-            half_angle: std::f64::consts::FRAC_PI_4,
-        };
         let approx =
-            offset_surface_measured(&cone, 0.1, false, (0.1, 1.0), (0.1, 1.0), &tol).unwrap();
+            offset_surface_measured(&bump_nurbs(), 0.05, false, (0.0, 1.0), (0.0, 1.0), &tol)
+                .unwrap();
         let dev = approx
             .approximation_deviation
-            .expect("cone offset is an approximation and must say so");
+            .expect("free-form NURBS offset is an approximation and must say so");
         assert!(dev.is_finite() && dev >= 0.0);
+    }
+
+    #[test]
+    fn folding_approximation_declines_with_map_folds() {
+        // A curved free-form surface offset far past its curvature
+        // radius: fitting would approximate a folded offset map, so the
+        // dispatch declines with the fold bound instead.
+        let tol = Tolerance::default();
+        let result =
+            offset_surface_measured(&bump_nurbs(), 50.0, true, (0.0, 1.0), (0.0, 1.0), &tol);
+        match result {
+            Err(OffsetError::OffsetMapFolds {
+                requested,
+                max_safe,
+            }) => {
+                assert!((requested - 50.0).abs() < 1e-12);
+                assert!(max_safe > 0.0 && max_safe < 50.0, "max_safe {max_safe}");
+            }
+            other => panic!("expected OffsetMapFolds decline, got {other:?}"),
+        }
     }
 
     #[test]

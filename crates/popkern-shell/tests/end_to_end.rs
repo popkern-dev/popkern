@@ -349,3 +349,95 @@ fn thicken_prism_slab() {
         "expected OffsetTooLarge decline, got {too_thick:?}"
     );
 }
+
+#[test]
+fn shell_cone_serves_with_exact_offset_arm() {
+    // PK-322: the exact cone offset arm (same half-angle, apex
+    // translated d/sin(half_angle) along the axis) plus the analytic
+    // recompute arms serve a shelled cone validate_all-clean with
+    // measured geometry — no NURBS approximation anywhere.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let (radius, height, d) = (1.0_f64, 2.0_f64, 0.1_f64);
+    let brep = BRep::cone(radius, height, tol()).unwrap();
+    let base_cap = brep
+        .faces
+        .iter()
+        .find(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Plane { .. })
+            )
+        })
+        .map(|(h, _)| h)
+        .unwrap();
+
+    let result = shell(
+        &brep,
+        d,
+        ShellDirection::Inward,
+        &[base_cap],
+        &[],
+        &ShellOptions::default(),
+        tol(),
+        None,
+    )
+    .unwrap();
+
+    assert!(
+        result.brep.validate_all().is_empty(),
+        "shelled cone must be validate_all-clean: {:?}",
+        result.brep.validate_all()
+    );
+
+    // The inner lateral face is a genuine Cone with the apex moved down
+    // the axis by exactly d/sin(half_angle).
+    let half_angle = (radius / height).atan();
+    let expected_apex_z = height - d / half_angle.sin();
+    let inner_apexes: Vec<f64> = result
+        .brep
+        .faces
+        .values()
+        .filter_map(|f| f.surface.as_ref())
+        .filter_map(|s| match &s.geometry {
+            SurfaceGeometry::Cone { apex, .. } => Some(apex.z),
+            _ => None,
+        })
+        .filter(|z| (z - expected_apex_z).abs() < 1e-9)
+        .collect();
+    assert_eq!(
+        inner_apexes.len(),
+        1,
+        "exactly one offset cone face with apex at z={expected_apex_z}"
+    );
+
+    // The inner apex VERTEX tracks the offset cone's apex exactly, and
+    // the opening rim stays flush in the original base plane at the
+    // inner cone's station radius.
+    let apex_vertices = result
+        .brep
+        .vertices
+        .values()
+        .filter(|v| {
+            v.position.x.abs() < 1e-9
+                && v.position.y.abs() < 1e-9
+                && (v.position.z - expected_apex_z).abs() < 1e-9
+        })
+        .count();
+    assert_eq!(apex_vertices, 1, "inner apex vertex at the translated apex");
+
+    let rim_radius = expected_apex_z * half_angle.tan();
+    let rim_vertices = result
+        .brep
+        .vertices
+        .values()
+        .filter(|v| {
+            let r = (v.position.x * v.position.x + v.position.y * v.position.y).sqrt();
+            v.position.z.abs() < 1e-9 && (r - rim_radius).abs() < 1e-9
+        })
+        .count();
+    assert!(
+        rim_vertices >= 1,
+        "opening rim vertex at radius {rim_radius} in the base plane"
+    );
+}

@@ -306,8 +306,16 @@ impl BRep {
         brep.loops[loop_top].half_edge = he_top_cap;
 
         // -- Wire edge -> half_edge --
+        // CONTRACT (closed edges, see recompute_face_pcurves): the
+        // edge's canonical `half_edge` must traverse the stored curve
+        // FORWARD. Both circle curves run CCW (angle increasing), which
+        // the lateral loop traverses forward along the BOTTOM circle
+        // but BACKWARD along the TOP circle — so the top circle's
+        // canonical half is the cap side. Wiring the lateral side there
+        // made every pcurve re-authoring (shell/offset assembly) wind
+        // the lateral and cap loops against their orientation flags.
         brep.edges[e_bot_circle].half_edge = he_bot_arc;
-        brep.edges[e_top_circle].half_edge = he_top_arc;
+        brep.edges[e_top_circle].half_edge = he_top_cap;
         brep.edges[e_seam].half_edge = he_seam_up;
 
         // -- Wire vertex -> outgoing --

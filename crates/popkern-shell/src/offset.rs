@@ -17,7 +17,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 /// Honest per-run stage count of [`offset_impl`] for progress totals
 /// (PK-276).
-pub(crate) const OFFSET_STAGE_COUNT: usize = 6;
+pub(crate) const OFFSET_STAGE_COUNT: usize = 7;
 
 /// Offset all faces of a solid by a uniform distance.
 ///
@@ -158,6 +158,20 @@ pub(crate) fn offset_solid_impl(
     let t0 = Instant::now();
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
     tracker.finish_stage("offset.apply_offset_geometry", t0, result.faces.len());
+
+    // The clone carries the ORIGINAL pcurves. Most exact offsets are
+    // parametrization-preserving (planes, cylinders, spheres, tori) so
+    // those stay valid, but the exact cone arm SHIFTS the axial
+    // parameter (apex translation) and the inherited pcurves/trim
+    // windows go geometrically stale. The recompute's survival rule
+    // keeps every still-accurate pcurve and re-authors only the stale
+    // ones.
+    stage_gate!();
+    let t0 = Instant::now();
+    result
+        .recompute_all_pcurves_winding_repaired()
+        .map_err(|e| ShellError::Topology(e.to_string()))?;
+    tracker.finish_stage("offset.pcurve_recompute", t0, result.faces.len());
 
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();

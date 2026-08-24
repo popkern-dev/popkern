@@ -18,6 +18,7 @@ mod trim;
 mod trim_canonical;
 mod trim_clip;
 mod trim_sampling;
+mod winding_side;
 
 pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};

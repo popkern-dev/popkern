@@ -121,7 +121,7 @@ pub(crate) fn midplane_shell_impl(
     }
     let t0 = Instant::now();
     result
-        .recompute_all_pcurves()
+        .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("shell.midplane.pcurve_recompute", t0, result.faces.len());
 

@@ -57,7 +57,7 @@ impl BRep {
     /// boundary-first mesher rightly declined to chart it.
     /// Full-period members are flipped (via [`Pcurve::reversed`])
     /// until the net winding is zero.
-    pub(super) fn close_periodic_loop_winding(&mut self, face_handle: FaceHandle) {
+    pub(in crate::topology) fn close_periodic_loop_winding(&mut self, face_handle: FaceHandle) {
         let Some((period_u, period_v)) = self
             .faces
             .get(face_handle)

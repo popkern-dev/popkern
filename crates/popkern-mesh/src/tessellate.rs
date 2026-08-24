@@ -534,6 +534,37 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
     use std::collections::HashMap;
 
     let n = face_meshes.len();
+    if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+        for (fi, fm) in face_meshes.iter().enumerate() {
+            let class = brep
+                .faces
+                .get(fm.face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| match &s.geometry {
+                    SurfaceGeometry::Plane { origin, .. } => format!("Plane z={:.3}", origin.z),
+                    SurfaceGeometry::Cylinder { radius, .. } => format!("Cyl r={radius:.3}"),
+                    SurfaceGeometry::Cone { apex, .. } => format!("Cone apex_z={:.3}", apex.z),
+                    _ => "other".to_string(),
+                });
+            let mut v6 = 0.0;
+            for t in &fm.triangles {
+                let (a, b, c) = (
+                    fm.vertices[t[0]].position,
+                    fm.vertices[t[1]].position,
+                    fm.vertices[t[2]].position,
+                );
+                v6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                    + a.z * (b.x * c.y - b.y * c.x);
+            }
+            eprintln!(
+                "  [orient] mesh {fi} = {:?} {class:?} tris={} verts={} wedge={:.5}",
+                fm.face,
+                fm.triangles.len(),
+                fm.vertices.len(),
+                v6 / 6.0
+            );
+        }
+    }
     let mesh_index_of: HashMap<popkern_core::topology::FaceHandle, usize> = face_meshes
         .iter()
         .enumerate()
@@ -691,6 +722,12 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
         }
         let significant = edge_len * 1.0e-3;
         if d1.abs() < significant || d2.abs() < significant {
+            if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+                eprintln!(
+                    "  [orient] pair ({f1},{f2}) advance below floor: d1={d1:.6} d2={d2:.6} \
+                     edge_len={edge_len:.4}"
+                );
+            }
             continue;
         }
         let weight = d1.abs().min(d2.abs());
@@ -758,10 +795,13 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
                 }
             }
         }
-        // Component-global side: the coherent component must enclose
-        // positive volume (outward facing). Compute the component's
-        // wedge with the proposed flips; negative → flip the whole
-        // component.
+        // Component-global side: an OUTER boundary component encloses
+        // positive volume (outward facing); a VOID boundary — a
+        // component enclosed inside another component of the same body
+        // (ray-crossing parity, position-only, so it needs no facing
+        // decisions) — encloses negative volume, facing into the void.
+        // The former unconditional-positive rule meshed every hollow
+        // body's inner skin inside-out (see winding_side).
         let mut vol6 = 0.0;
         for &f in &component {
             let s = if flip[f] == Some(true) { -1.0 } else { 1.0 };
@@ -777,7 +817,15 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
                         + a.z * (b.x * c.y - b.y * c.x));
             }
         }
-        if vol6 < 0.0 {
+        let enclosed = crate::winding_side::component_is_enclosed(&component, face_meshes);
+        let wrong_side = if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
+        if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+            eprintln!(
+                "  [orient] component {component:?} vol6 {vol6:.4} enclosed={enclosed} \
+                 wrong_side={wrong_side}"
+            );
+        }
+        if wrong_side {
             for &f in &component {
                 flip[f] = flip[f].map(|x| !x);
             }

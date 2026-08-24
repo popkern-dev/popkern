@@ -38,13 +38,18 @@ pub fn recompute_vertices(
         // Find adjacent faces by walking outgoing half-edges.
         let adjacent_outer_faces = find_adjacent_outer_faces(inner, inner_vh, &reverse_face);
 
-        // Collect offset surfaces for adjacent faces.
+        // Collect offset surfaces for adjacent faces, keyed by outer
+        // face handle so curved solves can order deterministically
+        // (the adjacency set iterates in hash order — a PK-277-class
+        // hazard for any order-sensitive iteration).
         let mut planes: Vec<(Vec3, f64)> = Vec::new();
         let mut surfaces: Vec<&SurfaceGeometry> = Vec::new();
+        let mut keyed: Vec<(FaceHandle, &SurfaceGeometry)> = Vec::new();
 
         for outer_fh in &adjacent_outer_faces {
             if let Some(surf) = offset_surfaces.get(outer_fh) {
                 surfaces.push(surf);
+                keyed.push((*outer_fh, surf));
                 if let SurfaceGeometry::Plane { origin, normal, .. } = surf {
                     let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
                     planes.push((*normal, d));
@@ -77,6 +82,7 @@ pub fn recompute_vertices(
                 }
                 if let Some(sof) = outer.faces.get(outer_fh).and_then(|f| f.surface.as_ref()) {
                     surfaces.push(&sof.geometry);
+                    keyed.push((outer_fh, &sof.geometry));
                     if let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry {
                         let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
                         planes.push((*normal, d));
@@ -89,9 +95,57 @@ pub fn recompute_vertices(
             continue;
         }
 
-        // Try 3-plane intersection if we have 3+ planes.
-        let new_pos = if planes.len() >= 3 {
+        let has_curved = surfaces
+            .iter()
+            .any(|s| !matches!(s, SurfaceGeometry::Plane { .. }));
+
+        // PK-322: a vertex sitting at a cone face's parametric apex
+        // tracks the OFFSET cone's apex exactly — projection cannot
+        // find it (every direction from the axis is equidistant).
+        if has_curved && let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
+            let orig_pos = outer.vertices[outer_vh].position;
+            let mut apex_target = None;
+            let mut sorted_faces = adjacent_outer_faces.clone();
+            sorted_faces.sort();
+            for outer_fh in &sorted_faces {
+                if let (
+                    Some(SurfaceGeometry::Cone { apex: a0, .. }),
+                    Some(SurfaceGeometry::Cone { apex: a1, .. }),
+                ) = (
+                    outer
+                        .faces
+                        .get(*outer_fh)
+                        .and_then(|f| f.surface.as_ref())
+                        .map(|s| &s.geometry),
+                    offset_surfaces.get(outer_fh),
+                ) && orig_pos.distance_to(a0) <= tolerance.linear()
+                {
+                    apex_target = Some(*a1);
+                    break;
+                }
+            }
+            if let Some(pos) = apex_target {
+                inner.vertices[inner_vh].position = pos;
+                continue;
+            }
+        }
+
+        // Solve the new position. Pure-plane valence-3+ keeps its exact
+        // Cramer arm; any curved participant routes through sequential
+        // exact projection (deterministic: sorted by face handle,
+        // seeded from the original vertex for branch selection); the
+        // legacy plane-averaging Newton covers the plane-only
+        // under-determined cases.
+        let new_pos = if !has_curved && planes.len() >= 3 {
             solve_3_planes(&planes[0], &planes[1], &planes[2])
+        } else if has_curved {
+            let outer_vh = reverse_vertex
+                .get(&inner_vh)
+                .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
+            let seed = outer.vertices[*outer_vh].position;
+            keyed.sort_by_key(|(fh, _)| *fh);
+            let ordered: Vec<&SurfaceGeometry> = keyed.iter().map(|(_, s)| *s).collect();
+            crate::curved_recompute::solve_vertex_on_surfaces(&ordered, seed, tolerance)
         } else {
             // Fall back to Newton iteration from initial guess.
             let outer_vh = reverse_vertex

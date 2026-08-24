@@ -88,16 +88,26 @@ pub fn constant_radius_center_curve(
             "    [offset-const] {convexity:?} o=({orientation_1},{orientation_2}) inward=({inward_1},{inward_2})"
         );
     }
-    let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)?;
-    let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)?;
+    let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)
+        .map_err(|e| e.to_string())?;
+    let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)
+        .map_err(|e| e.to_string())?;
 
-    // 2. Compute parameter ranges for offset surfaces.
+    // 2. Compute parameter ranges for offset surfaces. The face windows
+    // are routed through the offset's parameter correspondence — the
+    // exact cone arm translates the apex, which shifts the axial
+    // parameter of the corresponding region (other classes are
+    // parametrization-preserving and pass through unchanged).
+    let (cu1_range, cv1_range) =
+        crate::offset::corresponding_offset_window(surface1, radius, inward_1, u1_range, v1_range);
+    let (cu2_range, cv2_range) =
+        crate::offset::corresponding_offset_window(surface2, radius, inward_2, u2_range, v2_range);
     let ((ou1_min, ou1_max), (ov1_min, ov1_max)) = offset1.parameter_range();
-    let off1_u = clamp_finite_range((ou1_min, ou1_max), u1_range);
-    let off1_v = clamp_finite_range((ov1_min, ov1_max), v1_range);
+    let off1_u = clamp_finite_range((ou1_min, ou1_max), cu1_range);
+    let off1_v = clamp_finite_range((ov1_min, ov1_max), cv1_range);
     let ((ou2_min, ou2_max), (ov2_min, ov2_max)) = offset2.parameter_range();
-    let off2_u = clamp_finite_range((ou2_min, ou2_max), u2_range);
-    let off2_v = clamp_finite_range((ov2_min, ov2_max), v2_range);
+    let off2_u = clamp_finite_range((ou2_min, ou2_max), cu2_range);
+    let off2_v = clamp_finite_range((ov2_min, ov2_max), cv2_range);
 
     // 3. Intersect offset surfaces.
     let result = intersect_surfaces(
@@ -418,29 +428,25 @@ fn find_center_point_at_radius(
             "    [offset] {convexity:?} o=({orientation_1},{orientation_2}) sides=({side_1:?},{side_2:?})"
         );
     }
-    let offset1 = offset_surface(
-        surface1,
-        radius,
-        matches!(side_1, crate::contact::BallSide::Inside),
-        u1_range,
-        v1_range,
-        tolerance,
-    )?;
-    let offset2 = offset_surface(
-        surface2,
-        radius,
-        matches!(side_2, crate::contact::BallSide::Inside),
-        u2_range,
-        v2_range,
-        tolerance,
-    )?;
+    let inward_1 = matches!(side_1, crate::contact::BallSide::Inside);
+    let inward_2 = matches!(side_2, crate::contact::BallSide::Inside);
+    let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)
+        .map_err(|e| e.to_string())?;
+    let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)
+        .map_err(|e| e.to_string())?;
 
+    // Same offset-parameter correspondence as the primary construction
+    // above: the exact cone arm shifts the axial window.
+    let (cu1_range, cv1_range) =
+        crate::offset::corresponding_offset_window(surface1, radius, inward_1, u1_range, v1_range);
+    let (cu2_range, cv2_range) =
+        crate::offset::corresponding_offset_window(surface2, radius, inward_2, u2_range, v2_range);
     let ((ou1_min, ou1_max), (ov1_min, ov1_max)) = offset1.parameter_range();
-    let off1_u = clamp_finite_range((ou1_min, ou1_max), u1_range);
-    let off1_v = clamp_finite_range((ov1_min, ov1_max), v1_range);
+    let off1_u = clamp_finite_range((ou1_min, ou1_max), cu1_range);
+    let off1_v = clamp_finite_range((ov1_min, ov1_max), cv1_range);
     let ((ou2_min, ou2_max), (ov2_min, ov2_max)) = offset2.parameter_range();
-    let off2_u = clamp_finite_range((ou2_min, ou2_max), u2_range);
-    let off2_v = clamp_finite_range((ov2_min, ov2_max), v2_range);
+    let off2_u = clamp_finite_range((ou2_min, ou2_max), cu2_range);
+    let off2_v = clamp_finite_range((ov2_min, ov2_max), cv2_range);
 
     let result = intersect_surfaces(
         &offset1, off1_u, off1_v, &offset2, off2_u, off2_v, tolerance,

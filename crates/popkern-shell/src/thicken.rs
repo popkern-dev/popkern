@@ -42,8 +42,8 @@ pub fn thicken(
 }
 
 /// Honest per-run stage count of [`thicken_impl`] for progress totals
-/// (PK-276): one skin ladder per side plus assembly.
-pub(crate) const THICKEN_STAGE_COUNT: usize = 2 * crate::skin_ladder::SKIN_LADDER_STAGE_COUNT + 1;
+/// (PK-276): one skin ladder per side, assembly, pcurve recompute.
+pub(crate) const THICKEN_STAGE_COUNT: usize = 2 * crate::skin_ladder::SKIN_LADDER_STAGE_COUNT + 2;
 
 /// Shared implementation for [`thicken`], with PK-276 interactive
 /// control threaded through both directional skin ladders and the
@@ -130,8 +130,21 @@ pub(crate) fn thicken_impl(
         return Err(ShellError::Cancelled);
     }
     let t0 = Instant::now();
-    let result = assemble_shell(&outer, &inner, &[], &combined_skin_map, tolerance)?;
+    let mut result = assemble_shell(&outer, &inner, &[], &combined_skin_map, tolerance)?;
     tracker.finish_stage("thicken.assemble", t0, result.faces.len());
+
+    // Assembly copies topology without pcurves — re-author them all
+    // (trim domains, loop winding, downstream tessellation all read
+    // them; serving a pcurve-less body meshed every periodic face as
+    // an untrimmed grid).
+    if tracker.cancelled() {
+        return Err(ShellError::Cancelled);
+    }
+    let t0 = Instant::now();
+    result
+        .recompute_all_pcurves_winding_repaired()
+        .map_err(|e| ShellError::Topology(e.to_string()))?;
+    tracker.finish_stage("thicken.pcurve_recompute", t0, result.faces.len());
 
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();

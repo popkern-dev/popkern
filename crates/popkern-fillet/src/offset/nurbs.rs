@@ -1,32 +1,18 @@
-//! NURBS-based surface offset with adaptive refinement.
+//! NURBS-based surface offset with certified-by-measurement fitting.
 //!
-//! Used as a fallback when analytic offset is not available (e.g. cones,
-//! free-form NURBS surfaces). Samples the surface on an adaptive grid,
-//! computes exact offset points, and fits a degree-1 NURBS surface through
-//! them.
+//! Used as a fallback when no closed-form offset exists (free-form
+//! NURBS, Gregory, polyhedral spline). Exact offset points are sampled
+//! on a uniform grid and approximated by a degree-3 least-squares
+//! B-spline ([`super::nurbs_fit`]); the achieved accuracy is then
+//! *measured* on an independent dense grid (finer than, and offset
+//! from, the fit samples) and reported to the caller, who gates on it.
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 
-/// Build a uniform clamped knot vector for `n_pts` control points at the
-/// given `degree`, spanning `[start, end]`.
-fn clamped_knots(n_pts: usize, degree: usize, start: f64, end: f64) -> Vec<f64> {
-    let n_knots = n_pts + degree + 1;
-    let n_interior = n_pts - degree; // >= 1
-    let mut knots = Vec::with_capacity(n_knots);
-    for _ in 0..=degree {
-        knots.push(start);
-    }
-    for i in 1..n_interior {
-        let t = start + (end - start) * (i as f64) / (n_interior as f64);
-        knots.push(t);
-    }
-    for _ in 0..=degree {
-        knots.push(end);
-    }
-    knots
-}
+use super::error::OffsetError;
+use super::nurbs_fit::fit_degree3_surface;
 
 /// Compute the offset point at a single (u, v) parameter.
 ///
@@ -39,19 +25,58 @@ fn offset_point(surface: &SurfaceGeometry, u: f64, v: f64, distance: f64, sign: 
     pt + n * (sign * distance)
 }
 
-/// Compute an offset of an arbitrary surface using adaptive NURBS sampling,
-/// reporting the measured deviation of the final grid.
+fn uniform_params(range: (f64, f64), m: usize) -> Vec<f64> {
+    (0..m)
+        .map(|i| range.0 + (range.1 - range.0) * (i as f64) / ((m - 1) as f64))
+        .collect()
+}
+
+/// Maximum deviation between the exact offset and the fitted surface on
+/// an independent dense grid: `2m+1` per direction, which contains both
+/// the fit-sample parameters and every midpoint between them.
+fn measure_deviation(
+    surface: &SurfaceGeometry,
+    distance: f64,
+    sign: f64,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    fitted: &popkern_core::geometry::NurbsSurface,
+    m: usize,
+) -> f64 {
+    let dense_u = uniform_params(u_range, 2 * m + 1);
+    let dense_v = uniform_params(v_range, 2 * m + 1);
+    let mut max_dev: f64 = 0.0;
+    for &u in &dense_u {
+        for &v in &dense_v {
+            let exact = offset_point(surface, u, v, distance, sign);
+            let approx = fitted.point_at(u, v);
+            let dev = exact.distance_to(&approx);
+            if dev > max_dev {
+                max_dev = dev;
+            }
+        }
+    }
+    max_dev
+}
+
+/// Compute an offset of an arbitrary surface by degree-3 least-squares
+/// fitting, reporting the measured deviation of the final fit.
 ///
-/// The algorithm samples the surface on a uniform grid in UV space, offsets
-/// each sample by `distance` along the surface normal, then builds a
-/// degree-1 NURBS surface through the offset points. The grid is refined
-/// (doubled) until the maximum deviation at inter-sample midpoints is within
-/// `tolerance.linear() / 4`, up to a 64x64 ceiling.
+/// The exact offset is sampled on a uniform grid (twice as dense as the
+/// control net), fit by a degree-3 B-spline, and the fit's maximum
+/// deviation from the exact offset is measured on an independent dense
+/// grid. The control net is refined (doubled — bounded knot refinement
+/// on uniform clamped knots) until the measured deviation is within
+/// `tolerance.linear() / 4`, up to a 64×64 control-net ceiling.
 ///
-/// Returns the surface together with the measured maximum mid-sample
-/// deviation at the final grid. At the grid ceiling the deviation may
-/// exceed the stage tolerance — the caller decides whether that is
-/// acceptable (the surface never silently claims to be in tolerance).
+/// Returns the surface together with the measured maximum deviation on
+/// the final grid. At the ceiling the deviation may exceed the stage
+/// tolerance — the caller decides whether that is acceptable (the
+/// surface never silently claims to be in tolerance).
+///
+/// # Errors
+///
+/// [`OffsetError::FitFailed`] when the least-squares system degenerates.
 pub fn offset_nurbs_measured(
     surface: &SurfaceGeometry,
     distance: f64,
@@ -59,24 +84,16 @@ pub fn offset_nurbs_measured(
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
-) -> Result<(SurfaceGeometry, f64), String> {
+) -> Result<(SurfaceGeometry, f64), OffsetError> {
     let sign = if inward { -1.0 } else { 1.0 };
     let stage_tol = tolerance.linear() / 4.0;
-    let degree: usize = 1;
 
-    let mut n_u: usize = 8;
-    let mut n_v: usize = 8;
-
+    let mut n: usize = 8;
     loop {
-        // Sample offset points on a uniform grid.
-        let u_params: Vec<f64> = (0..n_u)
-            .map(|i| u_range.0 + (u_range.1 - u_range.0) * (i as f64) / ((n_u - 1) as f64))
-            .collect();
-        let v_params: Vec<f64> = (0..n_v)
-            .map(|j| v_range.0 + (v_range.1 - v_range.0) * (j as f64) / ((n_v - 1) as f64))
-            .collect();
-
-        let control_points: Vec<Point3> = u_params
+        let m = 2 * n;
+        let u_params = uniform_params(u_range, m);
+        let v_params = uniform_params(v_range, m);
+        let samples: Vec<Point3> = u_params
             .iter()
             .flat_map(|&u| {
                 v_params
@@ -85,48 +102,18 @@ pub fn offset_nurbs_measured(
             })
             .collect();
 
-        let weights = vec![1.0_f64; n_u * n_v];
-        let knots_u = clamped_knots(n_u, degree, u_range.0, u_range.1);
-        let knots_v = clamped_knots(n_v, degree, v_range.0, v_range.1);
+        let fitted = fit_degree3_surface(&u_params, &v_params, &samples, n, n, u_range, v_range)?;
+        let max_dev = measure_deviation(surface, distance, sign, u_range, v_range, &fitted, m);
 
-        let nurbs = NurbsSurface {
-            degree_u: degree,
-            degree_v: degree,
-            knots_u,
-            knots_v,
-            control_points,
-            num_u: n_u,
-            num_v: n_v,
-            weights,
-        };
-
-        // Check deviation at midpoints between sample positions.
-        let mut max_dev: f64 = 0.0;
-        for i in 0..(n_u - 1) {
-            for j in 0..(n_v - 1) {
-                let u_mid = (u_params[i] + u_params[i + 1]) / 2.0;
-                let v_mid = (v_params[j] + v_params[j + 1]) / 2.0;
-
-                let exact = offset_point(surface, u_mid, v_mid, distance, sign);
-                let approx = nurbs.point_at(u_mid, v_mid);
-                let dev = exact.distance_to(&approx);
-                if dev > max_dev {
-                    max_dev = dev;
-                }
-            }
+        if max_dev <= stage_tol || n >= 64 {
+            return Ok((SurfaceGeometry::Nurbs(fitted), max_dev));
         }
-
-        if max_dev <= stage_tol || (n_u >= 64 && n_v >= 64) {
-            return Ok((SurfaceGeometry::Nurbs(nurbs), max_dev));
-        }
-
-        // Refine: double the grid.
-        n_u = (n_u * 2).min(64);
-        n_v = (n_v * 2).min(64);
+        n *= 2;
     }
 }
 
-/// Compute an offset of an arbitrary surface using adaptive NURBS sampling.
+/// Compute an offset of an arbitrary surface by degree-3 least-squares
+/// fitting.
 ///
 /// Convenience wrapper over [`offset_nurbs_measured`] that discards the
 /// measured deviation. Quality-gated callers use the measured form.
@@ -137,7 +124,7 @@ pub fn offset_nurbs(
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
-) -> Result<SurfaceGeometry, String> {
+) -> Result<SurfaceGeometry, OffsetError> {
     offset_nurbs_measured(surface, distance, inward, u_range, v_range, tolerance)
         .map(|(surface, _deviation)| surface)
 }
@@ -145,7 +132,7 @@ pub fn offset_nurbs(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use popkern_core::geometry::{Point3, Vec3};
+    use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
     use popkern_core::tolerance::Tolerance;
 
     #[test]
@@ -158,25 +145,63 @@ mod tests {
         };
         let tol = Tolerance::default();
         let result = offset_nurbs(&plane, 3.0, false, (-1.0, 1.0), (-1.0, 1.0), &tol).unwrap();
-        // Evaluate at centre — should be at z ≈ 3.0
+        // A plane offset is itself a plane — the degree-3 fit must
+        // reproduce it to numerical precision, not the old degree-1
+        // "close enough at the samples" level.
         match &result {
             SurfaceGeometry::Nurbs(n) => {
-                let p = n.point_at(0.0, 0.0);
-                assert!((p.z - 3.0).abs() < 0.01, "expected z≈3.0, got z={:.6}", p.z);
+                let p = n.point_at(0.3, -0.7);
+                assert!(
+                    (p.z - 3.0).abs() < 1e-9,
+                    "expected z≈3.0, got z={:.12}",
+                    p.z
+                );
             }
             _ => panic!("expected NURBS"),
         }
     }
 
     #[test]
-    fn nurbs_offset_cone_succeeds() {
-        let cone = SurfaceGeometry::Cone {
-            apex: Point3::new(0.0, 0.0, 1.0),
-            axis: Vec3::new(0.0, 0.0, -1.0),
-            half_angle: std::f64::consts::FRAC_PI_4,
+    fn curved_nurbs_offset_measured_within_tolerance() {
+        // A genuinely curved base surface: the fit must land within the
+        // stage tolerance and REPORT its measured deviation.
+        let bump = NurbsSurface {
+            degree_u: 2,
+            degree_v: 2,
+            knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 0.0, 0.4),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(0.0, 0.5, 0.4),
+                Point3::new(0.5, 0.5, 0.8),
+                Point3::new(1.0, 0.5, 0.4),
+                Point3::new(0.0, 1.0, 0.0),
+                Point3::new(0.5, 1.0, 0.4),
+                Point3::new(1.0, 1.0, 0.0),
+            ],
+            num_u: 3,
+            num_v: 3,
+            weights: vec![1.0; 9],
         };
+        let surface = SurfaceGeometry::Nurbs(bump);
         let tol = Tolerance::default();
-        let result = offset_nurbs(&cone, 0.1, false, (0.1, 1.0), (0.1, 1.0), &tol);
-        assert!(result.is_ok());
+        let (fitted, dev) =
+            offset_nurbs_measured(&surface, 0.1, false, (0.0, 1.0), (0.0, 1.0), &tol).unwrap();
+        assert!(dev.is_finite() && dev >= 0.0);
+        assert!(
+            dev <= tol.linear() / 4.0,
+            "measured deviation {dev:.3e} exceeds stage tolerance"
+        );
+        // Independent spot check away from grid alignment.
+        match &fitted {
+            SurfaceGeometry::Nurbs(n) => {
+                let exact = offset_point(&surface, 0.377, 0.613, 0.1, 1.0);
+                let approx = n.point_at(0.377, 0.613);
+                assert!(exact.distance_to(&approx) <= tol.linear());
+            }
+            _ => panic!("expected NURBS"),
+        }
     }
 }

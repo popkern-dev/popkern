@@ -10,6 +10,13 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
+use super::error::OffsetError;
+
+/// Fraction of the exact existence bound reported as `max_safe` in
+/// radius-through-zero and spindle declines, matching the collapse
+/// gate's convention that `max_safe` must itself be serveable.
+const MAX_SAFE_FRACTION: f64 = 0.99;
+
 /// Sign of the stored normal along the radius-growing direction: `+1.0`
 /// when the surface normal points away from its axis/center (radius
 /// grows along `+n`), `-1.0` when it points toward it. `None` for
@@ -58,7 +65,7 @@ pub enum AnalyticOffset {
     /// The surface class has a closed-form offset and it exists at the
     /// requested distance.
     Exact(SurfaceGeometry),
-    /// No closed-form arm exists for this surface class (cone, NURBS,
+    /// No closed-form arm exists for this surface class (NURBS,
     /// Gregory, polyhedral spline) — approximation is the honest route.
     Unsupported,
 }
@@ -66,7 +73,14 @@ pub enum AnalyticOffset {
 /// Compute an exact offset of an analytic surface, distinguishing
 /// "no closed-form arm for this class" from "the offset does not exist".
 ///
-/// For a plane, the origin is translated by `±distance * normal`. For
+/// For a plane, the origin is translated by `±distance * normal`. For a
+/// cone, the apex is translated along the (normalized) axis by
+/// `∓ distance / sin(half_angle)` — the same half-angle cone, shifted so
+/// every point sits `distance` along the surface normal (offset along
+/// `+n̂` moves the apex by `−d/sinα · axis`). The offset cone always
+/// exists as a surface; a through-apex request (the offset consumes the
+/// original apex region) is a *trim* concern handled downstream by the
+/// recompute/collapse machinery, never a reason to approximate. For
 /// cylinder, sphere, and torus the radius is adjusted by the offset
 /// distance folded with the stored normal's measured radial sign, so
 /// `inward` uniformly means "offset along −n" (see the module doc).
@@ -74,16 +88,16 @@ pub enum AnalyticOffset {
 /// # Errors
 ///
 /// `Err` is a genuine geometric decline: the offset surface does not
-/// exist at the requested distance (a radius driven through zero).
-/// Callers must NOT fall back to approximation on `Err` — an
-/// approximation of a nonexistent offset is inverted geometry.
-/// Surface classes without a closed form return
-/// [`AnalyticOffset::Unsupported`] instead.
+/// exist at the requested distance (a radius driven through zero, or a
+/// torus minor radius grown to a self-intersecting spindle). Callers
+/// must NOT fall back to approximation on `Err` — an approximation of a
+/// nonexistent offset is inverted geometry. Surface classes without a
+/// closed form return [`AnalyticOffset::Unsupported`] instead.
 pub fn offset_analytic_classified(
     surface: &SurfaceGeometry,
     distance: f64,
     inward: bool,
-) -> Result<AnalyticOffset, String> {
+) -> Result<AnalyticOffset, OffsetError> {
     let sign = if inward { -1.0 } else { 1.0 };
 
     match surface {
@@ -102,18 +116,44 @@ pub fn offset_analytic_classified(
             }))
         }
 
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => {
+            let sin_a = half_angle.sin();
+            let cos_a = half_angle.cos();
+            let axis_n = axis
+                .normalized()
+                .filter(|_| sin_a > 0.0 && cos_a > 0.0)
+                .ok_or(OffsetError::DegenerateGeometry { class: "cone" })?;
+            // For v > 0 the stored normal (∂u × ∂v) points along
+            // cosα·e_r − sinα·â; offsetting every surface point by
+            // `sign·distance` along that unit normal reproduces the
+            // same cone with the apex translated −(sign·distance)/sinα
+            // along the unit axis.
+            let new_apex = *apex - axis_n * (sign * distance / sin_a);
+            Ok(AnalyticOffset::Exact(SurfaceGeometry::Cone {
+                apex: new_apex,
+                axis: *axis,
+                half_angle: *half_angle,
+            }))
+        }
+
         SurfaceGeometry::Cylinder {
             origin,
             axis,
             radius,
         } => {
             let radial = radial_normal_sign(surface)
-                .ok_or_else(|| "cylinder with degenerate axis".to_string())?;
+                .ok_or(OffsetError::DegenerateGeometry { class: "cylinder" })?;
             let new_radius = radius + sign * radial * distance;
             if new_radius <= 0.0 {
-                return Err(format!(
-                    "cylinder offset radius would be {new_radius:.6} (≤ 0)"
-                ));
+                return Err(OffsetError::RadiusThroughZero {
+                    class: "cylinder",
+                    new_radius,
+                    max_safe: radius * MAX_SAFE_FRACTION,
+                });
             }
             Ok(AnalyticOffset::Exact(SurfaceGeometry::Cylinder {
                 origin: *origin,
@@ -124,12 +164,14 @@ pub fn offset_analytic_classified(
 
         SurfaceGeometry::Sphere { center, radius } => {
             let radial = radial_normal_sign(surface)
-                .ok_or_else(|| "sphere with degenerate normal".to_string())?;
+                .ok_or(OffsetError::DegenerateGeometry { class: "sphere" })?;
             let new_radius = radius + sign * radial * distance;
             if new_radius <= 0.0 {
-                return Err(format!(
-                    "sphere offset radius would be {new_radius:.6} (≤ 0)"
-                ));
+                return Err(OffsetError::RadiusThroughZero {
+                    class: "sphere",
+                    new_radius,
+                    max_safe: radius * MAX_SAFE_FRACTION,
+                });
             }
             Ok(AnalyticOffset::Exact(SurfaceGeometry::Sphere {
                 center: *center,
@@ -144,12 +186,24 @@ pub fn offset_analytic_classified(
             minor_radius,
         } => {
             let radial = radial_normal_sign(surface)
-                .ok_or_else(|| "torus with degenerate axis".to_string())?;
+                .ok_or(OffsetError::DegenerateGeometry { class: "torus" })?;
             let new_minor = minor_radius + sign * radial * distance;
             if new_minor <= 0.0 {
-                return Err(format!(
-                    "torus offset minor radius would be {new_minor:.6} (≤ 0)"
-                ));
+                return Err(OffsetError::RadiusThroughZero {
+                    class: "torus",
+                    new_radius: new_minor,
+                    max_safe: minor_radius * MAX_SAFE_FRACTION,
+                });
+            }
+            if new_minor >= *major_radius {
+                // Spindle torus: the tube swallows the axis and the
+                // surface self-intersects. Declined until global
+                // trimming (PK-327) can serve the trimmed result.
+                return Err(OffsetError::SpindleTorus {
+                    new_minor,
+                    major: *major_radius,
+                    max_safe: (major_radius - minor_radius) * MAX_SAFE_FRACTION,
+                });
             }
             Ok(AnalyticOffset::Exact(SurfaceGeometry::Torus {
                 center: *center,
@@ -159,8 +213,7 @@ pub fn offset_analytic_classified(
             }))
         }
 
-        SurfaceGeometry::Cone { .. }
-        | SurfaceGeometry::Nurbs(_)
+        SurfaceGeometry::Nurbs(_)
         | SurfaceGeometry::Gregory(_)
         | SurfaceGeometry::PolyhedralSpline(_) => Ok(AnalyticOffset::Unsupported),
     }
@@ -177,154 +230,51 @@ pub fn offset_analytic(
     surface: &SurfaceGeometry,
     distance: f64,
     inward: bool,
-) -> Result<SurfaceGeometry, String> {
+) -> Result<SurfaceGeometry, OffsetError> {
     match offset_analytic_classified(surface, distance, inward)? {
         AnalyticOffset::Exact(s) => Ok(s),
         AnalyticOffset::Unsupported => {
             let class = match surface {
-                SurfaceGeometry::Cone { .. } => "cone",
                 SurfaceGeometry::Nurbs(_) => "NURBS",
                 SurfaceGeometry::Gregory(_) => "Gregory",
                 SurfaceGeometry::PolyhedralSpline(_) => "polyhedral spline",
                 _ => "analytic",
             };
-            Err(format!(
-                "analytic offset not supported for {class} surfaces"
-            ))
+            Err(OffsetError::Unsupported { class })
         }
     }
+}
+
+/// The parameter window on the *offset* surface geometrically
+/// corresponding to `(u_range, v_range)` on the original.
+///
+/// Every exact arm except the cone preserves parametrization
+/// (`S'(u,v) = S(u,v) + sign·d·n̂(u,v)`), so the window is unchanged.
+/// The exact cone offset translates the apex, which shifts the axial
+/// parameter: a point at `(u, v)` maps to `(u, v + sign·d·cos²α/sinα)`
+/// on the offset cone. Callers that intersect offset surfaces inside
+/// windows derived from the original faces (the fillet center-curve
+/// construction) must route their windows through this map or steep
+/// cones lose the intersection region.
+pub fn corresponding_offset_window(
+    surface: &SurfaceGeometry,
+    distance: f64,
+    inward: bool,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> ((f64, f64), (f64, f64)) {
+    if let SurfaceGeometry::Cone { half_angle, .. } = surface {
+        let sin_a = half_angle.sin();
+        let cos_a = half_angle.cos();
+        if sin_a > 0.0 {
+            let sign = if inward { -1.0 } else { 1.0 };
+            let shift = sign * distance * cos_a * cos_a / sin_a;
+            return (u_range, (v_range.0 + shift, v_range.1 + shift));
+        }
+    }
+    (u_range, v_range)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::{Point3, Vec3};
-
-    fn xy_plane() -> SurfaceGeometry {
-        SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        }
-    }
-
-    #[test]
-    fn plane_outward() {
-        let result = offset_analytic(&xy_plane(), 1.0, false).unwrap();
-        match result {
-            SurfaceGeometry::Plane { origin, .. } => {
-                assert!((origin.z - 1.0).abs() < 1e-12);
-            }
-            _ => panic!("expected Plane"),
-        }
-    }
-
-    #[test]
-    fn plane_inward() {
-        let result = offset_analytic(&xy_plane(), 1.0, true).unwrap();
-        match result {
-            SurfaceGeometry::Plane { origin, .. } => {
-                assert!((origin.z - (-1.0)).abs() < 1e-12);
-            }
-            _ => panic!("expected Plane"),
-        }
-    }
-
-    #[test]
-    fn cylinder_outward() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 5.0,
-        };
-        let result = offset_analytic(&cyl, 2.0, false).unwrap();
-        match result {
-            SurfaceGeometry::Cylinder { radius, .. } => {
-                assert!((radius - 7.0).abs() < 1e-12);
-            }
-            _ => panic!("expected Cylinder"),
-        }
-    }
-
-    #[test]
-    fn cylinder_inward() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 5.0,
-        };
-        let result = offset_analytic(&cyl, 2.0, true).unwrap();
-        match result {
-            SurfaceGeometry::Cylinder { radius, .. } => {
-                assert!((radius - 3.0).abs() < 1e-12);
-            }
-            _ => panic!("expected Cylinder"),
-        }
-    }
-
-    #[test]
-    fn cylinder_radius_too_small() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        let result = offset_analytic(&cyl, 2.0, true);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn sphere_offset_follows_stored_normal() {
-        // The standalone Sphere parametrization's normal points TOWARD
-        // the center (measured via radial_normal_sign), so under the
-        // along--n contract the flag meanings are: inward=false moves
-        // along +n (radius shrinks), inward=true along -n (radius
-        // grows). The old per-arm convention ("outward increases radii")
-        // ignored the stored normal and disagreed with the plane arm.
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 3.0,
-        };
-        assert_eq!(radial_normal_sign(&sphere), Some(-1.0));
-        match offset_analytic(&sphere, 1.0, false).unwrap() {
-            SurfaceGeometry::Sphere { radius, .. } => {
-                assert!((radius - 2.0).abs() < 1e-12, "along +n = toward center");
-            }
-            _ => panic!("expected Sphere"),
-        }
-        match offset_analytic(&sphere, 1.0, true).unwrap() {
-            SurfaceGeometry::Sphere { radius, .. } => {
-                assert!((radius - 4.0).abs() < 1e-12, "along -n = away from center");
-            }
-            _ => panic!("expected Sphere"),
-        }
-    }
-
-    #[test]
-    fn torus_inward() {
-        let torus = SurfaceGeometry::Torus {
-            center: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            major_radius: 5.0,
-            minor_radius: 2.0,
-        };
-        let result = offset_analytic(&torus, 1.0, true).unwrap();
-        match result {
-            SurfaceGeometry::Torus { minor_radius, .. } => {
-                assert!((minor_radius - 1.0).abs() < 1e-12);
-            }
-            _ => panic!("expected Torus"),
-        }
-    }
-
-    #[test]
-    fn cone_not_supported() {
-        let cone = SurfaceGeometry::Cone {
-            apex: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            half_angle: 0.5,
-        };
-        assert!(offset_analytic(&cone, 1.0, false).is_err());
-    }
-}
+#[path = "analytic_tests.rs"]
+mod tests;

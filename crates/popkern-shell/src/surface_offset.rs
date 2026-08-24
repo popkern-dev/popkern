@@ -87,24 +87,10 @@ pub fn compute_offset_surfaces(
         let positions = face_vertex_positions(brep, face_handle);
         let (u_range, v_range) = bounded_parameter_range(&positions, surface);
 
-        // Self-intersection veto: the offset surface does not exist past
-        // the local curvature radius. This is a property of the request,
-        // not of one face's health — auto-removing the face would punch
-        // an opening the user never asked for, so it declines outright
-        // (honest OffsetTooLarge with the binding face named).
-        if let Some(max_safe) =
-            popkern_fillet::offset::self_intersect::check_offset_self_intersection(
-                surface, distance, inward, u_range, v_range,
-            )
-        {
-            return Err(ShellError::OffsetTooLarge {
-                requested: distance,
-                max_safe,
-                binding: format!("face {face_handle:?}: offset exceeds its local curvature radius"),
-            });
-        }
-
         // Compute the offset surface with an honest quality record.
+        // Existence declines (radius through zero, spindle torus) and
+        // fold declines on the approximation path come back typed from
+        // the dispatch and are mapped to OffsetTooLarge below.
         match popkern_fillet::offset::offset_surface_measured(
             surface, distance, inward, u_range, v_range, tolerance,
         ) {
@@ -144,7 +130,21 @@ pub fn compute_offset_surfaces(
                 }
                 surfaces.insert(face_handle, outcome.surface);
             }
-            Err(msg) => {
+            Err(e) => {
+                // Existence/fold declines are properties of the REQUEST
+                // (surface class × distance × direction), not of one
+                // face's health — auto-removing the face would punch an
+                // opening the user never asked for, so the operation
+                // declines outright with the safe bound and the binding
+                // face named.
+                if let Some(max_safe) = e.max_safe() {
+                    return Err(ShellError::OffsetTooLarge {
+                        requested: distance,
+                        max_safe,
+                        binding: format!("face {face_handle:?}: {e}"),
+                    });
+                }
+                let msg = e.to_string();
                 if allow_partial {
                     auto_removed.push(face_handle);
                     warnings.push(ShellWarning::FaceAutoRemoved {

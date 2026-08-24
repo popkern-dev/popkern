@@ -205,9 +205,23 @@ fn compute_edge_curve(
             }))
         }
         _ => {
-            // For non-planar surfaces, we would use intersect_surfaces().
-            // For now, keep the existing edge curve (from the clone).
-            Ok(None)
+            // PK-322 exact curved arms: straight-ruling seams (both
+            // half-edges on one quadric face) and coaxial plane×quadric
+            // circles. Each arm verifies its candidate by sampled
+            // residuals and falls back to `None` — the clone curve then
+            // stays stale and the serve gate declines the body. General
+            // curved pairs (numeric SSI) are PK-324.
+            let Some(old) = inner.edges[edge_handle].curve.clone() else {
+                return Ok(None);
+            };
+            if surf1 == surf2 {
+                return Ok(crate::curved_recompute::straight_ruling_seam_curve(
+                    &old, surf1, start_pos, end_pos, tolerance,
+                ));
+            }
+            Ok(crate::curved_recompute::coaxial_circle_edge_curve(
+                &old, surf1, surf2, start_pos, tolerance,
+            ))
         }
     }
 }

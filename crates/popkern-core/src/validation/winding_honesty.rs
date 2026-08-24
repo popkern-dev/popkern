@@ -257,7 +257,23 @@ impl BRep {
         surface: &SurfaceGeometry,
     ) -> Result<SignedUvArea, &'static str> {
         let outer = self.faces.get(face).ok_or("missing-face")?.outer_loop;
-        let start = self.loops.get(outer).ok_or("missing-outer-loop")?.half_edge;
+        self.loop_signed_uv_area(outer, surface)
+    }
+
+    /// Signed UV area + perimeter of one loop's pcurve polygon,
+    /// traversed in topological order (periodic-unwrapped shoelace).
+    /// Shared between the winding-honesty audit and the loop-winding
+    /// repair postcondition of pcurve recompute.
+    pub(crate) fn loop_signed_uv_area(
+        &self,
+        loop_handle: crate::topology::LoopHandle,
+        surface: &SurfaceGeometry,
+    ) -> Result<SignedUvArea, &'static str> {
+        let start = self
+            .loops
+            .get(loop_handle)
+            .ok_or("missing-outer-loop")?
+            .half_edge;
         let (period_u, period_v) = surface.periodicity();
         let mut polygon: Vec<(f64, f64)> = Vec::new();
         let mut cur = start;
@@ -357,9 +373,13 @@ impl BRep {
     }
 }
 
-struct SignedUvArea {
-    signed: f64,
-    perimeter: f64,
+/// Signed UV area and perimeter of a polygonized loop (crate-visible
+/// for the pcurve loop-winding repair postcondition).
+pub(crate) struct SignedUvArea {
+    /// Shoelace area; positive = counter-clockwise in UV.
+    pub(crate) signed: f64,
+    /// Polygon perimeter, for the perimeter-relative degeneracy floor.
+    pub(crate) perimeter: f64,
 }
 
 /// Append a UV sample, shifting by whole periods so consecutive

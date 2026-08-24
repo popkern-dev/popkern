@@ -260,7 +260,50 @@ fn build_one_side_wall(
         .add_loop(&[b_outer_rim, down_v1, b_inner_rim, up_v0], face)
         .map_err(ShellError::Core)?;
 
-    if let Some(surface) = plane_from_quad(p0, p1, p2, p3) {
+    // The wall lies IN the removed face's original surface: the outer
+    // rim is that face's own boundary, and the inner rim was recomputed
+    // as (kept offset × removed ORIGINAL surface) — flush by the rim
+    // contract (PK-307). Inheriting the surface covers every rim shape;
+    // the former quad-plane fit degenerated on CLOSED rims (v0 == v1
+    // collapses the quad) and annulus walls served surface-less —
+    // invisible to the structural gate, but tessellation skipped them
+    // and every shelled round opening meshed as a hole.
+    //
+    // Orientation: the wall loop adopts the removed face's own rim
+    // half-edge, so its traversal along the rim matches — but the strip
+    // lies on the removed face's INTERIOR side of the rim for inward
+    // shells (inset rims) and on its EXTERIOR side for outward ones
+    // (outset rims), which mirrors the winding. The side is measured:
+    // interior-left of the rim traversal under the flag-folded normal
+    // vs the actual offset direction (outer rim → skin rim, in-plane).
+    let removed_face = outer.loops[he.loop_].face;
+    if let Some(sof) = outer
+        .faces
+        .get(removed_face)
+        .and_then(|f| f.surface.clone())
+    {
+        use popkern_core::geometry::surface::SurfaceEval;
+        let strip_on_exterior_side = (|| -> Option<bool> {
+            let pc = outer.half_edges.get(rim_he)?.pcurve.as_ref()?;
+            let (t0, t1) = (pc.t_start, pc.t_end);
+            let uv0 = pc.point_at(t0);
+            let uv1 = pc.point_at(t0 + (t1 - t0) * 1e-3);
+            let q0 = sof.geometry.point_at(uv0.x, uv0.y);
+            let q1 = sof.geometry.point_at(uv1.x, uv1.y);
+            let rim_dir = (q1 - q0).normalized()?;
+            let folded_normal = sof.geometry.normal_at(uv0.x, uv0.y).normalized()?
+                * if sof.orientation { 1.0 } else { -1.0 };
+            let interior_left = folded_normal.cross(&rim_dir);
+            let offset_dir = (p3 - p0).normalized()?;
+            Some(interior_left.dot(&offset_dir) < 0.0)
+        })()
+        .unwrap_or(false);
+        let mut wall_sof = sof;
+        if strip_on_exterior_side {
+            wall_sof.orientation = !wall_sof.orientation;
+        }
+        builder.set_face_surface(face, wall_sof);
+    } else if let Some(surface) = plane_from_quad(p0, p1, p2, p3) {
         builder.set_face_surface(
             face,
             SurfaceOnFace {

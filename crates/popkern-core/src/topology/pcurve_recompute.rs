@@ -18,6 +18,28 @@ impl BRep {
         &mut self,
         face_handle: FaceHandle,
     ) -> Result<(), crate::error::CoreError> {
+        self.recompute_face_pcurves_impl(face_handle, false)
+    }
+
+    /// [`Self::recompute_face_pcurves`] with the loop-winding repair
+    /// postcondition armed (see `pcurve_loop_winding_repair`). Reserved
+    /// for from-scratch re-authoring of bodies whose orientation flags
+    /// are trusted (shell/offset assembly output) — established
+    /// pipelines (boolean repair tails) carry closed-rim direction
+    /// conventions their consumers rely on, and the repair must not
+    /// re-orient those.
+    pub fn recompute_face_pcurves_winding_repaired(
+        &mut self,
+        face_handle: FaceHandle,
+    ) -> Result<(), crate::error::CoreError> {
+        self.recompute_face_pcurves_impl(face_handle, true)
+    }
+
+    fn recompute_face_pcurves_impl(
+        &mut self,
+        face_handle: FaceHandle,
+        repair_loop_winding: bool,
+    ) -> Result<(), crate::error::CoreError> {
         use crate::geometry::surface::SurfaceEval;
         use crate::geometry::uv_projection::project_point_to_uv;
         use crate::geometry::{NurbsCurve, Point3};
@@ -63,6 +85,11 @@ impl BRep {
             let (pu, pv) = surface.periodicity();
             pu.is_some() || pv.is_some()
         };
+
+        // Half-edges whose pcurves THIS call writes — the loop-winding
+        // repair below only re-orients loops re-authored in full.
+        let mut freshly_authored: std::collections::HashSet<super::HalfEdgeHandle> =
+            std::collections::HashSet::new();
 
         for heh in he_handles {
             // Existing pcurves are kept UNLESS degenerate or
@@ -407,6 +434,7 @@ impl BRep {
             };
             if !keep_existing {
                 self.half_edges[heh].pcurve = Some(candidate);
+                freshly_authored.insert(heh);
             }
         }
 
@@ -423,6 +451,17 @@ impl BRep {
         // projection anchored one rim arc a period below its loop.
         self.close_periodic_loop_winding(face_handle);
 
+        // Loop-winding honesty, when armed: a closed-edge member's
+        // direction comes from the per-edge canonical bit, which cannot
+        // express the direction each face's CHART needs. Fully
+        // re-authored outer loops that contradict their face's
+        // orientation flag get their closed members flipped
+        // transactionally; partially re-authored loops keep their
+        // trusted directions (see pcurve_loop_winding_repair).
+        if repair_loop_winding {
+            self.fix_loop_pcurve_winding(face_handle, &freshly_authored);
+        }
+
         Ok(())
     }
 
@@ -431,6 +470,20 @@ impl BRep {
         let faces: Vec<_> = self.faces.keys().collect();
         for fh in faces {
             self.recompute_face_pcurves(fh)?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::recompute_all_pcurves`] with the loop-winding repair
+    /// armed on every face — for from-scratch re-authoring of bodies
+    /// with trusted orientation flags (shell/offset assembly output,
+    /// which copies topology without pcurves).
+    pub fn recompute_all_pcurves_winding_repaired(
+        &mut self,
+    ) -> Result<(), crate::error::CoreError> {
+        let faces: Vec<_> = self.faces.keys().collect();
+        for fh in faces {
+            self.recompute_face_pcurves_winding_repaired(fh)?;
         }
         Ok(())
     }
@@ -561,3 +614,7 @@ use pcurve_survival::pcurve_fraction_contract_error;
 #[cfg(test)]
 #[path = "pcurve_recompute_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pcurve_winding_reauthor_tests.rs"]
+mod winding_reauthor_tests;

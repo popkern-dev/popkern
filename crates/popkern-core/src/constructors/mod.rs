@@ -279,4 +279,6 @@ impl BRep {
 }
 
 #[cfg(test)]
+mod canonical_direction_tests;
+#[cfg(test)]
 mod tests;

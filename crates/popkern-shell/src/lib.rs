@@ -7,6 +7,7 @@
 pub mod assemble;
 pub mod classify;
 pub mod collapse_check;
+mod curved_recompute;
 pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;
@@ -245,7 +246,7 @@ pub(crate) fn shell_impl(
     stage_gate!();
     let t0 = Instant::now();
     result
-        .recompute_all_pcurves()
+        .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("shell.pcurve_recompute", t0, result.faces.len());
 
