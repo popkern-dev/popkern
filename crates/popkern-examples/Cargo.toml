@@ -25,6 +25,7 @@ popkern-measure = { path = "../popkern-measure" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
 serde_json = "1"
+thiserror = "2"
 ttf-parser = "0.25.1"
 
 [[bin]]

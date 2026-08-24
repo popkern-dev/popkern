@@ -3319,6 +3319,7 @@ dependencies = [
  "popkern-sweep",
  "popkern-viz",
  "serde_json",
+ "thiserror 2.0.18",
  "ttf-parser",
 ]
 

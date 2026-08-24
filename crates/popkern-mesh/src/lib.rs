@@ -13,6 +13,8 @@ mod error;
 mod export;
 mod face_pass;
 mod mesh;
+pub mod offset_oracle;
+pub mod point_query;
 mod tessellate;
 mod trim;
 mod trim_canonical;
