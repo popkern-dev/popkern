@@ -1,17 +1,21 @@
-//! Tolerance-scoped T-junction zippering (PK-208).
+//! Tolerance-scoped T-junction zippering (PK-208, completed by
+//! PK-334 as curve-parameter station merging).
 //!
-//! When a face falls back to the legacy tessellation path, its
-//! boundary is sampled at its own density; the neighbouring face —
-//! boundary-first or legacy — samples the same edge at a different
-//! density. The sewing pass lands both chains ON the shared curve,
-//! but at STAGGERED positions, so position-welding can never pair
-//! them: the mesh reads open along a seam whose geometry is closed
-//! (measured: 236 welded open edges on the blunt-pentagon fan whose
-//! seams agree to 2e-13).
+//! Faces sample a shared BRep edge from several legitimate sources —
+//! canonical per-edge stations, encroachment enrichment, clip-cut
+//! T-vertices, legacy grid stations — and the sewing pass lands every
+//! chain ON the shared edge curve. Two chains with different station
+//! sets therefore sit on the SAME curve at STAGGERED positions:
+//! position-welding can never pair them, and chord-distance matching
+//! is the wrong geometry outright (an on-curve station sits a full
+//! chord-sagitta off the opposing chain's chord — measured 1.5e-2 on
+//! a 0.36 rad rim chord, far beyond any honest matching band).
 //!
-//! This pass closes exactly that class: an open mesh edge is split at
-//! opposing open-boundary vertices that lie on it, so both chains end
-//! up sharing every subdivision point and the weld closes.
+//! This pass merges the station sets by CURVE PARAMETER: an open mesh
+//! edge whose endpoints lie on a two-sided BRep edge's curve is split
+//! at every opposing open-boundary vertex that also lies on that
+//! curve, strictly inside the open edge's parameter interval. Both
+//! chains end up sharing every station and the weld closes.
 //!
 //! # Why the scoping is the whole design
 //!
@@ -21,12 +25,11 @@
 //! evidence. The zipper therefore only acts where the BRep TOPOLOGY
 //! says the mesh must be closed: on open mesh edges lying along a
 //! TWO-SIDED BRep edge (distinct faces on both half-edges). There,
-//! openness can only be a sampling artifact. The matching band is
-//! tight (2e-4) unless the edge carries a RECORDED entity tolerance —
-//! the check-9 contract — in which case the construction explicitly
-//! accepted that inexactness and the band widens to 1.5x it. A hole
-//! whose opposing chain is absent or beyond the band stays open —
-//! honest.
+//! openness can only be a sampling artifact. Membership on the curve
+//! is held to a band covering the discretization's own accepted sag
+//! (the tessellation chord height) or 1.5x a RECORDED entity
+//! tolerance — the check-9 contract. A hole whose opposing chain is
+//! absent or off the curve stays open — honest.
 //!
 //! The pass reports how many junctions it closed via
 //! [`crate::mesh::TriMesh::zipped_t_junctions`]; a consumer that
@@ -45,16 +48,32 @@ use crate::mesh::TriMesh;
 /// example gates use.
 const WELD: f64 = 1.0e7;
 /// Maximum zip rounds; each round can expose junctions the previous
-/// round's splits created.
+/// round's splits created (a triangle carries at most one fan per
+/// round, and a corner triangle can own two open edges).
 const MAX_ROUNDS: usize = 8;
-/// Fractional interior window for a split along an open edge: a
+/// Interior window as a fraction of the open edge's parameter span: a
 /// candidate at (or numerically at) an endpoint is already welded.
 const END_FRACTION: f64 = 1.0e-6;
+/// Fan cap per open edge per round; leftover stations close in later
+/// rounds.
+const MAX_FAN: usize = 32;
 
-/// Default matching band along a topologically two-sided edge with
-/// no recorded tolerance: covers sampling/sewing offsets while
+/// Default matching band for a chain's distance OFF the shared curve
+/// with no recorded tolerance: covers sampling/sewing offsets while
 /// staying far under any real geometric gap worth catching.
 const DEFAULT_BAND: f64 = 2.0e-4;
+
+/// Sampled polyline of one two-sided BRep edge, with cumulative
+/// arc-length stations for parameter location.
+struct EdgePolyline {
+    pts: Vec<Point3>,
+    /// `cum[i]` = arc length from `pts[0]` to `pts[i]`.
+    cum: Vec<f64>,
+    band: f64,
+    /// Curve endpoints coincide (full rim): parameter intervals may
+    /// wrap through the polyline's start.
+    closed: bool,
+}
 
 /// Close T-junction cracks along two-sided BRep edges. Returns the
 /// number of junction splits performed.
@@ -63,10 +82,7 @@ pub(crate) fn zip_recorded_tolerance_cracks(
     mesh: &mut TriMesh,
     chord_height: f64,
 ) -> usize {
-    // Sampled polylines of every TWO-SIDED edge (distinct faces on
-    // the two half-edges — the topology says the mesh must close
-    // here), with the per-edge matching band.
-    let mut closed_edges: Vec<(Vec<Point3>, f64)> = Vec::new();
+    let mut closed_edges: Vec<EdgePolyline> = Vec::new();
     for (_eh, edge) in brep.edges.iter() {
         let two_sided = (|| {
             let he = brep.half_edges.get(edge.half_edge)?;
@@ -89,40 +105,48 @@ pub(crate) fn zip_recorded_tolerance_cracks(
         let pts: Vec<Point3> = (0..=64)
             .map(|i| ce.point_at(curve.t_start + (curve.t_end - curve.t_start) * i as f64 / 64.0))
             .collect();
-        // The matching band must cover the DISCRETIZATION's own
-        // accepted sag: clip-introduced T-vertices on a fallback
-        // face's canonical chords sit up to the tessellation chord
-        // height off the exact curve (PK-299, measured: 4.2e-3 on a
-        // rim sampled at ~10° spans), and a fixed 2e-4 band rejected
-        // exactly the junctions the zipper exists to close. Geometry
-        // finer than the chord height is below the mesh's resolution
-        // contract, so openness within it along a two-sided edge is
-        // a sampling artifact by construction.
+        let mut cum = Vec::with_capacity(pts.len());
+        let mut total = 0.0;
+        cum.push(0.0);
+        for w in pts.windows(2) {
+            total += w[0].distance_to(&w[1]);
+            cum.push(total);
+        }
+        if total < 1e-12 {
+            continue;
+        }
+        // The band must cover the DISCRETIZATION's own accepted sag:
+        // chain stations sit up to the tessellation chord height off
+        // the exact curve (PK-299, measured 4.2e-3 on a rim sampled
+        // at ~10° spans). Geometry finer than the chord height is
+        // below the mesh's resolution contract, so openness within it
+        // along a two-sided edge is a sampling artifact by
+        // construction.
         let band = DEFAULT_BAND
             .max(chord_height)
             .max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
-        closed_edges.push((pts, band));
+        let closed = pts
+            .first()
+            .zip(pts.last())
+            .map(|(a, b)| a.distance_to(b) < 1e-9)
+            .unwrap_or(false);
+        closed_edges.push(EdgePolyline {
+            pts,
+            cum,
+            band,
+            closed,
+        });
     }
     if closed_edges.is_empty() {
         return 0;
     }
-    let near_tolerant_edge = |p: &Point3| -> Option<f64> {
-        let mut best: Option<f64> = None;
-        for (pts, band) in &closed_edges {
-            let d = pts
-                .windows(2)
-                .map(|w| dist_point_segment(p, &w[0], &w[1]))
-                .fold(f64::MAX, f64::min);
-            if d <= *band && best.map(|b| *band > b).unwrap_or(true) {
-                best = Some(*band);
-            }
-        }
-        best
-    };
 
     let mut zipped = 0usize;
-    for _round in 0..MAX_ROUNDS {
-        let splits = zip_round(mesh, &near_tolerant_edge);
+    for round in 0..MAX_ROUNDS {
+        let splits = zip_round(mesh, &closed_edges);
+        if std::env::var_os("PK_ZIP_TRACE").is_some() {
+            eprintln!("  [zip] round {round}: {splits} splits");
+        }
         if splits == 0 {
             break;
         }
@@ -131,7 +155,33 @@ pub(crate) fn zip_recorded_tolerance_cracks(
     zipped
 }
 
-fn zip_round(mesh: &mut TriMesh, near_tolerant_edge: &dyn Fn(&Point3) -> Option<f64>) -> usize {
+/// Locate `p` on `edge`: `(arc position, distance off the polyline)`.
+fn locate_on(edge: &EdgePolyline, p: &Point3) -> (f64, f64) {
+    let mut best = (0.0, f64::MAX);
+    for (i, w) in edge.pts.windows(2).enumerate() {
+        let (f, foot) = project_point_segment(p, &w[0], &w[1]);
+        let d = foot.distance_to(p);
+        if d < best.1 {
+            best = (edge.cum[i] + (edge.cum[i + 1] - edge.cum[i]) * f, d);
+        }
+    }
+    best
+}
+
+/// Best on-curve location of `p` across all polylines within band:
+/// `(edge index, arc position)`.
+fn locate(closed_edges: &[EdgePolyline], p: &Point3) -> Option<(usize, f64)> {
+    let mut best: Option<(usize, f64, f64)> = None;
+    for (ei, edge) in closed_edges.iter().enumerate() {
+        let (s, d) = locate_on(edge, p);
+        if d <= edge.band && best.map(|(_, _, bd)| d < bd).unwrap_or(true) {
+            best = Some((ei, s, d));
+        }
+    }
+    best.map(|(ei, s, _)| (ei, s))
+}
+
+fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
     // Weld census: open edges are used by exactly one triangle.
     let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut weld_id = |p: Point3| -> usize {
@@ -185,21 +235,24 @@ fn zip_round(mesh: &mut TriMesh, near_tolerant_edge: &dyn Fn(&Point3) -> Option<
         return 0;
     }
     // Canonical candidate order: `open_vertex_pos` is a HashMap, and
-    // draining it in map order made the nearest-candidate scan's
-    // distance TIES hash-ordered — the zipper's split choices (and so
-    // the final triangle count) varied call-to-call (measured: 27304
-    // vs 27333 tris on the PK-295 fixture at chord 5e-5, PK-277
-    // probe). Weld ids are insertion-ordered, so sorting by id is
-    // deterministic; ties in the scan then resolve to the lowest
-    // weld id.
+    // draining it in map order made split choices hash-ordered
+    // (measured call-to-call triangle-count drift, PK-277). Weld ids
+    // are insertion-ordered, so sorting by id is deterministic; the
+    // per-edge fan then orders by arc position with the id as the
+    // tie-break.
     let mut candidates: Vec<(usize, Point3)> = open_vertex_pos.into_iter().collect();
     candidates.sort_unstable_by_key(|&(wv, _)| wv);
+    // On-curve location per candidate, computed once.
+    let located: Vec<Option<(usize, f64)>> = candidates
+        .iter()
+        .map(|(_, pv)| locate(closed_edges, pv))
+        .collect();
 
-    // One split per triangle per round keeps the bookkeeping simple;
-    // subsequent rounds finish the job.
+    // One fan per triangle per round keeps the bookkeeping simple;
+    // subsequent rounds finish the job (a corner triangle can own two
+    // open edges).
     let mut split_tris: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    let mut new_triangles: Vec<([usize; 3], usize, popkern_core::topology::FaceHandle)> =
-        Vec::new();
+    let mut new_triangles: Vec<([usize; 3], popkern_core::topology::FaceHandle)> = Vec::new();
     let mut splits = 0usize;
     let mut stats = (0usize, 0usize, 0usize);
     for (ti, ka, kb) in open_edges {
@@ -211,83 +264,131 @@ fn zip_round(mesh: &mut TriMesh, near_tolerant_edge: &dyn Fn(&Point3) -> Option<
         let (ia, ib) = (tri[ka], tri[kb]);
         let (pa, pb) = (mesh.vertices[ia].position, mesh.vertices[ib].position);
         let (wa, wb) = (ids[ti][ka], ids[ti][kb]);
-        let seg_len = pa.distance_to(&pb);
-        if seg_len < 1e-12 {
+        if pa.distance_to(&pb) < 1e-12 {
             continue;
         }
-        // The zip band comes from the recorded tolerance of the BRep
-        // edge this junction sits on; no recorded edge, no zip.
-        let mid = Point3::new(
-            0.5 * (pa.x + pb.x),
-            0.5 * (pa.y + pb.y),
-            0.5 * (pa.z + pb.z),
-        );
-        let Some(band) = near_tolerant_edge(&mid) else {
+        // Both endpoints must lie ON the same two-sided edge's curve
+        // (within its band) — the topology then says the mesh must
+        // close here, and the shared curve parameterizes the merge.
+        let (Some((ea, s_a)), Some((eb, s_b))) =
+            (locate(closed_edges, &pa), locate(closed_edges, &pb))
+        else {
             stats.1 += 1;
+            trace_skip("off-curve endpoint", &pa, &pb);
             continue;
         };
-        // Nearest opposing open vertex strictly interior to the edge.
-        let mut best: Option<(f64, usize)> = None;
+        if ea != eb {
+            stats.1 += 1;
+            trace_skip("endpoints on different edges", &pa, &pb);
+            continue;
+        }
+        let edge = &closed_edges[ea];
+        let total = edge.cum.last().copied().unwrap_or(0.0);
+        // Parameter interval from a to b, taking the SHORTER arc on
+        // closed curves (open mesh edges are single chords, always
+        // short relative to a full rim).
+        let direct = (s_b - s_a).abs();
+        let wrapping = edge.closed && direct > 0.5 * total;
+        let span = if wrapping { total - direct } else { direct };
+        if span < 1e-12 {
+            continue;
+        }
+        let increasing = if wrapping { s_b < s_a } else { s_b > s_a };
+        let key_of = |s: f64| -> f64 {
+            let raw = if increasing { s - s_a } else { s_a - s };
+            if edge.closed {
+                raw.rem_euclid(total)
+            } else {
+                raw
+            }
+        };
+        // Every opposing open vertex on the same curve strictly inside
+        // the interval splits the edge — merged in one fan, ordered by
+        // arc position.
+        let mut fan: Vec<(f64, usize, Point3)> = Vec::new();
         for (ci, (wv, pv)) in candidates.iter().enumerate() {
             if *wv == wa || *wv == wb {
                 continue;
             }
-            let (f, foot) = project_point_segment(pv, &pa, &pb);
-            if !(END_FRACTION..=1.0 - END_FRACTION).contains(&f) {
+            let Some((ec, s_c)) = located[ci] else {
+                continue;
+            };
+            if ec != ea {
                 continue;
             }
-            // The candidate must sit within the recorded band of the
-            // edge AND split it at a genuinely interior arc position.
-            let d = foot.distance_to(pv);
-            if d <= band
-                && f * seg_len > 1e-9
-                && (1.0 - f) * seg_len > 1e-9
-                && best.map(|(bd, _)| d < bd).unwrap_or(true)
-            {
-                best = Some((d, ci));
+            let key = key_of(s_c);
+            if key <= span * END_FRACTION || key >= span * (1.0 - END_FRACTION) {
+                continue;
             }
+            if pv.distance_to(&pa) < 1e-9 || pv.distance_to(&pb) < 1e-9 {
+                continue;
+            }
+            fan.push((key, *wv, *pv));
         }
-        let Some((_, ci)) = best else {
+        if fan.is_empty() {
             stats.2 += 1;
+            trace_skip("no on-curve candidate", &pa, &pb);
             continue;
-        };
-        let (_, pv) = candidates[ci];
-        // Split: replace (a, b, c) with (a, v, c) + (v, b, c). The
-        // split vertex takes the OPPOSING side's exact position, so
-        // the weld pairs them; the displacement is bounded by the
-        // recorded tolerance band.
+        }
+        fan.sort_by(|x, y| {
+            x.0.partial_cmp(&y.0)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(x.1.cmp(&y.1))
+        });
+        fan.dedup_by_key(|e| e.1);
+        fan.truncate(MAX_FAN);
+        // Split: replace (a, b, c) with the fan (a, v1, c),
+        // (v1, v2, c), …, (vk, b, c). Each split vertex takes the
+        // OPPOSING side's exact position, so the weld pairs them; the
+        // displacement off the original chord is bounded by the
+        // matching band's sag contract. Winding follows the original
+        // a->b->c.
         let kc = 3 - ka - kb;
         let ic = tri[kc];
-        let vi = mesh.vertices.len();
-        let mut nv = mesh.vertices[ia].clone();
-        nv.position = pv;
-        // Blend the normal from the split edge's endpoints.
-        let nb = mesh.vertices[ib].normal;
-        nv.normal = popkern_core::geometry::Vec3::new(
-            0.5 * (nv.normal.x + nb.x),
-            0.5 * (nv.normal.y + nb.y),
-            0.5 * (nv.normal.z + nb.z),
-        );
-        mesh.vertices.push(nv);
         let face = mesh.face_map[ti];
-        // Preserve winding: a->v->c and v->b->c keep the original
-        // a->b->c orientation.
-        mesh.triangles[ti] = [ia, vi, ic];
-        new_triangles.push(([vi, ib, ic], ti, face));
+        let nb_normal = mesh.vertices[ib].normal;
+        let mut prev = ia;
+        for (_, _, pv) in &fan {
+            let vi = mesh.vertices.len();
+            let mut nv = mesh.vertices[ia].clone();
+            nv.position = *pv;
+            nv.normal = popkern_core::geometry::Vec3::new(
+                0.5 * (nv.normal.x + nb_normal.x),
+                0.5 * (nv.normal.y + nb_normal.y),
+                0.5 * (nv.normal.z + nb_normal.z),
+            );
+            mesh.vertices.push(nv);
+            if prev == ia {
+                mesh.triangles[ti] = [ia, vi, ic];
+            } else {
+                new_triangles.push(([prev, vi, ic], face));
+            }
+            prev = vi;
+        }
+        new_triangles.push(([prev, ib, ic], face));
         split_tris.insert(ti);
-        splits += 1;
+        splits += fan.len();
     }
-    for (tri, _src, face) in new_triangles {
+    for (tri, face) in new_triangles {
         mesh.triangles.push(tri);
         mesh.face_map.push(face);
     }
     if std::env::var_os("PK_ZIP_TRACE").is_some() {
         eprintln!(
-            "  [zip] open={} no_band={} no_candidate={} splits={splits}",
+            "  [zip] open={} off_curve={} no_candidate={} splits={splits}",
             stats.0, stats.1, stats.2
         );
     }
     splits
+}
+
+fn trace_skip(reason: &str, pa: &Point3, pb: &Point3) {
+    if std::env::var_os("PK_ZIP_TRACE").is_some() {
+        eprintln!(
+            "  [zip]   {reason}: ({:.4},{:.4},{:.4})-({:.4},{:.4},{:.4})",
+            pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
+        );
+    }
 }
 
 fn project_point_segment(p: &Point3, a: &Point3, b: &Point3) -> (f64, Point3) {
@@ -301,8 +402,4 @@ fn project_point_segment(p: &Point3, a: &Point3, b: &Point3) -> (f64, Point3) {
         f,
         Point3::new(a.x + ab.x * f, a.y + ab.y * f, a.z + ab.z * f),
     )
-}
-
-fn dist_point_segment(p: &Point3, a: &Point3, b: &Point3) -> f64 {
-    project_point_segment(p, a, b).1.distance_to(p)
 }

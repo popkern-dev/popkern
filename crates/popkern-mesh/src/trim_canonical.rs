@@ -45,6 +45,7 @@ pub(crate) fn sample_loop_canonical(
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     chord_height: f64,
 ) -> Option<SampledLoop> {
+    let trace = std::env::var("PK_TRIM_TRACE").is_ok();
     let loop_ = brep.loops.get(loop_handle)?;
     let start_he = loop_.half_edge;
     if !brep.half_edges.contains_key(start_he) {
@@ -61,7 +62,15 @@ pub(crate) fn sample_loop_canonical(
     loop {
         let he = &brep.half_edges[current];
         let pc = he.pcurve.as_ref();
-        let es = edge_samples.get(&he.edge)?;
+        let Some(es) = edge_samples.get(&he.edge) else {
+            if trace {
+                eprintln!(
+                    "  [trim-canonical] loop {loop_handle:?}: edge {:?} has no canonical samples",
+                    he.edge
+                );
+            }
+            return None;
+        };
         let n = es.points.len();
         if n < 2 {
             return None;
@@ -110,6 +119,13 @@ pub(crate) fn sample_loop_canonical(
             df <= dr
         };
         if deviation(forward)? > band {
+            if trace {
+                eprintln!(
+                    "  [trim-canonical] loop {loop_handle:?}: edge {:?} co-param deviation {:?} > band {band:.6}",
+                    he.edge,
+                    deviation(forward)
+                );
+            }
             return None;
         }
         // Emit stations in traversal order; corner duplicates are
@@ -123,6 +139,13 @@ pub(crate) fn sample_loop_canonical(
             let (u, v) = uv_at(k, forward)?;
             let img = surface.point_at(u, v);
             if img.distance_to(&es.points[k]) > band {
+                if trace {
+                    eprintln!(
+                        "  [trim-canonical] loop {loop_handle:?}: edge {:?} station {k} round-trip {:.6} > band {band:.6}",
+                        he.edge,
+                        img.distance_to(&es.points[k])
+                    );
+                }
                 return None;
             }
             uv_points.push((u, v));
@@ -135,6 +158,12 @@ pub(crate) fn sample_loop_canonical(
     }
     if uv_points.len() < 3 {
         return None;
+    }
+    if trace {
+        eprintln!(
+            "  [trim-canonical] loop {loop_handle:?}: canonical sampling SERVED {} stations",
+            uv_points.len()
+        );
     }
     Some((uv_points, points_3d))
 }

@@ -218,3 +218,52 @@ fn primitives_tessellate_watertight() {
         assert_eq!(open, 0, "{name}: {open} open mesh edges");
     }
 }
+
+#[test]
+fn shelled_bodies_tessellate_watertight() {
+    // PK-334: shelled bodies mix tessellation paths (boundary-first
+    // walls, legacy-clip rim faces), whose boundary chains carry
+    // DIFFERENT station sets on the shared rim edges — all on the
+    // same curve after sewing. The zipper's curve-parameter station
+    // merge closes them; before it, the shelled cylinder read 27 open
+    // edges on the opening rim (detection evidence for the pin).
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let cyl = BRep::cylinder(1.0, 2.0, tol()).unwrap();
+    let cone = BRep::cone(1.0, 2.0, tol()).unwrap();
+    let shelled = |brep: &BRep, z: f64| {
+        let top = brep
+            .faces
+            .keys()
+            .find(|&fh| {
+                use popkern_core::geometry::surface::SurfaceGeometry;
+                matches!(
+                    brep.faces[fh].surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Plane { .. })
+                ) && {
+                    let ps = brep.face_outer_loop_positions(fh);
+                    !ps.is_empty() && ps.iter().all(|p| (p.z - z).abs() < 1e-9)
+                }
+            })
+            .unwrap();
+        shell(
+            brep,
+            0.1,
+            ShellDirection::Inward,
+            &[top],
+            &[],
+            &ShellOptions::default(),
+            tol(),
+            None,
+        )
+        .unwrap()
+        .brep
+    };
+    for (name, brep) in [
+        ("shelled cube", shelled(&cube, 1.0)),
+        ("shelled cylinder", shelled(&cyl, 2.0)),
+        ("shelled cone (base removed)", shelled(&cone, 0.0)),
+    ] {
+        let open = open_mesh_edges(&brep);
+        assert_eq!(open, 0, "{name}: {open} open mesh edges");
+    }
+}
