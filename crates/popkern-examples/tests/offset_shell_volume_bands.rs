@@ -168,3 +168,53 @@ fn volume_gauge_matches_primitives_and_hollow_bodies() {
         "thickened cube wall",
     );
 }
+
+/// Open (once-used) mesh edges after quantized position welding (1e-7:
+/// seam pairs evaluate at u=0 vs u=2π and land ULPs apart) — a
+/// watertight tessellation has none.
+fn open_mesh_edges(brep: &BRep) -> usize {
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+        .expect("tessellate");
+    let q = |x: f64| (x * 1.0e7).round() as i64;
+    let key = |i: usize| {
+        let p = mesh.vertices[i].position;
+        (q(p.x), q(p.y), q(p.z))
+    };
+    let mut counts = std::collections::HashMap::new();
+    for t in &mesh.triangles {
+        let w = [key(t[0]), key(t[1]), key(t[2])];
+        if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
+            continue;
+        }
+        for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
+            *counts.entry((a.min(b), a.max(b))).or_insert(0_i32) += 1;
+        }
+    }
+    counts.values().filter(|&&c| c == 1).count()
+}
+
+#[test]
+fn primitives_tessellate_watertight() {
+    // PK-333: the adaptive quadtree emitted hanging nodes at every
+    // refinement transition (an 80-edge open ring at the cone's
+    // near-apex refinement boundary), and the 2% grid pad crossed the
+    // cone's natural v ≥ 0 bound into the mirror nappe (an 8-edge
+    // beyond-apex micro-ring). Conforming closure + natural-bound
+    // clamping make the meshes genuinely watertight; hollow bodies
+    // stay watertight per shell.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    for (name, brep) in [
+        ("cone", BRep::cone(1.0, 2.0, tol()).unwrap()),
+        ("cylinder", BRep::cylinder(1.0, 2.0, tol()).unwrap()),
+        ("cube", cube.clone()),
+        (
+            "thickened cube",
+            thicken(&cube, 0.2, &ShellOptions::default(), tol())
+                .unwrap()
+                .brep,
+        ),
+    ] {
+        let open = open_mesh_edges(&brep);
+        assert_eq!(open, 0, "{name}: {open} open mesh edges");
+    }
+}
