@@ -90,7 +90,6 @@ impl BRep {
         // repair below only re-orients loops re-authored in full.
         let mut freshly_authored: std::collections::HashSet<super::HalfEdgeHandle> =
             std::collections::HashSet::new();
-
         for heh in he_handles {
             // Existing pcurves are kept UNLESS degenerate or
             // stale-imaged — see keep_or_clear_existing_pcurve for

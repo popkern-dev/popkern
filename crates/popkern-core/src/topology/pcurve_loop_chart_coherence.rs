@@ -41,6 +41,21 @@ impl ChartAxis {
             ChartAxis::V => pcurve.translated_uv(0.0, delta),
         }
     }
+
+    /// Magnitude of the surface partial along this axis at `uv` —
+    /// zero at a parametric degeneracy of the axis (cone apex,
+    /// sphere pole), where the axis coordinate carries no geometry.
+    fn partial_len(
+        self,
+        surface: &crate::geometry::surface::SurfaceGeometry,
+        uv: crate::geometry::Point3,
+    ) -> f64 {
+        use crate::geometry::surface::SurfaceEval;
+        match self {
+            ChartAxis::U => surface.partial_u(uv.x, uv.y).length(),
+            ChartAxis::V => surface.partial_v(uv.x, uv.y).length(),
+        }
+    }
 }
 
 impl BRep {
@@ -83,6 +98,9 @@ impl BRep {
         let Some(face) = self.faces.get(face_handle) else {
             return;
         };
+        let Some(surface_geom) = face.surface.as_ref().map(|s| s.geometry.clone()) else {
+            return;
+        };
         let mut loop_handles = vec![face.outer_loop];
         loop_handles.extend(face.inner_loops.iter().copied());
 
@@ -122,16 +140,34 @@ impl BRep {
                         break;
                     };
                     let (t0, t1) = pc.parameter_range();
-                    let mut sc = axis.coord(pc.point_at(t0));
+                    let joint_uv = pc.point_at(t0);
+                    let mut sc = axis.coord(joint_uv);
                     let mut ec = axis.coord(pc.point_at(t1));
+                    // A joint at a parametric degeneracy of this axis
+                    // (cone apex, sphere pole: the axis partial
+                    // vanishes) carries NO axis-continuity constraint —
+                    // the legitimate branch jump of a periodic loop
+                    // lives exactly there. Forcing k-shift continuity
+                    // across it dragged an offset cone's seam pair onto
+                    // one branch: the lateral loop tore at the seam,
+                    // its trim polygon degenerated, and the mesh both
+                    // cracked and lost the tail of the period (PK-332).
+                    let mid_uv = pc.point_at(0.5 * (t0 + t1));
+                    let joint_degenerate = axis.partial_len(&surface_geom, joint_uv)
+                        < 1.0e-6 * (axis.partial_len(&surface_geom, mid_uv) + 1.0e-12);
                     if let Some(pe) = prev_end {
-                        let k = ((pe - sc) / period).round();
-                        if k != 0.0 {
-                            if let Some(pc_mut) = self.half_edges[heh].pcurve.as_mut() {
-                                *pc_mut = axis.shift(pc_mut, k * period);
+                        if joint_degenerate {
+                            // Chain break: keep this member's authored
+                            // branch and continue chaining from it.
+                        } else {
+                            let k = ((pe - sc) / period).round();
+                            if k != 0.0 {
+                                if let Some(pc_mut) = self.half_edges[heh].pcurve.as_mut() {
+                                    *pc_mut = axis.shift(pc_mut, k * period);
+                                }
+                                sc += k * period;
+                                ec += k * period;
                             }
-                            sc += k * period;
-                            ec += k * period;
                         }
                     } else {
                         first_start = Some(sc);

@@ -132,6 +132,7 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             }
             ValidationError::InconsistentOrientation { .. }
             | ValidationError::WindingDishonest { .. }
+            | ValidationError::MissingPcurves { .. }
             | ValidationError::CurveSurfaceDeviation { .. }
             | ValidationError::TwistedSurface { .. }
             | ValidationError::Precision { .. }

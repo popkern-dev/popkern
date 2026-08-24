@@ -132,10 +132,47 @@ pub(crate) fn tessellate_face_with_samples(
         })
         .unwrap_or(true);
     if !rectangular {
-        let pad_u = 0.02 * (u_range.1 - u_range.0).max(1.0e-9);
-        let pad_v = 0.02 * (v_range.1 - v_range.0).max(1.0e-9);
-        u_range = (u_range.0 - pad_u, u_range.1 + pad_u);
-        v_range = (v_range.0 - pad_v, v_range.1 + pad_v);
+        // Full-period axes are NOT padded: the chart wraps onto
+        // itself there, so padding double-covers a seam slice (the
+        // grid meshes the same surface strip twice — measured +3%
+        // volume on an offset cone once the full-period grid landed).
+        let (pp_u, pp_v) = surface.periodicity();
+        let full_u = pp_u.is_some_and(|p| p > 0.0 && u_range.1 - u_range.0 >= 0.95 * p);
+        let full_v = pp_v.is_some_and(|p| p > 0.0 && v_range.1 - v_range.0 >= 0.95 * p);
+        if !full_u {
+            let pad_u = 0.02 * (u_range.1 - u_range.0).max(1.0e-9);
+            u_range = (u_range.0 - pad_u, u_range.1 + pad_u);
+        }
+        if !full_v {
+            let pad_v = 0.02 * (v_range.1 - v_range.0).max(1.0e-9);
+            v_range = (v_range.0 - pad_v, v_range.1 + pad_v);
+        }
+    }
+    if std::env::var_os("PK_TRIM_TRACE").is_some() {
+        eprintln!(
+            "  [trim] face {face_handle:?} rectangular={rectangular} grid u={u_range:?} v={v_range:?}"
+        );
+        for l in &trim_loops {
+            let (mut bu, mut bv) = (
+                (f64::INFINITY, f64::NEG_INFINITY),
+                (f64::INFINITY, f64::NEG_INFINITY),
+            );
+            for &(u, v) in &l.points {
+                bu = (bu.0.min(u), bu.1.max(u));
+                bv = (bv.0.min(v), bv.1.max(v));
+            }
+            eprintln!(
+                "  [trim]   loop outer={} from_pcurves={} n={} bbox u={bu:?} v={bv:?}",
+                l.is_outer,
+                l.from_pcurves,
+                l.points.len()
+            );
+            if l.points.len() <= 8 {
+                for &(u, v) in &l.points {
+                    eprintln!("  [trim]     pt ({u:.4},{v:.4})");
+                }
+            }
+        }
     }
 
     // Adaptive subdivision of UV space.
@@ -308,6 +345,24 @@ fn bounded_parameter_range(
         let v = (pc_range.1.0.max(result.1.0), pc_range.1.1.min(result.1.1));
         if u.0 < u.1 && v.0 < v.1 {
             result = (u, v);
+        }
+        // FULL-PERIOD axes take the pcurve range verbatim: the
+        // position-sampled fallback tops out below the period (16
+        // boundary samples of a rim circle end at 15/16·2π), and
+        // intersecting truncated the grid — every revolution
+        // primitive's lateral face meshed with a missing seam slice
+        // (~1.3% of the angle, visible as a crack on cones and
+        // cylinders in any render or STL).
+        let (period_u, period_v) = surface.periodicity();
+        if let Some(p) = period_u.filter(|p| *p > 0.0)
+            && pc_range.0.1 - pc_range.0.0 >= 0.95 * p
+        {
+            result.0 = pc_range.0;
+        }
+        if let Some(p) = period_v.filter(|p| *p > 0.0)
+            && pc_range.1.1 - pc_range.1.0 >= 0.95 * p
+        {
+            result.1 = pc_range.1;
         }
     }
 

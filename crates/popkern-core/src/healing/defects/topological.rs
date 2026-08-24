@@ -388,6 +388,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::WindingDishonest { face, .. } => {
             vec![EntityRef::Face(*face)]
         }
+        ValidationError::MissingPcurves { face, .. } => {
+            vec![EntityRef::Face(*face)]
+        }
         ValidationError::TwistedSurface { face } => {
             vec![EntityRef::Face(*face)]
         }

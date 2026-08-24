@@ -130,6 +130,26 @@ pub enum ValidationError {
         orientation: bool,
     },
 
+    /// A face with surface geometry has loop half-edges without
+    /// pcurves. Trim domains, loop-winding audits, and tessellation
+    /// all read pcurves; a pcurve-less face silently degrades every
+    /// one of them (measured: thicken served pcurve-less bodies for
+    /// an unknown period — the winding audit deferred to its
+    /// tangency witness and the mesher fell back to untrimmed
+    /// full-grid faces; PK-331).
+    #[error(
+        "Face {face:?} carries surface geometry but {missing} of its {total} loop \
+         half-edges have no pcurve"
+    )]
+    MissingPcurves {
+        /// The face whose trim is unreadable.
+        face: FaceHandle,
+        /// Loop half-edges without a pcurve.
+        missing: usize,
+        /// Total loop half-edges on the face.
+        total: usize,
+    },
+
     /// A face's surface normal reverses direction (surface folds over itself).
     #[error("Twisted surface on face {face:?}")]
     TwistedSurface {

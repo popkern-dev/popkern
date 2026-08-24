@@ -85,12 +85,7 @@ fn shelled_cone_volume_in_analytic_band() {
     let h_inner = h - d / half_angle.sin();
     let r_inner = h_inner * half_angle.tan();
     let expected = PI / 3.0 * (r * r * h - r_inner * r_inner * h_inner);
-    // Band 12%: the combined mesher over-covers the inner lateral's
-    // trim by +1.6% (PK-332), which the difference-of-cones amplifies
-    // to ~10.6%. Still an order of magnitude below the defect scale
-    // this oracle exists for (inversions and missing skins are
-    // 50-300%). Tighten to 2% when PK-332 closes.
-    assert_volume_band(mesh_volume(&result.brep), expected, 0.12, "shelled cone");
+    assert_volume_band(mesh_volume(&result.brep), expected, 0.02, "shelled cone");
 }
 
 #[test]
@@ -160,7 +155,10 @@ fn volume_gauge_matches_primitives_and_hollow_bodies() {
     let cone = BRep::cone(1.0, 2.0, tol()).unwrap();
     let cube = BRep::unit_cube(tol()).unwrap();
     assert_volume_band(mesh_volume(&cyl), PI * 2.0, 0.01, "solid cylinder");
-    assert_volume_band(mesh_volume(&cone), PI * 2.0 / 3.0, 0.03, "solid cone");
+    // 1.5% band doubles as the seam-crack pin: with the PK-332 grid
+    // truncation the cone read -2.02% (crack + chord); chord error
+    // alone is ~0.7%.
+    assert_volume_band(mesh_volume(&cone), PI * 2.0 / 3.0, 0.015, "solid cone");
     assert_volume_band(mesh_volume(&cube), 1.0, 1e-9, "unit cube");
     let tc = thicken(&cube, 0.2, &ShellOptions::default(), tol()).unwrap();
     assert_volume_band(

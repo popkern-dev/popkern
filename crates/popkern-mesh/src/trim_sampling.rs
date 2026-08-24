@@ -71,7 +71,31 @@ pub(crate) fn sample_loop_with_samples(
         if all_have_pcurves {
             if let Some(ref pcurve) = he.pcurve {
                 let prev_len = uv_points.len();
-                adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+                // A member spanning a large fraction of a periodic axis
+                // must sample FINER than half the period: its UV image
+                // may be perfectly straight (a full rim is one chord at
+                // constant v), the adaptive subdivision then emits only
+                // the two endpoints, and `unwrap_periodic` reads the
+                // full-period step as a seam wrap and FOLDS the member
+                // onto its start — the trim polygon collapses and the
+                // face meshes untrimmed (PK-332: the seam-slice crack
+                // on every revolution primitive traces here).
+                let (t0p, t1p) = pcurve.parameter_range();
+                let a = pcurve.point_at(t0p);
+                let b = pcurve.point_at(t1p);
+                let (period_u, period_v) = surface.periodicity();
+                let wide =
+                    |d: f64, p: Option<f64>| p.is_some_and(|p| p > 0.0 && d.abs() >= 0.4 * p);
+                if wide(b.x - a.x, period_u) || wide(b.y - a.y, period_v) {
+                    let n = 32;
+                    for i in 0..=n {
+                        let t = t0p + (t1p - t0p) * (i as f64) / (n as f64);
+                        let q = pcurve.point_at(t);
+                        uv_points.push((q.x, q.y));
+                    }
+                } else {
+                    adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+                }
                 // Evaluate surface at each new UV point to get 3D positions.
                 for uv in &uv_points[prev_len..] {
                     points_3d.push(surface.point_at(uv.0, uv.1));

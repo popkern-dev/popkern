@@ -18,6 +18,7 @@ mod region;
 mod self_intersection;
 mod self_intersection_trim;
 pub use self_intersection_trim::InteriorOverlapSample;
+mod pcurve_presence;
 mod winding_honesty;
 
 pub use winding_honesty::FaceWindingHonesty;
@@ -192,6 +193,12 @@ impl BRep {
         // Mid-pipeline states may carry transient dishonesty that
         // operator tails reconcile, so this is validate_all-only.
         errors.extend(self.validate_winding_honesty_all());
+        // Pcurve presence (PK-331): a face with surface geometry but
+        // pcurve-less loop half-edges is trim-unreadable — the winding
+        // audit above defers to its tangency witness and the mesher
+        // falls back to untrimmed grids. Serving-boundary only:
+        // mid-pipeline states clear pcurves for re-authoring.
+        errors.extend(self.validate_pcurve_presence_all());
         if let Err(e) = self.validate_loop_closure() {
             errors.push(e);
         }

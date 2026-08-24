@@ -189,7 +189,8 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::NonManifoldEdge { .. }
         | ValidationError::LowValence { .. }
         | ValidationError::InconsistentOrientation { .. }
-        | ValidationError::WindingDishonest { .. } => "topology_invariant_mismatch",
+        | ValidationError::WindingDishonest { .. }
+        | ValidationError::MissingPcurves { .. } => "topology_invariant_mismatch",
         ValidationError::Precision { .. } => "precision_budget_mismatch",
     }
 }
@@ -209,6 +210,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::ShellGap { .. } => "ShellGap",
         ValidationError::SelfIntersection { .. } => "SelfIntersection",
         ValidationError::WindingDishonest { .. } => "WindingDishonest",
+        ValidationError::MissingPcurves { .. } => "MissingPcurves",
         ValidationError::TwistedSurface { .. } => "TwistedSurface",
         ValidationError::Precision { .. } => "Precision",
     }
