@@ -33,6 +33,8 @@ mod boundary_first_delaunay;
 mod boundary_first_edge_samples;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
+#[path = "boundary_first_slit.rs"]
+mod boundary_first_slit;
 use boundary_first_delaunay::bowyer_watson;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
 
@@ -107,135 +109,144 @@ pub(crate) fn tessellate_face_boundary_first(
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
     for lh in loops {
-        let mut ring = build_ring(brep, lh, edge_samples)?;
-        // Periodic surfaces (analytic cylinders: u = angle) can have
-        // pcurves authored in different period branches; a ring that
-        // crosses the seam jumps ~2π in the UV chart and Delaunay
-        // cannot cover the jump segment. Unwrap u to the branch
-        // nearest each previous sample (positions are canonical 3D
-        // points and unaffected; cos/sin accept any branch).
-        {
+        let built = build_ring(brep, lh, edge_samples)?;
+        // Slit dissolution (PK-335): coincident double-traversals
+        // (shell rim slit arms) are chart artifacts — cut the ring
+        // into its genuine boundary components before charting, or
+        // Delaunay coverage chases the zero-width arms forever.
+        for mut ring in boundary_first_slit::dissolve_slits(built, {
             use popkern_core::geometry::surface::SurfaceEval as _;
-            let (period_u, period_v) = surface.parameter_periodicity();
-            // A sample AT a chart pole (sphere pole, cone apex) has
-            // undefined azimuth: shifting u by half a period leaves
-            // the 3D point fixed. Its pcurve u is arbitrary, and if
-            // it participates in the consecutive unwrap it chains
-            // the rest of the ring into a spurious ±period branch —
-            // a phantom "full wrap" (flagship corner caps hold one
-            // vertex exactly at the cap sphere's pole; the phantom
-            // winding declined 2 of 4 caps). Degenerate samples are
-            // skipped as unwrap anchors and their u is rewritten
-            // from the flanking regular samples afterwards.
-            let ring_scale = ring
-                .pos
-                .iter()
-                .zip(ring.pos.iter().cycle().skip(1))
-                .map(|(a, b)| a.distance_to(b))
-                .fold(0.0_f64, f64::max)
-                .max(1e-9);
-            let u_degenerate: Vec<bool> = match period_u {
-                Some(p) => ring
-                    .uv
+            surface.parameter_periodicity()
+        }) {
+            // Periodic surfaces (analytic cylinders: u = angle) can have
+            // pcurves authored in different period branches; a ring that
+            // crosses the seam jumps ~2π in the UV chart and Delaunay
+            // cannot cover the jump segment. Unwrap u to the branch
+            // nearest each previous sample (positions are canonical 3D
+            // points and unaffected; cos/sin accept any branch).
+            {
+                use popkern_core::geometry::surface::SurfaceEval as _;
+                let (period_u, period_v) = surface.parameter_periodicity();
+                // A sample AT a chart pole (sphere pole, cone apex) has
+                // undefined azimuth: shifting u by half a period leaves
+                // the 3D point fixed. Its pcurve u is arbitrary, and if
+                // it participates in the consecutive unwrap it chains
+                // the rest of the ring into a spurious ±period branch —
+                // a phantom "full wrap" (flagship corner caps hold one
+                // vertex exactly at the cap sphere's pole; the phantom
+                // winding declined 2 of 4 caps). Degenerate samples are
+                // skipped as unwrap anchors and their u is rewritten
+                // from the flanking regular samples afterwards.
+                let ring_scale = ring
+                    .pos
                     .iter()
-                    .zip(ring.pos.iter())
-                    .map(|((u, v), pos)| {
-                        surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-7 * ring_scale
-                    })
-                    .collect(),
-                None => Vec::new(),
-            };
-            fn unwrap_dir(
-                ring: &mut BoundaryRing,
-                period: f64,
-                pick: fn(&mut (f64, f64)) -> &mut f64,
-                degenerate: &[bool],
-            ) -> bool {
-                let is_degen = |i: usize| degenerate.get(i).copied().unwrap_or(false);
-                let mut prev: Option<f64> = None;
-                for i in 0..ring.uv.len() {
-                    if is_degen(i) {
-                        continue;
-                    }
-                    let cur = pick(&mut ring.uv[i]);
-                    if let Some(p) = prev {
-                        while *cur - p > 0.5 * period {
-                            *cur -= period;
+                    .zip(ring.pos.iter().cycle().skip(1))
+                    .map(|(a, b)| a.distance_to(b))
+                    .fold(0.0_f64, f64::max)
+                    .max(1e-9);
+                let u_degenerate: Vec<bool> = match period_u {
+                    Some(p) => ring
+                        .uv
+                        .iter()
+                        .zip(ring.pos.iter())
+                        .map(|((u, v), pos)| {
+                            surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-7 * ring_scale
+                        })
+                        .collect(),
+                    None => Vec::new(),
+                };
+                fn unwrap_dir(
+                    ring: &mut BoundaryRing,
+                    period: f64,
+                    pick: fn(&mut (f64, f64)) -> &mut f64,
+                    degenerate: &[bool],
+                ) -> bool {
+                    let is_degen = |i: usize| degenerate.get(i).copied().unwrap_or(false);
+                    let mut prev: Option<f64> = None;
+                    for i in 0..ring.uv.len() {
+                        if is_degen(i) {
+                            continue;
                         }
-                        while *cur - p < -0.5 * period {
-                            *cur += period;
+                        let cur = pick(&mut ring.uv[i]);
+                        if let Some(p) = prev {
+                            while *cur - p > 0.5 * period {
+                                *cur -= period;
+                            }
+                            while *cur - p < -0.5 * period {
+                                *cur += period;
+                            }
+                        }
+                        prev = Some(*cur);
+                    }
+                    // Rewrite each degenerate run's coordinate to the
+                    // mean of its flanking regular samples (circular):
+                    // any value evaluates to the same 3D point, and the
+                    // mean keeps both adjacent UV segments non-zero for
+                    // the Delaunay coverage walk.
+                    let n = ring.uv.len();
+                    for i in 0..n {
+                        if !is_degen(i) {
+                            continue;
+                        }
+                        let before = (1..n)
+                            .map(|k| (i + n - k) % n)
+                            .find(|&j| !is_degen(j))
+                            .map(|j| *pick(&mut ring.uv[j].clone()));
+                        let after = (1..n)
+                            .map(|k| (i + k) % n)
+                            .find(|&j| !is_degen(j))
+                            .map(|j| *pick(&mut ring.uv[j].clone()));
+                        if let (Some(b), Some(a)) = (before, after) {
+                            *pick(&mut ring.uv[i]) = 0.5 * (b + a);
                         }
                     }
-                    prev = Some(*cur);
-                }
-                // Rewrite each degenerate run's coordinate to the
-                // mean of its flanking regular samples (circular):
-                // any value evaluates to the same 3D point, and the
-                // mean keeps both adjacent UV segments non-zero for
-                // the Delaunay coverage walk.
-                let n = ring.uv.len();
-                for i in 0..n {
-                    if !is_degen(i) {
-                        continue;
-                    }
-                    let before = (1..n)
-                        .map(|k| (i + n - k) % n)
-                        .find(|&j| !is_degen(j))
-                        .map(|j| *pick(&mut ring.uv[j].clone()));
-                    let after = (1..n)
-                        .map(|k| (i + k) % n)
-                        .find(|&j| !is_degen(j))
-                        .map(|j| *pick(&mut ring.uv[j].clone()));
-                    if let (Some(b), Some(a)) = (before, after) {
-                        *pick(&mut ring.uv[i]) = 0.5 * (b + a);
+                    // Net winding across the regular samples = a genuine
+                    // full wrap; boundary-first cannot chart it.
+                    let regular: Vec<usize> = (0..n).filter(|&i| !is_degen(i)).collect();
+                    match (regular.first(), regular.last()) {
+                        (Some(&f), Some(&l)) => {
+                            let first = *pick(&mut ring.uv[f].clone());
+                            let last = *pick(&mut ring.uv[l].clone());
+                            (last - first).abs() <= 0.5 * period
+                        }
+                        _ => true,
                     }
                 }
-                // Net winding across the regular samples = a genuine
-                // full wrap; boundary-first cannot chart it.
-                let regular: Vec<usize> = (0..n).filter(|&i| !is_degen(i)).collect();
-                match (regular.first(), regular.last()) {
-                    (Some(&f), Some(&l)) => {
-                        let first = *pick(&mut ring.uv[f].clone());
-                        let last = *pick(&mut ring.uv[l].clone());
-                        (last - first).abs() <= 0.5 * period
-                    }
-                    _ => true,
-                }
-            }
-            // On decline, dump the unwrapped ring samples: the jump
-            // pattern distinguishes genuine winding (monotone drift
-            // over the ring) from branch-incoherent pcurves (one
-            // edge's run offset by a full period) — they need
-            // different fixes.
-            fn dump_ring(ring: &BoundaryRing, dir: &str) {
-                if std::env::var_os("PK_BF_TRACE").is_some() {
-                    eprintln!("    [bf] full {dir}-wrap ring — cannot chart");
-                    for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
-                        eprintln!(
-                            "      [bf] ring[{i}] uv=({u:.4},{v:.4}) pos=({:.4},{:.4},{:.4})",
-                            p.x, p.y, p.z
-                        );
+                // On decline, dump the unwrapped ring samples: the jump
+                // pattern distinguishes genuine winding (monotone drift
+                // over the ring) from branch-incoherent pcurves (one
+                // edge's run offset by a full period) — they need
+                // different fixes.
+                fn dump_ring(ring: &BoundaryRing, dir: &str) {
+                    if std::env::var_os("PK_BF_TRACE").is_some() {
+                        eprintln!("    [bf] full {dir}-wrap ring — cannot chart");
+                        for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
+                            eprintln!(
+                                "      [bf] ring[{i}] uv=({u:.4},{v:.4}) pos=({:.4},{:.4},{:.4})",
+                                p.x, p.y, p.z
+                            );
+                        }
                     }
                 }
-            }
-            if let Some(p) = period_u
-                && !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate)
-            {
-                if std::env::var_os("PK_BF_TRACE").is_some() {
-                    eprintln!("    [bf] face {face_handle:?} u-wrap decline");
+                if let Some(p) = period_u
+                    && !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate)
+                {
+                    if std::env::var_os("PK_BF_TRACE").is_some() {
+                        eprintln!("    [bf] face {face_handle:?} u-wrap decline");
+                    }
+                    dump_ring(&ring, "u");
+                    return None;
                 }
-                dump_ring(&ring, "u");
-                return None;
+                if let Some(p) = period_v
+                    && !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
+                {
+                    dump_ring(&ring, "v");
+                    return None;
+                }
             }
-            if let Some(p) = period_v
-                && !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
-            {
-                dump_ring(&ring, "v");
-                return None;
+            if ring.uv.len() >= 3 {
+                rings.push(ring);
             }
-        }
-        if ring.uv.len() >= 3 {
-            rings.push(ring);
         }
     }
     if rings.is_empty() {
