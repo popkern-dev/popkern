@@ -171,7 +171,11 @@ fn t36_shell_cube_one_face_removed() {
 #[test]
 fn t37_shell_cube_inward_outward_midplane() {
     let cube_orig = BRep::unit_cube(tol()).unwrap();
-    for direction in [ShellDirection::Inward, ShellDirection::Outward] {
+    for direction in [
+        ShellDirection::Inward,
+        ShellDirection::Outward,
+        ShellDirection::Midplane,
+    ] {
         let face = cube_orig.faces.keys().next().unwrap();
         let result = shell(
             &cube_orig,
@@ -199,25 +203,6 @@ fn t37_shell_cube_inward_outward_midplane() {
             "{direction:?}: validation errors: {errors:?}"
         );
     }
-
-    // Midplane is honest containment: the pipeline cannot move the
-    // outer skin yet, so it declines instead of serving an inward
-    // half-shell under a midplane label (PK-321).
-    let face = cube_orig.faces.keys().next().unwrap();
-    let mid = shell(
-        &cube_orig,
-        0.1,
-        ShellDirection::Midplane,
-        &[face],
-        &[],
-        &ShellOptions::default(),
-        tol(),
-        None,
-    );
-    assert!(
-        matches!(mid, Err(popkern_shell::ShellError::MidplaneUnsupported)),
-        "expected MidplaneUnsupported decline, got {mid:?}"
-    );
 }
 
 #[test]

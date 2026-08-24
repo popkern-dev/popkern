@@ -11,8 +11,10 @@ pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;
 pub mod interactive;
+mod midplane;
 pub mod offset;
 pub mod side_walls;
+mod skin_ladder;
 pub mod skin_map;
 pub mod surface_offset;
 pub mod thicken;
@@ -154,11 +156,18 @@ pub(crate) fn shell_impl(
             }
         };
     }
-    // Midplane containment: the outer skin never moves in this
-    // pipeline, so a served "midplane" body would silently be an inward
-    // shell at half thickness (see ShellError::MidplaneUnsupported).
+    // Midplane moves BOTH skins; it runs its own two-ladder pipeline
+    // (PK-330) instead of the single-skin ladder below.
     if matches!(direction, ShellDirection::Midplane) {
-        return Err(ShellError::MidplaneUnsupported);
+        return midplane::midplane_shell_impl(
+            brep,
+            thickness,
+            removed_faces,
+            face_thicknesses,
+            options,
+            tolerance,
+            tracker,
+        );
     }
 
     // Stage 1: classify faces.

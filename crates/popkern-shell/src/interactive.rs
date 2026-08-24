@@ -80,9 +80,17 @@ pub fn shell_with_control(
     } else {
         Vec::new()
     };
+    // Midplane runs its own two-ladder pipeline with a different honest
+    // stage total (PK-276: the promised count must match the emitted
+    // events).
+    let stage_count = if matches!(direction, ShellDirection::Midplane) {
+        crate::midplane::MIDPLANE_STAGE_COUNT
+    } else {
+        crate::SHELL_STAGE_COUNT
+    };
     let mut result = run_controlled(
         control,
-        crate::SHELL_STAGE_COUNT,
+        stage_count,
         |tracker| {
             crate::shell_impl(
                 brep,
@@ -101,8 +109,7 @@ pub fn shell_with_control(
             let face_thicknesses = face_thicknesses.to_vec();
             let options = options.clone();
             move |mut sink: EventSink<ProgressEvent>| {
-                let mut tracker =
-                    StageTracker::new(Some(&token), Some(&mut sink), crate::SHELL_STAGE_COUNT);
+                let mut tracker = StageTracker::new(Some(&token), Some(&mut sink), stage_count);
                 crate::shell_impl(
                     &brep,
                     thickness,

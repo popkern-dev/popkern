@@ -61,7 +61,16 @@ pub fn recompute_vertices(
         // corner — a ShellGap right at the tolerance boundary); with
         // it, three planes solve exactly.
         if let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
-            let kept: HashSet<FaceHandle> = adjacent_outer_faces.iter().copied().collect();
+            // "Kept" means the face contributed an offset constraint. A
+            // face may be PRESENT in the skin yet unclassified (midplane
+            // outer skins keep removed faces so assembly can discover
+            // the rims) — its original surface is the rim constraint
+            // either way.
+            let kept: HashSet<FaceHandle> = adjacent_outer_faces
+                .iter()
+                .copied()
+                .filter(|fh| offset_surfaces.contains_key(fh))
+                .collect();
             for outer_fh in faces_at_vertex(outer, outer_vh) {
                 if kept.contains(&outer_fh) {
                     continue;

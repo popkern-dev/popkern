@@ -72,18 +72,6 @@ pub enum ShellError {
         face: FaceHandle,
     },
 
-    /// Midplane shells need the OUTER skin moved outward by half the
-    /// thickness; the current pipeline keeps the outer skin at the
-    /// original surface, so serving would silently deliver an inward
-    /// shell at half thickness. Temporary containment: the two-skin
-    /// midplane construction is filed as its own task
-    /// (docs/architecture/solid-offset-shell-design.md §6).
-    #[error(
-        "midplane shells are not yet supported: the outer skin must move \
-         outward by half the thickness; use Inward or Outward"
-    )]
-    MidplaneUnsupported,
-
     /// The input sheet has free boundary half-edges and the operation
     /// cannot yet close them with side walls. Temporary containment:
     /// open-rim closure lands with the topology-changing join stage

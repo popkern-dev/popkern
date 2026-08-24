@@ -63,9 +63,27 @@ pub fn recompute_edges(
 
         let (surf1, surf2) = match (side1, side2) {
             // Interior edge: intersection of the two offset surfaces.
+            // A side that is present in the skin but UNCLASSIFIED (no
+            // offset surface — midplane outer skins keep removed faces
+            // for rim discovery) contributes its ORIGINAL surface, the
+            // same contract as the removed-side arm below.
             (Some(f1), Some(f2)) => match (offset_surfaces.get(&f1), offset_surfaces.get(&f2)) {
                 (Some(s1), Some(s2)) => (s1.clone(), s2.clone()),
-                _ => continue,
+                (Some(s1), None) => {
+                    let Some(original) = outer.faces.get(f2).and_then(|f| f.surface.as_ref())
+                    else {
+                        continue;
+                    };
+                    (s1.clone(), original.geometry.clone())
+                }
+                (None, Some(s2)) => {
+                    let Some(original) = outer.faces.get(f1).and_then(|f| f.surface.as_ref())
+                    else {
+                        continue;
+                    };
+                    (s2.clone(), original.geometry.clone())
+                }
+                (None, None) => continue,
             },
             // Opening rim edge (PK-307): one side's face was removed,
             // so its loop never existed in the inner skin and the
