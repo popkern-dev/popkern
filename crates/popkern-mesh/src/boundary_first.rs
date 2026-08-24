@@ -31,10 +31,14 @@ use crate::mesh::{FaceMesh, MeshVertex};
 mod boundary_first_delaunay;
 #[path = "boundary_first_edge_samples.rs"]
 mod boundary_first_edge_samples;
+#[path = "boundary_first_revolution.rs"]
+mod boundary_first_revolution;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
 mod boundary_first_slit;
+#[path = "boundary_first_unwrap.rs"]
+mod boundary_first_unwrap;
 use boundary_first_delaunay::bowyer_watson;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
 
@@ -155,92 +159,41 @@ pub(crate) fn tessellate_face_boundary_first(
                         .collect(),
                     None => Vec::new(),
                 };
-                fn unwrap_dir(
-                    ring: &mut BoundaryRing,
-                    period: f64,
-                    pick: fn(&mut (f64, f64)) -> &mut f64,
-                    degenerate: &[bool],
-                ) -> bool {
-                    let is_degen = |i: usize| degenerate.get(i).copied().unwrap_or(false);
-                    let mut prev: Option<f64> = None;
-                    for i in 0..ring.uv.len() {
-                        if is_degen(i) {
-                            continue;
-                        }
-                        let cur = pick(&mut ring.uv[i]);
-                        if let Some(p) = prev {
-                            while *cur - p > 0.5 * period {
-                                *cur -= period;
-                            }
-                            while *cur - p < -0.5 * period {
-                                *cur += period;
-                            }
-                        }
-                        prev = Some(*cur);
-                    }
-                    // Rewrite each degenerate run's coordinate to the
-                    // mean of its flanking regular samples (circular):
-                    // any value evaluates to the same 3D point, and the
-                    // mean keeps both adjacent UV segments non-zero for
-                    // the Delaunay coverage walk.
-                    let n = ring.uv.len();
-                    for i in 0..n {
-                        if !is_degen(i) {
-                            continue;
-                        }
-                        let before = (1..n)
-                            .map(|k| (i + n - k) % n)
-                            .find(|&j| !is_degen(j))
-                            .map(|j| *pick(&mut ring.uv[j].clone()));
-                        let after = (1..n)
-                            .map(|k| (i + k) % n)
-                            .find(|&j| !is_degen(j))
-                            .map(|j| *pick(&mut ring.uv[j].clone()));
-                        if let (Some(b), Some(a)) = (before, after) {
-                            *pick(&mut ring.uv[i]) = 0.5 * (b + a);
-                        }
-                    }
-                    // Net winding across the regular samples = a genuine
-                    // full wrap; boundary-first cannot chart it.
-                    let regular: Vec<usize> = (0..n).filter(|&i| !is_degen(i)).collect();
-                    match (regular.first(), regular.last()) {
-                        (Some(&f), Some(&l)) => {
-                            let first = *pick(&mut ring.uv[f].clone());
-                            let last = *pick(&mut ring.uv[l].clone());
-                            (last - first).abs() <= 0.5 * period
-                        }
-                        _ => true,
-                    }
-                }
-                // On decline, dump the unwrapped ring samples: the jump
-                // pattern distinguishes genuine winding (monotone drift
-                // over the ring) from branch-incoherent pcurves (one
-                // edge's run offset by a full period) — they need
-                // different fixes.
-                fn dump_ring(ring: &BoundaryRing, dir: &str) {
-                    if std::env::var_os("PK_BF_TRACE").is_some() {
-                        eprintln!("    [bf] full {dir}-wrap ring — cannot chart");
-                        for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
-                            eprintln!(
-                                "      [bf] ring[{i}] uv=({u:.4},{v:.4}) pos=({:.4},{:.4},{:.4})",
-                                p.x, p.y, p.z
-                            );
-                        }
-                    }
-                }
                 if let Some(p) = period_u
-                    && !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate)
+                    && !boundary_first_unwrap::unwrap_dir(
+                        &mut ring,
+                        p,
+                        |uv| &mut uv.0,
+                        &u_degenerate,
+                    )
                 {
+                    // A genuine full wrap through an apex point is the
+                    // structured-revolution class (PK-336); sole-loop
+                    // faces only — holes keep the legacy route.
+                    if face.inner_loops.is_empty()
+                        && rings.is_empty()
+                        && let Some(fm) = boundary_first_revolution::try_tessellate(
+                            face_handle,
+                            surface,
+                            orientation,
+                            &ring,
+                            &u_degenerate,
+                            p,
+                            options,
+                        )
+                    {
+                        return Some(fm);
+                    }
                     if std::env::var_os("PK_BF_TRACE").is_some() {
                         eprintln!("    [bf] face {face_handle:?} u-wrap decline");
                     }
-                    dump_ring(&ring, "u");
+                    boundary_first_unwrap::dump_ring(&ring, "u");
                     return None;
                 }
                 if let Some(p) = period_v
-                    && !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
+                    && !boundary_first_unwrap::unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
                 {
-                    dump_ring(&ring, "v");
+                    boundary_first_unwrap::dump_ring(&ring, "v");
                     return None;
                 }
             }

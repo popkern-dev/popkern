@@ -216,6 +216,14 @@ fn primitives_tessellate_watertight() {
     ] {
         let open = open_mesh_edges(&brep);
         assert_eq!(open, 0, "{name}: {open} open mesh edges");
+        // PK-336: the primitives also weld by construction — the
+        // cone's full-wrap lateral serves the revolution path.
+        let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::default())
+            .expect("tessellate");
+        assert_eq!(
+            mesh.zipped_t_junctions, 0,
+            "{name}: welds must close by construction, not zipper repair"
+        );
     }
 }
 
@@ -258,27 +266,22 @@ fn shelled_bodies_tessellate_watertight() {
         .unwrap()
         .brep
     };
-    // (name, body, welds must close BY CONSTRUCTION — zipper unused)
-    // PK-335: slit dissolution lets the rim wall serve boundary-first,
-    // so the cube/cylinder shells weld with zero zipper repairs. Cone
-    // bodies keep zipper reliance: their full-u-wrap laterals decline
-    // boundary-first (PK-336) and the legacy grid staggers against
-    // canonical neighbours — welded by the PK-334 parameter merge.
-    for (name, brep, construction_weld) in [
-        ("shelled cube", shelled(&cube, 1.0), true),
-        ("shelled cylinder", shelled(&cyl, 2.0), true),
-        ("shelled cone (base removed)", shelled(&cone, 0.0), false),
+    // Welds must close BY CONSTRUCTION (zipper unused): PK-335 slit
+    // dissolution serves the rim walls boundary-first, and PK-336's
+    // full-wrap revolution path serves the cone laterals — every
+    // shelled body's chains are canonical stations end to end.
+    for (name, brep) in [
+        ("shelled cube", shelled(&cube, 1.0)),
+        ("shelled cylinder", shelled(&cyl, 2.0)),
+        ("shelled cone (base removed)", shelled(&cone, 0.0)),
     ] {
         let open = open_mesh_edges(&brep);
         assert_eq!(open, 0, "{name}: {open} open mesh edges");
-        if construction_weld {
-            let mesh =
-                popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::default())
-                    .expect("tessellate");
-            assert_eq!(
-                mesh.zipped_t_junctions, 0,
-                "{name}: welds must close by construction, not zipper repair"
-            );
-        }
+        let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::default())
+            .expect("tessellate");
+        assert_eq!(
+            mesh.zipped_t_junctions, 0,
+            "{name}: welds must close by construction, not zipper repair"
+        );
     }
 }
