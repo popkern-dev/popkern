@@ -103,6 +103,18 @@ pub fn recompute_edges(
                     continue;
                 };
                 let Some(removed_face) = other_face_of_edge(outer, outer_eh, kept_face) else {
+                    // FREE rim (open-sheet thicken, PK-324): no face was
+                    // ever on the other side. The rim edge lies ON the
+                    // kept face alone, so its offset image is the
+                    // normal-offset map within that face — dispatch as
+                    // a single-surface (seam-like) edge; the
+                    // parallel-map arm serves it exactly.
+                    let (s1, s2) = (kept_offset.clone(), kept_offset.clone());
+                    if let Some(curve_on_edge) =
+                        compute_edge_curve(inner, inner_eh, &s1, &s2, tolerance)?
+                    {
+                        inner.edges[inner_eh].curve = Some(curve_on_edge);
+                    }
                     continue;
                 };
                 let Some(original) = outer
@@ -164,6 +176,23 @@ fn compute_edge_curve(
     let end_pos = inner.vertices[twin.origin].position;
 
     match (surf1, surf2) {
+        // Same-surface edges (seams, free rims of open sheets) go to
+        // the seam ladder even for planes — the plane×plane arm below
+        // would read an identical pair as "parallel, no intersection"
+        // and leave the clone stale.
+        _ if surf1 == surf2 => {
+            let Some(old) = inner.edges[edge_handle].curve.clone() else {
+                return Ok(None);
+            };
+            if let Some(c) = crate::curved_recompute::straight_ruling_seam_curve(
+                &old, surf1, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
+            Ok(crate::curved_recompute_similarity::parallel_map_edge_curve(
+                &old, surf1, surf2, start_pos, end_pos, tolerance,
+            ))
+        }
         (
             SurfaceGeometry::Plane {
                 origin: o1,
@@ -205,23 +234,43 @@ fn compute_edge_curve(
             }))
         }
         _ => {
-            // PK-322 exact curved arms: straight-ruling seams (both
-            // half-edges on one quadric face) and coaxial plane×quadric
-            // circles. Each arm verifies its candidate by sampled
-            // residuals and falls back to `None` — the clone curve then
-            // stays stale and the serve gate declines the body. General
-            // curved pairs (numeric SSI) are PK-324.
+            // Curved-arm ladder (PK-322 exact arms + PK-324 general
+            // arms), cheapest/most-exact first. Every arm verifies its
+            // candidate by sampled residuals and recomputed-vertex
+            // endpoints, and declines to the next; when the whole
+            // ladder declines the clone curve stays stale and the
+            // serve gate declines the body.
             let Some(old) = inner.edges[edge_handle].curve.clone() else {
                 return Ok(None);
             };
-            if surf1 == surf2 {
-                return Ok(crate::curved_recompute::straight_ruling_seam_curve(
-                    &old, surf1, start_pos, end_pos, tolerance,
-                ));
-            }
-            Ok(crate::curved_recompute::coaxial_circle_edge_curve(
+            if let Some(c) = crate::curved_recompute::coaxial_circle_edge_curve(
                 &old, surf1, surf2, start_pos, tolerance,
-            ))
+            ) {
+                return Ok(Some(c));
+            }
+            // G1-tangential pairs and remaining seams: both offset
+            // surfaces displace the edge identically along the shared
+            // normal (projection-agreement witness).
+            if let Some(c) = crate::curved_recompute_similarity::parallel_map_edge_curve(
+                &old, surf1, surf2, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
+            // Transversal coaxial revolution pairs (bore×countersink
+            // junction circles): 1D profile-plane solve.
+            if let Some(c) = crate::curved_recompute_similarity::coaxial_profile_edge_curve(
+                &old, surf1, surf2, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
+            // General numeric SSI (design §5 Stage 2): pairs with no
+            // analytic form, e.g. fitted NURBS offsets against planes.
+            if let Some(c) = crate::curved_recompute_similarity::general_ssi_edge_curve(
+                &old, surf1, surf2, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
+            Ok(None)
         }
     }
 }

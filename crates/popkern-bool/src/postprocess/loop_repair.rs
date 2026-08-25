@@ -110,7 +110,7 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
 
     // 4. Remove stranded half-edges.
     for &heh in &stranded {
-        if brep.half_edges.remove(heh).is_some() {
+        if brep.remove_half_edge_reanchored(heh).is_some() {
             report.half_edges_removed += 1;
         }
     }

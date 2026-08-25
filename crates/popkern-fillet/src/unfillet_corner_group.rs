@@ -258,7 +258,7 @@ pub(crate) fn restore_corner_group(
         .map(|(h, _)| h)
         .collect();
     for h in ghosts {
-        let Some(data) = out.half_edges.remove(h) else {
+        let Some(data) = out.remove_half_edge_reanchored(h) else {
             continue;
         };
         if out.half_edges.contains_key(data.twin) {

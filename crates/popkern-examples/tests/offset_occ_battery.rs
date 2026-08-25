@@ -142,6 +142,37 @@ fn corpus_and_served_shells_pass_the_occ_oracle() {
             .expect("offset cone")
             .brep,
     ));
+    // PK-324 serving envelope: curved recompute arms + open-sheet rims.
+    let sphere = BRep::sphere(0.5, tol()).unwrap();
+    bodies.push((
+        "thickened_sphere".into(),
+        thicken(&sphere, 0.08, &ShellOptions::default(), tol())
+            .expect("thicken sphere")
+            .brep,
+    ));
+    let torus = BRep::torus(0.6, 0.25, tol()).unwrap();
+    bodies.push((
+        "thickened_torus".into(),
+        thicken(&torus, 0.08, &ShellOptions::default(), tol())
+            .expect("thicken torus")
+            .brep,
+    ));
+    let filleted = popkern_examples::offset_corpus::filleted_cube(tol())
+        .expect("filleted cube")
+        .brep;
+    bodies.push((
+        "thickened_filleted_cube".into(),
+        thicken(&filleted, 0.05, &ShellOptions::default(), tol())
+            .expect("thicken filleted cube")
+            .brep,
+    ));
+    let open = BRep::open_box(tol()).unwrap();
+    bodies.push((
+        "thickened_open_box".into(),
+        thicken(&open, 0.06, &ShellOptions::default(), tol())
+            .expect("thicken open box")
+            .brep,
+    ));
 
     let mut skipped = false;
     let mut failures = Vec::new();

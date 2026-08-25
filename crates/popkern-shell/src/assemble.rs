@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::error::ShellError;
-use crate::side_walls::build_side_walls;
+use crate::side_walls::{build_free_rim_walls, build_side_walls};
 use crate::skin_map::SkinMap;
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::tolerance::Tolerance;
@@ -62,7 +62,14 @@ pub fn assemble_shell(
     // hollow body fail the shell-aware Euler–Poincaré check, χ=4 vs
     // 2·1). With removed faces the side walls connect the skins into
     // one shell, which stays merged.
-    let inner_shell = if removed_faces.is_empty() {
+    // Free rims (open-sheet thicken): loopless half-edges in the source
+    // mark sheet boundaries; their walls connect the skins just like
+    // opening walls do, so the skins share one shell.
+    let has_free_rims = outer
+        .half_edges
+        .iter()
+        .any(|(_, he)| !outer.loops.contains_key(he.loop_));
+    let inner_shell = if removed_faces.is_empty() && !has_free_rims {
         builder.add_shell(solid)
     } else {
         shell
@@ -78,6 +85,18 @@ pub fn assemble_shell(
             &mut builder,
             outer,
             removed_faces,
+            skin_map,
+            &outer_vertex_map,
+            &inner_vertex_map,
+            &outer_he_map,
+            &inner_he_map,
+            shell,
+        )?;
+    }
+    if has_free_rims {
+        build_free_rim_walls(
+            &mut builder,
+            outer,
             skin_map,
             &outer_vertex_map,
             &inner_vertex_map,

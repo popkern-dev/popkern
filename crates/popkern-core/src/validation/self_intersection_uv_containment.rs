@@ -168,6 +168,124 @@ fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
     (point.u - closest.u).hypot(point.v - closest.v)
 }
 
+/// A raw (un-unwrapped) loop boundary sample, flagged when the loop
+/// traversal reaches it by crossing a parametrically degenerate row
+/// with a period-sized branch jump (sphere pole, cone apex).
+pub(super) struct RawLoopSample {
+    pub(super) uv: UvPoint,
+    pub(super) pole_jump_before: bool,
+}
+
+/// Assemble a loop's UV trim polygon from raw samples.
+///
+/// Default assembly is chain-continuous unwrapping: each sample folds
+/// to the branch of the previous point (the first anchors against the
+/// query). That is correct for every loop that stays on one branch —
+/// unwrapping against the query instead folds half-period loops into
+/// self-overlapping polygons (measured: laptop-stand phantom
+/// self-intersection), and tearing at pole crossings breaks
+/// pole-touching octant caps (measured: rounded-cube corner sphere
+/// classified far-side azimuths Interior).
+///
+/// The exception is a loop whose chains connect ONLY through
+/// degenerate rows and net a full period — the 1-face sphere's
+/// meridian seam loop. Pure folding collapses that polygon to a
+/// zero-area strip (every query classifies Outside, which made the
+/// material-sense resolver unsampleable). For those loops the chains
+/// after a pole crossing keep their RAW branch, with the implied
+/// segments along the degenerate rows serving as the (3D-zero-length)
+/// bridges. The raw variant is used ONLY when the folded polygon is
+/// area-degenerate and the closure jump is licensed by degenerate
+/// rows, so every previously-served polygon assembles bit-identically.
+pub(super) fn assemble_periodic_polygon(
+    raw: &[RawLoopSample],
+    query: UvPoint,
+    periodic_u: bool,
+    periodic_v: bool,
+    closure_on_degenerate_rows: bool,
+) -> Vec<UvPoint> {
+    let chain_starts: Vec<usize> = raw
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| s.pole_jump_before.then_some(i))
+        .collect();
+
+    let assemble = |raw_branch_chains: &[usize]| -> Vec<UvPoint> {
+        let mut polygon: Vec<UvPoint> = Vec::with_capacity(raw.len());
+        let mut anchor_k = 0.0_f64;
+        for (i, s) in raw.iter().enumerate() {
+            let reference = polygon.last().copied().unwrap_or(query);
+            let folded = unwrap_uv_for_query(s.uv, reference, periodic_u, periodic_v);
+            if i == 0 {
+                anchor_k = ((folded.u - s.uv.u) / TAU).round();
+                push_distinct_uv(&mut polygon, folded);
+                continue;
+            }
+            if s.pole_jump_before && raw_branch_chains.contains(&i) {
+                // Bridge along the degenerate row: enter the row at the
+                // previous chain's branch, exit at this chain's raw
+                // branch (shifted by the loop's query anchoring).
+                push_distinct_uv(&mut polygon, folded);
+                let v = unwrap_uv_for_query(s.uv, reference, false, periodic_v).v;
+                push_distinct_uv(
+                    &mut polygon,
+                    UvPoint {
+                        u: s.uv.u + anchor_k * TAU,
+                        v,
+                    },
+                );
+                continue;
+            }
+            push_distinct_uv(&mut polygon, folded);
+        }
+        polygon
+    };
+
+    let folded_polygon = assemble(&[]);
+    if chain_starts.is_empty() || chain_starts.len() > 4 || !periodic_u {
+        return folded_polygon;
+    }
+
+    let closure_ok = |polygon: &[UvPoint]| -> bool {
+        match (polygon.first(), polygon.last()) {
+            (Some(a), Some(b)) => {
+                (a.u - b.u).abs() <= TAU * 0.5 + 1.0e-9 || closure_on_degenerate_rows
+            }
+            _ => false,
+        }
+    };
+    let area = |polygon: &[UvPoint]| -> f64 {
+        let mut sum = 0.0;
+        for (i, a) in polygon.iter().enumerate() {
+            let b = &polygon[(i + 1) % polygon.len()];
+            sum += a.u * b.v - b.u * a.v;
+        }
+        sum * 0.5
+    };
+
+    if closure_ok(&folded_polygon) && area(&folded_polygon).abs() > 1.0e-9 {
+        return folded_polygon;
+    }
+
+    // Folded polygon is area-degenerate (or tears its closure):
+    // enumerate raw-branch assignments for the pole-separated chains,
+    // all-fold first, and serve the first valid non-degenerate variant.
+    let m = chain_starts.len();
+    for mask in 1u32..(1 << m) {
+        let selected: Vec<usize> = chain_starts
+            .iter()
+            .enumerate()
+            .filter(|(bit, _)| (mask >> bit) & 1 == 1)
+            .map(|(_, &idx)| idx)
+            .collect();
+        let candidate = assemble(&selected);
+        if candidate.len() >= 3 && closure_ok(&candidate) && area(&candidate).abs() > 1.0e-9 {
+            return candidate;
+        }
+    }
+    folded_polygon
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

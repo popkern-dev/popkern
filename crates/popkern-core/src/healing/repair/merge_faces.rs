@@ -302,9 +302,10 @@ fn attempt_face_merge(
         la.half_edge = he_b_next;
     }
 
-    // Remove the shared edge and its two half-edges.
-    brep.half_edges.remove(he_a);
-    brep.half_edges.remove(he_b);
+    // Remove the shared edge and its two half-edges (re-anchoring any
+    // vertex whose outgoing pointed at them).
+    brep.remove_half_edge_reanchored(he_a);
+    brep.remove_half_edge_reanchored(he_b);
     brep.edges.remove(shared_edge);
 
     // Remove face_b and its loop.

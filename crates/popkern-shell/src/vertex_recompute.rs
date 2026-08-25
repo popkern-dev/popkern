@@ -136,8 +136,16 @@ pub fn recompute_vertices(
         // seeded from the original vertex for branch selection); the
         // legacy plane-averaging Newton covers the plane-only
         // under-determined cases.
-        let new_pos = if !has_curved && planes.len() >= 3 {
+        let new_pos = if !has_curved && planes.len() == 3 {
             solve_3_planes(&planes[0], &planes[1], &planes[2])
+        } else if !has_curved && planes.len() > 3 {
+            // Valence>3: least-squares over ALL incident plane
+            // constraints in sorted-handle order (design §5 — the
+            // first-3-of-a-hash-set pick both dropped constraints and
+            // was nondeterministic). Exact when the system is
+            // consistent; the best point otherwise, with validation as
+            // the arbiter.
+            solve_planes_least_squares(&planes)
         } else if has_curved {
             let outer_vh = reverse_vertex
                 .get(&inner_vh)
@@ -147,14 +155,18 @@ pub fn recompute_vertices(
             let ordered: Vec<&SurfaceGeometry> = keyed.iter().map(|(_, s)| *s).collect();
             crate::curved_recompute::solve_vertex_on_surfaces(&ordered, seed, tolerance)
         } else {
-            // Fall back to Newton iteration from initial guess.
+            // Under-determined plane sets (free-rim vertices of open
+            // sheets: 1 or 2 incident planes) solve EXACTLY as the
+            // minimal displacement of the original vertex onto the
+            // constraint set — the previous averaging iteration stopped
+            // ~7e-7 off the intersection line, which the quarter-scale
+            // ladder tolerance rightly rejected downstream (measured:
+            // every open-box rim edge kept its stale clone).
             let outer_vh = reverse_vertex
                 .get(&inner_vh)
                 .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
-            let outer_pos = outer.vertices[*outer_vh].position;
-            let avg_normal = compute_average_normal(&surfaces);
-            let guess = outer_pos + avg_normal;
-            newton_vertex_position(&surfaces, guess, tolerance)
+            let seed = outer.vertices[*outer_vh].position;
+            solve_underdetermined_planes(&planes, seed)
         };
 
         if let Some(pos) = new_pos {
@@ -188,7 +200,12 @@ fn faces_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
         }
         current = next_outgoing;
     }
-    faces.into_iter().collect()
+    // Sorted handles: the fan set iterates in hash order, and every
+    // downstream constraint list (planes, curved projection order)
+    // inherits this order — a PK-277-class determinism hazard.
+    let mut faces: Vec<FaceHandle> = faces.into_iter().collect();
+    faces.sort();
+    faces
 }
 
 /// Find outer face handles adjacent to an inner vertex.
@@ -229,7 +246,10 @@ fn find_adjacent_outer_faces(
         current = next_outgoing;
     }
 
-    faces.into_iter().collect()
+    // Sorted handles for deterministic constraint order (PK-277 class).
+    let mut faces: Vec<FaceHandle> = faces.into_iter().collect();
+    faces.sort();
+    faces
 }
 
 /// Solve for the intersection of 3 planes using Cramer's rule.
@@ -267,73 +287,98 @@ fn solve_3_planes(
     Some(Point3::new(x, y, z))
 }
 
-/// Compute the average outward normal direction from offset surfaces.
-fn compute_average_normal(surfaces: &[&SurfaceGeometry]) -> Vec3 {
-    let mut sum = Vec3::zero();
-    for surf in surfaces {
-        if let SurfaceGeometry::Plane { normal, .. } = surf {
-            sum = sum + *normal;
+/// Least-squares point for N ≥ 3 plane constraints `n_i · x = d_i`:
+/// solves the 3×3 normal equations `(Σ n_i n_iᵀ) x = Σ d_i n_i` by
+/// Cramer's rule. Equals the exact intersection when one exists.
+fn solve_planes_least_squares(planes: &[(Vec3, f64)]) -> Option<Point3> {
+    let mut m = [[0.0_f64; 3]; 3];
+    let mut b = [0.0_f64; 3];
+    for (n, d) in planes {
+        let nv = [n.x, n.y, n.z];
+        for r in 0..3 {
+            for c in 0..3 {
+                m[r][c] += nv[r] * nv[c];
+            }
+            b[r] += d * nv[r];
         }
     }
-    let len = sum.length();
-    if len > 1e-12 {
-        sum * (1.0 / len)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
+    let det3 = |a: &[[f64; 3]; 3]| -> f64 {
+        a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+            - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+            + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+    };
+    let det = det3(&m);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let mut out = [0.0_f64; 3];
+    for (axis, slot) in out.iter_mut().enumerate() {
+        let mut mm = m;
+        for r in 0..3 {
+            mm[r][axis] = b[r];
+        }
+        *slot = det3(&mm) / det;
+    }
+    Some(Point3::new(out[0], out[1], out[2]))
+}
+
+/// Exact minimal-displacement solve for 1 or 2 independent plane
+/// constraints: project the seed onto the plane, or onto the two
+/// planes' intersection line. Near-parallel pairs collapse to the
+/// single-plane case (their constraint directions coincide).
+fn solve_underdetermined_planes(planes: &[(Vec3, f64)], seed: Point3) -> Option<Point3> {
+    // Distinct constraint directions only.
+    let mut distinct: Vec<(Vec3, f64)> = Vec::new();
+    for (n, d) in planes {
+        let n_unit = n.normalized()?;
+        let dup = distinct
+            .iter()
+            .any(|(m, _)| m.cross(&n_unit).length() < 1e-9);
+        if !dup {
+            let scale = n.length();
+            distinct.push((n_unit, d / scale));
+        }
+    }
+    match distinct.len() {
+        1 => {
+            let (n, d) = distinct[0];
+            let dist = seed.x * n.x + seed.y * n.y + seed.z * n.z - d;
+            Some(seed - n * dist)
+        }
+        2 => {
+            // Line of intersection, then closest point on it to seed.
+            let (n1, d1) = distinct[0];
+            let (n2, d2) = distinct[1];
+            let dir = n1.cross(&n2).normalized()?;
+            let p = solve_point_on_two_planes(n1, d1, n2, d2, dir)?;
+            let t = (seed - p).dot(&dir);
+            Some(p + dir * t)
+        }
+        _ => solve_planes_least_squares(&distinct),
     }
 }
 
-/// Newton iteration to find the point closest to all surfaces.
-///
-/// Uses a simple averaging approach: starting from `guess`, project onto
-/// each surface and average the projections. This works well for near-planar
-/// configurations.
-fn newton_vertex_position(
-    surfaces: &[&SurfaceGeometry],
-    guess: Point3,
-    tolerance: &Tolerance,
-) -> Option<Point3> {
-    let mut pos = guess;
-    let max_iter = 20;
-
-    for _ in 0..max_iter {
-        let mut sum = Vec3::zero();
-        let mut count = 0;
-
-        for surf in surfaces {
-            if let SurfaceGeometry::Plane { origin, normal, .. } = surf {
-                // Project pos onto the plane.
-                let d = pos - *origin;
-                let dist = d.dot(normal);
-                let projected = pos - *normal * dist;
-                let delta = projected - pos;
-                sum = sum + delta;
-                count += 1;
-            }
+/// A point on the intersection of two planes `n_i · x = d_i`, fixing
+/// the coordinate with the largest |dir| component to zero.
+fn solve_point_on_two_planes(n1: Vec3, d1: f64, n2: Vec3, d2: f64, dir: Vec3) -> Option<Point3> {
+    let solve_2x2 = |a: f64, b: f64, c1: f64, d: f64, e: f64, c2: f64| -> Option<(f64, f64)> {
+        let det = a * e - b * d;
+        if det.abs() < 1e-14 {
+            return None;
         }
-
-        if count == 0 {
-            break;
-        }
-
-        let correction = sum * (1.0 / count as f64);
-        pos = pos + correction;
-
-        // Adaptive convergence: the iteration terminates when the
-        // correction shrinks below `linear`. Routed through the
-        // adaptive squared-distance predicate from origin to the
-        // correction tip so termination is deterministic at the
-        // boundary.
-        if popkern_core::adaptive_precision::adaptive_dist_sq_lt(
-            (0.0, 0.0, 0.0),
-            (correction.x, correction.y, correction.z),
-            tolerance.linear() * tolerance.linear(),
-        ) {
-            break;
-        }
+        Some(((c1 * e - b * c2) / det, (a * c2 - c1 * d) / det))
+    };
+    let (ax, ay, az) = (dir.x.abs(), dir.y.abs(), dir.z.abs());
+    if ax >= ay && ax >= az {
+        let (y, z) = solve_2x2(n1.y, n1.z, d1, n2.y, n2.z, d2)?;
+        Some(Point3::new(0.0, y, z))
+    } else if ay >= ax && ay >= az {
+        let (x, z) = solve_2x2(n1.x, n1.z, d1, n2.x, n2.z, d2)?;
+        Some(Point3::new(x, 0.0, z))
+    } else {
+        let (x, y) = solve_2x2(n1.x, n1.y, d1, n2.x, n2.y, d2)?;
+        Some(Point3::new(x, y, 0.0))
     }
-
-    Some(pos)
 }
 
 #[cfg(test)]
@@ -415,23 +460,27 @@ mod tests {
     }
 
     #[test]
-    fn newton_vertex_converges_for_planes() {
-        let plane_x = SurfaceGeometry::Plane {
-            origin: Point3::new(1.0, 0.0, 0.0),
-            normal: Vec3::new(1.0, 0.0, 0.0),
-            u_axis: Vec3::new(0.0, 1.0, 0.0),
-            v_axis: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let plane_y = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 2.0, 0.0),
-            normal: Vec3::new(0.0, 1.0, 0.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let surfaces: Vec<&SurfaceGeometry> = vec![&plane_x, &plane_y];
-        let guess = Point3::new(0.0, 0.0, 0.0);
-        let result = newton_vertex_position(&surfaces, guess, &tol()).unwrap();
-        assert!((result.x - 1.0).abs() < 1e-4);
-        assert!((result.y - 2.0).abs() < 1e-4);
+    fn two_plane_vertex_solve_is_exact() {
+        let planes = vec![
+            (Vec3::new(1.0, 0.0, 0.0), 1.0), // x = 1
+            (Vec3::new(0.0, 1.0, 0.0), 2.0), // y = 2
+        ];
+        let seed = Point3::new(0.0, 0.0, 0.7);
+        let result = solve_underdetermined_planes(&planes, seed).unwrap();
+        assert!((result.x - 1.0).abs() < 1e-14);
+        assert!((result.y - 2.0).abs() < 1e-14);
+        assert!((result.z - 0.7).abs() < 1e-14, "seed's line station kept");
+    }
+
+    #[test]
+    fn near_parallel_planes_collapse_to_one_constraint() {
+        let planes = vec![
+            (Vec3::new(0.0, 0.0, 1.0), 1.0),
+            (Vec3::new(0.0, 0.0, 1.0), 1.0),
+        ];
+        let seed = Point3::new(0.3, 0.4, 0.0);
+        let result = solve_underdetermined_planes(&planes, seed).unwrap();
+        assert!((result.z - 1.0).abs() < 1e-14);
+        assert!((result.x - 0.3).abs() < 1e-14);
     }
 }

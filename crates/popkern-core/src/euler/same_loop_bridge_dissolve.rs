@@ -66,8 +66,8 @@ impl BRep {
         self.repair_outgoing_after_same_loop_bridge_dissolve(he_origin, half_edge, twin_handle);
         self.repair_outgoing_after_same_loop_bridge_dissolve(twin_origin, twin_handle, half_edge);
 
-        self.half_edges.remove(half_edge);
-        self.half_edges.remove(twin_handle);
+        self.remove_half_edge_reanchored(half_edge);
+        self.remove_half_edge_reanchored(twin_handle);
         self.edges.remove(edge_handle);
 
         Ok(())

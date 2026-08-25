@@ -464,8 +464,8 @@ pub(crate) fn apply_closed_fillet(
     }
 
     // 13. Delete the old rim half-edges and edge.
-    brep.half_edges.remove(he_a_h);
-    brep.half_edges.remove(he_b_h);
+    brep.remove_half_edge_reanchored(he_a_h);
+    brep.remove_half_edge_reanchored(he_b_h);
     brep.edges.remove(fillet_edge);
 
     // 13b. Pcurves for the four trim half-edges, angle-matched to

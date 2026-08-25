@@ -260,3 +260,141 @@ fn filleted_cube_thicken_serves_oracle_clean_or_declines_structured() {
         }
     }
 }
+
+/// PK-324 row 469: the hollow shells of every curved primitive serve
+/// `validate_all`-clean and agree with the SDF Wall oracle. A hollow
+/// (no-removed-faces) inward shell keeps the outer surface in place
+/// and carves the inner skin at depth `t`, so the exact wall predicate
+/// is `Wall { inward: t, outward: 0 }` with NO exclusions.
+#[test]
+fn hollow_curved_shells_serve_oracle_clean() {
+    let t = 0.04;
+    let bodies: Vec<(&str, BRep)> = vec![
+        ("cylinder", BRep::cylinder(0.5, 1.0, tol()).unwrap()),
+        ("cone", BRep::cone(0.5, 1.0, tol()).unwrap()),
+        ("sphere", BRep::sphere(0.5, tol()).unwrap()),
+        ("torus", BRep::torus(0.6, 0.25, tol()).unwrap()),
+    ];
+    for (name, brep) in &bodies {
+        let result = shell(
+            brep,
+            t,
+            ShellDirection::Inward,
+            &[],
+            &[],
+            &ShellOptions::default(),
+            tol(),
+            None,
+        )
+        .unwrap_or_else(|e| panic!("{name}: hollow shell declined: {e}"));
+        let errors = result.brep.validate_all();
+        assert!(errors.is_empty(), "{name}: served invalid: {errors:?}");
+        let report = classify_offset_agreement(
+            &index_of(brep),
+            &index_of(&result.brep),
+            OffsetSemantics::Wall {
+                inward: t,
+                outward: 0.0,
+            },
+            &OffsetOracleOptions::default(),
+            |_| false,
+        );
+        assert_clean(&report, &format!("hollow shelled {name}"));
+    }
+}
+
+/// PK-324 row 469 volume bands: hollow curved shells against their
+/// closed-form wall volumes.
+#[test]
+fn hollow_curved_shell_volumes_in_analytic_band() {
+    use std::f64::consts::PI;
+    let t = 0.04_f64;
+    // Fine tessellation: the wall volume is a DIFFERENCE of two full
+    // solids (torus outer 0.740 − inner 0.522 → wall 0.218), so chord
+    // undershoot amplifies ~6x in relative terms; the gate must
+    // measure geometry, not mesher resolution.
+    let fine = TessellationOptions {
+        chord_height: 0.001,
+        ..TessellationOptions::default()
+    };
+    let volume = move |brep: &BRep| {
+        let mesh = tessellate(brep, &fine).expect("tessellate");
+        let mut vol = 0.0_f64;
+        for tri in &mesh.triangles {
+            let (a, b, c) = (
+                mesh.vertices[tri[0]].position,
+                mesh.vertices[tri[1]].position,
+                mesh.vertices[tri[2]].position,
+            );
+            vol += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                + a.z * (b.x * c.y - b.y * c.x);
+        }
+        (vol / 6.0).abs()
+    };
+    let sphere_wall = (4.0 / 3.0) * PI * (0.5_f64.powi(3) - (0.5_f64 - t).powi(3));
+    let torus_wall = 2.0 * PI * PI * 0.6 * (0.25_f64.powi(2) - (0.25_f64 - t).powi(2));
+    let cases: Vec<(&str, BRep, f64)> = vec![
+        ("sphere", BRep::sphere(0.5, tol()).unwrap(), sphere_wall),
+        ("torus", BRep::torus(0.6, 0.25, tol()).unwrap(), torus_wall),
+    ];
+    for (name, brep, expected) in cases {
+        let result = shell(
+            &brep,
+            t,
+            ShellDirection::Inward,
+            &[],
+            &[],
+            &ShellOptions::default(),
+            tol(),
+            None,
+        )
+        .unwrap_or_else(|e| panic!("{name}: hollow shell declined: {e}"));
+        let measured = volume(&result.brep);
+        let rel = (measured - expected).abs() / expected;
+        assert!(
+            rel < 0.02,
+            "{name}: wall volume {measured:.6} vs analytic {expected:.6} (rel {rel:.4})"
+        );
+    }
+}
+
+/// PK-324 row 469 (filleted cube volume band): the rounded cube's
+/// offset is a rounded cube (core side unchanged, fillet radius ±d),
+/// so the thickened wall volume has an exact closed form:
+/// `V(rf + t/2) − V(rf − t/2)` with `V(r) = c³ + 6c²r + 3πcr² + (4π/3)r³`.
+#[test]
+fn thickened_filleted_cube_volume_in_analytic_band() {
+    let t = 0.05_f64;
+    let fixture = filleted_cube(tol()).expect("filleted cube");
+    let result = thicken(&fixture.brep, t, &ShellOptions::default(), tol())
+        .expect("filleted-cube thicken serves");
+    let rounded_cube_volume = |r: f64| {
+        let c = 1.0 - 2.0 * 0.1;
+        c * c * c
+            + 6.0 * c * c * r
+            + 3.0 * std::f64::consts::PI * c * r * r
+            + (4.0 * std::f64::consts::PI / 3.0) * r * r * r
+    };
+    let expected = rounded_cube_volume(0.1 + t / 2.0) - rounded_cube_volume(0.1 - t / 2.0);
+    let fine = TessellationOptions {
+        chord_height: 0.001,
+        ..TessellationOptions::default()
+    };
+    let mesh = tessellate(&result.brep, &fine).expect("tessellate");
+    let mut vol = 0.0_f64;
+    for tri in &mesh.triangles {
+        let (a, b, c) = (
+            mesh.vertices[tri[0]].position,
+            mesh.vertices[tri[1]].position,
+            mesh.vertices[tri[2]].position,
+        );
+        vol += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x);
+    }
+    let measured = (vol / 6.0).abs();
+    let rel = (measured - expected).abs() / expected;
+    assert!(
+        rel < 0.02,
+        "wall volume {measured:.6} vs analytic {expected:.6} (rel {rel:.4})"
+    );
+}

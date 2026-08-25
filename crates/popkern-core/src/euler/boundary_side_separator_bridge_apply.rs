@@ -324,14 +324,14 @@ impl BRep {
             (true, false) => {
                 self.half_edges[separator.forward].twin = HalfEdgeHandle::default();
                 self.edges[separator.edge].half_edge = separator.forward;
-                self.half_edges.remove(separator.reverse);
+                self.remove_half_edge_reanchored(separator.reverse);
                 self.boundary_edges.insert(separator.edge);
                 Ok(())
             }
             (false, true) => {
                 self.half_edges[separator.reverse].twin = HalfEdgeHandle::default();
                 self.edges[separator.edge].half_edge = separator.reverse;
-                self.half_edges.remove(separator.forward);
+                self.remove_half_edge_reanchored(separator.forward);
                 self.boundary_edges.insert(separator.edge);
                 Ok(())
             }

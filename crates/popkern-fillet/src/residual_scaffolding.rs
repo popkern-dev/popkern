@@ -100,7 +100,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
     let rollback = brep.clone();
     for (face, loops, sides) in &retire_faces {
         for side in sides {
-            let Some(side_data) = brep.half_edges.remove(*side) else {
+            let Some(side_data) = brep.remove_half_edge_reanchored(*side) else {
                 continue;
             };
             match brep.half_edges.get(side_data.twin) {

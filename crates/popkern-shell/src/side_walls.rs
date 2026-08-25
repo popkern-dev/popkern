@@ -104,6 +104,69 @@ pub fn build_side_walls(
     Ok(SideWallResult { faces })
 }
 
+/// Build wall faces closing the FREE rims of an open sheet's thicken
+/// (design §6 open-sheet row, PK-324): every source edge with a
+/// loopless half-edge is a rim; the wall adopts that loopless
+/// half-edge's builder image on the outer skin and its (mirrored)
+/// image on the inner skin, exactly like an opening wall — the free
+/// rim IS an opening whose "removed face" never existed.
+///
+/// # Errors
+///
+/// Returns [`ShellError::Topology`] when a rim wall would be
+/// non-planar (ruled free-rim walls are Stage-3 work) or a handle
+/// contract is violated.
+#[allow(clippy::too_many_arguments)]
+pub fn build_free_rim_walls(
+    builder: &mut BRepBuilder,
+    outer: &BRep,
+    skin_map: &SkinMap,
+    outer_vertex_map: &HashMap<VertexHandle, VertexHandle>,
+    inner_vertex_map: &HashMap<VertexHandle, VertexHandle>,
+    outer_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    inner_he_map: &HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    shell_handle: ShellHandle,
+) -> Result<SideWallResult, ShellError> {
+    let mut faces = Vec::new();
+    let mut verticals: HashMap<VertexHandle, VerticalEdge> = HashMap::new();
+    let mut rim_hes: Vec<HalfEdgeHandle> = Vec::new();
+    for (eh, edge) in &outer.edges {
+        let he = &outer.half_edges[edge.half_edge];
+        let he_loopless = !outer.loops.contains_key(he.loop_);
+        let twin_loopless = !outer.loops.contains_key(outer.half_edges[he.twin].loop_);
+        match (he_loopless, twin_loopless) {
+            (true, false) => rim_hes.push(edge.half_edge),
+            (false, true) => rim_hes.push(he.twin),
+            (true, true) => {
+                return Err(ShellError::Topology(format!(
+                    "edge {eh:?} has no live face on either side — not a sheet rim"
+                )));
+            }
+            (false, false) => {}
+        }
+    }
+    // Deterministic wall order (handle-sorted; the map iteration above
+    // is insertion-ordered per slotmap but sort anyway for the PK-277
+    // contract).
+    rim_hes.sort();
+    for rim_he in rim_hes {
+        let face = build_one_side_wall(
+            builder,
+            outer,
+            rim_he,
+            skin_map,
+            outer_vertex_map,
+            inner_vertex_map,
+            outer_he_map,
+            inner_he_map,
+            &mut verticals,
+            shell_handle,
+        )?;
+        faces.push(face);
+    }
+    Ok(SideWallResult { faces })
+}
+
 /// Find boundary edges of a removed face.
 ///
 /// Returns `(EdgeHandle, HalfEdgeHandle)` pairs where the half-edge belongs
@@ -260,6 +323,30 @@ fn build_one_side_wall(
         .add_loop(&[b_outer_rim, down_v1, b_inner_rim, up_v0], face)
         .map_err(ShellError::Core)?;
 
+    let removed_face = outer.loops.get(he.loop_).map(|l| l.face);
+    set_wall_surface(builder, outer, rim_he, removed_face, face, [p0, p1, p2, p3])?;
+
+    Ok(face)
+}
+
+/// Author the wall face's surface.
+///
+/// With a removed face the wall lies IN that face's original surface
+/// (see the block comment below). At a FREE rim (open-sheet thicken,
+/// PK-324) there is no removed face; the wall is the ruled strip
+/// between the two rim curves, authored as a verified plane — the
+/// planar-rim case (sheet bodies with straight rims). A non-planar
+/// free rim declines with the edge named: authoring general ruled
+/// NURBS walls is recorded Stage-3 work (PK-325), and serving a wrong
+/// plane there would be a lie.
+fn set_wall_surface(
+    builder: &mut BRepBuilder,
+    outer: &BRep,
+    rim_he: HalfEdgeHandle,
+    removed_face: Option<FaceHandle>,
+    face: FaceHandle,
+    [p0, p1, p2, p3]: [Point3; 4],
+) -> Result<(), ShellError> {
     // The wall lies IN the removed face's original surface: the outer
     // rim is that face's own boundary, and the inner rim was recomputed
     // as (kept offset × removed ORIGINAL surface) — flush by the rim
@@ -276,10 +363,8 @@ fn build_one_side_wall(
     // (outset rims), which mirrors the winding. The side is measured:
     // interior-left of the rim traversal under the flag-folded normal
     // vs the actual offset direction (outer rim → skin rim, in-plane).
-    let removed_face = outer.loops[he.loop_].face;
-    if let Some(sof) = outer
-        .faces
-        .get(removed_face)
+    if let Some(sof) = removed_face
+        .and_then(|fh| outer.faces.get(fh))
         .and_then(|f| f.surface.clone())
     {
         use popkern_core::geometry::surface::SurfaceEval;
@@ -303,17 +388,47 @@ fn build_one_side_wall(
             wall_sof.orientation = !wall_sof.orientation;
         }
         builder.set_face_surface(face, wall_sof);
-    } else if let Some(surface) = plane_from_quad(p0, p1, p2, p3) {
-        builder.set_face_surface(
-            face,
-            SurfaceOnFace {
-                geometry: surface,
-                orientation: true,
-            },
+        return Ok(());
+    }
+    let Some(surface) = plane_from_quad(p0, p1, p2, p3) else {
+        return Err(ShellError::Topology(format!(
+            "free-rim wall quad for half-edge {rim_he:?} is degenerate"
+        )));
+    };
+    // Verification: the fourth corner and both rim curve midpoints
+    // must lie ON the fitted plane, else the plane is a lie for this
+    // rim (curved rims need ruled walls — Stage 3, PK-325).
+    let SurfaceGeometry::Plane { origin, normal, .. } = &surface else {
+        unreachable!("plane_from_quad returns Plane");
+    };
+    let plane_dist = |q: &Point3| ((*q - *origin).dot(normal)).abs();
+    let lin = builder.brep().tolerance.linear();
+    let mut witnesses = vec![p3];
+    if let Some(edge) = outer.half_edges.get(rim_he).map(|he| he.edge)
+        && let Some(curve) = outer.edges.get(edge).and_then(|e| e.curve.as_ref())
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        witnesses.push(
+            curve
+                .geometry
+                .point_at(curve.t_start + (curve.t_end - curve.t_start) * 0.5),
         );
     }
+    if let Some(bad) = witnesses.iter().find(|q| plane_dist(q) > lin) {
+        return Err(ShellError::Topology(format!(
+            "free-rim wall for half-edge {rim_he:?} is non-planar (witness off-plane by              {:.3e}); ruled free-rim walls are Stage-3 work (PK-325)",
+            plane_dist(bad)
+        )));
+    }
+    builder.set_face_surface(
+        face,
+        SurfaceOnFace {
+            geometry: surface,
+            orientation: true,
+        },
+    );
 
-    Ok(face)
+    Ok(())
 }
 
 /// Set a line curve on an edge.
@@ -353,65 +468,5 @@ fn plane_from_quad(p0: Point3, p1: Point3, p2: Point3, _p3: Point3) -> Option<Su
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::BRep;
-
-    fn tol() -> Tolerance {
-        Tolerance::default()
-    }
-
-    #[test]
-    fn find_boundary_edges_one_removed_face() {
-        let brep = BRep::unit_cube(tol()).unwrap();
-        let first_face = brep.faces.keys().next().unwrap();
-        let removed_set: HashSet<FaceHandle> = [first_face].into_iter().collect();
-        let edges = find_boundary_edges(&brep, first_face, &removed_set).unwrap();
-        // A cube face has 4 edges, all boundary (adjacent faces are kept).
-        assert_eq!(edges.len(), 4);
-    }
-
-    #[test]
-    fn find_boundary_edges_two_adjacent_removed() {
-        let brep = BRep::unit_cube(tol()).unwrap();
-        let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
-        // Remove first two faces. Some edges between them won't be boundary.
-        let removed_set: HashSet<FaceHandle> =
-            [face_handles[0], face_handles[1]].into_iter().collect();
-
-        let edges_f0 = find_boundary_edges(&brep, face_handles[0], &removed_set).unwrap();
-        let edges_f1 = find_boundary_edges(&brep, face_handles[1], &removed_set).unwrap();
-
-        // Each face has 4 edges, but edges shared between the two removed faces
-        // are not boundary edges. Depending on adjacency, we expect < 4 for at
-        // least one of them (if adjacent) or 4 each (if non-adjacent).
-        let total = edges_f0.len() + edges_f1.len();
-        assert!((6..=8).contains(&total), "total boundary edges: {total}");
-    }
-
-    #[test]
-    fn plane_from_quad_basic() {
-        let p0 = Point3::new(0.0, 0.0, 0.0);
-        let p1 = Point3::new(1.0, 0.0, 0.0);
-        let p2 = Point3::new(1.0, 0.0, 1.0);
-        let p3 = Point3::new(0.0, 0.0, 1.0);
-        let surface = plane_from_quad(p0, p1, p2, p3).unwrap();
-        match surface {
-            SurfaceGeometry::Plane { normal, .. } => {
-                // Normal should be along y-axis.
-                assert!(normal.y.abs() > 0.9);
-            }
-            _ => panic!("expected Plane"),
-        }
-    }
-
-    #[test]
-    fn plane_from_quad_collinear_returns_none() {
-        let p0 = Point3::new(0.0, 0.0, 0.0);
-        let p1 = Point3::new(1.0, 0.0, 0.0);
-        let p2 = Point3::new(2.0, 0.0, 0.0);
-        let p3 = Point3::new(3.0, 0.0, 0.0);
-        assert!(plane_from_quad(p0, p1, p2, p3).is_none());
-    }
-}
+#[path = "side_walls_tests.rs"]
+mod tests;

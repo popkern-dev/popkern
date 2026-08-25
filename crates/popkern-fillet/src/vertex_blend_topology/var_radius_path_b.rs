@@ -383,10 +383,10 @@ pub(crate) fn apply_path_b_plan(brep: &mut BRep, plan: &PathBPlan) -> Result<(),
     let h4_edge = brep.half_edges[h4].edge;
     let chip_loop = brep.faces[chip_face].outer_loop;
 
-    brep.half_edges.remove(h3);
-    brep.half_edges.remove(h4);
-    brep.half_edges.remove(t3);
-    brep.half_edges.remove(t4);
+    brep.remove_half_edge_reanchored(h3);
+    brep.remove_half_edge_reanchored(h4);
+    brep.remove_half_edge_reanchored(t3);
+    brep.remove_half_edge_reanchored(t4);
     brep.edges.remove(h3_edge);
     brep.edges.remove(h4_edge);
     brep.vertices.remove(v_p5);

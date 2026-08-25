@@ -11,20 +11,20 @@ use crate::types::{ShellDirection, ShellOptions, ShellResult};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-/// Thicken a closed body into a hollow wall solid.
+/// Thicken a body into a solid wall body.
 ///
 /// Offsets the input by `thickness / 2` in both material directions and
-/// assembles the two skins into a two-shell hollow body.
-///
-/// Open sheets (free boundary half-edges) DECLINE with
-/// [`ShellError::OpenBoundary`]: closing a free rim needs the side-wall
-/// join machinery, which is not built yet (temporary containment — the
-/// historical doc claimed rim walls were generated; they never were).
+/// assembles the two skins: a CLOSED body becomes a two-shell hollow
+/// body; an OPEN sheet (free boundary half-edges) becomes a single
+/// closed solid, its free rims closed with wall faces adopting the rim
+/// topology (design §6 open-sheet row, PK-324). Non-planar free rims
+/// decline with the edge named — ruled free-rim walls are Stage-3
+/// work (PK-325).
 ///
 /// # Errors
 ///
-/// Returns [`ShellError`] if the BRep has no faces, has free boundary
-/// half-edges, the wall does not fit (`OffsetTooLarge`), or the
+/// Returns [`ShellError`] if the BRep has no faces, the wall does not
+/// fit (`OffsetTooLarge`), a free rim needs a non-planar wall, or the
 /// assembled result fails structural validation.
 pub fn thicken(
     brep: &BRep,
@@ -57,19 +57,25 @@ pub(crate) fn thicken_impl(
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
 
-    // Open-boundary precondition (temporary containment, recorded in
-    // docs/architecture/solid-offset-shell-design.md §6): a free rim
-    // needs side walls the join stage does not build yet. Without this
-    // gate an open sheet used to serve as TWO disconnected skins with an
-    // unclosed rim while this function's docs claimed otherwise.
-    let free_half_edges = brep
+    // Normalize the open-boundary representation: constructors register
+    // sheet rims as null-sentinel twins (`boundary_edges`), while the
+    // skin pipeline works in the loopless-twin form (both half-edges
+    // present; the free one carries a dangling loop). Materialize the
+    // missing twins on a working copy so one rim representation flows
+    // through classify → recompute → assembly → walls.
+    let normalized;
+    let brep = if brep
         .half_edges
         .iter()
-        .filter(|(_, he)| !brep.loops.contains_key(he.loop_))
-        .count();
-    if free_half_edges > 0 {
-        return Err(ShellError::OpenBoundary { free_half_edges });
-    }
+        .any(|(_, he)| !brep.half_edges.contains_key(he.twin))
+    {
+        let mut owned = brep.clone();
+        materialize_boundary_twins(&mut owned)?;
+        normalized = owned;
+        &normalized
+    } else {
+        brep
+    };
 
     let half = thickness / 2.0;
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
@@ -125,7 +131,8 @@ pub(crate) fn thicken_impl(
     // Build a combined skin map from outer to inner.
     let combined_skin_map = crate::skin_ladder::combine_skin_maps(&outer_map, &inner_map);
 
-    // Assemble: outer + inner, no removed faces (side walls at free edges).
+    // Assemble: outer + inner; free rims (open sheets) are closed with
+    // wall faces inside assembly.
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
     }
@@ -171,6 +178,68 @@ pub(crate) fn thicken_impl(
         brep: result,
         warnings,
     })
+}
+
+/// Materialize the missing twin half-edges of null-sentinel boundary
+/// rims (the constructor representation of an open sheet) into the
+/// loopless-twin form: each rim gains a real half-edge running against
+/// its survivor, with `next`/`prev` chained around the hole ring so
+/// vertex fan walks stay closed. The dangling `loop_` marks it free.
+fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
+    use popkern_core::topology::{HalfEdge, HalfEdgeHandle, VertexHandle};
+    use std::collections::HashMap;
+
+    let survivors: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, he)| !brep.half_edges.contains_key(he.twin))
+        .map(|(h, _)| h)
+        .collect();
+
+    // Create the twins first (next/prev wired below).
+    let mut new_by_origin: HashMap<VertexHandle, HalfEdgeHandle> = HashMap::new();
+    let mut created: Vec<HalfEdgeHandle> = Vec::new();
+    for s in &survivors {
+        let next = brep.half_edges[*s].next;
+        let dest = brep
+            .half_edges
+            .get(next)
+            .map(|n| n.origin)
+            .ok_or_else(|| ShellError::Topology("boundary survivor has no next".into()))?;
+        let edge = brep.half_edges[*s].edge;
+        let new = brep.half_edges.insert(HalfEdge {
+            origin: dest,
+            twin: *s,
+            next: HalfEdgeHandle::default(),
+            prev: HalfEdgeHandle::default(),
+            edge,
+            loop_: Default::default(),
+            pcurve: None,
+        });
+        brep.half_edges[*s].twin = new;
+        if new_by_origin.insert(dest, new).is_some() {
+            return Err(ShellError::Topology(format!(
+                "non-manifold sheet rim at vertex {dest:?} (two outgoing boundary half-edges)"
+            )));
+        }
+        created.push(new);
+    }
+
+    // Chain each hole ring: next(b) = the boundary half-edge starting
+    // where b ends (its survivor's origin).
+    for b in created {
+        let survivor = brep.half_edges[b].twin;
+        let end_vertex = brep.half_edges[survivor].origin;
+        let next_b = *new_by_origin.get(&end_vertex).ok_or_else(|| {
+            ShellError::Topology(format!(
+                "sheet rim ring broken at vertex {end_vertex:?} — no continuing boundary edge"
+            ))
+        })?;
+        brep.half_edges[b].next = next_b;
+        brep.half_edges[next_b].prev = b;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

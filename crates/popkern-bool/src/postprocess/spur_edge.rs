@@ -141,7 +141,7 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
             edge_handles.push(he.edge);
             vertex_handles.push(he.origin);
         }
-        brep.half_edges.remove(heh);
+        brep.remove_half_edge_reanchored(heh);
     }
     for eh in edge_handles {
         if !brep.half_edges.iter().any(|(_, he)| he.edge == eh) {
@@ -297,7 +297,7 @@ fn excise_stub(brep: &mut BRep, stub_h: popkern_core::topology::HalfEdgeHandle) 
         }
         face.inner_loops.retain(|&l| l != loop_h);
         brep.loops.remove(loop_h);
-        brep.half_edges.remove(stub_h);
+        brep.remove_half_edge_reanchored(stub_h);
     } else {
         // Stitch the loop chain past the stub.
         let mut prev_h = next_h;
@@ -322,7 +322,7 @@ fn excise_stub(brep: &mut BRep, stub_h: popkern_core::topology::HalfEdgeHandle) 
         {
             loop_data.half_edge = next_h;
         }
-        brep.half_edges.remove(stub_h);
+        brep.remove_half_edge_reanchored(stub_h);
     }
 
     // Retire the edge if no other half-edge references it, and the

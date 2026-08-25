@@ -259,7 +259,7 @@ impl BRep {
         let mut retired_edges = paired_retired;
         let mut exposed_edges = Vec::new();
         for &h in &plan.removed {
-            let data = self.half_edges.remove(h).ok_or_else(|| {
+            let data = self.remove_half_edge_reanchored(h).ok_or_else(|| {
                 CoreError::InvalidHandle(format!("interval rewrite: removed side {h:?} vanished"))
             })?;
             if plan.pair_removed_edges {

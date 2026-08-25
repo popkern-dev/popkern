@@ -211,8 +211,8 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
     if brep.loops[loop_h].half_edge == h || brep.loops[loop_h].half_edge == t {
         brep.loops[loop_h].half_edge = live_after_t;
     }
-    brep.half_edges.remove(h);
-    brep.half_edges.remove(t);
+    brep.remove_half_edge_reanchored(h);
+    brep.remove_half_edge_reanchored(t);
     brep.edges.remove(eh);
     // Vertex outgoing repair: any surviving half-edge that actually
     // ORIGINATES at the vertex (a positional guess from the splice

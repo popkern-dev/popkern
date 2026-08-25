@@ -107,7 +107,7 @@ impl BRep {
 
         self.repair_outgoing_handles_before_residual_retirement(&doomed_half_edges);
         for half_edge in &doomed_half_edges {
-            self.half_edges.remove(*half_edge);
+            self.remove_half_edge_reanchored(*half_edge);
             removed_half_edges.push(*half_edge);
         }
         for edge in &removed_edges {
@@ -391,7 +391,7 @@ impl BRep {
         }
         self.repair_outgoing_handles_before_residual_retirement(&removed_half_edges);
         for half_edge in &removed_half_edges {
-            self.half_edges.remove(*half_edge);
+            self.remove_half_edge_reanchored(*half_edge);
         }
         Ok(UnwiredConstructionResidualRetireResult {
             removed_edges,

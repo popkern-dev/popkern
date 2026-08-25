@@ -84,7 +84,7 @@ pub(crate) fn project_to_analytic_surface(surface: &SurfaceGeometry, p: &Point3)
 /// parametrically ambiguous points — the cone apex, points on an axis —
 /// still get a well-defined residual: a seam edge's end vertex IS the
 /// offset cone's apex, and verification must accept it.
-fn analytic_residual(surface: &SurfaceGeometry, p: &Point3) -> Option<f64> {
+pub(crate) fn analytic_residual(surface: &SurfaceGeometry, p: &Point3) -> Option<f64> {
     match surface {
         SurfaceGeometry::Plane { origin, normal, .. } => {
             let n = normal.normalized()?;
@@ -159,7 +159,7 @@ pub(crate) fn solve_vertex_on_surfaces(
     for _ in 0..200 {
         let mut moved: f64 = 0.0;
         for surf in surfaces {
-            let q = project_to_analytic_surface(surf, &pos)?;
+            let q = project_to_surface(surf, &pos)?;
             moved = moved.max(pos.distance_to(&q));
             pos = q;
         }
@@ -169,8 +169,41 @@ pub(crate) fn solve_vertex_on_surfaces(
     }
     let converged = surfaces
         .iter()
-        .all(|s| analytic_residual(s, &pos).is_some_and(|r| r <= accept));
+        .all(|s| surface_distance(s, &pos).is_some_and(|r| r <= accept));
     converged.then_some(pos)
+}
+
+/// Closest point on any surface: exact analytic arms first, iterative
+/// UV projection for the rest (fitted NURBS offsets).
+pub(crate) fn project_to_surface(surface: &SurfaceGeometry, p: &Point3) -> Option<Point3> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    if let Some(q) = project_to_analytic_surface(surface, p) {
+        return Some(q);
+    }
+    if matches!(
+        surface,
+        SurfaceGeometry::Plane { .. }
+            | SurfaceGeometry::Cylinder { .. }
+            | SurfaceGeometry::Cone { .. }
+            | SurfaceGeometry::Sphere { .. }
+            | SurfaceGeometry::Torus { .. }
+    ) {
+        // Analytic arm declined for a REASON (parametric ambiguity —
+        // axis point, cone apex); the iterative fallback would pick an
+        // arbitrary branch. Keep the decline.
+        return None;
+    }
+    let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)?;
+    Some(surface.point_at(u, v))
+}
+
+/// Distance to any surface: exact analytic residuals first, iterative
+/// projection distance for the rest.
+pub(crate) fn surface_distance(surface: &SurfaceGeometry, p: &Point3) -> Option<f64> {
+    if let Some(r) = analytic_residual(surface, p) {
+        return Some(r);
+    }
+    Some(project_to_surface(surface, p)?.distance_to(p))
 }
 
 /// Quadric axis data for the coaxial-circle arm.

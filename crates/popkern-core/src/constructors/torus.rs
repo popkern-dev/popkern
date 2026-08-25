@@ -269,9 +269,25 @@ fn close_torus_seam(
         brep.edges[surviving_edge].half_edge = ring1_he;
 
         // Remove the stale boundary half-edges and their now-redundant edge.
-        brep.half_edges.remove(he_m);
-        brep.half_edges.remove(he_c);
+        brep.remove_half_edge_reanchored(he_m);
+        brep.remove_half_edge_reanchored(he_c);
         brep.edges.remove(removed_edge);
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4b: the removed boundary half-edges may have been some merged
+    // vertex's `outgoing` pointer (measured: v0 kept a dangling handle,
+    // which silently exempted it from downstream per-vertex passes like
+    // the shell vertex recompute). Re-anchor every seam vertex to a
+    // SURVIVING half-edge that originates at it.
+    // -----------------------------------------------------------------------
+    for &vo in orig_verts {
+        let outgoing = brep.vertices[vo].outgoing;
+        if !brep.half_edges.contains_key(outgoing)
+            && let Some((h, _)) = brep.half_edges.iter().find(|(_, he)| he.origin == vo)
+        {
+            brep.vertices[vo].outgoing = h;
+        }
     }
 
     // -----------------------------------------------------------------------

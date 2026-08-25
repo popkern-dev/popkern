@@ -215,8 +215,8 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
             // Isolated 2-cycle: the pair IS its whole loop. Nothing
             // outside references the half-edges; drop them and leave
             // the (empty) loop for the caller's loop-level cleanup.
-            brep.half_edges.remove(he_handle);
-            brep.half_edges.remove(twin_handle);
+            brep.remove_half_edge_reanchored(he_handle);
+            brep.remove_half_edge_reanchored(twin_handle);
             brep.edges.remove(eh);
             continue;
         }
@@ -244,8 +244,8 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
                     brep.loops[lp].half_edge = after;
                 }
             }
-            brep.half_edges.remove(he_handle);
-            brep.half_edges.remove(twin_handle);
+            brep.remove_half_edge_reanchored(he_handle);
+            brep.remove_half_edge_reanchored(twin_handle);
             brep.edges.remove(eh);
             continue;
         }
@@ -268,8 +268,8 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
             brep.loops[twin.loop_].half_edge = twin.next;
         }
 
-        brep.half_edges.remove(he_handle);
-        brep.half_edges.remove(twin_handle);
+        brep.remove_half_edge_reanchored(he_handle);
+        brep.remove_half_edge_reanchored(twin_handle);
         brep.edges.remove(eh);
     }
     // Boundary (twin-less) edges collapsed to zero length by the
@@ -294,7 +294,7 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
                 brep.loops[he.loop_].half_edge = he.next;
             }
         }
-        brep.half_edges.remove(he_handle);
+        brep.remove_half_edge_reanchored(he_handle);
         brep.edges.remove(eh);
         brep.boundary_edges.remove(&eh);
     }
@@ -369,8 +369,8 @@ pub(crate) fn remove_slit_loop_edges(brep: &mut BRep) {
                 brep.vertices[vertex].outgoing = replacement;
             }
         }
-        brep.half_edges.remove(first);
-        brep.half_edges.remove(second);
+        brep.remove_half_edge_reanchored(first);
+        brep.remove_half_edge_reanchored(second);
         brep.edges.remove(eh);
         brep.boundary_edges.remove(&eh);
     }

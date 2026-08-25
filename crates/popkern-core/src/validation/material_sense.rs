@@ -66,9 +66,13 @@ impl BRep {
             let mut he = start;
             loop {
                 let twin = self.half_edges[he].twin;
-                let partner = self.loops[self.half_edges[twin].loop_].face;
-                if !visited.contains(&partner) {
-                    queue.push(partner);
+                // Open sheets have loopless twins at free rims — no
+                // neighbour across that edge.
+                if let Some(partner_loop) = self.loops.get(self.half_edges[twin].loop_) {
+                    let partner = partner_loop.face;
+                    if !visited.contains(&partner) {
+                        queue.push(partner);
+                    }
                 }
                 he = self.half_edges[he].next;
                 if he == start {
@@ -90,13 +94,29 @@ impl BRep {
             // width, which used to make the whole component unsampleable
             // (None) — the sign contract needs the loop's real extent.
             let positions = self.face_boundary_sample_points(face, 8);
-            let ((u0, u1), (v0, v1)) =
+            let ((u0, mut u1), (v0, mut v1)) =
                 crate::geometry::uv_projection::exact_bounded_parameter_range(
                     &positions,
                     &sof.geometry,
                 );
             if !(u1 - u0).is_finite() || !(v1 - v0).is_finite() {
                 continue;
+            }
+            // A seam-only boundary un-projects to one station on a
+            // periodic axis, collapsing that window to zero width —
+            // but a face whose boundary lies entirely on the seam IS
+            // the full wrap (the 1-face sphere's meridian, a closed
+            // torus chart), so the exact window is the full period.
+            let (period_u, period_v) = sof.geometry.parameter_periodicity();
+            if let Some(p) = period_u
+                && (u1 - u0).abs() < f64::EPSILON * p.max(1.0)
+            {
+                u1 = u0 + p;
+            }
+            if let Some(p) = period_v
+                && (v1 - v0).abs() < f64::EPSILON * p.max(1.0)
+            {
+                v1 = v0 + p;
             }
             let du = (u1 - u0) / GRID as f64;
             let dv = (v1 - v0) / GRID as f64;

@@ -165,28 +165,31 @@ fn shell_midplane_past_feature_size_declines() {
 }
 
 #[test]
-fn thicken_open_sheet_declines_open_boundary() {
-    // Manufacture an open sheet: delete one face and its loop from a
-    // cube, leaving its half-edges with dangling loop references — the
-    // exact free-rim shape thicken's precondition detects. The old
-    // pipeline served this as two disconnected skins with an unclosed
-    // rim while claiming to build side walls.
+fn thicken_open_sheet_serves_closed_solid_with_rim_walls() {
+    // An open sheet (cube minus one face) thickens into a CLOSED solid:
+    // both skins plus one wall face per free rim edge (PK-324; the old
+    // pipeline first served two disconnected skins while claiming to
+    // build side walls, then declined with OpenBoundary as containment).
     let mut brep = BRep::unit_cube(tol()).unwrap();
     let fh = brep.faces.keys().next().unwrap();
     let outer_loop = brep.faces[fh].outer_loop;
     brep.loops.remove(outer_loop);
     brep.faces.remove(fh);
 
-    let result = popkern_shell::thicken::thicken(&brep, 0.05, &ShellOptions::default(), tol());
-    match result {
-        Err(ShellError::OpenBoundary { free_half_edges }) => {
-            assert_eq!(
-                free_half_edges, 4,
-                "one deleted cube face frees 4 half-edges"
-            );
-        }
-        other => panic!("expected OpenBoundary decline, got {other:?}"),
-    }
+    let result = popkern_shell::thicken::thicken(&brep, 0.05, &ShellOptions::default(), tol())
+        .expect("open-sheet thicken serves");
+    // 5 outer + 5 inner + 4 rim walls.
+    assert_eq!(result.brep.faces.len(), 14);
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "served invalid: {errors:?}");
+    // Closed: no loopless half-edges survive.
+    let free = result
+        .brep
+        .half_edges
+        .iter()
+        .filter(|(_, he)| !result.brep.loops.contains_key(he.loop_))
+        .count();
+    assert_eq!(free, 0, "free half-edges remain after rim closing");
 }
 
 #[test]

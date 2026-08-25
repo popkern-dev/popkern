@@ -84,12 +84,26 @@ impl BRep {
     }
 
     /// Check 4: For every vertex with a valid outgoing half-edge, that half-edge's
-    /// origin must be the vertex.
+    /// origin must be the vertex. A vertex whose stored outgoing handle is
+    /// non-null but MISSING from the arena is also inconsistent: it
+    /// points at a REMOVED half-edge, and the dangling anchor silently
+    /// exempts the vertex from every outgoing-fan walk (measured on
+    /// `BRep::torus`: the seam stitch left one vertex dangling and the
+    /// shell vertex recompute skipped it, serving a stale position; all
+    /// removal sites now route through `remove_half_edge_reanchored`,
+    /// enforced structurally). A NULL (never-set) anchor stays exempt —
+    /// numerous construction paths wire half-edge origins directly and
+    /// anchor lazily; arming that class is its own audit (filed).
     pub fn validate_vertex_consistency(&self) -> Result<(), ValidationError> {
         for (v_handle, v_data) in &self.vertices {
             let outgoing = v_data.outgoing;
-            // Skip vertices without edges (e.g., fresh from mvfs).
             if !self.half_edges.contains_key(outgoing) {
+                if outgoing != crate::topology::HalfEdgeHandle::default() {
+                    return Err(ValidationError::InconsistentVertex {
+                        vertex: v_handle,
+                        half_edge: outgoing,
+                    });
+                }
                 continue;
             }
             let he_data = &self.half_edges[outgoing];

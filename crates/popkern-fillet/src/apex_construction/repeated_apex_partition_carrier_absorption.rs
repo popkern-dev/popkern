@@ -250,7 +250,7 @@ fn weld_across_bigon(brep: &mut BRep, production_side: HalfEdgeHandle) -> Result
     // Retire the fragment and its now-orphaned records.
     let removed = [operands.near_side, operands.far_side];
     for stale in removed {
-        brep.half_edges.remove(stale);
+        brep.remove_half_edge_reanchored(stale);
     }
     repair_vertex_outgoing_pointers(brep, production_side, operands.far_twin);
     if far_edge != production_edge {

@@ -205,7 +205,7 @@ pub(super) fn mask_dangling_halves(
                 edge.curve = None;
             }
         }
-        brep.half_edges.remove(*heh);
+        brep.remove_half_edge_reanchored(*heh);
     }
 
     // Remove edges where BOTH half-edges were removed.  If either

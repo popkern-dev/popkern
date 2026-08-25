@@ -342,7 +342,7 @@ pub(crate) fn remove_face(brep: &mut BRep, face: FaceHandle) {
     let mut loops = vec![face_data.outer_loop];
     loops.extend(face_data.inner_loops.iter().copied());
     for side in sides {
-        let Some(side_data) = brep.half_edges.remove(side) else {
+        let Some(side_data) = brep.remove_half_edge_reanchored(side) else {
             continue;
         };
         if brep.half_edges.contains_key(side_data.twin) {

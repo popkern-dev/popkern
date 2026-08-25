@@ -118,7 +118,7 @@ fn retire_mirror_ghost_complex_inner(brep: &mut BRep, grow: bool) -> usize {
         .map(|(handle, _)| handle)
         .collect();
     for side in displaced {
-        let Some(data) = brep.half_edges.remove(side) else {
+        let Some(data) = brep.remove_half_edge_reanchored(side) else {
             continue;
         };
         if brep.half_edges.contains_key(data.twin) {

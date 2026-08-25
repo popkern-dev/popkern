@@ -319,8 +319,8 @@ pub fn unfillet_closed_annulus(brep: &BRep, fillet_face: FaceHandle) -> Result<B
     // 9. Delete the fillet face's half-edges (outer_he, inner_he),
     //    the obsolete plane_edge, the obsolete v_delete, and the
     //    fillet face + its loops.
-    out.half_edges.remove(outer_he_h);
-    out.half_edges.remove(inner_he_h);
+    out.remove_half_edge_reanchored(outer_he_h);
+    out.remove_half_edge_reanchored(inner_he_h);
     out.edges.remove(plane_edge);
     out.vertices.remove(v_delete);
     out.loops.remove(outer_loop_h);

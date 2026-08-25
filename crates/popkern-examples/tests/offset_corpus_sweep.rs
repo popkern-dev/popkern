@@ -112,10 +112,29 @@ fn concave_edges(name: &str) -> Vec<(Point3, Point3)> {
 /// decline with a structured error. Widening stages flip entries to
 /// `true` alongside their oracle evidence (PK-324 rows).
 fn expected_to_serve(name: &str) -> bool {
-    // bracket_bore_countersink declines today: its bore×countersink
-    // junction circle is a coaxial cylinder×cone pair, outside the
-    // exact recompute arms (plane×cylinder, plane×cone) — PK-324.
-    matches!(name, "l_bracket" | "thin_rib" | "high_valence_pyramid")
+    // PK-324 flips: filleted_cube (parallel-map arm serves its 48
+    // G1-tangential edges), bracket_bore_countersink (coaxial-profile
+    // arm serves the bore×countersink cylinder×cone junction circle),
+    // torus_lens (parallel-map arm serves its same-torus patch-border
+    // circles). wavy_plate still declines — measured: the INWARD
+    // ladder recomputes fully (general SSI arm), but the OUTWARD
+    // offset of its convex top-boundary edges separates the surfaces
+    // and the fitted NURBS offset is domain-bounded, so no
+    // topology-preserving intersection exists; closing that gap is
+    // the Stage-3 join/extension machinery (PK-325's acceptance body).
+    // sphere_capped_rod: the parallel-map arm gained endpoint re-trim
+    // (its sphere-meridian seam pieces end on the transversal junction
+    // circle, whose vertex slides along the meridian under offset).
+    matches!(
+        name,
+        "l_bracket"
+            | "thin_rib"
+            | "high_valence_pyramid"
+            | "filleted_cube"
+            | "bracket_bore_countersink"
+            | "torus_lens"
+            | "sphere_capped_rod"
+    )
 }
 
 #[test]
@@ -123,7 +142,36 @@ fn corpus_campaign_gate_thicken_serves_clean_or_declines_structured() {
     let t = 0.02; // below the thin rib's collapse threshold (0.03)
     for f in corpus(tol()).expect("corpus builds") {
         if !f.watertight {
-            continue; // thicken rims on open sheets is a later stage
+            // Open sheets thicken through the free-rim wall path
+            // (PK-324): serve a CLOSED solid, validate_all-clean, with
+            // the exact slab volume. The SDF Wall oracle needs a
+            // watertight SOURCE for its containment side, so the open
+            // sheet is gated on volume + closure instead.
+            let result = thicken(&f.brep, t, &ShellOptions::default(), tol())
+                .unwrap_or_else(|e| panic!("{}: open-sheet thicken declined: {e}", f.name));
+            let errors = result.brep.validate_all();
+            assert!(errors.is_empty(), "{}: served invalid: {errors:?}", f.name);
+            let free = result
+                .brep
+                .half_edges
+                .iter()
+                .filter(|(_, he)| !result.brep.loops.contains_key(he.loop_))
+                .count();
+            assert_eq!(free, 0, "{}: free rims remain", f.name);
+            // Closed-form: outer box (1+t)²(1+t/2) minus inner void
+            // (1−t)²(1−t/2) — the open [0,1]³ box's five slabs with
+            // sharp rim walls at the opening plane z = 1.
+            let expected =
+                (1.0 + t) * (1.0 + t) * (1.0 + t / 2.0) - (1.0 - t) * (1.0 - t) * (1.0 - t / 2.0);
+            let measured = mesh_volume(&result.brep);
+            let rel = (measured - expected).abs() / expected;
+            assert!(
+                rel < 0.02,
+                "{}: wall volume {measured:.6} vs analytic {expected:.6} (rel {rel:.4})",
+                f.name
+            );
+            println!("[gate] {} SERVES (open sheet): volume rel {rel:.5}", f.name);
+            continue;
         }
         match thicken(&f.brep, t, &ShellOptions::default(), tol()) {
             Ok(result) => {

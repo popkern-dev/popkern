@@ -132,9 +132,10 @@ impl BRep {
         // Add the inner loop to the face's inner_loops.
         self.faces[face].inner_loops.push(inner_loop);
 
-        // Remove the edge and both half-edges.
-        self.half_edges.remove(half_edge);
-        self.half_edges.remove(he_twin);
+        // Remove the edge and both half-edges (re-anchoring any vertex
+        // whose outgoing pointed at them).
+        self.remove_half_edge_reanchored(half_edge);
+        self.remove_half_edge_reanchored(he_twin);
         self.edges.remove(edge_handle);
 
         Ok(KemrApplied {

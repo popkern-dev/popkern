@@ -471,7 +471,7 @@ fn trusted_sides(
 /// Remove one half-edge; a surviving twin becomes a dead boundary
 /// side, a fully-unreferenced edge record is dropped.
 fn remove_side(brep: &mut BRep, side: HalfEdgeHandle) {
-    let Some(data) = brep.half_edges.remove(side) else {
+    let Some(data) = brep.remove_half_edge_reanchored(side) else {
         return;
     };
     if brep.half_edges.contains_key(data.twin) {

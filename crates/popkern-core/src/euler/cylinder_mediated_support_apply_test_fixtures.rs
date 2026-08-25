@@ -220,7 +220,7 @@ fn boundary_normalized_test_brep(mut brep: BRep) -> BRep {
         brep.half_edges[boundary_half_edge].twin = HalfEdgeHandle::default();
         brep.edges[edge].half_edge = boundary_half_edge;
         brep.boundary_edges.insert(edge);
-        brep.half_edges.remove(residual_half_edge);
+        brep.remove_half_edge_reanchored(residual_half_edge);
         removed_half_edges.push(residual_half_edge);
     }
     repair_test_vertex_outgoing_handles(&mut brep, &removed_half_edges);

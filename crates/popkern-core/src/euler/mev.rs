@@ -327,9 +327,11 @@ impl BRep {
             }
         }
 
-        // Remove entities.
-        self.half_edges.remove(half_edge);
-        self.half_edges.remove(he_twin_handle);
+        // Remove entities. The surviving source vertex's outgoing may
+        // have pointed at the removed spur half-edge — re-anchor it to
+        // a live half-edge (the unspliced `twin_next` qualifies).
+        self.remove_half_edge_reanchored(half_edge);
+        self.remove_half_edge_reanchored(he_twin_handle);
         self.edges.remove(edge_handle);
         self.vertices.remove(dest_vertex);
 

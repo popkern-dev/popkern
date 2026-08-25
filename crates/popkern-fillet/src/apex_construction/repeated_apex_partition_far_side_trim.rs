@@ -66,18 +66,18 @@ pub(super) fn materialized_far_side_trim_sides(
                     }]);
                 }
                 Err(_) => {
-                    brep.half_edges.remove(half_edge);
+                    brep.remove_half_edge_reanchored(half_edge);
                     if brep.half_edges.contains_key(twin) {
-                        brep.half_edges.remove(twin);
+                        brep.remove_half_edge_reanchored(twin);
                     }
                     brep.edges.remove(edge);
                 }
             }
         }
         Err(_) => {
-            brep.half_edges.remove(half_edge);
+            brep.remove_half_edge_reanchored(half_edge);
             if brep.half_edges.contains_key(twin) {
-                brep.half_edges.remove(twin);
+                brep.remove_half_edge_reanchored(twin);
             }
             brep.edges.remove(edge);
         }

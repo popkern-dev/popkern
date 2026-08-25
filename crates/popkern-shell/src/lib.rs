@@ -8,6 +8,7 @@ pub mod assemble;
 pub mod classify;
 pub mod collapse_check;
 mod curved_recompute;
+mod curved_recompute_similarity;
 pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;

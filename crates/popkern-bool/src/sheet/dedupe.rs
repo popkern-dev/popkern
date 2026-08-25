@@ -55,7 +55,7 @@ pub(super) fn drop_faces_and_prune(brep: &mut BRep, faces_to_remove: &HashSet<Fa
         })
         .collect();
     for heh in orphan_he {
-        brep.half_edges.remove(heh);
+        brep.remove_half_edge_reanchored(heh);
     }
 
     // Step 3: prune orphaned edges.

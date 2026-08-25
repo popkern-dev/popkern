@@ -174,7 +174,7 @@ impl BRep {
 
         // Remove the doomed half-edges.
         for &heh in &doomed_hes {
-            brep.half_edges.remove(heh);
+            brep.remove_half_edge_reanchored(heh);
         }
 
         // Remove the loop and face.

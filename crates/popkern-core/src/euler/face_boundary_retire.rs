@@ -66,7 +66,7 @@ impl BRep {
             }
             self.repair_outgoing_handles_before_retirement(&doomed_half_edges);
             for half_edge in doomed_half_edges {
-                self.half_edges.remove(half_edge);
+                self.remove_half_edge_reanchored(half_edge);
             }
             self.repair_shell_face_after_retirement(face)?;
             self.loops.remove(retiring_loop);

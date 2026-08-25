@@ -38,7 +38,7 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
         // property of the edge, not of its twin wiring — clearing it
         // here silently degraded seam-style survivors (a boss/plate
         // intersection circle lost its geometry entirely).
-        brep.half_edges.remove(*h);
+        brep.remove_half_edge_reanchored(*h);
     }
 
     // Remove fully-orphaned edges
