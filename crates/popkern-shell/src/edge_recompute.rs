@@ -27,12 +27,41 @@ pub fn recompute_edges(
     outer: &BRep,
     tolerance: &Tolerance,
 ) -> Result<(), ShellError> {
+    recompute_edges_with_skips(
+        inner,
+        offset_surfaces,
+        skin_map,
+        outer,
+        tolerance,
+        &std::collections::BTreeSet::new(),
+    )
+    .map(|_| ())
+}
+
+/// [`recompute_edges`] with gap-join integration (PK-325): edges in
+/// `skip_edges` (arc-join gap edges — their clone curves anchor the
+/// canal construction) are left untouched, and the returned list names
+/// every interior edge whose whole recompute ladder declined silently
+/// (the clone curve stayed stale) so the caller can convert gap-edge
+/// declines into the typed `JoinFailed`.
+pub fn recompute_edges_with_skips(
+    inner: &mut BRep,
+    offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
+    skin_map: &SkinMap,
+    outer: &BRep,
+    tolerance: &Tolerance,
+    skip_edges: &std::collections::BTreeSet<EdgeHandle>,
+) -> Result<Vec<EdgeHandle>, ShellError> {
     let reverse_face = skin_map.reverse_face_map();
     let reverse_edge = skin_map.reverse_edge_map();
 
+    let mut undone: Vec<EdgeHandle> = Vec::new();
     let inner_edge_handles: Vec<EdgeHandle> = inner.edges.keys().collect();
 
     for inner_eh in inner_edge_handles {
+        if skip_edges.contains(&inner_eh) {
+            continue;
+        }
         let edge = &inner.edges[inner_eh];
         let he_handle = edge.half_edge;
 
@@ -133,10 +162,12 @@ pub fn recompute_edges(
         if let Some(curve_on_edge) = compute_edge_curve(inner, inner_eh, &surf1, &surf2, tolerance)?
         {
             inner.edges[inner_eh].curve = Some(curve_on_edge);
+        } else {
+            undone.push(inner_eh);
         }
     }
 
-    Ok(())
+    Ok(undone)
 }
 
 /// The face on the other side of `outer_eh` from `known_face`, if any.

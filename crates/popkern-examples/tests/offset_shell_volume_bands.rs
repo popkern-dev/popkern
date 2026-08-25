@@ -90,9 +90,14 @@ fn shelled_cone_volume_in_analytic_band() {
 
 #[test]
 fn offset_cone_volume_in_analytic_band() {
-    // offset_solid(cone, +0.15): every face moves out 0.15 with sharp
-    // (intersection-join) edges — the grown body is the cone whose apex
-    // moved up d/sin(half_angle) and whose base plane moved down d.
+    // offset_solid(cone, +0.15) under the arc default (PK-325): the
+    // base rim serves a quarter-round torus window; the apex stays the
+    // sharp translated cone point (recorded ConeApexSharp deviation).
+    // Expected volume = the sharp grown cone minus the rim ring wedge
+    // deficit: per unit rim length the sharp corner holds
+    // d²·tan(β/2) of cross-section against the arc's d²·β/2 (β = the
+    // exterior angle π/2 + half_angle), swept around the rim (Pappus,
+    // centroid ≈ r to O(d)).
     let (r, h, d) = (1.0_f64, 2.0_f64, 0.15_f64);
     let brep = BRep::cone(r, h, tol()).unwrap();
     let result = offset_solid(&brep, d, &ShellOptions::default(), tol()).unwrap();
@@ -105,7 +110,10 @@ fn offset_cone_volume_in_analytic_band() {
     let half_angle = (r / h).atan();
     let h_grown = h + d / half_angle.sin() + d;
     let r_grown = h_grown * half_angle.tan();
-    let expected = PI / 3.0 * r_grown * r_grown * h_grown;
+    let sharp = PI / 3.0 * r_grown * r_grown * h_grown;
+    let beta = PI / 2.0 + half_angle;
+    let rim_deficit = 2.0 * PI * r * d * d * ((beta / 2.0).tan() - beta / 2.0);
+    let expected = sharp - rim_deficit;
     assert_volume_band(mesh_volume(&result.brep), expected, 0.02, "offset cone");
 
     // The apex vertex must sit exactly at the translated apex.
@@ -161,11 +169,32 @@ fn volume_gauge_matches_primitives_and_hollow_bodies() {
     assert_volume_band(mesh_volume(&cone), PI * 2.0 / 3.0, 0.015, "solid cone");
     assert_volume_band(mesh_volume(&cube), 1.0, 1e-9, "unit cube");
     let tc = thicken(&cube, 0.2, &ShellOptions::default(), tol()).unwrap();
+    // Rounded-box wall (PK-325 arc default): outer = Steiner form of
+    // the unit cube at d = 0.1, inner = sharp erosion. The band covers
+    // tessellation chord error on the strips and caps (the sharp form
+    // held 1e-9; the curved outer skin is chord-limited).
+    let d: f64 = 0.1;
+    let outer = 1.0 + 6.0 * d + 3.0 * PI * d * d + 4.0 / 3.0 * PI * d.powi(3);
+    let inner = 0.8_f64.powi(3);
     assert_volume_band(
         mesh_volume(&tc.brep),
+        outer - inner,
+        0.01,
+        "thickened cube wall (rounded outer)",
+    );
+    // The sharp join stays exactly measurable under the explicit style.
+    let sharp = thicken(
+        &cube,
+        0.2,
+        &ShellOptions::default().with_join_style(popkern_shell::JoinStyle::Intersection),
+        tol(),
+    )
+    .unwrap();
+    assert_volume_band(
+        mesh_volume(&sharp.brep),
         1.2_f64.powi(3) - 0.8_f64.powi(3),
         1e-9,
-        "thickened cube wall",
+        "thickened cube wall (sharp)",
     );
 }
 

@@ -22,6 +22,7 @@ pub(crate) const MIDPLANE_STAGE_COUNT: usize = 2 * SKIN_LADDER_STAGE_COUNT + 2;
 
 /// Build a midplane shell: outer skin at +thickness/2 (material-outward),
 /// inner skin at −thickness/2, side walls at removed-face openings.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn midplane_shell_impl(
     brep: &BRep,
     thickness: f64,
@@ -30,6 +31,7 @@ pub(crate) fn midplane_shell_impl(
     options: &ShellOptions,
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+    join_sink: Option<&mut Vec<crate::JoinFaceData>>,
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
     let half = thickness / 2.0;
@@ -42,7 +44,7 @@ pub(crate) fn midplane_shell_impl(
     // Outer skin: material-outward by half. Removed faces stay PRESENT
     // (unclassified) so assembly can walk their loops for rim discovery;
     // the copy filter drops them and the walls adopt their rims.
-    let (outer_skin, outer_map, offset_out) = offset_skin_ladder(
+    let (outer_skin, outer_map, offset_out, joins_out) = offset_skin_ladder(
         brep,
         half,
         &half_faces,
@@ -50,6 +52,7 @@ pub(crate) fn midplane_shell_impl(
         removed_faces,
         false,
         options.allow_partial,
+        options.join_style,
         &stage_tol,
         2.0,
         [
@@ -72,7 +75,7 @@ pub(crate) fn midplane_shell_impl(
 
     // Inner skin: material-inward by half, removed faces deleted (the
     // classic void-skin shape whose free rim half-edges the walls adopt).
-    let (mut inner_skin, inner_map, offset_in) = offset_skin_ladder(
+    let (mut inner_skin, inner_map, offset_in, joins_in) = offset_skin_ladder(
         brep,
         half,
         &half_faces,
@@ -80,6 +83,7 @@ pub(crate) fn midplane_shell_impl(
         &all_removed,
         true,
         options.allow_partial,
+        options.join_style,
         &stage_tol,
         2.0,
         [
@@ -92,6 +96,21 @@ pub(crate) fn midplane_shell_impl(
         tracker,
     )?;
     all_removed.extend_from_slice(&offset_in.auto_removed);
+
+    // Join-face naming data (PK-325 row 474): captured on the skins
+    // before assembly re-homes every handle.
+    if let Some(sink) = join_sink {
+        sink.extend(crate::collect_join_face_data(
+            &outer_skin,
+            brep,
+            &joins_out.records,
+        ));
+        sink.extend(crate::collect_join_face_data(
+            &inner_skin,
+            brep,
+            &joins_in.records,
+        ));
+    }
 
     // Mirror the inner skin honestly (winding + flag together, PK-244).
     inner_skin.reverse_body_orientation();
@@ -125,6 +144,13 @@ pub(crate) fn midplane_shell_impl(
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("shell.midplane.pcurve_recompute", t0, result.faces.len());
 
+    // Orientation flags are DERIVED state (a function of finalized
+    // loop winding + surface geometry): reconcile them at the serving
+    // boundary. Join faces on charts whose handedness opposes their
+    // construction-time material measurement (the cone-rim torus
+    // strips) get their honest value here (PK-325).
+    result.reconcile_orientation_flags();
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -135,6 +161,8 @@ pub(crate) fn midplane_shell_impl(
 
     let mut warnings = offset_out.warnings;
     warnings.extend(offset_in.warnings);
+    warnings.extend(joins_out.warnings);
+    warnings.extend(joins_in.warnings);
     for face in offset_out
         .auto_removed
         .iter()

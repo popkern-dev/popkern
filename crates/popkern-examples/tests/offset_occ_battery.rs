@@ -173,6 +173,26 @@ fn corpus_and_served_shells_pass_the_occ_oracle() {
             .expect("thicken open box")
             .brep,
     ));
+    // PK-325 arc joins: the rounded box (strips + sphere octants) and
+    // the wavy-plate acceptance body under the Minkowski default.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    bodies.push((
+        "rounded_cube_offset".into(),
+        offset_solid(&cube, 0.15, &ShellOptions::default(), tol())
+            .expect("rounded cube offset")
+            .brep,
+    ));
+    if let Some(wavy) = popkern_examples::offset_corpus::corpus(tol())
+        .ok()
+        .and_then(|fs| fs.into_iter().find(|f| f.name == "wavy_plate"))
+    {
+        bodies.push((
+            "thickened_wavy_plate_arc".into(),
+            thicken(&wavy.brep, 0.04, &ShellOptions::default(), tol())
+                .expect("thicken wavy plate")
+                .brep,
+        ));
+    }
 
     let mut skipped = false;
     let mut failures = Vec::new();

@@ -66,8 +66,10 @@ fn thickened_cube_wall_agrees_everywhere() {
     let t = 0.1;
     let result = thicken(&cube, t, &ShellOptions::default(), tol()).expect("thicken cube");
     assert!(result.brep.validate_all().is_empty());
-    // Thicken is symmetric (±t/2 about the original skin). Convex
-    // body: both skins are sharp — no exclusions, corners included.
+    // Thicken is symmetric (±t/2 about the original skin). The outer
+    // skin rounds under the arc default (PK-325), so the Minkowski
+    // wall predicate holds by construction — no exclusions, corners
+    // included.
     let report = classify_offset_agreement(
         &index_of(&cube),
         &index_of(&result.brep),
@@ -80,6 +82,29 @@ fn thickened_cube_wall_agrees_everywhere() {
     );
     assert_eq!(report.excluded, 0);
     assert_clean(&report, "thickened cube");
+}
+
+/// PK-325 row 472, the strong form: at d = 0.15 the corner wedge of a
+/// SHARP join reaches √3·d ≈ 0.26 — far outside the oracle's skip band
+/// — so this gate genuinely distinguishes the rounded Minkowski result
+/// from the extended-plane join (the old sharp default passed the small
+/// corpus distances only by band arithmetic). Zero exclusions.
+#[test]
+fn rounded_cube_offset_is_minkowski_exact_at_large_distance() {
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let d = 0.15;
+    let result = popkern_shell::offset::offset_solid(&cube, d, &ShellOptions::default(), tol())
+        .expect("arc offset cube");
+    assert!(result.brep.validate_all().is_empty());
+    let report = classify_offset_agreement(
+        &index_of(&cube),
+        &index_of(&result.brep),
+        OffsetSemantics::Grow { distance: d },
+        &OffsetOracleOptions::default(),
+        |_| false,
+    );
+    assert_eq!(report.excluded, 0);
+    assert_clean(&report, "rounded cube offset (Grow 0.15)");
 }
 
 #[test]

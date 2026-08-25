@@ -4,6 +4,9 @@
 //! Provides the [`shell`] and [`shell_variable`] functions for creating
 //! thin-walled solids, plus [`offset_solid`] and [`thicken`] operations.
 
+mod arc_join;
+mod arc_join_corner;
+mod arc_join_geometry;
 pub mod assemble;
 pub mod classify;
 pub mod collapse_check;
@@ -13,8 +16,10 @@ pub mod edge_recompute;
 pub mod error;
 pub mod inner_skin;
 pub mod interactive;
+mod join_classification;
 mod midplane;
 pub mod offset;
+mod shell_naming;
 pub mod side_walls;
 mod skin_ladder;
 pub mod skin_map;
@@ -30,21 +35,13 @@ pub use interactive::{
 };
 pub use types::*;
 
-use popkern_core::geometry::{Point3, Vec3};
+pub(crate) use shell_naming::{
+    JoinFaceData, assign_shell_names, collect_join_face_data, collect_shell_face_data,
+};
+
 use popkern_core::history::TrackingContext;
-use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-
-/// Collected face data for ancestry matching during shell naming.
-pub(crate) struct InputFaceData {
-    /// The entity name (or placeholder).
-    name: EntityName,
-    /// Boundary centroid.
-    centroid: Point3,
-    /// Surface normal at the centroid.
-    normal: Vec3,
-}
 
 /// Create a thin-walled solid by offsetting faces of a BRep body.
 ///
@@ -73,6 +70,7 @@ pub fn shell(
     } else {
         Vec::new()
     };
+    let mut join_faces: Vec<JoinFaceData> = Vec::new();
     let mut result = shell_impl(
         brep,
         thickness,
@@ -82,9 +80,16 @@ pub fn shell(
         options,
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
+        tracking.is_some().then_some(&mut join_faces),
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
+        assign_shell_names(
+            &mut result.brep,
+            ctx,
+            &input_faces,
+            &join_faces,
+            &brep.tolerance,
+        );
     }
     Ok(result)
 }
@@ -114,6 +119,7 @@ pub fn shell_variable(
     } else {
         Vec::new()
     };
+    let mut join_faces: Vec<JoinFaceData> = Vec::new();
     let mut result = shell_impl(
         brep,
         default_thickness,
@@ -123,9 +129,16 @@ pub fn shell_variable(
         options,
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
+        tracking.is_some().then_some(&mut join_faces),
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
+        assign_shell_names(
+            &mut result.brep,
+            ctx,
+            &input_faces,
+            &join_faces,
+            &brep.tolerance,
+        );
     }
     Ok(result)
 }
@@ -149,6 +162,7 @@ pub(crate) fn shell_impl(
     options: &ShellOptions,
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+    join_sink: Option<&mut Vec<JoinFaceData>>,
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
     macro_rules! stage_gate {
@@ -169,6 +183,7 @@ pub(crate) fn shell_impl(
             options,
             tolerance,
             tracker,
+            join_sink,
         );
     }
 
@@ -201,26 +216,38 @@ pub(crate) fn shell_impl(
     let (mut inner, skin_map) = inner_skin::build_inner_skin(brep, &all_removed)?;
     tracker.finish_stage("shell.inner_skin", t0, inner.faces.len());
 
-    // Stage 4: recompute inner skin geometry.
+    // Stage 4: recompute inner skin geometry. Join classification
+    // (PK-325) runs first so gap corners take retained-run positions
+    // and gap edges keep their clone curves for canal anchoring.
     stage_gate!();
     let t0 = Instant::now();
-    vertex_recompute::recompute_vertices(
+    let join_plan = join_classification::classify_joins(
+        &inner,
+        &skin_map,
+        &offset_result.surfaces,
+        &stage_tol,
+        options.join_style,
+    )?;
+    vertex_recompute::recompute_vertices_with_gap_corners(
         &mut inner,
         &offset_result.surfaces,
         &skin_map,
         brep,
         &stage_tol,
+        &join_plan.gap_corners,
     )?;
     tracker.finish_stage("shell.vertex_recompute", t0, inner.vertices.len());
     stage_gate!();
     let t0 = Instant::now();
-    edge_recompute::recompute_edges(
+    let undone = edge_recompute::recompute_edges_with_skips(
         &mut inner,
         &offset_result.surfaces,
         &skin_map,
         brep,
         &stage_tol,
+        &join_plan.arc_skip_edges(),
     )?;
+    join_classification::intersection_gap_postcheck(&join_plan, &undone)?;
     // Collapse gate (part of the recompute stage, O(E) and sub-stage
     // cheap): a thickness past the local feature size inverts skin
     // edges; the fold would serve structurally-clean wrong geometry.
@@ -229,6 +256,19 @@ pub(crate) fn shell_impl(
     stage_gate!();
     let t0 = Instant::now();
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
+    // Join construction (PK-325): rolling-ball strips + sphere corner
+    // windows on the recomputed skin, via Euler operators only.
+    let join_records = arc_join::construct_arc_joins(
+        &mut inner,
+        &join_plan,
+        &offset_result.surfaces,
+        &skin_map,
+        brep,
+        &stage_tol,
+    )?;
+    if let Some(sink) = join_sink {
+        sink.extend(collect_join_face_data(&inner, brep, &join_records));
+    }
     tracker.finish_stage("shell.apply_offset_geometry", t0, inner.faces.len());
 
     // Mirror the inner skin's material side honestly: winding and
@@ -251,6 +291,13 @@ pub(crate) fn shell_impl(
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("shell.pcurve_recompute", t0, result.faces.len());
 
+    // Orientation flags are DERIVED state (a function of finalized
+    // loop winding + surface geometry): reconcile them at the serving
+    // boundary. Join faces on charts whose handedness opposes their
+    // construction-time material measurement (the cone-rim torus
+    // strips) get their honest value here (PK-325).
+    result.reconcile_orientation_flags();
+
     // Serve gate: never hand back a body a validator would reject. The
     // structural collection is the affordable in-pipeline form (PK-273);
     // tests and acceptance batteries additionally hold results to
@@ -264,6 +311,7 @@ pub(crate) fn shell_impl(
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;
+    warnings.extend(join_plan.warnings.iter().cloned());
     for face in &offset_result.auto_removed {
         warnings.push(ShellWarning::FaceAutoRemoved {
             face: *face,
@@ -275,125 +323,6 @@ pub(crate) fn shell_impl(
         brep: result,
         warnings,
     })
-}
-
-/// Collect face names, centroids, and normals from a BRep for ancestry matching.
-pub(crate) fn collect_shell_face_data(brep: &BRep) -> Vec<InputFaceData> {
-    use popkern_core::naming::{EntityRole, OperationId, RoleCategory};
-    use popkern_core::naming_criteria::capture_face;
-
-    let mut result = Vec::new();
-    for (i, (fh, _face)) in brep.faces.iter().enumerate() {
-        let Some(fc) = capture_face(brep, fh) else {
-            continue;
-        };
-        let name = if let Some(name_id) = brep.faces[fh].name {
-            if let Some(n) = brep.name_pool.get(name_id) {
-                n.clone()
-            } else {
-                EntityName {
-                    operation: OperationId(0),
-                    role: EntityRole {
-                        category: RoleCategory::Generated,
-                        index: i as u32,
-                    },
-                    ancestors: Vec::new(),
-                }
-            }
-        } else {
-            EntityName {
-                operation: OperationId(0),
-                role: EntityRole {
-                    category: RoleCategory::Generated,
-                    index: i as u32,
-                },
-                ancestors: Vec::new(),
-            }
-        };
-        result.push(InputFaceData {
-            name,
-            centroid: fc.centroid,
-            normal: fc.normal,
-        });
-    }
-    result
-}
-
-/// Assign stable names to entities produced by a shell operation.
-///
-/// Matches output faces to input faces by centroid proximity and normal
-/// alignment. Outer skin faces that match an input face (same-direction
-/// normal) get `Modified` with the input face as ancestor. Inner skin
-/// faces that match an input face (opposite normal) also get `Modified`
-/// with the input face as ancestor. Side wall faces (no match) get
-/// `Generated`.
-pub(crate) fn assign_shell_names(
-    brep: &mut BRep,
-    ctx: &mut TrackingContext,
-    input_faces: &[InputFaceData],
-    tol: &Tolerance,
-) {
-    use popkern_core::naming::{EntityRole, RoleCategory};
-    use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
-
-    let post_faces: Vec<FaceHandle> = brep.faces.keys().collect();
-    let mut gen_idx: u32 = 0;
-    let mut mod_idx: u32 = 0;
-    let generous_dist = tol.linear() * 100.0;
-
-    for fh in &post_faces {
-        let Some(fc) = capture_face(brep, *fh) else {
-            continue;
-        };
-        let centroid = fc.centroid;
-        let normal = fc.normal;
-
-        // Match against input faces: allow same-direction (outer) or
-        // opposite-direction (inner/offset) normals.
-        let best_match = input_faces
-            .iter()
-            .filter(|inp| {
-                centroid.distance_to(&inp.centroid) < generous_dist
-                    && normal.dot(&inp.normal).abs() > 0.9
-            })
-            .min_by(|a, b| {
-                centroid
-                    .distance_to(&a.centroid)
-                    .partial_cmp(&centroid.distance_to(&b.centroid))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-        if let Some(input) = best_match {
-            let ancestor_id = brep.name_pool.intern(input.name.clone(), None);
-            let new_name = EntityName {
-                operation: ctx.operation,
-                role: EntityRole {
-                    category: RoleCategory::Modified,
-                    index: mod_idx,
-                },
-                ancestors: vec![ancestor_id],
-            };
-            let criteria = Some(GeometricCriteria::Face(fc));
-            let new_id = brep.name_pool.intern(new_name.clone(), criteria);
-            brep.faces[*fh].name = Some(new_id);
-            ctx.record_modified(input.name.clone(), new_name);
-            mod_idx += 1;
-        } else {
-            let new_name = EntityName {
-                operation: ctx.operation,
-                role: EntityRole {
-                    category: RoleCategory::Generated,
-                    index: gen_idx,
-                },
-                ancestors: Vec::new(),
-            };
-            let criteria = Some(GeometricCriteria::Face(fc));
-            let new_id = brep.name_pool.intern(new_name.clone(), criteria);
-            brep.faces[*fh].name = Some(new_id);
-            ctx.record_generated(new_name);
-            gen_idx += 1;
-        }
-    }
 }
 
 #[cfg(test)]

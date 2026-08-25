@@ -158,7 +158,9 @@ fn shell_inward_outward_midplane() {
         None,
     )
     .unwrap();
-    assert_eq!(r_out.brep.faces.len(), 12);
+    // Outward shell: the moved (void) skin is an outward offset —
+    // rounded under the arc default (26 faces) + original skin (6).
+    assert_eq!(r_out.brep.faces.len(), 32);
     assert_euler_compound(&r_out.brep, 2);
     assert_structurally_valid(&r_out.brep);
 
@@ -176,7 +178,9 @@ fn shell_inward_outward_midplane() {
         None,
     )
     .unwrap();
-    assert_eq!(r_mid.brep.faces.len(), 12);
+    // Midplane: outward-moved skin rounds (26), inward skin stays
+    // sharp (6) under the arc default.
+    assert_eq!(r_mid.brep.faces.len(), 32);
     assert_euler_compound(&r_mid.brep, 2);
     assert_structurally_valid(&r_mid.brep);
     let (mut lo, mut hi) = (f64::MAX, f64::MIN);
@@ -231,21 +235,22 @@ fn offset_solid_outward() {
     let brep = BRep::unit_cube(tol()).unwrap();
     let result =
         popkern_shell::offset::offset_solid(&brep, 0.1, &ShellOptions::default(), tol()).unwrap();
-    // Topology counts must be preserved: 6 faces, 12 edges, 8 vertices.
-    assert_eq!(result.brep.faces.len(), 6);
-    assert_eq!(result.brep.edges.len(), 12);
-    assert_eq!(result.brep.vertices.len(), 8);
+    // Minkowski-faithful default (PK-325): outward offset of a convex
+    // cube is the ROUNDED box — 6 planes + 12 cylinder strips + 8
+    // sphere octant caps.
+    assert_eq!(result.brep.faces.len(), 26);
+    assert_eq!(result.brep.edges.len(), 48);
+    assert_eq!(result.brep.vertices.len(), 24);
     assert_euler_solid(&result.brep);
     assert_structurally_valid(&result.brep);
-    // Every vertex must have moved from the original unit cube positions.
-    // Original vertices have coordinates in {0.0, 1.0}; after offset no
-    // coordinate should remain exactly at 0.0 or 1.0.
+    // Corner-sphere vertices sit at original corners displaced 0.1
+    // along exactly one face normal: coordinates from {-0.1, 0, 1, 1.1}.
     for (_, v) in &result.brep.vertices {
         let coords = [v.position.x, v.position.y, v.position.z];
         for &c in &coords {
             assert!(
-                (c - 0.0).abs() > 1e-6 && (c - 1.0).abs() > 1e-6,
-                "vertex coord {c} unchanged after offset"
+                [-0.1, 0.0, 1.0, 1.1].iter().any(|e| (c - e).abs() < 1e-9),
+                "vertex coord {c} unexpected after arc offset"
             );
         }
     }
@@ -279,8 +284,9 @@ fn thicken_cube() {
     let brep = BRep::unit_cube(tol()).unwrap();
     let result =
         popkern_shell::thicken::thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
-    // Outer (6) + inner (6) = 12 faces (no side walls for closed solid).
-    assert_eq!(result.brep.faces.len(), 12);
+    // Rounded outer (26) + sharp inner (6) under the arc default
+    // (no side walls for a closed solid).
+    assert_eq!(result.brep.faces.len(), 32);
     assert_euler_compound(&result.brep, 2);
     assert_structurally_valid(&result.brep);
 }
@@ -336,8 +342,8 @@ fn thicken_prism_slab() {
     // A 0.02 wall fits inside the 0.05-thick slab (0.01 inward per side).
     let result =
         popkern_shell::thicken::thicken(&brep, 0.02, &ShellOptions::default(), tol()).unwrap();
-    // Thicken a closed solid: outer (6) + inner (6) = 12 faces.
-    assert_eq!(result.brep.faces.len(), 12);
+    // Thicken a closed solid: rounded outer (26) + sharp inner (6).
+    assert_eq!(result.brep.faces.len(), 32);
     assert_euler_compound(&result.brep, 2);
     assert_structurally_valid(&result.brep);
 

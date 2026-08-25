@@ -37,7 +37,7 @@ pub(crate) use curved_recompute_profile::coaxial_profile_edge_curve;
 /// derive from the (unchanged) normal, so evaluation commutes with the
 /// map; rational NURBS evaluation commutes with any affine map of the
 /// control points.
-pub(super) fn map_similarity_geometry(
+pub(crate) fn map_similarity_geometry(
     geometry: &CurveGeometry,
     anchor: Vec3,
     s: f64,

@@ -35,6 +35,8 @@ mod mvfs;
 mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
 mod same_loop_face_bridge;
+mod split_vertex;
+pub use split_vertex::SplitVertexResult;
 mod sweep;
 pub use boundary_side_separator_bridge::{
     BoundarySideSeparatorBridgePlan, BoundarySideSeparatorBridgeRequest,

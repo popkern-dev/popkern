@@ -210,7 +210,8 @@ fn t38_offset_solid_grows_cube() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let result = offset_solid(&cube, 0.1, &ShellOptions::default(), tol()).unwrap();
     let brep = &result.brep;
-    assert_eq!(brep.faces.len(), 6, "offset should keep 6 faces");
+    // Minkowski-faithful default (PK-325): the rounded box.
+    assert_eq!(brep.faces.len(), 26, "arc offset serves the rounded box");
     assert_no_structural_errors(brep);
     assert_finite_vertices(brep);
     // Check that the offset moved vertices (either direction — the sign convention

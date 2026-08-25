@@ -82,7 +82,7 @@ pub(crate) fn thicken_impl(
 
     // Offset outward to create the outer skin. The ladder's collapse
     // gate reports the caller's full-thickness units (scale 2.0).
-    let (outer, outer_map, offset_out) = crate::skin_ladder::offset_skin_ladder(
+    let (outer, outer_map, offset_out, joins_out) = crate::skin_ladder::offset_skin_ladder(
         brep,
         half,
         &[],
@@ -90,6 +90,7 @@ pub(crate) fn thicken_impl(
         &[],
         false,
         options.allow_partial,
+        options.join_style,
         &stage_tol,
         2.0,
         [
@@ -103,7 +104,7 @@ pub(crate) fn thicken_impl(
     )?;
 
     // Offset inward to create the inner skin.
-    let (mut inner, inner_map, offset_in) = crate::skin_ladder::offset_skin_ladder(
+    let (mut inner, inner_map, offset_in, joins_in) = crate::skin_ladder::offset_skin_ladder(
         brep,
         half,
         &[],
@@ -111,6 +112,7 @@ pub(crate) fn thicken_impl(
         &[],
         false,
         options.allow_partial,
+        options.join_style,
         &stage_tol,
         2.0,
         [
@@ -153,6 +155,13 @@ pub(crate) fn thicken_impl(
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("thicken.pcurve_recompute", t0, result.faces.len());
 
+    // Orientation flags are DERIVED state (a function of finalized
+    // loop winding + surface geometry): reconcile them at the serving
+    // boundary. Join faces on charts whose handedness opposes their
+    // construction-time material measurement (the cone-rim torus
+    // strips) get their honest value here (PK-325).
+    result.reconcile_orientation_flags();
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -163,6 +172,8 @@ pub(crate) fn thicken_impl(
 
     let mut warnings = offset_out.warnings;
     warnings.extend(offset_in.warnings);
+    warnings.extend(joins_out.warnings);
+    warnings.extend(joins_in.warnings);
     for face in offset_out
         .auto_removed
         .iter()

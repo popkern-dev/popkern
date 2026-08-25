@@ -6,12 +6,10 @@
 
 use crate::ShellWarning;
 use crate::classify::classify_faces;
-use crate::edge_recompute::recompute_edges;
 use crate::error::ShellError;
 use crate::inner_skin::{apply_offset_geometry, build_inner_skin};
 use crate::surface_offset::compute_offset_surfaces;
 use crate::types::{ShellDirection, ShellOptions, ShellResult};
-use crate::vertex_recompute::recompute_vertices;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -125,24 +123,34 @@ pub(crate) fn offset_solid_impl(
 
     stage_gate!();
     let t0 = Instant::now();
-    recompute_vertices(
+    let join_plan = crate::join_classification::classify_joins(
+        &result,
+        &skin_map,
+        &offset_result.surfaces,
+        &stage_tol,
+        options.join_style,
+    )?;
+    crate::vertex_recompute::recompute_vertices_with_gap_corners(
         &mut result,
         &offset_result.surfaces,
         &skin_map,
         brep,
         &stage_tol,
+        &join_plan.gap_corners,
     )?;
     tracker.finish_stage("offset.vertex_recompute", t0, result.vertices.len());
 
     stage_gate!();
     let t0 = Instant::now();
-    recompute_edges(
+    let undone = crate::edge_recompute::recompute_edges_with_skips(
         &mut result,
         &offset_result.surfaces,
         &skin_map,
         brep,
         &stage_tol,
+        &join_plan.arc_skip_edges(),
     )?;
+    crate::join_classification::intersection_gap_postcheck(&join_plan, &undone)?;
     // Collapse gate (part of the recompute stage): a shrink past the
     // local feature size inverts the skin.
     crate::collapse_check::check_skin_collapse(
@@ -157,6 +165,16 @@ pub(crate) fn offset_solid_impl(
     stage_gate!();
     let t0 = Instant::now();
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
+    // Join construction (PK-325): rolling-ball strips + sphere corner
+    // windows, via Euler operators only.
+    crate::arc_join::construct_arc_joins(
+        &mut result,
+        &join_plan,
+        &offset_result.surfaces,
+        &skin_map,
+        brep,
+        &stage_tol,
+    )?;
     tracker.finish_stage("offset.apply_offset_geometry", t0, result.faces.len());
 
     // The clone carries the ORIGINAL pcurves. Most exact offsets are
@@ -173,6 +191,13 @@ pub(crate) fn offset_solid_impl(
         .map_err(|e| ShellError::Topology(e.to_string()))?;
     tracker.finish_stage("offset.pcurve_recompute", t0, result.faces.len());
 
+    // Orientation flags are DERIVED state (a function of finalized
+    // loop winding + surface geometry): reconcile them at the serving
+    // boundary. Join faces on charts whose handedness opposes their
+    // construction-time material measurement (the cone-rim torus
+    // strips) get their honest value here (PK-325).
+    result.reconcile_orientation_flags();
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -182,6 +207,7 @@ pub(crate) fn offset_solid_impl(
     }
 
     let mut warnings = offset_result.warnings;
+    warnings.extend(join_plan.warnings.iter().cloned());
     for face in &offset_result.auto_removed {
         warnings.push(ShellWarning::FaceAutoRemoved {
             face: *face,
@@ -212,15 +238,19 @@ mod tests {
     fn offset_cube_outward() {
         let brep = BRep::unit_cube(tol()).unwrap();
         let result = offset_solid(&brep, 0.1, &ShellOptions::default(), tol()).unwrap();
-        assert_eq!(result.brep.faces.len(), 6);
-        // Positive distance grows the solid outward: corners move from
-        // {0,1} to {-0.1, 1.1}.
+        // Minkowski-faithful default (PK-325): the rounded box.
+        assert_eq!(result.brep.faces.len(), 26);
+        // Every corner-sphere vertex sits at an original corner
+        // displaced by 0.1 along one face normal: coordinates come
+        // from {-0.1, 0, 1, 1.1}.
         for (_, v) in &result.brep.vertices {
             let coords = [v.position.x, v.position.y, v.position.z];
             for &c in &coords {
                 assert!(
-                    (c - (-0.1)).abs() < 0.05 || (c - 1.1).abs() < 0.05,
-                    "vertex coord {c} unexpected after outward offset"
+                    [-0.1, 0.0, 1.0, 1.1]
+                        .iter()
+                        .any(|expect| (c - expect).abs() < 1e-9),
+                    "vertex coord {c} unexpected after outward arc offset"
                 );
             }
         }
@@ -327,8 +357,10 @@ mod tests {
         )
         .unwrap();
 
-        // Both should have 6 faces.
-        assert_eq!(uniform.brep.faces.len(), 6);
+        // The uniform run serves the rounded box (arc default); the
+        // variable run has no uniform rolling ball and contains to the
+        // sharp join (E4 downgrade) with its 6 faces preserved.
+        assert_eq!(uniform.brep.faces.len(), 26);
         assert_eq!(variable.brep.faces.len(), 6);
 
         // At least some vertices should differ between uniform and variable
@@ -423,6 +455,7 @@ mod tests {
         let first_face = brep.faces.keys().next().unwrap();
         let opts = ShellOptions {
             allow_partial: false,
+            ..ShellOptions::default()
         };
         let result = offset_solid_variable(&brep, 0.1, &[(first_face, 0.2)], &opts, tol()).unwrap();
         assert_eq!(result.brep.faces.len(), 6);

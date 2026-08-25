@@ -262,9 +262,18 @@ impl BRep {
 
     /// Signed UV area + perimeter of one loop's pcurve polygon,
     /// traversed in topological order (periodic-unwrapped shoelace).
-    /// Shared between the winding-honesty audit and the loop-winding
-    /// repair postcondition of pcurve recompute.
-    pub(crate) fn loop_signed_uv_area(
+    /// Shared between the winding-honesty audit, the loop-winding
+    /// repair postcondition of pcurve recompute, and downstream
+    /// consumers that need the MEASURED chart winding (the shell join
+    /// classifier's into-face rule — pole-touching charts can be
+    /// legally wound against their orientation flag, so the flag is
+    /// not a winding witness).
+    ///
+    /// # Errors
+    ///
+    /// Chart-validity guards return a static reason when the loop has
+    /// no meaningful UV winding (pole-touching or non-closing charts).
+    pub fn loop_signed_uv_area(
         &self,
         loop_handle: crate::topology::LoopHandle,
         surface: &SurfaceGeometry,
@@ -373,13 +382,12 @@ impl BRep {
     }
 }
 
-/// Signed UV area and perimeter of a polygonized loop (crate-visible
-/// for the pcurve loop-winding repair postcondition).
-pub(crate) struct SignedUvArea {
+/// Signed UV area and perimeter of a polygonized loop.
+pub struct SignedUvArea {
     /// Shoelace area; positive = counter-clockwise in UV.
-    pub(crate) signed: f64,
+    pub signed: f64,
     /// Polygon perimeter, for the perimeter-relative degeneracy floor.
-    pub(crate) perimeter: f64,
+    pub perimeter: f64,
 }
 
 /// Append a UV sample, shifting by whole periods so consecutive

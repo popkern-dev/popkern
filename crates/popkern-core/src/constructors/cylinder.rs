@@ -335,12 +335,21 @@ impl BRep {
             },
             orientation: true,
         });
+        // Bottom cap chart is RIGHT-handed w.r.t. its −Z normal
+        // (u×v = −z): with the standard CCW circle pcurve this makes
+        // the cap loop traverse the rim OPPOSITE to the lateral loop
+        // in 3D — the twin contract open edges obey. The historical
+        // left-handed chart (v = +y) authored CO-DIRECTED closed-rim
+        // twins: invisible while the rim stayed one closed edge, but
+        // splitting it (PK-325 arc-join rim pre-split) could not
+        // produce a consistent open-edge state — one cap was forced
+        // winding-dishonest no matter how the sub-curves were routed.
         brep.faces[f_bot].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
                 normal: Vec3::new(0.0, 0.0, -1.0),
                 u_axis: Vec3::new(1.0, 0.0, 0.0),
-                v_axis: Vec3::new(0.0, 1.0, 0.0),
+                v_axis: Vec3::new(0.0, -1.0, 0.0),
             },
             orientation: true,
         });

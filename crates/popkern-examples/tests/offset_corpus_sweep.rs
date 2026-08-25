@@ -107,24 +107,25 @@ fn concave_edges(name: &str) -> Vec<(Point3, Point3)> {
     }
 }
 
-/// Which fixtures the CURRENT serving envelope thickens (sharp inward
-/// joins over exact analytic offsets). Every other fixture must
-/// decline with a structured error. Widening stages flip entries to
-/// `true` alongside their oracle evidence (PK-324 rows).
+/// Which fixtures the CURRENT serving envelope thickens. Every other
+/// fixture must decline with a structured error. Widening stages flip
+/// entries to `true` alongside their oracle evidence (PK-324 rows).
 fn expected_to_serve(name: &str) -> bool {
     // PK-324 flips: filleted_cube (parallel-map arm serves its 48
     // G1-tangential edges), bracket_bore_countersink (coaxial-profile
     // arm serves the bore×countersink cylinder×cone junction circle),
     // torus_lens (parallel-map arm serves its same-torus patch-border
-    // circles). wavy_plate still declines — measured: the INWARD
-    // ladder recomputes fully (general SSI arm), but the OUTWARD
-    // offset of its convex top-boundary edges separates the surfaces
-    // and the fitted NURBS offset is domain-bounded, so no
-    // topology-preserving intersection exists; closing that gap is
-    // the Stage-3 join/extension machinery (PK-325's acceptance body).
-    // sphere_capped_rod: the parallel-map arm gained endpoint re-trim
-    // (its sphere-meridian seam pieces end on the transversal junction
-    // circle, whose vertex slides along the meridian under offset).
+    // circles). sphere_capped_rod: the parallel-map arm gained
+    // endpoint re-trim (its sphere-meridian seam pieces end on the
+    // transversal junction circle, whose vertex slides along the
+    // meridian under offset).
+    //
+    // PK-325 flip: wavy_plate — the Stage-3 acceptance body. Its
+    // convex top-boundary edges separate under the outward offset;
+    // the arc-join stage now closes them with rolling-ball cylinder
+    // strips (the top boundary rows are straight) and sphere octant
+    // corner caps, verified below by validate_all + the SDF oracle
+    // on the served body.
     matches!(
         name,
         "l_bracket"
@@ -134,6 +135,7 @@ fn expected_to_serve(name: &str) -> bool {
             | "bracket_bore_countersink"
             | "torus_lens"
             | "sphere_capped_rod"
+            | "wavy_plate"
     )
 }
 

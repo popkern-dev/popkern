@@ -101,6 +101,7 @@ pub fn shell_with_control(
                 options,
                 tolerance,
                 tracker,
+                None,
             )
         },
         |token| {
@@ -119,12 +120,17 @@ pub fn shell_with_control(
                     &options,
                     tolerance,
                     &mut tracker,
+                    // Join-ancestor capture is not threaded through the
+                    // dual-closure control path; interactive naming
+                    // keeps plain Generated names (facade/history
+                    // wiring is PK-328's scope).
+                    None,
                 )
             }
         },
     )?;
     if let Some(ctx) = tracking {
-        crate::assign_shell_names(&mut result.brep, ctx, &input_faces, &brep.tolerance);
+        crate::assign_shell_names(&mut result.brep, ctx, &input_faces, &[], &brep.tolerance);
     }
     Ok(result)
 }

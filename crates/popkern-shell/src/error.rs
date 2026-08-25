@@ -1,8 +1,22 @@
 //! Error types for shell and offset operations.
 
+use crate::types::JoinStyle;
 use popkern_core::error::{CoreError, ValidationError};
-use popkern_core::topology::FaceHandle;
+use popkern_core::topology::{EdgeHandle, FaceHandle, VertexHandle};
 use thiserror::Error;
+
+/// One gap edge the requested join style could not close (PK-325).
+#[derive(Debug, Clone)]
+pub struct JoinDecline {
+    /// The edge in the INPUT body whose gap could not be joined.
+    pub edge: EdgeHandle,
+    /// Why the join declined, in mechanism terms.
+    pub mechanism: String,
+    /// Whether [`JoinStyle::Arc`] is the working alternative for this
+    /// edge (named per design §5: intersection-join declines point the
+    /// caller at the rolling-ball fill).
+    pub arc_alternative: bool,
+}
 
 /// Errors that can occur during shell/offset operations.
 #[derive(Debug, Error)]
@@ -85,6 +99,27 @@ pub enum ShellError {
         free_half_edges: usize,
     },
 
+    /// One or more gap edges could not be closed by the requested join
+    /// style. Transactional: no partial-join body is served — the input
+    /// model is untouched (design §5 Stage 3, PK-325).
+    #[error(
+        "{style:?} join failed on {} gap edge(s); first: edge {:?} — {}{}",
+        declines.len(),
+        declines.first().map(|d| d.edge),
+        declines.first().map(|d| d.mechanism.as_str()).unwrap_or_default(),
+        if declines.first().is_some_and(|d| d.arc_alternative) {
+            " (JoinStyle::Arc serves this edge)"
+        } else {
+            ""
+        }
+    )]
+    JoinFailed {
+        /// The join style that was in effect.
+        style: JoinStyle,
+        /// Every gap edge that declined, with its mechanism.
+        declines: Vec<JoinDecline>,
+    },
+
     /// A topological inconsistency was encountered.
     #[error("topology: {0}")]
     Topology(String),
@@ -118,6 +153,37 @@ pub enum ShellWarning {
         face: FaceHandle,
         /// Reason for removal.
         reason: String,
+    },
+    /// A skin requested [`JoinStyle::Arc`] but reached a gap-vertex
+    /// class the arc machinery does not yet serve; the whole skin fell
+    /// back to [`JoinStyle::Intersection`]. Temporary containment: the
+    /// commercial-grade replacement is the PK-326 vertex-join stage.
+    JoinStyleDowngraded {
+        /// A vertex of the blocking class in the input body.
+        vertex: VertexHandle,
+        /// The vertex class in mechanism terms (e.g. mixed
+        /// convex/concave corner, rim vertex with gap edges).
+        mechanism: String,
+    },
+    /// A skin requested [`JoinStyle::Arc`] but a gap edge has no
+    /// uniform rolling-ball window (variable convexity or variable
+    /// per-face distance along the edge — the E4 class); the whole
+    /// skin fell back to [`JoinStyle::Intersection`]. Temporary
+    /// containment: variable-distance joins are recorded design
+    /// exploration (design §10 E4).
+    JoinStyleDowngradedAtEdge {
+        /// The blocking edge in the input body.
+        edge: EdgeHandle,
+        /// The edge class in mechanism terms.
+        mechanism: String,
+    },
+    /// A cone-point vertex (surface apex) stays sharp under
+    /// [`JoinStyle::Arc`]: the Minkowski-faithful result would cap it
+    /// with a sphere window (PK-326). Edge joins elsewhere on the body
+    /// are unaffected.
+    ConeApexSharp {
+        /// The apex vertex in the input body.
+        vertex: VertexHandle,
     },
 }
 

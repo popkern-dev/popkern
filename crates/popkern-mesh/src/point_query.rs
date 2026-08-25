@@ -58,7 +58,7 @@ const LEAF_SIZE: usize = 8;
 /// triangle edge is ambiguous (the neighbouring triangle may double- or
 /// zero-count the crossing); on ambiguity the query retries with the
 /// next direction.
-const PARITY_DIRS: [Vec3; 3] = [
+const PARITY_DIRS: [Vec3; 5] = [
     Vec3 {
         x: 0.577_350_1,
         y: 0.577_351_2,
@@ -73,6 +73,16 @@ const PARITY_DIRS: [Vec3; 3] = [
         x: 0.148_253_1,
         y: -0.622_354_9,
         z: 0.768_557_3,
+    },
+    Vec3 {
+        x: -0.711_324_9,
+        y: -0.245_618_3,
+        z: 0.658_631_7,
+    },
+    Vec3 {
+        x: 0.401_853_7,
+        y: 0.331_246_1,
+        z: -0.853_722_9,
     },
 ];
 
@@ -177,15 +187,43 @@ impl PointMeshIndex {
     /// edge-grazing rays retry along alternate skew directions; if all
     /// retries stay ambiguous the last parity is used.
     pub fn contains(&self, p: Point3) -> bool {
+        // Majority vote over skew directions. A single unambiguous ray
+        // is NOT trusted: a ray through a tessellation crack (open
+        // mesh edge) hits nothing there and silently reports the wrong
+        // parity with no ambiguity flag — measured on blend-class
+        // topology (rolling-ball strips + sphere corner windows) where
+        // pole-chart T-junction cracks flipped 13/64000 oracle samples
+        // along one corner's shadow. Ambiguous rays abstain; ties fall
+        // back to the last computed parity.
+        let mut inside_votes = 0_usize;
+        let mut outside_votes = 0_usize;
         let mut last = false;
         for dir in &PARITY_DIRS {
             let (crossings, ambiguous) = self.ray_crossings(&p, dir);
             last = crossings % 2 == 1;
-            if !ambiguous {
-                return last;
+            if ambiguous {
+                continue;
+            }
+            if last {
+                inside_votes += 1;
+            } else {
+                outside_votes += 1;
+            }
+            // A clear majority of the full panel cannot be overturned
+            // by the remaining directions.
+            let remaining = PARITY_DIRS.len() - inside_votes - outside_votes;
+            if inside_votes > outside_votes + remaining {
+                return true;
+            }
+            if outside_votes > inside_votes + remaining {
+                return false;
             }
         }
-        last
+        if inside_votes != outside_votes {
+            inside_votes > outside_votes
+        } else {
+            last
+        }
     }
 
     /// Signed distance: negative inside the closed region, positive

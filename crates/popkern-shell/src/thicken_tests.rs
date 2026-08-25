@@ -10,8 +10,10 @@ fn thicken_cube_produces_result() {
     // work (producing outer + inner skins with no side walls).
     let brep = BRep::unit_cube(tol()).unwrap();
     let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
-    // Outer (6) + inner (6) = 12 faces.
-    assert_eq!(result.brep.faces.len(), 12);
+    // Minkowski-faithful default (PK-325): rounded outer skin
+    // (6 planes + 12 cylinder strips + 8 sphere caps) + sharp inner
+    // skin (erosion keeps convex edges sharp) = 32 faces.
+    assert_eq!(result.brep.faces.len(), 32);
 }
 
 #[test]
@@ -25,8 +27,10 @@ fn thicken_empty_brep_errors() {
 
 #[test]
 fn thicken_cube_very_small_thickness() {
-    // A very small thickness (1e-6) should still produce a valid result
-    // with the expected topology: outer (6) + inner (6) = 12 faces.
+    // A very small thickness (1e-6) should still produce a valid result.
+    // The half-offset (5e-7) is below the arc-join resolution floor
+    // (sub-tolerance rounding is indistinguishable from the sharp
+    // join), so the skins stay sharp: outer (6) + inner (6) = 12 faces.
     let brep = BRep::unit_cube(tol()).unwrap();
     let result = thicken(&brep, 1e-6, &ShellOptions::default(), tol()).unwrap();
     assert_eq!(result.brep.faces.len(), 12);
@@ -59,8 +63,8 @@ fn thicken_cube_negative_thickness() {
     // half = -0.1, so the "outward" skin goes inward and vice versa.
     let brep = BRep::unit_cube(tol()).unwrap();
     let result = thicken(&brep, -0.2, &ShellOptions::default(), tol()).unwrap();
-    // Topology should be the same as positive thickness: 12 faces.
-    assert_eq!(result.brep.faces.len(), 12);
+    // Topology should be the same as positive thickness.
+    assert_eq!(result.brep.faces.len(), 32);
 }
 
 #[test]
@@ -104,19 +108,18 @@ fn thicken_cube_large_thickness_declines() {
 fn thicken_cube_topology_counts() {
     // Verify detailed topology counts for a thickened cube.
     // Input cube: V=8, E=12, F=6, Euler = 8 - 12 + 6 = 2.
-    // Thickened (outer + inner, no side walls for closed solid):
-    //   F = 12 (6 outer + 6 inner)
-    //   V = 16 (8 outer + 8 inner)
-    //   E = 24 (12 outer + 12 inner)
-    //   Euler per shell: V - E + F = 16 - 24 + 12 = 4 (two disjoint shells)
+    // Thickened under the Minkowski-faithful default (PK-325):
+    //   outer skin = rounded box: F 26, E 48, V 24
+    //   inner skin = sharp erosion: F 6, E 12, V 8
+    //   Euler per shell: 24-48+26 = 2 and 8-12+6 = 2 (sum 4).
     let brep = BRep::unit_cube(tol()).unwrap();
     let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
     let f = result.brep.faces.len();
     let e = result.brep.edges.len();
     let v = result.brep.vertices.len();
-    assert_eq!(f, 12, "expected 12 faces (6 outer + 6 inner)");
-    assert_eq!(v, 16, "expected 16 vertices (8 outer + 8 inner)");
-    assert_eq!(e, 24, "expected 24 edges (12 outer + 12 inner)");
+    assert_eq!(f, 32, "expected 32 faces (26 rounded outer + 6 inner)");
+    assert_eq!(v, 32, "expected 32 vertices (24 outer + 8 inner)");
+    assert_eq!(e, 60, "expected 60 edges (48 outer + 12 inner)");
     // Euler characteristic for two disjoint closed shells.
     let euler = (v as i64) - (e as i64) + (f as i64);
     assert_eq!(euler, 4, "expected Euler characteristic 4 for two shells");
@@ -133,9 +136,11 @@ fn thicken_cylinder_serves_with_exact_curved_recompute() {
     let brep = BRep::cylinder(1.0, 2.0, tol()).unwrap();
     let result = thicken(&brep, 0.2, &ShellOptions::default(), tol()).unwrap();
 
-    assert_eq!(result.brep.faces.len(), 6, "3 outer + 3 inner faces");
-    assert_eq!(result.brep.vertices.len(), 4);
-    assert_eq!(result.brep.edges.len(), 6);
+    // Rounded outer skin (PK-325 arc joins): 3 offset faces + 2 torus
+    // half-windows per rim = 7 faces; sharp inner skin = 3.
+    assert_eq!(result.brep.faces.len(), 10, "7 rounded outer + 3 inner");
+    assert_eq!(result.brep.vertices.len(), 10, "8 outer + 2 inner");
+    assert_eq!(result.brep.edges.len(), 16, "13 outer + 3 inner");
     assert!(
         result.brep.validate_all().is_empty(),
         "thickened cylinder must be validate_all-clean: {:?}",
@@ -160,8 +165,10 @@ fn thicken_cylinder_serves_with_exact_curved_recompute() {
     assert!((radii[1] - 1.1).abs() < 1e-12, "outer radius {}", radii[1]);
     for v in result.brep.vertices.values() {
         let r = (v.position.x * v.position.x + v.position.y * v.position.y).sqrt();
+        // Skin laterals sit at 0.9/1.1; the rim-join corner vertices on
+        // the cap side stay at the original radius 1.0.
         assert!(
-            (r - 0.9).abs() < 1e-9 || (r - 1.1).abs() < 1e-9,
+            (r - 0.9).abs() < 1e-9 || (r - 1.0).abs() < 1e-9 || (r - 1.1).abs() < 1e-9,
             "vertex at radius {r}"
         );
     }

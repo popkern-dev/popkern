@@ -8,7 +8,6 @@ mod split_position;
 mod split_surface_derived;
 
 use crate::error::CoreError;
-use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
@@ -207,93 +206,23 @@ impl BRep {
             self.vertices[vertex_b].outgoing = he_bv;
         }
 
-        // Split curve geometry if present. Use the same direction-
-        // alignment logic as `split_pos` above so the curve is
-        // sampled consistently with the half-edge direction.
-        if let Some(curve) = curve_on_edge {
-            let p_t_start = curve.geometry.point_at(curve.t_start);
-            let p_t_end = curve.geometry.point_at(curve.t_end);
-            let curve_aligned = pos_a.distance_to(&p_t_start) <= pos_a.distance_to(&p_t_end);
-            let aligned_t = if curve_aligned { t } else { 1.0 - t };
-            let t_param = curve.t_start + aligned_t * (curve.t_end - curve.t_start);
-
-            // Try to split NURBS; if the curve is analytic, convert to NURBS first.
-            let nurbs = curve
-                .geometry
-                .to_nurbs_in_range((curve.t_start, curve.t_end));
-            match nurbs.split_at(t_param) {
-                Ok((left, right)) => {
-                    use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
-
-                    // The original edge spans vertex_a → vertex_b in
-                    // half-edge convention, but the curve geometry
-                    // may have been authored in the *opposite*
-                    // direction (e.g. by a boolean engine that
-                    // captured intersection curves without enforcing
-                    // a canonical orientation). After splitting we
-                    // therefore inspect each half's endpoints and
-                    // route them to the half-edge whose vertex
-                    // positions they actually match. Without this
-                    // routing the loop validator sees a curve whose
-                    // span is the *other* half of the original edge,
-                    // producing an OpenLoop with a gap equal to the
-                    // length of the misrouted segment.
-                    let left_endpoints = {
-                        let (t0, t1) = left.parameter_range();
-                        (left.point_at(t0), left.point_at(t1))
-                    };
-                    let right_endpoints = {
-                        let (t0, t1) = right.parameter_range();
-                        (right.point_at(t0), right.point_at(t1))
-                    };
-                    let dist2 = |a: &Point3, b: &Point3| -> f64 {
-                        (a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)
-                    };
-                    // Score "LEFT to old, RIGHT to new" vs "RIGHT to old, LEFT to new".
-                    // Each option pays the squared distance from the
-                    // expected endpoint to the actual vertex positions.
-                    let cost_natural = dist2(&left_endpoints.0, &pos_a)
-                        + dist2(&left_endpoints.1, &split_pos)
-                        + dist2(&right_endpoints.0, &split_pos)
-                        + dist2(&right_endpoints.1, &pos_b);
-                    let cost_swapped = dist2(&right_endpoints.0, &pos_a)
-                        + dist2(&right_endpoints.1, &split_pos)
-                        + dist2(&left_endpoints.0, &split_pos)
-                        + dist2(&left_endpoints.1, &pos_b);
-                    let (old_half, new_half) = if cost_natural <= cost_swapped {
-                        (left, right)
-                    } else {
-                        (right, left)
-                    };
-
-                    let old_range = old_half.parameter_range();
-                    let old_geometry = CurveGeometry::Nurbs(old_half);
-                    let old_geometry = old_geometry
-                        .canonical_line_in_range(old_range, self.tolerance.linear().max(1.0e-9))
-                        .unwrap_or(old_geometry);
-                    self.edges[edge].curve = Some(CurveOnEdge {
-                        geometry: old_geometry,
-                        t_start: old_range.0,
-                        t_end: old_range.1,
-                    });
-
-                    let new_range = new_half.parameter_range();
-                    let new_geometry = CurveGeometry::Nurbs(new_half);
-                    let new_geometry = new_geometry
-                        .canonical_line_in_range(new_range, self.tolerance.linear().max(1.0e-9))
-                        .unwrap_or(new_geometry);
-                    self.edges[edge_b].curve = Some(CurveOnEdge {
-                        geometry: new_geometry,
-                        t_start: new_range.0,
-                        t_end: new_range.1,
-                    });
-                }
-                Err(_) => {
-                    // If split fails (degenerate), keep original on edge_a,
-                    // leave edge_b without a curve.
-                }
-            }
-        }
+        // Split curve geometry if present (routing lives in
+        // `split_position::route_split_curves` — direction decision and
+        // half-to-edge assignment must agree with `split_pos` above).
+        split_position::route_split_curves(
+            self,
+            &curve_on_edge,
+            he_ab,
+            he_ba,
+            &pcurve_ab,
+            &pcurve_ba,
+            edge,
+            edge_b,
+            pos_a,
+            pos_b,
+            split_pos,
+            t,
+        );
 
         Ok(SplitEdgeResult {
             vertex: vertex_v,
