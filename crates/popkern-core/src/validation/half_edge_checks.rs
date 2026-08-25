@@ -85,20 +85,28 @@ impl BRep {
 
     /// Check 4: For every vertex with a valid outgoing half-edge, that half-edge's
     /// origin must be the vertex. A vertex whose stored outgoing handle is
-    /// non-null but MISSING from the arena is also inconsistent: it
-    /// points at a REMOVED half-edge, and the dangling anchor silently
-    /// exempts the vertex from every outgoing-fan walk (measured on
-    /// `BRep::torus`: the seam stitch left one vertex dangling and the
-    /// shell vertex recompute skipped it, serving a stale position; all
-    /// removal sites now route through `remove_half_edge_reanchored`,
-    /// enforced structurally). A NULL (never-set) anchor stays exempt —
-    /// numerous construction paths wire half-edge origins directly and
-    /// anchor lazily; arming that class is its own audit (filed).
+    /// MISSING from the arena is also inconsistent: a non-null handle
+    /// points at a REMOVED half-edge (all removal sites route through
+    /// `remove_half_edge_reanchored`, enforced structurally), and a
+    /// NULL (never-set) anchor on a vertex that half-edges originate at
+    /// means a construction path wired origins without anchoring
+    /// (PK-337) — both silently exempt the vertex from every
+    /// outgoing-fan walk (measured on `BRep::torus`: one dangling
+    /// anchor and the shell vertex recompute served a stale position).
+    /// Only genuinely isolated vertices (no incident half-edges at
+    /// all) are exempt.
     pub fn validate_vertex_consistency(&self) -> Result<(), ValidationError> {
+        let mut has_incident: std::collections::BTreeSet<crate::topology::VertexHandle> =
+            std::collections::BTreeSet::new();
+        for (_, he) in &self.half_edges {
+            has_incident.insert(he.origin);
+        }
         for (v_handle, v_data) in &self.vertices {
             let outgoing = v_data.outgoing;
             if !self.half_edges.contains_key(outgoing) {
-                if outgoing != crate::topology::HalfEdgeHandle::default() {
+                if outgoing != crate::topology::HalfEdgeHandle::default()
+                    || has_incident.contains(&v_handle)
+                {
                     return Err(ValidationError::InconsistentVertex {
                         vertex: v_handle,
                         half_edge: outgoing,
@@ -195,6 +203,33 @@ mod tests {
             .unwrap();
         // Point the origin vertex's outgoing to the twin (which originates from new vertex).
         brep.vertices[mvfs.vertex].outgoing = mev.half_edge_twin;
+        assert!(brep.validate_vertex_consistency().is_err());
+    }
+
+    /// PK-324/PK-337 detection verification: both dangling-anchor
+    /// classes fire — a stale non-null handle (points at a removed
+    /// half-edge) and a never-set null handle on a vertex that live
+    /// half-edges originate at.
+    #[test]
+    fn dangling_and_never_set_anchors_fail_vertex_consistency() {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        assert!(brep.validate_vertex_consistency().is_ok());
+
+        // Never-set: null anchor while a half-edge originates here.
+        let saved = brep.vertices[mvfs.vertex].outgoing;
+        brep.vertices[mvfs.vertex].outgoing = Default::default();
+        assert!(brep.validate_vertex_consistency().is_err());
+        brep.vertices[mvfs.vertex].outgoing = saved;
+
+        // Stale: non-null anchor pointing at a removed half-edge.
+        let clone = brep.half_edges[mev.half_edge].clone();
+        let spare_he = brep.half_edges.insert(clone);
+        brep.remove_half_edge_reanchored(spare_he);
+        brep.vertices[mvfs.vertex].outgoing = spare_he;
         assert!(brep.validate_vertex_consistency().is_err());
     }
 
