@@ -201,7 +201,7 @@ impl BRep {
                 // straight line in UV space.  Use degree-1 (exact)
                 // instead of the 64-point degree-3 fit, avoiding
                 // control-point overshoot.
-                let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
+                let (mut u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
@@ -253,8 +253,43 @@ impl BRep {
                         }
                     }
                 }
-                let u_e = align(raw_u_e, chain.0, period_u);
+                let mut u_e = align(raw_u_e, chain.0, period_u);
                 let v_e = align(raw_v_e, chain.1, period_v);
+                // Degenerate-row endpoints (chart poles: sphere poles,
+                // cone apexes) project with an ARBITRARY u — the whole
+                // row maps to one 3D point, so ∂u vanishes there and
+                // the bogus u defeats the straight-in-UV detection:
+                // meridian edges (the PK-325 corner-cap arcs) fell to
+                // the projection walk, whose pole wobble (measured
+                // 1.13e-4) tore tessellation chains ~3e-4 off their
+                // neighbours (23 open welded mesh edges at the wavy
+                // plate's four top corners). Snap the free parameter
+                // to the interior chain's u — and EXEMPT snapped
+                // endpoints from principal-range clamping, which is
+                // what re-broke the first fix (the meridian branch
+                // u = −π/2 clamped to 0).
+                let mut u_snapped = false;
+                if let Some(&(_, first_u, _)) = quarter_samples.first() {
+                    use crate::geometry::surface::SurfaceEval;
+                    // Row-degeneracy gate: ∂u within 1e-4 of ∂u=0
+                    // moves a uv point by ≤ ~1e-4·|∂v|·period in 3D —
+                    // sub-tolerance at any chart scale (a projected
+                    // pole endpoint lands at v ≈ 1e-6, ∂u ≈ r·1e-6,
+                    // so an exact-zero gate never fires).
+                    let pole_at = |u: f64, v: f64| -> bool {
+                        let du = surface.partial_u(u, v).length();
+                        let dv = surface.partial_v(u, v).length();
+                        du <= 1.0e-4 * dv.max(1.0e-12)
+                    };
+                    if pole_at(u_s, v_s) {
+                        u_s = first_u;
+                        u_snapped = true;
+                    }
+                    if pole_at(u_e, v_e) {
+                        u_e = chain.0;
+                        u_snapped = true;
+                    }
+                }
                 // A degree-1 pcurve is uniform-speed in UV, so the
                 // shortcut is only exact when the curve's
                 // PARAMETERIZATION maps uniformly onto the UV line —
@@ -281,7 +316,7 @@ impl BRep {
                     // zero-span line. (`align` shifts by exact period
                     // multiples, so an unshifted value compares
                     // bit-equal to its raw projection.)
-                    let u_unwrapped = u_e != raw_u_e;
+                    let u_unwrapped = u_e != raw_u_e || u_snapped;
                     let v_unwrapped = v_e != raw_v_e;
                     let clamp_u = |val: f64| {
                         if u_unwrapped {

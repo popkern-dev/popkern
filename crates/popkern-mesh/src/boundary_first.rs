@@ -148,13 +148,23 @@ pub(crate) fn tessellate_face_boundary_first(
                     .map(|(a, b)| a.distance_to(b))
                     .fold(0.0_f64, f64::max)
                     .max(1e-9);
+                // Gate at 1e-4 of the ring scale: a sample whose
+                // half-period u-shift moves it by less than a
+                // ten-thousandth of a boundary chord has no meaningful
+                // azimuth for charting, and rewriting its u moves
+                // geometry sub-chord. A pole VERTEX projected at
+                // v ≈ 1e-6 shifts by ~2·r·v ≈ 1e-8 — above the old
+                // 1e-7·scale gate — and its arbitrary atan2 u chained
+                // PK-325's corner-cap rings into a phantom full wrap
+                // (all four wavy-plate top caps declined to legacy
+                // sampling and their chains tore off the strips).
                 let u_degenerate: Vec<bool> = match period_u {
                     Some(p) => ring
                         .uv
                         .iter()
                         .zip(ring.pos.iter())
                         .map(|((u, v), pos)| {
-                            surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-7 * ring_scale
+                            surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-4 * ring_scale
                         })
                         .collect(),
                     None => Vec::new(),

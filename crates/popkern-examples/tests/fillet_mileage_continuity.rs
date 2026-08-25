@@ -132,8 +132,9 @@ fn run_corpus_continuity() -> Vec<PartContinuity> {
 ///   angle-parameterized elliptical pcurve.
 /// - `offset_bracket` reads genuinely G1 since PK-211 (g0 2.8e-11 —
 ///   its 1.76-displaced strip-end pcurves and phantom 0.43 rail
-///   error are gone); `mixed_corner_block` still carries a 1.5e-2
-///   trim deviation (its own class).
+///   error are gone); `mixed_corner_block` reads genuinely G1 since
+///   PK-338 (g0 1.1e-11 — its 1.5e-2 trim deviation was the pcurve
+///   endpoint surgery snapping to marginal vertex projections).
 struct PartBaseline {
     name: &'static str,
     achieved_floor: ContinuityLevel,
@@ -183,12 +184,17 @@ const BASELINE: &[PartBaseline] = &[
         expected_downgrades: 0,
     },
     PartBaseline {
+        // Genuinely G1 since PK-338 (measured g0 1.1e-11, g1 6.6e-10,
+        // 0 downgrades): its long-standing 1.5e-2 trim deviation was
+        // the pcurve endpoint surgery dragging control points to
+        // marginal vertex projections — the model-tolerance-scaled
+        // 3D bypass in `fix_pcurve_endpoints` retired the class.
         name: "mixed_corner_block",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 9,
-        g0_cap: 3.0e-2,
-        g1_cap: 1.0e-2,
-        expected_downgrades: 1,
+        g0_cap: 1.0e-10,
+        g1_cap: 1.0e-8,
+        expected_downgrades: 0,
     },
     PartBaseline {
         // BLUNT (18°-half-angle) apex under a G2 request through the

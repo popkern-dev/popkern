@@ -153,8 +153,16 @@ impl BRep {
                     // its trim polygon degenerated, and the mesh both
                     // cracked and lost the tail of the period (PK-332).
                     let mid_uv = pc.point_at(0.5 * (t0 + t1));
+                    // Gate at 1e-4 relative: an axis partial that small
+                    // moves the joint by sub-tolerance 3D distance per
+                    // period, so no genuine continuity constraint is
+                    // lost. A projected pole endpoint lands at
+                    // v ≈ 1e-6 off the exact pole (partial ratio
+                    // ~1.4e-6), so the old 1e-6 gate read PK-325's
+                    // corner-cap pole joints as REAL and k-shifted the
+                    // meridian arcs off their authored branch.
                     let joint_degenerate = axis.partial_len(&surface_geom, joint_uv)
-                        < 1.0e-6 * (axis.partial_len(&surface_geom, mid_uv) + 1.0e-12);
+                        < 1.0e-4 * (axis.partial_len(&surface_geom, mid_uv) + 1.0e-12);
                     if let Some(pe) = prev_end {
                         if joint_degenerate {
                             // Chain break: keep this member's authored

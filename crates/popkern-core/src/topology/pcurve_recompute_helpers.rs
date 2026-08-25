@@ -156,7 +156,15 @@ impl BRep {
             use crate::geometry::surface::SurfaceEval;
             let eval_start_3d = surface.point_at(eval_start.x, eval_start.y);
             let eval_end_3d = surface.point_at(eval_end.x, eval_end.y);
-            let pos_tol = 1e-9_f64;
+            // Model-tolerance-scaled: a fixed 1e-9 flapped against
+            // join surfaces whose radius is MEASURED from projections
+            // onto fitted offsets (deviation ~1e-9..1e-8) — the bypass
+            // failed by a hair at sphere poles and the endpoint
+            // surgery dragged the pole control point to the undefined
+            // atan2(0,0) u, tearing the tessellation chain ~3e-4 off
+            // its neighbours (PK-325 wavy-plate corner caps, 23 open
+            // welded mesh edges).
+            let pos_tol = self.tolerance.linear().max(1e-9_f64);
             let start_3d_ok = eval_start_3d.distance_to(&origin_pos) < pos_tol;
             let end_3d_ok = eval_end_3d.distance_to(&dest_pos) < pos_tol;
             if start_3d_ok && end_3d_ok {

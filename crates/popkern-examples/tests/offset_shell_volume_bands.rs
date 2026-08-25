@@ -223,6 +223,37 @@ fn open_mesh_edges(brep: &BRep) -> usize {
 }
 
 #[test]
+fn arc_join_bodies_tessellate_watertight() {
+    // PK-338: blend-class topology (rolling-ball strips + sphere corner
+    // windows) welds closed with no repair. The wavy plate is the hard
+    // member: its top corner caps end arcs AT the cap sphere's chart
+    // pole, and three near-pole epsilon gates (pcurve endpoint surgery,
+    // chart-coherence joints, the mesher's degenerate-azimuth detector)
+    // each read the projected pole (v ~ 1e-6) as regular geometry —
+    // bogus atan2 u's then tore the cap chains off the strips
+    // (measured 23-77 open welded edges at the four top corners).
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let rounded = offset_solid(&cube, 0.15, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&rounded.brep), 0, "rounded cube");
+
+    let cyl = BRep::cylinder(1.0, 2.0, tol()).unwrap();
+    let tc = thicken(&cyl, 0.2, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&tc.brep), 0, "arc cylinder thicken");
+
+    let cone = BRep::cone(1.0, 2.0, tol()).unwrap();
+    let oc = offset_solid(&cone, 0.15, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&oc.brep), 0, "arc cone offset");
+
+    let fixtures = popkern_examples::offset_corpus::corpus(tol()).unwrap();
+    let wavy = fixtures.iter().find(|f| f.name == "wavy_plate").unwrap();
+    let tw = thicken(&wavy.brep, 0.02, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&tw.brep), 0, "wavy plate arc thicken");
+
+    let filleted = fixtures.iter().find(|f| f.name == "filleted_cube").unwrap();
+    assert_eq!(open_mesh_edges(&filleted.brep), 0, "filleted cube fixture");
+}
+
+#[test]
 fn primitives_tessellate_watertight() {
     // PK-333: the adaptive quadtree emitted hanging nodes at every
     // refinement transition (an 80-edge open ring at the cone's
