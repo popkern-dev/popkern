@@ -27,6 +27,11 @@ pub(crate) struct JoinOutcome {
     pub records: Vec<JoinRecord>,
     /// Containment warnings (style downgrades, sharp cone apexes).
     pub warnings: Vec<ShellWarning>,
+    /// Rim-corner splits: (new SKIN vertex, OUTER body rim vertex).
+    pub rim_splits: Vec<(
+        popkern_core::topology::VertexHandle,
+        popkern_core::topology::VertexHandle,
+    )>,
 }
 
 /// Stages one ladder run emits (for PK-276 progress totals).
@@ -53,6 +58,7 @@ pub(crate) fn offset_skin_ladder(
     delete_removed_from_skin: bool,
     allow_partial: bool,
     join_style: JoinStyle,
+    serve_rim_corners: bool,
     stage_tol: &Tolerance,
     requested_scale: f64,
     labels: [&'static str; SKIN_LADDER_STAGE_COUNT],
@@ -90,11 +96,27 @@ pub(crate) fn offset_skin_ladder(
 
     stage_gate!();
     let t0 = Instant::now();
+    // Face-collapse resolution (PK-326): features thinner than the
+    // offset dissolve out of the skin before the join plan is made.
+    let collapse_warnings = crate::collapse_resolve::resolve_face_collapse(
+        brep,
+        &mut skin,
+        &skin_map,
+        &offset.surfaces,
+        stage_tol,
+    )?;
     // Join classification (PK-325): measured per-edge gap/smooth/
     // resolvable classes against the offset surfaces, planned before
     // any recompute so gap corners take their retained-run positions
     // and gap edges keep their clone curves for canal anchoring.
-    let join_plan = classify_joins(&skin, &skin_map, &offset.surfaces, stage_tol, join_style)?;
+    let join_plan = classify_joins(
+        &skin,
+        &skin_map,
+        &offset.surfaces,
+        stage_tol,
+        join_style,
+        serve_rim_corners,
+    )?;
     recompute_vertices_with_gap_corners(
         &mut skin,
         &offset.surfaces,
@@ -135,7 +157,7 @@ pub(crate) fn offset_skin_ladder(
     apply_offset_geometry(&mut skin, &offset.surfaces, &skin_map)?;
     // Join construction (PK-325): Euler surgery inserts the rolling-
     // ball strips and sphere corner windows on the recomputed skin.
-    let records = crate::arc_join::construct_arc_joins(
+    let arc = crate::arc_join::construct_arc_joins(
         &mut skin,
         &join_plan,
         &offset.surfaces,
@@ -145,9 +167,13 @@ pub(crate) fn offset_skin_ladder(
     )?;
     tracker.finish_stage(labels[4], t0, skin.faces.len());
 
+    let mut warnings = collapse_warnings;
+    warnings.extend(join_plan.warnings);
+    crate::arc_join_apex::retire_served_apex_warnings(&mut warnings, &arc.served_apexes);
     let outcome = JoinOutcome {
-        records,
-        warnings: join_plan.warnings,
+        records: arc.records,
+        warnings,
+        rim_splits: arc.rim_splits,
     };
     Ok((skin, skin_map, offset, outcome))
 }

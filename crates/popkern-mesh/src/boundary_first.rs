@@ -33,6 +33,8 @@ mod boundary_first_delaunay;
 mod boundary_first_edge_samples;
 #[path = "boundary_first_revolution.rs"]
 mod boundary_first_revolution;
+#[path = "boundary_first_revolution_bipolar.rs"]
+mod boundary_first_revolution_bipolar;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
@@ -104,7 +106,17 @@ pub(crate) fn tessellate_face_boundary_first(
             }
         }
         if !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2) {
-            return None;
+            // PK-339: the two-apex revolution arm serves the classic
+            // member of this class (a full sphere: two poles joined by
+            // one meridian seam) by construction — attempt it before
+            // falling back. Anything it declines keeps the legacy
+            // route (Delaunay stays skipped for seam spines).
+            return boundary_first_revolution_bipolar::seam_spine_revolution(
+                brep,
+                face_handle,
+                edge_samples,
+                options,
+            );
         }
     }
 

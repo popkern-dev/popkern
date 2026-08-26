@@ -39,19 +39,22 @@ pub fn recompute_vertices(
     )
 }
 
-/// [`recompute_vertices`] with gap-corner handling (PK-325): a vertex
-/// scheduled for arc-join corner surgery takes its RETAINED run's rail
-/// position (the exact projection of the original vertex onto that
-/// face's offset surface) instead of an intersection solve — the
-/// surrounding runs split off to their own offset corners later, so an
+/// [`recompute_vertices`] with gap-corner handling (PK-325/PK-326): a
+/// vertex scheduled for arc-join corner surgery takes its RETAINED
+/// sector's target position instead of an intersection solve — the
+/// other sectors split off to their own offset targets later, so an
 /// intersection here would place the sharp point the arc join removes.
-pub fn recompute_vertices_with_gap_corners(
+/// Single-face sectors project the original vertex exactly onto that
+/// face's offset surface; edge-pair sectors (mixed corners, E1) take
+/// the nearest point on the two offset surfaces' intersection so the
+/// retained resolvable edge recomputes against its final endpoint.
+pub(crate) fn recompute_vertices_with_gap_corners(
     inner: &mut BRep,
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     skin_map: &SkinMap,
     outer: &BRep,
     tolerance: &Tolerance,
-    gap_corners: &BTreeMap<VertexHandle, FaceHandle>,
+    gap_corners: &BTreeMap<VertexHandle, crate::join_classification::CornerPlanEntry>,
 ) -> Result<(), ShellError> {
     let reverse_face = skin_map.reverse_face_map();
     let reverse_vertex = skin_map.reverse_vertex_map();
@@ -59,15 +62,27 @@ pub fn recompute_vertices_with_gap_corners(
     let inner_vertex_handles: Vec<_> = inner.vertices.keys().collect();
 
     for inner_vh in inner_vertex_handles {
-        if let Some(retained_outer_face) = gap_corners.get(&inner_vh) {
+        if let Some(entry) = gap_corners.get(&inner_vh) {
             let p_orig = reverse_vertex
                 .get(&inner_vh)
                 .and_then(|ov| outer.vertices.get(*ov).map(|v| v.position))
                 .unwrap_or_else(|| inner.vertices[inner_vh].position);
-            if let Some(q) = offset_surfaces
-                .get(retained_outer_face)
-                .and_then(|s| crate::curved_recompute::project_to_surface(s, &p_orig))
-            {
+            let target = match entry.retained {
+                crate::join_classification::CornerTarget::Face(fh) => offset_surfaces
+                    .get(&fh)
+                    .and_then(|s| crate::curved_recompute::project_to_surface(s, &p_orig)),
+                crate::join_classification::CornerTarget::EdgePair(f1, f2) => {
+                    match (offset_surfaces.get(&f1), offset_surfaces.get(&f2)) {
+                        (Some(s1), Some(s2)) => crate::curved_recompute::solve_vertex_on_surfaces(
+                            &[s1, s2],
+                            p_orig,
+                            tolerance,
+                        ),
+                        _ => None,
+                    }
+                }
+            };
+            if let Some(q) = target {
                 inner.vertices[inner_vh].position = q;
                 continue;
             }

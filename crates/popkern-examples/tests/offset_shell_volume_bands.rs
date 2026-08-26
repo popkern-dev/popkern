@@ -90,14 +90,16 @@ fn shelled_cone_volume_in_analytic_band() {
 
 #[test]
 fn offset_cone_volume_in_analytic_band() {
-    // offset_solid(cone, +0.15) under the arc default (PK-325): the
-    // base rim serves a quarter-round torus window; the apex stays the
-    // sharp translated cone point (recorded ConeApexSharp deviation).
-    // Expected volume = the sharp grown cone minus the rim ring wedge
-    // deficit: per unit rim length the sharp corner holds
-    // d²·tan(β/2) of cross-section against the arc's d²·β/2 (β = the
-    // exterior angle π/2 + half_angle), swept around the rim (Pappus,
-    // centroid ≈ r to O(d)).
+    // offset_solid(cone, +0.15) under the arc default: the base rim
+    // serves a quarter-round torus window and — since PK-326 — the
+    // apex serves a SPHERE CAP tangent to the offset cone. Expected
+    // volume = the sharp grown cone, minus the rim ring wedge deficit
+    // (per unit rim length the sharp corner holds d²·tan(β/2) of
+    // cross-section against the arc's d²·β/2, β = π/2 + half_angle,
+    // swept by Pappus), minus the sharp tip above the tangency plane
+    // (a cone of height d·cos²βh/sinβh and base radius d·cosβh),
+    // plus the sphere dome above the same plane (spherical cap of
+    // height d·(1 − sinβh) on the radius-d apex sphere).
     let (r, h, d) = (1.0_f64, 2.0_f64, 0.15_f64);
     let brep = BRep::cone(r, h, tol()).unwrap();
     let result = offset_solid(&brep, d, &ShellOptions::default(), tol()).unwrap();
@@ -113,22 +115,27 @@ fn offset_cone_volume_in_analytic_band() {
     let sharp = PI / 3.0 * r_grown * r_grown * h_grown;
     let beta = PI / 2.0 + half_angle;
     let rim_deficit = 2.0 * PI * r * d * d * ((beta / 2.0).tan() - beta / 2.0);
-    let expected = sharp - rim_deficit;
+    let tip_height = d * half_angle.cos() * half_angle.cos() / half_angle.sin();
+    let tip_radius = d * half_angle.cos();
+    let tip_sharp = PI / 3.0 * tip_radius * tip_radius * tip_height;
+    let dome_height = d * (1.0 - half_angle.sin());
+    let dome = PI * dome_height * dome_height * (3.0 * d - dome_height) / 3.0;
+    let expected = sharp - rim_deficit - tip_sharp + dome;
     assert_volume_band(mesh_volume(&result.brep), expected, 0.02, "offset cone");
 
-    // The apex vertex must sit exactly at the translated apex.
-    let apex_z = h + d / half_angle.sin();
-    let apex_count = result
+    // The cap's pole vertex sits exactly at apex + d along the axis.
+    let pole_z = h + d;
+    let pole_count = result
         .brep
         .vertices
         .values()
         .filter(|v| {
             v.position.x.abs() < 1e-9
                 && v.position.y.abs() < 1e-9
-                && (v.position.z - apex_z).abs() < 1e-9
+                && (v.position.z - pole_z).abs() < 1e-9
         })
         .count();
-    assert_eq!(apex_count, 1, "apex translated to z={apex_z}");
+    assert_eq!(pole_count, 1, "sphere-cap pole at z={pole_z}");
 }
 
 #[test]
@@ -251,6 +258,20 @@ fn arc_join_bodies_tessellate_watertight() {
 
     let filleted = fixtures.iter().find(|f| f.name == "filleted_cube").unwrap();
     assert_eq!(open_mesh_edges(&filleted.brep), 0, "filleted cube fixture");
+
+    // PK-326: mixed-corner bodies (transversal connectors — ellipse
+    // arcs at saddles, circle arcs at T-corners) weld closed too.
+    let lb = fixtures.iter().find(|f| f.name == "l_bracket").unwrap();
+    let lo = offset_solid(&lb.brep, 0.1, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&lo.brep), 0, "l_bracket arc offset");
+    let li = offset_solid(&lb.brep, -0.1, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&li.brep), 0, "l_bracket arc erosion");
+
+    let tr = fixtures.iter().find(|f| f.name == "thin_rib").unwrap();
+    let to = offset_solid(&tr.brep, 0.1, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&to.brep), 0, "thin_rib arc offset");
+    let tt = thicken(&tr.brep, 0.02, &ShellOptions::default(), tol()).unwrap();
+    assert_eq!(open_mesh_edges(&tt.brep), 0, "thin_rib arc thicken");
 }
 
 #[test]

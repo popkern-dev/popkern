@@ -42,6 +42,46 @@ pub(crate) enum EdgeJoinClass {
     Irregular,
 }
 
+/// The geometric constraint a corner sector's target position solves
+/// (PK-326 E1): the closest point to the ORIGINAL vertex on the
+/// constraining recomputed entity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CornerTarget {
+    /// Single-face sector: exact projection onto this OUTER face's
+    /// offset surface.
+    Face(FaceHandle),
+    /// Sector spanning two faces across one resolvable/smooth edge:
+    /// nearest point on the two offset surfaces' intersection.
+    EdgePair(FaceHandle, FaceHandle),
+}
+
+/// Which corner mechanism serves a gap-corner vertex.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CornerKind {
+    /// Every non-seam incident edge is a gap: sphere-window fan peel
+    /// (PK-325 Stage 3a).
+    AllGap,
+    /// Gap and resolvable/smooth edges meet: the polar cone has empty
+    /// interior, so the corner resolves by transversal trimming — a
+    /// 2-sector peel whose connector edge is the intersection curve of
+    /// the two cut-wedge surfaces (PK-326 E1).
+    MixedTwoSector,
+    /// A free-rim (sheet boundary) vertex with gap edges: the strip
+    /// dead-ends at the rim, closed by its canal end cross-section
+    /// circle — a 2-sector peel whose connector twin joins the free
+    /// rim ring (PK-326, open-sheet thicken).
+    BoundaryTwoSector,
+}
+
+/// Per-corner plan entry: mechanism plus the retained sector's target
+/// constraint (consumed by vertex recompute BEFORE surgery so
+/// resolvable-edge recomputes trim against final positions).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CornerPlanEntry {
+    pub kind: CornerKind,
+    pub retained: CornerTarget,
+}
+
 /// A gap edge scheduled for join construction, in SKIN handles.
 #[derive(Debug, Clone)]
 pub(crate) struct GapEdge {
@@ -62,9 +102,12 @@ pub(crate) struct JoinPlan {
     pub effective: JoinStyle,
     /// Gap edges by SKIN edge handle (sorted iteration).
     pub gap_edges: BTreeMap<EdgeHandle, GapEdge>,
-    /// Gap corners: SKIN vertex handle → retained OUTER face (the run
-    /// that keeps the original vertex record; seams live in it).
-    pub gap_corners: BTreeMap<VertexHandle, FaceHandle>,
+    /// Every interior edge's measured class, by SKIN edge handle —
+    /// corner construction partitions vertex fans with it.
+    pub classes: BTreeMap<EdgeHandle, EdgeJoinClass>,
+    /// Gap corners: SKIN vertex handle → corner mechanism + retained
+    /// sector target (seams live in the retained sector).
+    pub gap_corners: BTreeMap<VertexHandle, CornerPlanEntry>,
     /// Containment / containment-adjacent warnings.
     pub warnings: Vec<ShellWarning>,
 }
@@ -100,6 +143,7 @@ pub(crate) fn classify_joins(
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     tolerance: &Tolerance,
     requested: JoinStyle,
+    serve_rim_corners: bool,
 ) -> Result<JoinPlan, ShellError> {
     let reverse_face = skin_map.reverse_face_map();
     let reverse_edge = skin_map.reverse_edge_map();
@@ -170,6 +214,7 @@ pub(crate) fn classify_joins(
     let mut plan = JoinPlan {
         effective: requested,
         gap_edges,
+        classes: classes.clone(),
         gap_corners: BTreeMap::new(),
         warnings: Vec::new(),
     };
@@ -254,7 +299,7 @@ pub(crate) fn classify_joins(
     // downgrades (temporary containment, PK-326 is the replacement).
     if requested == JoinStyle::Arc {
         let mut downgrade: Vec<(VertexHandle, String)> = Vec::new();
-        let mut corners: BTreeMap<VertexHandle, FaceHandle> = BTreeMap::new();
+        let mut corners: BTreeMap<VertexHandle, CornerPlanEntry> = BTreeMap::new();
 
         let mut gap_vertices: BTreeSet<VertexHandle> = BTreeSet::new();
         for eh in plan.gap_edges.keys() {
@@ -266,9 +311,9 @@ pub(crate) fn classify_joins(
         }
 
         for vh in gap_vertices {
-            match plan_corner(skin, vh, &classes, &reverse_face) {
-                Ok(retained_outer_face) => {
-                    corners.insert(vh, retained_outer_face);
+            match plan_corner(skin, vh, &classes, &reverse_face, serve_rim_corners) {
+                Ok(entry) => {
+                    corners.insert(vh, entry);
                 }
                 Err(mechanism) => {
                     let outer_vh = reverse_vertex.get(&vh).copied().unwrap_or(vh);

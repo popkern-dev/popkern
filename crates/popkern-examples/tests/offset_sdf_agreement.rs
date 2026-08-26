@@ -96,6 +96,12 @@ fn rounded_cube_offset_is_minkowski_exact_at_large_distance() {
     let result = popkern_shell::offset::offset_solid(&cube, d, &ShellOptions::default(), tol())
         .expect("arc offset cube");
     assert!(result.brep.validate_all().is_empty());
+    // PK-326 row 475 pin: the eight corners serve as sphere windows.
+    assert_eq!(
+        popkern_examples::offset_corpus::surface_census(&result.brep),
+        vec![("cylinder", 12), ("plane", 6), ("sphere", 8)],
+        "rounded cube surface census"
+    );
     let report = classify_offset_agreement(
         &index_of(&cube),
         &index_of(&result.brep),

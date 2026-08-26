@@ -185,6 +185,16 @@ pub enum ShellWarning {
         /// The apex vertex in the input body.
         vertex: VertexHandle,
     },
+    /// A connected group of faces vanished at this offset distance
+    /// (the offset exceeds the feature's local size — e.g. a thin rib
+    /// under erosion) and was dissolved through Euler operators; the
+    /// surviving skin is the true Minkowski result. PK-326 row 477.
+    FaceCollapsed {
+        /// The vanished faces in the input body (sorted).
+        faces: Vec<FaceHandle>,
+        /// How the collapse was measured and resolved.
+        mechanism: String,
+    },
 }
 
 #[cfg(test)]

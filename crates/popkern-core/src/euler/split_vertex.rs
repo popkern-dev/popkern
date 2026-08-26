@@ -255,8 +255,16 @@ impl BRep {
                 ));
             }
         }
-        verify_loop_contains_half_edges(self, c_vu.loop_, &[result.half_edge])?;
-        verify_loop_contains_half_edges(self, c_uv.loop_, &[result.half_edge_twin])?;
+        // A cut wedge may be a sheet BOUNDARY (loopless half-edges in
+        // the materialized-twin rim form): the connector half spliced
+        // into it inherits the dead loop handle and joins the free rim
+        // ring — there is no live loop to verify (PK-326 rim corners).
+        if self.loops.contains_key(c_vu.loop_) {
+            verify_loop_contains_half_edges(self, c_vu.loop_, &[result.half_edge])?;
+        }
+        if self.loops.contains_key(c_uv.loop_) {
+            verify_loop_contains_half_edges(self, c_uv.loop_, &[result.half_edge_twin])?;
+        }
         self.validate_half_edge_pairing().map_err(CoreError::from)?;
         self.validate_half_edge_cycles().map_err(CoreError::from)?;
         self.validate_vertex_consistency()

@@ -23,6 +23,7 @@ mod face_merge;
 mod face_merge_split;
 mod kemr;
 mod kve;
+mod kvr;
 mod reanchor;
 mod support_loop_interval_rewrite;
 pub use kve::KveResult;

@@ -5,11 +5,17 @@
 //! thin-walled solids, plus [`offset_solid`] and [`thicken`] operations.
 
 mod arc_join;
+mod arc_join_apex;
 mod arc_join_corner;
+mod arc_join_corner_mixed;
 mod arc_join_geometry;
+mod arc_join_transversal;
+mod arc_join_verify;
 pub mod assemble;
+mod body_distance;
 pub mod classify;
 pub mod collapse_check;
+mod collapse_resolve;
 mod curved_recompute;
 mod curved_recompute_similarity;
 pub mod edge_recompute;
@@ -216,17 +222,26 @@ pub(crate) fn shell_impl(
     let (mut inner, skin_map) = inner_skin::build_inner_skin(brep, &all_removed)?;
     tracker.finish_stage("shell.inner_skin", t0, inner.faces.len());
 
-    // Stage 4: recompute inner skin geometry. Join classification
-    // (PK-325) runs first so gap corners take retained-run positions
-    // and gap edges keep their clone curves for canal anchoring.
+    // Stage 4: recompute inner skin geometry. Face-collapse
+    // resolution (PK-326) runs FIRST: features thinner than the
+    // offset dissolve out of the skin, so the join plan and the
+    // recomputes see the surviving topology only.
     stage_gate!();
     let t0 = Instant::now();
+    let collapse_warnings = collapse_resolve::resolve_face_collapse(
+        brep,
+        &mut inner,
+        &skin_map,
+        &offset_result.surfaces,
+        &stage_tol,
+    )?;
     let join_plan = join_classification::classify_joins(
         &inner,
         &skin_map,
         &offset_result.surfaces,
         &stage_tol,
         options.join_style,
+        false,
     )?;
     vertex_recompute::recompute_vertices_with_gap_corners(
         &mut inner,
@@ -258,7 +273,7 @@ pub(crate) fn shell_impl(
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
     // Join construction (PK-325): rolling-ball strips + sphere corner
     // windows on the recomputed skin, via Euler operators only.
-    let join_records = arc_join::construct_arc_joins(
+    let arc = arc_join::construct_arc_joins(
         &mut inner,
         &join_plan,
         &offset_result.surfaces,
@@ -266,6 +281,7 @@ pub(crate) fn shell_impl(
         brep,
         &stage_tol,
     )?;
+    let join_records = arc.records;
     if let Some(sink) = join_sink {
         sink.extend(collect_join_face_data(&inner, brep, &join_records));
     }
@@ -311,7 +327,9 @@ pub(crate) fn shell_impl(
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;
+    warnings.extend(collapse_warnings);
     warnings.extend(join_plan.warnings.iter().cloned());
+    arc_join_apex::retire_served_apex_warnings(&mut warnings, &arc.served_apexes);
     for face in &offset_result.auto_removed {
         warnings.push(ShellWarning::FaceAutoRemoved {
             face: *face,

@@ -173,15 +173,31 @@ impl BRep {
         // Patch twin of he_vb.
         self.half_edges[he_vb].twin = he_bv;
 
-        // Rewire the chain on he_ab's side:
-        // he_ab -> he_vb -> he_ab_next  (was: he_ab -> he_ab_next)
-        self.half_edges[he_ab].next = he_vb;
-        self.half_edges[he_ab_next].prev = he_vb;
+        if he_ab_next == he_ba {
+            // SEAM TURNAROUND at B (he_ab and its twin are adjacent in
+            // one loop — a cone apex seam, or a bigon seam loop). The
+            // generic four rewires alias here (he_ab_next == he_ba and
+            // he_ba_prev == he_ab) and orphan he_vb from the cycle
+            // (measured: the cone-apex seam split left mef's loop walk
+            // spinning). Desired chain:
+            // he_ab (A→V) → he_vb (V→B) → he_bv (B→V) → he_ba (V→A).
+            self.half_edges[he_ab].next = he_vb;
+            self.half_edges[he_vb].prev = he_ab;
+            self.half_edges[he_vb].next = he_bv;
+            self.half_edges[he_bv].prev = he_vb;
+            self.half_edges[he_bv].next = he_ba;
+            self.half_edges[he_ba].prev = he_bv;
+        } else {
+            // Rewire the chain on he_ab's side:
+            // he_ab -> he_vb -> he_ab_next  (was: he_ab -> he_ab_next)
+            self.half_edges[he_ab].next = he_vb;
+            self.half_edges[he_ab_next].prev = he_vb;
 
-        // Rewire the chain on he_ba's side:
-        // he_ba_prev -> he_bv -> he_ba  (was: he_ba_prev -> he_ba)
-        self.half_edges[he_ba_prev].next = he_bv;
-        self.half_edges[he_ba].prev = he_bv;
+            // Rewire the chain on he_ba's side:
+            // he_ba_prev -> he_bv -> he_ba  (was: he_ba_prev -> he_ba)
+            self.half_edges[he_ba_prev].next = he_bv;
+            self.half_edges[he_ba].prev = he_bv;
+        }
 
         // Update he_ba origin: was B, now V (since the original edge A->B
         // becomes A->V, its twin goes V->A).

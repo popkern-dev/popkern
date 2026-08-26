@@ -294,10 +294,28 @@ fn build_one_side_wall(
     let b_outer_rim = *outer_he_map
         .get(&rim_he)
         .ok_or_else(|| map_err("outer rim half-edge"))?;
-    let inner_rim_orig = *skin_map
-        .half_edges
-        .get(&rim_he)
-        .ok_or_else(|| map_err("skin rim half-edge"))?;
+    let inner_rim_orig = match skin_map.half_edges.get(&rim_he) {
+        Some(h) => *h,
+        None if b_iv0 == b_iv1 => {
+            // Rim-corner arc (PK-326 boundary corner): no partner rim
+            // half-edge exists — both arc endpoints resolve to the ONE
+            // inner corner vertex and the wall is a planar sector
+            // [arc, vertical down, vertical up].
+            expect_origin(builder, b_outer_rim, b_v0, "outer rim arc")?;
+            let (down_v1, _) = vertical_at(builder, verticals, b_v1, b_iv1);
+            let (_, up_v0) = vertical_at(builder, verticals, b_v0, b_iv0);
+            let p0 = builder.brep().vertices[b_v0].position;
+            let p1 = builder.brep().vertices[b_v1].position;
+            let pc = builder.brep().vertices[b_iv0].position;
+            let face = builder.add_face(shell_handle);
+            builder
+                .add_loop(&[b_outer_rim, down_v1, up_v0], face)
+                .map_err(ShellError::Core)?;
+            set_wall_surface(builder, outer, rim_he, None, face, [p0, p1, pc, pc])?;
+            return Ok(face);
+        }
+        None => return Err(map_err("skin rim half-edge")),
+    };
     let b_inner_rim = *inner_he_map
         .get(&inner_rim_orig)
         .ok_or_else(|| map_err("inner rim half-edge"))?;

@@ -53,6 +53,7 @@ pub(crate) fn midplane_shell_impl(
         false,
         options.allow_partial,
         options.join_style,
+        false,
         &stage_tol,
         2.0,
         [
@@ -84,6 +85,7 @@ pub(crate) fn midplane_shell_impl(
         true,
         options.allow_partial,
         options.join_style,
+        false,
         &stage_tol,
         2.0,
         [

@@ -13,7 +13,7 @@ fn plan_for(brep: &BRep, direction: ShellDirection, thickness: f64, style: JoinS
     let classification = classify_faces(brep, thickness, &[], direction, &[]).unwrap();
     let offset = compute_offset_surfaces(brep, &classification, true, &tol()).unwrap();
     let (skin, skin_map) = build_inner_skin(brep, &[]).unwrap();
-    classify_joins(&skin, &skin_map, &offset.surfaces, &tol(), style).unwrap()
+    classify_joins(&skin, &skin_map, &offset.surfaces, &tol(), style, false).unwrap()
 }
 
 #[test]
@@ -42,10 +42,12 @@ fn cube_inward_has_no_gap_edges() {
 }
 
 #[test]
-fn l_bracket_outward_downgrades_on_mixed_corners() {
+fn l_bracket_outward_plans_mixed_two_sector_corners() {
     // L-shaped prism: one concave (reflex) vertical edge. Outward
     // offset: convex edges gap, the reflex edge is resolvable — its
-    // endpoints are mixed corners, an unserved vertex class (PK-326).
+    // endpoints are mixed corners, served by the PK-326 two-sector
+    // transversal peel (the E1 probe measured an empty polar cone:
+    // no sphere patch exists at these corners).
     let profile = [
         popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
         popkern_core::geometry::Point3::new(2.0, 0.0, 0.0),
@@ -65,22 +67,29 @@ fn l_bracket_outward_downgrades_on_mixed_corners() {
     assert!(!plan.gap_edges.is_empty());
     assert_eq!(
         plan.effective,
-        JoinStyle::Intersection,
-        "mixed corners must contain to the sharp join"
+        JoinStyle::Arc,
+        "mixed corners serve under Arc"
     );
-    assert!(
-        plan.warnings
-            .iter()
-            .any(|w| matches!(w, ShellWarning::JoinStyleDowngraded { .. })),
-        "downgrade must be named"
-    );
-    assert!(plan.gap_corners.is_empty());
+    assert!(plan.warnings.is_empty(), "{:?}", plan.warnings);
+    let mixed: Vec<_> = plan
+        .gap_corners
+        .values()
+        .filter(|e| e.kind == CornerKind::MixedTwoSector)
+        .collect();
+    assert_eq!(mixed.len(), 2, "the two reflex-edge endpoints are saddles");
+    for entry in mixed {
+        assert!(
+            matches!(entry.retained, CornerTarget::EdgePair(..)),
+            "saddle retained sector holds the resolvable reflex edge: {entry:?}"
+        );
+    }
 }
 
 #[test]
 fn l_bracket_inward_gap_sits_on_the_reflex_edge() {
     // Erosion rounds reflex features: inward, the single concave edge
-    // is the gap; its endpoints are mixed corners → downgrade.
+    // is the gap; its endpoints are mixed T-corners (one gap edge
+    // dead-ending into the caps), served two-sector.
     let profile = [
         popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
         popkern_core::geometry::Point3::new(2.0, 0.0, 0.0),
@@ -102,7 +111,15 @@ fn l_bracket_inward_gap_sits_on_the_reflex_edge() {
         1,
         "exactly the reflex vertical edge rounds under erosion"
     );
-    assert_eq!(plan.effective, JoinStyle::Intersection);
+    assert_eq!(plan.effective, JoinStyle::Arc);
+    assert_eq!(plan.gap_corners.len(), 2, "two T-corners at the edge ends");
+    assert!(
+        plan.gap_corners
+            .values()
+            .all(|e| e.kind == CornerKind::MixedTwoSector),
+        "{:?}",
+        plan.gap_corners
+    );
 }
 
 #[test]

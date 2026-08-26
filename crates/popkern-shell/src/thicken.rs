@@ -91,6 +91,7 @@ pub(crate) fn thicken_impl(
         false,
         options.allow_partial,
         options.join_style,
+        true,
         &stage_tol,
         2.0,
         [
@@ -113,6 +114,7 @@ pub(crate) fn thicken_impl(
         false,
         options.allow_partial,
         options.join_style,
+        true,
         &stage_tol,
         2.0,
         [
@@ -130,8 +132,18 @@ pub(crate) fn thicken_impl(
     // PK-244 winding-dishonest mirror class).
     inner.reverse_body_orientation();
 
-    // Build a combined skin map from outer to inner.
-    let combined_skin_map = crate::skin_ladder::combine_skin_maps(&outer_map, &inner_map);
+    // Build a combined skin map from outer to inner. Rim-corner arc
+    // splits on the outer skin (PK-326 boundary corners) have no
+    // original preimage: map each split vertex to the SAME inner
+    // image as its rim corner, so the free-rim wall pairing resolves
+    // both arc endpoints to the one inner corner (the arc's wall is a
+    // planar sector, not a quad).
+    let mut combined_skin_map = crate::skin_ladder::combine_skin_maps(&outer_map, &inner_map);
+    for (new_v, outer_body_v) in &joins_out.rim_splits {
+        if let Some(&inner_v) = inner_map.vertices.get(outer_body_v) {
+            combined_skin_map.vertices.insert(*new_v, inner_v);
+        }
+    }
 
     // Assemble: outer + inner; free rims (open sheets) are closed with
     // wall faces inside assembly.

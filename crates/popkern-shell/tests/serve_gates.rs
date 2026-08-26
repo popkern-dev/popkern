@@ -178,8 +178,19 @@ fn thicken_open_sheet_serves_closed_solid_with_rim_walls() {
 
     let result = popkern_shell::thicken::thicken(&brep, 0.05, &ShellOptions::default(), tol())
         .expect("open-sheet thicken serves");
-    // 5 outer + 5 inner + 4 rim walls.
-    assert_eq!(result.brep.faces.len(), 14);
+    // PK-326 rim corners: the outer skin serves rounded (8 strips on
+    // the convex edges, 4 sphere triangles at its closed corners, rim
+    // arcs at the 4 boundary corners), so the count is 17 outer +
+    // 5 inner + 4 rim wall quads + 4 rim corner sectors.
+    assert_eq!(result.brep.faces.len(), 30);
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|w| matches!(w, popkern_shell::ShellWarning::JoinStyleDowngraded { .. })),
+        "rim corners must serve without downgrade: {:?}",
+        result.warnings
+    );
     let errors = result.brep.validate_all();
     assert!(errors.is_empty(), "served invalid: {errors:?}");
     // Closed: no loopless half-edges survive.

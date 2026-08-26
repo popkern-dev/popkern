@@ -1,21 +1,30 @@
-//! Gap-corner surgery: peel each face run to its offset corner with
-//! `split_vertex`, close detours into cap triangles with `mef`, and
-//! dissolve interior connectors with `kef`, leaving one k-gon sphere
-//! window (design §5 Stage 3a, PK-325).
+//! Gap-corner surgery. All-gap corners: peel each face run to its
+//! offset corner with `split_vertex`, close detours into cap triangles
+//! with `mef`, and dissolve interior connectors with `kef`, leaving one
+//! k-gon sphere window (design §5 Stage 3a, PK-325). Mixed corners
+//! (gap + resolvable/smooth edges at one vertex, E1): the polar cone
+//! has empty interior — no sphere patch exists — so the fan peels into
+//! exactly two sectors with one `split_vertex`, and the connector edge
+//! is the transversal intersection curve of the two cut-wedge surfaces
+//! (PK-326).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::arc_join::{author_corner_arc, cap_orientation, offset_corner_position};
+use crate::arc_join_corner_mixed::construct_mixed_corner;
+use crate::join_classification::EdgeJoinClass;
 use popkern_core::euler::SplitVertexResult;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
-struct CornerFanEntry {
-    out: HalfEdgeHandle,
-    wedge_face: FaceHandle,
-    is_seam: bool,
+pub(crate) struct CornerFanEntry {
+    pub(crate) out: HalfEdgeHandle,
+    pub(crate) edge: EdgeHandle,
+    /// The face of the wedge after this entry; `None` = sheet boundary.
+    pub(crate) wedge: Option<FaceHandle>,
+    pub(crate) is_seam: bool,
 }
 
 struct CornerRun {
@@ -26,17 +35,21 @@ struct CornerRun {
 }
 
 /// Construct one gap corner. Returns the cap face when one was created
-/// (k ≥ 3), `None` for k = 2 (arc only), or the blocking mechanism.
+/// (all-gap k ≥ 3), `None` for all-gap k = 2 and mixed corners (arc
+/// or transversal connector only), or the blocking mechanism.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn construct_corner(
     skin: &mut BRep,
     v: VertexHandle,
     strip_faces: &BTreeSet<FaceHandle>,
+    classes: &BTreeMap<EdgeHandle, EdgeJoinClass>,
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     reverse_vertex: &HashMap<VertexHandle, VertexHandle>,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
     outer: &BRep,
     tolerance: &Tolerance,
+    retrim: &mut BTreeSet<EdgeHandle>,
+    rim_splits: &mut Vec<(VertexHandle, VertexHandle)>,
 ) -> Result<Option<FaceHandle>, String> {
     let p_orig = reverse_vertex
         .get(&v)
@@ -44,6 +57,31 @@ pub(crate) fn construct_corner(
         .unwrap_or_else(|| skin.vertices[v].position);
 
     let fan = corner_fan(skin, v).ok_or("corner fan is not walkable (boundary or broken)")?;
+    // Mixed / boundary corner (E1, rim corners): classified
+    // resolvable/smooth edges or boundary wedges survive in the fan
+    // (gap edges were replaced by strips in phase 1).
+    if fan.iter().any(|e| {
+        e.wedge.is_none()
+            || matches!(
+                classes.get(&e.edge),
+                Some(EdgeJoinClass::Resolvable | EdgeJoinClass::Smooth)
+            )
+    }) {
+        construct_mixed_corner(
+            skin,
+            v,
+            &fan,
+            strip_faces,
+            classes,
+            offset_surfaces,
+            reverse_face,
+            p_orig,
+            tolerance,
+            retrim,
+            rim_splits,
+        )?;
+        return Ok(None);
+    }
     let runs = fan_runs(&fan, strip_faces)?;
     if runs.len() < 2 {
         return Err("corner has fewer than two face runs between strips".into());
@@ -149,12 +187,13 @@ fn corner_fan(skin: &BRep, v: VertexHandle) -> Option<Vec<CornerFanEntry>> {
     loop {
         let he = skin.half_edges.get(cursor)?;
         let twin = skin.half_edges.get(he.twin)?;
-        let my_face = skin.loops.get(he.loop_)?.face;
-        let wedge_face = skin.loops.get(twin.loop_)?.face;
+        let my_face = skin.loops.get(he.loop_).map(|l| l.face);
+        let wedge = skin.loops.get(twin.loop_).map(|l| l.face);
         entries.push(CornerFanEntry {
             out: cursor,
-            wedge_face,
-            is_seam: my_face == wedge_face,
+            edge: he.edge,
+            wedge,
+            is_seam: my_face.is_some() && my_face == wedge,
         });
         let next = twin.next;
         if next == anchor {
@@ -177,7 +216,7 @@ fn fan_runs(
     let m = fan.len();
     let is_boundary: Vec<bool> = fan
         .iter()
-        .map(|e| strip_faces.contains(&e.wedge_face))
+        .map(|e| e.wedge.is_some_and(|f| strip_faces.contains(&f)))
         .collect();
     let Some(first_boundary) = (0..m).find(|&i| is_boundary[i]) else {
         return Err("corner fan contains no strip wedges".into());
@@ -192,7 +231,7 @@ fn fan_runs(
             let face = if current.len() >= 2 {
                 let interior: BTreeSet<FaceHandle> = current[..current.len() - 1]
                     .iter()
-                    .map(|&j| fan[j].wedge_face)
+                    .filter_map(|&j| fan[j].wedge)
                     .collect();
                 if interior.len() != 1 {
                     return Err("corner fan run spans multiple faces".into());

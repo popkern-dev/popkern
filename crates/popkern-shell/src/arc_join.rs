@@ -42,9 +42,27 @@ pub(crate) fn construct_arc_joins(
     skin_map: &SkinMap,
     outer: &BRep,
     tolerance: &Tolerance,
-) -> Result<Vec<JoinRecord>, ShellError> {
-    if plan.effective != JoinStyle::Arc || plan.gap_edges.is_empty() {
-        return Ok(Vec::new());
+) -> Result<ArcJoinOutcome, ShellError> {
+    let mut outcome = ArcJoinOutcome::default();
+    if plan.effective != JoinStyle::Arc {
+        return Ok(outcome);
+    }
+    // Dilated cone-apex sphere caps (PK-326) are independent of gap
+    // edges — a cone body may have none left after downgrades but the
+    // apex class is per-face.
+    let (apex_records, served_apexes) = crate::arc_join_apex::construct_cone_apex_caps(
+        skin,
+        offset_surfaces,
+        skin_map,
+        outer,
+        tolerance,
+    )
+    .map_err(|mechanism| ShellError::Topology(format!("cone apex cap failed: {mechanism}")))?;
+    outcome.records.extend(apex_records.iter().cloned());
+    outcome.served_apexes = served_apexes;
+    if plan.gap_edges.is_empty() {
+        crate::arc_join_verify::verify_join_faces(skin, &outcome.records, 0.0, tolerance)?;
+        return Ok(outcome);
     }
     let reverse_vertex = skin_map.reverse_vertex_map();
     let reverse_face = skin_map.reverse_face_map();
@@ -52,6 +70,7 @@ pub(crate) fn construct_arc_joins(
     // Phase 0: split closed gap edges so every gap edge has two
     // distinct endpoints and every loop has at least two half-edges.
     let mut gap_edges: BTreeMap<EdgeHandle, GapEdge> = plan.gap_edges.clone();
+    let mut classes = plan.classes.clone();
     let closed: Vec<EdgeHandle> = gap_edges
         .keys()
         .copied()
@@ -62,6 +81,8 @@ pub(crate) fn construct_arc_joins(
         let split = skin.split_edge(eh, 0.5)?;
         gap_edges.insert(split.edge_a, gap.clone());
         gap_edges.insert(split.edge_b, gap);
+        classes.insert(split.edge_a, crate::join_classification::EdgeJoinClass::Gap);
+        classes.insert(split.edge_b, crate::join_classification::EdgeJoinClass::Gap);
     }
 
     // Phase 1: strips.
@@ -150,18 +171,25 @@ pub(crate) fn construct_arc_joins(
         });
     }
 
-    // Phase 2: corners.
+    // Phase 2: corners. Mixed corners schedule curve re-trims that run
+    // only after EVERY corner has been peeled (far endpoints of shared
+    // rails belong to other corners).
     let strip_faces: BTreeSet<FaceHandle> = strip_sources.keys().copied().collect();
+    let mut retrim: BTreeSet<EdgeHandle> = BTreeSet::new();
+    let mut rim_splits: Vec<(VertexHandle, VertexHandle)> = Vec::new();
     for v in corner_vertices {
         match crate::arc_join_corner::construct_corner(
             skin,
             v,
             &strip_faces,
+            &classes,
             offset_surfaces,
             &reverse_vertex,
             &reverse_face,
             outer,
             tolerance,
+            &mut retrim,
+            &mut rim_splits,
         ) {
             Ok(Some(cap_face)) => {
                 let source_vertex = reverse_vertex.get(&v).copied();
@@ -187,11 +215,63 @@ pub(crate) fn construct_arc_joins(
         }
     }
 
+    // Phase 2.5: mixed-corner re-trims (all endpoint vertices final).
+    // A free-rim edge may still carry its STALE clone curve here: the
+    // Stage-2 parallel-map arm declines when an endpoint vertex sits
+    // off the offset surface, which is exactly the state a boundary
+    // corner's retained-sector position creates. Rebuild such curves
+    // as the clone's offset image (the rail map), then re-trim.
+    for eh in retrim {
+        let result = crate::arc_join_corner_mixed::retrim_edge_to_vertices(skin, eh, tolerance)
+            .or_else(|first_mechanism| {
+                if !crate::arc_join_verify::rebuild_rim_edge_curve(
+                    skin,
+                    eh,
+                    offset_surfaces,
+                    skin_map,
+                    tolerance,
+                ) {
+                    return Err(first_mechanism);
+                }
+                crate::arc_join_corner_mixed::retrim_edge_to_vertices(skin, eh, tolerance)
+            });
+        result.map_err(|mechanism| ShellError::JoinFailed {
+            style: JoinStyle::Arc,
+            declines: vec![JoinDecline {
+                edge: eh,
+                mechanism: format!("mixed-corner re-trim failed: {mechanism}"),
+                arc_alternative: false,
+            }],
+        })?;
+    }
+
+    // Rim splits in OUTER-body terms (the assembly's wall pairing
+    // needs the split vertices mapped to the original rim corner).
+    for (new_v, corner_v) in rim_splits {
+        if let Some(&outer_v) = reverse_vertex.get(&corner_v) {
+            outcome.rim_splits.push((new_v, outer_v));
+        }
+    }
+
     // Phase 3: geometric postconditions — every join-face boundary
     // curve must end at its vertices and lie on the join surface.
-    verify_join_faces(skin, &records, rail_deviation, tolerance)?;
+    outcome.records.extend(records);
+    crate::arc_join_verify::verify_join_faces(skin, &outcome.records, rail_deviation, tolerance)?;
 
-    Ok(records)
+    Ok(outcome)
+}
+
+/// What the arc-join construction produced on one skin.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ArcJoinOutcome {
+    /// Join faces constructed (strips, sphere windows, apex caps).
+    pub records: Vec<JoinRecord>,
+    /// OUTER apex vertices whose `ConeApexSharp` warning is retired.
+    pub served_apexes: std::collections::BTreeSet<VertexHandle>,
+    /// Rim-corner splits: (new SKIN vertex, OUTER body rim vertex) —
+    /// the assembly maps both arc endpoints to the same partner-skin
+    /// image when pairing free-rim walls.
+    pub rim_splits: Vec<(VertexHandle, VertexHandle)>,
 }
 
 fn decline(gap: &GapEdge, mechanism: &str) -> JoinDecline {
@@ -267,80 +347,6 @@ fn neighbor_flag(skin: &BRep, strip_face: FaceHandle, _gap: &GapEdge) -> Option<
         }
     }
     None
-}
-
-/// Geometric postconditions for every join face: boundary curves exist,
-/// end at their vertices, and lie on the join surface.
-fn verify_join_faces(
-    skin: &BRep,
-    records: &[JoinRecord],
-    rail_deviation: f64,
-    tolerance: &Tolerance,
-) -> Result<(), ShellError> {
-    let gate = (tolerance.linear() * 100.0).max(2.0 * rail_deviation + tolerance.linear());
-    for record in records {
-        let face = record.face;
-        let Some(surface) = skin.faces.get(face).and_then(|f| f.surface.as_ref()) else {
-            return Err(join_verify_error(face, "join face has no surface"));
-        };
-        let loop_ = skin.faces[face].outer_loop;
-        let start = skin.loops[loop_].half_edge;
-        let mut cursor = start;
-        loop {
-            let he = &skin.half_edges[cursor];
-            let twin = &skin.half_edges[he.twin];
-            let edge = &skin.edges[he.edge];
-            let Some(curve) = edge.curve.as_ref() else {
-                return Err(join_verify_error(face, "join boundary edge has no curve"));
-            };
-            let a = skin.vertices[he.origin].position;
-            let b = skin.vertices[twin.origin].position;
-            let c0 = curve.geometry.point_at(curve.t_start);
-            let c1 = curve.geometry.point_at(curve.t_end);
-            let fwd = a.distance_to(&c0).max(b.distance_to(&c1));
-            let rev = a.distance_to(&c1).max(b.distance_to(&c0));
-            if fwd.min(rev) > gate {
-                return Err(join_verify_error(
-                    face,
-                    &format!(
-                        "join boundary curve misses its vertices by {:.3e} (gate {gate:.3e})",
-                        fwd.min(rev)
-                    ),
-                ));
-            }
-            for frac in [0.25, 0.5, 0.75] {
-                let t = curve.t_start + frac * (curve.t_end - curve.t_start);
-                let p = curve.geometry.point_at(t);
-                let Some(d) = crate::curved_recompute::surface_distance(&surface.geometry, &p)
-                else {
-                    return Err(join_verify_error(
-                        face,
-                        "join surface distance query failed",
-                    ));
-                };
-                if d > gate {
-                    return Err(join_verify_error(
-                        face,
-                        &format!(
-                            "join boundary curve leaves the join surface by {d:.3e} \
-                             (gate {gate:.3e})"
-                        ),
-                    ));
-                }
-            }
-            cursor = he.next;
-            if cursor == start {
-                break;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn join_verify_error(face: FaceHandle, mechanism: &str) -> ShellError {
-    ShellError::Topology(format!(
-        "arc-join geometric postcondition failed on join face {face:?}: {mechanism}"
-    ))
 }
 
 /// Shared helper for corner construction: the offset corner position of

@@ -7,7 +7,6 @@
 //! are pinned per fixture; a later campaign stage that widens the
 //! serving envelope flips its pin deliberately, with oracle evidence.
 
-use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_examples::offset_corpus::{corpus, surface_census};
@@ -69,44 +68,6 @@ fn corpus_topology_census_validation_and_volume_pins() {
     }
 }
 
-/// Reflex-wedge exclusion for the sharp (intersection-join) inward
-/// thicken: near a concave edge the sharp inner corner legitimately
-/// keeps material the pure distance band would not (reach `t·√2` for
-/// right angles). Points within `radius` of any listed segment are
-/// excluded — counted, never silent.
-fn near_segments(p: Point3, segments: &[(Point3, Point3)], radius: f64) -> bool {
-    segments.iter().any(|(a, b)| {
-        let ab = *b - *a;
-        let len_sq = ab.dot(&ab);
-        let t = if len_sq > 0.0 {
-            ((p - *a).dot(&ab) / len_sq).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let q = *a + ab * t;
-        let d = p - q;
-        d.dot(&d).sqrt() < radius
-    })
-}
-
-/// Concave-edge segments per fixture (for the exclusion closure).
-fn concave_edges(name: &str) -> Vec<(Point3, Point3)> {
-    match name {
-        "l_bracket" => vec![(Point3::new(0.4, 0.4, 0.0), Point3::new(0.4, 0.4, 0.6))],
-        "thin_rib" => {
-            // Rib footprint ring on the plate top (z = 0.2).
-            let (x0, x1, y0, y1, z) = (0.2, 1.8, 0.47, 0.53, 0.2);
-            vec![
-                (Point3::new(x0, y0, z), Point3::new(x1, y0, z)),
-                (Point3::new(x1, y0, z), Point3::new(x1, y1, z)),
-                (Point3::new(x1, y1, z), Point3::new(x0, y1, z)),
-                (Point3::new(x0, y1, z), Point3::new(x0, y0, z)),
-            ]
-        }
-        _ => vec![],
-    }
-}
-
 /// Which fixtures the CURRENT serving envelope thickens. Every other
 /// fixture must decline with a structured error. Widening stages flip
 /// entries to `true` alongside their oracle evidence (PK-324 rows).
@@ -160,17 +121,35 @@ fn corpus_campaign_gate_thicken_serves_clean_or_declines_structured() {
                 .filter(|(_, he)| !result.brep.loops.contains_key(he.loop_))
                 .count();
             assert_eq!(free, 0, "{}: free rims remain", f.name);
-            // Closed-form: outer box (1+t)²(1+t/2) minus inner void
-            // (1−t)²(1−t/2) — the open [0,1]³ box's five slabs with
-            // sharp rim walls at the opening plane z = 1.
-            let expected =
-                (1.0 + t) * (1.0 + t) * (1.0 + t / 2.0) - (1.0 - t) * (1.0 - t) * (1.0 - t / 2.0);
+            // Closed-form (PK-326 rim corners): the OUTER skin serves
+            // rounded — full Minkowski dilation of the box by t/2
+            // intersected with the opening half-space z ≤ 1:
+            //   V_outer = 1 + 5t' + 2π t'² + (2π/3) t'³ , t' = t/2
+            // (8 quarter-round edges, 4 sphere-octant corners, rim
+            // arcs at the opening plane). The inner void stays the
+            // sharp box (1−t)²(1−t/2): erosion keeps convex edges
+            // sharp. Rim walls remain flat in the opening plane.
+            let tp = t / 2.0;
+            let outer_vol = 1.0
+                + 5.0 * tp
+                + 2.0 * std::f64::consts::PI * tp * tp
+                + (2.0 * std::f64::consts::PI / 3.0) * tp * tp * tp;
+            let expected = outer_vol - (1.0 - t) * (1.0 - t) * (1.0 - t / 2.0);
             let measured = mesh_volume(&result.brep);
             let rel = (measured - expected).abs() / expected;
             assert!(
-                rel < 0.02,
+                rel < 5e-3,
                 "{}: wall volume {measured:.6} vs analytic {expected:.6} (rel {rel:.4})",
                 f.name
+            );
+            assert!(
+                !result
+                    .warnings
+                    .iter()
+                    .any(|w| matches!(w, popkern_shell::ShellWarning::JoinStyleDowngraded { .. })),
+                "{}: rim corners must serve without downgrade: {:?}",
+                f.name,
+                result.warnings
             );
             println!("[gate] {} SERVES (open sheet): volume rel {rel:.5}", f.name);
             continue;
@@ -191,7 +170,11 @@ fn corpus_campaign_gate_thicken_serves_clean_or_declines_structured() {
                     tessellate(&result.brep, &TessellationOptions::default()).expect("tessellate");
                 let source = PointMeshIndex::build(&source_mesh);
                 let served = PointMeshIndex::build(&result_mesh);
-                let wedges = concave_edges(f.name);
+                // PK-326: no exclusion zones. The old reflex-wedge
+                // exclusions covered the SHARP inner corners the
+                // downgraded (Intersection) joins kept near concave
+                // edges; mixed corners now serve under Arc, so the
+                // rounded joins are distance-faithful everywhere.
                 let report = classify_offset_agreement(
                     &source,
                     &served,
@@ -200,8 +183,22 @@ fn corpus_campaign_gate_thicken_serves_clean_or_declines_structured() {
                         outward: t / 2.0,
                     },
                     &OffsetOracleOptions::default(),
-                    |p| near_segments(p, &wedges, 2.5 * t),
+                    |_| false,
                 );
+                // PK-326 warning-retirement pin: the E1 fixtures serve
+                // with no style downgrades.
+                if matches!(f.name, "l_bracket" | "thin_rib") {
+                    assert!(
+                        !result.warnings.iter().any(|w| matches!(
+                            w,
+                            popkern_shell::ShellWarning::JoinStyleDowngraded { .. }
+                                | popkern_shell::ShellWarning::JoinStyleDowngradedAtEdge { .. }
+                        )),
+                        "{}: unexpected join downgrade: {:?}",
+                        f.name,
+                        result.warnings
+                    );
+                }
                 assert!(
                     report.is_clean(),
                     "{}: SDF oracle disagreements: {} (first: {:?})",

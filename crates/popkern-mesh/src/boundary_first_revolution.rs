@@ -55,6 +55,19 @@ pub(super) fn try_tessellate(
         .filter(|&i| u_degenerate[i] != u_degenerate[(i + 1) % n])
         .count();
     let apex_count = u_degenerate.iter().filter(|&&d| d).count();
+    if transitions == 4 && apex_count > 0 && apex_count < n {
+        // Two chart-degenerate runs: the two-apex class (full spheres,
+        // PK-339).
+        return super::boundary_first_revolution_bipolar::try_tessellate(
+            face_handle,
+            surface,
+            orientation,
+            ring,
+            u_degenerate,
+            period_u,
+            options,
+        );
+    }
     if apex_count == 0 || apex_count == n || transitions != 2 {
         trace("no single apex run");
         return None;
@@ -89,18 +102,79 @@ pub(super) fn try_tessellate(
     if chain.len() < 4 {
         return None;
     }
-    // Constant v within chord-scale slack; u strictly monotone
-    // spanning one full period.
-    let v_base = ring.uv[chain[0]].1;
+    // PK-339: a CURVED meridian seam chord-refines into interior
+    // stations, so the chain may open and close with meridian LADDER
+    // runs (u-constant columns between apex and base) around the
+    // constant-v circle block. Straight seams (cone laterals) carry no
+    // interior stations — empty ladders keep the original shape (and
+    // the original row generation, bit-identical).
+    let v_base = ring.uv[chain[chain.len() / 2]].1;
     let eps_v = 1e-6 * (v_base - v_apex).abs().max(1e-9);
-    if chain.iter().any(|&i| (ring.uv[i].1 - v_base).abs() > eps_v) {
+    let eps_u = 1e-6 * period_u;
+    let off_base = |i: usize| (ring.uv[i].1 - v_base).abs() > eps_v;
+    let lead: Vec<usize> = chain.iter().copied().take_while(|&i| off_base(i)).collect();
+    let trail_rev: Vec<usize> = chain
+        .iter()
+        .rev()
+        .copied()
+        .take_while(|&i| off_base(i))
+        .collect();
+    if lead.len() + trail_rev.len() >= chain.len() {
+        trace("no constant-v circle block between the meridian ladders");
+        return None;
+    }
+    let middle: Vec<usize> = chain[lead.len()..chain.len() - trail_rev.len()].to_vec();
+    if middle.len() < 4 {
+        trace("circle block too short");
+        return None;
+    }
+    if middle.iter().any(|&i| off_base(i)) {
         trace("cross chain not at constant v");
         return None;
     }
-    let u_first = ring.uv[chain[0]].0;
-    let u_last = ring.uv[*chain.last()?].0;
+    let u_first = ring.uv[middle[0]].0;
+    let u_last = ring.uv[*middle.last()?].0;
+    // Ladders: u-constant at their seam azimuth, mirrored v stations,
+    // v monotone from the apex toward the base.
+    if lead.len() != trail_rev.len() {
+        trace("meridian ladders differ in station count");
+        return None;
+    }
+    // Azimuth comparisons are periodic: the unwrap phase may leave a
+    // ladder on the far branch (u = period while its circle end reads
+    // 0 — the same seam azimuth).
+    let periodic_du = |a: f64, b: f64| {
+        let d = (a - b).rem_euclid(period_u);
+        d.min(period_u - d)
+    };
+    for &i in &lead {
+        if periodic_du(ring.uv[i].0, u_first) > eps_u {
+            trace("lead meridian ladder leaves the seam azimuth");
+            return None;
+        }
+    }
+    for &i in &trail_rev {
+        if periodic_du(ring.uv[i].0, u_last) > eps_u {
+            trace("trail meridian ladder leaves the seam azimuth");
+            return None;
+        }
+    }
+    for (a, b) in lead.iter().zip(trail_rev.iter()) {
+        if (ring.uv[*a].1 - ring.uv[*b].1).abs() > eps_v {
+            trace("meridian ladders not mirrored");
+            return None;
+        }
+    }
+    let toward_base = (v_base - v_apex).signum();
+    for w in lead.windows(2) {
+        if toward_base * (ring.uv[w[1]].1 - ring.uv[w[0]].1) <= 0.0 {
+            trace("meridian ladder v not monotone");
+            return None;
+        }
+    }
+    // Circle block: u strictly monotone spanning one full period.
     let dir = if u_last > u_first { 1.0 } else { -1.0 };
-    for w in chain.windows(2) {
+    for w in middle.windows(2) {
         if dir * (ring.uv[w[1]].0 - ring.uv[w[0]].0) <= 0.0 {
             trace("cross chain u not monotone");
             return None;
@@ -110,21 +184,62 @@ pub(super) fn try_tessellate(
         trace("cross chain does not span one period");
         return None;
     }
-    // Endpoints of the chain must be weld-coincident (the seam pair).
-    if ring.pos[chain[0]].distance_to(&ring.pos[*chain.last()?]) > 1e-7 * scale {
+    // Endpoints of the circle block must be weld-coincident (the seam
+    // pair at the base latitude).
+    if ring.pos[middle[0]].distance_to(&ring.pos[*middle.last()?]) > 1e-7 * scale {
         trace("chain endpoints not weld-coincident");
         return None;
     }
 
-    // Latitude row count from the meridian chord criterion at the
-    // chart's u midpoint, doubled until the midpoint sag passes.
+    // Interior latitude rows. Meridian ladders present: their v
+    // stations ARE the rows (the seam chain is already chord-refined;
+    // reusing it keeps the face boundary exactly equal to the ring —
+    // PK-339). Straight seams: row count from the meridian chord
+    // criterion at the chart's u midpoint, doubled until the midpoint
+    // sag passes (the original arm, bit-identical).
     let u_mid = 0.5 * (u_first + u_last);
-    let mut rows = 1usize;
-    while rows < options.max_subdivisions.max(1) {
-        let mut worst = 0.0_f64;
-        for j in 0..rows {
-            let va = v_apex + (v_base - v_apex) * j as f64 / rows as f64;
-            let vb = v_apex + (v_base - v_apex) * (j + 1) as f64 / rows as f64;
+    // Each interior row carries its v and, when it came from the ring,
+    // the lead/trail ladder index whose positions the seam columns
+    // adopt verbatim.
+    let interior_vs: Vec<(f64, Option<usize>)> = if lead.is_empty() {
+        let mut rows = 1usize;
+        while rows < options.max_subdivisions.max(1) {
+            let mut worst = 0.0_f64;
+            for j in 0..rows {
+                let va = v_apex + (v_base - v_apex) * j as f64 / rows as f64;
+                let vb = v_apex + (v_base - v_apex) * (j + 1) as f64 / rows as f64;
+                let pa = surface.point_at(u_mid, va);
+                let pb = surface.point_at(u_mid, vb);
+                let pm = surface.point_at(u_mid, 0.5 * (va + vb));
+                let chord_mid = popkern_core::geometry::Point3::new(
+                    0.5 * (pa.x + pb.x),
+                    0.5 * (pa.y + pb.y),
+                    0.5 * (pa.z + pb.z),
+                );
+                worst = worst.max(pm.distance_to(&chord_mid));
+            }
+            if worst <= options.chord_height {
+                break;
+            }
+            rows *= 2;
+        }
+        (1..rows)
+            .map(|j| (v_apex + (v_base - v_apex) * j as f64 / rows as f64, None))
+            .collect()
+    } else {
+        // Ladder rows, sag-refined: the seam chain bounds the CURVE's
+        // chord error but a coarse ladder can under-resolve the
+        // surface between rows (measured: the sphere-capped rod's cap
+        // volume fell 1.3% below its analytic pin). Bisect any band
+        // whose mid-band sag at u_mid exceeds the chord height;
+        // inserted rows are surface evaluations on BOTH seam sides,
+        // so welds stay closed.
+        let mut rows: Vec<(f64, Option<usize>)> = lead
+            .iter()
+            .enumerate()
+            .map(|(j, &i)| (ring.uv[i].1, Some(j)))
+            .collect();
+        let sag = |va: f64, vb: f64| {
             let pa = surface.point_at(u_mid, va);
             let pb = surface.point_at(u_mid, vb);
             let pm = surface.point_at(u_mid, 0.5 * (va + vb));
@@ -133,20 +248,41 @@ pub(super) fn try_tessellate(
                 0.5 * (pa.y + pb.y),
                 0.5 * (pa.z + pb.z),
             );
-            worst = worst.max(pm.distance_to(&chord_mid));
+            pm.distance_to(&chord_mid)
+        };
+        for _ in 0..options.max_subdivisions.max(1) {
+            let mut refined: Vec<(f64, Option<usize>)> = Vec::with_capacity(rows.len() * 2);
+            let mut inserted = false;
+            let mut prev_v = v_apex;
+            for &(v, src) in &rows {
+                if sag(prev_v, v) > options.chord_height {
+                    refined.push((0.5 * (prev_v + v), None));
+                    inserted = true;
+                }
+                refined.push((v, src));
+                prev_v = v;
+            }
+            if sag(prev_v, v_base) > options.chord_height {
+                refined.push((0.5 * (prev_v + v_base), None));
+                inserted = true;
+            }
+            rows = refined;
+            if !inserted {
+                break;
+            }
         }
-        if worst <= options.chord_height {
-            break;
-        }
-        rows *= 2;
-    }
+        rows
+    };
+    let rows = interior_vs.len() + 1;
     // Circumferential chord error is owned by the base chain's own
     // canonical sampling; interior rows shrink toward the apex, so
     // reusing its u stations only ever refines.
 
-    // Assemble: apex vertex, interior latitude rows at the chain's u
-    // stations, base row = ring points verbatim.
-    let k = chain.len();
+    // Assemble: apex vertex, interior latitude rows at the circle
+    // block's u stations, base row = ring points verbatim. Seam-column
+    // interior points take the ring's LADDER positions verbatim so the
+    // face boundary equals the ring exactly.
+    let k = middle.len();
     let mut uv_pts: Vec<(f64, f64)> = Vec::with_capacity(1 + (rows - 1) * k + k);
     let mut vertices: Vec<MeshVertex> = Vec::new();
     let push = |uv_pts: &mut Vec<(f64, f64)>,
@@ -178,14 +314,18 @@ pub(super) fn try_tessellate(
         v_apex + (v_base - v_apex) * 1e-6,
         Some(apex_pos),
     );
-    for j in 1..rows {
-        let v = v_apex + (v_base - v_apex) * j as f64 / rows as f64;
-        for &i in &chain {
-            push(&mut uv_pts, &mut vertices, ring.uv[i].0, v, None);
+    for &(v, src) in &interior_vs {
+        for (idx, &i) in middle.iter().enumerate() {
+            let seam_pos = match src {
+                Some(j) if idx == 0 => Some(ring.pos[lead[j]]),
+                Some(j) if idx == k - 1 => Some(ring.pos[trail_rev[j]]),
+                _ => None,
+            };
+            push(&mut uv_pts, &mut vertices, ring.uv[i].0, v, seam_pos);
         }
     }
     let base_row = vertices.len();
-    for &i in &chain {
+    for &i in &middle {
         push(
             &mut uv_pts,
             &mut vertices,
