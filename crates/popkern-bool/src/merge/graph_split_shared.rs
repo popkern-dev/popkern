@@ -81,7 +81,7 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
     // record's OWN faces — the record's registration is the warrant
     // for cutting that face's boundary. Verification stays
     // curve-true at the widened gate.
-    let loose = tolerance * 1.0e3;
+    let loose_base = tolerance * 1.0e3;
     let mut did_split = true;
     while did_split {
         did_split = false;
@@ -124,6 +124,18 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
                 }
                 let p0 = graph.nodes[he.origin].position;
                 let p1 = graph.nodes[twin_origin].position;
+                // The widened gate is capped GEOMETRY-RELATIVE (5% of
+                // the candidate edge's chord): tolerance × 1e3 is an
+                // absolute distance, and at linear 1e-4 it reached
+                // 0.2 — exactly a bore circle's clearance from the
+                // cube rim — so the rim was split at a node 0.2 OFF
+                // it and every coarse-tolerance boolean in that
+                // resonance served garbage (PK-342; at 1e-3 the same
+                // runaway gate tripped its own endpoint guard, which
+                // masked the defect). The torus half-period seam slop
+                // this gate exists for is ~1e-3 on unit-scale edges —
+                // comfortably inside the cap.
+                let loose = loose_base.min(p0.distance_to(&p1) * 0.05);
                 // Endpoint guard at the widened gate: a node within
                 // the slop class of an edge VERTEX is a vertex touch,
                 // not a mid-edge crossing.
@@ -216,7 +228,7 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
     // record's OWN faces — the record's registration is the warrant
     // for cutting that face's boundary. Verification stays
     // curve-true at the widened gate.
-    let loose = tolerance * 1.0e3;
+    let loose_base = tolerance * 1.0e3;
     let mut did_split = true;
     while did_split {
         did_split = false;
@@ -259,6 +271,18 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
                 }
                 let p0 = graph.nodes[he.origin].position;
                 let p1 = graph.nodes[twin_origin].position;
+                // The widened gate is capped GEOMETRY-RELATIVE (5% of
+                // the candidate edge's chord): tolerance × 1e3 is an
+                // absolute distance, and at linear 1e-4 it reached
+                // 0.2 — exactly a bore circle's clearance from the
+                // cube rim — so the rim was split at a node 0.2 OFF
+                // it and every coarse-tolerance boolean in that
+                // resonance served garbage (PK-342; at 1e-3 the same
+                // runaway gate tripped its own endpoint guard, which
+                // masked the defect). The torus half-period seam slop
+                // this gate exists for is ~1e-3 on unit-scale edges —
+                // comfortably inside the cap.
+                let loose = loose_base.min(p0.distance_to(&p1) * 0.05);
                 // Endpoint guard at the widened gate: a node within
                 // the slop class of an edge VERTEX is a vertex touch,
                 // not a mid-edge crossing.

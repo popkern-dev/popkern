@@ -109,6 +109,40 @@ pub fn post_check(
         });
     }
 
+    // 2b. Loop closure + shell watertightness + curve/surface
+    // agreement (PK-342): the coarse-tolerance resonance served
+    // bodies whose loops gaped and whose edge curves sat a full cap
+    // height off their faces — validate_all catches all three, but
+    // the serve gate only consulted the structural set, so the
+    // boolean LOGGED "4 issues" and served garbage. These are the
+    // geometric closure checks a boolean result must pass to be a
+    // boundary representation at all; anything failing them declines
+    // as ValidationFailed instead of serving.
+    if let Err(e) = result.validate_loop_closure() {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Error,
+            message: format!("Loop not geometrically closed: {e}"),
+            error: Some(e),
+            measured_value: None,
+        });
+    }
+    if let Err(e) = result.validate_watertight() {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Error,
+            message: format!("Shell gap: {e}"),
+            error: Some(e),
+            measured_value: None,
+        });
+    }
+    if let Err(e) = result.validate_curve_surface() {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Error,
+            message: format!("Edge curve deviates from face surface: {e}"),
+            error: Some(e),
+            measured_value: None,
+        });
+    }
+
     // 3. Orientation consistency
     if let Err(e) = result.validate_half_edge_pairing() {
         report.findings.push(PostCheckFinding {
