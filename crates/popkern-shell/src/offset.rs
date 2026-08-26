@@ -259,7 +259,17 @@ pub(crate) fn offset_solid_impl(
         trim_routing.deferred,
         trim_routing.inverted_edges.len(),
         &tolerance,
-    )?;
+    )
+    .map_err(|e| {
+        crate::max_safe::upgrade_trim_decline(
+            brep,
+            direction,
+            abs_default,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
     tracker.finish_stage("offset.global_si_trim", t0, result.faces.len());
 
     // Serve gate: never hand back a body a validator would reject.

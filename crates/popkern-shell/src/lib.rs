@@ -14,6 +14,7 @@ mod arc_join_verify;
 pub mod assemble;
 mod body_distance;
 pub mod classify;
+mod classify_sense;
 pub mod collapse_check;
 mod collapse_resolve;
 mod curved_recompute;
@@ -24,6 +25,8 @@ mod global_si_trim;
 pub mod inner_skin;
 pub mod interactive;
 mod join_classification;
+pub mod max_safe;
+mod max_safe_motion;
 mod midplane;
 pub mod offset;
 mod shell_naming;
@@ -41,11 +44,10 @@ pub use interactive::{
     offset_solid_variable_with_control, offset_solid_with_control, shell_variable_with_control,
     shell_with_control, thicken_with_control,
 };
+pub use max_safe::{OffsetConstraint, SafeOffsetReport, max_safe_offset};
 pub use types::*;
 
-pub(crate) use shell_naming::{
-    JoinFaceData, assign_shell_names, collect_join_face_data, collect_shell_face_data,
-};
+pub(crate) use shell_naming::{ShellProvenance, assign_shell_names, join_source_name};
 
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
@@ -73,12 +75,7 @@ pub fn shell(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<ShellResult, ShellError> {
-    let input_faces = if tracking.is_some() {
-        collect_shell_face_data(brep)
-    } else {
-        Vec::new()
-    };
-    let mut join_faces: Vec<JoinFaceData> = Vec::new();
+    let mut provenance = ShellProvenance::default();
     let mut result = shell_impl(
         brep,
         thickness,
@@ -88,16 +85,10 @@ pub fn shell(
         options,
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
-        tracking.is_some().then_some(&mut join_faces),
+        tracking.is_some().then_some(&mut provenance),
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(
-            &mut result.brep,
-            ctx,
-            &input_faces,
-            &join_faces,
-            &brep.tolerance,
-        );
+        assign_shell_names(&mut result.brep, ctx, brep, &provenance);
     }
     Ok(result)
 }
@@ -122,12 +113,7 @@ pub fn shell_variable(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<ShellResult, ShellError> {
-    let input_faces = if tracking.is_some() {
-        collect_shell_face_data(brep)
-    } else {
-        Vec::new()
-    };
-    let mut join_faces: Vec<JoinFaceData> = Vec::new();
+    let mut provenance = ShellProvenance::default();
     let mut result = shell_impl(
         brep,
         default_thickness,
@@ -137,16 +123,10 @@ pub fn shell_variable(
         options,
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
-        tracking.is_some().then_some(&mut join_faces),
+        tracking.is_some().then_some(&mut provenance),
     )?;
     if let Some(ctx) = tracking {
-        assign_shell_names(
-            &mut result.brep,
-            ctx,
-            &input_faces,
-            &join_faces,
-            &brep.tolerance,
-        );
+        assign_shell_names(&mut result.brep, ctx, brep, &provenance);
     }
     Ok(result)
 }
@@ -170,7 +150,7 @@ pub(crate) fn shell_impl(
     options: &ShellOptions,
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
-    join_sink: Option<&mut Vec<JoinFaceData>>,
+    naming_sink: Option<&mut ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
     macro_rules! stage_gate {
@@ -191,7 +171,7 @@ pub(crate) fn shell_impl(
             options,
             tolerance,
             tracker,
-            join_sink,
+            naming_sink,
         );
     }
 
@@ -289,9 +269,6 @@ pub(crate) fn shell_impl(
         &stage_tol,
     )?;
     let join_records = arc.records;
-    if let Some(sink) = join_sink {
-        sink.extend(collect_join_face_data(&inner, brep, &join_records));
-    }
     tracker.finish_stage("shell.apply_offset_geometry", t0, inner.faces.len());
 
     // Mirror the inner skin's material side honestly: winding and
@@ -306,6 +283,26 @@ pub(crate) fn shell_impl(
     let (mut result, assembly_maps) =
         assemble::assemble_shell_with_maps(brep, &inner, &all_removed, &skin_map, tolerance)?;
     tracker.finish_stage("shell.assemble", t0, result.faces.len());
+
+    // Exact face provenance for stable naming (PK-328): handles are
+    // final from assembly on; trim-stage deletions are checked at
+    // assignment time.
+    if let Some(sink) = naming_sink {
+        for (&src, &res) in &assembly_maps.outer_faces {
+            sink.modified.push((res, src));
+        }
+        for (&src, &skin_fh) in &skin_map.faces {
+            if let Some(&res) = assembly_maps.inner_faces.get(&skin_fh) {
+                sink.offset.push((res, src));
+            }
+        }
+        for record in &join_records {
+            if let Some(&res) = assembly_maps.inner_faces.get(&record.face) {
+                sink.joins.push((res, join_source_name(brep, record.kind)));
+            }
+        }
+        sink.sort();
+    }
 
     // Stage 6: recompute pcurves for all faces.
     stage_gate!();
@@ -364,7 +361,17 @@ pub(crate) fn shell_impl(
         trim_routing.deferred,
         trim_routing.inverted_edges.len(),
         &tolerance,
-    )?;
+    )
+    .map_err(|e| {
+        max_safe::upgrade_trim_decline(
+            brep,
+            direction,
+            thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
 
     // Serve gate: never hand back a body a validator would reject. The
     // structural collection is the affordable in-pipeline form (PK-273);
@@ -372,6 +379,34 @@ pub(crate) fn shell_impl(
     // validate_all.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
+        if std::env::var_os("PK_SHELL_SERVE_TRACE").is_some() {
+            for e in &validation_errors {
+                eprintln!("[serve-trace] {e}");
+            }
+            for (eh, edge) in &result.edges {
+                let ends = {
+                    let he = &result.half_edges[edge.half_edge];
+                    let tw = &result.half_edges[he.twin];
+                    (
+                        result.vertices[he.origin].position,
+                        result.vertices[tw.origin].position,
+                    )
+                };
+                eprintln!(
+                    "[serve-trace] {eh:?} curve={:?} ends=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                    edge.curve.as_ref().map(|c| format!("{:?}", c.geometry)
+                        .chars()
+                        .take(90)
+                        .collect::<String>()),
+                    ends.0.x,
+                    ends.0.y,
+                    ends.0.z,
+                    ends.1.x,
+                    ends.1.y,
+                    ends.1.z
+                );
+            }
+        }
         return Err(ShellError::ValidationFailed {
             errors: validation_errors,
         });
@@ -397,78 +432,5 @@ pub(crate) fn shell_impl(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::tolerance::Tolerance;
-
-    #[test]
-    fn shell_empty_brep_returns_no_faces() {
-        let brep = BRep::new(Tolerance::default());
-        let result = shell(
-            &brep,
-            0.1,
-            ShellDirection::Inward,
-            &[],
-            &[],
-            &ShellOptions::default(),
-            Tolerance::default(),
-            None,
-        );
-        assert!(matches!(result, Err(ShellError::NoFaces)));
-    }
-
-    #[test]
-    fn shell_cube_no_removal_produces_result() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let result = shell(
-            &brep,
-            0.1,
-            ShellDirection::Inward,
-            &[],
-            &[],
-            &ShellOptions::default(),
-            Tolerance::default(),
-            None,
-        )
-        .unwrap();
-        // Outer (6) + inner (6) = 12 faces.
-        assert_eq!(result.brep.faces.len(), 12);
-    }
-
-    #[test]
-    fn shell_cube_one_face_removed() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let first_face = brep.faces.keys().next().unwrap();
-        let result = shell(
-            &brep,
-            0.1,
-            ShellDirection::Inward,
-            &[first_face],
-            &[],
-            &ShellOptions::default(),
-            Tolerance::default(),
-            None,
-        )
-        .unwrap();
-        // Outer (5) + inner (5) + side walls (4) = 14 faces.
-        assert_eq!(result.brep.faces.len(), 14);
-    }
-
-    #[test]
-    fn shell_variable_produces_result() {
-        let brep = BRep::unit_cube(Tolerance::default()).unwrap();
-        let first_face = brep.faces.keys().next().unwrap();
-        let result = shell_variable(
-            &brep,
-            0.1,
-            &[(first_face, 0.2)],
-            ShellDirection::Inward,
-            &[],
-            &ShellOptions::default(),
-            Tolerance::default(),
-            None,
-        )
-        .unwrap();
-        assert_eq!(result.brep.faces.len(), 12);
-    }
-}
+#[path = "shell_entry_tests.rs"]
+mod tests;

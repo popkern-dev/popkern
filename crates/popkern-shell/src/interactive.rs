@@ -30,16 +30,17 @@ use crate::types::{ShellDirection, ShellOptions, ShellResult};
 /// when one is. `inline` borrows the caller's data; `make_worker`
 /// receives the worker's token clone and returns the detached body
 /// owning pre-cloned inputs (cloning happens only on the detach path).
-fn run_controlled<F, M, W>(
+fn run_controlled<T, F, M, W>(
     control: OperationControl<'_>,
     total_stages: usize,
     inline: F,
     make_worker: M,
-) -> Result<ShellResult, ShellError>
+) -> Result<T, ShellError>
 where
-    F: FnOnce(&mut StageTracker<'_, '_>) -> Result<ShellResult, ShellError>,
+    T: Send + 'static,
+    F: FnOnce(&mut StageTracker<'_, '_>) -> Result<T, ShellError>,
     M: FnOnce(CancellationToken) -> W,
-    W: FnOnce(EventSink<ProgressEvent>) -> Result<ShellResult, ShellError> + Send + 'static,
+    W: FnOnce(EventSink<ProgressEvent>) -> Result<T, ShellError> + Send + 'static,
 {
     let OperationControl {
         cancel,
@@ -75,11 +76,6 @@ pub fn shell_with_control(
     tracking: Option<&mut TrackingContext>,
     control: OperationControl<'_>,
 ) -> Result<ShellResult, ShellError> {
-    let input_faces = if tracking.is_some() {
-        crate::collect_shell_face_data(brep)
-    } else {
-        Vec::new()
-    };
     // Midplane runs its own two-ladder pipeline with a different honest
     // stage total (PK-276: the promised count must match the emitted
     // events).
@@ -88,11 +84,16 @@ pub fn shell_with_control(
     } else {
         crate::SHELL_STAGE_COUNT
     };
-    let mut result = run_controlled(
+    // Provenance rides the generic payload across the detach boundary
+    // (PK-328): the worker owns its record and returns it with the
+    // result, so the interactive path names exactly like the plain one.
+    let track = tracking.is_some();
+    let (mut result, provenance) = run_controlled(
         control,
         stage_count,
         |tracker| {
-            crate::shell_impl(
+            let mut provenance = crate::ShellProvenance::default();
+            let result = crate::shell_impl(
                 brep,
                 thickness,
                 direction,
@@ -101,8 +102,9 @@ pub fn shell_with_control(
                 options,
                 tolerance,
                 tracker,
-                None,
-            )
+                track.then_some(&mut provenance),
+            )?;
+            Ok((result, provenance))
         },
         |token| {
             let brep = brep.clone();
@@ -111,7 +113,8 @@ pub fn shell_with_control(
             let options = options.clone();
             move |mut sink: EventSink<ProgressEvent>| {
                 let mut tracker = StageTracker::new(Some(&token), Some(&mut sink), stage_count);
-                crate::shell_impl(
+                let mut provenance = crate::ShellProvenance::default();
+                let result = crate::shell_impl(
                     &brep,
                     thickness,
                     direction,
@@ -120,17 +123,14 @@ pub fn shell_with_control(
                     &options,
                     tolerance,
                     &mut tracker,
-                    // Join-ancestor capture is not threaded through the
-                    // dual-closure control path; interactive naming
-                    // keeps plain Generated names (facade/history
-                    // wiring is PK-328's scope).
-                    None,
-                )
+                    track.then_some(&mut provenance),
+                )?;
+                Ok((result, provenance))
             }
         },
     )?;
     if let Some(ctx) = tracking {
-        crate::assign_shell_names(&mut result.brep, ctx, &input_faces, &[], &brep.tolerance);
+        crate::assign_shell_names(&mut result.brep, ctx, brep, &provenance);
     }
     Ok(result)
 }

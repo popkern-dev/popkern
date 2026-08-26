@@ -54,10 +54,24 @@ impl BRep {
         let mut current = start_he;
         let limit = self.half_edges.len() + 1;
         for _ in 0..limit {
-            let he = &self.half_edges[current];
-            let origin = self.vertices[he.origin].position;
+            let Some(he) = self.half_edges.get(current) else {
+                break;
+            };
+            let Some(origin_v) = self.vertices.get(he.origin) else {
+                break;
+            };
+            let origin = origin_v.position;
             positions.push(origin);
-            if samples_per_edge > 0 {
+            // Free rims (open sheets) may carry twin-less half-edges;
+            // the destination then falls back to the next half-edge's
+            // origin below via the curveless interpolant.
+            let dest_v = self
+                .half_edges
+                .get(he.twin)
+                .and_then(|tw| self.vertices.get(tw.origin));
+            if samples_per_edge > 0
+                && let Some(dest_v) = dest_v
+            {
                 // Staleness guard: only trust a curve whose endpoints
                 // agree with the edge's vertices — fixtures (and some
                 // legacy passes) move vertices without re-authoring
@@ -65,7 +79,7 @@ impl BRep {
                 // position cloud with points from the old geometry
                 // (measured: a vertex-scaled inner cube reported its
                 // pre-scale extent and containment booleans collapsed).
-                let dest = self.vertices[self.half_edges[he.twin].origin].position;
+                let dest = dest_v.position;
                 let fresh_curve = self
                     .edges
                     .get(he.edge)

@@ -13,6 +13,7 @@ mod orientation;
 mod precision;
 pub use material_sense::MaterialSense;
 mod face_trim_query;
+mod face_uv_window;
 pub use face_trim_query::FaceUvContainment;
 mod region;
 mod self_intersection;

@@ -52,7 +52,7 @@ pub fn classify_faces(
     }
 
     let thickness_map: HashMap<FaceHandle, f64> = face_thicknesses.iter().copied().collect();
-    let outward_multipliers = component_outward_multipliers(brep)?;
+    let outward_multipliers = face_outward_multipliers(brep)?;
 
     let mut offset_faces = Vec::new();
     let mut removed_faces = Vec::new();
@@ -100,8 +100,142 @@ pub fn classify_faces(
     })
 }
 
+/// Resolve the out-of-material multiplier PER FACE via the
+/// traversal-coherent normal (see [`crate::classify_sense`]).
+///
+/// The component-wide wedge multiplier assumed flag-folded normals
+/// are uniform per component; served boolean outputs REFUTE that
+/// (measured: the sphere-capped-rod union folds its cylinder wall and
+/// bottom cap outward but its sphere cap center-ward — every face
+/// winding-honest — so the component verdict moved the wall skin
+/// OUTWARD under an "Inward" shell and served the mixed body
+/// structurally clean at small thickness). The traversal-coherent
+/// normal (outer loop CCW in UV, measured from the pcurve polygons)
+/// is on ONE global side per component; the component wedge fixes
+/// which. Faces whose winding vote is inconclusive fall back to the
+/// legacy component verdict.
+///
+/// # Errors
+///
+/// [`ShellError::MaterialSenseUnresolved`] naming the first face
+/// neither resolution can serve.
+fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, ShellError> {
+    let mut senses: HashMap<FaceHandle, crate::classify_sense::FaceSense> = HashMap::new();
+    let mut face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
+    face_handles.sort();
+    for &fh in &face_handles {
+        if let Some(s) = crate::classify_sense::face_sense(brep, fh) {
+            senses.insert(fh, s);
+        }
+    }
+
+    let mut multipliers: HashMap<FaceHandle, f64> = HashMap::new();
+    let mut unresolved: Vec<FaceHandle> = Vec::new();
+    let mut assigned: HashSet<FaceHandle> = HashSet::new();
+    for &seed in &face_handles {
+        if assigned.contains(&seed) {
+            continue;
+        }
+        let component = shared_edge_component(brep, seed, &mut assigned);
+        match crate::classify_sense::component_stored_normal_out_signs(brep, &component, &senses) {
+            Some(signs) => {
+                for &fh in &component {
+                    match signs.get(&fh) {
+                        // The sign applies to the STORED normal; the
+                        // caller folds by the flag, so pre-divide it
+                        // out (flag² = 1).
+                        Some(&s) => {
+                            let flag_sign = brep
+                                .faces
+                                .get(fh)
+                                .and_then(|f| f.surface.as_ref())
+                                .map(|sof| if sof.orientation { 1.0 } else { -1.0 })
+                                .unwrap_or(1.0);
+                            if std::env::var_os("PK_SENSE_TRACE").is_some() {
+                                eprintln!("[sense-mult] {fh:?} sense s={s} flag={flag_sign}");
+                            }
+                            multipliers.insert(fh, s * flag_sign);
+                        }
+                        None => unresolved.push(fh),
+                    }
+                }
+            }
+            None => unresolved.extend(component.iter().copied()),
+        }
+    }
+
+    // Fallback: the legacy component wedge verdict for faces the
+    // winding vote could not measure (degenerate polygons, open
+    // sheets whose wedge is the only signal).
+    if !unresolved.is_empty() {
+        let component = component_outward_multipliers(brep)?;
+        for fh in unresolved {
+            let mult = component
+                .get(&fh)
+                .copied()
+                .ok_or(ShellError::MaterialSenseUnresolved { face: fh })?;
+            if std::env::var_os("PK_SENSE_TRACE").is_some() {
+                eprintln!("[sense-mult] {fh:?} LEGACY mult={mult}");
+            }
+            multipliers.insert(fh, mult);
+        }
+    }
+    Ok(multipliers)
+}
+
+/// Faces reachable from `seed` over shared edges (marking them in
+/// `assigned`), defensively walked.
+fn shared_edge_component(
+    brep: &BRep,
+    seed: FaceHandle,
+    assigned: &mut HashSet<FaceHandle>,
+) -> Vec<FaceHandle> {
+    let mut component = Vec::new();
+    let mut queue = vec![seed];
+    while let Some(fh) = queue.pop() {
+        if !assigned.insert(fh) {
+            continue;
+        }
+        component.push(fh);
+        let Some(face) = brep.faces.get(fh) else {
+            continue;
+        };
+        // ALL loops: a face bounded by a hole connects to its bore
+        // wall through the INNER rim only (measured: the bracket's
+        // outer-loop-only walk split {planes} from {bore, cone} and
+        // the two components resolved OPPOSITE global sides).
+        let loop_handles: Vec<_> = std::iter::once(face.outer_loop)
+            .chain(face.inner_loops.iter().copied())
+            .collect();
+        for lh in loop_handles {
+            let Some(loop_) = brep.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_.half_edge;
+            let mut he = start;
+            while let Some(he_data) = brep.half_edges.get(he) {
+                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                    && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
+                {
+                    let partner = partner_loop.face;
+                    if !assigned.contains(&partner) {
+                        queue.push(partner);
+                    }
+                }
+                he = he_data.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+    }
+    component.sort();
+    component
+}
+
 /// Resolve the material-sense outward multiplier for every face, one
-/// wedge-integral resolution per shared-edge-connected component.
+/// wedge-integral resolution per shared-edge-connected component
+/// (fallback arm of [`face_outward_multipliers`]).
 ///
 /// # Errors
 ///
@@ -132,16 +266,19 @@ fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>
             };
             let start = loop_.half_edge;
             let mut he = start;
-            loop {
-                let twin = brep.half_edges[he].twin;
-                let partner_loop = brep.half_edges[twin].loop_;
-                if brep.loops.contains_key(partner_loop) {
-                    let partner = brep.loops[partner_loop].face;
+            // Free rims (open sheets) carry twin-less half-edges;
+            // defensive access instead of indexing (PK-328: the
+            // pre-flight query reaches classify on sheet bodies).
+            while let Some(he_data) = brep.half_edges.get(he) {
+                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                    && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
+                {
+                    let partner = partner_loop.face;
                     if !assigned.contains(&partner) {
                         queue.push(partner);
                     }
                 }
-                he = brep.half_edges[he].next;
+                he = he_data.next;
                 if he == start {
                     break;
                 }

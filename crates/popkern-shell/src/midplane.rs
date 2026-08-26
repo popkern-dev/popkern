@@ -30,7 +30,7 @@ pub(crate) fn midplane_shell_impl(
     options: &ShellOptions,
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
-    join_sink: Option<&mut Vec<crate::JoinFaceData>>,
+    naming_sink: Option<&mut crate::ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
     use std::time::Instant;
     let half = thickness / 2.0;
@@ -98,21 +98,6 @@ pub(crate) fn midplane_shell_impl(
     )?;
     all_removed.extend_from_slice(&offset_in.auto_removed);
 
-    // Join-face naming data (PK-325 row 474): captured on the skins
-    // before assembly re-homes every handle.
-    if let Some(sink) = join_sink {
-        sink.extend(crate::collect_join_face_data(
-            &outer_skin,
-            brep,
-            &joins_out.records,
-        ));
-        sink.extend(crate::collect_join_face_data(
-            &inner_skin,
-            brep,
-            &joins_in.records,
-        ));
-    }
-
     // Mirror the inner skin honestly (winding + flag together, PK-244).
     inner_skin.reverse_body_orientation();
 
@@ -135,6 +120,36 @@ pub(crate) fn midplane_shell_impl(
         tolerance,
     )?;
     tracker.finish_stage("shell.midplane.assemble", t0, result.faces.len());
+
+    // Exact face provenance for stable naming (PK-328). Both skins
+    // moved: the outward skin continues each source face (Modified),
+    // the inward skin is offset from it (Generated with the source
+    // face as ancestor). Assembly keys on the SKIN handle spaces, so
+    // each chain composes source → ladder skin → assembled result.
+    if let Some(sink) = naming_sink {
+        for (&src, &skin_fh) in &outer_map.faces {
+            if let Some(&res) = assembly_maps.outer_faces.get(&skin_fh) {
+                sink.modified.push((res, src));
+            }
+        }
+        for (&src, &skin_fh) in &inner_map.faces {
+            if let Some(&res) = assembly_maps.inner_faces.get(&skin_fh) {
+                sink.offset.push((res, src));
+            }
+        }
+        for (records, assembly_faces) in [
+            (&joins_out.records, &assembly_maps.outer_faces),
+            (&joins_in.records, &assembly_maps.inner_faces),
+        ] {
+            for record in records {
+                if let Some(&res) = assembly_faces.get(&record.face) {
+                    sink.joins
+                        .push((res, crate::join_source_name(brep, record.kind)));
+                }
+            }
+        }
+        sink.sort();
+    }
 
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
@@ -209,7 +224,17 @@ pub(crate) fn midplane_shell_impl(
         routing.deferred,
         routing.inverted_edges.len(),
         &tolerance,
-    )?;
+    )
+    .map_err(|e| {
+        crate::max_safe::upgrade_trim_decline(
+            brep,
+            ShellDirection::Midplane,
+            thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
 
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();

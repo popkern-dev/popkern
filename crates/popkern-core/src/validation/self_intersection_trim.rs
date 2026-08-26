@@ -2,13 +2,11 @@ use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::topology::{BRep, FaceHandle, LoopHandle};
+use crate::topology::{BRep, FaceHandle};
 use self_intersection_trim_trace::{
     TrimOverlapTraceSample, trace_trim_overlap_point, trace_trim_overlap_sample,
 };
-use self_intersection_uv_containment::{
-    RawLoopSample, TrimContainment, UvPoint, assemble_periodic_polygon, point_in_uv_loop_periodic,
-};
+use self_intersection_uv_containment::{TrimContainment, UvPoint, point_in_uv_loop_periodic};
 
 #[path = "interior_overlap_samples.rs"]
 mod interior_overlap_samples;
@@ -16,6 +14,8 @@ mod interior_overlap_samples;
 mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
 mod self_intersection_uv_containment;
+#[path = "self_intersection_uv_polygon.rs"]
+mod self_intersection_uv_polygon;
 pub use interior_overlap_samples::InteriorOverlapSample;
 pub(in crate::validation) use self_intersection_uv_containment::{
     TrimContainment as TrimContainmentForSense, UvPoint as UvPointForSense,
@@ -312,7 +312,19 @@ impl BRep {
         }
 
         for &inner_loop in &face.inner_loops {
-            if let Some(inner) = self.loop_uv_polygon(inner_loop, surface, query) {
+            let inner_polygon = self.loop_uv_polygon(inner_loop, surface, query);
+            if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some() {
+                eprintln!(
+                    "[trim-classify] {face_handle:?} inner {inner_loop:?} polygon={:?} query=({:.4},{:.4})",
+                    inner_polygon.as_ref().map(|p| p
+                        .iter()
+                        .map(|q| format!("({:.3},{:.3})", q.u, q.v))
+                        .collect::<Vec<_>>()),
+                    query.u,
+                    query.v
+                );
+            }
+            if let Some(inner) = inner_polygon {
                 match point_in_uv_loop_periodic(query, &inner, param_tol, periodic_u, periodic_v) {
                     TrimContainment::Interior => return Some(TrimContainment::Outside),
                     TrimContainment::Boundary => containment = TrimContainment::Boundary,
@@ -339,117 +351,6 @@ impl BRep {
 
         self.face_trim_classify_uv(face_handle, surface, UvPoint { u, v })
     }
-
-    fn loop_uv_polygon(
-        &self,
-        loop_handle: LoopHandle,
-        surface: &SurfaceGeometry,
-        query: UvPoint,
-    ) -> Option<Vec<UvPoint>> {
-        let loop_ = self.loops.get(loop_handle)?;
-        let start_he = loop_.half_edge;
-        if !self.half_edges.contains_key(start_he) {
-            return None;
-        }
-
-        // Collect RAW pcurve samples plus a flag marking loop positions
-        // where the traversal crosses a parametrically DEGENERATE row
-        // (sphere pole, cone apex) with a period-sized branch jump.
-        // Assembly — chain-continuous unwrapping, with a raw-branch
-        // fallback for full-wrap seam loops — lives in
-        // `assemble_periodic_polygon` (see its doc for the measured
-        // failure modes on both sides of this trade).
-        const SAMPLES_PER_PCURVE: usize = 6;
-        use std::f64::consts::TAU;
-        let (periodic_u, periodic_v) = surface.is_periodic();
-        let mut raw_samples: Vec<RawLoopSample> = Vec::new();
-        let mut current = start_he;
-        let walk_bound = self.half_edges.len().max(1);
-        for _ in 0..=walk_bound {
-            let he = self.half_edges.get(current)?;
-            if let Some(pcurve) = &he.pcurve {
-                for sample in 0..SAMPLES_PER_PCURVE {
-                    let t = pcurve.t_start
-                        + (pcurve.t_end - pcurve.t_start)
-                            * (sample as f64 / SAMPLES_PER_PCURVE as f64);
-                    let uv = pcurve.point_at(t);
-                    let raw = UvPoint { u: uv.x, v: uv.y };
-                    let pole_jump = sample == 0
-                        && periodic_u
-                        && raw_samples.last().is_some_and(|prev| {
-                            (raw.u - prev.uv.u).abs() > TAU * 0.5
-                                && degenerate_row_witness(surface, raw.v, true)
-                        });
-                    raw_samples.push(RawLoopSample {
-                        uv: raw,
-                        pole_jump_before: pole_jump,
-                    });
-                }
-            } else {
-                let vertex = self.vertices.get(he.origin)?;
-                let (u, v) =
-                    crate::geometry::uv_projection::project_point_to_uv(surface, &vertex.position)?;
-                raw_samples.push(RawLoopSample {
-                    uv: UvPoint { u, v },
-                    pole_jump_before: false,
-                });
-            }
-
-            current = he.next;
-            if current == start_he {
-                break;
-            }
-        }
-
-        // A period-sized closure jump is 3D-free when EITHER closure
-        // endpoint sits on a degenerate row (its u is arbitrary there);
-        // with both endpoints on regular rows the jump is a real tear.
-        let closure_on_degenerate_rows = periodic_u
-            && raw_samples.len() >= 2
-            && (degenerate_row_witness(surface, raw_samples[0].uv.v, true)
-                || raw_samples
-                    .last()
-                    .is_some_and(|s| degenerate_row_witness(surface, s.uv.v, true)));
-        let polygon = assemble_periodic_polygon(
-            &raw_samples,
-            query,
-            periodic_u,
-            periodic_v,
-            closure_on_degenerate_rows,
-        );
-
-        if polygon.len() >= 3 {
-            Some(polygon)
-        } else {
-            None
-        }
-    }
-}
-
-/// Whether a whole parameter row is 3D-degenerate (sphere pole, cone
-/// apex): sampling the periodic axis at thirds of the period all lands
-/// on one point. A seam (u=0 ≡ u=τ) does NOT pass — interior stations
-/// of the period differ there.
-fn degenerate_row_witness(surface: &SurfaceGeometry, fixed: f64, vary_u: bool) -> bool {
-    use std::f64::consts::TAU;
-    let at = |s: f64| {
-        if vary_u {
-            surface.point_at(s, fixed)
-        } else {
-            surface.point_at(fixed, s)
-        }
-    };
-    let p0 = at(0.0);
-    let p1 = at(TAU / 3.0);
-    let p2 = at(2.0 * TAU / 3.0);
-    let scale = 1.0
-        + p0.x
-            .abs()
-            .max(p0.y.abs())
-            .max(p0.z.abs())
-            .max(p1.x.abs().max(p1.y.abs()).max(p1.z.abs()));
-    let eps = 1.0e-9 * scale;
-    p0.distance_to(&p1) < eps && p0.distance_to(&p2) < eps && p1.distance_to(&p2) < eps
 }
 
 pub(super) fn intersection_sample_points(

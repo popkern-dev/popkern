@@ -123,6 +123,13 @@ fn plan_all_gap_corner(
     }
 
     let seam_runs: Vec<&(FaceHandle, bool)> = runs.iter().filter(|(_, s)| *s).collect();
+    // Double-seam closed-rim anchors (both gap slots = the two halves
+    // of ONE closed edge, each run seamed — a bore×countersink
+    // junction circle) stay in this downgrade: a probed relaxation
+    // (PK-328) that retained the min-handle run left the split run's
+    // seam meridian un-recomputed ("Shell gap at edge" = the full
+    // offset distance) — the class needs its own construction stage
+    // (follow-up task filed with the measurements).
     match seam_runs.len() {
         0 => runs
             .iter()

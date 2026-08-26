@@ -159,10 +159,14 @@ impl BRep {
             .map(|&fk| {
                 let face = &self.faces[fk];
                 face.surface.as_ref().and_then(|s| {
-                    let positions = self.face_outer_loop_positions(fk);
+                    // Pcurve-sampled trim window (face_uv_window): the
+                    // positional window collapses on seam-anchored
+                    // closed faces and both under-boxed the BVH and
+                    // tripped the degenerate-range skip below.
                     let ((u0, u1), (v0, v1)) =
-                        crate::geometry::uv_projection::tight_bounded_parameter_range(
-                            &positions,
+                        crate::validation::face_uv_window::face_trim_uv_window(
+                            self,
+                            fk,
                             &s.geometry,
                         );
                     let mut pts = Vec::with_capacity(25);
@@ -254,21 +258,23 @@ impl BRep {
                 None => continue,
             };
 
-            // Use exact (zero-padding) ranges for intersection testing to
-            // avoid false positives at shared edges where padding from two
-            // perpendicular faces would overlap.
+            // Zero-padding trim windows (no false positives at shared
+            // edges), pcurve-sampled so wrapped loops keep their full
+            // period (face_uv_window — the positional window collapsed
+            // on seam-anchored closed faces and this arm skipped every
+            // such pair via the degenerate-range guard below).
             let positions_i = self.face_outer_loop_positions(face_keys[i]);
-            let ((u0i, u1i), (v0i, v1i)) =
-                crate::geometry::uv_projection::exact_bounded_parameter_range(
-                    &positions_i,
-                    &surf_i.geometry,
-                );
+            let ((u0i, u1i), (v0i, v1i)) = crate::validation::face_uv_window::face_trim_uv_window(
+                self,
+                face_keys[i],
+                &surf_i.geometry,
+            );
             let positions_j = self.face_outer_loop_positions(face_keys[j]);
-            let ((u0j, u1j), (v0j, v1j)) =
-                crate::geometry::uv_projection::exact_bounded_parameter_range(
-                    &positions_j,
-                    &surf_j.geometry,
-                );
+            let ((u0j, u1j), (v0j, v1j)) = crate::validation::face_uv_window::face_trim_uv_window(
+                self,
+                face_keys[j],
+                &surf_j.geometry,
+            );
 
             // Skip faces with degenerate (zero-area) parameter ranges.
             if (u1i - u0i).abs() < f64::EPSILON || (v1i - v0i).abs() < f64::EPSILON {

@@ -62,19 +62,23 @@ impl BRep {
             let Some(data) = self.faces.get(face) else {
                 continue;
             };
-            let start = self.loops[data.outer_loop].half_edge;
+            let Some(outer_loop) = self.loops.get(data.outer_loop) else {
+                continue;
+            };
+            let start = outer_loop.half_edge;
             let mut he = start;
-            loop {
-                let twin = self.half_edges[he].twin;
-                // Open sheets have loopless twins at free rims — no
-                // neighbour across that edge.
-                if let Some(partner_loop) = self.loops.get(self.half_edges[twin].loop_) {
+            // Open sheets have loopless (or absent) twins at free
+            // rims — no neighbour across that edge.
+            while let Some(he_data) = self.half_edges.get(he) {
+                if let Some(twin_data) = self.half_edges.get(he_data.twin)
+                    && let Some(partner_loop) = self.loops.get(twin_data.loop_)
+                {
                     let partner = partner_loop.face;
                     if !visited.contains(&partner) {
                         queue.push(partner);
                     }
                 }
-                he = self.half_edges[he].next;
+                he = he_data.next;
                 if he == start {
                     break;
                 }

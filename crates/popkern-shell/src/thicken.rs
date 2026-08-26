@@ -233,7 +233,19 @@ pub(crate) fn thicken_impl(
         routing.deferred,
         routing.inverted_edges.len(),
         &tolerance,
-    )?;
+    )
+    .map_err(|e| {
+        // Thicken is symmetric ±t/2: midplane semantics for the
+        // pre-flight bound.
+        crate::max_safe::upgrade_trim_decline(
+            brep,
+            crate::types::ShellDirection::Midplane,
+            thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
 
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
