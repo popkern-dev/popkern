@@ -29,6 +29,7 @@ pub mod delete;
 pub mod error;
 pub mod expression;
 pub mod feature;
+mod feature_params;
 pub mod format;
 pub mod health;
 pub(crate) mod measure_cache;
@@ -64,8 +65,8 @@ pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
 pub use feature::{
-    AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, OperationMode, RevolveEnd,
-    ShellDirectionKind, SketchPlaneDesc, Vec3Desc,
+    AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, JoinStyleKind, OperationMode,
+    RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
 };
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};

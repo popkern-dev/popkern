@@ -29,6 +29,7 @@ pub mod max_safe;
 mod max_safe_motion;
 mod midplane;
 pub mod offset;
+pub mod preview;
 mod shell_naming;
 pub mod side_walls;
 mod skin_ladder;
@@ -45,6 +46,7 @@ pub use interactive::{
     shell_with_control, thicken_with_control,
 };
 pub use max_safe::{OffsetConstraint, SafeOffsetReport, max_safe_offset};
+pub use preview::{PreviewMesh, shell_preview};
 pub use types::*;
 
 pub(crate) use shell_naming::{ShellProvenance, assign_shell_names, join_source_name};

@@ -142,39 +142,12 @@ impl Part {
         thickness: f64,
         openings: impl FnOnce(FaceQuery) -> FaceQuery,
     ) -> Result<Part, PartError> {
-        let query = openings(FaceQuery::new());
-        let infos = face_infos(self.brep());
-        let faces = query.resolve(&infos);
-        let selection = query.describe();
-        if faces.is_empty() && !query.empty_permitted() {
-            return Err(PartError::EmptySelection {
-                selection,
-                entity: "faces",
-                available: infos.len(),
-            });
-        }
-        let result = popkern_shell::shell(
-            self.brep(),
+        self.shell_with_options(
             thickness,
             popkern_shell::ShellDirection::Inward,
-            &faces,
-            &[],
             &popkern_shell::ShellOptions::default(),
-            self.tolerance(),
-            None,
+            openings,
         )
-        .map_err(|e| PartError::NotApplicable(format!("shell failed: {e}")))?;
-        let mut part = Part::from_validated(
-            result.brep,
-            self.tolerance(),
-            "shell",
-            format!(
-                "thickness {thickness}, {} openings: {selection}",
-                faces.len()
-            ),
-        )?;
-        part.merge_history_from(self);
-        Ok(part)
     }
 
     /// Draft the selected faces by `angle_radians` for mold

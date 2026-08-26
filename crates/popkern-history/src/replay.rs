@@ -18,6 +18,7 @@ mod replay_fns;
 use replay_fns::{
     execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
     extract_plane_from_face, resolve_param, to_bool_operation, to_shell_direction,
+    to_shell_options,
 };
 
 use crate::resolve::{
@@ -168,6 +169,8 @@ pub(crate) fn execute_feature(
             faces_to_remove,
             thickness,
             direction,
+            join_style,
+            trim_policy,
         } => {
             let thick = resolve_param(param_table, *thickness)?;
             let face_handles = resolve_faces(faces_to_remove, brep)?;
@@ -178,12 +181,50 @@ pub(crate) fn execute_feature(
                 shell_dir,
                 &face_handles,
                 &[],
-                &popkern_shell::ShellOptions::default(),
+                &to_shell_options(join_style, trim_policy),
                 *tolerance,
                 Some(tracking),
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "shell".into(),
+                error: e.to_string(),
+            })?;
+            *brep = result.brep;
+            Ok(ExecuteSideEffects::empty())
+        }
+        Feature::Thicken {
+            thickness,
+            join_style,
+            trim_policy,
+        } => {
+            let thick = resolve_param(param_table, *thickness)?;
+            let result = popkern_shell::thicken::thicken(
+                brep,
+                thick,
+                &to_shell_options(join_style, trim_policy),
+                *tolerance,
+            )
+            .map_err(|e| ReplayError::FeatureFailed {
+                label: "thicken".into(),
+                error: e.to_string(),
+            })?;
+            *brep = result.brep;
+            Ok(ExecuteSideEffects::empty())
+        }
+        Feature::OffsetSolid {
+            distance,
+            join_style,
+            trim_policy,
+        } => {
+            let dist = resolve_param(param_table, *distance)?;
+            let result = popkern_shell::offset::offset_solid(
+                brep,
+                dist,
+                &to_shell_options(join_style, trim_policy),
+                *tolerance,
+            )
+            .map_err(|e| ReplayError::FeatureFailed {
+                label: "offset_solid".into(),
                 error: e.to_string(),
             })?;
             *brep = result.brep;

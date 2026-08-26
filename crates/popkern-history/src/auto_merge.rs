@@ -33,6 +33,8 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Chamfer { .. }
         | Feature::Boolean { .. }
         | Feature::Shell { .. }
+        | Feature::Thicken { .. }
+        | Feature::OffsetSolid { .. }
         | Feature::Draft { .. }
         | Feature::Reference { .. }
         | Feature::LinearPattern { .. }

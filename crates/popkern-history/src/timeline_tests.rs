@@ -294,6 +294,8 @@ fn feature_entity_names_extracts_all_variants() {
         faces_to_remove: vec![entity_name(8), entity_name(9)],
         thickness: dummy_id,
         direction: crate::feature::ShellDirectionKind::Inward,
+        join_style: crate::feature::JoinStyleKind::default(),
+        trim_policy: crate::feature::TrimPolicyKind::default(),
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);

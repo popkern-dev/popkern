@@ -12,9 +12,8 @@ use popkern_core::naming::{EntityName, OperationId};
 use slotmap::SlotMap;
 
 use crate::body::BodyManager;
-use crate::feature::{
-    AxisDesc, ExtrudeEnd, Feature, RevolveEnd, SketchPlaneDesc, Vec3Desc, feature_param_ids,
-};
+use crate::feature::{AxisDesc, ExtrudeEnd, Feature, RevolveEnd, SketchPlaneDesc, Vec3Desc};
+use crate::feature_params::feature_param_ids;
 use crate::node::{BodyId, FeatureId, FeatureNode};
 use crate::parameter::{ParamScope, ParameterTable};
 
@@ -99,7 +98,9 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names
         }
         Feature::Fillet { edges, .. } | Feature::Chamfer { edges, .. } => edges.iter().collect(),
-        Feature::Boolean { .. } => Vec::new(),
+        Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {
+            Vec::new()
+        }
         Feature::Shell {
             faces_to_remove, ..
         } => faces_to_remove.iter().collect(),

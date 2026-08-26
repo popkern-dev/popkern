@@ -100,7 +100,7 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
                 remap_name(name, op_remap);
             }
         }
-        Feature::Boolean { .. } => {}
+        Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {}
         Feature::Shell {
             faces_to_remove, ..
         } => {

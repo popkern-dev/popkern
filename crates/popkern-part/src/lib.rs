@@ -38,6 +38,7 @@ mod profile;
 mod select;
 mod select_surface_kind;
 mod shaping;
+mod shaping_offset;
 pub mod smooth_mesh;
 pub mod smooth_mesh_control;
 #[cfg(feature = "text")]
@@ -57,6 +58,10 @@ pub use engrave::{
 pub use error::PartError;
 pub use feature::{Feature, FeatureLog};
 pub use part::Part;
+pub use popkern_shell::{
+    JoinStyle, OffsetConstraint, PreviewMesh, SafeOffsetReport, ShellDirection, ShellOptions,
+    TrimPolicy,
+};
 pub use profile::{Plane, Profile};
 pub use select::{Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
 pub use smooth_mesh::{

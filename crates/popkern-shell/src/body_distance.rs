@@ -30,6 +30,8 @@ pub(crate) struct FaceTrimEntry {
     /// Whether `polygons[0]` is the OUTER loop's polygon (false when
     /// the outer loop was skipped as degenerate).
     outer_polygon_first: bool,
+    /// Parameter periodicity of the surface (query canonicalization).
+    periodicity: (Option<f64>, Option<f64>),
 }
 
 /// Trim-polygon index over all faces of a body.
@@ -183,9 +185,30 @@ impl FaceTrimEntry {
 
     /// Even-odd containment of a UV point over all loop polygons.
     pub(crate) fn contains(&self, u: f64, v: f64) -> bool {
+        // Canonicalize the query onto each polygon's period branch:
+        // polygons are chain-unwrapped at build time (a seam-straddling
+        // sphere octant's raw pcurves carry mixed branches — even-odd
+        // over the broken shape accepted the WHOLE sphere and a
+        // preview leaked out-of-trim samples 0.09 deep, PK-328), so a
+        // raw-branch query must be shifted to match.
         let mut inside = false;
         for polygon in &self.polygons {
-            if polygon_contains(polygon, u, v) {
+            if polygon.is_empty() {
+                continue;
+            }
+            // Anchor at the polygon's bbox CENTER: a full-wrap ring
+            // spans a whole period, and canonicalizing to its first
+            // point ejects queries near the far end of the span.
+            let (mut ulo, mut uhi, mut vlo, mut vhi) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+            for &(pu, pv) in polygon {
+                ulo = ulo.min(pu);
+                uhi = uhi.max(pu);
+                vlo = vlo.min(pv);
+                vhi = vhi.max(pv);
+            }
+            let uq = canonicalize(u, (ulo + uhi) * 0.5, self.periodicity.0);
+            let vq = canonicalize(v, (vlo + vhi) * 0.5, self.periodicity.1);
+            if polygon_contains(polygon, uq, vq) {
                 inside = !inside;
             }
         }
@@ -210,6 +233,7 @@ impl FaceTrimEntry {
 fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
     let face = body.faces.get(fh)?;
     let surface = face.surface.as_ref()?.geometry.clone();
+    let periodicity = surface.parameter_periodicity();
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
 
@@ -226,6 +250,18 @@ fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
             continue;
         }
         let mut polygon: Vec<(f64, f64)> = Vec::new();
+        // Chain-unwrapped push: successive samples stay on one period
+        // branch (see `FaceTrimEntry::contains`).
+        let push_unwrapped = |polygon: &mut Vec<(f64, f64)>, u: f64, v: f64| {
+            let (u, v) = match polygon.last() {
+                Some(&(pu, pv)) => (
+                    canonicalize(u, pu, periodicity.0),
+                    canonicalize(v, pv, periodicity.1),
+                ),
+                None => (u, v),
+            };
+            polygon.push((u, v));
+        };
         let mut cursor = start;
         let bound = body.half_edges.len();
         let mut steps = 0usize;
@@ -236,7 +272,7 @@ fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
                 for i in 0..PCURVE_SAMPLES {
                     let t = t0 + (t1 - t0) * i as f64 / PCURVE_SAMPLES as f64;
                     let q = pcurve.point_at(t);
-                    polygon.push((q.x, q.y));
+                    push_unwrapped(&mut polygon, q.x, q.y);
                 }
             } else {
                 // Pcurve-less half-edge: project the 3D curve span,
@@ -254,7 +290,7 @@ fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
                         }
                         None => uv_projection::project_point_to_uv(&surface, &q3),
                     }?;
-                    polygon.push(uv);
+                    push_unwrapped(&mut polygon, uv.0, uv.1);
                 }
             }
             cursor = he.next;
@@ -284,7 +320,25 @@ fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
         boundary,
         boundary_uv,
         outer_polygon_first,
+        periodicity,
     })
+}
+
+/// Shift `x` by whole periods to land within half a period of `anchor`.
+fn canonicalize(x: f64, anchor: f64, period: Option<f64>) -> f64 {
+    match period {
+        Some(p) if p > 0.0 => {
+            let mut x = x;
+            while x - anchor > p * 0.5 {
+                x -= p;
+            }
+            while anchor - x > p * 0.5 {
+                x += p;
+            }
+            x
+        }
+        _ => x,
+    }
 }
 
 /// Standard even-odd ray cast (pnpoly).

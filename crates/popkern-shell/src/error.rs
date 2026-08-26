@@ -51,7 +51,7 @@ pub enum ShellError {
 
     /// The requested offset distance exceeds what the geometry can support.
     #[error(
-        "offset {requested} exceeds the maximum {max_safe:.6} supported by the \
+        "offset {requested:.6} exceeds the maximum {max_safe:.6} supported by the \
          geometry ({binding})"
     )]
     OffsetTooLarge {
@@ -151,6 +151,61 @@ pub enum ShellError {
     /// indistinguishable from one that failed before writing.
     #[error("shell operation cancelled by token")]
     Cancelled,
+}
+
+impl std::fmt::Display for ShellWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ShellWarning::FaceOffsetApproximated {
+                face,
+                achieved_deviation,
+            } => write!(
+                f,
+                "the offset of face {face:?} was approximated \
+                 (maximum deviation {achieved_deviation:.3e})"
+            ),
+            ShellWarning::FaceAutoRemoved { face, reason } => {
+                write!(f, "face {face:?} was removed: {reason}")
+            }
+            ShellWarning::JoinStyleDowngraded { vertex, mechanism } => write!(
+                f,
+                "rounded joins are not available on this body (corner at \
+                 vertex {vertex:?}: {mechanism}); sharp intersection joins \
+                 were used instead"
+            ),
+            ShellWarning::JoinStyleDowngradedAtEdge { edge, mechanism } => write!(
+                f,
+                "rounded joins are not available on this body (edge \
+                 {edge:?}: {mechanism}); sharp intersection joins were \
+                 used instead"
+            ),
+            ShellWarning::ConeApexSharp { vertex } => write!(
+                f,
+                "the cone tip at vertex {vertex:?} stays sharp (no rounded cap)"
+            ),
+            ShellWarning::FaceCollapsed { faces, mechanism } => write!(
+                f,
+                "{} face(s) vanished at this offset distance ({mechanism})",
+                faces.len()
+            ),
+            ShellWarning::FreeFormFoldScan { faces } => write!(
+                f,
+                "{faces} free-form offset face(s) were checked for self-folding \
+                 and came back clean"
+            ),
+            ShellWarning::RegionTrimmed {
+                removed_faces,
+                welded_seams,
+                regions,
+            } => write!(
+                f,
+                "self-intersecting offset material was trimmed away \
+                 ({} collision(s), {removed_faces} face(s) removed, \
+                 {welded_seams} seam(s) re-closed)",
+                regions.len()
+            ),
+        }
+    }
 }
 
 /// Non-fatal warnings produced during shell operations.

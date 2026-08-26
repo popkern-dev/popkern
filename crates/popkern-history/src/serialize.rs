@@ -106,3 +106,7 @@ impl FeatureTree {
 #[cfg(test)]
 #[path = "serialize_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "serialize_roundtrip_tests.rs"]
+mod roundtrip_tests;

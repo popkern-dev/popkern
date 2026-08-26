@@ -73,6 +73,38 @@ pub enum Feature {
         thickness: ParameterId,
         /// Direction to offset the shell.
         direction: ShellDirectionKind,
+        /// How gap edges are closed (PK-328; defaults keep the
+        /// Minkowski-faithful rolling-ball behavior for trees saved
+        /// before the knob existed).
+        #[serde(default)]
+        join_style: JoinStyleKind,
+        /// How globally self-intersecting offset regions are handled
+        /// (PK-328).
+        #[serde(default)]
+        trim_policy: TrimPolicyKind,
+    },
+    /// Thicken the body symmetrically by ±thickness/2 (PK-328).
+    Thicken {
+        /// Total wall thickness (resolved via parameter table).
+        thickness: ParameterId,
+        /// How gap edges are closed.
+        #[serde(default)]
+        join_style: JoinStyleKind,
+        /// How globally self-intersecting offset regions are handled.
+        #[serde(default)]
+        trim_policy: TrimPolicyKind,
+    },
+    /// Offset every face of the solid: positive grows, negative
+    /// shrinks (PK-328).
+    OffsetSolid {
+        /// Signed offset distance (resolved via parameter table).
+        distance: ParameterId,
+        /// How gap edges are closed.
+        #[serde(default)]
+        join_style: JoinStyleKind,
+        /// How globally self-intersecting offset regions are handled.
+        #[serde(default)]
+        trim_policy: TrimPolicyKind,
     },
     /// Apply a draft (taper) angle to faces relative to a neutral plane.
     Draft {
@@ -251,94 +283,6 @@ pub enum BoolOpKind {
     Subtraction,
 }
 
-/// Extract all [`ParameterId`] fields from a [`Feature`] with their field names.
-///
-/// Used for automatic scope assignment and qualified-name indexing when a
-/// feature is inserted into the timeline.
-pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
-    let mut ids: Vec<(&str, ParameterId)> = match feature {
-        Feature::Extrude {
-            end_condition,
-            draft_angle,
-            second_direction,
-            ..
-        } => {
-            let mut v = Vec::new();
-            match end_condition {
-                ExtrudeEnd::Blind { distance } => v.push(("distance", *distance)),
-                ExtrudeEnd::OffsetFromSurface { offset, .. } => v.push(("offset", *offset)),
-                ExtrudeEnd::MidPlane { half_distance } => v.push(("half_distance", *half_distance)),
-                ExtrudeEnd::ThroughAll
-                | ExtrudeEnd::UpToSurface { .. }
-                | ExtrudeEnd::UpToVertex { .. } => {}
-            }
-            if let Some(id) = draft_angle {
-                v.push(("draft_angle", *id));
-            }
-            if let Some(sd) = second_direction {
-                match &sd.end_condition {
-                    ExtrudeEnd::Blind { distance } => v.push(("second_distance", *distance)),
-                    ExtrudeEnd::OffsetFromSurface { offset, .. } => {
-                        v.push(("second_offset", *offset))
-                    }
-                    ExtrudeEnd::MidPlane { half_distance } => {
-                        v.push(("second_half_distance", *half_distance))
-                    }
-                    ExtrudeEnd::ThroughAll
-                    | ExtrudeEnd::UpToSurface { .. }
-                    | ExtrudeEnd::UpToVertex { .. } => {}
-                }
-                if let Some(id) = sd.draft_angle {
-                    v.push(("second_draft_angle", id));
-                }
-            }
-            v
-        }
-        Feature::Fillet { radius, .. } => vec![("radius", *radius)],
-        Feature::Chamfer { distance, .. } => vec![("distance", *distance)],
-        Feature::Shell { thickness, .. } => vec![("thickness", *thickness)],
-        Feature::Draft { angle, .. } => vec![("angle", *angle)],
-        Feature::Sweep { twist, .. } => vec![("twist", *twist)],
-        Feature::Pipe { radius, .. } => vec![("radius", *radius)],
-        Feature::Revolve { end_condition, .. } => match end_condition {
-            RevolveEnd::Blind { angle } => vec![("angle", *angle)],
-            RevolveEnd::MidPlane { half_angle } => vec![("half_angle", *half_angle)],
-            RevolveEnd::FullCircle | RevolveEnd::UpToSurface { .. } => vec![],
-        },
-        Feature::LinearPattern {
-            primary, secondary, ..
-        } => {
-            let mut v = vec![
-                ("primary_count", primary.count),
-                ("primary_total_distance", primary.total_distance),
-            ];
-            if let Some(sec) = secondary {
-                v.push(("secondary_count", sec.count));
-                v.push(("secondary_total_distance", sec.total_distance));
-            }
-            v
-        }
-        Feature::CircularPattern {
-            count, total_angle, ..
-        } => vec![("count", *count), ("total_angle", *total_angle)],
-        Feature::CurvePattern { count, .. } => vec![("count", *count)],
-        Feature::Sketch { .. }
-        | Feature::Boolean { .. }
-        | Feature::Loft { .. }
-        | Feature::Reference { .. }
-        | Feature::Mirror { .. } => vec![],
-    };
-    // Handle SketchPlaneDesc::OnFaceOffset parameter.
-    if let Feature::Sketch {
-        plane: SketchPlaneDesc::OnFaceOffset(_, offset_id),
-        ..
-    } = feature
-    {
-        ids.push(("offset", *offset_id));
-    }
-    ids
-}
-
 /// Shell offset direction.
 ///
 /// This mirrors [`popkern_shell::types::ShellDirection`] but adds
@@ -352,6 +296,32 @@ pub enum ShellDirectionKind {
     Outward,
     /// Split the thickness equally: half inward, half outward.
     Midplane,
+}
+
+/// How gap edges of an offset skin are closed (PK-328).
+///
+/// Mirrors [`popkern_shell::types::JoinStyle`] with serde; converted
+/// at the replay boundary.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub enum JoinStyleKind {
+    /// Rolling-ball fills (Minkowski-faithful; the default).
+    #[default]
+    Arc,
+    /// Extend and intersect the adjacent offsets; sharp result.
+    Intersection,
+}
+
+/// How globally self-intersecting offset regions are handled (PK-328).
+///
+/// Mirrors [`popkern_shell::types::TrimPolicy`] with serde; converted
+/// at the replay boundary.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub enum TrimPolicyKind {
+    /// Trim the colliding regions and re-close (the default).
+    #[default]
+    Trim,
+    /// Decline with diagnostics instead of trimming.
+    Decline,
 }
 
 /// Controls whether an operation creates new geometry or merges with the

@@ -83,6 +83,26 @@ pub(super) fn to_shell_direction(kind: &ShellDirectionKind) -> popkern_shell::Sh
     }
 }
 
+/// Convert the serialisable shell option kinds to runtime
+/// [`popkern_shell::ShellOptions`] (PK-328: history features carry
+/// every knob so replay is parameter-complete).
+pub(super) fn to_shell_options(
+    join_style: &crate::feature::JoinStyleKind,
+    trim_policy: &crate::feature::TrimPolicyKind,
+) -> popkern_shell::ShellOptions {
+    let join = match join_style {
+        crate::feature::JoinStyleKind::Arc => popkern_shell::JoinStyle::Arc,
+        crate::feature::JoinStyleKind::Intersection => popkern_shell::JoinStyle::Intersection,
+    };
+    let trim = match trim_policy {
+        crate::feature::TrimPolicyKind::Trim => popkern_shell::TrimPolicy::Trim,
+        crate::feature::TrimPolicyKind::Decline => popkern_shell::TrimPolicy::Decline,
+    };
+    popkern_shell::ShellOptions::default()
+        .with_join_style(join)
+        .with_trim_policy(trim)
+}
+
 /// Convert a serialisable [`BoolOpKind`] to the runtime
 /// [`popkern_bool::BoolOperation`].
 pub(super) fn to_bool_operation(kind: BoolOpKind) -> popkern_bool::BoolOperation {
