@@ -56,11 +56,10 @@ pub(crate) struct SplitResult {
 fn split_face_curves(
     brep: &mut BRep,
     original_face: FaceHandle,
-    record_indices: &[usize],
+    entries: &[(usize, bool)],
     records: &[IntersectionRecord],
     tolerance: &Tolerance,
     fragments: &mut FragmentMap,
-    use_uv1: bool,
 ) -> Result<(), BoolDiagnostics> {
     // Island pre-pass: the marching intersector delivers a closed
     // interior loop (e.g. a boss poking through a plate face) as a
@@ -70,15 +69,8 @@ fn split_face_curves(
     // fails Euler–Poincaré). Chain the fragments by 3D endpoints;
     // a closed chain whose pieces all lie inside the face becomes an
     // inner loop carrying the TRUE piece curves.
-    let consumed = island_chain_pre_pass(
-        brep,
-        original_face,
-        record_indices,
-        records,
-        tolerance,
-        fragments,
-        use_uv1,
-    )?;
+    let consumed =
+        island_chain_pre_pass(brep, original_face, entries, records, tolerance, fragments)?;
 
     // Open-chain pre-pass (the island chainer's open sibling): two
     // trim curves that DEAD-END at a shared interior point — a
@@ -91,16 +83,15 @@ fn split_face_curves(
     let chained = open_chain_pre_pass(
         brep,
         original_face,
-        record_indices,
+        entries,
         records,
         &consumed,
         tolerance,
         fragments,
-        use_uv1,
     )?;
 
-    let mut deferred: Vec<usize> = Vec::new();
-    for (i, &record_idx) in record_indices.iter().enumerate() {
+    let mut deferred: Vec<(usize, bool)> = Vec::new();
+    for (i, &(record_idx, use_uv1)) in entries.iter().enumerate() {
         if consumed.contains(&record_idx) || chained.contains(&record_idx) {
             continue;
         }
@@ -143,7 +134,7 @@ fn split_face_curves(
         )
         .is_err()
         {
-            deferred.push(record_idx);
+            deferred.push((record_idx, use_uv1));
         }
     }
 
@@ -153,7 +144,7 @@ fn split_face_curves(
         }
         let batch = std::mem::take(&mut deferred);
         let last_pass = pass == 1;
-        for record_idx in batch {
+        for (record_idx, use_uv1) in batch {
             let record = &records[record_idx];
             let curve_uv = if use_uv1 {
                 &record.curve.curve_uv1
@@ -186,7 +177,7 @@ fn split_face_curves(
             match result {
                 Ok(()) => {}
                 Err(e) if last_pass => return Err(e),
-                Err(_) => deferred.push(record_idx),
+                Err(_) => deferred.push((record_idx, use_uv1)),
             }
         }
     }
@@ -200,24 +191,23 @@ fn split_face_curves(
 fn island_chain_pre_pass(
     brep: &mut BRep,
     face: FaceHandle,
-    record_indices: &[usize],
+    entries: &[(usize, bool)],
     records: &[IntersectionRecord],
     tolerance: &Tolerance,
     fragments: &mut FragmentMap,
-    use_uv1: bool,
 ) -> Result<HashSet<usize>, BoolDiagnostics> {
     use popkern_core::topology::trim::InnerLoopPiece;
     let mut consumed: HashSet<usize> = HashSet::new();
-    if record_indices.len() < 2 {
+    if entries.len() < 2 {
         return Ok(consumed);
     }
     // Endpoints of each record's 3D curve.
     let ends: Vec<(
         popkern_core::geometry::Point3,
         popkern_core::geometry::Point3,
-    )> = record_indices
+    )> = entries
         .iter()
-        .map(|&ri| {
+        .map(|&(ri, _)| {
             let c = &records[ri].curve.curve_3d;
             let (t0, t1) = c.parameter_range();
             (c.point_at(t0), c.point_at(t1))
@@ -228,9 +218,9 @@ fn island_chain_pre_pass(
     // circle), far above the linear tolerance. Scale with the
     // smallest fragment so the gate can never bridge a real gap
     // between distinct loops.
-    let min_chord = record_indices
+    let min_chord = entries
         .iter()
-        .map(|&ri| {
+        .map(|&(ri, _)| {
             let c = &records[ri].curve.curve_3d;
             let (t0, t1) = c.parameter_range();
             c.point_at(t0).distance_to(&c.point_at(t1))
@@ -244,21 +234,21 @@ fn island_chain_pre_pass(
     // (both march directions); a duplicate chains with its own
     // reverse into a degenerate zero-area "loop". Compare endpoint
     // pairs + midpoints.
-    let mids: Vec<popkern_core::geometry::Point3> = record_indices
+    let mids: Vec<popkern_core::geometry::Point3> = entries
         .iter()
-        .map(|&ri| {
+        .map(|&(ri, _)| {
             let c = &records[ri].curve.curve_3d;
             let (t0, t1) = c.parameter_range();
             c.point_at(0.5 * (t0 + t1))
         })
         .collect();
-    let mut used = vec![false; record_indices.len()];
+    let mut used = vec![false; entries.len()];
     // Accepted island geometry (sampled) — the marching stage can
     // deliver the SAME intersection loop many times, split at
     // different parameter offsets; only one copy becomes the hole.
     let mut accepted: Vec<Vec<popkern_core::geometry::Point3>> = Vec::new();
     let _ = &mids;
-    for seed in 0..record_indices.len() {
+    for seed in 0..entries.len() {
         if used[seed] {
             continue;
         }
@@ -273,7 +263,7 @@ fn island_chain_pre_pass(
                 break true;
             }
             let mut extended = false;
-            for k in 0..record_indices.len() {
+            for k in 0..entries.len() {
                 if chain_used[k] {
                     continue;
                 }
@@ -309,7 +299,7 @@ fn island_chain_pre_pass(
         // Every piece midpoint must lie inside the face (a chain that
         // touches the boundary belongs to the crossing path).
         let inside = chain.iter().all(|&(k, _)| {
-            let ri = record_indices[k];
+            let ri = entries[k].0;
             let c = &records[ri].curve.curve_3d;
             let (t0, t1) = c.parameter_range();
             let mid = c.point_at(0.5 * (t0 + t1));
@@ -336,7 +326,7 @@ fn island_chain_pre_pass(
         let chain_samples: Vec<popkern_core::geometry::Point3> = chain
             .iter()
             .flat_map(|&(k, _)| {
-                let ri = record_indices[k];
+                let ri = entries[k].0;
                 let c = &records[ri].curve.curve_3d;
                 let (t0, t1) = c.parameter_range();
                 (0..8).map(move |q| c.point_at(t0 + (t1 - t0) * q as f64 / 8.0))
@@ -351,7 +341,7 @@ fn island_chain_pre_pass(
             // Consume the records so the crossing path doesn't churn
             // on them.
             for &(k, _) in &chain {
-                consumed.insert(record_indices[k]);
+                consumed.insert(entries[k].0);
             }
             used = chain_used;
             continue;
@@ -359,7 +349,7 @@ fn island_chain_pre_pass(
         // Build oriented pieces.
         let mut pieces: Vec<InnerLoopPiece> = Vec::with_capacity(chain.len());
         for &(k, rev) in &chain {
-            let ri = record_indices[k];
+            let (ri, use_uv1) = entries[k];
             let rec = &records[ri];
             let uv = if use_uv1 {
                 &rec.curve.curve_uv1
@@ -447,7 +437,7 @@ fn island_chain_pre_pass(
                     fragments.intersection_edges.insert(edge);
                 }
                 for &(k, _) in &chain {
-                    consumed.insert(record_indices[k]);
+                    consumed.insert(entries[k].0);
                 }
                 used = chain_used;
                 accepted.push(chain_samples);
@@ -521,45 +511,46 @@ pub(crate) fn split_along_curves(
     // iteration made whole boolean outcomes run-to-run
     // nondeterministic (measured: the open-chain pre-pass fired in
     // one of three identical runs).
-    let mut curves_a: std::collections::BTreeMap<FaceHandle, Vec<usize>> =
+    let mut curves_a: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
         std::collections::BTreeMap::new();
-    let mut curves_b: std::collections::BTreeMap<FaceHandle, Vec<usize>> =
+    let mut curves_b: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
         std::collections::BTreeMap::new();
 
     for (idx, record) in records.iter().enumerate() {
-        curves_a.entry(record.face_a).or_default().push(idx);
-        curves_b.entry(record.face_b).or_default().push(idx);
+        curves_a.entry(record.face_a).or_default().push((idx, true));
+        curves_b
+            .entry(record.face_b)
+            .or_default()
+            .push((idx, false));
     }
 
     // Split faces in solid A.
-    for (&original_face, record_indices) in &curves_a {
+    for (&original_face, entries) in &curves_a {
         if !a.faces.contains_key(original_face) {
             continue;
         }
         split_face_curves(
             &mut a,
             original_face,
-            record_indices,
+            entries,
             records,
             tolerance,
             &mut fragments_a,
-            true,
         )?;
     }
 
     // Split faces in solid B.
-    for (&original_face, record_indices) in &curves_b {
+    for (&original_face, entries) in &curves_b {
         if !b.faces.contains_key(original_face) {
             continue;
         }
         split_face_curves(
             &mut b,
             original_face,
-            record_indices,
+            entries,
             records,
             tolerance,
             &mut fragments_b,
-            false,
         )?;
     }
 
@@ -579,6 +570,52 @@ pub(crate) fn split_along_curves(
         fragments_a,
         fragments_b,
     })
+}
+
+/// Split ONE body's faces along self-intersection curves: each record
+/// names two faces of the SAME body; face `face_a` splits with the
+/// record's `curve_uv1`, face `face_b` with `curve_uv2`. A face that
+/// appears in both roles receives all its curves in one sided pass
+/// (per-entry `use_uv1` flags), so fragment targeting stays correct.
+///
+/// # Errors
+///
+/// Returns [`BoolDiagnostics`] if any face split fails.
+pub(crate) fn self_split_along_curves(
+    mut body: BRep,
+    records: &[IntersectionRecord],
+    tolerance: &Tolerance,
+) -> Result<(BRep, FragmentMap), BoolDiagnostics> {
+    let mut fragments = FragmentMap {
+        origin: HashMap::new(),
+        intersection_edges: HashSet::new(),
+    };
+    let mut per_face: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
+        std::collections::BTreeMap::new();
+    for (idx, record) in records.iter().enumerate() {
+        per_face.entry(record.face_a).or_default().push((idx, true));
+        per_face
+            .entry(record.face_b)
+            .or_default()
+            .push((idx, false));
+    }
+    for (&original_face, entries) in &per_face {
+        if !body.faces.contains_key(original_face) {
+            continue;
+        }
+        split_face_curves(
+            &mut body,
+            original_face,
+            entries,
+            records,
+            tolerance,
+            &mut fragments,
+        )?;
+    }
+    for face_handle in body.faces.keys() {
+        fragments.origin.entry(face_handle).or_insert(face_handle);
+    }
+    Ok((body, fragments))
 }
 
 #[cfg(test)]

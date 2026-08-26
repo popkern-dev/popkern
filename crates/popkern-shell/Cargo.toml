@@ -8,6 +8,7 @@ description = "Shell and offset solid operations for the popkern BRep kernel"
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-fillet = { path = "../popkern-fillet" }
+popkern-bool = { path = "../popkern-bool" }
 thiserror = "2"
 
 [dev-dependencies]

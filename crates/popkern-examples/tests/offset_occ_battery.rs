@@ -166,6 +166,27 @@ fn corpus_and_served_shells_pass_the_occ_oracle() {
             .expect("thicken filleted cube")
             .brep,
     ));
+    // PK-327 global-SI trims: the welded groove crease and the
+    // pinch-pole apple are the riskiest interop classes the trim
+    // stage produces.
+    let groove = popkern_examples::offset_corpus::grooved_cylinder(tol())
+        .expect("grooved cylinder")
+        .brep;
+    bodies.push((
+        "trimmed_grooved_cylinder_grow".into(),
+        offset_solid(&groove, 0.08, &ShellOptions::default(), tol())
+            .expect("trimmed groove grow")
+            .brep,
+    ));
+    let lens = popkern_examples::offset_corpus::torus_lens(tol())
+        .expect("torus lens")
+        .brep;
+    bodies.push((
+        "torus_lens_apple".into(),
+        offset_solid(&lens, 0.2, &ShellOptions::default(), tol())
+            .expect("apple grow")
+            .brep,
+    ));
     let open = BRep::open_box(tol()).unwrap();
     bodies.push((
         "thickened_open_box".into(),

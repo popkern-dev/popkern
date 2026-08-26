@@ -55,6 +55,35 @@ impl BRep {
         &self,
         face_keys: &[FaceHandle],
     ) -> Result<(), ValidationError> {
+        match self
+            .collect_self_intersecting_pairs_among(face_keys, false, false)
+            .first()
+        {
+            Some(&(face_a, face_b)) => Err(ValidationError::SelfIntersection { face_a, face_b }),
+            None => Ok(()),
+        }
+    }
+
+    /// The pair-collecting form of the self-intersection check — the
+    /// SAME adjacency exemption, AABB/BVH pruning, trim-overlap gates,
+    /// and pair budget, returning every offending pair instead of the
+    /// first (`collect_all = false` stops at the first hit, which is
+    /// what the validator needs). This is the detection authority the
+    /// global-SI trim stage (PK-327) builds on: trimming exactly what
+    /// the validator would reject keeps the serve gate coherent.
+    /// `tangential_band_is_clean`: trimming context — one-sided
+    /// tolerance-band contact (a join strip riding its neighbour's
+    /// skin) has no material crossing and nothing to trim, so the
+    /// caller may skip the marching escalation the VALIDATOR keeps
+    /// for its coincidence question (measured 36 s per grazing
+    /// cylinder×NURBS pair).
+    pub fn collect_self_intersecting_pairs_among(
+        &self,
+        face_keys: &[FaceHandle],
+        collect_all: bool,
+        tangential_band_is_clean: bool,
+    ) -> Vec<(FaceHandle, FaceHandle)> {
+        let mut found: Vec<(FaceHandle, FaceHandle)> = Vec::new();
         let face_keys: Vec<FaceHandle> = {
             let mut seen = std::collections::BTreeSet::new();
             face_keys
@@ -65,7 +94,7 @@ impl BRep {
         };
         let n = face_keys.len();
         if n < 2 {
-            return Ok(());
+            return found;
         }
 
         // ------------------------------------------------------------------ //
@@ -157,7 +186,7 @@ impl BRep {
             .collect();
 
         if bvh_items.len() < 2 {
-            return Ok(());
+            return found;
         }
 
         let bvh = Bvh::build(&bvh_items);
@@ -260,6 +289,31 @@ impl BRep {
             ) {
                 continue;
             }
+            // Certified-separation pre-gate (PK-327): free-form pairs
+            // route to the marching solver, which degrades badly on
+            // near-parallel non-intersecting sheets (a healthy
+            // thickened NURBS face: two skins a thickness apart).
+            // Subdivision AABB-gap certificates prove separation
+            // quickly; an unproven pair falls through unchanged.
+            let free_form =
+                crate::validation::self_intersection_trim::surface_uses_iterative_projection(
+                    &surf_i.geometry,
+                ) || crate::validation::self_intersection_trim::surface_uses_iterative_projection(
+                    &surf_j.geometry,
+                );
+            if free_form
+                && crate::validation::self_intersection_pair_gate::pair_clearly_separated(
+                    &surf_i.geometry,
+                    (u0i, u1i),
+                    (v0i, v1i),
+                    &surf_j.geometry,
+                    (u0j, u1j),
+                    (v0j, v1j),
+                    linear_tol * 4.0,
+                )
+            {
+                continue;
+            }
             pairs_checked += 1;
             trace_self_intersection_candidate(
                 self,
@@ -287,10 +341,10 @@ impl BRep {
                 linear_tol,
             ) {
                 if overlaps {
-                    return Err(ValidationError::SelfIntersection {
-                        face_a: face_keys[i],
-                        face_b: face_keys[j],
-                    });
+                    found.push((face_keys[i], face_keys[j]));
+                    if !collect_all {
+                        return found;
+                    }
                 }
                 continue;
             }
@@ -310,11 +364,27 @@ impl BRep {
                 linear_tol,
             ) {
                 if overlaps {
-                    return Err(ValidationError::SelfIntersection {
-                        face_a: face_keys[i],
-                        face_b: face_keys[j],
-                    });
+                    found.push((face_keys[i], face_keys[j]));
+                    if !collect_all {
+                        return found;
+                    }
                 }
+                continue;
+            }
+            // Trim-scan context: one-sided tolerance-band contact (a
+            // join strip riding its neighbour's skin) has no material
+            // crossing and nothing to trim — skip the marching
+            // escalation the VALIDATOR keeps for its coincidence
+            // question (measured 36 s per grazing cylinder×NURBS pair).
+            if tangential_band_is_clean
+                && crate::validation::self_intersection_pair_gate::one_sided_contact_only(
+                    &surf_i.geometry,
+                    &surf_j.geometry,
+                    (u0j, u1j),
+                    (v0j, v1j),
+                    linear_tol,
+                )
+            {
                 continue;
             }
             let result = intersect_surfaces_with_handler(
@@ -344,16 +414,16 @@ impl BRep {
                     if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some() {
                         self.trace_self_intersection_pair(face_keys[i], face_keys[j]);
                     }
-                    return Err(ValidationError::SelfIntersection {
-                        face_a: face_keys[i],
-                        face_b: face_keys[j],
-                    });
+                    found.push((face_keys[i], face_keys[j]));
+                    if !collect_all {
+                        return found;
+                    }
                 }
                 _ => {}
             }
         }
 
-        Ok(())
+        found
     }
 
     fn trace_self_intersection_pair(
@@ -394,96 +464,6 @@ impl BRep {
                 entries.join(" -> ")
             );
         }
-    }
-
-    /// Check for twisted surfaces: faces where the normal reverses direction.
-    ///
-    /// Samples the surface normal on a grid and checks for sign changes in
-    /// the determinant of the Jacobian (partial_u × partial_v). A sign
-    /// change indicates the surface folds over itself within the face.
-    pub fn validate_twisted_surfaces(&self) -> Result<(), ValidationError> {
-        use crate::geometry::surface::SurfaceEval;
-
-        for (fh, face) in &self.faces {
-            let surface = match face.surface.as_ref() {
-                Some(s) => &s.geometry,
-                None => continue,
-            };
-
-            // Get face parameter range
-            let positions = self.face_outer_loop_positions(fh);
-            if positions.is_empty() {
-                continue;
-            }
-            let ((u_min, u_max), (v_min, v_max)) =
-                crate::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
-
-            // Sample normals on a 4x4 grid
-            let n = 4;
-            let mut first_sign = None;
-            let mut twisted = false;
-
-            for i in 0..n {
-                let u = u_min + (u_max - u_min) * (i as f64 + 0.5) / (n as f64);
-                for j in 0..n {
-                    let v = v_min + (v_max - v_min) * (j as f64 + 0.5) / (n as f64);
-                    let normal = surface.normal_at(u, v);
-                    let len = normal.length();
-                    if len < 1e-12 {
-                        continue; // degenerate normal, skip
-                    }
-
-                    // Use z-component sign as a proxy for orientation
-                    // (for general surfaces, compare against first sample's direction)
-                    let sign = match &first_sign {
-                        None => {
-                            first_sign = Some(normal);
-                            true
-                        }
-                        Some(first) => {
-                            let dot = normal.dot(first);
-                            dot > 0.0
-                        }
-                    };
-
-                    if first_sign.is_some() && !sign {
-                        twisted = true;
-                        break;
-                    }
-                }
-                if twisted {
-                    break;
-                }
-            }
-
-            if twisted {
-                return Err(ValidationError::TwistedSurface { face: fh });
-            }
-        }
-
-        Ok(())
-    }
-
-    /// §5.3 item #10 — check every Gregory-surface face for
-    /// within-face self-intersection (fold-over or curl-around).
-    /// Delegates per-face to
-    /// [`GregoryPatch::self_intersects_with_tolerance`].
-    pub fn validate_gregory_self_intersection(&self) -> Result<(), ValidationError> {
-        use crate::geometry::surface::SurfaceGeometry;
-
-        let tol_linear = self.tolerance.linear().max(1e-6);
-        for (fh, face) in &self.faces {
-            let Some(sof) = face.surface.as_ref() else {
-                continue;
-            };
-            let SurfaceGeometry::Gregory(ref patch) = sof.geometry else {
-                continue;
-            };
-            if patch.self_intersects_with_tolerance(tol_linear) {
-                return Err(ValidationError::TwistedSurface { face: fh });
-            }
-        }
-        Ok(())
     }
 }
 

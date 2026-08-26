@@ -5,7 +5,6 @@
 //! with side wall faces.
 
 use crate::ShellWarning;
-use crate::assemble::assemble_shell;
 use crate::error::ShellError;
 use crate::types::{ShellDirection, ShellOptions, ShellResult};
 use popkern_core::tolerance::Tolerance;
@@ -82,50 +81,52 @@ pub(crate) fn thicken_impl(
 
     // Offset outward to create the outer skin. The ladder's collapse
     // gate reports the caller's full-thickness units (scale 2.0).
-    let (outer, outer_map, offset_out, joins_out) = crate::skin_ladder::offset_skin_ladder(
-        brep,
-        half,
-        &[],
-        ShellDirection::Outward,
-        &[],
-        false,
-        options.allow_partial,
-        options.join_style,
-        true,
-        &stage_tol,
-        2.0,
-        [
-            "thicken.outward.classify_faces",
-            "thicken.outward.offset_surfaces",
-            "thicken.outward.skin",
-            "thicken.outward.recompute",
-            "thicken.outward.apply_offset_geometry",
-        ],
-        tracker,
-    )?;
+    let (outer, outer_map, offset_out, joins_out, routing_out) =
+        crate::skin_ladder::offset_skin_ladder(
+            brep,
+            half,
+            &[],
+            ShellDirection::Outward,
+            &[],
+            false,
+            options.allow_partial,
+            options.join_style,
+            true,
+            &stage_tol,
+            2.0,
+            [
+                "thicken.outward.classify_faces",
+                "thicken.outward.offset_surfaces",
+                "thicken.outward.skin",
+                "thicken.outward.recompute",
+                "thicken.outward.apply_offset_geometry",
+            ],
+            tracker,
+        )?;
 
     // Offset inward to create the inner skin.
-    let (mut inner, inner_map, offset_in, joins_in) = crate::skin_ladder::offset_skin_ladder(
-        brep,
-        half,
-        &[],
-        ShellDirection::Inward,
-        &[],
-        false,
-        options.allow_partial,
-        options.join_style,
-        true,
-        &stage_tol,
-        2.0,
-        [
-            "thicken.inward.classify_faces",
-            "thicken.inward.offset_surfaces",
-            "thicken.inward.skin",
-            "thicken.inward.recompute",
-            "thicken.inward.apply_offset_geometry",
-        ],
-        tracker,
-    )?;
+    let (mut inner, inner_map, offset_in, joins_in, mut routing_in) =
+        crate::skin_ladder::offset_skin_ladder(
+            brep,
+            half,
+            &[],
+            ShellDirection::Inward,
+            &[],
+            false,
+            options.allow_partial,
+            options.join_style,
+            true,
+            &stage_tol,
+            2.0,
+            [
+                "thicken.inward.classify_faces",
+                "thicken.inward.offset_surfaces",
+                "thicken.inward.skin",
+                "thicken.inward.recompute",
+                "thicken.inward.apply_offset_geometry",
+            ],
+            tracker,
+        )?;
 
     // Mirror the inner skin's material side honestly: winding and
     // orientation flags flip together (a flag-only flip ships the
@@ -151,7 +152,13 @@ pub(crate) fn thicken_impl(
         return Err(ShellError::Cancelled);
     }
     let t0 = Instant::now();
-    let mut result = assemble_shell(&outer, &inner, &[], &combined_skin_map, tolerance)?;
+    let (mut result, assembly_maps) = crate::assemble::assemble_shell_with_maps(
+        &outer,
+        &inner,
+        &[],
+        &combined_skin_map,
+        tolerance,
+    )?;
     tracker.finish_stage("thicken.assemble", t0, result.faces.len());
 
     // Assembly copies topology without pcurves — re-author them all
@@ -174,6 +181,60 @@ pub(crate) fn thicken_impl(
     // strips) get their honest value here (PK-325).
     result.reconcile_orientation_flags();
 
+    // Global self-intersection trim stage (PK-327): both skins moved
+    // by t/2, so every mapped face expects that distance; walls and
+    // corner sectors (unmapped) are exempt.
+    let mut routing = routing_out;
+    routing
+        .inverted_edges
+        .append(&mut routing_in.inverted_edges);
+    if routing.deferred.is_none() {
+        routing.deferred = routing_in.deferred.take();
+    }
+    let mut provenance = crate::global_si_trim::TrimProvenance {
+        default_distance: half,
+        ..Default::default()
+    };
+    let mapped: std::collections::BTreeSet<_> = assembly_maps
+        .outer_faces
+        .values()
+        .chain(assembly_maps.inner_faces.values())
+        .copied()
+        .collect();
+    for fh in result.faces.keys() {
+        if !mapped.contains(&fh) {
+            provenance.always_keep.insert(fh);
+        }
+    }
+    for (offset, ladder_map, assembly_faces) in [
+        (&offset_out, &outer_map, &assembly_maps.outer_faces),
+        (&offset_in, &inner_map, &assembly_maps.inner_faces),
+    ] {
+        provenance
+            .free_form_offsets
+            .extend(crate::global_si_trim::collect_free_form_pairs(
+                brep,
+                &offset.surfaces,
+                |fh| {
+                    ladder_map
+                        .faces
+                        .get(&fh)
+                        .and_then(|s| assembly_faces.get(s))
+                        .copied()
+                },
+                |_| half,
+            ));
+    }
+    let trim_warnings = crate::global_si_trim::run_trim_stage(
+        &mut result,
+        brep,
+        &provenance,
+        options.trim_policy,
+        routing.deferred,
+        routing.inverted_edges.len(),
+        &tolerance,
+    )?;
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -183,6 +244,7 @@ pub(crate) fn thicken_impl(
     }
 
     let mut warnings = offset_out.warnings;
+    warnings.extend(trim_warnings);
     warnings.extend(offset_in.warnings);
     warnings.extend(joins_out.warnings);
     warnings.extend(joins_in.warnings);

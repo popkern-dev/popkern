@@ -95,6 +95,7 @@ fn expected_to_serve(name: &str) -> bool {
             | "filleted_cube"
             | "bracket_bore_countersink"
             | "torus_lens"
+            | "grooved_cylinder"
             | "sphere_capped_rod"
             | "wavy_plate"
     )

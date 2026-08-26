@@ -15,7 +15,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 /// Honest per-run stage count of [`offset_impl`] for progress totals
 /// (PK-276).
-pub(crate) const OFFSET_STAGE_COUNT: usize = 7;
+pub(crate) const OFFSET_STAGE_COUNT: usize = 8;
 
 /// Offset all faces of a solid by a uniform distance.
 ///
@@ -162,8 +162,10 @@ pub(crate) fn offset_solid_impl(
     )?;
     crate::join_classification::intersection_gap_postcheck(&join_plan, &undone)?;
     // Collapse gate (part of the recompute stage): a shrink past the
-    // local feature size inverts the skin.
-    crate::collapse_check::check_skin_collapse(
+    // local feature size inverts the skin. Tangential zero-length
+    // collapses decline here; INVERTED chords (transversal collision)
+    // defer their decline to the post-assembly trim stage (PK-327).
+    let trim_routing = crate::collapse_check::check_skin_collapse(
         brep,
         &result,
         &skin_map,
@@ -208,6 +210,58 @@ pub(crate) fn offset_solid_impl(
     // strips) get their honest value here (PK-325).
     result.reconcile_orientation_flags();
 
+    // Global self-intersection trim stage (PK-327): scan the
+    // assembled skin for transversal collisions; trim-and-re-close
+    // under TrimPolicy::Trim, decline with region reports under
+    // Decline. The chord gate's deferred decline lands here when the
+    // trim does not apply.
+    stage_gate!();
+    let t0 = Instant::now();
+    let mut provenance = crate::global_si_trim::TrimProvenance {
+        default_distance: abs_default,
+        ..Default::default()
+    };
+    for (outer_fh, skin_fh) in &skin_map.faces {
+        if result.faces.contains_key(*skin_fh) {
+            let d = classification
+                .offset_faces
+                .iter()
+                .find(|(fh, _, _)| fh == outer_fh)
+                .map(|(_, d, _)| d.abs())
+                .unwrap_or(abs_default);
+            provenance.expected.insert(*skin_fh, d);
+        }
+    }
+    provenance.free_form_offsets = crate::global_si_trim::collect_free_form_pairs(
+        brep,
+        &offset_result.surfaces,
+        |fh| {
+            skin_map
+                .faces
+                .get(&fh)
+                .copied()
+                .filter(|s| result.faces.contains_key(*s))
+        },
+        |fh| {
+            classification
+                .offset_faces
+                .iter()
+                .find(|(f, _, _)| *f == fh)
+                .map(|(_, d, _)| *d)
+                .unwrap_or(abs_default)
+        },
+    );
+    let trim_warnings = crate::global_si_trim::run_trim_stage(
+        &mut result,
+        brep,
+        &provenance,
+        options.trim_policy,
+        trim_routing.deferred,
+        trim_routing.inverted_edges.len(),
+        &tolerance,
+    )?;
+    tracker.finish_stage("offset.global_si_trim", t0, result.faces.len());
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -217,6 +271,7 @@ pub(crate) fn offset_solid_impl(
     }
 
     let mut warnings = offset_result.warnings;
+    warnings.extend(trim_warnings);
     warnings.extend(collapse_warnings);
     warnings.extend(join_plan.warnings.iter().cloned());
     crate::arc_join_apex::retire_served_apex_warnings(&mut warnings, &arc.served_apexes);

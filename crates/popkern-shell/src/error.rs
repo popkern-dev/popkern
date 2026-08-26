@@ -32,6 +32,23 @@ pub enum ShellError {
         failures: Vec<(FaceHandle, String)>,
     },
 
+    /// The offset skin globally self-intersects (distinct surface
+    /// regions offset onto colliding positions) and the caller asked
+    /// for [`crate::TrimPolicy::Decline`], or the trim stage could not
+    /// remove and re-close the region. Each report is a reproducible
+    /// record of one detected collision.
+    #[error(
+        "offset skin self-intersects: {} region(s) detected ({policy_note})",
+        regions.len()
+    )]
+    SelfIntersecting {
+        /// One report per detected face-pair collision curve.
+        regions: Vec<TrimRegionReport>,
+        /// Why this is an error: the Decline policy, or the trim
+        /// mechanism's specific failure.
+        policy_note: String,
+    },
+
     /// The requested offset distance exceeds what the geometry can support.
     #[error(
         "offset {requested} exceeds the maximum {max_safe:.6} supported by the \
@@ -195,6 +212,41 @@ pub enum ShellWarning {
         /// How the collapse was measured and resolved.
         mechanism: String,
     },
+    /// The free-form (NURBS/Gregory) offset faces were checked for
+    /// global self-folding by the numeric distance-map tier (PK-327
+    /// tier 3) and came back clean. Analytic faces never enter this
+    /// tier — its presence on an all-analytic body is a routing
+    /// defect, and the corpus pins exactly that.
+    FreeFormFoldScan {
+        /// Free-form offset faces scanned.
+        faces: usize,
+    },
+    /// A globally self-intersecting region of the offset skin was
+    /// removed and the skin re-closed along the exact intersection
+    /// curves (PK-327). The served body is the true Minkowski result.
+    RegionTrimmed {
+        /// Faces removed as unrealized (post-split count).
+        removed_faces: usize,
+        /// Intersection-curve seams welded during re-closure.
+        welded_seams: usize,
+        /// The detected collisions that drove the trim.
+        regions: Vec<TrimRegionReport>,
+    },
+}
+
+/// A reproducible record of one detected global self-intersection:
+/// two faces of the assembled offset result whose surfaces cross
+/// transversally (PK-327 §7 diagnostics).
+#[derive(Debug, Clone)]
+pub struct TrimRegionReport {
+    /// First face of the colliding pair (assembled-result handle).
+    pub face_a: FaceHandle,
+    /// Second face of the colliding pair.
+    pub face_b: FaceHandle,
+    /// A point on the intersection curve (curve midpoint).
+    pub witness: popkern_core::geometry::Point3,
+    /// Chord-estimated length of the clipped intersection curve.
+    pub curve_length: f64,
 }
 
 #[cfg(test)]

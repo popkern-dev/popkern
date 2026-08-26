@@ -64,6 +64,12 @@ impl BodyDistanceIndex {
 }
 
 impl FaceTrimEntry {
+    /// Build the trim entry for a single face (`None` when the face
+    /// has no surface or no walkable loop with ≥3 samples).
+    pub(crate) fn build(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
+        build_entry(body, fh)
+    }
+
     /// Distance from `p` to this trimmed face patch.
     fn distance(&self, p: &Point3) -> Option<f64> {
         // Boundary arm: nearest sample, refined by projection onto the

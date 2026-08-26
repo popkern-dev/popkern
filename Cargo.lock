@@ -3422,6 +3422,7 @@ dependencies = [
 name = "popkern-shell"
 version = "0.1.0"
 dependencies = [
+ "popkern-bool",
  "popkern-core",
  "popkern-fillet",
  "serde_json",

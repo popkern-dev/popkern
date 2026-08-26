@@ -1,6 +1,10 @@
 //! Surface offset computation.
 
 pub mod analytic;
+pub mod distance_map;
+#[cfg(test)]
+#[path = "distance_map_tests.rs"]
+mod distance_map_tests;
 pub mod error;
 pub mod nurbs;
 mod nurbs_fit;

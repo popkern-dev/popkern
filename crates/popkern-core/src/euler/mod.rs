@@ -25,8 +25,14 @@ mod kemr;
 mod kve;
 mod kvr;
 mod reanchor;
+mod remove_face_region;
+#[cfg(test)]
+#[path = "remove_face_region_tests.rs"]
+mod remove_face_region_tests;
 mod support_loop_interval_rewrite;
+mod weld_boundary_edges;
 pub use kve::KveResult;
+pub use remove_face_region::RegionRemovalResult;
 mod kfmrh;
 mod loop_bridge;
 mod loop_bridge_apply;

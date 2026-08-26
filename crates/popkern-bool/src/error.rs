@@ -113,6 +113,11 @@ pub enum BoolError {
         face_b: FaceHandle,
     },
 
+    /// Self-intersection trimming could not remove and re-close the
+    /// unrealized region (PK-327). The input model is unchanged.
+    #[error("self-intersection trim failed: {0}")]
+    SelfTrimFailed(String),
+
     /// An error propagated from popkern-core.
     #[error(transparent)]
     CoreError(#[from] CoreError),

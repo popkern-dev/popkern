@@ -9,7 +9,6 @@
 //! thickness (the outer skin never moved), then declined as named
 //! containment; PK-330 built this construction.
 
-use crate::assemble::assemble_shell;
 use crate::error::ShellError;
 use crate::skin_ladder::{SKIN_LADDER_STAGE_COUNT, combine_skin_maps, offset_skin_ladder};
 use crate::types::{ShellDirection, ShellOptions, ShellResult};
@@ -44,7 +43,7 @@ pub(crate) fn midplane_shell_impl(
     // Outer skin: material-outward by half. Removed faces stay PRESENT
     // (unclassified) so assembly can walk their loops for rim discovery;
     // the copy filter drops them and the walls adopt their rims.
-    let (outer_skin, outer_map, offset_out, joins_out) = offset_skin_ladder(
+    let (outer_skin, outer_map, offset_out, joins_out, routing_out) = offset_skin_ladder(
         brep,
         half,
         &half_faces,
@@ -76,7 +75,7 @@ pub(crate) fn midplane_shell_impl(
 
     // Inner skin: material-inward by half, removed faces deleted (the
     // classic void-skin shape whose free rim half-edges the walls adopt).
-    let (mut inner_skin, inner_map, offset_in, joins_in) = offset_skin_ladder(
+    let (mut inner_skin, inner_map, offset_in, joins_in, mut routing_in) = offset_skin_ladder(
         brep,
         half,
         &half_faces,
@@ -128,7 +127,7 @@ pub(crate) fn midplane_shell_impl(
         return Err(ShellError::Cancelled);
     }
     let t0 = Instant::now();
-    let mut result = assemble_shell(
+    let (mut result, assembly_maps) = crate::assemble::assemble_shell_with_maps(
         &outer_skin,
         &inner_skin,
         &mapped_removed,
@@ -153,6 +152,65 @@ pub(crate) fn midplane_shell_impl(
     // strips) get their honest value here (PK-325).
     result.reconcile_orientation_flags();
 
+    // Global self-intersection trim stage (PK-327): both skins moved
+    // by half the thickness; walls and corner sectors are exempt.
+    let mut routing = routing_out;
+    routing
+        .inverted_edges
+        .append(&mut routing_in.inverted_edges);
+    if routing.deferred.is_none() {
+        routing.deferred = routing_in.deferred.take();
+    }
+    let mut provenance = crate::global_si_trim::TrimProvenance {
+        default_distance: half,
+        ..Default::default()
+    };
+    let mapped: std::collections::BTreeSet<_> = assembly_maps
+        .outer_faces
+        .values()
+        .chain(assembly_maps.inner_faces.values())
+        .copied()
+        .collect();
+    for fh in result.faces.keys() {
+        if !mapped.contains(&fh) {
+            provenance.always_keep.insert(fh);
+        }
+    }
+    for (offset, ladder_map, assembly_faces) in [
+        (&offset_out, &outer_map, &assembly_maps.outer_faces),
+        (&offset_in, &inner_map, &assembly_maps.inner_faces),
+    ] {
+        provenance
+            .free_form_offsets
+            .extend(crate::global_si_trim::collect_free_form_pairs(
+                brep,
+                &offset.surfaces,
+                |fh| {
+                    ladder_map
+                        .faces
+                        .get(&fh)
+                        .and_then(|s| assembly_faces.get(s))
+                        .copied()
+                },
+                |fh| {
+                    half_faces
+                        .iter()
+                        .find(|(f, _)| *f == fh)
+                        .map(|(_, d)| *d)
+                        .unwrap_or(half)
+                },
+            ));
+    }
+    let trim_warnings = crate::global_si_trim::run_trim_stage(
+        &mut result,
+        brep,
+        &provenance,
+        options.trim_policy,
+        routing.deferred,
+        routing.inverted_edges.len(),
+        &tolerance,
+    )?;
+
     // Serve gate: never hand back a body a validator would reject.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
@@ -162,6 +220,7 @@ pub(crate) fn midplane_shell_impl(
     }
 
     let mut warnings = offset_out.warnings;
+    warnings.extend(trim_warnings);
     warnings.extend(offset_in.warnings);
     warnings.extend(joins_out.warnings);
     warnings.extend(joins_in.warnings);

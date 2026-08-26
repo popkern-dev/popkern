@@ -24,7 +24,22 @@
 use crate::error::ShellError;
 use crate::skin_map::SkinMap;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, EdgeHandle};
+
+/// Routing verdict of the chord gate (PK-327): tangential zero-length
+/// collapses decline immediately, but INVERTED chords (the skin edge
+/// crossed through zero — a transversal collision) are routed to the
+/// global self-intersection trim stage with the decline deferred. If
+/// the trim stage cannot serve, the deferred error is returned so
+/// behavior degrades to the honest pre-trim decline.
+#[derive(Debug, Default)]
+pub struct TrimRouting {
+    /// Outer-body edges whose skin image inverted (crossed zero).
+    pub inverted_edges: Vec<EdgeHandle>,
+    /// The decline the chord gate WOULD have issued, deferred while
+    /// the trim stage decides.
+    pub deferred: Option<ShellError>,
+}
 
 /// Decline when any recomputed skin edge has collapsed or inverted.
 ///
@@ -35,15 +50,18 @@ use popkern_core::topology::BRep;
 ///
 /// # Errors
 ///
-/// [`ShellError::OffsetTooLarge`] on the first collapsed edge, with the
-/// binding edge named and the estimated maximum safe magnitude.
+/// [`ShellError::OffsetTooLarge`] on the first TANGENTIAL collapse (an
+/// edge shrinking to zero without crossing — a degenerate contact the
+/// trim stage cannot resolve). Inverted edges are returned in the
+/// routing instead, with the matching decline deferred.
 pub fn check_skin_collapse(
     outer: &BRep,
     skin: &BRep,
     skin_map: &SkinMap,
     requested: f64,
     tolerance: &Tolerance,
-) -> Result<(), ShellError> {
+) -> Result<TrimRouting, ShellError> {
+    let mut routing = TrimRouting::default();
     let tol = tolerance.linear();
     // Deterministic order: iterate the outer body's edge slotmap (stable
     // insertion order), not the HashMap.
@@ -82,14 +100,25 @@ pub fn check_skin_collapse(
             } else {
                 0.0
             };
-            return Err(ShellError::OffsetTooLarge {
+            let decline = ShellError::OffsetTooLarge {
                 requested: magnitude,
                 max_safe,
                 binding: format!("edge {outer_eh:?} (length {len0:.6}) collapses at this distance"),
-            });
+            };
+            if proj < -tol {
+                // Inverted: the edge crossed through zero — a
+                // transversal collision the trim stage can remove.
+                routing.inverted_edges.push(outer_eh);
+                if routing.deferred.is_none() {
+                    routing.deferred = Some(decline);
+                }
+            } else {
+                // Tangential zero-length contact: degenerate, decline.
+                return Err(decline);
+            }
         }
     }
-    Ok(())
+    Ok(routing)
 }
 
 #[cfg(test)]
@@ -122,16 +151,19 @@ mod tests {
     }
 
     #[test]
-    fn crossing_shell_declines_with_binding_edge() {
-        // Unit cube at 0.6 inward: opposite faces cross, every edge inverts.
+    fn crossing_shell_routes_inverted_edges_with_deferred_decline() {
+        // Unit cube at 0.6 inward: opposite faces cross, every edge
+        // inverts — routed to the trim stage with the decline DEFERRED
+        // (PK-327), not returned.
         let (outer, inner, map) = recomputed_inner(0.6);
-        let err = check_skin_collapse(&outer, &inner, &map, 0.6, &tol()).unwrap_err();
-        match err {
-            ShellError::OffsetTooLarge {
+        let routing = check_skin_collapse(&outer, &inner, &map, 0.6, &tol()).unwrap();
+        assert!(!routing.inverted_edges.is_empty(), "inverted edges routed");
+        match routing.deferred {
+            Some(ShellError::OffsetTooLarge {
                 requested,
                 max_safe,
                 binding,
-            } => {
+            }) => {
                 assert!((requested - 0.6).abs() < 1e-12);
                 assert!(
                     max_safe > 0.0 && max_safe < 0.6,
@@ -139,7 +171,7 @@ mod tests {
                 );
                 assert!(binding.contains("edge"), "{binding}");
             }
-            other => panic!("expected OffsetTooLarge, got {other:?}"),
+            other => panic!("expected deferred OffsetTooLarge, got {other:?}"),
         }
     }
 
@@ -152,14 +184,18 @@ mod tests {
 
     #[test]
     fn max_safe_estimate_is_serveable() {
-        // The reported max_safe from a declined 0.6 shell must itself pass.
+        // The deferred max_safe from a routed 0.6 shell must itself pass.
         let (outer, _, _) = recomputed_inner(0.6);
         let (_, inner, map) = recomputed_inner(0.6);
-        let err = check_skin_collapse(&outer, &inner, &map, 0.6, &tol()).unwrap_err();
-        let ShellError::OffsetTooLarge { max_safe, .. } = err else {
-            panic!("expected OffsetTooLarge");
+        let routing = check_skin_collapse(&outer, &inner, &map, 0.6, &tol()).unwrap();
+        let Some(ShellError::OffsetTooLarge { max_safe, .. }) = routing.deferred else {
+            panic!("expected deferred OffsetTooLarge");
         };
-        let (outer2, inner2, map2) = recomputed_inner(max_safe);
-        check_skin_collapse(&outer2, &inner2, &map2, max_safe, &tol()).unwrap();
+        let routing2 = {
+            let (outer2, inner2, map2) = recomputed_inner(max_safe);
+            check_skin_collapse(&outer2, &inner2, &map2, max_safe, &tol()).unwrap()
+        };
+        assert!(routing2.deferred.is_none(), "max_safe must serve clean");
+        assert!(routing2.inverted_edges.is_empty());
     }
 }

@@ -201,6 +201,13 @@ impl BoolError {
                  the input (fewer faces, decimated NURBS surfaces, \
                  smaller models) and retry.",
             ),
+            BoolError::SelfTrimFailed(_) => Remediation::new(
+                RemediationAction::NoAction,
+                "The self-intersecting region could not be removed and \
+                 re-closed. Reduce the offset distance below the \
+                 collision reach, or run with the Decline trim policy \
+                 to inspect the detected regions.",
+            ),
         }
     }
 }

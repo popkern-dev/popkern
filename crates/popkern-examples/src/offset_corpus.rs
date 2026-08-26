@@ -1,10 +1,10 @@
 //! Offset-campaign fixture corpus (PK-323, design doc §9).
 //!
-//! Nine bodies spanning the behaviors the offset/shell campaign must
+//! Ten bodies spanning the behaviors the offset/shell campaign must
 //! master: G1 fillet joins, bores and countersinks, concave edges,
 //! collapse-width ribs, free-form NURBS, global self-intersection
-//! under modest offsets, open rims, mixed analytic junctions, and
-//! high-valence corners. Each fixture carries known-correct topology
+//! under modest offsets (spindled torus and thin-wall collision),
+//! open rims, mixed analytic junctions, and high-valence corners. Each fixture carries known-correct topology
 //! counts (derived, not transcribed from output), an analytic volume
 //! where one is derivable, and Steiner/tube constants where the body
 //! is convex analytic (plus the torus, whose tube formula holds below
@@ -363,6 +363,50 @@ pub fn torus_lens(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
     })
 }
 
+/// Cylinder (r 0.5, h 1) with a circumferential rectangular groove
+/// (width 0.1 at mid-height, floor at r 0.3) — the thin-wall global-SI
+/// fixture. Outward offsets `d > 0.05` collide the groove walls: the
+/// wall/floor offsets are unrealized and the two mouth-rim join tori
+/// cross in an exact coaxial circle at `z = 0.5`,
+/// `r = 0.5 + sqrt(d² − 0.05²)`. Rotational symmetry keeps every
+/// self-intersection curve closed (no curve-endpoint termination on
+/// corner faces), so the fixture isolates the trim/re-close mechanism.
+pub fn grooved_cylinder(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
+    // Stacked coaxial unions (coincident-cap booleans): band + core +
+    // band. The subtractive construction (cylinder minus tube) trips
+    // PK-341 — the boolean drops the island-split annular groove walls
+    // and serves a non-closed body — so the fixture builds additively.
+    let bottom = BRep::cylinder(0.5, 0.45, tol)?;
+    let core =
+        BRep::cylinder(0.3, 0.1, tol)?.transform(&Transform3::translation(0.0, 0.0, 0.45))?;
+    let top =
+        BRep::cylinder(0.5, 0.45, tol)?.transform(&Transform3::translation(0.0, 0.0, 0.55))?;
+    let result = part(bottom, tol, "grooved cylinder lower band")?
+        .union(&part(core, tol, "groove core")?)?
+        .union(&part(top, tol, "grooved cylinder upper band")?)?;
+    let brep = result.brep().clone();
+    Ok(CorpusFixture {
+        name: "grooved_cylinder",
+        brep,
+        watertight: true,
+        // Outer wall split into two bands + groove floor (3 cylinders),
+        // two caps + two groove walls (4 planes).
+        expected_faces: 7,
+        // Six rim circles (two cap rims, two groove mouth rims, two
+        // floor rims) + three wall seams (two bands + floor).
+        expected_edges: 9,
+        // One anchor vertex per rim circle; seams reuse the anchors.
+        expected_vertices: 6,
+        // Cylinder minus the groove ring: π(0.25·1 − (0.25 − 0.09)·0.1).
+        analytic_volume: Some(PI * (0.25 - 0.016)),
+        // Inscribed-chord tessellation deficit on the cylinder walls
+        // measures 0.64% — a mesh-density calibration, not geometry.
+        volume_band: 0.01,
+        steiner: None, // not convex (groove)
+        expected_census: vec![("cylinder", 3), ("plane", 4)],
+    })
+}
+
 /// Open five-face box (one face removed, rim exposed) — the
 /// thicken-rims fixture. Not watertight by construction.
 pub fn open_sheet(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
@@ -445,6 +489,7 @@ pub fn corpus(tol: Tolerance) -> Result<Vec<CorpusFixture>, CorpusError> {
         thin_rib(tol)?,
         wavy_plate(tol)?,
         torus_lens(tol)?,
+        grooved_cylinder(tol)?,
         open_sheet(tol)?,
         sphere_capped_rod(tol)?,
         high_valence_pyramid(tol)?,

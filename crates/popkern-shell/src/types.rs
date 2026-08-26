@@ -31,6 +31,22 @@ pub enum JoinStyle {
     Intersection,
 }
 
+/// How regions of the offset skin that globally self-intersect —
+/// distinct surface regions offset onto colliding positions (thin
+/// walls, spindled tori) — are handled (design §5 Stage 4, PK-327).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TrimPolicy {
+    /// Detect the colliding regions, remove the unrealized material
+    /// (points that do not achieve their own offset distance against
+    /// the source body), and re-close the skin along the exact
+    /// self-intersection curves. The Minkowski-faithful result.
+    #[default]
+    Trim,
+    /// Decline with [`crate::error::ShellError::SelfIntersecting`]
+    /// carrying the detected region reports instead of trimming.
+    Decline,
+}
+
 /// Options controlling shell operation behavior.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -45,6 +61,9 @@ pub struct ShellOptions {
     /// [`JoinStyle::Intersection`] with a
     /// [`crate::error::ShellWarning::JoinStyleDowngraded`] warning.
     pub join_style: JoinStyle,
+    /// How globally self-intersecting offset regions are handled.
+    /// Defaults to [`TrimPolicy::Trim`] (Minkowski-faithful).
+    pub trim_policy: TrimPolicy,
 }
 
 impl Default for ShellOptions {
@@ -52,6 +71,7 @@ impl Default for ShellOptions {
         Self {
             allow_partial: true,
             join_style: JoinStyle::default(),
+            trim_policy: TrimPolicy::default(),
         }
     }
 }
@@ -71,6 +91,14 @@ impl ShellOptions {
     #[must_use]
     pub fn with_allow_partial(mut self, allow_partial: bool) -> Self {
         self.allow_partial = allow_partial;
+        self
+    }
+
+    /// Builder: set how globally self-intersecting offset regions are
+    /// handled.
+    #[must_use]
+    pub fn with_trim_policy(mut self, trim_policy: TrimPolicy) -> Self {
+        self.trim_policy = trim_policy;
         self
     }
 }

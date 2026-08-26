@@ -20,7 +20,22 @@ type SkinCopyMaps = (
     HashMap<VertexHandle, VertexHandle>,
     HashMap<EdgeHandle, EdgeHandle>,
     HashMap<HalfEdgeHandle, HalfEdgeHandle>,
+    HashMap<FaceHandle, FaceHandle>,
 );
+
+/// Face provenance of an assembled shell: source-body handles →
+/// assembled-result handles for both skins. Result faces in neither
+/// map are side walls / corner sectors (built during assembly). Feeds
+/// the global self-intersection trim stage's realization predicate
+/// (PK-327).
+#[derive(Debug, Default)]
+pub struct ShellAssemblyMaps {
+    /// Outer-skin faces (original body for classic shells; the
+    /// outward-moved skin for thicken/midplane).
+    pub outer_faces: HashMap<FaceHandle, FaceHandle>,
+    /// Inner-skin faces (the moved void skin).
+    pub inner_faces: HashMap<FaceHandle, FaceHandle>,
+}
 
 /// Assemble the final shell BRep from outer skin, inner skin, and side walls.
 ///
@@ -44,6 +59,21 @@ pub fn assemble_shell(
     skin_map: &SkinMap,
     tolerance: Tolerance,
 ) -> Result<BRep, ShellError> {
+    assemble_shell_with_maps(outer, inner, removed_faces, skin_map, tolerance).map(|(b, _)| b)
+}
+
+/// [`assemble_shell`] returning the face provenance maps as well.
+///
+/// # Errors
+///
+/// Returns [`ShellError`] if handle mapping or side wall construction fails.
+pub fn assemble_shell_with_maps(
+    outer: &BRep,
+    inner: &BRep,
+    removed_faces: &[FaceHandle],
+    skin_map: &SkinMap,
+    tolerance: Tolerance,
+) -> Result<(BRep, ShellAssemblyMaps), ShellError> {
     let mut builder = BRepBuilder::new(tolerance);
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
@@ -52,7 +82,7 @@ pub fn assemble_shell(
         removed_faces.iter().copied().collect();
 
     // Copy outer skin (minus removed faces).
-    let (outer_vertex_map, outer_edge_map, outer_he_map) =
+    let (outer_vertex_map, outer_edge_map, outer_he_map, outer_face_map) =
         copy_skin_entities(&mut builder, outer, shell, |fh| !removed_set.contains(&fh))?;
 
     // Shell ownership is topological truth (PK-306): with no removed
@@ -76,7 +106,7 @@ pub fn assemble_shell(
     };
 
     // Copy inner skin (all faces).
-    let (inner_vertex_map, _inner_edge_map, inner_he_map) =
+    let (inner_vertex_map, _inner_edge_map, inner_he_map, inner_face_map) =
         copy_skin_entities(&mut builder, inner, inner_shell, |_| true)?;
 
     // Build side walls if there are removed faces.
@@ -108,7 +138,13 @@ pub fn assemble_shell(
 
     let _ = outer_edge_map;
 
-    Ok(builder.build_unchecked())
+    Ok((
+        builder.build_unchecked(),
+        ShellAssemblyMaps {
+            outer_faces: outer_face_map,
+            inner_faces: inner_face_map,
+        },
+    ))
 }
 
 /// Copy a skin's entities into the builder, filtering faces and keeping
@@ -201,12 +237,14 @@ fn copy_skin_entities(
     }
 
     // 3. Copy faces with their loops.
+    let mut face_map = HashMap::new();
     for (fh, face) in &source.faces {
         if !face_filter(fh) {
             continue;
         }
 
         let new_face = builder.add_face(shell);
+        face_map.insert(fh, new_face);
 
         // Copy outer loop.
         copy_loop(builder, source, face.outer_loop, new_face, &he_map)?;
@@ -222,7 +260,7 @@ fn copy_skin_entities(
         }
     }
 
-    Ok((vertex_map, edge_map, he_map))
+    Ok((vertex_map, edge_map, he_map, face_map))
 }
 
 /// Copy a loop from source BRep into the builder as an outer loop.

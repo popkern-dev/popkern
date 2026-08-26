@@ -130,6 +130,33 @@ pub fn compute_offset_surfaces(
                 }
                 surfaces.insert(face_handle, outcome.surface);
             }
+            Err(popkern_fillet::offset::OffsetError::SpindleTorus { new_minor, .. }) => {
+                // Spindled torus (tube swallows the axis): the offset
+                // SURFACE exists as an immersed spindle; construct it
+                // and let the trim stage's pinch arm serve the apple
+                // (PK-327 §6). The surface-level bound decline was the
+                // pre-trim containment.
+                let SurfaceGeometry::Torus {
+                    center,
+                    axis,
+                    major_radius,
+                    ..
+                } = surface
+                else {
+                    return Err(ShellError::Topology(
+                        "spindle decline on a non-torus surface".into(),
+                    ));
+                };
+                surfaces.insert(
+                    face_handle,
+                    SurfaceGeometry::Torus {
+                        center: *center,
+                        axis: *axis,
+                        major_radius: *major_radius,
+                        minor_radius: new_minor,
+                    },
+                );
+            }
             Err(e) => {
                 // Existence/fold declines are properties of the REQUEST
                 // (surface class × distance × direction), not of one

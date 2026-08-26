@@ -20,6 +20,7 @@ mod curved_recompute;
 mod curved_recompute_similarity;
 pub mod edge_recompute;
 pub mod error;
+mod global_si_trim;
 pub mod inner_skin;
 pub mod interactive;
 mod join_classification;
@@ -29,6 +30,7 @@ mod shell_naming;
 pub mod side_walls;
 mod skin_ladder;
 pub mod skin_map;
+mod spindle_pinch;
 pub mod surface_offset;
 pub mod thicken;
 pub mod types;
@@ -269,7 +271,9 @@ pub(crate) fn shell_impl(
     // Collapse gate (part of the recompute stage, O(E) and sub-stage
     // cheap): a thickness past the local feature size inverts skin
     // edges; the fold would serve structurally-clean wrong geometry.
-    collapse_check::check_skin_collapse(brep, &inner, &skin_map, thickness, &tolerance)?;
+    // Inverted chords defer their decline to the trim stage (PK-327).
+    let trim_routing =
+        collapse_check::check_skin_collapse(brep, &inner, &skin_map, thickness, &tolerance)?;
     tracker.finish_stage("shell.edge_recompute", t0, inner.edges.len());
     stage_gate!();
     let t0 = Instant::now();
@@ -299,7 +303,8 @@ pub(crate) fn shell_impl(
     // Stage 5: assemble outer + inner + side walls.
     stage_gate!();
     let t0 = Instant::now();
-    let mut result = assemble::assemble_shell(brep, &inner, &all_removed, &skin_map, tolerance)?;
+    let (mut result, assembly_maps) =
+        assemble::assemble_shell_with_maps(brep, &inner, &all_removed, &skin_map, tolerance)?;
     tracker.finish_stage("shell.assemble", t0, result.faces.len());
 
     // Stage 6: recompute pcurves for all faces.
@@ -317,6 +322,50 @@ pub(crate) fn shell_impl(
     // strips) get their honest value here (PK-325).
     result.reconcile_orientation_flags();
 
+    // Global self-intersection trim stage (PK-327): the outer skin IS
+    // the source boundary (expected distance 0, trivially realized);
+    // the moved inner skin expects the shell thickness; walls are
+    // exempt.
+    let mut provenance = global_si_trim::TrimProvenance {
+        default_distance: thickness.abs(),
+        ..Default::default()
+    };
+    for new_fh in assembly_maps.outer_faces.values() {
+        provenance.expected.insert(*new_fh, 0.0);
+    }
+    let mapped: std::collections::BTreeSet<_> = assembly_maps
+        .outer_faces
+        .values()
+        .chain(assembly_maps.inner_faces.values())
+        .copied()
+        .collect();
+    for fh in result.faces.keys() {
+        if !mapped.contains(&fh) {
+            provenance.always_keep.insert(fh);
+        }
+    }
+    provenance.free_form_offsets = global_si_trim::collect_free_form_pairs(
+        brep,
+        &offset_result.surfaces,
+        |fh| {
+            skin_map
+                .faces
+                .get(&fh)
+                .and_then(|s| assembly_maps.inner_faces.get(s))
+                .copied()
+        },
+        |_| thickness.abs(),
+    );
+    let trim_warnings = global_si_trim::run_trim_stage(
+        &mut result,
+        brep,
+        &provenance,
+        options.trim_policy,
+        trim_routing.deferred,
+        trim_routing.inverted_edges.len(),
+        &tolerance,
+    )?;
+
     // Serve gate: never hand back a body a validator would reject. The
     // structural collection is the affordable in-pipeline form (PK-273);
     // tests and acceptance batteries additionally hold results to
@@ -330,6 +379,7 @@ pub(crate) fn shell_impl(
 
     // Collect warnings.
     let mut warnings = offset_result.warnings;
+    warnings.extend(trim_warnings);
     warnings.extend(collapse_warnings);
     warnings.extend(join_plan.warnings.iter().cloned());
     arc_join_apex::retire_served_apex_warnings(&mut warnings, &arc.served_apexes);

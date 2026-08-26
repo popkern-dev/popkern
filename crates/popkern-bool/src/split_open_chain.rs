@@ -42,12 +42,11 @@ pub(super) fn reversed_nurbs(
 pub(super) fn open_chain_pre_pass(
     brep: &mut BRep,
     original_face: FaceHandle,
-    record_indices: &[usize],
+    entries: &[(usize, bool)],
     records: &[IntersectionRecord],
     consumed: &HashSet<usize>,
     tolerance: &Tolerance,
     fragments: &mut FragmentMap,
-    use_uv1: bool,
 ) -> Result<HashSet<usize>, BoolDiagnostics> {
     let mut chained: HashSet<usize> = HashSet::new();
     // Curved records join the chain pool since PK-304 — but ONLY on
@@ -63,10 +62,10 @@ pub(super) fn open_chain_pre_pass(
     // Curved members are polyline-sampled below, not endpoint-joined.
     let curved_ok =
         crate::clip::chart_cell::face_chart_cell(brep, original_face, tolerance).is_some();
-    let candidates: Vec<usize> = record_indices
+    let candidates: Vec<(usize, bool)> = entries
         .iter()
         .copied()
-        .filter(|ri| {
+        .filter(|(ri, _)| {
             !consumed.contains(ri) && (curved_ok || records[*ri].curve.curve_3d.degree == 1)
         })
         .collect();
@@ -78,7 +77,7 @@ pub(super) fn open_chain_pre_pass(
         popkern_core::geometry::Point3,
     )> = candidates
         .iter()
-        .map(|&ri| {
+        .map(|&(ri, _)| {
             let c = &records[ri].curve.curve_3d;
             let (t0, t1) = c.parameter_range();
             (c.point_at(t0), c.point_at(t1))
@@ -265,10 +264,12 @@ pub(super) fn open_chain_pre_pass(
             // Concatenate the chain into degree-1 multi-span curves in 3D
             // and both UV charts.
             let mut pts3: Vec<popkern_core::geometry::Point3> = Vec::new();
-            let mut pts_uv1: Vec<popkern_core::geometry::Point3> = Vec::new();
-            let mut pts_uv2: Vec<popkern_core::geometry::Point3> = Vec::new();
+            // THIS face's UV chart: each record contributes its own
+            // side (mixed sides are legal — self-splits pass per-entry
+            // flags; two-body splits pass a constant flag).
+            let mut pts_uv_face: Vec<popkern_core::geometry::Point3> = Vec::new();
             for (pos, &(k, rev)) in chain.iter().enumerate() {
-                let ri = candidates[k];
+                let (ri, use_uv1) = candidates[k];
                 let c = &records[ri].curve;
                 let (t0, t1) = c.curve_3d.parameter_range();
                 let (ta, tb) = if rev { (t1, t0) } else { (t0, t1) };
@@ -278,11 +279,11 @@ pub(super) fn open_chain_pre_pass(
                 // (24 spans over a sub-unit arc ≈ 1e-4 sagitta).
                 let spans = if c.curve_3d.degree == 1 { 1 } else { 24 };
                 let start = if pos == 0 { 0 } else { 1 };
+                let uv_curve = if use_uv1 { &c.curve_uv1 } else { &c.curve_uv2 };
                 for i in start..=spans {
                     let t = ta + (tb - ta) * (i as f64) / (spans as f64);
                     pts3.push(c.curve_3d.point_at(t));
-                    pts_uv1.push(c.curve_uv1.point_at(t));
-                    pts_uv2.push(c.curve_uv2.point_at(t));
+                    pts_uv_face.push(uv_curve.point_at(t));
                 }
             }
             let polyline = |pts: &[popkern_core::geometry::Point3]| {
@@ -300,17 +301,18 @@ pub(super) fn open_chain_pre_pass(
                     weights: vec![1.0; n],
                 }
             };
+            // Both slots carry this face's chart: split_one_face only
+            // reads the side we hand it, and the first-control-point
+            // disambiguation in the presplit helper then resolves to
+            // the same chart either way.
+            let uv_face = polyline(&pts_uv_face);
             let combined = popkern_core::geometry::curve_on_surface::CurveOnSurface {
                 curve_3d: polyline(&pts3),
-                curve_uv1: polyline(&pts_uv1),
-                curve_uv2: polyline(&pts_uv2),
+                curve_uv1: uv_face.clone(),
+                curve_uv2: uv_face,
                 is_closed: false,
             };
-            let curve_uv = if use_uv1 {
-                &combined.curve_uv1
-            } else {
-                &combined.curve_uv2
-            };
+            let curve_uv = &combined.curve_uv1;
             let target_face = match find_fragment_for_curve(
                 brep,
                 original_face,
@@ -336,7 +338,7 @@ pub(super) fn open_chain_pre_pass(
             )?;
             for &(k, _) in &chain {
                 used[k] = true;
-                chained.insert(candidates[k]);
+                chained.insert(candidates[k].0);
             }
             if std::env::var_os("PK_BOOL_TRACE").is_some() {
                 eprintln!(

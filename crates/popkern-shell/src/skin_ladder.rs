@@ -63,7 +63,16 @@ pub(crate) fn offset_skin_ladder(
     requested_scale: f64,
     labels: [&'static str; SKIN_LADDER_STAGE_COUNT],
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
-) -> Result<(BRep, SkinMap, OffsetResult, JoinOutcome), ShellError> {
+) -> Result<
+    (
+        BRep,
+        SkinMap,
+        OffsetResult,
+        JoinOutcome,
+        crate::collapse_check::TrimRouting,
+    ),
+    ShellError,
+> {
     use std::time::Instant;
     macro_rules! stage_gate {
         () => {
@@ -136,20 +145,25 @@ pub(crate) fn offset_skin_ladder(
     intersection_gap_postcheck(&join_plan, &undone)?;
     // Collapse gate (part of the recompute stage): a distance past the
     // local feature size inverts this skin. Declines report the
-    // caller's parameter units via `requested_scale`.
-    crate::collapse_check::check_skin_collapse(brep, &skin, &skin_map, distance, stage_tol)
-        .map_err(|e| match e {
-            ShellError::OffsetTooLarge {
-                requested,
-                max_safe,
-                binding,
-            } => ShellError::OffsetTooLarge {
-                requested: requested * requested_scale,
-                max_safe: max_safe * requested_scale,
-                binding,
-            },
-            other => other,
-        })?;
+    // caller's parameter units via `requested_scale`; inverted-chord
+    // declines are deferred inside the routing for the trim stage
+    // (PK-327) and re-scaled the same way.
+    let rescale = |e: ShellError| match e {
+        ShellError::OffsetTooLarge {
+            requested,
+            max_safe,
+            binding,
+        } => ShellError::OffsetTooLarge {
+            requested: requested * requested_scale,
+            max_safe: max_safe * requested_scale,
+            binding,
+        },
+        other => other,
+    };
+    let mut trim_routing =
+        crate::collapse_check::check_skin_collapse(brep, &skin, &skin_map, distance, stage_tol)
+            .map_err(rescale)?;
+    trim_routing.deferred = trim_routing.deferred.map(rescale);
     tracker.finish_stage(labels[3], t0, skin.edges.len());
 
     stage_gate!();
@@ -175,7 +189,7 @@ pub(crate) fn offset_skin_ladder(
         warnings,
         rim_splits: arc.rim_splits,
     };
-    Ok((skin, skin_map, offset, outcome))
+    Ok((skin, skin_map, offset, outcome, trim_routing))
 }
 
 /// Combine two original→skin maps into one skinA→skinB map.

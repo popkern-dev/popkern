@@ -185,6 +185,12 @@ fn intersect_impl(
             let extent = major_radius.abs() + minor_radius + big_r2.abs() + r2 + dz_gate.abs();
             coaxial_gates(*center, axis_n, *c2, Some(a2_n), extent, tolerance)?;
             let dz = dz_gate;
+            // The partner's tube chart measures axial offset along ITS
+            // OWN axis: antiparallel coaxial pairs (join strips author
+            // material-side axes) flip the station sign. Without the
+            // sense the window clip rejected true crossings — the
+            // cylinder/cone branches carry it; this one forgot.
+            let sense2 = a2_n.dot(&axis_n).signum();
             if dz.abs() <= lin
                 && (big_r2 - major_radius).abs() <= lin
                 && (r2 - minor_radius).abs() <= lin
@@ -199,7 +205,7 @@ fn intersect_impl(
                     rho,
                     h,
                     partner_station: Some((
-                        torus_tube_station((rho).abs(), h - dz, *big_r2),
+                        torus_tube_station((rho).abs(), sense2 * (h - dz), *big_r2),
                         Some(std::f64::consts::TAU),
                     )),
                 })

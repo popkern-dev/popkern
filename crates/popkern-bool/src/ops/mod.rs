@@ -4,6 +4,9 @@ pub mod face_level;
 pub mod imprint;
 pub mod interference;
 pub mod section;
+pub mod self_intersect;
+pub mod self_trim;
+mod self_trim_sharpen;
 pub mod split_slice;
 
 #[cfg(test)]
