@@ -38,6 +38,16 @@ pub fn thicken(
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
     )
+    .map_err(|e| {
+        crate::max_safe::upgrade_trim_decline(
+            brep,
+            crate::types::ShellDirection::Midplane,
+            thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })
 }
 
 /// Honest per-run stage count of [`thicken_impl`] for progress totals

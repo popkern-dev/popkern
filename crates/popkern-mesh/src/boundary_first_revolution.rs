@@ -123,7 +123,7 @@ pub(super) fn try_tessellate(
         trace("no constant-v circle block between the meridian ladders");
         return None;
     }
-    let middle: Vec<usize> = chain[lead.len()..chain.len() - trail_rev.len()].to_vec();
+    let mut middle: Vec<usize> = chain[lead.len()..chain.len() - trail_rev.len()].to_vec();
     if middle.len() < 4 {
         trace("circle block too short");
         return None;
@@ -132,8 +132,41 @@ pub(super) fn try_tessellate(
         trace("cross chain not at constant v");
         return None;
     }
-    let u_first = ring.uv[middle[0]].0;
-    let u_last = ring.uv[*middle.last()?].0;
+    // A rail split into multiple ARC edges (a strip-anchored rim,
+    // PK-344) repeats its shared anchor position at each arc joint.
+    // Dedupe only BIT-IDENTICAL repeats: near-identical pairs must BOTH
+    // stay so the position-welded boundary matches the neighbor's
+    // samples (a distance-based dedupe dropped one side of a 1e-9
+    // anchor pair and left an unpaired triangle fan at the joint).
+    middle.dedup_by(|&mut b, &mut a| {
+        let (pa, pb) = (ring.pos[a], ring.pos[b]);
+        pa.x.to_bits() == pb.x.to_bits()
+            && pa.y.to_bits() == pb.y.to_bits()
+            && pa.z.to_bits() == pb.z.to_bits()
+    });
+    // Chain-continuous unwrap of the block's azimuths: multi-arc rails
+    // sample mixed period branches (measured: two half-rails at
+    // (−π, π] put a +2π jump mid-block and the whole-wrap arm declined,
+    // dropping the cap to a fallback that left 77 open cracks along
+    // the rail). Identity for jump-free single-edge rails, so legacy
+    // charts stay bit-identical.
+    let u_unwrapped: Vec<f64> = {
+        let mut us = Vec::with_capacity(middle.len());
+        let mut prev = ring.uv[middle[0]].0;
+        us.push(prev);
+        for &i in middle.iter().skip(1) {
+            let raw = ring.uv[i].0;
+            let mut delta = (raw - prev).rem_euclid(period_u);
+            if delta > period_u * 0.5 {
+                delta -= period_u;
+            }
+            prev += delta;
+            us.push(prev);
+        }
+        us
+    };
+    let u_first = u_unwrapped[0];
+    let u_last = *u_unwrapped.last()?;
     // Ladders: u-constant at their seam azimuth, mirrored v stations,
     // v monotone from the apex toward the base.
     if lead.len() != trail_rev.len() {
@@ -172,10 +205,12 @@ pub(super) fn try_tessellate(
             return None;
         }
     }
-    // Circle block: u strictly monotone spanning one full period.
+    // Circle block: u monotone spanning one full period (checked on
+    // the unwrapped azimuths; a surviving near-duplicate anchor pair
+    // steps by ~0 and is not a violation).
     let dir = if u_last > u_first { 1.0 } else { -1.0 };
-    for w in middle.windows(2) {
-        if dir * (ring.uv[w[1]].0 - ring.uv[w[0]].0) <= 0.0 {
+    for w in u_unwrapped.windows(2) {
+        if dir * (w[1] - w[0]) < -eps_u {
             trace("cross chain u not monotone");
             return None;
         }
@@ -315,13 +350,13 @@ pub(super) fn try_tessellate(
         Some(apex_pos),
     );
     for &(v, src) in &interior_vs {
-        for (idx, &i) in middle.iter().enumerate() {
+        for (idx, &u) in u_unwrapped.iter().enumerate() {
             let seam_pos = match src {
                 Some(j) if idx == 0 => Some(ring.pos[lead[j]]),
                 Some(j) if idx == k - 1 => Some(ring.pos[trail_rev[j]]),
                 _ => None,
             };
-            push(&mut uv_pts, &mut vertices, ring.uv[i].0, v, seam_pos);
+            push(&mut uv_pts, &mut vertices, u, v, seam_pos);
         }
     }
     let base_row = vertices.len();

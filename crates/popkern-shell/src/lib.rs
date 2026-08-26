@@ -19,6 +19,7 @@ pub mod collapse_check;
 mod collapse_resolve;
 mod curved_recompute;
 mod curved_recompute_similarity;
+mod edge_reauthor;
 pub mod edge_recompute;
 pub mod error;
 mod global_si_trim;
@@ -88,7 +89,17 @@ pub fn shell(
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
         tracking.is_some().then_some(&mut provenance),
-    )?;
+    )
+    .map_err(|e| {
+        max_safe::upgrade_trim_decline(
+            brep,
+            direction,
+            thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, brep, &provenance);
     }
@@ -126,7 +137,17 @@ pub fn shell_variable(
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
         tracking.is_some().then_some(&mut provenance),
-    )?;
+    )
+    .map_err(|e| {
+        max_safe::upgrade_trim_decline(
+            brep,
+            direction,
+            default_thickness,
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, brep, &provenance);
     }

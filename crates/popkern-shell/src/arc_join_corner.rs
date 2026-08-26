@@ -129,6 +129,15 @@ pub(crate) fn construct_corner(
             .map(|(i, _)| i)
             .unwrap_or(0),
         1 => runs.iter().position(|r| r.has_seam).unwrap_or(0),
+        // CLOSED-RIM anchor (PK-344): two runs, each carrying its own
+        // face's seam (the plan admits exactly the both-halves-of-one-
+        // closed-edge class). Either run may keep the original vertex.
+        2 if runs.len() == 2 => targets
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, (_, _, of))| *of)
+            .map(|(i, _)| i)
+            .unwrap_or(0),
         _ => return Err("seam edges span multiple fan runs at this corner".into()),
     };
 
@@ -144,6 +153,17 @@ pub(crate) fn construct_corner(
         results.push(res);
     }
     skin.vertices[v].position = targets[retained_idx].0;
+
+    // Seams ending at this corner declined their recompute while the
+    // anchor carried an interim position (PK-344); now that every run
+    // vertex sits at its true offset corner, re-author the stale ones
+    // (endpoint-disagreement gated — consistent seams untouched).
+    for entry in &fan {
+        if entry.is_seam {
+            crate::edge_reauthor::reauthor_stale_same_surface_edge(skin, entry.edge, tolerance)
+                .map_err(|e| format!("seam re-author failed: {e}"))?;
+        }
+    }
 
     if k == 2 {
         author_corner_arc(skin, results[0].edge, p_orig, mean_r, tolerance)?;

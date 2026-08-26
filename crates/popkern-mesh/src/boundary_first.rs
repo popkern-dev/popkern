@@ -1010,13 +1010,50 @@ fn build_ring(
                 return None;
             }
             uv.push((uu, vv));
-            pos.push(target);
+            // Normalize negative zeros: two arcs meeting at an anchor
+            // evaluate the shared point as +0.0 / −0.0 in a coordinate,
+            // the position-weld keys are BIT patterns, and the mismatch
+            // left an unpaired sliver at the joint (PK-344).
+            pos.push(popkern_core::geometry::Point3::new(
+                target.x + 0.0,
+                target.y + 0.0,
+                target.z + 0.0,
+            ));
             let next_idx = if forward { idx + 1 } else { idx - 1 };
             sources.push((eh, f, samples.fractions[next_idx]));
         }
         he = data.next;
         if he == start {
             break;
+        }
+    }
+    // Canonicalize near-duplicate CONSECUTIVE positions (arc joints:
+    // the two arcs meeting at an anchor evaluate the shared point
+    // ~1e-17 apart, and the position-weld keys are BIT patterns).
+    // Both entries snap to the pair's lexicographically smaller bit
+    // pattern — a direction-independent choice, so the two faces
+    // sharing the edges pick the SAME canonical point even though
+    // they traverse in opposite orders (a keep-first dedupe diverged
+    // and left an unpaired sliver at a strip-anchored rim, PK-344).
+    if !pos.is_empty() {
+        let scale = pos
+            .iter()
+            .zip(pos.iter().cycle().skip(1))
+            .map(|(a, b)| a.distance_to(b))
+            .fold(0.0_f64, f64::max)
+            .max(1e-12);
+        let weld = scale * 1e-9;
+        let n = pos.len();
+        for i in 0..n {
+            let j = (i + 1) % n;
+            let (a, b) = (pos[i], pos[j]);
+            let bits =
+                |p: &popkern_core::geometry::Point3| (p.x.to_bits(), p.y.to_bits(), p.z.to_bits());
+            if bits(&a) != bits(&b) && a.distance_to(&b) <= weld {
+                let canonical = if bits(&a) <= bits(&b) { a } else { b };
+                pos[i] = canonical;
+                pos[j] = canonical;
+            }
         }
     }
     Some(BoundaryRing { uv, pos, sources })

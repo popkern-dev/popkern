@@ -341,6 +341,14 @@ pub(crate) fn classify_joins(
         }
     }
 
+    if std::env::var_os("PK_JOIN_TRACE").is_some() {
+        eprintln!(
+            "[join-plan] effective={:?} gaps={:?}",
+            plan.effective,
+            plan.gap_edges.keys().collect::<Vec<_>>()
+        );
+    }
+
     Ok(plan)
 }
 

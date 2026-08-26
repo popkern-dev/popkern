@@ -104,22 +104,15 @@ fn served_past_boundary(warnings: &[ShellWarning]) -> bool {
 /// direction with a finite bound, the operation SERVES at the reported
 /// max and declines or trims at 1.05× it.
 ///
-/// Recorded containment: fixture×direction pairs whose join stage
-/// downgrades to `JoinStyle::Intersection` (double-seam closed-rim
-/// anchors, PK-344) may TYPED-decline (`JoinFailed`) at the geometric
-/// max instead of serving — never wrong geometry. The set is pinned
-/// EXACTLY so a new decline pair fails this gate.
+/// Typed `JoinFailed` declines at the geometric max are tolerated only
+/// for pairs in the containment set — EMPTY since PK-344 served the
+/// double-seam closed-rim anchor class (both former entries, bracket
+/// outward and rod inward, now serve at their geometric max with Arc
+/// joins and no downgrade). A new decline pair fails this gate.
 #[test]
 fn slider_consistency_serve_at_max_decline_or_trim_past_it() {
     use popkern_shell::ShellError;
-    let containment_declines = [
-        ("bracket_bore_countersink", ShellDirection::Outward),
-        // Same class: the rod's cylinder×sphere junction circle is a
-        // double-seam closed-rim anchor; its skin downgrades and the
-        // Intersection fallback cannot span the junction gap at the
-        // (large) cylinder-vanish max.
-        ("sphere_capped_rod", ShellDirection::Inward),
-    ];
+    let containment_declines: [(&str, ShellDirection); 0] = [];
     let mut checked = 0usize;
     let mut declined: Vec<(String, ShellDirection)> = Vec::new();
     for f in corpus(tol()).expect("corpus builds") {

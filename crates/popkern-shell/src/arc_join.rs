@@ -118,8 +118,15 @@ pub(crate) fn construct_arc_joins(
             continue;
         };
         rail_deviation = rail_deviation.max(dev1).max(dev2);
-        let surface = match strip_surface(&clone_curve, gap.ball_radius, off1, off2, &rail1, &rail2)
-        {
+        let surface = match strip_surface(
+            &clone_curve,
+            gap.ball_radius,
+            off1,
+            off2,
+            &rail1,
+            &rail2,
+            tolerance,
+        ) {
             Ok(s) => s,
             Err(mechanism) => {
                 declines.push(decline(gap, &mechanism));

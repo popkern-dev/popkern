@@ -39,6 +39,21 @@ pub fn offset_solid(
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
     )
+    .map_err(|e| {
+        let direction = if distance >= 0.0 {
+            crate::types::ShellDirection::Outward
+        } else {
+            crate::types::ShellDirection::Inward
+        };
+        crate::max_safe::upgrade_trim_decline(
+            brep,
+            direction,
+            distance.abs(),
+            tolerance,
+            options.trim_policy,
+            e,
+        )
+    })
 }
 
 /// Offset all faces with per-face variable distances.

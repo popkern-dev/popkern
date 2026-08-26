@@ -68,7 +68,16 @@ fn strip_surface_promotes_line_to_cylinder_and_circle_to_torus() {
         u_axis: Vec3::new(1.0, 0.0, 0.0),
         v_axis: Vec3::new(0.0, 1.0, 0.0),
     };
-    let s = strip_surface(&line, 0.1, &dummy, &dummy, &line, &line).unwrap();
+    let s = strip_surface(
+        &line,
+        0.1,
+        &dummy,
+        &dummy,
+        &line,
+        &line,
+        &Tolerance::default(),
+    )
+    .unwrap();
     assert!(matches!(s, SurfaceGeometry::Cylinder { radius, .. } if (radius - 0.1).abs() < 1e-15));
 
     let circle = CurveOnEdge {
@@ -80,7 +89,16 @@ fn strip_surface_promotes_line_to_cylinder_and_circle_to_torus() {
         t_start: 0.0,
         t_end: std::f64::consts::TAU,
     };
-    let s = strip_surface(&circle, 0.1, &dummy, &dummy, &circle, &circle).unwrap();
+    let s = strip_surface(
+        &circle,
+        0.1,
+        &dummy,
+        &dummy,
+        &circle,
+        &circle,
+        &Tolerance::default(),
+    )
+    .unwrap();
     assert!(matches!(
         s,
         SurfaceGeometry::Torus {
@@ -91,5 +109,16 @@ fn strip_surface_promotes_line_to_cylinder_and_circle_to_torus() {
     ));
 
     // Spindle guard: ball radius >= spine radius declines.
-    assert!(strip_surface(&circle, 1.5, &dummy, &dummy, &circle, &circle).is_err());
+    assert!(
+        strip_surface(
+            &circle,
+            1.5,
+            &dummy,
+            &dummy,
+            &circle,
+            &circle,
+            &Tolerance::default()
+        )
+        .is_err()
+    );
 }

@@ -119,6 +119,7 @@ pub(crate) fn strip_surface(
     off2: &SurfaceGeometry,
     rail1: &CurveOnEdge,
     rail2: &CurveOnEdge,
+    tolerance: &Tolerance,
 ) -> Result<SurfaceGeometry, String> {
     match &spine.geometry {
         CurveGeometry::Line { origin, direction } => {
@@ -154,8 +155,138 @@ pub(crate) fn strip_surface(
                 minor_radius: radius,
             })
         }
-        _ => general_canal_surface(spine, radius, off1, off2, rail1, rail2),
+        _ => {
+            // Conic-NURBS circular spines (boolean junction circles
+            // are emitted as rational NURBS, PK-257): recognize the
+            // exact circle and promote to the Torus arm — the general
+            // canal FIT around a near-spindle spine loses 4.5e-2 at
+            // the join boundary where the exact torus is available
+            // (PK-344, measured on the bracket junction ring at the
+            // bore-vanish grow).
+            if let Some((center, normal, major)) = circular_spine(spine, tolerance) {
+                if radius >= major - 1.0e-12 {
+                    return Err(format!(
+                        "spindle torus: ball radius {radius} >= spine radius {major}"
+                    ));
+                }
+                return Ok(SurfaceGeometry::Torus {
+                    center,
+                    axis: normal,
+                    major_radius: major,
+                    minor_radius: radius,
+                });
+            }
+            general_canal_surface(spine, radius, off1, off2, rail1, rail2)
+        }
     }
+}
+
+/// Recognize a spine curve that is an EXACT circle in disguise (conic
+/// NURBS): plane fit through the samples, in-plane least-squares
+/// center (Kåsa — exact for true circles), verified per-sample within
+/// the body's linear tolerance (a within-tolerance circle IS one).
+fn circular_spine(spine: &CurveOnEdge, tolerance: &Tolerance) -> Option<(Point3, Vec3, f64)> {
+    const N: usize = 16;
+    let (t0, t1) = (spine.t_start, spine.t_end);
+    if !(t1 - t0).is_finite() || (t1 - t0).abs() < 1e-12 {
+        return None;
+    }
+    let pts: Vec<Point3> = (0..=N)
+        .map(|i| {
+            spine
+                .geometry
+                .point_at(t0 + (t1 - t0) * i as f64 / N as f64)
+        })
+        .collect();
+    let mut c0 = Vec3::new(0.0, 0.0, 0.0);
+    for p in &pts {
+        c0 = c0 + Vec3::new(p.x, p.y, p.z);
+    }
+    let c0 = c0 * (1.0 / pts.len() as f64);
+    let c0 = Point3::new(c0.x, c0.y, c0.z);
+    let mut normal = Vec3::new(0.0, 0.0, 0.0);
+    for w in pts.windows(2) {
+        normal = normal + (w[0] - c0).cross(&(w[1] - c0));
+    }
+    let normal = normal.normalized()?;
+    let scale = pts
+        .iter()
+        .map(|p| p.distance_to(&c0))
+        .fold(0.0f64, f64::max)
+        .max(1e-12);
+    // Within-tolerance circles ARE circles: boolean junction rims are
+    // FITTED intersection NURBS (~1e-7), and refusing them left the
+    // near-spindle canal fit's crack open (measured: the rod thicken's
+    // junction strips tessellated with open cracks and 1438 SDF
+    // disagreements).
+    let band = (scale * 1.0e-9).max(tolerance.linear());
+    if pts.iter().any(|p| (*p - c0).dot(&normal).abs() > band) {
+        return None; // not planar
+    }
+    // In-plane Kåsa fit: minimize Σ(|p−c|² − r²)² — linear in
+    // (cx, cy, r² − |c|²); exact when the samples ARE a circle.
+    let (u_ax, v_ax) = {
+        let u = normal.cross(&Vec3::new(1.0, 0.0, 0.0));
+        let u = if u.length() > 1e-6 {
+            u
+        } else {
+            normal.cross(&Vec3::new(0.0, 1.0, 0.0))
+        };
+        let u = u.normalized()?;
+        (u, normal.cross(&u))
+    };
+    let xy: Vec<(f64, f64)> = pts
+        .iter()
+        .map(|p| ((*p - c0).dot(&u_ax), (*p - c0).dot(&v_ax)))
+        .collect();
+    let n = xy.len() as f64;
+    let (mut sx, mut sy, mut sxx, mut syy, mut sxy, mut sxz, mut syz, mut sz) =
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    for &(x, y) in &xy {
+        let z = x * x + y * y;
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+        sxz += x * z;
+        syz += y * z;
+        sz += z;
+    }
+    // Solve [sxx sxy sx; sxy syy sy; sx sy n] · [2a, 2b, k] = [sxz, syz, sz].
+    let m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
+    let det3 = |m: &[[f64; 3]; 3]| {
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    };
+    let d = det3(&m);
+    if d.abs() < 1e-18 * scale.powi(4) {
+        return None;
+    }
+    let rhs = [sxz, syz, sz];
+    let mut sol = [0.0f64; 3];
+    for (k, s) in sol.iter_mut().enumerate() {
+        let mut mk = m;
+        for r in 0..3 {
+            mk[r][k] = rhs[r];
+        }
+        *s = det3(&mk) / d;
+    }
+    let (a, b) = (sol[0] / 2.0, sol[1] / 2.0);
+    let r2 = sol[2] + a * a + b * b;
+    if r2 <= band * band {
+        return None;
+    }
+    let r = r2.sqrt();
+    if xy
+        .iter()
+        .any(|&(x, y)| (((x - a).powi(2) + (y - b).powi(2)).sqrt() - r).abs() > band)
+    {
+        return None; // approximate, not an exact circle
+    }
+    let center = c0 + u_ax * a + v_ax * b;
+    Some((center, normal, r))
 }
 
 /// General spine: drive `popkern_fillet::build_fillet_surface` with a

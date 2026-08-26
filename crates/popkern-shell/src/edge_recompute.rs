@@ -192,7 +192,7 @@ fn other_face_of_edge(
 ///
 /// For plane-plane intersections, computes the line analytically.
 /// For other surface types, uses the general surface-surface intersection.
-fn compute_edge_curve(
+pub(crate) fn compute_edge_curve(
     inner: &BRep,
     edge_handle: EdgeHandle,
     surf1: &SurfaceGeometry,
@@ -220,9 +220,17 @@ fn compute_edge_curve(
             ) {
                 return Ok(Some(c));
             }
-            Ok(crate::curved_recompute_similarity::parallel_map_edge_curve(
+            let mapped = crate::curved_recompute_similarity::parallel_map_edge_curve(
                 &old, surf1, surf2, start_pos, end_pos, tolerance,
-            ))
+            );
+            if mapped.is_none() && std::env::var_os("PK_RECOMP_TRACE").is_some() {
+                eprintln!(
+                    "[recomp-seam-decline] {edge_handle:?} start=({:.3},{:.3},{:.3}) \
+                     end=({:.3},{:.3},{:.3})",
+                    start_pos.x, start_pos.y, start_pos.z, end_pos.x, end_pos.y, end_pos.z
+                );
+            }
+            Ok(mapped)
         }
         (
             SurfaceGeometry::Plane {

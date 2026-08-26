@@ -134,12 +134,14 @@ impl fmt::Display for SafeOffsetReport {
     }
 }
 
-/// Upgrade a trim-mechanism decline to [`ShellError::OffsetTooLarge`]
+/// Upgrade a mechanism decline to [`ShellError::OffsetTooLarge`]
 /// carrying the pre-flight bound (PK-328): when the requested distance
 /// provably exceeds the safe maximum, "offset 1.0 exceeds the maximum
 /// 0.894 (the surface of face … degenerates)" is the GUI-readable
-/// verdict — not the trim internals. Declines within the safe bound
-/// (a genuine trim-mechanism gap) pass through unchanged.
+/// verdict — not the trim or join internals (a spindle-torus join
+/// decline past the bound IS an offset-too-large condition). Declines
+/// within the safe bound (genuine mechanism gaps) pass through
+/// unchanged.
 pub(crate) fn upgrade_trim_decline(
     brep: &BRep,
     direction: ShellDirection,
@@ -153,8 +155,10 @@ pub(crate) fn upgrade_trim_decline(
     if matches!(policy, crate::types::TrimPolicy::Decline) {
         return err;
     }
-    if matches!(err, ShellError::SelfIntersecting { .. })
-        && let Ok(report) = max_safe_offset(brep, direction, tolerance)
+    if matches!(
+        err,
+        ShellError::SelfIntersecting { .. } | ShellError::JoinFailed { .. }
+    ) && let Ok(report) = max_safe_offset(brep, direction, tolerance)
         && report.max_distance.is_finite()
         && requested.abs() > report.max_distance
     {

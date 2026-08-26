@@ -123,13 +123,14 @@ fn plan_all_gap_corner(
     }
 
     let seam_runs: Vec<&(FaceHandle, bool)> = runs.iter().filter(|(_, s)| *s).collect();
-    // Double-seam closed-rim anchors (both gap slots = the two halves
-    // of ONE closed edge, each run seamed — a bore×countersink
-    // junction circle) stay in this downgrade: a probed relaxation
-    // (PK-328) that retained the min-handle run left the split run's
-    // seam meridian un-recomputed ("Shell gap at edge" = the full
-    // offset distance) — the class needs its own construction stage
-    // (follow-up task filed with the measurements).
+    // CLOSED-RIM anchor (PK-344): both gap slots are the two halves of
+    // ONE closed gap edge (a bore×countersink junction circle's seam
+    // anchor sits between two seamed faces). The strip closes on
+    // itself around the rim; each run's seam ends at its OWN face's
+    // offset corner, so either run may keep the original vertex —
+    // retain the smaller outer handle deterministically.
+    let closed_rim =
+        gap_positions.len() == 2 && fan[gap_positions[0]].edge == fan[gap_positions[1]].edge;
     match seam_runs.len() {
         0 => runs
             .iter()
@@ -137,6 +138,11 @@ fn plan_all_gap_corner(
             .min()
             .ok_or_else(|| "corner has no fan runs".to_string()),
         1 => Ok(seam_runs[0].0),
+        _ if closed_rim => runs
+            .iter()
+            .map(|(f, _)| *f)
+            .min()
+            .ok_or_else(|| "corner has no fan runs".to_string()),
         _ => Err("seam edges span multiple fan runs at this corner".into()),
     }
 }
