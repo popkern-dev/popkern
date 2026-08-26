@@ -225,8 +225,19 @@ fn shell_midplane_with_removed_face_serves_rim_walls() {
         None,
     )
     .unwrap();
-    // Outer (5) + inner (5) + walls (4) = 14 faces, one connected shell.
-    assert_eq!(result.brep.faces.len(), 14);
+    // PK-340: the outward-moved outer skin serves ROUNDED (8 gap
+    // strips + 4 sphere corners at its closed corners + rim arcs at
+    // the opening): outer 17 + inner 5 + wall quads 4 + rim corner
+    // sectors 4 = 30 faces, one connected shell, no downgrades.
+    assert_eq!(result.brep.faces.len(), 30);
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|w| matches!(w, popkern_shell::ShellWarning::JoinStyleDowngraded { .. })),
+        "opening-rim corners must serve without downgrade: {:?}",
+        result.warnings
+    );
     assert_structurally_valid(&result.brep);
 }
 

@@ -310,8 +310,16 @@ pub(crate) fn classify_joins(
             gap_vertices.insert(twin.origin);
         }
 
+        let classified: BTreeSet<FaceHandle> = offset_surfaces.keys().copied().collect();
         for vh in gap_vertices {
-            match plan_corner(skin, vh, &classes, &reverse_face, serve_rim_corners) {
+            match plan_corner(
+                skin,
+                vh,
+                &classes,
+                &reverse_face,
+                &classified,
+                serve_rim_corners,
+            ) {
                 Ok(entry) => {
                     corners.insert(vh, entry);
                 }

@@ -28,6 +28,8 @@ pub(crate) fn construct_mixed_corner(
     classes: &BTreeMap<EdgeHandle, EdgeJoinClass>,
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    reverse_edge: &HashMap<EdgeHandle, EdgeHandle>,
+    outer: &BRep,
     p_orig: Point3,
     tolerance: &Tolerance,
     retrim: &mut BTreeSet<EdgeHandle>,
@@ -42,10 +44,19 @@ pub(crate) fn construct_mixed_corner(
     };
     // Cut wedges: wedge i sits between fan edge i and fan edge i+1.
     // Cuts fall at strip wedges, at sheet-boundary wedges (rim
-    // corners), and at middle faces between two classified edges.
+    // corners), at retained removed-face wedges (midplane openings —
+    // their face keeps its ORIGINAL surface and the connector lands in
+    // it), and at middle faces between two classified edges.
+    let unclassified_wedge = |wedge: Option<FaceHandle>| match wedge {
+        None => true,
+        Some(f) if strip_faces.contains(&f) => false,
+        Some(f) => reverse_face
+            .get(&f)
+            .is_none_or(|of| !offset_surfaces.contains_key(of)),
+    };
     let cuts: Vec<usize> = (0..m)
         .filter(|&i| {
-            fan[i].wedge.is_none()
+            unclassified_wedge(fan[i].wedge)
                 || fan[i].wedge.is_some_and(|f| strip_faces.contains(&f))
                 || (classified(fan[i].edge) && classified(fan[(i + 1) % m].edge))
         })
@@ -184,16 +195,46 @@ pub(crate) fn construct_mixed_corner(
             )?
         }
         _ => {
-            let d = 0.5 * (targets[0].distance_to(&p_orig) + targets[1].distance_to(&p_orig));
             rim_splits.push((res.vertex, v));
-            crate::arc_join_geometry::great_arc(
-                p_orig,
-                d,
-                targets[retained_idx],
-                targets[moved_idx],
-                tolerance,
-            )
-            .ok_or("rim end-circle connector is antipodal or degenerate")?
+            // Opening rims (removed-face shells): the flush contract
+            // pins the connector INTO the removed face's ORIGINAL
+            // surface — author it as the strip × removed-surface
+            // transversal. Free rims (sheets, no face ever existed on
+            // the far side): the canal's end cross-section circle, a
+            // great circle of the vertex sphere.
+            let removed_surface =
+                removed_surface_at_boundary(skin, fan, reverse_face, reverse_edge, outer);
+            let strip_geom = [cut_before, cut_after]
+                .into_iter()
+                .flatten()
+                .find(|f| strip_faces.contains(f))
+                .and_then(|f| skin.faces.get(f))
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| s.geometry.clone());
+            match (removed_surface, strip_geom) {
+                (Some(removed), Some(strip)) => transversal_arc(
+                    &strip,
+                    &removed,
+                    targets[retained_idx],
+                    targets[moved_idx],
+                    tolerance,
+                )
+                .ok_or(
+                    "opening-rim connector (strip × removed original surface) failed                      — the flush contract cannot hold at this corner",
+                )?,
+                _ => {
+                    let d = 0.5
+                        * (targets[0].distance_to(&p_orig) + targets[1].distance_to(&p_orig));
+                    crate::arc_join_geometry::great_arc(
+                        p_orig,
+                        d,
+                        targets[retained_idx],
+                        targets[moved_idx],
+                        tolerance,
+                    )
+                    .ok_or("rim end-circle connector is antipodal or degenerate")?
+                }
+            }
         }
     };
     skin.edges[res.edge].curve = Some(arc);
@@ -286,4 +327,44 @@ pub(crate) fn retrim_edge_to_vertices(
         c.t_end = t_end;
     }
     Ok(())
+}
+
+/// The removed face's ORIGINAL surface at a boundary corner, when one
+/// exists (opening rims): a rim fan edge maps back to an outer-body
+/// edge whose far side face has no image in the skin. Free sheet rims
+/// return `None` — no face ever existed there.
+fn removed_surface_at_boundary(
+    skin: &BRep,
+    fan: &[CornerFanEntry],
+    reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    reverse_edge: &HashMap<EdgeHandle, EdgeHandle>,
+    outer: &BRep,
+) -> Option<SurfaceGeometry> {
+    let skinned_outer: BTreeSet<FaceHandle> = reverse_face.values().copied().collect();
+    for entry in fan {
+        // Rim edges have a loopless side in the skin.
+        let edge = skin.edges.get(entry.edge)?;
+        let he = skin.half_edges.get(edge.half_edge)?;
+        let twin = skin.half_edges.get(he.twin)?;
+        let rim = !skin.loops.contains_key(he.loop_) || !skin.loops.contains_key(twin.loop_);
+        if !rim {
+            continue;
+        }
+        let outer_eh = reverse_edge.get(&entry.edge)?;
+        let o_edge = outer.edges.get(*outer_eh)?;
+        let o_he = outer.half_edges.get(o_edge.half_edge)?;
+        let o_twin = outer.half_edges.get(o_he.twin)?;
+        for lh in [o_he.loop_, o_twin.loop_] {
+            if let Some(l) = outer.loops.get(lh)
+                && !skinned_outer.contains(&l.face)
+            {
+                return outer
+                    .faces
+                    .get(l.face)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| s.geometry.clone());
+            }
+        }
+    }
+    None
 }

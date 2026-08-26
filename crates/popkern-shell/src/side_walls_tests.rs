@@ -1,6 +1,9 @@
 //! Tests for side wall construction (split under the 500-line cap).
 
+use super::side_walls_support::plane_from_quad;
 use super::*;
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 

@@ -46,6 +46,7 @@ pub(crate) fn construct_corner(
     offset_surfaces: &HashMap<FaceHandle, SurfaceGeometry>,
     reverse_vertex: &HashMap<VertexHandle, VertexHandle>,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    reverse_edge: &HashMap<EdgeHandle, EdgeHandle>,
     outer: &BRep,
     tolerance: &Tolerance,
     retrim: &mut BTreeSet<EdgeHandle>,
@@ -58,10 +59,20 @@ pub(crate) fn construct_corner(
 
     let fan = corner_fan(skin, v).ok_or("corner fan is not walkable (boundary or broken)")?;
     // Mixed / boundary corner (E1, rim corners): classified
-    // resolvable/smooth edges or boundary wedges survive in the fan
-    // (gap edges were replaced by strips in phase 1).
+    // resolvable/smooth edges, boundary wedges, or retained
+    // removed-face wedges (midplane openings — no offset surface)
+    // survive in the fan (gap edges were replaced by strips in
+    // phase 1). Strips themselves have no outer mapping and never
+    // trip the unclassified test.
+    let unclassified_wedge = |wedge: Option<FaceHandle>| match wedge {
+        None => true,
+        Some(f) if strip_faces.contains(&f) => false,
+        Some(f) => reverse_face
+            .get(&f)
+            .is_none_or(|of| !offset_surfaces.contains_key(of)),
+    };
     if fan.iter().any(|e| {
-        e.wedge.is_none()
+        unclassified_wedge(e.wedge)
             || matches!(
                 classes.get(&e.edge),
                 Some(EdgeJoinClass::Resolvable | EdgeJoinClass::Smooth)
@@ -75,6 +86,8 @@ pub(crate) fn construct_corner(
             classes,
             offset_surfaces,
             reverse_face,
+            reverse_edge,
+            outer,
             p_orig,
             tolerance,
             retrim,

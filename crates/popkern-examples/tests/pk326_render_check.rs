@@ -86,4 +86,26 @@ fn render_pk326_mixed_corner_bodies() {
         (2.4, 1.9, 2.2),
         (0.5, 0.5, 0.5),
     );
+
+    // PK-340: outward shell with an opening — rounded moved skin, arc
+    // rim corners, planar sector walls at the opening.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let face = cube.faces.keys().next().unwrap();
+    let os = popkern_shell::shell(
+        &cube,
+        0.12,
+        popkern_shell::ShellDirection::Outward,
+        &[face],
+        &[],
+        &ShellOptions::default(),
+        tol(),
+        None,
+    )
+    .unwrap();
+    render(
+        &os.brep,
+        "pk340_outward_opening_shell",
+        (2.3, -1.7, -1.6),
+        (0.5, 0.5, 0.4),
+    );
 }

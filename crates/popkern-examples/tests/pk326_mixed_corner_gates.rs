@@ -9,6 +9,7 @@
 //! twice the oracle's 0.02 skip band — so agreement here genuinely
 //! pins the rounded transversal geometry, not band arithmetic.
 
+use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_examples::offset_corpus::{l_bracket, surface_census, thin_rib};
@@ -294,5 +295,65 @@ fn open_sheet_thicken_serves_rounded_with_rim_arc_corners() {
     assert!(
         rel < 5e-3,
         "wall volume {measured:.6} vs rounded closed form {expected:.6} (rel {rel:.4})"
+    );
+}
+
+/// PK-340: an outward shell with an opening serves rounded rim
+/// corners; the wall solid matches the outward-band predicate away
+/// from the opening (exclusion near the removed face, the same
+/// contract as the inward shelled-cube gate), and the served body
+/// welds closed.
+#[test]
+fn outward_shell_with_opening_is_band_faithful_outside_the_opening() {
+    use popkern_shell::{ShellDirection, shell};
+
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let d = 0.1;
+    // The first face is the removed one; find its plane to build the
+    // exclusion zone.
+    let face = cube.faces.keys().next().unwrap();
+    let removed_geom = cube.faces[face]
+        .surface
+        .as_ref()
+        .map(|s| s.geometry.clone())
+        .unwrap();
+    let result = shell(
+        &cube,
+        d,
+        ShellDirection::Outward,
+        &[face],
+        &[],
+        &ShellOptions::default(),
+        tol(),
+        None,
+    )
+    .expect("outward shell serves");
+    assert!(result.brep.validate_all().is_empty());
+
+    let band = OffsetOracleOptions::default().boundary_band;
+    let near_opening = move |p: Point3| {
+        if let popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. } =
+            &removed_geom
+        {
+            ((p - *origin).dot(normal)).abs() < d + 2.0 * band
+        } else {
+            false
+        }
+    };
+    let report = classify_offset_agreement(
+        &index_of(&cube),
+        &index_of(&result.brep),
+        OffsetSemantics::Wall {
+            inward: 0.0,
+            outward: d,
+        },
+        &OffsetOracleOptions::default(),
+        near_opening,
+    );
+    assert!(
+        report.is_clean(),
+        "outward opening shell disagreements: {} (first {:?})",
+        report.disagreement_count,
+        report.disagreements.first()
     );
 }

@@ -13,6 +13,21 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use super::{CornerKind, CornerPlanEntry, CornerTarget, EdgeJoinClass};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
+/// Is a fan wedge a CLASSIFIED face (has an offset surface)? Wedges of
+/// retained-but-unclassified faces (midplane openings keep removed
+/// faces present for rim discovery) behave like sheet boundaries: they
+/// cut the fan, and the connector lands in their ORIGINAL surface
+/// (PK-340).
+fn wedge_classified(
+    wedge: Option<FaceHandle>,
+    reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    classified: &BTreeSet<FaceHandle>,
+) -> bool {
+    wedge
+        .and_then(|f| reverse_face.get(&f))
+        .is_some_and(|of| classified.contains(of))
+}
+
 /// Plan one gap corner. Returns the mechanism and retained-sector
 /// target, or the blocking mechanism string (whole-skin downgrade).
 pub(super) fn plan_corner(
@@ -20,11 +35,14 @@ pub(super) fn plan_corner(
     vh: VertexHandle,
     classes: &BTreeMap<EdgeHandle, EdgeJoinClass>,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    classified: &BTreeSet<FaceHandle>,
     serve_rim_corners: bool,
 ) -> Result<CornerPlanEntry, String> {
     let fan =
         vertex_fan(skin, vh).ok_or_else(|| "corner fan is not walkable (broken)".to_string())?;
-    let has_boundary = fan.iter().any(|e| e.wedge.is_none());
+    let has_boundary = fan
+        .iter()
+        .any(|e| !wedge_classified(e.wedge, reverse_face, classified));
     if has_boundary && !serve_rim_corners {
         return Err("rim/boundary vertex with incident gap edges".into());
     }
@@ -55,7 +73,7 @@ pub(super) fn plan_corner(
             retained: CornerTarget::Face(retained),
         });
     }
-    plan_sectored_corner(&fan, classes, reverse_face, has_boundary)
+    plan_sectored_corner(&fan, classes, reverse_face, classified, has_boundary)
 }
 
 /// PK-325 all-gap planning: runs between consecutive gap edges must
@@ -125,18 +143,28 @@ fn plan_sectored_corner(
     fan: &[FanEntry],
     classes: &BTreeMap<EdgeHandle, EdgeJoinClass>,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
+    classified: &BTreeSet<FaceHandle>,
     has_boundary: bool,
 ) -> Result<CornerPlanEntry, String> {
     let m = fan.len();
+    // A RIDER edge constrains nothing: seams, free-rim edges, and
+    // edges beside an unclassified wedge (opening rims — their curve
+    // is the flush wall × removed-original intersection).
+    let rider = |i: usize| {
+        fan[i].is_seam
+            || fan[i].is_rim
+            || !wedge_classified(fan[i].wedge, reverse_face, classified)
+            || !wedge_classified(fan[(i + m - 1) % m].wedge, reverse_face, classified)
+    };
     let interior_class = |i: usize| -> Option<EdgeJoinClass> {
-        if fan[i].is_seam || fan[i].is_rim {
+        if rider(i) {
             return None;
         }
         classes.get(&fan[i].edge).copied()
     };
-    // Every non-seam, non-rim edge must carry a served class.
-    for entry in fan {
-        if entry.is_seam || entry.is_rim {
+    // Every non-rider edge must carry a served class.
+    for (i, entry) in fan.iter().enumerate() {
+        if rider(i) {
             continue;
         }
         match classes.get(&entry.edge) {
@@ -160,8 +188,8 @@ fn plan_sectored_corner(
         if interior_class(i) == Some(EdgeJoinClass::Gap) {
             cut[2 * i] = true;
         }
-        if fan[i].wedge.is_none() {
-            cut[2 * i + 1] = true;
+        if !wedge_classified(fan[i].wedge, reverse_face, classified) {
+            cut[2 * i + 1] = true; // sheet boundary or retained removed face
         } else if is_resolvable(i) && is_resolvable((i + 1) % m) {
             cut[2 * i + 1] = true; // middle face between two resolvable edges
         }

@@ -235,13 +235,16 @@ pub(crate) fn shell_impl(
         &offset_result.surfaces,
         &stage_tol,
     )?;
+    // PK-340: opening-rim gap corners serve on the classic shell path
+    // (the connector is the strip × removed-original-surface
+    // transversal; the side walls grow arc sectors).
     let join_plan = join_classification::classify_joins(
         &inner,
         &skin_map,
         &offset_result.surfaces,
         &stage_tol,
         options.join_style,
-        false,
+        true,
     )?;
     vertex_recompute::recompute_vertices_with_gap_corners(
         &mut inner,

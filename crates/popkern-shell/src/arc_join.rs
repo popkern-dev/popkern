@@ -66,6 +66,7 @@ pub(crate) fn construct_arc_joins(
     }
     let reverse_vertex = skin_map.reverse_vertex_map();
     let reverse_face = skin_map.reverse_face_map();
+    let reverse_edge = skin_map.reverse_edge_map();
 
     // Phase 0: split closed gap edges so every gap edge has two
     // distinct endpoints and every loop has at least two half-edges.
@@ -186,6 +187,7 @@ pub(crate) fn construct_arc_joins(
             offset_surfaces,
             &reverse_vertex,
             &reverse_face,
+            &reverse_edge,
             outer,
             tolerance,
             &mut retrim,
