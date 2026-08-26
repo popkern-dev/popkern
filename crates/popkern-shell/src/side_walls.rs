@@ -200,25 +200,39 @@ fn find_boundary_edges(
     removed_set: &HashSet<FaceHandle>,
 ) -> Result<Vec<(EdgeHandle, HalfEdgeHandle)>, ShellError> {
     let face = &outer.faces[removed_fh];
-    let start_he = outer.loops[face.outer_loop].half_edge;
+    // ALL loops: a removed face pierced by a bore carries the bore's
+    // rim on an INNER loop — that rim is an opening boundary exactly
+    // like the outer one, and skipping it left its half-edges loopless
+    // (structural BrokenCycle, PK-346).
+    let loop_handles: Vec<_> = std::iter::once(face.outer_loop)
+        .chain(face.inner_loops.iter().copied())
+        .collect();
     let mut result = Vec::new();
-    let mut current = start_he;
-
-    loop {
-        let he = &outer.half_edges[current];
-        let twin = &outer.half_edges[he.twin];
-        let twin_loop = twin.loop_;
-
-        if outer.loops.contains_key(twin_loop) {
-            let twin_face = outer.loops[twin_loop].face;
-            if !removed_set.contains(&twin_face) {
-                result.push((he.edge, current));
-            }
+    for lh in loop_handles {
+        let Some(loop_data) = outer.loops.get(lh) else {
+            continue;
+        };
+        let start_he = loop_data.half_edge;
+        if !outer.half_edges.contains_key(start_he) {
+            continue;
         }
+        let mut current = start_he;
+        loop {
+            let he = &outer.half_edges[current];
+            let twin = &outer.half_edges[he.twin];
+            let twin_loop = twin.loop_;
 
-        current = he.next;
-        if current == start_he {
-            break;
+            if outer.loops.contains_key(twin_loop) {
+                let twin_face = outer.loops[twin_loop].face;
+                if !removed_set.contains(&twin_face) {
+                    result.push((he.edge, current));
+                }
+            }
+
+            current = he.next;
+            if current == start_he {
+                break;
+            }
         }
     }
 

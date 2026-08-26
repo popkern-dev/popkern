@@ -357,6 +357,18 @@ mod tests {
     }
 
     #[test]
+    fn removing_every_face_declines_instead_of_serving_empty() {
+        // A bare FaceQuery matches every face; the shell must decline
+        // (nothing left to offset), never serve a 0-face body (PK-347).
+        let part = box_part();
+        let result = part.shell(0.1, |f| f.allow_empty());
+        assert!(
+            result.is_err(),
+            "all-faces-removed shell must decline, got a serve"
+        );
+    }
+
+    #[test]
     fn max_safe_offset_reports_slider_bounds() {
         let part = box_part();
         let inward = part

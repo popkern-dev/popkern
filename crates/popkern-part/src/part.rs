@@ -50,6 +50,15 @@ impl Part {
         feature: &'static str,
         summary: String,
     ) -> Result<Part, PartError> {
+        // An EMPTY body passes structural validation vacuously; a Part
+        // is a servable product and must carry geometry (PK-347: a
+        // match-all openings selector removed every face and served a
+        // 0-face Part clean).
+        if brep.faces.is_empty() {
+            return Err(PartError::NotApplicable(format!(
+                "{feature} produced an empty body (0 faces): {summary}"
+            )));
+        }
         brep.validate().map_err(|source| PartError::Validation {
             feature: summary.clone(),
             source,

@@ -252,15 +252,14 @@ mod tests {
     }
 
     #[test]
-    fn all_removed_produces_empty_surfaces() {
-        // When all faces are removed, there are no offset faces to compute.
+    fn all_removed_declines_at_classification() {
+        // Removing EVERY face leaves nothing to offset: classification
+        // declines up front (PK-347 — the empty result used to sail
+        // through the pipeline and serve a 0-face body clean).
         let brep = BRep::unit_cube(tol()).unwrap();
         let all_faces: Vec<FaceHandle> = brep.faces.keys().collect();
-        let classification =
-            classify_faces(&brep, 0.1, &[], ShellDirection::Inward, &all_faces).unwrap();
-        // No offset faces → ok with empty surfaces map.
-        let result = compute_offset_surfaces(&brep, &classification, true, &tol()).unwrap();
-        assert!(result.surfaces.is_empty());
+        let result = classify_faces(&brep, 0.1, &[], ShellDirection::Inward, &all_faces);
+        assert!(matches!(result, Err(crate::error::ShellError::NoFaces)));
     }
 
     #[test]

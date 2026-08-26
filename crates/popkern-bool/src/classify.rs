@@ -393,6 +393,66 @@ fn ray_crossing_count(
                             }
                         }
                     }
+                    // SPHERE-CAP gate (PK-345): a partial sphere face
+                    // (a filleted-cube corner octant) accepts only
+                    // hits whose direction-from-center falls inside
+                    // the boundary-derived cap — the padded parameter
+                    // box covers the WHOLE sphere, and rays from a
+                    // point just outside a corner hit the phantom 7/8
+                    // (measured: 4 of 8 identical corner probes
+                    // classified Inside). Geometric like the angular
+                    // gate: the cap is min over boundary-sample dots
+                    // with the mean direction; a full sphere's seam
+                    // boundary yields a non-positive min and keeps the
+                    // padded behavior. FINAL bodies only.
+                    if skip_hole_hits
+                        && let popkern_core::geometry::surface::SurfaceGeometry::Sphere {
+                            center: sph_center,
+                            ..
+                        } = surface
+                    {
+                        let samples = brep.face_boundary_sample_points(*face_handle, 8);
+                        if samples.len() >= 3 {
+                            let dirs: Vec<popkern_core::geometry::Vec3> = samples
+                                .iter()
+                                .filter_map(|p| {
+                                    let d = *p - *sph_center;
+                                    let len = d.length();
+                                    (len > tolerance.linear()).then(|| d * (1.0 / len))
+                                })
+                                .collect();
+                            if dirs.len() >= 3 {
+                                let mut mean = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+                                for d in &dirs {
+                                    mean = mean + *d;
+                                }
+                                let mean_len = mean.length();
+                                if mean_len > 1.0e-9 {
+                                    let mean = mean * (1.0 / mean_len);
+                                    let min_dot = dirs
+                                        .iter()
+                                        .map(|d| d.dot(&mean))
+                                        .fold(f64::INFINITY, f64::min);
+                                    if min_dot > 0.05 {
+                                        let hit3d = *origin + *direction * *t;
+                                        let hd = hit3d - *sph_center;
+                                        let hd_len = hd.length();
+                                        if hd_len > tolerance.linear()
+                                            && (hd * (1.0 / hd_len)).dot(&mean) < min_dot - 0.05
+                                        {
+                                            if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                                eprintln!(
+                                                    "  [ray-rej-sph] {face_handle:?} dot={:.3} min={min_dot:.3}",
+                                                    (hd * (1.0 / hd_len)).dot(&mean)
+                                                );
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // AXIAL gate for cylinder and cone hits: the hit's
                     // coordinate along the surface axis must fall
                     // within the face's boundary-derived axial span

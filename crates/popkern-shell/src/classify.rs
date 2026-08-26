@@ -50,6 +50,13 @@ pub fn classify_faces(
     if brep.faces.is_empty() {
         return Err(ShellError::NoFaces);
     }
+    // Removing EVERY face leaves nothing to offset: an empty result
+    // used to sail through the pipeline and serve a 0-face body
+    // validate-clean (PK-347, measured via a match-all openings
+    // selector on the Part facade).
+    if brep.faces.keys().all(|fh| removed.contains(&fh)) {
+        return Err(ShellError::NoFaces);
+    }
 
     let thickness_map: HashMap<FaceHandle, f64> = face_thicknesses.iter().copied().collect();
     let outward_multipliers = face_outward_multipliers(brep)?;
