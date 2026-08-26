@@ -56,7 +56,10 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
         );
         let v = volume(&b);
         let rel = (v - truth_cyl).abs() / truth_cyl;
-        assert!(rel < 0.01, "cyl-cube at {lin:e}: vol {v:.4} vs {truth_cyl:.4}");
+        assert!(
+            rel < 0.01,
+            "cyl-cube at {lin:e}: vol {v:.4} vs {truth_cyl:.4}"
+        );
 
         // Centered-sphere subtraction: serves clean through 1e-3; at
         // 1e-2 (tolerance = 10% of the cap height) the machinery
@@ -92,9 +95,7 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
                 );
                 let msg = format!("{e}");
                 assert!(
-                    msg.contains("not closed")
-                        || msg.contains("gap")
-                        || msg.contains("deviates"),
+                    msg.contains("not closed") || msg.contains("gap") || msg.contains("deviates"),
                     "decline must carry closure diagnostics: {msg}"
                 );
             }

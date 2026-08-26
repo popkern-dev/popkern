@@ -73,3 +73,41 @@ pub(super) fn is_self_loop_shared(graph: &IntersectionGraph, he_idx: usize) -> b
     let twin = &graph.half_edges[he.twin];
     he.origin == twin.origin && matches!(he.source, crate::merge::graph::EdgeSource::Shared { .. })
 }
+
+/// APEX TURNAROUND (PK-343): at an ORIGINAL vertex whose only
+/// registered departure is the twin — a cone apex, where the seam's
+/// two halves are twins inside the SAME loop — the legal continuation
+/// IS the twin: the loop doubles back by construction. U-turn
+/// prevention exists to stop premature backtracking where
+/// alternatives exist; refusing the turn here tore the loop
+/// (measured: cone-cube union dropped the seam-to-apex piece, loop
+/// gap 0.5099, served silently until the PK-342 closure gate).
+/// Half-split trim dead-ends keep their accepted-chain semantics:
+/// their far endpoints are intersection-created nodes, never original
+/// vertices.
+pub(super) fn apex_turnaround_candidate(
+    graph: &super::super::graph::IntersectionGraph,
+    end_node: usize,
+    he_idx: usize,
+    twin_idx: usize,
+    face_hes: &std::collections::HashSet<usize>,
+    visited: &std::collections::HashSet<usize>,
+) -> Option<usize> {
+    let node_is_original = matches!(
+        graph.nodes[end_node].source,
+        super::super::graph::NodeSource::OriginalA(_)
+            | super::super::graph::NodeSource::OriginalB(_)
+    );
+    let only_twin_departs = graph.nodes[end_node]
+        .outgoing
+        .iter()
+        .all(|&o| o == twin_idx || o == he_idx || !face_hes.contains(&o));
+    if node_is_original
+        && only_twin_departs
+        && face_hes.contains(&twin_idx)
+        && !visited.contains(&twin_idx)
+    {
+        return Some(twin_idx);
+    }
+    None
+}

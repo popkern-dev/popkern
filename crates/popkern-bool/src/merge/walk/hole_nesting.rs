@@ -169,3 +169,94 @@ fn loop_strictly_inside_outer(
     }
     inside_n >= 3
 }
+
+/// TURNAROUND PROMOTION (PK-343): a "hole" that DOUBLES BACK through
+/// an edge and its twin consecutively (the apex turnaround signature —
+/// a cone lateral's seam halves are twins inside one loop) and whose
+/// curve-sampled 3D box is strictly disjoint from the primary outer's
+/// cannot be a hole of anything: it is a REGION of its own (the
+/// cone-top loop above a through-cube union was filed as a hole of the
+/// disjoint bottom frustum and the apex piece vanished from the union
+/// wholesale). Ordinary holes — including the geometrically-disjoint
+/// kept holes the tuned election relies on downstream (measured: a
+/// holder-chain slot ring) — are untouched.
+pub(super) fn promote_disjoint_turnaround_holes(
+    graph: &IntersectionGraph,
+    inner_loops_out: &mut Vec<Vec<usize>>,
+    outer_loop: &[usize],
+) -> Vec<Vec<usize>> {
+    let has_turnaround = |lp: &[usize]| -> bool {
+        lp.len() >= 2
+            && (0..lp.len()).any(|i| {
+                let a = lp[i];
+                let b = lp[(i + 1) % lp.len()];
+                graph.half_edges[a].twin == b
+            })
+    };
+    let mut promoted: Vec<Vec<usize>> = Vec::new();
+    inner_loops_out.retain(|hole| {
+        if has_turnaround(hole) && loops_bbox_disjoint(graph, hole, outer_loop) {
+            promoted.push(hole.clone());
+            false
+        } else {
+            true
+        }
+    });
+    promoted
+}
+
+/// Strict 3D bounding-box separation of two loops — the
+/// projection-free arm of the turnaround promotion (PK-343). Boxes
+/// are CURVE-SAMPLED, never node-only: a one-anchor closed rim's node
+/// box is a point, and a point-box reads "disjoint" from everything
+/// (measured: node-only boxes evicted a holder chain's slot rings and
+/// χ flipped 0 → 2).
+fn loops_bbox_disjoint(graph: &IntersectionGraph, a: &[usize], b: &[usize]) -> bool {
+    use popkern_core::geometry::curve::CurveEval as _;
+    type P3 = popkern_core::geometry::Point3;
+    let bbox = |hes: &[usize]| -> Option<(P3, P3)> {
+        let mut lo = P3::new(f64::MAX, f64::MAX, f64::MAX);
+        let mut hi = P3::new(f64::MIN, f64::MIN, f64::MIN);
+        let mut any = false;
+        let mut take = |p: P3| {
+            lo.x = lo.x.min(p.x);
+            lo.y = lo.y.min(p.y);
+            lo.z = lo.z.min(p.z);
+            hi.x = hi.x.max(p.x);
+            hi.y = hi.y.max(p.y);
+            hi.z = hi.z.max(p.z);
+            any = true;
+        };
+        for &h in hes {
+            for n in [
+                graph.half_edges[h].origin,
+                graph.half_edges[graph.half_edges[h].twin].origin,
+            ] {
+                take(graph.nodes[n].position);
+            }
+            let he = &graph.half_edges[h];
+            if let Some(c) = he
+                .curve
+                .as_ref()
+                .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+            {
+                for i in 1..8 {
+                    let t = c.t_start + (c.t_end - c.t_start) * (i as f64) / 8.0;
+                    take(c.geometry.point_at(t));
+                }
+            }
+        }
+        any.then_some((lo, hi))
+    };
+    let (Some((alo, ahi)), Some((blo, bhi))) = (bbox(a), bbox(b)) else {
+        return false;
+    };
+    // STRICTLY separated on some axis (touching boxes do not count —
+    // a hole ring can share its outer's box surface).
+    alo.x > bhi.x
+        || blo.x > ahi.x
+        || alo.y > bhi.y
+        || blo.y > ahi.y
+        || alo.z > bhi.z
+        || blo.z > ahi.z
+}

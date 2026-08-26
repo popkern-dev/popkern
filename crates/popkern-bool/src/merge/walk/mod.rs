@@ -16,6 +16,7 @@ pub(crate) mod chart_walk;
 mod chart_walk_tests;
 mod hole_nesting;
 pub(crate) mod walk_geometry;
+mod walk_trace;
 
 use std::collections::HashSet;
 
@@ -23,6 +24,7 @@ use popkern_core::topology::BRep;
 
 use super::graph::{FaceRef, IntersectionGraph};
 use boundary_predicates::{is_self_loop_shared, node_on_face_boundary};
+
 use walk_geometry::{pick_by_angle, signed_area};
 
 /// A face fragment — loops forming a subset of an original face.
@@ -555,7 +557,11 @@ pub(crate) fn walk_all_fragments_ext(
                 // (area 263 vs threshold 352 — pure size accident).
                 // A loop whose nodes are strictly outside the outer
                 // polygon can never be its hole; loops inside keep
-                // the existing rules.
+                // the existing rules. (Disjoint mis-filed holes are
+                // ALSO a load-bearing waypoint: hole nesting relocates
+                // them to their true regions, and the ones nesting
+                // cannot place are PROMOTED after it — PK-343. Do not
+                // evict them here.)
                 coincident_interface
                     && walk_geometry::loop_outside_outer(graph, &lp, &outer_loop, &outer_newell)
             };
@@ -629,52 +635,23 @@ pub(crate) fn walk_all_fragments_ext(
         // PK_LOOP_DUMP_ALL: dump every fragment's loops regardless of
         // size (PK-107 forensics: comparing 11- vs 13-half-edge outer
         // loops between the legacy and chart walks).
-        if std::env::var_os("PK_LOOP_DUMP_ALL").is_some() {
-            for (tag, lp) in std::iter::once(("outer", &outer_loop))
-                .chain(inner_loops_out.iter().map(|l| ("inner", l)))
-                .chain(separate_outers.iter().map(|l| ("separate", l)))
-            {
-                let hes: Vec<String> = lp
-                    .iter()
-                    .map(|&h| {
-                        let n = graph.half_edges[h].origin;
-                        let p = graph.nodes[n].position;
-                        let shared = matches!(
-                            graph.half_edges[h].source,
-                            super::graph::EdgeSource::Shared { .. }
-                        );
-                        format!(
-                            "{h}@n{n}({:.1},{:.1},{:.1}){}",
-                            p.x,
-                            p.y,
-                            p.z,
-                            if shared { "S" } else { "" }
-                        )
-                    })
-                    .collect();
-                eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
-            }
-        }
-        if std::env::var_os("PK_LOOP_DUMP").is_some() && outer_loop.len() >= 20 {
-            eprintln!("  [loopdump] {face_ref:?} outer {} hes:", outer_loop.len());
-            for &h in &outer_loop {
-                let n = graph.half_edges[h].origin;
-                let p = graph.nodes[n].position;
-                let shared = matches!(
-                    graph.half_edges[h].source,
-                    super::graph::EdgeSource::Shared { .. }
-                );
-                eprintln!(
-                    "    he {h} ({:.1},{:.1},{:.1}) shared={shared}",
-                    p.x, p.y, p.z
-                );
-            }
-        }
+        walk_trace::dump_election_loops(
+            graph,
+            face_ref,
+            &outer_loop,
+            &inner_loops_out,
+            &separate_outers,
+        );
         let separate_inners = hole_nesting::assign_holes_to_regions(
             graph,
             &outer_newell,
             &mut inner_loops_out,
             &separate_outers,
+        );
+        let promoted = hole_nesting::promote_disjoint_turnaround_holes(
+            graph,
+            &mut inner_loops_out,
+            &outer_loop,
         );
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!(
@@ -684,6 +661,13 @@ pub(crate) fn walk_all_fragments_ext(
                 inner_loops_out.iter().map(|l| l.len()).collect::<Vec<_>>(),
                 separate_outers.len()
             );
+        }
+        for lp in promoted {
+            fragments.push(Fragment {
+                face: *face_ref,
+                outer_loop: lp,
+                inner_loops: Vec::new(),
+            });
         }
         fragments.push(Fragment {
             face: *face_ref,
@@ -858,7 +842,10 @@ fn next_around_face(
         );
     }
     if candidates.is_empty() {
-        return None;
+        // APEX TURNAROUND (PK-343) — see `apex_turnaround_candidate`.
+        return boundary_predicates::apex_turnaround_candidate(
+            graph, end_node, he_idx, twin_idx, face_hes, visited,
+        );
     }
     if candidates.len() == 1 {
         return Some(candidates[0]);

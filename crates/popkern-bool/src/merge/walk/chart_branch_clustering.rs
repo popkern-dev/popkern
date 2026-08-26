@@ -28,7 +28,16 @@ pub(crate) fn cluster_branches(
     }
     let mut start_bp = BTreeMap::new();
     let mut end_bp = BTreeMap::new();
+    let trace = std::env::var_os("PK_BRANCH_TRACE").is_some();
     for (node, mut entries) in per_node {
+        if trace {
+            for &(u, h, is_start) in &entries {
+                eprintln!(
+                    "  [branch] node {node}: he {h} u={u:.4} {}",
+                    if is_start { "START" } else { "END" }
+                );
+            }
+        }
         // A POLE node is one geometric point whose incident endpoints
         // carry their meridians' azimuths — never split it by u.
         let is_pole = poles.contains_key(&node);

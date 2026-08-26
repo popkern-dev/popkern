@@ -201,23 +201,23 @@ fn cone_through_cube_union_produces_result() {
     // Cone with apex at (0.5, 0.5, 1.5) and base at (0.5, 0.5, -0.5),
     // straddling the unit cube.
     //
-    // HONEST DECLINE PIN (PK-343): this union has ALWAYS produced a
-    // torn cone-top loop (gap 0.5099 — the missing seam segment from
-    // the z = 1 crossing to the apex) at every tolerance; the
-    // pre-PK-342 serve gate simply never checked loop closure and the
-    // historical "produces result" assertion passed on the torn body.
-    // The strengthened gate declines with the structured diagnostic.
-    // Flip this pin back to a serve once PK-343 fixes the cone-apex
-    // chart branches / legacy seam closure.
+    // PK-343: this union had ALWAYS produced a torn cone-top loop
+    // (the walk refused the apex turnaround — the seam's twins in one
+    // loop — and the election filed the small top region as a "hole"
+    // of the disjoint bottom frustum). Served silently until the
+    // PK-342 closure gate; now serves whole: 6 cube faces (top and
+    // bottom carrying the cone holes) + frustum lateral + base cap +
+    // apex piece.
     let t = coarse_tol();
     let cube = BRep::unit_cube(t).unwrap();
     let cone = translate(BRep::cone(0.4, 2.0, t).unwrap(), Vec3::new(0.5, 0.5, -0.5));
-    let err = crate::union(cube, cone, t, None)
-        .expect_err("torn cone-top loop must decline until PK-343");
-    assert!(
-        format!("{err}").contains("not closed"),
-        "decline must carry the torn-loop diagnostic: {err}"
+    let result = crate::union(cube, cone, t, None).expect("cone-cube union serves");
+    assert_eq!(
+        result.faces.len(),
+        9,
+        "cube 6 + frustum + base cap + apex piece"
     );
+    assert!(result.validate_all().is_empty());
 }
 
 #[test]

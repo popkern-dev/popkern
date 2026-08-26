@@ -51,6 +51,15 @@ pub(crate) fn detect_pole_nodes(
                 let p1 = surface.point_at(u + 1e-4, v);
                 let scale =
                     1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
+                if std::env::var_os("PK_POLE_TRACE").is_some() {
+                    eprintln!(
+                        "  [pole?] node {node} uv=({u:.4},{v:.4}) p0=({:.3},{:.3},{:.3}) du-dist={:.3e}",
+                        p0.x,
+                        p0.y,
+                        p0.z,
+                        p0.distance_to(&p1)
+                    );
+                }
                 if p0.distance_to(&p1) < 1e-11 * scale {
                     // Pole side decides the rotation sense; σ is not
                     // yet calibrated here, so store the side and fold
