@@ -293,13 +293,75 @@ pub(crate) struct ChartRoleAssembly {
 /// Assign orbit roles from σ-folded chart shoelace signs. Returns
 /// `None` when no orbit winds positive (substrate defect — caller
 /// falls back to the legacy election).
+/// The source face's inner-loop edge set — the provenance authority
+/// for the hole override in [`assemble_chart_roles`] (PK-341).
+pub(crate) fn source_inner_edge_set(
+    face_ref: &super::super::graph::FaceRef,
+    brep_a: &popkern_core::topology::BRep,
+    brep_b: &popkern_core::topology::BRep,
+) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
+    let source_brep = match face_ref.operand {
+        super::super::graph::Operand::A => brep_a,
+        super::super::graph::Operand::B => brep_b,
+    };
+    let mut edges = std::collections::BTreeSet::new();
+    if let Some(face) = source_brep.faces.get(face_ref.face) {
+        for lh in face.inner_loops.iter().copied() {
+            let Some(loop_data) = source_brep.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            let mut cursor = start;
+            for _ in 0..source_brep.half_edges.len().max(1) {
+                let Some(he) = source_brep.half_edges.get(cursor) else {
+                    break;
+                };
+                edges.insert(he.edge);
+                cursor = he.next;
+                if cursor == start {
+                    break;
+                }
+            }
+        }
+    }
+    edges
+}
+
 pub(crate) fn assemble_chart_roles(
     graph: &IntersectionGraph,
     loops: &[Vec<usize>],
     polys: &[ChartPolyline],
     sigma: f64,
+    source_inner_edges: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> Option<ChartRoleAssembly> {
-    let areas: Vec<f64> = polys.iter().map(|p| sigma * polyline_shoelace(p)).collect();
+    let mut areas: Vec<f64> = polys.iter().map(|p| sigma * polyline_shoelace(p)).collect();
+    // Provenance override: an orbit consisting ENTIRELY of the source
+    // face's INNER-loop edges is a hole BY CONSTRUCTION — the chart
+    // embedding's shoelace sign for unpaired closed rims was measured
+    // flipping per cap orientation (PK-341: the tube's down-facing
+    // cap read its r = 0.3 rim positive, minted a spurious disc
+    // region over the hole, and the assembly double-covered the
+    // core). Sign only decides where provenance is silent.
+    for (i, orbit) in loops.iter().enumerate() {
+        if areas[i] <= 0.0 || orbit.is_empty() {
+            continue;
+        }
+        let all_inner = orbit.iter().all(|&h| {
+            use super::super::graph::EdgeSource;
+            match &graph.half_edges[h].source {
+                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                    source_inner_edges.contains(e)
+                }
+                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
+                    source_inner_edges.contains(original)
+                }
+                _ => false,
+            }
+        });
+        if all_inner {
+            areas[i] = -areas[i];
+        }
+    }
     let primary = areas
         .iter()
         .enumerate()

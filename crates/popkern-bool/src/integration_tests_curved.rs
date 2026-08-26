@@ -395,7 +395,16 @@ fn sphere_through_cube_subtraction_produces_result() {
 fn sphere_medium_cube_subtraction_has_inner_loops() {
     // r=0.6 sphere centered in cube: intersection circles fit inside each face.
     // Expected: 6 cube faces with inner loops + 1 sphere face = 7 faces.
-    let t = coarse_tol();
+    //
+    // DEFAULT tolerance, not coarse: at 1e-2 this subtraction is
+    // broken in every era (measured: volume 1.098 vs the closed-form
+    // 0.202 before PK-341, 0.895 after — both with validator errors
+    // and hundreds of non-manifold mesh edges) and the historical
+    // loop-count pin was satisfied by ACCIDENT of the broken output's
+    // debris. At the default tolerance the result is the true shape
+    // (volume 0.212 vs 0.202 closed form, validate_all clean) and is
+    // identical before/after the PK-341 walker fixes.
+    let t = Tolerance::default();
     let cube = BRep::unit_cube(t).unwrap();
     let sphere = translate(BRep::sphere(0.6, t).unwrap(), Vec3::new(0.5, 0.5, 0.5));
     let result = crate::subtraction(cube, sphere, t, None).expect("medium sphere-cube subtraction");
@@ -409,6 +418,10 @@ fn sphere_medium_cube_subtraction_has_inner_loops() {
         inner_loops >= 6,
         "Should have 6 inner loops (sphere holes on each cube face), got {}",
         inner_loops
+    );
+    assert!(
+        result.validate_all().is_empty(),
+        "default-tolerance sphere-cube must serve validator-clean"
     );
 }
 

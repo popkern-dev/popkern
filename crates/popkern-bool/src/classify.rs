@@ -461,6 +461,67 @@ fn ray_crossing_count(
                             }
                         }
                     }
+                    // PLANE hits: accept only within the face's
+                    // boundary-derived in-plane bounding box
+                    // (+10% margin). The padded parameter window is
+                    // solver headroom; a ray passing BEYOND a bounded
+                    // plane face "hits" its infinite plane (measured,
+                    // PK-341: rays from inside a tube counted the
+                    // annular cap at r = 1.5 against an outer rim of
+                    // 0.7 — parity flipped, every interior sample
+                    // read Outside, both groove-wall fragments were
+                    // dropped, and the subtraction served a
+                    // non-closed body). The box is a strict SUPERSET
+                    // of the face trim (boundary samples), so
+                    // rejection can never lose a real hit; geometric
+                    // in the plane's own frame, so pcurve/window
+                    // conventions cannot bias it. Planes are
+                    // non-periodic — no seam-branch hazard — so this
+                    // gate runs in BOTH modes, unlike the cylinder
+                    // and axial gates above.
+                    if let popkern_core::geometry::surface::SurfaceGeometry::Plane {
+                        origin: pl_origin,
+                        normal: pl_normal,
+                        ..
+                    } = surface
+                    {
+                        let samples = brep.face_boundary_sample_points(*face_handle, 8);
+                        if samples.len() >= 3 {
+                            let (e1, e2) =
+                                popkern_core::geometry::analytic_surfaces::orthonormal_basis(
+                                    *pl_normal,
+                                );
+                            let coord = |p: &popkern_core::geometry::Point3| -> (f64, f64) {
+                                let d = *p - *pl_origin;
+                                (d.dot(&e1), d.dot(&e2))
+                            };
+                            let (mut lo1, mut hi1) = (f64::MAX, f64::MIN);
+                            let (mut lo2, mut hi2) = (f64::MAX, f64::MIN);
+                            for sp in &samples {
+                                let (a, b) = coord(sp);
+                                lo1 = lo1.min(a);
+                                hi1 = hi1.max(a);
+                                lo2 = lo2.min(b);
+                                hi2 = hi2.max(b);
+                            }
+                            let hit3d = *origin + *direction * *t;
+                            let (a, b) = coord(&hit3d);
+                            // 10% covers the chordal underestimate of
+                            // circular rims sampled 8-per-edge
+                            // (sagitta ≈ 7.6% of the radius); the
+                            // phantom class sits ≥ 100% outside.
+                            let m1 = tolerance.linear().max(0.1 * (hi1 - lo1));
+                            let m2 = tolerance.linear().max(0.1 * (hi2 - lo2));
+                            if a < lo1 - m1 || a > hi1 + m1 || b < lo2 - m2 || b > hi2 + m2 {
+                                if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                    eprintln!(
+                                        "  [ray-rej-plane] {face_handle:?} ({a:.3},{b:.3}) box=[{lo1:.3},{hi1:.3}]x[{lo2:.3},{hi2:.3}]"
+                                    );
+                                }
+                                continue;
+                            }
+                        }
+                    }
                     // TORUS hits: accept only within the face's chart
                     // CELL (PK-304). The torus's finite native range
                     // made the window the WHOLE surface, so one

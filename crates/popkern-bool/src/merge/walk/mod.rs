@@ -216,7 +216,29 @@ pub(crate) fn walk_all_fragments_ext(
                     // semantics the scoping protects) have no seam
                     // and keep the legacy election.
                     let wrapping_wall = sub.embeddings.values().any(|e| e.seam_like);
-                    if seam_spine || wrapping_wall {
+                    // ISLAND-PAIR extension (PK-341): a face carrying
+                    // BOTH directions of a closed interior ring
+                    // (island splits — mutual-twin orbit pairs) routes
+                    // to chart roles too: the legacy election called
+                    // both copies "separate" on tool faces and its
+                    // nesting rejected the concentric inner rim on
+                    // winding (measured: the tube's groove walls lost
+                    // their holes and the fallback served a non-closed
+                    // body validate-clean). Planar splitter faces (the
+                    // tuned legacy semantics the scoping protects)
+                    // carry no twin-paired rings.
+                    let island_pair = orbits.len() >= 2
+                        && orbits.iter().enumerate().any(|(i, o)| {
+                            !o.is_empty()
+                                && o.iter().all(|&h| {
+                                    let tw = graph.half_edges[h].twin;
+                                    orbits
+                                        .iter()
+                                        .enumerate()
+                                        .any(|(j, o2)| j != i && o2.contains(&tw))
+                                })
+                        });
+                    if seam_spine || wrapping_wall || island_pair {
                         chart_roles = Some((
                             orbits
                                 .iter()
@@ -388,7 +410,13 @@ pub(crate) fn walk_all_fragments_ext(
         // `assemble_chart_roles`). Falls through to the legacy
         // election only when no orbit winds positive (substrate lie).
         if let Some((polys, sigma)) = chart_roles.take()
-            && let Some(asm) = chart_walk::assemble_chart_roles(graph, &loops, &polys, sigma)
+            && let Some(asm) = chart_walk::assemble_chart_roles(
+                graph,
+                &loops,
+                &polys,
+                sigma,
+                &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
+            )
         {
             let dump = std::env::var_os("PK_LOOP_DUMP_ALL").is_some();
             let trace = std::env::var_os("PK_BOOL_TRACE").is_some();

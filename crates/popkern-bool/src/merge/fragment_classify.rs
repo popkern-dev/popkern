@@ -13,7 +13,7 @@ use super::fragment_classify_overlap::classify_partial_overlap;
 use super::fragment_sample::{sample_point_for_fragment, sample_point_uv};
 use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
-use crate::classify::point_in_solid;
+use crate::classify::point_in_solid_final;
 use crate::classify_on_face::classify_on_face;
 use crate::coincidence::CoincidenceMap;
 use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
@@ -85,8 +85,23 @@ pub(crate) fn classify_and_select_fragments(
             Operand::B => (Operand::B, brep_a, &aabbs_a),
         };
 
-        let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
-        let mut classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
+        let sample =
+            sample_point_for_fragment(graph, &fragment.outer_loop, &fragment.face, brep_a, brep_b);
+        // FINAL variant: fragments classify against the pristine INPUT
+        // operand, so the input-body gates apply — plane hole hits are
+        // genuine voids, and the cylinder angular/axial gates reject
+        // phantom hits beyond a wall's banded span (measured, PK-341:
+        // a ray from the base wall's mid-band fragment phantom-hit the
+        // tube's outer wall ABOVE its z-band, parity flipped, the
+        // fragment was kept, and the subtraction served an interior
+        // membrane). The cellular pipeline already classifies with the
+        // final variant; the graph-merge fallback was the outlier.
+        let mut classification = match point_in_solid_final(
+            &sample,
+            other_brep,
+            other_aabbs,
+            tolerance,
+        ) {
             Ok(c) => c,
             Err(e) => {
                 if std::env::var_os("PK_BOOL_TRACE").is_some() {
@@ -138,11 +153,11 @@ pub(crate) fn classify_and_select_fragments(
                 && let Some(uv_sample) =
                     sample_point_uv(graph, &fragment.outer_loop, &fragment.face, brep_a, brep_b)
             {
-                let uv_class = match point_in_solid(&uv_sample, other_brep, other_aabbs, tolerance)
-                {
-                    Ok(c) => c,
-                    Err(_) => classification,
-                };
+                let uv_class =
+                    match point_in_solid_final(&uv_sample, other_brep, other_aabbs, tolerance) {
+                        Ok(c) => c,
+                        Err(_) => classification,
+                    };
                 if apply_selection_table(op, own_operand, uv_class).keep {
                     classification = uv_class;
                 }

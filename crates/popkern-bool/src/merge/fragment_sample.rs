@@ -14,8 +14,21 @@ use super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 ///
 /// Prefers the midpoint of a non-shared (original or split) edge, which is
 /// guaranteed to lie well inside the fragment and away from the intersection
-/// curve.  Falls back to the loop centroid if every edge is shared.
-pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[usize]) -> Point3 {
+/// curve. When the OUTER loop is entirely shared (an island split cut a
+/// closed intersection loop out of the face interior — the annular groove
+/// wall of PK-341), the INNER loops are consulted before any fallback:
+/// their original edges lie on the fragment's own rim, honestly off the
+/// other operand's boundary, while the all-shared outer's centroid is a
+/// point ON that boundary (a single circle anchor node — the measured
+/// PK-341 knife-edge that classified both groove walls Outside and served
+/// a non-closed body). Falls back to the outer-loop centroid last.
+pub(crate) fn sample_point_for_fragment(
+    graph: &IntersectionGraph,
+    loop_hes: &[usize],
+    face: &FaceRef,
+    brep_a: &BRep,
+    brep_b: &BRep,
+) -> Point3 {
     let midpoint_of = |he_idx: usize| -> Point3 {
         let he = &graph.half_edges[he_idx];
         let twin_idx = he.twin;
@@ -84,28 +97,150 @@ pub(crate) fn sample_point_for_fragment(graph: &IntersectionGraph, loop_hes: &[u
                     .then_with(|| y.cmp(&x))
             })
     };
-    // Try split edges first.
-    if let Some(he_idx) = longest(&|h| {
+    let is_split = |h: usize| {
         matches!(
             graph.half_edges[h].source,
             EdgeSource::SplitA { .. } | EdgeSource::SplitB { .. }
         )
-    }) {
-        return picked(he_idx, midpoint_of(he_idx));
-    }
-    // Then try original edges.
-    if let Some(he_idx) = longest(&|h| {
+    };
+    let is_original = |h: usize| {
         matches!(
             graph.half_edges[h].source,
             EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
         )
-    }) {
+    };
+    // Try split edges first.
+    if let Some(he_idx) = longest(&is_split) {
         return picked(he_idx, midpoint_of(he_idx));
+    }
+    // Then try original edges.
+    if let Some(he_idx) = longest(&is_original) {
+        return picked(he_idx, midpoint_of(he_idx));
+    }
+    // Outer loop is entirely SHARED (an island split cut a closed
+    // intersection loop out of the face interior — an annular groove
+    // wall, a sphere hole bowl): every boundary point lies ON the
+    // other operand, so both the edge midpoints and the node centroid
+    // are knife-edge samples (PK-341 measured: the centroid of a
+    // one-anchor circle classified both groove walls Outside and the
+    // subtraction served a non-closed body; the walker's inner-loop
+    // lists are no alternative — they can carry mis-attributed orphan
+    // loops, measured: a sphere seam arc from inside a bulge cap).
+    // Step OFF the longest shared edge's midpoint into the fragment
+    // interior in UV (side verified by outer-loop containment) and
+    // evaluate the face surface.
+    if let Some(p) = interior_step_sample(graph, loop_hes, face, brep_a, brep_b) {
+        if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+            eprintln!(
+                "  [sample] interior step -> ({:.3},{:.3},{:.3})",
+                p.x, p.y, p.z
+            );
+        }
+        return p;
     }
     if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
         eprintln!("  [sample] centroid fallback over {} hes", loop_hes.len());
     }
     compute_centroid(graph, loop_hes)
+}
+
+/// Sample the fragment interior by stepping off the longest outer
+/// edge's UV midpoint perpendicular to the loop, on whichever side the
+/// outer-loop polygon contains, then evaluating the face surface.
+/// `None` when pcurves/surface are unavailable or neither side is
+/// contained (seam-wrapped charts) — the caller falls back.
+fn interior_step_sample(
+    graph: &IntersectionGraph,
+    loop_hes: &[usize],
+    face: &FaceRef,
+    brep_a: &BRep,
+    brep_b: &BRep,
+) -> Option<Point3> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let brep = match face.operand {
+        Operand::A => brep_a,
+        Operand::B => brep_b,
+    };
+    let surface = &brep.faces.get(face.face)?.surface.as_ref()?.geometry;
+
+    // UV polygon of the outer loop (8 samples per half-edge).
+    let mut polygon: Vec<(f64, f64)> = Vec::new();
+    for &h in loop_hes {
+        let pc = graph.half_edges[h].pcurve.as_ref()?;
+        let (t0, t1) = pc.parameter_range();
+        for i in 0..8 {
+            let t = t0 + (t1 - t0) * (i as f64) / 8.0;
+            let q = pc.point_at(t);
+            polygon.push((q.x, q.y));
+        }
+    }
+    if polygon.len() < 3 {
+        return None;
+    }
+    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for &(u, v) in &polygon {
+        lo_u = lo_u.min(u);
+        hi_u = hi_u.max(u);
+        lo_v = lo_v.min(v);
+        hi_v = hi_v.max(v);
+    }
+    let diag = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2)).sqrt();
+    if diag <= 0.0 {
+        return None;
+    }
+    let delta = diag * 0.05;
+
+    // Longest outer edge with a pcurve.
+    let span_of = |h: usize| -> f64 {
+        let he = &graph.half_edges[h];
+        let a = graph.nodes[he.origin].position;
+        let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+        a.distance_to(&b)
+    };
+    let he_idx = loop_hes
+        .iter()
+        .copied()
+        .filter(|&h| graph.half_edges[h].pcurve.is_some())
+        .max_by(|&x, &y| {
+            span_of(x)
+                .partial_cmp(&span_of(y))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| y.cmp(&x))
+        })?;
+    let pc = graph.half_edges[he_idx].pcurve.as_ref()?;
+    let (t0, t1) = pc.parameter_range();
+    let tm = (t0 + t1) * 0.5;
+    let h = ((t1 - t0) * 1e-3).max(1e-9);
+    let q = pc.point_at(tm);
+    let q_ahead = pc.point_at((tm + h).min(t1));
+    let q_behind = pc.point_at((tm - h).max(t0));
+    let (tx, ty) = (q_ahead.x - q_behind.x, q_ahead.y - q_behind.y);
+    let t_len = (tx * tx + ty * ty).sqrt();
+    if t_len <= 0.0 {
+        return None;
+    }
+    let (px, py) = (-ty / t_len, tx / t_len); // left of travel
+    let contains = |u: f64, v: f64| -> bool {
+        let mut inside = false;
+        let n = polygon.len();
+        let mut j = n - 1;
+        for i in 0..n {
+            let (ui, vi) = polygon[i];
+            let (uj, vj) = polygon[j];
+            if ((vi > v) != (vj > v)) && (u < (uj - ui) * (v - vi) / (vj - vi) + ui) {
+                inside = !inside;
+            }
+            j = i;
+        }
+        inside
+    };
+    for sign in [1.0_f64, -1.0] {
+        let (u, v) = (q.x + px * delta * sign, q.y + py * delta * sign);
+        if contains(u, v) {
+            return Some(surface.point_at(u, v));
+        }
+    }
+    None
 }
 
 /// Compute the centroid of a loop's vertex positions.
