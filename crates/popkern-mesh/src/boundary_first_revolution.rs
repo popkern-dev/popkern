@@ -360,11 +360,17 @@ pub(super) fn try_tessellate(
         }
     }
     let base_row = vertices.len();
-    for &i in &middle {
+    // Base row: ring positions VERBATIM (the weld contract), but the
+    // stored uv uses the UNWRAPPED azimuths — the per-triangle UV
+    // winding pass below compares base and interior rows, and a
+    // mixed-branch base u at the arc joint made one band triangle's
+    // signed area lie, flipping it into an overlapped diagonal
+    // (PK-348: the last unpaired sliver at the strip-anchored rim).
+    for (idx, &i) in middle.iter().enumerate() {
         push(
             &mut uv_pts,
             &mut vertices,
-            ring.uv[i].0,
+            u_unwrapped[idx],
             ring.uv[i].1,
             Some(ring.pos[i]),
         );

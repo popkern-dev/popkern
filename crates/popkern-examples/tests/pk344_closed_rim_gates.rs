@@ -201,3 +201,38 @@ fn render_pk344_bracket_max_grow() {
     let path = out_dir.join("pk344_bracket_max_grow.png");
     popkern_viz::headless::render_to_png(&grown, &camera, 800, 600, &path, true).expect("render");
 }
+
+/// PK-348: the thickened rod (arc strips at both rims + junction, a
+/// rail-trimmed cap chart) tessellates WATERTIGHT — zero unpaired
+/// position-welded edges. The full-wrap revolution arm's UV-winding
+/// pass compared unwrapped interior azimuths against raw mixed-branch
+/// base-row azimuths and flipped one band triangle at the arc joint.
+#[test]
+fn thickened_rod_tessellates_watertight() {
+    use std::collections::HashMap;
+    let f = sphere_capped_rod(tol()).expect("fixture");
+    let r = popkern_shell::thicken::thicken(&f.brep, 0.04, &ShellOptions::default(), tol())
+        .expect("serves");
+    let mesh = popkern_mesh::tessellate(&r.brep, &popkern_mesh::TessellationOptions::default())
+        .expect("tessellate");
+    let mut edge_use: HashMap<(u64, u64, u64, u64, u64, u64), i64> = HashMap::new();
+    for t in &mesh.triangles {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let pa = mesh.vertices[a].position;
+            let pb = mesh.vertices[b].position;
+            let ka = (pa.x.to_bits(), pa.y.to_bits(), pa.z.to_bits());
+            let kb = (pb.x.to_bits(), pb.y.to_bits(), pb.z.to_bits());
+            if ka == kb {
+                continue;
+            }
+            let key = if ka <= kb {
+                (ka.0, ka.1, ka.2, kb.0, kb.1, kb.2)
+            } else {
+                (kb.0, kb.1, kb.2, ka.0, ka.1, ka.2)
+            };
+            *edge_use.entry(key).or_insert(0) += if ka <= kb { 1 } else { -1 };
+        }
+    }
+    let open = edge_use.values().filter(|&&v| v != 0).count();
+    assert_eq!(open, 0, "thickened rod must weld watertight");
+}
