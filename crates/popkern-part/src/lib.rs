@@ -64,6 +64,7 @@ pub use popkern_shell::{
 };
 pub use profile::{Plane, Profile};
 pub use select::{Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
+pub use shaping_offset::ThicknessOverrides;
 pub use smooth_mesh::{
     SmoothMeshOptions, SmoothMeshReport, smooth_solid_from_control_net, smooth_solid_from_obj,
 };

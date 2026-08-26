@@ -129,6 +129,106 @@ impl Part {
         Ok(part)
     }
 
+    /// Hollow with PER-FACE wall thicknesses: faces matched by an
+    /// override selector use its thickness, everything else uses
+    /// `default_thickness` (PK-328).
+    ///
+    /// ```no_run
+    /// # use popkern_part::prelude::*;
+    /// # fn go(part: &Part) -> Result<Part, PartError> {
+    /// part.shell_variable(
+    ///     0.1,
+    ///     |v| v.set(0.25, |f| f.facing_neg(Dir::Z)),
+    ///     |openings| openings.facing(Dir::Z),
+    /// )
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As [`Part::shell`], plus [`PartError::EmptySelection`] for an
+    /// override selector matching nothing.
+    pub fn shell_variable(
+        &self,
+        default_thickness: f64,
+        overrides: impl FnOnce(ThicknessOverrides) -> ThicknessOverrides,
+        openings: impl FnOnce(FaceQuery) -> FaceQuery,
+    ) -> Result<Part, PartError> {
+        self.shell_variable_with_options(
+            default_thickness,
+            overrides,
+            popkern_shell::ShellDirection::Inward,
+            &popkern_shell::ShellOptions::default(),
+            openings,
+        )
+    }
+
+    /// [`Part::shell_variable`] with an explicit direction and the
+    /// full options knob set.
+    ///
+    /// # Errors
+    ///
+    /// As [`Part::shell_variable`].
+    pub fn shell_variable_with_options(
+        &self,
+        default_thickness: f64,
+        overrides: impl FnOnce(ThicknessOverrides) -> ThicknessOverrides,
+        direction: popkern_shell::ShellDirection,
+        options: &popkern_shell::ShellOptions,
+        openings: impl FnOnce(FaceQuery) -> FaceQuery,
+    ) -> Result<Part, PartError> {
+        let infos = face_infos(self.brep());
+        let mut face_thicknesses: Vec<(popkern_core::topology::FaceHandle, f64)> = Vec::new();
+        let collected = overrides(ThicknessOverrides {
+            entries: Vec::new(),
+        });
+        for (thickness, query) in collected.entries {
+            let faces = query.resolve(&infos);
+            if faces.is_empty() && !query.empty_permitted() {
+                return Err(PartError::EmptySelection {
+                    selection: query.describe(),
+                    entity: "faces",
+                    available: infos.len(),
+                });
+            }
+            face_thicknesses.extend(faces.into_iter().map(|fh| (fh, thickness)));
+        }
+        let query = openings(FaceQuery::new());
+        let faces = query.resolve(&infos);
+        let selection = query.describe();
+        if faces.is_empty() && !query.empty_permitted() {
+            return Err(PartError::EmptySelection {
+                selection,
+                entity: "faces",
+                available: infos.len(),
+            });
+        }
+        let result = popkern_shell::shell_variable(
+            self.brep(),
+            default_thickness,
+            &face_thicknesses,
+            direction,
+            &faces,
+            options,
+            self.tolerance(),
+            None,
+        )
+        .map_err(|e| PartError::NotApplicable(format!("shell failed: {e}")))?;
+        let mut part = Part::from_validated(
+            result.brep,
+            self.tolerance(),
+            "shell",
+            format!(
+                "variable thickness (default {default_thickness}, {} overrides), \
+                 {direction:?}, {} openings: {selection}",
+                face_thicknesses.len(),
+                faces.len()
+            ),
+        )?;
+        part.merge_history_from(self);
+        Ok(part)
+    }
+
     /// A cheap approximate preview of the offset skin (exact
     /// offset-map samples, approximate join strips, no trim) for
     /// interactive display while a slider drags (PK-328). Never a
@@ -160,6 +260,21 @@ impl Part {
     ) -> Result<popkern_shell::SafeOffsetReport, PartError> {
         popkern_shell::max_safe_offset(self.brep(), direction, self.tolerance())
             .map_err(|e| PartError::NotApplicable(format!("max_safe_offset failed: {e}")))
+    }
+}
+
+/// Per-face thickness overrides for [`Part::shell_variable`]: each
+/// `set` pairs a thickness with a face selector (PK-328).
+pub struct ThicknessOverrides {
+    entries: Vec<(f64, FaceQuery)>,
+}
+
+impl ThicknessOverrides {
+    /// Apply `thickness` to every face the selector matches.
+    #[must_use]
+    pub fn set(mut self, thickness: f64, select: impl FnOnce(FaceQuery) -> FaceQuery) -> Self {
+        self.entries.push((thickness, select(FaceQuery::new())));
+        self
     }
 }
 
@@ -215,6 +330,30 @@ mod tests {
                 .iter()
                 .any(|f| f.name == "thicken")
         );
+    }
+
+    #[test]
+    fn shell_variable_applies_per_face_thickness() {
+        let part = box_part();
+        let cup = part
+            .shell_variable(
+                0.05,
+                |v| v.set(0.15, |f| f.facing_neg(Dir::Z)),
+                |openings| openings.facing(Dir::Z),
+            )
+            .expect("variable shell serves");
+        assert!(cup.brep().validate_all().is_empty());
+        // The floor skin sits at z = 0.15, the walls at 0.05 in.
+        let has_thick_floor = cup.brep().faces.iter().any(|(_, f)| {
+            f.surface.as_ref().is_some_and(|s| {
+                matches!(
+                    &s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. }
+                        if normal.z.abs() > 0.9 && (origin.z - 0.15).abs() < 1e-9
+                )
+            })
+        });
+        assert!(has_thick_floor, "override thickness must reach the floor");
     }
 
     #[test]
