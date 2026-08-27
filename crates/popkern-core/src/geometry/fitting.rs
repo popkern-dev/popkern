@@ -204,26 +204,58 @@ pub fn fit_curve(
     }
 
     // Step 3: Build basis function matrix N for interior points and interior CPs
-    // N is (m-2) x (n-2)
+    // N is (m-2) x (n-2), stored BANDED: a degree-p basis row has at most
+    // p+1 consecutive nonzero values (the active span), so evaluating and
+    // accumulating the dense rows×cols matrix wastes rows×cols work on
+    // structural zeros. Measured on the wavy-plate offset ladder (PK-329):
+    // 240 ms of a 250 ms plane×NURBS SSI solve sat in this fit at ~1000
+    // samples × 200 control points; banding removes that term. Skipped
+    // entries are EXACTLY 0.0 (Cox–de Boor returns structural zeros
+    // outside the support window, padded ±1 against its 1e-14 endpoint
+    // capture), and every retained (i,j,k) product accumulates in the
+    // same increasing-k order as the dense triple loop, so fitted curves
+    // are bit-identical to the dense construction.
     let rows = m - 2; // interior data points
     let cols = n - 2; // interior control points
 
-    // Also compute N_0[i] = basis(0, degree, params[i+1], knots) and
-    // N_{n-1}[i] = basis(n-1, degree, params[i+1], knots) for RHS adjustment
-
-    let mut n_matrix: Vec<Vec<f64>> = Vec::with_capacity(rows);
+    // Per-row band: first active interior column and the basis values
+    // for the active columns. Also N_0[i] and N_{n-1}[i] for the RHS
+    // adjustment (nonzero only when the window reaches an endpoint).
+    let mut band_start: Vec<usize> = Vec::with_capacity(rows);
+    let mut band_vals: Vec<Vec<f64>> = Vec::with_capacity(rows);
     let mut n0_vec: Vec<f64> = Vec::with_capacity(rows);
     let mut nn_vec: Vec<f64> = Vec::with_capacity(rows);
 
     for i in 0..rows {
         let t = params[i + 1];
-        let mut row = Vec::with_capacity(cols);
-        for j in 0..cols {
-            row.push(basis_function(j + 1, degree, t, &knots));
-        }
-        n_matrix.push(row);
-        n0_vec.push(basis_function(0, degree, t, &knots));
-        nn_vec.push(basis_function(n - 1, degree, t, &knots));
+        // Largest knot index with knots[span] <= t, clamped to the
+        // non-degenerate span range [degree, n-1].
+        let span = match knots.partition_point(|&k| k <= t) {
+            0 => degree,
+            p => (p - 1).clamp(degree, n - 1),
+        };
+        // Basis indices with support containing t are [span-degree, span];
+        // pad one index each side for the recursion's endpoint capture.
+        let lo = span.saturating_sub(degree + 1);
+        let hi = (span + 1).min(n - 1);
+        // Interior column j holds basis index j+1.
+        let col_lo = lo.saturating_sub(1).min(cols.saturating_sub(1));
+        let col_hi = hi.saturating_sub(1).min(cols.saturating_sub(1));
+        let vals: Vec<f64> = (col_lo..=col_hi)
+            .map(|j| basis_function(j + 1, degree, t, &knots))
+            .collect();
+        band_start.push(col_lo);
+        band_vals.push(vals);
+        n0_vec.push(if lo == 0 {
+            basis_function(0, degree, t, &knots)
+        } else {
+            0.0
+        });
+        nn_vec.push(if hi >= n - 1 {
+            basis_function(n - 1, degree, t, &knots)
+        } else {
+            0.0
+        });
     }
 
     // Step 4: Compute RHS: R[i] = points[i+1] - N_0[i]*P[0] - N_{n-1}[i]*P[n-1]
@@ -240,26 +272,27 @@ pub fn fit_curve(
             points[i + 1].z - n0_vec[i] * control_points[0].z - nn_vec[i] * control_points[n - 1].z;
     }
 
-    // Step 5: Form normal equations N^T * N and N^T * R
-    // NtN is cols x cols, NtR is cols x 1 (for each of x, y, z)
+    // Step 5: Form normal equations N^T * N and N^T * R over the banded
+    // rows. Row-outer accumulation adds each (i,j) product in increasing
+    // row order — the same accumulation chain as the dense triple loop,
+    // minus terms that are exactly ±0.0 (bit-neutral on these
+    // non-negative chains).
     let mut ntn: Vec<Vec<f64>> = vec![vec![0.0; cols]; cols];
     let mut ntr_x = vec![0.0; cols];
     let mut ntr_y = vec![0.0; cols];
     let mut ntr_z = vec![0.0; cols];
 
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..cols {
-        for j in 0..cols {
-            let mut sum = 0.0;
-            for k in 0..rows {
-                sum += n_matrix[k][i] * n_matrix[k][j];
+    for k in 0..rows {
+        let s = band_start[k];
+        let vals = &band_vals[k];
+        for (di, &vi) in vals.iter().enumerate() {
+            let i = s + di;
+            for (dj, &vj) in vals.iter().enumerate() {
+                ntn[i][s + dj] += vi * vj;
             }
-            ntn[i][j] = sum;
-        }
-        for k in 0..rows {
-            ntr_x[i] += n_matrix[k][i] * rhs_x[k];
-            ntr_y[i] += n_matrix[k][i] * rhs_y[k];
-            ntr_z[i] += n_matrix[k][i] * rhs_z[k];
+            ntr_x[i] += vi * rhs_x[k];
+            ntr_y[i] += vi * rhs_y[k];
+            ntr_z[i] += vi * rhs_z[k];
         }
     }
 

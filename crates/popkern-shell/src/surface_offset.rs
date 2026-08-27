@@ -58,42 +58,58 @@ pub fn compute_offset_surfaces(
     allow_partial: bool,
     tolerance: &Tolerance,
 ) -> Result<OffsetResult, ShellError> {
+    // Phase 1 (parallel, PK-329): each face's offset is a pure function
+    // of its own surface and boundary — dispatch over the deterministic
+    // `offset_faces` list with an ordered collect, then replay the
+    // decisions sequentially so warning order, failure order, and
+    // first-face-wins early declines are positionally identical to the
+    // sequential loop at any thread count.
+    let solved = crate::parallel_dispatch::dispatch_ordered(
+        &classification.offset_faces,
+        false,
+        |&(face_handle, distance, inward)| {
+            let face = &brep.faces[face_handle];
+            let surface = match &face.surface {
+                Some(sof) => &sof.geometry,
+                None => return None,
+            };
+            // Get UV range from face boundary vertices.
+            let positions = face_vertex_positions(brep, face_handle);
+            let (u_range, v_range) = bounded_parameter_range(&positions, surface);
+            // Compute the offset surface with an honest quality record.
+            // Existence declines (radius through zero, spindle torus)
+            // and fold declines on the approximation path come back
+            // typed from the dispatch and are mapped below.
+            Some(popkern_fillet::offset::offset_surface_measured(
+                surface, distance, inward, u_range, v_range, tolerance,
+            ))
+        },
+    );
+
+    // Phase 2 (sequential): fold the per-face outcomes in list order.
     let mut surfaces = HashMap::new();
     let mut failed = Vec::new();
     let mut warnings = Vec::new();
     let mut auto_removed = Vec::new();
 
-    for &(face_handle, distance, inward) in &classification.offset_faces {
-        let face = &brep.faces[face_handle];
-        let surface = match &face.surface {
-            Some(sof) => &sof.geometry,
-            None => {
-                let msg = "face has no surface geometry".to_string();
-                if allow_partial {
-                    auto_removed.push(face_handle);
-                    warnings.push(ShellWarning::FaceAutoRemoved {
-                        face: face_handle,
-                        reason: msg.clone(),
-                    });
-                    failed.push((face_handle, msg));
-                } else {
-                    failed.push((face_handle, msg));
-                }
-                continue;
+    for (&(face_handle, distance, _inward), outcome) in
+        classification.offset_faces.iter().zip(solved)
+    {
+        let Some(outcome) = outcome else {
+            let msg = "face has no surface geometry".to_string();
+            if allow_partial {
+                auto_removed.push(face_handle);
+                warnings.push(ShellWarning::FaceAutoRemoved {
+                    face: face_handle,
+                    reason: msg.clone(),
+                });
+                failed.push((face_handle, msg));
+            } else {
+                failed.push((face_handle, msg));
             }
+            continue;
         };
-
-        // Get UV range from face boundary vertices.
-        let positions = face_vertex_positions(brep, face_handle);
-        let (u_range, v_range) = bounded_parameter_range(&positions, surface);
-
-        // Compute the offset surface with an honest quality record.
-        // Existence declines (radius through zero, spindle torus) and
-        // fold declines on the approximation path come back typed from
-        // the dispatch and are mapped to OffsetTooLarge below.
-        match popkern_fillet::offset::offset_surface_measured(
-            surface, distance, inward, u_range, v_range, tolerance,
-        ) {
+        match outcome {
             Ok(outcome) => {
                 if let Some(achieved) = outcome.approximation_deviation {
                     if achieved > tolerance.linear() {
@@ -136,12 +152,15 @@ pub fn compute_offset_surfaces(
                 // and let the trim stage's pinch arm serve the apple
                 // (PK-327 §6). The surface-level bound decline was the
                 // pre-trim containment.
-                let SurfaceGeometry::Torus {
+                let Some(SurfaceGeometry::Torus {
                     center,
                     axis,
                     major_radius,
                     ..
-                } = surface
+                }) = brep.faces[face_handle]
+                    .surface
+                    .as_ref()
+                    .map(|s| &s.geometry)
                 else {
                     return Err(ShellError::Topology(
                         "spindle decline on a non-torus surface".into(),

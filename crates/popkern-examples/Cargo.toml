@@ -28,6 +28,10 @@ serde_json = "1"
 thiserror = "2"
 ttf-parser = "0.25.1"
 
+[dev-dependencies]
+# The PK-329 determinism pins build their own rayon pools.
+rayon = "1"
+
 [[bin]]
 name = "flagship_boss_plate"
 path = "src/flagship_boss_plate.rs"
@@ -120,3 +124,7 @@ path = "src/laptop_stand_api.rs"
 [[bin]]
 name = "chamfer_bracket_api"
 path = "src/chamfer_bracket_api.rs"
+
+[[bin]]
+name = "offset_perf_probe"
+path = "src/offset_perf_probe.rs"

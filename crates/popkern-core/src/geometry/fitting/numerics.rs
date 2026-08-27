@@ -91,6 +91,15 @@ pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>,
 
         let pivot = aug[col][col];
         for row in (col + 1)..n {
+            // Exact-zero skip: banded fitting systems (PK-329) leave most
+            // sub-pivot entries structurally 0.0; eliminating them applies
+            // `x -= ±0.0` across the row, which is bit-neutral here (no
+            // entry in these chains is ever -0.0), so skipping is
+            // bit-identical and turns the dense O(n³) elimination into
+            // O(n²·bandwidth) on banded inputs.
+            if aug[row][col] == 0.0 {
+                continue;
+            }
             let factor = aug[row][col] / pivot;
             for j in col..=n {
                 let val = aug[col][j];

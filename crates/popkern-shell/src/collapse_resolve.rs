@@ -42,15 +42,22 @@ pub(crate) fn resolve_face_collapse(
     tolerance: &Tolerance,
 ) -> Result<Vec<ShellWarning>, ShellError> {
     let index = BodyDistanceIndex::build(outer);
-    let mut dead_outer: Vec<FaceHandle> = Vec::new();
-    for entry in &index.entries {
+    // Per-face death tests are pure reads of the index (GRID² samples ×
+    // min-over-all-faces distance queries — the stage's cost driver);
+    // dispatch in parallel with an ordered collect (PK-329) so the dead
+    // set keeps the index's sorted face order.
+    let verdicts = crate::parallel_dispatch::dispatch_ordered(&index.entries, false, |entry| {
         let Some(offset) = offset_surfaces.get(&entry.face) else {
-            continue;
+            return false;
         };
-        if face_is_dead(entry, offset, &index, tolerance) {
-            dead_outer.push(entry.face);
-        }
-    }
+        face_is_dead(entry, offset, &index, tolerance)
+    });
+    let dead_outer: Vec<FaceHandle> = index
+        .entries
+        .iter()
+        .zip(verdicts)
+        .filter_map(|(entry, dead)| dead.then_some(entry.face))
+        .collect();
     if dead_outer.is_empty() {
         return Ok(Vec::new());
     }

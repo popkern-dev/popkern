@@ -5,7 +5,7 @@ use crate::error::ShellError;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
 
-use super::edge_recompute::compute_edge_curve;
+use super::edge_curve_dispatch::compute_edge_curve;
 
 /// Re-author a SAME-SURFACE (seam) edge whose curve endpoints no
 /// longer match its vertices (PK-344): gap-corner anchors carry

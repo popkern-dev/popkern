@@ -5,12 +5,24 @@ edition.workspace = true
 license.workspace = true
 description = "Shell and offset solid operations for the popkern BRep kernel"
 
+[features]
+# Parallel per-face/per-edge dispatch is on by default (PK-329): output
+# is positionally identical to sequential processing at any thread count
+# (ordered collect over a deterministic task list), so opting out is a
+# resource decision, not a correctness one. rayon is already in the
+# workspace tree via faer, so the default adds no new transitive dep.
+default = ["parallel"]
+parallel = ["rayon"]
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-fillet = { path = "../popkern-fillet" }
 popkern-bool = { path = "../popkern-bool" }
+rayon = { version = "1", optional = true }
 thiserror = "2"
 
 [dev-dependencies]
 # PK-276 identity-pin fingerprints.
 serde_json = "1"
+# The determinism pins build their own rayon pools (PK-329).
+rayon = "1"

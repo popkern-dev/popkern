@@ -188,11 +188,26 @@ impl std::fmt::Display for ShellWarning {
                 "{} face(s) vanished at this offset distance ({mechanism})",
                 faces.len()
             ),
-            ShellWarning::FreeFormFoldScan { faces } => write!(
-                f,
-                "{faces} free-form offset face(s) were checked for self-folding \
-                 and came back clean"
-            ),
+            ShellWarning::FreeFormFoldScan {
+                faces,
+                boxes_examined,
+                truncated,
+            } => {
+                if *truncated {
+                    write!(
+                        f,
+                        "{faces} free-form offset face(s) were checked for self-folding; \
+                         the scan hit its subdivision budget ({boxes_examined} box pairs) \
+                         — no fold was found, but coverage is partial"
+                    )
+                } else {
+                    write!(
+                        f,
+                        "{faces} free-form offset face(s) were checked for self-folding \
+                         and came back clean ({boxes_examined} box pairs examined)"
+                    )
+                }
+            }
             ShellWarning::RegionTrimmed {
                 removed_faces,
                 welded_seams,
@@ -275,6 +290,15 @@ pub enum ShellWarning {
     FreeFormFoldScan {
         /// Free-form offset faces scanned.
         faces: usize,
+        /// Total subdivision box pairs the scans examined (PK-329
+        /// observability: the tier's cost driver, budget-gated at
+        /// 200k boxes per face pair).
+        boxes_examined: usize,
+        /// True when any scan hit its box budget before certifying —
+        /// the clean verdict is then a LOWER BOUND, not a clean bill,
+        /// and the caller records it instead of silently serving
+        /// (PK-329: the flag used to be dropped on the floor).
+        truncated: bool,
     },
     /// A globally self-intersecting region of the offset skin was
     /// removed and the skin re-closed along the exact intersection

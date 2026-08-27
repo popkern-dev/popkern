@@ -46,6 +46,11 @@ if [[ "$mode" == "--perf" ]]; then
         cargo test --release -p popkern-part --test perf_budget -- --nocapture
     run_step "boolean perf budgets" \
         cargo test --release -p popkern-bool --test perf_budget -- --nocapture
+    run_step "tessellation perf budgets" \
+        cargo test --release -p popkern-mesh --test perf_budget -- --nocapture
+    run_step "offset/shell perf budgets + determinism pins" \
+        cargo test --release -p popkern-examples \
+        --test perf_budget --test pk329_determinism_gates -- --nocapture
     echo "Quality gate passed ($mode)."
     exit 0
 fi

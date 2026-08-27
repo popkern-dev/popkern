@@ -87,12 +87,21 @@ pub fn find_self_intersections(
     // not trim regions.
     let min_curve_length = body.tolerance.linear() * 10.0;
 
-    for (face_a, face_b) in pairs {
+    // Per-pair scans are pure reads of `body` (plain SlotMap storage,
+    // no interior mutability), so the pair list dispatches in parallel
+    // with an ordered collect (PK-277 discipline; PK-329): results are
+    // folded in the caller's pair order, so curves, counters, and the
+    // first-failing-pair error are positionally identical to the
+    // sequential loop at any thread count.
+    let per_pair = |&(face_a, face_b): &(FaceHandle, FaceHandle)| -> Result<
+        (Vec<SelfIntersectionCurve>, usize),
+        BoolError,
+    > {
         let (Some(sa), Some(sb)) = (
             body.faces[face_a].surface.as_ref(),
             body.faces[face_b].surface.as_ref(),
         ) else {
-            continue;
+            return Ok((Vec::new(), 0));
         };
         let (ua, va) = bounded_parameter_range(body, face_a, &sa.geometry);
         let (ub, vb) = bounded_parameter_range(body, face_b, &sb.geometry);
@@ -104,24 +113,42 @@ pub fn find_self_intersections(
                     ))
                 })?;
 
+        let mut curves = Vec::new();
+        let mut coincident_skipped = 0usize;
         for intersection in result.intersections {
             let SurfaceSurfaceIntersection::Curve(curve) = intersection else {
                 // Whole-region coincidence: the same-surface arms'
                 // responsibility (spindle / distance map).
-                scan.coincident_pairs_skipped += 1;
+                coincident_skipped += 1;
                 continue;
             };
             for clipped in clip_curve_to_faces(body, face_a, body, face_b, &curve) {
                 if curve_length_estimate(&clipped) < min_curve_length {
                     continue;
                 }
-                scan.curves.push(SelfIntersectionCurve {
+                curves.push(SelfIntersectionCurve {
                     face_a,
                     face_b,
                     curve: clipped,
                 });
             }
         }
+        Ok((curves, coincident_skipped))
+    };
+
+    #[cfg(feature = "parallel")]
+    let outcomes: Vec<Result<(Vec<SelfIntersectionCurve>, usize), BoolError>> = {
+        use rayon::prelude::*;
+        pairs.par_iter().map(per_pair).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let outcomes: Vec<Result<(Vec<SelfIntersectionCurve>, usize), BoolError>> =
+        pairs.iter().map(per_pair).collect();
+
+    for outcome in outcomes {
+        let (curves, coincident_skipped) = outcome?;
+        scan.coincident_pairs_skipped += coincident_skipped;
+        scan.curves.extend(curves);
     }
     Ok(scan)
 }

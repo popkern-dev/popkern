@@ -3318,6 +3318,7 @@ dependencies = [
  "popkern-shell",
  "popkern-sweep",
  "popkern-viz",
+ "rayon",
  "serde_json",
  "thiserror 2.0.18",
  "ttf-parser",
@@ -3425,6 +3426,7 @@ dependencies = [
  "popkern-bool",
  "popkern-core",
  "popkern-fillet",
+ "rayon",
  "serde_json",
  "thiserror 2.0.18",
 ]

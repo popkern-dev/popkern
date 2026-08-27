@@ -136,6 +136,11 @@ pub fn intersect_surfaces_with_handler(
     // the coincident detector. POPKERN_ANALYTIC_TORUS_SSI=0 is the
     // diagnostic kill-switch (PK-239 precedent) pinning the marching
     // path for A/B measurement and containment.
+    // Deliberately a per-call env read (NOT OnceLock'd like the trace
+    // gates): the torus-SSI acceptance ratio test toggles this
+    // kill-switch mid-process to A/B the marching path, and a cached
+    // read froze its second measurement on the analytic arm. One read
+    // per intersect call is negligible next to the solve itself.
     let torus_arms_enabled = std::env::var_os("POPKERN_ANALYTIC_TORUS_SSI")
         .map(|v| v != "0")
         .unwrap_or(true);
@@ -389,7 +394,6 @@ pub fn intersect_surfaces_with_handler(
             }
         }
     }
-
     Ok(SurfaceSurfaceIntersectionResult {
         intersections: results,
     })

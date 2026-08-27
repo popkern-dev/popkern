@@ -59,7 +59,7 @@ pub(crate) fn find_starting_points(
         })
         .collect();
 
-    if std::env::var_os("PK_SEED_TRACE").is_some() {
+    if seed_trace_enabled() {
         let hull = |ps: &[SurfacePatch]| -> (f64, f64) {
             let mut lo = f64::MAX;
             let mut hi = f64::MIN;
@@ -120,7 +120,7 @@ pub(crate) fn find_starting_points(
     // on the served pyramid4 strip×cap pair).
     let mut raw_samples: Vec<MarchSample> = Vec::new();
 
-    if std::env::var_os("PK_SEED_TRACE").is_some() {
+    if seed_trace_enabled() {
         eprintln!("  [seed] candidates {}", candidate_pairs.len());
     }
     for (patch1, patch2) in &candidate_pairs {
@@ -162,7 +162,7 @@ pub(crate) fn find_starting_points(
     }
 
     // Step 6: Deduplicate points within linear tolerance.
-    if std::env::var_os("PK_SEED_TRACE").is_some() {
+    if seed_trace_enabled() {
         eprintln!("  [seed] raw samples {}", raw_samples.len());
     }
     let unique_samples = deduplicate(raw_samples, tolerance);
@@ -301,3 +301,11 @@ fn classify_tangent(
 #[cfg(test)]
 #[path = "starting_points_tests.rs"]
 mod tests;
+
+/// OnceLock'd `PK_SEED_TRACE` gate: a per-call env read takes the
+/// process environment lock and serializes parallel SSI dispatch
+/// (PK-329).
+fn seed_trace_enabled() -> bool {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACE.get_or_init(|| std::env::var_os("PK_SEED_TRACE").is_some())
+}

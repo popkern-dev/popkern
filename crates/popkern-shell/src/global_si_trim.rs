@@ -139,15 +139,28 @@ pub(crate) fn run_trim_stage(
     // with reports under BOTH policies: serving a free-form fold needs
     // marched self-intersection curves (decline-class registry row).
     if !provenance.free_form_offsets.is_empty() {
+        // Per-pair distance-map scans are pure; dispatch in parallel
+        // with an ordered collect (PK-329) so region report order is
+        // positionally identical to the sequential loop.
+        let reports = crate::parallel_dispatch::dispatch_ordered(
+            &provenance.free_form_offsets,
+            false,
+            |pair| {
+                popkern_fillet::offset::distance_map::scan_offset_self_fold(
+                    &pair.source,
+                    &pair.offset,
+                    pair.distance,
+                    pair.u_range,
+                    pair.v_range,
+                )
+            },
+        );
         let mut fold_regions: Vec<TrimRegionReport> = Vec::new();
-        for pair in &provenance.free_form_offsets {
-            let report = popkern_fillet::offset::distance_map::scan_offset_self_fold(
-                &pair.source,
-                &pair.offset,
-                pair.distance,
-                pair.u_range,
-                pair.v_range,
-            );
+        let mut boxes_examined = 0usize;
+        let mut truncated = false;
+        for (pair, report) in provenance.free_form_offsets.iter().zip(&reports) {
+            boxes_examined += report.boxes_examined;
+            truncated |= report.truncated;
             for region in &report.regions {
                 use popkern_core::geometry::surface::SurfaceEval;
                 let witness = pair.offset.point_at(
@@ -168,13 +181,16 @@ pub(crate) fn run_trim_stage(
                 policy_note: if policy == TrimPolicy::Decline {
                     "TrimPolicy::Decline".into()
                 } else {
-                    "free-form self-fold detected by the distance map; serving this                      class needs marched self-intersection curves (registry row)"
+                    "free-form self-fold detected by the distance map; serving this \
+                     class needs marched self-intersection curves (registry row)"
                         .into()
                 },
             });
         }
         warnings.push(ShellWarning::FreeFormFoldScan {
             faces: provenance.free_form_offsets.len(),
+            boxes_examined,
+            truncated,
         });
     }
 

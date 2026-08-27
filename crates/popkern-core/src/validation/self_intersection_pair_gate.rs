@@ -135,6 +135,279 @@ fn aabb_diag(a: &Aabb) -> f64 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
+/// Exact lower bound on the distance between two UNTRIMMED analytic
+/// surfaces, when a closed form exists (PK-329). `None` means "no
+/// closed form for this class pair" and the pair falls through to the
+/// sampled machinery unchanged. A full-surface minimum never exceeds
+/// any trimmed patch's minimum, so `Some(lb)` with `lb > clearance`
+/// certifies the trimmed pair apart in O(1) — the offset pipeline's
+/// dominant verification class (inner/outer skins of one source face:
+/// concentric spheres, parallel cylinders, coaxial cones a thickness
+/// apart) burned the subdivision seeder's whole budget per pair
+/// (measured 250 ms on the sphere-capped rod's cap pair) proving what
+/// these formulas state directly.
+///
+/// Safety rules: closed forms over bounded geometry (sphere pairs,
+/// point-to-cone) are exact in every configuration. Certificates that
+/// rely on parallelism of INFINITE surfaces (plane×plane,
+/// plane×cylinder, cylinder×cylinder, cone×cone, torus×torus) demand
+/// EXACT parallelism — cross products that are identically 0.0, which
+/// bitwise-copied axes from the offset pipeline satisfy — because an
+/// epsilon-parallel infinite pair diverges without bound and any
+/// tolerance gate would eventually mis-certify. Translation residuals
+/// off the shared axis are handled by Lipschitz penalty (min distance
+/// moves by at most the perpendicular offset).
+pub(super) fn analytic_separation_lower_bound(
+    a: &SurfaceGeometry,
+    b: &SurfaceGeometry,
+) -> Option<f64> {
+    use SurfaceGeometry as SG;
+    // Distance between two circles/spheres of radii r1, r2 whose
+    // centers sit `d` apart (also the cross-section form for parallel
+    // cylinders and concentric tori): separated, nested, or touching.
+    let radial_gap = |d: f64, r1: f64, r2: f64| -> f64 {
+        if d >= r1 + r2 {
+            d - r1 - r2
+        } else if d + r1 <= r2 {
+            r2 - d - r1
+        } else if d + r2 <= r1 {
+            r1 - d - r2
+        } else {
+            0.0
+        }
+    };
+    // Min of |x - rc| over x in [lo, hi] (point-to-cylinder radial gap).
+    let interval_abs_gap = |lo: f64, hi: f64, rc: f64| -> f64 {
+        if rc < lo {
+            lo - rc
+        } else if rc > hi {
+            rc - hi
+        } else {
+            0.0
+        }
+    };
+    let point_line_distance = |p: &Point3, o: &Point3, axis: &crate::geometry::Vec3| -> f64 {
+        let d = *p - *o;
+        (d - *axis * d.dot(axis)).length()
+    };
+    match (a, b) {
+        (
+            SG::Sphere {
+                center: c1,
+                radius: r1,
+            },
+            SG::Sphere {
+                center: c2,
+                radius: r2,
+            },
+        ) => Some(radial_gap(c1.distance_to(c2), *r1, *r2)),
+        (SG::Sphere { center, radius }, SG::Plane { origin, normal, .. })
+        | (SG::Plane { origin, normal, .. }, SG::Sphere { center, radius }) => {
+            Some((*center - *origin).dot(normal).abs() - radius)
+        }
+        (
+            SG::Sphere { center, radius },
+            SG::Cylinder {
+                origin,
+                axis,
+                radius: rc,
+            },
+        )
+        | (
+            SG::Cylinder {
+                origin,
+                axis,
+                radius: rc,
+            },
+            SG::Sphere { center, radius },
+        ) => {
+            let d_axis = point_line_distance(center, origin, axis);
+            Some(interval_abs_gap(
+                (d_axis - radius).max(0.0),
+                d_axis + radius,
+                *rc,
+            ))
+        }
+        (
+            SG::Sphere { center, radius },
+            SG::Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+        )
+        | (
+            SG::Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+            SG::Sphere { center, radius },
+        ) => {
+            // The kernel cone evaluates BOTH nappes (negative v mirrors
+            // through the apex), so bound against the union of the two
+            // full profile generator lines — a superset of the double
+            // cone's profile, hence a safe lower bound.
+            let dv = *center - *apex;
+            let zeta = dv.dot(axis);
+            let rho = (dv - *axis * zeta).length();
+            let (sin_a, cos_a) = half_angle.sin_cos();
+            let d1 = (rho * cos_a - zeta * sin_a).abs();
+            let d2 = (rho * cos_a + zeta * sin_a).abs();
+            Some(d1.min(d2) - radius)
+        }
+        (
+            SG::Plane {
+                origin: o1,
+                normal: n1,
+                ..
+            },
+            SG::Plane {
+                origin: o2,
+                normal: n2,
+                ..
+            },
+        ) => {
+            if n1.cross(n2).length() == 0.0 {
+                Some((*o2 - *o1).dot(n1).abs())
+            } else {
+                Some(0.0)
+            }
+        }
+        (
+            SG::Plane {
+                origin: po, normal, ..
+            },
+            SG::Cylinder {
+                origin,
+                axis,
+                radius,
+            },
+        )
+        | (
+            SG::Cylinder {
+                origin,
+                axis,
+                radius,
+            },
+            SG::Plane {
+                origin: po, normal, ..
+            },
+        ) => {
+            if axis.dot(normal) == 0.0 {
+                Some((*origin - *po).dot(normal).abs() - radius)
+            } else {
+                Some(0.0)
+            }
+        }
+        (
+            SG::Cylinder {
+                origin: o1,
+                axis: a1,
+                radius: r1,
+            },
+            SG::Cylinder {
+                origin: o2,
+                axis: a2,
+                radius: r2,
+            },
+        ) => {
+            if a1.cross(a2).length() == 0.0 {
+                Some(radial_gap(point_line_distance(o2, o1, a1), *r1, *r2))
+            } else {
+                // Skew or intersecting axes: min surface distance is at
+                // least the line-line distance minus both radii.
+                let n = a1.cross(a2);
+                let d_lines = (*o2 - *o1).dot(&n).abs() / n.length();
+                Some(d_lines - r1 - r2)
+            }
+        }
+        // Cone×cone has NO untrimmed certificate: the kernel cone is a
+        // double cone, and two coaxial double cones offset along their
+        // axis genuinely intersect (opposite nappes cross in a circle).
+        // The trim-window-aware bound lives in
+        // `coaxial_cone_same_nappe_lower_bound`.
+        (
+            SG::Torus {
+                center: c1,
+                axis: x1,
+                major_radius: mr1,
+                minor_radius: tr1,
+            },
+            SG::Torus {
+                center: c2,
+                axis: x2,
+                major_radius: mr2,
+                minor_radius: tr2,
+            },
+        ) => {
+            // Exactly coaxial tori: the profile cross-section is two
+            // circles centered (R, ±Δaxial/…) — for centers offset only
+            // along the shared axis the tube-center circles sit
+            // sqrt(ΔR² + Δz²) apart in profile; radial center residual
+            // subtracts via the Lipschitz bound.
+            if x1.cross(x2).length() == 0.0 {
+                let dv = *c2 - *c1;
+                let along = dv.dot(x1);
+                let radial = (dv - *x1 * along).length();
+                let profile_d = ((mr1 - mr2) * (mr1 - mr2) + along * along).sqrt();
+                Some(radial_gap(profile_d, *tr1, *tr2) - radial)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Window-aware coaxial cone×cone separation lower bound (PK-329).
+///
+/// The kernel cone is a double cone (negative v mirrors through the
+/// apex), so two coaxial same-angle cones offset along their axis have
+/// untrimmed distance 0 — opposite nappes cross. But when both TRIMMED
+/// v-windows sit on matching nappes (both non-negative or both
+/// non-positive), the trimmed patches lie on parallel half-lines in
+/// profile and their distance is at least `|Δaxial|·sin α`, minus the
+/// radial apex residual (translation Lipschitz bound). Exactness rules
+/// match [`analytic_separation_lower_bound`]: axis parallelism and
+/// angle equality must be EXACT (bitwise-copied offset-pipeline
+/// geometry), anything else returns `None`.
+pub(super) fn coaxial_cone_same_nappe_lower_bound(
+    a: &SurfaceGeometry,
+    va: (f64, f64),
+    b: &SurfaceGeometry,
+    vb: (f64, f64),
+) -> Option<f64> {
+    use SurfaceGeometry as SG;
+    let (
+        SG::Cone {
+            apex: p1,
+            axis: x1,
+            half_angle: h1,
+        },
+        SG::Cone {
+            apex: p2,
+            axis: x2,
+            half_angle: h2,
+        },
+    ) = (a, b)
+    else {
+        return None;
+    };
+    if !(x1.cross(x2).length() == 0.0 && x1.dot(x2) > 0.0 && h1 == h2) {
+        return None;
+    }
+    let same_positive_nappe = va.0 >= 0.0 && vb.0 >= 0.0;
+    let same_negative_nappe = va.1 <= 0.0 && vb.1 <= 0.0;
+    if !(same_positive_nappe || same_negative_nappe) {
+        return None;
+    }
+    let dv = *p2 - *p1;
+    let along = dv.dot(x1);
+    let radial = (dv - *x1 * along).length();
+    Some(along.abs() * h1.sin() - radial)
+}
+
 /// True when the free-form surface's signed distance to the analytic
 /// surface never crosses the tolerance band two-sidedly — tangential
 /// contact with no material interpenetration. Applies only when one

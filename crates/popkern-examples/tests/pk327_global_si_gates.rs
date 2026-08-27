@@ -282,22 +282,43 @@ fn torus_lens_decline_policy_reports_the_pinch() {
 
 #[test]
 fn distance_map_counter_is_zero_on_analytic_fixtures_and_runs_on_wavy() {
-    // Row 480: analytic-only inputs never enter the numeric tier —
-    // the FreeFormFoldScan warning (the tier-3 counter) must be absent
-    // on all-analytic fixtures and PRESENT on the free-form one.
-    use popkern_examples::offset_corpus::{l_bracket, wavy_plate};
+    // Row 480 + PK-329 row 486: analytic-only inputs never enter the
+    // numeric tier — the FreeFormFoldScan warning (the tier-3 counter)
+    // must be absent on EVERY all-analytic corpus fixture that serves,
+    // and PRESENT on the free-form one with its box budget respected
+    // (truncated scans are a partial verdict and must be flagged, never
+    // silently folded into "clean").
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_examples::offset_corpus::{corpus, wavy_plate};
     use popkern_shell::thicken::thicken;
 
-    let lb = l_bracket(tol()).unwrap();
-    let served = thicken(&lb.brep, 0.02, &ShellOptions::default(), tol()).unwrap();
-    assert!(
-        !served
-            .warnings
-            .iter()
-            .any(|w| matches!(w, ShellWarning::FreeFormFoldScan { .. })),
-        "analytic fixture entered the numeric tier: {:?}",
-        served.warnings
-    );
+    for f in corpus(tol()).unwrap() {
+        let free_form = f.brep.faces.iter().any(|(_, face)| {
+            matches!(
+                face.surface.as_ref().map(|s| &s.geometry),
+                Some(
+                    SurfaceGeometry::Nurbs(_)
+                        | SurfaceGeometry::Gregory(_)
+                        | SurfaceGeometry::PolyhedralSpline(_)
+                )
+            )
+        });
+        if free_form {
+            continue;
+        }
+        let Ok(served) = thicken(&f.brep, 0.02, &ShellOptions::default(), tol()) else {
+            continue; // pinned declines are the sweep's business
+        };
+        assert!(
+            !served
+                .warnings
+                .iter()
+                .any(|w| matches!(w, ShellWarning::FreeFormFoldScan { .. })),
+            "{}: analytic fixture entered the numeric tier: {:?}",
+            f.name,
+            served.warnings
+        );
+    }
 
     let wavy = wavy_plate(tol()).unwrap();
     let served = thicken(&wavy.brep, 0.02, &ShellOptions::default(), tol()).unwrap();
@@ -305,15 +326,26 @@ fn distance_map_counter_is_zero_on_analytic_fixtures_and_runs_on_wavy() {
         .warnings
         .iter()
         .filter_map(|w| match w {
-            ShellWarning::FreeFormFoldScan { faces } => Some(*faces),
+            ShellWarning::FreeFormFoldScan {
+                faces,
+                boxes_examined,
+                truncated,
+            } => Some((*faces, *boxes_examined, *truncated)),
             _ => None,
         })
         .collect();
-    assert_eq!(
-        scans,
-        vec![2],
-        "both NURBS skins scanned clean: {:?}",
+    assert_eq!(scans.len(), 1, "one tier-3 pass: {:?}", served.warnings);
+    let (faces, boxes_examined, truncated) = scans[0];
+    assert_eq!(faces, 2, "both NURBS skins scanned: {:?}", served.warnings);
+    assert!(
+        boxes_examined > 0,
+        "counter must record the tier's work: {:?}",
         served.warnings
+    );
+    assert!(
+        !truncated,
+        "the corpus scan must fit its box budget (a truncated verdict \
+         is partial coverage): {boxes_examined} boxes"
     );
     assert!(served.brep.validate_all().is_empty());
 }

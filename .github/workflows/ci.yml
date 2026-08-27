@@ -113,3 +113,9 @@ jobs:
 
       - name: Tessellation perf budgets
         run: cargo test --release -p popkern-mesh --test perf_budget -- --nocapture
+
+      - name: Offset/shell perf budgets + determinism pins
+        run: |
+          cargo test --release -p popkern-examples \
+            --test perf_budget --test pk329_determinism_gates \
+            -- --nocapture

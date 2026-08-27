@@ -159,21 +159,33 @@ pub(crate) fn classify_joins(
         v
     };
 
-    for eh in edge_handles {
-        let Some(sides) = interior_edge_sides(skin, eh, &reverse_face) else {
+    // Phase 1 (parallel, PK-329): per-edge classification is a pure
+    // read of the skin (5 stations × 2 sides, wedge shoelaces), so it
+    // dispatches over the sorted edge list with an ordered collect; the
+    // sequential fold below reproduces the single-loop map/warning
+    // order exactly. Tracing forces serial dispatch (the per-edge dump
+    // interleaves otherwise).
+    let trace = std::env::var_os("PK_JOIN_TRACE").is_some();
+    let classified = crate::parallel_dispatch::dispatch_ordered(&edge_handles, trace, |&eh| {
+        let (outer_f1, outer_f2) = interior_edge_sides(skin, eh, &reverse_face)?;
+        if outer_f1 == outer_f2 {
+            return None; // seam: single face, never a join
+        }
+        let off1 = offset_surfaces.get(&outer_f1)?;
+        let off2 = offset_surfaces.get(&outer_f2)?;
+        // rim / unclassified side: rim machinery owns it (the `?`s above)
+        Some((
+            outer_f1,
+            outer_f2,
+            classify_edge(skin, eh, off1, off2, tolerance),
+        ))
+    });
+
+    for (&eh, item) in edge_handles.iter().zip(classified) {
+        let Some((outer_f1, outer_f2, verdict)) = item else {
             continue;
         };
-        let (outer_f1, outer_f2) = sides;
-        if outer_f1 == outer_f2 {
-            continue; // seam: single face, never a join
-        }
-        let (Some(off1), Some(off2)) = (
-            offset_surfaces.get(&outer_f1),
-            offset_surfaces.get(&outer_f2),
-        ) else {
-            continue; // rim / unclassified side: rim machinery owns it
-        };
-        match classify_edge(skin, eh, off1, off2, tolerance) {
+        match verdict {
             Some((EdgeJoinClass::Gap, radius)) => {
                 let Some(&outer_eh) = reverse_edge.get(&eh) else {
                     continue;

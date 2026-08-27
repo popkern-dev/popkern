@@ -2,10 +2,10 @@
 
 use std::collections::HashMap;
 
+use crate::edge_curve_dispatch::compute_edge_curve;
 use crate::error::ShellError;
 use crate::skin_map::SkinMap;
-use popkern_core::geometry::Vec3;
-use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
@@ -55,18 +55,35 @@ pub fn recompute_edges_with_skips(
     let reverse_face = skin_map.reverse_face_map();
     let reverse_edge = skin_map.reverse_edge_map();
 
-    let mut undone: Vec<EdgeHandle> = Vec::new();
     let inner_edge_handles: Vec<EdgeHandle> = inner.edges.keys().collect();
 
-    for inner_eh in inner_edge_handles {
+    // Per-edge verdict from the parallel compute phase. `FreeRim`
+    // declines are silent (the clone stays, no gap-join follow-up);
+    // `Interior` declines feed the caller's `undone` list.
+    enum EdgeOutcome {
+        Skip,
+        FreeRim(Option<CurveOnEdge>),
+        Interior(Option<CurveOnEdge>),
+    }
+
+    // Phase 1 (parallel, PK-329): each edge's recompute reads the skin
+    // immutably — its own clone curve, endpoint vertices (finalized in
+    // the prior stage), and the offset surfaces — and never another
+    // edge's freshly computed curve, so the per-edge solves dispatch in
+    // parallel with an ordered collect and the sequential apply below
+    // reproduces the single-loop behavior exactly (first failing edge's
+    // error included). The per-edge timing trace forces serial dispatch
+    // so thread interleaving cannot garble it.
+    let trace = std::env::var_os("PK_RECOMP_TRACE").is_some();
+    let compute_one = |inner_eh: EdgeHandle| -> Result<EdgeOutcome, ShellError> {
         if skip_edges.contains(&inner_eh) {
-            continue;
+            return Ok(EdgeOutcome::Skip);
         }
         let edge = &inner.edges[inner_eh];
         let he_handle = edge.half_edge;
 
         if !inner.half_edges.contains_key(he_handle) {
-            continue;
+            return Ok(EdgeOutcome::Skip);
         }
 
         // Find the two adjacent faces via the half-edge and its twin.
@@ -74,7 +91,7 @@ pub fn recompute_edges_with_skips(
         let twin_handle = he.twin;
 
         if !inner.half_edges.contains_key(twin_handle) {
-            continue;
+            return Ok(EdgeOutcome::Skip);
         }
 
         let twin = &inner.half_edges[twin_handle];
@@ -101,18 +118,18 @@ pub fn recompute_edges_with_skips(
                 (Some(s1), None) => {
                     let Some(original) = outer.faces.get(f2).and_then(|f| f.surface.as_ref())
                     else {
-                        continue;
+                        return Ok(EdgeOutcome::Skip);
                     };
                     (s1.clone(), original.geometry.clone())
                 }
                 (None, Some(s2)) => {
                     let Some(original) = outer.faces.get(f1).and_then(|f| f.surface.as_ref())
                     else {
-                        continue;
+                        return Ok(EdgeOutcome::Skip);
                     };
                     (s2.clone(), original.geometry.clone())
                 }
-                (None, None) => continue,
+                (None, None) => return Ok(EdgeOutcome::Skip),
             },
             // Opening rim edge (PK-307): one side's face was removed,
             // so its loop never existed in the inner skin and the
@@ -124,12 +141,14 @@ pub fn recompute_edges_with_skips(
             // ORIGINAL surface: the opening stays flush with the
             // original boundary while the kept wall recedes.
             (kept @ Some(_), None) | (None, kept @ Some(_)) => {
-                let Some(kept_face) = kept else { continue };
+                let Some(kept_face) = kept else {
+                    return Ok(EdgeOutcome::Skip);
+                };
                 let Some(kept_offset) = offset_surfaces.get(&kept_face) else {
-                    continue;
+                    return Ok(EdgeOutcome::Skip);
                 };
                 let Some(&outer_eh) = reverse_edge.get(&inner_eh) else {
-                    continue;
+                    return Ok(EdgeOutcome::Skip);
                 };
                 let Some(removed_face) = other_face_of_edge(outer, outer_eh, kept_face) else {
                     // FREE rim (open-sheet thicken, PK-324): no face was
@@ -139,35 +158,77 @@ pub fn recompute_edges_with_skips(
                     // a single-surface (seam-like) edge; the
                     // parallel-map arm serves it exactly.
                     let (s1, s2) = (kept_offset.clone(), kept_offset.clone());
-                    if let Some(curve_on_edge) =
-                        compute_edge_curve(inner, inner_eh, &s1, &s2, tolerance)?
-                    {
-                        inner.edges[inner_eh].curve = Some(curve_on_edge);
-                    }
-                    continue;
+                    return Ok(EdgeOutcome::FreeRim(compute_edge_curve(
+                        inner, inner_eh, &s1, &s2, tolerance,
+                    )?));
                 };
                 let Some(original) = outer
                     .faces
                     .get(removed_face)
                     .and_then(|f| f.surface.as_ref())
                 else {
-                    continue;
+                    return Ok(EdgeOutcome::Skip);
                 };
                 (kept_offset.clone(), original.geometry.clone())
             }
-            (None, None) => continue,
+            (None, None) => return Ok(EdgeOutcome::Skip),
         };
 
         // Compute edge curve from surface intersection.
-        if let Some(curve_on_edge) = compute_edge_curve(inner, inner_eh, &surf1, &surf2, tolerance)?
-        {
-            inner.edges[inner_eh].curve = Some(curve_on_edge);
-        } else {
-            undone.push(inner_eh);
+        let trace_started = trace.then(std::time::Instant::now);
+        let computed = compute_edge_curve(inner, inner_eh, &surf1, &surf2, tolerance)?;
+        if let Some(t0) = trace_started {
+            eprintln!(
+                "[recomp-edge] {inner_eh:?} {}x{} {:.1} ms served={}",
+                surface_kind(&surf1),
+                surface_kind(&surf2),
+                t0.elapsed().as_secs_f64() * 1e3,
+                computed.is_some()
+            );
+        }
+        Ok(EdgeOutcome::Interior(computed))
+    };
+
+    let outcomes = crate::parallel_dispatch::dispatch_ordered(&inner_edge_handles, trace, |&eh| {
+        compute_one(eh)
+    });
+
+    // Phase 2 (sequential): apply curve writes and collect declines in
+    // edge order — identical to the original single loop.
+    let mut undone: Vec<EdgeHandle> = Vec::new();
+    for (inner_eh, outcome) in inner_edge_handles.iter().zip(outcomes) {
+        match outcome? {
+            EdgeOutcome::Skip => {}
+            EdgeOutcome::FreeRim(computed) => {
+                if let Some(curve_on_edge) = computed {
+                    inner.edges[*inner_eh].curve = Some(curve_on_edge);
+                }
+            }
+            EdgeOutcome::Interior(computed) => {
+                if let Some(curve_on_edge) = computed {
+                    inner.edges[*inner_eh].curve = Some(curve_on_edge);
+                } else {
+                    undone.push(*inner_eh);
+                }
+            }
         }
     }
 
     Ok(undone)
+}
+
+/// Surface-class label for the `PK_RECOMP_TRACE` per-edge timing dump.
+fn surface_kind(s: &SurfaceGeometry) -> &'static str {
+    match s {
+        SurfaceGeometry::Plane { .. } => "plane",
+        SurfaceGeometry::Cylinder { .. } => "cylinder",
+        SurfaceGeometry::Cone { .. } => "cone",
+        SurfaceGeometry::Sphere { .. } => "sphere",
+        SurfaceGeometry::Torus { .. } => "torus",
+        SurfaceGeometry::Nurbs(_) => "nurbs",
+        SurfaceGeometry::Gregory(_) => "gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "polyhedral_spline",
+    }
 }
 
 /// The face on the other side of `outer_eh` from `known_face`, if any.
@@ -188,183 +249,17 @@ fn other_face_of_edge(
     }
 }
 
-/// Compute the edge curve from the intersection of two offset surfaces.
-///
-/// For plane-plane intersections, computes the line analytically.
-/// For other surface types, uses the general surface-surface intersection.
-pub(crate) fn compute_edge_curve(
-    inner: &BRep,
-    edge_handle: EdgeHandle,
-    surf1: &SurfaceGeometry,
-    surf2: &SurfaceGeometry,
-    tolerance: &Tolerance,
-) -> Result<Option<CurveOnEdge>, ShellError> {
-    // Get edge endpoint positions for trimming.
-    let edge = &inner.edges[edge_handle];
-    let he = &inner.half_edges[edge.half_edge];
-    let twin = &inner.half_edges[he.twin];
-    let start_pos = inner.vertices[he.origin].position;
-    let end_pos = inner.vertices[twin.origin].position;
-
-    match (surf1, surf2) {
-        // Same-surface edges (seams, free rims of open sheets) go to
-        // the seam ladder even for planes — the plane×plane arm below
-        // would read an identical pair as "parallel, no intersection"
-        // and leave the clone stale.
-        _ if surf1 == surf2 => {
-            let Some(old) = inner.edges[edge_handle].curve.clone() else {
-                return Ok(None);
-            };
-            if let Some(c) = crate::curved_recompute::straight_ruling_seam_curve(
-                &old, surf1, start_pos, end_pos, tolerance,
-            ) {
-                return Ok(Some(c));
-            }
-            let mapped = crate::curved_recompute_similarity::parallel_map_edge_curve(
-                &old, surf1, surf2, start_pos, end_pos, tolerance,
-            );
-            if mapped.is_none() && std::env::var_os("PK_RECOMP_TRACE").is_some() {
-                eprintln!(
-                    "[recomp-seam-decline] {edge_handle:?} start=({:.3},{:.3},{:.3}) \
-                     end=({:.3},{:.3},{:.3})",
-                    start_pos.x, start_pos.y, start_pos.z, end_pos.x, end_pos.y, end_pos.z
-                );
-            }
-            Ok(mapped)
-        }
-        (
-            SurfaceGeometry::Plane {
-                origin: o1,
-                normal: n1,
-                ..
-            },
-            SurfaceGeometry::Plane {
-                origin: o2,
-                normal: n2,
-                ..
-            },
-        ) => {
-            // Plane-plane intersection: line direction is n1 x n2.
-            let direction = n1.cross(n2);
-            let dir_len = direction.length();
-            if dir_len < tolerance.solver() {
-                // Parallel planes — no intersection line (shouldn't happen
-                // for adjacent faces of a valid solid).
-                return Ok(None);
-            }
-            let direction = direction * (1.0 / dir_len);
-
-            // Find a point on the intersection line.
-            let d1 = n1.dot(&Vec3::new(o1.x, o1.y, o1.z));
-            let d2 = n2.dot(&Vec3::new(o2.x, o2.y, o2.z));
-            let point_on_line = solve_point_on_plane_plane(*n1, d1, *n2, d2, direction)?;
-
-            // Trim to edge vertex endpoints by projecting onto the line.
-            let t_start = (start_pos - point_on_line).dot(&direction);
-            let t_end = (end_pos - point_on_line).dot(&direction);
-
-            Ok(Some(CurveOnEdge {
-                geometry: CurveGeometry::Line {
-                    origin: point_on_line,
-                    direction,
-                },
-                t_start,
-                t_end,
-            }))
-        }
-        _ => {
-            // Curved-arm ladder (PK-322 exact arms + PK-324 general
-            // arms), cheapest/most-exact first. Every arm verifies its
-            // candidate by sampled residuals and recomputed-vertex
-            // endpoints, and declines to the next; when the whole
-            // ladder declines the clone curve stays stale and the
-            // serve gate declines the body.
-            let Some(old) = inner.edges[edge_handle].curve.clone() else {
-                return Ok(None);
-            };
-            if let Some(c) = crate::curved_recompute::coaxial_circle_edge_curve(
-                &old, surf1, surf2, start_pos, tolerance,
-            ) {
-                return Ok(Some(c));
-            }
-            // G1-tangential pairs and remaining seams: both offset
-            // surfaces displace the edge identically along the shared
-            // normal (projection-agreement witness).
-            if let Some(c) = crate::curved_recompute_similarity::parallel_map_edge_curve(
-                &old, surf1, surf2, start_pos, end_pos, tolerance,
-            ) {
-                return Ok(Some(c));
-            }
-            // Transversal coaxial revolution pairs (bore×countersink
-            // junction circles): 1D profile-plane solve.
-            if let Some(c) = crate::curved_recompute_similarity::coaxial_profile_edge_curve(
-                &old, surf1, surf2, start_pos, end_pos, tolerance,
-            ) {
-                return Ok(Some(c));
-            }
-            // General numeric SSI (design §5 Stage 2): pairs with no
-            // analytic form, e.g. fitted NURBS offsets against planes.
-            if let Some(c) = crate::curved_recompute_similarity::general_ssi_edge_curve(
-                &old, surf1, surf2, start_pos, end_pos, tolerance,
-            ) {
-                return Ok(Some(c));
-            }
-            Ok(None)
-        }
-    }
-}
-
-/// Solve for a point on the intersection of two planes.
-///
-/// Given `n1 . p = d1` and `n2 . p = d2`, fixes the coordinate with the
-/// largest component of `direction` to zero and solves the 2x2 system.
-fn solve_point_on_plane_plane(
-    n1: Vec3,
-    d1: f64,
-    n2: Vec3,
-    d2: f64,
-    direction: Vec3,
-) -> Result<popkern_core::geometry::Point3, ShellError> {
-    let ax = direction.x.abs();
-    let ay = direction.y.abs();
-    let az = direction.z.abs();
-
-    let (x, y, z) = if ax >= ay && ax >= az {
-        let (y, z) = solve_2x2(n1.y, n1.z, d1, n2.y, n2.z, d2)?;
-        (0.0, y, z)
-    } else if ay >= ax && ay >= az {
-        let (x, z) = solve_2x2(n1.x, n1.z, d1, n2.x, n2.z, d2)?;
-        (x, 0.0, z)
-    } else {
-        let (x, y) = solve_2x2(n1.x, n1.y, d1, n2.x, n2.y, d2)?;
-        (x, y, 0.0)
-    };
-
-    Ok(popkern_core::geometry::Point3::new(x, y, z))
-}
-
-/// Solve a 2x2 linear system: `a*x + b*y = c1`, `d*x + e*y = c2`.
-fn solve_2x2(a: f64, b: f64, c1: f64, d: f64, e: f64, c2: f64) -> Result<(f64, f64), ShellError> {
-    let det = a * e - b * d;
-    if det.abs() < f64::EPSILON * 1e6 {
-        return Err(ShellError::Topology(
-            "degenerate 2x2 system in plane-plane intersection".into(),
-        ));
-    }
-    let x = (c1 * e - b * c2) / det;
-    let y = (a * c2 - c1 * d) / det;
-    Ok((x, y))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::classify::classify_faces;
+    use crate::edge_curve_dispatch::solve_2x2;
     use crate::inner_skin::build_inner_skin;
     use crate::surface_offset::compute_offset_surfaces;
     use crate::types::ShellDirection;
     use crate::vertex_recompute::recompute_vertices;
     use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::curve::CurveGeometry;
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
 

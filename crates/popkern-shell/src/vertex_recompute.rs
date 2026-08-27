@@ -61,170 +61,186 @@ pub(crate) fn recompute_vertices_with_gap_corners(
 
     let inner_vertex_handles: Vec<_> = inner.vertices.keys().collect();
 
-    for inner_vh in inner_vertex_handles {
-        if let Some(entry) = gap_corners.get(&inner_vh) {
-            let p_orig = reverse_vertex
-                .get(&inner_vh)
-                .and_then(|ov| outer.vertices.get(*ov).map(|v| v.position))
-                .unwrap_or_else(|| inner.vertices[inner_vh].position);
-            let target = match entry.retained {
-                crate::join_classification::CornerTarget::Face(fh) => offset_surfaces
-                    .get(&fh)
-                    .and_then(|s| crate::curved_recompute::project_to_surface(s, &p_orig)),
-                crate::join_classification::CornerTarget::EdgePair(f1, f2) => {
-                    match (offset_surfaces.get(&f1), offset_surfaces.get(&f2)) {
-                        (Some(s1), Some(s2)) => crate::curved_recompute::solve_vertex_on_surfaces(
-                            &[s1, s2],
-                            p_orig,
-                            tolerance,
-                        ),
-                        _ => None,
+    // Phase 1 (parallel, PK-329): each vertex's solve reads the skin
+    // topology, the offset surfaces, and the OUTER body immutably, and
+    // writes only its own position — so the per-vertex solves dispatch
+    // in parallel with an ordered collect and the sequential apply
+    // below is positionally identical to the single loop (first
+    // failing vertex's error included).
+    let solve_one =
+        |inner_vh: VertexHandle| -> Result<Option<popkern_core::geometry::Point3>, ShellError> {
+            if let Some(entry) = gap_corners.get(&inner_vh) {
+                let p_orig = reverse_vertex
+                    .get(&inner_vh)
+                    .and_then(|ov| outer.vertices.get(*ov).map(|v| v.position))
+                    .unwrap_or_else(|| inner.vertices[inner_vh].position);
+                let target = match entry.retained {
+                    crate::join_classification::CornerTarget::Face(fh) => offset_surfaces
+                        .get(&fh)
+                        .and_then(|s| crate::curved_recompute::project_to_surface(s, &p_orig)),
+                    crate::join_classification::CornerTarget::EdgePair(f1, f2) => {
+                        match (offset_surfaces.get(&f1), offset_surfaces.get(&f2)) {
+                            (Some(s1), Some(s2)) => {
+                                crate::curved_recompute::solve_vertex_on_surfaces(
+                                    &[s1, s2],
+                                    p_orig,
+                                    tolerance,
+                                )
+                            }
+                            _ => None,
+                        }
                     }
+                };
+                if let Some(q) = target {
+                    return Ok(Some(q));
                 }
-            };
-            if let Some(q) = target {
-                inner.vertices[inner_vh].position = q;
-                continue;
+                // Projection ambiguity: fall through to the general solve;
+                // the corner surgery repositions the vertex again anyway.
             }
-            // Projection ambiguity: fall through to the general solve;
-            // the corner surgery repositions the vertex again anyway.
-        }
-        // Find adjacent faces by walking outgoing half-edges.
-        let adjacent_outer_faces = find_adjacent_outer_faces(inner, inner_vh, &reverse_face);
+            // Find adjacent faces by walking outgoing half-edges.
+            let adjacent_outer_faces = find_adjacent_outer_faces(inner, inner_vh, &reverse_face);
 
-        // Collect offset surfaces for adjacent faces, keyed by outer
-        // face handle so curved solves can order deterministically
-        // (the adjacency set iterates in hash order — a PK-277-class
-        // hazard for any order-sensitive iteration).
-        let mut planes: Vec<(Vec3, f64)> = Vec::new();
-        let mut surfaces: Vec<&SurfaceGeometry> = Vec::new();
-        let mut keyed: Vec<(FaceHandle, &SurfaceGeometry)> = Vec::new();
+            // Collect offset surfaces for adjacent faces, keyed by outer
+            // face handle so curved solves can order deterministically
+            // (the adjacency set iterates in hash order — a PK-277-class
+            // hazard for any order-sensitive iteration).
+            let mut planes: Vec<(Vec3, f64)> = Vec::new();
+            let mut surfaces: Vec<&SurfaceGeometry> = Vec::new();
+            let mut keyed: Vec<(FaceHandle, &SurfaceGeometry)> = Vec::new();
 
-        for outer_fh in &adjacent_outer_faces {
-            if let Some(surf) = offset_surfaces.get(outer_fh) {
-                surfaces.push(surf);
-                keyed.push((*outer_fh, surf));
-                if let SurfaceGeometry::Plane { origin, normal, .. } = surf {
-                    let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
-                    planes.push((*normal, d));
-                }
-            }
-        }
-
-        // Opening-rim vertex (PK-307): faces adjacent in the OUTER
-        // body but absent from the inner skin were removed — the rim
-        // vertex must stay ON each removed face's ORIGINAL surface so
-        // the opening remains flush. Without this constraint a rim
-        // corner sees only two kept offsets and lands wherever the
-        // averaging iteration stops (measured ~9e-7 off the exact
-        // corner — a ShellGap right at the tolerance boundary); with
-        // it, three planes solve exactly.
-        if let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
-            // "Kept" means the face contributed an offset constraint. A
-            // face may be PRESENT in the skin yet unclassified (midplane
-            // outer skins keep removed faces so assembly can discover
-            // the rims) — its original surface is the rim constraint
-            // either way.
-            let kept: HashSet<FaceHandle> = adjacent_outer_faces
-                .iter()
-                .copied()
-                .filter(|fh| offset_surfaces.contains_key(fh))
-                .collect();
-            for outer_fh in faces_at_vertex(outer, outer_vh) {
-                if kept.contains(&outer_fh) {
-                    continue;
-                }
-                if let Some(sof) = outer.faces.get(outer_fh).and_then(|f| f.surface.as_ref()) {
-                    surfaces.push(&sof.geometry);
-                    keyed.push((outer_fh, &sof.geometry));
-                    if let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry {
+            for outer_fh in &adjacent_outer_faces {
+                if let Some(surf) = offset_surfaces.get(outer_fh) {
+                    surfaces.push(surf);
+                    keyed.push((*outer_fh, surf));
+                    if let SurfaceGeometry::Plane { origin, normal, .. } = surf {
                         let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
                         planes.push((*normal, d));
                     }
                 }
             }
-        }
 
-        if surfaces.is_empty() {
-            continue;
-        }
-
-        let has_curved = surfaces
-            .iter()
-            .any(|s| !matches!(s, SurfaceGeometry::Plane { .. }));
-
-        // PK-322: a vertex sitting at a cone face's parametric apex
-        // tracks the OFFSET cone's apex exactly — projection cannot
-        // find it (every direction from the axis is equidistant).
-        if has_curved && let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
-            let orig_pos = outer.vertices[outer_vh].position;
-            let mut apex_target = None;
-            let mut sorted_faces = adjacent_outer_faces.clone();
-            sorted_faces.sort();
-            for outer_fh in &sorted_faces {
-                if let (
-                    Some(SurfaceGeometry::Cone { apex: a0, .. }),
-                    Some(SurfaceGeometry::Cone { apex: a1, .. }),
-                ) = (
-                    outer
-                        .faces
-                        .get(*outer_fh)
-                        .and_then(|f| f.surface.as_ref())
-                        .map(|s| &s.geometry),
-                    offset_surfaces.get(outer_fh),
-                ) && orig_pos.distance_to(a0) <= tolerance.linear()
-                {
-                    apex_target = Some(*a1);
-                    break;
+            // Opening-rim vertex (PK-307): faces adjacent in the OUTER
+            // body but absent from the inner skin were removed — the rim
+            // vertex must stay ON each removed face's ORIGINAL surface so
+            // the opening remains flush. Without this constraint a rim
+            // corner sees only two kept offsets and lands wherever the
+            // averaging iteration stops (measured ~9e-7 off the exact
+            // corner — a ShellGap right at the tolerance boundary); with
+            // it, three planes solve exactly.
+            if let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
+                // "Kept" means the face contributed an offset constraint. A
+                // face may be PRESENT in the skin yet unclassified (midplane
+                // outer skins keep removed faces so assembly can discover
+                // the rims) — its original surface is the rim constraint
+                // either way.
+                let kept: HashSet<FaceHandle> = adjacent_outer_faces
+                    .iter()
+                    .copied()
+                    .filter(|fh| offset_surfaces.contains_key(fh))
+                    .collect();
+                for outer_fh in faces_at_vertex(outer, outer_vh) {
+                    if kept.contains(&outer_fh) {
+                        continue;
+                    }
+                    if let Some(sof) = outer.faces.get(outer_fh).and_then(|f| f.surface.as_ref()) {
+                        surfaces.push(&sof.geometry);
+                        keyed.push((outer_fh, &sof.geometry));
+                        if let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry {
+                            let d = normal.dot(&Vec3::new(origin.x, origin.y, origin.z));
+                            planes.push((*normal, d));
+                        }
+                    }
                 }
             }
-            if let Some(pos) = apex_target {
-                inner.vertices[inner_vh].position = pos;
-                continue;
-            }
-        }
 
-        // Solve the new position. Pure-plane valence-3+ keeps its exact
-        // Cramer arm; any curved participant routes through sequential
-        // exact projection (deterministic: sorted by face handle,
-        // seeded from the original vertex for branch selection); the
-        // legacy plane-averaging Newton covers the plane-only
-        // under-determined cases.
-        let new_pos = if !has_curved && planes.len() == 3 {
-            solve_3_planes(&planes[0], &planes[1], &planes[2])
-        } else if !has_curved && planes.len() > 3 {
-            // Valence>3: least-squares over ALL incident plane
-            // constraints in sorted-handle order (design §5 — the
-            // first-3-of-a-hash-set pick both dropped constraints and
-            // was nondeterministic). Exact when the system is
-            // consistent; the best point otherwise, with validation as
-            // the arbiter.
-            solve_planes_least_squares(&planes)
-        } else if has_curved {
-            let outer_vh = reverse_vertex
-                .get(&inner_vh)
-                .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
-            let seed = outer.vertices[*outer_vh].position;
-            keyed.sort_by_key(|(fh, _)| *fh);
-            let ordered: Vec<&SurfaceGeometry> = keyed.iter().map(|(_, s)| *s).collect();
-            crate::curved_recompute::solve_vertex_on_surfaces(&ordered, seed, tolerance)
-        } else {
-            // Under-determined plane sets (free-rim vertices of open
-            // sheets: 1 or 2 incident planes) solve EXACTLY as the
-            // minimal displacement of the original vertex onto the
-            // constraint set — the previous averaging iteration stopped
-            // ~7e-7 off the intersection line, which the quarter-scale
-            // ladder tolerance rightly rejected downstream (measured:
-            // every open-box rim edge kept its stale clone).
-            let outer_vh = reverse_vertex
-                .get(&inner_vh)
-                .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
-            let seed = outer.vertices[*outer_vh].position;
-            solve_underdetermined_planes(&planes, seed)
+            if surfaces.is_empty() {
+                return Ok(None);
+            }
+
+            let has_curved = surfaces
+                .iter()
+                .any(|s| !matches!(s, SurfaceGeometry::Plane { .. }));
+
+            // PK-322: a vertex sitting at a cone face's parametric apex
+            // tracks the OFFSET cone's apex exactly — projection cannot
+            // find it (every direction from the axis is equidistant).
+            if has_curved && let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
+                let orig_pos = outer.vertices[outer_vh].position;
+                let mut apex_target = None;
+                let mut sorted_faces = adjacent_outer_faces.clone();
+                sorted_faces.sort();
+                for outer_fh in &sorted_faces {
+                    if let (
+                        Some(SurfaceGeometry::Cone { apex: a0, .. }),
+                        Some(SurfaceGeometry::Cone { apex: a1, .. }),
+                    ) = (
+                        outer
+                            .faces
+                            .get(*outer_fh)
+                            .and_then(|f| f.surface.as_ref())
+                            .map(|s| &s.geometry),
+                        offset_surfaces.get(outer_fh),
+                    ) && orig_pos.distance_to(a0) <= tolerance.linear()
+                    {
+                        apex_target = Some(*a1);
+                        break;
+                    }
+                }
+                if let Some(pos) = apex_target {
+                    return Ok(Some(pos));
+                }
+            }
+
+            // Solve the new position. Pure-plane valence-3+ keeps its exact
+            // Cramer arm; any curved participant routes through sequential
+            // exact projection (deterministic: sorted by face handle,
+            // seeded from the original vertex for branch selection); the
+            // legacy plane-averaging Newton covers the plane-only
+            // under-determined cases.
+            let new_pos = if !has_curved && planes.len() == 3 {
+                solve_3_planes(&planes[0], &planes[1], &planes[2])
+            } else if !has_curved && planes.len() > 3 {
+                // Valence>3: least-squares over ALL incident plane
+                // constraints in sorted-handle order (design §5 — the
+                // first-3-of-a-hash-set pick both dropped constraints and
+                // was nondeterministic). Exact when the system is
+                // consistent; the best point otherwise, with validation as
+                // the arbiter.
+                solve_planes_least_squares(&planes)
+            } else if has_curved {
+                let outer_vh = reverse_vertex
+                    .get(&inner_vh)
+                    .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
+                let seed = outer.vertices[*outer_vh].position;
+                keyed.sort_by_key(|(fh, _)| *fh);
+                let ordered: Vec<&SurfaceGeometry> = keyed.iter().map(|(_, s)| *s).collect();
+                crate::curved_recompute::solve_vertex_on_surfaces(&ordered, seed, tolerance)
+            } else {
+                // Under-determined plane sets (free-rim vertices of open
+                // sheets: 1 or 2 incident planes) solve EXACTLY as the
+                // minimal displacement of the original vertex onto the
+                // constraint set — the previous averaging iteration stopped
+                // ~7e-7 off the intersection line, which the quarter-scale
+                // ladder tolerance rightly rejected downstream (measured:
+                // every open-box rim edge kept its stale clone).
+                let outer_vh = reverse_vertex
+                    .get(&inner_vh)
+                    .ok_or_else(|| ShellError::Topology("vertex not in reverse map".into()))?;
+                let seed = outer.vertices[*outer_vh].position;
+                solve_underdetermined_planes(&planes, seed)
+            };
+
+            Ok(new_pos)
         };
 
-        if let Some(pos) = new_pos {
-            inner.vertices[inner_vh].position = pos;
+    let solved = crate::parallel_dispatch::dispatch_ordered(&inner_vertex_handles, false, |&vh| {
+        solve_one(vh)
+    });
+
+    // Phase 2 (sequential): apply position writes in vertex order.
+    for (inner_vh, outcome) in inner_vertex_handles.iter().zip(solved) {
+        if let Some(pos) = outcome? {
+            inner.vertices[*inner_vh].position = pos;
         }
     }
 
