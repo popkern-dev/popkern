@@ -1,8 +1,7 @@
 //! Phase 6c-X.A.6 — composite validation gate for apex relocation.
 //!
-//! The apex topology rebuild lands as A.3 + A.4 + A.5 behind
-//! the `POPKERN_APEX_PATH_A=1` env flag.  A.7's flag-flip gate
-//! requires **a metric apex relocation actually moves** —
+//! The apex topology rebuild lands as A.3 + A.4 + A.5 (always on
+//! since #207 cleanup).  A.7's gate requires **a metric apex relocation actually moves** —
 //! `validate_all`'s raw error count doesn't (the V↔T coherence it closes
 //! doesn't surface there at the kernel's default linear tolerance,
 //! and the remaining `InconsistentOrientation` errors are
@@ -73,8 +72,8 @@ fn build_with_path_a(
     is_pyramid: bool,
     radii: &[f64],
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
-    // POPKERN_STAGE4_WIDE_WIRE_TOL, POPKERN_APEX_FACE_LIFT, and
-    // POPKERN_APEX_PATH_A are all default-on since #207 cleanup.
+    // The apex-relocation passes (wide wire tolerance, face lift,
+    // vertex relocation) are unconditional since #207 cleanup.
     // POPKERN_SPHERE_FIT_BOUNDARY remains opt-in (production
     // divergence on variable-radius corners).
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");

@@ -35,26 +35,16 @@ pub(super) fn try_setback_rung(
         // has already run; fall through to the legacy path with a
         // recorded reason.
         let commit_snapshot = brep.clone();
-        // The KP20 cap is the default for BOTH continuity levels: it
-        // is the proven watertight tiling and a G2 cap satisfies G1.
-        // The PnS bi-4 family stays reachable as a diagnostic /
-        // comparison path (POPKERN_G1_PNS_CAP=1); it integrates at
-        // the legacy PnS quality class (5e-2 seams — its patches
-        // overlap by construction, see PK-097).
-        let family = match requested_continuity {
-            ContinuityLevel::G2 => crate::construct::setback_vertex_topology::CapFamily::Kp20G2,
-            _ if std::env::var_os("POPKERN_G1_PNS_CAP").is_some() => {
-                crate::construct::setback_vertex_topology::CapFamily::PnsG1
-            }
-            _ => crate::construct::setback_vertex_topology::CapFamily::Kp20G2,
-        };
+        // The KP20 cap serves BOTH continuity levels: it is the
+        // proven watertight tiling and a G2 cap satisfies G1 (the
+        // PnS bi-4 family integrated at the legacy 5e-2 seam class —
+        // its patches overlap by construction, see PK-097).
         match crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
             &commit_snapshot,
             vertex,
             fillet_surfaces_pre,
             tolerance,
-            family,
             requested_continuity == ContinuityLevel::G2,
             cap_presolve,
         ) {
@@ -74,22 +64,12 @@ pub(super) fn try_setback_rung(
                         .map(|&face| CornerPatchInfo {
                             vertex,
                             n_sides: edge_indices.len(),
-                            method: match family {
-                                crate::construct::setback_vertex_topology::CapFamily::Kp20G2 => {
-                                    CornerMethod::Gregory
-                                }
-                                crate::construct::setback_vertex_topology::CapFamily::PnsG1 => {
-                                    CornerMethod::PolyhedralNetSpline
-                                }
-                            },
+                            method: CornerMethod::Gregory,
                             // The blend's continuity is capped by the
                             // strips: a KP20 (G2-interior) cap on G1
                             // sweeps yields a G1 blend and must say so.
-                            achieved_continuity: match (family, requested_continuity) {
-                                (
-                                    crate::construct::setback_vertex_topology::CapFamily::Kp20G2,
-                                    ContinuityLevel::G2,
-                                ) => crate::types::ContinuityLevel::G2,
+                            achieved_continuity: match requested_continuity {
+                                ContinuityLevel::G2 => crate::types::ContinuityLevel::G2,
                                 _ => crate::types::ContinuityLevel::G1,
                             },
                             classification,

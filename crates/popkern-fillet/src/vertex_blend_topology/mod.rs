@@ -1,4 +1,4 @@
-//! Apex-region topology inspection and variable-radius surgery.
+//! Apex-region topology inspection.
 //!
 //! Historical context: this module once carried the full route-B
 //! apex-region rebuild stack (plan → mef-execute → lens-collapse,
@@ -14,10 +14,6 @@
 //! and the existing `fillet_edges` pipeline.
 
 pub(crate) mod detect;
-pub(crate) mod var_radius;
-pub(crate) mod var_radius_arc_rebuild;
-pub(crate) mod var_radius_snap;
-mod var_radius_snap_geometry;
 
 #[cfg(test)]
 #[path = "detect_tests.rs"]

@@ -317,19 +317,12 @@ pub(crate) fn cell_windows(
 }
 
 /// The pair-clip entry: cell-fold windows for a cell-resolvable face,
-/// `None` to keep the caller's tuned machinery. `POPKERN_CELL_CLIP=0`
-/// is the diagnostic kill-switch (PK-239 precedent).
+/// `None` to keep the caller's tuned machinery.
 pub(crate) fn cell_clip(
     brep: &BRep,
     face: FaceHandle,
     uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
 ) -> Option<super::clip_uv::UvClipResult> {
-    let on = std::env::var_os("POPKERN_CELL_CLIP")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    if !on {
-        return None;
-    }
     let cell = face_chart_cell(brep, face, &brep.tolerance)?;
     let windows = cell_windows(&cell, uv);
     if std::env::var_os("PK_CLIP_TRACE").is_some() {

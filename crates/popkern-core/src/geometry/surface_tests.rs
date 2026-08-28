@@ -366,10 +366,8 @@ fn torus_to_nurbs_partial_window_is_geometrically_exact() {
     }
 }
 
-/// PK-312 kill-switch parity: with POPKERN_EXACT_TORUS_NURBS=0 the
-/// partial-window arm must not fire (fallback stays available). The
-/// env var is process-global, so this pins the gating expression
-/// indirectly: a full-period conversion keeps the exact 9×9 form.
+/// A full-period torus conversion keeps the exact 9×9
+/// surface-of-revolution form (byte-stable arm, PK-310/312).
 #[test]
 fn torus_to_nurbs_full_period_stays_nine_by_nine() {
     use crate::geometry::Vec3;

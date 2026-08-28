@@ -87,9 +87,7 @@ pub(super) fn select_sphere_cap_rung(
         vec![None; sub_faces.len()]
     };
     let requested = sphere_fit_available
-        && (intermediate_self_intersects
-            || severe_radius_spread(&boundary.per_fillet_caps)
-            || std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1"));
+        && (intermediate_self_intersects || severe_radius_spread(&boundary.per_fillet_caps));
     let rung = requested
         && sphere_cap_boundary_preflight
         && sphere_cap_boundary_seams_are_nondegenerate(

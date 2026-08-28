@@ -65,21 +65,6 @@ pub struct Bi2BorderStrip {
     pub pos: [Point3; 3],
     /// Derivative row: `b^k_{i, 1}` for `i ∈ {0, 1, 2}`.
     pub deriv: [Point3; 3],
-    /// Optional degree-4 position row, replacing the elevation of
-    /// [`Self::pos`].
-    ///
-    /// The composed patch boundary is degree 4 regardless; by default
-    /// it is obtained by elevating this bi-2 row, which discards the
-    /// freedom degree 4 has. On a corner rim — a circular arc joined
-    /// to a line — that costs 1.119e-2 of deviation where a directly
-    /// fitted degree-4 row reaches 1.998e-3, against a 5.000e-3
-    /// acceptance bar.
-    ///
-    /// `None` keeps the paper's construction exactly. `Some` is a
-    /// caller asserting it has a better row for the same boundary, and
-    /// the eq (2) G¹ relations must still hold — check with
-    /// [`super::bi4_g1_residuals`].
-    pub pos4: Option<[Point3; 5]>,
 }
 
 /// Full ring of tensor-border strips, one per sector.
@@ -106,9 +91,8 @@ pub fn compose_bi4_outer_layers(
     strip: &Bi2BorderStrip,
     beta: &BetaReparam,
 ) -> ([Point3; 5], [Point3; 5]) {
-    // j = 0 row: the caller's degree-4 row when it supplied one,
-    // otherwise the paper's bi-2 row degree-elevated to 4.
-    let row0 = strip.pos4.unwrap_or_else(|| elevate_bi2_to_bi4(&strip.pos));
+    // j = 0 row: the paper's bi-2 row degree-elevated to 4.
+    let row0 = elevate_bi2_to_bi4(&strip.pos);
 
     // ∂_u b(u, 0): degree-1 BB (derivative of degree-2 in u).
     // For BB-form p(u) = Σ p_i B_i^2(u), p'(u) = 2·Σ (p_{i+1} − p_i) B_i^1(u).

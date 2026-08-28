@@ -357,7 +357,6 @@ fn strip_for_edge(side: usize, edge: &FillBoundaryEdge) -> Result<Bi2BorderStrip
     Ok(Bi2BorderStrip {
         pos: [edge.start, mid_bb, edge.end],
         deriv,
-        pos4: None,
     })
 }
 

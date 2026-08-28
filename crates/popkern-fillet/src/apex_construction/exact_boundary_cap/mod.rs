@@ -11,18 +11,13 @@ mod cross_spoke_g1;
 pub(crate) mod facade;
 mod facade_pole_search;
 pub(crate) mod facts;
-#[cfg(test)]
-#[path = "informational_channel_tests.rs"]
-mod informational_channel_tests;
 pub(crate) mod multipatch;
 pub(crate) mod pcurves;
 pub(crate) mod performance;
-mod pns_candidate;
 pub(crate) mod ribbon;
 pub(crate) mod ribbon_projection;
 pub(crate) mod sector;
 pub(crate) mod solve;
-mod spoke_strip_clearance;
 pub(crate) mod support;
 pub(crate) mod support_subdivision;
 pub(crate) mod topology;

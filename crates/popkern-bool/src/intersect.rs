@@ -585,9 +585,6 @@ fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolera
         // record's sampled polyline, with smaller-or-equal extent, is
         // duplicate authority and drops.
         for a in 0..idxs.len() {
-            if std::env::var_os("PK_NO_COVERED_DEDUP").is_some() {
-                break;
-            }
             if drop[idxs[a]] {
                 continue;
             }

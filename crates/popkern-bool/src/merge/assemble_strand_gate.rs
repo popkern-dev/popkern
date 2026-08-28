@@ -6,8 +6,7 @@
 //! rotated torus × torus union served with 8 masked strands and 5.5%
 //! of the union volume missing). A boolean that cannot claim both
 //! sides of every edge has mis-partitioned an operand; declining
-//! transactionally is the contract. POPKERN_ALLOW_STRANDS=1 restores
-//! the old masking for diagnosis.
+//! transactionally is the contract.
 
 use std::collections::HashMap;
 
@@ -46,7 +45,7 @@ pub(super) fn decline_on_lethal_strands(
         && !brep_b.faces.is_empty()
         && !brep_a.has_boundary_edges()
         && !brep_b.has_boundary_edges();
-    if !operands_closed || std::env::var_os("POPKERN_ALLOW_STRANDS").is_some_and(|v| v == "1") {
+    if !operands_closed {
         return Ok(());
     }
     let rev_map: HashMap<HalfEdgeHandle, usize> = he_map.iter().map(|(g, h)| (*h, *g)).collect();

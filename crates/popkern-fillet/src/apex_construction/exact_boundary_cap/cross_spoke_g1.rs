@@ -68,19 +68,11 @@
 //!
 //! Enabled against the suites that could falsify it: direct-apex
 //! matrix 20/20, polar commercial gates 11/11, fillet corpus 18/22
-//! with 18/18 OCC-clean — all unchanged. `POPKERN_CAP_SPOKE_G1=0`
-//! restores the previous behaviour for A/B.
+//! with 18/18 OCC-clean — all unchanged.
 
 use popkern_core::geometry::Point3;
 
 use super::solve::ExactBoundarySolvedSurfaces;
-
-/// Whether the cross-spoke correction runs.
-pub(crate) fn cross_spoke_g1_enabled() -> bool {
-    std::env::var("POPKERN_CAP_SPOKE_G1")
-        .map(|v| v != "0")
-        .unwrap_or(true)
-}
 
 /// A spoke shared by two solved sectors.
 struct SharedSpoke {

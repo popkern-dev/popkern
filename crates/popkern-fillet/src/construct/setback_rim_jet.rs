@@ -91,9 +91,6 @@ pub(super) fn reconcile_rim_jets(
     border_loop: &[Vec<Point3>],
     rim_off_loop_allowance: f64,
 ) {
-    if std::env::var_os("PK212_NO_JET").is_some() {
-        return;
-    }
     // The tangency targets come from the STRIPS only (the first
     // `strip_count` candidates): the setback arcs lie on the strips,
     // and near the pulled-back corners the LATERAL PLANES can sit

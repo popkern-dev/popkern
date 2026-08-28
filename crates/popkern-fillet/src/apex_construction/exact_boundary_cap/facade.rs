@@ -24,15 +24,12 @@ use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::cap_quality_postcondition::worst_mid_seam_misalignment;
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
-use super::cross_spoke_g1::{cross_spoke_g1_enabled, enforce_cross_spoke_g1};
+use super::cross_spoke_g1::enforce_cross_spoke_g1;
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
 use super::performance::{
     finalize_performance_report, record_pcurve_report, record_support_family_counts,
     record_validation_report, support_sample_count, surface_control_point_count,
-};
-use super::pns_candidate::{
-    pns_cap_substitution_enabled, pns_substitution_note, substitute_pns_sector_surfaces,
 };
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::extract_exact_boundary_cap_sectors;
@@ -60,11 +57,10 @@ pub(crate) use candidate_result::{
     ExactBoundaryCapCandidateResult, ExactBoundaryCapCandidateStatus,
 };
 
-/// Run the exact-boundary cap candidate transactionally. Inner spokes
-/// are corrected out of the strip supports' live footprints during
-/// construction (PK-261, `spoke_strip_clearance`); interior footprint
-/// violations that survive construction are the serve-time repair and
-/// retry's containment (PK-251), not a construct-time rollback.
+/// Run the exact-boundary cap candidate transactionally. Interior
+/// footprint violations that survive construction are the serve-time
+/// repair and retry's containment (PK-251), not a construct-time
+/// rollback.
 ///
 /// The function mutates `brep` only when all exact-boundary postconditions pass.
 /// Any diagnostic or incomplete pcurve inventory restores the input snapshot and
@@ -141,14 +137,7 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
         ExactBoundaryInnerSpokeBudget::default(),
         pole_override,
     ) {
-        Ok(mut prepared) => {
-            informational.extend(super::spoke_strip_clearance::apply_spoke_strip_clearance(
-                brep,
-                &candidate_sectors,
-                &mut prepared,
-            ));
-            Some(prepared)
-        }
+        Ok(prepared) => Some(prepared),
         Err(diagnostic) => {
             diagnostics.push(diagnostic.into_apex_diagnostic());
             None
@@ -218,38 +207,12 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
         }
         _ => None,
     };
-    // PK-192: substitute PnS bi-4 surfaces over the same rim before
-    // validation, so they face the identical acceptance gates the
-    // Coons wedges did. The fan is G0 across its own internal seams
-    // (measured 89.9 deg worst at n=3, 89.6 at n=4) while the PnS cap
-    // is G1 there by construction (0.0 deg). On failure the Coons
-    // surfaces stay and behaviour is byte-identical to before.
-    //
-    // Deliberately silent: `accepted` at the end of this function is
-    // `committed && diagnostics.is_empty() && ...`, so ANY recorded
-    // diagnostic — even a purely informational one — vetoes the whole
-    // exact-boundary route and drops the corner to its fallback. That
-    // coupling is tracked as PK-201; until it is fixed, reporting here
-    // would silently change which route serves every corner.
-    if pns_cap_substitution_enabled()
-        && let Some(solved) = solved_surfaces.as_mut()
-    {
-        let outcome = substitute_pns_sector_surfaces(
-            brep,
-            &candidate_sectors,
-            solved,
-            brep.tolerance.linear(),
-        );
-        informational.push(pns_substitution_note(candidate_sectors.len(), &outcome));
-    }
     // PK-201 construction half: make adjacent sectors G1 across their
     // shared spokes. The wedges were only ever constrained against
     // their OUTER boundaries, so nothing held the inner spokes and
     // every measured cap was creased there. Default on, measured —
     // see `cross_spoke_g1`.
-    if cross_spoke_g1_enabled()
-        && let Some(solved) = solved_surfaces.as_mut()
-    {
+    if let Some(solved) = solved_surfaces.as_mut() {
         let outcome = enforce_cross_spoke_g1(solved, brep.tolerance.linear());
         informational.push(cross_spoke_note(candidate_sectors.len(), &outcome));
     }

@@ -28,7 +28,6 @@ pub(super) use super::gregory_cap_topology::{
 };
 use super::gregory_cap_trace::trace_gregory_boundary_segments;
 use super::plan::ApexPlan;
-use super::pns_cap_candidate::{BoundaryPreservingPnsCapInput, try_boundary_preserving_pns_cap};
 use super::target_topology::TargetCapFace;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::construct::three_quad_apply::{
@@ -143,22 +142,6 @@ pub(super) fn assemble_gregory_cap_surface(
     }
     inject_physical_hex_boundary_cps(&mut boundary)?;
     let classification = VertexBlendClassification::SameSideConvex;
-    if let Some(patches) = try_boundary_preserving_pns_cap(BoundaryPreservingPnsCapInput {
-        brep,
-        cap_face,
-        boundary: &boundary,
-        fillet_surfaces,
-        vertex: plan.apex_vertex,
-        n_sides: n,
-        classification,
-        sectors,
-    }) {
-        return Ok(GregoryCapSurfaceAssembly {
-            corner_patches: patches,
-            diagnostics: Vec::new(),
-        });
-    }
-
     let result = apply_three_quad_decomposition_to_blend(
         brep,
         cap_face,

@@ -301,7 +301,7 @@ pub(super) fn anchor_periodic(
             // chain a full period low, its records clustered with the
             // OPPOSITE border's branch, and the wedge pairing walked
             // it as a degenerate out-and-back region (measured:
-            // torus × cylinder wall under POPKERN_EXACT_TORUS_NURBS).
+            // torus × cylinder wall under the exact-torus NURBS arm).
             (nmax <= u_low + period + period * 1.0e-6).then_some(k * period)
         });
         if std::env::var_os("PK_BP_TRACE").is_some() {
@@ -381,8 +381,8 @@ pub(super) fn anchor_periodic(
             // border (u = 0 with the run's body at negative u — the
             // exact-seeded junction class) clusters into the WRONG
             // border's branch by its own u, splitting a record chain
-            // away from its seam-copy partners (measured under
-            // POPKERN_EXACT_TORUS_NURBS: the cylinder wall's y<0
+            // away from its seam-copy partners (measured under the
+            // exact-torus NURBS arm: the cylinder wall's y<0
             // chain walked as a degenerate out-and-back region and
             // the union declined). The sample one step inside the run
             // carries the body's side; off-border endpoints cluster

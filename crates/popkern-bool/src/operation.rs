@@ -453,7 +453,7 @@ pub(crate) fn execute_boolean_full(
     // invalid topology.
     let t_merge = Instant::now();
     // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
-    // kill-switch mirroring POPKERN_CELL_CLIP (PK-239 precedent).
+    // kill-switch (PK-239 precedent).
     let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
     let result = cellular_enabled
         .then(|| {

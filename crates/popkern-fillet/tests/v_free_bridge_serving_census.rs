@@ -153,8 +153,8 @@ fn no_duplicate_production_plane_coverage() {
 }
 
 /// PK-167 stage 1b acceptance: the constructive in-place rewrite
-/// is the DEFAULT serving path (`PK167_INPLACE` retired; the
-/// operator reads the inverted `PK167_INPLACE_OFF` opt-out, and
+/// is the DEFAULT serving path (the historical PK167_INPLACE
+/// opt-in and PK167_INPLACE_OFF opt-out are both retired, and
 /// V-free repeated-apex construction is DefaultOn for n >= 3 since
 /// PK-153/PK-167). The mixed cube must serve a closed shell —
 /// validated body, no boundary edges — with the same

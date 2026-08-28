@@ -10,7 +10,7 @@
 //! solved sheets: candidate poles along the blend-ward ray, each
 //! evaluated by the validator's own crossing verdict plus the
 //! cap-outer G0/G1 bars, smallest displacement wins, explicit
-//! centroid fallback otherwise. Kill-switch: `POPKERN_POLE_SEARCH=0`.
+//! centroid fallback otherwise.
 
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -53,8 +53,7 @@ pub(super) fn run_with_pole_search(
         &baseline_validation_errors,
         None,
     )?;
-    if !search_enabled()
-        || baseline.status != ExactBoundaryCapCandidateStatus::Accepted
+    if baseline.status != ExactBoundaryCapCandidateStatus::Accepted
         || committed_region_is_clean(brep, &baseline.committed_faces)
     {
         return Ok(baseline);
@@ -106,10 +105,6 @@ pub(super) fn run_with_pole_search(
         &baseline_validation_errors,
         None,
     )
-}
-
-fn search_enabled() -> bool {
-    !std::env::var("POPKERN_POLE_SEARCH").is_ok_and(|value| value == "0")
 }
 
 fn committed_region_is_clean(brep: &BRep, committed_faces: &[FaceHandle]) -> bool {

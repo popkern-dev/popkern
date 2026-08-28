@@ -116,7 +116,7 @@ fn item4_pentagonal_hub_n5_dispatch() {
     if apex_patches.len() == 5 {
         for p in &apex_patches {
             // Either rung is acceptable for N=5: rational-Gregory
-            // (default) or PnS (POPKERN_PNS=1).
+            // or PnS.
             assert!(
                 matches!(
                     p.method,

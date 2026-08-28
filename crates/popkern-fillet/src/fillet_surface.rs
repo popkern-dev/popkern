@@ -381,13 +381,12 @@ fn build_nurbs_sweep(
     }
     // Trims through refined footprints; degree-1 polylines match
     // degree-1 lofts (trim IS the rail).
-    // PK-177 interpolating smooth loft, DEFAULT ON for constant
-    // radius (gate-forced battery green; boss 1.17e-5 -> 1.01e-5);
-    // PK177_SMOOTH_LOFT_OFF restores degree-1. Variable radius
-    // keeps legacy (apply anchors need its trim parameterization —
-    // 52 open edges measured on the waist otherwise).
-    if std::env::var_os("PK177_SMOOTH_LOFT_OFF").is_none()
-        && supports.is_some()
+    // PK-177 interpolating smooth loft for constant radius
+    // (gate-forced battery green; boss 1.17e-5 -> 1.01e-5).
+    // Variable radius keeps the degree-1 loft (apply anchors need
+    // its trim parameterization — 52 open edges measured on the
+    // waist otherwise).
+    if supports.is_some()
         && nurbs.degree_u == 1
         && let Some((smooth, t1, t2)) = crate::station_geometry::smooth_reloft_with_rails(&nurbs)
     {

@@ -56,9 +56,6 @@ pub(super) fn try_tessellate(
     rings: &[BoundaryRing],
     options: &TessellationOptions,
 ) -> Option<FaceMesh> {
-    if std::env::var("PK_BF_RULED_STRIP").as_deref() == Ok("0") {
-        return None;
-    }
     if matches!(surface, SurfaceGeometry::Plane { .. }) {
         // Planar charts have zero chord error on the Delaunay path
         // already; keep their behaviour untouched.

@@ -268,24 +268,12 @@ pub fn insert_pns_cap_into_blend_face(
     })
 }
 
-/// PnS dispatch is on by default. The `POPKERN_PNS` env var is an
-/// *off* switch — set to `0` to disable PnS and force every corner
-/// onto the legacy rungs (rational-Gregory ladder, polar-NURBS
-/// fallback, etc.). Useful for A/B comparisons or for dodging a
-/// suspected PnS regression in the field without a recompile.
-pub fn pns_env_enabled() -> bool {
-    std::env::var("POPKERN_PNS")
-        .map(|v| v != "0")
-        .unwrap_or(true)
-}
-
 /// Dispatch entry point: try PnS promotion on a blend face, fall
 /// through to the caller's next rung on failure. Returns
 /// `Some(corner_patches)` on success; `None` if any step rejected
 /// the input (invalid valence, segment count, assembly failure,
 /// etc.).
 ///
-/// This is gated by `pns_env_enabled()` at the caller's discretion.
 /// When invoked and PnS succeeds, it bypasses the three-quad
 /// decomposition / K-P promotion ladder entirely.
 pub fn try_pns_dispatch(
@@ -329,18 +317,4 @@ pub fn try_pns_dispatch(
         })
         .collect();
     Ok(patches)
-}
-
-/// Whether N=3 corners are released from direct-apex promotion so the
-/// PnS cap can bid for them first.
-///
-/// Default **off**. This moves a whole valence class onto a different
-/// construction route, which is the largest behavioural change in the
-/// corner pipeline, so it stays opt-in until the corpus, the polar
-/// gates and the direct-apex matrix have all been measured against it.
-/// `POPKERN_PNS_FIRST_N3=1` enables it.
-pub fn pns_first_at_low_valence() -> bool {
-    std::env::var("POPKERN_PNS_FIRST_N3")
-        .map(|v| v != "0")
-        .unwrap_or(false)
 }

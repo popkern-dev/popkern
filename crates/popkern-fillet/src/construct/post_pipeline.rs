@@ -61,17 +61,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // Gregory cap surface assignment by other pipeline stages
     // (e.g. attach_fillet_pcurves authoring in the parent face's UV
     // space). Reduces tess-nm divergence on n04 from ~0.25 → smaller.
-    // Optional global pcurve re-fit (`POPKERN_PCURVE_REFIT=1`):
-    // re-project every half-edge's pcurve onto its current face
-    // surface. Currently regresses tess-nm in `fillet_zoo`
-    // (likely because the closest-point + degree-3 fit produces
-    // noisier curves than the carefully-authored analytic pcurves
-    // on plane / cylinder pairs); keep the pass for investigation
-    // and selective use, but don't run it by default.
-    if std::env::var("POPKERN_PCURVE_REFIT").is_ok() {
-        pcurve_refit::refit_all_pcurves(result);
-        determinism_trace("post_pcurve_refit", result);
-    }
     // Topology repair for off-cylinder vertices in cylinder face
     // outer loops (apex-only filleting case where the cylinder
     // ribbon's base-side ends at an unfilleted original vertex via
@@ -320,18 +309,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // production support faces; measured pcurve repair handles their
     // export-readiness without broad support-face lifting.
     //
-    // On by default since #207 cleanup.  Set
-    // `POPKERN_APEX_FACE_LIFT=0` to disable for debugging.
-    if std::env::var("POPKERN_APEX_FACE_LIFT")
-        .map(|v| v != "0")
-        .unwrap_or(true)
-    {
-        for (_boundary, sub_faces) in late_wire_jobs {
-            let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
-            determinism_trace("post_apex_lift", result);
-            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
-                eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
-            }
+    for (_boundary, sub_faces) in late_wire_jobs {
+        let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
+        determinism_trace("post_apex_lift", result);
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
         }
     }
 
@@ -342,9 +324,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // vertex-to-curve-endpoint coherence on cap-loop edges is exact;
     // BASE-EDGE curves still terminate at the OLD vertex position
     // and need A.5's curve-replacement pass.
-    if std::env::var("POPKERN_APEX_PATH_A")
-        .map(|v| v != "0")
-        .unwrap_or(true)
     {
         for (boundary, sub_faces) in late_wire_jobs {
             let (n_moved, worst) =
@@ -381,45 +360,12 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // anatomy it existed to clean up, making the pass a provable
     // no-op on current corners.
 
-    // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
-    // region re-routing. Default off until validated.
-    //
-    // Source the cap-face list and the per-fillet sphere parameters
-    // from `corner_patches` (populated during apply_blend) rather
-    // than from the BRep's `Sphere` faces — this lets the surgery
-    // run on Gregory cap faces too (Phase 6c-D Gregory cap rung)
-    // without requiring the sphere-cap rung to be applied first.
-    if std::env::var("POPKERN_VAR_RADIUS_REROUTE")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        let mut cap_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
-        let mut per_fillet_caps: Vec<(popkern_core::geometry::Point3, f64)> = Vec::new();
-        for cp in corner_patches.iter() {
-            if let Some(sphere) = cp.cap_sphere {
-                cap_faces.push(cp.face);
-                per_fillet_caps.push(sphere);
-            }
-        }
-        if cap_faces.len() == per_fillet_caps.len() && !cap_faces.is_empty() {
-            let r = crate::vertex_blend_topology::var_radius::reroute_neighbour_cylinder_edges(
-                result,
-                &cap_faces,
-                &per_fillet_caps,
-            );
-            determinism_trace("post_var_radius", result);
-            if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
-                eprintln!("[var-radius-reroute] caps={} result={r:?}", cap_faces.len());
-            }
-        }
-    }
-
     let exact_boundary_owns_apex_seams = repair_report.apex_routes.iter().any(|route| {
         route.exact_boundary_report.candidate_status
             == crate::types::ExactBoundaryCandidateOutcome::Accepted
             && !route.exact_boundary_report.committed_faces.is_empty()
     });
-    if support_seam_relocation_enabled() && !exact_boundary_owns_apex_seams {
+    if !exact_boundary_owns_apex_seams {
         determinism_trace("pre_seams", result);
         for (boundary, sub_faces) in support_seam_jobs {
             let report = three_quad_apply::author_model_level_support_face_boundary_seams(
@@ -515,12 +461,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // PK-244: the serving-boundary orientation-flag reconcile runs at
     // the END of `fillet_pipeline` (not here) — pcurve authors after
     // this function would invalidate a verdict taken now.
-}
-
-fn support_seam_relocation_enabled() -> bool {
-    std::env::var("POPKERN_SUPPORT_SEAM_RELOCATION")
-        .map(|value| value != "0")
-        .unwrap_or(true)
 }
 
 fn topology_repair_enabled(apex_boundary_context: bool) -> bool {

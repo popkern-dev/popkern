@@ -35,8 +35,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 pub(crate) use three_quad_apply_helpers::{
-    ThreeQuadApplyResult, ThreeQuadFailure, author_cap_face_boundary_pcurves,
-    author_model_level_support_face_boundary_seams,
+    ThreeQuadApplyResult, ThreeQuadFailure, author_model_level_support_face_boundary_seams,
 };
 use three_quad_apply_helpers::{
     decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,

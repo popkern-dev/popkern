@@ -1,7 +1,6 @@
 //! PnS N=5 showcase: pentagonal pyramid with the apex edges
-//! filleted. Gated by `POPKERN_PNS=1` to force the PnS dispatch
-//! rung; without it the fillet falls back through the existing
-//! ladder. Produces STEP + multi-angle PNGs under
+//! filleted through the PnS dispatch rung.
+//! Produces STEP + multi-angle PNGs under
 //! `examples/output/pns_pentagon_apex*`.
 
 mod helpers;

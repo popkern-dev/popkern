@@ -1,6 +1,5 @@
 //! The N=3 corner FALLBACK dispatch, pinned under the diagnostic
-//! POPKERN_SETBACK_DISABLE seam (the force-off mirror of
-//! POPKERN_SETBACK_N3).
+//! POPKERN_SETBACK_DISABLE seam.
 //!
 //! Since PK-226 every clean N=3 cube corner serves the setback fan
 //! (uniform circular → rolling-ball sphere; everything else → KP20

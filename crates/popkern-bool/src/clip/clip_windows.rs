@@ -323,8 +323,7 @@ pub(crate) fn clip_curve_uv_space(
         !curve.is_closed && record_is_transversal(brep_a, face_a, brep_b, face_b, curve);
     // Chart-cell route (PK-304): doubly-periodic faces take
     // folded-containment windows (see `chart_cell`); everything else
-    // keeps the tuned crossing machinery. POPKERN_CELL_CLIP=0 is the
-    // diagnostic kill-switch (PK-239 precedent).
+    // keeps the tuned crossing machinery.
     let cell_clip = super::chart_cell::cell_clip;
     let clip_a = cell_clip(brep_a, face_a, &curve.curve_uv1).unwrap_or_else(|| {
         uv_clip_one_face(

@@ -54,12 +54,6 @@ pub(crate) fn cell_crossings(
     tolerance: &Tolerance,
 ) -> Option<Vec<crate::clip::clip_uv::UvCrossing>> {
     use popkern_core::geometry::curve::CurveEval as _;
-    let on = std::env::var_os("POPKERN_CELL_CLIP")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    if !on {
-        return None;
-    }
     let cell = face_chart_cell(brep, face, tolerance)?;
     let (t0, t1) = curve_uv.parameter_range();
     let windows = cell_windows(&cell, curve_uv);

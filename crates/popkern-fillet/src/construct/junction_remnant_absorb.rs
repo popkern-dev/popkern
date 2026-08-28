@@ -96,13 +96,9 @@ pub(crate) fn absorb_junction_remnants(
             // Corner-vertex snap to the corner ball's shared
             // contact (alternating projection stalls on this
             // tangential triple; the analytic solve replaces the
-            // crawl). Transactional. Default ON with the chart
-            // extension; PK141_CORNER_SNAP_OFF preserves fallback.
+            // crawl). Transactional.
             let contact_d = v_pos.distance_to(&cap.shared_contact);
-            if std::env::var_os("PK141_CORNER_SNAP_OFF").is_none()
-                && contact_d > radius * 0.05
-                && contact_d < radius * 1.5
-            {
+            if contact_d > radius * 0.05 && contact_d < radius * 1.5 {
                 let mut snap_cand = brep.clone();
                 super::edge_reconcile::snap_vertex_and_adjacent_chords(
                     &mut snap_cand,
@@ -184,18 +180,13 @@ pub(crate) fn absorb_junction_remnants(
             eprintln!("[junction] {vertex:?} declined (moved {moved})");
         }
         // SMOOTH-THROUGH junction tail: vertex + neighbor settles
-        // and the gated joint loft (see junction_surface_join).
+        // (see junction_surface_join).
         absorbed += super::junction_surface_join::handle_smooth_junction(
             brep,
-            edge_geometries,
             super::junction_surface_join::SmoothJunctionContext {
                 vertex,
-                a,
-                b,
-                v_pos,
                 ta,
                 tb,
-                radius,
                 trace,
             },
             tolerance,

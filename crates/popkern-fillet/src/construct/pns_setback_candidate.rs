@@ -154,7 +154,6 @@ pub fn try_pns_setback_candidate(
         sectors.push(Bi2BorderStrip {
             pos: [p0, mid_bb, p2],
             deriv: [d0, d_mid, d2],
-            pos4: None,
         });
     }
     let ring = Bi2TensorBorderRing { sectors };

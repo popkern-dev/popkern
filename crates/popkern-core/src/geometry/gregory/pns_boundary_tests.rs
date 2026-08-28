@@ -23,7 +23,6 @@ fn degree_elevation_preserves_polynomial_value() {
     let strip = Bi2BorderStrip {
         pos: [pt(1.0, 0.0, 0.0), pt(2.0, 1.0, 0.0), pt(3.0, 0.0, 1.0)],
         deriv: [pt(0.0, 0.0, 0.0); 3], // unused here
-        pos4: None,
     };
     let beta = BetaReparam::bi4(6);
     let (row0, _row1) = compose_bi4_outer_layers(&strip, &beta);
@@ -69,7 +68,6 @@ fn n4_identity_beta_leaves_row0_as_elevated_pos() {
     let strip = Bi2BorderStrip {
         pos: [pt(1.0, 0.0, 0.0), pt(0.5, 1.0, 0.0), pt(0.0, 0.0, 0.0)],
         deriv: [pt(0.0, 1.0, 0.0), pt(0.0, 1.0, 0.0), pt(0.0, 1.0, 0.0)],
-        pos4: None,
     };
     let beta = BetaReparam::bi4(4);
     let (_row0, row1) = compose_bi4_outer_layers(&strip, &beta);
@@ -93,7 +91,6 @@ fn degree_elevation_preserves_endpoints() {
     let strip = Bi2BorderStrip {
         pos: [pt(1.0, 2.0, 3.0), pt(4.0, 5.0, 6.0), pt(7.0, 8.0, 9.0)],
         deriv: [pt(0.0, 0.0, 0.0); 3],
-        pos4: None,
     };
     let beta = BetaReparam::bi4(6);
     let (row0, _) = compose_bi4_outer_layers(&strip, &beta);
@@ -112,7 +109,6 @@ fn row1_is_degree_4_polynomial_in_u() {
     let strip = Bi2BorderStrip {
         pos: [pt(0.1, 0.2, 0.3), pt(0.4, 0.5, 0.6), pt(0.7, 0.8, 0.9)],
         deriv: [pt(1.0, 0.0, 0.0), pt(0.5, 0.5, 0.0), pt(0.0, 1.0, 0.0)],
-        pos4: None,
     };
     for n in [5_usize, 6, 7, 8] {
         let beta = BetaReparam::bi4(n);
@@ -133,7 +129,6 @@ fn ring_n() {
             Bi2BorderStrip {
                 pos: [pt(0.0, 0.0, 0.0); 3],
                 deriv: [pt(0.0, 0.0, 0.0); 3],
-                pos4: None,
             };
             6
         ],

@@ -51,12 +51,10 @@ pub(crate) fn setback_min_n_for(
 ) -> usize {
     if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
         usize::MAX
-    } else if std::env::var_os("POPKERN_SETBACK_N3").is_some()
-        || !sphere_owns_corner(
-            corner_radii_uniform(edge_indices, edge_geometries, tolerance),
-            fillet_surfaces,
-        )
-    {
+    } else if !sphere_owns_corner(
+        corner_radii_uniform(edge_indices, edge_geometries, tolerance),
+        fillet_surfaces,
+    ) {
         3
     } else {
         5

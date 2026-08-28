@@ -114,7 +114,6 @@ pub(crate) fn insert_vertex_blend(
     // setback production for corners the sphere does not own,
     // PK-226 extended it to variable/mixed radii). Unsuitable
     // geometry declines transactionally with the reason recorded.
-    // POPKERN_SETBACK_N3 = diagnostic force-on for every N=3 corner;
     // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
     // pin the legacy fallback dispatch (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
@@ -148,17 +147,14 @@ pub(crate) fn insert_vertex_blend(
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
 
-    // Cap-kind dispatch: when apex topology rebuild is enabled and
-    // the apex's incident fillets all share a uniform radius within
-    // tolerance, suppress sphere-fit substitution for this corner.
-    // The post-loop rebuild pass then collapses the rolling-ball
-    // 6-vertex cap loop to a 3-vertex cap-tangent-arc loop directly.
-    // For non-uniform corners, substitution and rebuild stay active.
-    let apex_topology_rebuild_active = std::env::var("POPKERN_APEX_PATH_A")
-        .map(|v| v != "0")
-        .unwrap_or(true);
+    // Cap-kind dispatch: when the apex's incident fillets all share
+    // a uniform radius within tolerance, suppress sphere-fit
+    // substitution for this corner. The post-loop apex topology
+    // rebuild then collapses the rolling-ball 6-vertex cap loop to a
+    // 3-vertex cap-tangent-arc loop directly. For non-uniform
+    // corners, substitution and rebuild stay active.
     let radii_uniform = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
-    let auto_disable_substitution = apex_topology_rebuild_active && radii_uniform;
+    let auto_disable_substitution = radii_uniform;
     let boundary_options = crate::blend::BlendBoundaryOptions {
         disable_sphere_fit_substitution: if auto_disable_substitution {
             Some(true)
@@ -176,14 +172,10 @@ pub(crate) fn insert_vertex_blend(
             | VertexBlendClassification::SameSideConcave
             | VertexBlendClassification::OppositeSide,
     );
-    // Compute the n-gon BlendBoundary when either the rational-
-    // Gregory dispatch OR the env-gated PnS path is enabled — both
-    // consume the same boundary structure downstream.
-    let pns_wants_boundary = crate::blend::pns_promote::pns_env_enabled();
-    let mut n_gon_boundary: Option<BlendBoundary> = if (use_rational_gregory || pns_wants_boundary)
-        && n_sides >= 3
-        && rational_gregory_compatible
-    {
+    // Compute the n-gon BlendBoundary whenever the rational-Gregory
+    // dispatch or the PnS path could consume it — both share the
+    // same boundary structure downstream.
+    let mut n_gon_boundary: Option<BlendBoundary> = if n_sides >= 3 && rational_gregory_compatible {
         match blend::compute_blend_boundary_with_options(
             vertex,
             &local_indices_pre,
@@ -341,9 +333,7 @@ pub(crate) fn insert_vertex_blend(
     // indistinguishable from one where PnS was never enabled — both
     // produced zero diagnostics — which is precisely what hid the
     // n=3 / n=4 dispatch gap.
-    if crate::blend::pns_promote::pns_env_enabled()
-        && n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE
-    {
+    if n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE {
         let segments = n_gon_boundary.as_ref().map(|b| b.segments.len());
         let precondition_failure = match segments {
             None => Some("no_n_gon_boundary".to_string()),
@@ -361,8 +351,7 @@ pub(crate) fn insert_vertex_blend(
         }
     }
 
-    if crate::blend::pns_promote::pns_env_enabled()
-        && n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE
+    if n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
         && let Some(patches) = blend_insert_pns_acceptance::try_pns_dispatch_with_acceptance(

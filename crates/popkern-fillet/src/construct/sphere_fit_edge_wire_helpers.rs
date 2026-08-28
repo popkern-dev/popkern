@@ -49,56 +49,6 @@ pub(super) fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
     }
 }
 
-/// Phase 6c-D: snap a vertex to `new_pos`, syncing every incident
-/// half-edge's edge curve CP[0] (primary side) or CP[last] (twin
-/// side) to keep loop closure intact. No-op when already within
-/// 1e-9 of `new_pos`.
-///
-/// This is a drop-in equivalent of
-/// `var_radius::update_incident_edges_for_vertex_move` — kept
-/// local to the wire pass for cohesion. Both functions produce
-/// identical results on identical inputs.
-pub(super) fn snap_vertex_to(brep: &mut BRep, v: VertexHandle, new_pos: Point3) {
-    let Some(vd) = brep.vertices.get(v) else {
-        return;
-    };
-    if vd.position.distance_to(&new_pos) < 1e-9 {
-        return;
-    }
-
-    let halves: Vec<HalfEdgeHandle> = brep
-        .half_edges
-        .iter()
-        .filter_map(|(h, he)| (he.origin == v).then_some(h))
-        .collect();
-
-    for he_h in halves {
-        let edge_h = brep.half_edges[he_h].edge;
-        let primary = brep.edges.get(edge_h).map(|e| e.half_edge);
-        let is_primary = primary == Some(he_h);
-        let Some(edge) = brep.edges.get_mut(edge_h) else {
-            continue;
-        };
-        let Some(coe) = edge.curve.as_mut() else {
-            continue;
-        };
-        if let CurveGeometry::Nurbs(nc) = &mut coe.geometry
-            && !nc.control_points.is_empty()
-        {
-            let n = nc.control_points.len();
-            if is_primary {
-                nc.control_points[0] = new_pos;
-            } else {
-                nc.control_points[n - 1] = new_pos;
-            }
-        }
-    }
-
-    if let Some(vd) = brep.vertices.get_mut(v) {
-        vd.position = new_pos;
-    }
-}
-
 /// Sample `curve_3d` at uniform parameter values, project each
 /// sample to `surface`'s UV, and fit a degree-3 NURBS pcurve
 /// through those (u, v, 0) points. Returns `None` if any

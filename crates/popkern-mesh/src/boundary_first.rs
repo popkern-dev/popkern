@@ -419,8 +419,7 @@ pub(crate) fn tessellate_face_boundary_first(
     if !matches!(
         surface,
         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
-    ) && std::env::var("PK_BF_REFINE").as_deref() != Ok("0")
-    {
+    ) {
         for ring in &rings {
             let m = ring.uv.len();
             for k in 0..m {

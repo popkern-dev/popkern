@@ -280,18 +280,14 @@ impl SurfaceGeometry {
             // the surface, so seeding boxes are conservative. Knots
             // scaled to the requested range (four 90° arcs per
             // quarter). Non-full ranges keep the sampling fallback.
-            // Default ON since the chart-branch strip-fit epsilon fix
-            // (the one measured regression); POPKERN_EXACT_TORUS_NURBS=0
-            // is the kill-switch (PK-239 precedent).
+            // Unconditional since the chart-branch strip-fit epsilon
+            // fix (the one measured regression).
             SurfaceGeometry::Torus {
                 center,
                 axis,
                 major_radius,
                 minor_radius,
-            } if std::env::var_os("POPKERN_EXACT_TORUS_NURBS").is_none_or(|v| v != "0")
-                && span_within_period(u_range)
-                && span_within_period(v_range) =>
-            {
+            } if span_within_period(u_range) && span_within_period(v_range) => {
                 let full =
                     |range: (f64, f64)| (range.1 - range.0 - std::f64::consts::TAU).abs() < 1.0e-9;
                 if full(u_range) && full(v_range) {

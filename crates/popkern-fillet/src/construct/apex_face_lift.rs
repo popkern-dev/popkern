@@ -20,11 +20,8 @@
 //! pyramid face (base, spines) are away from the apex and project
 //! into u ≈ 1 region of the new surface, near the original plane.
 //!
-//! Activation: env-gated by `POPKERN_APEX_FACE_LIFT=1`.  Default
-//! off — closes `cap_outer_g0` on `pyramid4_mixed` from ~3 cm to
-//! near zero on the bridge edges, but may regress other fixtures
-//! whose pyramid faces don't fit this construction.  Validation
-//! matrix gate flips it on by default in Phase 6c-F.
+//! Always on. Closes `cap_outer_g0` on `pyramid4_mixed` from ~3 cm
+//! to near zero on the bridge edges.
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_surface::NurbsSurface;

@@ -1,7 +1,7 @@
 //! Gregory pcurve reprojection for newly assigned cap sub-faces.
 
 use super::*;
-use crate::construct::{helpers, three_quad_apply_edge_triple};
+use crate::construct::helpers;
 use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::topology::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
 
@@ -67,44 +67,9 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
     }
 
     let n_samples = 12;
-    let edge_triple_enabled = std::env::var("POPKERN_EDGE_TRIPLE")
-        .map(|v| v == "1")
-        .unwrap_or(false);
     for he in &hes {
         let he = *he;
         let edge = brep.half_edges[he].edge;
-
-        // Stage 6: EdgeTriple path (gated). For each outer-loop edge
-        // whose other-side face has an analytic surface (Plane,
-        // Cylinder, Sphere, Torus), construct curve_3d + both pcurves
-        // from the same source via `compute_edge_geometry` with
-        // `EdgeHint::SurfaceBoundary`. Closes the cap-to-fillet seam
-        // drift documented in Task #144.
-        if edge_triple_enabled
-            && let Some((curve_3d_geom, t_start, t_end, cap_pc, other_pc)) =
-                three_quad_apply_edge_triple::try_build_edge_triple_for_seam(
-                    brep, he, face, &surface,
-                )
-        {
-            // Update BRep edge's 3-D curve.
-            if let Some(edge_data) = brep.edges.get_mut(edge) {
-                edge_data.curve = Some(popkern_core::geometry::curve::CurveOnEdge {
-                    geometry: curve_3d_geom,
-                    t_start,
-                    t_end,
-                });
-            }
-            // Update both half-edges' pcurves. Cap side gets pcurve_a,
-            // other side (twin) gets pcurve_b. Both are parameterized
-            // in curve_3d's natural direction; consumers handle
-            // direction via twin's traversal logic.
-            let cap_pcurve = cap_pc.into();
-            record_boundary_evidence_from_pcurve(brep, he, &cap_pcurve);
-            brep.half_edges[he].pcurve = Some(cap_pcurve);
-            let twin = brep.half_edges[he].twin;
-            brep.half_edges[twin].pcurve = Some(other_pc.into());
-            continue;
-        }
 
         // Phase 6c-D Stage 4.6: preserve analytic pcurves (Linear /
         // Elliptical / Sinusoidal) when the cap face was wired by

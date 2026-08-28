@@ -116,10 +116,11 @@ fn cross_spoke_correction_fixes_both_low_valences() {
 ///
 /// - incumbent (this default): Coons, G1, cap-cap g0 9.795e-17,
 ///   g1 4.632e-3, cos_min 0.999989, valid
-/// - PnS candidate (POPKERN_PNS_FIRST_N3=1 POPKERN_PNS_BI4_BORDER=1):
+/// - PnS candidate (the retired low-valence-release + fitted-border
+///   instruments, measured before removal):
 ///   acceptance declines at cap_outer_g0 5.972e-3 vs the 5.000e-3
 ///   bar, support exact at 1.4e-16 — the border-row floor
-/// - PnS forced through (+POPKERN_PNS_FORCE_ACCEPT=1): finished cap
+/// - PnS forced through (the retired force-accept probe): finished cap
 ///   measures cap-cap g0 1.106e-1, cos_min 0.002276
 ///
 /// Per the ticket's pre-wired rule the dispatch therefore stays. If

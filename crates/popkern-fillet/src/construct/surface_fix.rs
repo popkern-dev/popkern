@@ -75,19 +75,6 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // PK-141 experiment (retry): trust upstream fillet-strip
-        // assignments under PK141_TRUST_STRIPS=1.
-        if std::env::var_os("PK141_TRUST_STRIPS").is_some() {
-            let current_is_fillet_surface = brep.faces[fh].surface.as_ref().is_some_and(|sof| {
-                fillet_surfaces
-                    .iter()
-                    .any(|fs| format!("{:?}", sof.geometry) == format!("{fs:?}"))
-            });
-            if current_is_fillet_surface {
-                continue;
-            }
-        }
-
         // Phase 6c-E / Phase 6c-D: trust upstream Sphere and Gregory
         // assignments. Per-fillet Sphere sub-caps (cube_mixed/extreme,
         // pyramid_uniform with rung ON) and Gregory sub-caps

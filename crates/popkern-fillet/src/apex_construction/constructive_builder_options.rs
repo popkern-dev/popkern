@@ -61,7 +61,7 @@ pub(crate) struct ConstructiveApexExecutionOptions {
 impl ConstructiveApexExecutionOptions {
     pub(crate) fn from_environment_adapter() -> Self {
         Self {
-            cap_loop: CapLoopConstructionOptions::from_environment_adapter(),
+            cap_loop: CapLoopConstructionOptions::default(),
             v_free_mode: VFreeRepeatedApexMode::from_environment_adapter(),
         }
     }

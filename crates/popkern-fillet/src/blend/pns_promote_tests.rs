@@ -346,14 +346,6 @@ fn cap_boundary_g1_with_tilted_planar_support() {
 }
 
 #[test]
-fn pns_env_enabled_reads_env_var() {
-    use super::pns_promote::pns_env_enabled;
-    // Sanity — depends on test-run env. Just check the function
-    // doesn't panic and returns a bool.
-    let _ = pns_env_enabled();
-}
-
-#[test]
 fn _unused_faces_stub() {
     let _ = FaceHandle::default();
 }

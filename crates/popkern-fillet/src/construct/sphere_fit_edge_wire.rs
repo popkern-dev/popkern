@@ -31,7 +31,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveGeometry, Point3, fitting};
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 #[path = "sphere_fit_edge_wire_helpers.rs"]
 mod sphere_fit_edge_wire_helpers;
@@ -41,7 +41,7 @@ mod sphere_fit_edge_wire_match;
 use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use sphere_fit_edge_wire_helpers::{
     analytic_linear_pcurve_on_surface, cap_pcurve_for_segment, project_point_on_curve,
-    refit_pcurve_on_surface, reverse_nurbs, snap_vertex_to,
+    refit_pcurve_on_surface, reverse_nurbs,
 };
 use sphere_fit_edge_wire_match::build_wire_worklist;
 
@@ -62,8 +62,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // beyond 5 cm (substitution wouldn't have fired anyway) or
     // sit within the rolling-ball overshoot region.
     //
-    // Phase 6c-D Stage 1: optional 30 cm tolerance + vertex
-    // relocation under `POPKERN_GREGORY_CAP_REBUILD=1`. Closes the
+    // Phase 6c-D Stage 1: wide 30 cm tolerance. Closes the
     // BRep ↔ substituted-boundary alignment gap for fixtures where
     // neighbor-cylinder reroute can't run (pyramid topology axes do
     // not pass through per-fillet sphere centres). Default off so
@@ -81,11 +80,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // edges, vertices stay at their existing positions. Edge
     // endpoints may not exactly equal curve(t_start)/curve(t_end),
     // but downstream pcurve refit / measurement tolerates this.
-    let do_relocate = std::env::var("POPKERN_GREGORY_CAP_REBUILD").is_ok_and(|v| v == "1");
-    let stage4_wide_tol = boundary.sphere_fit_substituted
-        && std::env::var("POPKERN_STAGE4_WIDE_WIRE_TOL")
-            .map(|v| v != "0")
-            .unwrap_or(true);
+    let stage4_wide_tol = boundary.sphere_fit_substituted;
     // Phase 6c-X.A.3: when active, write the FULL segment range
     // `[t0, t1]` to every cap-loop edge instead of vertex-projection
     // sub-ranging.  The substituted boundary (per X.A.2 trace) is
@@ -97,16 +92,8 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // Implies stage4_wide_tol behaviours (analytic pcurves, etc.)
     // because full-boundary apex wiring is meaningful only under
     // sphere-fit substitution.
-    let path_a_active = boundary.sphere_fit_substituted
-        && std::env::var("POPKERN_APEX_PATH_A")
-            .map(|v| v != "0")
-            .unwrap_or(true);
-    let stage4_wide_tol = stage4_wide_tol || path_a_active;
-    let tol = if do_relocate || stage4_wide_tol {
-        0.30
-    } else {
-        0.05
-    };
+    let path_a_active = boundary.sphere_fit_substituted;
+    let tol = if stage4_wide_tol { 0.30 } else { 0.05 };
 
     let segment_curves: Vec<&NurbsCurve> = boundary
         .segments
@@ -151,19 +138,6 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             continue;
         };
         let v_dest = next_he_data.origin;
-
-        // Snap vertices first when relocation is enabled. Keeps loop
-        // closure invariants when the curve below is written.
-        // snap_vertex_to syncs *all*
-        // incident half-edges' edge curves CP[0]/CP[last] to the
-        // new vertex position, so sibling edges' curves still join
-        // cleanly at the moved vertex.
-        if do_relocate {
-            snap_vertex_to(brep, v_origin, target_p_origin);
-            if v_dest != v_origin {
-                snap_vertex_to(brep, v_dest, target_p_dest);
-            }
-        }
 
         // Orient the curve to match the edge's primary half-edge
         // direction: edge.curve's CP[0] should equal primary

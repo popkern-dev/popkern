@@ -550,16 +550,11 @@ impl OrientedSegment {
             // r2 − 2r1 + q0 = q0 − 2q1 + q2, so the G2 content is
             // unchanged.
             let chord = q1 - q0;
-            let old_prolong = std::env::var_os("PK212_OLD_PROLONG").is_some();
             let n_hat = self
                 .surface_normal(q0)
                 .and_then(|n| n.normalized())
                 .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
-            let out_of_plane = if old_prolong {
-                Vec3::new(0.0, 0.0, 0.0)
-            } else {
-                n_hat * chord.dot(&n_hat)
-            };
+            let out_of_plane = n_hat * chord.dot(&n_hat);
             let r1 = Point3::new(
                 2.0 * q0.x - q1.x + out_of_plane.x,
                 2.0 * q0.y - q1.y + out_of_plane.y,

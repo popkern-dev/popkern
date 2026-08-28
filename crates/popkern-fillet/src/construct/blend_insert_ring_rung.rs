@@ -110,22 +110,12 @@ fn try_boundary_ring_carve_gated(
     if !ring_eligible {
         return (None, None);
     }
-    // Default ON (PK-234 stage 4): the ring carves machine-exact
-    // (4.7e-12), the support-seam relocation no-ops on it, and with
-    // the blend loop normalized to start on an arc the sub-patches
-    // bond exactly — the saddle fixture serves validate_all CLEAN
-    // (zero check-9 edges) where the mitred fallback carries 14
-    // failing edges at worst 1.016e-1. POPKERN_BOUNDARY_RING=0 is the
-    // diagnostic kill-switch pinning the mitred fallback dispatch.
-    if std::env::var_os("POPKERN_BOUNDARY_RING").is_some_and(|v| v == "0") {
-        return (
-            None,
-            Some(
-                "diagnostic kill-switch: POPKERN_BOUNDARY_RING=0 pins the mitred fallback"
-                    .to_string(),
-            ),
-        );
-    }
+    // PK-234 stage 4: the ring carves machine-exact (4.7e-12), the
+    // support-seam relocation no-ops on it, and with the blend loop
+    // normalized to start on an arc the sub-patches bond exactly —
+    // the saddle fixture serves validate_all CLEAN (zero check-9
+    // edges) where the mitred fallback carries 14 failing edges at
+    // worst 1.016e-1.
     let Some(boundary) = n_gon_boundary else {
         return (None, None);
     };

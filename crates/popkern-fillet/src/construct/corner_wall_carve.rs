@@ -67,10 +67,10 @@ fn wall_loop_context(
 /// wall loop still runs along STALE original-edge segments (the
 /// pre-fillet boss edge at its original offset, twinning the
 /// region-merged strip) instead of the contact rails — the same
-/// root as the PK141_TRUST_STRIPS 0.7 mis-side. Every stale vertex
-/// sits ON the wall but off its strip twin; the incident-surface
-/// settle (wall + strip, a transversal pair) moves it onto the
-/// contact rail and the reconcile refits the adjacent curves.
+/// root as the PK-141 trust-strips 0.7 mis-side. Every stale
+/// vertex sits ON the wall but off its strip twin; the incident-
+/// surface settle (wall + strip, a transversal pair) moves it onto
+/// the contact rail and the reconcile refits the adjacent curves.
 /// Transactional per vertex (inside the settle).
 pub(crate) fn carve_corner_wall_trims(
     brep: &mut BRep,

@@ -25,9 +25,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 use super::kp20_paper_border_extract::{Kp20SetbackArc, kp20_paper_border_from_fillet_setback};
 use crate::fillet_surface::FilletSurfaceResult;
 
-/// Commit override for tests (three-state: unset → production
-/// default ON, overridable by the POPKERN_SETBACK_VERTEX_BLEND=0
-/// kill-switch).
+/// Commit override for tests (unset → production default ON).
 pub(crate) static SETBACK_TOPOLOGY_COMMIT: AtomicBool = AtomicBool::new(false);
 pub(crate) static SETBACK_TOPOLOGY_COMMIT_SET: AtomicBool = AtomicBool::new(false);
 
@@ -38,7 +36,6 @@ mod setback_arc_binding;
 /// surgery declines (with a recorded reason) and falls through to
 /// the legacy path for anything out of its class, and the cap gates
 /// must close at relative 1e-6 before any topology commits.
-/// Kill-switch: POPKERN_SETBACK_VERTEX_BLEND=0.
 #[path = "setback_rim_refit.rs"]
 mod setback_rim_refit;
 use setback_rim_refit::refit_cap_rim;
@@ -87,9 +84,7 @@ pub(crate) fn setback_topology_commit_enabled() -> bool {
     if SETBACK_TOPOLOGY_COMMIT_SET.load(Ordering::Relaxed) {
         return SETBACK_TOPOLOGY_COMMIT.load(Ordering::Relaxed);
     }
-    std::env::var("POPKERN_SETBACK_VERTEX_BLEND")
-        .map(|v| v != "0")
-        .unwrap_or(true)
+    true
 }
 
 /// WIP checkpoint report channel for the integration probe test.
@@ -114,15 +109,6 @@ pub(crate) struct SetbackTopologyOutcome {
 /// Attempt the setback boundary surgery at `vertex`. On any error the
 /// BRep is restored from a snapshot and the error is returned for the
 /// caller's structured diagnostics; the legacy path then proceeds.
-/// Which cap construction fills the blend n-gon.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CapFamily {
-    /// KP20 §4.4 paper cap: 4n bi-9 Gregory pieces, G2.
-    Kp20G2,
-    /// PnS bi-4 cap on the setback border: 2n Bezier patches, G1.
-    PnsG1,
-}
-
 /// `snapshot` is the caller-held pre-surgery state (the rung's commit
 /// snapshot): the surgery restores from it on any inner error via a
 /// clone-on-restore, so the success path pays no snapshot clone of
@@ -135,7 +121,6 @@ pub(crate) fn try_setback_boundary_surgery(
     vertex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-    family: CapFamily,
     gate_seam_g2: bool,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<SetbackTopologyOutcome, String> {
@@ -144,7 +129,6 @@ pub(crate) fn try_setback_boundary_surgery(
         vertex,
         fillet_surfaces,
         tolerance,
-        family,
         gate_seam_g2,
         cap_presolve,
     ) {
@@ -162,7 +146,6 @@ fn surgery_inner(
     vertex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-    family: CapFamily,
     gate_seam_g2: bool,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<SetbackTopologyOutcome, String> {
@@ -478,31 +461,19 @@ fn surgery_inner(
     // arc (design: [arc, trim, base-end, trim]), so scaffold edges
     // between same-surface fillet pieces are dissolved.
     absorb_same_surface_bands(brep, &arc_edges, blend_face)?;
-    // ---- cap face fan (family-specific) ---------------------------------
-    let cap_faces = match family {
-        CapFamily::Kp20G2 => {
-            let faces = build_cap_face_fan(
-                brep,
-                blend_face,
-                &arc_edges,
-                fillet_surfaces,
-                vertex_position,
-                presolved,
-            )?;
-            // Rim refit: exact cap-row edge curves (PK-096). The PnS
-            // family does not need this — its border equals the
-            // topology arcs by construction.
-            refit_cap_rim(brep, &faces)?;
-            faces
-        }
-        CapFamily::PnsG1 => build_pns_cap_fan(
+    // ---- cap face fan ---------------------------------------------------
+    let cap_faces = {
+        let faces = build_cap_face_fan(
             brep,
             blend_face,
+            &arc_edges,
             fillet_surfaces,
             vertex_position,
-            &corner_vertices,
-            &arc_edges,
-        )?,
+            presolved,
+        )?;
+        // Rim refit: exact cap-row edge curves (PK-096).
+        refit_cap_rim(brep, &faces)?;
+        faces
     };
 
     // ---- pcurves for the new topology -----------------------------------
@@ -1036,18 +1007,13 @@ fn build_cap_face_fan(
     // one seam). Spoke seams stay excluded by orders of magnitude —
     // their off-loop distance is half the loop diameter.
     let rim_off_loop_allowance = 2.0e-3_f64.max(2.0 * report.max_strip_movement);
-    // Diagnostic bifurcation probe (PK-187): skip the rim solve to
-    // attribute live-seam curvature residuals between the assembly
-    // and the rim repair. Probe-only; never set in production.
-    if std::env::var_os("PK_SETBACK_SKIP_RIM_RECONCILE").is_none() {
-        setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
-            &mut patches,
-            fillet_surfaces,
-            &lateral_planes,
-            &border_loop,
-            rim_off_loop_allowance,
-        );
-    }
+    setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
+        &mut patches,
+        fillet_surfaces,
+        &lateral_planes,
+        &border_loop,
+        rim_off_loop_allowance,
+    );
     // Rim cross-jet reconciliation (PK-212): meet the strips G1 at
     // the landed border — see setback_rim_jet.
     {
@@ -1399,376 +1365,6 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
         }
     }
     Ok(())
-}
-
-/// Split a specific edge at the parameter nearest `point` (dense
-/// scan + ternary refine; `split_edge` takes the normalized fraction
-/// of the window). Reuses an existing vertex when the projection
-/// lands on an endpoint.
-fn split_edge_at_projected_point(
-    brep: &mut BRep,
-    edge: EdgeHandle,
-    point: Point3,
-) -> Result<VertexHandle, String> {
-    let curve = brep
-        .edges
-        .get(edge)
-        .and_then(|e| e.curve.as_ref())
-        .ok_or("edge has no curve")?
-        .clone();
-    let eval: &dyn CurveEval = &curve.geometry;
-    let (e0, e1) = (curve.t_start, curve.t_end);
-    let mut best = (f64::INFINITY, e0);
-    for i in 0..=512 {
-        let t = e0 + (e1 - e0) * i as f64 / 512.0;
-        let d = eval.point_at(t).distance_to(&point);
-        if d < best.0 {
-            best = (d, t);
-        }
-    }
-    let mut lo = (best.1 - (e1 - e0) / 512.0).max(e0.min(e1));
-    let mut hi = (best.1 + (e1 - e0) / 512.0).min(e0.max(e1));
-    for _ in 0..60 {
-        let t1 = lo + (hi - lo) / 3.0;
-        let t2 = hi - (hi - lo) / 3.0;
-        if eval.point_at(t1).distance_to(&point) < eval.point_at(t2).distance_to(&point) {
-            hi = t2;
-        } else {
-            lo = t1;
-        }
-    }
-    let t = 0.5 * (lo + hi);
-    let fraction = (t - e0) / (e1 - e0);
-    if !(0.001..0.999).contains(&fraction) {
-        // Landed on an endpoint — reuse the nearer vertex.
-        let p = eval.point_at(t);
-        return nearest_vertex_within(brep, p, 5.0e-3).ok_or_else(|| {
-            format!(
-                "projection landed on an endpoint with no vertex nearby (fraction {fraction:.4})"
-            )
-        });
-    }
-    brep.split_edge(edge, fraction)
-        .map(|r| r.vertex)
-        .map_err(|e| format!("split_edge: {e}"))
-}
-
-/// Nearest live vertex within `gate` of `p`.
-fn nearest_vertex_within(brep: &BRep, p: Point3, gate: f64) -> Option<VertexHandle> {
-    brep.vertices
-        .iter()
-        .map(|(vh, vd)| (vd.position.distance_to(&p), vh))
-        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-        .filter(|(d, _)| *d < gate)
-        .map(|(_, vh)| vh)
-}
-
-/// Subdivide the blend n-gon into the 2n PnS sector faces (PK-097
-/// Phase B): one quad per half-arc sector, all meeting at the cap's
-/// pole. The candidate's border equals the topology arcs exactly
-/// (Phase A), so no rim refit is needed; spoke curves are the
-/// patches' shared radial rows.
-fn build_pns_cap_fan(
-    brep: &mut BRep,
-    blend_face: FaceHandle,
-    fillet_surfaces: &[FilletSurfaceResult],
-    vertex_position: Point3,
-    corner_vertices: &[VertexHandle],
-    arc_edges: &[EdgeHandle],
-) -> Result<Vec<FaceHandle>, String> {
-    let candidate =
-        super::pns_setback_candidate::try_pns_setback_candidate(fillet_surfaces, vertex_position)?;
-    // Acceptance before topology (the same discipline as the KP20
-    // fan's gate): border exact, seams exact, G1 within the
-    // production coplanarity gate.
-    let r = &candidate.report;
-    if r.g0_border_after > 1.0e-9 || r.seam_g0 > 1.0e-9 || r.g1_angle_after > 5.0e-2 {
-        return Err(format!(
-            "PnS candidate gates open: g0={:.3e} seam={:.3e} g1={:.3e}",
-            r.g0_border_after, r.seam_g0, r.g1_angle_after
-        ));
-    }
-    let sectors = candidate.half_cubics.len();
-
-    // 1. Split the rim at the arc midpoints m (the junction between
-    // each arc's two half-cubic sectors). The target EDGE is a known
-    // topological fact (the surgery's arc middles, indexed by
-    // fillet) — a global nearest-edge search occasionally split the
-    // wrong arc's neighbor.
-    let mut junction_vertices: Vec<VertexHandle> = Vec::new();
-    for k in (0..sectors).step_by(2) {
-        let m_pos = candidate.half_cubics[k].0[3];
-        let fillet_idx = candidate.half_cubics[k].1;
-        let edge = *arc_edges
-            .get(fillet_idx)
-            .ok_or_else(|| format!("no arc edge for fillet {fillet_idx}"))?;
-        let v = split_edge_at_projected_point(brep, edge, m_pos)?;
-        junction_vertices.push(v);
-    }
-    // Corner junctions are TOPOLOGICAL facts (the surgery's corner
-    // vertices) — match each even sector's start to the nearest of
-    // them; odd sectors start at the m splits made above.
-    let mut all_junctions: Vec<(Point3, VertexHandle)> = Vec::new();
-    for k in 0..sectors {
-        let start = candidate.half_cubics[k].0[0];
-        let v = if k % 2 == 0 {
-            // Handles can go stale through the merge/dissolve passes;
-            // consider only live ones and fall back to a positional
-            // search at the family tolerance.
-            let live_nearest = corner_vertices
-                .iter()
-                .filter_map(|&vh| {
-                    brep.vertices
-                        .get(vh)
-                        .map(|vd| (vd.position.distance_to(&start), vh))
-                })
-                .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-            match live_nearest {
-                Some((d, vh)) if d < 5.0e-3 => vh,
-                _ => nearest_vertex_within(brep, start, 5.0e-3)
-                    .ok_or_else(|| format!("no corner vertex near sector {k} start"))?,
-            }
-        } else {
-            junction_vertices[k / 2]
-        };
-        let pos = brep.vertices[v].position;
-        all_junctions.push((pos, v));
-    }
-
-    // 2. Pole spur from junction 0, then spokes from every other
-    // junction. Spoke curve for junction k = patch k's radial row
-    // i=0, running border→pole (grid [0][4] → [0][0]).
-    // The assembly's requested pole seeds the fit, but the patches'
-    // ACTUAL shared corner is where they meet — use it for the pole
-    // vertex and the spoke snaps (measured 3e-2 apart on the G1
-    // pentagon; snapping to the seed bent every spoke off the caps).
-    let pole = {
-        let seed = candidate.pole;
-        let p0 = &candidate.patches[0];
-        let corners = [p0[0][0], p0[0][4], p0[4][0], p0[4][4]];
-        corners
-            .into_iter()
-            .min_by(|a, b| {
-                a.distance_to(&seed)
-                    .partial_cmp(&b.distance_to(&seed))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(seed)
-    };
-    let spoke_curve = |patch: &[[Point3; 5]; 5],
-                       neighbor: &popkern_core::geometry::SurfaceGeometry,
-                       from: Point3,
-                       to: Point3|
-     -> popkern_core::geometry::CurveOnEdge {
-        // The PnS patches alternate grid orientation sector to
-        // sector (their radial seams pair row i=0 against col j=0),
-        // so the spoke side is selected empirically: the grid side
-        // whose endpoints best match (junction, pole).
-        let sides: [[Point3; 5]; 4] = [
-            core::array::from_fn(|j| patch[0][j]),
-            core::array::from_fn(|j| patch[4][j]),
-            core::array::from_fn(|i| patch[i][0]),
-            core::array::from_fn(|i| patch[i][4]),
-        ];
-        // The defining property of the seam side: its interior lies
-        // ON the neighboring patch (radial seams are surface-exact,
-        // 1e-15 measured). Score = endpoint match + midpoint's
-        // distance to the neighbor surface.
-        let mut best: (f64, [Point3; 5]) = (f64::INFINITY, sides[0]);
-        for side in &sides {
-            for rev in [false, true] {
-                let (a, b) = if rev {
-                    (side[4], side[0])
-                } else {
-                    (side[0], side[4])
-                };
-                let mid = {
-                    let mut w = *side;
-                    for level in (1..5).rev() {
-                        for i in 0..level {
-                            w[i] = Point3::new(
-                                w[i].x + (w[i + 1].x - w[i].x) * 0.5,
-                                w[i].y + (w[i + 1].y - w[i].y) * 0.5,
-                                w[i].z + (w[i + 1].z - w[i].z) * 0.5,
-                            );
-                        }
-                    }
-                    w[0]
-                };
-                let on_neighbor = match popkern_core::geometry::uv_projection::project_point_to_uv(
-                    neighbor, &mid,
-                ) {
-                    Some((u, v)) => neighbor.point_at(u, v).distance_to(&mid),
-                    None => f64::INFINITY,
-                };
-                let d = a.distance_to(&from).max(b.distance_to(&to)) + on_neighbor;
-                if d < best.0 {
-                    let mut arr = *side;
-                    if rev {
-                        arr.reverse();
-                    }
-                    best = (d, arr);
-                }
-            }
-        }
-        let mut cps: Vec<Point3> = best.1.to_vec();
-        cps[0] = from;
-        cps[4] = to;
-        popkern_core::geometry::CurveOnEdge {
-            geometry: popkern_core::geometry::CurveGeometry::Nurbs(NurbsCurve {
-                degree: 4,
-                knots: vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-                control_points: cps,
-                weights: vec![1.0; 5],
-            }),
-            t_start: 0.0,
-            t_end: 1.0,
-        }
-    };
-
-    let (first_pos, first_v) = all_junctions[0];
-    let he_first = half_edge_at_vertex_on_face_containing(brep, first_v, &pole)?;
-    let mev = brep
-        .mev(he_first, pole)
-        .map_err(|e| format!("PnS pole mev: {e}"))?;
-    let pole_vertex = mev.vertex;
-    let neighbor_of = |k: usize| &candidate.surfaces[(k + sectors - 1) % sectors];
-    if let Some(edge) = brep.edges.get_mut(mev.edge) {
-        edge.curve = Some(spoke_curve(
-            &candidate.patches[0],
-            neighbor_of(0),
-            first_pos,
-            pole,
-        ));
-    }
-    for (k, &(pos, v)) in all_junctions.iter().enumerate().skip(1) {
-        let (he_v, he_pole) = half_edge_pair_in_common_loop(brep, v, pole_vertex)?;
-        let mef = brep
-            .mef(he_v, he_pole)
-            .map_err(|e| format!("PnS spoke mef {k}: {e}"))?;
-        if let Some(edge) = brep.edges.get_mut(mef.edge) {
-            edge.curve = Some(spoke_curve(
-                &candidate.patches[k],
-                neighbor_of(k),
-                pos,
-                pole,
-            ));
-        }
-    }
-
-    // 3. Assign sector surfaces. Candidate faces are exactly those
-    // whose loop touches the pole vertex; match faces↔patches by
-    // globally sorted centroid distances (per-face greedy steals
-    // neighbors' patches on strongly curved quads).
-    let mut fan_faces: Vec<FaceHandle> = Vec::new();
-    for (fh, _) in brep.faces.iter() {
-        if fh == blend_face || face_loop_half_edges(brep, fh).is_err() {
-            // blend_face handle may be one of the subdivided faces —
-            // include it via the loop test below instead.
-        }
-        let Ok(hes) = face_loop_half_edges(brep, fh) else {
-            continue;
-        };
-        if hes
-            .iter()
-            .any(|&he| brep.half_edges[he].origin == pole_vertex)
-        {
-            fan_faces.push(fh);
-        }
-    }
-    if fan_faces.len() != sectors {
-        return Err(format!(
-            "PnS fan produced {} pole-adjacent faces, expected {sectors}",
-            fan_faces.len()
-        ));
-    }
-    // Face↔patch pairing must use INTERIOR evidence: the sector
-    // vertices (junctions, pole, X) are shared by several patches,
-    // so vertex- or centroid-fit is underdetermined (measured: every
-    // spoke curve landed on one adjacent face and 5e-2 off the
-    // other). Each fan face's RIM edge midpoint lies on exactly one
-    // half-arc — the patch index directly.
-    let fan_set: std::collections::HashSet<FaceHandle> = fan_faces.iter().copied().collect();
-    let mut cap_faces = Vec::new();
-    let mut patch_taken = vec![false; sectors];
-    for &fh in &fan_faces {
-        // Rim edges: boundary half-edges whose twin face is outside
-        // the fan. Use the BEST (mid, half-arc) pair over all of the
-        // face's rim edges — a face's first rim edge in loop order
-        // can be a short corner sliver.
-        // Use the LONGEST rim edge: the short corner segs carry the
-        // crossing-foot snap noise (up to 5e-3) and mis-key near the
-        // shared corners; the arc portions are long and central.
-        let mut longest: Option<(f64, Point3)> = None;
-        for he in face_loop_half_edges(brep, fh)? {
-            let data = &brep.half_edges[he];
-            let twin_face = brep.loops[brep.half_edges[data.twin].loop_].face;
-            if fan_set.contains(&twin_face) {
-                continue;
-            }
-            let Some(curve) = brep.edges[data.edge].curve.as_ref() else {
-                continue;
-            };
-            let ceval: &dyn CurveEval = &curve.geometry;
-            let a = ceval.point_at(curve.t_start);
-            let b = ceval.point_at(curve.t_end);
-            let len = a.distance_to(&b);
-            let rim_mid = ceval.point_at(0.5 * (curve.t_start + curve.t_end));
-            if longest.map(|(l, _)| len > l).unwrap_or(true) {
-                longest = Some((len, rim_mid));
-            }
-        }
-        let mut best = (f64::INFINITY, usize::MAX);
-        if let Some((_, rim_mid)) = longest {
-            for (pi, (cubic, _)) in candidate.half_cubics.iter().enumerate() {
-                let mut d = f64::INFINITY;
-                for i in 0..=32 {
-                    let t = i as f64 / 32.0;
-                    let mut w = *cubic;
-                    for level in (1..4).rev() {
-                        for j in 0..level {
-                            w[j] = Point3::new(
-                                w[j].x + (w[j + 1].x - w[j].x) * t,
-                                w[j].y + (w[j + 1].y - w[j].y) * t,
-                                w[j].z + (w[j + 1].z - w[j].z) * t,
-                            );
-                        }
-                    }
-                    d = d.min(w[0].distance_to(&rim_mid));
-                }
-                if d < best.0 {
-                    best = (d, pi);
-                }
-            }
-        }
-        let pi = best.1;
-        if pi == usize::MAX || best.0 > 5.0e-3 {
-            return Err(format!(
-                "fan face {fh:?}: no half-arc within 5e-3 of its rim (best {:.3e})",
-                best.0
-            ));
-        }
-        if patch_taken[pi] {
-            return Err(format!(
-                "fan face {fh:?}: half-arc {pi} claimed twice — rim keying ambiguous"
-            ));
-        }
-        patch_taken[pi] = true;
-        if let Some(face) = brep.faces.get_mut(fh) {
-            face.surface = Some(popkern_core::geometry::SurfaceOnFace {
-                geometry: candidate.surfaces[pi].clone(),
-                orientation: true,
-            });
-            cap_faces.push(fh);
-        }
-    }
-    if cap_faces.len() != sectors {
-        return Err(format!(
-            "PnS fan assigned {} faces, expected {sectors}",
-            cap_faces.len()
-        ));
-    }
-    Ok(cap_faces)
 }
 
 /// Dissolve scaffold edges between fillet-face pieces that carry the

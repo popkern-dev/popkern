@@ -175,9 +175,9 @@ pub(super) fn apply_topology_operator(
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
     bridge_operator_trace::trace_cycle_structure(primitive, &candidate);
     // PK-167 stage 1b in-place rewrites, DEFAULT ON (matrix 20/0);
-    // PK167_INPLACE_OFF or the serving-shape gate's thread-local
-    // switch (PK-205/PK-206) keeps the aggregate path.
-    if std::env::var_os("PK167_INPLACE_OFF").is_none() && !in_place_rewrite_disabled() {
+    // the serving-shape gate's thread-local switch (PK-205/PK-206)
+    // keeps the aggregate path.
+    if !in_place_rewrite_disabled() {
         // Pre-existing records win weld/merge survivorship: earlier-
         // authored plans hold these handles and consume them later.
         let plan_edges: BTreeSet<_> = brep.edges.keys().collect();
