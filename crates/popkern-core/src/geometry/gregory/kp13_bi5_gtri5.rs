@@ -1,4 +1,4 @@
-//! Phase I.11 — Karčiauskas-Peters 2013 auxiliary map `g△`.
+//! Karčiauskas-Peters 2013 auxiliary map `g△`.
 //!
 //! `g△` is an `n`-piece C² piecewise polynomial of **total degree
 //! 5** on an n-gon domain Ω. Each sector `g△^k` is a tri-5 patch

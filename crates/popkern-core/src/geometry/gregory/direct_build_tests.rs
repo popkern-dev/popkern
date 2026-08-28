@@ -1,7 +1,7 @@
 //! Tests for `build()` and `can_build()` orchestration.
 //!
 //! End-to-end G1-exactness on realistic three-quad geometry
-//! requires the popkern-fillet extraction helper (next Phase G
+//! requires the popkern-fillet extraction helper (next the Gregory direct construction
 //! step) — tests here are structural: verify the pipeline runs,
 //! the result struct is fully populated, and the error paths
 //! fire as expected.
@@ -129,7 +129,7 @@ fn build_requires_seed_patches() {
 
 #[test]
 fn build_with_g2_target_still_delivers_g1_in_mvp() {
-    // Phase G MVP is G1-only; can_build reports G1 even when
+    // The direct-construction MVP is G1-only; can_build reports G1 even when
     // asked for G2. Documenting the current scope.
     let input = synthetic_3_patch_input();
     let options = DirectConstructionOptions::with_characteristic_length(2.0)

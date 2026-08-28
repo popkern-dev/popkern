@@ -178,7 +178,7 @@ fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
         .expect("apex route recorded");
     assert_eq!(
         route.route,
-        ApexConstructionRoute::Legacy,
+        ApexConstructionRoute::VertexBlend,
         "explicit legacy surface-family flags must keep the legacy \
          dispatch (and its promotion ladder) reachable"
     );

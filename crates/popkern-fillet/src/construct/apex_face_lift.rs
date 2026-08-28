@@ -1,4 +1,4 @@
-//! Phase 6c-D Stage 4.7: lift apex-region pyramid face surfaces to
+//! Lift apex-region pyramid face surfaces to
 //! contain the substituted FaceEdge bridge.
 //!
 //! After sphere-fit boundary substitution, the FaceEdge bridge

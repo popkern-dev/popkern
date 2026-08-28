@@ -179,7 +179,7 @@ fn flat_patch_normal_is_z() {
     );
 }
 
-/// Second partials are finite at interior samples — Phase 10
+/// Second partials are finite at interior samples — the polynomial-identity solver work
 /// (G2 solver) will use these; regression against numerical
 /// blowup at corner-adjacent rational-blend positions.
 #[test]

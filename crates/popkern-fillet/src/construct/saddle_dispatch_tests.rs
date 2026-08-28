@@ -119,7 +119,7 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
 ///    folded, so the item #10 self-intersection screen CORRECTLY
 ///    remediated them away (the screen was never the defect).
 /// 2. Under trim-crossing anchors the poisoned trims collapsed both
-///    side-2 strips onto one consumed face and Phase C failed
+///    side-2 strips onto one consumed face and the consumed-merge stage failed
 ///    outright (`PartialFailure` — which this test used to skip).
 /// 3. The mixed-radius direct-apex promotion arm then captured the
 ///    saddle (it never consulted the classifier), planned the Open
@@ -173,8 +173,9 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
         use_rational_gregory: true,
         ..FilletOptions::default()
     };
-    let result = crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
-        .expect("saddle fillet pipeline must complete (PK-231: Phase C carve restored)");
+    let result = crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None).expect(
+        "saddle fillet pipeline must complete (PK-231: the consumed-merge stage carve restored)",
+    );
 
     // No Mitred fallback and no direct-apex capture: the saddle is
     // legacy-owned (promotion is gated to SameSideConvex). Legacy
@@ -195,7 +196,7 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
             .apex_routes
             .iter()
             .filter(|r| r.vertex == vertex)
-            .all(|r| r.route == crate::types::ApexConstructionRoute::Legacy),
+            .all(|r| r.route == crate::types::ApexConstructionRoute::VertexBlend),
         "OppositeSide saddle must stay on the legacy route (promotion is \
          SameSideConvex-only); routes: {:?}",
         result

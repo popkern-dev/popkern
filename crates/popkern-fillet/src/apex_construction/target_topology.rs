@@ -1,4 +1,4 @@
-//! Target topology spec for Phase 6c-DirectApex apex construction.
+//! Target topology spec for the sphere-fit edge-wiring workirectApex apex construction.
 //!
 //! `TargetTopology` is a **declarative** description of the desired
 //! final apex region: vertices to ensure exist, edges with their

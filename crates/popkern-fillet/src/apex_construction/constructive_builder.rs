@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex §28.H Session 4 — constructive apex builder.
+//! the sphere-fit edge-wiring workirectApex §28.H Session 4 — constructive apex builder.
 //!
 //! Per ADR `2026-05-02-phase-6c-a2-constructive-apex-builder.md`. Replaces
 //! the legacy carve-and-cleanup `construct_apex` with a deterministic

@@ -1,5 +1,5 @@
 //! PnS bi-4 cap on the SETBACK border — the G1 sibling of the KP20
-//! setback candidate (PK-097 Phase A).
+//! setback candidate (PK-097 the anchor-split stage).
 //!
 //! The existing PnS dispatch consumes the legacy blend boundary
 //! (apex-end anchors); this entry derives the border from the fillet

@@ -1,4 +1,4 @@
-//! Phase I.13 — Karčiauskas-Peters 2013 bi-5 reparameterisations
+//! Karčiauskas-Peters 2013 bi-5 reparameterisations
 //! `ρ` and `β`.
 //!
 //! Paper: [KP13] Karčiauskas & Peters (2013), "Biquintic G² surfaces".

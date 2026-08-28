@@ -1,8 +1,8 @@
 //! Pairwise chord-chord crossing precompute for the multi-chord
 //! face split. Split from `multi_chord.rs` (file-size ratchet).
 
+use super::face_trim_pipeline::FaceTrim;
 use super::multi_chord_span_geometry::{intersect_segments, intersect_trim_curves};
-use super::phase_split::FaceTrim;
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

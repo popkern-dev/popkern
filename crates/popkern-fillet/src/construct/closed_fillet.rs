@@ -31,7 +31,7 @@
 //! 6. Create the fillet face as an annulus with two boundary
 //!    loops, one per new contact circle; delete the old rim edge.
 //!
-//! Round 5c-3 scope: handles plane-cylinder closed fillets where
+//! scope: handles plane-cylinder closed fillets where
 //! one side is a single-half-edge inner loop and the other side
 //! is a multi-half-edge loop with at most one seam edge sharing
 //! the rim vertex.

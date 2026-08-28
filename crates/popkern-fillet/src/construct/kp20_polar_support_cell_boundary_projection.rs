@@ -68,7 +68,7 @@ const RESIDUAL_CONVERGENCE_TOL: f64 = 1.0e-15;
 /// 5e-3 user gate at `kp_gate_helpers::G0_GATE`.
 const ON_BOUNDARY_TOL: f64 = 1.0e-6;
 
-/// Endpoint deadband matching `cap_vertex_splits_along_*` Phase 1.
+/// Endpoint deadband matching the `cap_vertex_splits_along_*` first pass.
 /// A converged `t` within this distance of 0 or 1 is corner-coincident
 /// and routes to `OutsideDomain` to avoid double-contribution across
 /// adjacent sides.

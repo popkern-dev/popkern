@@ -269,7 +269,7 @@ pub struct BrepRepairFact {
     /// Topology handles directly described by the fact.
     pub handles: Vec<BrepRepairTopologyHandle>,
     /// Human-readable migration label retained for compatibility.
-    pub legacy_label: Option<String>,
+    pub migration_label: Option<String>,
     /// Authority-specific payload when this fact classifies trusted evidence.
     pub authority: Option<BrepRepairAuthorityFact>,
 }
@@ -406,8 +406,9 @@ pub struct BrepRepairDiagnostic {
     pub suggested_repair: BrepRepairSuggestedRepair,
     /// Render key for user-facing message catalogs.
     pub render_key: String,
-    /// Legacy label retained while migration is in progress.
-    pub legacy_label: Option<String>,
+    /// Pre-render-key compact label retained while migration to
+    /// `render_key` catalogs is in progress.
+    pub migration_label: Option<String>,
 }
 
 /// Stable public diagnostic code.

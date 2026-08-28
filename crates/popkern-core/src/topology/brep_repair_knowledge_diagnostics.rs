@@ -18,7 +18,7 @@ pub(super) fn build_diagnostic_records(facts: &[BrepRepairFact]) -> Vec<BrepRepa
             handles: fact.handles.clone(),
             suggested_repair: fact_suggested_repair(fact.header.kind),
             render_key: fact_code(fact).to_string(),
-            legacy_label: fact.legacy_label.clone(),
+            migration_label: fact.migration_label.clone(),
         })
         .collect()
 }

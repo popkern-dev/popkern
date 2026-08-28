@@ -1,10 +1,10 @@
-//! §5.3 Round 5 acceptance tests — end-to-end contract coverage
+//! §5.3 acceptance tests — end-to-end contract coverage
 //! for the N-sided corner patch pipeline.
 //!
 //! Each test exercises a different axis of the §5.3 contract:
 //! classification → dispatch → surface construction → per-corner
 //! reporting → warnings → preview parity. Together they act as
-//! the commercial-grade regression guard for the Round 5 landing.
+//! the commercial-grade regression guard for the landing.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

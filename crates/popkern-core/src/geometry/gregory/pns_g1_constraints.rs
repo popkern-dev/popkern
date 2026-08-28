@@ -1,4 +1,4 @@
-//! Phase IV PnS — G¹ cap-cap continuity constraints (eq 2, eq 2³).
+//! PnS cap — G¹ cap-cap continuity constraints (eq 2, eq 2³).
 //!
 //! Between adjacent sectors `cur = p^k` and `nxt = p^{k+1}` sharing
 //! the boundary `p(u, 0)`, the G¹ join equation (eq 1) is

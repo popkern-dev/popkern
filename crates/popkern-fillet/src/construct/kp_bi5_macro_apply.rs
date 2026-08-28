@@ -1,4 +1,4 @@
-//! Phase I.16 production dispatch — `popkern-fillet` entry point
+//! the polar-cap campaign.16 production dispatch — `popkern-fillet` entry point
 //! for the KP13 bi-5 macro-patch construction.
 //!
 //! Mirrors the KP15 bi-6 polar wrapper [`try_kp_polar_bi6_cap`]
@@ -182,7 +182,7 @@ pub fn try_kp_bi5_macro_cap(
 
 /// Variant of [`try_kp_bi5_macro_cap`] that wraps each of the
 /// `4n` bi-9 CP grids as a [`RectangularGregoryBiNonic`] — the
-/// same BRep-insertable wrapper type used by the Phase H bi-9
+/// same BRep-insertable wrapper type used by the the bi-9 cap campaign bi-9
 /// direct and KP15 bi-6 polar paths.
 ///
 /// # Output shape

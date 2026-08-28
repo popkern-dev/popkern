@@ -1,4 +1,4 @@
-//! Phase H — extract Hermite data for the hex-edge corners of
+//! Extract Hermite data for the hex-edge corners of
 //! every sub-patch's guide surface.
 //!
 //! Each sub-patch `k` has three non-central corners on the hex

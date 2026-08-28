@@ -4,7 +4,7 @@
 //! agreement with finite differences, and the twist-compatibility
 //! property at corners. The fillet-side construction (extracting
 //! `inner_cps` from incident blend strips) is exercised in the
-//! Phase 3 commits; these tests use canned CPs representing a
+//! fillet-integration commits; these tests use canned CPs representing a
 //! mildly-warped bicubic patch so we can independently verify the
 //! maths.
 

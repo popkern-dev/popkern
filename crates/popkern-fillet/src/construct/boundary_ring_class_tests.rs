@@ -17,7 +17,7 @@ use super::*;
 /// recut generalization this fixture declined with "strip surface
 /// has no rail direction" and served the mitred fallback.
 #[test]
-fn pk237_variable_radius_saddle_serves_boundary_ring() {
+fn variable_radius_saddle_serves_boundary_ring() {
     let (brep, vertex) = build_notched_cube()
         .expect("notched-cube boolean fixture must build (PK-231: no more silent skips)");
     let incident_edges: Vec<_> = {

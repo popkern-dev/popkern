@@ -172,7 +172,7 @@ fn build_smooth_blend(
         return Ok(result);
     }
 
-    // §5.3 Round 5 polar-NURBS fallback — works for any N ≥ 2.
+    // §5.3 polar-NURBS fallback — works for any N ≥ 2.
     // Rational-Gregory dispatch happens upstream in
     // `blend_insert::insert_vertex_blend` before this function.
     let _ = n_fillets;
@@ -197,7 +197,7 @@ fn build_smooth_blend(
 /// the vertex position; the outer ring traces the N boundary
 /// curves at arc-length-uniform spacing.
 ///
-/// **Interior step (§5.3 Round 5 C4).** For a degree-2 Bezier in
+/// **Interior step (§5.3).** For a degree-2 Bezier in
 /// the radial direction with control points `[pole P_0, interior
 /// P_1, boundary P_2]`, the surface curvature at the boundary is
 /// `κ = |n̂ × (v_pos − P_2)| / (2 · step²)` where `step = |P_2 − P_1|`.

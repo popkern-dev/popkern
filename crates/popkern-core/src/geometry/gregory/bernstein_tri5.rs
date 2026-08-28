@@ -1,4 +1,4 @@
-//! Phase I — Triangular total-degree-5 Bernstein-Bézier basis +
+//! Triangular total-degree-5 Bernstein-Bézier basis +
 //! partials.
 //!
 //! Used by the K-P 2013 biquintic polar construction to represent

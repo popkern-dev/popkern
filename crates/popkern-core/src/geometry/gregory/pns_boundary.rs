@@ -1,4 +1,4 @@
-//! Phase IV PnS — Tensor-border input + `b ∘ β` boundary evaluator.
+//! PnS cap — Tensor-border input + `b ∘ β` boundary evaluator.
 //!
 //! The PnS n-gon cap consumes a ring of **bi-2 tensor-border**
 //! strips — one per sector — representing the position and first

@@ -263,7 +263,7 @@ fn to_monomial_vec3_roundtrip_matches_evaluate() {
 
 #[test]
 fn kp15_eq2_identity_zeros_at_u0_with_rule_s1_p01() {
-    // Phase A cross-derivation [KP15 §3.4, eq (2)] with the
+    // The Bernstein-toolkit stage cross-derivation [KP15 §3.4, eq (2)] with the
     // paper-prescribed choice `a := -1, b := 2c(1-u)²` (lines 116
     // and 152 of `docs/papers/15bi6g2.txt`). The identity then
     // reads, at the shared boundary v = 0:
@@ -275,7 +275,7 @@ fn kp15_eq2_identity_zeros_at_u0_with_rule_s1_p01() {
     // unit basis values for the previous sector's p̀_{ij}, plug
     // rule_s1's ṕ_{01} formula into the current sector, and
     // confirm the resulting polynomial is zero at u = 0. This is
-    // a positive control on the Phase A bernstein_poly toolkit:
+    // a positive control on the Bernstein-toolkit stage bernstein_poly toolkit:
     // any sign error in `differentiate`, `degree_elevate`,
     // `bernstein_product_scalar`, or `to_monomial_coefficients`
     // would surface here as a nonzero constant term.

@@ -1,4 +1,4 @@
-//! §5.3 item #3 extended — Phase 8 measure scorecard.
+//! §5.3 item #3 extended — sub-patch family measure scorecard.
 //!
 //! Quantifies the improvement of Karciauskas-Peters biquintic-full
 //! (with spoke-G1 solver) over the baseline deg5 Gregory along the
@@ -182,7 +182,7 @@ fn summarize(label: &str, samples: &[SampleAgreement]) -> (f64, f64) {
     (min_cos, max_angle)
 }
 
-/// Phase 8 scorecard: produce side-by-side numbers for deg5 vs
+/// Sub-patch family scorecard: produce side-by-side numbers for deg5 vs
 /// biquintic-full on the three-quad cube-corner fixture when the
 /// rectangular decomposition is committed. The current macro-cap route
 /// can own the corner as one logical Gregory patch; in that case this

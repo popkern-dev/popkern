@@ -1,14 +1,14 @@
-//! Phase 6c-direct-apex validation — `validate_all` matrix under direct-apex dispatch.
+//! Direct-apex validation — `validate_all` matrix under direct-apex dispatch.
 //!
 //! Locks in the commercial-grade apex-cap quality of direct-apex (per
 //! ADR §6c-direct-apex and §6c-X.A.6's metric breakdown).  Runs the same
-//! six-fixture matrix that `phase_6c_a6_validation` uses, but with
+//! six-fixture matrix that `apex_relocation_metrics` uses, but with
 //! `FilletOptions::use_direct_apex_construction = true`.  Active
 //! matrix fixtures must all complete through native DirectApex:
 //!
 //! * **Uniform fixtures** (`cube_uniform`, `pyramid3_uniform`,
 //!   `pyramid4_uniform`) — direct-apex succeeds end-to-end, no
-//!   `BlendWarning::DirectApexFellBackToLegacy`.  The planner keeps
+//!   `BlendWarning::DirectApexFellBackToVertexBlend`.  The planner keeps
 //!   Sphere only for trihedral collapsed targets whose cap boundary
 //!   is constructively valid; higher-valence uniform apices use
 //!   Gregory to preserve cap-to-cylinder geometry.
@@ -28,7 +28,7 @@
 //!   cap/support seams measure at commercial tolerance end to end.
 //!
 //! Either way: every fixture must pass the A.6 metric gate
-//! (`structural == 0`, `path_a_relevant == 0`).  This is the
+//! (`structural == 0`, `apex_rebuild_relevant == 0`).  This is the
 //! commercial-grade flip-gate's strictest form: under the new DirectApex
 //! architecture, the existing matrix doesn't regress.
 
@@ -125,9 +125,9 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             case.name,
             fallbacks,
             m.structural,
-            m.path_a_relevant,
+            m.apex_rebuild_relevant,
             m.other_geometric,
-            m.worst_path_a_gap,
+            m.worst_apex_rebuild_gap,
         );
         assert_eq!(
             fallbacks,
@@ -158,9 +158,9 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
         );
         if case.expected_fallbacks == 0 {
             assert_eq!(
-                m.path_a_relevant,
+                m.apex_rebuild_relevant,
                 0,
-                "[{}] native direct-apex path_a_relevant must be 0; errors:\n{}",
+                "[{}] native direct-apex apex_rebuild_relevant must be 0; errors:\n{}",
                 case.name,
                 errors
                     .iter()
@@ -199,7 +199,7 @@ fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
     );
 }
 
-/// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex
+/// The commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex
 /// dispatch. Gregory fixtures may complete through native direct-apex only
 /// when their cap topology exposes measurable cap-to-cylinder seams
 /// within the accepted positional boundary tolerance.
@@ -261,7 +261,7 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
 }
 
 /// Collapsed trihedral Sphere fixtures that should remain native Sphere under DirectApex
-/// (no `DirectApexFellBackToLegacy`).  Uniform pyramid cases are covered by
+/// (no `DirectApexFellBackToVertexBlend`).  Uniform pyramid cases are covered by
 /// separate native gates because the planner may choose Gregory when
 /// the collapsed Sphere target loop is not constructively anchored.
 #[test]
@@ -281,7 +281,7 @@ fn direct_apex_5_native_sphere_cap_set() {
         let fallbacks = count_direct_apex_fallbacks(&result);
         assert_eq!(
             fallbacks, 0,
-            "[{}] expected native direct-apex dispatch (Sphere cap); got {} DirectApexFellBackToLegacy warning(s) — \
+            "[{}] expected native direct-apex dispatch (Sphere cap); got {} DirectApexFellBackToVertexBlend warning(s) — \
              direct-apex build.f Sphere-cap regression?",
             case.name, fallbacks,
         );

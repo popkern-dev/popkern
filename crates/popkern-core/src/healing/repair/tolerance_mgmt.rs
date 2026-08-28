@@ -82,7 +82,7 @@ pub fn suggest_tolerance(brep: &BRep, edge: EdgeHandle) -> Option<f64> {
 pub fn enforce_tolerance_hierarchy(brep: &mut BRep) -> Vec<ToleranceAdjustment> {
     let mut adjustments = Vec::new();
 
-    // Phase 1: edge tolerance >= face tolerance.
+    // Edge tolerance >= face tolerance.
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     for fh in face_handles {
         let face_tol = brep.face_tolerance(fh);
@@ -123,7 +123,7 @@ pub fn enforce_tolerance_hierarchy(brep: &mut BRep) -> Vec<ToleranceAdjustment> 
         }
     }
 
-    // Phase 2: vertex tolerance >= edge tolerance.
+    // Vertex tolerance >= edge tolerance.
     let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
     for eh in edge_handles {
         let edge_tol = brep.edge_tolerance(eh);

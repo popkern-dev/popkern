@@ -100,7 +100,7 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
     let m = sys.num_equations;
     let n = sys.num_params;
 
-    // Phase 1: compute per-constraint status into a temporary vec (read-only).
+    // Compute per-constraint status into a temporary vec (read-only).
     let mut status_updates: Vec<(ConstraintHandle, ConstraintStatus)> = Vec::new();
     let mut row_offset: usize = 0;
     for (handle, entry) in sketch.constraints.iter() {
@@ -147,7 +147,7 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
         row_offset += neq;
     }
 
-    // Phase 2: apply statuses (mutable).
+    // Apply statuses (mutable).
     for (handle, status) in &status_updates {
         if let Some(entry) = sketch.constraints.get_mut(*handle) {
             entry.status = *status;

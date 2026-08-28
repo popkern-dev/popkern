@@ -301,8 +301,9 @@ pub(super) fn rehome_spur_tip(
     }
     let spur_out = spur_out?;
     let pos = brep.vertices.get(tip)?.position;
-    let host =
-        super::phase_split::find_face_containing_vertices(brep, sub_faces, partner, partner)?;
+    let host = super::face_trim_pipeline::find_face_containing_vertices(
+        brep, sub_faces, partner, partner,
+    )?;
     // Nearest boundary origin on the host face.
     let fd = brep.faces.get(host)?;
     let mut loops = vec![fd.outer_loop];
@@ -372,7 +373,7 @@ pub(super) fn descendant_holders(
         .collect()
 }
 
-/// Round 5r+: given two candidate descendant faces `f_a`/`f_b`,
+/// Given two candidate descendant faces `f_a`/`f_b`,
 /// pick the one that descends from `desired_parent`.
 ///
 /// "Descends" is checked by surface identity: sub-faces created

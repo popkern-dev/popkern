@@ -1,4 +1,4 @@
-//! Phase I.11.d.2 — Characteristic map `χ` for the KP13 bi-5 LSQ.
+//! Characteristic map `χ` for the KP13 bi-5 LSQ.
 //!
 //! KP13 §3 eq (4) minimises `Σ_k Σ_{t ∈ {m_k, v_k}} ‖H_t(g△^k ∘ χ^k)
 //! − H_t(b^k)‖²` over free BB-coefs of `g△`. Evaluating the

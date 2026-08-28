@@ -1,4 +1,4 @@
-//! Phase I.7 — K-P 2015 bi-6 Rule (S3) per [KP15 eq (9)].
+//! K-P 2015 bi-6 Rule (S3) per [KP15 eq (9)].
 //!
 //! Separated from [`kp15_bi6_rules`](super::kp15_bi6_rules)
 //! because the Rule (S3) input struct is large (17 BB-CPs) and

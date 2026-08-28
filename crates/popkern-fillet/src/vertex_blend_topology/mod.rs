@@ -2,7 +2,7 @@
 //!
 //! Historical context: this module once carried the full route-B
 //! apex-region rebuild stack (plan → mef-execute → lens-collapse,
-//! Phase 6c-C, `docs/decisions/2026-04-28-phase-6c-c-topology-design.md`).
+//! see `docs/decisions/2026-04-28-phase-6c-c-topology-design.md`).
 //! Route-B corner reconstruction replaced the anchor-hexagon cap
 //! anatomy that machinery was built to clean up, leaving it
 //! unreachable from any production path; it was retired with

@@ -1,4 +1,4 @@
-//! Phase I.10c — bridge from [`PolarBoundaryInput`] +
+//! Bridge from [`PolarBoundaryInput`] +
 //! [`TensorBorder`] (I.4) to [`Bi6CapInput`] (I.10).
 //!
 //! This module closes the I.4 → I.10 API gap: given the *shape*
@@ -83,7 +83,7 @@ pub fn convert_polar_to_bi6_cap_input(
 
     // Per-sector circulant RHS.
     //
-    // **Phase E.1 attempted and reverted (2026-06-22):** The plan
+    // **Polar-bridge equality rows attempted and reverted (2026-06-22):** The plan
     // calls for (S1) propagation here — sector 0's `p_01, p_11,
     // p_02` as the free seed, sectors k ≥ 1 derived via
     // `rule_s1_star_propagation`. Measurement showed the eq (2)
@@ -133,7 +133,7 @@ pub fn convert_polar_to_bi6_cap_input(
     // Cap-net: c7 is the central vertex. c5s, c6s are sampled
     // along each spoke at t = 1/3 and t = 2/3 respectively.
     //
-    // **Phase E.1 second attempt and reverted (2026-06-22):**
+    // **Polar-bridge equality rows, second attempt and reverted (2026-06-22):**
     // overwriting every sector's `p_00` with `catmull_clark_star_
     // point(n, c7, c5s, c6s)` (so `CirculantSectorRhs.p_00` matches
     // what the cap assembly will use as `grid[0][0]`) shifts the
@@ -144,7 +144,7 @@ pub fn convert_polar_to_bi6_cap_input(
     // and the cap's `star = catmull_clark_star_point(...)`) — but
     // resolving it cleanly belongs in a deeper refactor that also
     // adds cross-sector `p^k_{i, 0} = p^0_{i, 0}` identifications
-    // as constraint rows in M (see Phase E to-be-revised).
+    // as constraint rows in M (see the table-closure ADR, to be revised).
     let c7 = polar.central_vertex;
     let mut c5s = Vec::with_capacity(n);
     let mut c6s = Vec::with_capacity(n);

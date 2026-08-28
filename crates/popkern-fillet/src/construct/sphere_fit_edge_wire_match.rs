@@ -12,17 +12,17 @@ pub(super) fn build_wire_worklist(
     segment_curves: &[&NurbsCurve],
     segment_endpoints: &[[Point3; 2]],
     tol: f64,
-    stage4_wide_tol: bool,
+    sphere_fit_wide_tol: bool,
 ) -> Vec<WireJob> {
-    // Phase A — assignment scan: for each cap sub-face's outer-loop
+    // Assignment scan: for each cap sub-face's outer-loop
     // half-edge, find the best matching segment (proximity, with
     // the wider tolerance). Build a worklist of
     // `(he, seg_idx, reversed, target_p_origin, target_p_dest)`.
     // We do NOT mutate during the scan so the matching sees
     // pre-relocation positions consistently.
     //
-    // Phase 6c-D Stage 4: when injection is active, allow multiple
-    // sub-edges to share a single segment (`stage4_wide_tol`). The
+    // When injection is active, allow multiple
+    // sub-edges to share a single segment (`sphere_fit_wide_tol`). The
     // cap face's outer loop after sliver-absorb topology surgery
     // can have 5+ sub-edges along a single logical boundary
     // (FilletEnd[k] / FaceEdge[k]); the original "consume each
@@ -33,9 +33,9 @@ pub(super) fn build_wire_worklist(
     // tolerated since downstream consumers (validation, pcurve
     // refit) operate on the curve geometry, not the vertex-to-
     // curve-endpoint identity.
-    let allow_multi_sub_edge = stage4_wide_tol;
+    let allow_multi_sub_edge = sphere_fit_wide_tol;
     let trace_match = std::env::var_os("POPKERN_WIRE_MATCH_TRACE").is_some();
-    // Phase 6c-D Stage 4.6: when injection is active, restrict
+    // When injection is active, restrict
     // matching to each sub-face's semantic cap index. cap[j]
     // gets row 0 = FilletEnd[j] (segment 2j) and col 9 =
     // FaceEdge[j] (segment 2j+1). Twin face surface kind tells
@@ -53,10 +53,10 @@ pub(super) fn build_wire_worklist(
     // equidistant. Rewritten exact-boundary loops can also rotate
     // vector order away from boundary order, so callers provide
     // cylinder/sphere identity when available.
-    let constrained_by_cap_index = stage4_wide_tol;
+    let constrained_by_cap_index = sphere_fit_wide_tol;
     let mut consumed = vec![false; segment_curves.len()];
     let mut worklist: Vec<WireJob> = Vec::new();
-    // Phase 6c-D Stage 4.3: cap-face set for cap-vs-cap edge
+    // Cap-face set for cap-vs-cap edge
     // detection. The cap face's surface at wire time is NurbsSurface
     // (Gregory assignment happens AFTER wire in the pipeline), so
     // we can't filter by surface kind. Identify cap faces by
@@ -86,7 +86,7 @@ pub(super) fn build_wire_worklist(
             };
             let v_dest = next_he_data.origin;
 
-            // Phase 6c-D Stage 4.3: skip cap-vs-cap edges (twin
+            // Skip cap-vs-cap edges (twin
             // face is in `sub_faces`, i.e., another cap face).
             // They aren't FilletEnd or FaceEdge boundaries —
             // they're inner spokes / shared cap edges between
@@ -127,7 +127,7 @@ pub(super) fn build_wire_worklist(
             let p_origin = origin_vertex.position;
             let p_dest = dest_vertex.position;
 
-            // Phase 6c-D Stage 4.2 — matching strategy:
+            // Matching strategy:
             //
             // * Default (`allow_multi_sub_edge = false`): endpoint-sum
             //   matching. Each segment matches at most one sub-edge,
@@ -149,7 +149,7 @@ pub(super) fn build_wire_worklist(
             //   FilletEnd segment.
             let mut best: Option<(usize, f64, bool)> = None;
             if constrained_by_cap_index {
-                // Phase 6c-D Stage 4.6: route by semantic cap index
+                // Route by semantic cap index
                 // + twin surface kind. sub_face owns segments
                 // {2j, 2j+1}; twin face kind picks parity.
                 let semantic_cap_k = semantic_cap_indices

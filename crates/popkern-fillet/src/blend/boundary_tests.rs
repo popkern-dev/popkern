@@ -63,7 +63,7 @@ fn blend_boundary_two_fillets() {
     assert!(result.is_ok(), "blend boundary failed: {:?}", result.err());
 
     let boundary = result.expect("already checked");
-    // §5.3 Round 8 C1: `compute_blend_boundary` emits alternating
+    // §5.3: `compute_blend_boundary` emits alternating
     // FilletEnd / FaceEdge segments on planar-face vertices. The
     // test's synthetic plane fillets may or may not trigger the
     // bridge path depending on the cube-face projection, so the

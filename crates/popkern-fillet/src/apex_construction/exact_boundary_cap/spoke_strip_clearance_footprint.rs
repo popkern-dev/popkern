@@ -157,7 +157,7 @@ pub(super) fn arc_windows(
 /// clearance zone covers. The FAR half of the strip is untrustworthy
 /// mid-candidate — its true trim is the oblique end section that
 /// `strip_end_arcs` authors only in the post-pipeline, so at spoke
-/// time the far boundary is still the Phase C incoherent state
+/// time the far boundary is still the consumed-merge stage incoherent state
 /// (measured pyramid4_mixed: far-side "dips" at v beyond the real far
 /// trim, blessed by the honest validator, regressed hover/repair pins
 /// when corrected). The corner band is where the class this pass

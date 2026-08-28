@@ -110,7 +110,7 @@ pub(crate) fn emit_overlap_remediation_warning(
     }
 }
 
-/// Phase H.8 step-D — emit one
+/// emit one
 /// [`BlendWarning::CornerContinuityRelaxed`] when any sub-patch's
 /// `relaxed_continuity_coplanarity` is `Some`. One warning per
 /// vertex; the worst coplanarity across sub-patches is reported.

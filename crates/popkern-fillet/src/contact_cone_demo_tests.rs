@@ -1,4 +1,4 @@
-//! Phase 1a acceptance demo: fillet the base edge of a cone (where
+//! Cone-base walker acceptance demo: fillet the base edge of a cone (where
 //! the lateral cone surface meets the planar cap). Before phase 1a
 //! this was impossible — `offset/analytic.rs:88` errors out on cones,
 //! so `find_center_point_at_radius` failed before the topology pass
@@ -129,7 +129,7 @@ fn fillet_edge_on_cone_base_does_not_crash_pipeline() {
     // shared base-circle edge. Find the base-circle edge handle and
     // call `fillet_edges` on it.
     //
-    // Phase 1a acceptance: this used to be impossible because
+    // Cone-base walker acceptance: this used to be impossible because
     // `offset/analytic.rs:88` errors out on cones, killing the
     // pipeline before the topology pass could run. With the contact
     // solver wired into `find_center_point_at_radius`, the cone path
@@ -178,7 +178,7 @@ fn fillet_edge_on_cone_base_does_not_crash_pipeline() {
         None,
     );
 
-    // Phase 1a acceptance: the pipeline must not return a cone-
+    // Cone-base walker acceptance: the pipeline must not return a cone-
     // offset error message. Either Ok (best case — phase 1b pipe
     // is also working) or Err with a different reason (typically
     // RadiusTooLarge from the new contact-solver feasibility check)
@@ -203,7 +203,7 @@ fn fillet_edge_on_cone_base_does_not_crash_pipeline() {
 
 #[test]
 fn fillet_edge_on_cone_base_at_feasible_radius_is_fast() {
-    // Phase 1b acceptance: with the spine walker wired into the
+    // Walker-integration acceptance: with the spine walker wired into the
     // cone path, a fillet at a feasible radius on a unit cone must
     // complete in well under 5 seconds (the phase-1a version of
     // this test took 280+ seconds and was therefore deleted).
@@ -400,7 +400,7 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
 
 #[test]
 fn fillet_edge_on_cone_with_g2_cross_section_routes_through_g2_sweep() {
-    // Phase 2 acceptance: passing FilletOptions::g2_cross_section = true
+    // G2 cross-section acceptance: passing FilletOptions::g2_cross_section = true
     // through fillet_edges on a cone (which exercises the spine-walker
     // path) routes the surface assembly through g2_sweep_from_contact_solutions.
     // The pipeline must not crash and must not regress the cone-offset

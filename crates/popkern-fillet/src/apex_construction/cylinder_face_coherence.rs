@@ -1,10 +1,10 @@
-//! Phase 6c-DirectApex.4 option 2 — cylinder face outer-loop coherence
+//! the sphere-fit edge-wiring workirectApex.4 option 2 — cylinder face outer-loop coherence
 //! detector and (eventually) repairer.
 //!
 //! Per ADR §25 the post-Phase-C BRep on variable-radius cube
 //! fixtures (cube_mixed, cube_extreme) has cylinder faces whose
 //! outer-loop vertices aren't all on the cylinder's stored
-//! surface — Phase C's `merge_consumed_faces_any` "longest
+//! surface — the consumed-merge stage's `merge_consumed_faces_any` "longest
 //! descendant" heuristic picks the wrong consumed-face pair, so a
 //! single cylinder face's loop walks across what would be other
 //! fillets' natural trim segments.
@@ -129,7 +129,7 @@ fn radial_distance_to_axis(p: &Point3, origin: Point3, axis: Vec3) -> f64 {
 }
 
 /// Format a list of incoherent cylinder faces into a single error
-/// message suitable for `BlendWarning::DirectApexFellBackToLegacy`'s
+/// message suitable for `BlendWarning::DirectApexFellBackToVertexBlend`'s
 /// reason field.  Mentions the worst offender (largest radial
 /// mismatch) and the total count.
 pub(crate) fn describe_incoherence(report: &[IncoherentCylinderFace]) -> String {
@@ -153,7 +153,7 @@ pub(crate) fn describe_incoherence(report: &[IncoherentCylinderFace]) -> String 
     }
     format!(
         "{} cylinder face(s) have {} off-cyl outer-loop vertex(ices); worst offender {:?} \
-         (r={:.4}) has a vertex {:.4} m off-surface — Phase C `merge_consumed_faces_any` \
+         (r={:.4}) has a vertex {:.4} m off-surface — the consumed-merge stage `merge_consumed_faces_any` \
          heuristic produced an incoherent loop; DirectApex.4 option 2 (rebuild cyl-face loops) \
          needed to proceed",
         report.len(),

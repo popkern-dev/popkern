@@ -247,7 +247,7 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     // pieces now computes (walker + exact-pair fallback + center
     // curves trimmed to the edge span — the padded carrier-line
     // twist class is fixed), and the transactional apply surfaces
-    // the remaining APPLY-phase wall: Phase A/multi-chord still
+    // the remaining APPLY-phase wall: the anchor-split/multi-chord stages still
     // assume straight cube-like neighborhoods on curved supports —
     // measured classes: tangent-offset anchors missed curved edges
     // (curve-aware split fallback landed, 2 edges advanced),

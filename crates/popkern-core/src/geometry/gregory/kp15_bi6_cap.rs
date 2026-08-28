@@ -1,4 +1,4 @@
-//! Phase I.10a — bi-6 polar cap scaffolding.
+//! Bi-6 polar cap scaffolding.
 //!
 //! Assembles N bi-6 patches per the K-P 2015 polar construction
 //! ([KP15 §3.6] algorithm) given:
@@ -98,7 +98,7 @@ pub struct Bi6CapOutput {
     /// Per-sector bi-6 CP grids `[i, j] ∈ 0..7 × 0..7`.
     pub patches_bi6: Vec<[[Point3; 7]; 7]>,
     /// Per-sector bi-9 CP grids (degree-elevated for output
-    /// uniformity with Phase H rectangular path).
+    /// uniformity with the bi-9 cap campaign rectangular path).
     pub patches_bi9: Vec<[[Point3; 10]; 10]>,
 }
 
@@ -327,7 +327,7 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
     })
 }
 
-/// Phase E.3 production-side entry point — assemble a bi-6 polar
+/// Production-side entry point — assemble a bi-6 polar
 /// cap via the [KP15] constraint-matrix table with per-coordinate
 /// F_κ minimisation over the deep-interior BB-coefs.
 ///

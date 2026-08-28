@@ -1,4 +1,4 @@
-//! Phase I.11e.1 — Free-parameter representation of `g△` and the
+//! Free-parameter representation of `g△` and the
 //! builder that threads the KP13 §3 / KP09a §2.3 pipeline.
 //!
 //! The KP13 LSQ (eq 4) minimises the boundary-fit residual over the

@@ -111,7 +111,7 @@ fn curves_intersect(a: &NurbsCurve, b: &NurbsCurve, tolerance: &Tolerance) -> bo
     // trim endpoint by construction — that contact is not an overlap,
     // and feeding the near-tangent pair to the NURBS×NURBS
     // intersector explodes its Bezier subdivision (measured: the
-    // 6-edge boss-wall chain hung Phase 3 for minutes once all six
+    // 6-edge boss-wall chain hung the DetectOverlaps stage for minutes once all six
     // edges computed trims). A genuine crossing between two trims
     // that ALSO share an endpoint is out of this detector's scope —
     // the strip-interference region test covers overlapping strips
@@ -130,7 +130,7 @@ fn curves_intersect(a: &NurbsCurve, b: &NurbsCurve, tolerance: &Tolerance) -> bo
 
     // Cost boundary: the exact NURBS×NURBS intersector (Bezier
     // decomposition + clipping) explodes on near-tangent fitted
-    // trim pairs (measured: minutes inside Phase 3 on a 6-edge
+    // trim pairs (measured: minutes inside DetectOverlaps on a 6-edge
     // boss-wall chain). This detector only answers a boolean for a
     // WARNING, so exact intersection is reserved for cheap degree-1
     // pairs; everything heavier uses the bounded sampled check.

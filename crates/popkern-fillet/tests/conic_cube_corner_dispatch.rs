@@ -2,7 +2,7 @@
 //! legacy N-form dispatch gate.
 //!
 //! Uniform conic and variable-radius cube corners collapse their
-//! arc+bridge pairs during Phase 2a, so the blend face physically
+//! arc+bridge pairs during the cross-face kef pass, so the blend face physically
 //! carries the N = 3 half-edge loop. The legacy dispatch demanded the
 //! 2N form there ("outer_half_edges=Some(3), expected 3 or 6") and
 //! starved the whole rational route: these corners shipped the

@@ -1,4 +1,4 @@
-//! Phase I.11b — Karčiauskas-Peters 2009 C¹/C² inter-sector
+//! Karčiauskas-Peters 2009 C¹/C² inter-sector
 //! connectivity for `g△`.
 //!
 //! Paper: [KP09a] K. Karčiauskas & J. Peters (2009), "Assembling

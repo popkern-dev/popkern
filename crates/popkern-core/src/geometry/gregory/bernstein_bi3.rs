@@ -1,4 +1,4 @@
-//! Phase IV — Degree-3 Bernstein basis + derivatives through 3rd
+//! Degree-3 Bernstein basis + derivatives through 3rd
 //! order. The tensor-product of two instances produces a bi-cubic
 //! (bi-3) patch — the output primitive of the Polyhedral-Net Splines
 //! (PnS) n-gon construction (`docs/papers/14bi234.pdf` §4.2,

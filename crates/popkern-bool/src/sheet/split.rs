@@ -1,9 +1,9 @@
-//! Half-space split of a closed solid by a plane (planar Phase 1 of §2.3).
+//! Half-space split of a closed solid by a plane (the planar arm of §2.3).
 //!
 //! [`split_solid_by_plane`] produces up to two closed sub-solids from a
 //! single input solid and an infinite cutting plane, using two opposing
 //! cutting boxes and the existing boolean subtraction path. Curved
-//! sheets require the Phase 2 connected-component approach in
+//! sheets require the connected-component approach in
 //! [`crate::sheet::split_curved`].
 
 use popkern_core::topology::BRep;

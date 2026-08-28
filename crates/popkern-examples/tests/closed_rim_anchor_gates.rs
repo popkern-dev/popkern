@@ -114,7 +114,7 @@ fn closed_rim_serves_pass_the_occ_oracle() {
         eprintln!("[pk344-occ] OCP venv absent — leg skipped");
         return;
     }
-    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pk344_occ");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("occ");
     std::fs::create_dir_all(&dir).expect("dir");
 
     let mut bodies: Vec<(&str, BRep)> = Vec::new();
@@ -198,7 +198,7 @@ fn render_pk344_bracket_max_grow() {
         near: 0.01,
         far: 100.0,
     };
-    let path = out_dir.join("pk344_bracket_max_grow.png");
+    let path = out_dir.join("bracket_max_grow.png");
     popkern_viz::headless::render_to_png(&grown, &camera, 800, 600, &path, true).expect("render");
 }
 

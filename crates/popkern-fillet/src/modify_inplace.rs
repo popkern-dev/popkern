@@ -3,9 +3,9 @@
 //! instead of unfillet+refillet, just move the contact vertices,
 //! rebuild touching edges, and update the fillet face's surface.
 //!
-//! - Round 5d-2: closed plane-cylinder annulus
+//! - closed plane-cylinder annulus
 //!   ([`modify_closed_in_place`])
-//! - Round 5d-3: open plane-plane fillet
+//! - open plane-plane fillet
 //!   ([`modify_open_in_place`])
 
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -273,7 +273,7 @@ pub fn modify_open_in_place(
     modify_open_in_place_general(brep, fillet_face, new_radius, new_radius, None)
 }
 
-/// Variable-radius variant of [`modify_open_in_place`] (Round 5h).
+/// Variable-radius variant of [`modify_open_in_place`] .
 /// Moves the start-end corners to distance `r_start` from the
 /// start sharp-edge endpoint and the end-end corners to distance
 /// `r_end` from the end sharp-edge endpoint. The fillet face's
@@ -290,7 +290,7 @@ pub fn modify_open_in_place_variable(
     modify_open_in_place_general(brep, fillet_face, r_start, r_end, None)
 }
 
-/// Round 5m: ByPoints variant of the in-place open path. The
+/// ByPoints variant of the in-place open path. The
 /// corners are positioned by the radii at parameters 0 and 1
 /// (matching the perp-split convention used for `Constant` and
 /// `Variable`), and the fillet surface is built as a NURBS sweep
@@ -382,11 +382,11 @@ fn modify_open_in_place_general(
     // Reassign the fillet face surface.
     //   - ByPoints (closure provided) → tensor-product NURBS sweep
     //     driven by the piecewise-linear closure over the full
-    //     points list. Round 5m.
+    //     points list. (ByPoints in-place path.)
     //   - Variable (no closure, r_start ≠ r_end) → linear-interp
-    //     NURBS sweep. Round 5i.
+    //     NURBS sweep. (variable in-place path.)
     //   - Constant (no closure, r_start == r_end) → analytic torus
-    //     matching `try_plane_plane_analytic`. Round 5d-3.
+    //     matching `try_plane_plane_analytic`. (open plane-plane in-place path.)
     let sweep_inputs = VariableSweepInputs {
         p_start: plan.restored_edge_start,
         p_end: plan.restored_edge_end,

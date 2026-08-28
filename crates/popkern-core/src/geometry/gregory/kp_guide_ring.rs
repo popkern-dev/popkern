@@ -1,4 +1,4 @@
-//! Phase H — ring-wide guide-surface assembly.
+//! Ring-wide guide-surface assembly.
 //!
 //! Composes the piecewise Hermite extractors from H.4.c.2–4 into
 //! one [`KpGuidePatch`] per sub-patch:

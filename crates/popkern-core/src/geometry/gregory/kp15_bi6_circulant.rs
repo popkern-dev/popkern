@@ -1,4 +1,4 @@
-//! Phase I.8 — K-P 2015 bi-6 circulant system solvers.
+//! K-P 2015 bi-6 circulant system solvers.
 //!
 //! Paper: [KP15 §3.4] (transcribed in `docs/journal/polar-kp-math.md`
 //! §2.2). After rules (S1) pins `ṕ_{00..02}` and (S2) gives the

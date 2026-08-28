@@ -20,7 +20,7 @@ const UV_3D_ERROR_TOL: f64 = 0.1;
 
 /// Apply trim clipping to a mesh, returning new vertices and triangles.
 ///
-/// Phase 1: classifies each triangle as INSIDE, OUTSIDE, or BOUNDARY.
+/// Classifies each triangle as INSIDE, OUTSIDE, or BOUNDARY.
 /// INSIDE triangles are kept, OUTSIDE are discarded, and BOUNDARY triangles
 /// are clipped against the trim polyline segments. Phase 2 propagates edge
 /// splits into neighboring INSIDE triangles to prevent T-junctions.
@@ -36,7 +36,7 @@ pub(crate) fn apply_trim(
     // Map from canonical edge (min, max) to inserted split vertex indices.
     let mut edge_splits: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
 
-    // Phase 1: classify and process each triangle.
+    // Classify and process each triangle.
     for tri in triangles {
         let tri_uv = [
             vertices[tri[0]].uv,
@@ -67,7 +67,7 @@ pub(crate) fn apply_trim(
         }
     }
 
-    // Phase 2: T-junction prevention.
+    // T-junction prevention.
     // Re-triangulate INSIDE triangles that share split edges.
     let inside_tris: Vec<[usize; 3]> = new_tris
         .iter()

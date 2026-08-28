@@ -103,7 +103,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     }
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     //
-    // Phase 6c-D Stage 4.5: protect substituted-boundary cap faces
+    // Protect substituted-boundary cap faces
     // from absorption.  When sphere-fit injection has fired, each
     // cap's outer loop is the canonical 3-edge per-fillet topology
     // that the injected `hex_boundaries[k]` describes; absorbing
@@ -273,7 +273,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Phase 6c-D Stage 4.4: re-run the substituted-boundary wire
+    // Re-run the substituted-boundary wire
     // step now that sliver_absorb and cap_insert have settled the
     // cap-face outer-loop topology. The wire originally runs
     // mid-pipeline (inside `three_quad_apply`) and only sees the
@@ -303,7 +303,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Phase 6c-D Stage 4.7: lift legacy apex-region pyramid Plane
+    // Lift legacy apex-region pyramid Plane
     // faces to curved NURBS surfaces where late-wire jobs own the
     // substituted bridge. Exact-boundary sectors keep their original
     // production support faces; measured pcurve repair handles their
@@ -317,7 +317,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Phase 6c-X.A.4: relocate apex vertices to match the substituted
+    // Relocate apex vertices to match the substituted
     // boundary's termination points T.  After A.3 (full-range wire),
     // every cap-loop edge's curve agrees on T at each apex vertex;
     // this pass moves the BRep vertex to T.  After A.4, the
@@ -329,13 +329,13 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             let (n_moved, worst) =
                 apex_vertex_coherence::relocate_apex_vertices(result, sub_faces, boundary);
             determinism_trace("post_relocate", result);
-            // Phase 6c-X.A.5: rebuild BASE-EDGE curves (cyl-vs-Plane
+            // Rebuild BASE-EDGE curves (cyl-vs-Plane
             // apex generators going AWAY from the apex through V) as
             // straight lines from the new V→T position to v_other.
             // Restores vertex↔curve coherence on the BASE-EDGE side.
             let n_repaired = apex_vertex_coherence::repair_base_edges(result, sub_faces);
             determinism_trace("post_repair_base", result);
-            // Phase 6c-X.A.5b: realign cap-loop edges' curve direction
+            // Realign cap-loop edges' curve direction
             // to match BRep convention (curve(t_start) =
             // primary_origin's vertex position).  Validate_watertight
             // demands this strict alignment; the wire's stored

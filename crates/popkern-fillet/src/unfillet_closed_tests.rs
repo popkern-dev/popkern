@@ -12,7 +12,7 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Round-trip test for Round 5c-4: fillet a cylindrical hole rim,
+/// Round-trip test for closed-fillet round-tripping: fillet a cylindrical hole rim,
 /// then unfillet it. The result should restore the same face,
 /// vertex, and edge count as the pre-fillet input.
 #[test]

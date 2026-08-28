@@ -255,7 +255,7 @@ pub fn variable_radius_center_curve(
 
 /// Build a center curve for an arbitrary local-radius profile
 /// `radius_at(t)` where `t` ranges over `[0, 1]` along the sharp
-/// edge. Round 5l: ByPoints uses this with a piecewise-linear
+/// edge. ByPoints uses this with a piecewise-linear
 /// closure so the full profile (not just the endpoint radii)
 /// drives the rolling-ball center curve and footprints.
 #[allow(clippy::too_many_arguments)]
@@ -373,7 +373,7 @@ pub fn bypoints_local_radius(pts: &[(f64, f64)], t: f64) -> f64 {
 /// normals, etc.) we still fall through to offset-intersect so the
 /// caller gets the historical error message.
 ///
-/// This is phase 1a of the contact-solver integration. Phase 1b will
+/// This is the first slice of the contact-solver integration; the walker stage will
 /// route more aggressively via a spine walker; phase 1d will let the
 /// caller force the contact solver path even on analytic pairs.
 #[allow(clippy::too_many_arguments)]

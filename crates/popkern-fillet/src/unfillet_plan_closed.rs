@@ -1,7 +1,7 @@
 //! Closed-rim unfillet planning (PK-180).
 //!
 //! `unfillet_face` has executed closed-rim (plane–cylinder annulus)
-//! unfillets since Round 5c-4, but `compute_unfillet_plan` declined
+//! unfillets since the closed-fillet unfillet work, but `compute_unfillet_plan` declined
 //! every curved support, so the preview/plan API could not describe
 //! the very blends the surgery restores. This module derives the
 //! plan analytically from the same support classification the

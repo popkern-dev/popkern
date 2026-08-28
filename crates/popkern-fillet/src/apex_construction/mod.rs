@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex — Direct sphere-fit apex construction.
+//! Direct sphere-fit apex construction.
 //!
 //! The fillet pipeline's apex resolution path: plan apex topology
 //! (with sphere-fit terminations) first, then build the BRep apex

@@ -1,4 +1,4 @@
-//! Runtime self-check for direct-construction (Phase G).
+//! Runtime self-check for direct construction.
 //!
 //! Measures the dense-sample G1, G2, and G0 witnesses on a ring
 //! of two-stripe patches, independent of how the CPs got there.

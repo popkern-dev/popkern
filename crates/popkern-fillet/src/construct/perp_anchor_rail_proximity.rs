@@ -1,4 +1,4 @@
-//! Trim-rail proximity helpers for Phase A anchor placement
+//! Trim-rail proximity helpers for the anchor-split stage anchor placement
 //! (PK-185/PK-186 reflex hole-corner gate). Split from
 //! `perp_anchor_positions.rs` (file-size limit).
 

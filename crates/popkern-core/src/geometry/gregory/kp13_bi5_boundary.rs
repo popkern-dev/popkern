@@ -1,4 +1,4 @@
-//! Phase I.11e.2 — Boundary tensor-border `b^k` and its BB-jet at
+//! Boundary tensor-border `b^k` and its BB-jet at
 //! the unit-square corners.
 //!
 //! KP13 §3 eq (4) fits `g△ ∘ χ` to the tensor-border `b` at jet

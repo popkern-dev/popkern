@@ -53,7 +53,7 @@ fn strip_crossing_cutter(tol: Tolerance) -> BRep {
 }
 
 #[test]
-fn pk295_subtraction_has_no_self_twinned_half_edges() {
+fn subtraction_has_no_self_twinned_half_edges() {
     let tol = Tolerance::default();
     let part = rim_filleted_cylinder(tol);
 

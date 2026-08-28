@@ -1,4 +1,4 @@
-//! Round 5d-4 equivalence tests: assert the in-place geometry
+//! equivalence tests: assert the in-place geometry
 //! update produces a result geometrically equivalent to the
 //! remove+recreate baseline.
 //!
@@ -348,7 +348,7 @@ fn open_in_place_matches_remove_recreate_geometry() {
         "in-place fillet radius {in_place_minor} should equal new radius {new_radius}"
     );
 
-    // After Round 5e (construct-phase perp-split fix) and Round 5f
+    // After (construct-phase perp-split fix) and the perp-split equivalence fix
     // (unfillet leftover-vertex cleanup), the open in-place and
     // remove+recreate paths now produce **byte-identical vertex
     // sets**. Hausdorff should be exactly zero.
@@ -360,7 +360,7 @@ fn open_in_place_matches_remove_recreate_geometry() {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5j: variable-radius equivalence (open plane-plane)
+// variable-radius equivalence (open plane-plane)
 // ---------------------------------------------------------------------------
 
 /// Variable-radius in-place vs remove+recreate equivalence test
@@ -408,7 +408,7 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
     let r_start = 0.05;
     let r_end = 0.15;
 
-    // In-place via Round 5h/5i.
+    // In-place via the variable in-place paths.
     let in_place =
         crate::modify_inplace::modify_open_in_place_variable(&r1.brep, blend, r_start, r_end)
             .expect("variable in-place should succeed");
@@ -463,11 +463,11 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
     let bbox_baseline = compute_bbox(&removed_recreated);
     assert_bbox_close(bbox_in_place, bbox_baseline, 1e-3, "variable");
 
-    // In-place must produce a NURBS sweep (Round 5i), while
+    // In-place must produce a NURBS sweep , while
     // remove+recreate goes through the existing geometry pipeline
     // and produces a Torus with the *averaged* minor radius
     // (today's plane-plane path). We assert the in-place surface
-    // type — proving the Round 5i sweep path was taken — but do
+    // type — proving the sweep path was taken — but do
     // not require the baseline to match the same surface type.
     let in_place_blend = in_place
         .faces

@@ -68,7 +68,7 @@ pub(crate) fn construct_arc_joins(
     let reverse_face = skin_map.reverse_face_map();
     let reverse_edge = skin_map.reverse_edge_map();
 
-    // Phase 0: split closed gap edges so every gap edge has two
+    // Split closed gap edges so every gap edge has two
     // distinct endpoints and every loop has at least two half-edges.
     let mut gap_edges: BTreeMap<EdgeHandle, GapEdge> = plan.gap_edges.clone();
     let mut classes = plan.classes.clone();
@@ -86,7 +86,7 @@ pub(crate) fn construct_arc_joins(
         classes.insert(split.edge_b, crate::join_classification::EdgeJoinClass::Gap);
     }
 
-    // Phase 1: strips.
+    // Strips.
     let mut declines: Vec<JoinDecline> = Vec::new();
     let mut records: Vec<JoinRecord> = Vec::new();
     let mut strip_sources: BTreeMap<FaceHandle, EdgeHandle> = BTreeMap::new();
@@ -179,7 +179,7 @@ pub(crate) fn construct_arc_joins(
         });
     }
 
-    // Phase 2: corners. Mixed corners schedule curve re-trims that run
+    // Corners. Mixed corners schedule curve re-trims that run
     // only after EVERY corner has been peeled (far endpoints of shared
     // rails belong to other corners).
     let strip_faces: BTreeSet<FaceHandle> = strip_sources.keys().copied().collect();
@@ -224,7 +224,7 @@ pub(crate) fn construct_arc_joins(
         }
     }
 
-    // Phase 2.5: mixed-corner re-trims (all endpoint vertices final).
+    // Mixed-corner re-trims (all endpoint vertices final).
     // A free-rim edge may still carry its STALE clone curve here: the
     // Stage-2 parallel-map arm declines when an endpoint vertex sits
     // off the offset surface, which is exactly the state a boundary
@@ -262,7 +262,7 @@ pub(crate) fn construct_arc_joins(
         }
     }
 
-    // Phase 3: geometric postconditions — every join-face boundary
+    // Geometric postconditions — every join-face boundary
     // curve must end at its vertices and lie on the join surface.
     outcome.records.extend(records);
     crate::arc_join_verify::verify_join_faces(skin, &outcome.records, rail_deviation, tolerance)?;

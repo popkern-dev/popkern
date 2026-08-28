@@ -37,7 +37,7 @@ fn render_pk325_arc_join_bodies() {
     let rounded = offset_solid(&cube, 0.15, &ShellOptions::default(), tol()).unwrap();
     render(
         &rounded.brep,
-        "pk325_rounded_cube",
+        "rounded_cube",
         (2.6, 2.0, 1.8),
         (0.5, 0.5, 0.5),
     );
@@ -47,7 +47,7 @@ fn render_pk325_arc_join_bodies() {
     let tc = thicken(&cyl, 0.3, &ShellOptions::default(), tol()).unwrap();
     render(
         &tc.brep,
-        "pk325_cylinder_arc_thicken",
+        "cylinder_arc_thicken",
         (3.4, 2.6, 2.6),
         (0.0, 0.0, 1.0),
     );
@@ -57,7 +57,7 @@ fn render_pk325_arc_join_bodies() {
     let oc = offset_solid(&cone, 0.15, &ShellOptions::default(), tol()).unwrap();
     render(
         &oc.brep,
-        "pk325_cone_arc_offset",
+        "cone_arc_offset",
         (3.2, 2.4, 2.2),
         (0.0, 0.0, 0.8),
     );
@@ -69,7 +69,7 @@ fn render_pk325_arc_join_bodies() {
     let tw = thicken(&wavy.brep, 0.06, &ShellOptions::default(), tol()).unwrap();
     render(
         &tw.brep,
-        "pk325_wavy_plate_arc_thicken",
+        "wavy_plate_arc_thicken",
         (1.9, 1.5, 1.3),
         (0.5, 0.5, 0.25),
     );

@@ -1,4 +1,4 @@
-//! Shared helpers for the Phase H.7 commercial-grade continuity
+//! Shared helpers for the bi-9 commercial-grade continuity
 //! gate tests. Included into per-fixture test binaries via the
 //! `#[path = "kp_gate_helpers.rs"] mod helpers;` idiom — keeps
 //! the per-test files small enough to pass the 500-LoC structural
@@ -118,7 +118,7 @@ pub fn fillet_corner_cap_outer_faces(
 }
 
 /// Same as [`fillet_corner`], with an extra flag to enable the
-/// Phase I polar K-P rung. `use_kp_polar = true` turns on the N ≥ 5
+/// the polar-cap campaign polar K-P rung. `use_kp_polar = true` turns on the N ≥ 5
 /// bi-6 → bi-9 promotion behind the `use_kp_polar_gregory` option.
 pub fn fillet_corner_full(
     brep: &BRep,
@@ -228,7 +228,7 @@ pub struct RingMetrics {
 
 /// Sample the ring on `t ∈ [0.05, 0.95]` at `n_samples` points.
 /// Endpoint margins exclude the Gregory corner-singularity
-/// transition zones — not a Phase H construction concern.
+/// transition zones — not a bi-9 construction concern.
 pub fn measure_ring(patches: &[GregoryPatch], n_samples: usize) -> RingMetrics {
     let n = patches.len();
     let mut worst_g0 = 0.0_f64;

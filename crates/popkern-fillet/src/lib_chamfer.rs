@@ -263,7 +263,7 @@ fn chamfer_edges_internal(
     apply_result.brep.fix_stale_edge_windows();
     apply_result.brep.fix_stale_pcurves();
     apply_result.brep.recompute_all_pcurves_lenient();
-    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    let _ = construct::clamp_bounded_pcurves(&mut apply_result.brep);
     // Terminal chord trim (the planar counterpart of PK-148): settle
     // chain-end corners so the band's end stubs carry ONE geometric
     // authority — without it a chamfered cube round-trips through

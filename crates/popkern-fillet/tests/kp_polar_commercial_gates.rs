@@ -1,7 +1,7 @@
-//! Phase I — commercial-grade continuity gates on the K-P 2015
+//! Commercial-grade continuity gates on the K-P 2015
 //! bi-6 polar output (N ≥ 5-valent vertices).
 //!
-//! Sibling of `kp_binonic_commercial_gates.rs` (Phase H, N ∈ {3, 4});
+//! Sibling of `kp_binonic_commercial_gates.rs` (bi-9, N ∈ {3, 4});
 //! this file exercises the polar rung behind
 //! [`FilletOptions::use_kp_polar_gregory`]. Metric definitions and
 //! gate thresholds (G0 ≤ 1e-10, G1 ≤ 5e-2, G2 ≤ 5e-2) come from
@@ -262,7 +262,7 @@ fn hexagon6_mixed_ships_commercial_setback_fan() {
 
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_variable() {
-    // Phase I.22 variable-radius fixture. Wider 1:3 ratio spread
+    // Variable-radius fixture. Wider 1:3 ratio spread
     // (0.02..0.06) than `pentagon5_mixed` (0.04..0.07, ratio ~1.75)
     // stresses the per-sector radius threading. Core-level tests
     // (`variable_radius_*` in `kp15_bi6_polar_bridge_tests`)
@@ -281,7 +281,7 @@ fn polar_passes_commercial_gates_on_pentagon5_variable() {
 
 #[test]
 fn polar_passes_commercial_gates_on_hexagon6_variable() {
-    // Phase I.22 variable-radius — hexagonal apex with 1:3 spread.
+    // Variable-radius — hexagonal apex with 1:3 spread.
     let m = run_n_gonal_pyramid_polar(
         6,
         1.0,

@@ -1,4 +1,4 @@
-//! Phase H — `RectangularGregoryBiNonic`, a bidegree-(9, 9) pure
+//! `RectangularGregoryBiNonic`, a bidegree-(9, 9) pure
 //! Bezier tensor-product patch with 10×10 = 100 control points.
 //!
 //! This is the substrate for the Karciauskas-Peters 2004

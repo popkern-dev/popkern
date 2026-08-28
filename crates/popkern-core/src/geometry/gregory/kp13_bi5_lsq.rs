@@ -1,4 +1,4 @@
-//! Phase I.11e.3 — Least-squares system for the `g△` boundary fit.
+//! Least-squares system for the `g△` boundary fit.
 //!
 //! Minimises KP13 §3 eq (4):
 //!

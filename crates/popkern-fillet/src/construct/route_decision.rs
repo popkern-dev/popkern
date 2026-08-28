@@ -52,7 +52,7 @@ pub(super) fn apex_route_decision(
 
 /// Route record for a corner dispatched straight to the legacy path
 /// (no direct-apex attempt was made).
-pub(super) fn legacy_dispatch_route(
+pub(super) fn vertex_blend_dispatch_route(
     vertex: VertexHandle,
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
@@ -61,7 +61,7 @@ pub(super) fn legacy_dispatch_route(
         vertex,
         edge_indices,
         edge_geometries,
-        route: crate::types::ApexConstructionRoute::Legacy,
+        route: crate::types::ApexConstructionRoute::VertexBlend,
         built_faces: Vec::new(),
         corner_patch_count: 0,
         exact_boundary_sector_count: 0,
@@ -88,7 +88,7 @@ pub(super) fn direct_apex_fallback_route(
         vertex,
         edge_indices,
         edge_geometries,
-        route: crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy,
+        route: crate::types::ApexConstructionRoute::DirectApexFallbackToVertexBlend,
         built_faces: Vec::new(),
         corner_patch_count: 0,
         exact_boundary_sector_count: 0,
@@ -99,7 +99,7 @@ pub(super) fn direct_apex_fallback_route(
         exact_boundary_pcurve_pair_count: 0,
         exact_boundary_performance: Default::default(),
         exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable(
-            "direct_apex_fallback_to_legacy",
+            "direct_apex_fallback_to_vertex_blend",
         ),
         fallback_reason: Some(reason),
     })
@@ -110,7 +110,7 @@ pub(super) fn direct_apex_fallback_route(
 /// measure BOTH candidates uniformly) and, when the corner FELL BACK
 /// from direct-apex, promotes a cap/support continuity breach of the
 /// commercial bars into the shared diagnostics surface.
-pub(super) fn record_legacy_serve_on_route(
+pub(super) fn record_vertex_blend_serve_on_route(
     result: &popkern_core::topology::BRep,
     repair_report: &mut crate::types::BlendRepairReport,
     vertex: VertexHandle,

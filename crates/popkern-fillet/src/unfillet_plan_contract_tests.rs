@@ -8,7 +8,7 @@
 //! the operation-record route pointed to — never a mis-plan.
 //!
 //! History: until PK-180 this file pinned the DECLINE of every
-//! curved support ("Round 5b plane-plane only"). The Round-5c
+//! curved support ("plane-plane only"). The Round-5c
 //! diagnostic probes that once lived here (cylinder-cylinder seam
 //! fillet) were retired: seam edges stay rejected by design.
 
@@ -193,7 +193,7 @@ fn unfillet_plan_open_curved_support_declines_with_named_class() {
         &msg[..msg.len().min(300)]
     );
     assert!(
-        !msg.contains("Round 5"),
+        !msg.contains("Round 5") && !msg.contains("Phase "),
         "planning labels must not appear in user-facing declines: {}",
         &msg[..msg.len().min(300)]
     );

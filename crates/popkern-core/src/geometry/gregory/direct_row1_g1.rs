@@ -1,7 +1,7 @@
 //! Direct-construction: the row-1 G1 formula for a single
 //! shared spoke.
 //!
-//! This is the **core math** of Phase G. With the blending
+//! This is the **core math** of the Gregory direct construction. With the blending
 //! polynomials `α(t), β(t)` pre-determined by
 //! [`super::direct_blend_coeffs::compute_ring_blend_coeffs`] (via
 //! the corner tangent-plane geometry), the Chiyokura-Kimura G1

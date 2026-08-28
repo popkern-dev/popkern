@@ -471,7 +471,7 @@ fn walker_plane_cone_around_base_circle() {
     let walk = walk_spine(&request, &WalkOptions::default(), &unit_tol())
         .expect("phase 1c periodicity-aware walker should walk the cone cleanly");
 
-    // Phase 1c acceptance: all 20 samples must complete (was 19/20
+    // Walker recovery acceptance: all 20 samples must complete (was 19/20
     // before the periodicity-aware iteration window was added).
     assert_eq!(walk.samples.len(), 20);
     for sample in &walk.samples {

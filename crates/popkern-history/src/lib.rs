@@ -231,7 +231,7 @@ impl FeatureTree {
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
         let start = Instant::now();
 
-        // Phase 1: Evaluate parameters — config-aware when a config is active.
+        // Evaluate parameters — config-aware when a config is active.
         let eval_warnings = if self.active_config.is_some() {
             self.apply_config_and_evaluate()
         } else {

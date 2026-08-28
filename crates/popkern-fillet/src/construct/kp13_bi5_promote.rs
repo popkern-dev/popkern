@@ -108,7 +108,7 @@ pub(super) fn promote_decomp_to_kp13_bi5(
         })
         .collect();
 
-    // Phase 6c-D Stage 1d: the kp13_bi5 polar path doesn't go
+    // The kp13_bi5 polar path doesn't go
     // through the bi-nonic K-P guide pipeline, so it doesn't need
     // hex_boundaries injection. Pass `None` to fall through to
     // the existing path (the new field is bi-nonic-only).

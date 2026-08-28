@@ -1,4 +1,4 @@
-//! Plan telemetry for Phase 6c-DirectApex apex construction.
+//! Plan telemetry for the sphere-fit edge-wiring workirectApex apex construction.
 //!
 //! Captures the planner's reasoning and numeric inputs so the
 //! caller (especially UIs) can:

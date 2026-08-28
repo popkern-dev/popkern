@@ -221,7 +221,7 @@ fn poke_octagon_produces_four_quadrilateral_subfaces() {
     assert_eq!(outgoing, 4, "central vertex should have 4 outgoing he's");
 }
 
-/// Phase II first-lap — pentagonal (N-HE) input: the blend face
+/// the polar-cap campaignI first-lap — pentagonal (N-HE) input: the blend face
 /// at a sharp N=5 apex has only N=5 half-edges (pure fillet arcs,
 /// no topological bridges). `poke_n_gon_face_into_n_quads` must
 /// split each arc at `t=0.5` to reach 2N=10, then proceed with

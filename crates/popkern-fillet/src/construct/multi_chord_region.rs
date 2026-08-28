@@ -34,8 +34,8 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
+use super::face_trim_pipeline::{FaceTrim, TrimSplitResult};
 use super::multi_chord_region_separators::cut_corner_separators;
-use super::phase_split::{FaceTrim, TrimSplitResult};
 use crate::error::BlendFailure;
 
 /// One trim deferred from the per-sub-chord identification.
@@ -207,7 +207,7 @@ pub(super) fn process_deferred(
         ));
     }
 }
-/// Phase 2: flood + merge the consumed region (strict subset,
+/// Flood + merge the consumed region (strict subset,
 /// claimed-face exclusion, single-face merge).
 fn consumed_region_merge(
     brep: &mut BRep,

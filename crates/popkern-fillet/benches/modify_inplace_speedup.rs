@@ -1,7 +1,7 @@
 //! Criterion benchmarks for the §14.7 in-place fillet radius
 //! modification fast paths against the remove+recreate baseline.
 //!
-//! Locks in the speedups Round 5d-2/5d-3/5h/5m delivered, so any
+//! Locks in the measured in-place-modification speedups, so any
 //! future regression is caught by `cargo bench -p popkern-fillet`.
 //!
 //! Coverage:

@@ -1,7 +1,7 @@
 //! Measurement helpers for `validation_sweep.rs`.
 //!
 //! Extracted to keep the main sweep file under the 500-line
-//! structural limit. Will be reorganised further in Phase H.7
+//! structural limit. Will be reorganised further in the commercial-gate reorganisation
 //! (validation sweep + commercial-grade gate) when additional
 //! acceptance gates join.
 //!

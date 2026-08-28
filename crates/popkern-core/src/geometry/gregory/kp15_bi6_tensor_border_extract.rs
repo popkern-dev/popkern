@@ -1,4 +1,4 @@
-//! Phase I.10d — Extract a bi-3 [`TensorBorder`] from a
+//! Extract a bi-3 [`TensorBorder`] from a
 //! [`PolarBoundaryInput`].
 //!
 //! The K-P 2015 bi-6 polar cap solver consumes **depth-2 Hermite

@@ -75,7 +75,7 @@ pub enum SheetBooleanResult {
 /// |---|---|
 /// | `SolidSolid` | Delegates to standard [`crate::boolean`]. |
 /// | `SheetSheetIntersection` | Calls [`crate::ops::section::section`] and returns the curves. |
-/// | `SolidMinusSheet` | Planar sheets: half-space split producing possibly multiple sub-solids. Curved sheets: single-piece imprint fallback (Phase 2). |
+/// | `SolidMinusSheet` | Planar sheets: half-space split producing possibly multiple sub-solids. Curved sheets: single-piece imprint fallback. |
 /// | `SheetIntersectSolid` | Imprints the solid's curves onto the sheet, then trims to the inside fragments. |
 /// | `InvalidSheetMinusSolid` | Rejects with [`crate::BoolError::OpenShellNotSupported`]. |
 /// | Other variants | Returns [`crate::BoolError::OpenShellNotSupported`] (future work). |

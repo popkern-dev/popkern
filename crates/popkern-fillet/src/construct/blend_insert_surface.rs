@@ -2,7 +2,7 @@
 
 use super::*;
 
-/// Phase 4: Assign the blend surface to the merged face.
+/// Assign the blend surface to the merged face.
 ///
 /// R8 C6 — takes a pre-computed `blend_boundary` because V may
 /// already have been `kev`'d by `merge_corner_triangles`.

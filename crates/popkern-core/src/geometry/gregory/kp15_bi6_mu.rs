@@ -1,4 +1,4 @@
-//! Phase I.6 — K-P 2015 bi-6 µ coefficient tables.
+//! K-P 2015 bi-6 µ coefficient tables.
 //!
 //! Source: `docs/journal/polar-kp-math.md` §2.3 (transcribed from
 //! [KP15] Appendix). These vectors appear in the BB-coefficient

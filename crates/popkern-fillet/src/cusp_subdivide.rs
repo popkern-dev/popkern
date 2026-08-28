@@ -10,7 +10,7 @@
 //!
 //! This module implements the subdivision as a **pre-pass** that
 //! runs at the top of [`crate::fillet_edges_internal`], before
-//! Phase 1 (Analyze). It clones the input BRep, scans every
+//! the Analyze stage. It clones the input BRep, scans every
 //! requested edge for interior cusps, calls
 //! [`popkern_core::topology::BRep::split_edge`] at each cusp
 //! parameter, and replaces each subdivided spec with two sub-specs

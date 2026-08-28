@@ -243,7 +243,7 @@ fn higher_valences_pipeline() {
     }
 }
 
-// ── Phase I.22 — variable-radius verification ────────────────
+// ── the polar-cap dispatch work2 — variable-radius verification ────────────────
 //
 // Per polar-kp-math.md §6: radii enter the K-P 2015 bi-6
 // construction only through tensor-border cross-derivative

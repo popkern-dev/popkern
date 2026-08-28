@@ -1,6 +1,6 @@
 //! G2 cross-section construction (§2.4 + §7).
 //!
-//! Phase 1d of the contact-problem implementation. Builds a degree-5
+//! The G2 cross-section stage of the contact-problem implementation. Builds a degree-5
 //! Bezier (NURBS) cross-section curve at one spine sample with
 //! position + tangent + **curvature** continuity to both support
 //! surfaces — i.e. G2.
@@ -53,7 +53,7 @@
 //! P_3 = P''(1)/20 + 2·P_4 - P_5
 //! ```
 //!
-//! ## Phase 1d status (MVP)
+//! ## Status (MVP)
 //!
 //! - **Math**: implemented and unit-tested on plane-plane and
 //!   plane-cylinder. The plane-plane case verifies that endpoint

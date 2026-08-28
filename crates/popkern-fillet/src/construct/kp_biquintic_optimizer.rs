@@ -1,4 +1,4 @@
-//! Phase H.8 (Option C step 6 + step 7) — bi-quintic guide
+//! the bi-9 hardening pass (Option C step 6 + step 7) — bi-quintic guide
 //! interior-CP optimizer.
 //!
 //! # Approach
@@ -85,7 +85,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     const FD_EPS: f64 = 1e-4;
     const TARGET_RESIDUAL: f64 = 1e-4;
 
-    // Phase 1: bicubic C-twist optimization (mirrors kp_twist_optimizer).
+    // Bicubic C-twist optimization (mirrors kp_twist_optimizer).
     let mut central = extract_central_vertex_hermite_with_twist(input, options).ok()?;
     let n = central.len();
     if n == 0 {
@@ -156,7 +156,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
         );
     }
 
-    // Phase 2: build bicubic guides from converged twists, elevate
+    // Build bicubic guides from converged twists, elevate
     // to bi-quintic, then run Levenberg-Marquardt on the 48N interior
     // CPs.
     let bicubic_guides = build_guide_ring_from_centrals(input, &central);

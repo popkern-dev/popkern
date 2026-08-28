@@ -1,8 +1,8 @@
-//! Error types for direct-construction (Phase G).
+//! Error types for direct construction.
 //!
 //! Every variant names the specific corner / spoke / edge /
 //! tolerance that triggered it, and in most cases a suggested
-//! remediation. This is the UX-quality gate from the Phase G
+//! remediation. This is the UX-quality gate from the direct-construction
 //! plan's "Actionable errors" requirement — no
 //! `Unsupported(String)` catch-alls.
 
@@ -123,9 +123,9 @@ pub enum DirectConstructionError {
     },
 
     /// Valence ≥ 5 with the narrow-pie-slice fold. Out of
-    /// scope for Phase G; caller falls back to polar-NURBS.
+    /// scope for the Gregory direct construction; caller falls back to polar-NURBS.
     #[error(
-        "N={n} requires Phase 11 boundary-level fix (narrow pie slices fold); \
+        "N={n} requires a boundary-level fold fix (narrow pie slices fold); \
          falling back to polar-NURBS"
     )]
     ValenceRequiresPolar {

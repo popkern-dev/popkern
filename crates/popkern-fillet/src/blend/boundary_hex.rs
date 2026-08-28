@@ -1,4 +1,4 @@
-//! §5.3 Round 8 C1 hexagonal-boundary helpers + §5.3 item #6
+//! §5.3 hexagonal-boundary helpers + §5.3 item #6
 //! curved-support generalization.
 //!
 //! Extracted from `boundary.rs` to stay under the 500-line cap.

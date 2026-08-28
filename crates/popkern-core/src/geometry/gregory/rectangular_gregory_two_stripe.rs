@@ -39,7 +39,7 @@
 //! `{B_1^7..B_6^7}` which covers every possible boundary-
 //! cross-tangent mismatch pattern. Full-rank G1.
 //!
-//! # G2 DOF (Phase 10b)
+//! # G2 DOF (the polynomial-identity solver workb)
 //!
 //! `∂²S/∂u²(0, v)` depends on rows `i = 0, 1, 2`. Row 2 has
 //! free interior CPs at `j ∈ {1..=6}` (6 per spoke) plus the

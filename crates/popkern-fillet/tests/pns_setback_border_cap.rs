@@ -1,4 +1,4 @@
-//! PK-097 Phase A gate: the PnS bi-4 cap assembled on the SETBACK
+//! PK-097 PnS-setback-candidate gate: the PnS bi-4 cap assembled on the SETBACK
 //! border of a G1 pentagon-pyramid apex.
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -171,7 +171,7 @@ fn pns_setback_candidate_on_pentagon_g1() {
             }
         }
     }
-    // Phase A gates (measured on the pentagon at radius 0.16):
+    // the anchor-split stage gates (measured on the pentagon at radius 0.16):
     // border exact by construction, seams exact by eq (2) + shared
     // deltas, G1 within the production PnS coplanarity gate (5e-2)
     // with margin.

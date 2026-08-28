@@ -49,14 +49,14 @@
 //! This module handles **one** spoke in isolation. For the
 //! N-spoke ring of a three-quad decomposition, shared CPs at the
 //! central vertex `C` and at the outer hex corners couple
-//! adjacent spokes' constraints — this is the Phase C work. The
-//! single-spoke routine here is the Phase B building block and
-//! the basis for the per-spoke block of the Phase C global
+//! adjacent spokes' constraints — this is the constraint-matrix stage work. The
+//! single-spoke routine here is the residual exit-criterion stage building block and
+//! the basis for the per-spoke block of the constraint-matrix stage global
 //! system.
 
-// Phase C (the N-spoke global coupler) is what calls most of
+// The constraint-matrix stage (the N-spoke global coupler) is what calls most of
 // these symbols in production. Until it lands, the dead-code
-// warnings here are an expected consequence of Phase B landing
+// warnings here are an expected consequence of the residual exit-criterion stage landing
 // as a self-contained, independently-tested unit.
 #![allow(dead_code)]
 // Index-style loops over 8-wide Bernstein-coefficient or 24-wide
@@ -224,7 +224,7 @@ pub fn build_single_spoke_poly_g1(
         // RHS = 0 exactly, because P_A[0][k] and P_B[·][0] (the
         // boundary CPs) coincide as points on the shared spoke.
         // We leave the explicit RHS in place because a future
-        // Phase D escalation (β degree > 1) may lift LHS degree
+        // The symbolic generating-table stage escalation (β degree > 1) may lift LHS degree
         // above 7 and the upper coefficients then need an
         // explicit boundary contribution.
         equations[k] = SpokeEquation {
@@ -323,7 +323,7 @@ pub struct SpokePolyG1Solve {
 ///
 /// **Does not mutate** the input patches — the caller applies
 /// [`SpokePolyG1Solve::a_row1_new`] / `b_row1_new` explicitly,
-/// which lets the Phase C global solver batch multiple spokes'
+/// which lets the constraint-matrix stage global solver batch multiple spokes'
 /// updates after a combined solve.
 pub fn solve_single_spoke_poly_g1(
     patch_a: &RectangularGregoryTwoStripe,

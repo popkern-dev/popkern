@@ -1,4 +1,4 @@
-//! Phase H.8 (Option C step 3) — bi-nonic guide interior-CP
+//! the bi-9 hardening pass (Option C step 3) — bi-nonic guide interior-CP
 //! optimizer.
 //!
 //! # Problem
@@ -61,9 +61,9 @@ pub(super) struct KpBiNonicOptimizerResult {
 /// optimizer, then runs phase 3 (bi-nonic interior CPs via L-M)
 /// if residual is still above target.
 ///
-/// **`outer_fillets` (Phase 6c-B addition):** when `Some`, each
+/// **`outer_fillets` (the outer-fillet-G1 work addition):** when `Some`, each
 /// entry `outer_fillets[k]` is the surface the k-th cap sub-patch's
-/// `u=0` boundary sits on (typically a cylinder fillet). Phase 3's
+/// `u=0` boundary sits on (typically a cylinder fillet). The L-M refinement's
 /// L-M residual is extended with per-sample cap-vs-fillet
 /// G1 residuals along each cap's outer boundary, in addition to
 /// the existing inner-spoke G1 residuals. Closes the user-visible
@@ -86,7 +86,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     const LM_TARGET_RESIDUAL: f64 = 1e-6;
 
     let bq_result = optimize_biquintic_and_build_binonic(input, options)?;
-    // Phase 6c-B: when outer_fillets is set, ALWAYS engage phase 3
+    // When outer_fillets is set, ALWAYS engage phase 3
     // even if inner-spoke residual is already below threshold —
     // the outer-fillet residual is independent and may still be
     // large.
@@ -142,7 +142,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     // Pack the 64 interior CPs × 3 axes × N patches into a flat
     // parameter vector. Order: sub-patch k, slot s ∈ 0..64, axis a.
     let x0 = pack_guides(&bn_guides);
-    if x0.len() > MAX_PHASE3_DOF {
+    if x0.len() > MAX_LM_REFINE_DOF {
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
@@ -156,7 +156,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         m_matrix: None,
         outer_fillets: outer_fillets.map(|f| f.to_vec()),
     };
-    // Phase 6c-B: outer-fillet-G1 makes the L-M problem harder
+    // Outer-fillet-G1 makes the L-M problem harder
     // (more constraints), so bump max_iter substantially when the
     // outer block is active. Also tighter target since we want
     // commercial-grade G1.
@@ -211,7 +211,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
 
     // Guard against regression: if L-M ended worse than phase 2
     // on the metric we're optimising for, return phase-2 result.
-    // Phase 6c-B: when outer_fillets is set, the optimisation
+    // When outer_fillets is set, the optimisation
     // metric is inner-spoke + outer-fillet residual squared sum.
     // Check on the same combined metric.
     let post_inner = measure_ring_residual(&best_binonic);
@@ -234,7 +234,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             binonic: best_binonic,
             final_residual: post,
             outer_rung_outcome: rung(&format!(
-                "served_lm;{lm_stats};post={post:.3e};phase2={bq_post:.3e}"
+                "served_lm;{lm_stats};post={post:.3e};presolve={bq_post:.3e}"
             )),
         })
     } else {
@@ -242,15 +242,15 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             binonic: bq_result.binonic,
             final_residual: bq_post,
             outer_rung_outcome: rung(&format!(
-                "kept_phase2;{lm_stats};post={post:.3e};phase2={bq_post:.3e}"
+                "kept_presolve;{lm_stats};post={post:.3e};presolve={bq_post:.3e}"
             )),
         })
     }
 }
 
-const MAX_PHASE3_DOF: usize = 1_000;
+const MAX_LM_REFINE_DOF: usize = 1_000;
 
-/// L-M residual callback for phase 3. Keeps a base copy of the
+/// L-M residual callback for the refinement stage. Keeps a base copy of the
 /// guide ring and a reference to the input; each `eval` clones
 /// the base, overwrites interior CPs from the parameter vector,
 /// rebuilds the binonic ring, and returns a per-sample coplanarity
@@ -260,7 +260,7 @@ struct BinonicEval<'a> {
     input: &'a DirectBoundaryInput,
     /// Cached `∂ring_CP / ∂guide_CP` linearization, shape `D_ring × D_guide`. The ring builder is linear in guide CPs (row-1/row-2 derivations + interior Bernstein-Gram LSQ + fixed boundary data), so this matrix is constant across optimization iterates — populated lazily on first `jacobian()` call and reused.
     m_matrix: Option<Vec<Vec<f64>>>,
-    /// Phase 6c-B addition: when `Some`, each entry is the
+    /// the outer-fillet-G1 work addition: when `Some`, each entry is the
     /// surface that sub-patch k's `u=0` boundary sits on. The
     /// residual vector is extended with per-sample cap-vs-fillet
     /// G1 residuals along each cap's outer boundary.
@@ -352,7 +352,7 @@ impl<'a> LmEval for BinonicEval<'a> {
     }
 }
 
-/// Phase 6c-B: per-sample cap-vs-fillet G1 residual along each
+/// Per-sample cap-vs-fillet G1 residual along each
 /// sub-patch's `u=0` boundary. Sample count: 50 per sub-patch.
 ///
 /// G1 condition: at every boundary point, the cap and fillet

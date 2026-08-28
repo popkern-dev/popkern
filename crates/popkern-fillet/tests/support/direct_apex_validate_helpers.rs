@@ -37,9 +37,9 @@ impl Drop for EnvGuard {
 #[derive(Debug, Default)]
 pub(crate) struct MetricBreakdown {
     pub(crate) structural: usize,
-    pub(crate) path_a_relevant: usize,
+    pub(crate) apex_rebuild_relevant: usize,
     pub(crate) other_geometric: usize,
-    pub(crate) worst_path_a_gap: f64,
+    pub(crate) worst_apex_rebuild_gap: f64,
 }
 
 pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
@@ -54,15 +54,15 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             | ValidationError::NonManifoldEdge { .. }
             | ValidationError::LowValence { .. } => out.structural += 1,
             ValidationError::OpenLoop { gap, .. } => {
-                out.path_a_relevant += 1;
-                if *gap > out.worst_path_a_gap {
-                    out.worst_path_a_gap = *gap;
+                out.apex_rebuild_relevant += 1;
+                if *gap > out.worst_apex_rebuild_gap {
+                    out.worst_apex_rebuild_gap = *gap;
                 }
             }
             ValidationError::ShellGap { gap, .. } => {
-                out.path_a_relevant += 1;
-                if *gap > out.worst_path_a_gap {
-                    out.worst_path_a_gap = *gap;
+                out.apex_rebuild_relevant += 1;
+                if *gap > out.worst_apex_rebuild_gap {
+                    out.worst_apex_rebuild_gap = *gap;
                 }
             }
             ValidationError::InconsistentOrientation { .. }
@@ -133,7 +133,7 @@ pub(crate) fn count_direct_apex_fallbacks(result: &BlendResult) -> usize {
     result
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToVertexBlend { .. }))
         .count()
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn direct_apex_fallback_reasons(result: &BlendResult) -> Vec<String> 
         .edge_warnings
         .iter()
         .filter_map(|(_, w)| match w {
-            BlendWarning::DirectApexFellBackToLegacy { reason, .. } => Some(reason.clone()),
+            BlendWarning::DirectApexFellBackToVertexBlend { reason, .. } => Some(reason.clone()),
             _ => None,
         })
         .collect()
@@ -192,7 +192,7 @@ pub(crate) fn assert_welded_native_postconditions(name: &str, result: &BlendResu
     let m = breakdown(&errors);
     assert_eq!(m.structural, 0, "{name} structural errors: {errors:#?}");
     assert_eq!(
-        m.path_a_relevant, 0,
+        m.apex_rebuild_relevant, 0,
         "{name} open-loop/shell-gap errors: {errors:#?}"
     );
 }
@@ -223,7 +223,7 @@ pub(crate) fn assert_native_gregory_case(
         "native {name} structural errors: {errors:#?}"
     );
     assert_eq!(
-        m.path_a_relevant, 0,
+        m.apex_rebuild_relevant, 0,
         "native {name} open-loop/shell-gap errors: {errors:#?}"
     );
 

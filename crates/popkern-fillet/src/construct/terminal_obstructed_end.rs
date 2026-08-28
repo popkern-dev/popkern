@@ -8,7 +8,7 @@
 //! footprint (an L-bracket wall overlapping the base within one
 //! radius of the filleted corner), one tangency foot has no boundary
 //! edge to land on: the support face wraps around the obstruction and
-//! the true foot is INTERIOR to it. Phase A's perp-walk clamps the
+//! the true foot is INTERIOR to it. the anchor-split stage's perp-walk clamps the
 //! anchor to the short end-face rim instead (measured on the corpus
 //! `offset_bracket`: rail authored as a slant chord 0.47 off the
 //! cylinder, terminal settle declining on `AnchorsOffSurface`, and

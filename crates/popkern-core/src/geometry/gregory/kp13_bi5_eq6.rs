@@ -1,4 +1,4 @@
-//! Phase I.11e.5 — KP13 eq (6) post-LSQ exact match at `m_k`.
+//! KP13 eq (6) post-LSQ exact match at `m_k`.
 //!
 //! After the LSQ gives a least-squares fit, the paper's eq (6) pins
 //! the jet at every `m_k` corner *exactly* to the tensor-border:

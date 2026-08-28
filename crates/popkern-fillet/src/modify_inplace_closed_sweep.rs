@@ -1,6 +1,6 @@
 //! Closed-rim plane-cylinder varying-radius NURBS sweep builder.
 //!
-//! Round 5s: true around-the-rim in-place path for
+//! True around-the-rim in-place path for
 //! `modify_closed_in_place_bypoints`. Given the support plane,
 //! cylinder, and a `radius_at: Fn(f64) -> f64` profile (param 0..1
 //! = normalized angle around the cylinder axis), emits:
@@ -41,7 +41,7 @@ use crate::unfillet_closed_helpers::{
     find_seam_edge_at_vertex_excluding, rebuild_line_curve,
 };
 
-/// Round 5s: around-the-rim varying-radius closed-fillet in-place
+/// around-the-rim varying-radius closed-fillet in-place
 /// update. Unlike `modify_closed_in_place`, which assigns an
 /// analytic Torus, this path assembles a true NURBS sweep whose
 /// minor radius follows the `points` piecewise-linear profile

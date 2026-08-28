@@ -1,8 +1,8 @@
-//! §5.3 Round 8 C3 — three-quad decomposition of a hexagonal
+//! §5.3 — three-quad decomposition of a hexagonal
 //! vertex-blend boundary into 3 rectangular Gregory sub-patches.
 //!
 //! Given a closed hexagonal [`BlendBoundary`] (3 FilletEnd + 3
-//! FaceEdge alternating, as emitted by Round 8 C1), this module
+//! FaceEdge alternating, as emitted by `compute_blend_boundary`), this module
 //! computes a central point `C` and constructs 3
 //! [`RectangularGregory`] patches meeting at `C`. Each sub-patch
 //! covers two consecutive hex sides (one arc + one bridge) plus

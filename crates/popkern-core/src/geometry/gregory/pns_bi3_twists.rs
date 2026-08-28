@@ -1,4 +1,4 @@
-//! Phase IV PnS — Bi-3 twist solver (eq 7) for `n ∈ {3, 5}`.
+//! PnS cap — Bi-3 twist solver (eq 7) for `n ∈ {3, 5}`.
 //!
 //! In the PnS n ∈ {3, 5} bi-3 cap construction (§4.2 of
 //! `docs/papers/14bi234.pdf`), the G¹ row-0 is only partially pinned

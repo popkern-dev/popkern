@@ -1,4 +1,4 @@
-//! Phase H — extract the C-corner Hermite data for every sub-
+//! Extract the C-corner Hermite data for every sub-
 //! patch's guide surface.
 //!
 //! Given a [`DirectBoundaryInput`] describing an N-sided vertex

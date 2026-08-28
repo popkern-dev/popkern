@@ -1,4 +1,4 @@
-//! End-to-end pin for the Phase 6c-B outer-fillet G1 rung (PK-275).
+//! End-to-end pin for the outer-fillet G1 rung (PK-275).
 //!
 //! The rung extends the bi-nonic phase-3 L-M objective with
 //! cap-vs-fillet G1 samples along each cap sub-patch's outer

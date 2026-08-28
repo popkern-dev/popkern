@@ -1,4 +1,4 @@
-//! Phase I.14 — KP13 § 5 bi-5 cap assembly `g → a → p`.
+//! KP13 § 5 bi-5 cap assembly `g → a → p`.
 //!
 //! This module holds the data structures and invariants of the
 //! final bi-5 cap surface `p` and its auxiliary predecessor `a`.

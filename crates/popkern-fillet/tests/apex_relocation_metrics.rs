@@ -1,7 +1,8 @@
-//! Phase 6c-X.A.6 — composite validation gate for apex relocation.
+//! Composite validation gate for apex relocation.
 //!
-//! The apex topology rebuild lands as A.3 + A.4 + A.5 (always on
-//! since #207 cleanup).  A.7's gate requires **a metric apex relocation actually moves** —
+//! The apex topology rebuild (full-range wire, vertex relocation,
+//! base-edge repair — always on since #207 cleanup) needs **a metric
+//! apex relocation actually moves** —
 //! `validate_all`'s raw error count doesn't (the V↔T coherence it closes
 //! doesn't surface there at the kernel's default linear tolerance,
 //! and the remaining `InconsistentOrientation` errors are
@@ -23,10 +24,10 @@
 //!   `TwistedSurface`, `Precision`, `SelfIntersection`.  Apex relocation
 //!   doesn't address these; they need separate work.
 //!
-//! Combined with the existing Phase 6c-E `cap_outer_g0` metric
+//! Combined with the existing `cap_outer_g0` metric
 //! (≤ 5e-3 m), the A.7 flip gate becomes:
 //!   * structural == 0,
-//!   * path_a_relevant == 0,
+//!   * apex_rebuild_relevant == 0,
 //!   * cap_outer_g0 ≤ 5e-3.
 //!
 //! `Other geometric` count is tracked but not gated — those go
@@ -68,7 +69,7 @@ impl Drop for EnvGuard {
 
 /// Wrap a fixture build under the apex-relocation flag set.  Returns the
 /// post-fillet BRep and the cap face handles.
-fn build_with_path_a(
+fn build_with_apex_rebuild(
     is_pyramid: bool,
     radii: &[f64],
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
@@ -96,13 +97,13 @@ fn build_with_path_a(
 #[derive(Debug, Default)]
 pub(crate) struct MetricBreakdown {
     pub structural: usize,
-    pub path_a_relevant: usize,
+    pub apex_rebuild_relevant: usize,
     pub other_geometric: usize,
     /// Worst gap reported by an `OpenLoop` or `ShellGap` error,
     /// in metres.  0.0 when both are absent.  Useful for ratchets
     /// that watch for regressions in magnitude even when count
     /// stays flat.
-    pub worst_path_a_gap: f64,
+    pub worst_apex_rebuild_gap: f64,
 }
 
 /// Bucket a `validate_all` error vector by category.
@@ -118,15 +119,15 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             | ValidationError::NonManifoldEdge { .. }
             | ValidationError::LowValence { .. } => out.structural += 1,
             ValidationError::OpenLoop { gap, .. } => {
-                out.path_a_relevant += 1;
-                if *gap > out.worst_path_a_gap {
-                    out.worst_path_a_gap = *gap;
+                out.apex_rebuild_relevant += 1;
+                if *gap > out.worst_apex_rebuild_gap {
+                    out.worst_apex_rebuild_gap = *gap;
                 }
             }
             ValidationError::ShellGap { gap, .. } => {
-                out.path_a_relevant += 1;
-                if *gap > out.worst_path_a_gap {
-                    out.worst_path_a_gap = *gap;
+                out.apex_rebuild_relevant += 1;
+                if *gap > out.worst_apex_rebuild_gap {
+                    out.worst_apex_rebuild_gap = *gap;
                 }
             }
             ValidationError::InconsistentOrientation { .. }
@@ -142,14 +143,14 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
 }
 
 /// A.6 cap-kind dispatch lock-in: every uniform-radius fixture must
-/// show `path_a_relevant == 0` under apex relocation.  After §6c-X.A.7's
+/// show `apex_rebuild_relevant == 0` under apex relocation.  After §6c-X.A.7's
 /// auto-dispatch (suppress sphere-fit substitution on uniform
 /// corners; let the original rolling-ball topology stand),
 /// the uniform fixtures stay clean. Variable-radius and mixed
 /// pyramid fixtures are tracked by diagnostic probes while their
 /// repeated-apex support-continuation gaps remain open.
 #[test]
-fn phase_6c_a6_uniform_fixtures_path_a_clean() {
+fn uniform_fixtures_apex_rebuild_clean() {
     struct Case {
         name: &'static str,
         radii: &'static [f64],
@@ -186,12 +187,16 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
         },
     ];
     for case in cases {
-        let (brep, _faces) = build_with_path_a(case.is_pyramid, case.radii);
+        let (brep, _faces) = build_with_apex_rebuild(case.is_pyramid, case.radii);
         let errors = brep.validate_all();
         let m = breakdown(&errors);
         eprintln!(
             "[A.6] {}: structural={} pathA={} other={} worst_pathA_gap={:.3e}",
-            case.name, m.structural, m.path_a_relevant, m.other_geometric, m.worst_path_a_gap,
+            case.name,
+            m.structural,
+            m.apex_rebuild_relevant,
+            m.other_geometric,
+            m.worst_apex_rebuild_gap,
         );
         assert_eq!(
             m.structural,
@@ -205,9 +210,9 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
                 .join("\n"),
         );
         assert_eq!(
-            m.path_a_relevant,
+            m.apex_rebuild_relevant,
             0,
-            "{}: path_a_relevant must be 0 under auto-dispatch; errors:\n{}",
+            "{}: apex_rebuild_relevant must be 0 under auto-dispatch; errors:\n{}",
             case.name,
             errors
                 .iter()

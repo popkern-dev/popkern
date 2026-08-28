@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex apex planner — orchestration.
+//! the sphere-fit edge-wiring workirectApex apex planner — orchestration.
 //!
 //! `plan_apex_resolution` is the **pure** entry point that produces
 //! an [`ApexPlan`] from a BRep + apex vertex + fillet specs.
@@ -233,7 +233,7 @@ pub fn plan_apex_resolution(
 /// Identical to the public entry point except it skips the
 /// edge-existence and edge-incidence input checks, which fail
 /// when the legacy `apply_blend_geometry` pipeline calls the
-/// planner mid-flight after Phase C has kef'd the original
+/// planner mid-flight after the consumed-merge stage has kef'd the original
 /// fillet edges (their handles are no longer in
 /// `brep.edges`).  Radius / apex-vertex / fillet-count checks
 /// still apply.

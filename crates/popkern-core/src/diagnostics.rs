@@ -8,12 +8,12 @@
 //! a surface-kind histogram — the kind of summary you want to print
 //! after a build to know whether the output is worth exporting at all.
 //!
-//! Round 1 (shipped): topology + geometry summaries; naked, degenerate,
+//! Coverage: topology + geometry summaries; naked, degenerate,
 //! sliver, coincident defect detectors.
 //!
-//! Round 2 (this revision): T-junctions, NURBS irregularities, pcurve
+//! Extended coverage: T-junctions, NURBS irregularities, pcurve
 //! UV-escape detectors. NURBS surface-grid validation deferred to
-//! Round 3.
+//! later revisions.
 //!
 //! Detectors run in O(F + E + V·E) — the V·E T-junction check
 //! dominates and is fine for showcase-fixture sizes (tens of edges,
@@ -115,19 +115,19 @@ pub struct Defects {
     pub sliver_faces: Vec<SliverFace>,
     /// Pairs of distinct vertex handles within tolerance.
     pub coincident_vertices: Vec<CoincidentPair>,
-    /// Vertices lying on an edge's interior (Round 2).
+    /// Vertices lying on an edge's interior.
     pub t_junctions: Vec<TJunction>,
-    /// Ill-formed NURBS curves/pcurves (Round 2).
+    /// Ill-formed NURBS curves/pcurves.
     pub nurbs_defects: Vec<NurbsDefect>,
     /// Pcurves whose evaluations fall outside their face surface's
-    /// parameter range (Round 2).
+    /// parameter range.
     pub pcurve_escapes: Vec<PcurveEscape>,
     /// Pairs of faces with the same analytic surface and overlapping
     /// AABBs — strong indicator of a duplicate / un-merged face left
-    /// behind by a boolean / fillet operation (Round 3).
+    /// behind by a boolean / fillet operation.
     pub face_overlaps: Vec<FaceOverlap>,
     /// Count of edges flagged by `find_tessellation_non_manifold_edges`
-    /// using a 5×tolerance threshold. Round 3 fold-in: the full
+    /// using a 5×tolerance threshold. Fold-in: the full
     /// per-edge listing is available via `report_non_manifold`; this
     /// is just the headline number for the diagnostic block.
     pub tess_non_manifold_count: usize,

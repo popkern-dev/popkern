@@ -1,4 +1,4 @@
-//! Phase H.8 (Option C, Axis 1 ceiling) — bi-nonic Bezier guide
+//! the bi-9 hardening pass (Option C, Axis 1 ceiling) — bi-nonic Bezier guide
 //! patch. 10×10 = 100 plain-Bezier CPs. Matches the output
 //! bidegree-9 patch's native degree, giving the K-P construction
 //! maximum expressiveness within the current output.

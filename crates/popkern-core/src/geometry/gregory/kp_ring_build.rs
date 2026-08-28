@@ -1,4 +1,4 @@
-//! Phase H — ring-wide bidegree-9 patch construction via the
+//! Ring-wide bidegree-9 patch construction via the
 //! K-P guided-surface pipeline.
 //!
 //! Combines H.4.c (guide ring) + H.4.d (row-1 frame) + H.4.e
@@ -85,7 +85,7 @@ pub fn build_binonic_ring(
 
 /// Build a bidegree-9 ring from a pre-built set of guides plus the
 /// input boundary data. Exposed so the iterative K-P guide-twist
-/// optimizer (Phase H.7 gap #2) can rebuild the ring after each
+/// optimizer (the bi-9 commercial gates gap #2) can rebuild the ring after each
 /// twist update without re-running the initial Shirman-Séquin
 /// guide-ring construction.
 pub fn build_binonic_ring_from_guides(
@@ -129,7 +129,7 @@ pub fn build_binonic_ring_from_guides(
         boundaries.push([row0, row9, col0, col9]);
     }
 
-    // Phase 6c-D Stage 2 dispatch: when boundary injection is
+    // the sphere-fit edge-wiring work Stage 2 dispatch: when boundary injection is
     // active, switch row-1 / row-2 derivation to a boundary-driven
     // path that bypasses the K-P guide's pre-injection partials.
     // The guide's `partial_v(0, 0)` reflects the bicubic fit of the
@@ -217,7 +217,7 @@ pub fn build_binonic_ring_from_guides(
     // Assemble bidegree-9 patches with frame populated, then
     // fit interior via H.5 least-squares projection to guide.
     //
-    // Phase 6c-D Stage 2: when boundary injection is active, the
+    // When boundary injection is active, the
     // pre-injection guide doesn't match the boundary-derived
     // frame, so its LSQ fit pulls the interior 16 CPs toward
     // a guide that no longer represents the surface — patches
@@ -233,7 +233,7 @@ pub fn build_binonic_ring_from_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 3a: under injection, the K-P guide's
+        // Under injection, the K-P guide's
         // boundaries reflect the *pre-injection* deg-5 fit, which
         // disagrees with the post-injection deg-9 boundary by O(mm)
         // on curved arcs. The LSQ fit-to-guide pulls interior CPs
@@ -285,7 +285,7 @@ pub fn build_binonic_ring_from_biquintic_guides(
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
         boundaries.push([row0, row9, col0, col9]);
     }
-    // Phase 6c-D Stage 2 dispatch — see `build_binonic_ring_from_guides`.
+    // the sphere-fit edge-wiring work Stage 2 dispatch — see `build_binonic_ring_from_guides`.
     let inject = input.hex_boundaries.is_some();
     let mut r1_frames: Vec<Row1Frame> = if inject {
         boundaries
@@ -343,7 +343,7 @@ pub fn build_binonic_ring_from_biquintic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 3a — see `build_binonic_ring_from_guides`.
+        // See `build_binonic_ring_from_guides`.
         if inject {
             fill_interior_cps_via_coons(&mut patch);
         } else {
@@ -388,7 +388,7 @@ pub fn build_binonic_ring_from_binonic_guides(
         let col0 = reverse_boundary(&shared_spokes[k_prev]);
         boundaries.push([row0, row9, col0, col9]);
     }
-    // Phase 6c-D Stage 2 dispatch — see `build_binonic_ring_from_guides`.
+    // the sphere-fit edge-wiring work Stage 2 dispatch — see `build_binonic_ring_from_guides`.
     let inject = input.hex_boundaries.is_some();
     let mut r1_frames: Vec<Row1Frame> = if inject {
         boundaries
@@ -443,7 +443,7 @@ pub fn build_binonic_ring_from_binonic_guides(
             &r1_frames[k],
             &r2_frames[k],
         );
-        // Phase 6c-D Stage 3a — see `build_binonic_ring_from_guides`.
+        // See `build_binonic_ring_from_guides`.
         if inject {
             fill_interior_cps_via_coons(&mut patch);
         } else {

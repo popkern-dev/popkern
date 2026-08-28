@@ -1,16 +1,16 @@
-//! Phase 6c-DirectApex §28.H Session 1 — planner pre-pass.
+//! the sphere-fit edge-wiring workirectApex §28.H Session 1 — planner pre-pass.
 //!
-//! Runs the DirectApex planner BEFORE Phase A's perp-walk anchor placement,
+//! Runs the DirectApex planner BEFORE the anchor-split stage's perp-walk anchor placement,
 //! using only edge geometries (radii, axes, host face normals from
 //! `EdgeAnalysis` + sphere-fit termination math).  The planner
 //! itself reads from BRep state and `FilletSurfaceResult`, both of
-//! which are available pre-Phase-A:
+//! which are available pre-anchor-split:
 //!
-//! * **BRep state**: the pre-Phase-A snapshot (cube faces with
+//! * **BRep state**: the pre-anchor-split snapshot (cube faces with
 //!   original edges; no perp-anchors yet).
 //! * **FilletSurfaceResult**: built directly from `EdgeGeometry`
 //!   (the surface and trim curves are computed in
-//!   `fillet_surface::build_fillet_surface` BEFORE Phase A).
+//!   `fillet_surface::build_fillet_surface` BEFORE the anchor-split stage).
 //!
 //! The output is a `HashMap<VertexHandle, Vec<Point3>>` mapping
 //! each apex vertex (cube/pyramid corner with ≥3 incident filleted
@@ -19,7 +19,7 @@
 //! endpoints).
 //!
 //! Subsequent §28.H sessions (2-3) consume this map to position
-//! Phase A's anchors at planner targets, so post-Phase-A snap finds
+//! The anchor-split stage's anchors at planner targets, so post-anchor-split snap finds
 //! a zero-distance match instead of needing §28.C relocation.
 //!
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-
@@ -36,7 +36,7 @@ use crate::construct::EdgeGeometry;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletRadius, FilletSpec};
 
-/// Run the DirectApex planner against the pre-Phase-A BRep state.
+/// Run the DirectApex planner against the pre-anchor-split BRep state.
 ///
 /// For each vertex `V` with ≥3 incident filleted edges, build the
 /// per-apex `(FilletSpec[], FilletSurfaceResult[])` lists from
@@ -47,15 +47,15 @@ use crate::types::{FilletRadius, FilletSpec};
 ///
 /// Planner errors are silently swallowed: a vertex that can't be
 /// planned (e.g. degenerate sphere-cylinder intersection on
-/// extreme radii) just doesn't appear in the output.  Phase A
+/// extreme radii) just doesn't appear in the output.  the anchor-split stage
 /// then runs unmodified for that vertex's incident edges, falling
 /// back to perp-walk-math anchor positions.
 ///
-/// `brep` should be the pre-Phase-A snapshot — calling this
-/// function after Phase A produces the same output but wastes
+/// `brep` should be the pre-anchor-split snapshot — calling this
+/// function after the anchor-split stage produces the same output but wastes
 /// work (the planner reads only original edge endpoints, not
 /// perp-anchors).
-pub(crate) fn plan_apex_targets_pre_phase_a(
+pub(crate) fn plan_apex_targets_pre_anchor(
     brep: &BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
@@ -139,7 +139,7 @@ pub(crate) fn plan_apex_targets_pre_phase_a(
 /// Construct a [`FilletSpec`] from one [`EdgeGeometry`].  Mirrors
 /// the spec construction in `crate::construct::direct_apex_dispatch::
 /// try_direct_apex_construction` so the planner sees the same data
-/// pre- and post-Phase-A.
+/// pre- and post-anchor-split.
 fn build_fillet_spec(eg: &EdgeGeometry) -> FilletSpec {
     let radius = if (eg.radius_at_start - eg.radius_at_end).abs() < 1e-12 {
         FilletRadius::Constant(eg.radius_at_start)

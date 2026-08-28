@@ -4,7 +4,7 @@
 //! * `topology_repair` — to rewrite chord-line edges as analytic
 //!   cyl×plane arcs after the fact.
 //! * `helpers::compute_perp_anchor_positions_for_face` — to place
-//!   anchor vertices ON the cyl×plane intersection at Phase A,
+//!   anchor vertices ON the cyl×plane intersection at the anchor-split stage,
 //!   rather than at perp-walk positions that drift off-cylinder
 //!   for non-perpendicular faces (e.g. pyramid slants).  This is
 //!   the commercial-grade fix for #136 — anchors are on-surface

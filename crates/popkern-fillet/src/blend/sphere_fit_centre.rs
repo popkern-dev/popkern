@@ -142,7 +142,7 @@ fn replace_col(m: &[[f64; 3]; 3], col: usize, b: [f64; 3]) -> [[f64; 3]; 3] {
     out
 }
 
-/// Phase 6c-E: per-fillet rolling-ball cap centre — the point
+/// Per-fillet rolling-ball cap centre — the point
 /// on the fillet's cylinder axis closest to the apex.  When the
 /// fillet's sphere centre lies on its cylinder axis, sphere ∩
 /// cylinder is a clean great circle, giving exact analytic
@@ -174,7 +174,7 @@ pub(crate) fn per_fillet_rolling_ball_centre(
     ))
 }
 
-/// Phase 6c-E: pick the per-fillet sphere centre that
+/// Pick the per-fillet sphere centre that
 /// guarantees clean axis-tangency.  Tries the inscribed-sphere
 /// solution from `compute_cap_centre` first — if it lies on the
 /// fillet's cylinder axis (within tolerance) AND is on the

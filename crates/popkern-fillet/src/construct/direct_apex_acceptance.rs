@@ -11,7 +11,7 @@ use direct_apex_acceptance_helpers::{
 };
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
-pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
+pub(super) fn native_gregory_apex_rebuild_error(brep: &BRep) -> Option<String> {
     use popkern_core::error::ValidationError;
 
     // Structural variant (PK-273): this filter only ever matches

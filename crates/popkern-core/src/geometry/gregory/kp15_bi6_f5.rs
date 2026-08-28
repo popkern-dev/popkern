@@ -1,4 +1,4 @@
-//! Phase I.9 — K-P 2015 F_5 quality functional for bi-6 patches.
+//! K-P 2015 F_5 quality functional for bi-6 patches.
 //!
 //! Source: [KP15 §3.6 step 4], transcribed in
 //! `docs/journal/polar-kp-math.md` §1.4 and §2.5:

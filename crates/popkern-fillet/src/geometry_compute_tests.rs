@@ -102,7 +102,7 @@ fn build_overlap_inputs_empty_geometries() {
     assert!(face_trim_map.is_empty());
 }
 
-/// Phase 2 step 4: when the caller requests G2 cross-sections on a
+/// The ComputeGeometry G2 step: when the caller requests G2 cross-sections on a
 /// non-cone surface pair (plane-plane cube edge), `compute_fillet_geometry`
 /// must route through the spine walker so that `contact_solutions` is
 /// populated and `build_fillet_surface` can skin a degree-5 Bezier sweep.

@@ -1,4 +1,5 @@
-//! Phase A perpendicular edge splitting for fillet topology construction.
+//! Anchor-split stage: perpendicular edge splitting for fillet
+//! topology construction (inserts anchor vertices, never splits faces).
 
 use super::*;
 use std::collections::HashMap;
@@ -8,7 +9,7 @@ pub(super) struct PerpSplitData {
     pub(super) face_2_anchors: (VertexHandle, VertexHandle),
     /// Reflex hole-corner ends landed with interior-rail spurs
     /// (PK-185/PK-186) — consumed by the terminal-disc stage after
-    /// Phase C.
+    /// The consumed-merge stage.
     pub(super) reflex_ends: Vec<helpers::ReflexEndAnchor>,
 }
 
@@ -37,30 +38,31 @@ pub(super) fn run_perpendicular_splits(
     // (measured: pre-absorb 5 faces, post-absorb 3 — the wall and
     // the fresh cone eaten, 638 open mesh edges).
     let mut closed_fillet_protected: Vec<popkern_core::topology::FaceHandle> = Vec::new();
-    // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
+    // ── Anchor-split stage: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    // Round 5r+: snapshot before Phase A mutates result; anchor positions come from here.
-    let phase_a_snapshot = result.clone();
+    // Snapshot before the anchor-split stage mutates result; anchor
+    // positions come from here.
+    let pre_anchor_snapshot = result.clone();
 
     // §28.H Session 1 — planner pre-pass.  Run the DirectApex planner on
-    // the pre-Phase-A BRep state to compute apex_vertex targets per
+    // the pre-anchor-split BRep state to compute apex_vertex targets per
     // V.  Subsequent §28.H sessions (2-3) will thread these targets
-    // into Phase A's anchor placement.  Currently the result is
+    // into the anchor-split stage's anchor placement.  Currently the result is
     // computed and discarded — proves the pre-pass runs without
     // regression on every fixture.  Gated by `use_direct_apex_
     // construction` so legacy is unaffected.
     // Mixed-radius promoted apexes (PK-127) join the prepass without
     // the global flag: dispatch will route them to the direct-apex
-    // partition, so Phase A must place the anchors that plan expects.
+    // partition, so the anchor-split stage must place the anchors that plan expects.
     // Targets stay scoped to the promoted vertices when the global
     // flag is off so legacy anchor placement elsewhere is untouched.
     let _planner_targets_per_apex: std::collections::HashMap<
         VertexHandle,
         Vec<popkern_core::geometry::Point3>,
     > = if use_direct_apex_construction || !promoted_direct_apex_vertices.is_empty() {
-        let mut targets = crate::apex_construction::planner_prepass::plan_apex_targets_pre_phase_a(
-            &phase_a_snapshot,
+        let mut targets = crate::apex_construction::planner_prepass::plan_apex_targets_pre_anchor(
+            &pre_anchor_snapshot,
             edge_geometries,
             tolerance,
         );
@@ -76,7 +78,7 @@ pub(super) fn run_perpendicular_splits(
     // edge (chain/vertex-blend territory).
     let blend_edges: std::collections::HashSet<EdgeHandle> =
         edge_geometries.iter().map(|eg| eg.analysis.edge).collect();
-    // Per-original-edge descendants after Phase A, for Phase C consumed-face lookup.
+    // Per-original-edge descendants after the anchor-split stage, for the consumed-merge stage consumed-face lookup.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
         descendants.insert(eg.analysis.edge, vec![eg.analysis.edge]);
@@ -86,7 +88,7 @@ pub(super) fn run_perpendicular_splits(
         // Closed fillet edges (e.g. cylindrical hole rims) don't
         // have perpendicular boundary edges to split. Dispatch to
         // the closed-fillet surgery path and mark the edge as
-        // already handled — skip Phase B/C for it.
+        // already handled — skip the face-trim/consumed-merge stages for it.
         if std::env::var_os("PK_FILLET_TRACE").is_some() {
             eprintln!(
                 "  [fillet-dispatch] edge {:?} closed={}",
@@ -189,7 +191,7 @@ pub(super) fn run_perpendicular_splits(
         // perp-walk-math at insertion time.
         let override_ = if direct_apex_anchor_edge && !_planner_targets_per_apex.is_empty() {
             Some(build_perp_anchor_override(
-                &phase_a_snapshot,
+                &pre_anchor_snapshot,
                 eg.analysis.edge,
                 eg.analysis.face_1,
                 eg.analysis.face_2,
@@ -209,7 +211,7 @@ pub(super) fn run_perpendicular_splits(
             _ => None,
         };
         match helpers::split_perpendicular_edges_by_radius_with_overrides(
-            &phase_a_snapshot,
+            &pre_anchor_snapshot,
             result,
             eg.analysis.face_1,
             eg.analysis.face_2,
@@ -269,14 +271,14 @@ pub(super) fn run_perpendicular_splits(
 /// vs face_2), pick the planner target nearest the perp-walk-math
 /// reference position by greedy distance.  When a vertex isn't an
 /// apex (no planner targets emitted), the corresponding override
-/// fields stay `None` and Phase A uses perp-walk math.
+/// fields stay `None` and the anchor-split stage uses perp-walk math.
 ///
 /// Tolerance for "near": `radius * 1.5` — generous enough that
 /// uniform-radius targets (which coincide with perp-walk
 /// positions) match cleanly, but tight enough that variable-
 /// radius targets (sphere-fit, far from perp-walk) don't get
 /// forced onto the wrong slot.  When `None` is returned for a
-/// slot due to no near match, Phase A falls back to perp-walk
+/// slot due to no near match, the anchor-split stage falls back to perp-walk
 /// math.
 fn build_perp_anchor_override(
     brep: &popkern_core::topology::BRep,

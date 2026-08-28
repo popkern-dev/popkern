@@ -123,7 +123,7 @@ fn hexagram_rim_chamfer_chain_top_is_watertight_and_exact() {
         })
         .expect("rim chamfer chain");
     assert_chamfered_prism(&out, &poly, h, d, 1);
-    let dir = std::env::temp_dir().join("pk135_rim_chamfer");
+    let dir = std::env::temp_dir().join("rim_chamfer");
     std::fs::create_dir_all(&dir).expect("tmp dir");
     let path = dir.join("hexagram_rim.step");
     out.export_step(&path).expect("step export");

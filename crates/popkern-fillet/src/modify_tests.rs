@@ -228,13 +228,13 @@ fn modify_fillet_radius_changes_closed_hole_rim_fillet() {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5g: variable radius via the FilletRadius API
+// variable radius via the FilletRadius API
 // ---------------------------------------------------------------------------
 
 /// `modify_fillet_radius` accepts an `f64` (constant convenience)
 /// AND a full [`FilletRadius`] spec — the same entry point handles
 /// both. This test exercises a `Variable { start, end }` profile
-/// to confirm the Round 5g extension wires through end-to-end.
+/// to confirm the extension wires through end-to-end.
 #[test]
 fn modify_fillet_radius_accepts_variable_radius_spec() {
     let brep = cube();
@@ -276,10 +276,10 @@ fn modify_fillet_radius_accepts_variable_radius_spec() {
     );
 }
 
-/// Round 5l: ByPoints radius profile flows end-to-end through the
+/// ByPoints radius profile flows end-to-end through the
 /// modify pipeline. The construct phase should honour the per-end
-/// radii (Round 5k) and the center curve should follow the full
-/// piecewise-linear profile (Round 5l).
+/// radii  and the center curve should follow the full
+/// piecewise-linear profile .
 #[test]
 fn modify_fillet_radius_accepts_bypoints_radius_spec() {
     let brep = cube();

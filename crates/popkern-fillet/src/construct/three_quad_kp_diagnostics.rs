@@ -143,7 +143,7 @@ pub(super) fn boundary_candidate_selection(
 /// rung previously declined at six optimizer sites with no record —
 /// engagement was unverifiable, so its coverage was silently zero.
 /// `candidate` is `guide` or `exact`; `outcome` is the optimizer's
-/// outcome string (`served_lm;…` / `kept_phase2;…` /
+/// outcome string (`served_lm;…` / `kept_presolve;…` /
 /// `declined:<site>` / `lm_rejected:<why>`).
 pub(super) fn outer_fillet_rung_outcome(
     candidate: &str,

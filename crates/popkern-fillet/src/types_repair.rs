@@ -60,7 +60,7 @@ pub struct BlendRepairReport {
 
 /// Marker prefix of the serving-shape gate's decline reason (PK-260).
 /// The direct-apex dispatch formats its
-/// [`ApexConstructionRoute::DirectApexFallbackToLegacy`] reason with
+/// [`ApexConstructionRoute::DirectApexFallbackToVertexBlend`] reason with
 /// this prefix when a body defect (glued surfaceless residuals or
 /// dead boundary sides) survives every serving-shape rung; the
 /// serving retry matches it to re-run the pipeline with the corner
@@ -74,15 +74,16 @@ pub const SERVING_SHAPE_DECLINE_PREFIX: &str = "serving-shape defect persists";
 /// Construction route used for one smooth multi-fillet apex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApexConstructionRoute {
-    /// direct-apex was not requested; legacy `insert_vertex_blend` handled the apex.
-    Legacy,
-    /// direct-apex planner and builder completed and legacy was skipped.
+    /// direct-apex was not requested; the `insert_vertex_blend`
+    /// corner-blend rung ladder handled the apex.
+    VertexBlend,
+    /// direct-apex planner and builder completed; vertex-blend skipped.
     DirectApex,
-    /// direct-apex was requested but declined; legacy handled the apex.
-    DirectApexFallbackToLegacy,
+    /// direct-apex was requested but declined; vertex-blend handled it.
+    DirectApexFallbackToVertexBlend,
 }
 
-/// Per-apex legacy/direct-apex migration diagnostic.
+/// Per-apex vertex-blend/direct-apex route diagnostic.
 #[derive(Debug, Clone)]
 pub struct ApexConstructionRouteDecision {
     /// Original apex vertex being resolved.
@@ -111,7 +112,7 @@ pub struct ApexConstructionRouteDecision {
     pub exact_boundary_performance: ExactBoundaryCandidatePerformanceReport,
     /// Versioned exact-boundary report for GUI and programmatic consumers.
     pub exact_boundary_report: ExactBoundaryCapReport,
-    /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToLegacy`] applies.
+    /// direct-apex decline reason when [`ApexConstructionRoute::DirectApexFallbackToVertexBlend`] applies.
     pub fallback_reason: Option<String>,
 }
 
@@ -201,7 +202,7 @@ pub struct CoherenceValidationDiagnostic {
 pub enum SupportCellSplitAxisStatus {
     /// Caller did not supply a cap-vertex projection for this axis;
     /// uniform `i / cells` split was used (legacy callers).
-    UniformLegacy,
+    UniformNoProjection,
     /// Cap-vertex projection produced a sequence that matched
     /// `i / cells` to within tolerance; uniform formula used directly.
     UniformEquivalent,

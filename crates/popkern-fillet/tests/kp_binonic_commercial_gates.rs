@@ -1,4 +1,4 @@
-//! Phase H.7 — commercial-grade continuity gates on the K-P
+//! Commercial-grade continuity gates on the K-P
 //! bidegree-9 output.
 //!
 //! # Metric choice: triple product, not unit-normal dot
@@ -19,7 +19,7 @@
 //! orthogonal. This is invariant under the parametric
 //! degeneracy that trips up the unit-normal metric.
 //!
-//! # Gates (per the Phase H plan § 1-3)
+//! # Gates (per the bi-9 gate plan § 1-3)
 //!
 //! * **G0**: position gap ≤ 1e-10 on interior `t ∈ [0.05, 0.95]`.
 //! * **G1**: coplanarity ≤ 5e-2 (≈ 2.9° normal mismatch).
@@ -27,7 +27,7 @@
 //!
 //! The 0.05 endpoint margin excludes the Gregory central-vertex
 //! and outer-corner singularities — finite-angle transition
-//! zones inherent to the rational blend (not Phase H work).
+//! zones inherent to the rational blend (not bi-9 construction work).
 //!
 //! # Fixture matrix
 //!
@@ -223,11 +223,11 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
     // Honesty re-pin (PK-140 transactional gate): the previous green
     // measured a 2-of-3 PARTIAL body — one tiny-radius leg has
-    // always failed Phase A ("no perpendicular edge found at
+    // always failed the anchor-split stage ("no perpendicular edge found at
     // v_start") and was silently dropped. Until the tiny-radius perp
     // split lands, the operation must decline naming the class.
     let err = try_fillet_cube_result(&[0.001, 0.002, 0.003], true)
-        .expect_err("tiny-radius corner has a known Phase A gap and must decline");
+        .expect_err("tiny-radius corner has a known the anchor-split stage gap and must decline");
     let msg = format!("{err:?}");
     assert!(
         msg.contains("no perpendicular edge found"),

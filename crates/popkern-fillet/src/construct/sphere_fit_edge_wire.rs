@@ -1,4 +1,4 @@
-//! Phase 6c-D — write Phase-6c-A-substituted boundary curves into
+//! Write Phase-6c-A-substituted boundary curves into
 //! BRep edges so they propagate to the cap-vs-fillet pcurve fits.
 //!
 //! Without this wiring, the substituted curves in `BlendBoundary`
@@ -62,13 +62,13 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // beyond 5 cm (substitution wouldn't have fired anyway) or
     // sit within the rolling-ball overshoot region.
     //
-    // Phase 6c-D Stage 1: wide 30 cm tolerance. Closes the
+    // Wide 30 cm tolerance. Closes the
     // BRep ↔ substituted-boundary alignment gap for fixtures where
     // neighbor-cylinder reroute can't run (pyramid topology axes do
     // not pass through per-fillet sphere centres). Default off so
     // cube_mixed/extreme's reroute path is undisturbed.
     //
-    // Phase 6c-D Stage 4: empirical finding — variable-radius
+    // Empirical finding — variable-radius
     // pyramid fixtures need the wider tolerance to match ANY
     // boundary segment to a cap sub-edge (`wire_substituted… wrote
     // 0 of 8` at 5cm tolerance on pyramid4_mixed). The wider
@@ -80,8 +80,8 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // edges, vertices stay at their existing positions. Edge
     // endpoints may not exactly equal curve(t_start)/curve(t_end),
     // but downstream pcurve refit / measurement tolerates this.
-    let stage4_wide_tol = boundary.sphere_fit_substituted;
-    // Phase 6c-X.A.3: when active, write the FULL segment range
+    let sphere_fit_wide_tol = boundary.sphere_fit_substituted;
+    // When active, write the FULL segment range
     // `[t0, t1]` to every cap-loop edge instead of vertex-projection
     // sub-ranging.  The substituted boundary (per X.A.2 trace) is
     // internally coherent — adjacent FilletEnd/FaceEdge segments
@@ -89,11 +89,11 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // coherence in the BRep.  A.4 then mutates apex vertex positions
     // to match the curve endpoints; A.5 updates BASE-EDGE curves.
     //
-    // Implies stage4_wide_tol behaviours (analytic pcurves, etc.)
+    // Implies sphere_fit_wide_tol behaviours (analytic pcurves, etc.)
     // because full-boundary apex wiring is meaningful only under
     // sphere-fit substitution.
-    let path_a_active = boundary.sphere_fit_substituted;
-    let tol = if stage4_wide_tol { 0.30 } else { 0.05 };
+    let apex_rebuild_active = boundary.sphere_fit_substituted;
+    let tol = if sphere_fit_wide_tol { 0.30 } else { 0.05 };
 
     let segment_curves: Vec<&NurbsCurve> = boundary
         .segments
@@ -119,10 +119,10 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         &segment_curves,
         &segment_endpoints,
         tol,
-        stage4_wide_tol,
+        sphere_fit_wide_tol,
     );
 
-    // Phase B — execute. For each job, snap both endpoint vertices
+    // Execute. For each job, snap both endpoint vertices
     // to the segment endpoints (idempotent if already coincident),
     // write the curve to the edge (oriented to match the edge's
     // primary half-edge direction), and refit pcurves on both sides.
@@ -191,23 +191,23 @@ pub(crate) fn wire_substituted_boundary_to_edges(
                 .map(|s| s.geometry.clone())
         });
 
-        // Phase 6c-D Stage 4.1: project the sub-edge's vertex
+        // Project the sub-edge's vertex
         // endpoints onto the segment to find the sub-range
         // `[edge_t0, edge_t1]` on the segment that this sub-edge
         // covers. Without this, every sub-edge sharing a segment
         // would claim the full segment range, leaving cap-outer
         // measurement to evaluate the same midpoint regardless of
         // sub-edge — wrong for multi-sub-edge cases.
-        // Phase 6c-X.A.3: when path_a_active, write the FULL segment
+        // When apex_rebuild_active, write the FULL segment
         // range to every cap-loop edge (skip projection sub-ranging).
         // The substituted boundary is internally coherent (FilletEnd[k]
         // and FaceEdge[k] share endpoints by construction); full-range
         // writes preserve that coherence in the BRep.  Apex vertices
         // get relocated separately by A.4.
-        let (edge_t_start, edge_t_end) = if path_a_active {
+        let (edge_t_start, edge_t_end) = if apex_rebuild_active {
             (t0, t1)
         } else {
-            // Phase 6c-D Stage 4.1: project the sub-edge's vertex
+            // Project the sub-edge's vertex
             // endpoints onto the segment to find the sub-range.
             // Without this in legacy subrange mode, every sub-edge
             // sharing a segment would claim the full segment range.
@@ -220,7 +220,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             } else {
                 (edge_t_dest, edge_t_origin)
             };
-            // Phase 6c-E Mode B: when projections collapse to the same
+            // Collapsed-projection fallback (Mode B): when projections collapse to the same
             // parameter (cube fixtures whose BRep vertices don't lie on
             // the substituted bridge), fall back to full segment range.
             // Becomes redundant once A.7 removes legacy mode entirely.
@@ -244,7 +244,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         };
         let raw_lo = frac(edge_t_start);
         let raw_hi = frac(edge_t_end);
-        // Phase 6c-D Stage 4.6: cap surface UV is parameterised in
+        // Cap surface UV is parameterised in
         // the ORIGINAL (non-reversed) segment direction.  When the
         // wire reversed the curve to match the edge's primary HE,
         // the cap-side pcurve must invert its boundary fractions
@@ -271,7 +271,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
 
         // Re-fit both half-edge pcurves from the new 3-D curve.
         //
-        // Phase 6c-D Stage 4: under injection, the cap-side pcurve
+        // Under injection, the cap-side pcurve
         // refit (`refit_pcurve_on_surface` → `project_point_to_uv` →
         // `fit_curve`) produces UVs OUTSIDE the Gregory patch's
         // [0, 1]² parameter domain (e.g. (2.25, 2.22)). The Gregory
@@ -293,7 +293,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // The cylinder/plane side keeps the NURBS refit — it's an
         // analytic surface where `project_point_to_uv` is reliable,
         // so the existing pcurve refit produces valid UVs there.
-        let analytic_cap_pcurve = if stage4_wide_tol {
+        let analytic_cap_pcurve = if sphere_fit_wide_tol {
             cap_pcurve_for_segment(
                 seg_idx,
                 reversed,
@@ -312,7 +312,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         {
             brep.half_edges[he_handle].pcurve = Some(pc.into());
         }
-        // Phase 6c-D Stage 4.7: when the twin face is an analytic
+        // When the twin face is an analytic
         // surface (Plane / Cylinder), the sphere-fit substituted
         // curve lies on it (or near it after Stage 4.7 lift).
         // Write an analytic Linear pcurve through the projected
@@ -321,7 +321,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // least-squares interpolation through 12 samples leaves
         // up to 1 cm residual on small arcs, which the Linear
         // approximation closes for short segments.
-        // Phase 6c-D Stage 4.7d/e: bit-exact analytic pcurve on
+        // Analytic-pcurve survival (sphere-fit wiring): bit-exact analytic pcurve on
         // the cyl twin side via `CylinderArcViaRationalQuad`.
         // Stage 4.7e's sub_face reordering makes
         // `boundary.fillet_end_arcs[seg_idx / 2]` correspond to
@@ -330,7 +330,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // describe the SAME analytic arc.  Cyl-side eval
         // matches curve3d to machine precision.
         let arc_twin_pcurve: Option<Pcurve> = (|| {
-            if !stage4_wide_tol || !seg_idx.is_multiple_of(2) {
+            if !sphere_fit_wide_tol || !seg_idx.is_multiple_of(2) {
                 return None;
             }
             let fillet_idx = seg_idx / 2;
@@ -376,7 +376,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         })();
         let analytic_twin_pcurve = if arc_twin_pcurve.is_some() {
             arc_twin_pcurve
-        } else if stage4_wide_tol {
+        } else if sphere_fit_wide_tol {
             other_surf.as_ref().and_then(|s| {
                 analytic_linear_pcurve_on_surface(&curve, s, edge_t_start, edge_t_end)
             })

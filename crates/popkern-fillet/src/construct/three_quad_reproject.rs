@@ -16,7 +16,7 @@ use popkern_core::topology::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDecl
 /// curve (internal cap-to-cap edges created by `mev`/`mef`); we
 /// reconstruct the 3-D path via `old_surface(old_pcurve(t))`.
 ///
-/// `preserve_analytic_pcurves` (Phase 6c-D Stage 4.6): when `true`,
+/// `preserve_analytic_pcurves` (the sphere-fit edge-wiring work Stage 4.6): when `true`,
 /// half-edges whose existing pcurve is one of the analytic forms
 /// (`Linear`, `Elliptical`, `Sinusoidal`) are NOT re-fit.  The
 /// `wire_substituted_boundary_to_edges` step writes analytic
@@ -71,7 +71,7 @@ pub(super) fn reproject_loop_pcurves_onto_gregory(
         let he = *he;
         let edge = brep.half_edges[he].edge;
 
-        // Phase 6c-D Stage 4.6: preserve analytic pcurves (Linear /
+        // Preserve analytic pcurves (Linear /
         // Elliptical / Sinusoidal) when the cap face was wired by
         // `sphere_fit_edge_wire`.  Closest-point projection on the
         // freshly-installed Gregory surface routinely lands FaceEdge

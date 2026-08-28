@@ -59,7 +59,7 @@ fn count_bad_faces(brep: &BRep, threshold: f64) -> (usize, Vec<String>) {
 /// median is robust to a few outlier vertices that bleed in from
 /// neighbouring fillets at multi-edge corners.
 ///
-/// After Round 5o (median-based surface_fix + median-based
+/// After (median-based surface_fix + median-based
 /// vertex-blend sphere centroid), the only remaining bad face is
 /// a vertex-blend Sphere whose inherent fit error is ~0.073 — the
 /// rolling-ball blend at a 3-fillet cube corner is approximated by

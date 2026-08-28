@@ -71,7 +71,7 @@ pub(crate) fn poke_n_gon_face_into_4n_quads(
     face: FaceHandle,
     central_point: Point3,
 ) -> Result<HexPoke4nResult, CoreError> {
-    // Phase 1 — N-way poke.
+    // N-way poke.
     let n_result = poke_n_gon_face_into_n_quads(brep, face, central_point)?;
     poke_n_gon_face_into_4n_quads_from_n_poke(brep, n_result)
 }
@@ -98,13 +98,13 @@ fn poke_n_gon_face_into_4n_quads_from_n_poke(
     let n = n_result.sub_faces.len();
     let central_vertex = n_result.central_vertex;
 
-    // Phase 2 — split all N radial edges (shared between sectors).
+    // Split all N radial edges (shared between sectors).
     //
     // Edges are collected BEFORE any split, since split_edge creates
     // new edges + half-edges that would confuse the vertex-fan walk.
     split_radial_edges_for_4n_poke(brep, central_vertex, n)?;
 
-    // Phase 3 — per-sector: split 2 outer edges, then subdivide into 4.
+    // Per-sector: split 2 outer edges, then subdivide into 4.
     let mut sub_faces: Vec<FaceHandle> = Vec::with_capacity(4 * n);
     for sector_face in n_result.sub_faces {
         let four = subdivide_sector_into_four(brep, sector_face, central_vertex)?;

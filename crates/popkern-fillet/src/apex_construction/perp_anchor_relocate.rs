@@ -1,6 +1,6 @@
-//! Phase 6c-DirectApex §28.C — pre-DirectApex perp-anchor relocation to plan targets.
+//! the sphere-fit edge-wiring workirectApex §28.C — pre-DirectApex perp-anchor relocation to plan targets.
 //!
-//! Phase A perp-walks place anchors at perp-walk-math positions
+//! the anchor-split stage perp-walks place anchors at perp-walk-math positions
 //! (where the fillet's transverse boundary intersects the host plane,
 //! perpendicular to the fillet edge).  The planner places
 //! `apex_vertices` at Gregory tangent-termination math positions
@@ -37,7 +37,7 @@ use super::plan::ApexPlan;
 ///
 /// After moving each vertex, sweeps incident edges to maintain
 /// curve coherence: line edges are re-fit through the new endpoint;
-/// circular-arc edges (the common case for Phase B fillet-end arcs
+/// circular-arc edges (the common case for the face-trim stage fillet-end arcs
 /// and cyl-vs-Plane cube boundaries) are re-fit by projecting the
 /// new vertex position onto the underlying conic and updating the
 /// arc parameter range.
@@ -234,7 +234,7 @@ fn bfs_collect_neighborhood(
 
 /// Walk every cylinder face's outer loop and add vertices within
 /// `radius` of `v_pos` to `out`.  Catches cylinder-only perp-anchors
-/// that aren't reachable from V via plane-sub-face edges (Phase A
+/// that aren't reachable from V via plane-sub-face edges (the anchor-split stage
 /// perp-walks insert these on cyl boundaries near V).
 fn collect_cylinder_outer_loop_vertices(
     brep: &BRep,

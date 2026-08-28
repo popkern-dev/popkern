@@ -47,7 +47,7 @@ impl BrepLoopFacts {
         &self.boundary_vertices
     }
 
-    /// Legacy-compatible compact diagnostic label.
+    /// Migration-compatible compact diagnostic label (pre-render-key scheme).
     pub fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}/{:?} vertices={:?} repeated_vertex={} repeated_half_edge={}",
@@ -109,7 +109,7 @@ impl BrepLoopAdjacencyFacts {
         self.adjacent_half_edge
     }
 
-    /// Legacy-compatible compact diagnostic label.
+    /// Migration-compatible compact diagnostic label (pre-render-key scheme).
     pub fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}@{:?}<->{:?}/{:?}@{:?}",

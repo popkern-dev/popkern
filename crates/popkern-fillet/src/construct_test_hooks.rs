@@ -12,7 +12,7 @@ pub fn pns_setback_candidate_full(
     )
 }
 
-/// PK-097 Phase A: run the PnS setback candidate (G1 cap on the
+/// PK-097: run the PnS setback candidate (G1 cap on the
 /// setback border) and return its quality report.
 pub fn pns_setback_candidate(
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],

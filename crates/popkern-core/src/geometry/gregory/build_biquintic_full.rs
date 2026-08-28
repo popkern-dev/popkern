@@ -3,7 +3,7 @@
 //! Extracted from `build.rs` to keep the latter under the 500-
 //! line structural cap. Mirrors the deg5 constructor semantics
 //! with two additions: the 12 free interior CPs are seeded from
-//! bilinear interpolation (to be refined by the Phase 6 spoke
+//! bilinear interpolation (to be refined by the spoke
 //! G1 solver), and `from_deg5` promotes an existing deg5 patch
 //! in place.
 

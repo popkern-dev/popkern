@@ -1,7 +1,7 @@
 //! Non-fatal per-edge warnings for fillet/chamfer operations.
 //!
 //! Extracted from `error.rs` to keep each module under the 500-LoC
-//! structural limit and to give Phase I (polar K-P) headroom for
+//! structural limit and to give the polar-cap campaign (polar K-P) headroom for
 //! its fallback-ladder warning variants.
 //!
 //! Re-exported as `crate::error::BlendWarning` for API stability;
@@ -265,7 +265,7 @@ pub enum BlendWarning {
         /// Valence of the corner.
         n_sides: usize,
     },
-    /// Phase H.8 step-D — the K-P bidegree-9 construction shipped
+    /// the K-P bidegree-9 construction shipped
     /// the corner but could not reach the commercial-grade G1
     /// tolerance. commercial-style graceful degradation: ship the
     /// best-effort patch rather than failing. Common under extreme
@@ -279,7 +279,7 @@ pub enum BlendWarning {
         /// `t ∈ [0.05, 0.95]` dense sampling.
         worst_coplanarity: f64,
     },
-    /// Phase I — polar K-P bi-nonic unavailable; bicubic polar rung
+    /// Polar K-P bi-nonic unavailable; bicubic polar rung
     /// took over. Ships G1 but not the intended bi-nonic quality.
     PolarKpBinonicToBicubic {
         /// The polar vertex (valence ≥ 5).
@@ -289,7 +289,7 @@ pub enum BlendWarning {
         /// Worst-case G1 coplanarity achieved.
         worst_coplanarity: f64,
     },
-    /// Phase I — polar K-P failed; sphere-fit shortcut took over.
+    /// Polar K-P failed; sphere-fit shortcut took over.
     /// Common on uniform-radii convex N-valence vertices.
     PolarKpToSphereFit {
         /// The polar vertex.
@@ -297,7 +297,7 @@ pub enum BlendWarning {
         /// Valence.
         n_sides: usize,
     },
-    /// Phase I — polar K-P failed; single-patch polar-NURBS took
+    /// Polar K-P failed; single-patch polar-NURBS took
     /// over. Significant quality drop vs K-P sector construction.
     PolarKpToPolarNurbs {
         /// The polar vertex.
@@ -307,7 +307,7 @@ pub enum BlendWarning {
         /// Worst-case G1 coplanarity on the polar-NURBS surface.
         worst_coplanarity: f64,
     },
-    /// Phase I — all upstream options failed; mitred plane G0-only
+    /// All upstream options failed; mitred plane G0-only
     /// last resort. Indicates severe geometry / numerical issues.
     PolarKpToMitredPlane {
         /// The polar vertex that fell all the way to mitre.
@@ -315,7 +315,7 @@ pub enum BlendWarning {
         /// Valence.
         n_sides: usize,
     },
-    /// **Phase 6c-direct-apex dispatch** — apex-region construction was requested
+    /// **Direct-apex dispatch** — apex-region construction was requested
     /// to use the direct-apex builder
     /// ([`crate::types::FilletOptions::use_direct_apex_construction`]
     /// = `true`) but the direct-apex path could not finish for this apex,
@@ -328,7 +328,7 @@ pub enum BlendWarning {
     /// (when the direct-apex builder errors on Sphere/Gregory paths that
     /// haven't been implemented yet) — the warning's `reason`
     /// field carries the direct-apex error message verbatim.
-    DirectApexFellBackToLegacy {
+    DirectApexFellBackToVertexBlend {
         /// The apex vertex where direct-apex was attempted.
         vertex: VertexHandle,
         /// The direct-apex plan or build error that triggered fallback,

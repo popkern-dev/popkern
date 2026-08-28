@@ -1,4 +1,4 @@
-//! Phase H.7 gap #2 — K-P 2004 §4 iterative guide-twist
+//! the bi-9 commercial gates gap #2 — K-P 2004 §4 iterative guide-twist
 //! optimizer for the K-P bidegree-9 construction.
 //!
 //! # Problem

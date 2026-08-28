@@ -66,7 +66,7 @@ const ARC_SAMPLES_PER_SUBCELL: usize = 6;
 /// macro piece. Returns the parameter sequence plus the diagnostic
 /// facts for that axis. When `cap_projection` is `None`, returns the
 /// uniform `i / cells_axis` sequence and marks the axis status as
-/// `UniformLegacy` (legacy caller).
+/// `UniformNoProjection` (legacy caller).
 #[allow(dead_code)] // first caller lands in Stage B2
 pub(crate) fn cap_vertex_splits_along_axis(
     base: &Kp20Bi6Patch,
@@ -76,7 +76,7 @@ pub(crate) fn cap_vertex_splits_along_axis(
     let Some(cap) = cap_projection else {
         return uniform_outcome(
             cells_axis,
-            SupportCellSplitAxisStatus::UniformLegacy,
+            SupportCellSplitAxisStatus::UniformNoProjection,
             None,
             0,
         );
@@ -89,7 +89,7 @@ pub(crate) fn cap_vertex_splits_along_axis(
             0,
         );
     }
-    // Phase 1: project + filter.
+    // Project + filter.
     let (projected, divergence) = project_vertices(base, cap);
     if divergence {
         return uniform_outcome(
@@ -100,7 +100,7 @@ pub(crate) fn cap_vertex_splits_along_axis(
         );
     }
     let projected_count = projected.len();
-    // Phase 2: match sequence length to cells_axis - 1.
+    // Match sequence length to cells_axis - 1.
     let required = cells_axis.saturating_sub(1);
     if projected.len() > required {
         return CapVertexSplitOutcome {
@@ -121,7 +121,7 @@ pub(crate) fn cap_vertex_splits_along_axis(
     if uniform_fill_count > 0 {
         fill_largest_gaps(&mut matched, uniform_fill_count);
     }
-    // Phase 3: uniform-equivalence shortcut.
+    // Uniform-equivalence shortcut.
     let equivalence_delta = uniform_equivalence_max_delta(&matched, cells_axis);
     if equivalence_delta < UNIFORM_EQUIVALENCE_TOL {
         return CapVertexSplitOutcome {
@@ -137,7 +137,7 @@ pub(crate) fn cap_vertex_splits_along_axis(
             },
         };
     }
-    // Phase 4: admissibility guard.
+    // Admissibility guard.
     let (min_subcell_arc, min_required) = check_admissibility(base, cap.side, &matched);
     if min_subcell_arc < min_required {
         return CapVertexSplitOutcome {

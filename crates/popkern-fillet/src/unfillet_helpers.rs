@@ -362,7 +362,7 @@ pub(crate) fn walk_blend_boundary(
 // Surgery helpers live in `unfillet_surgery` — kept separate so
 // each source file stays under the 500-line structural cap.
 
-/// True when `face` is the annulus produced by the Round 5c-3
+/// True when `face` is the annulus produced by the closed-fillet
 /// closed-fillet construction path.
 ///
 /// Detection is topological, not geometric: a closed-fillet annulus

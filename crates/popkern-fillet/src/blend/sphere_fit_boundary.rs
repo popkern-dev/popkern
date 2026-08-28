@@ -1,4 +1,4 @@
-//! Sphere-fit termination substitution for blend boundaries (Phase 6c-A).
+//! Sphere-fit termination substitution for blend boundaries (sphere-fit substitution).
 //!
 //! Env-gated post-process for [`compute_blend_boundary`](super::boundary).
 //! After the standard hex-closure boundary is built, this module
@@ -107,7 +107,7 @@ fn apply_sphere_fit_substitution_inner(
         return Err("sphere-fit needs >= 3 unique adjacent faces");
     }
 
-    // **Per-fillet sphere-fit (Phase 6c-A continuation §4.2).**
+    // **Per-fillet sphere-fit (per-fillet sphere-fit continuation).**
     // Each fillet uses *its own* cap radius (= the fillet's
     // nominal radius) and *its own* cap centre, computed by
     // solving the same `compute_cap_centre` system but with
@@ -123,7 +123,7 @@ fn apply_sphere_fit_substitution_inner(
     // The downstream cap construction (Gregory-cap promotion
     // ladder, §4.2) absorbs the boundary as-is and fits the
     // cap interior to satisfy G1 against each fillet via
-    // Phase 6c-B's outer-fillet-G1 L-M solver.
+    // the outer-fillet-G1 L-M solver.
     let mut new_curves: Vec<popkern_core::geometry::NurbsCurve> = Vec::with_capacity(n_fil);
     let mut new_endpoints: Vec<[Point3; 2]> = Vec::with_capacity(n_fil);
     let mut per_fillet_caps: Vec<(Point3, f64)> = Vec::with_capacity(n_fil);
@@ -136,7 +136,7 @@ fn apply_sphere_fit_substitution_inner(
         let fillet = &fillet_surfaces[fi];
         let r_k =
             fillet_nominal_radius(&fillet.surface).ok_or("could not extract fillet radius")?;
-        // Phase 6c-E: pick centre via the cylinder-axis-tangent
+        // Pick centre via the cylinder-axis-tangent
         // dispatcher — falls back to per-fillet apex-projection
         // when the inscribed-sphere solution is off-axis (pyramid
         // and other N ≥ 4 apices).  For trihedral cube-like apices
@@ -160,7 +160,7 @@ fn apply_sphere_fit_substitution_inner(
             tolerance,
         )
         .map_err(|_| "sphere-fit termination failed")?;
-        // Phase 6c-D Stage 4.7c: capture analytic arc params so
+        // Capture analytic arc params so
         // the wire can write `CurveGeometry::Ellipse` (with the
         // cylinder's exact `orthonormal_basis`) to BRep edges
         // instead of a NURBS approximation.  Pcurve becomes
@@ -258,13 +258,13 @@ fn apply_sphere_fit_substitution_inner(
         }
     }
 
-    // Phase 6c-A continuation §4.2: expose per-fillet (centre,
+    // Per-fillet sphere-fit continuation: expose per-fillet (centre,
     // radius) so downstream cap construction can assign each
     // sub-face a `Sphere(cap_centre_k, r_k)` surface (perfect
     // cap-cylinder G1 by construction).
     boundary.per_fillet_caps = per_fillet_caps;
 
-    // Phase 6c-D Stage 1b: derive deg-9 Bernstein CPs of each
+    // Derive deg-9 Bernstein CPs of each
     // sub-patch's hex-side boundary (the substituted FilletEnd
     // arc and FaceEdge bridge curves) so the K-P bi-nonic ring
     // builder can use them directly via `pick_hex_boundary`,
@@ -356,7 +356,7 @@ fn apply_sphere_fit_substitution_inner(
     Ok(())
 }
 
-/// Phase 6c-D Stage 1b: sample a NurbsCurve at 10 uniform
+/// Sample a NurbsCurve at 10 uniform
 /// parameter values across its full range and fit a deg-9
 /// Bezier (10 Bernstein control points) interpolating those
 /// samples.  Returns `None` if the curve has zero parameter
@@ -394,7 +394,7 @@ fn sample_and_fit_deg9(curve: &popkern_core::geometry::NurbsCurve) -> Option<[Po
     Some(out)
 }
 
-/// Phase 6c-D Stage 4.7c: sample the analytic ellipse at 10
+/// Sample the analytic ellipse at 10
 /// uniform angular intervals between `start_angle` and
 /// `end_angle`, fit a deg-9 Bezier with parameter `s = (i/9)`
 /// interpolating those angular samples.  When the cap surface's

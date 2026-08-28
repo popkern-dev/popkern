@@ -1,4 +1,4 @@
-//! Phase IV PnS — Central σ reparameterization (Appendix B).
+//! PnS cap — Central σ reparameterization (Appendix B).
 //!
 //! σ is a bi-4 map `[0, 1]² → R²` that distributes the central
 //! quadratic expansion of the n-gon cap across the N sectors in a

@@ -150,7 +150,7 @@ fn near_spoke_bulge_is_not_a_crossing() {
     // hold genuine off-spoke hover branches above the 3D band
     // (pyramid3_uniform: 2.38e-5 against band 1e-5, at uv_a.u = 0.9883)
     // — the rail-hover arm exists for those; its integration pin is the
-    // fillet corpus (phase_6c_a6_validation), which flips if the arm
+    // fillet corpus (apex_relocation_metrics), which flips if the arm
     // regresses.
     for depth in [1.0e-4, 0.05] {
         let mut ring = pyramid_ring(4);

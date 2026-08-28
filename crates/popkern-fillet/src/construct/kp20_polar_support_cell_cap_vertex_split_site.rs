@@ -1,4 +1,5 @@
-//! Cap-vertex-aware admissibility gate for Phase 5 split_edge call sites.
+//! Cap-vertex-aware admissibility gate for ApplyTopology-stage
+//! split_edge call sites.
 //!
 //! Stage B1 of `docs/decisions/2026-06-21-kp20-cap-vertex-aware-
 //! support-cell-split.md`. Wraps `brep.split_edge(edge, t)` call sites

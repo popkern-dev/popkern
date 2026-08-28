@@ -5,7 +5,7 @@
 //! `apply_blend_geometry`'s apex-vertex-blend loop attempts the
 //! direct-apex planner + builder before falling back to the legacy
 //! `insert_vertex_blend` path.  Failure surfaces as
-//! `BlendWarning::DirectApexFellBackToLegacy`.
+//! `BlendWarning::DirectApexFellBackToVertexBlend`.
 //!
 //! After §6c-direct-apex build.e/f and the constructive Gregory repeated-apex
 //! normalization path:
@@ -65,7 +65,7 @@ fn cube_with_variable_corner_fillets(use_direct_apex: bool) -> BlendResult {
 fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
     // After direct-apex build.e/f, Sphere caps build natively under direct-apex.  The
     // uniform-radius cube apex dispatches to Sphere — direct-apex must
-    // complete without firing `DirectApexFellBackToLegacy` AND legacy
+    // complete without firing `DirectApexFellBackToVertexBlend` AND legacy
     // `insert_vertex_blend` must NOT run after direct-apex (else it would
     // emit `VertexModeFallback` because V is already gone).
     let result_direct_apex = cube_with_three_corner_fillets(true);
@@ -73,12 +73,12 @@ fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
     let fallback_warnings: Vec<_> = result_direct_apex
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToVertexBlend { .. }))
         .collect();
     assert!(
         fallback_warnings.is_empty(),
         "direct-apex should succeed end-to-end on uniform-radius cube (Sphere cap); \
-         got {} DirectApexFellBackToLegacy warning(s)",
+         got {} DirectApexFellBackToVertexBlend warning(s)",
         fallback_warnings.len(),
     );
     // §6c-direct-apex dispatch.d skip-legacy regression guard: if direct-apex success
@@ -106,7 +106,7 @@ fn direct_apex_dispatch_mixed_radius_cube_completes_without_fallback() {
     let fallback_warnings: Vec<_> = result_direct_apex
         .edge_warnings
         .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }))
+        .filter(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToVertexBlend { .. }))
         .collect();
     assert!(
         fallback_warnings.is_empty(),
@@ -178,9 +178,9 @@ fn direct_apex_dispatch_disabled_emits_no_direct_apex_warning() {
     let any_direct_apex = result
         .edge_warnings
         .iter()
-        .any(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToLegacy { .. }));
+        .any(|(_, w)| matches!(w, BlendWarning::DirectApexFellBackToVertexBlend { .. }));
     assert!(
         !any_direct_apex,
-        "with use_direct_apex_construction=false, DirectApexFellBackToLegacy must not fire",
+        "with use_direct_apex_construction=false, DirectApexFellBackToVertexBlend must not fire",
     );
 }

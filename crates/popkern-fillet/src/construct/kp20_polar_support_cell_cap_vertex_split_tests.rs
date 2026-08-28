@@ -23,7 +23,7 @@ fn none_caller_returns_uniform_legacy_status() {
     let outcome = cap_vertex_splits_along_axis(&patch, None, 4);
     assert_eq!(
         outcome.diagnostic.status,
-        SupportCellSplitAxisStatus::UniformLegacy
+        SupportCellSplitAxisStatus::UniformNoProjection
     );
     assert_eq!(outcome.params, vec![1.0 / 4.0, 2.0 / 4.0, 3.0 / 4.0]);
 }

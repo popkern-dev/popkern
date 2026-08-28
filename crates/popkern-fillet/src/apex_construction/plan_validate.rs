@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex.1.b — input validation for the apex planner.
+//! Input validation for the apex planner.
 //!
 //! Checks the planner's inputs are well-formed before any sphere-fit
 //! math runs.  Each variant of [`ApexPlanError`] surfaced here is
@@ -22,7 +22,7 @@ use super::error::ApexPlanError;
 ///
 /// Use this entry point for direct callers (UI, FFI, tests
 /// constructing fresh `FilletSpec`s).  For mid-pipeline dispatch
-/// from `apply_blend_geometry` — where Phase C has already kef'd
+/// from `apply_blend_geometry` — where the consumed-merge stage has already kef'd
 /// the original fillet edges so checks (3) and (4) cannot pass —
 /// see [`validate_inputs_lenient`].
 pub(crate) fn validate_inputs(

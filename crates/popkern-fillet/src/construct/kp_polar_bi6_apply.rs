@@ -1,4 +1,4 @@
-//! Phase I.10e — `popkern-fillet` entry point for the K-P 2015
+//! `popkern-fillet` entry point for the K-P 2015
 //! bi-6 polar construction (N ≥ 5).
 //!
 //! This module is a thin wrapper over the `popkern-core` polar

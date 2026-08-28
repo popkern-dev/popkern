@@ -191,7 +191,7 @@ impl BRep {
         const MAX_PAIRS_CHECKED: usize = 200;
         let overlapping = bvh.find_overlapping_pairs(linear_tol);
         let mut pairs_checked = 0usize;
-        // Phase A (sequential): cheap exemptions and certificates, in
+        // Gate phase (sequential): cheap exemptions and certificates, in
         // BVH pair order, feeding the budget-capped job list the
         // parallel phase below consumes.
         let mut jobs: Vec<(usize, usize)> = Vec::new();
@@ -349,7 +349,7 @@ impl BRep {
             jobs.push((i, j));
         }
 
-        // Phase B (parallel, PK-329): the surviving jobs carry the
+        // Expensive phase (parallel, PK-329): the surviving jobs carry the
         // expensive per-pair work — bounded trim-overlap gates, the
         // one-sided-contact sampler, and the marching solver. Each is a
         // pure read of `self`, so jobs dispatch in parallel with an

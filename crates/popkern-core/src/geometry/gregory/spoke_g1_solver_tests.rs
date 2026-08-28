@@ -152,7 +152,7 @@ fn in_span_mismatch_drops_to_machine_precision() {
 /// free interior CPs can reach. The solver minimises the
 /// residual in least-squares sense; we only assert that it
 /// reduces the residual (does not diverge), documenting the
-/// structural DOF limitation that motivates Phase 9's degree-7
+/// structural DOF limitation that motivates the degree-7
 /// or two-stripe extension.
 #[test]
 fn out_of_span_mismatch_reduces_but_does_not_fully_cancel() {

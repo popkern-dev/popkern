@@ -268,7 +268,7 @@ fn elevate_point_curve_degree_2_quadratic_matches_pointwise() {
     }
 }
 
-// ---- Phase I: bi-6 and bi-5 Vec3/Point3 elevators ----
+// ---- the polar-cap campaign: bi-6 and bi-5 Vec3/Point3 elevators ----
 
 #[test]
 fn elevate_sextic_vec_preserves_curve_pointwise() {

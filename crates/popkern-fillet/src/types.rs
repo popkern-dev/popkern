@@ -300,13 +300,13 @@ pub struct FilletOptions {
     /// coverage) — closes the structural G1 gap. Default
     /// `false`; requires `use_biseptic_gregory`.
     pub use_two_stripe_gregory: bool,
-    /// Phase H — Karciauskas-Peters bidegree-(9, 9) guided
+    /// Karciauskas-Peters bidegree-(9, 9) guided
     /// construction replacing two-stripe sub-patches; G1 and
     /// G2 across every shared spoke by construction. Default
     /// `false`; requires `use_two_stripe_gregory`. ADR
     /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
     pub use_kp_binonic_gregory: bool,
-    /// Phase I — K-P 2015 bi-6 polar construction for N ≥ 5-valent
+    /// K-P 2015 bi-6 polar construction for N ≥ 5-valent
     /// vertex blends. Default `false`. See the `kp_polar_bi6_promote`
     /// module for usage, scope, diagnostics, and G1 gate plumbing.
     pub use_kp_polar_gregory: bool,
@@ -318,7 +318,7 @@ pub struct FilletOptions {
     /// pre-existing hidden serving debt on 9 direct-apex fixtures
     /// (measured 2026-08-07) whose pins accept today's serve.
     pub serving_self_intersection_retry: bool,
-    /// **Phase 6c-direct-apex dispatch** — route apex-region
+    /// **Direct-apex dispatch** — route apex-region
     /// construction (vertices with ≥ 2 fillet edges in Smooth mode)
     /// through the direct-apex planner + builder instead of legacy
     /// `insert_vertex_blend`. Default `false` as a GLOBAL flag: a
@@ -329,7 +329,7 @@ pub struct FilletOptions {
     /// the A/B override routing EVERY apex direct (PK-255
     /// measurements: journal 2026-08-09). On plan or build error the
     /// dispatch falls back per-apex to `insert_vertex_blend` and
-    /// emits `BlendWarning::DirectApexFellBackToLegacy` — never a
+    /// emits `BlendWarning::DirectApexFellBackToVertexBlend` — never a
     /// hard failure; the worst case is "behaves like legacy."
     pub use_direct_apex_construction: bool,
     /// PK-185 — resolution for mid-face strip interference that is

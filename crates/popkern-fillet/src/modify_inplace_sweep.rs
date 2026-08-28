@@ -33,7 +33,7 @@ pub(crate) struct VariableSweepInputs {
 /// faceted sections put a 2-6e-4 floor under terminal settlement
 /// and the modify/recreate equivalence).
 ///
-/// Used by Round 5i to produce a geometrically exact variable-
+/// Used by to produce a geometrically exact variable-
 /// radius fillet surface in place. For arbitrary radius profiles
 /// (e.g. `FilletRadius::ByPoints`) use
 /// [`build_parametric_plane_plane_sweep`] directly with a
@@ -47,7 +47,7 @@ pub(crate) fn build_variable_plane_plane_sweep(inputs: &VariableSweepInputs) -> 
 /// Generalised variant of [`build_variable_plane_plane_sweep`] that
 /// takes a `radius_at: Fn(f64) -> f64` closure for the local-radius
 /// profile. The linear-radius variant calls this with a linear
-/// closure; Round 5m's `ByPoints` in-place path passes a
+/// closure; the `ByPoints` in-place path passes a
 /// piecewise-linear closure over the full points list, so
 /// intermediate radius points shape the swept surface.
 pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(

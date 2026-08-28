@@ -1,4 +1,4 @@
-//! Phase H.8 (Option C) — bi-quintic Bezier guide patch.
+//! the bi-9 hardening pass (Option C) — bi-quintic Bezier guide patch.
 //!
 //! 5×5 = 36 plain-Bezier CPs. Drop-in richer substrate for the
 //! K-P 2004 guided-surface construction, closing the flexibility

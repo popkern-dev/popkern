@@ -3,7 +3,7 @@
 
 #![allow(clippy::needless_range_loop)]
 //!
-//! Confirms Phase I.16 wiring:
+//! Confirms the bi-5 macro wiring:
 //! - popkern-fillet can see and call
 //!   [`popkern_core::geometry::gregory::assemble_bi5_macro_cap`]
 //!   and friends.
@@ -12,7 +12,7 @@
 //!
 //! This is the **public-API reach-through** demo; production
 //! dispatch through the full fillet pipeline (selecting KP13 bi-5
-//! vs. Phase H bi-9 direct vs. KP15 bi-6 polar based on valence
+//! vs. bi-9 direct vs. KP15 bi-6 polar based on valence
 //! or input heuristics) is a separate concern that builds on top.
 
 use popkern_core::geometry::Point3;

@@ -47,9 +47,10 @@ pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_cap_presolve;
 pub(crate) mod setback_vertex_topology;
-pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
-pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
+pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves;
+pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves;
 mod direct_apex_promotion;
+mod face_trim_pipeline;
 pub(crate) mod helpers;
 mod helpers_pcurve;
 mod hole_rim_terminal_disc;
@@ -115,7 +116,6 @@ pub(crate) mod pcurve_attach;
 mod pcurve_attach_compute;
 mod pcurve_measured_repair;
 mod perpendicular_splits;
-mod phase_split;
 pub(crate) mod pipeline_timing;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
@@ -190,7 +190,7 @@ pub fn apply_blend_geometry(
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
     let mut repair_report = crate::types::BlendRepairReport::default();
-    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for the post-sliver_absorb wire pass.
+    // Per-vertex (boundary, sub_faces) for the post-sliver_absorb wire pass.
     type BoundaryFaceJobs = Vec<(crate::blend::BlendBoundary, Vec<FaceHandle>)>;
     let mut late_wire_jobs: BoundaryFaceJobs = Vec::new();
     let mut support_seam_jobs: BoundaryFaceJobs = Vec::new();
@@ -206,7 +206,7 @@ pub fn apply_blend_geometry(
         direct_apex_promotion::PromotionFlags {
             use_rational_gregory,
             use_kp_binonic_gregory,
-            explicit_legacy_surface_family: use_biquintic_full_gregory
+            explicit_subpatch_family_requested: use_biquintic_full_gregory
                 || use_biseptic_gregory
                 || use_two_stripe_gregory
                 || use_kp_binonic_gregory
@@ -230,7 +230,7 @@ pub fn apply_blend_geometry(
     direct_apex_built_faces.extend(split_state.closed_fillet_protected.iter().copied());
     post_pipeline::determinism_trace("post_perp_splits", &result);
     let (trim_outcome, ms) = pipeline_timing::timed(|| {
-        phase_split::apply_face_trim_pipeline(
+        face_trim_pipeline::apply_face_trim_pipeline(
             brep,
             &mut result,
             edge_geometries,
@@ -401,7 +401,7 @@ pub fn apply_blend_geometry(
                                 );
                                 warnings.push((
                                     warn_edge,
-                                    BlendWarning::DirectApexFellBackToLegacy {
+                                    BlendWarning::DirectApexFellBackToVertexBlend {
                                         vertex: *vertex,
                                         reason,
                                     },
@@ -421,13 +421,13 @@ pub fn apply_blend_geometry(
                         continue;
                     }
                     if !use_direct_apex_for_this_apex {
-                        repair_report
-                            .apex_routes
-                            .push(route_decision::legacy_dispatch_route(
+                        repair_report.apex_routes.push(
+                            route_decision::vertex_blend_dispatch_route(
                                 *vertex,
                                 edge_indices,
                                 edge_geometries,
-                            ));
+                            ),
+                        );
                     }
 
                     match blend_insert::insert_vertex_blend(
@@ -449,7 +449,7 @@ pub fn apply_blend_geometry(
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
                             repair_report.apex_diagnostics.extend(diagnostics);
-                            route_decision::record_legacy_serve_on_route(
+                            route_decision::record_vertex_blend_serve_on_route(
                                 &result,
                                 &mut repair_report,
                                 *vertex,

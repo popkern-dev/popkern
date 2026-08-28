@@ -1,4 +1,4 @@
-//! Phase 6c-direct-apex dispatch.b — direct-apex apex-construction dispatch helper.
+//! direct-apex dispatch.b — direct-apex apex-construction dispatch helper.
 //!
 //! Bridges the legacy `apply_blend_geometry` apex-vertex-blend
 //! loop to the direct-apex planner + builder
@@ -12,7 +12,7 @@
 //! post-loop protected-face set, and threads patch reports to diagnostics).
 //! Returns
 //! `Err(reason)` when direct-apex can't finish; caller emits
-//! [`BlendWarning::DirectApexFellBackToLegacy`](crate::error::BlendWarning::DirectApexFellBackToLegacy)
+//! [`BlendWarning::DirectApexFellBackToVertexBlend`](crate::error::BlendWarning::DirectApexFellBackToVertexBlend)
 //! and runs legacy as a backup.
 
 #[path = "direct_apex_acceptance.rs"]
@@ -95,7 +95,7 @@ pub(super) fn try_direct_apex_construction(
     auto_promoted: bool,
 ) -> Result<DirectApexDispatchOutcome, DirectApexDispatchError> {
     // Edge handles in `edge_geometries` are the ORIGINAL pre-
-    // pipeline handles.  Phase C kef's the fillet edges so
+    // pipeline handles.  the consumed-merge stage kef's the fillet edges so
     // those handles are no longer live in the BRep — but the
     // planner's lenient entry point (`plan_apex_resolution_
     // lenient`) skips the edge-existence and edge-incidence
@@ -202,7 +202,7 @@ pub(super) fn try_direct_apex_construction(
             // promotion arm promised the apex is in a measured serving
             // class, so a plan that builds nothing is a promotion
             // misjudgment and must decline to legacy loudly (recorded as
-            // DirectApexFallbackToLegacy with the planner's reason), not
+            // DirectApexFallbackToVertexBlend with the planner's reason), not
             // silently delete the class's cap. Explicitly-requested
             // direct-apex keeps the historical Open no-op contract.
             return Err(DirectApexDispatchError::new(format!(
@@ -270,7 +270,7 @@ fn try_constructive_with_legacy_fallthrough(
                                 plan.n_fillets()
                             ));
                         }
-                        direct_apex_acceptance::native_gregory_path_a_error(brep)
+                        direct_apex_acceptance::native_gregory_apex_rebuild_error(brep)
                             .map(|reason| {
                                 format!(
                                     "native Gregory cap failed structural acceptance: {reason}; \

@@ -5,7 +5,7 @@
 //! On a region-path body (curved supports), a chain vertex where two
 //! fillet sub-edges meet tangent-continuously (the wall-seam
 //! crossing of the boss chain) leaves CORNER TERRITORY between the
-//! two Phase A anchor cuts: a support sliver straddling the junction
+//! two the anchor-split stage anchor cuts: a support sliver straddling the junction
 //! (the boss-top plane quad) and a band remnant on the wall side
 //! (fenced off by the anchor cut). The vertex blend has no corner to
 //! build — the chain continues smoothly — so the territory belongs

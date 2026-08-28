@@ -1,4 +1,4 @@
-//! §5.3 Round 8 C4 — topology surgery to split a hexagonal blend
+//! §5.3 — topology surgery to split a hexagonal blend
 //! face into three quadrilateral sub-faces meeting at a new
 //! central vertex.
 //!
@@ -138,9 +138,9 @@ fn poke_n_gon_face_into_n_quads_with_expected(
 
     // Classify: 2N (existing path) vs N (normalise via split_edge).
     //
-    // Phase 6c-E: N-HE path now accepts `N ≥ 4` (was `≥ 5`).
+    // N-HE path now accepts `N ≥ 4` (was `≥ 5`).
     // Pyramid_uniform produces 4 outer half-edges (one per
-    // slant-face apex-corner) because Phase 2a's
+    // slant-face apex-corner) because the cross-face kef pass's
     // `kef_cross_face_v_edges` collapses arc + bridge pairs on
     // each slant face into a single edge.  For N=3 (cube) the
     // bridges still survive so the count is 6; the 2N branch
@@ -324,7 +324,7 @@ pub(crate) fn poke_hex_face_into_three_quads(
 /// at all valences; additionally accepts `n_sides` (pure-arc loop,
 /// sharp-apex case — `split_edge` normalises to 2N internally)
 /// when `n_sides ≥ 5`, or when `n_sides == 4` and `accept_n4_he`
-/// is true (Phase 6c-E pyramid_uniform path under sphere-fit
+/// is true (the collapsed-projection fallback work pyramid_uniform path under sphere-fit
 /// substitution). At `N == 3` only the 2N form is accepted —
 /// bridges are expected to survive on cube-like geometries.
 #[allow(dead_code)]
@@ -340,7 +340,7 @@ pub(crate) fn face_has_2n_outer_half_edges_with(
 /// As [`face_has_2n_outer_half_edges_with`], additionally accepting
 /// the pure N-half-edge loop at `N == 3` when the caller opts in
 /// (PK-222). Conic / variable-profile cube corners collapse their
-/// arc+bridge pairs during Phase 2a exactly like the N >= 4 classes,
+/// arc+bridge pairs during the cross-face kef pass exactly like the N >= 4 classes,
 /// so the physical loop carries 3 half-edges and the 2N demand is
 /// unsatisfiable — `split_edge` normalises to 2N internally, and the
 /// downstream three-quad acceptance gate remains the transactional

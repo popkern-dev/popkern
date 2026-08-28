@@ -11,7 +11,7 @@
 //! single variable index so both spokes' constraints converge
 //! on one value.
 //!
-//! Pattern mirrors the Phase C polynomial-identity ring solver
+//! Pattern mirrors the constraint-matrix stage polynomial-identity ring solver
 //! in [`super::spoke_poly_g1_ring`]: BTreeMap-based variable
 //! indexing for determinism, stacked constraint matrix,
 //! min-norm KKT solve.

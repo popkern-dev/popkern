@@ -1,4 +1,4 @@
-//! §5.3 Round 7 C4b.1 — comparative diagnostic for rational
+//! §5.3 comparative diagnostic for rational
 //! Gregory vs polar-NURBS corner construction.
 //!
 //! Runs both constructions on a mixed-radius cube-corner fixture
@@ -198,7 +198,7 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
 
     eprintln!();
     eprintln!("==========================================");
-    eprintln!("§5.3 Round 7 C4b.1 diagnostic");
+    eprintln!("§5.3 corner-patch comparative diagnostic");
     eprintln!("  fixture: mixed-radius cube corner r ∈ {radii:?}");
     eprintln!("  avg_radius = {avg_radius:.4}, classification = {classification:?}");
     eprintln!("  vertex position = {:?}", boundary.vertex_position);

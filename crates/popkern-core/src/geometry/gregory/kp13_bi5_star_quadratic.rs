@@ -1,4 +1,4 @@
-//! Phase I.11c — Star-point quadratic identity per [KP09a §2.3(a)].
+//! Star-point quadratic identity per [KP09a §2.3(a)].
 //!
 //! # Paper statement
 //!

@@ -38,16 +38,16 @@ pub struct BlendBoundary {
     /// [`BlendWarning::SurfaceBridgeFallback`](crate::error::BlendWarning::SurfaceBridgeFallback).
     /// Empty in the common all-planar case.
     pub bridge_fallbacks: Vec<&'static str>,
-    /// Phase 6c-A: `true` when sphere-fit substitution succeeded
-    /// for this boundary. Phase 6c-D's edge-wiring helper reads
+    /// `true` when sphere-fit substitution succeeded
+    /// for this boundary. the sphere-fit edge-wiring helper reads
     /// this flag to decide whether to overwrite `edge.curve` —
     /// without it, the helper would propagate the original
     /// hermite-cubic synthesis (stored in `segments` when
     /// substitution wasn't performed) into BRep edges, *worsening*
-    /// the cap-outer-boundary metric on fixtures where Phase 6c-A
+    /// the cap-outer-boundary metric on fixtures where sphere-fit substitution
     /// declined to run.
     pub sphere_fit_substituted: bool,
-    /// Phase 6c-A continuation §4.2: per-fillet `(cap_centre_k,
+    /// Per-fillet sphere-fit continuation: per-fillet `(cap_centre_k,
     /// r_k)` pairs in the same order as `FilletEnd` segments
     /// (i.e., index `k` matches `segments[2*k]`'s
     /// `fillet_index`). Populated when sphere-fit substitution
@@ -57,7 +57,7 @@ pub struct BlendBoundary {
     /// cylinder by construction, sidestepping the L-M solver
     /// stall on variable-radius corners.
     pub per_fillet_caps: Vec<(Point3, f64)>,
-    /// Phase 6c-D Stage 1b: per-sub-patch hex-side outer boundary
+    /// Per-sub-patch hex-side outer boundary
     /// CPs, derived from the substituted `FilletEnd` (cap-tangent
     /// arc on `sphere ∩ cylinder`) and `FaceEdge` (bridge across
     /// slant face) curves and degree-elevated to 9.
@@ -80,7 +80,7 @@ pub struct BlendBoundary {
     ///
     /// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
     pub hex_boundary_cps_deg9: Vec<([Point3; 10], [Point3; 10])>,
-    /// Phase 6c-D Stage 4.7c: per-fillet analytic arc parameters
+    /// Per-fillet analytic arc parameters
     /// for the substituted FilletEnd.  Populated when sphere-fit
     /// substitution succeeds AND the special case applies (cap
     /// centre on cylinder axis, cap_radius = cyl_radius — pyramid
@@ -370,7 +370,7 @@ pub fn compute_blend_boundary_with_options(
         // Fall through to the FilletEnd-only path if reorientation
         // couldn't determine a valid hex order (e.g., some arcs
         // don't share faces with neighbours — non-planar geometry,
-        // degenerate corner, etc.). This preserves pre-Round 8
+        // degenerate corner, etc.). This preserves the pre-hexagonal
         // behaviour.
     }
 
@@ -423,7 +423,7 @@ fn extract_fillet_end_near_vertex(
     vertex_pos: &Point3,
     _tolerance: &Tolerance,
 ) -> Result<NurbsCurve, String> {
-    // §5.3 Round 7 C4b.1a — find the closest POINT on each trim
+    // §5.3a — find the closest POINT on each trim
     // curve to the vertex (not just one of the two endpoints).
     // The fillet's trim curves typically span the entire filleted
     // edge including some internal extended-rolling-ball overshoot

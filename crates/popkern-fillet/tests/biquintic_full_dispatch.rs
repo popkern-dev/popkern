@@ -13,7 +13,7 @@
 //!   direct-apex route (PK-229) — the serve carries no rectangular
 //!   Gregory sub-patches.
 //! * Flag ON is an explicit legacy-family request: the uniform
-//!   promotion arm stands down (`explicit_legacy_surface_family`
+//!   promotion arm stands down (`explicit_subpatch_family_requested`
 //!   carve-out) and the apex serves the legacy ladder as 4
 //!   `RectangularBiquinticFull` sub-patches (measured min/mean-cos
 //!   0.942/0.975, validation sweep 2026-08-11).

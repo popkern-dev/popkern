@@ -1,4 +1,4 @@
-//! Phase B exit-criterion tests for the [KP15] eq (2) residual
+//! The residual exit-criterion stage exit-criterion tests for the [KP15] eq (2) residual
 //! at the cross-sector edges of a bi-6 polar cap.
 //!
 //! Strategy:
@@ -11,7 +11,7 @@
 //!
 //! The exit criterion (per
 //! `docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md`
-//! Phase B) is that the residual coefficient at BB indices
+//! The residual exit-criterion stage) is that the residual coefficient at BB indices
 //! 0, 1, 2, 3, 4, 5, 6 vanishes to machine zero (the rules-
 //! (S1)–(S4) determined band), and the 7-th coefficient vanishes
 //! once rule (5) on `p̀_{30}` is applied — that's what makes the
@@ -290,7 +290,7 @@ fn build_s1_strict_two_sectors(n: usize) -> ([[Point3; 7]; 7], [[Point3; 7]; 7],
 
 #[test]
 fn s1_strict_two_sectors_zero_eq2_at_u0_u1() {
-    // Phase B positive control: under the (S1)-strict construction,
+    // The residual exit-criterion stage positive control: under the (S1)-strict construction,
     // the first two BB-coefs of eq (2) — at u^0 and u^1 — must
     // vanish across all valences. These are exactly the
     // constraints `rule_s1_star_propagation` was derived to
@@ -315,7 +315,7 @@ fn s1_strict_two_sectors_zero_eq2_at_u0_u1() {
 
 #[test]
 fn s1_strict_two_sectors_zero_eq3_at_u0() {
-    // Phase B v2 positive control for eq (3): under the (S1)-strict
+    // The residual exit-criterion stage v2 positive control for eq (3): under the (S1)-strict
     // construction, the *first* BB-coef of the φ-multiplied eq (3)
     // residual must vanish across all valences. This index involves
     // only the BB-coefs ṕ_{0, 0..2} and p̀_{0, 0..2} that (S1)
@@ -323,7 +323,7 @@ fn s1_strict_two_sectors_zero_eq3_at_u0() {
     //
     // (Higher BB-coefs of eq (3) depend on ṕ_{1, 1}, ṕ_{1, 2}, etc.,
     // which (S2)/(S3) determine — and which the (S1)-strict two-
-    // sector synthetic skeleton does NOT populate. Phase C's matrix
+    // sector synthetic skeleton does NOT populate. the constraint-matrix stage's matrix
     // solver will fold those in by also enforcing (S2)/(S3) on the
     // ring of `n` sectors simultaneously.)
     for n in [3usize, 5, 6, 7, 8, 9, 10] {
@@ -353,7 +353,7 @@ fn eq3_residual_polynomial_degree_matches_paper_after_assembly() {
     // beyond index 7 on a (S1)-strict synthetic input — they aren't
     // expected to vanish here because (S2)/(S3)/(S4) aren't applied
     // — but the polynomial's BB-vector length must be ≥ 10 so the
-    // Phase C matrix builder gets all 15 (= 7 + 8) coefficients
+    // The constraint-matrix stage matrix builder gets all 15 (= 7 + 8) coefficients
     // worth of constraints.
     let (grid_prev, grid_curr, params) = build_s1_strict_two_sectors(6);
     let bb = super::eq3_g2_residual_phi_multiplied(&grid_prev, &grid_curr, &params);
@@ -1080,7 +1080,7 @@ fn test_local_to_global_planar(n: usize, sector: usize, u: f64, v: f64) -> Point
 
 #[test]
 fn eq2_jacobian_rank_is_eight_independent_constraints() {
-    // Phase C foundation: the eq (2) Jacobian over a single cross-
+    // The constraint-matrix stage foundation: the eq (2) Jacobian over a single cross-
     // sector edge is an `8 × 98` matrix linear in the BB-coefs of
     // both adjacent sectors. With no rule applied yet — i.e., the
     // 49 + 49 grid positions all treated as free — the 8 rows
@@ -1121,11 +1121,11 @@ fn eq3_jacobian_rank_reports_paper_structure() {
     // further; the paper's §3.5 notes the construction differs
     // there.)
     //
-    // The assertion below establishes a stable Phase C foundation:
+    // The assertion below establishes a stable the constraint-matrix stage foundation:
     // 1. The rank is ≥ 8 (paper's "8 constraints" at degree 7).
     // 2. The rank is ≤ the row count.
     // It also reports the actual rank so a future tightening can
-    // pin the exact paper-prescribed rank once Phase D's symbolic
+    // pin the exact paper-prescribed rank once the symbolic generating-table stage's symbolic
     // analysis is in place.
     for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let params = Bi6Reparams::for_valence(n);
@@ -1153,7 +1153,7 @@ fn eq3_jacobian_rank_reports_paper_structure() {
 
 #[test]
 fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
-    // Phase C v2: stack the `n` per-edge Jacobians into the full
+    // The constraint-matrix stage v2: stack the `n` per-edge Jacobians into the full
     // global M(n, c, τ). Pre-rule-(5), pre-(S1)-(S4) substitutions,
     // we expect the rank to be `n × (8 + 9) = 17n`: the per-edge
     // ranks (8 from eq (2) + 9 from eq (3)) multiplied by `n`
@@ -1164,7 +1164,7 @@ fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
     // After rule (5) collapses two BB-coefs per edge (one from
     // each of eq (2) and eq (3)), the rank should drop to `15n`,
     // matching paper line 152's "15 linear equations" per edge.
-    // That step lives in Phase D.
+    // That step lives in the symbolic generating-table stage.
     for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let params = Bi6Reparams::for_valence(n);
         let (rows, cols, m) = super::global_constraint_matrix(n, &params);
@@ -1177,7 +1177,7 @@ fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
         );
         // Lower-bound only: 17 per edge - up to 17 cross-edge
         // dependencies introduced by the column overlap between
-        // adjacent edges. The exact rank is part of Phase D's
+        // adjacent edges. The exact rank is part of the symbolic generating-table stage's
         // measurement output.
         assert!(
             rank >= n * 8,
@@ -1194,14 +1194,14 @@ fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
 
 #[test]
 fn generating_table_built_and_pivot_count_matches_rank() {
-    // Phase D v1: build `Kp15Bi6GeneratingTable` from the global
+    // The symbolic generating-table stage v1: build `Kp15Bi6GeneratingTable` from the global
     // M(n, c, τ) and verify the pivot count agrees with the
-    // independently-measured rank from Phase C v2. This is the
+    // independently-measured rank from the constraint-matrix stage v2. This is the
     // first concrete production-side artifact of the closure
     // derivation; later phases (D v2, E) layer rule (5)
     // substitution and (S1)-(S4) tightening atop it.
     //
-    // Expected pivot counts from Phase C v2's `n × 17 − defect`
+    // Expected pivot counts from the constraint-matrix stage v2's `n × 17 − defect`
     // ranks: n=3 → 41, n=5 → 72, n=6 → 86, n=7 → 105.
     // RREF with partial pivoting may pick up one additional pivot
     // beyond the Gauss-elimination rank for borderline numerical
@@ -1225,7 +1225,7 @@ fn generating_table_built_and_pivot_count_matches_rank() {
 fn generating_table_round_trip_satisfies_constraints() {
     // For a deterministic non-zero free-column loading, the
     // table's `apply` must produce a full column vector with
-    // ‖M · x‖ ≈ 0. This is the Phase D analogue of the (S1)-
+    // ‖M · x‖ ≈ 0. This is the symbolic generating-table stage analogue of the (S1)-
     // strict test for the per-edge residual: any rule deriving
     // pivot values from free values must satisfy the underlying
     // M·x = 0 constraint.
@@ -1248,7 +1248,7 @@ fn generating_table_round_trip_satisfies_constraints() {
 
 #[test]
 fn rule5_is_implied_by_eq2_eq3_constraints() {
-    // **Phase D v2 finding:** [KP15 eq (5)] is the paper's choice
+    // **the symbolic generating-table stage v2 finding:** [KP15 eq (5)] is the paper's choice
     // that makes the boundary curve `e(u)` drop from monomial-
     // degree 6 to degree 5. We expected this to be **independent**
     // of eq (2)/(3) — the paper describes it as a "setting"
@@ -1265,7 +1265,7 @@ fn rule5_is_implied_by_eq2_eq3_constraints() {
     // degree 6" claim is mechanically *equivalent* to a specific
     // BB-coef cancellation already encoded by eq (2) + eq (3) +
     // the engineered `a, b, d, e` choices. This rules out one
-    // path for tightening M's rank; Phase E.1's bridge fix
+    // path for tightening M's rank; the polar-bridge fix
     // (proper (S1) propagation across sectors) is the next
     // candidate.
     for n in [3usize, 5, 6, 7] {
@@ -1288,11 +1288,11 @@ fn rule5_is_implied_by_eq2_eq3_constraints() {
 
 #[test]
 fn cross_sector_identifications_lift_rank() {
-    // Phase E.1 candidate: add `p^k_{i, 0} = p^{k-1}_{i, 0}` for
+    // Polar-bridge equality-row candidate: add `p^k_{i, 0} = p^{k-1}_{i, 0}` for
     // i ∈ {0, 1, 2}, k ∈ 0..n. These are (S1)'s corner-shared
     // identifications the paper re-affirms at line 158-161. If
     // they're already implied by eq (2)/(3) — like rule (5) is
-    // (Phase D v2 finding) — the rank delta is 0 and the identi-
+    // (the symbolic generating-table stage v2 finding) — the rank delta is 0 and the identi-
     // fication path is also closed. If they're independent, the
     // rank lifts by `3·(n-1)` (one rotation is redundant given
     // the others form a closed cycle).
@@ -1809,7 +1809,7 @@ fn generating_table_with_identifications_round_trip_satisfies_all_constraints() 
 
 #[test]
 fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
-    // Phase E.2 — exit criterion: the table-driven cap
+    // Exit criterion: the table-driven cap
     // construction must produce per-sector bi-6 grids whose
     // eq (2) G¹ AND eq (3) G² residuals at every cross-sector
     // edge are machine zero, even though the kernel's *existing*
@@ -1857,7 +1857,7 @@ fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
             }
         }
         eprintln!(
-            "Phase E.2 (n={n:2}): worst eq (2) = {worst_eq2:.3e}, worst eq (3) = {worst_eq3:.3e}"
+            "the residual-measurement stage (n={n:2}): worst eq (2) = {worst_eq2:.3e}, worst eq (3) = {worst_eq3:.3e}"
         );
         assert!(
             worst_eq2 < 1e-8,
@@ -1872,7 +1872,7 @@ fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
 
 #[test]
 fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
-    // Phase E.3 — F_5-minimised cap construction via the table.
+    // F_5-minimised cap construction via the table.
     // The table's free-column subset that isn't seeded by
     // `Bi6CapInput` (= the deep-interior CPs) is chosen to
     // minimise the per-patch F_5 functional, via three
@@ -1950,7 +1950,7 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
         }
 
         eprintln!(
-            "Phase E.3 (n={n:2}): F_5 zero-default = {f_zero:.6e}, F_5 minimised = {f_min:.6e} \
+            "the production-assembly stage (n={n:2}): F_5 zero-default = {f_zero:.6e}, F_5 minimised = {f_min:.6e} \
              (Δ = {:.2}×), per-coord F = {:?}; eq(2) = {worst_eq2:.2e}, eq(3) = {worst_eq3:.2e}",
             f_zero / f_min.max(1e-30),
             f_vals,

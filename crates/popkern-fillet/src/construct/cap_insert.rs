@@ -35,7 +35,7 @@ use crate::error::BlendWarning;
 /// tracked follow-up gated on sheet-body constructor support.
 ///
 /// This is the final §8.3 pipeline hook and should be called after
-/// Phase C (face merging), vertex-blend handling, and surface-fix
+/// the consumed-merge stage (face merging), vertex-blend handling, and surface-fix
 /// correction in `apply_blend_geometry`.
 pub(crate) fn insert_caps(
     brep: &mut BRep,
@@ -179,7 +179,7 @@ fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapG
     // a surface (the fillet/torus face). These are the trim
     // curve endpoints — the points where the fillet touches
     // each support face at this endpoint. We derive them from
-    // the BRep topology (which is correct after Phase C) rather
+    // the BRep topology (which is correct after the consumed-merge stage) rather
     // than from `cap.boundary_points` (which can overshoot due
     // to footprint/center-curve extrapolation).
     // Find the 2 nearest BRep vertices to the endpoint that sit

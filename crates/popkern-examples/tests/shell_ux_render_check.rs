@@ -49,12 +49,7 @@ fn render_pk328_sense_fixed_hollows() {
     )
     .expect("rod hollow serves");
     assert!(hollow.brep.validate_all().is_empty());
-    render(
-        &hollow.brep,
-        "pk328_rod_hollow",
-        (1.4, 1.1, 1.8),
-        (0.0, 0.0, 0.7),
-    );
+    render(&hollow.brep, "rod_hollow", (1.4, 1.1, 1.8), (0.0, 0.0, 0.7));
 
     let bracket = bracket_bore_countersink(tol()).unwrap().brep;
     let hollow = shell(
@@ -71,7 +66,7 @@ fn render_pk328_sense_fixed_hollows() {
     assert!(hollow.brep.validate_all().is_empty());
     render(
         &hollow.brep,
-        "pk328_bracket_hollow",
+        "bracket_hollow",
         (3.2, 2.4, 2.0),
         (1.0, 0.5, 0.25),
     );
@@ -109,7 +104,7 @@ fn render_pk328_sense_fixed_hollows() {
     .expect("bracket open cup serves");
     render(
         &cup.brep,
-        "pk328_bracket_open_cup",
+        "bracket_open_cup",
         (-1.8, 1.6, 1.6),
         (0.7, 0.5, 0.25),
     );

@@ -221,7 +221,7 @@ pub(crate) fn insert_vertex_blend(
     let blend_face = match ring_face {
         Some(face) => face,
         None => {
-            // Phase 1: For each face, cut a chord between the face's two
+            // For each face, cut a chord between the face's two
             // fillet-trim-endpoint anchors. The V-containing sub-face is
             // the "corner region" (may be a triangle, quad, or pentagon
             // depending on how many intermediate cube-sub-split vertices
@@ -229,14 +229,14 @@ pub(crate) fn insert_vertex_blend(
             let _corner_faces =
                 split_corner_triangles(brep, vertex, &face_info, edge_geometries, tolerance)?;
 
-            // Phase 2a: kef every V-edge separating two distinct faces;
+            // Kef every V-edge separating two distinct faces;
             // last V-edge may become a same-face "bridge" handled by
-            // Phase 2b's `kev` after surface assignment.
+            // the kev pass's `kev` after surface assignment.
             kef_cross_face_v_edges(brep, vertex)?
         }
     };
 
-    // Phase 3: Compute the blend boundary + assign the surface. The
+    // Compute the blend boundary + assign the surface. The
     // ring carve consumed the vertex (its region merge removed it),
     // so that path reuses the pre-carve boundary it was built from —
     // recomputation is impossible AND unnecessary (the ring IS the
@@ -267,7 +267,7 @@ pub(crate) fn insert_vertex_blend(
         tolerance,
     )?;
 
-    // Phase 2b: kev the remaining V-bridge if any. `kev` kills V
+    // Kev the remaining V-bridge if any. `kev` kills V
     // and the bridge edge simultaneously, un-pinching the merged
     // loop into a manifold polygon. This is R8 C6's crucial
     // topology fix — the old code left the bridge as an internal
@@ -279,7 +279,7 @@ pub(crate) fn insert_vertex_blend(
         remove_orphaned_vertex(brep, vertex);
     }
 
-    // Phase 6c-D (N-path arm): when sphere-fit substitution
+    // Sphere-fit substitution (N-path arm): when sphere-fit substitution
     // succeeded for `n_gon_boundary` and we're about to take the
     // simpler N-edge bridge construction (faces_2n=false — the
     // uniform-radius collapse case), write the substituted
@@ -390,7 +390,7 @@ pub(crate) fn insert_vertex_blend(
         ));
     }
 
-    // PK-222: N = 3 corners whose Phase 2a collapsed the arc+bridge
+    // PK-222: N = 3 corners whose the cross-face kef pass collapsed the arc+bridge
     // pairs carry the physical N-half-edge loop — demanding the 2N
     // form starved the rational dispatch (polar-NURBS heuristic at
     // g0 ~ 0.2). The N-form arm is new dispatch reach with no fixture
@@ -504,13 +504,13 @@ pub(crate) fn insert_vertex_blend(
     Ok((vec![base_patch], n_gon_boundary, diagnostics))
 }
 
-/// Phase 2a: kef every V-edge that separates two distinct faces.
+/// Kef every V-edge that separates two distinct faces.
 ///
 /// Iterates until no cross-face V-edges remain. For trihedral
 /// corners this merges (N-1) face-pairs out of N; the last V-edge
 /// becomes a same-face bridge which `kef` cannot remove (its
 /// precondition requires distinct loops). The bridge is handled
-/// by `kev_v_bridge` in Phase 2b, after the surface has been
+/// by `kev_v_bridge` in the kev pass, after the surface has been
 /// assigned to the merged face.
 ///
 /// Returns the surviving merged-face handle.
@@ -560,7 +560,7 @@ pub(crate) fn kef_cross_face_v_edges(
         }
 
         let Some(he) = kef_target else {
-            // Only same-face bridges remain — Phase 2a is done.
+            // Only same-face bridges remain — the cross-face kef pass is done.
             // Record the pinched face as the surviving blend face
             // (it's the loop that currently holds V).
             if blend_face.is_none() {

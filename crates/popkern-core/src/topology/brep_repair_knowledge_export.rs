@@ -22,8 +22,9 @@ pub struct BrepRepairKnowledgeArtifact {
     pub diagnostics: Vec<BrepRepairDiagnosticRecord>,
     /// Numeric measurements extracted from facts.
     pub measurements: Vec<BrepRepairMeasurementRecord>,
-    /// Legacy labels retained only for migration/debugging.
-    pub legacy_labels: Vec<BrepRepairLegacyLabelRecord>,
+    /// Pre-render-key compact labels retained only for
+    /// migration/debugging.
+    pub migration_labels: Vec<BrepRepairMigrationLabelRecord>,
 }
 
 /// Serializable schema version.
@@ -108,9 +109,10 @@ pub struct BrepRepairToleranceRecord {
     pub source: String,
 }
 
-/// Serializable legacy label record.
+/// Serializable migration-label record (the pre-render-key compact
+/// diagnostic label, retained for migration/debugging).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct BrepRepairLegacyLabelRecord {
+pub struct BrepRepairMigrationLabelRecord {
     /// Owning fact id.
     pub fact_id: usize,
     /// Human-readable migration label.
@@ -139,7 +141,11 @@ pub fn build_brep_repair_knowledge_artifact_with_samples(
             .iter()
             .filter_map(|fact| measurement_record(fact, sample_count))
             .collect(),
-        legacy_labels: graph.facts.iter().filter_map(legacy_label_record).collect(),
+        migration_labels: graph
+            .facts
+            .iter()
+            .filter_map(migration_label_record)
+            .collect(),
     }
 }
 
@@ -252,10 +258,10 @@ fn measurement_record(
         })
 }
 
-fn legacy_label_record(fact: &BrepRepairFact) -> Option<BrepRepairLegacyLabelRecord> {
-    fact.legacy_label
+fn migration_label_record(fact: &BrepRepairFact) -> Option<BrepRepairMigrationLabelRecord> {
+    fact.migration_label
         .as_ref()
-        .map(|label| BrepRepairLegacyLabelRecord {
+        .map(|label| BrepRepairMigrationLabelRecord {
             fact_id: fact.header.id.0,
             label: label.clone(),
         })
@@ -397,7 +403,7 @@ mod tests {
         assert!(json.get("facts").is_some());
         assert!(json.get("diagnostics").is_some());
         assert!(json.get("measurements").is_some());
-        assert!(json.get("legacy_labels").is_some());
+        assert!(json.get("migration_labels").is_some());
         assert!(
             artifact
                 .diagnostics
@@ -416,7 +422,7 @@ mod tests {
             handles: Vec::new(),
             suggested_repair: BrepRepairSuggestedRepair::TrimReconstruction,
             render_key: "brep.trim.pcurve_missing".to_string(),
-            legacy_label: Some("legacy text that must not be rendered".to_string()),
+            migration_label: Some("legacy text that must not be rendered".to_string()),
         };
 
         let rendered = render_brep_repair_diagnostic(&diagnostic);

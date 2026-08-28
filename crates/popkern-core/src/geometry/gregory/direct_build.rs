@@ -1,7 +1,7 @@
 //! `build()` and `can_build()` — the public entry points for
 //! direct-construction.
 //!
-//! Orchestrates the Phase G pipeline:
+//! Orchestrates the the Gregory direct construction pipeline:
 //!
 //! ```text
 //!   DirectBoundaryInput ─┬→ corner-C solver  ────────┐
@@ -81,7 +81,7 @@ pub fn can_build(
         }
     }
 
-    // N ≥ 5 remains out of Phase G scope — flag but don't reject.
+    // N ≥ 5 remains out of the Gregory direct construction scope — flag but don't reject.
     if input.n() >= 5 {
         warnings.push(FeasibilityWarning::ValenceRequiresPolar { n: input.n() });
     }
@@ -96,7 +96,7 @@ pub fn can_build(
         achievable_continuity,
         near_degeneracy_score: min_score,
         warnings,
-        // Rough per-corner cost estimate. Measured by the Phase G
+        // Rough per-corner cost estimate. Measured by the the Gregory direct construction
         // benchmark suite on representative fixtures; for now a
         // plausible constant.
         estimated_construction_us: 1500 * input.n() as u64,
@@ -105,7 +105,7 @@ pub fn can_build(
 
 /// Primary construction entry point. Deterministic, single-shot.
 ///
-/// Orchestrates the Phase G pipeline, applying the corner
+/// Orchestrates the the Gregory direct construction pipeline, applying the corner
 /// constructions + row-1 G1 solver to the seed patches in
 /// `input.seed_patches`. Emits fully populated
 /// `DirectConstructionResult` with per-corner / per-spoke

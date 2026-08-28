@@ -8,7 +8,7 @@
 //! subsequent sample converges in 1–3 Newton iterations from the
 //! warm start.
 //!
-//! ## Phase 1b status (MVP)
+//! ## Status (walker MVP)
 //!
 //! - **Fixed-step sampling** (`options.n_samples` evenly spaced).
 //!   Adaptive step sizing per §11.3 step 4 is a phase-1b refinement.
@@ -18,7 +18,7 @@
 //!   surface against the spine endpoint (paid once per walk).
 //! - **Failure handling**: any solver failure aborts the walk with
 //!   the failing spine parameter and the underlying [`ContactError`].
-//!   Phase 1c will add bisection / parametric detour recovery.
+//!   A later walker hardening step will add bisection / parametric detour recovery.
 //!
 //! See `docs/superpowers/plans/2026-04-14-fillets-rolling-ball-contact-solver.md`
 //! for the broader phase-1 roadmap.
@@ -203,7 +203,7 @@ pub enum WalkerError {
     #[error("spine walker: initial contact failed: {0}")]
     InitialContactFailed(ContactError),
     /// A subsequent step failed. `t_spine` identifies *which* sample.
-    /// Phase 1c adds bisection / parametric detour to recover.
+    /// A later walker hardening step adds bisection / parametric detour to recover.
     #[error("spine walker: step {sample_index} at t={t_spine:.4} failed: {error}")]
     StepFailed {
         /// Spine parameter where the step failed.
@@ -236,7 +236,7 @@ pub enum WalkerError {
 /// so the inner loop typically converges in 1–3 Newton iterations
 /// regardless of surface complexity.
 ///
-/// **Phase 1b status**: fixed-step sampling. Adaptive step sizing
+/// **Walker MVP status**: fixed-step sampling. Adaptive step sizing
 /// per §11.3 step 4 is a future refinement.
 pub fn walk_spine(
     request: &WalkRequest,

@@ -1,4 +1,4 @@
-//! Probe test to verify the multi-chord Phase B decomposition of
+//! Probe test to verify the multi-chord the face-trim stage decomposition of
 //! a 12-edge cube fillet produces the expected face decomposition.
 
 use popkern_core::geometry::surface::SurfaceGeometry;

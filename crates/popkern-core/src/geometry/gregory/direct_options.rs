@@ -1,5 +1,5 @@
 //! Options and tolerance knobs for the direct boundary-based
-//! vertex-blend construction (Phase G).
+//! vertex-blend construction (the Gregory direct construction).
 //!
 //! Per `docs/superpowers/plans/2026-04-19-vertex-blend-direct-construction.md`:
 //! every numerical threshold is an explicit parameter here, never
@@ -85,7 +85,7 @@ pub struct DirectConstructionOptions {
 impl DirectConstructionOptions {
     /// Standard-default options for a given characteristic length.
     /// All tolerance knobs take the values recommended in the
-    /// Phase G plan.
+    /// the Gregory direct construction plan.
     pub fn with_characteristic_length(characteristic_length: f64) -> Self {
         Self {
             characteristic_length,

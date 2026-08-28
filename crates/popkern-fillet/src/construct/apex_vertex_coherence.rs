@@ -1,7 +1,7 @@
-//! Phase 6c-X.A.4 — apex vertex relocation pass.
+//! Apex vertex relocation pass.
 //!
-//! After `wire_substituted_boundary_to_edges` runs in Path A mode
-//! (Phase 6c-X.A.3), every cap-loop BRep edge has its substituted
+//! After `wire_substituted_boundary_to_edges` runs in apex-rebuild mode
+//! (the full-range wire pass), every cap-loop BRep edge has its substituted
 //! curve at the FULL segment range.  At apex vertices on cap face
 //! outer loops, all incident cap-loop edges' curves agree on a
 //! single 3D termination point T (the FilletEnd termination, =
@@ -43,7 +43,7 @@ pub(crate) fn relocate_apex_vertices(
     cap_faces: &[FaceHandle],
     boundary: &crate::blend::BlendBoundary,
 ) -> (usize, f64) {
-    let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
+    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
 
     // 1. Collect apex vertices from cap face outer loops (existing
@@ -155,7 +155,7 @@ pub(crate) fn relocate_apex_vertices(
     (n_moved, worst)
 }
 
-/// Phase 6c-X.A.5: BASE-EDGE coherence repair.
+/// BASE-EDGE coherence repair.
 ///
 /// After A.4 moves each apex vertex V → T, the BASE-EDGE incident
 /// to V (the cyl-vs-Plane apex generator going AWAY from the apex)
@@ -173,7 +173,7 @@ pub(crate) fn relocate_apex_vertices(
 pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
     use popkern_core::topology::EdgeHandle;
 
-    let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
+    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
 
     let mut apex_vertices: BTreeSet<VertexHandle> = BTreeSet::new();
@@ -258,7 +258,7 @@ pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> us
     n_jobs
 }
 
-/// Phase 6c-X.A.5b: realign each cap-loop edge's curve direction so
+/// Realign each cap-loop edge's curve direction so
 /// `curve(t_start) ≈ primary_origin.position` (within `cluster_tol`).
 ///
 /// After A.4 relocates apex vertices to their shared boundary
@@ -277,7 +277,7 @@ pub(crate) fn realign_cap_loop_curve_directions(
     use popkern_core::geometry::CurveGeometry;
     use popkern_core::topology::EdgeHandle;
 
-    let trace = std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some();
+    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
     let cluster_tol = 1e-6_f64;
     // Discover cap-loop edges: edges where one face is cap.
@@ -351,7 +351,7 @@ pub(crate) fn realign_cap_loop_curve_directions(
             // (apex-radius-scale ShellGap → straight-line edge).
             //
             // §6c-X.A.7: enables the variable-radius Gregory branch
-            // to land path_a_relevant=0.
+            // to land apex_rebuild_relevant=0.
             if trace {
                 eprintln!(
                     "[apex-path-a]   edge {eh:?}: neither aligned nor reversed; \

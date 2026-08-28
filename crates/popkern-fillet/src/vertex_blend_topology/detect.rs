@@ -1,4 +1,4 @@
-//! Phase 6c-C.1 — apex-region detection.
+//! Apex-region detection.
 //!
 //! Given an apex `VertexHandle` in a post-fillet BRep (after the
 //! cylinder fillets are inserted but before `insert_vertex_blend`
@@ -15,8 +15,8 @@
 //! * All faces in those edges' loops that *also* have the apex
 //!   on their outer loop. These are the cube faces with their
 //!   apex corners truncated (cube N=3: three faces) plus any
-//!   small "corner" sub-faces left behind by Phase A/B trimming.
-//! * The post-`kef` blend face if it already exists (Phase 6c-C
+//!   small "corner" sub-faces left behind by the anchor-split stage/B trimming.
+//! * The post-`kef` blend face if it already exists (the retired apex-region rebuild
 //!   runs before `insert_vertex_blend`, so this is normally
 //!   `None`; the field is here for future call-site flexibility).
 //!
@@ -26,13 +26,13 @@
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
-/// Sub-graph around an apex vertex that Phase 6c-C will delete
+/// Sub-graph around an apex vertex that the retired apex-region rebuild would delete
 /// and rebuild.  All handles are guaranteed to exist in `brep`
 /// at the time `detect_apex_region` returns; callers must not
 /// hold the report across topology mutations of unrelated
 /// regions either (handles can become stale in slot-map).
 ///
-/// Currently consumed only by tests (Phase 6c-C.1 is the
+/// Currently consumed only by tests (detection is the
 /// detection deliverable; .2 and .3 land in subsequent commits
 /// and will use these handles for deletion + stitching).
 #[allow(dead_code)]
@@ -51,7 +51,7 @@ pub(crate) struct ApexRegion {
     /// Includes the apex itself plus the "frontier" vertices on
     /// the far side of each incident edge. Deterministic order.
     pub(crate) vertices: Vec<VertexHandle>,
-    /// Post-kef triangular blend face if Phase 6c-C runs *after*
+    /// Post-kef triangular blend face if the rebuild runs *after*
     /// `insert_vertex_blend`. Normally `None` for the canonical
     /// "before insert_vertex_blend" call site.
     pub(crate) blend_face: Option<FaceHandle>,
@@ -68,7 +68,7 @@ impl ApexRegion {
     }
 }
 
-/// Phase 6c-C.1 entry point.  Topological detection — see module
+/// Apex-region detection entry point.  Topological detection — see module
 /// docstring for the rule.
 #[allow(dead_code)]
 pub(crate) fn detect_apex_region(brep: &BRep, apex: VertexHandle) -> ApexRegion {

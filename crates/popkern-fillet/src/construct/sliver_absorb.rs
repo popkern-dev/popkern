@@ -73,7 +73,7 @@ pub(crate) fn run_and_route_warnings(
 }
 
 /// As [`run_and_route_warnings`], plus an opt-in set of cap faces
-/// that the absorber must NOT touch.  Used by Phase 6c-D Stage 4.5:
+/// that the absorber must NOT touch.  Used by the sliver-absorb protection pass:
 /// when sphere-fit boundary substitution + bi-9 K-P injection have
 /// fired, each cap face's outer loop is the canonical 3-edge
 /// per-fillet topology that the injected `hex_boundaries[k]`
@@ -158,7 +158,7 @@ pub(crate) enum SliverKind {
     /// surface is structurally equal (duplicate-subdivision artifact).
     RedundantEdge,
     /// ≤4-vert face whose twin face via some edge is a vertex-
-    /// blend sphere — the Round 5r corner-fragment case.
+    /// blend sphere — the corner-fragment case.
     CornerFragment {
         /// Number of vertices on the outer loop (≤ 4 when flagged).
         vertex_count: usize,
@@ -191,7 +191,7 @@ pub(crate) fn absorb_slivers(brep: &mut BRep, tolerance: &Tolerance) -> Vec<Sliv
 }
 
 /// Variant of [`absorb_slivers`] that refuses any kef whose surviving
-/// face is in `protected`.  Used by Phase 6c-D Stage 4.5 to keep
+/// face is in `protected`.  Used by the sliver-absorb protection pass to keep
 /// substituted-boundary cap faces from absorbing adjacent Plane
 /// fragments and growing across multiple fillets' boundaries.
 fn absorb_slivers_with_protected(
@@ -240,7 +240,7 @@ fn absorb_slivers_with_protected(
         let Some((face, kind, he)) = candidate else {
             break;
         };
-        // Phase 6c-D Stage 4.5 and exact-boundary ownership: if the
+        // Sliver-absorb protection and exact-boundary ownership: if the
         // candidate face or surviving face is protected, skip the kef.
         // Protected caps and exact-boundary support fragments carry
         // semantic boundary contracts that downstream pcurve and STEP

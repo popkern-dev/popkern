@@ -1,4 +1,4 @@
-//! Phase H — Hermite-form [`KpGuidePatch`] constructor.
+//! Hermite-form [`KpGuidePatch`] constructor.
 //!
 //! Turns per-corner Hermite data (position + u/v tangent + mixed
 //! twist) into a bicubic Bezier guide patch. This is the **low-

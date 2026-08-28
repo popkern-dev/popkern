@@ -1,4 +1,4 @@
-//! §5.3 Round 8 C5 — apply a three-quad decomposition to a BRep.
+//! §5.3 — apply a three-quad decomposition to a BRep.
 //!
 //! Applies an N-sector Gregory decomposition to an existing blend
 //! face: build patches, poke topology, assign surfaces, and return
@@ -98,7 +98,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     })
     .ok_or_else(|| ThreeQuadFailure::Other("boundary not decomposable into N quads".to_string()))?;
 
-    // Phase H.8 step-D — relaxed-continuity carry-through. `Some(c)`
+    // relaxed-continuity carry-through. `Some(c)`
     // after K-P promotion means the binonic shipped but worst-case
     // coplanarity `c` exceeded the 5e-2 commercial gate.
     let mut relaxed_coplanarity: Option<f64> = None;

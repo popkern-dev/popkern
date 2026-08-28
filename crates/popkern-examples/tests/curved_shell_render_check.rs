@@ -45,11 +45,7 @@ fn render_pk324_serving_bodies() {
         None,
     )
     .unwrap();
-    render(
-        &shelled_sphere.brep,
-        "pk324_shelled_sphere",
-        (1.4, 1.0, 0.9),
-    );
+    render(&shelled_sphere.brep, "shelled_sphere", (1.4, 1.0, 0.9));
 
     let torus = BRep::torus(0.6, 0.25, tol()).unwrap();
     let shelled_torus = shell(
@@ -63,17 +59,17 @@ fn render_pk324_serving_bodies() {
         None,
     )
     .unwrap();
-    render(&shelled_torus.brep, "pk324_shelled_torus", (1.8, 1.4, 1.2));
+    render(&shelled_torus.brep, "shelled_torus", (1.8, 1.4, 1.2));
 
     let fc = filleted_cube(tol()).unwrap().brep;
     let thick_fc = thicken(&fc, 0.05, &ShellOptions::default(), tol()).unwrap();
-    render(&thick_fc.brep, "pk324_thick_filleted_cube", (2.2, 1.7, 1.5));
+    render(&thick_fc.brep, "thick_filleted_cube", (2.2, 1.7, 1.5));
 
     let bracket = bracket_bore_countersink(tol()).unwrap().brep;
     let thick_bracket = thicken(&bracket, 0.02, &ShellOptions::default(), tol()).unwrap();
-    render(&thick_bracket.brep, "pk324_thick_bracket", (3.2, 2.4, 2.0));
+    render(&thick_bracket.brep, "thick_bracket", (3.2, 2.4, 2.0));
 
     let open = BRep::open_box(tol()).unwrap();
     let thick_open = thicken(&open, 0.06, &ShellOptions::default(), tol()).unwrap();
-    render(&thick_open.brep, "pk324_thick_open_box", (2.0, 1.5, -1.8));
+    render(&thick_open.brep, "thick_open_box", (2.0, 1.5, -1.8));
 }

@@ -1,10 +1,10 @@
 #![allow(dead_code)]
-//! Phase II F_5 tuning option (F) — Levenberg-Marquardt refinement
+//! the polar-cap campaignI F_5 tuning option (F) — Levenberg-Marquardt refinement
 //! on the polar bi-6 free parameter set.
 //!
 //! When the F_κ fallback ladder (option C) exhausts without
 //! finding a non-folding cap, L-M is the next escape hatch. It
-//! uses the same infrastructure that got Phase H's binonic path
+//! uses the same infrastructure that got the bi-9 cap campaign's binonic path
 //! from G¹ ≈ 1.06e-1 (naive gradient descent floor) down to
 //! 1.12e-2 on the `cube_extreme` fixture.
 //!

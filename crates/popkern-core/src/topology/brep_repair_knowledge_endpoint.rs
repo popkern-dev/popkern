@@ -17,7 +17,7 @@ impl BrepEndpointMembershipFacts {
         &self.containing_loops
     }
 
-    /// Legacy-compatible compact diagnostic label.
+    /// Migration-compatible compact diagnostic label (pre-render-key scheme).
     pub fn diagnostic_label(&self) -> String {
         format!(
             "{:?} in [{}]",
@@ -65,7 +65,7 @@ impl BrepEndpointLoopMembership {
         self.kind
     }
 
-    /// Legacy-compatible compact diagnostic label.
+    /// Migration-compatible compact diagnostic label (pre-render-key scheme).
     pub fn diagnostic_label(&self) -> String {
         format!(
             "{:?}/{:?}/{:?}@{:?}",

@@ -116,7 +116,7 @@ fn sorted_loop_candidates(
 /// moved but whose curve geometry kept the old start/end points.
 ///
 /// Replaces *any* curve type with a fresh straight line — for
-/// Round 5c-1's plane-plane scope all the affected edges are
+/// the initial plane-plane scope all the affected edges are
 /// straight cube edges or their fillet-corner replacements, so a
 /// linear curve is exact.
 pub(crate) fn rebuild_curves_touching(brep: &mut BRep, welded: &[VertexHandle]) {

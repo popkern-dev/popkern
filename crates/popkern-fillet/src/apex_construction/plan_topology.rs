@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex.1.d/e — cap kind decision and target topology assembly.
+//! the sphere-fit edge-wiring workirectApex.1.d/e — cap kind decision and target topology assembly.
 //!
 //! `decide_cap_kind` (DirectApex.1.d): given the per-fillet terminations,
 //! decide whether the apex needs a Sphere or Gregory cap, recording

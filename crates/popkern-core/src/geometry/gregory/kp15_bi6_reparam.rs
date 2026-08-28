@@ -1,4 +1,4 @@
-//! Phase I.5 — Karčiauskas-Peters 2015 bi-6 reparameterisations
+//! Karčiauskas-Peters 2015 bi-6 reparameterisations
 //! `ρ` and `β`.
 //!
 //! Shape spec:
@@ -179,7 +179,7 @@ pub fn tau_for_valence(n: usize) -> f64 {
     assert!(n >= 3, "tau_for_valence needs n ≥ 3; got {n}");
     match n {
         3 => 4.0 / 3.0,
-        4 => 4.0 / 3.0, // Not in the published table; Phase H
+        4 => 4.0 / 3.0, // Not in the published table; the bi-9 cap campaign
         // handles N = 4 rectangularly so this is
         // only exercised in testing / niche dispatches.
         5 => 0.87,

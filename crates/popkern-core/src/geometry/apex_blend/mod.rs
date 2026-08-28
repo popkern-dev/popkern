@@ -1,4 +1,4 @@
-//! Apex-blend termination geometry (Phase 6c).
+//! Apex-blend termination geometry.
 //!
 //! For each fillet meeting at a vertex blend, computes the curve
 //! where the cap surface naturally terminates the fillet — the
@@ -27,7 +27,7 @@
 //! The spike-prototype lives in `kp_binonic_term` as a single
 //! hand-implemented test case for the symmetric cube corner. Its
 //! goal is to prove the spoke-G1 termination math is tractable
-//! before committing to the full Phase 6c-B implementation.
+//! before committing to the full the outer-fillet-G1 work implementation.
 
 pub mod sphere_fit;
 

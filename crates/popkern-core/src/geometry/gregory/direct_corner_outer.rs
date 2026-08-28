@@ -28,7 +28,7 @@
 //! 2. **Emits** the twist-control CP at `grid[6][6]` / `grid[1][1]`
 //!    using the parallelogram rule
 //!    `corner_adjacent = neighbour_u + neighbour_v − corner`.
-//!    This is a minimum-twist seed — G2 refinement (Phase G
+//!    This is a minimum-twist seed — G2 refinement (later direct-construction work
 //!    row-2) may displace it further.
 //!
 //! # Source
@@ -144,7 +144,7 @@ pub fn solve_outer_corners(
         // Note: we deliberately DO NOT reject on residual here.
         // For real three-quad geometry from the biseptic seed,
         // patches A and B at an outer corner typically have
-        // SLIGHTLY different tangent planes — Phase 10C's
+        // SLIGHTLY different tangent planes — the sampled-damped adaptive iteration's
         // corner-sample iteration exists precisely to smooth
         // this out. Rejecting here would force every real
         // fixture through the sampled-damped fallback. Instead,

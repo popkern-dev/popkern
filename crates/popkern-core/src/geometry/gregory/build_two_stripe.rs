@@ -18,7 +18,7 @@
 //! biseptic patch ONLY at the corner and boundary positions
 //! (not in the interior — the rational blend varies with
 //! (u, v) while the plain Bezier does not). The spoke-G1
-//! solver's Phase 10a.3+ work refines the interior.
+//! solver's later two-stripe refinement passes refine the interior.
 
 use super::rectangular_biseptic::RectangularGregoryBiseptic;
 use super::rectangular_gregory_two_stripe::RectangularGregoryTwoStripe;

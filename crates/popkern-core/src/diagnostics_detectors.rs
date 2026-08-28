@@ -136,7 +136,7 @@ fn tess_non_manifold_summary(brep: &BRep) -> (usize, f64) {
 }
 
 // ---------------------------------------------------------------------------
-// Round 1: naked, degenerate, sliver, coincident
+// Naked, degenerate, sliver, coincident detectors
 // ---------------------------------------------------------------------------
 
 fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
@@ -251,7 +251,7 @@ fn detect_coincident_vertices(brep: &BRep) -> Vec<CoincidentPair> {
 }
 
 // ---------------------------------------------------------------------------
-// Round 2: T-junctions, NURBS irregularities, pcurve UV-escape
+// T-junction, NURBS-irregularity, pcurve UV-escape detectors
 // ---------------------------------------------------------------------------
 
 /// Detect vertices that lie on the *interior* of an edge curve they
@@ -349,7 +349,7 @@ fn detect_nurbs_defects(brep: &BRep) -> Vec<NurbsDefect> {
             }
         }
     }
-    // Face surfaces — Round 3 extends NURBS validation to surfaces.
+    // Face surfaces — a later revision extends NURBS validation to surfaces.
     for (fh, face) in &brep.faces {
         if face.role == TopologyRole::ConstructionResidual {
             continue;

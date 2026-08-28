@@ -1,15 +1,16 @@
-//! Phase B/C data structures and helpers for single-pass fillet topology.
+//! Face-trim pipeline: data structures and helpers for the single-pass
+//! fillet topology (face-trim splits, then consumed-face merges).
 
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
-/// A trim to be applied to a face during Phase B.
+/// A trim to be applied to a face during the face-trim stage.
 pub(super) struct FaceTrim {
     /// Index into the edge_geometries array (determines sort order).
     pub edge_idx: usize,
     /// Which side of the fillet (1 or 2).
     pub side: u8,
-    /// Anchor vertices (start, end) created during Phase A.
+    /// Anchor vertices (start, end) created during the anchor-split stage.
     pub anchors: (VertexHandle, VertexHandle),
     /// Analytic 3D trim curve from `EdgeGeometry::trim_3d_<side>`.
     /// When the fillet is a cylinder and the adjacent face is a
@@ -29,7 +30,7 @@ pub(super) struct FaceTrim {
     pub pcurve: NurbsCurve,
 }
 
-/// Result of Phase B face splitting for one trim.
+/// Result of one face-trim split.
 pub(super) struct TrimSplitResult {
     /// The fillet edge index this trim belongs to.
     pub edge_idx: usize,
@@ -39,7 +40,7 @@ pub(super) struct TrimSplitResult {
     pub consumed: FaceHandle,
     /// The trim edge(s) created by split_face.
     pub trim_edges: Vec<EdgeHandle>,
-    /// Pcurve on the kept face's surface, computed during Phase B before kef
+    /// Pcurve on the kept face's surface, computed during the face-trim stage before kef
     /// changes face identity.
     pub pcurve: NurbsCurve,
     /// 3D trim curve between actual anchor vertex positions.
@@ -102,12 +103,12 @@ use crate::error::BlendFailure;
 use popkern_core::tolerance::Tolerance;
 use std::collections::HashMap;
 
-/// Outcome of the Phase B/C face-trim pipeline.
+/// Outcome of the face-trim pipeline (split + consumed-merge).
 pub(super) struct TrimPipelineOutcome {
     /// Count of region-resolved plus curved-support trims (gates the
     /// curved-body repair passes downstream).
     pub region_or_curved_trims: usize,
-    /// Per-edge-geometry-index fillet strip face after the Phase C
+    /// Per-edge-geometry-index fillet strip face after the consumed-merge
     /// merge. Consumed by the hole-rim terminal-disc stage
     /// (PK-185/PK-186), which carves the exact terminal arc out of
     /// the strip's end boundary.
@@ -123,7 +124,7 @@ pub(super) fn apply_face_trim_pipeline(
     descendants: &mut HashMap<EdgeHandle, Vec<EdgeHandle>>,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> TrimPipelineOutcome {
-    // Collect trim data from Phase A results (BTreeMap for deterministic iteration).
+    // Collect trim data from the anchor-split stage results (BTreeMap for deterministic iteration).
     let mut face_trims: std::collections::BTreeMap<FaceHandle, Vec<FaceTrim>> =
         std::collections::BTreeMap::new();
 
@@ -165,7 +166,7 @@ pub(super) fn apply_face_trim_pipeline(
         trims.sort_by_key(|t| (t.edge_idx, t.side));
     }
 
-    // ── Phase B: split faces by trim curves via `multi_chord`. ───
+    // ── Face-trim stage: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
     let mut region_resolved: Vec<(usize, u8)> = Vec::new();
     // Curved-support serving census: trims applied on NON-PLANAR
@@ -213,7 +214,7 @@ pub(super) fn apply_face_trim_pipeline(
         }
         // Fold multi-chord's sub-edge splits (from inserting
         // crossing-point vertices on earlier trims' sub-chords)
-        // into the global descendants map. Without this, Phase C
+        // into the global descendants map. Without this, the consumed-merge stage
         // can't find the fillet edge on a face whose owning
         // sub-chord edge has been split.
         for (old_edge, edge_a, edge_b) in &outcome.extra_edge_splits {
@@ -303,7 +304,7 @@ pub(super) fn apply_face_trim_pipeline(
         }
     }
 
-    // ── Phase C: merge consumed face pairs via kef ────────────────
+    // ── Consumed-merge stage: merge consumed face pairs via kef ────────────────
     let mut edge_trims: std::collections::BTreeMap<usize, Vec<&TrimSplitResult>> =
         std::collections::BTreeMap::new();
     for tr in &trim_results {
@@ -373,7 +374,7 @@ pub(super) fn apply_face_trim_pipeline(
                 merged_consumed.insert(s2.consumed);
                 fillet_faces.insert(*idx, fillet_face);
 
-                // Use pcurves computed during Phase B (before kef).
+                // Use pcurves computed during the face-trim stage (before kef).
                 let params = pcurve_attach::FilletPcurveParams {
                     fillet_face,
                     fillet_surface: &eg.surface,
@@ -406,7 +407,7 @@ pub(super) fn apply_face_trim_pipeline(
         }
     }
 
-    // ── Phase C cleanup: undo orphaned consumed faces ─────────────
+    // ── Consumed-merge cleanup: undo orphaned consumed faces ─────────────
     // If a fillet edge only had one side split, its consumed face is
     // dangling. Undo the split by kef-ing the trim edge, but only if
     // the resulting merged face stays small (≤ 8 vertices). This

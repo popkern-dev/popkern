@@ -117,5 +117,5 @@ jobs:
       - name: Offset/shell perf budgets + determinism pins
         run: |
           cargo test --release -p popkern-examples \
-            --test perf_budget --test pk329_determinism_gates \
+            --test perf_budget --test offset_determinism_gates \
             -- --nocapture

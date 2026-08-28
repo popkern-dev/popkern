@@ -1,4 +1,4 @@
-//! Phase IV PnS — F_κ Gram matrix + constrained minimiser for bi-4
+//! PnS cap — F_κ Gram matrix + constrained minimiser for bi-4
 //! patches.
 //!
 //! Builds on [`pns_f_kappa`](super::pns_f_kappa) to express the

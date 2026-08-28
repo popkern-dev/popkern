@@ -1,6 +1,6 @@
 //! Unit tests for
 //! [`super::rectangular_gregory_two_stripe::RectangularGregoryTwoStripe`]
-//! — Phase 10a patch type.
+//! — the two-stripe construction patch type.
 
 use super::rectangular_gregory_two_stripe::*;
 use crate::geometry::surface::SurfaceEval;

@@ -60,14 +60,14 @@ fn run_n_pyramid(n: usize, h: f64, radii: &[f64]) -> helpers::CapOuterMetrics {
     measure_cap_outer_boundary(&brep, &faces, N_SAMPLES)
 }
 
-/// Phase 6c-C.1 win: cube_uniform G1 commercial-grade, locked
+/// Apex-region detection win: cube_uniform G1 commercial-grade, locked
 /// in as a regression guard. The 5e-2 gate is the
 /// `kp_gate_helpers::G1_GATE` constant. Passed since commit
 /// `016a780` (centroid-based interior-direction tie-break).
 ///
 /// G0 still exceeds `G0_GATE` (1e-10) because the cap face's
 /// 3 rolling-ball-footprint vertices aren't on the sphere; full
-/// Phase 6c-C topology rebuild is needed to remove them. This
+/// the retired apex-region topology rebuild is needed to remove them. This
 /// test gates only on G1 — graduates to the full
 /// `assert_cap_outer_gates` once 6c-C.2/.3 land.
 #[test]
@@ -85,7 +85,7 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
         helpers::G1_GATE,
     );
     // PK-181: ported from the retired Stage-4.7e matrix
-    // (phase_6c_e_cube_uniform_under_5mm) — the one property that
+    // (the cube-uniform under-5mm relocation gate) — the one property that
     // binary gated and nothing else did. 5e-3 m is the
     // user-visible commercial bar; the strict 1e-10 G0 gate above
     // remains blocked on the rolling-ball-footprint vertices.

@@ -1,4 +1,4 @@
-//! Error types for Phase 6c-DirectApex apex construction.
+//! Error types for the sphere-fit edge-wiring workirectApex apex construction.
 //!
 //! Per ADR §4.2 and §5.4: every variant carries enough context to
 //! be **user-actionable** when surfaced through a CAD UI.  Display

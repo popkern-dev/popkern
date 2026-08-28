@@ -4,9 +4,9 @@
 //! whose end vertex is a REFLEX face corner — a rectangular hole
 //! corner — with an un-blended transversal hole edge. Every boundary
 //! edge incident to the corner on the hole-side support walks along
-//! the hole, away from the trim rail, so Phase A landed the rail end
+//! the hole, away from the trim rail, so the anchor-split stage landed the rail end
 //! as an interior-rail mev spur ([`super::helpers::ReflexEndAnchor`])
-//! and Phase B cut the band between spur tips. After the Phase C
+//! and the face-trim stage cut the band between spur tips. After the consumed-merge stage
 //! merge, the strip's end boundary runs spur → corner → stub through
 //! the ORIGINAL sharp corner — a straight polyline that disagrees
 //! with the strip cylinder by exactly `(√2−1)·r` at the corner (the
@@ -59,7 +59,7 @@ use super::perpendicular_splits::PerpSplitData;
 use crate::error::BlendFailure;
 
 /// Author the terminal disc for every reflex hole-corner end
-/// recorded in Phase A. Returns the authored disc faces (protected
+/// recorded in the anchor-split stage. Returns the authored disc faces (protected
 /// from sliver absorption downstream). Any decline pushes a per-edge
 /// failure — the caller's transactional gate rolls the operation
 /// back.
@@ -88,7 +88,7 @@ pub(super) fn author_reflex_end_discs(
         };
         let Some(&strip) = fillet_faces.get(&idx) else {
             failures.push(fail(
-                "hole-rim terminal disc: fillet strip face not recorded by Phase C".into(),
+                "hole-rim terminal disc: fillet strip face not recorded by the consumed-merge stage".into(),
                 None,
             ));
             continue;

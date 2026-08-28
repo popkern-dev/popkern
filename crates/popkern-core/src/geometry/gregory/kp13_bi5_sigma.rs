@@ -1,4 +1,4 @@
-//! Phase I.13b — σ, the guide sampling reparameterisation.
+//! Σ, the guide sampling reparameterisation.
 //!
 //! KP13 §4.3 defines σ as a symmetric planar bi-5 patch that relates
 //! the guide `g`'s domain to the cap `p`'s pieces. It is **data-

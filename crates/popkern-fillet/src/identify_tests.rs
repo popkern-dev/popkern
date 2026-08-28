@@ -339,7 +339,7 @@ fn blend_info_source_is_curvature_analysis_for_this_round() {
         .iter()
         .find_map(|fh| identify_blend(&post, *fh))
         .expect("should find a blend");
-    // Round 5a uses curvature analysis only — metadata path is future work.
+    // uses curvature analysis only — metadata path is future work.
     assert_eq!(info.source, IdentificationSource::CurvatureAnalysis);
 }
 
@@ -354,7 +354,7 @@ fn blend_info_confidence_is_bounded_unit_interval() {
                 "confidence must be in [0, 1], got {}",
                 info.confidence
             );
-            // Round 5a threshold: no identification under 0.5.
+            // threshold: no identification under 0.5.
             assert!(info.confidence >= 0.5);
         }
     }

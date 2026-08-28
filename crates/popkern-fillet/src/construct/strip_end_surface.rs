@@ -135,7 +135,7 @@ pub(super) fn fill_missing_planar_pcurves(brep: &mut BRep, face: FaceHandle) {
     }
 }
 
-/// Phase 3: remove zero-width spur slits (a half-edge immediately
+/// Remove zero-width spur slits (a half-edge immediately
 /// followed by its own twin, dangling vertex valence 1) from the end
 /// face's loops. Earlier rebuilds left the amputated L-legs doubled
 /// in the base loop; the slit has zero area, so removal preserves

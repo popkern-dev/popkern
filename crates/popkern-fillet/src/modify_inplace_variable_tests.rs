@@ -1,4 +1,4 @@
-//! Tests for the variable-radius in-place path (Round 5h + 5i).
+//! Tests for the variable-radius in-place path (+ 5i).
 //! Split out so neither `modify_inplace_tests.rs` nor the
 //! production module exceeds the 500-line structural cap.
 
@@ -14,7 +14,7 @@ fn cube() -> BRep {
     BRep::unit_cube(tol()).unwrap()
 }
 
-/// Round 5i: variable in-place reassigns the fillet face's surface
+/// variable in-place reassigns the fillet face's surface
 /// to a true NURBS sweep (not a Torus with averaged minor radius),
 /// confirming geometric exactness.
 #[test]
@@ -65,7 +65,7 @@ fn modify_open_in_place_variable_assigns_nurbs_sweep_surface() {
 /// is "`start` at the seam (θ = 0), linearly interpolated to
 /// `end` at the opposite side (θ = π), linearly back to `start`",
 /// so the profile is continuous at the seam. This supersedes the
-/// original Round 5p behaviour, which averaged `(start + end)/2`
+/// original behaviour, which averaged `(start + end)/2`
 /// and produced a Torus because a 2-value spec was considered to
 /// have no canonical angular convention.
 #[test]
@@ -186,7 +186,7 @@ fn modify_closed_variable_takes_in_place_fast_path() {
     );
 }
 
-/// Round 5m: `modify_open_in_place_bypoints` accepts a `ByPoints`
+/// `modify_open_in_place_bypoints` accepts a `ByPoints`
 /// radius profile. Corners are positioned by the radii at
 /// parameters 0 and 1, and the fillet surface is a NURBS sweep
 /// shaped by the full piecewise-linear profile.
@@ -265,7 +265,7 @@ fn modify_open_in_place_bypoints_assigns_nurbs_sweep() {
     );
 }
 
-/// Round 5h: `modify_open_in_place_variable` moves corners using
+/// `modify_open_in_place_variable` moves corners using
 /// per-end radii. The start corners must be at distance `r_start`
 /// from the start endpoint and the end corners at distance `r_end`
 /// from the end endpoint.
@@ -343,7 +343,7 @@ fn modify_open_in_place_variable_uses_per_end_radii() {
     );
 }
 
-/// Round 5s: closed plane-cylinder `ByPoints` modify takes the
+/// closed plane-cylinder `ByPoints` modify takes the
 /// true around-the-rim NURBS sweep path. The resulting fillet
 /// face has a NurbsSurface whose cross-section radii vary around
 /// the cylinder axis, and the call completes in-place in <5 ms.

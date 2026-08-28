@@ -185,9 +185,10 @@ pub use brep_repair_knowledge_collect::{
 pub use brep_repair_knowledge_endpoint::{BrepEndpointLoopMembership, BrepEndpointMembershipFacts};
 pub use brep_repair_knowledge_export::{
     BrepRepairDiagnosticRecord, BrepRepairFactRecord, BrepRepairKnowledgeArtifact,
-    BrepRepairKnowledgeSchemaRecord, BrepRepairKnowledgeScopeRecord, BrepRepairLegacyLabelRecord,
-    BrepRepairMeasurementRecord, BrepRepairToleranceRecord, build_brep_repair_knowledge_artifact,
-    build_brep_repair_knowledge_artifact_with_samples, render_brep_repair_diagnostic,
+    BrepRepairKnowledgeSchemaRecord, BrepRepairKnowledgeScopeRecord, BrepRepairMeasurementRecord,
+    BrepRepairMigrationLabelRecord, BrepRepairToleranceRecord,
+    build_brep_repair_knowledge_artifact, build_brep_repair_knowledge_artifact_with_samples,
+    render_brep_repair_diagnostic,
 };
 pub use brep_repair_knowledge_loop::{BrepLoopAdjacencyFacts, BrepLoopFacts, BrepLoopKind};
 pub use brep_repair_knowledge_trim::{

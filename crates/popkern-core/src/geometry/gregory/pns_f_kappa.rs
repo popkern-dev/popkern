@@ -1,4 +1,4 @@
-//! Phase IV PnS — F_κ quality functional evaluator for bi-4 patches.
+//! PnS cap — F_κ quality functional evaluator for bi-4 patches.
 //!
 //! `F_κ(p) := ∫∫ Σ_{i+j=κ, i,j ≥ 0} (κ! / (i!·j!)) · (∂^i_s ∂^j_t p)² ds dt`
 //!

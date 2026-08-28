@@ -1,4 +1,4 @@
-//! Phase H.8 (Option C step 2) — abstract-guide trait for the K-P
+//! the bi-9 hardening pass (Option C step 2) — abstract-guide trait for the K-P
 //! row-1 / row-2 frame construction.
 //!
 //! The bidegree-9 row-1 / row-2 formulas don't care about the

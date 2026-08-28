@@ -10,7 +10,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 ---
 
-## Phase H — Karčiauskas-Peters bidegree-9 rectangular vertex blend (N ∈ {3, 4})
+## Karčiauskas–Peters bidegree-9 rectangular vertex blend (N ∈ {3, 4})
 
 ### K-P 2004 — Guided surface construction
 
@@ -60,7 +60,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 ---
 
-## Phase I — Polar K-P 2013 / 2015 (N ≥ 5)
+## Polar Karčiauskas–Peters 2013 / 2015 caps (N ≥ 5)
 
 ### KP15 — Bi-6 polar cap
 
@@ -77,7 +77,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 **Key commits:** I.1–I.10f sequence; ADR `docs/decisions/2026-04-20-phase-i-polar-kp-formula-choice.md`
 
-**Research gap:** `n6` Maple script not available; deep-interior CP closed forms in the F_5 optimisation were worked around with the F_κ ladder (options A–F). Citation-chasing path noted in WIP Phase III.
+**Research gap:** `n6` Maple script not available; deep-interior CP closed forms in the F_5 optimisation were worked around with the F_κ ladder (options A–F). Citation-chasing path noted in the polar-cap WIP notes.
 
 ### KP13 — Bi-5 macro-patch construction
 
@@ -98,7 +98,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 **Research gaps:**
 - β reparameterization §4.1 left at β=identity (eq 11/12/13 indexing ambiguous without Fig 8(b) visual confirmation).
-- Upstream two-stripe promotion rejects N=5 folded seeds — pipeline reaches polar but needs `BlendBoundary → DirectBoundaryInput` extractor (Phase III WIP).
+- Upstream two-stripe promotion rejects N=5 folded seeds — pipeline reaches polar but needs `BlendBoundary → DirectBoundaryInput` extractor (polar-cap WIP).
 
 ### KP09a / KP 2009 — n ∈ {3, 4} special cases
 
@@ -136,7 +136,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 ---
 
-## Phase IV — PnS (Polyhedral-Net Splines) n-gon (current)
+## PnS (Polyhedral-Net Splines) n-gon caps
 
 ### KK-Peters 2015 — Smooth multi-sided blending of biquadratic splines
 

@@ -80,7 +80,7 @@ pub(super) fn face_surface_matches(
 
 /// Return the (origin, axis, radius) of the cylinder that the given
 /// face's outer-loop edges share with the most twin faces. Used by
-/// the Phase 6c-E pyramid path to disambiguate which per-fillet sphere
+/// the the collapsed-projection fallback work pyramid path to disambiguate which per-fillet sphere
 /// to assign to each sub-face when all per-fillet radii are equal —
 /// matching by axis identity (sphere centre projects onto axis) rather
 /// than by radius.
@@ -147,7 +147,7 @@ pub(super) fn primary_cylinder_identity_of_face(
     best.map(|(o, a, r, _)| (o, a, r))
 }
 
-/// Phase 6c-D Stage 4.7e: build a permutation mapping
+/// Build a permutation mapping
 /// boundary-segment order (`k = 0..N`) to sub-face index in
 /// `sub_faces_raw`.  Returns `Some(perm)` where `sub_faces_raw[perm[k]]`
 /// is the sub-face geometrically adjacent to fillet `k`'s

@@ -48,7 +48,7 @@ use crate::unfillet::{compute_unfillet_plan, unfillet_face};
 ///     varying radius along the edge.
 ///   - [`FilletRadius::ByPoints`] applies a per-parameter radius profile.
 ///
-/// The constant case takes the in-place fast path (Round 5d-2/5d-3).
+/// The constant case takes the in-place fast path .
 /// Variable and `ByPoints` cases go through algorithmic unfillet
 /// followed by a fresh fillet at the new spec — slower but
 /// supported transparently.
@@ -74,7 +74,7 @@ pub fn modify_fillet_radius(
 }
 
 /// Open (plane-plane) fillet path — tries the in-place geometry
-/// update first (Round 5d-3 for constant, Round 5h for variable).
+/// update first (for constant, for variable).
 /// Falls back to remove+recreate via `compute_unfillet_plan` +
 /// `unfillet_face` + `fillet_edges` when the in-place path can't
 /// handle the spec (e.g. `ByPoints`) or fails for any reason.
@@ -118,7 +118,7 @@ fn modify_open_fillet_radius(
             }
         }
         FilletRadius::ByPoints(points) => {
-            // Round 5m: ByPoints in-place. The corners are
+            // ByPoints in-place. The corners are
             // positioned by the radii at parameters 0 and 1, but
             // the fillet surface is built as a NURBS sweep driven
             // by a piecewise-linear closure over the full points
@@ -194,7 +194,7 @@ fn modify_open_fillet_radius(
 }
 
 /// Closed-fillet (annulus) path — tries the in-place geometry
-/// update first (Round 5d-2 for constant; Round 5p extended to
+/// update first (for constant; extended to
 /// Variable/ByPoints by averaging) and falls back to remove+
 /// recreate on failure.
 fn modify_closed_fillet_radius(
@@ -203,7 +203,7 @@ fn modify_closed_fillet_radius(
     new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
-    // Round 5s: `ByPoints` closed-fillet modify takes the true
+    // `ByPoints` closed-fillet modify takes the true
     // around-the-rim NURBS-sweep fast path, interpreting each
     // `(t, r)` pair's `t` as the normalized angular position
     // around the cylinder axis (t = 0 at the seam). The resulting

@@ -41,7 +41,7 @@ pub enum BrepTrimEndpointAgreementStatus {
 }
 
 impl BrepTrimEndpointAgreementFacts {
-    /// Legacy-compatible compact diagnostic label.
+    /// Migration-compatible compact diagnostic label (pre-render-key scheme).
     pub fn diagnostic_label(&self) -> String {
         format!(
             "{:?}<->{:?} status={:?} direct={:.3e} reconciled={:.3e} selected={:.3e}",

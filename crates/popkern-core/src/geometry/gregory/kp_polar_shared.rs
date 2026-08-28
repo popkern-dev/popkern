@@ -1,4 +1,4 @@
-//! Phase I — Shared polar K-P infrastructure.
+//! Shared polar K-P infrastructure.
 //!
 //! Utilities used by **both** K-P 2015 (bi-6) and K-P 2013 (bi-5)
 //! polar constructions. Living here rather than inside the

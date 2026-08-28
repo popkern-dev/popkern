@@ -39,7 +39,7 @@
 //! This round uses **only** curvature/tangency analysis —
 //! metadata-tagged identification (where the creating operation
 //! records "I made this face as a radius-0.1 rolling-ball fillet")
-//! is a future [Round 5b] extension. Curvature analysis is less
+//! is a future extension. Curvature analysis is less
 //! reliable on heavily approximated NURBS fillets and on edge cases
 //! like variable-radius blends where the cross-section curvature
 //! changes along the spine.

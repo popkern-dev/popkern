@@ -1,4 +1,4 @@
-//! Phase I — Input types for the polar Karčiauskas-Peters
+//! Input types for the polar Karčiauskas-Peters
 //! construction (N ≥ 5 vertex blends).
 //!
 //! `PolarBoundaryInput` is a sibling of
@@ -38,7 +38,7 @@ use crate::geometry::gregory::{
 };
 
 /// Geometric input for the polar K-P construction at one vertex
-/// blend of valence `N ≥ 3` (Phase I currently targets `N ≥ 5`;
+/// blend of valence `N ≥ 3` (the polar-cap campaign currently targets `N ≥ 5`;
 /// the type accepts N = 3 / 4 to allow the K-P 2013 §6 n=3
 /// special case and future experiments).
 ///
@@ -154,7 +154,7 @@ impl PolarBoundaryInput {
             .all(|&r| (r - r0).abs() < 1e-12 * r0.abs().max(1.0))
     }
 
-    /// Phase I.10f — construct a [`PolarBoundaryInput`] from an
+    /// Construct a [`PolarBoundaryInput`] from an
     /// existing [`DirectBoundaryInput`]. Most fields map 1:1:
     ///
     /// - `central_vertex` → `central_vertex`

@@ -117,7 +117,7 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
         .unwrap_or_else(|| panic!("{fixture} should record an apex construction route"));
     assert_eq!(
         route.route,
-        ApexConstructionRoute::Legacy,
+        ApexConstructionRoute::VertexBlend,
         "{fixture} rings inside the legacy route"
     );
     assert_eq!(

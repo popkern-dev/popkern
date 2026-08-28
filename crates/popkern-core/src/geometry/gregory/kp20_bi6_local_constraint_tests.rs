@@ -1,15 +1,15 @@
-//! Phase A unit tests for the KP20 eq (8) G¹ and eq (9) G²
+//! The Bernstein-toolkit stage unit tests for the KP20 eq (8) G¹ and eq (9) G²
 //! residual extractors.
 //!
 //! These tests pin the polynomial identity the extractors compute
 //! against analytically-known synthetic patches. They are
-//! complementary to the Phase B integration tests in
+//! complementary to the residual exit-criterion stage integration tests in
 //! `kp20_bi6_assemble_tests.rs` which drive the full
 //! `assemble_bi6_polar_cap` pipeline.
 //!
 //! Reference: KP20 §4.1 eq (8) and eq (9). See
 //! `docs/decisions/2026-06-23-kp20-bi6-macro-patch-paper-grade.md`
-//! Phase A test specifications.
+//! The Bernstein-toolkit stage test specifications.
 
 // Paper-notation test module: loop indices, helper arities, and tuple shapes
 // mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
@@ -82,7 +82,7 @@ fn worst_mag_v3(vs: &[Vec3]) -> f64 {
 
 // --- Test 1: constant patches → residual is zero ----------------
 
-/// Per ADR Phase A test (1): if both adjacent pieces are constant
+/// Per ADR the Bernstein-toolkit stage test (1): if both adjacent pieces are constant
 /// Point3 fields, eq (8) and eq (9) residuals are exactly zero
 /// (all derivatives vanish identically).
 #[test]
@@ -113,7 +113,7 @@ fn eq9_residual_vanishes_on_constant_patches() {
 
 // --- Test 2: linear-in-u patches measure the b · ∂_u p term -----
 
-/// Per ADR Phase A test (2): if `∂_v` strips on both sides cancel
+/// Per ADR the Bernstein-toolkit stage test (2): if `∂_v` strips on both sides cancel
 /// by symmetry (zero here because both are constant in v), eq (8)
 /// reduces to `−b(u) · ∂_u p`. With `p(u, v) = u · dir`, we have
 /// `∂_u p ≡ dir` constant, so the residual is the polynomial
@@ -164,7 +164,7 @@ fn eq8_residual_equals_minus_b_times_du_on_linear_in_u_patches() {
 
 // --- Test 3 & 4: b_coeffs paper-form pin -------------------------
 
-/// Per ADR Phase A test (3): the `b(u)` BB-coefficient triple near
+/// Per ADR the Bernstein-toolkit stage test (3): the `b(u)` BB-coefficient triple near
 /// the extraordinary point `o` is the paper-faithful `[2c, 2c, c]`
 /// with `c := cos(2π/n)`.
 #[test]
@@ -184,7 +184,7 @@ fn b_coeffs_near_o_matches_paper_eq10() {
     }
 }
 
-/// Per ADR Phase A test (4): the `b(u)` BB-coefficient triple near
+/// Per ADR the Bernstein-toolkit stage test (4): the `b(u)` BB-coefficient triple near
 /// the outer midpoint `m` is the paper-faithful `[c, 0, 0]`.
 #[test]
 fn b_coeffs_near_m_matches_paper_eq10() {
@@ -199,7 +199,7 @@ fn b_coeffs_near_m_matches_paper_eq10() {
 
 // --- Test 5: eq(9) sanity on constant + linear-in-u --------------
 
-/// Per ADR Phase A test (5): for a configuration where eq (9)'s
+/// Per ADR the Bernstein-toolkit stage test (5): for a configuration where eq (9)'s
 /// individual terms are analytically zero, the extractor returns
 /// zero. We use `p̃ = const`, `p = u·dir`: then `∂²_vv p̃ = 0`,
 /// `∂²_vv p = 0`, `∂_u∂_v p = 0`, `∂²_uu p = 0`, but `∂_u p ≠ 0`.
@@ -245,7 +245,7 @@ fn eq9_residual_equals_minus_b_bprime_du_on_linear_in_u_patches() {
 
 // --- Test 6: signature-level smoke test --------------------------
 
-/// Per ADR Phase A test (6): the extractors are pure and depend
+/// Per ADR the Bernstein-toolkit stage test (6): the extractors are pure and depend
 /// only on their inputs. Calling them twice with identical inputs
 /// returns identical outputs.
 #[test]
@@ -269,7 +269,7 @@ fn extractors_are_deterministic() {
 
 // --- Test 7: cancellation symmetry on twin-pair patches ----------
 
-/// Per ADR Phase A test (7): if `p̃ = p` (same patch on both
+/// Per ADR the Bernstein-toolkit stage test (7): if `p̃ = p` (same patch on both
 /// sides) and `b(u) ≡ 0`, then eq (8) reduces to `2 · ∂_v p` and
 /// eq (9) reduces to zero (modulo the `∂_u∂_v p`, `∂²_uu p`,
 /// `∂_u p` terms which all multiply zero scalars). Set both
@@ -289,7 +289,7 @@ fn eq8_residual_vanishes_when_b_is_zero_and_v_constant() {
     );
 }
 
-// --- Phase A2: Jacobian-extractor consistency --------------------
+// --- Jacobian-extractor consistency --------------------
 
 /// The Jacobian's per-column values must match the residual
 /// extractor's response to a unit-load at that column. Tests this
@@ -347,7 +347,7 @@ fn eq9_jacobian_matches_unit_load_residual_at_random_columns() {
     }
 }
 
-// --- Phase B: assembled-cap measurement on hexagon + pentagon ----
+// --- the residual exit-criterion stage: assembled-cap measurement on hexagon + pentagon ----
 
 /// Synthetic bi-3 tensor border with `n` sectors at evenly-spaced
 /// angles around a unit ring, planar in the xy plane with the cap
@@ -597,7 +597,7 @@ fn antidiagonal4_restore_probe_measures_first_ring_outside_overlay() {
     }
 }
 
-// --- Phase C: global constraint matrix rank ---------------------
+// --- the constraint-matrix stage: global constraint matrix rank ---------------------
 
 /// Per-valence global constraint matrix dimensions match
 /// `kp20_constraint_matrix_layout`.
@@ -693,7 +693,7 @@ fn paper_vs_kernel_tau_apex_jet_divergence() {
     }
 }
 
-/// PK-088 Phase D — Lemma 4 cubic identity test re-run with the
+/// PK-088 the symbolic generating-table stage — Lemma 4 cubic identity test re-run with the
 /// paper-faithful τ map (instead of `for_sector`). If Lemma 4 holds
 /// to machine zero, the kernel's τ is the bug and migrating to the
 /// paper τ is the fix. If it doesn't, something else is going on.
@@ -777,7 +777,7 @@ fn lsq_guide_value_at_centroid_across_sectors() {
 // --- Move 1b: LSQ guide values along shared spoke ----------------
 
 /// After Move 1 closed the apex jet transpose, the next suspect for
-/// the remaining Phase B / L6(2)/L6(3) residuals is the guide's
+/// the remaining the residual exit-criterion stage / L6(2)/L6(3) residuals is the guide's
 /// value along the SHARED SPOKE (away from the apex).
 ///
 /// At guide-local position `(0, t)` of sector s, the guide value is
@@ -914,7 +914,7 @@ fn lsq_guide_full_apex_jet_transpose_match_across_sectors() {
 /// spoke. (Order 0: both are `(0, 0)` by construction.)
 ///
 /// If this test passes, the kernel's `Kp20TauMap::for_sector` is
-/// Lemma-4-coherent on its own, and the entire Phase D defect on
+/// Lemma-4-coherent on its own, and the entire the symbolic generating-table stage defect on
 /// the LSQ-built cap must come from the guide ring's missing
 /// **Symmetry** condition (per
 /// `kp20-lemma4-sufficient-conditions.md`).
@@ -3273,7 +3273,7 @@ fn assembled_cap_lemma4_on_orig_pieces_apex_bb_coefs() {
 /// for `i = 0, 1, 2, 3` — because `v_g` of sector `s` and `u_g`
 /// of sector `(s+1)` both point along the shared spoke.
 ///
-/// Step 2 confirmed `τ` is symmetric to machine zero. The Phase D
+/// Step 2 confirmed `τ` is symmetric to machine zero. The the symbolic generating-table stage
 /// defect on the assembled cap must therefore live in the guide
 /// failing this property.
 ///
@@ -3329,7 +3329,7 @@ fn lsq_guide_apex_directional_derivatives_match_across_spokes() {
     }
 }
 
-// --- Phase D probe: planar guide should satisfy Lemma 4 ---------
+// --- the symbolic generating-table stage probe: planar guide should satisfy Lemma 4 ---------
 
 /// Negative control (active): barycentric tri6 lifting does NOT
 /// satisfy the KP18 (3)-(5) joins (weights `(-1, 2c, 2(1-c))`), so
@@ -3439,7 +3439,7 @@ fn lsq_max_constraint_residual_on_synthetic_inputs() {
     }
 }
 
-// --- Phase D: Lemma 4 cubic-expansion identification ------------
+// --- the symbolic generating-table stage: Lemma 4 cubic-expansion identification ------------
 
 /// Lemma 4 says the cubic Hermite jet `h := g ∘ τ` of adjacent
 /// sectors at the extraordinary point `o` agrees on the shared
@@ -3510,7 +3510,7 @@ fn kp20_lemma4_cubic_expansion_identity_across_sectors() {
 /// every valence and emit a markdown report under
 /// `docs/reports/kp20-constraint-rank.md`. Per ADR
 /// `docs/decisions/2026-06-23-kp20-bi6-macro-patch-paper-grade.md`
-/// Phase C: the test asserts the file exists and parses; it does
+/// The test asserts the file exists and parses; it does
 /// NOT assert specific rank numbers.
 #[test]
 fn kp20_constraint_matrix_rank_per_valence() {
@@ -3535,7 +3535,7 @@ fn kp20_constraint_matrix_rank_per_valence() {
          macro patches. The numerical rank is computed via SVD with \
          tolerance σ > 1e-9. See ADR \
          `docs/decisions/2026-06-23-kp20-bi6-macro-patch-paper-grade.md` \
-         Phase C."
+         the constraint-matrix stage."
             .into(),
     );
     report_lines.push(String::new());

@@ -24,7 +24,7 @@ pub(super) fn analytic_linear_pcurve_on_surface(
     Some(Pcurve::linear(uv_start, uv_end, t_start, t_end))
 }
 
-/// Phase 6c-D: reverse a NurbsCurve by flipping CPs, weights, and
+/// Reverse a NurbsCurve by flipping CPs, weights, and
 /// reflecting the knot vector. Equivalent to
 /// `popkern_core::geometry::edge_triple::analytic_helpers::reverse_nurbs`
 /// (kept private there); duplicated locally for cohesion.
@@ -53,7 +53,7 @@ pub(super) fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
 /// sample to `surface`'s UV, and fit a degree-3 NURBS pcurve
 /// through those (u, v, 0) points. Returns `None` if any
 /// projection fails or the fit raises an error.
-/// Phase 6c-D Stage 4 — analytic `Linear` cap-side pcurve for an
+/// Analytic `Linear` cap-side pcurve for an
 /// edge wired with a sphere-fit-substituted boundary segment.
 ///
 /// Segment index parity tells us which cap boundary the edge is
@@ -70,7 +70,7 @@ pub(super) fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
 /// the same direction as the underlying 3D curve. Parameter
 /// range `[t_start, t_end]` matches the edge curve.
 ///
-/// Phase 6c-D Stage 4.1 — `(boundary_lo, boundary_hi)` is the
+/// `(boundary_lo, boundary_hi)` is the
 /// sub-edge's sub-range on the parent segment, normalised to
 /// `[0, 1]`. For a full-edge match (single sub-edge spans whole
 /// segment), `(boundary_lo, boundary_hi) = (0, 1)`. For multi-
@@ -95,7 +95,7 @@ pub(super) fn cap_pcurve_for_segment(
     Some(Pcurve::linear(start, end, t_start, t_end))
 }
 
-/// Phase 6c-D Stage 4.1 — closest-point projection of `point`
+/// Closest-point projection of `point`
 /// onto `curve`. Returns the parameter `t ∈ [t_lo, t_hi]` such
 /// that `curve.point_at(t)` is closest to `point`.
 ///

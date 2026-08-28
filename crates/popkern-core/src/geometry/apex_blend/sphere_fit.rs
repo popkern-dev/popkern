@@ -1,4 +1,4 @@
-//! Sphere-fit termination math (Phase 6c-A).
+//! Sphere-fit termination math (sphere-fit substitution).
 //!
 //! Closed-form algebraic intersection of a cap sphere (centred at
 //! the apex region offset, radius r_cap) with a fillet surface,
@@ -12,7 +12,7 @@
 //! - Torus × Sphere — for variable-radius fillets
 //! - Cone × Sphere — for tapered edges
 //!
-//! All four are closed-form. Phase 6c-A wires these through a
+//! All four are closed-form. the sphere-fit substitution work wires these through a
 //! unified entry point [`sphere_fit_termination`].
 
 use crate::geometry::analytic_curves::circle_basis;
@@ -107,19 +107,19 @@ pub fn sphere_fit_termination(
             tol,
         ),
         // Other variants will be implemented in subsequent
-        // commits per Phase 6c-A. Cube/pyramid fixtures only need
+        // commits per the sphere-fit substitution work. Cube/pyramid fixtures only need
         // Cylinder×Sphere today.
         SurfaceGeometry::Plane { .. } => Err(SphereFitError::UnsupportedFilletVariant {
-            variant: "Plane (Phase 6c-A continuation)",
+            variant: "Plane (the sphere-fit substitution work continuation)",
         }),
         SurfaceGeometry::Sphere { .. } => Err(SphereFitError::UnsupportedFilletVariant {
-            variant: "Sphere (Phase 6c-A continuation)",
+            variant: "Sphere (the sphere-fit substitution work continuation)",
         }),
         SurfaceGeometry::Torus { .. } => Err(SphereFitError::UnsupportedFilletVariant {
-            variant: "Torus (Phase 6c-A continuation)",
+            variant: "Torus (the sphere-fit substitution work continuation)",
         }),
         SurfaceGeometry::Cone { .. } => Err(SphereFitError::UnsupportedFilletVariant {
-            variant: "Cone (Phase 6c-A continuation)",
+            variant: "Cone (the sphere-fit substitution work continuation)",
         }),
         SurfaceGeometry::Nurbs(_) => Err(SphereFitError::UnsupportedFilletVariant {
             variant: "Nurbs (use Gregory-cap iterative path)",

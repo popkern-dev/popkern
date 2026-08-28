@@ -5,7 +5,7 @@ use super::super::kp_row2::Row2Frame;
 use super::super::rectangular_binonic::RectangularGregoryBiNonic;
 use crate::geometry::{Point3, Vec3};
 
-/// Phase 6c-D Stage 3 scaffolding — transfinite-interpolation
+/// the sphere-fit edge-wiring work Stage 3 scaffolding — transfinite-interpolation
 /// (Coons-style) fill for the bidegree-9 patch's strict-interior
 /// 4×4 block (`grid[3..=6][3..=6]`).
 ///
@@ -87,7 +87,7 @@ pub(super) fn reverse_boundary(curve: &[Point3; 10]) -> [Point3; 10] {
     out
 }
 
-/// Phase 6c-D Stage 1c: pick the row0 / col9 boundary CPs for
+/// Pick the row0 / col9 boundary CPs for
 /// sub-patch `k` — either from `input.hex_boundaries[k]` (when
 /// the caller has injected substituted analytic boundary CPs) or
 /// synthesised from the guide's corner Hermite data via
@@ -98,7 +98,7 @@ pub(super) fn reverse_boundary(curve: &[Point3; 10]) -> [Point3; 10] {
 /// `sphere ∩ cylinder` great-circle CPs (deg-9 from
 /// `BlendBoundary.hex_boundary_cps_deg9`). When `None`, the
 /// generic `k_p_boundary` fallback synthesises from corner
-/// position + tangent + curvature, the original Phase H behaviour.
+/// position + tangent + curvature, the original the bi-9 cap campaign behaviour.
 ///
 /// See `docs/decisions/2026-04-29-phase-6c-d-stage-1-boundary-injection.md`.
 pub(super) fn pick_hex_boundary<G: KpGuide>(

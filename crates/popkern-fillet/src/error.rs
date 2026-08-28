@@ -243,7 +243,7 @@ impl BlendFailure {
 }
 
 // `BlendWarning` moved to `crate::blend_warnings` to keep this file
-// under the 500-LoC structural limit and to give Phase I (polar K-P)
+// under the 500-LoC structural limit and to give the polar-cap campaign (polar K-P)
 // headroom for its fallback-ladder variants. Re-exported below.
 pub use crate::blend_warnings::BlendWarning;
 

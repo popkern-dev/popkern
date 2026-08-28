@@ -4,9 +4,9 @@
 //! matrix (Constant, Variable, ByPoints).
 //!
 //! **When this path runs:**
-//! - Phase 1b: either support surface is a Cone (offset-intersect
+//! - Walker trigger: either support surface is a Cone (offset-intersect
 //!   path can't run because cones have no analytic offset).
-//! - Phase 2 step 4: the caller requested G2 cross-sections via
+//! - The ComputeGeometry G2 step: the caller requested G2 cross-sections via
 //!   `FilletOptions::g2_cross_section`. The walker populates
 //!   `CenterCurveResult::contact_solutions`, which lets the downstream
 //!   `build_fillet_surface` route through `g2_sweep_from_contact_solutions`
@@ -221,7 +221,7 @@ pub(crate) fn compute_center_with_fallback(
                     eprintln!("  [walker-fallback] {walker_err:?}");
                 }
                 let reason = format!("walker failed: {walker_err:?}");
-                let legacy = compute_legacy_center_curve(
+                let legacy = compute_offset_intersect_center_curve(
                     analysis,
                     radius,
                     brep,
@@ -237,7 +237,7 @@ pub(crate) fn compute_center_with_fallback(
             Err(e) => Err(e),
         }
     } else {
-        compute_legacy_center_curve(
+        compute_offset_intersect_center_curve(
             analysis,
             radius,
             brep,
@@ -260,7 +260,7 @@ pub(crate) fn compute_center_with_fallback(
 /// (silently degrading the caller's G2 request to G1 rather than
 /// propagating a walker-specific error).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compute_legacy_center_curve(
+pub(crate) fn compute_offset_intersect_center_curve(
     analysis: &analysis::EdgeAnalysis,
     radius: &FilletRadius,
     brep: &BRep,

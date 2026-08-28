@@ -136,7 +136,7 @@ pub(crate) fn process_pairs(
         .map(|task| resolve_pair_inputs(task, a, b, trace))
         .collect();
 
-    // Phase 2: SSI memo over EXACTLY-equal inputs (PK-304). Analytic
+    // SSI memo over EXACTLY-equal inputs (PK-304). Analytic
     // primitives arrive as N trimmed patches of ONE surface with
     // identical full-period windows — a 16-patch torus × cylinder
     // boolean re-marched the same complete intersection per pair
@@ -182,7 +182,7 @@ pub(crate) fn process_pairs(
         }
     };
 
-    // Phase 3: per-task clip + classify from the shared solve, in task
+    // Per-task clip + classify from the shared solve, in task
     // order (rayon's ordered collect keeps the output positionally
     // identical to sequential processing at any thread count). Pairs
     // after a failing pair still compute in parallel mode (discarded

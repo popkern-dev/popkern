@@ -8,9 +8,9 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-use super::phase_split::FaceTrim;
+use super::face_trim_pipeline::FaceTrim;
 
-/// Phase 2b: mef separator chords between mutual-nearest rail-end
+/// Mef separator chords between mutual-nearest rail-end
 /// anchor PAIRS from different trims. Returns the separator edges.
 pub(super) fn cut_corner_separators(
     brep: &mut BRep,

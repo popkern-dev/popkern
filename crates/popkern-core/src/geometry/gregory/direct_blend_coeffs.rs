@@ -8,7 +8,7 @@
 //! ```
 //!
 //! where `xtan_A`, `xtan_B` are cross-tangent polynomials and
-//! `T(t) = C'(t)` is the boundary tangent. Phase 10D tried to
+//! `T(t) = C'(t)` is the boundary tangent. A polynomial-identity direct-formula attempt tried to
 //! use `α = constant` and failed: on asymmetric geometry the
 //! coplanarity ratio varies with `t`.
 //!
@@ -21,7 +21,7 @@
 //!
 //! This module computes `(α_0, α_1, β_0, β_1)` per spoke from
 //! the corner data in the input. Output is consumed by the
-//! row-1 G1 direct-formula module (Phase G.4).
+//! row-1 G1 direct-formula module (row-1 G1 direct formulas).
 //!
 //! # Endpoint formula
 //!

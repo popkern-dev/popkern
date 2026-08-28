@@ -1,4 +1,4 @@
-//! Perpendicular anchor position selection for Phase A splitting.
+//! Perpendicular anchor position selection for the anchor-split stage splitting.
 
 use super::*;
 use popkern_core::topology::LoopHandle;
@@ -23,7 +23,7 @@ pub(in crate::construct) struct AnchorPlacement {
 
 /// Compute the 3D positions of the two perpendicular anchors for
 /// a single face. Read-only — this function never mutates `brep`.
-/// Called on the Phase A snapshot (un-fragmented BRep), so anchor
+/// Called on the anchor-split stage snapshot (un-fragmented BRep), so anchor
 /// positions are always computed on the *original* full-length
 /// perpendicular edges rather than whatever sub-edge an earlier
 /// batch member already split off.
@@ -174,7 +174,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     // position.  See `analytic_curve` doc above:
                     // the on-cyl path computes a different (true
                     // on-surface) anchor for non-perpendicular
-                    // faces, but downstream Phase B/C/apex stages
+                    // faces, but downstream the face-trim stage/C/apex stages
                     // currently assume perp-walk positions.
                     // Promoting to true on-cyl anchors requires
                     // updating those stages — out of scope for

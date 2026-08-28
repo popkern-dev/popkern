@@ -1,4 +1,4 @@
-//! Phase H.4.d — K-P row-1 CP derivation for the bidegree-9
+//! K-P row-1 CP derivation for the bidegree-9
 //! patch.
 //!
 //! Given a bicubic [`KpGuidePatch`] + four boundary curves at
@@ -198,13 +198,13 @@ pub fn derive_row1_frame<G: KpGuide>(
     }
 }
 
-/// Phase 6c-D Stage 2 — derive the row-1 frame purely from the
+/// Derive the row-1 frame purely from the
 /// four boundary curves, with no reference to a K-P guide.
 ///
 /// # When to use this
 ///
 /// Called when the upstream `DirectBoundaryInput::hex_boundaries`
-/// is `Some` (i.e., Phase 6c-D Stage 1 boundary injection is
+/// is `Some` (i.e., the sphere-fit wide-tolerance stage boundary injection is
 /// active). The injected hex-side boundaries are the analytic
 /// `sphere ∩ cylinder` arc + slant-face bridge (deg-9 Bernstein
 /// CPs). Their corner tangents differ from the K-P guide's
@@ -276,7 +276,7 @@ pub fn derive_row1_frame_from_boundary(
     let corner_11 = corner_2x2(row9[9], g_u_11, g_v_11, zero, -1.0, -1.0);
     let corner_01 = corner_2x2(row0[9], g_u_01, g_v_01, zero, 1.0, -1.0);
 
-    // Phase 6c-D Stage 3: mid-edge row1[j] / row8[j] / col1[i] / col8[i]
+    // Mid-edge row1[j] / row8[j] / col1[i] / col8[i]
     // computed by *opposite-boundary interpolation* — set
     // `row1[j] = (8/9)·row0[j] + (1/9)·row9[j]`. This places the
     // row-1 ring on the segment from row0 to row9 at u = 1/9,
@@ -344,7 +344,7 @@ pub fn derive_row1_frame_from_boundary(
     }
 }
 
-/// Phase 6c-D Stage 3 — linearly interpolate two `Point3`s by `t`.
+/// Linearly interpolate two `Point3`s by `t`.
 /// `lerp_point(p0, p1, t) = (1 − t)·p0 + t·p1`.
 #[inline]
 fn lerp_point(p0: Point3, p1: Point3, t: f64) -> Point3 {
@@ -355,7 +355,7 @@ fn lerp_point(p0: Point3, p1: Point3, t: f64) -> Point3 {
     )
 }
 
-/// Phase 6c-D Stage 2 — `9·(P[1] − P[0])` for a deg-9 boundary.
+/// `9·(P[1] − P[0])` for a deg-9 boundary.
 /// This is the boundary's tangent at `t = 0` (the K-P boundary-
 /// consistency expression at module top).
 #[inline]
@@ -367,7 +367,7 @@ pub(super) fn boundary_tangent_at_start(boundary: &[Point3; 10]) -> Vec3 {
     )
 }
 
-/// Phase 6c-D Stage 2 — `9·(P[9] − P[8])` for a deg-9 boundary
+/// `9·(P[9] − P[8])` for a deg-9 boundary
 /// (tangent at `t = 1`).
 #[inline]
 pub(super) fn boundary_tangent_at_end(boundary: &[Point3; 10]) -> Vec3 {
@@ -378,7 +378,7 @@ pub(super) fn boundary_tangent_at_end(boundary: &[Point3; 10]) -> Vec3 {
     )
 }
 
-/// Phase 6c-D Stage 2 — degree-9 Bernstein representation of a
+/// Degree-9 Bernstein representation of a
 /// linear-blend `Vec3` field between two endpoint values. CPs
 /// lie on the line `(1 − j/9)·start + (j/9)·end` for `j ∈ 0..=9`.
 #[inline]

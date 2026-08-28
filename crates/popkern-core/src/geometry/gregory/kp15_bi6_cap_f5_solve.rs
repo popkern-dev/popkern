@@ -1,4 +1,4 @@
-//! Phase I.10b + II.A — F_5 minimisation over the bi-6 cap's
+//! the polar-cap campaign.10b + II.A — F_5 minimisation over the bi-6 cap's
 //! free parameter set.
 //!
 //! Given a `Bi6CapInput` with **placeholder** free parameters
@@ -62,7 +62,7 @@ use super::kp15_bi6_f5::{f_kappa_quadratic_form, f_kappa_quadratic_form_weighted
 use crate::geometry::Point3;
 
 /// Free parameter vector. Covers the paper's interior-free set
-/// (`p⁰_{22}`, `p^k_{23}`, `p^k_{33}`) plus the Phase II option-A
+/// (`p⁰_{22}`, `p^k_{23}`, `p^k_{33}`) plus the the polar-cap campaignI option-A
 /// extension (sector-0 near-star CPs). See module docs for the
 /// rationale.
 #[derive(Debug, Clone)]

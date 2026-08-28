@@ -1,7 +1,7 @@
-//! KP13 § 3 Phase I.12 — bi-5 guide surface `g` from auxiliary map
+//! KP13 § 3 the polar-cap campaign.12 — bi-5 guide surface `g` from auxiliary map
 //! `g△`.
 //!
-//! The auxiliary tri-5 map `g△` (Phase I.11) is an `n`-sector
+//! The auxiliary tri-5 map `g△` (the polar-cap campaign.11) is an `n`-sector
 //! total-degree-5 polynomial on the planar `n`-gon `Ω`; each sector
 //! `g△^k` lives on the natural-simplex wedge
 //! `△_k = {(0,0), m_k, m_{k+1}}`. The bi-5 **guide** `g` is an

@@ -1,4 +1,4 @@
-//! Phase H.4.e — K-P row-2 CP derivation for the bidegree-9
+//! K-P row-2 CP derivation for the bidegree-9
 //! patch (G2 continuity).
 //!
 //! Given a [`KpGuidePatch`] + 4 degree-9 boundary curves + the
@@ -168,7 +168,7 @@ pub fn derive_row2_frame<G: KpGuide>(
     }
 }
 
-/// Phase 6c-D Stage 2 — derive the row-2 frame purely from
+/// Derive the row-2 frame purely from
 /// the boundaries + the [`Row1Frame`] produced by
 /// [`derive_row1_frame_from_boundary`](super::kp_row1::derive_row1_frame_from_boundary).
 ///

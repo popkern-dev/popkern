@@ -1,4 +1,4 @@
-//! Phase H — Shirman-Séquin twist computation at the central
+//! Shirman-Séquin twist computation at the central
 //! vertex `C` for the bicubic guide surface.
 //!
 //! Given the C-corner tangent data from

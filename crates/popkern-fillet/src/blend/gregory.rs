@@ -1,18 +1,18 @@
-//! §5.3 Round 6/7 rational-Gregory construction path.
+//! §5.3 rational-Gregory construction path.
 //!
 //! `try_rational_gregory_blend` builds a true rational Gregory patch
 //! (Longhi triangular for N=3, Chiyokura-Kimura rectangular for N=4
 //! — follow-up) from a [`BlendBoundary`] plus the incident fillet
 //! strip data.
 //!
-//! **Round 7 (this commit)** landed [`extract_triangular_inner_cps`],
+//! **(this commit)** landed [`extract_triangular_inner_cps`],
 //! which replaces the earlier `[v_pos; 3]` placeholder by computing
 //! each Longhi inner candidate from the adjacent fillet strip's
 //! surface normal at the boundary midpoint — a geometrically-
 //! grounded placement that actually exercises the rational-inner-CP
 //! degree of freedom. The dispatch in
 //! [`super::surface::build_smooth_blend`] is still gated pending
-//! curvature-verified regression tests (Round 7 C4b) — once the
+//! curvature-verified regression tests (C4b) — once the
 //! builder's output is confirmed to match or beat the polar-NURBS
 //! fallback on both uniform-radius and mixed-radius cube corners,
 //! the dispatcher will call it ahead of the polar NURBS.
@@ -32,7 +32,7 @@ use super::surface::BlendSurfaceResult;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod};
 
-/// §5.3 Round 6 — build a true rational Gregory patch for a
+/// §5.3 — build a true rational Gregory patch for a
 /// vertex-blend corner with `N ∈ {3, 4}` analytic-strip fillets of
 /// uniform radius.
 ///
@@ -97,7 +97,7 @@ pub(crate) fn try_rational_gregory_blend(
         return None;
     }
 
-    // §5.3 Round 7 — twist-vector extraction. Each Longhi inner
+    // §5.3 twist-vector extraction. Each Longhi inner
     // candidate `P_k` controls the interior cross-derivative along
     // the boundary opposite corner `k` (at the midpoint of that
     // boundary the rational blend reduces to `P_k` alone). Place

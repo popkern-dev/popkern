@@ -183,7 +183,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
 
     let mut uf = UnionFind::new(n);
 
-    // Phase 1: union params within each driving constraint.
+    // Union params within each driving constraint.
     let mut active_constraints: Vec<(ConstraintHandle, Vec<usize>)> = Vec::new();
 
     for (handle, entry) in sketch.constraints.iter() {
@@ -214,7 +214,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
         active_constraints.push((handle, indices));
     }
 
-    // Phase 2: union rigid-set body params with their member point params.
+    // Union rigid-set body params with their member point params.
     for rs in sketch.rigid_sets.values() {
         let rs_tx = rs.param_start;
         let rs_ty = rs.param_start + 1;
@@ -249,7 +249,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
         }
     }
 
-    // Phase 3: group params by root to form components.
+    // Group params by root to form components.
     let mut root_to_params: HashMap<usize, Vec<usize>> = HashMap::new();
     // Only include params that are referenced by at least one active constraint.
     let mut referenced = vec![false; n];
@@ -284,7 +284,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
         return Vec::new();
     }
 
-    // Phase 4: assign constraints to components.
+    // Assign constraints to components.
     let mut root_to_constraints: HashMap<usize, Vec<ConstraintHandle>> = HashMap::new();
     for (handle, indices) in &active_constraints {
         if let Some(&first_idx) = indices.first() {
@@ -293,7 +293,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
         }
     }
 
-    // Phase 5: build SubProblem structs.
+    // Build SubProblem structs.
     let mut components: Vec<SubProblem> = Vec::new();
     for (root, mut params) in root_to_params {
         params.sort_unstable();

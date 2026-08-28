@@ -1,4 +1,4 @@
-//! Phase IV PnS — End-to-end bi-4 cap assembly.
+//! PnS cap — End-to-end bi-4 cap assembly.
 //!
 //! Composes the PnS pipeline primitives into a single function
 //! [`assemble_pns_bi4_cap`] that turns a boundary ring + pole into

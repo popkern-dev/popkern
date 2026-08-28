@@ -269,7 +269,7 @@ fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
     // and eq (3) to machine zero at every cross-sector edge AND
     // achieve strictly lower F_5 than the existing
     // `assemble_bi6_polar_cap` path on the same input. These are
-    // the two empirical claims of the Phase E ADR.
+    // the two empirical claims of the table-closure ADR.
     use crate::geometry::gregory::kp15_bi6_f5::f_kappa_quadratic_form;
     use crate::geometry::gregory::kp15_bi6_local_constraint::{
         eq2_g1_residual_bb_degree7, eq3_g2_residual_phi_multiplied,

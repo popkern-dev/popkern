@@ -1,4 +1,4 @@
-//! Phase I — Degree-5 Bernstein basis + derivatives through 3rd
+//! Degree-5 Bernstein basis + derivatives through 3rd
 //! order.
 //!
 //! Shared primitive for the K-P 2013 biquintic polar construction
@@ -154,7 +154,7 @@ pub fn bernstein_bi4_all(t: f64) -> [f64; 5] {
 }
 
 // `bernstein_bi3_all` now lives in the dedicated `bernstein_bi3`
-// module (Phase IV PnS support); imported below as needed.
+// module (PnS cap support); imported below as needed.
 
 /// All 3 basis values `B_0^2(t)..B_2^2(t)` at once.
 #[inline]

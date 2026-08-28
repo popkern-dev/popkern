@@ -176,7 +176,7 @@ fn construct_apex_inner(
     //
     // After DirectApex.2.d's mef sequence each plane face is split into a
     // V-corner sub-face and a remainder.  V still has its
-    // pre-mef stub edges (perp-edge splits from Phase A) which now
+    // pre-mef stub edges (perp-edge splits from the anchor-split stage) which now
     // separate adjacent corner sub-faces.  Mirror legacy Phase
     // 2a/2b/3:
     //
@@ -185,7 +185,7 @@ fn construct_apex_inner(
     //     corner sub-faces.  Returns the surviving merged-face
     //     handle — the cap face.
     //   * `kev_v_bridge` removes V plus the trailing same-loop
-    //     bridge in one Euler step (legacy Phase 2b).
+    //     bridge in one Euler step (legacy the kev pass).
     //   * `remove_orphaned_vertex` is the no-bridge safety net.
     //
     // The legacy helpers (`pub(crate)` in

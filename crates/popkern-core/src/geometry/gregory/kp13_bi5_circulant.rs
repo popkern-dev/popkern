@@ -1,4 +1,4 @@
-//! Phase I.11d — KP09a §2.3(b) circulant system for `g^i_{21}`.
+//! KP09a §2.3(b) circulant system for `g^i_{21}`.
 //!
 //! # Summary
 //!

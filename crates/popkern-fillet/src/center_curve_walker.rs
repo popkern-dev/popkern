@@ -1,4 +1,4 @@
-//! Walker-based center-curve builder. Phase 1b cone path: routes
+//! Walker-based center-curve builder. Walker cone path: routes
 //! around the offset-intersect short-cut (which has no analytic
 //! offset for cones) by using the rolling-ball contact solver in
 //! continuation along the spine.

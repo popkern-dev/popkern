@@ -87,7 +87,7 @@ pub(crate) fn is_corner_adjacent(i: usize, j: usize) -> bool {
 
 /// Is `(i, j)` a free plain-Bezier interior position?
 ///
-/// Used by the spoke-G1 solver (Phase 6) to iterate the 12 free
+/// Used by the spoke-G1 solver to iterate the 12 free
 /// CPs per sub-patch as solve unknowns.
 #[inline]
 #[allow(dead_code)]

@@ -38,7 +38,7 @@ fn render_pk326_mixed_corner_bodies() {
     let lo = offset_solid(&lb, 0.1, &ShellOptions::default(), tol()).unwrap();
     render(
         &lo.brep,
-        "pk326_l_bracket_arc_offset",
+        "l_bracket_arc_offset",
         (3.4, 3.0, 2.4),
         (0.7, 0.6, 0.3),
     );
@@ -48,7 +48,7 @@ fn render_pk326_mixed_corner_bodies() {
     let li = offset_solid(&lb, -0.1, &ShellOptions::default(), tol()).unwrap();
     render(
         &li.brep,
-        "pk326_l_bracket_arc_erosion",
+        "l_bracket_arc_erosion",
         (3.4, 3.0, 2.4),
         (0.7, 0.6, 0.3),
     );
@@ -60,7 +60,7 @@ fn render_pk326_mixed_corner_bodies() {
     let to = offset_solid(&tr, 0.1, &ShellOptions::default(), tol()).unwrap();
     render(
         &to.brep,
-        "pk326_thin_rib_arc_offset",
+        "thin_rib_arc_offset",
         (4.2, -2.2, 2.6),
         (1.0, 0.5, 0.3),
     );
@@ -69,12 +69,7 @@ fn render_pk326_mixed_corner_bodies() {
     // an exact circle, torus base rim.
     let cone = BRep::cone(1.0, 1.5, tol()).unwrap();
     let oc = offset_solid(&cone, 0.15, &ShellOptions::default(), tol()).unwrap();
-    render(
-        &oc.brep,
-        "pk326_cone_apex_cap",
-        (2.8, 2.2, 2.6),
-        (0.0, 0.0, 0.8),
-    );
+    render(&oc.brep, "cone_apex_cap", (2.8, 2.2, 2.6), (0.0, 0.0, 0.8));
 
     // Open-sheet thicken: rounded outer skin with rim arc corners,
     // flat rim walls.
@@ -82,7 +77,7 @@ fn render_pk326_mixed_corner_bodies() {
     let ts = thicken(&sheet, 0.08, &ShellOptions::default(), tol()).unwrap();
     render(
         &ts.brep,
-        "pk326_open_sheet_thicken",
+        "open_sheet_thicken",
         (2.4, 1.9, 2.2),
         (0.5, 0.5, 0.5),
     );
@@ -104,7 +99,7 @@ fn render_pk326_mixed_corner_bodies() {
     .unwrap();
     render(
         &os.brep,
-        "pk340_outward_opening_shell",
+        "outward_opening_shell",
         (2.3, -1.7, -1.6),
         (0.5, 0.5, 0.4),
     );

@@ -19,7 +19,7 @@ pub(crate) use three_quad_kp_ring_metrics::{worst_ring_coplanarity, worst_ring_g
 /// diagnostics when the promotion is rejected; accepted commercial
 /// grade promotion mutates `sub_patches` in place.
 ///
-/// Phase 6c-B: `fillet_surfaces` (one entry per sub-patch, ordered
+/// `fillet_surfaces` (one entry per sub-patch, ordered
 /// by ring index) are forwarded to `optimize_binonic_with_outer_fillets`
 /// so the bi-9 L-M solver includes per-sample cap-vs-fillet G1
 /// residuals along each cap's outer boundary, in addition to the
@@ -71,7 +71,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
     };
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
-    // Phase H.7 gap #2 closure — K-P 2004 §4 iterative twist
+    // the bi-9 commercial gates gap #2 closure — K-P 2004 §4 iterative twist
     // optimization refines the N central-vertex twists against the
     // ring-wide G1 coplanarity residual (the one-shot Shirman-Séquin
     // twist is under-conditioned at extreme radius asymmetry).
@@ -79,7 +79,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // → bi-nonic); phase 3 engages only when phases 1+2 fail to
     // converge, and the ladder falls through to the bi-quintic-only
     // then bicubic C-twist optimizers if a phase is unavailable.
-    // Phase 6c-B: env-gate on POPKERN_OUTER_FILLET_G1=1. When set,
+    // Env-gate on POPKERN_OUTER_FILLET_G1=1. When set,
     // pass the fillet surfaces to the binonic optimiser so its
     // L-M residual includes per-sample cap-vs-fillet G1 along
     // each cap's outer boundary.
@@ -414,7 +414,7 @@ pub(crate) fn extract_direct_boundary_input(
         central_vertex_tps.push(tps_c);
     }
 
-    // Phase 6c-D Stage 1d: when the caller provides
+    // When the caller provides
     // hex_boundaries (deg-9 Bernstein CPs of the substituted
     // FilletEnd / FaceEdge curves per sub-patch), thread them
     // into the new `HexBoundaryData` field. The K-P bi-nonic

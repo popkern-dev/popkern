@@ -1,4 +1,4 @@
-//! Phase IV PnS — Central-coefficient formulas for the n-gon cap.
+//! PnS cap — Central-coefficient formulas for the n-gon cap.
 //!
 //! Two closed-form rules sit at the centre of every sector of a
 //! PnS n-gon cap:

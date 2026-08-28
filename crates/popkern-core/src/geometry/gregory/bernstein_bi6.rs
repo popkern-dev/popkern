@@ -1,4 +1,4 @@
-//! Phase I — Degree-6 Bernstein basis + derivatives through 3rd
+//! Degree-6 Bernstein basis + derivatives through 3rd
 //! order.
 //!
 //! Shared primitive for the K-P 2015 minimal-bi-6 polar

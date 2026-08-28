@@ -1,4 +1,4 @@
-//! Phase IV PnS — β reparameterization for the n-gon cap.
+//! PnS cap — β reparameterization for the n-gon cap.
 //!
 //! β is a change of variables applied to the **tensor-border** `b`
 //! of the surrounding bi-2 spline complex. It reparameterises the

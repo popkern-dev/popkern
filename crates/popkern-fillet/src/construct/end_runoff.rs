@@ -151,7 +151,7 @@ fn find_runoff_candidate(
         // blend landed in this result: plain open cylinder fillets
         // keep their legacy end shape because the in-place modify
         // machinery cannot reproduce topology edits and must stay
-        // equivalent to remove-recreate (PK-097 Phase C).
+        // equivalent to remove-recreate (PK-097 the consumed-merge stage).
         let kind = face.surface.as_ref().map(|s| &s.geometry);
         let is_nurbs = matches!(kind, Some(SurfaceGeometry::Nurbs(_)));
         let is_cyl = matches!(kind, Some(SurfaceGeometry::Cylinder { .. }));

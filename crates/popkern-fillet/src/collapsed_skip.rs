@@ -64,7 +64,7 @@ use crate::types::FilletSpec;
 ///   downstream detectors to report the real problem.
 ///
 /// Intended to be called at the top of
-/// [`crate::fillet_edges_internal`], immediately after Phase 0
+/// [`crate::fillet_edges_internal`], immediately after the Validate stage
 /// validation and before the cusp-subdivide pre-pass.
 pub fn skip_collapsed_edges(
     brep: &BRep,

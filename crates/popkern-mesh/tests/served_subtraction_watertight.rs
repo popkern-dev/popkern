@@ -37,7 +37,7 @@ fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
 }
 
 #[test]
-fn pk295_served_subtraction_watertightness() {
+fn served_subtraction_watertightness() {
     let tol = Tolerance::default();
     let part = rim_filleted_cylinder(tol);
     let cutter = BRep::unit_cube(tol)

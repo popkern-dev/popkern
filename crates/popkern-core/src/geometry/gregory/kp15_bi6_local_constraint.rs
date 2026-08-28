@@ -28,9 +28,9 @@
 //! cannot access (see
 //! `docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md`).
 //!
-//! Phase B of that ADR's plan begins here: mechanise the constraint
+//! The residual exit-criterion stage of that ADR's plan begins here: mechanise the constraint
 //! enumeration directly from BB-form polynomial arithmetic. The
-//! exit criterion for Phase B is that, evaluated on the cap that
+//! exit criterion for the residual exit-criterion stage is that, evaluated on the cap that
 //! `assemble_bi6_polar_cap` currently produces, the eq (2)
 //! residual at every cross-sector edge vanishes to machine zero
 //! across all 7 BB-coefficients (after rule (5) on `p̀_{30}`
@@ -40,9 +40,9 @@
 //!
 //! [KP15]: docs/papers/15bi6g2.txt
 
-// Phase B: the residual extractor and its strip-derivative
+// The residual extractor and its strip-derivative
 // helpers are not yet wired into a production caller — only the
-// Phase B / C closure-verification tests consume them. Phases
+// The residual exit-criterion stage / C closure-verification tests consume them. Phases
 // C-E will route the cap assembly's deep-interior derivation
 // through this module, removing the allow(dead_code) below.
 #![allow(dead_code)]
@@ -211,7 +211,7 @@ fn strip_dot_dot_uv(grid: &[[Point3; 7]; 7]) -> BernsteinPoly<Vec3> {
 /// polynomial as a `Vec<Vec3>`. The polynomial degree (per term)
 /// is at most 9 — paper line 150 claims degree 7 after rule (5)
 /// reduces the boundary curve. We return all coefficients up to
-/// the actual polynomial degree so the eventual Phase C solver
+/// the actual polynomial degree so the eventual the constraint-matrix stage solver
 /// can either trust the paper's claim (asserting BB indices ≥ 8
 /// vanish under rule (5)) or take the residual as-is.
 pub fn eq3_g2_residual_phi_multiplied(
@@ -336,7 +336,7 @@ fn empty_grids() -> [[[Point3; 7]; 7]; 2] {
 /// are exact (no finite-difference noise) because the residual is
 /// linear in the BB-coefs.
 ///
-/// This is the building block for Phase C's `M(n, c, τ) · x = b_input`
+/// This is the building block for the constraint-matrix stage's `M(n, c, τ) · x = b_input`
 /// linear system. Each cross-sector edge contributes one such block
 /// of 8 rows; the full M stacks `n` of them with sector-relative
 /// indexing.
@@ -1165,7 +1165,7 @@ fn append_transposed_previous_side_edge_row(
 ///
 /// Used by [`Kp15Bi6GeneratingTable::build`] below to split the
 /// global constraint matrix's columns into "pivot" (dependent)
-/// and "free" sets — the foundation of Phase D's solver.
+/// and "free" sets — the foundation of the symbolic generating-table stage's solver.
 fn rref_in_place(rows: usize, cols: usize, m: &mut [f64], tol: f64) -> Vec<(usize, usize)> {
     assert_eq!(m.len(), rows * cols);
     let mut pivots: Vec<(usize, usize)> = Vec::new();
@@ -1224,7 +1224,7 @@ fn rref_in_place(rows: usize, cols: usize, m: &mut [f64], tol: f64) -> Vec<(usiz
 ///   x_p = − Σ_{c ∈ free_cols} rref[r][c] · x_c.
 /// ```
 ///
-/// This is the same `H(n)` matrix the ADR's Phase D names; we
+/// This is the same `H(n)` matrix the ADR's the symbolic generating-table stage names; we
 /// store it in RREF form so the structure is explicit and the
 /// pivot/free split is auditable per-row.
 ///
@@ -1234,7 +1234,7 @@ fn rref_in_place(rows: usize, cols: usize, m: &mut [f64], tol: f64) -> Vec<(usiz
 /// — more than the paper's `21n + |P| = 126 + 19 = 145` "true
 /// free" entries. The extra `208 - 145 = 63` free columns
 /// represent the *cross-edge coupling defect* surfaced in Phase
-/// C v2's measurement; closing them requires Phase D's
+/// C v2's measurement; closing them requires the symbolic generating-table stage's
 /// rule-(5)-driven substitution and the (S1)–(S4) tightening.
 /// For now, this table exposes the *raw* RREF so subsequent
 /// phases can layer constraints atop it.
@@ -1273,7 +1273,7 @@ impl Kp15Bi6GeneratingTable {
     /// These are the (S1) corner-shared identifications the paper
     /// re-affirms at line 158-161; the rank lift measures whether
     /// they are already implied by eq (2)/(3) (the rule-(5)
-    /// pattern from Phase D v2) or genuinely independent.
+    /// pattern from the symbolic generating-table stage v2) or genuinely independent.
     pub fn build_with_identifications(n: usize, params: Bi6Reparams) -> Self {
         Self::build_from_matrix(n, params, global_constraint_matrix_with_identifications)
     }
@@ -1586,7 +1586,7 @@ impl Kp15Bi6GeneratingTable {
         x
     }
 
-    /// Phase E.2 — populate the `n` per-sector bi-6 grids of a
+    /// Populate the `n` per-sector bi-6 grids of a
     /// polar cap from a `Bi6CapInput` using this generating table.
     ///
     /// Strategy. For each of the three coordinate axes
@@ -1693,7 +1693,7 @@ impl Kp15Bi6GeneratingTable {
         t
     }
 
-    /// Phase E.3 — F_5-minimised cap construction via the table.
+    /// F_5-minimised cap construction via the table.
     ///
     /// Like [`populate_cap_grids_from_input`], but instead of
     /// defaulting all "extra" free columns (those not seeded by

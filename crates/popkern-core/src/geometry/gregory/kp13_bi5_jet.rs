@@ -1,4 +1,4 @@
-//! Phase I.11.d.2 — Taylor jets at a corner, plus chain rule for
+//! Taylor jets at a corner, plus chain rule for
 //! composition.
 //!
 //! KP13 §3 eq (4) minimises `Σ_k Σ_{t ∈ {m_k, v_k}} ‖H_t(g△^k ∘ χ^k)

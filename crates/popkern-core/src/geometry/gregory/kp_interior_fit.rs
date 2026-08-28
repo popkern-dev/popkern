@@ -1,4 +1,4 @@
-//! Phase H.5 — least-squares interior CP fit.
+//! Least-squares interior CP fit.
 //!
 //! Given a bidegree-9 patch with pinned boundary + row-1/row-2
 //! frame CPs (64 CPs), fit the 36 interior CPs (rows 3..=6, cols

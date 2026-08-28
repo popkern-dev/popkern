@@ -66,7 +66,7 @@ pub struct DirectBoundaryInput {
     /// sufficient for symmetric / regular inputs.
     pub seed_patches: Option<Vec<RectangularGregoryTwoStripe>>,
 
-    /// Phase 6c-D Stage 1: **optional** per-sub-patch hex-side
+    /// **optional** per-sub-patch hex-side
     /// outer boundary CPs (the `row0` left-hex-edge and `col9`
     /// top-hex-edge of the bi-nonic patch grid) sourced directly
     /// from the substituted analytic `sphere ∩ cylinder` arc
@@ -98,7 +98,7 @@ pub struct DirectBoundaryInput {
     pub hex_boundaries: Option<Vec<HexBoundaryData>>,
 }
 
-/// Phase 6c-D Stage 1: per-sub-patch hex-side outer boundary CPs,
+/// Per-sub-patch hex-side outer boundary CPs,
 /// the `row0` and `col9` of the bi-nonic patch grid sourced from
 /// the substituted boundary curves rather than synthesised from
 /// guide-derived corner Hermite data.

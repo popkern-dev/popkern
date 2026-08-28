@@ -1,5 +1,5 @@
 //! Degree-9 Bernstein basis + derivatives — hot-path evaluation
-//! for bidegree-9 patches (Phase H).
+//! for bidegree-9 patches (the bi-9 cap campaign).
 //!
 //! Tight, specialised implementation alongside the generic
 //! [`BernsteinPoly`](crate::geometry::bernstein_poly::BernsteinPoly)

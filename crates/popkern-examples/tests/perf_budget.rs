@@ -195,6 +195,6 @@ fn max_safe_offset_corpus_within_budget() {
     });
     // Whole-corpus sweep (10 bodies × 2 directions) measured 45 ms
     // best-of-3 release (2026-08-27) × 5 ≈ 225 ms. The per-query
-    // <100 ms interactive gate lives in pk328_max_safe_gates.
+    // <100 ms interactive gate lives in max_safe_offset_gates.
     assert_budget("max_safe_offset corpus sweep", measured, 225);
 }

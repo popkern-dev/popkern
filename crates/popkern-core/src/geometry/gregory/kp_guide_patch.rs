@@ -1,4 +1,4 @@
-//! Phase H — bicubic Bezier "guide patch" used as the low-degree
+//! Bicubic Bezier "guide patch" used as the low-degree
 //! auxiliary surface in the Karciauskas-Peters guided-surface
 //! construction (ADR
 //! `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`

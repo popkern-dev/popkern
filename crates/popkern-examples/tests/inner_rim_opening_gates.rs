@@ -123,7 +123,7 @@ fn render_pk346_bore_pierced_opening() {
         near: 0.01,
         far: 100.0,
     };
-    let path = out_dir.join("pk346_bore_pierced_opening.png");
+    let path = out_dir.join("bore_pierced_opening.png");
     popkern_viz::headless::render_to_png(&cup.brep, &camera, 800, 600, &path, true)
         .expect("render");
 }

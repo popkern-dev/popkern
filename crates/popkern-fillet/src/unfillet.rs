@@ -16,13 +16,13 @@
 //!    and which face boundaries would need to be re-stitched. This
 //!    is the right path for *previewing* an unfillet (e.g. a UI
 //!    that wants to highlight the restored edge before the user
-//!    commits) and for the future Round 5c full execution.
+//!    commits) and for the future full execution.
 //!
 //! 3. **Algorithmic execution** ([`unfillet_face`]) — actually
 //!    runs the topology surgery for plane-plane fillets via the
 //!    `kef` / `mef` Euler operators plus targeted vertex
-//!    repositioning. **Round 5b ships only the snapshot path and
-//!    the plan; the surgery is deferred to Round 5c** because
+//!    repositioning. **ships only the snapshot path and
+//!    the plan; the surgery is deferred to the unfillet surgery work** because
 //!    geometrically-exact unfillet requires vertex welding
 //!    primitives that popkern-core does not yet expose, and a
 //!    purely topology-correct (but geometrically-approximate)
@@ -87,7 +87,7 @@ pub(crate) use unfillet_plan_open::compute_blend_strip_plan_with_supports;
 pub use unfillet_plan_open::compute_unfillet_plan;
 
 /// Run an algorithmic unfillet on `blend_face` — the open-fillet
-/// surgery (Round 5c), closed-annulus dispatch (5c-4), or the
+/// surgery , closed-annulus dispatch (5c-4), or the
 /// recordless corner-group restore (PK-174), chosen by structure.
 ///
 /// # Errors
@@ -99,7 +99,7 @@ pub use unfillet_plan_open::compute_unfillet_plan;
 ///   implemented yet. The remediation hint points to the working
 ///   alternatives.
 pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendError> {
-    // Closed-fillet annulus dispatch (Round 5c-4): if the face is
+    // Closed-fillet annulus dispatch : if the face is
     // an annulus (outer + inner loops), it was created by the
     // closed-fillet construction path and needs the inverse
     // surgery rather than the open-edge plan.

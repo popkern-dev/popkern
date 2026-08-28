@@ -83,7 +83,7 @@ fn top_plane_face(brep: &BRep, z: f64) -> popkern_core::topology::FaceHandle {
 
 #[test]
 fn corpus_and_served_shells_pass_the_occ_oracle() {
-    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pk323_occ_battery");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("occ_battery");
     std::fs::create_dir_all(&dir).expect("battery dir");
 
     let mut bodies: Vec<(String, BRep)> = Vec::new();

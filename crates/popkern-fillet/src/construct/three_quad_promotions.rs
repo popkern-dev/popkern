@@ -2,7 +2,7 @@
 //!
 //! Extracted from [`super::three_quad_apply`] to keep both files
 //! under the 500-line structural limit. Will be reorganised
-//! further in Phase H.6 (kp_build orchestration) when the K-P
+//! further in the bi-9 cap campaign.6 (kp_build orchestration) when the K-P
 //! bidegree-9 path joins the ladder.
 //!
 //! The ladder promotes each sub-patch through the sequence
@@ -221,7 +221,7 @@ pub(super) fn promote_decomp_to_biseptic_with_spoke_g1(sub_patches: &mut [Gregor
     true
 }
 
-/// Phase 10a — promote each biseptic sub-patch in `sub_patches`
+/// Promote each biseptic sub-patch in `sub_patches`
 /// to [`RectangularGregoryTwoStripe`] via `from_biseptic` and
 /// re-run the spoke-G1 solver at 6-DOF-per-spoke.
 pub(super) fn promote_decomp_to_two_stripe_with_spoke_g1(sub_patches: &mut [GregoryPatch]) -> bool {
@@ -261,8 +261,8 @@ pub(super) fn promote_decomp_to_two_stripe_with_spoke_g1(sub_patches: &mut [Greg
         })
         .collect();
 
-    // Phase 10C sampled-damped adaptive iteration (primary
-    // fallback after the abandoned Phase 10D polynomial-identity
+    // Sampled-damped adaptive iteration (primary
+    // fallback after the abandoned polynomial-identity direct-formula
     // attempt — see git history of this file for the historical
     // comment block). 6 interior samples + corner samples at
     // t ≈ 0.02 / 0.98 is the measured sweet spot for the QP.

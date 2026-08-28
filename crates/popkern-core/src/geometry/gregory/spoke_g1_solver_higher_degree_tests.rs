@@ -91,7 +91,7 @@ fn g1_residual_biseptic(
 /// This test records the observed reduction ratio (≈5.8× on
 /// this fixture) and asserts at least 4× reduction to catch
 /// solver regressions. Full cancellation requires the Peters
-/// two-stripe or Loop-Schaefer construction (Phase 10+).
+/// two-stripe or Loop-Schaefer construction (later solver work).
 #[test]
 fn biseptic_reduces_out_of_span_corner_mismatch_by_4x() {
     let mut patches = vec![flat_biseptic_patch(0.0, 1.0), flat_biseptic_patch(1.0, 2.0)];
@@ -200,7 +200,7 @@ fn g1_residual_two_stripe(
     (xtan_a.x - xtan_b.x) * n.x + (xtan_a.y - xtan_b.y) * n.y + (xtan_a.z - xtan_b.z) * n.z
 }
 
-/// **Two-stripe (Phase 10a) critical test.** On the scenario
+/// **Two-stripe critical test.** On the scenario
 /// where biseptic plateaus at residual 0.071 (83% reduction of
 /// corner-inner-CP mismatch), the two-stripe solver has 6 free
 /// DOF per spoke side giving full `{B_1^7..B_6^7}` Bernstein-

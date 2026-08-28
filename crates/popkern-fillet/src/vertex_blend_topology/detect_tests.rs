@@ -1,4 +1,4 @@
-//! Phase 6c-C.1 tests — apex-region detection on canonical
+//! Apex-region detection tests — apex-region detection on canonical
 //! fixtures. These tests verify the topological rule from
 //! design supplement §10.1 against known-correct expectations
 //! on cube and pyramid apexes.
@@ -53,9 +53,9 @@ fn detect_finds_pre_fillet_cube_apex_region() {
 fn detect_post_fillet_cube_uniform_apex_region() {
     // Post-fillet unit cube (uniform r=0.10): apex *still
     // exists* as a BRep vertex (insert_vertex_blend hasn't run
-    // yet — the fillet pipeline up to and including Phase 5
+    // yet — the fillet pipeline up to and including ApplyTopology
     // surface fix is what ran).  Our 6c-C.1 call site is right
-    // after Phase 5 and before insert_vertex_blend.
+    // after ApplyTopology and before insert_vertex_blend.
     //
     // For this test we use the *full* fillet pipeline output
     // (insert_vertex_blend has run) and confirm detection finds
@@ -186,8 +186,8 @@ fn outer_loop_valence_post_fillet_cube_cap_is_six() {
 fn probe_cube_uniform_cap_surface_kind() {
     // Diagnostic — what surface kind does popkern's existing
     // pipeline produce for the cube_uniform cap? If it's already
-    // a Sphere, Phase 6c-C may have nothing to do for this
-    // fixture. If it's a Gregory or NURBS, Phase 6c-C swaps it
+    // a Sphere, the rebuild may have nothing to do for this
+    // fixture. If it's a Gregory or NURBS, the rebuild would swap it
     // for an exact Sphere.
     use popkern_core::geometry::surface::SurfaceGeometry;
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
@@ -323,7 +323,7 @@ fn probe_cube_uniform_rolling_ball_footprint_topology() {
 fn detect_post_fillet_cap_face_in_region_faces() {
     // From any vertex on the post-fillet cap face's outer loop,
     // `detect_apex_region` includes the cap face among
-    // `region.faces`. Phase 6c-C.2 (deletion) relies on this.
+    // `region.faces`. The retired region-deletion pass relies on this.
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let apex_pre = cube_apex(&cube);
     let edges = corner_edges(&cube, apex_pre);

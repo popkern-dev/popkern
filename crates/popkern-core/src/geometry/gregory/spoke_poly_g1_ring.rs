@@ -46,7 +46,7 @@
 //! geometry requires.
 
 #![allow(clippy::needless_range_loop)]
-// Phase D wires this into the fillet crate. Dead-code warnings
+// Fillet-crate wiring lands later. Dead-code warnings
 // here are expected until that integration lands.
 #![allow(dead_code)]
 
@@ -79,7 +79,7 @@ pub struct RingPolyG1Result {
 /// two-stripe patches and N spokes. Mutates `patches` in place
 /// on success. Returns `None` only on a singular KKT matrix —
 /// the caller should then fall back to the sampled-damped
-/// iteration path (or escalate `β` degree in a future Phase D).
+/// iteration path (or escalate `β` degree in future solver work).
 pub fn solve_ring_poly_g1(
     patches: &mut [RectangularGregoryTwoStripe],
     spokes: &[Spoke],
@@ -170,7 +170,7 @@ pub fn solve_ring_poly_g1(
         let beta0_global_idx = beta_var_start + 2 * s_idx;
         let beta1_global_idx = beta_var_start + 2 * s_idx + 1;
 
-        // Phase 10D+ — all 8 Bernstein coefficient equations.
+        // the abandoned polynomial-identity direct-formula attempt+ — all 8 Bernstein coefficient equations.
         // At k ∈ {1..6}: row-1 CPs on BOTH ends are free, so
         // they appear in the constraint rows with `+7` and `α·7`.
         // At k ∈ {0, 7}: the row-1 CPs are pinned (they sit on

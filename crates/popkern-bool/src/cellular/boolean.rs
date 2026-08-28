@@ -52,11 +52,11 @@ pub(crate) fn cellular_graph_merge(
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
-    // Phase 1: Insert original topology from both operands.
+    // Insert original topology from both operands.
     let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
     let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
-    // Phase 2: Process edge-face hits.
+    // Process edge-face hits.
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
         eprintln!(
             "  [cellular] {} edge-face hits",
@@ -77,7 +77,7 @@ pub(crate) fn cellular_graph_merge(
         }
     }
 
-    // Phase 3: Insert intersection curves as shared edges, then
+    // Insert intersection curves as shared edges, then
     // split them at edge-face hit nodes they pass through (the loop
     // walk must be able to route through those junctions).
     // Closed intersection curves must CLOSE at an edge-face hit
@@ -148,10 +148,10 @@ pub(crate) fn cellular_graph_merge(
         }
     }
 
-    // Phase 4: Sort radial edges at all nodes.
+    // Sort radial edges at all nodes.
     sort_all_radial(&mut graph);
 
-    // Phase 5: Walk loops to find face fragments.
+    // Walk loops to find face fragments.
     let overlap_pairs: Vec<_> = intersection_result
         .coincidence
         .face_overlaps
@@ -181,7 +181,7 @@ pub(crate) fn cellular_graph_merge(
         &intersection_result.coincidence.face_overlaps,
     )?;
 
-    // Phase 7: Order-independent assembly from selected fragments.
+    // Order-independent assembly from selected fragments.
     let kept: Vec<usize> = (0..fragments.len())
         .filter(|&i| selections[i].keep)
         .collect();

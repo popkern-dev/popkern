@@ -61,7 +61,7 @@ fn fillet_surface_plane_plane() {
     );
 }
 
-/// Round 5k regression guard: a Variable spec on plane-plane
+/// regression guard: a Variable spec on plane-plane
 /// must NOT collapse to a Torus, even though the geometry is
 /// otherwise a plane-plane case. Setting `is_constant_radius =
 /// false` forces the NURBS sweep path.

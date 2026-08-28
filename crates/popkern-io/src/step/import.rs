@@ -62,7 +62,7 @@ pub struct StepImportResult {
 pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImportResult, IoError> {
     let mut log = DiagnosticLog::new();
 
-    // Phase 1: Parse
+    // Parse
     let parse_result = parse_step_file(data).map_err(|e| IoError::Parse {
         line: 0,
         col: 0,
@@ -77,10 +77,10 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         );
     }
 
-    // Phase 2: Build entity graph
+    // Build entity graph
     let graph = EntityGraph::build(parse_result.entities, &mut log);
 
-    // Phase 3: Determine tolerance from override, STEP uncertainty, or default
+    // Determine tolerance from override, STEP uncertainty, or default
     let tolerance = match options.tolerance_override {
         Some(tol) => Tolerance::default().with_linear(tol),
         None => extract_step_uncertainty(&graph, &mut log)
@@ -88,11 +88,11 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
             .unwrap_or_default(),
     };
 
-    // Phase 4: Map geometry + topology
+    // Map geometry + topology
     let mut geo_cache = GeometryCache::new(&graph);
     let mut brep_solids = map_brep_solids(&graph, &mut geo_cache, &mut log, tolerance);
 
-    // Phase 5: Healing
+    // Healing
     let mut solids_only: Vec<_> = brep_solids.iter().map(|(_, b)| b.clone()).collect();
     let heal_log = log.clone();
     run_healing(&mut solids_only, &heal_log, options.healing, &mut log)?;
@@ -121,14 +121,14 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         }
     }
 
-    // Phase 6: Map product structure
+    // Map product structure
     let brep_refs: Vec<_> = brep_solids.iter().map(|(id, b)| (*id, b.clone())).collect();
     let (mut products, roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
 
-    // Phase 7: Map presentation (colors, layers)
+    // Map presentation (colors, layers)
     map_presentation(&graph, &mut products, &mut log);
 
-    // Phase 8: Apply product filter if specified
+    // Apply product filter if specified
     if let Some(ref filter) = options.product_filter {
         for product in &mut products {
             if !filter.iter().any(|f| product.name.contains(f.as_str())) {

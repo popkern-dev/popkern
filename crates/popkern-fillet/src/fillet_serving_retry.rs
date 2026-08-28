@@ -55,7 +55,7 @@ pub(crate) fn fillet_edges_internal(
     // re-run. The mid-pipeline fallback runs the legacy builder on
     // direct-apex-convention anchors and serves a degraded body
     // (measured 8.5e-2 edge/surface deviations on the oblique
-    // base-corner class); excluding the corner BEFORE Phase A
+    // base-corner class); excluding the corner BEFORE anchor splitting
     // re-places legacy anchors and the legacy dispatch serves clean.
     let declined = serving_shape_declined_corners(&first);
     if offending.is_empty() && declined.is_empty() {
@@ -304,7 +304,7 @@ fn serving_shape_declined_corners(
         .apex_routes
         .iter()
         .filter(|route| {
-            route.route == crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy
+            route.route == crate::types::ApexConstructionRoute::DirectApexFallbackToVertexBlend
         })
         .filter_map(|route| {
             route

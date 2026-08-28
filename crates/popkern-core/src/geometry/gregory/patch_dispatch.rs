@@ -41,7 +41,7 @@ pub enum GregoryPatch {
     /// spoke-G1 solver full Bernstein-basis coverage for
     /// row `i = 1`, eliminating the structural out-of-span
     /// mismatch visible in biquintic-full's scorecard.
-    /// Phase 10 extends this variant's solver with G2
+    /// Later solver work extends this variant's solver with G2
     /// (curvature) continuity by leveraging row `i = 2`'s
     /// 6 free interior CPs per spoke.
     RectangularBiseptic(Box<RectangularGregoryBiseptic>),
@@ -56,7 +56,7 @@ pub enum GregoryPatch {
     /// solver constraints. This is the structural fix for
     /// the biseptic scorecard's 84° worst-case.
     RectangularTwoStripe(Box<RectangularGregoryTwoStripe>),
-    /// Phase H — Karciauskas-Peters bidegree-(9, 9)
+    /// Karciauskas-Peters bidegree-(9, 9)
     /// guided-surface construction. 100 plain-Bezier CPs
     /// (no rational blend) with row-1 / row-2 frames derived
     /// from a bicubic guide that enforces G1 and G2 across

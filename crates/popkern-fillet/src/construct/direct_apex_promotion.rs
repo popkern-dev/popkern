@@ -31,7 +31,7 @@
 //!
 //! All classes rely on the direct-apex entry-snapshot rollback: any
 //! construction failure restores the corner and the legacy dispatch
-//! serves exactly as before (`DirectApexFallbackToLegacy` recorded).
+//! serves exactly as before (`DirectApexFallbackToVertexBlend` recorded).
 //!
 //! Every class is additionally gated on the vertex classifier:
 //! only `SameSideConvex` apexes promote (PK-231 — the machinery's
@@ -56,19 +56,19 @@ pub(super) struct PromotionFlags {
     /// (uniform pyramid apexes), so the uniform-arm promotion stands
     /// down — the same precedent as the binonic high-asymmetry
     /// carve-out on the mixed arm.
-    pub explicit_legacy_surface_family: bool,
+    pub explicit_subpatch_family_requested: bool,
 }
 
-/// Per-apex promotion set, computed BEFORE Phase A so anchor policy
+/// Per-apex promotion set, computed BEFORE anchor splitting so anchor policy
 /// and dispatch share one decision (PK-127).
 ///
 /// The promotion used to be decided only at dispatch time, after
-/// Phase A had already placed LEGACY (trim-crossing, no planner
+/// the anchor-split stage had already placed LEGACY (trim-crossing, no planner
 /// override) anchors around the apex — the repeated-apex partition
 /// plan then met anchor positions it cannot consume ("cannot
 /// duplicate stale residual strip seam" / "no existing BRep vertex
 /// within 1e-6") and every default-options promoted apex fell back
-/// to the unmeasured legacy cap. Phase A consults this set so edges
+/// to the unmeasured legacy cap. the anchor-split stage consults this set so edges
 /// incident to a promoted apex get the direct-apex anchor
 /// convention (perp-walk positions + planner-prepass overrides),
 /// exactly as if `use_direct_apex_construction` were set.
@@ -218,7 +218,7 @@ pub(super) fn should_promote_direct_apex(
                     )
             })
         });
-        if flags.explicit_legacy_surface_family || !cylindrical_constant {
+        if flags.explicit_subpatch_family_requested || !cylindrical_constant {
             return false;
         }
         // N = 4 (PK-229): pyramid apex slant blends, measured

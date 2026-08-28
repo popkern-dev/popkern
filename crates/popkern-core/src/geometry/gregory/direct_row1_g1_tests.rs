@@ -3,7 +3,7 @@
 //! The decisive test — **"non-G1 setup becomes G1 to machine
 //! precision after one solve"** — verifies dense 100-sample
 //! min-cos ≥ 0.9999 after calling the direct formula, which
-//! is the claim the whole Phase G infrastructure exists to
+//! is the claim the whole the Gregory direct construction infrastructure exists to
 //! justify.
 
 #![allow(clippy::needless_range_loop)]

@@ -11,7 +11,7 @@ use popkern_core::topology::BRep;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec};
 
 #[test]
-fn pk259_fillet_corner_face_triangle_census() {
+fn fillet_corner_face_triangle_census() {
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
     let corner = brep

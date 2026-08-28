@@ -1,9 +1,9 @@
-//! Phase H.6 — migration + dispatch test for the K-P bidegree-9
+//! Migration + dispatch test for the K-P bidegree-9
 //! rung of the three-quad promotion ladder.
 //!
 //! Two axes when rectangular sub-patches are committed:
 //!   1. Flag off (`use_kp_binonic_gregory = false`): sub-patches
-//!      must remain two-stripe, preserving the Phase G output
+//!      must remain two-stripe, preserving the rectangular-ladder output
 //!      unchanged. This is the backwards-compatibility guarantee.
 //!   2. Flag on: the pipeline emits a
 //!      [`GregoryPatch::RectangularBiNonic`] variant when the K-P
@@ -122,7 +122,7 @@ fn flag_off_keeps_phase_g_two_stripe_output() {
     for v in &variants {
         assert!(
             v == "two_stripe" || v == "biseptic" || v == "biquintic_full" || v == "deg5",
-            "flag-off must stay on the Phase G ladder (deg5..two_stripe), got {v}"
+            "flag-off must stay on the rectangular sub-patch ladder (deg5..two_stripe), got {v}"
         );
         assert_ne!(
             v, "binonic",

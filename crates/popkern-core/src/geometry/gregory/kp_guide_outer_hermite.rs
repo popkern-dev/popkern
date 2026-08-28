@@ -1,4 +1,4 @@
-//! Phase H — extract the outer-hex-vertex Hermite data for
+//! Extract the outer-hex-vertex Hermite data for
 //! guides' `c0` and `c2` corners.
 //!
 //! Each outer hex vertex `V_{2k+2}` (= `input.outer_corners[k]`)

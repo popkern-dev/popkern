@@ -127,7 +127,7 @@ fn compute_unfillet_plan_rejects_non_blend_face() {
 }
 
 // ---------------------------------------------------------------------------
-// unfillet_face: real algorithmic surgery (Round 5c-1)
+// unfillet_face: real algorithmic surgery
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -277,12 +277,12 @@ fn unfillet_via_record_works_for_multi_edge_fillets() {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5c-3: closed fillet on cube hole rim
+// Closed fillet on cube hole rim
 // ---------------------------------------------------------------------------
 
-/// End-to-end test for Round 5c-3: cube-minus-cylinder hole rim
+/// End-to-end test for the closed-fillet hole rim: cube-minus-cylinder
 /// fillet. The fillet edge is a closed circle (v_start == v_end).
-/// After Round 5c-3, the fillet engine takes the closed-fillet
+/// After the closed-fillet work, the fillet engine takes the closed-fillet
 /// surgery path and produces a result with at least one new
 /// annulus face (outer loop + inner loop bounding the smaller of
 /// the two contact circles).

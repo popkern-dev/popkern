@@ -838,7 +838,7 @@ fn build_cap_face_fan(
     // assumed; the splitter locates the right boundary edge globally.
     // Keep every split's vertex handle — re-finding them later by
     // position fails for the G1 arc class (~2e-3 extraction noise vs
-    // the G2 class's ~1e-4; PK-097 Phase C).
+    // the G2 class's ~1e-4; PK-097 the consumed-merge stage).
     let mut m_vertices = Vec::with_capacity(n);
     let mut q_row_vertices = Vec::with_capacity(n);
     let mut q_col_vertices = Vec::with_capacity(n);

@@ -50,7 +50,10 @@ fn dump() {
     };
     let result = fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges ok");
     for (_, w) in &result.edge_warnings {
-        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToLegacy { reason, .. } = w {
+        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToVertexBlend {
+            reason, ..
+        } = w
+        {
             eprintln!("[probe] DirectApex fallback reason: {reason}");
         }
     }
@@ -112,7 +115,10 @@ fn dump_pyramid3_uniform() {
     };
     let result = fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges ok");
     for (_, w) in &result.edge_warnings {
-        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToLegacy { reason, .. } = w {
+        if let popkern_fillet::error::BlendWarning::DirectApexFellBackToVertexBlend {
+            reason, ..
+        } = w
+        {
             eprintln!("[probe-pyr3] DirectApex fallback reason: {reason}");
         }
     }

@@ -1,4 +1,4 @@
-//! Tests for Phase I.16 end-to-end KP13 bi-5 cap assembly.
+//! Tests for the polar-cap campaign.16 end-to-end KP13 bi-5 cap assembly.
 
 #![allow(clippy::needless_range_loop)]
 

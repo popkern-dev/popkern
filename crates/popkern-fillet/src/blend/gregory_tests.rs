@@ -170,7 +170,7 @@ fn try_rational_gregory_on_synthetic_cube_corner() {
     assert_eq!(result.continuity, ContinuityLevel::G2);
 }
 
-/// §5.3 Round 7 — twist-vector extraction displaces each inner
+/// §5.3 — twist-vector extraction displaces each inner
 /// candidate from its associated boundary midpoint by ~avg_radius
 /// (the defining property vs the earlier `[v_pos; 3]` placeholder
 /// which collapsed all 3 onto the vertex position).

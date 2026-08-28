@@ -7,8 +7,8 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-/// Round 5r+: descendants-aware consumed-face identifier. When
-/// Phase A's perp splits fragment a fillet edge handle (because
+/// Descendants-aware consumed-face identifier. When
+/// the anchor-split stage's perp splits fragment a fillet edge handle (because
 /// that edge was the perpendicular of another fillet edge in the
 /// same batch), the canonical handle now points to only one of the
 /// two descendant sub-edges. This helper accepts the full set of

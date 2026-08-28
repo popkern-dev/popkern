@@ -30,9 +30,9 @@ pub use super::merge::merge_consumed_faces_any;
 /// Split perpendicular edges at the fillet offset distance.
 ///
 /// `brep_snapshot` is an immutable clone of the BRep captured *before*
-/// Phase A began. This function reads the fillet edge's topology and
+/// the anchor-split stage began. This function reads the fillet edge's topology and
 /// perpendicular boundary edges from the snapshot — so even when an
-/// earlier iteration of Phase A has already split one of them, the
+/// earlier iteration of the anchor-split stage has already split one of them, the
 /// anchor *positions* are computed from the original un-fragmented
 /// geometry. Vertex insertion then happens in the mutable `brep` via
 /// `insert_anchor_at_position`, which locates the descendant sub-edge
@@ -42,12 +42,12 @@ pub use super::merge::merge_consumed_faces_any;
 /// edge's start vertex) and `radius_at_end` for splits at `v_end`.
 /// For a constant-radius spec, both are equal; for a variable
 /// spec, they're the per-end values from `FilletRadius::Variable`.
-/// Round 5k (continued): the construct phase now honours the full
+/// (continued): the construct phase now honours the full
 /// variable profile rather than collapsing it to a single average.
 ///
-/// Round 5r+: `edge_splits` in the returned `SplitInfo` is now
+/// `edge_splits` in the returned `SplitInfo` is now
 /// populated and consumed by `apply_blend_geometry` to maintain a
-/// per-fillet-edge descendants map — Phase C identifies a consumed
+/// per-fillet-edge descendants map — the consumed-merge stage identifies a consumed
 /// face by matching *any* descendant sub-edge of the canonical
 /// fillet edge handle.
 ///
@@ -94,7 +94,7 @@ pub fn split_perpendicular_edges_by_radius(
 /// §28.H Session 2 — per-anchor-position override.  When the DirectApex
 /// planner pre-pass has emitted `apex_vertex` targets for a fillet
 /// edge's V-end and W-end, the override map carries those targets
-/// down to Phase A's anchor placement.
+/// down to the anchor-split stage's anchor placement.
 ///
 /// Each field is the planner's preferred position for the anchor
 /// that perp-walk math would otherwise compute.  When `None`, the

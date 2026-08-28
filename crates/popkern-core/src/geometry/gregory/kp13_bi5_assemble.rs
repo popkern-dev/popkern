@@ -1,10 +1,10 @@
-//! Phase I.16 — end-to-end KP13 bi-5 macro-patch assembly + bi-9
+//! End-to-end KP13 bi-5 macro-patch assembly + bi-9
 //! elevation for fillet-pipeline consumption.
 //!
 //! Wires the full `g△ → g → a → p → bi-9` chain into a single
 //! entry point, producing a commercial-grade bi-9 cap suitable for
 //! integration with the existing `popkern-fillet` bi-9 dispatcher
-//! (same output shape as the Phase H direct bidegree-9 and the
+//! (same output shape as the the bi-9 cap campaign direct bidegree-9 and the
 //! KP15 bi-6 polar pipelines).
 //!
 //! # Pipeline

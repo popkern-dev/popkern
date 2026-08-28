@@ -1,6 +1,6 @@
 //! Tests for [`crate::modify_inplace`] — both the closed
-//! plane-cylinder annulus path (Round 5d-2) and the open plane-plane
-//! path (Round 5d-3). Includes the §14.7 ≥2× speedup measurements.
+//! plane-cylinder annulus path  and the open plane-plane
+//! path . Includes the §14.7 ≥2× speedup measurements.
 //!
 //! Lives in its own file so neither the production module nor the
 //! main `modify_tests.rs` exceeds the 500-line structural cap.
@@ -20,7 +20,7 @@ fn cube() -> BRep {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5d-2: closed plane-cylinder annulus in-place
+// closed plane-cylinder annulus in-place
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -254,7 +254,7 @@ fn modify_closed_in_place_is_at_least_2x_faster_than_remove_recreate() {
 }
 
 // ---------------------------------------------------------------------------
-// Round 5d-3: open plane-plane in-place
+// open plane-plane in-place
 // ---------------------------------------------------------------------------
 
 #[test]

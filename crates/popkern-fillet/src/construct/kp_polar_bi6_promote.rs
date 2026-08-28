@@ -1,8 +1,8 @@
-//! Phase I.10f — K-P 2015 bi-6 polar promotion for N ≥ 5 sub-
+//! K-P 2015 bi-6 polar promotion for N ≥ 5 sub-
 //! patch rings.
 //!
 //! Sibling to [`promote_decomp_to_kp_binonic`](super::three_quad_apply)
-//! (Phase H, rectangular N ∈ {3, 4}). This module runs the
+//! (the bi-9 cap campaign, rectangular N ∈ {3, 4}). This module runs the
 //! **polar** K-P 2015 bi-6 pipeline (core modules I.1–I.10d)
 //! via the wrapper [`try_kp_polar_bi6_cap`](super::kp_polar_bi6_apply::try_kp_polar_bi6_cap)
 //! and replaces the sub-patches in-place on success.
@@ -174,7 +174,7 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         })
         .collect();
 
-    // Phase 6c-D Stage 1d: polar bi-6 path doesn't go through
+    // Polar bi-6 path doesn't go through
     // the bi-nonic K-P guide pipeline, so hex_boundaries
     // injection isn't needed. Pass `None` for the existing path.
     let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {

@@ -120,7 +120,7 @@ pub enum PcurveGeometry {
     /// FilletEnd substitutions where the cap centre lies on the
     /// cylinder axis).
     ///
-    /// Used by Phase 6c-D Stage 4.7d on the cylinder-twin side
+    /// Used by the sphere-fit edge-wiring work Stage 4.7d on the cylinder-twin side
     /// of cap-vs-Cyl edges.  A `Linear` pcurve over the same
     /// parameter range straight-line-interpolates `(θ, v_const)`
     /// in UV — but the rational quad's `θ(t)` is non-linear in

@@ -13,7 +13,7 @@ use crate::construct::blend_topo::{
     find_face_trim_anchors, find_halfedge_from_vertex_in_face, identify_corner_face,
 };
 
-/// Phase 1: Split off corner regions from each face around V using
+/// Split off corner regions from each face around V using
 /// the per-face fillet trim endpoints as mef anchors.
 pub(super) fn split_corner_triangles(
     brep: &mut BRep,
@@ -215,11 +215,11 @@ fn longest_loop_edge(brep: &BRep, loop_hes: &[HalfEdgeHandle]) -> Option<EdgeHan
         .map(|(edge, _)| edge)
 }
 
-/// Phase 2b: kev the remaining V-bridge edge (if any) to un-pinch
+/// Kev the remaining V-bridge edge (if any) to un-pinch
 /// the merged face and remove V in one Euler step.
 ///
 /// At entry, V may have zero or one incident edges. Zero means
-/// Phase 2a completed cleanly (all V-edges were cross-face kefs);
+/// the cross-face kef pass completed cleanly (all V-edges were cross-face kefs);
 /// one means there's a same-loop bridge whose both half-edges are
 /// on the merged face. `kev` requires the edge's destination
 /// vertex to be valence-1, so we pick the half-edge that ends at
@@ -271,7 +271,7 @@ pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), 
     }
 }
 
-/// Phase 3: Remove vertex V if it is no longer connected to any edges.
+/// Remove vertex V if it is no longer connected to any edges.
 ///
 /// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
 /// [`kef_cross_face_v_edges`].

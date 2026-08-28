@@ -1,4 +1,4 @@
-//! Phase H — pairwise outer-corner twist (K-P 2004 §4.2 analog).
+//! Pairwise outer-corner twist (K-P 2004 §4.2 analog).
 //!
 //! At each outer hex vertex `V_{2k + 2}` two guides meet —
 //! sub-patch `k` at `c2 = (u = 1, v = 1)` and sub-patch `(k + 1)

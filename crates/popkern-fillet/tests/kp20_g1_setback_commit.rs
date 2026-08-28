@@ -1,4 +1,4 @@
-//! PK-097 Phase C gate: G1 fillets with the KP20 (watertight-class)
+//! PK-097 KP20-commit gate: G1 fillets with the KP20 (watertight-class)
 //! setback cap.
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

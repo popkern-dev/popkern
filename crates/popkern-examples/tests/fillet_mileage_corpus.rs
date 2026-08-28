@@ -152,7 +152,7 @@ fn corpus_pass_rate_holds_baseline() {
     // swept span (the skewed rib's rail crossed the rim strips 35mm
     // past the rib end — phantom decline; rails now clamp to the
     // swept band); (b) at a reflex corner every walkable boundary
-    // edge runs along the hole, away from the rail, so Phase A
+    // edge runs along the hole, away from the rail, so the anchor-split stage
     // landed void-side anchors — interior-rail spur anchors +
     // inner-loop band split (winding-disambiguated in core
     // split_face) + exact terminal-arc discs in the transversal

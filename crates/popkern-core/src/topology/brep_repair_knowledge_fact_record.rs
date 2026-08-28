@@ -15,10 +15,10 @@ pub(super) fn fact(
     kind: BrepRepairFactKind,
     state: BrepRepairFactState,
     handles: Vec<BrepRepairTopologyHandle>,
-    legacy_label: Option<String>,
+    migration_label: Option<String>,
     tolerance: Option<LocalToleranceEvidence>,
 ) -> BrepRepairFact {
-    authority_fact(id, kind, state, handles, legacy_label, tolerance, None)
+    authority_fact(id, kind, state, handles, migration_label, tolerance, None)
 }
 
 pub(super) fn authority_fact(
@@ -26,7 +26,7 @@ pub(super) fn authority_fact(
     kind: BrepRepairFactKind,
     state: BrepRepairFactState,
     handles: Vec<BrepRepairTopologyHandle>,
-    legacy_label: Option<String>,
+    migration_label: Option<String>,
     tolerance: Option<LocalToleranceEvidence>,
     authority: Option<BrepRepairAuthorityFact>,
 ) -> BrepRepairFact {
@@ -40,7 +40,7 @@ pub(super) fn authority_fact(
             tolerance,
         },
         handles,
-        legacy_label,
+        migration_label,
         authority,
     }
 }

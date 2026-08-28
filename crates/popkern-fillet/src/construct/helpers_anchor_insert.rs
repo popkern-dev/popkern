@@ -1,4 +1,4 @@
-//! Phase A anchor insertion: vertex reuse, straight and curved edge
+//! the anchor-split stage anchor insertion: vertex reuse, straight and curved edge
 //! splitting, and the curved-support interior spur (PK-141). Split
 //! from `helpers.rs` (line ratchet).
 
@@ -14,7 +14,7 @@ use popkern_core::geometry::curve::CurveEval;
 /// Appends `(old_edge, edge_a, edge_b)` to `edge_splits` so the
 /// caller can maintain a fillet-edge → descendants map.
 ///
-/// If a vertex already exists at `position` (another Phase A
+/// If a vertex already exists at `position` (another the anchor-split stage
 /// iteration put one there — e.g. a shared cube corner anchor), we
 /// reuse it without splitting any edge.
 pub(super) fn insert_anchor_at_position(
@@ -42,7 +42,7 @@ pub(super) fn insert_anchor_at_position(
     // anchor along the tangent (off-curve by the chord sagitta), and
     // the containment test itself compares against the vertex chord
     // (measured: a boss-wall chain's anchors sat 5e-3 off the r=1
-    // wall arc and Phase A failed "no edge contains anchor"). Find
+    // wall arc and the anchor-split stage failed "no edge contains anchor"). Find
     // the closest interior point on any curved edge within a
     // sagitta-scaled gate and split THERE — the realized vertex
     // lands exactly on the curve, which is more faithful than the
@@ -108,7 +108,7 @@ pub(super) fn insert_anchor_at_position(
         edge_splits.push((eh, split.edge_a, split.edge_b));
         return Ok(split.vertex);
     }
-    // Loose vertex reuse: a NEIGHBOURING fillet's Phase A may have
+    // Loose vertex reuse: a NEIGHBOURING fillet's the anchor-split stage may have
     // already split the shared curved edge at (the on-curve image
     // of) this anchor — the perp-walk request sits a chord-sagitta
     // off the curve, so the tight reuse above misses it (measured on
@@ -134,7 +134,7 @@ pub(super) fn insert_anchor_at_position(
 /// §28.H Session 3 (PK-141): land a genuinely INTERIOR anchor by
 /// splicing an mev spur into the target face's loop from the nearest
 /// boundary vertex. The spur edge carries the straight chord curve;
-/// downstream phases treat the new vertex like any Phase A anchor
+/// downstream phases treat the new vertex like any the anchor-split stage anchor
 /// and the spur is consumed or dissolved by the corner machinery.
 /// Transactional per spur: candidate clone, `validate()`-free (mid-
 /// pipeline states may fail global checks) but structural mev
@@ -298,7 +298,7 @@ pub(in crate::construct) fn insert_interior_rail_spur(
     Ok(mev.vertex)
 }
 
-/// Land one Phase A anchor. Non-reflex slots keep the historical
+/// Land one the anchor-split stage anchor. Non-reflex slots keep the historical
 /// cascade (on-edge split → curved-support spur → perp-walk
 /// fallback). Interior-rail slots first try an exact on-boundary
 /// landing (when the rail end coincides with existing topology the
@@ -337,7 +337,7 @@ pub(in crate::construct) fn land_anchor(
 
 /// A reflex hole-corner end landed with an interior-rail spur
 /// (PK-185/PK-186). Consumed by the hole-rim terminal-disc stage
-/// after Phase C: the strip's end boundary currently runs
+/// after the consumed-merge stage: the strip's end boundary currently runs
 /// spur → corner → stub through the ORIGINAL sharp corner, and the
 /// disc stage replaces the strip's share of that path with the
 /// exact terminal cross-section arc, authoring the flat end face in
@@ -363,7 +363,7 @@ pub struct ReflexEndAnchor {
 /// vertex matches the planner's target position; the edge passing
 /// through the target is then split via [`BRep::split_edge`] to
 /// insert a new vertex on it.  Production-grade callers in this
-/// crate (Phase A, multi_chord) already exercise this path on
+/// crate (the anchor-split stage, multi_chord) already exercise this path on
 /// cube fixtures.
 pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
     for (eh, edata) in brep.edges.iter() {

@@ -35,7 +35,7 @@ fn render_pk327_trimmed_grow_bodies() {
     let fixture = grooved_cylinder(tol()).unwrap().brep;
     render(
         &fixture,
-        "pk327_grooved_cylinder_source",
+        "grooved_cylinder_source",
         (2.2, 1.8, 1.6),
         (0.0, 0.0, 0.5),
     );
@@ -43,7 +43,7 @@ fn render_pk327_trimmed_grow_bodies() {
     let sub = offset_solid(&fixture, 0.03, &ShellOptions::default(), tol()).unwrap();
     render(
         &sub.brep,
-        "pk327_grooved_cylinder_grow_sub_reach",
+        "grooved_cylinder_grow_sub_reach",
         (2.2, 1.8, 1.6),
         (0.0, 0.0, 0.5),
     );
@@ -52,7 +52,7 @@ fn render_pk327_trimmed_grow_bodies() {
     let over = offset_solid(&fixture, 0.08, &ShellOptions::default(), tol()).unwrap();
     render(
         &over.brep,
-        "pk327_grooved_cylinder_grow_trimmed",
+        "grooved_cylinder_grow_trimmed",
         (2.2, 1.8, 1.6),
         (0.0, 0.0, 0.5),
     );
@@ -63,21 +63,21 @@ fn render_pk327_torus_lens_apple() {
     let fixture = torus_lens(tol()).unwrap().brep;
     render(
         &fixture,
-        "pk327_torus_lens_source",
+        "torus_lens_source",
         (2.6, 2.2, 1.8),
         (0.0, 0.0, 0.0),
     );
     let apple = offset_solid(&fixture, 0.2, &ShellOptions::default(), tol()).unwrap();
     render(
         &apple.brep,
-        "pk327_torus_lens_apple",
+        "torus_lens_apple",
         (2.6, 2.2, 1.8),
         (0.0, 0.0, 0.0),
     );
     // Dimple view from above the pinch.
     render(
         &apple.brep,
-        "pk327_torus_lens_apple_dimple",
+        "torus_lens_apple_dimple",
         (0.9, 0.7, 2.6),
         (0.0, 0.0, 0.1),
     );

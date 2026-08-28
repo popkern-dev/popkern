@@ -143,7 +143,7 @@ fn sector_outer_edge_targets(boundary: &BlendBoundary, n: usize) -> Option<Vec<[
 /// Run the full promotion ladder and return its selected topology
 /// family plus structured diagnostics for declined promotion rungs.
 ///
-/// Phase 6c-B: `promote_binonic` callback takes both `sub_patches`
+/// `promote_binonic` callback takes both `sub_patches`
 /// and `fillet_surfaces` so the binonic optimiser can use outer-
 /// fillet G1 residuals (cap-vs-fillet tangent-plane match along
 /// each cap's outer boundary).

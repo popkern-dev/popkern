@@ -1,7 +1,7 @@
 //! PK-148 terminal arc trim at open fillet chain ends.
 //!
 //! **Problem.** When a filleted edge terminates at a plain body
-//! vertex (no meeting blend), Phase A splits the two support edges
+//! vertex (no meeting blend), the anchor-split stage splits the two support edges
 //! at the tangent stations and wires the leftover *stubs* — straight
 //! segments running through the original corner — as the strip's
 //! terminal boundary. The strip's own trim describes the true

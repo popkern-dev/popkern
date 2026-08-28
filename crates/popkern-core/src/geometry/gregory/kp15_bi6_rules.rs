@@ -1,4 +1,4 @@
-//! Phase I.7 — K-P 2015 bi-6 BB-coefficient assignment rules.
+//! K-P 2015 bi-6 BB-coefficient assignment rules.
 //!
 //! Source: `docs/journal/polar-kp-math.md` §1.5 (Catmull-Clark
 //! star point in `kp_polar_shared`), §2.2 (rules (5), (S1)–(S4)).

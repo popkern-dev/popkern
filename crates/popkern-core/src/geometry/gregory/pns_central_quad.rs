@@ -1,4 +1,4 @@
-//! Phase IV PnS — Central quadratic expansion via `a ∘ σ` chain rule.
+//! PnS cap — Central quadratic expansion via `a ∘ σ` chain rule.
 //!
 //! The cap's 6 order-`≤ 2` BB coefs per sector (`p^k_{ij}` with
 //! `i + j ≤ 2`) are determined by composing an **undetermined

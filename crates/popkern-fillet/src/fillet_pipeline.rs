@@ -296,14 +296,14 @@ pub(crate) fn fillet_edges_attempt(
     let ((), ms) = construct::pipeline_timing::timed_ms(|| apply_result.brep.fix_stale_pcurves());
     tail_timing.fix_stale_first_ms = ms;
     check_cancel!();
-    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    let _ = construct::clamp_bounded_pcurves(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
         stale_anchor_failure(format!(
             "repair stale shell anchors after pcurve repair: {err}"
         ))
     })?;
     surface_boundary_evidence::audit_gregory_analytic_boundary_evidence(&mut apply_result.brep);
-    construct::restore_exact_boundary_cap_pcurves_post_phase5(
+    construct::restore_exact_boundary_cap_pcurves(
         &mut apply_result.brep,
         &mut apply_result.repair_report,
     );
@@ -395,7 +395,7 @@ pub(crate) fn fillet_edges_attempt(
     }
     // PK-175 final bounded-UV clamp; PK-141 period-branch reconcile
     // on periodic supports; PK-177 declared-accuracy recording.
-    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    let _ = construct::clamp_bounded_pcurves(&mut apply_result.brep);
     let _ = construct::periodic_branch_finalize::reconcile_all_periodic_pcurve_branches(
         &mut apply_result.brep,
     );

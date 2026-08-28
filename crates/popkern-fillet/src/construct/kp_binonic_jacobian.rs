@@ -198,7 +198,7 @@ fn outer_sample_sine(n_cap: &Vec3, fillet: &SurfaceGeometry, p: &Point3) -> Opti
     }
 }
 
-/// Analytic Jacobian block for the Phase 6c-B outer-fillet residual
+/// Analytic Jacobian block for the the outer-fillet-G1 work outer-fillet residual
 /// (PK-275): `J[sample, k] = ∂f[sample]/∂guide_CP_k` for the
 /// `50 · N` cap-vs-fillet G1 samples appended to the residual vector
 /// when `outer_fillets` is active. Rows align with

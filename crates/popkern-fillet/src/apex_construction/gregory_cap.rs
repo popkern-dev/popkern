@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex.4 Gregory cap surface assembly.
+//! the sphere-fit edge-wiring workirectApex.4 Gregory cap surface assembly.
 //!
 //! Bridges from DirectApex's [`ApexPlan`] + post-stitch BRep state to the
 //! legacy [`apply_three_quad_decomposition_to_blend`] entry point

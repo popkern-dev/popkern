@@ -75,10 +75,10 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // Phase 6c-E / Phase 6c-D: trust upstream Sphere and Gregory
+        // the collapsed-projection fallback work / the sphere-fit edge-wiring work: trust upstream Sphere and Gregory
         // assignments. Per-fillet Sphere sub-caps (cube_mixed/extreme,
         // pyramid_uniform with rung ON) and Gregory sub-caps
-        // (rung OFF, Phase 6c-D path) are assigned with intent in
+        // (rung OFF, the sphere-fit edge-wiring work path) are assigned with intent in
         // `three_quad_apply`. Their boundaries can include inner-spoke
         // vertices that lie on *other* sub-face surfaces, so
         // `current_max` against this sub-face's surface can be ~r —
@@ -166,7 +166,7 @@ pub(crate) fn correct_face_surfaces(
         // own "centroid near a cube corner" filter prune real
         // plane faces.
         //
-        // Phase 6c-D Stage 2: when the small Plane face is adjacent
+        // When the small Plane face is adjacent
         // to a Sphere or Gregory cap, skip the sphere fallback.
         // Class D sliver_absorb is the right path — it merges the
         // Plane fragment INTO the cap. Without this guard,
@@ -276,7 +276,7 @@ pub(crate) fn correct_face_surfaces(
     }
 }
 
-/// Phase 6c-D: returns `true` if any half-edge in `face`'s outer
+/// Returns `true` if any half-edge in `face`'s outer
 /// loop has its twin face's surface set to Sphere or Gregory.
 /// Used as a guard against the small-Plane → Sphere fallback in
 /// `correct_face_surfaces`: when a Plane corner fragment is

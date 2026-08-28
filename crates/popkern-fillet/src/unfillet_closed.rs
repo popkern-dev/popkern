@@ -1,7 +1,7 @@
 //! Closed-fillet unfillet — the inverse of
 //! [`crate::construct::closed_fillet::apply_closed_fillet`].
 //!
-//! Given an annulus fillet face created by the Round 5c-3
+//! Given an annulus fillet face created by the closed-fillet
 //! closed-fillet construction (one outer loop + one inner loop,
 //! both single-element self-closed half-edges), this module
 //! reverses the surgery:
@@ -20,8 +20,8 @@
 //!    to the new rim position.
 //! 6. The fillet face and its loops are deleted.
 //!
-//! Round 5c-4 scope: handles plane-cylinder closed-fillet annuli
-//! (the case the Round 5c-3 path produces). The rim is computed
+//! scope: handles plane-cylinder closed-fillet annuli
+//! (the case the path produces). The rim is computed
 //! analytically from the support surfaces — Plane and Cylinder
 //! geometries are required.
 //!

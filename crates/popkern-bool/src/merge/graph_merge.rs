@@ -44,11 +44,11 @@ pub(crate) fn graph_merge(
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
-    // Phase 1: Insert original topology from both operands.
+    // Insert original topology from both operands.
     let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
     let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
-    // Phase 2: Process edge-face hits — split edges at pierce points.
+    // Process edge-face hits — split edges at pierce points.
     for hit in &intersection_result.edge_face_hits {
         let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
         if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
@@ -58,17 +58,17 @@ pub(crate) fn graph_merge(
         // OnFaceInterior → will be handled when inserting curves
     }
 
-    // Phase 3: Insert intersection curves as shared edges.
+    // Insert intersection curves as shared edges.
     insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
 
-    // Phase 3.05: split record edges at pre-existing pierce nodes on
+    // Split record edges at pre-existing pierce nodes on
     // their interior (a record crossing a periodic face's seam passes
     // through the seam's phase-2 pierce node; unsplit, the walk
     // cannot route through it and the flanking fragments never close
     // — PK-295).
     split_shared_edges_at_interior_nodes(&mut graph, snap_tol);
 
-    // Phase 3.1: split ORIGINAL edges at shared-record endpoint
+    // Split ORIGINAL edges at shared-record endpoint
     // nodes. Phase 2 pierces edges named by edge-face hits, but its
     // OnVertex short-circuit assumes an existing node means every
     // edge through that point is already split — false when a SECOND
@@ -80,7 +80,7 @@ pub(crate) fn graph_merge(
     // — the pass is node-driven and curve-verified, and a shared
     // node genuinely mid-edge always means a missed split.
     split_edges_at_shared_nodes(&mut graph, snap_tol);
-    // Phase 3.2: collinear-duplicate removal stays scoped to partial
+    // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result
         .coincidence
@@ -91,10 +91,10 @@ pub(crate) fn graph_merge(
         remove_collinear_duplicates(&mut graph);
     }
 
-    // Phase 4: Sort radial edges at all nodes.
+    // Sort radial edges at all nodes.
     sort_all_radial(&mut graph);
 
-    // Phase 4.5: §7.4 manifold heuristic. Walk the graph and report
+    // §7.4 manifold heuristic. Walk the graph and report
     // any vertex pairs where more than 2 distinct faces meet. This
     // is a HEURISTIC detector — not all such pairs are actually
     // non-manifold (a vertex commonly has 3+ adjacent faces in
@@ -112,10 +112,10 @@ pub(crate) fn graph_merge(
         );
     }
 
-    // Phase 5: Walk loops to find face fragments.
+    // Walk loops to find face fragments.
     let fragments = walk_all_fragments(&graph, original_a, original_b, tolerance);
 
-    // Phase 6: Classify and select fragments.
+    // Classify and select fragments.
     let selections = classify_and_select_fragments(
         &fragments,
         &graph,
@@ -127,7 +127,7 @@ pub(crate) fn graph_merge(
     )
     .map_err(|e| BoolDiagnostics::from_error(e, Stage::Classification))?;
 
-    // Phase 7: Assemble result BRep.
+    // Assemble result BRep.
     assemble_result(
         &graph,
         &fragments,

@@ -27,7 +27,7 @@
 //!    earlier rebuilds (`kev` on half-edges immediately followed by
 //!    their twin).
 //!
-//! Containment boundary (recorded PK-097 Phase C, retired for the
+//! Containment boundary (recorded at PK-097 KP20 commit, retired for the
 //! plain case by PK-148): this pass only runs when the blend
 //! produced corner patches (chain/blend context) — the caller gates
 //! on that. Plain open cylinder fillets are settled by the
@@ -204,7 +204,7 @@ fn is_chord(curve: &CurveOnEdge) -> bool {
     }
 }
 
-/// Phase 1: contract each off-cylinder end corner (both flanking
+/// Contract each off-cylinder end corner (both flanking
 /// chord edges shared with the SAME plane face) into its on-cylinder
 /// predecessor foot via `kve`.
 fn contract_end_corners(
@@ -303,7 +303,7 @@ fn contract_end_corners(
     total
 }
 
-/// Phase 2: replace non-analytic strip/plane runout boundaries
+/// Replace non-analytic strip/plane runout boundaries
 /// (angle-spanning edges between on-cylinder feet) with exact
 /// verified cylinder ∩ plane arcs.
 fn arcify_runout_boundaries(

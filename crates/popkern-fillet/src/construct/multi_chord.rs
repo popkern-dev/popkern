@@ -1,4 +1,4 @@
-//! Multi-chord face splits for Phase B (Round 5r+).
+//! Multi-chord face splits for the face-trim stage.
 //!
 //! When a single original face carries multiple fillet trim chords
 //! whose 3D lines intersect in the face interior (e.g. all four
@@ -29,11 +29,11 @@
 //!    fillet strip. Shorter outer sub-chords produce corner
 //!    regions that become sphere vertex blends later.
 
+use super::face_trim_pipeline::{FaceTrim, TrimSplitResult, find_face_containing_vertices};
 use super::helpers;
 use super::multi_chord_span_geometry::{
     find_sub_edge_containing_point, remap_split, trim_subcurve_between,
 };
-use super::phase_split::{FaceTrim, TrimSplitResult, find_face_containing_vertices};
 use crate::error::BlendFailure;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
@@ -46,7 +46,7 @@ pub(super) struct MultiChordOutcome {
     /// All new descendant edges produced by `split_edge` calls
     /// inside the multi-chord algorithm (splitting an earlier
     /// trim's sub-chord at a crossing point). The caller folds
-    /// these into its fillet-edge descendants map, so Phase C
+    /// these into its fillet-edge descendants map, so the consumed-merge stage
     /// sees them as valid descendants when identifying consumed
     /// faces.
     pub extra_edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
@@ -56,8 +56,8 @@ pub(super) struct MultiChordOutcome {
     pub region_resolved: Vec<(usize, u8)>,
 }
 /// Apply all of a face's trims, honouring chord-chord
-/// intersections. This is the Round 5r+ replacement for the
-/// per-face inner loop in Phase B.
+/// intersections. This is the multi-chord replacement for the
+/// per-face inner loop in the face-trim stage.
 ///
 /// `fillet_edges_by_trim[k]` is the canonical fillet edge for
 /// `trims[k]`. `descendants` is the per-fillet-edge descendants
@@ -298,7 +298,7 @@ pub(super) fn apply_multi_chord_for_face(
                     let (t0, t1) = trim.trim_3d.parameter_range();
                     let s0 = trim.trim_3d.point_at(t0);
                     let s1 = trim.trim_3d.point_at(t1);
-                    // Terminal-construction noise between Phase-A
+                    // Terminal-construction noise between anchor-split
                     // anchors and the trim's own row ends measures
                     // ~2e-2 on the notched flange; gate relative to
                     // the trim's span.

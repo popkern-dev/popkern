@@ -12,7 +12,7 @@
 //! constraint at the corner, slightly degrading G1 at the
 //! OUTER corners of the sub-patch. The spoke-G1 solver at
 //! the central vertex plus downstream solver rungs partially
-//! recover quality. Outer-corner G1 enforcement is Phase 10c.
+//! recover quality. Outer-corner G1 enforcement is later solver work.
 //!
 //! **Limitation:** shrinkage CANNOT fix folds that originate
 //! from the boundary curves themselves. At genuinely degenerate

@@ -1,4 +1,4 @@
-//! §5.3 item #3 extended (Phase 9) — Karciauskas-Peters
+//! §5.3 item #3 extended (the degree-7 spoke-solver work) — Karciauskas-Peters
 //! **biseptic** rectangular Gregory patch (degree 7) with
 //! free-curvature interior CPs. Extends
 //! [`super::RectangularGregoryBiquinticFull`] from degree 5 to
@@ -41,7 +41,7 @@
 //! (`j ∈ {1, 2, 3, 4, 5, 6}` — none are corner-adjacent, since
 //! corner-adjacent is only at `(1,1), (1,6), (6,1), (6,6)`).
 //! That's 6 more DOF per spoke for the G2 continuity constraint.
-//! Phase 10 will add `∂²S/∂u² match` linear constraints to the
+//! the polynomial-identity solver work will add `∂²S/∂u² match` linear constraints to the
 //! existing solver over these additional unknowns.
 
 use crate::geometry::{Point3, Vec3};
@@ -301,7 +301,7 @@ impl RectangularGregoryBiseptic {
     }
 
     /// `∂²S/∂u²` — central-difference on `partial_u`. Used by
-    /// the G2 solver (Phase 10) and curvature measures.
+    /// the G2 solver (the polynomial-identity solver work) and curvature measures.
     pub fn second_partial_uu(&self, u: f64, v: f64) -> Vec3 {
         let h = 1e-4_f64;
         let u_plus = (u + h).min(1.0);

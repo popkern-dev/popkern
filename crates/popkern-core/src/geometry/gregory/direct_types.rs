@@ -1,8 +1,8 @@
-//! Result and diagnostic types for direct-construction (Phase G).
+//! Result and diagnostic types for direct construction.
 //!
 //! These types are the programmatic API surface for
 //! visualisation, UI preview, logging, and per-corner quality
-//! badging — "UI-ready diagnostics" requirement from the Phase G
+//! badging — "UI-ready diagnostics" requirement from the direct-construction
 //! plan.
 
 use crate::geometry::gregory::RectangularGregoryTwoStripe;

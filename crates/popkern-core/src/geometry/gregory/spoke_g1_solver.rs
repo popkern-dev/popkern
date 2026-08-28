@@ -10,7 +10,7 @@
 //! `n_target = unit(T × xtan_A_init)` is:
 //! `n_target · (xtan_A − xtan_B) = 0` — linear in the free CPs.
 //!
-//! # G2 (Phase 10) hook
+//! # G2 (the polynomial-identity solver work) hook
 //!
 //! Extend by adding a `cross_tangent_second_coeff` trait method
 //! (`∂²S/∂u²` coeffs — row `i = 2` free CPs for biseptic), an
@@ -97,7 +97,7 @@ pub fn spoke_g1_solve<P: SpokeG1Patch>(
     spoke_g1_solve_inner(patches, spokes, samples_per_spoke, false, 1.0)
 }
 
-/// Phase 10c — spoke-G1 solve with additional near-endpoint
+/// Spoke-G1 solve with additional near-endpoint
 /// samples at `t ≈ 0.02` and `t ≈ 0.98`. These drive outer-
 /// corner tangent-plane continuity (constrain adjacent sub-
 /// patches' near-corner CPs to agree on the tangent plane at

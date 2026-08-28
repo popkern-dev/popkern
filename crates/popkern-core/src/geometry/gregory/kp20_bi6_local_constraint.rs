@@ -57,8 +57,8 @@
 //!
 //! [KP20]: docs/papers/20g2Ref.pdf
 
-// Phase A: extractors are diagnostic substrate consumed only by
-// Phase A/B/C tests; not yet wired to production callers.
+// Extractors are diagnostic substrate consumed only by
+// The Bernstein-toolkit stage/B/C tests; not yet wired to production callers.
 #![allow(dead_code)]
 
 use super::kp20_bi6_assemble::Kp20Bi6MacroCapOutput;
@@ -508,7 +508,7 @@ fn de_elevate_once(p: &BernsteinPoly<Vec3>) -> BernsteinPoly<Vec3> {
 }
 
 // ============================================================
-// Phase A2: dense Jacobians of eq (8) and eq (9) residuals
+// Jacobian extraction: dense Jacobians of eq (8) and eq (9) residuals
 // ============================================================
 
 /// Flat BB-coef index `(side, i, j)` into the `2 × 49 = 98`-wide
@@ -688,7 +688,7 @@ fn kp20_eq9_g2_residual_degree8(
 }
 
 // ============================================================
-// Phase B: assembled-cap residual report
+// Assembled-cap residual report
 // ============================================================
 
 /// Per-sector-pair worst BB-coefficient magnitude from the eq (8)
@@ -703,10 +703,10 @@ fn kp20_eq9_g2_residual_degree8(
 /// Lemma 6 condition entries are scalar `worst over sector pairs`
 /// summaries. See paper §5.1 eq (17), (18).
 ///
-/// The struct is a *measurement*, not a gate. The Phase B
+/// The struct is a *measurement*, not a gate. The the residual exit-criterion stage
 /// integration tests assert only that every field is finite.
 /// Whether the cap satisfies the paper (e.g. residuals all ≤
-/// 1e-12) is a question for downstream ADRs (Phase E).
+/// 1e-12) is a question for downstream ADRs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kp20Lemma6CpRegion {
     /// Every contributing CP lies in the Lemma 4 overlay block
@@ -823,7 +823,7 @@ impl Kp20MacroCapResidualReport {
             .fold(0.0_f64, f64::max)
     }
 
-    /// Every field is finite (no NaN, no infinity). Phase B
+    /// Every field is finite (no NaN, no infinity). the residual exit-criterion stage
     /// integration tests' acceptance criterion.
     pub fn all_finite(&self) -> bool {
         let vec_ok = |v: &Vec<f64>| v.iter().all(|x| x.is_finite());
@@ -859,7 +859,7 @@ fn worst_bb_magnitude_v3(coefs: &[Vec3]) -> f64 {
 /// eq (8) is the constraint at that boundary).
 ///
 /// Per ADR `docs/decisions/2026-06-23-kp20-bi6-macro-patch-paper-grade.md`
-/// Phase B. The function does not assert anything; the test layer
+/// The residual exit-criterion stage. The function does not assert anything; the test layer
 /// owns the policy on what constitutes "OK".
 pub fn measure_kp20_assembly_constraints(
     cap: &Kp20Bi6MacroCapOutput,
@@ -1339,7 +1339,7 @@ fn pascal_row(n: usize) -> Vec<f64> {
 }
 
 // ============================================================
-// Phase C: global constraint matrix M(n, c) and its rank
+// Global constraint matrix M(n, c) and its rank
 // ============================================================
 
 /// Layout of the per-valence global constraint matrix.

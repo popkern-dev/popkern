@@ -1,4 +1,4 @@
-//! Phase 6c-DirectApex.1.c — per-fillet sphere-fit termination computation.
+//! Per-fillet sphere-fit termination computation.
 //!
 //! Produces a `Vec<PerFilletTermination>` from the BlendBoundary
 //! and fillet surfaces, by walking each fillet's boundary segment
@@ -39,7 +39,7 @@ pub(crate) struct PerFilletTermination {
     pub endpoint_a: Point3,
     /// T_b — termination on the face_B (CCW-next) side.
     pub endpoint_b: Point3,
-    /// Cap sphere centre for this fillet (per Phase 6c-A's
+    /// Cap sphere centre for this fillet (per the sphere-fit substitution work's
     /// per-fillet sphere-fit; uniform for symmetric corners).
     pub cap_centre: Point3,
     /// Cap sphere radius (= fillet's nominal radius).
@@ -135,7 +135,7 @@ pub(crate) fn compute_apex_boundary(
 /// and `sphere_fit_termination` from the existing substitution
 /// machinery.
 ///
-/// Per Phase 6c-A continuation §4.2: each fillet uses its own cap
+/// Per Per-fillet sphere-fit continuation: each fillet uses its own cap
 /// radius (= nominal radius) and its own cap centre, yielding
 /// distinct termination points for variable-radius corners.
 ///

@@ -12,7 +12,7 @@
 //! form coefficient-level formulas for the operations we need
 //! (evaluation, derivative, degree elevation, polynomial product).
 //!
-//! The polynomial-identity G1/G2 solver (§5.3 Phase 10+) uses this
+//! The polynomial-identity G1/G2 solver (the polynomial-identity solver) uses this
 //! module to represent cross-boundary tangent polynomials
 //! `xtan(t)`, along-boundary tangents `T(t)`, and the scalar
 //! blending polynomial `β(t)` that appears in the K-P continuity

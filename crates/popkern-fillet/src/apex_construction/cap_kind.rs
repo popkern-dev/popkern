@@ -1,4 +1,4 @@
-//! Cap kind decision for Phase 6c-DirectApex apex construction.
+//! Cap kind decision for the sphere-fit edge-wiring workirectApex apex construction.
 //!
 //! `CapKind` enumerates how the apex region's cap face is built.
 //! For trihedral symmetric corners (uniform radii, coincident T's),
