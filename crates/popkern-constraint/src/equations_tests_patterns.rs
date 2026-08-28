@@ -1,10 +1,10 @@
 //! Tests for pattern constraint residuals and Jacobians.
 
 use super::{check_jacobian_fd, entry};
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::ElementHandle;
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 // ── RelativePosition ──────────────────────────────────────────────────────
 

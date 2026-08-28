@@ -1,8 +1,8 @@
 //! Tests for arc-to-conic tangency constraint residuals and Jacobians.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 // ── Helper for arc-tangent tests that need aux params ────────────────────
 

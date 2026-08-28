@@ -5,10 +5,10 @@
 
 use super::spline_deriv::{eval_curvature, eval_tangent};
 use super::spline_eval::eval_point;
-use super::{ar, ln, pt, EquationOutput};
+use super::{EquationOutput, ar, ln, pt};
+use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::elements::{ArcHandle, LineHandle, PointHandle, SplineHandle};
-use crate::Sketch;
 
 /// Compute the parameter value for a spline endpoint.
 ///

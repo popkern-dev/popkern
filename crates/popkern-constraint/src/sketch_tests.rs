@@ -1,9 +1,9 @@
 //! Tests for the Sketch API: element creation, constraints, driven values,
 //! drag solving, and element deletion.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::error::ConstraintError;
-use crate::Sketch;
 
 // ── Element API ──────────────────────────────────────────────────────────
 

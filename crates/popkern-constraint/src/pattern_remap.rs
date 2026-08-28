@@ -2,10 +2,10 @@
 //!
 //! Split from `pattern_clone.rs` to stay within the 500-line file limit.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::{ElementHandle, LineHandle, PointHandle};
 use crate::pattern::HandleRemap;
-use crate::Sketch;
 use std::collections::HashSet;
 
 /// Check whether all elements referenced by a constraint are in the

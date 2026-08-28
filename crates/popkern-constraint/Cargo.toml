@@ -1,7 +1,8 @@
 [package]
 name = "popkern-constraint"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
 description = "2D geometric constraint solver for parametric sketch modeling"
 
 [dependencies]

@@ -12,9 +12,9 @@ use crate::error::SketchError;
 use crate::loop_tracer::DirectedEdge;
 use crate::plane::SketchPlane;
 use popkern_constraint::{ElementHandle, Sketch};
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
-use popkern_core::geometry::Point3;
 
 /// Number of sample points used when approximating conics as NURBS.
 const CONIC_SAMPLE_COUNT: usize = 20;

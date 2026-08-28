@@ -5,8 +5,8 @@
 //! functions (tangent, second derivative, curvature, arc length) are in
 //! the sibling [`spline_deriv`](super::spline_deriv) module.
 
-use crate::elements::Spline;
 use crate::Sketch;
+use crate::elements::Spline;
 
 /// Result of evaluating a spline quantity (point, tangent, etc.).
 pub(crate) struct SplineEvalResult {

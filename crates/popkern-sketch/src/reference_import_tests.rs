@@ -4,8 +4,8 @@ use popkern_constraint::ElementHandle;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::plane::SketchPlane;
 use crate::SketchOnPlane;
+use crate::plane::SketchPlane;
 
 #[test]
 fn import_cube_face_produces_4_lines_and_4_points() {
@@ -67,19 +67,19 @@ fn imported_points_at_correct_2d_positions() {
     // 2D coordinates should be within the [0, 1] range (for a unit cube
     // face projected onto its own plane).
     for element in &imported {
-        if let ElementHandle::Point(ph) = element {
-            if let Some((x, y)) = sop.sketch.point_position(*ph) {
-                // Unit cube vertex coords in the face's local frame should be
-                // within [0, 1] with some tolerance.
-                assert!(
-                    x > -0.1 && x < 1.1,
-                    "x={x} should be in [0,1] range for unit cube face"
-                );
-                assert!(
-                    y > -0.1 && y < 1.1,
-                    "y={y} should be in [0,1] range for unit cube face"
-                );
-            }
+        if let ElementHandle::Point(ph) = element
+            && let Some((x, y)) = sop.sketch.point_position(*ph)
+        {
+            // Unit cube vertex coords in the face's local frame should be
+            // within [0, 1] with some tolerance.
+            assert!(
+                x > -0.1 && x < 1.1,
+                "x={x} should be in [0,1] range for unit cube face"
+            );
+            assert!(
+                y > -0.1 && y < 1.1,
+                "y={y} should be in [0,1] range for unit cube face"
+            );
         }
     }
 }

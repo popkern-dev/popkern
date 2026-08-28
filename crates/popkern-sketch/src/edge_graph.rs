@@ -93,73 +93,73 @@ pub(crate) fn build_edge_graph(
                 // Split the full circle into two semicircular arcs sharing
                 // a midpoint at the opposite side of the circle. This avoids
                 // self-loop edges which complicate Euler operators.
-                if let ElementHandle::Arc(ah) = &element {
-                    if let Some((cx, cy, r, start_angle, end_angle)) = sketch.arc_params(*ah) {
-                        let mid_angle = start_angle + (end_angle - start_angle) * 0.5;
-                        let mid_pos = (cx + r * mid_angle.cos(), cy + r * mid_angle.sin());
+                if let ElementHandle::Arc(ah) = &element
+                    && let Some((cx, cy, r, start_angle, end_angle)) = sketch.arc_params(*ah)
+                {
+                    let mid_angle = start_angle + (end_angle - start_angle) * 0.5;
+                    let mid_pos = (cx + r * mid_angle.cos(), cy + r * mid_angle.sin());
 
-                        let start_node = find_or_insert_node(&mut nodes, start, tolerance);
-                        let mid_node = find_or_insert_node(&mut nodes, mid_pos, tolerance);
+                    let start_node = find_or_insert_node(&mut nodes, start, tolerance);
+                    let mid_node = find_or_insert_node(&mut nodes, mid_pos, tolerance);
 
-                        // First half-arc: start -> midpoint
-                        edges.push(GraphEdge {
-                            element,
-                            start_node,
-                            end_node: mid_node,
-                            start_pos: start,
-                            end_pos: mid_pos,
-                        });
-                        // Second half-arc: midpoint -> start (closes the circle)
-                        edges.push(GraphEdge {
-                            element,
-                            start_node: mid_node,
-                            end_node: start_node,
-                            start_pos: mid_pos,
-                            end_pos: start,
-                        });
-                    }
+                    // First half-arc: start -> midpoint
+                    edges.push(GraphEdge {
+                        element,
+                        start_node,
+                        end_node: mid_node,
+                        start_pos: start,
+                        end_pos: mid_pos,
+                    });
+                    // Second half-arc: midpoint -> start (closes the circle)
+                    edges.push(GraphEdge {
+                        element,
+                        start_node: mid_node,
+                        end_node: start_node,
+                        start_pos: mid_pos,
+                        end_pos: start,
+                    });
                 }
             } else if is_full_ellipse {
                 // Split the full ellipse into four quarter-ellipses at the
                 // major/minor axis endpoints (t=0, PI/2, PI, 3*PI/2). This
                 // gives four graph edges forming a closed loop, avoiding the
                 // self-loop problem and giving the loop tracer enough nodes.
-                if let ElementHandle::Ellipse(eh) = &element {
-                    if let Some((cx, cy, semi_a, semi_b, rotation)) = sketch.ellipse_params(*eh) {
-                        let cos_r = rotation.cos();
-                        let sin_r = rotation.sin();
-                        // Evaluate ellipse at t=0, PI/2, PI, 3*PI/2.
-                        let eval_ellipse = |t: f64| -> (f64, f64) {
-                            let lx = semi_a * t.cos();
-                            let ly = semi_b * t.sin();
-                            (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
-                        };
-                        use std::f64::consts::PI;
-                        let p0 = eval_ellipse(0.0);
-                        let p1 = eval_ellipse(PI * 0.5);
-                        let p2 = eval_ellipse(PI);
-                        let p3 = eval_ellipse(PI * 1.5);
+                if let ElementHandle::Ellipse(eh) = &element
+                    && let Some((cx, cy, semi_a, semi_b, rotation)) = sketch.ellipse_params(*eh)
+                {
+                    let cos_r = rotation.cos();
+                    let sin_r = rotation.sin();
+                    // Evaluate ellipse at t=0, PI/2, PI, 3*PI/2.
+                    let eval_ellipse = |t: f64| -> (f64, f64) {
+                        let lx = semi_a * t.cos();
+                        let ly = semi_b * t.sin();
+                        (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
+                    };
+                    use std::f64::consts::PI;
+                    let p0 = eval_ellipse(0.0);
+                    let p1 = eval_ellipse(PI * 0.5);
+                    let p2 = eval_ellipse(PI);
+                    let p3 = eval_ellipse(PI * 1.5);
 
-                        let n0 = find_or_insert_node(&mut nodes, p0, tolerance);
-                        let n1 = find_or_insert_node(&mut nodes, p1, tolerance);
-                        let n2 = find_or_insert_node(&mut nodes, p2, tolerance);
-                        let n3 = find_or_insert_node(&mut nodes, p3, tolerance);
+                    let n0 = find_or_insert_node(&mut nodes, p0, tolerance);
+                    let n1 = find_or_insert_node(&mut nodes, p1, tolerance);
+                    let n2 = find_or_insert_node(&mut nodes, p2, tolerance);
+                    let n3 = find_or_insert_node(&mut nodes, p3, tolerance);
 
-                        // Four quarter-ellipses: p0->p1, p1->p2, p2->p3, p3->p0
-                        for (sn, en, sp, ep) in [
-                            (n0, n1, p0, p1),
-                            (n1, n2, p1, p2),
-                            (n2, n3, p2, p3),
-                            (n3, n0, p3, p0),
-                        ] {
-                            edges.push(GraphEdge {
-                                element,
-                                start_node: sn,
-                                end_node: en,
-                                start_pos: sp,
-                                end_pos: ep,
-                            });
-                        }
+                    // Four quarter-ellipses: p0->p1, p1->p2, p2->p3, p3->p0
+                    for (sn, en, sp, ep) in [
+                        (n0, n1, p0, p1),
+                        (n1, n2, p1, p2),
+                        (n2, n3, p2, p3),
+                        (n3, n0, p3, p0),
+                    ] {
+                        edges.push(GraphEdge {
+                            element,
+                            start_node: sn,
+                            end_node: en,
+                            start_pos: sp,
+                            end_pos: ep,
+                        });
                     }
                 }
             } else if is_periodic_spline {

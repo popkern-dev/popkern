@@ -183,7 +183,7 @@ mod lib_tests;
 /// vertices get `Junction` names. All are recorded in the tracking context.
 fn assign_brep_names(brep: &mut BRep, ctx: &mut TrackingContext) {
     use popkern_core::naming_criteria::{
-        capture_edge, capture_face, capture_vertex, GeometricCriteria,
+        GeometricCriteria, capture_edge, capture_face, capture_vertex,
     };
 
     // Collect handles first so we can mutate the BRep in the loop.

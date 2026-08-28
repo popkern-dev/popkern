@@ -4,8 +4,8 @@
 //! parameters. Split from `sketch_pattern_geo.rs` to stay within the
 //! 500-line file limit.
 
-use crate::elements::{ArcHandle, ElementHandle, PointHandle};
 use crate::Sketch;
+use crate::elements::{ArcHandle, ElementHandle, PointHandle};
 
 /// Rotate a point around a centre.
 pub(crate) fn rotate_point(
@@ -352,13 +352,13 @@ pub(crate) fn sync_phantom_positions(
                 .and_then(|&nh| sketch.hyperbolas.get(nh).map(|h| h.param_start)),
             _ => None,
         };
-        if let Some(cs) = center_start {
-            if idx < phantom_points.len() {
-                let cx = sketch.params[cs];
-                let cy = sketch.params[cs + 1];
-                set_point_params(sketch, phantom_points[idx], cx, cy);
-                idx += 1;
-            }
+        if let Some(cs) = center_start
+            && idx < phantom_points.len()
+        {
+            let cx = sketch.params[cs];
+            let cy = sketch.params[cs + 1];
+            set_point_params(sketch, phantom_points[idx], cx, cy);
+            idx += 1;
         }
     }
 }

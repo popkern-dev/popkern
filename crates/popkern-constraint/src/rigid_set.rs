@@ -5,9 +5,9 @@
 //! point parameters within the set are derived from the rigid-body parameters
 //! and per-point reference offsets.
 
+use crate::Sketch;
 use crate::elements::ElementHandle;
 use crate::elements::PointHandle;
-use crate::Sketch;
 use serde::{Deserialize, Serialize};
 
 slotmap::new_key_type! {
@@ -205,11 +205,7 @@ fn element_rigid_set(sketch: &Sketch, elem: &ElementHandle) -> Option<RigidSetHa
             let line = sketch.lines.get(*lh)?;
             let s = sketch.points.get(line.start)?.rigid_set?;
             let e = sketch.points.get(line.end)?.rigid_set?;
-            if s == e {
-                Some(s)
-            } else {
-                None
-            }
+            if s == e { Some(s) } else { None }
         }
         ElementHandle::Arc(ah) => sketch.arcs.get(*ah)?.rigid_set,
         ElementHandle::Ellipse(eh) => sketch.ellipses.get(*eh)?.rigid_set,

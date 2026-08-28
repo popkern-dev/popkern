@@ -1,8 +1,8 @@
 //! Adversarial tests for cycle detection in expression-driven dimensions.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::expression::{BinOp, Expression, UnaryFunc};
-use crate::Sketch;
 
 /// Direct self-referential expression: A = Ref(A).
 #[test]

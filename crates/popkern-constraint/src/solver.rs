@@ -11,14 +11,14 @@
 #[path = "solver_component.rs"]
 mod component;
 
+use crate::Sketch;
 use crate::analysis;
 use crate::decompose;
 use crate::error::{ConstraintError, SolveResult, SolveStatus};
 use crate::jacobian::assemble;
 use crate::rigid_set;
-use crate::Sketch;
-use faer::prelude::{SpSolver, SpSolverLstsq};
 use faer::Mat;
+use faer::prelude::{SpSolver, SpSolverLstsq};
 
 /// Options controlling the Newton-Raphson solver.
 #[derive(Debug, Clone)]

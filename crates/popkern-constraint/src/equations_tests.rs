@@ -18,9 +18,9 @@ mod splines_tangent;
 #[path = "equations_tests_patterns.rs"]
 mod patterns;
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 /// Check that the analytic Jacobian matches a finite-difference approximation.
 pub(super) fn check_jacobian_fd(

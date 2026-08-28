@@ -1,7 +1,7 @@
 //! Tests for named configuration management.
 
-use crate::constraint::Constraint;
 use crate::Sketch;
+use crate::constraint::Constraint;
 
 /// Save a configuration with distance=5, change to distance=10 in a second
 /// config, then verify activating the first restores distance=5.

@@ -4,10 +4,10 @@
 //! residuals and analytic Jacobian entries, and collects everything into
 //! a single [`EquationSystem`] ready for the Newton–Raphson solver.
 
+use crate::Sketch;
 use crate::constraint::ConstraintKind;
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::rigid_set;
-use crate::Sketch;
 use std::collections::HashMap;
 
 /// Assembled equation system: residuals F(x) and sparse Jacobian dF/dx.
@@ -52,12 +52,11 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
             if e.kind != ConstraintKind::Driving {
                 return false;
             }
-            if let Some(gh) = e.group {
-                if let Some(g) = sketch.groups.get(gh) {
-                    if !g.enabled {
-                        return false;
-                    }
-                }
+            if let Some(gh) = e.group
+                && let Some(g) = sketch.groups.get(gh)
+                && !g.enabled
+            {
+                return false;
             }
             // Skip intra-set constraints.
             if rigid_set::all_in_same_rigid_set(sketch, &e.constraint).is_some() {
@@ -76,12 +75,11 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
         if entry.kind != ConstraintKind::Driving {
             continue;
         }
-        if let Some(gh) = entry.group {
-            if let Some(g) = sketch.groups.get(gh) {
-                if !g.enabled {
-                    continue;
-                }
-            }
+        if let Some(gh) = entry.group
+            && let Some(g) = sketch.groups.get(gh)
+            && !g.enabled
+        {
+            continue;
         }
         // Skip intra-set constraints.
         if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {

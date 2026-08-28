@@ -4,9 +4,9 @@
 //! normal. Split from `conics.rs` to stay within the 500-line limit.
 
 use super::conics::{el, hyp, par};
-use super::{ln, EquationOutput};
-use crate::elements::{EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle};
+use super::{EquationOutput, ln};
 use crate::Sketch;
+use crate::elements::{EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle};
 
 /// TangentLineEllipse(L, E): dual conic tangency condition.
 ///

@@ -5,12 +5,12 @@
 //! of freedom, and check each constraint's residual to determine per-
 //! constraint satisfaction status.
 
+use crate::Sketch;
 use crate::constraint::{ConstraintHandle, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::error::FreedomInfo;
 use crate::jacobian::assemble;
 use crate::rigid_set;
-use crate::Sketch;
 use faer::Mat;
 
 /// Singular-value threshold: values below this are treated as zero (null
@@ -122,13 +122,12 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
         }
         // Skip constraints whose group is disabled — they are not in the
         // assembled residual vector.
-        if let Some(gh) = entry.group {
-            if let Some(g) = sketch.groups.get(gh) {
-                if !g.enabled {
-                    status_updates.push((handle, ConstraintStatus::Unknown));
-                    continue;
-                }
-            }
+        if let Some(gh) = entry.group
+            && let Some(g) = sketch.groups.get(gh)
+            && !g.enabled
+        {
+            status_updates.push((handle, ConstraintStatus::Unknown));
+            continue;
         }
         // Skip intra-set constraints — they are not in the assembled system.
         if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {

@@ -3,13 +3,13 @@
 //! Extracted from `solver.rs` to stay within the 500-line file limit.
 
 use super::SolverOptions;
+use crate::Sketch;
 use crate::decompose;
 use crate::error::{SolveResult, SolveStatus};
 use crate::jacobian::assemble_component;
 use crate::rigid_set;
-use crate::Sketch;
-use faer::prelude::{SpSolver, SpSolverLstsq};
 use faer::Mat;
+use faer::prelude::{SpSolver, SpSolverLstsq};
 
 /// Solve a single connected component of the constraint graph.
 ///

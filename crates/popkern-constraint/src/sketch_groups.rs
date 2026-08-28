@@ -3,10 +3,10 @@
 //! Groups allow a named set of constraints to be enabled or disabled together
 //! without removing them from the sketch.
 
+use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::error::ConstraintError;
 use crate::groups::{ConstraintGroup, GroupHandle};
-use crate::Sketch;
 
 #[cfg(test)]
 #[path = "sketch_groups_tests.rs"]

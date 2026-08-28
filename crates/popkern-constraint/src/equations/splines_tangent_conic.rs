@@ -2,14 +2,14 @@
 //!
 //! Split from `splines_tangent.rs` to stay within the 500-line file limit.
 
+use super::EquationOutput;
 use super::conics::{el, hyp, par};
 use super::spline_deriv::eval_tangent;
 use super::spline_eval::eval_point;
 use super::splines::merge_or_push;
-use super::EquationOutput;
+use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::elements::{EllipseHandle, HyperbolaHandle, ParabolaHandle, SplineHandle};
-use crate::Sketch;
 
 // ── 1. SplineTangentToEllipse ────────────────────────────────────────────
 

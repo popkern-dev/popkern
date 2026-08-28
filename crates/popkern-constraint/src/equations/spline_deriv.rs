@@ -5,11 +5,11 @@
 //! live in the sibling [`spline_eval`](super::spline_eval) module.
 
 use super::spline_eval::{
-    accumulate_jac, accumulate_scalar_jac, basis_functions, find_span, periodic_knot_vector,
-    SplineEvalResult,
+    SplineEvalResult, accumulate_jac, accumulate_scalar_jac, basis_functions, find_span,
+    periodic_knot_vector,
 };
-use crate::elements::Spline;
 use crate::Sketch;
+use crate::elements::Spline;
 
 // ── Gauss-Legendre 8-point quadrature constants ──────────────────────────
 

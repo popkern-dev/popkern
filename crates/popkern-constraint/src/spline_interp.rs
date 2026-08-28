@@ -4,8 +4,8 @@
 //! B-spline that interpolates all of them.  Uses chord-length
 //! parameterization and the knot averaging method.
 
-use faer::prelude::SpSolver;
 use faer::Mat;
+use faer::prelude::SpSolver;
 
 /// Result of B-spline interpolation: (control_points, knot_vector, parameter_values).
 type InterpResult = Result<(Vec<(f64, f64)>, Vec<f64>, Vec<f64>), String>;

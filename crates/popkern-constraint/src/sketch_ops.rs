@@ -7,7 +7,7 @@ use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::constraint::{ConstraintKind, ConstraintStatus};
 use crate::elements::{ElementHandle, LineHandle, PointHandle, SplineHandle};
 use crate::error::ConstraintError;
-use crate::{equations, DragState, Sketch};
+use crate::{DragState, Sketch, equations};
 
 impl Sketch {
     /// Return the current geometric value that a driven constraint measures.

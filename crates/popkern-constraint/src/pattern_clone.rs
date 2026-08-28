@@ -3,11 +3,11 @@
 //! These functions duplicate seed geometry at offset positions and
 //! remap constraint handles from seed space to instance space.
 
+use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::elements::{ElementHandle, PointHandle};
 use crate::pattern::HandleRemap;
 use crate::pattern_remap;
-use crate::Sketch;
 use std::collections::HashSet;
 
 /// Compute the "complete seed set" -- seed elements plus all points

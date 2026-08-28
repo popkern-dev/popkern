@@ -1,8 +1,8 @@
 //! Tests for expression-driven dimensions.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::expression::{BinOp, Expression, UnaryFunc};
-use crate::Sketch;
 
 /// Distance A has expression `2 * Ref(B)`. B.target=5 -> A.target=10
 /// before solving, and geometry reflects it.

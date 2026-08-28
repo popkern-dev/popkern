@@ -1,8 +1,8 @@
 //! Tests for DOF analysis and constraint status detection.
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintStatus};
 use crate::error::SolveStatus;
-use crate::Sketch;
 
 #[test]
 fn unconstrained_point_has_two_dof() {

@@ -4,9 +4,9 @@
 //!
 //! Line-to-conic tangency is in the sibling [`conics_tangent`] module.
 
-use super::{ar, pt, EquationOutput};
-use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle, PointHandle};
+use super::{EquationOutput, ar, pt};
 use crate::Sketch;
+use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle, PointHandle};
 
 // ── Conic helper functions ────────────────────────────────────────────────
 

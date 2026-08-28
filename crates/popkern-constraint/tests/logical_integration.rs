@@ -2,11 +2,11 @@
 //! working together.
 
 use popkern_constraint::{
+    Sketch,
     constraint::Constraint,
     elements::ElementHandle,
     error::SolveStatus,
     expression::{BinOp, Expression},
-    Sketch,
 };
 
 const TOL: f64 = 1e-6;

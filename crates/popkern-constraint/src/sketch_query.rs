@@ -5,12 +5,12 @@
 //!
 //! Split from `sketch_ops.rs` to stay within the 500-line file limit.
 
+use crate::Sketch;
 use crate::elements::{
     ArcHandle, ElementHandle, EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle,
     PointHandle, SplineHandle,
 };
 use crate::equations::spline_eval;
-use crate::Sketch;
 
 impl Sketch {
     /// Iterate over all line handles in the sketch.

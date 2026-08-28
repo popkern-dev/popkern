@@ -10,8 +10,8 @@ use popkern_constraint::{Constraint, ElementHandle, PointHandle};
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-use crate::error::SketchError;
 use crate::SketchOnPlane;
+use crate::error::SketchError;
 
 impl SketchOnPlane {
     /// Import edges from a BRep face as fixed construction geometry.

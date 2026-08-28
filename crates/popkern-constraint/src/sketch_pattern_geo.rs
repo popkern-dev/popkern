@@ -2,6 +2,7 @@
 //!
 //! Split from `sketch_pattern.rs` to stay within the 500-line file limit.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::{ElementHandle, PointHandle};
 use crate::error::ConstraintError;
@@ -14,7 +15,6 @@ use crate::pattern_geo_helpers::{
     sync_phantom_positions,
 };
 use crate::sketch_pattern::add_pin_constraints;
-use crate::Sketch;
 
 impl Sketch {
     /// Create a circular pattern replicating `seed` elements `count` times

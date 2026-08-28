@@ -3,12 +3,12 @@
 //! Configurations allow the sketch to be toggled between distinct design
 //! variants (e.g. "open" vs "closed") without duplicating geometry.
 
+use crate::Sketch;
 use crate::config::{
-    get_constraint_value, set_constraint_value_on, ConfigHandle, Configuration, ConstraintSnapshot,
+    ConfigHandle, Configuration, ConstraintSnapshot, get_constraint_value, set_constraint_value_on,
 };
 use crate::constraint::ConstraintKind;
 use crate::error::{ConstraintError, SolveResult};
-use crate::Sketch;
 
 impl Sketch {
     /// Create a new, empty configuration with the given name.
@@ -99,10 +99,10 @@ impl Sketch {
         }
 
         // Warm-start: replace params with saved vector if shapes still match.
-        if let Some(saved) = &cfg.solved_params {
-            if saved.len() == self.params.len() {
-                self.params.clone_from(saved);
-            }
+        if let Some(saved) = &cfg.solved_params
+            && saved.len() == self.params.len()
+        {
+            self.params.clone_from(saved);
         }
 
         self.solve()

@@ -49,7 +49,7 @@ docs/code/
 docs/requirements/old/
 docs/images/input/
 __pycache__/
-core.*
+core.[0-9]*
 
 # Local Telegram notifier and its credentials.
 #

@@ -26,8 +26,8 @@ mod tests;
 #[path = "equations/spline_eval_tests.rs"]
 mod spline_eval_tests;
 
-use crate::elements::{ArcHandle, LineHandle, PointHandle};
 use crate::Sketch;
+use crate::elements::{ArcHandle, LineHandle, PointHandle};
 
 /// Output of evaluating a single constraint: residual vector and sparse
 /// Jacobian entries.

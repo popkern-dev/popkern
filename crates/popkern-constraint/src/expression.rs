@@ -10,9 +10,9 @@
 //! [`evaluate_all`] pre-pass writes the computed values into each constraint's
 //! `f64` field before the solver runs, so the Newton loop sees plain constants.
 
+use crate::Sketch;
 use crate::config::{get_constraint_value, set_constraint_value_on};
 use crate::constraint::ConstraintHandle;
-use crate::Sketch;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 

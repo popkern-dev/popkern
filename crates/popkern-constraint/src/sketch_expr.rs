@@ -4,11 +4,11 @@
 //! that reference other constraints' target values (e.g. "distance A =
 //! 2 * distance B").
 
+use crate::Sketch;
 use crate::config::get_constraint_value;
 use crate::constraint::ConstraintHandle;
 use crate::error::ConstraintError;
 use crate::expression::{self, Expression};
-use crate::Sketch;
 use serde::Deserialize;
 
 impl Sketch {

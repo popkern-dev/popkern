@@ -3,10 +3,10 @@
 //!
 //! Split from the main `analysis` module to stay within the 500-line limit.
 
+use crate::Sketch;
 use crate::elements::ElementHandle;
 use crate::error::FreedomInfo;
 use crate::rigid_set;
-use crate::Sketch;
 use faer::Mat;
 
 /// Map all parameters to freedom entries (used when there are no equations).
@@ -69,7 +69,7 @@ pub(super) fn params_to_freedoms(sketch: &Sketch, _n: usize) -> Vec<FreedomInfo>
     for rs in sketch.rigid_sets.values() {
         if let Some(&first) = rs.elements.first() {
             let _ = &rigid_params; // keep the binding alive for clarity
-                                   // Rigid set has 3 DOF: tx, ty, theta.
+            // Rigid set has 3 DOF: tx, ty, theta.
             freedoms.push(FreedomInfo {
                 element: first,
                 directions: vec![(1.0, 0.0), (0.0, 1.0)],

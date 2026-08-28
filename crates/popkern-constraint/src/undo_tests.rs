@@ -1,8 +1,8 @@
 //! Tests for the undo/redo system.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::ElementHandle;
-use crate::Sketch;
 
 #[test]
 fn undo_add_point_removes_point_and_shrinks_params() {

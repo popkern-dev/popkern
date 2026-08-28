@@ -1,9 +1,9 @@
 //! Convergence tests for the Newton–Raphson constraint solver.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::error::SolveStatus;
 use crate::solver::SolverOptions;
-use crate::Sketch;
 
 /// Helper: distance between two parameter-space points.
 fn dist(sketch: &Sketch, a: crate::PointHandle, b: crate::PointHandle) -> f64 {

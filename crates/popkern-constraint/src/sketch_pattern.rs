@@ -3,6 +3,7 @@
 //! Provides `linear_pattern`, `delete_pattern`, and pattern validation
 //! as `impl Sketch` methods.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::ElementHandle;
 use crate::error::ConstraintError;
@@ -10,7 +11,6 @@ use crate::pattern::{PatternDef, PatternHandle, PatternInstance, PatternKind};
 use crate::pattern_clone::{
     clone_constraints, clone_elements, complete_seed_set, find_seed_constraints,
 };
-use crate::Sketch;
 
 impl Sketch {
     /// Create a linear pattern replicating `seed` elements `count` times
@@ -206,55 +206,55 @@ pub(crate) fn add_pin_constraints(
     for elem in seed {
         match elem {
             ElementHandle::Arc(ah) => {
-                if let Some(&new_ah) = remap.arcs.get(ah) {
-                    if phantom_idx < phantom_points.len() {
-                        let phantom = phantom_points[phantom_idx];
-                        let ch = sketch.add_constraint(Constraint::PinToCenter(
-                            phantom,
-                            ElementHandle::Arc(new_ah),
-                        ));
-                        pin_constraints.push(ch);
-                        phantom_idx += 1;
-                    }
+                if let Some(&new_ah) = remap.arcs.get(ah)
+                    && phantom_idx < phantom_points.len()
+                {
+                    let phantom = phantom_points[phantom_idx];
+                    let ch = sketch.add_constraint(Constraint::PinToCenter(
+                        phantom,
+                        ElementHandle::Arc(new_ah),
+                    ));
+                    pin_constraints.push(ch);
+                    phantom_idx += 1;
                 }
             }
             ElementHandle::Ellipse(eh) => {
-                if let Some(&new_eh) = remap.ellipses.get(eh) {
-                    if phantom_idx < phantom_points.len() {
-                        let phantom = phantom_points[phantom_idx];
-                        let ch = sketch.add_constraint(Constraint::PinToCenter(
-                            phantom,
-                            ElementHandle::Ellipse(new_eh),
-                        ));
-                        pin_constraints.push(ch);
-                        phantom_idx += 1;
-                    }
+                if let Some(&new_eh) = remap.ellipses.get(eh)
+                    && phantom_idx < phantom_points.len()
+                {
+                    let phantom = phantom_points[phantom_idx];
+                    let ch = sketch.add_constraint(Constraint::PinToCenter(
+                        phantom,
+                        ElementHandle::Ellipse(new_eh),
+                    ));
+                    pin_constraints.push(ch);
+                    phantom_idx += 1;
                 }
             }
             ElementHandle::Parabola(ph_key) => {
-                if let Some(&new_ph) = remap.parabolas.get(ph_key) {
-                    if phantom_idx < phantom_points.len() {
-                        let phantom = phantom_points[phantom_idx];
-                        let ch = sketch.add_constraint(Constraint::PinToCenter(
-                            phantom,
-                            ElementHandle::Parabola(new_ph),
-                        ));
-                        pin_constraints.push(ch);
-                        phantom_idx += 1;
-                    }
+                if let Some(&new_ph) = remap.parabolas.get(ph_key)
+                    && phantom_idx < phantom_points.len()
+                {
+                    let phantom = phantom_points[phantom_idx];
+                    let ch = sketch.add_constraint(Constraint::PinToCenter(
+                        phantom,
+                        ElementHandle::Parabola(new_ph),
+                    ));
+                    pin_constraints.push(ch);
+                    phantom_idx += 1;
                 }
             }
             ElementHandle::Hyperbola(hh) => {
-                if let Some(&new_hh) = remap.hyperbolas.get(hh) {
-                    if phantom_idx < phantom_points.len() {
-                        let phantom = phantom_points[phantom_idx];
-                        let ch = sketch.add_constraint(Constraint::PinToCenter(
-                            phantom,
-                            ElementHandle::Hyperbola(new_hh),
-                        ));
-                        pin_constraints.push(ch);
-                        phantom_idx += 1;
-                    }
+                if let Some(&new_hh) = remap.hyperbolas.get(hh)
+                    && phantom_idx < phantom_points.len()
+                {
+                    let phantom = phantom_points[phantom_idx];
+                    let ch = sketch.add_constraint(Constraint::PinToCenter(
+                        phantom,
+                        ElementHandle::Hyperbola(new_hh),
+                    ));
+                    pin_constraints.push(ch);
+                    phantom_idx += 1;
                 }
             }
             _ => {}

@@ -1,7 +1,7 @@
 //! Tests for constraint group management.
 
-use crate::constraint::Constraint;
 use crate::Sketch;
+use crate::constraint::Constraint;
 
 /// A disabled group constraint should be excluded from the solver, leaving
 /// constrained geometry unmoved.

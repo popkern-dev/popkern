@@ -3,10 +3,10 @@
 //! A rigid set groups elements into a rigid body with 3 DOF (tx, ty, theta)
 //! instead of 2N individual point DOFs.
 
+use crate::Sketch;
 use crate::elements::ElementHandle;
 use crate::error::ConstraintError;
 use crate::rigid_set::{RigidSet, RigidSetHandle};
-use crate::Sketch;
 
 impl Sketch {
     /// Create a rigid set from the given elements.
@@ -43,11 +43,11 @@ impl Sketch {
         for elem in elements {
             match elem {
                 ElementHandle::Point(ph) => {
-                    if let Some((x, y)) = self.point_position(*ph) {
-                        if !points.contains(ph) {
-                            points.push(*ph);
-                            positions.push((x, y));
-                        }
+                    if let Some((x, y)) = self.point_position(*ph)
+                        && !points.contains(ph)
+                    {
+                        points.push(*ph);
+                        positions.push((x, y));
                     }
                 }
                 ElementHandle::Line(lh) => {
@@ -55,11 +55,11 @@ impl Sketch {
                         let start = line.start;
                         let end = line.end;
                         for ph in [start, end] {
-                            if let Some((x, y)) = self.point_position(ph) {
-                                if !points.contains(&ph) {
-                                    points.push(ph);
-                                    positions.push((x, y));
-                                }
+                            if let Some((x, y)) = self.point_position(ph)
+                                && !points.contains(&ph)
+                            {
+                                points.push(ph);
+                                positions.push((x, y));
                             }
                         }
                     }
@@ -100,11 +100,11 @@ impl Sketch {
                     if let Some(sp) = self.splines.get(*sh) {
                         let cps: Vec<_> = sp.control_points.clone();
                         for ph in cps {
-                            if let Some((x, y)) = self.point_position(ph) {
-                                if !points.contains(&ph) {
-                                    points.push(ph);
-                                    positions.push((x, y));
-                                }
+                            if let Some((x, y)) = self.point_position(ph)
+                                && !points.contains(&ph)
+                            {
+                                points.push(ph);
+                                positions.push((x, y));
                             }
                         }
                     }

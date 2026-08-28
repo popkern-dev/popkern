@@ -7,10 +7,10 @@
 use super::spline_deriv::eval_tangent;
 use super::spline_eval::eval_point;
 use super::splines::merge_or_push;
-use super::{ar, ln, EquationOutput};
+use super::{EquationOutput, ar, ln};
+use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::elements::{ArcHandle, LineHandle, SplineHandle};
-use crate::Sketch;
 
 // ── 1. SplineTangentToLine ───────────────────────────────────────────────
 

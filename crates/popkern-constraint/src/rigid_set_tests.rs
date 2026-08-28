@@ -1,9 +1,9 @@
 //! Tests for rigid-set functionality.
 
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::ElementHandle;
 use crate::error::SolveStatus;
-use crate::Sketch;
 
 /// Helper: distance between two (x, y) pairs.
 fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {

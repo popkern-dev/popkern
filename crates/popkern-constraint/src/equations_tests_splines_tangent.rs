@@ -3,9 +3,9 @@
 //! Split from `equations_tests_splines.rs` to stay within the 500-line
 //! file limit.
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 /// Build a ConstraintEntry with default metadata.
 #[allow(dead_code)]

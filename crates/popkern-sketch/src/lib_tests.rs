@@ -3,8 +3,8 @@
 use popkern_constraint::ElementHandle;
 use popkern_core::naming::{OperationId, RoleCategory};
 
-use crate::plane::SketchPlane;
 use crate::SketchOnPlane;
+use crate::plane::SketchPlane;
 
 // ---------------------------------------------------------------------------
 // assign_element_names with empty sketch

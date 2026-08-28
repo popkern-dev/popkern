@@ -2,9 +2,9 @@
 //!
 //! Split from the main `equations` module to stay within the 500-line limit.
 
-use super::{ar, ln, pt, EquationOutput};
-use crate::elements::{ArcHandle, LineHandle, PointHandle};
+use super::{EquationOutput, ar, ln, pt};
 use crate::Sketch;
+use crate::elements::{ArcHandle, LineHandle, PointHandle};
 
 /// PointOnArc(P, A): F = (px-cx)^2 + (py-cy)^2 - r^2
 pub(crate) fn eval_point_on_arc(

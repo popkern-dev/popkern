@@ -5,10 +5,10 @@
 //! by shared constraint references. Independent components can be solved
 //! separately, reducing the size of each Newton-Raphson system.
 
+use crate::Sketch;
 use crate::constraint::{ConstraintHandle, ConstraintKind};
 use crate::elements::ElementHandle;
 use crate::rigid_set;
-use crate::Sketch;
 use std::collections::HashMap;
 
 /// Disjoint-set (union-find) data structure with path compression and
@@ -190,12 +190,11 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
         if entry.kind != ConstraintKind::Driving {
             continue;
         }
-        if let Some(gh) = entry.group {
-            if let Some(g) = sketch.groups.get(gh) {
-                if !g.enabled {
-                    continue;
-                }
-            }
+        if let Some(gh) = entry.group
+            && let Some(g) = sketch.groups.get(gh)
+            && !g.enabled
+        {
+            continue;
         }
         if rigid_set::all_in_same_rigid_set(sketch, &entry.constraint).is_some() {
             continue;

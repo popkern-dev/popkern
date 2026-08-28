@@ -1,8 +1,8 @@
 //! Tests for spline endpoint constraint equations.
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintEntry, ConstraintKind, ConstraintStatus};
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 /// Build a ConstraintEntry with default metadata.
 fn entry(constraint: Constraint, fixed_values: Vec<f64>) -> ConstraintEntry {

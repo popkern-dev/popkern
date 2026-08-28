@@ -1,7 +1,7 @@
 //! [`Sketch::capture_fixed_values`] — split from `lib.rs` for the line limit.
 
-use crate::constraint::Constraint;
 use crate::Sketch;
+use crate::constraint::Constraint;
 
 impl Sketch {
     /// Snapshot the current parameter values that a fixed constraint needs

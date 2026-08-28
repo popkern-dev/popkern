@@ -1,9 +1,9 @@
 //! Tests for conic constraint residuals and Jacobian correctness.
 
 use super::{check_jacobian_fd, entry};
+use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::equations::{equation_count, evaluate_constraint};
-use crate::Sketch;
 
 // ── PointOnEllipse ────────────────────────────────────────────────────────
 

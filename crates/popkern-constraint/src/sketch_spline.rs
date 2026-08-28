@@ -3,10 +3,10 @@
 //!
 //! Split from `sketch_ops.rs` to stay within the 500-line file limit.
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintHandle};
 use crate::elements::{ElementHandle, PointHandle, Spline, SplineHandle};
 use crate::error::ConstraintError;
-use crate::Sketch;
 
 impl Sketch {
     /// Add a B-spline defined by the given control points and degree.

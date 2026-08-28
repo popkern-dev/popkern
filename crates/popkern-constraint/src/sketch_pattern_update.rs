@@ -3,6 +3,7 @@
 //! Provides instance suppression/unsuppression, spacing/count/angle
 //! updates, and constraint refresh as `impl Sketch` methods.
 
+use crate::Sketch;
 use crate::constraint::{Constraint, ConstraintKind};
 use crate::elements::ElementHandle;
 use crate::error::ConstraintError;
@@ -11,7 +12,6 @@ use crate::pattern_clone::{
     clone_constraints, clone_elements, complete_seed_set, find_seed_constraints,
 };
 use crate::sketch_pattern::add_pin_constraints;
-use crate::Sketch;
 
 impl Sketch {
     /// Suppress a pattern instance (set all its constraints to Driven).
@@ -115,7 +115,7 @@ impl Sketch {
             _ => {
                 return Err(ConstraintError::InvalidPattern(
                     "update_pattern_spacing only applies to linear patterns".into(),
-                ))
+                ));
             }
         };
 
@@ -124,13 +124,12 @@ impl Sketch {
             let offset_x = k * spacing * dx;
             let offset_y = k * spacing * dy;
             for &ch in &instance.offset_constraints {
-                if let Some(entry) = self.constraints.get_mut(ch) {
-                    if let Constraint::RelativePosition(_, _, ref mut cdx, ref mut cdy) =
+                if let Some(entry) = self.constraints.get_mut(ch)
+                    && let Constraint::RelativePosition(_, _, ref mut cdx, ref mut cdy) =
                         entry.constraint
-                    {
-                        *cdx = offset_x;
-                        *cdy = offset_y;
-                    }
+                {
+                    *cdx = offset_x;
+                    *cdy = offset_y;
                 }
             }
         }
@@ -155,24 +154,24 @@ impl Sketch {
             _ => {
                 return Err(ConstraintError::InvalidPattern(
                     "update_pattern_angle only applies to circular patterns".into(),
-                ))
+                ));
             }
         };
 
         for (k_minus_1, instance) in pat.instances.iter().enumerate() {
             let angle_k = (k_minus_1 + 1) as f64 * angle / (count - 1) as f64;
             for &ch in &instance.offset_constraints {
-                if let Some(entry) = self.constraints.get_mut(ch) {
-                    if let Constraint::RotatedPosition(_, _, _, ref mut t) = entry.constraint {
-                        *t = angle_k;
-                    }
+                if let Some(entry) = self.constraints.get_mut(ch)
+                    && let Constraint::RotatedPosition(_, _, _, ref mut t) = entry.constraint
+                {
+                    *t = angle_k;
                 }
             }
             for &ch in &instance.angle_constraints {
                 if let Some(entry) = self.constraints.get_mut(ch) {
                     match &mut entry.constraint {
-                        Constraint::AngleOffsetArc(_, _, ref mut t) => *t = angle_k,
-                        Constraint::AngleOffsetConic(_, _, ref mut t) => *t = angle_k,
+                        Constraint::AngleOffsetArc(_, _, t) => *t = angle_k,
+                        Constraint::AngleOffsetConic(_, _, t) => *t = angle_k,
                         _ => {}
                     }
                 }
@@ -225,7 +224,7 @@ impl Sketch {
                 _ => {
                     return Err(ConstraintError::InvalidPattern(
                         "update_pattern_count currently only supports linear patterns".into(),
-                    ))
+                    ));
                 }
             };
             let seed = pat.seed_elements.clone();

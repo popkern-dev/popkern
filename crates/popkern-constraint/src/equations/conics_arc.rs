@@ -10,9 +10,9 @@
 //! Split from `conics_tangent.rs` to stay within the 500-line limit.
 
 use super::conics::{el, hyp, par};
-use super::{ar, EquationOutput};
-use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle};
+use super::{EquationOutput, ar};
 use crate::Sketch;
+use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle};
 
 /// TangentArcEllipse: arc tangent to ellipse via auxiliary parameter `t`.
 ///

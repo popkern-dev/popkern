@@ -6,7 +6,7 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::history::TrackingContext;
 use popkern_core::naming::{EntityName, OperationId, RoleCategory};
-use popkern_core::naming_resolve::{resolve_name, Resolution};
+use popkern_core::naming_resolve::{Resolution, resolve_name};
 use popkern_core::tolerance::Tolerance;
 use popkern_sketch::{Constraint, SketchOnPlane, SketchPlane};
 
@@ -203,14 +203,14 @@ fn resolve_name_across_breps(
     }
 
     // Fall back: use geometric criteria from source_brep.
-    if let Some(source_id) = source_brep.name_pool.find(name) {
-        if let Some(criteria) = source_brep.name_pool.get_criteria(source_id) {
-            return popkern_core::naming_resolve::resolve_with_criteria(
-                criteria,
-                target_brep,
-                &target_brep.tolerance,
-            );
-        }
+    if let Some(source_id) = source_brep.name_pool.find(name)
+        && let Some(criteria) = source_brep.name_pool.get_criteria(source_id)
+    {
+        return popkern_core::naming_resolve::resolve_with_criteria(
+            criteria,
+            target_brep,
+            &target_brep.tolerance,
+        );
     }
 
     // Find by NameId from source_brep using geometric criteria from target pool.

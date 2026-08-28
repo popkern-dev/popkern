@@ -3,9 +3,9 @@
 //! These constraints express positional and angular relationships used by
 //! linear, circular, and mirror patterns.
 
-use super::{ln, pt, EquationOutput};
-use crate::elements::{ArcHandle, ElementHandle, LineHandle, PointHandle};
+use super::{EquationOutput, ln, pt};
 use crate::Sketch;
+use crate::elements::{ArcHandle, ElementHandle, LineHandle, PointHandle};
 
 // ── Position primitives ────────────────────────────────────────────────────
 

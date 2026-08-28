@@ -1,8 +1,8 @@
 //! Tests for graph decomposition (union-find and connected components).
 
 use super::*;
-use crate::constraint::Constraint;
 use crate::Sketch;
+use crate::constraint::Constraint;
 
 #[test]
 fn union_find_basic() {

@@ -3,11 +3,11 @@
 //! Split from `equations.rs` to stay within the 500-line file limit.
 
 use super::{
-    conics, conics_arc, conics_tangent, patterns, splines, splines_tangent, splines_tangent_conic,
-    tier2, EquationOutput,
+    EquationOutput, conics, conics_arc, conics_tangent, patterns, splines, splines_tangent,
+    splines_tangent_conic, tier2,
 };
-use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 use crate::Sketch;
+use crate::constraint::{Constraint, ConstraintEntry, ConstraintHandle};
 
 /// Return the number of scalar equations produced by a constraint.
 pub(crate) fn equation_count(constraint: &Constraint) -> usize {
