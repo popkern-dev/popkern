@@ -740,37 +740,21 @@ pub fn kp20_paper_border_from_fillet_setback(
         kp20_paper_border_corners::setback_corners(fillet_surfaces, &order, vertex_position);
     let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
 
-    // Corner pullback: cutting each arc exactly at the trim
-    // intersection puts the sector corners at the highest, sharpest
-    // point of the boundary (tall thin cap tips that amplify corner
-    // noise). Pull the corner back along both arcs by a fraction of
-    // the arc and place it on the shared tangent plane — the
-    // classical setback-distance choice, giving lower, wider corner
-    // tips. 0.0 reproduces the exact trim-intersection corner.
-    let pullback: f64 = std::env::var("KP20_CORNER_PULLBACK")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0.0);
-
-    // One arc per fillet between its two (pulled-back) corners.
-    // Pass 1: shortened uv spans.
+    // Corners cut exactly at the trim intersection. (A fractional
+    // pullback along both arcs onto the shared tangent plane — the
+    // classical setback-distance choice — was probed and retired:
+    // production keeps the exact trim-intersection corner.)
+    // One arc per fillet between its two corners. Pass 1: uv spans.
     let mut spans: Vec<(usize, f64, f64, f64, f64)> = Vec::with_capacity(n);
     for k in 0..n {
         let fillet = &fillet_surfaces[order[k]];
         let c_prev = corners[(k + n - 1) % n].1;
         let c_next = corners[k].1;
-        let (ua_full, va_full) = project_point_to_uv(&fillet.surface, &c_prev)
+        let (ua, va) = project_point_to_uv(&fillet.surface, &c_prev)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let (ub_full, vb_full) = project_point_to_uv(&fillet.surface, &c_next)
+        let (ub, vb) = project_point_to_uv(&fillet.surface, &c_next)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let shrink = 0.5 * pullback;
-        spans.push((
-            order[k],
-            ua_full + (ub_full - ua_full) * shrink,
-            va_full + (vb_full - va_full) * shrink,
-            ub_full + (ua_full - ub_full) * shrink,
-            vb_full + (va_full - vb_full) * shrink,
-        ));
+        spans.push((order[k], ua, va, ub, vb));
     }
     let eval_span = |k: usize, t: f64| -> Point3 {
         let (fi, ua, va, ub, vb) = spans[k];
@@ -778,9 +762,9 @@ pub fn kp20_paper_border_from_fillet_setback(
             .surface
             .point_at(ua + (ub - ua) * t, va + (vb - va) * t)
     };
-    // Pass 2: pulled-back corners = midpoints of adjacent cut ends
-    // (they flank the shared face symmetrically, so the midpoint sits
-    // essentially on it).
+    // Pass 2: corners = midpoints of adjacent cut ends (they flank
+    // the shared face symmetrically, so the midpoint sits essentially
+    // on it).
     let new_corners: Vec<Point3> = (0..n)
         .map(|j| {
             let a_end = eval_span(j, 1.0);
@@ -793,7 +777,7 @@ pub fn kp20_paper_border_from_fillet_setback(
         })
         .collect();
     // Pass 3: sector pieces interpolate arc samples and END exactly
-    // at the shared pulled-back corners.
+    // at the shared corners.
     let mut sectors = Vec::with_capacity(n);
     let mut first_order_marches = 0_usize;
     let calibration = chi_march_calibration(n)

@@ -90,13 +90,8 @@ pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usiz
     let dump = std::env::var("POPKERN_TOPO_REPAIR_DUMP").is_ok();
     // Per-face attempt cap.  Each successful repair removes one
     // off-cyl candidate; an upper bound keeps the loop bounded
-    // even if surgery somehow generates new candidates.  Override
-    // via `POPKERN_TOPO_REPAIR_MAX_ATTEMPTS` for diagnostics
-    // (#136 iteration-compounding hypothesis).
-    let max_attempts = std::env::var("POPKERN_TOPO_REPAIR_MAX_ATTEMPTS")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(8);
+    // even if surgery somehow generates new candidates.
+    let max_attempts = 8;
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut repaired = 0;
     for fh in face_handles {

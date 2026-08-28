@@ -148,17 +148,14 @@ pub(crate) fn walk_all_fragments_ext(
         // Chart polylines + σ for the role assembly below (present
         // only when the chart walk produced the orbit partition).
         let mut chart_roles: Option<(Vec<chart_walk::ChartPolyline>, f64)> = None;
-        // A/B lever for divergence adjudication: PK_WALK_CHART=0
-        // forces the legacy walk everywhere. Since PK-107 every face
-        // of a coincident boolean chart-walks, overlap faces
-        // included: the substrate's duplicate-cover dedup,
-        // gap-substitute completion, and interior-graze filter give
-        // the overlap faces the same fragment population the tuned
-        // arbitration expects (their chart-emitted web skins classify
-        // OnBoundary with correct coorientation).
-        let chart_disabled = std::env::var("PK_WALK_CHART").as_deref() == Ok("0");
+        // Since PK-107 every face of a coincident boolean
+        // chart-walks, overlap faces included: the substrate's
+        // duplicate-cover dedup, gap-substitute completion, and
+        // interior-graze filter give the overlap faces the same
+        // fragment population the tuned arbitration expects (their
+        // chart-emitted web skins classify OnBoundary with correct
+        // coorientation).
         if chart_primary
-            && !chart_disabled
             && let Some((surface, orientation)) =
                 chart_subdivision::face_surface(face_ref, brep_a, brep_b)
         {
