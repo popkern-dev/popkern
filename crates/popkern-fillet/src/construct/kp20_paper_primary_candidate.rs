@@ -8,7 +8,7 @@
 //! adapts it into the fillet candidate pipeline: geometric fold and
 //! self-intersection checks reuse the polar fold sampler, while
 //! acceptance gates on the paper report's own residuals (scaled to
-//! the candidate's geometric size) instead of the legacy macro-cap
+//! the candidate's geometric size) instead of the macro-cap
 //! validator, whose piece chart and c/m identification encode the
 //! superseded pre-recovery reading.
 

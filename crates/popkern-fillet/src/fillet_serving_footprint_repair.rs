@@ -29,7 +29,7 @@
 //! - The counterpart face is untouched.
 //! - The repair is accepted only when the scoped region validator
 //!   comes back clean; otherwise the caller falls through to the
-//!   PK-250 exclusion retry (legacy serves), exactly as before the
+//!   PK-250 exclusion retry (vertex-blend serves), exactly as before the
 //!   repair existed. A repair can therefore only upgrade a serve.
 //! - Every repair is recorded on the repair report
 //!   (`serving_footprint_repairs`), cleared or not.

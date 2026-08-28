@@ -2,7 +2,7 @@
 //!
 //! The fillet pipeline's apex resolution path: plan apex topology
 //! (with sphere-fit terminations) first, then build the BRep apex
-//! region directly via Euler operators.  Replaces the legacy
+//! region directly via Euler operators.  Replaces the mutating
 //! substitute-then-patch overlay (Phases 6c-A through 6c-X).
 //!
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`.

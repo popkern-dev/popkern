@@ -321,7 +321,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     // §28.H Session 2 — when override-provided position lands
     // outside any existing edge (interior to a face),
     // `insert_anchor_at_position` returns Err.  Fall back to the
-    // perp-walk-math position so legacy/uniform fixtures stay
+    // perp-walk-math position so vertex-blend/uniform fixtures stay
     // unbroken.  Interior-rail (reflex hole-corner) placements land
     // a targeted mev spur at the recorded corner vertex instead —
     // falling back to the wrong-side walk would recreate the

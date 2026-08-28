@@ -1,7 +1,7 @@
 //! PK-341: island-split fragments on faces with concentric rings.
 //!
 //! `cylinder − tube` island-splits the tube's annular caps along a
-//! concentric interior circle. Before the fix the legacy walker
+//! concentric interior circle. Before the fix the 3D-Newell walker
 //! election called both circle copies "separate", hole nesting
 //! rejected the concentric inner rim on winding, classification
 //! sampled knife-edge points ON the other operand, and the served

@@ -216,7 +216,7 @@ impl BRep {
                         crate::geometry::curve::CurveGeometry::Line { .. } => None,
                         crate::geometry::curve::CurveGeometry::Nurbs(n) if n.degree <= 1 => None,
                         // Closed rims (full circles/ellipses) keep the
-                        // legacy path — their chord is degenerate and
+                        // uniform-grid path — their chord is degenerate and
                         // they are handled by dedicated constructors.
                         crate::geometry::curve::CurveGeometry::Circle { .. } => None,
                         other => Some(other.to_nurbs_in_range({

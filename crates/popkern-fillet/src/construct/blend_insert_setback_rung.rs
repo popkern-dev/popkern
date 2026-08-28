@@ -13,7 +13,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 
 /// Attempt the setback boundary surgery. `Some(result)` when the rung
 /// decided (served or hard-errored); `None` falls through to the
-/// legacy corner machinery with the decline recorded.
+/// vertex-blend corner machinery with the decline recorded.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_setback_rung(
     brep: &mut BRep,
@@ -30,14 +30,14 @@ pub(super) fn try_setback_rung(
         && edge_indices.len() >= setback_min_n
     {
         // PK-094 commit mode: the setback vertex blend replaces the
-        // legacy corner machinery entirely for eligible apexes. On
+        // vertex-blend corner machinery entirely for eligible apexes. On
         // any surgery error the snapshot restore inside the surgery
-        // has already run; fall through to the legacy path with a
+        // has already run; fall through to the vertex-blend path with a
         // recorded reason.
         let commit_snapshot = brep.clone();
         // The KP20 cap serves BOTH continuity levels: it is the
         // proven watertight tiling and a G2 cap satisfies G1 (the
-        // PnS bi-4 family integrated at the legacy 5e-2 seam class —
+        // PnS bi-4 family integrated at its historical 5e-2 seam class —
         // its patches overlap by construction, see PK-097).
         match crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
@@ -87,7 +87,7 @@ pub(super) fn try_setback_rung(
                 }
             }
             Err(e) => {
-                // Fall through to the legacy path.
+                // Fall through to the vertex-blend path.
                 *crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
                     .lock()
                     .unwrap_or_else(|p| p.into_inner()) =

@@ -11,7 +11,7 @@
 //!   inspecting a single face, so `split_corner_triangles` saw one
 //!   anchor where two exist and the whole smooth blend fell to
 //!   Mitred (`VertexModeFallback`, zero corner patches).
-//! * With anchors repaired, the legacy N = 3 poke serves only
+//! * With anchors repaired, the vertex-blend N = 3 poke serves only
 //!   g0 = 7.2e-2 (recorded declines): the corner-split chords are
 //!   straight lines on the planar supports, so no boundary sphere
 //!   exists for `try_spherical_blend` (fit declines honestly at
@@ -19,7 +19,7 @@
 //!   direct-apex welded route serves the same apex at g0 = 4.9e-8
 //!   under pure defaults, so the uniform promotion arm extends to
 //!   N = 3 gated on the axis-obliqueness discriminator
-//!   (mutually-orthogonal cube-class corners stay legacy for their
+//!   (mutually-orthogonal cube-class corners stay vertex-blend for their
 //!   exact rolling-ball sphere serve — pinned in
 //!   `setback_n3_corner_serve.rs` / `conic_cube_corner_dispatch.rs`).
 
@@ -154,18 +154,18 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
     );
 }
 
-/// Explicit legacy surface-family flags stand the N = 3 uniform
-/// promotion down (the legacy ladder stays measurable on its
+/// Explicit sub-patch family flags stand the N = 3 uniform
+/// promotion down (the flag-gated ladder stays measurable on its
 /// reaching fixture) and the corner serves smooth Gregory patches.
 /// PK-239: the sphere-ownership prediction is measurably FALSE here
 /// (uniform cylinder strips on mutually oblique axes — no
 /// rolling-ball sphere exists, PK-232's recorded 4.9e-2 fit
 /// decline), so the corner rides the boundary-ring carve inside the
-/// legacy route: the mitred chord class this pin used to ceiling at
+/// vertex-blend route: the mitred chord class this pin used to ceiling at
 /// 7.75e-2 (collect-all check 9, PK-235/PK-236) is replaced by an
 /// exact carved ring and the serve is validate_all CLEAN.
 #[test]
-fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
+fn subpatch_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
     let options = FilletOptions {
         use_two_stripe_gregory: true,
         ..FilletOptions::default()
@@ -174,17 +174,17 @@ fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
     assert_no_mitred_fallback(&result);
     assert!(
         direct_apex_committed_faces(&result).is_empty(),
-        "explicit family flags must keep the apex on the legacy route"
+        "explicit family flags must keep the apex on the vertex-blend route"
     );
     assert!(
         !result.corner_patches.is_empty(),
-        "the legacy route must still serve corner patches (kef anchor repair)"
+        "the vertex-blend route must still serve corner patches (kef anchor repair)"
     );
 
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "legacy-flag ring serve must validate clean, got {errors:?}"
+        "sub-patch-family-flag ring serve must validate clean, got {errors:?}"
     );
     assert!(
         result
@@ -197,16 +197,16 @@ fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
                     if fact.code == "boundary_ring.fact"
                         && fact.stage == "boundary_ring.applied"
             )),
-        "the oblique legacy corner must serve through the boundary ring carve (PK-239)"
+        "the oblique vertex-blend corner must serve through the boundary ring carve (PK-239)"
     );
 }
 
 /// The discriminator boundary: the orthogonal (cube-class) N = 3
-/// uniform corner must NOT promote — its legacy carve serves the
+/// uniform corner must NOT promote — its corner carve serves the
 /// exact rolling-ball sphere, which no fitted cap can beat. The
 /// sphere-quality truth itself is pinned in
 /// `setback_n3_corner_serve.rs` and `conic_cube_corner_dispatch.rs`;
-/// this pin asserts the routing stays legacy.
+/// this pin asserts the routing stays vertex-blend.
 #[test]
 fn orthogonal_cube_corner_does_not_promote_to_direct_apex() {
     let tol = Tolerance::default();
@@ -225,7 +225,7 @@ fn orthogonal_cube_corner_does_not_promote_to_direct_apex() {
         .expect("cube corner fillet succeeds");
     assert!(
         direct_apex_committed_faces(&result).is_empty(),
-        "orthogonal cube corner must stay on the legacy sphere-serving route"
+        "orthogonal cube corner must stay on the vertex-blend sphere-serving route"
     );
     assert!(
         result

@@ -20,29 +20,29 @@ pub(super) fn kp20_support_cell_inventory(
         }
         return support_cell_inventory_from_patchwork_provenance(n_sides, provenance)
             .ok()
-            .map(Kp20SupportCellResolvedInventory::Legacy);
+            .map(Kp20SupportCellResolvedInventory::RingCounts);
     }
     Kp20SupportCellInventory::full_ring(n_sides, support_surfaces.len())
-        .map(Kp20SupportCellResolvedInventory::Legacy)
+        .map(Kp20SupportCellResolvedInventory::RingCounts)
 }
 
 #[derive(Clone)]
 pub(super) enum Kp20SupportCellResolvedInventory {
-    Legacy(Kp20SupportCellInventory),
+    RingCounts(Kp20SupportCellInventory),
     Owner(Kp20SupportCellOwnerInventory),
 }
 
 impl Kp20SupportCellResolvedInventory {
     pub(super) fn cells_per_target_sector(&self) -> usize {
         match self {
-            Self::Legacy(inventory) => inventory.cells_per_target_sector,
+            Self::RingCounts(inventory) => inventory.cells_per_target_sector,
             Self::Owner(inventory) => inventory.cells_per_target_sector,
         }
     }
 
     pub(super) fn support_cell_surface_count(&self) -> usize {
         match self {
-            Self::Legacy(inventory) => {
+            Self::RingCounts(inventory) => {
                 inventory.target_sectors.len() * inventory.cells_per_target_sector
             }
             Self::Owner(inventory) => inventory.support_cell_surface_count(),

@@ -29,7 +29,7 @@
 //! fold the cap on sharp apexes; freeing the sector-0 near-star
 //! CPs lets F_5 avoid the fold at the cost of paper's G² at the
 //! sector 0/1 boundary. **PK-087 gate: the expanded set is
-//! legacy-scaffold-only.** The deep-interior populated path
+//! scaffold-only.** The deep-interior populated path
 //! (`kp15_bi6_deep_interior::assemble_bi6_polar_cap_from_net`)
 //! determines all non-free CPs and must be optimised ONLY over
 //! the paper free set `P` ([`Bi6CapPaperFreeParams`]) — never this.

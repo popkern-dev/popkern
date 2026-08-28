@@ -116,7 +116,7 @@ pub fn convert_polar_to_bi6_cap_fitted(
                 tb.sectors.len()
             ));
         }
-        // Legacy fallback: the crude extractor shares one row-0 between
+        // Crude-extractor fallback: it shares one row-0 between
         // adjacent sectors (tad of s, tak of s−1), reproduced here.
         (0..n)
             .map(|s| [tb.sectors[s][0], tb.sectors[(s + n - 1) % n][0]])

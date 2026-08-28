@@ -482,7 +482,7 @@ impl RepeatedApexPartitionPlan {
                         "welded shared-corner repeated-apex partition declined on the \
                          apex-retaining contract: the far-side trim machinery cannot \
                          Euler-balance the shared-support scaffold this class retires \
-                         (serve routes through the V-free welded substrate or the legacy \
+                         (serve routes through the V-free welded substrate or the vertex-blend \
                          rung); postcondition: {error}"
                     ),
                 }

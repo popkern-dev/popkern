@@ -146,7 +146,7 @@ pub(super) fn cut_corner_separators(
                 // hole-corner chord (the chain-corner vertex to the
                 // rail end) so the band seals from the territory
                 // BEYOND the rail at this corner. The -y corners
-                // carried this seal from legacy routing while the +y
+                // carried this seal from vertex-blend routing while the +y
                 // ones only had the contact separator — measured:
                 // eg5's rail cut yielded band+upper as ONE piece and
                 // the strip surface over-extended 0.7 to the rim.

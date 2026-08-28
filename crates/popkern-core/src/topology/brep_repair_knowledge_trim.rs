@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[test]
-    fn trim_endpoint_label_contains_legacy_fields() {
+    fn trim_endpoint_label_contains_compact_fields() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let half_edge = brep.half_edges.keys().next().expect("cube has half-edge");
         let adjacent_half_edge = brep.half_edges[half_edge].twin;

@@ -44,7 +44,7 @@ pub struct BlendQuality {
     /// A degree-5 v-direction NURBS sweep is the fingerprint of
     /// the G2 path (`g2_sweep_from_contact_solutions` produces
     /// exactly that shape); any other surface — analytic Torus /
-    /// Cylinder / Sphere or the legacy degree-1 arc sweep — is
+    /// Cylinder / Sphere or the degree-1 arc sweep — is
     /// classified as G1 (the rolling ball gives G1 by construction).
     ///
     /// **Why max, not min.** A fillet on a cube edge routed through

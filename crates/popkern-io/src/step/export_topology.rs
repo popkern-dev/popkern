@@ -76,7 +76,7 @@ impl ExportContext {
                 .ok_or_else(|| IoError::Export("Edge references unmapped end vertex".into()))?;
 
             // Export the 3-D curve geometry. Valid collapsed surface trims get a
-            // degenerate B-spline curve; other missing curves retain the legacy
+            // degenerate B-spline curve; other missing curves retain the earlier
             // line fallback for non-degenerate vertex-bounded edges.
             let surface_trim_curve = synthesize_missing_edge_curve_from_surface_trims(brep, eh);
             let curve_3d_id = if let Some(curve) = &edge.curve {

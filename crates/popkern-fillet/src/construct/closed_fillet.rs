@@ -552,7 +552,7 @@ pub(crate) fn apply_closed_fillet(
             Err(e) => {
                 // Structured decline: the strip stays valid (two
                 // disjoint rings) but unchartable; tessellation
-                // falls back to the legacy path for this face.
+                // falls back to the vertex-blend path for this face.
                 tracing_note_seam_decline(&format!("closed-fillet seam mekr declined: {e}"));
             }
         }

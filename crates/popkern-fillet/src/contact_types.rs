@@ -92,7 +92,7 @@ pub(crate) fn ball_sides_for_edge(
     //   blend-on-blend grooves.
     //
     // The pre-PK-099 code had these arms REVERSED relative to their
-    // names because legacy producers' stored flags disagreed with
+    // names because earlier producers' stored flags disagreed with
     // winding; with honest effective flags the physics reads off
     // directly. (`material`/`void` name the side the center sits
     // on relative to the material.)

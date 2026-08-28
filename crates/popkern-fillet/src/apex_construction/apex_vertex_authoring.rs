@@ -286,7 +286,7 @@ pub(super) fn author_gregory_apex_vertices(
     // corner the plan did NOT declare welded are plan drift — the
     // measurement that classified the corner disagrees with the
     // targets being authored — and still decline with the class
-    // named (the recorded legacy fallback serves).
+    // named (the recorded vertex-blend fallback serves).
     let corner_gate = tolerance.linear().max(1.0e-9) * 10.0;
     for k in 0..n {
         let t_b = plan.target_topology.apex_vertices[2 * k + 1];

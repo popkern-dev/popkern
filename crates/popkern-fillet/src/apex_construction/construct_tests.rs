@@ -245,7 +245,7 @@ fn resolve_apex_edges_fails_when_no_shared_face_for_mef() {
         ApexBuildError::PlanMismatch { reason } => reason,
         other => panic!("expected PlanMismatch, got {other:?}"),
     };
-    // Either the legacy path (mef failed) OR the §28.D path
+    // Either the vertex-blend path (mef failed) OR the §28.D path
     // (kef_cross_face_v_edges failed) is acceptable — both
     // confirm the synthetic plan can't be realised.
     assert!(

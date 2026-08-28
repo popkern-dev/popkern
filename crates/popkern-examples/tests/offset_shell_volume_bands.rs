@@ -311,7 +311,7 @@ fn primitives_tessellate_watertight() {
 #[test]
 fn shelled_bodies_tessellate_watertight() {
     // PK-334: shelled bodies mix tessellation paths (boundary-first
-    // walls, legacy-clip rim faces), whose boundary chains carry
+    // walls, clip-era rim faces), whose boundary chains carry
     // DIFFERENT station sets on the shared rim edges — all on the
     // same curve after sewing. The zipper's curve-parameter station
     // merge closes them; before it, the shelled cylinder read 27 open

@@ -21,17 +21,17 @@
 //! pyramid cap_outer quality at the user-visible `5e-3`/`5e-2`
 //! tolerances, and the machine-tight seam ambition was realized in
 //! the exact-boundary cap gates (1e-13 class). The three formerly
-//! ignored strict gates on the LEGACY K-P flag stack (rational +
+//! ignored strict gates on the flag-gated K-P stack (rational +
 //! deg5 + biquintic + biseptic + two-stripe + binonic, non-default)
 //! are retired (PK-138): their `G0 <= 1e-10` target measured a
 //! superseded configuration that never met it (2026-07-17:
 //! cube_mixed 1.388e-7/1.977e-5, pyramid4_mixed 3.293e-6/1.657e-6,
 //! cube_extreme 8.325e-1/9.991e-1 — the last is measured-broken
-//! under legacy flags while the native default route passes its
-//! matrix). `legacy_kp_flag_stack_class_is_pinned` below keeps the
+//! under the flag-gated sub-patch families while the native default route passes its
+//! matrix). `flag_gated_kp_stack_class_is_pinned` below keeps the
 //! reachable option combo from rotting silently.
 //!
-//! Historical strict targets (retired with the legacy stack):
+//! Historical strict targets (retired with the flag-gated stack):
 //! G0 ≤ 1e-10, G1 ≤ 5e-2.
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -96,19 +96,19 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
     );
 }
 
-/// PK-138 retirement record + monitor for the legacy K-P flag stack
+/// PK-138 retirement record + monitor for the flag-gated K-P promotion stack
 /// (see module header). The 1e-10 strict gates are retired; this pin
 /// keeps the still-reachable non-default option combo honest at its
 /// MEASURED class: cube_mixed and pyramid4_mixed hold the
 /// user-visible 5e-3/5e-2 commercial class, and cube_extreme is
-/// documented broken under legacy flags (g0 ~0.83) while the native
+/// documented broken under the flag-gated sub-patch families (g0 ~0.83) while the native
 /// default route serves it — the bound below only guards against
 /// silent further collapse or panics.
 #[test]
-fn legacy_kp_flag_stack_class_is_pinned() {
+fn flag_gated_kp_stack_class_is_pinned() {
     let m = run_cube(&[0.08, 0.10, 0.12]);
     println!(
-        "legacy-stack cube_mixed: g0={:.3e} g1={:.3e}",
+        "flag-stack cube_mixed: g0={:.3e} g1={:.3e}",
         m.worst_g0_gap, m.worst_g1_coplanarity
     );
     assert!(
@@ -119,7 +119,7 @@ fn legacy_kp_flag_stack_class_is_pinned() {
 
     let m = run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
     println!(
-        "legacy-stack pyramid4_mixed: g0={:.3e} g1={:.3e}",
+        "flag-stack pyramid4_mixed: g0={:.3e} g1={:.3e}",
         m.worst_g0_gap, m.worst_g1_coplanarity
     );
     assert!(
@@ -130,7 +130,7 @@ fn legacy_kp_flag_stack_class_is_pinned() {
 
     let m = run_cube(&[0.02, 0.10, 0.20]);
     println!(
-        "legacy-stack cube_extreme: g0={:.3e} g1={:.3e} (documented broken; native default route serves this fixture)",
+        "flag-stack cube_extreme: g0={:.3e} g1={:.3e} (documented broken; native default route serves this fixture)",
         m.worst_g0_gap, m.worst_g1_coplanarity
     );
     assert!(m.worst_g0_gap.is_finite() && m.worst_g0_gap < 2.0);

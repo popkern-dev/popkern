@@ -22,13 +22,13 @@ use crate::{MeshError, TessellationOptions};
 pub(crate) enum FacePassOutcome {
     /// The boundary-first path served the face.
     BoundaryFirst(FaceMesh),
-    /// The face fell back to the legacy pcurve-grid path.
-    Legacy {
+    /// The face fell back to the uniform-grid pcurve path.
+    UniformGrid {
         /// True when the face's outer loop is a pure seam spine
         /// (every edge traversed twice) — such faces keep their exact
         /// chart sampling and are excluded from projection sewing.
         seam_spine: bool,
-        /// The legacy tessellation result; the caller propagates the
+        /// The uniform-grid tessellation result; the caller propagates the
         /// first error in face order.
         mesh: Result<FaceMesh, MeshError>,
     },
@@ -72,8 +72,8 @@ pub(crate) fn collect_split_requests(
 
 /// Run the final tessellation pass for `faces`, in face order.
 ///
-/// Boundary-first is attempted per face; fallbacks run the legacy path
-/// with canonical samples. Legacy errors are carried in the outcome so
+/// Boundary-first is attempted per face; fallbacks run the uniform-grid path
+/// with canonical samples. Uniform-grid errors are carried in the outcome so
 /// the caller can propagate the first one in face order — positionally
 /// identical to the retired sequential loop's early `?` return.
 pub(crate) fn tessellate_face_pass(
@@ -89,7 +89,7 @@ pub(crate) fn tessellate_face_pass(
         // Cancelled outcome; the caller polls before consuming, so the
         // whole pass surfaces as MeshError::Cancelled.
         if cancel.is_some_and(|t| t.is_cancelled()) {
-            return FacePassOutcome::Legacy {
+            return FacePassOutcome::UniformGrid {
                 seam_spine: false,
                 mesh: Err(MeshError::Cancelled),
             };
@@ -119,7 +119,7 @@ pub(crate) fn tessellate_face_pass(
                 .unwrap_or("None");
             eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
         }
-        FacePassOutcome::Legacy {
+        FacePassOutcome::UniformGrid {
             seam_spine: crate::tessellate::outer_loop_is_seam_spine(brep, face_handle),
             mesh: crate::tessellate::tessellate_face_with_samples(
                 brep,
@@ -206,7 +206,7 @@ mod tests {
 
     /// PK-277 acceptance: identical tessellation 1-thread vs N-thread.
     /// The cylinder exercises closed rims, the periodic wall chart, and
-    /// the boundary-first/legacy split; meshes must match bitwise.
+    /// the boundary-first/uniform-grid split; meshes must match bitwise.
     #[cfg(feature = "parallel")]
     #[test]
     fn thread_count_does_not_change_mesh() {

@@ -94,7 +94,7 @@ pub enum CapKind {
         per_fillet_caps: Vec<(Point3, f64)>,
         /// Corner classification, length N: `corner_kinds[k]` is the
         /// corner between fillet `k` and fillet `k+1` (mod N).
-        /// Empty (legacy serialized plans) means all corners
+        /// Empty (older serialized plans) means all corners
         /// Bridged — the pre-shared-corner contract.
         #[serde(default)]
         corner_kinds: Vec<ApexCornerKind>,
@@ -103,7 +103,7 @@ pub enum CapKind {
     /// No cap is constructed — the planner's [Open
     /// rung](super::telemetry::ConstructionRung::Open) when both
     /// Direct and Setback failed.  Fillets terminate at their
-    /// legacy rolling-ball footprints; the apex region is left as
+    /// rolling-ball footprints; the apex region is left as
     /// the pre-DirectApex substitute-then-patch overlay would have
     /// produced (or unfilleted, depending on caller).
     ///
@@ -147,7 +147,7 @@ impl CapKind {
     }
 
     /// Corner kinds for a Gregory cap (empty slice for Sphere/Open
-    /// and for legacy plans that predate corner classification —
+    /// and for plans that predate corner classification —
     /// both mean "no welded corners").
     pub fn corner_kinds(&self) -> &[ApexCornerKind] {
         match self {
@@ -164,7 +164,7 @@ impl CapKind {
             .is_some_and(ApexCornerKind::is_welded)
     }
 
-    /// Number of welded corners (0 for Sphere/Open/legacy plans).
+    /// Number of welded corners (0 for Sphere/Open/pre-classification plans).
     pub fn welded_corner_count(&self) -> usize {
         self.corner_kinds()
             .iter()

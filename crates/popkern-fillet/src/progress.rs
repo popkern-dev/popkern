@@ -132,13 +132,13 @@ pub struct EdgeTelemetry {
     pub duration: Duration,
     /// Total Newton iterations consumed by the rolling-ball
     /// contact solver across all walker samples for this edge.
-    /// `None` on the legacy offset-intersect path (no walker, no
+    /// `None` on the offset-intersect path (no walker, no
     /// Newton iteration telemetry). `Some(0)` would indicate the
     /// walker ran but produced no contact solutions — shouldn't
     /// happen in practice.
     pub newton_iterations: Option<usize>,
     /// Total backtracking-line-search rejections summed across
-    /// every walker sample's contact solve. `None` on the legacy
+    /// every walker sample's contact solve. `None` on the offset-intersect
     /// offset-intersect path. A high value relative to
     /// `newton_iterations` indicates ill-conditioned contact
     /// geometry — useful for flagging specific edges to a user.
@@ -187,7 +187,7 @@ impl FilletTelemetry {
     }
 
     /// Total Newton iterations summed across every walker edge
-    /// that reported iteration counts. Edges on the legacy offset-
+    /// that reported iteration counts. Edges on the offset-
     /// intersect path (where `newton_iterations = None`) are
     /// excluded from the sum.
     pub fn total_newton_iterations(&self) -> usize {
@@ -235,7 +235,7 @@ impl FilletTelemetry {
     }
 
     /// Total backtracking line-search rejections summed across
-    /// every walker edge. Edges on the legacy offset-intersect
+    /// every walker edge. Edges on the offset-intersect
     /// path (`step_rejections = None`) are excluded from the sum.
     pub fn total_step_rejections(&self) -> usize {
         self.edge_events

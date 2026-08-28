@@ -149,7 +149,7 @@ fn pyramid_apex_gregory() -> Option<(BRep, Vec<popkern_core::topology::FaceHandl
     let r = fillet_edges(&pyramid, &specs, &opts, tol(), None).ok()?;
     // Exact-boundary commits author CornerPatchInfo per committed
     // sector face (PK-119): both the direct-apex partition route
-    // (method Coons) and legacy Gregory caps surface through
+    // (method Coons) and rational-Gregory caps surface through
     // corner_patches, so no route-report archaeology is needed.
     let faces: Vec<_> = r
         .corner_patches
@@ -199,7 +199,7 @@ const REFLECTION_KINK_LIMIT: f64 = 2.0;
 //
 // Re-baselined 2026-07-17 (PK-127): the mixed-radius promotion now
 // reaches the partition commit under DEFAULT options (previously the
-// promoted apex always fell back to the legacy cap at plan time), so
+// promoted apex always fell back to the vertex-blend cap at plan time), so
 // this fixture measures the four committed exact-boundary sector
 // caps (worst cap[3] 0.7812; g0 for the same route improved
 // 1.34 → 1.5e-14).

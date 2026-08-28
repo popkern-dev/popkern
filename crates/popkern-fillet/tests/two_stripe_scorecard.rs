@@ -3,7 +3,7 @@
 //! Rung ladder side-by-side on the fixture the rectangular sub-patch
 //! ladder actually reaches: the uniform square-pyramid apex
 //! (r = 0.05), whose uniform promotion arm stands down on explicit
-//! legacy-family flags (PK-229 `explicit_subpatch_family_requested`
+//! sub-patch-family flags (PK-229 `explicit_subpatch_family_requested`
 //! carve-out).
 //!
 //! PK-230: migrated off the mixed-radius cube corners. cube_mixed has
@@ -11,7 +11,7 @@
 //! a macro-cap escape hatch with zero flag coverage), and cube_extreme
 //! reached the ladder only while the pre-PK-230 grazing false
 //! positive made the serving retry re-route its promoted direct-apex
-//! serve back to legacy — the honest validator retired that
+//! serve back to vertex-blend — the honest validator retired that
 //! accident. On mixed corners the deg5-only baseline IS the default
 //! flag set, and defaults promote mixed N∈{3,4} apexes (PK-099).
 //!

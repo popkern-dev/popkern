@@ -1,7 +1,7 @@
 //! PnS bi-4 cap on the SETBACK border — the G1 sibling of the KP20
 //! setback candidate (PK-097 the anchor-split stage).
 //!
-//! The existing PnS dispatch consumes the legacy blend boundary
+//! The existing PnS dispatch consumes the mitred blend boundary
 //! (apex-end anchors); this entry derives the border from the fillet
 //! surfaces' setback arcs — the geometry the cap must actually bound
 //! — via the same extractor the KP20 path uses.
@@ -33,7 +33,7 @@ use super::kp20_paper_border_extract::kp20_paper_border_from_fillet_setback;
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// Fraction of arc length used as the transversal derivative
-/// magnitude (matches the legacy adapter's convention).
+/// magnitude (matches the mitred-boundary adapter's convention).
 const DERIV_MAG_FRAC: f64 = 0.5;
 
 /// F_κ order for the assembly (same default as the promote path).
@@ -463,7 +463,7 @@ fn oriented_perp(
     let unit = perp * (1.0 / len);
     let to_vertex = Vec3::new(vertex.x - p.x, vertex.y - p.y, vertex.z - p.z);
     // PnS derivative rows point INTO the surrounding surface (away
-    // from the cap), matching the legacy adapter convention.
+    // from the cap), matching the mitred-boundary adapter convention.
     let sign = if unit.dot(&to_vertex) > 0.0 {
         -1.0
     } else {

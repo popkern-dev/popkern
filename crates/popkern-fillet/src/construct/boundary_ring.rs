@@ -4,7 +4,7 @@
 //! The mitred corner construction leaves the saddle's blend ring on
 //! the SHARP model edges: rim chords claim fillet cylinders they sit
 //! up to `√2·r − r` away from, while the three-quad decomposition's
-//! Gregory patches interpolate the legacy [`BlendBoundary`] 1.3e-1
+//! Gregory patches interpolate the mitred [`BlendBoundary`] 1.3e-1
 //! away (measured, notched-cube saddle). The corner-point setback
 //! surgery cannot serve this class either — at the reflex junction
 //! between the two convex strips the rims never meet, so its
@@ -25,13 +25,13 @@
 //!   ring) into a single `2n`-gon blend face via the setback
 //!   surgery's region merge.
 //!
-//! The blend face then flows through the UNCHANGED legacy three-quad
+//! The blend face then flows through the UNCHANGED three-quad
 //! dispatch: the poke sees a `2n` ring, the seam re-anchor measures
 //! already-anchored (the ring IS the boundary), and the decomposition
 //! bonds onto edges that lie on their faces.
 //!
 //! Transactional: any step error restores the entry snapshot and the
-//! caller falls through to the mitred legacy construction with the
+//! caller falls through to the mitred fallback construction with the
 //! decline recorded (today's behavior, no regression).
 
 use super::boundary_ring_geom::{

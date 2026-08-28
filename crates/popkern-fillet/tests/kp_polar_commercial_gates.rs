@@ -24,7 +24,7 @@ use helpers::{
 
 /// Fillet the N-gonal pyramid apex and measure the committed cap
 /// across its LIVE seam topology (the setback fan ships 4 bi-9
-/// pieces per sector; the legacy `measure_ring` frame does not
+/// pieces per sector; the one-patch-per-sector `measure_ring` frame does not
 /// describe that layout — PK-087).
 fn run_n_gonal_pyramid_polar(
     n: usize,
@@ -151,7 +151,7 @@ fn blunt_g2_request_accepts(n: usize, fixture: &str) {
     // Watertightness, STRICT on every blunt fixture (PK-208 closed):
     // the crack family's three authors are all fixed — displaced
     // pcurve seeds (cold-projection retry in the boundary-first ring
-    // builder), staggered legacy sampling (topology-scoped T-junction
+    // builder), staggered pre-boundary-first sampling (topology-scoped T-junction
     // zippering), and the rimsplit stub deformation (refit_cap_rim
     // now moves windowed-neighbour rim vertices onto the rows and
     // re-coheres their incident curves instead of ramping the exact

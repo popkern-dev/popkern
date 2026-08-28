@@ -2,7 +2,7 @@
 //!
 //! Quantifies the improvement of Karciauskas-Peters biquintic-full
 //! (with spoke-G1 solver) over the baseline deg5 Gregory along the
-//! three shared spokes of the trihedral vertex blend when the legacy
+//! three shared spokes of the trihedral vertex blend when the flag-gated
 //! rectangular decomposition is exposed as committed faces. Two metrics:
 //!
 //! 1. **Normal agreement** — `|n_L · n_R| / (|n_L| · |n_R|)` at

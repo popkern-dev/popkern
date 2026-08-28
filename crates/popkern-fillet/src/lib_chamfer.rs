@@ -190,7 +190,7 @@ fn chamfer_edges_internal(
             }
             Some((cap, reason)) => {
                 // Declined chain construction is a hard, transactional
-                // error: the legacy per-edge path is measured-broken
+                // error: the pre-batch per-edge path is measured-broken
                 // for closed chains, so falling through would ship
                 // corrupt topology.
                 return Err(BlendError::PartialFailure {

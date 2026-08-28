@@ -69,7 +69,7 @@ pub fn compute_edge_geometry(
     if let Some(result) = try_dispatch_trig(surf_a, surf_b, &anchors, hint.as_ref(), tol) {
         return result;
     }
-    // Fall through to the legacy NURBS-via-intersect_surfaces path
+    // Fall through to the NURBS-via-intersect_surfaces path
     // (handles plane×plane analytically).
     if let Some(result) = try_dispatch_analytic(surf_a, surf_b, &anchors, hint.as_ref(), tol, opts)
     {

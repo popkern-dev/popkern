@@ -105,7 +105,7 @@ fn g1_kp20_commit_produces_valid_blend() {
     assert_eq!(
         *kinds.get("Plane").unwrap_or(&0),
         6,
-        "base + 5 laterals (PK-097: the legacy sliver-absorb pass used \
+        "base + 5 laterals (PK-097: the earlier sliver-absorb pass used \
          to consume 3 of them on setback-built blends)"
     );
 }

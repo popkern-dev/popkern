@@ -176,7 +176,7 @@ fn main() {
 /// below can be judged in context.
 fn export_real_pyramid_reference(out: &Path) {
     // Just pentagon n=5 sharp h=0.8 r=0.05 — the case that produces a
-    // visually recognisable apex cap (legacy RollingBallSphere fallback
+    // visually recognisable apex cap (RollingBallSphere fallback
     // with G1 ~ 0.86 — fails the 50mrad commercial gate but is the
     // best the kernel currently produces). The hexagon n=6 case and
     // taller pyramids all decline polar Gregory and produce visually
@@ -309,7 +309,7 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         ..FilletOptions::default()
     };
     let option_variants: Vec<(&str, FilletOptions)> = vec![
-        ("default_legacy", FilletOptions::default()),
+        ("default_route", FilletOptions::default()),
         (
             "direct_apex",
             FilletOptions {

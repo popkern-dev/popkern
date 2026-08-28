@@ -474,7 +474,7 @@ fn lemma6_layer_connectedness_report_uses_within_macro_origin_pair() {
         let (within_l2, cross_l2) = lemma6_layer_connectedness_comparison_for_tests(&cap, 2, 2);
 
         eprintln!(
-            "Lemma 6 connectedness n={n}: within L0={within_l0:e} L1={within_l1:e} L2={within_l2:e}; legacy-cross L0={cross_l0:e} L1={cross_l1:e} L2={cross_l2:e}",
+            "Lemma 6 connectedness n={n}: within L0={within_l0:e} L1={within_l1:e} L2={within_l2:e}; cross-band L0={cross_l0:e} L1={cross_l1:e} L2={cross_l2:e}",
         );
 
         assert!(

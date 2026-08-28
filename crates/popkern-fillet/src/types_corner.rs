@@ -12,7 +12,7 @@ pub enum CornerMethod {
     RollingBallSphere,
     /// Polar NURBS surface fit through the boundary curves. G0.
     PolarNurbs,
-    /// Flat (mitred) plane fit — legacy G0 fallback.
+    /// Flat (mitred) plane fit — the mitred G0 fallback.
     Mitred,
     /// §5.3 Coons patch for N=4 corners. G1. [Pending — C3.]
     Coons,
@@ -264,15 +264,15 @@ pub struct CornerPatchInfo {
     pub cap_sphere: Option<(popkern_core::geometry::Point3, f64)>,
     /// True when this patch was produced by the SETBACK vertex-blend
     /// surgery (PK-094/PK-097 cap families). The setback surgery
-    /// owns its apex topology: legacy post passes (sliver absorb,
-    /// cylinder off-surface topology repair) and legacy runoff
+    /// owns its apex topology: the vertex-blend post passes (sliver absorb,
+    /// cylinder off-surface topology repair) and vertex-blend runoff
     /// scoping key off this to keep the two worlds apart.
     pub setback_cap: bool,
     /// True when this patch is a committed sector face of an ACCEPTED
     /// exact-boundary cap candidate (one-patch Coons wedge or its
     /// multipatch partition fallback). The exact-boundary route owns
     /// its topology and pcurves — acceptance gates every cap/support
-    /// pcurve pair transactionally — so legacy corner-patch pcurve
+    /// pcurve pair transactionally — so vertex-blend corner-patch pcurve
     /// completion must not re-author them (same quarantine contract
     /// as `setback_cap`, PK-087/PK-119).
     pub exact_boundary_cap: bool,

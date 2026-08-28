@@ -115,7 +115,7 @@ pub(crate) fn insert_vertex_blend(
     // PK-226 extended it to variable/mixed radii). Unsuitable
     // geometry declines transactionally with the reason recorded.
     // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
-    // pin the legacy fallback dispatch (corner_fallback_dispatch.rs).
+    // pin the vertex-blend fallback dispatch (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let setback_min_n = setback_min_n_for(
         edge_indices,

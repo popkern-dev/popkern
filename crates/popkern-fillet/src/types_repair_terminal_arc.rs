@@ -1,7 +1,7 @@
 //! PK-148 terminal-arc-trim repair report types.
 //!
 //! At an open fillet chain end the strip's terminal boundary must be
-//! the cross-section arc of the blend surface. The legacy split
+//! the cross-section arc of the blend surface. The pre-terminal-arc split
 //! pipeline instead retained the two support-edge stubs (straight
 //! line curves through the original corner vertex) while the strip's
 //! pcurves already described the true arc — two disagreeing

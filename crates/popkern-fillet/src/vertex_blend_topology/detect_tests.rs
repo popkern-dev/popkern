@@ -151,7 +151,7 @@ fn outer_loop_valence_pre_fillet_cube() {
 
 #[test]
 fn outer_loop_valence_post_fillet_cube_cap_is_six() {
-    // Route B corner reconstruction contracts the legacy
+    // Route B corner reconstruction contracts the anchor-hexagon
     // hexagon's anchor vertices into the on-sphere contacts:
     // the cap boundary is now THREE exact sphere-centered
     // arcs between the rolling-ball tangency feet — the

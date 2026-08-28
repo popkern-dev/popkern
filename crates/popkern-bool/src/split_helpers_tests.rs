@@ -110,7 +110,7 @@ fn is_planar_face_false_for_cylinder_face() {
 
 #[test]
 fn is_planar_face_true_when_no_surface_geometry() {
-    // Face with no geometry attached → treated as planar (legacy path).
+    // Face with no geometry attached → treated as planar (historical default).
     let mut brep = unit_cube();
     let face = brep.faces.keys().next().unwrap();
     brep.faces[face].surface = None;

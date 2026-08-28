@@ -149,7 +149,7 @@ pub fn build_brep_repair_knowledge_artifact_with_samples(
     }
 }
 
-/// Render a diagnostic from structured fields, not from legacy labels.
+/// Render a diagnostic from structured fields, not from migration labels.
 pub fn render_brep_repair_diagnostic(diagnostic: &BrepRepairDiagnostic) -> String {
     let subject = diagnostic
         .handles
@@ -422,13 +422,13 @@ mod tests {
             handles: Vec::new(),
             suggested_repair: BrepRepairSuggestedRepair::TrimReconstruction,
             render_key: "brep.trim.pcurve_missing".to_string(),
-            migration_label: Some("legacy text that must not be rendered".to_string()),
+            migration_label: Some("migration text that must not be rendered".to_string()),
         };
 
         let rendered = render_brep_repair_diagnostic(&diagnostic);
 
         assert!(rendered.contains("brep.trim.pcurve_missing"));
         assert!(rendered.contains("trim_reconstruction"));
-        assert!(!rendered.contains("legacy text"));
+        assert!(!rendered.contains("migration text"));
     }
 }

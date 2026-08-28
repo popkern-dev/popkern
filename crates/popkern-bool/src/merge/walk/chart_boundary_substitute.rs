@@ -204,7 +204,7 @@ pub(super) fn resolve_boundary_substitutes(
             std::cmp::Ordering::Less => resolved.push((tw, h)),
             // Indecisive vote (degenerate or corner-straddling run):
             // leave the pair registered — the balance search and the
-            // legacy walk remain its recorded fallback, and the I4
+            // 3D-Newell walk remain its recorded fallback, and the I4
             // degree check reports the node if it stays unbalanced.
             std::cmp::Ordering::Equal => {}
         }

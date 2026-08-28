@@ -1,6 +1,6 @@
 //! Canonical-station trim-loop sampling (PK-299).
 //!
-//! A face that declines boundary-first tessellates on the legacy
+//! A face that declines boundary-first tessellates on the uniform-grid
 //! grid, whose trim polylines were sampled adaptively from each
 //! half-edge's PCURVE — its boundary vertices then lie on chords of
 //! that private polyline, up to the UV chord-height off the true
@@ -12,7 +12,7 @@
 //! This module samples a trim loop at the CANONICAL per-edge stations
 //! (`sample_all_edges` — the same samples every boundary-first face
 //! uses), pairing each canonical 3-D point with the half-edge
-//! pcurve's UV at the co-parameterized station. The legacy face's
+//! pcurve's UV at the co-parameterized station. The uniform-grid face's
 //! trim polyline then shares every vertex — bit-identical — with the
 //! neighbours' chains, clip-introduced T-vertices land exactly ON
 //! the neighbours' segments, and the tolerance-scoped zipper closes

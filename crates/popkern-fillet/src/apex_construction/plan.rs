@@ -16,7 +16,7 @@
 //!    * Setback ([`plan_rung_fallback::plan_setback_rung`](super::plan_rung_fallback::plan_setback_rung)):
 //!      lenient per-fillet sphere-fit, ≥3 successful fillets required.
 //!    * Open ([`plan_rung_fallback::plan_open_rung`](super::plan_rung_fallback::plan_open_rung)):
-//!      empty apex topology, fillets terminate at legacy rolling-ball
+//!      empty apex topology, fillets terminate at rolling-ball
 //!      footprints.
 //! 4. Telemetry records the rung used + any fallback reason.
 
@@ -232,13 +232,13 @@ pub fn plan_apex_resolution(
 ///
 /// Identical to the public entry point except it skips the
 /// edge-existence and edge-incidence input checks, which fail
-/// when the legacy `apply_blend_geometry` pipeline calls the
+/// when the `apply_blend_geometry` pipeline calls the
 /// planner mid-flight after the consumed-merge stage has kef'd the original
 /// fillet edges (their handles are no longer in
 /// `brep.edges`).  Radius / apex-vertex / fillet-count checks
 /// still apply.
 ///
-/// `pub(crate)` — only the legacy pipeline's DirectApex dispatch
+/// `pub(crate)` — only the fillet pipeline's DirectApex dispatch
 /// (`crate::construct::direct_apex_dispatch`) calls this.  External
 /// callers should use [`plan_apex_resolution`] which validates
 /// the spec strictly.

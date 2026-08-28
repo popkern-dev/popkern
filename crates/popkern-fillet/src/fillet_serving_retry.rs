@@ -20,10 +20,10 @@ use crate::{cancellation, progress};
 /// check is premature by the PK-165/PK-220 lessons and flipped 20
 /// clean serving fixtures when tried) — and, since PK-260, no corner
 /// may carry a recorded serving-shape decline (the mid-pipeline
-/// fallback serves a degraded legacy body built on
+/// fallback serves a degraded vertex-blend body built on
 /// direct-apex-convention anchors). Either trigger forces ONE re-run
 /// with the affected vertices excluded from direct-apex promotion so
-/// the legacy dispatch serves those corners from clean legacy
+/// the vertex-blend dispatch serves those corners from clean vertex-blend
 /// anchors; the retry is recorded on the repair report. A failing
 /// retry keeps the first result — never serve worse than the
 /// measured first pass. Default ON since the PK-245 arming campaign
@@ -52,16 +52,16 @@ pub(crate) fn fillet_edges_internal(
     }
     let offending = served_direct_apex_self_intersections(&first);
     // PK-260: serving-shape declines trigger the same exclusion
-    // re-run. The mid-pipeline fallback runs the legacy builder on
+    // re-run. The mid-pipeline fallback runs the vertex-blend builder on
     // direct-apex-convention anchors and serves a degraded body
     // (measured 8.5e-2 edge/surface deviations on the oblique
     // base-corner class); excluding the corner BEFORE anchor splitting
-    // re-places legacy anchors and the legacy dispatch serves clean.
+    // re-places perp-walk anchors and the vertex-blend dispatch serves clean.
     let declined = serving_shape_declined_corners(&first);
     if offending.is_empty() && declined.is_empty() {
         return Ok(first);
     }
-    // PK-251: before downgrading the corner to legacy, attempt the
+    // PK-251: before downgrading the corner to vertex-blend, attempt the
     // in-place footprint repair — validator-driven interior
     // control-point pushes on the served cap. The repair runs on a
     // CLONE and is adopted only when every offending region clears,
@@ -140,7 +140,7 @@ pub(crate) fn fillet_edges_internal(
             // recordless modify fixture shipped a 9v3x7v5 crossing when
             // bars outranked validity); served cap-outer quality decides
             // between validity-EQUAL candidates, where the blind
-            // pre-contract adoption traded a g1 0.755 legacy fan for a
+            // pre-contract adoption traded a g1 0.755 vertex-blend fan for a
             // served direct cap without ever measuring either. Ties
             // adopt the retry. An unmeasurable candidate (no served
             // corner faces) fails the bars and ranks worst on quality —
@@ -252,7 +252,7 @@ fn ordered_float(value: f64) -> u64 {
 
 /// Measure a candidate's serve over the retried corner set: worst
 /// served cap-outer continuity across the corners' recorded cap faces
-/// (direct AND legacy routes record them), plus crossing state. A
+/// (direct AND vertex-blend routes record them), plus crossing state. A
 /// corner with no measurable seam contributes NaN, which fails the
 /// bars and ranks worst — quality claims need evidence.
 fn serve_score(
@@ -294,7 +294,7 @@ fn serve_score(
 
 /// Corners whose direct-apex construction declined at the
 /// serving-shape gate (PK-260), with the recorded decline reason. The
-/// mid-pipeline fallback serves a degraded legacy body (direct-apex
+/// mid-pipeline fallback serves a degraded vertex-blend body (direct-apex
 /// anchor convention); the exclusion re-run serves clean.
 fn serving_shape_declined_corners(
     result: &BlendResult,
@@ -359,7 +359,7 @@ mod tests {
     fn keep_better_ranking_orders_validity_then_bars_then_quality() {
         // A crossing-free serve beats a crossing-flagged one no matter
         // the quality gap (the flagged body cannot pass the serving
-        // gate) — the 0.755 legacy fan vs 1e-4 flagged direct case.
+        // gate) — the 0.755 vertex-blend fan vs 1e-4 flagged direct case.
         assert!(score(true, 1.0e-2, 0.755) > score(false, 1.0e-8, 1.0e-4));
         // Between validity-equal candidates the commercial bars, then
         // the measured quality, decide — the quality-blind adoption

@@ -195,7 +195,7 @@ fn cube_interior_crossing_repairs_to_direct_serve() {
 
 /// PK-255 CLOSED (2026-08-09): the steep-asymmetry (1:4) fixture
 /// serves DirectApex with no serving machinery, validate-clean. The
-/// former legacy-fan fallback was a terminal-sliver knot in one
+/// former vertex-blend-fan fallback was a terminal-sliver knot in one
 /// fillet-end source curve (propagated by the knot union, collapsing
 /// the derivative-row lever arm) plus period-clamp measurement
 /// artifacts in the acceptance measures. The commercial quality bars

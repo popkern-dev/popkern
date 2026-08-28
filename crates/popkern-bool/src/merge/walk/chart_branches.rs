@@ -159,7 +159,7 @@ pub(super) fn anchor_periodic(
     // v-INCREASING travel at the high border; σ = −1 mirrors this.
     // (Measured: a balance-only search accepted the lockstep-swapped
     // assignment on the breached-bore wall — also balanced, but it
-    // re-created the legacy 16-half-edge mega-loop orbit.)
+    // re-created the 3D-Newell 16-half-edge mega-loop orbit.)
     let mut seam_pairs: Vec<(usize, usize)> = Vec::new();
     for &h in &seam_hes {
         let tw = graph.half_edges[h].twin;

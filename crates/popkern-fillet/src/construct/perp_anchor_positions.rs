@@ -170,7 +170,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     if slot_quality >= 2 || edge_len <= 1e-15 {
                         return;
                     }
-                    // Compute perp-walk t — the canonical legacy
+                    // Compute perp-walk t — the canonical perp-walk
                     // position.  See `analytic_curve` doc above:
                     // the on-cyl path computes a different (true
                     // on-surface) anchor for non-perpendicular

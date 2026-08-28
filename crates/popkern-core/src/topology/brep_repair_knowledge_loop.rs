@@ -141,14 +141,14 @@ mod tests {
     use crate::topology::BRep;
 
     #[test]
-    fn loop_kind_debug_labels_match_legacy_apex_labels() {
+    fn loop_kind_debug_labels_match_compact_apex_labels() {
         assert_eq!(format!("{:?}", BrepLoopKind::Outer), "Outer");
         assert_eq!(format!("{:?}", BrepLoopKind::Inner), "Inner");
         assert_eq!(format!("{:?}", BrepLoopKind::Unknown), "Unknown");
     }
 
     #[test]
-    fn loop_fact_label_contains_legacy_fields() {
+    fn loop_fact_label_contains_compact_fields() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let face = brep.faces.keys().next().expect("cube has face");
         let loop_handle = brep.faces[face].outer_loop;

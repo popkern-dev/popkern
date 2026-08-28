@@ -1,8 +1,8 @@
 //! Structured record of the cellular→graph-merge fallback boundary.
 //!
 //! The boolean pipeline's primary selection is the order-independent
-//! cellular decomposition; the legacy graph-merge selection is its
-//! explicit fallback. Every time the fallback fires, the pipeline
+//! cellular decomposition; graph-merge selection is its explicit
+//! fallback. Every time the fallback fires, the pipeline
 //! records WHY (structured, process-queryable) and says so once on
 //! stderr — a silent route change here previously cost a whole
 //! campaign of misdirected pcurve archaeology, because the cellular
@@ -16,8 +16,8 @@ use std::sync::Mutex;
 
 use crate::error::BoolOperation;
 
-/// Why the boolean pipeline fell back from cellular selection to the
-/// legacy graph-merge selection.
+/// Why the boolean pipeline fell back from cellular selection to
+/// graph-merge selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeFallbackReason {
     /// `POPKERN_CELLULAR=0` forced graph-merge (diagnostic

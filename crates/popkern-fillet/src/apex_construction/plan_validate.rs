@@ -43,7 +43,7 @@ pub(crate) fn validate_inputs(
 /// Skips checks (3) and (4) because the post-Phase-C BRep state
 /// the dispatch site sees has the original fillet edges already
 /// removed (kef'd) — those handles are no longer valid even
-/// though the spec was well-formed when the legacy pipeline
+/// though the spec was well-formed when the vertex-blend pipeline
 /// constructed it.  The planner's downstream stages
 /// (`compute_apex_boundary`, `compute_per_fillet_terminations`)
 /// don't read `spec.edge`; they read geometry from

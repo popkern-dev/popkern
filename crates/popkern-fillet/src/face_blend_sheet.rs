@@ -224,7 +224,7 @@ pub(crate) fn section_arc_points(
             // Antipodal contacts: the section is a half-circle and
             // its bow side is not determined by the two contacts
             // alone — use the caller's bulge hint. Without one, fall
-            // back to a straight chord (degenerate/legacy behavior).
+            // back to a straight chord (degenerate fallback behavior).
             let half_circle = bulge
                 .and_then(|d| u.normalized().map(|uh| d - uh * d.dot(&uh)))
                 .and_then(|d| d.normalized());

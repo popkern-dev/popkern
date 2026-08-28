@@ -4,7 +4,7 @@
 //! bit-identical call-to-call and at any thread count. The fixture is
 //! the PK-295 served subtraction (rim-filleted cylinder minus a
 //! strip-crossing cuboid) at a fine chord height — heavy enough to
-//! drive encroachment rounds, the legacy fallback, boundary sewing,
+//! drive encroachment rounds, the uniform-grid fallback, boundary sewing,
 //! and the crack zipper. This pin caught two real defects on landing:
 //! hash-ordered Bowyer–Watson cavity refill (thread-dependent triangle
 //! order) and hash-ordered crack-zipper candidate ties (call-to-call

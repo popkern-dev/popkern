@@ -27,7 +27,7 @@ use ribbon_support_surface::select_support_surface;
 // the mult-4 degree-9 boundary basis, so intra-span G1 spikes (measured
 // 0.65 at v=0.277 within [0.25, 0.3125] on pyramid4_uniform) pass the
 // solve-side gates. Densifying to 17/33 makes the solve HONESTLY
-// decline those caps — but the sphere/legacy fallbacks that then ship
+// decline those caps — but the sphere/vertex-blend fallbacks that then ship
 // measure worse (pyramid4_uniform 18 tessellation seams, pyramid3
 // loses its Gregory caps entirely), so the sparse evidence ships the
 // better surface until a G1-capable N=4 cap construction lands

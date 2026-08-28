@@ -23,7 +23,7 @@ use crate::walker::{WalkOptions, WalkRequest, walk_spine};
 /// inner-loop cost on cones drops from "20 × multi-start Gauss-Newton"
 /// to "20 × ~2 Newton iterations."
 ///
-/// Returns the same [`CenterCurveResult`] shape as the legacy paths,
+/// Returns the same [`CenterCurveResult`] shape as the vertex-blend paths,
 /// with `center_curve` fitted through the sample ball-centers and
 /// `footprint_*` populated from each sample's contact points.
 #[allow(clippy::too_many_arguments)]

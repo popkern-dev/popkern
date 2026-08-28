@@ -3,7 +3,7 @@
 //!
 //! Faces sample a shared BRep edge from several legitimate sources —
 //! canonical per-edge stations, encroachment enrichment, clip-cut
-//! T-vertices, legacy grid stations — and the sewing pass lands every
+//! T-vertices, uniform-grid stations — and the sewing pass lands every
 //! chain ON the shared edge curve. Two chains with different station
 //! sets therefore sit on the SAME curve at STAGGERED positions:
 //! position-welding can never pair them, and chord-distance matching

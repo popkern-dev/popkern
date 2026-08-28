@@ -401,7 +401,7 @@ pub(crate) fn find_intersections_with_aabbs(
     // logic to preserve branch topology when subdividing faces.
     label_branch_point_endpoints(&mut records, tolerance);
 
-    // Diagnostic: detect edge-face intersections (legacy path).
+    // Diagnostic: detect edge-face intersections (marching path).
     let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
     if std::env::var_os("PK_PAIR_TRACE").is_some() {
         eprintln!("  [hits] {} edge-face hits", edge_face_hits.len());

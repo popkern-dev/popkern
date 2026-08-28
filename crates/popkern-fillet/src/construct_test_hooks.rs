@@ -33,7 +33,7 @@ pub fn enable_setback_topology_commit() {
         .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Force COMMIT mode off (tests needing the legacy corner path).
+/// Force COMMIT mode off (tests needing the vertex-blend corner path).
 pub fn disable_setback_topology_commit() {
     crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT
         .store(false, std::sync::atomic::Ordering::Relaxed);

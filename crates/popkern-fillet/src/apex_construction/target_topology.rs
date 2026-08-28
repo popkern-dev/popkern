@@ -121,7 +121,7 @@ pub enum TargetEdgeRole {
 /// For Gregory caps: an N-sided face that the cap-construction
 /// pipeline will subsequently decompose into N sub-patches via
 /// 3-quad poke.  For Open: no cap face is created — fillets
-/// terminate at their legacy rolling-ball footprints.
+/// terminate at their rolling-ball footprints.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum TargetCapFace {

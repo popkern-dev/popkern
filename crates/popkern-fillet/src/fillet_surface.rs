@@ -24,7 +24,7 @@ pub struct FilletSurfaceResult {
     pub trim_curve_2: NurbsCurve,
     /// §7 continuity downgrade: `Some(reason)` when the caller
     /// requested G2 but the G2 sweep errored and the builder fell
-    /// back to the legacy G1 arc sweep. `None` when the delivered
+    /// back to the G1 arc sweep. `None` when the delivered
     /// surface matches the requested continuity.
     pub continuity_downgrade: Option<String>,
 }
@@ -42,7 +42,7 @@ pub struct FilletSurfaceResult {
 /// is `Some` (i.e., the spine walker produced per-sample contact solutions),
 /// the sweep is built via [`crate::g2_cross_section::g2_sweep_from_contact_solutions`]
 /// — a degree-5 Bezier cross-section sweep that matches the surface
-/// normal curvature at the boundary (G2). Otherwise the legacy
+/// normal curvature at the boundary (G2). Otherwise the
 /// degree-1 arc sweep is used. The G2 path needs `orientation_*`
 /// to translate the popkern face-normal convention into the
 /// `BallSide` convention the contact solver uses.
@@ -87,7 +87,7 @@ pub fn build_fillet_surface(
     // walker) gave us per-sample contact solutions. If the G2
     // sweep errors on a specific cross-section (ZeroChord,
     // DegenerateNormal, TangentDegenerate), fall back to the
-    // legacy G1 arc sweep and record the reason so the caller
+    // G1 arc sweep and record the reason so the caller
     // emits a ContinuityDowngraded warning.
     let mut g2_fallback_reason: Option<String> = None;
     if continuity == ContinuityLevel::G2
@@ -116,7 +116,7 @@ pub fn build_fillet_surface(
             }
             Err(e) => {
                 g2_fallback_reason = Some(format!("G2 sweep failed: {e}"));
-                // Fall through to the legacy arc-sweep path.
+                // Fall through to the arc-sweep path.
             }
         }
     }
@@ -179,7 +179,7 @@ fn build_nurbs_sweep(
 ) -> Result<FilletSurfaceResult, String> {
     // Prefer the edge-span sweep channel when the producer trimmed a
     // grossly overhanging carrier (see CenterCurveResult docs): the
-    // legacy over-extended artifacts stay for the face-trim
+    // historical over-extended artifacts stay for the face-trim
     // splitter; sections here must stay inside the edge span.
     let (center_curve, footprint_1, footprint_2) = match (
         center_result.sweep_center_curve.as_ref(),

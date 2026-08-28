@@ -156,12 +156,12 @@ fn production_cap_g_residual_profile_is_reported() {
     }
 }
 
-/// The production adapter's output must be consumable by the legacy
+/// The production adapter's output must be consumable by the macro-cap
 /// validator: C2 pairing and the eq (14) boundary placement agree
-/// with the legacy macro-cap contract, and the flattened grids follow
+/// with the macro-cap contract, and the flattened grids follow
 /// [`Kp20PieceId::all`] sector-major order.
 #[test]
-fn paper_macro_cap_adapter_is_legacy_contract_compatible() {
+fn paper_macro_cap_adapter_is_contract_compatible() {
     use crate::geometry::gregory::kp_polar_boundary_input::TensorBorderBi3;
     use crate::geometry::gregory::kp20_bi6_validate::measure_kp20_bi6_macro_cap;
     let n = 5;
@@ -180,7 +180,7 @@ fn paper_macro_cap_adapter_is_legacy_contract_compatible() {
     // Join each sector's two halves into one cubic per depth row by
     // de-Casteljau inversion is invalid for cornered data; instead
     // exercise the adapter through the two-piece paper entry and only
-    // check the adapter packaging + legacy validator READS it.
+    // check the adapter packaging + the macro-cap validator READS it.
     let border = Kp20PaperGuideBorder {
         sectors: pieces
             .into_iter()
@@ -209,7 +209,7 @@ fn paper_macro_cap_adapter_is_legacy_contract_compatible() {
         patches_bi6,
         strip_projections: Vec::new(),
     };
-    // Reconstruct the single-cubic border the legacy validator wants:
+    // Reconstruct the single-cubic border the macro-cap validator wants:
     // for a smooth C2 ring the two halves merge exactly.
     let mut sectors = Vec::with_capacity(n);
     for sector in &border.sectors {
@@ -222,7 +222,7 @@ fn paper_macro_cap_adapter_is_legacy_contract_compatible() {
     let tensor_border = TensorBorderBi3 { sectors };
     let validation = measure_kp20_bi6_macro_cap(&output, &tensor_border).expect("measure");
     eprintln!(
-        "legacy validator on paper cap: c2_pos={c2p:e} c2_first={c2f:e} origin_strip={os:e} border={b:e}",
+        "macro-cap validator on paper cap: c2_pos={c2p:e} c2_first={c2f:e} origin_strip={os:e} border={b:e}",
         c2p = validation.max_internal_c2_position_residual,
         c2f = validation.max_internal_c2_first_residual,
         os = validation.max_origin_g2_strip_residual,

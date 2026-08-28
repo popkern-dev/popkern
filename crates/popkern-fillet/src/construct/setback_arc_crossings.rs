@@ -1,7 +1,7 @@
 //! Arc/boundary crossing detection for the setback vertex surgery,
 //! in the strip face's own UV domain.
 //!
-//! The legacy detector took, per boundary edge, the minimum 3-D
+//! The earlier detector took, per boundary edge, the minimum 3-D
 //! distance between the setback arc and the edge curve and accepted
 //! approaches under a fixed 5e-3. That predicate cannot tell a
 //! transversal trim crossing from a near-parallel approach: on
@@ -105,7 +105,7 @@ pub(super) fn arc_boundary_crossings(
     }
     hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     // 3-D margin gate: a UV intersection is a trim event only when
-    // the paired arc/edge points actually meet in space. The legacy
+    // the paired arc/edge points actually meet in space. The earlier
     // apex carve leaves scaffold chords up to ~5e-2 OFF the strip
     // surface (they detour through the raw cube-edge axis points);
     // closest-point projection folds them onto the strip crown where

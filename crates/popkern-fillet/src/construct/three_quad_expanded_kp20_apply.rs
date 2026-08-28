@@ -285,7 +285,7 @@ fn apply_kp20_support_cell_surfaces(
 ) -> Result<ThreeQuadApplyResult, String> {
     let support_cell_surface_count = apply.inventory.support_cell_surface_count();
     let (committed_faces, support_surface_indices) = match &apply.inventory {
-        Kp20SupportCellResolvedInventory::Legacy(inventory)
+        Kp20SupportCellResolvedInventory::RingCounts(inventory)
             if apply.support_surfaces.len() == support_cell_surface_count =>
         {
             let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
@@ -299,7 +299,7 @@ fn apply_kp20_support_cell_surfaces(
             .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
             (commit.support_cell_faces, commit.support_surface_indices)
         }
-        Kp20SupportCellResolvedInventory::Legacy(inventory) => {
+        Kp20SupportCellResolvedInventory::RingCounts(inventory) => {
             let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_mixed_support_cell_patchwork(
                 brep,
                 apply.blend_face,

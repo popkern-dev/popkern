@@ -34,8 +34,8 @@
 //! | Operation                     | Allocs  | Bytes    | Notes                       |
 //! |-------------------------------|---------|----------|-----------------------------|
 //! | Cone base (walker path)       |      56 |   7.8 KB | Pure walker, no overlap pair|
-//! | Single-edge cube (legacy)     |   2,131 |    251 KB| No overlap pairs (1 edge)   |
-//! | 12-edge cube (legacy, batch)  | 269,250 |  29.4 MB | KP20/Gregory topology path  |
+//! | Single-edge cube (vertex-blend)     |   2,131 |    251 KB| No overlap pairs (1 edge)   |
+//! | 12-edge cube (vertex-blend, batch)  | 269,250 |  29.4 MB | KP20/Gregory topology path  |
 //!
 //! **Per-phase breakdown for the 12-edge cube** (same workload):
 //!
@@ -390,7 +390,7 @@ fn baseline_single_edge_cube_fillet_allocation_profile() {
 fn baseline_cone_base_fillet_allocation_profile() {
     let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // The cone base fillet takes the phase-1b walker path, which
-    // is expected to allocate more than the legacy offset-intersect
+    // is expected to allocate more than the offset-intersect
     // path because of per-sample contact solutions. This baseline
     // captures the current state so future walker optimisations
     // (arena pooling, Vec reuse) can be measured against it.

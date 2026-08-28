@@ -145,7 +145,7 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
 /// natively since the residual-strip duplication falls back to the
 /// boundary outcome's LIVE seam when the plan-recorded cylinder
 /// candidate was consumed by the N=3 trim-rewrite ordering
-/// (measured: plan error -> legacy g1 ~1.0 before; native
+/// (measured: plan error -> vertex-blend g1 ~1.0 before; native
 /// g0 2.2e-4 / g1 3.9e-4 after).
 #[test]
 fn direct_apex_strict_v_free_pyramid3_uniform_welds_shared_corners_natively() {

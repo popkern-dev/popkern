@@ -82,7 +82,7 @@ fn cross_spoke_correction_fixes_both_low_valences() {
     // valence-3 pick silently selected a BASE corner of the pyramid —
     // the PK-260 oblique base-corner class, whose direct serve was a
     // defective body (unstitched support faces) that the serving-shape
-    // gate now declines; the pyramid's true APEX serves the legacy
+    // gate now declines; the pyramid's true APEX serves the vertex-blend
     // Gregory fan (creased, PnS declined) and never reached the
     // cross-spoke machinery. The cube corner is the n=3 fixture the
     // exact-boundary cross-spoke + harmonization correction actually

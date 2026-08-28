@@ -244,7 +244,7 @@ fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "{fixture} exact-boundary route must stay native and not fall through to legacy; got:\n{}",
+        "{fixture} exact-boundary route must stay native and not fall through to vertex-blend; got:\n{}",
         reasons.join("\n"),
     );
     let route = result

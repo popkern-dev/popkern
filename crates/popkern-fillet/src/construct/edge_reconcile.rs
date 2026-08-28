@@ -108,7 +108,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     // replaced by the full ellipse the long way around.
     if let Some(curve) = edge_data.curve.as_ref() {
         // Strict: only curves EXACT on both surfaces qualify (the
-        // runoff bisection lands ~1e-9; legacy chord lines sag off
+        // runoff bisection lands ~1e-9; straight chord lines sag off
         // the cylinder by far more even on short edges and must
         // still be rewritten, pcurves included).
         let gate = 1.0e-8;
@@ -258,7 +258,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     // the analytic dispatchers already do (AnchorOffSurface, µs);
     // the marching catch-all has no such check and was measured
     // spending 0.75–24.7 s PER EDGE concluding NoIntersection on
-    // legacy-fallback corner seams whose anchors sit 4.1e-2 off both
+    // vertex-blend-fallback corner seams whose anchors sit 4.1e-2 off both
     // surfaces (56.1 s of a 75.7 s matrix test, zero rewrites).
     // Closed-form distances only (Plane/Cylinder/Sphere); pairs with
     // a Cone keep the full dispatch — the cone distance is slant-

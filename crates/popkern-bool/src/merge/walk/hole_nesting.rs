@@ -1,4 +1,4 @@
-//! Hole → region nesting for the legacy fragment election.
+//! Hole → region nesting for the 3D-Newell fragment election.
 //!
 //! The flat assignment hung every hole on the primary fragment; with
 //! CONCENTRIC rings (countersunk bore: the stale top rim sits inside

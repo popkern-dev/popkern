@@ -344,7 +344,7 @@ fn resolve_deep_interior_from_border(
 /// every determined CP comes from [`build_bi6_cap_from_net`]
 /// (oracle-gated against the committed KP15 fixture); nothing is
 /// left at a star default and only the paper free set is caller
-/// input. The legacy per-sector-rim `Bi6CapInput` path cannot feed
+/// input. The per-sector-rim `Bi6CapInput` path cannot feed
 /// this — see the bridge-blocker record in
 /// `docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md`
 /// (stage 2 update) for the frame re-orientation that will thread a

@@ -430,7 +430,7 @@ fn extract_fillet_end_near_vertex(
     // (e.g., from `x = -1` to `x = 2` on a unit cube at `x ∈ [0, 1]`),
     // so the nearest trim-curve points to a vertex at the edge
     // endpoint are in the INTERIOR of the trim curves, not at
-    // their parametric endpoints. The legacy `d_start` / `d_end`
+    // their parametric endpoints. The earlier `d_start` / `d_end`
     // selection picked whichever pair was "less far" and would
     // land on the far-overshoot plane, producing boundary arcs
     // geometrically disconnected from the vertex.

@@ -8,7 +8,7 @@
 //! makes the wrapped chart contiguous). The slit pinches the face's
 //! UV ring into duplicate points, the boundary-first tessellator can
 //! never cover the pinched segments, and the face falls back to the
-//! legacy grid whose boundary samples do not match the neighbours'
+//! uniform grid whose boundary samples do not match the neighbours'
 //! (measured: the θ=0 torus bulge of a rim-filleted cylinder minus a
 //! cuboid shipped 57 open mesh edges along its spiric and rim).
 //!

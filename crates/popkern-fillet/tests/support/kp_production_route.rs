@@ -39,7 +39,7 @@ pub(crate) fn assert_n_gonal_production_route_all_or_nothing(
         .iter()
         .filter(|patch| patch.n_sides == n)
         .collect();
-    // Full tilings: n patches (one per sector, legacy macro caps) or
+    // Full tilings: n patches (one per sector, pre-setback macro caps) or
     // 4n patches (the PK-087 setback vertex fan commits 4 bi-9 pieces
     // per sector as individual cap faces).
     assert!(

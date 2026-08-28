@@ -38,10 +38,10 @@
 //! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | binonic commercial gates pass |
 //! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | direct-apex partition (gated in direct_apex_validation_matrix) |
-//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | legacy route, no K-P ring |
-//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | legacy route, no K-P ring |
-//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | legacy route, no K-P ring |
-//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | legacy route, no K-P ring |
+//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | vertex-blend route, no K-P ring |
+//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | vertex-blend route, no K-P ring |
+//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | vertex-blend route, no K-P ring |
+//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | vertex-blend route, no K-P ring |
 //! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | production-route all-or-nothing gate (PK-075/PK-089) |
 //! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | production-route all-or-nothing gate (PK-075/PK-089) |
 //!
@@ -50,7 +50,7 @@
 //! * cube_extreme through cube_extreme_30 now ship rectangular
 //!   binonic surfaces through direct exact-boundary spoke-row
 //!   optimization. cube_extreme_40+ and cube_tiny_radii route
-//!   through legacy construction instead of the K-P rung.
+//!   through vertex-blend construction instead of the K-P rung.
 //! * pyramid4_mixed promotes to the direct-apex partition
 //!   (PK-099) and is gated in `direct_apex_validation_matrix`;
 //!   this file carries no binonic gate for it (PK-182).
@@ -69,7 +69,7 @@
 //! (read from the recorded dispatch decision) before measuring
 //! quality, so a gate can never blind-green by measuring a route
 //! that did not run (PK-182). Fixtures whose selected route is
-//! legacy or direct-apex are gated on those routes instead of
+//! vertex-blend or direct-apex are gated on those routes instead of
 //! carrying an ignored binonic gate here.
 
 use popkern_core::tolerance::Tolerance;
@@ -97,9 +97,9 @@ use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
 /// least one present (`assert_all_binonic`).
 fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
     let result = fillet_cube_result(radii, true);
-    // The K-P binonic ring is a promotion inside the legacy
+    // The K-P binonic ring is a promotion inside the vertex-blend
     // `insert_vertex_blend` path, so the recorded apex route for
-    // these fixtures is `Legacy` — same record as fixtures where
+    // these fixtures is `VertexBlend` — same record as fixtures where
     // the ring never fires. The discriminating dispatch evidence
     // is the committed corner patches themselves: a route record
     // must exist, and every committed patch must be the
@@ -209,7 +209,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 
 // pyramid4_mixed: no binonic gate. PK-099's orientation-honest
 // convexity promoted the fixture to the direct-apex partition
-// (the legacy convex-quad path never reaches three-quad dispatch:
+// (the vertex-blend convex-quad path never reaches three-quad dispatch:
 // its overlap-split loop is 12-he, not 2n, and shipped an
 // unmeasured g0=1.34 fallback cap; the partition cap closes at
 // 1.5e-14). The serving route is gated by
@@ -237,12 +237,12 @@ fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
 }
 
 // cube_extreme_40/50/100 and cube_tiny_radii carry no binonic
-// continuity gates: those fixtures are served by legacy
+// continuity gates: those fixtures are served by vertex-blend
 // construction (no measurable K-P ring exists), and a binonic
 // gate would measure a route that never fires (PK-182). The
 // serving route is pinned by the active
-// `cube_extreme_*_accepts_legacy_route_instead_of_kp_ring` tests
-// above (route == Legacy read from the dispatch record) and by
+// `cube_extreme_*_accepts_vertex_blend_route_instead_of_kp_ring` tests
+// above (route == VertexBlend read from the dispatch record) and by
 // `cube_tiny_radii_declines_transactionally_on_perp_split_gap`.
 // Reintroduce a binonic gate for a fixture only when dispatch
 // actually selects the K-P rung for it.

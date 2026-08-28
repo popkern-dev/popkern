@@ -74,7 +74,7 @@ impl BRep {
             {
                 // Staleness guard: only trust a curve whose endpoints
                 // agree with the edge's vertices — fixtures (and some
-                // legacy passes) move vertices without re-authoring
+                // earlier passes) move vertices without re-authoring
                 // curves, and sampling a stale curve inflates the
                 // position cloud with points from the old geometry
                 // (measured: a vertex-scaled inner cube reported its

@@ -191,7 +191,7 @@ pub(super) fn is_planar_face(brep: &BRep, face: FaceHandle) -> bool {
     match brep.faces.get(face) {
         Some(f) => match &f.surface {
             Some(sof) => matches!(sof.geometry, SurfaceGeometry::Plane { .. }),
-            None => true, // No geometry attached — treat as planar (legacy)
+            None => true, // No geometry attached — treat as planar (historical default)
         },
         None => true, // Face doesn't exist — caller will skip anyway
     }

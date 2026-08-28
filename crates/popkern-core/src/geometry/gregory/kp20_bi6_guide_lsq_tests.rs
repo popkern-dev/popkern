@@ -1916,7 +1916,7 @@ fn kp15_fig2b_tensor_border_pin_hypotheses_are_measured() {
                 kp15_paper_depth_two_sided_strip_with_corner_l_band_columns_for_test(n),
             ),
             (
-                "legacy-full-l-band",
+                "full-l-band-baseline",
                 kp15_bi6_local_constraint::kp15_two_sided_tensor_l_band_columns(n),
             ),
         ] {
@@ -6914,10 +6914,10 @@ fn kp15_fig12_composed_pr08_subdivision_source_is_measured() {
         let source_rows = kp15_composed_pr08_subdivision_source_rows_for_test(&ring, 1, 1, true)
             .expect("composed PR08 subdivision source rows");
         let params = Bi6Reparams::for_valence(n);
-        let legacy_rows = kp15_bi6_tensor_rows_for_test(&source_rows.sectors, params, true);
+        let baseline_rows = kp15_bi6_tensor_rows_for_test(&source_rows.sectors, params, true);
         let bb_rows = kp15_fig12_bb_beta_rows_for_test(&source_rows.sectors, params);
         for (label, rows) in [
-            ("legacy-beta-row-semantics", legacy_rows),
+            ("baseline-beta-row-semantics", baseline_rows),
             ("fig12-bb-beta", bb_rows),
         ] {
             let mut best_residual = f64::INFINITY;

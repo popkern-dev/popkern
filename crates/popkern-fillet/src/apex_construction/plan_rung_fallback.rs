@@ -66,7 +66,7 @@ pub(crate) fn plan_setback_rung(
 /// Build an Open-rung [`ApexPlan`]: empty topology, no cap face.
 /// The fallback when neither Direct nor Setback can produce a
 /// valid cap.  Builder's view of this plan: do nothing — leave
-/// the apex region as the legacy rolling-ball termination.
+/// the apex region as the rolling-ball termination.
 pub(crate) fn plan_open_rung(
     apex: VertexHandle,
     n_fil: usize,
@@ -86,7 +86,7 @@ pub(crate) fn plan_open_rung(
     telemetry.fallback_reason = Some(format!(
         "Direct rung failed ({direct_err}); Setback rung also failed; \
          Open rung produces no apex cap.  {n_fil} fillets terminate at \
-         their legacy rolling-ball footprints."
+         their rolling-ball footprints."
     ));
     telemetry.cap_kind_reason = "Open — no cap construction".to_string();
     ApexPlan {

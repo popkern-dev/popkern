@@ -449,10 +449,10 @@ mod tests {
 
     #[test]
     fn not_applicable_report_is_versioned_and_json_ready() {
-        let report = ExactBoundaryCapReport::not_applicable("legacy");
+        let report = ExactBoundaryCapReport::not_applicable("vertex_blend");
 
         assert_eq!(report.schema_version, 1);
-        assert_eq!(report.route_label, "legacy");
+        assert_eq!(report.route_label, "vertex_blend");
         assert_eq!(
             report.candidate_status,
             ExactBoundaryCandidateOutcome::NotApplicable

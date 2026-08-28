@@ -86,7 +86,7 @@ fn owner_mixed_support_cell_commit_splits_adjacent_support_owners_in_same_sector
 }
 
 #[test]
-fn legacy_4n_topology_exposes_three_outer_slots() {
+fn pre_kp20_4n_topology_exposes_three_outer_slots() {
     let (mut brep, face) = build_flat_2ngon(6);
     let poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
         &mut brep,
@@ -94,7 +94,7 @@ fn legacy_4n_topology_exposes_three_outer_slots() {
         Point3::new(0.0, 0.0, 0.0),
         6,
     )
-    .expect("legacy 4n poke");
+    .expect("4n poke");
     let cap_faces = poke.sub_faces.iter().copied().collect::<BTreeSet<_>>();
     let external_counts = (0..4)
         .map(|piece| external_boundary_edge_count(&brep, &cap_faces, poke.sub_faces[piece]))
@@ -103,7 +103,7 @@ fn legacy_4n_topology_exposes_three_outer_slots() {
     assert_eq!(
         external_counts,
         vec![1, 2, 1, 0],
-        "legacy [O_L,O_C,O_R,C_star] topology is not KP20-semantic: three slots touch four support-boundary edges and only C_star is central"
+        "pre-KP20 [O_L,O_C,O_R,C_star] topology is not KP20-semantic: three slots touch four support-boundary edges and only C_star is central"
     );
 }
 

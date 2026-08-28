@@ -398,7 +398,7 @@ fn cos_to_triple(
         topology: EdgeTopology::Open,
         // Stage 2a's plane×plane and other intersect_surfaces-based
         // dispatches share knots across the three NURBS — the
-        // legacy invariant. Stage 2b.3+ trig dispatches use Identity
+        // historical invariant. Stage 2b.3+ trig dispatches use Identity
         // with analytic curves directly.
         parameter_map: ParameterMap::SharedKnots,
         provenance,

@@ -126,7 +126,7 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
 ///    rung ("only 2 fillets" — the concave strip is invisible to the
 ///    convex footprint search), and recorded a vacuous
 ///    `route=DirectApex` success with ZERO faces, skipping the
-///    legacy saddle machinery entirely.
+///    pre-ring saddle machinery entirely.
 ///
 /// All three are fixed at root (similarity-gated `BRep::transform`
 /// with unit direction fields, `SameSideConvex`-only promotion, the
@@ -178,7 +178,7 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
     );
 
     // No Mitred fallback and no direct-apex capture: the saddle is
-    // legacy-owned (promotion is gated to SameSideConvex). Legacy
+    // vertex-blend-owned (promotion is gated to SameSideConvex). Vertex-blend
     // routes DO record their served corner faces since PK-258 (the
     // serving-retry keep-better measure), so the route label — not an
     // empty built_faces list — is the ownership claim.
@@ -197,7 +197,7 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
             .iter()
             .filter(|r| r.vertex == vertex)
             .all(|r| r.route == crate::types::ApexConstructionRoute::VertexBlend),
-        "OppositeSide saddle must stay on the legacy route (promotion is \
+        "OppositeSide saddle must stay on the vertex-blend route (promotion is \
          SameSideConvex-only); routes: {:?}",
         result
             .repair_report

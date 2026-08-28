@@ -79,14 +79,14 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // chains remain separately gated inside `topology_repair`
     // because they require stronger multi-face ownership repair
     // before they can be commercial grade.
-    // The cylinder off-surface-vertex repair belongs to the LEGACY
+    // The cylinder off-surface-vertex repair belongs to the vertex-blend
     // apex machinery. Setback-built blends own their apex topology
     // (PK-097: on the G1 analytic family this repair consumed 3
     // lateral faces and collapsed the solid — corner patches with
     // CornerMethod::Gregory tripped the context even though the
-    // setback surgery, not the legacy builder, produced them).
+    // setback surgery, not the vertex-blend builder, produced them).
     // Recorded limitation: a mixed model (setback at one vertex,
-    // legacy Gregory at another) skips the repair for both.
+    // rational-Gregory at another) skips the repair for both.
     let apex_boundary_context = !inputs.setback_blend_present
         && (!support_seam_jobs.is_empty()
             || !late_wire_jobs.is_empty()
@@ -126,7 +126,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     protected_caps.extend(direct_apex_built_faces.iter().copied());
     protected_caps.extend(exact_boundary_protected_support_faces(repair_report));
     determinism_trace("pre_sliver_absorb", result);
-    // Sliver absorption unifies LEGACY cap-loop topology (sphere /
+    // Sliver absorption unifies vertex-blend cap-loop topology (sphere /
     // Gregory cap twins). Setback-built blends own their apex
     // topology and run their own band absorption inside the surgery
     // — on the G1 analytic family this pass consumed 3 lateral
@@ -196,7 +196,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // planar end faces): contract off-cylinder end corners, author
     // exact cylinder ∩ plane runout arcs, remove leftover spur
     // slits. Gated on blend context — corner patches or a
-    // multi-fillet result. SINGLE plain fillets keep their legacy
+    // multi-fillet result. SINGLE plain fillets keep their historical
     // end shape for two measured contracts: the PK-097 in-place
     // modify machinery cannot reproduce topology edits
     // (open_in_place_matches_remove_recreate_geometry failed 10 vs
@@ -303,7 +303,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Lift legacy apex-region pyramid Plane
+    // Lift vertex-blend apex-region pyramid Plane
     // faces to curved NURBS surfaces where late-wire jobs own the
     // substituted bridge. Exact-boundary sectors keep their original
     // production support faces; measured pcurve repair handles their

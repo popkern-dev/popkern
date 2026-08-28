@@ -29,7 +29,7 @@ pub fn tessellate_face(
 }
 
 /// [`tessellate_face`] with canonical per-edge stations (PK-299) so a
-/// legacy-fallback face's trim boundary matches its boundary-first
+/// uniform-grid-fallback face's trim boundary matches its boundary-first
 /// neighbours exactly.
 pub(crate) fn tessellate_face_with_samples(
     brep: &BRep,
@@ -626,7 +626,7 @@ pub(crate) fn tessellate_brep(
     stage_gate!();
     let t0 = Instant::now();
     let mut face_meshes = Vec::new();
-    let mut legacy_faces = Vec::new();
+    let mut sew_candidate_faces = Vec::new();
     let faces: Vec<FaceHandle> = brep
         .faces
         .keys()
@@ -646,7 +646,7 @@ pub(crate) fn tessellate_brep(
     for outcome in outcomes {
         match outcome {
             crate::face_pass::FacePassOutcome::BoundaryFirst(fm) => face_meshes.push(fm),
-            crate::face_pass::FacePassOutcome::Legacy { seam_spine, mesh } => {
+            crate::face_pass::FacePassOutcome::UniformGrid { seam_spine, mesh } => {
                 // Seam-spine wall faces (full-periodic charts) keep
                 // their exact chart sampling: their boundary IS the
                 // seam iso-line plus pcurve-sampled hole rims, and the
@@ -656,14 +656,14 @@ pub(crate) fn tessellate_brep(
                 // cube∪sphere wall area inflated 7.93 → 8.95 by
                 // sewing flaps).
                 if !seam_spine {
-                    legacy_faces.push(face_meshes.len());
+                    sew_candidate_faces.push(face_meshes.len());
                 }
                 face_meshes.push(mesh?);
             }
         }
     }
     tracker.finish_stage("tessellate.face_pass", t0, face_meshes.len());
-    // The projection-based sewing stopgap applies ONLY to legacy-path
+    // The projection-based sewing stopgap applies ONLY to uniform-grid-path
     // faces: boundary-first faces carry exact canonical boundary
     // points, and re-projecting them can snap a point onto a
     // DIFFERENT nearby incident edge (measured: floor arc points
@@ -672,9 +672,13 @@ pub(crate) fn tessellate_brep(
     stage_gate!();
     let t0 = Instant::now();
     deepchord_trace(brep, &face_meshes, options, "pre-sew");
-    crate::boundary_sew::sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
+    crate::boundary_sew::sew_boundaries_to_edge_polylines(
+        brep,
+        &mut face_meshes,
+        &sew_candidate_faces,
+    );
     deepchord_trace(brep, &face_meshes, options, "post-sew");
-    tracker.finish_stage("tessellate.sew_boundaries", t0, legacy_faces.len());
+    tracker.finish_stage("tessellate.sew_boundaries", t0, sew_candidate_faces.len());
     stage_gate!();
     let t0 = Instant::now();
     orient_face_meshes_coherently(brep, &mut face_meshes);

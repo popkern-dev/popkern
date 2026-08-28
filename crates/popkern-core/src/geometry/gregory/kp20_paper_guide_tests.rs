@@ -13,7 +13,7 @@ fn characteristic_border_input_yields_the_identity_guide() {
         let solved = solve_kp20_paper_guide(&border, Point3::new(0.0, 0.0, 0.0)).expect("solve");
         // n = 3's corner sits at local (~1.35, ~1.35), so the basis
         // extrapolation amplifies roundoff; 1e-7 remains decisive
-        // against the legacy surrogate's O(1e-1) misfit.
+        // against the earlier surrogate's O(1e-1) misfit.
         assert!(
             solved.max_fit_residual < 1.0e-7,
             "n={n}: fit residual {:e}",
@@ -59,7 +59,7 @@ fn characteristic_border_input_yields_the_identity_guide() {
     }
 }
 
-/// Diagnostic: which legacy constraint rows does the identity guide
+/// Diagnostic: which pre-oriented constraint rows does the identity guide
 /// violate? The identity is a valid C∞ rotationally-symmetric guide,
 /// so any violated row over-constrains beyond KP18.
 #[test]

@@ -103,6 +103,20 @@ matches="$(
     rg -n "$regex" "${check_files[@]}" || true
 )"
 
+# Bare "legacy" is banned in code (name the superseded mechanism);
+# docs keep their historical vocabulary until the export-step pruning.
+crate_files=()
+for file in "${check_files[@]}"; do
+    [[ "$file" == crates/* ]] && crate_files+=("$file")
+done
+if [[ ${#crate_files[@]} -gt 0 ]]; then
+    legacy_matches="$(rg -n '[Ll]egacy|LEGACY' "${crate_files[@]}" || true)"
+else
+    legacy_matches=""
+fi
+matches="${matches}${legacy_matches:+
+$legacy_matches}"
+
 file_regex="$(IFS='|'; echo "${file_patterns[*]}")"
 bad_names="$(
     printf '%s\n' "${check_files[@]}" | rg "$file_regex" || true

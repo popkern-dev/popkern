@@ -28,7 +28,7 @@ mod solve_support_strip;
 // band ends by ~5e-4, the Coons corner tear this admits stays an
 // order of magnitude under the 5e-3 commercial seam gates that
 // measure the committed cap, and the old 1e-7 lock silently sent
-// whole pyramid apexes to the legacy fallback (measured G1 0.86).
+// whole pyramid apexes to the vertex-blend fallback (measured G1 0.86).
 const DEFAULT_CORNER_TOLERANCE: f64 = 5.0e-3;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
 /// An outer boundary side whose 3-D chord is below this length is a

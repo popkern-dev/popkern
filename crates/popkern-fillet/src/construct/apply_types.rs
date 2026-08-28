@@ -45,7 +45,7 @@ impl ApplyBlendError {
 
 /// Emit one PK-276 per-corner progress event and advance the corner
 /// cursor. Factored out of the vertex-blend loop (two exits per
-/// corner: direct-apex success `continue` and the legacy tail).
+/// corner: direct-apex success `continue` and the vertex-blend tail).
 pub(crate) fn emit_corner_progress(
     reporter: &mut Option<&mut (dyn crate::progress::ProgressReporter + '_)>,
     vertex: popkern_core::topology::VertexHandle,
@@ -104,7 +104,7 @@ pub struct EdgeGeometry {
     pub pcurve_1: NurbsCurve,
     /// Pcurve on face 2.
     pub pcurve_2: NurbsCurve,
-    /// Average fillet/chamfer radius (kept for legacy callers).
+    /// Average fillet/chamfer radius (kept for existing callers).
     pub effective_radius: f64,
     /// Radius at the edge's start vertex (constant ⇒ `effective_radius`; variable ⇒ `start`).
     pub radius_at_start: f64,

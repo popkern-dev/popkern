@@ -13,7 +13,7 @@ use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 use crate::analysis;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::geometry_compute::compute_fillet_geometry;
-use crate::types::{CapKind as LegacyCapKind, ContinuityLevel, FilletRadius, FilletSpec};
+use crate::types::{CapKind as TypesCapKind, ContinuityLevel, FilletRadius, FilletSpec};
 
 pub(super) fn test_tolerance() -> Tolerance {
     Tolerance::default()
@@ -62,7 +62,7 @@ pub(super) fn build_fillet_surfaces(
             brep,
             &tol,
             ContinuityLevel::G1,
-            LegacyCapKind::Open,
+            TypesCapKind::Open,
             crate::types::BlendProfile::Circular,
         )
         .expect("compute_fillet_geometry should succeed on cube/pyramid corner");
@@ -102,7 +102,7 @@ pub(super) fn build_fillet_surfaces_per_edge(
             brep,
             &tol,
             ContinuityLevel::G1,
-            LegacyCapKind::Open,
+            TypesCapKind::Open,
             crate::types::BlendProfile::Circular,
         )
         .expect("compute_fillet_geometry should succeed on variable-radius corner");

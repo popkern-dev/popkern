@@ -11,7 +11,7 @@
 //! Work-in-progress gate: the arm only runs when
 //! [`SETBACK_TOPOLOGY_WIP`] is set (integration tests); the cap face
 //! fan (splitting the blend n-gon into the 4n KP20 piece faces) is
-//! the recorded follow-up, so production keeps the legacy path until
+//! the recorded follow-up, so production keeps the vertex-blend path until
 //! that lands.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,10 +31,10 @@ pub(crate) static SETBACK_TOPOLOGY_COMMIT_SET: AtomicBool = AtomicBool::new(fals
 
 #[path = "setback_arc_binding.rs"]
 mod setback_arc_binding;
-/// Whether the setback vertex blend replaces the legacy corner
+/// Whether the setback vertex blend replaces the vertex-blend corner
 /// machinery for eligible apexes. Production default: ON — the
 /// surgery declines (with a recorded reason) and falls through to
-/// the legacy path for anything out of its class, and the cap gates
+/// the vertex-blend path for anything out of its class, and the cap gates
 /// must close at relative 1e-6 before any topology commits.
 #[path = "setback_rim_refit.rs"]
 mod setback_rim_refit;
@@ -108,7 +108,7 @@ pub(crate) struct SetbackTopologyOutcome {
 
 /// Attempt the setback boundary surgery at `vertex`. On any error the
 /// BRep is restored from a snapshot and the error is returned for the
-/// caller's structured diagnostics; the legacy path then proceeds.
+/// caller's structured diagnostics; the vertex-blend path then proceeds.
 /// `snapshot` is the caller-held pre-surgery state (the rung's commit
 /// snapshot): the surgery restores from it on any inner error via a
 /// clone-on-restore, so the success path pays no snapshot clone of
@@ -455,7 +455,7 @@ fn surgery_inner(
         .map_err(|e| format!("blend region merge: {e}"))?;
 
     // ---- surgery E: absorb perpendicular-split remnant bands -----------
-    // The legacy pre-carve split each fillet face near the apex; the
+    // The earlier pre-carve split each fillet face near the apex; the
     // arc mef leaves a narrow same-surface band between the arc and
     // the old split line. The blended fillet face must extend to the
     // arc (design: [arc, trim, base-end, trim]), so scaffold edges
@@ -488,7 +488,7 @@ fn surgery_inner(
     // quality, not only on structural validity — a blunt apex (18°
     // half-angle, pentagon5_blunt) builds a structurally valid fan
     // whose wide flat sectors crease 2.9e-1 at one seam corner, and
-    // declining lets the legacy sphere-fit path serve the gentle
+    // declining lets the sphere-fit rung serve the gentle
     // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
     // g1 ≤ 2e-3 here — orders under the gates.
     let (seam_g0, seam_g1, seam_g2) =
@@ -509,7 +509,7 @@ fn surgery_inner(
     // interior normal reversals to dot -1.0 while the assembly's
     // unsigned min-regularity 8.7e-5 slid past a gate inflated by the
     // creased-border corner mismatch). Decline HERE with the class
-    // named; the legacy path serves the corner instead.
+    // named; the vertex-blend path serves the corner instead.
     // Read-only per-piece measurement; ordered collect keeps the
     // first-folded-face report identical to the serial walk (PK-302).
     let fold_of = |fh: &FaceHandle| -> bool {
@@ -553,7 +553,7 @@ fn surgery_inner(
     // builds a G0/G1-commercial fan whose wide flat sectors still jump
     // 7.0e-2 in curvature across seams; committing it would report an
     // achieved G2 the geometry does not have. Declining hands the
-    // gentle corner to the legacy sphere-fit path. Sharp-apex fixtures
+    // gentle corner to the sphere-fit rung. Sharp-apex fixtures
     // measure well inside the gate (the kp_polar commercial gates
     // assert the same 5e-2 bound on their live seams).
     if gate_seam_g2 && seam_g2 > 5.0e-2 {

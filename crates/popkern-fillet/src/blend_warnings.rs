@@ -319,9 +319,9 @@ pub enum BlendWarning {
     /// to use the direct-apex builder
     /// ([`crate::types::FilletOptions::use_direct_apex_construction`]
     /// = `true`) but the direct-apex path could not finish for this apex,
-    /// so the dispatch fell back to the legacy
+    /// so the dispatch fell back to the vertex-blend
     /// `insert_vertex_blend` per-vertex.  The output BRep is the
-    /// same as the legacy path would produce; this warning is the
+    /// same as the vertex-blend path would produce; this warning is the
     /// only signal that direct-apex was tried first.
     ///
     /// Common reasons during the direct-apex build.b/c → direct-apex build.d/e/f transition

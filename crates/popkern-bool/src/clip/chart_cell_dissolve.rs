@@ -8,7 +8,7 @@ use super::face_chart_cell;
 
 /// Would dissolving `edge` (merging its two incident faces) keep the
 /// merged face cell-resolvable? `true` for non-doubly-periodic
-/// surfaces (unchanged legacy behaviour). For torus faces the merge
+/// surfaces (unchanged behaviour). For torus faces the merge
 /// is admitted only while the combined chart cell stays strictly
 /// inside one period per axis: dissolving every co-surfacial patch
 /// produced one full-wrap mega-face whose loop closes in no UV

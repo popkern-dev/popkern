@@ -35,7 +35,7 @@ fn zebra_refutes_the_low_valence_cap_crease() {
         // serves. The old n=3 row measured a pyramid BASE corner
         // (the valence-3 pick was ambiguous on a pyramid3) whose
         // defective direct serve now declines (PK-260); the true
-        // pyramid apex serves the legacy Gregory fan, which is
+        // pyramid apex serves the rational-Gregory fan, which is
         // creased by construction and never carried the machinery
         // this probe refutes the crease FOR.
         let o = if n == 3 {

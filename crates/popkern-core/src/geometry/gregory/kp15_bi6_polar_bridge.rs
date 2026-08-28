@@ -223,7 +223,7 @@ fn eval_degree7_bezier(cps: &[Point3; 8], t: f64) -> Point3 {
 // PK-087 stage 3 — the re-oriented polar → **shared cap net** bridge.
 // =====================================================================
 //
-// The `convert_polar_to_bi6_cap_input` above is the legacy frame:
+// The `convert_polar_to_bi6_cap_input` above is the per-sector-rim frame:
 // per-sector rim borders in `CirculantSectorRhs`, no shared cap net,
 // spoke on the wrong slot. The functions below are its correct-by-
 // construction replacement that feeds the verified deep-interior

@@ -72,7 +72,7 @@ pub(crate) fn select_nearest_curve(
 
 /// Try the rolling-ball contact solver at one spine sample.
 ///
-/// Translates the legacy `(target, orientation_*)` interface into a
+/// Translates the earlier `(target, orientation_*)` interface into a
 /// `ContactRequest`: seeds the initial UV guesses by projecting
 /// `target` onto each surface (`closest_point`), maps `orientation_i`
 /// to `BallSide::Outside` (matching popkern's "face normals point into

@@ -24,7 +24,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 /// pass writes TOLERANCE FIELDS ONLY — it must not feed the
 /// tessellator's fallback decisions (an earlier variant that widened
 /// the mesher's off-surface gate with these values repartitioned the
-/// boundary-first/legacy face split and cracked previously
+/// boundary-first/uniform-grid face split and cracked previously
 /// watertight fixtures: hexagon6_blunt 0 -> 482 open edges —
 /// falsified, reverted).
 pub(super) fn record_boundary_tolerances(brep: &mut BRep, cap_faces: &[FaceHandle]) {

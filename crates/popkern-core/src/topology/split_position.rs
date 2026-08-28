@@ -26,7 +26,7 @@ use super::split_surface_derived::surface_derived_split_position;
 ///      on the face surface) — see
 ///      [`surface_derived_split_position`].
 ///   2. Surface-derived from `he_ba`'s face (twin).
-///   3. Chord interpolation between `pos_a` and `pos_b` (legacy
+///   3. Chord interpolation between `pos_a` and `pos_b` (the original
 ///      fallback).
 pub(super) fn split_position_and_propagation(
     brep: &BRep,

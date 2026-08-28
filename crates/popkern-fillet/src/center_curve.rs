@@ -38,7 +38,7 @@ pub struct CenterCurveResult {
     /// Footprint points on the second surface (closest points from center curve).
     pub footprint_2: Vec<Point3>,
     /// Per-sample contact solver outputs from the spine walker, when
-    /// the producer used the walker path. `None` for the legacy
+    /// the producer used the walker path. `None` for the offset-intersect
     /// offset-intersect paths (which derive footprints from a
     /// surface intersection rather than per-sample contact solves).
     ///
@@ -76,7 +76,7 @@ pub fn constant_radius_center_curve(
     // same convexity-aware mapping as the contact solver.
     // `orientation_*` here are OUTWARD-honest (stored flag folded
     // with the measured shell sign by the caller); the former
-    // `!orientation` flip encoded the legacy "face normals point
+    // `!orientation` flip encoded the earlier "face normals point
     // INTO the solid" convention that only held on primitive
     // constructor output.
     let (side_1, side_2) =
@@ -418,7 +418,7 @@ fn find_center_point_at_radius(
 
     // Offset toward the BALL side (convexity-aware, same truth as
     // the contact solver): inscribed for convex edges, void-side
-    // for concave. The old `!orientation` flip was a legacy
+    // for concave. The old `!orientation` flip was a historical
     // convention that only encoded the concave case on
     // inward-natural primitive shells.
     let (side_1, side_2) =

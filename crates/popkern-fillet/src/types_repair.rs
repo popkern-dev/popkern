@@ -23,7 +23,7 @@ pub struct BlendRepairReport {
     /// Straight edge curves reauthored to terminate at their owning topology
     /// vertices after late blend topology rewrites.
     pub edge_curve_endpoint_coherence_repairs: usize,
-    /// Per-apex construction route decisions for legacy/direct-apex migration tracking.
+    /// Per-apex construction route decisions for vertex-blend/direct-apex route tracking.
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
     /// Structured apex construction diagnostics and declined repair candidates.
     pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
@@ -47,7 +47,7 @@ pub struct BlendRepairReport {
     /// construction recorded a serving-shape decline (see
     /// [`SERVING_SHAPE_DECLINE_PREFIX`]) — forcing a one-shot
     /// pipeline re-run with the vertex excluded from direct-apex
-    /// promotion so the legacy dispatch serves the corner instead.
+    /// promotion so the vertex-blend dispatch serves the corner instead.
     pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
     /// PK-251 serving-boundary footprint repairs: direct-apex corners
     /// whose served cap crossed a strip support and were repaired IN
@@ -64,10 +64,10 @@ pub struct BlendRepairReport {
 /// this prefix when a body defect (glued surfaceless residuals or
 /// dead boundary sides) survives every serving-shape rung; the
 /// serving retry matches it to re-run the pipeline with the corner
-/// excluded, because the mid-pipeline fallback runs the legacy
+/// excluded, because the mid-pipeline fallback runs the vertex-blend
 /// builder on direct-apex-convention anchors and serves a degraded
 /// body (measured 8.5e-2 edge/surface deviations on the oblique
-/// base-corner class) while the full re-run re-places legacy anchors
+/// base-corner class) while the full re-run re-places perp-walk anchors
 /// and serves clean.
 pub const SERVING_SHAPE_DECLINE_PREFIX: &str = "serving-shape defect persists";
 
@@ -92,7 +92,7 @@ pub struct ApexConstructionRouteDecision {
     pub incident_edges: Vec<EdgeHandle>,
     /// Route that produced the final topology for this apex.
     pub route: ApexConstructionRoute,
-    /// Faces authored by direct-apex, empty for legacy and fallback routes.
+    /// Faces authored by direct-apex, empty for vertex-blend and fallback routes.
     pub built_faces: Vec<FaceHandle>,
     /// Number of corner patch reports produced by this route.
     pub corner_patch_count: usize,
@@ -201,7 +201,7 @@ pub struct CoherenceValidationDiagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SupportCellSplitAxisStatus {
     /// Caller did not supply a cap-vertex projection for this axis;
-    /// uniform `i / cells` split was used (legacy callers).
+    /// uniform `i / cells` split was used.
     UniformNoProjection,
     /// Cap-vertex projection produced a sequence that matched
     /// `i / cells` to within tolerance; uniform formula used directly.

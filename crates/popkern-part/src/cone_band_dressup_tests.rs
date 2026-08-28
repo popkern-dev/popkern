@@ -75,7 +75,7 @@ fn large_leg_rim_chamfer_stays_conical_and_watertight() {
 /// Three defects closed: (1) cylinder×cone marching fragmented the
 /// exact cut circle into ~20 rotated partial arcs whose survivors
 /// left a 96° hole (now an analytic coaxial fast path); (2) the
-/// legacy walk hung every hole on the primary fragment — with
+/// 3D-Newell walk hung every hole on the primary fragment — with
 /// concentric rings the annulus piece lost its rim hole and the
 /// assembly went non-manifold → silent graph-merge fallback shipped
 /// an invalid body (now nested by smallest-containing-region);

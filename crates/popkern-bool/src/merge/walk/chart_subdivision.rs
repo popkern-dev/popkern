@@ -34,7 +34,7 @@ pub(crate) struct BranchPoint {
 }
 
 /// A structural defect that makes the face's chart subdivision
-/// unwalkable; any issue routes the face to the legacy walker.
+/// unwalkable; any issue routes the face to the 3D-Newell walker.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum SubdivisionIssue {
     /// No embedding source produced a UV run for this half-edge (I1).
@@ -103,7 +103,7 @@ impl std::fmt::Display for SubdivisionIssue {
 }
 
 /// Why a half-edge was excluded from the subdivision (not an error —
-/// the record bounds nothing; legacy behavior preserved, but observable).
+/// the record bounds nothing; earlier behavior preserved, but observable).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FilteredRecord {
     /// Chart extent below noise — a tangency/touch-point record.
@@ -127,7 +127,7 @@ pub(crate) enum FilteredRecord {
     BoundarySubstituteDirection { dropped: usize, kept: usize },
     /// An interior graze: a record pair dead-ending at a node with no
     /// other registered half-edge on this face. Both sides of the
-    /// trace bound the same region there — the legacy walk's
+    /// trace bound the same region there — the 3D-Newell walk's
     /// interior-graze candidate filter refuses to enter these; the
     /// substrate drops the pair (design doc §5).
     InteriorGraze(usize),
@@ -276,7 +276,7 @@ fn build_face_subdivision_inner(
     // stored boundary ring, every embedding is folded into that cell
     // by whole-period shifts, and the rest of the pipeline runs the
     // aperiodic path. Faces that WRAP a period (no resolvable cell)
-    // remain out of scope and take the recorded legacy fallback.
+    // remain out of scope and take the recorded 3D-Newell fallback.
     let cell_fold = if v_period.is_some() {
         match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
             Some(cell) => Some((cell, u_period, v_period)),
@@ -509,7 +509,7 @@ fn build_face_subdivision_inner(
     // GAP-SUBSTITUTE completion (non-periodic charts): the coincident
     // weld path can leave a face's boundary registration with a GAP
     // (a split middle piece missing) that an overlap-pair record
-    // spans — legacy walks the record as the boundary substitute.
+    // spans — the 3D-Newell walk takes the record as the boundary substitute.
     // With BOTH record directions registered the gap endpoints are
     // ±1 imbalanced; exactly one drop choice restores balance at
     // both, and it is the direction agreeing with the adjacent
@@ -609,7 +609,7 @@ fn build_face_subdivision_inner(
     // into a fragment loop (measured on the flush-gusset wall: the
     // gusset's sloped-face trace ends mid-wall at a degree-1 node,
     // and the chart outer loop carried the spur as its two extra
-    // half-edges vs the legacy walk, which filters grazes at
+    // half-edges vs the 3D-Newell walk, which filters grazes at
     // candidate time). Iterated: removing one graze can expose a
     // chain.
     for _ in 0..8 {
@@ -662,7 +662,7 @@ fn build_face_subdivision_inner(
     // there (measured: a full sphere's garbage hull-arc records
     // dead-ended mid-face, graze-filtered into a cascade, and the
     // single surviving orbit broke Euler downstream) — those faces
-    // keep the legacy walk, recorded. A ZERO-EXTENT drop of the
+    // keep the 3D-Newell walk, recorded. A ZERO-EXTENT drop of the
     // operand's own degenerate pole BORDER is exempt: a pole is a
     // collapsed border by construction, and dropping its zero-length
     // edge is precisely how the fan model expects to see it.

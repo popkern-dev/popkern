@@ -1,6 +1,6 @@
 //! Setback-border KP20 cap as the primary apex candidate.
 //!
-//! The legacy paper candidate derives its border from the two-stripe
+//! The two-stripe-seeded paper candidate derives its border from the two-stripe
 //! sub-patch spokes (`TensorBorderBi3`). This entry derives it from
 //! the FILLET SURFACES themselves via the classical corner-setback
 //! boundary — n arcs on the G² sweeps meeting at trim-intersection

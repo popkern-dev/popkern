@@ -55,7 +55,7 @@ mod gregory_boundary_trim;
 use gregory_boundary_trim::orient_boundary_to_anchors;
 
 /// Sampling density for projecting `curve_3d` onto the non-Gregory
-/// surface's UV. Higher than the legacy `reproject_loop_pcurves`
+/// surface's UV. Higher than the earlier `reproject_loop_pcurves`
 /// fitter (12 samples) — the cap-boundary edge is the user-visible
 /// seam, so we accept slightly more compute to push G2 below 1e-6.
 const PROJECTION_SAMPLES: usize = 32;

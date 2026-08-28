@@ -415,7 +415,7 @@ pub(crate) fn normal_curvature_in_direction(
 ///
 /// Returns `Err(G2Error)` if any per-sample G2 cross-section build
 /// fails (including the material-side postcondition). Callers can
-/// fall back to `build_nurbs_sweep` (the legacy G1 path) on failure.
+/// fall back to `build_nurbs_sweep` (the degree-1 G1 sweep path) on failure.
 pub fn g2_sweep_from_contact_solutions(
     solutions: &[ContactSolution],
     surface_0: &dyn SurfaceEval,

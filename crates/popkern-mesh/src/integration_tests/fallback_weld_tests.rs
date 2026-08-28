@@ -1,7 +1,7 @@
 //! PK-299 pin: a face that DECLINES boundary-first must still weld
 //! watertight against served boundary-first neighbours.
 //!
-//! The legacy grid used to sample its trim polylines adaptively from
+//! The uniform-grid tessellator used to sample its trim polylines adaptively from
 //! each pcurve — boundary vertices then sat on private polyline
 //! chords up to the UV chord-height off the shared edge curve,
 //! beyond the crack zipper's matching band, and every shared edge

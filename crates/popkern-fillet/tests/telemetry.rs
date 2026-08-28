@@ -246,13 +246,13 @@ fn walker_path_populates_newton_iterations() {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy path leaves Newton iterations = None
+// Offset-intersect path leaves Newton iterations = None
 // ---------------------------------------------------------------------------
 
 #[test]
-fn legacy_path_leaves_newton_iterations_none() {
+fn offset_intersect_path_leaves_newton_iterations_none() {
     // A plain cube fillet at a small radius takes the offset-
-    // intersect legacy path (no walker, no contact solutions),
+    // intersect vertex-blend path (no walker, no contact solutions),
     // so `iterations_used` stays None.
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
@@ -277,12 +277,12 @@ fn legacy_path_leaves_newton_iterations_none() {
         if ev.succeeded {
             assert!(
                 ev.newton_iterations.is_none(),
-                "legacy offset-intersect path should leave iterations None, got {:?}",
+                "offset-intersect path should leave iterations None, got {:?}",
                 ev.newton_iterations
             );
             assert!(
                 ev.step_rejections.is_none(),
-                "legacy offset-intersect path should leave step rejections None, got {:?}",
+                "offset-intersect path should leave step rejections None, got {:?}",
                 ev.step_rejections
             );
         }

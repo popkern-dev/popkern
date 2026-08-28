@@ -4,7 +4,7 @@
 //! charted by Delaunay in one branch — the classic case is a cone
 //! lateral: the base circle sweeps 2π and "returns" through the apex
 //! point, whose azimuth is undefined. These faces used to decline to
-//! the legacy periodic grid, whose boundary stations stagger against
+//! the periodic uniform grid, whose boundary stations stagger against
 //! canonical neighbours; the meshes stayed watertight only through
 //! the crack zipper's parameter merge (measured: 64 repairs on the
 //! primitive cone, 112 on the shelled cone).
@@ -148,7 +148,7 @@ pub(super) fn try_tessellate(
     // sample mixed period branches (measured: two half-rails at
     // (−π, π] put a +2π jump mid-block and the whole-wrap arm declined,
     // dropping the cap to a fallback that left 77 open cracks along
-    // the rail). Identity for jump-free single-edge rails, so legacy
+    // the rail). Identity for jump-free single-edge rails, so pre-existing
     // charts stay bit-identical.
     let u_unwrapped: Vec<f64> = {
         let mut us = Vec::with_capacity(middle.len());

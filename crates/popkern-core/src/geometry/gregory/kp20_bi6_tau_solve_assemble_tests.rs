@@ -4749,7 +4749,7 @@ fn appendix_a_oriented_boundary_section42_basis_is_measured() {
     let angle = core::f64::consts::TAU / valence as f64;
     let c = angle.cos();
     const TAU_VALIDITY_SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
-    let (active_set, legacy_map) =
+    let (active_set, paper_map) =
         fig6c_active_set_source_projection_with_map(valence, sector, &TAU_VALIDITY_SAMPLES)
             .expect("active-set source projection");
     let oriented_map = TestSection42StripSymbolMap {
@@ -4791,7 +4791,7 @@ fn appendix_a_oriented_boundary_section42_basis_is_measured() {
         true,
     );
     let report = measure_fig6c_paper_direction_rows(&projected.patch, oriented_map);
-    let legacy_report = measure_fig6c_paper_direction_rows(&projected.patch, legacy_map);
+    let paper_report = measure_fig6c_paper_direction_rows(&projected.patch, paper_map);
     let oriented_cap = test_reversed_current_cap_residual_summary(
         &test_macro_cap_from_sampled(valence, vec![projected.patch; valence]),
         valence,
@@ -4801,7 +4801,7 @@ fn appendix_a_oriented_boundary_section42_basis_is_measured() {
     let after_orientation =
         test_orientation_detail_report(&after_local, &TAU_VALIDITY_SAMPLES, 1.0e-10);
     eprintln!(
-        "Appendix-A oriented-boundary Section 4.2 basis: iterations={iterations} active={active} orientation_active={orientation_active} max_delta={max_delta:e} linear_residual={linear_residual:e} full={full:e} c0={c0:e} eq11={eq11:e} eq12={eq12:e} eq13={eq13:e} legacy_full={legacy_full:e} oriented_cap_c0={oriented_cap_c0:e} oriented_cap_eq8={oriented_cap_eq8:e} oriented_cap_eq9={oriented_cap_eq9:e} square={square}/{samples} square_excess={square_excess:e} neg={neg}/{orientation_samples} det=[{min_det:e},{max_det:e}] det_worst={det_worst}",
+        "Appendix-A oriented-boundary Section 4.2 basis: iterations={iterations} active={active} orientation_active={orientation_active} max_delta={max_delta:e} linear_residual={linear_residual:e} full={full:e} c0={c0:e} eq11={eq11:e} eq12={eq12:e} eq13={eq13:e} paper_full={paper_full:e} oriented_cap_c0={oriented_cap_c0:e} oriented_cap_eq8={oriented_cap_eq8:e} oriented_cap_eq9={oriented_cap_eq9:e} square={square}/{samples} square_excess={square_excess:e} neg={neg}/{orientation_samples} det=[{min_det:e},{max_det:e}] det_worst={det_worst}",
         iterations = projected.iterations,
         active = projected.active_constraints,
         orientation_active = projected.orientation_constraints,
@@ -4812,7 +4812,7 @@ fn appendix_a_oriented_boundary_section42_basis_is_measured() {
         eq11 = report.eq11_residual,
         eq12 = report.eq12_residual,
         eq13 = report.eq13_residual,
-        legacy_full = legacy_report.full_residual,
+        paper_full = paper_report.full_residual,
         oriented_cap_c0 = oriented_cap.c0,
         oriented_cap_eq8 = oriented_cap.eq8,
         oriented_cap_eq9 = oriented_cap.eq9,
@@ -5361,7 +5361,7 @@ fn appendix_a_endpoint_aware_section42_with_reversed_cap_rows_closes() {
     let angle = core::f64::consts::TAU / valence as f64;
     let c = angle.cos();
     const TAU_VALIDITY_SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
-    let (active_set, legacy_map) =
+    let (active_set, paper_map) =
         fig6c_active_set_source_projection_with_map(valence, sector, &TAU_VALIDITY_SAMPLES)
             .expect("active-set source projection");
     let oriented_map = TestSection42StripSymbolMap {
@@ -5422,7 +5422,7 @@ fn appendix_a_endpoint_aware_section42_with_reversed_cap_rows_closes() {
     );
     let endpoint_report =
         measure_fig6c_endpoint_aware_section42_rows(&projected.patch, oriented_map);
-    let legacy_report = measure_fig6c_paper_direction_rows(&projected.patch, legacy_map);
+    let paper_report = measure_fig6c_paper_direction_rows(&projected.patch, paper_map);
     let fixed_oriented_report = measure_fig6c_paper_direction_rows(&projected.patch, oriented_map);
     let oriented_cap = test_reversed_current_cap_residual_summary(
         &test_macro_cap_from_sampled(valence, vec![projected.patch; valence]),
@@ -5433,7 +5433,7 @@ fn appendix_a_endpoint_aware_section42_with_reversed_cap_rows_closes() {
     let after_orientation =
         test_orientation_detail_report(&after_local, &TAU_VALIDITY_SAMPLES, 1.0e-10);
     eprintln!(
-        "Appendix-A endpoint-aware Section 4.2 plus reversed cap rows: iterations={iterations} active={active} orientation_active={orientation_active} linear_residual={linear_residual:e} endpoint_full={endpoint_full:e} endpoint_c0={endpoint_c0:e} endpoint_eq11={endpoint_eq11:e} endpoint_eq12={endpoint_eq12:e} endpoint_eq13={endpoint_eq13:e} fixed_oriented_full={fixed_oriented_full:e} legacy_full={legacy_full:e} cap_rows={cap_rows:e} oriented_cap_c0={oriented_cap_c0:e} oriented_cap_eq8={oriented_cap_eq8:e} oriented_cap_eq9={oriented_cap_eq9:e} square={square}/{samples} square_excess={square_excess:e} neg={neg}/{orientation_samples} det=[{min_det:e},{max_det:e}] det_worst={det_worst}",
+        "Appendix-A endpoint-aware Section 4.2 plus reversed cap rows: iterations={iterations} active={active} orientation_active={orientation_active} linear_residual={linear_residual:e} endpoint_full={endpoint_full:e} endpoint_c0={endpoint_c0:e} endpoint_eq11={endpoint_eq11:e} endpoint_eq12={endpoint_eq12:e} endpoint_eq13={endpoint_eq13:e} fixed_oriented_full={fixed_oriented_full:e} paper_full={paper_full:e} cap_rows={cap_rows:e} oriented_cap_c0={oriented_cap_c0:e} oriented_cap_eq8={oriented_cap_eq8:e} oriented_cap_eq9={oriented_cap_eq9:e} square={square}/{samples} square_excess={square_excess:e} neg={neg}/{orientation_samples} det=[{min_det:e},{max_det:e}] det_worst={det_worst}",
         iterations = projected.iterations,
         active = projected.active_constraints,
         orientation_active = projected.orientation_constraints,
@@ -5444,7 +5444,7 @@ fn appendix_a_endpoint_aware_section42_with_reversed_cap_rows_closes() {
         endpoint_eq12 = endpoint_report.eq12_residual,
         endpoint_eq13 = endpoint_report.eq13_residual,
         fixed_oriented_full = fixed_oriented_report.full_residual,
-        legacy_full = legacy_report.full_residual,
+        paper_full = paper_report.full_residual,
         cap_rows = scalar_row_set_residual(&projected.patch, &cap_rows),
         oriented_cap_c0 = oriented_cap.c0,
         oriented_cap_eq8 = oriented_cap.eq8,

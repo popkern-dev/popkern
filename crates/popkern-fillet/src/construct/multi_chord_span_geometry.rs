@@ -163,7 +163,7 @@ pub(super) fn trim_subcurve_between(
     // polyline stand-in carries chord sagitta r·(1−cos(span/32)),
     // which is 0.42 on a 5.87-rad interrupted-rim arc (measured: the
     // z=7 contact edge's boundary-first inversion rejected at
-    // 3.8e-1 and both adjacent faces fell to the cracking legacy
+    // 3.8e-1 and both adjacent faces fell to the cracking uniform-grid
     // mesher). Short sub-chords keep sub-tolerance error either way.
     let sliced = {
         let eps = (trim.parameter_range().1 - trim.parameter_range().0) * 1e-9;

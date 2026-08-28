@@ -246,7 +246,7 @@ pub(crate) fn compute_fillet_geometry(
     // `center_result.contact_solutions` carries one
     // `ContactSolution` per spine sample, each recording its
     // Newton iteration count AND its line-search rejection count.
-    // Sum both across the samples for per-edge totals. Legacy
+    // Sum both across the samples for per-edge totals. Offset-intersect
     // offset-intersect paths leave `contact_solutions` as `None`,
     // which propagates as `None` in both fields.
     let (iterations_used, step_rejections_used) = center_result

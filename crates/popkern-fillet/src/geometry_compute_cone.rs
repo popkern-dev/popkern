@@ -163,10 +163,10 @@ pub(crate) fn compute_center_via_walker(
     })
 }
 
-/// Walker-or-legacy center curve dispatch with §7 continuity
+/// Walker-or-offset-intersect center curve dispatch with §7 continuity
 /// downgrade tracking. Returns `(center_result, downgrade_reason)` —
 /// the reason string is `Some` when the walker failed on a non-cone
-/// G2 request and the pipeline degraded to the legacy path.
+/// G2 request and the pipeline degraded to the vertex-blend path.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_center_with_fallback(
     analysis: &analysis::EdgeAnalysis,
@@ -193,18 +193,18 @@ pub(crate) fn compute_center_with_fallback(
             tolerance,
             edge_midpoint,
         );
-        // Walker-failure fallback boundary: the legacy offset-
+        // Walker-failure fallback boundary: the offset-
         // intersect path is EXACT for plane×cylinder pairs (offset
         // plane ∩ offset cylinder is an analytic line/circle), so a
-        // diverged walker on that pair degrades to legacy with the
+        // diverged walker on that pair degrades to offset-intersect with the
         // reason recorded (measured: 2 of 4 blocked seam-crossing
         // boss-wall arc fillets complete this way). Cone/torus pairs
-        // keep the hard error — legacy offsets are not trustworthy
+        // keep the hard error — analytic offsets are not trustworthy here
         // there (the walker route exists because of them), and a
         // plausible-but-wrong center curve would ship silent wrong
         // shape.
         use popkern_core::geometry::surface::SurfaceGeometry;
-        let legacy_exact_pair = matches!(
+        let offset_intersect_exact_pair = matches!(
             (&analysis.surface_1, &analysis.surface_2),
             (
                 SurfaceGeometry::Plane { .. },
@@ -216,12 +216,14 @@ pub(crate) fn compute_center_with_fallback(
         );
         match w {
             Ok(r) => Ok((r, None)),
-            Err(walker_err) if legacy_exact_pair || (!either_needs_walker && wants_g2) => {
+            Err(walker_err)
+                if offset_intersect_exact_pair || (!either_needs_walker && wants_g2) =>
+            {
                 if std::env::var_os("PK_FILLET_TRACE").is_some() {
                     eprintln!("  [walker-fallback] {walker_err:?}");
                 }
                 let reason = format!("walker failed: {walker_err:?}");
-                let legacy = compute_offset_intersect_center_curve(
+                let offset_intersect = compute_offset_intersect_center_curve(
                     analysis,
                     radius,
                     brep,
@@ -232,7 +234,7 @@ pub(crate) fn compute_center_with_fallback(
                     tolerance,
                     edge_midpoint,
                 )?;
-                Ok((legacy, Some(reason)))
+                Ok((offset_intersect, Some(reason)))
             }
             Err(e) => Err(e),
         }
@@ -252,7 +254,7 @@ pub(crate) fn compute_center_with_fallback(
     }
 }
 
-/// Legacy offset-intersect center curve: the pre-phase-1 path that
+/// Offset-intersect center curve: the pre-walker path that
 /// analytically offsets both surfaces, intersects the offsets, and
 /// picks the curve closest to the edge midpoint. Used as the primary
 /// route when neither the cone trigger nor the G2 opt-in fires, and

@@ -1,4 +1,4 @@
-//! Apex edge resolution for the legacy DirectApex mutating builder.
+//! Apex edge resolution for the mutating DirectApex builder.
 
 use popkern_core::geometry::{CurveGeometry, CurveOnEdge, NurbsCurve};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};

@@ -1,11 +1,11 @@
-//! PK-141 edge-span sweep channel for legacy offset-intersect
+//! PK-141 edge-span sweep channel for offset-intersect
 //! center curves.
 //!
 //! Offset intersections computed over padded parameter ranges return
 //! the whole carrier (measured: a boolean body's plane×cylinder pair
 //! produced the full z∈[−5,7] line for a 0.5-long edge; sections
 //! outside the edge got clamped garbage footprints and the sweep
-//! twisted — SelfIntersectingBlend). The LEGACY center/footprint
+//! twisted — SelfIntersectingBlend). The full-range center/footprint
 //! artifacts keep the full carrier range — the face-trim splitter
 //! relies on trims extending past face boundaries (measured:
 //! trimming them broke a pre-filleted lip union split, and bare-span
@@ -25,7 +25,7 @@ pub(crate) type SweepChannelArtifacts =
     (Option<NurbsCurve>, Option<Vec<Point3>>, Option<Vec<Point3>>);
 
 /// Trimmed sweep span when the carrier grossly overhangs the edge;
-/// `None` keeps the legacy full-range behavior.
+/// `None` keeps the full-range behavior.
 pub(crate) fn gross_overhang_sweep_span(
     center_curve: &NurbsCurve,
     edge_anchor_at: &dyn Fn(f64) -> Point3,

@@ -50,7 +50,7 @@ pub(super) fn apex_route_decision(
     }
 }
 
-/// Route record for a corner dispatched straight to the legacy path
+/// Route record for a corner dispatched straight to the vertex-blend path
 /// (no direct-apex attempt was made).
 pub(super) fn vertex_blend_dispatch_route(
     vertex: VertexHandle,
@@ -71,13 +71,13 @@ pub(super) fn vertex_blend_dispatch_route(
         exact_boundary_solved_surface_count: 0,
         exact_boundary_pcurve_pair_count: 0,
         exact_boundary_performance: Default::default(),
-        exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
+        exact_boundary_report: crate::types::ExactBoundaryCapReport::not_applicable("vertex_blend"),
         fallback_reason: None,
     })
 }
 
 /// Route record for a direct-apex attempt that fell back to the
-/// legacy path, carrying the decline reason.
+/// vertex-blend path, carrying the decline reason.
 pub(super) fn direct_apex_fallback_route(
     vertex: VertexHandle,
     edge_indices: &[usize],
@@ -105,7 +105,7 @@ pub(super) fn direct_apex_fallback_route(
     })
 }
 
-/// PK-258: a completed legacy corner serve records its cap faces on
+/// PK-258: a completed vertex-blend corner serve records its cap faces on
 /// the vertex's route (so the serving-retry keep-better contract can
 /// measure BOTH candidates uniformly) and, when the corner FELL BACK
 /// from direct-apex, promotes a cap/support continuity breach of the

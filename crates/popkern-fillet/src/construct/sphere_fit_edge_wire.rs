@@ -209,7 +209,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         } else {
             // Project the sub-edge's vertex
             // endpoints onto the segment to find the sub-range.
-            // Without this in legacy subrange mode, every sub-edge
+            // Without this in vertex-projection subrange mode, every sub-edge
             // sharing a segment would claim the full segment range.
             let v_origin_pos = brep.vertices[v_origin].position;
             let v_dest_pos = brep.vertices[v_dest].position;
@@ -223,7 +223,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             // Collapsed-projection fallback (Mode B): when projections collapse to the same
             // parameter (cube fixtures whose BRep vertices don't lie on
             // the substituted bridge), fall back to full segment range.
-            // Becomes redundant once A.7 removes legacy mode entirely.
+            // Becomes redundant once vertex-projection subranging is removed entirely.
             let seg_span = (t1 - t0).abs();
             let edge_span = (e - s).abs();
             if seg_span > 1e-15 && edge_span < 1e-9 * seg_span {

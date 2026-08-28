@@ -5,7 +5,7 @@ use super::*;
 
 /// For every edge incident to `vh`, snap the 3D curve's endpoint
 /// (the one matching v's t_start or t_end) to `new_position`.
-/// More robust than the legacy version: uses half-edge orientation
+/// More robust than the earlier snap: uses half-edge orientation
 /// to determine which end of the curve corresponds to `vh`, then
 /// modifies the appropriate control point of the curve.
 pub(crate) fn snap_incident_edge_curve_endpoints_robust(

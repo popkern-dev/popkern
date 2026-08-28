@@ -18,7 +18,7 @@ fn projection_at(side: SupportCellPatchSide, ts: &[f64]) -> Vec<Point3> {
 }
 
 #[test]
-fn none_caller_returns_uniform_legacy_status() {
+fn none_caller_returns_uniform_no_projection_status() {
     let patch = unit_plane_patch();
     let outcome = cap_vertex_splits_along_axis(&patch, None, 4);
     assert_eq!(

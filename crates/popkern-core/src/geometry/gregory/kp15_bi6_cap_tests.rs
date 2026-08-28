@@ -298,10 +298,10 @@ fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
         acc
     };
 
-    let out_legacy = assemble_bi6_polar_cap(&input).unwrap();
+    let out_baseline = assemble_bi6_polar_cap(&input).unwrap();
     let out_table = super::assemble_bi6_polar_cap_via_table(&input, 5, 0.0).unwrap();
 
-    let f5_legacy = f5(&out_legacy.patches_bi6);
+    let f5_baseline = f5(&out_baseline.patches_bi6);
     let f5_table = f5(&out_table.patches_bi6);
 
     let mut worst_eq2 = 0.0_f64;
@@ -327,7 +327,7 @@ fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
     }
 
     eprintln!(
-        "Via-table pentagon: F_5 legacy = {f5_legacy:.3e}, F_5 table = {f5_table:.3e}, \
+        "Via-table pentagon: F_5 baseline = {f5_baseline:.3e}, F_5 table = {f5_table:.3e}, \
          worst eq(2) = {worst_eq2:.3e}, worst eq(3) = {worst_eq3:.3e}"
     );
 
@@ -340,7 +340,7 @@ fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
         "table path: worst eq (3) residual = {worst_eq3:.3e}"
     );
     assert!(
-        f5_table < f5_legacy,
-        "table F_5 = {f5_table:.3e} ≥ legacy F_5 = {f5_legacy:.3e}"
+        f5_table < f5_baseline,
+        "table F_5 = {f5_table:.3e} ≥ baseline F_5 = {f5_baseline:.3e}"
     );
 }

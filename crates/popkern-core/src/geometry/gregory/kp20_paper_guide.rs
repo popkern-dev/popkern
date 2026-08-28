@@ -4,7 +4,7 @@
 //! total-degree-6 guide `g` by least squares between the input
 //! tensor-border and the tensor-border assembled from corner jets of
 //! `g ∘ χ̃` — the guide composed with the Catmull-Clark characteristic
-//! tensor-border. The legacy `kp20_bi6_guide_lsq` fit compared guide
+//! tensor-border. The earlier `kp20_bi6_guide_lsq` fit compared guide
 //! rows directly in the sector chart (a structural surrogate,
 //! recovery-plan RC2); this module keeps its verified KP18 constraint
 //! rows and per-axis KKT solver, and replaces only the fit target.

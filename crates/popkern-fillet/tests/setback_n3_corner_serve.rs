@@ -27,7 +27,7 @@
 //! setback arcs).
 //!
 //! PK-226 added the fourth root fix: a 3-D margin gate in
-//! `arc_boundary_crossings` (the legacy carve's off-surface axis
+//! `arc_boundary_crossings` (the corner carve's off-surface axis
 //! chords projected across the strip crown and the detector snapped
 //! the arc midpoint onto the raw cube edge), which flips the
 //! variable-radius class from decline to serve for both profiles.
@@ -102,7 +102,7 @@ fn uniform_conic_cube_corner_serves_setback_fan_commercially() {
 /// Flat conic sections (rho below the circular equivalent) at small
 /// radii interpenetrate at the corner once the strips extend to the
 /// setback arcs — the commit must decline (no-new-intersection gate)
-/// and the serve stays structurally clean on the legacy path.
+/// and the serve stays structurally clean on the vertex-blend path.
 #[test]
 fn flat_rho_small_radius_corner_declines_setback_and_stays_clean() {
     let result = cube_corner(BlendProfile::Conic { rho: 0.35 }, |_| {
@@ -116,7 +116,7 @@ fn flat_rho_small_radius_corner_declines_setback_and_stays_clean() {
     for error in result.brep.validate_all() {
         assert!(
             matches!(error, ValidationError::CurveSurfaceDeviation { .. }),
-            "declined corner must keep the legacy serve's class, got {error:?}"
+            "declined corner must keep the vertex-blend serve's class, got {error:?}"
         );
     }
 }
@@ -166,7 +166,7 @@ fn circular_uniform_corner_keeps_sphere_serve() {
 
 /// Variable-radius corners serve the setback fan at the commercial
 /// bars (PK-226). The historical decline was a false UV crossing:
-/// closest-point projection folded the legacy carve's off-surface
+/// closest-point projection folded the corner carve's off-surface
 /// axis chords onto the strip crown, and the detector snapped the
 /// arc MIDPOINT onto the raw cube edge (margin 4.9e-2 accepted
 /// silently). The 3-D margin gate in `arc_boundary_crossings`

@@ -2,11 +2,11 @@
 //! LIVE seam edges between cap faces instead of assuming a patch
 //! ordering.
 //!
-//! `measure_ring` (kp_gate_helpers) encodes the legacy polar layout
+//! `measure_ring` (kp_gate_helpers) encodes the pre-arm polar layout
 //! — patch `k` side `u = 1` meets patch `k + 1` side `v = 0`
 //! reversed, faces emitted in ring order. The setback vertex blend
 //! commits a 24-patch fan on hexagon6_variable whose true pairwise
-//! seams are machine-zero, yet the legacy convention reads 5.2e-2
+//! seams are machine-zero, yet the one-patch convention reads 5.2e-2
 //! (frame artifact, PK-087 stage 13). Here every edge shared by two
 //! cap faces is measured through the faces' own pcurves: G0 as the
 //! cross-face surface gap, G1 as normal misalignment, G2 as the

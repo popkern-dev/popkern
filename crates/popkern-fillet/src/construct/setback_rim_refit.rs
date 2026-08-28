@@ -222,7 +222,7 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     // fan corners. That deformation was the last author of the
     // G2-request fan's off-surface readings (PK-208: the tessellator
     // read a TRUE 1.48e-3 curve-vs-cap deviation on the rimsplit
-    // stubs and fell back to the cracking legacy path). Move those
+    // stubs and fell back to the cracking vertex-blend path). Move those
     // vertices onto the rows too and let the dedicated endpoint-
     // coherence repair make every incident curve follow — windowed
     // curves included, which is exactly the case it exists for. The

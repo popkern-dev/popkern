@@ -3,7 +3,7 @@
 //! `serde_json` cannot serialize maps whose keys are not strings, so
 //! any `HashMap<HandleType, _>` field silently poisons whole-model
 //! JSON serialization the first time an operator populates it
-//! (measured: the legacy pyramid apex serve stores 16
+//! (measured: the vertex-blend pyramid apex serve stores 16
 //! `surface_boundary_hints` entries and every `serde_json::to_vec`
 //! of the body fails with "key must be a string"). These helpers
 //! serialize such maps as a `Vec<(K, V)>` SORTED BY KEY — sorted so

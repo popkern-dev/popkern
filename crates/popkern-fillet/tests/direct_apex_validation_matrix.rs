@@ -22,7 +22,7 @@
 //!   cap-continuity gates.
 //! * **`cube_extreme`** completes natively (PK-074 closed): the
 //!   partition's displaced-membership residual collection retired the
-//!   phantom scaffold seams that had forced the legacy fallback, and
+//!   phantom scaffold seams that had forced the vertex-blend fallback, and
 //!   the recompute's degree-1 shortcut now verifies parameterization
 //!   (not just image straightness) at the quarter points, so the
 //!   cap/support seams measure at commercial tolerance end to end.
@@ -94,7 +94,7 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             // one vertex and the partition + exact-boundary cap serve
             // natively (the PK-216 containment fallback is retired —
             // its pre-history was a corrupt-accept behind a vacuous
-            // green, then a recorded legacy fallback).
+            // green, then a recorded vertex-blend fallback).
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
@@ -227,7 +227,7 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
             is_pyramid: false,
         },
         // pyramid3_uniform left this set with PK-216: the uniform
-        // (shared-corner) class serves via the recorded legacy
+        // (shared-corner) class serves via the recorded vertex-blend
         // fallback, not a native Gregory cap — its serve is pinned by
         // the shared-corner containment gates below and returns here
         // with PK-219.
@@ -322,7 +322,7 @@ fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
 /// PK-219 welded shared-corner class: uniform pyramid4 serves
 /// NATIVELY through the welded partition + exact-boundary cap.
 /// History: the pre-PK-216 "native" green shipped a glued
-/// surfaceless membrane; PK-216 contained via a recorded legacy
+/// surfaceless membrane; PK-216 contained via a recorded vertex-blend
 /// fallback (sphere cap, g0 7.4e-2 ceiling); PK-219 welds the
 /// collapsed corners at plan level and restores native quality.
 #[test]

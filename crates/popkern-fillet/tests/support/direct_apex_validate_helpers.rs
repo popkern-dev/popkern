@@ -121,7 +121,7 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
         // cube-family flags were a grazing false positive fixed at
         // the core validator root (PK-230), and the oblique
         // base-corner class (pyramid3 mixed/extreme) now DECLINES at
-        // the serving-shape gate and serves legacy clean, so the
+        // the serving-shape gate and serves vertex-blend clean, so the
         // retry has nothing to catch.
         ..FilletOptions::default()
     };
@@ -154,7 +154,7 @@ pub(crate) fn assert_native_gregory_cube_case(name: &str, radii: &[f64]) {
 
 /// PK-216 shared-corner containment pin: a UNIFORM repeated apex
 /// (coincident sector corners) must decline the constructive Gregory
-/// route with the class NAMED and serve the recorded legacy fallback
+/// route with the class NAMED and serve the recorded vertex-blend fallback
 /// as a clean body — no glued surfaceless residuals, no dead sides.
 /// History: the pre-PK-216 "native, 0 fallbacks" greens on these
 /// fixtures were vacuous — the accepted partition body glued a

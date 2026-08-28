@@ -51,12 +51,12 @@ pub(super) fn run_perpendicular_splits(
     // into the anchor-split stage's anchor placement.  Currently the result is
     // computed and discarded — proves the pre-pass runs without
     // regression on every fixture.  Gated by `use_direct_apex_
-    // construction` so legacy is unaffected.
+    // construction` so the vertex-blend path is unaffected.
     // Mixed-radius promoted apexes (PK-127) join the prepass without
     // the global flag: dispatch will route them to the direct-apex
     // partition, so the anchor-split stage must place the anchors that plan expects.
     // Targets stay scoped to the promoted vertices when the global
-    // flag is off so legacy anchor placement elsewhere is untouched.
+    // flag is off so vertex-blend anchor placement elsewhere is untouched.
     let _planner_targets_per_apex: std::collections::HashMap<
         VertexHandle,
         Vec<popkern_core::geometry::Point3>,
@@ -141,7 +141,7 @@ pub(super) fn run_perpendicular_splits(
         // trim-crossing anchors regresses the pyramid3 native
         // fixtures. Everywhere else the trims are authoritative.
         // Trim curves feed anchor placement for the analytic cylinder
-        // path (legacy, diagnostic crossing only) and the G2 NURBS
+        // path (diagnostic crossing only) and the G2 NURBS
         // sweeps (PK-095: crossing-derived anchors — perp-walk math
         // disagrees with the sweep's contact lines by ~0.06 on the
         // pentagon). The direct-apex native construction (§28.H)

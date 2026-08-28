@@ -215,7 +215,7 @@ fn main() {
     let seam_only = std::env::var_os("FLAGSHIP_SEAM_ONLY").is_some();
     // Corner-free variant: seam + vertical edges only (each vertical
     // fillet ends at perpendicular faces — no 3-fillet corner blends,
-    // which are the remaining legacy-quality machinery).
+    // which are the remaining pre-commercial-quality machinery).
     let no_top = std::env::var_os("FLAGSHIP_NO_TOP_FILLETS").is_some();
     for (eh, edge) in unioned.edges.iter() {
         if seam_only {

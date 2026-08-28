@@ -1,6 +1,6 @@
 //! direct-apex dispatch.b — direct-apex apex-construction dispatch helper.
 //!
-//! Bridges the legacy `apply_blend_geometry` apex-vertex-blend
+//! Bridges the `apply_blend_geometry` apex-vertex-blend
 //! loop to the direct-apex planner + builder
 //! ([`crate::apex_construction::plan_apex_resolution`] +
 //! [`crate::apex_construction::construct_apex`]).
@@ -8,12 +8,12 @@
 //! Called from `apply_blend_geometry` only when
 //! `FilletOptions::use_direct_apex_construction == true`.  Returns
 //! `Ok(DirectApexDispatchOutcome { built_faces, corner_patches })` on success (caller
-//! skips the legacy `insert_vertex_blend` path, merges `built_faces` into the
+//! skips the `insert_vertex_blend` ladder path, merges `built_faces` into the
 //! post-loop protected-face set, and threads patch reports to diagnostics).
 //! Returns
 //! `Err(reason)` when direct-apex can't finish; caller emits
 //! [`BlendWarning::DirectApexFellBackToVertexBlend`](crate::error::BlendWarning::DirectApexFellBackToVertexBlend)
-//! and runs legacy as a backup.
+//! and runs the vertex-blend ladder as a backup.
 
 #[path = "direct_apex_acceptance.rs"]
 mod direct_apex_acceptance;
@@ -179,9 +179,9 @@ pub(super) fn try_direct_apex_construction(
     // builder first; on PlanMismatch (e.g. pyramid Sphere with sphere-fit
     // T-positions that don't coincide with existing trim-trim corners,
     // any Gregory edge case the constructive path doesn't yet handle),
-    // fall through to legacy direct-apex (§28.C-relocate path) so we don't regress
-    // fixtures that were succeeding under legacy. Open is unchanged
-    // (legacy short-circuits it as no-op).
+    // fall through to the mutating direct-apex builder (§28.C-relocate path) so we don't regress
+    // fixtures that were succeeding under the mutating builder. Open is unchanged
+    // (the mutating builder short-circuits it as no-op).
     if crate::direct_apex_trace::enabled() {
         eprintln!(
             "[direct-apex-trace] plan: cap_kind={:?} rung={:?} cap_kind_reason={:?} fallback_reason={:?}",
@@ -193,15 +193,15 @@ pub(super) fn try_direct_apex_construction(
     }
     let build_result = match plan.cap_kind {
         CapKind::Sphere { .. } | CapKind::Gregory { .. } => {
-            try_constructive_with_legacy_fallthrough(brep, &plan, &surfaces, tolerance)?
+            try_constructive_with_mutating_fallthrough(brep, &plan, &surfaces, tolerance)?
         }
         CapKind::Open { .. } if auto_promoted => {
             // PK-231 honesty backstop: an AUTO-promoted apex whose plan
             // lands the Open rung would "succeed" as a no-op, be recorded
-            // route=DirectApex, and skip the legacy vertex blend — the
+            // route=DirectApex, and skip the vertex-blend ladder — the
             // promotion arm promised the apex is in a measured serving
             // class, so a plan that builds nothing is a promotion
-            // misjudgment and must decline to legacy loudly (recorded as
+            // misjudgment and must decline to vertex-blend loudly (recorded as
             // DirectApexFallbackToVertexBlend with the planner's reason), not
             // silently delete the class's cap. Explicitly-requested
             // direct-apex keeps the historical Open no-op contract.
@@ -235,15 +235,15 @@ pub(super) fn try_direct_apex_construction(
 }
 
 /// Try the constructive builder for one apex; on PlanMismatch, fall through
-/// to the legacy `construct_apex_with_surfaces`. Either result is returned
-/// as `Ok(ApexBuildResult)`. If both fail, the legacy error is propagated
+/// to the mutating `construct_apex_with_surfaces`. Either result is returned
+/// as `Ok(ApexBuildResult)`. If both fail, the mutating builder error is propagated
 /// upward via `Err(String)`.
 ///
 /// The constructive builder's snapshot-rollback ensures that on its own
 /// failure, the BRep is byte-equivalent to the pre-call state — so the
-/// subsequent legacy call sees the same input as if the constructive path
+/// subsequent mutating-builder call sees the same input as if the constructive path
 /// were never attempted.
-fn try_constructive_with_legacy_fallthrough(
+fn try_constructive_with_mutating_fallthrough(
     brep: &mut BRep,
     plan: &crate::apex_construction::plan::ApexPlan,
     surfaces: &[FilletSurfaceResult],
@@ -378,16 +378,16 @@ fn try_constructive_with_legacy_fallthrough(
                 if let Some(constructive_err) = constructive_err {
                     if crate::direct_apex_trace::enabled() {
                         eprintln!(
-                            "[direct-apex-trace] constructive fell through to legacy DirectApex: {constructive_err}"
+                            "[direct-apex-trace] constructive fell through to the mutating DirectApex builder: {constructive_err}"
                         );
                     }
                     let constructive_diagnostics = result.diagnostics;
                     *brep = snapshot;
                     return match construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None)
                     {
-                        Ok(mut legacy_result) => {
-                            legacy_result.diagnostics.extend(constructive_diagnostics);
-                            Ok(legacy_result)
+                        Ok(mut mutating_result) => {
+                            mutating_result.diagnostics.extend(constructive_diagnostics);
+                            Ok(mutating_result)
                         }
                         Err(build_err) => Err(DirectApexDispatchError {
                             reason: format!(
@@ -443,7 +443,7 @@ fn try_constructive_with_legacy_fallthrough(
             // servable — the rungs' keep-better semantics pick the
             // least-defective candidate, which is still a defective
             // body. Decline the direct-apex route (entry snapshot
-            // restored, fallback recorded) so the legacy dispatch
+            // restored, fallback recorded) so the vertex-blend dispatch
             // serves, instead of shipping the defect for downstream
             // gates to catch (measured on the PK-260 oblique
             // base-corner class: the apex-retaining winner carried 12
@@ -456,7 +456,7 @@ fn try_constructive_with_legacy_fallthrough(
                 return Err(DirectApexDispatchError {
                     reason: format!(
                         "{} after every gate rung ({}); direct-apex declines to the \
-                         legacy dispatch (PK-260)",
+                         vertex-blend dispatch (PK-260)",
                         crate::types::SERVING_SHAPE_DECLINE_PREFIX,
                         defect.describe()
                     ),
@@ -468,7 +468,7 @@ fn try_constructive_with_legacy_fallthrough(
         Err(constructive_err) => {
             if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[direct-apex-trace] constructive fell through to legacy DirectApex: {constructive_err}"
+                    "[direct-apex-trace] constructive fell through to the mutating DirectApex builder: {constructive_err}"
                 );
             }
             construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None).map_err(

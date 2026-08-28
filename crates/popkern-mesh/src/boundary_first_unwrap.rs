@@ -7,7 +7,7 @@
 //! and unaffected). Chart-degenerate samples (poles/apexes, arbitrary
 //! azimuth) are skipped as anchors and rewritten from their flanking
 //! regular samples. Returns `false` on a genuine net full wrap — the
-//! caller routes those to the structured-revolution or legacy paths.
+//! caller routes those to the structured-revolution or uniform-grid paths.
 
 use super::BoundaryRing;
 

@@ -314,7 +314,7 @@ pub(super) fn try_tessellate(
 
 /// A pure seam-spine face (every outer-loop edge traversed twice):
 /// build its ring and attempt ONLY the revolution paths — Delaunay
-/// cannot chart two overlapping border lines. `None` keeps the legacy
+/// cannot chart two overlapping border lines. `None` keeps the pcurve-grid
 /// pcurve-grid fallback.
 pub(super) fn seam_spine_revolution(
     brep: &BRep,

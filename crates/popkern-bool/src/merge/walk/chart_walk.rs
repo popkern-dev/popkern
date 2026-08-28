@@ -69,7 +69,7 @@ pub(crate) fn next_in_chart(
     // independently, and at a slop-cluster junction two arrivals
     // could elect the SAME departure — the "orbits" then stop being a
     // permutation, the walk collides, and the face falls back to the
-    // legacy walker mis-partitioned (measured: rotated torus × torus,
+    // 3D-Newell walker mis-partitioned (measured: rotated torus × torus,
     // a node where the correct matching requires one arrival to
     // U-turn; the mis-partition cost 5.5% of the union volume before
     // the strand gate declined it). The DCEL-correct assignment is
@@ -279,20 +279,20 @@ fn polyline_contains(pts: &[(f64, f64)], p: (f64, f64)) -> bool {
 /// (positive σ-folded shoelace) are region outer components; orbits
 /// winding AGAINST are hole components of the region that contains
 /// them. This is by construction of the material-left walk — no 3D
-/// election needed (the legacy Newell election degenerates on faces
+/// election needed (the 3D-Newell election degenerates on faces
 /// whose stored border is a seam pair: a full sphere's two
 /// anti-parallel meridian copies measure |N| ≈ 0, and the seam orbit
 /// lost the outer election to a record triangle on cube∪sphere).
 pub(crate) struct ChartRoleAssembly {
     /// One entry per region: (outer orbit index, hole orbit indices).
     /// The FIRST entry is the face's primary fragment (largest
-    /// positive region — same size rule the legacy election used).
+    /// positive region — same size rule the 3D-Newell election used).
     pub regions: Vec<(usize, Vec<usize>)>,
 }
 
 /// Assign orbit roles from σ-folded chart shoelace signs. Returns
 /// `None` when no orbit winds positive (substrate defect — caller
-/// falls back to the legacy election).
+/// falls back to the 3D-Newell election).
 /// The source face's inner-loop edge set — the provenance authority
 /// for the hole override in [`assemble_chart_roles`] (PK-341).
 pub(crate) fn source_inner_edge_set(
@@ -444,37 +444,37 @@ pub(crate) fn canonical_loops(loops: &[Vec<usize>]) -> BTreeSet<Vec<usize>> {
 pub(crate) struct DualWalkDiff {
     /// Loops present in both partitions (canonical form).
     pub matched: usize,
-    /// Legacy loops the orbit partition does not contain.
-    pub legacy_only: Vec<Vec<usize>>,
-    /// Orbits the legacy walk never emitted. Orbits consuming only
-    /// half-edges legacy left unwalked are benign extras (legacy
+    /// 3D-Newell loops the orbit partition does not contain.
+    pub newell_only: Vec<Vec<usize>>,
+    /// Orbits the 3D-Newell walk never emitted. Orbits consuming only
+    /// half-edges the 3D-Newell walk left unwalked are benign extras (it
     /// skips some cross-registered seeds); orbits sharing half-edges
-    /// with differing legacy loops are true routing divergences.
+    /// with differing 3D-Newell loops are true routing divergences.
     pub orbit_only: Vec<Vec<usize>>,
 }
 
 #[cfg(test)]
 impl DualWalkDiff {
-    /// Orbit-only loops that share half-edges with legacy-only loops —
+    /// Orbit-only loops that share half-edges with Newell-only loops —
     /// the genuinely divergent routing (as opposed to benign extras).
     pub fn contested(&self) -> usize {
-        let legacy_hes: BTreeSet<usize> = self.legacy_only.iter().flatten().copied().collect();
+        let newell_hes: BTreeSet<usize> = self.newell_only.iter().flatten().copied().collect();
         self.orbit_only
             .iter()
-            .filter(|o| o.iter().any(|h| legacy_hes.contains(h)))
+            .filter(|o| o.iter().any(|h| newell_hes.contains(h)))
             .count()
     }
 }
 
 /// Compare two walk partitions (test-only since PK-108).
 #[cfg(test)]
-pub(crate) fn compare_walks(legacy: &[Vec<usize>], orbits: &[Vec<usize>]) -> DualWalkDiff {
-    let l = canonical_loops(legacy);
+pub(crate) fn compare_walks(newell: &[Vec<usize>], orbits: &[Vec<usize>]) -> DualWalkDiff {
+    let l = canonical_loops(newell);
     let o = canonical_loops(orbits);
     let matched = l.intersection(&o).count();
     DualWalkDiff {
         matched,
-        legacy_only: l.difference(&o).cloned().collect(),
+        newell_only: l.difference(&o).cloned().collect(),
         orbit_only: o.difference(&l).cloned().collect(),
     }
 }

@@ -201,7 +201,7 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     let errors = brep.validate_all();
     eprintln!("[ucg-null] direct mixed fillet validate_all: {errors:?}");
     // Since the PK-245 default arming of the serving retry, the
-    // DEFAULT serve for this corner re-routes to legacy (its
+    // DEFAULT serve for this corner re-routes to vertex-blend (its
     // direct-apex candidate ships a strip×cap self-intersection)
     // and validates clean or, at worst, keeps the known
     // CurveSurfaceDeviation class. The retry contract itself is

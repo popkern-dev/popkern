@@ -11,10 +11,10 @@
 //! the trim polygon.
 //!
 //! Faces without complete pcurve loops (or without edge curves) fall
-//! back to the legacy grid+clip path in `tessellate_face`.
+//! back to the uniform grid+clip path in `tessellate_face`.
 //!
 //! Observability: set `PK_BF_TRACE=1` to log, per face falling back
-//! to the legacy tessellator, WHY it fell back (missing pcurve, no
+//! to the uniform-grid tessellator, WHY it fell back (missing pcurve, no
 //! canonical samples, off-surface residual, uncovered ring segment,
 //! periodic full-wrap ring).
 
@@ -69,7 +69,7 @@ pub(crate) type SplitRequest = (EdgeHandle, f64);
 
 /// Tessellate a face against canonical edge samples. Returns `None`
 /// when the face lacks the data (pcurves / curves) — caller falls
-/// back to the legacy path.
+/// back to the uniform-grid path.
 pub(crate) fn tessellate_face_boundary_first(
     brep: &BRep,
     face_handle: FaceHandle,
@@ -88,7 +88,7 @@ pub(crate) fn tessellate_face_boundary_first(
     // Delaunay on it emits only degenerate slivers (measured: the
     // primitive sphere meshed 0/46 non-degenerate once its seam
     // carried real arc geometry — the chord-era ring build failed and
-    // silently routed these faces to the legacy pcurve-grid path,
+    // silently routed these faces to the pcurve-grid path,
     // which handles the periodic rectangle directly). Keep that
     // routing explicit.
     {
@@ -109,7 +109,7 @@ pub(crate) fn tessellate_face_boundary_first(
             // PK-339: the two-apex revolution arm serves the classic
             // member of this class (a full sphere: two poles joined by
             // one meridian seam) by construction — attempt it before
-            // falling back. Anything it declines keeps the legacy
+            // falling back. Anything it declines keeps the pcurve-grid
             // route (Delaunay stays skipped for seam spines).
             return boundary_first_revolution_bipolar::seam_spine_revolution(
                 brep,
@@ -168,7 +168,7 @@ pub(crate) fn tessellate_face_boundary_first(
                 // v ≈ 1e-6 shifts by ~2·r·v ≈ 1e-8 — above the old
                 // 1e-7·scale gate — and its arbitrary atan2 u chained
                 // PK-325's corner-cap rings into a phantom full wrap
-                // (all four wavy-plate top caps declined to legacy
+                // (all four wavy-plate top caps declined to uniform-grid
                 // sampling and their chains tore off the strips).
                 let u_degenerate: Vec<bool> = match period_u {
                     Some(p) => ring
@@ -191,7 +191,7 @@ pub(crate) fn tessellate_face_boundary_first(
                 {
                     // A genuine full wrap through an apex point is the
                     // structured-revolution class (PK-336); sole-loop
-                    // faces only — holes keep the legacy route.
+                    // faces only — holes keep the pcurve-grid route.
                     if face.inner_loops.is_empty()
                         && rings.is_empty()
                         && let Some(fm) = boundary_first_revolution::try_tessellate(
@@ -360,7 +360,7 @@ pub(crate) fn tessellate_face_boundary_first(
         v1 = v1.max(v);
     }
     let n = options.min_subdivisions.max(1);
-    // Refine like the legacy path would for curved surfaces: sample
+    // Refine like the uniform-grid path would for curved surfaces: sample
     // the surface diagonal and bump density if it deviates from the
     // chord more than chord_height.
     let mut n = n;
@@ -680,7 +680,7 @@ pub(crate) fn tessellate_face_boundary_first(
     }
     // Boundary-edge coverage check: every ring segment must appear as
     // a triangle edge, else the Delaunay cut a concave corner — fall
-    // back to the legacy path rather than ship a gap.
+    // back to the uniform-grid path rather than ship a gap.
     let mut edge_set = std::collections::HashSet::new();
     for t in &triangles {
         for (x, y) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
@@ -852,7 +852,7 @@ fn build_ring(
         let eh = data.edge;
         // ZERO-LENGTH edges (degenerate boolean residue at discarded
         // tool corners) contribute nothing to the ring: skip them
-        // entirely rather than bailing the whole face to the legacy
+        // entirely rather than bailing the whole face to the uniform-grid
         // path. Endpoints resolve through twin-or-next so boundary
         // sides with a dead twin do not panic.
         let ends = boundary_first_edge_samples::edge_endpoint_positions(brep, he);
@@ -937,7 +937,7 @@ fn build_ring(
             // yield exact boundary UVs. If the refined image stays
             // far from the canonical point, the curve genuinely does
             // not lie on this surface (sphere seam pole chord) —
-            // fall back to the legacy path.
+            // fall back to the uniform-grid path.
             let uvp = pc.point_at(tp);
             let sof = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
             let target = samples.points[idx];
@@ -979,7 +979,7 @@ fn build_ring(
                 // local projection then converges near the displaced
                 // location, reading 1.4e-3 where the true nearest
                 // point is 5e-5 away — the face fell back to the
-                // legacy path and the mesh cracked. Retry with a COLD
+                // uniform-grid path and the mesh cracked. Retry with a COLD
                 // global projection under the SAME gate before giving
                 // up; the ring-level periodic unwrap downstream
                 // restores branch continuity exactly as it does for
@@ -998,7 +998,7 @@ fn build_ring(
             // NOTE: widening this gate by recorded entity tolerance
             // was tried twice (with and without the cold retry above)
             // and is FALSIFIED both times: it repartitions the
-            // boundary-first/legacy face split and the mixed
+            // boundary-first/uniform-grid face split and the mixed
             // boundaries crack far worse than the fallback it avoids
             // (hexagon6_blunt 0 -> 482; pentagon5_blunt/G2
             // 106 -> 492). Do not reintroduce it.

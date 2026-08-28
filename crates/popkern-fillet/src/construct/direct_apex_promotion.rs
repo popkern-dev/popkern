@@ -5,11 +5,11 @@
 //! promoted classes:
 //!
 //! * **Mixed-radius apexes at N ∈ {3, 4}** (PK-099/PK-127): the
-//!   legacy route ships an unmeasured fallback cap on same-side
+//!   vertex-blend route ships an unmeasured fallback cap on same-side
 //!   convex quad apexes (pyramid4_mixed: cap/support g0 = 1.34); the
 //!   direct-apex partition closes the same apex at 1.5e-14.
 //! * **Uniform-radius cylindrical N = 4 apexes** (PK-229): the ONLY
-//!   class whose legacy N-quad poke commit reached serving output
+//!   class whose N-quad poke commit reached serving output
 //!   under default options, at sub-commercial quality (cap_outer
 //!   g0 = 2.18e-1 — the rolling-ball sphere that exists at regular
 //!   pyramid apexes is never found because `try_spherical_blend`'s
@@ -22,22 +22,22 @@
 //! * **Uniform-radius cylindrical OBLIQUE N = 3 apexes** (PK-232):
 //!   before the kef `outgoing` repair the class shipped NO smooth
 //!   cap at all (anchor collection walked from stale handles and
-//!   the blend fell to Mitred); post-repair the legacy poke serves
+//!   the blend fell to Mitred); post-repair the N-quad poke serves
 //!   g0 = 7.2e-2 with recorded declines, while direct-apex serves
 //!   the same apex at g0 = 4.9e-8 under pure defaults. Gated on the
 //!   axis-obliqueness discriminator: mutually-orthogonal
-//!   (cube-class) corners stay legacy for their exact rolling-ball
+//!   (cube-class) corners stay vertex-blend for their exact rolling-ball
 //!   sphere serve.
 //!
 //! All classes rely on the direct-apex entry-snapshot rollback: any
-//! construction failure restores the corner and the legacy dispatch
+//! construction failure restores the corner and the vertex-blend dispatch
 //! serves exactly as before (`DirectApexFallbackToVertexBlend` recorded).
 //!
 //! Every class is additionally gated on the vertex classifier:
 //! only `SameSideConvex` apexes promote (PK-231 — the machinery's
 //! measured domain is all-convex; an OppositeSide saddle promoted
 //! through the mixed arm planned the Open rung and its vacuous
-//! no-op "success" deleted the legacy saddle cap entirely).
+//! no-op "success" deleted the pre-ring saddle cap entirely).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, VertexHandle};
@@ -49,10 +49,10 @@ use super::EdgeGeometry;
 pub(super) struct PromotionFlags {
     pub use_rational_gregory: bool,
     pub use_kp_binonic_gregory: bool,
-    /// True when any explicit legacy surface-family flag is set
+    /// True when any explicit sub-patch family flag is set
     /// (biquintic-full, biseptic, two-stripe, K-P binonic, K-P
     /// polar — all default-off). Explicit family requests keep the
-    /// legacy promotion ladder measurable on its reaching fixture
+    /// flag-gated promotion ladder measurable on its reaching fixture
     /// (uniform pyramid apexes), so the uniform-arm promotion stands
     /// down — the same precedent as the binonic high-asymmetry
     /// carve-out on the mixed arm.
@@ -63,12 +63,12 @@ pub(super) struct PromotionFlags {
 /// and dispatch share one decision (PK-127).
 ///
 /// The promotion used to be decided only at dispatch time, after
-/// the anchor-split stage had already placed LEGACY (trim-crossing, no planner
+/// the anchor-split stage had already placed trim-crossing (no planner
 /// override) anchors around the apex — the repeated-apex partition
 /// plan then met anchor positions it cannot consume ("cannot
 /// duplicate stale residual strip seam" / "no existing BRep vertex
 /// within 1e-6") and every default-options promoted apex fell back
-/// to the unmeasured legacy cap. the anchor-split stage consults this set so edges
+/// to the unmeasured vertex-blend cap. the anchor-split stage consults this set so edges
 /// incident to a promoted apex get the direct-apex anchor
 /// convention (perp-walk positions + planner-prepass overrides),
 /// exactly as if `use_direct_apex_construction` were set.
@@ -108,9 +108,9 @@ pub(super) fn promoted_apexes_for_mode(
 /// rolling ball on ONE side of every support, so a concave strip is
 /// invisible to its footprint search (PK-231: the OppositeSide
 /// notched-cube saddle planned "only 2 fillets" out of 3, landed the
-/// Open rung, and the vacuous no-op success swallowed the legacy
+/// Open rung, and the vacuous no-op success swallowed the vertex-blend
 /// saddle machinery entirely). Only `SameSideConvex` promotes;
-/// saddle/concave/tangent/mixed apexes keep their legacy dispatch,
+/// saddle/concave/tangent/mixed apexes keep their vertex-blend dispatch,
 /// which owns the class-specific construction strategies.
 fn apex_is_same_side_convex(
     brep: &BRep,
@@ -179,10 +179,10 @@ pub(super) fn should_promote_direct_apex(
     // N=3 (trihedral) and N=4 apexes only. N=4 joined when PK-099's
     // orientation-honest convexity exposed that same-side-convex quad
     // apexes never reach the rational three-quad dispatch on the
-    // legacy route (the overlap-split corner loop is not
-    // 2n-dispatch-ready), so legacy shipped an unmeasured fallback
+    // vertex-blend route (the overlap-split corner loop is not
+    // 2n-dispatch-ready), so vertex-blend shipped an unmeasured fallback
     // cap. The direct-apex partition construction closes the same
-    // apex at 1.5e-14, and its snapshot rollback restores legacy
+    // apex at 1.5e-14, and its snapshot rollback restores the vertex-blend serve
     // behavior on any failure.
     if !flags.use_rational_gregory || !matches!(edge_indices.len(), 3 | 4) {
         return false;
@@ -206,8 +206,8 @@ pub(super) fn should_promote_direct_apex(
         // Uniform arm: constant-radius cylindrical apexes.
         // Variable-radius edges (start ≠ end) and non-cylindrical
         // (conic-profile NURBS) strips are not the measured class
-        // and keep their current serve; explicit legacy family
-        // requests keep the legacy ladder measurable on its
+        // and keep their current serve; explicit sub-patch family
+        // requests keep the flag-gated ladder measurable on its
         // reaching fixture.
         let cylindrical_constant = edge_indices.iter().all(|&index| {
             edge_geometries.get(index).is_some_and(|g| {
@@ -222,14 +222,14 @@ pub(super) fn should_promote_direct_apex(
             return false;
         }
         // N = 4 (PK-229): pyramid apex slant blends, measured
-        // g0 2.18e-1 legacy poke -> 3.7e-8 direct-apex.
+        // g0 2.18e-1 N-quad poke -> 3.7e-8 direct-apex.
         if edge_indices.len() == 4 {
             return true;
         }
         // N = 3 (PK-232): only the OBLIQUE trihedral class promotes
-        // (measured g0 7.2e-2 legacy poke -> 4.9e-8 direct-apex on
+        // (measured g0 7.2e-2 N-quad poke -> 4.9e-8 direct-apex on
         // n_gonal_pyramid(3, 1.0, 0.8) r=0.08 under pure defaults).
-        // Mutually-orthogonal (cube-class) corners stay legacy:
+        // Mutually-orthogonal (cube-class) corners stay vertex-blend:
         // their carve produces the arc+bridge boundary ring that
         // serves the EXACT rolling-ball sphere via surface-fix
         // promotion, which no fitted cap can beat.
@@ -243,7 +243,7 @@ pub(super) fn should_promote_direct_apex(
         }
         // Exact-boundary direct-apex remains the preferred mixed-radius
         // construction when the radius band is modest. Explicit K-P/binonic
-        // requests own high-asymmetry trihedra so the legacy K-P ladder stays
+        // requests own high-asymmetry trihedra so the flag-gated K-P ladder stays
         // measurable instead of being masked by automatic direct-apex routing.
         return max_radius / min_radius <= 2.0;
     }

@@ -164,7 +164,7 @@ pub(crate) fn build_embedding(
     // half-edge's traversal direction — split shared pairs violate it
     // (measured: all four breached-bore mouth arcs embedded backwards,
     // which merged the seam crossing's two chart branches into one and
-    // reproduced the legacy mega-loop). The legacy walker measures
+    // reproduced the 3D-Newell mega-loop). The 3D-Newell walker measures
     // which curve end sits at the node instead of trusting direction;
     // do the same: the graph nodes are the orientation authority.
     let p_start = graph.nodes[graph.half_edges[raw].origin].position;

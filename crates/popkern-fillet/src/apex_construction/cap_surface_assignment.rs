@@ -174,7 +174,7 @@ pub(super) fn assign_gregory_cap_surface(
 ///   accepted seam in addition to the G0 residual gates. Known
 ///   evidence-density limitation on the pyramid4 class is tracked as
 ///   PK-125. A measured continuity report, when present, wins.
-/// - `exact_boundary_cap` quarantines these faces from legacy
+/// - `exact_boundary_cap` quarantines these faces from vertex-blend
 ///   pcurve-completion passes — acceptance already gated every
 ///   cap/support pcurve pair transactionally.
 fn exact_boundary_corner_patches(

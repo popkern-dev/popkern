@@ -1,6 +1,6 @@
 //! PK-343: cone-apex loop closure through booleans.
 //!
-//! The legacy walk refused the apex TURNAROUND (a cone lateral's seam
+//! The 3D-Newell walk refused the apex TURNAROUND (a cone lateral's seam
 //! halves are twins inside the same loop; U-turn prevention barred the
 //! only continuation), dropping the seam-to-apex piece; the election's
 //! size rule then filed the small apex region as a "hole" of the

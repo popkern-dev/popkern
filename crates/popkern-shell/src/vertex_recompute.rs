@@ -195,7 +195,7 @@ pub(crate) fn recompute_vertices_with_gap_corners(
             // Cramer arm; any curved participant routes through sequential
             // exact projection (deterministic: sorted by face handle,
             // seeded from the original vertex for branch selection); the
-            // legacy plane-averaging Newton covers the plane-only
+            // plane-averaging Newton covers the plane-only
             // under-determined cases.
             let new_pos = if !has_curved && planes.len() == 3 {
                 solve_3_planes(&planes[0], &planes[1], &planes[2])

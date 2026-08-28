@@ -385,7 +385,7 @@ pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {
 
 /// Assert the commercial gates (G0, G1, G2) over the LIVE seam
 /// topology — the layout-honest sibling of [`assert_commercial_gates`]
-/// for multi-patch cap commits (the setback fan), where the legacy
+/// for multi-patch cap commits (the setback fan), where the one-patch
 /// ring convention misreads the frame (PK-087: 5.2e-2 on a fan whose
 /// true seams sit at machine zero). Same thresholds: G0 is side-vs-
 /// shared-curve (the kernel trim contract), G1 the normal cross-

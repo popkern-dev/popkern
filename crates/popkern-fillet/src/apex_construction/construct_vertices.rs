@@ -1,4 +1,4 @@
-//! Apex vertex resolution for the legacy DirectApex mutating builder.
+//! Apex vertex resolution for the mutating DirectApex builder.
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};

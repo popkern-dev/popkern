@@ -1,9 +1,9 @@
 //! the sphere-fit edge-wiring workirectApex.4 Gregory cap surface assembly.
 //!
 //! Bridges from DirectApex's [`ApexPlan`] + post-stitch BRep state to the
-//! legacy [`apply_three_quad_decomposition_to_blend`] entry point
+//! earlier [`apply_three_quad_decomposition_to_blend`] entry point
 //! (the K-P promotion ladder). The bridge emits planner-ordered boundary
-//! segments, resolves adjacent faces, and calls the legacy K-P promotion
+//! segments, resolves adjacent faces, and calls the flag-gated K-P promotion
 //! ladder via `apply_three_quad_decomposition_to_blend`.
 //! Plus helpers used by `construct_apex_inner` to identify the cap face after
 //! apex teardown and merge unmerged Gregory corner sub-faces.
@@ -45,7 +45,7 @@ pub(crate) struct GregoryCapSector {
 }
 
 /// **DirectApex.4 Gregory cap surface assembly** — bridge from DirectApex's plan +
-/// post-stitch BRep state to legacy `three_quad_apply::
+/// post-stitch BRep state to `three_quad_apply::
 /// apply_three_quad_decomposition_to_blend`.
 ///
 /// Builds a `BlendBoundary` from `plan.target_topology.apex_edges`,
@@ -66,7 +66,7 @@ pub(super) fn assemble_gregory_cap_surface(
     if fillet_surfaces.is_empty() {
         return Err(ApexBuildError::PlanMismatch {
             reason: "Gregory cap surface assembly needs fillet_surfaces; caller \
-                     used construct_apex (legacy entry) instead of \
+                     used construct_apex (mutating entry) instead of \
                      construct_apex_with_surfaces"
                 .into(),
         });

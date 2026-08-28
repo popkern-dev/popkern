@@ -125,7 +125,7 @@ fn dump_pyramid3_uniform() {
 }
 
 #[test]
-fn dump_legacy() {
+fn dump_vertex_blend() {
     unsafe {
         std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
     }
@@ -154,7 +154,7 @@ fn dump_legacy() {
     };
     let result = fillet_edges(&brep, &specs, &options, tol, None).expect("fillet_edges ok");
     eprintln!(
-        "[probe-legacy] post-pipeline: faces={} edges={}",
+        "[probe-vertex-blend] post-pipeline: faces={} edges={}",
         result.brep.faces.len(),
         result.brep.edges.len()
     );
@@ -170,7 +170,10 @@ fn dump_legacy() {
         let mut cursor = start;
         let mut iters = 0;
         let max_iters = result.brep.half_edges.len() + 1;
-        eprintln!("[probe-legacy] cap_face={face:?} method={:?}", cp.method);
+        eprintln!(
+            "[probe-vertex-blend] cap_face={face:?} method={:?}",
+            cp.method
+        );
         while let Some(he) = result.brep.half_edges.get(cursor) {
             let twin_face = result
                 .brep
@@ -180,7 +183,7 @@ fn dump_legacy() {
                 .map(|l| l.face);
             let p = result.brep.vertices.get(he.origin).map(|v| v.position);
             eprintln!(
-                "[probe-legacy]   [{iters}] edge={:?} v={:?}@{:?} twin_face={twin_face:?}",
+                "[probe-vertex-blend]   [{iters}] edge={:?} v={:?}@{:?} twin_face={twin_face:?}",
                 he.edge, he.origin, p
             );
             cursor = he.next;

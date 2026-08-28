@@ -311,10 +311,10 @@ fn seed_matrix_names_current_regression_cases() {
         "pyramid4_uniform_native_direct_apex",
         "pyramid4_mixed_native_direct_apex",
         "gregory_step_roundtrip_tolerance",
-        "cube_extreme_40_legacy_route",
-        "cube_extreme_50_legacy_route",
-        "cube_extreme_100_legacy_route",
-        "cube_tiny_radii_legacy_route",
+        "cube_extreme_40_vertex_blend_route",
+        "cube_extreme_50_vertex_blend_route",
+        "cube_extreme_100_vertex_blend_route",
+        "cube_tiny_radii_vertex_blend_route",
     ] {
         assert!(
             cases.contains(expected),

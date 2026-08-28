@@ -49,7 +49,7 @@ pub(crate) struct CapVertexSplitOutcome {
 const DEDUP_TOL: f64 = 1.0e-9;
 
 /// Maximum `|projected_t - i / cells|` below which the projected
-/// sequence routes through the legacy uniform formula.
+/// sequence routes through the uniform single-step formula.
 const UNIFORM_EQUIVALENCE_TOL: f64 = 1.0e-12;
 
 /// Minimum sub-cell arc-length factor (multiplied by the macro piece's
@@ -66,7 +66,7 @@ const ARC_SAMPLES_PER_SUBCELL: usize = 6;
 /// macro piece. Returns the parameter sequence plus the diagnostic
 /// facts for that axis. When `cap_projection` is `None`, returns the
 /// uniform `i / cells_axis` sequence and marks the axis status as
-/// `UniformNoProjection` (legacy caller).
+/// `UniformNoProjection`.
 #[allow(dead_code)] // first caller lands in Stage B2
 pub(crate) fn cap_vertex_splits_along_axis(
     base: &Kp20Bi6Patch,

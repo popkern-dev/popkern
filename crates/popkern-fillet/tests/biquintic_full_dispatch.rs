@@ -12,9 +12,9 @@
 //!   defaults PROMOTE uniform cylindrical N=4 apexes to the
 //!   direct-apex route (PK-229) — the serve carries no rectangular
 //!   Gregory sub-patches.
-//! * Flag ON is an explicit legacy-family request: the uniform
+//! * Flag ON is an explicit sub-patch-family request: the uniform
 //!   promotion arm stands down (`explicit_subpatch_family_requested`
-//!   carve-out) and the apex serves the legacy ladder as 4
+//!   carve-out) and the apex serves the flag-gated ladder as 4
 //!   `RectangularBiquinticFull` sub-patches (measured min/mean-cos
 //!   0.942/0.975, validation sweep 2026-08-11).
 //!
@@ -22,7 +22,7 @@
 //! IS the default flag set, and defaults promote mixed N∈{3,4}
 //! apexes (PK-099) — cube_extreme reached the ladder only while the
 //! pre-PK-230 grazing false positive made the serving retry re-route
-//! it to legacy, which the honest validator retired.
+//! it to vertex-blend, which the honest validator retired.
 //!
 //! Acceptance rule (PK-230): this pin must FAIL, not skip, if the
 //! flag stops reaching its construction on this fixture.
@@ -87,7 +87,7 @@ fn is_biquintic_full(gp: &GregoryPatch) -> bool {
 
 /// The flag flips the uniform pyramid4 apex between the promoted
 /// direct-apex serve (no rectangular Gregory sub-patches) and the
-/// legacy 4-patch biquintic-full ladder. Locks both directions of the
+/// flag-gated 4-patch biquintic-full ladder. Locks both directions of the
 /// dispatch.
 #[test]
 fn biquintic_full_flag_engages_pyramid4_uniform_apex() {

@@ -224,7 +224,7 @@ pub struct CornerPatchPreview {
     /// UI layers render a "Gregory-eligible" badge on eligible
     /// corners so users know the opt-in
     /// flag would affect those specifically. When `false`, the
-    /// corner sticks with the legacy
+    /// corner sticks with the vertex-blend
     /// polar-NURBS / sphere path regardless of the flag.
     pub rational_gregory_eligible: bool,
 }

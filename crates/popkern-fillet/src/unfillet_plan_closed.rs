@@ -163,7 +163,7 @@ pub(crate) fn compute_closed_rim_plan(
 
     // Seam point: where the cylinder-side ring vertex lands on the
     // restored rim (the executor keeps that vertex and moves it
-    // there) — a true point ON the restored circle, so the legacy
+    // there) — a true point ON the restored circle, so the pre-arc
     // line-oriented fields still carry honest geometry.
     let cyl_ring_vertex = brep.half_edges[cyl_ring_he].origin;
     let seam_point = compute_rim_vertex_position(

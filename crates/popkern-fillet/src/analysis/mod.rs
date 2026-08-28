@@ -118,7 +118,7 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
     // and boolean output vary), and the rolling-ball side depends on
     // the PHYSICAL outward direction. Falls back to the stored flag
     // when pcurves are unavailable.
-    // orientation_1/2 keep legacy STORED-flag semantics (a large
+    // orientation_1/2 keep the historical STORED-flag semantics (a large
     // consumer surface depends on them); shell_outward carries the
     // measured global shell orientation so ball placement can
     // compute true outwardness (stored == shell_outward).

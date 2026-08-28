@@ -252,12 +252,12 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
     // PK-087: the paper-correct deep-interior derivation now
     // exists — `kp15_bi6_deep_interior::assemble_bi6_polar_cap_from_net`,
     // the oracle-gated port of the KP15 n6 script. It requires a
-    // shared cap net in the paper frame, which this legacy
+    // shared cap net in the paper frame, which this per-sector-rim
     // per-sector-rim `Bi6CapInput` cannot supply; see the
     // bridge-blocker record in `docs/decisions/`
     // `2026-06-22-kp15-bi6-deep-interior-without-maple.md`
     // (stage 2 update). This star-default chain remains only as
-    // the legacy scaffold behind that input shape.
+    // the scaffold behind that input shape.
     let mut patches_bi6: Vec<[[Point3; 7]; 7]> = Vec::with_capacity(n);
     for k in 0..n {
         let s = &input.sectors[k];

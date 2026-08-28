@@ -11,7 +11,7 @@
 //! this one produces NURBS sample-and-fit output — the curve is
 //! genuinely 4th-degree algebraic and has no parameterisation in
 //! Line/Arc/Ellipse/Parabola/Hyperbola form. The marching-style
-//! dispatcher's value over the legacy `intersect_surfaces` fallback
+//! dispatcher's value over the `intersect_surfaces` fallback
 //! is:
 //!
 //! 1. **Anchor-driven branch selection** — picks the correct one of
@@ -24,7 +24,7 @@
 //!
 //! Restriction: requires the two cylinder axes to intersect (closest
 //! distance ≤ `tol.linear()`). Non-intersecting perpendicular pairs
-//! fall through to the legacy path.
+//! fall through to the general marching path.
 
 use crate::geometry::Point3;
 use crate::geometry::Vec3;

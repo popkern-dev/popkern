@@ -65,18 +65,18 @@ fn lerp(a: Point3, b: Point3, t: f64) -> Point3 {
 /// of the cap-vertex-aware split design routes this through
 /// [`split_by_params`] only when the resulting sequence agrees with
 /// `i / count` to within `UNIFORM_EQUIVALENCE_TOL` — at which point the
-/// drift question is moot because the legacy formula is used directly.
+/// drift question is moot because the original single-step formula is used directly.
 pub(super) fn split_uniform_u(base: &Kp20Bi6Patch, count: usize) -> Vec<Kp20Bi6Patch> {
-    split_uniform_legacy(base, count, split_bi6_patch_u)
+    split_uniform_single_step(base, count, split_bi6_patch_u)
 }
 
 /// Splits a bi-6 patch into `count` sub-patches uniformly along the V axis.
 /// See [`split_uniform_u`] for the bit-identity rationale.
 pub(super) fn split_uniform_v(base: &Kp20Bi6Patch, count: usize) -> Vec<Kp20Bi6Patch> {
-    split_uniform_legacy(base, count, split_bi6_patch_v)
+    split_uniform_single_step(base, count, split_bi6_patch_v)
 }
 
-fn split_uniform_legacy(
+fn split_uniform_single_step(
     base: &Kp20Bi6Patch,
     count: usize,
     split: fn(&Kp20Bi6Patch, f64) -> (Kp20Bi6Patch, Kp20Bi6Patch),
@@ -104,7 +104,7 @@ fn split_uniform_legacy(
 /// Used by the cap-vertex-aware support-cell split path
 /// (Stage A3 of `docs/decisions/2026-06-21-kp20-cap-vertex-aware-
 /// support-cell-split.md`). Not used by `split_uniform_{u,v}` — those
-/// keep the legacy formula to avoid the 1-ULP drift of chained
+/// keep the original single-step formula to avoid the 1-ULP drift of chained
 /// FP-division reformulations at `count = 3` and similar.
 #[allow(dead_code)] // first caller lands in Stage A3
 pub(super) fn split_by_params(

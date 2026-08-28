@@ -204,7 +204,7 @@ pub(crate) fn component_stored_normal_out_signs(
             out.insert(*fh, global * s.trav_sign);
         }
         // Unmeasured faces (degenerate polygons) fall back to the
-        // caller's legacy component verdict.
+        // caller's component-wedge verdict.
     }
     Some(out)
 }

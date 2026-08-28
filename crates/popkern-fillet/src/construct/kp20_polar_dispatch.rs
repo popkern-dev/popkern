@@ -189,7 +189,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     }
     // Setback-border paper candidate next: derives the cap border
     // from the fillet surfaces themselves (the geometry the blended
-    // BRep bounds). Falls through to the legacy candidates on decline.
+    // BRep bounds). Falls through to the earlier candidate ladder on decline.
     if fillet_surfaces.len() == n
         && n >= 5
         && let Some((patches, tier)) = paper_primary_candidate::record_paper_candidate_outcome(

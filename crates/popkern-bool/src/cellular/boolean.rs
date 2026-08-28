@@ -197,13 +197,15 @@ pub(crate) fn cellular_graph_merge(
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular
         // boolean carries, per face that could not chart-walk, WHY it
-        // took the legacy fallback — the substrate defects are usually
+        // took the 3D-Newell fallback — the substrate defects are usually
         // the trailhead for the assembly failure being reported.
         for (face_ref, reason) in &walk_fallbacks {
             diag.add(crate::error::DiagnosticEntry {
                 severity: crate::error::Severity::Warning,
                 phase: crate::error::Stage::Merge,
-                message: format!("chart walk fell back to legacy on {face_ref:?}: {reason}"),
+                message: format!(
+                    "chart walk fell back to the 3D-Newell walk on {face_ref:?}: {reason}"
+                ),
                 entities: vec![crate::error::EntityRef::Face(face_ref.face)],
                 measured_value: None,
                 location: None,
@@ -443,7 +445,7 @@ fn classify_fragments_cellular(
                 Operand::B => &aabbs_b,
             };
             let Some(n0) = planar_outward_normal(own_brep_ref, fragment.face.face) else {
-                return true; // no planar normal — legacy path, no opinion
+                return true; // no planar normal — pre-calibration path, no opinion
             };
             for e in [eps_probe, probe_eps_coarse] {
                 let a = robust_point_in_solid_final(
@@ -475,7 +477,7 @@ fn classify_fragments_cellular(
             // sampler mis-rows on arc-heavy charts. Pick whichever
             // admits a DECISIVE own-body side probe — the tuned
             // shortcut first unless it sits in a known hazard — and
-            // keep the shortcut when neither calibrates (legacy
+            // keep the shortcut when neither calibrates (pre-calibration
             // behavior, orientation stays unknown downstream).
             let interior = frag_surface.as_ref().and_then(|(surf, ori)| {
                 fragment_interior_sample(graph, fragment, surf, *ori, true)
@@ -515,7 +517,7 @@ fn classify_fragments_cellular(
             // plate — which boundary edge the walk enumerated first
             // decided whether the web survived). Vote the non-shared
             // boundary midpoints: unanimity keeps the tuned shortcut
-            // (identical to legacy behavior); disagreement means the
+            // (identical to the uncalibrated behavior); disagreement means the
             // boundary straddles the other body, and the one sample
             // that is decisive by construction is a point stepped OFF
             // the cut onto the fragment's own side.
@@ -614,7 +616,7 @@ fn classify_fragments_cellular(
         // piece must go), while an ANTI-oriented contact is a tool
         // pressed against the wall from outside (the wall stays).
         // `None` = orientation unknown (no planar outward normal);
-        // legacy rules apply.
+        // the uncalibrated rules apply.
         let mut cooriented: Option<bool> = None;
         let class = if !needs_offset_pair {
             robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance)
@@ -795,7 +797,7 @@ fn classify_fragments_cellular(
         // each other across the surface — the union of the two
         // materials makes it interior (drop), while a subtract
         // leaves the wall intact (keep). Unknown orientation keeps
-        // the legacy cooriented assumption.
+        // the historical cooriented assumption.
         let (keep, flip) = match op {
             BoolOperation::Union => (
                 class == PointClassification::Outside
@@ -874,7 +876,7 @@ fn seg_dist(
 
 /// Chord midpoints of the loop's non-Shared half-edges, in loop
 /// order, capped at `cap`. The first entry equals the tuned
-/// edge-midpoint shortcut, so a unanimous vote reproduces legacy
+/// edge-midpoint shortcut, so a unanimous vote reproduces the uncalibrated shortcut
 /// sampling exactly.
 /// Midpoint of a graph half-edge, ON THE EDGE'S CURVE when it has
 /// one (chord midpoint otherwise). A curved edge's chord midpoint is

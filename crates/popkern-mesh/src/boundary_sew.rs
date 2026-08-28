@@ -1,6 +1,6 @@
-//! Projection-based boundary sewing for legacy-path face meshes.
+//! Projection-based boundary sewing for uniform-grid-path face meshes.
 //! Extracted from `tessellate.rs` (file-size cap, PK-276); applies
-//! ONLY to legacy-path faces — boundary-first faces carry exact
+//! ONLY to uniform-grid-path faces — boundary-first faces carry exact
 //! canonical boundary points, and re-projecting them can snap a point
 //! onto a DIFFERENT nearby incident edge (see `tessellate_brep`).
 
@@ -22,7 +22,7 @@ use crate::tessellate::face_mesh_diagonal;
 pub(crate) fn sew_boundaries_to_edge_polylines(
     brep: &BRep,
     face_meshes: &mut [crate::mesh::FaceMesh],
-    legacy_faces: &[usize],
+    sew_candidate_faces: &[usize],
 ) {
     use std::collections::HashMap;
 
@@ -51,7 +51,7 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
         polylines.insert(eh, pts);
     }
     // Per face: incident edge set from its loops.
-    for &fi in legacy_faces {
+    for &fi in sew_candidate_faces {
         let fm = &mut face_meshes[fi];
         let Some(face) = brep.faces.get(fm.face) else {
             continue;

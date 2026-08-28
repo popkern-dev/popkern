@@ -81,7 +81,7 @@ mod tests {
     use crate::topology::BRep;
 
     #[test]
-    fn endpoint_membership_label_contains_legacy_fields() {
+    fn endpoint_membership_label_contains_compact_fields() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let face = brep.faces.keys().next().expect("cube has face");
         let loop_handle = brep.faces[face].outer_loop;

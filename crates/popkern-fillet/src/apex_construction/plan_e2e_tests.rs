@@ -64,7 +64,7 @@ fn direct_rung_succeeds_on_uniform_cube() {
     // Uniform-radius cube apex: per-fillet sphere centres all
     // coincide at (r, r, r), bridges collapse, dispatch lands on
     // Sphere cap.  This is the commercial-grade outcome — the
-    // legacy origin-based side check used to spuriously reject
+    // earlier origin-based side check used to spuriously reject
     // one of the three inscribed centres and force Gregory.
     assert!(
         plan.cap_kind.is_sphere(),

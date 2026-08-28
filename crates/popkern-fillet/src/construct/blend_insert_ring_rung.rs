@@ -27,7 +27,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 /// true ownership claim, and never substitute, so the rolling-ball
 /// serve is unreachable by this gate by construction.
 ///
-/// Convex corners keep the legacy (unpushed) `n_gon_boundary` for
+/// Convex corners keep the unpushed `n_gon_boundary` for
 /// every downstream consumer — the ring attempt gets its OWN
 /// boundary with station pushback, because the mitred carve ends
 /// the strips short of the closest-to-vertex stations (the default

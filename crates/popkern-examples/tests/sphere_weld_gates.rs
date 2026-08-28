@@ -2,7 +2,7 @@
 //! construction. The full-wrap revolution path used to decline any
 //! pole chart whose meridian seam carried interior stations (curved
 //! seams chord-refine — "cross chain not at constant v"), dropping
-//! sphere caps and full spheres to legacy grid sampling whose pole
+//! sphere caps and full spheres to uniform-grid sampling whose pole
 //! fans duplicate (welded census: plain sphere 27 open edges,
 //! sphere_capped_rod 16, PK-326 apex cap 5). The meridian-ladder
 //! extension takes the seam chain's stations AS the latitude rows —
@@ -11,7 +11,7 @@
 //!
 //! The census here is STRICT: every welded edge must be shared by
 //! EXACTLY two triangles (c == 1 misses the ×4 pole-fan overlaps the
-//! legacy path emitted).
+//! uniform-grid path emitted).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;

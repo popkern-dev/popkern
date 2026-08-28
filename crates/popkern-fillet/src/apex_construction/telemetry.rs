@@ -9,7 +9,7 @@
 //! * Identify which fallback rung was used and why.
 //! * Serialise to JSON for offline inspection or remote debugging.
 //!
-//! Replaces the legacy 5+ env-flag tracing approach with a
+//! Replaces the earlier 5+ env-flag tracing approach with a
 //! structured query interface.
 
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 ///
 /// Each rung corresponds to a [`BlendWarning::ContinuityDowngraded`]
 /// emission when a more-preferred rung was attempted but failed
-/// (legacy fillet pipeline pattern; preserved here).
+/// (the fillet pipeline pattern; preserved here).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ConstructionRung {

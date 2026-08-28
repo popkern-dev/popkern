@@ -992,7 +992,7 @@ fn tilted_face_star_socket_is_watertight_and_chi_clean() {
 /// This fixture drove five campaign layers and finally the
 /// chart-subdivision walker (docs/architecture/
 /// fragment-walk-chart-subdivision.md): on the bore-wall face the
-/// mouth ellipse crosses the cylinder seam, and the legacy 3D
+/// mouth ellipse crosses the cylinder seam, and the earlier 3D
 /// angular pick chose a candidate from the OTHER period branch —
 /// weaving all 16 half-edges into one mega-loop (χ = −1, 36 opens).
 /// The permutation walk over the face's oriented-UV chart emits the

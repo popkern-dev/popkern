@@ -1,7 +1,7 @@
 //! the sphere-fit edge-wiring workirectApex §28.H Session 4 — constructive apex builder.
 //!
 //! Per ADR `2026-05-02-phase-6c-a2-constructive-apex-builder.md`. Replaces
-//! the legacy carve-and-cleanup `construct_apex` with a deterministic
+//! the carve-and-cleanup `construct_apex` with a deterministic
 //! Euler-op sequence that takes an [`ApexPlan`] and authors the cap
 //! topology directly: no carve, no merge accumulator, no dissolve cleanup.
 //!
@@ -23,7 +23,7 @@
 //!   `dissolve_same_loop_bridge` for any MEV spurs that became same-face
 //!   bridges after cap-loop construction.
 //! - **Cap surface assignment** — assign cap surface (Sphere directly; Gregory delegates
-//!   to legacy `assemble_gregory_cap_surface`).
+//!   to `assemble_gregory_cap_surface`).
 //!
 //! # Atomicity
 //!
@@ -236,7 +236,7 @@ fn construct_apex_inner_constructive(
             // -> delegate to the Gregory surface assembler.
             //
             // On any construction error the snapshot wrapper rolls back and
-            // the caller falls through to legacy DirectApex.
+            // the caller falls through to the mutating DirectApex builder.
 
             // Welded shared corners (PK-219) are a first-class plan
             // state: uniform radii collapse the FaceEdge bridges, the

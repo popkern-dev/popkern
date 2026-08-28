@@ -137,7 +137,7 @@ pub(crate) fn arc_departure(
             {
                 return Some(v);
             }
-            // Degenerate/legacy chord fallback.
+            // Degenerate straight-chord fallback.
             let chord = sol.contact1 - sol.contact0;
             let dir = if at_first_side {
                 chord

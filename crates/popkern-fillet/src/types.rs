@@ -165,7 +165,7 @@ pub struct FilletOptions {
     ///   cases. Currently produces the same output as `G1` since the
     ///   pipeline has no strict-G0 fast path.
     /// - [`ContinuityLevel::G1`] (default) — tangent continuity. The
-    ///   legacy circular-arc rolling-ball sweep; sufficient for
+    ///   circular-arc rolling-ball sweep; sufficient for
     ///   machining and visual smoothness on non-Class-A surfaces.
     /// - [`ContinuityLevel::G2`] — curvature continuity. Routes
     ///   through the spine walker and skins degree-5 Bezier
@@ -273,7 +273,7 @@ pub struct FilletOptions {
     /// (Chiyokura–Kimura). When `true`, a qualifying corner
     /// (planar supports + manifold hex output) is split into 3
     /// rectangular Gregory sub-patches meeting at a central point;
-    /// otherwise the legacy polar-NURBS fallback runs unchanged.
+    /// otherwise the polar-NURBS fallback runs unchanged.
     /// Default `false` — ships wired-but-dormant pending the R8
     /// C8 downstream scorecard. See ADR
     /// `2026-04-17-fillet-rational-gregory-rounds-6-7-8.md`.
@@ -312,7 +312,7 @@ pub struct FilletOptions {
     pub use_kp_polar_gregory: bool,
     /// PK-250 serving-boundary self-intersection retry: after the
     /// full pipeline, measure each served direct-apex corner region
-    /// and re-run once with offending vertices excluded (legacy
+    /// and re-run once with offending vertices excluded (vertex-blend
     /// serves them; recorded on the repair report). Default `false`:
     /// default arming is the PK-245 campaign — always-on it exposes
     /// pre-existing hidden serving debt on 9 direct-apex fixtures
@@ -320,7 +320,7 @@ pub struct FilletOptions {
     pub serving_self_intersection_retry: bool,
     /// **Direct-apex dispatch** — route apex-region
     /// construction (vertices with ≥ 2 fillet edges in Smooth mode)
-    /// through the direct-apex planner + builder instead of legacy
+    /// through the direct-apex planner + builder instead of the vertex-blend ladder
     /// `insert_vertex_blend`. Default `false` as a GLOBAL flag: a
     /// blanket flip mis-routes classes the machinery does not own
     /// (saddles, N ≥ 5 hubs, conic profiles, variable radii —
@@ -330,7 +330,7 @@ pub struct FilletOptions {
     /// measurements: journal 2026-08-09). On plan or build error the
     /// dispatch falls back per-apex to `insert_vertex_blend` and
     /// emits `BlendWarning::DirectApexFellBackToVertexBlend` — never a
-    /// hard failure; the worst case is "behaves like legacy."
+    /// hard failure; the worst case is "behaves like vertex-blend."
     pub use_direct_apex_construction: bool,
     /// PK-185 — resolution for mid-face strip interference that is
     /// not seam-completable (the PK-159 analytic completion only

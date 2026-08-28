@@ -118,7 +118,7 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
     assert_eq!(
         route.route,
         ApexConstructionRoute::VertexBlend,
-        "{fixture} rings inside the legacy route"
+        "{fixture} rings inside the vertex-blend route"
     );
     assert_eq!(
         route.exact_boundary_report.candidate_status,

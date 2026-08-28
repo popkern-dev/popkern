@@ -35,7 +35,7 @@
 //! repositioned onto the arc, stub curves re-authored), which the
 //! in-place modify machinery also runs so in-place stays equivalent
 //! to remove-recreate — the equivalence concern that originally
-//! froze the legacy end shape.
+//! froze the pre-arc end shape.
 //!
 //! Per-corner and per-slit transactional: each mutation is applied on
 //! a candidate clone and accepted only when `validate()` holds;

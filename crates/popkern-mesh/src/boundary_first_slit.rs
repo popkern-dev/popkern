@@ -10,7 +10,7 @@
 //! forever — worse, those futile splits enrich the canonical samples
 //! of edges SHARED with neighbouring faces, un-equalizing their
 //! ruled-strip chains (measured on the shelled cylinder: 7 rounds of
-//! splits, then legacy fallback for the rim and Delaunay fallback for
+//! splits, then uniform-grid fallback for the rim and Delaunay fallback for
 //! the walls).
 //!
 //! The slit is purely a B-rep bookkeeping artifact for the MESH: both

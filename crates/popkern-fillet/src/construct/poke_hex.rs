@@ -370,7 +370,7 @@ pub(crate) fn face_has_2n_outer_half_edges_with_n3(
             // N-HE acceptance: `n_sides >= 5` always, plus N=4 only
             // when the caller opts in (sphere-fit substitution
             // succeeded — pyramid_uniform's commercial-grade path).
-            // Without `accept_n4_he`, N=4 stays on the legacy 2N-only
+            // Without `accept_n4_he`, N=4 stays on the 2N-only
             // path so pyramid4 validation-sweep fixtures keep their
             // pre-Phase-6c-E behavior.
             let accepts_n_he =
@@ -382,7 +382,7 @@ pub(crate) fn face_has_2n_outer_half_edges_with_n3(
     false
 }
 
-/// Backwards-compatible wrapper: legacy callers (validation sweep,
+/// Backwards-compatible wrapper: existing callers (validation sweep,
 /// non-sphere-fit paths) get the pre-Phase-6c-E gate where N=4 is
 /// only accepted in the 2N form.
 #[allow(dead_code)]

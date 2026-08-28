@@ -120,7 +120,7 @@ pub fn classify_faces(
 /// normal (outer loop CCW in UV, measured from the pcurve polygons)
 /// is on ONE global side per component; the component wedge fixes
 /// which. Faces whose winding vote is inconclusive fall back to the
-/// legacy component verdict.
+/// component-wedge verdict.
 ///
 /// # Errors
 ///
@@ -171,7 +171,7 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
         }
     }
 
-    // Fallback: the legacy component wedge verdict for faces the
+    // Fallback: the component-wedge verdict for faces the
     // winding vote could not measure (degenerate polygons, open
     // sheets whose wedge is the only signal).
     if !unresolved.is_empty() {
@@ -182,7 +182,7 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
                 .copied()
                 .ok_or(ShellError::MaterialSenseUnresolved { face: fh })?;
             if std::env::var_os("PK_SENSE_TRACE").is_some() {
-                eprintln!("[sense-mult] {fh:?} LEGACY mult={mult}");
+                eprintln!("[sense-mult] {fh:?} component-wedge mult={mult}");
             }
             multipliers.insert(fh, mult);
         }

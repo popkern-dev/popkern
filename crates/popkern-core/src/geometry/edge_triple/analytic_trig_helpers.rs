@@ -22,7 +22,7 @@
 /// start_angle, end_angle, t_start, t_end)` from this output should
 /// pass `start_angle = α_start − phase` and `end_angle = α_end − phase`
 /// so that the pcurve evaluates to `M · (cos α, sin α)` at
-/// parameter `α`. If a caller assumed `phase = 0` (legacy code
+/// parameter `α`. If a caller assumed `phase = 0` (earlier code
 /// path), they got correct output only when the matrix's columns
 /// were already perpendicular and `m11 ≥ m22` with positive
 /// determinant — the fix surfaces the bug for all other inputs.

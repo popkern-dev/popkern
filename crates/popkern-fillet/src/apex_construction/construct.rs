@@ -1,4 +1,5 @@
-//! Legacy DirectApex mutating apex construction via Euler ops.
+//! Mutating DirectApex apex construction via Euler ops (the
+//! constructive builder's fallthrough target).
 //!
 //! The entrypoints here wrap the build in a whole-plan snapshot: on any
 //! construction failure, the input BRep is restored before the typed error is
@@ -66,7 +67,7 @@ pub fn construct_apex(
 
 /// Variant of [`construct_apex`] that accepts the per-fillet
 /// surface results.  These are required for DirectApex.4 Gregory cap
-/// surface assembly (the bridge to legacy `three_quad_apply`
+/// surface assembly (the bridge to `three_quad_apply`
 /// which needs `FilletSurfaceResult` to drive the K-P promotion
 /// ladder).  Sphere caps don't need them and can call
 /// [`construct_apex`] directly with an empty slice.
@@ -177,7 +178,7 @@ fn construct_apex_inner(
     // After DirectApex.2.d's mef sequence each plane face is split into a
     // V-corner sub-face and a remainder.  V still has its
     // pre-mef stub edges (perp-edge splits from the anchor-split stage) which now
-    // separate adjacent corner sub-faces.  Mirror legacy Phase
+    // separate adjacent corner sub-faces.  Mirror the vertex-blend
     // 2a/2b/3:
     //
     //   * `kef_cross_face_v_edges` walks V's incident edges and
@@ -185,10 +186,10 @@ fn construct_apex_inner(
     //     corner sub-faces.  Returns the surviving merged-face
     //     handle — the cap face.
     //   * `kev_v_bridge` removes V plus the trailing same-loop
-    //     bridge in one Euler step (legacy the kev pass).
+    //     bridge in one Euler step (the kev pass).
     //   * `remove_orphaned_vertex` is the no-bridge safety net.
     //
-    // The legacy helpers (`pub(crate)` in
+    // The vertex-blend helpers (`pub(crate)` in
     // `crate::construct::blend_insert`) handle the iterative kef
     // / outgoing repair / safety cap that DirectApex needs verbatim.
     if crate::direct_apex_trace::enabled() {
@@ -406,7 +407,7 @@ fn construct_apex_inner(
     // Cap face surface assignment (DirectApex.2.f / DirectApex.4).
     //
     // Sphere caps land natively (DirectApex.2.f).  Gregory caps need 2N
-    // sub-patch decomposition (DirectApex.4): bridge into legacy
+    // sub-patch decomposition (DirectApex.4): bridge into the
     // `three_quad_apply::apply_three_quad_decomposition_to_blend`
     // by constructing a `BlendBoundary` from the post-stitch
     // BRep state + plan data + fillet_surfaces, then call the

@@ -275,7 +275,7 @@ pub enum ParameterMap {
         b_b: f64,
     },
     /// All three curves share knot vector and parameter range —
-    /// the legacy stage-1 invariant. Used for NURBS×NURBS marching
+    /// the stage-1 invariant. Used for NURBS×NURBS marching
     /// where there's no analytic correspondence.
     SharedKnots,
 }

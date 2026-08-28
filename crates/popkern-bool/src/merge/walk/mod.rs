@@ -41,10 +41,10 @@ pub(crate) struct Fragment {
 /// Walk all face fragments in the graph (graph-merge pipeline entry).
 ///
 /// Chart-primary like the cellular pipeline: each face whose substrate
-/// passes I1–I5 walks as a chart permutation; the rest take the legacy
+/// passes I1–I5 walks as a chart permutation; the rest take the 3D-Newell
 /// walk per face. Graph-merge graphs lack the cellular phase's seam
 /// splits, so its periodic faces fall back more often — the per-face
-/// fallback absorbs exactly those (PK-108 retirement: the legacy walk
+/// fallback absorbs exactly those (PK-108 retirement: the 3D-Newell walk
 /// is fallback-only on every pipeline).
 pub(crate) fn walk_all_fragments(
     graph: &IntersectionGraph,
@@ -71,9 +71,9 @@ pub(crate) fn walk_all_fragments(
 /// tapered face — see the flush-gusset pin).
 ///
 /// `chart_primary`: walk each face as a chart-subdivision permutation
-/// when its substrate passes I1–I5, with the legacy walk as recorded
+/// when its substrate passes I1–I5, with the 3D-Newell walk as recorded
 /// per-face fallback (PK-104 stage 3; the cellular pipeline sets this,
-/// graph-merge keeps the legacy walk — its graphs lack seam splits).
+/// graph-merge keeps the 3D-Newell walk — its graphs lack seam splits).
 ///
 /// `overlap_pairs`: the coplanar face-overlap pairs from coincidence
 /// detection — the substrate's partial-cover dedup is scoped to
@@ -141,7 +141,7 @@ pub(crate) fn walk_all_fragments_ext(
 
         // PK-104 stage 3: chart-subdivision permutation walk, primary
         // for the cellular pipeline. Faces whose substrate fails the
-        // I1–I5 checks fall through to the legacy walk below, with
+        // I1–I5 checks fall through to the 3D-Newell walk below, with
         // the reason observable under PK_BOOL_TRACE and recorded in
         // `walk_fallbacks`.
         let mut walked_by_chart = false;
@@ -177,11 +177,11 @@ pub(crate) fn walk_all_fragments_ext(
                     // Chart-role assembly is scoped to faces whose
                     // stored boundary is a SEAM SPINE (every
                     // non-record half-edge's twin registered to this
-                    // same face): there the legacy 3D Newell election
+                    // same face): there the 3D-Newell election
                     // degenerates BY CONSTRUCTION — two anti-parallel
                     // border copies measure |N| ≈ 0 (a full sphere's
                     // seam orbit lost the outer election to a record
-                    // triangle). Ordinary faces keep the legacy
+                    // triangle). Ordinary faces keep the 3D-Newell
                     // election: its size/winding rules carry tuned
                     // tool-side semantics (a plane-splitter's cutting
                     // face serves BOTH directions of an interior ring
@@ -211,20 +211,20 @@ pub(crate) fn walk_all_fragments_ext(
                     // wall kept 0 inner loops and sampled inside its
                     // own invisible hole). Any face whose substrate
                     // carries a seam-like embedding is such a wall;
-                    // planar splitter faces (the tuned legacy
+                    // planar splitter faces (the tuned 3D-Newell
                     // semantics the scoping protects) have no seam
-                    // and keep the legacy election.
+                    // and keep the 3D-Newell election.
                     let wrapping_wall = sub.embeddings.values().any(|e| e.seam_like);
                     // ISLAND-PAIR extension (PK-341): a face carrying
                     // BOTH directions of a closed interior ring
                     // (island splits — mutual-twin orbit pairs) routes
-                    // to chart roles too: the legacy election called
+                    // to chart roles too: the 3D-Newell election called
                     // both copies "separate" on tool faces and its
                     // nesting rejected the concentric inner rim on
                     // winding (measured: the tube's groove walls lost
                     // their holes and the fallback served a non-closed
                     // body validate-clean). Planar splitter faces (the
-                    // tuned legacy semantics the scoping protects)
+                    // tuned 3D-Newell semantics the scoping protects)
                     // carry no twin-paired rings.
                     let island_pair = orbits.len() >= 2
                         && orbits.iter().enumerate().any(|(i, o)| {
@@ -259,7 +259,9 @@ pub(crate) fn walk_all_fragments_ext(
                 } else {
                     walk_fallbacks.push((*face_ref, "chart orbit collision".to_string()));
                     if std::env::var_os("PK_BOOL_TRACE").is_some() {
-                        eprintln!("  [walk] {face_ref:?}: chart orbit collision — legacy fallback");
+                        eprintln!(
+                            "  [walk] {face_ref:?}: chart orbit collision — 3D-Newell fallback"
+                        );
                     }
                 }
             } else {
@@ -267,7 +269,7 @@ pub(crate) fn walk_all_fragments_ext(
                 walk_fallbacks.push((*face_ref, issues.join("; ")));
                 if std::env::var_os("PK_BOOL_TRACE").is_some() {
                     eprintln!(
-                        "  [walk] {face_ref:?}: chart substrate incomplete — legacy fallback ({})",
+                        "  [walk] {face_ref:?}: chart substrate incomplete — 3D-Newell fallback ({})",
                         issues.join("; ")
                     );
                 }
@@ -406,7 +408,7 @@ pub(crate) fn walk_all_fragments_ext(
         // Chart-role assembly (PK-111): orbit roles are decided by
         // σ-folded chart shoelace sign — by construction of the
         // material-left walk, not by 3D election (see
-        // `assemble_chart_roles`). Falls through to the legacy
+        // `assemble_chart_roles`). Falls through to the 3D-Newell
         // election only when no orbit winds positive (substrate lie).
         if let Some((polys, sigma)) = chart_roles.take()
             && let Some(asm) = chart_walk::assemble_chart_roles(
@@ -631,7 +633,7 @@ pub(crate) fn walk_all_fragments_ext(
 
         // PK_LOOP_DUMP_ALL: dump every fragment's loops regardless of
         // size (PK-107 forensics: comparing 11- vs 13-half-edge outer
-        // loops between the legacy and chart walks).
+        // loops between the 3D-Newell and chart walks).
         walk_trace::dump_election_loops(
             graph,
             face_ref,

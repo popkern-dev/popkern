@@ -1,9 +1,9 @@
 //! PK-222: conic / variable-profile cube-corner vertex blends and the
-//! legacy N-form dispatch gate.
+//! N-form dispatch gate.
 //!
 //! Uniform conic and variable-radius cube corners collapse their
 //! arc+bridge pairs during the cross-face kef pass, so the blend face physically
-//! carries the N = 3 half-edge loop. The legacy dispatch demanded the
+//! carries the N = 3 half-edge loop. The vertex-blend dispatch demanded the
 //! 2N form there ("outer_half_edges=Some(3), expected 3 or 6") and
 //! starved the whole rational route: these corners shipped the
 //! polar-NURBS heuristic cap with NO record that the stronger path
@@ -116,7 +116,7 @@ fn conic_cube_corner_dispatch_is_measured_not_starved() {
 /// sound, and the geometric ceiling is pinned so silent regressions
 /// fail. Since PK-225/PK-226 these classes serve the KP20 setback fan
 /// (validate-clean, deviation ~0); the 6e-2 ceiling remains as the
-/// regression backstop for the legacy-fallback class.
+/// regression backstop for the vertex-blend-fallback class.
 #[test]
 fn conic_and_variable_cube_corners_serve_structurally_sound() {
     for (name, profile, radius_fn) in [

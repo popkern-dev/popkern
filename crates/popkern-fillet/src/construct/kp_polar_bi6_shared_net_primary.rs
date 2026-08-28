@@ -1,7 +1,7 @@
 //! PK-087 — the KP15 shared-net cap as the **primary** candidate of
 //! the polar bi-6 backstop.
 //!
-//! The legacy `promote_decomp_to_kp_polar_bi6` path drove a single
+//! The single-net `promote_decomp_to_kp_polar_bi6` path drove a single
 //! per-sector-rim `Bi6CapInput` into the F_κ minimisation ladder,
 //! which self-intersects (folds) on every candidate at N ≥ 5 — the
 //! measured gate-decline root (PK-087 stage 3). This module runs the

@@ -79,7 +79,7 @@ impl BrepKnowledgeFingerprint {
         }
     }
 
-    /// Compact legacy-compatible diagnostic label.
+    /// Compact migration-compatible diagnostic label.
     pub fn diagnostic_label(self) -> String {
         format!(
             "V={} E={} HE={} L={} F={} S={}",
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_label_matches_legacy_apex_format() {
+    fn fingerprint_label_matches_compact_apex_format() {
         let brep = BRep::new(crate::tolerance::Tolerance::default());
         let fingerprint = BrepKnowledgeFingerprint::from_brep(&brep);
 

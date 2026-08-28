@@ -180,7 +180,7 @@ fn run_rung(
                 let variant_counts = count_variants(&patches);
                 let brep_valid = brep.validate().is_ok();
                 // The index scorecard's ring convention only describes
-                // the legacy one-patch-per-sector polar layout.
+                // the one-patch-per-sector polar layout.
                 // Multi-patch commits (setback fans, sector
                 // subdivisions) must be measured across the LIVE seam
                 // topology or the frame mismatch dominates the reading
@@ -279,7 +279,7 @@ fn run_fixture_all_rungs(
 /// Fixture-specific G0 ceiling — currently the uniform 1e-5
 /// commercial gate for every fixture. History: pyramid6 carried a
 /// 7e-2 containment ceiling while the KP15 high-valence cap frontier
-/// was open (the 6.63e-2 reading was the legacy ring metric on the
+/// was open (the 6.63e-2 reading was the one-patch ring metric on the
 /// 24-patch sector ring). That frontier closed with the PK-087
 /// setback fan: pyramid6_uniform/mixed now measure 6.6e-14 / 1.9e-13
 /// on the layout-honest live-seam scorecard, so the containment

@@ -29,7 +29,7 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
             // ring builder doesn't bail (a boolean can leave
             // degenerate zero-length curveless edges at discarded
             // tool corners; a missing entry made every face touching
-            // one fall back to the cracking legacy path). Zero-length
+            // one fall back to the cracking uniform-grid path). Zero-length
             // edges get NO entry — the ring builder skips them.
             let Some((va, vb)) = edge_endpoint_positions(brep, edge.half_edge) else {
                 continue;

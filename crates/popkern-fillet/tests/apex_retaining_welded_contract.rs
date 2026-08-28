@@ -35,7 +35,7 @@ use popkern_core::topology::LoopHandle;
 
 /// The welded trihedral base corner (pyramid3, uniform radii) declines
 /// the apex-retaining partition with the recorded class, serves the
-/// legacy fallback, and the served body carries no null-loop half-edges
+/// vertex-blend fallback, and the served body carries no null-loop half-edges
 /// and no structural validation errors.
 #[test]
 fn welded_n3_apex_retaining_declines_semantically() {

@@ -1,4 +1,4 @@
-//! Cleanup helpers for the legacy DirectApex mutating builder.
+//! Cleanup helpers for the mutating DirectApex builder.
 
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 

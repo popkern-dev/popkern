@@ -43,7 +43,7 @@ impl ChartCell {
 
 /// Cell-based boundary crossings for the SPLIT stage: window ends of
 /// the folded query, each attributed to the boundary half-edge it
-/// crosses (PK-304 — the legacy crossing search silently missed
+/// crosses (PK-304 — the earlier crossing search silently missed
 /// splits on negative-branch and seam-band cells, leaving disc
 /// regions connected and classification flood-fill leaking through).
 /// `None` when the face is not cell-resolvable.

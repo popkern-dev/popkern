@@ -93,9 +93,9 @@ impl std::error::Error for Kp20PaperCapError {}
 
 /// Production adapter: assemble the paper cap from a smooth
 /// single-cubic-per-sector tensor-border (the kernel's production
-/// input shape) and return it in the legacy macro-cap output
+/// input shape) and return it in the macro-cap output
 /// contract consumed by the fillet dispatch (`macro_patches` +
-/// flattened `patches_bi6`; no legacy strip diagnostics — the paper
+/// flattened `patches_bi6`; no per-strip diagnostics — the paper
 /// path's own gates live in [`Kp20PaperCapReport`]).
 pub fn assemble_kp20_paper_macro_cap(
     star_point: Point3,

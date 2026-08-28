@@ -22,9 +22,9 @@
 //!   uniform arm); the exact-boundary Coons partition serves at
 //!   cap_outer g0 = 3.7e-8 / g1 = 4.3e-8 — pinned below at the
 //!   commercial bars.
-//! * **Explicit legacy surface-family flags** (biquintic-full,
+//! * **Explicit sub-patch family flags** (biquintic-full,
 //!   biseptic, two-stripe, K-P binonic, K-P polar) carve the uniform
-//!   arm out so the legacy promotion ladder keeps its reaching
+//!   arm out so the flag-gated promotion ladder keeps its reaching
 //!   fixture — the poke still commits and serves there, pinned below
 //!   at its measured class (PK-230 tracks migrating the flag-family
 //!   dispatch pins onto this fixture).
@@ -35,7 +35,7 @@
 //!   discarded with a declining transaction (unfillet restore
 //!   trials). Construction-transient, never measured serving.
 //! * **Non-default flag stacks**: cube_extreme [0.02, 0.10, 0.20]
-//!   commits via the legacy route only when `use_kp_binonic_gregory`
+//!   commits via the vertex-blend route only when `use_kp_binonic_gregory`
 //!   opts high-asymmetry trihedra out of direct-apex promotion —
 //!   pinned at its measured class by kp_cap_outer_boundary_gates.
 //!
@@ -85,7 +85,7 @@ fn uniform_pyramid_apex_blend(
 /// (measured 2026-08-02: cap_outer g0 = 3.671e-8, g1 = 4.270e-8).
 ///
 /// Before PK-229 this class was the ONLY default-options serving
-/// consumer of the legacy N-quad poke, at sub-commercial quality
+/// consumer of the N-quad poke, at sub-commercial quality
 /// (g0 = 2.18e-1) — see the module doc for the root-cause chain.
 #[test]
 fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
@@ -151,19 +151,19 @@ fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
     );
 }
 
-/// PK-229 carve-out pin: an explicit legacy surface-family flag
-/// (two-stripe here) keeps the uniform pyramid apex on the LEGACY
+/// PK-229 carve-out pin: an explicit sub-patch family flag
+/// (two-stripe here) keeps the uniform pyramid apex on the flag-gated
 /// route, where the 4-quad Gregory poke still commits and serves —
 /// this is the flag-family dispatch ladder's reaching fixture
 /// (PK-230). Pinned at its measured class (2026-08-02: cap_outer
 /// g0 = 2.182e-1, g1 = 9.820e-1; bounds sit ~1.4x above so a silent
 /// further collapse fails while the recorded class keeps serving).
 /// The cap-outer displacement is surface-family-independent — it is
-/// authored by the legacy boundary anchors, not the patch family —
+/// authored by the vertex-blend boundary anchors, not the patch family —
 /// so the two-stripe rung's spoke-tangency win (min-cos 0.996 vs
 /// 0.142) does not move this metric.
 #[test]
-fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
+fn uniform_pyramid_apex_subpatch_family_flag_keeps_poke_commit_reachable() {
     let options = FilletOptions {
         use_two_stripe_gregory: true,
         ..FilletOptions::default()
@@ -179,7 +179,7 @@ fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
     assert_eq!(
         route.route,
         ApexConstructionRoute::VertexBlend,
-        "explicit legacy surface-family flags must keep the legacy \
+        "explicit sub-patch family flags must keep the vertex-blend \
          dispatch (and its promotion ladder) reachable"
     );
 
@@ -191,7 +191,7 @@ fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
     assert_eq!(
         caps.len(),
         4,
-        "legacy dispatch must commit the 4-quad poke (one patch per sector)"
+        "vertex-blend dispatch must commit the 4-quad poke (one patch per sector)"
     );
     for patch in &caps {
         assert_eq!(patch.method, CornerMethod::Gregory);
@@ -203,7 +203,7 @@ fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
     let faces: Vec<_> = caps.iter().map(|p| p.face).collect();
     let metrics = measure_cap_outer_boundary(&result.brep, &faces, 100);
     eprintln!(
-        "[poke-commit] uniform pyramid apex (two-stripe carve-out, legacy 4-quad): \
+        "[poke-commit] uniform pyramid apex (two-stripe carve-out, vertex-blend 4-quad): \
          cap_outer g0={:.3e} g1={:.3e} edges={}",
         metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
     );
@@ -255,7 +255,7 @@ fn mixed_pyramid_apex_serves_exact_boundary_over_apex_bridge_poke() {
     // Dispatch-preference instrument: exact-boundary must beat the
     // apex-bridge poke at the ROUTING layer. The serving retry is
     // pinned off — with true defaults this fixture's candidate flags
-    // a strip×cap self-intersection and re-routes legacy (PK-245
+    // a strip×cap self-intersection and re-routes vertex-blend (PK-245
     // default-serve contract, pinned in
     // exact_boundary_corner_patch_ownership).
     let options = FilletOptions {

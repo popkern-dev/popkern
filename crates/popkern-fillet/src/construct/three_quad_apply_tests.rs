@@ -3,7 +3,7 @@
 //!   manifold hex (6 HE, 6 distinct vertices, NURBS surface),
 //!   exercised via the flat-rho conic class since PK-226 (circular
 //!   mixed-radius corners serve the setback fan and never reach the
-//!   legacy hex merge).
+//!   pre-three-quad hex merge).
 //! * The R8 C7 pin (fallback dispatch commit) moved to
 //!   tests/corner_fallback_dispatch.rs under the
 //!   POPKERN_SETBACK_DISABLE seam; measuring there showed the
@@ -29,7 +29,7 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
     // 6-half-edge blend face with 6 distinct boundary vertices.
     // Flat-rho conic profile: since PK-226 mixed-radius CIRCULAR
     // corners serve the KP20 setback fan (cap fan topology, no hex),
-    // so the legacy hex machinery this test pins is reached via the
+    // so the pre-three-quad hex machinery this test pins is reached via the
     // flat-section class, which declines the setback commit
     // analytically (rho 0.35 < the 0.4142 circular equivalent).
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();

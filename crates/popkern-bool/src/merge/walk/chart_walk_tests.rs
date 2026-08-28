@@ -1,7 +1,7 @@
 //! Convention pins for the chart-subdivision walk (PK-104).
 //!
 //! These fix the rotation rule's handedness by construction: the
-//! boundary-T alternation case (where the legacy 3D angular pick
+//! boundary-T alternation case (where the 3D-Newell angular pick
 //! measurably chose straight-through over the trim) and the orbit
 //! partition property. The full-corpus behavior is covered by the
 //! boolean and part suites plus the breached-bore regression gate;
@@ -98,7 +98,7 @@ fn transversal_trim_yields_two_four_loops() {
 
 /// The boundary-T alternation pin: arriving at the trim foot along
 /// the bottom-left boundary, the material-left walk MUST turn onto
-/// the trim (the legacy 3D angular pick measurably continued
+/// the trim (the 3D-Newell angular pick measurably continued
 /// straight past it — the mega-loop class). With material on the
 /// left and orientation=true, the west fragment is
 /// [SW→T, T→top, top→NW, NW→SW].
@@ -168,11 +168,11 @@ fn orientation_false_mirrors_the_partition() {
 
 #[test]
 fn compare_walks_reports_divergence_classes() {
-    let legacy = vec![vec![1usize, 2, 3], vec![7, 8]];
+    let newell = vec![vec![1usize, 2, 3], vec![7, 8]];
     let orbits = vec![vec![2usize, 3, 1], vec![9, 10]];
-    let diff = compare_walks(&legacy, &orbits);
+    let diff = compare_walks(&newell, &orbits);
     assert_eq!(diff.matched, 1, "rotation-invariant loop match");
-    assert_eq!(diff.legacy_only, vec![vec![7, 8]]);
+    assert_eq!(diff.newell_only, vec![vec![7, 8]]);
     assert_eq!(diff.orbit_only, vec![vec![9, 10]]);
     assert_eq!(diff.contested(), 0, "disjoint extras are not contested");
 }

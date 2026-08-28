@@ -347,7 +347,7 @@ pub fn apply_blend_geometry(
                         None
                     };
                     let mut direct_apex_succeeded = false;
-                    let mut direct_apex_fell_back_to_legacy = false;
+                    let mut direct_apex_fell_back_to_vertex_blend = false;
                     if let Some(outcome) = direct_apex_outcome {
                         match outcome {
                             Ok(success) => {
@@ -387,7 +387,7 @@ pub fn apply_blend_geometry(
                                 direct_apex_succeeded = true;
                             }
                             Err(error) => {
-                                direct_apex_fell_back_to_legacy = true;
+                                direct_apex_fell_back_to_vertex_blend = true;
                                 let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
                                 let reason = error.reason;
                                 repair_report.apex_diagnostics.extend(error.diagnostics);
@@ -406,7 +406,7 @@ pub fn apply_blend_geometry(
                                         reason,
                                     },
                                 ));
-                                // Fall through to legacy below.
+                                // Fall through to the vertex-blend tail below.
                             }
                         }
                     }
@@ -454,7 +454,7 @@ pub fn apply_blend_geometry(
                                 &mut repair_report,
                                 *vertex,
                                 infos.iter().map(|info| info.face).collect(),
-                                direct_apex_fell_back_to_legacy,
+                                direct_apex_fell_back_to_vertex_blend,
                             );
                             for emit in [
                                 bridge_warnings::emit_bridge_fallback_warnings,

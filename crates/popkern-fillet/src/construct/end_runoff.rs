@@ -149,7 +149,7 @@ fn find_runoff_candidate(
         // (the G1 analytic path) overshoot non-perpendicular end
         // faces identically but join only when a setback vertex
         // blend landed in this result: plain open cylinder fillets
-        // keep their legacy end shape because the in-place modify
+        // keep their pre-arc end shape because the in-place modify
         // machinery cannot reproduce topology edits and must stay
         // equivalent to remove-recreate (PK-097 the consumed-merge stage).
         let kind = face.surface.as_ref().map(|s| &s.geometry);

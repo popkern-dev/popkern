@@ -9,7 +9,7 @@
 //! the circle normal must equal each sphere's UV polar axis. Since
 //! popkern's sphere uses a fixed polar axis of `(0, 0, 1)`, this
 //! requires the line c₂ − c₁ to be parallel to `(0, 0, 1)`. Other
-//! configurations return `None` and fall through to the legacy
+//! configurations return `None` and fall through to the marching
 //! NURBS path.
 
 use crate::geometry::curve::CurveGeometry;

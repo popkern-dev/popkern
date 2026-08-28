@@ -189,7 +189,7 @@ pub(crate) fn correct_face_surfaces(
             // exact sphere above r ≈ 1.2 (measured: uniform r=3
             // cube corner — sd = 1.2426 = r(√2−1), the Gregory
             // NURBS shipped instead, and its boundary lied 0.0712·r
-            // off the strips; check-9 catch). The legacy 0.5 floor
+            // off the strips; check-9 catch). The earlier 0.5 floor
             // is kept so sub-unit radii keep their historical
             // margin.
             let radius_scale = fillet_surfaces

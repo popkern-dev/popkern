@@ -1,16 +1,16 @@
 //! Integration test for the §6c-direct-apex dispatch apex-construction dispatch
 //! flag (`FilletOptions::use_direct_apex_construction`).
 //!
-//! When the flag is `true`, the legacy
+//! When the flag is `true`, the
 //! `apply_blend_geometry`'s apex-vertex-blend loop attempts the
-//! direct-apex planner + builder before falling back to the legacy
+//! direct-apex planner + builder before falling back to the vertex-blend
 //! `insert_vertex_blend` path.  Failure surfaces as
 //! `BlendWarning::DirectApexFellBackToVertexBlend`.
 //!
 //! After §6c-direct-apex build.e/f and the constructive Gregory repeated-apex
 //! normalization path:
 //!   * **Sphere caps (uniform-radius cube apex)** — direct-apex succeeds
-//!     end-to-end, no fallback fires.  Geometry matches legacy
+//!     end-to-end, no fallback fires.  Geometry matches vertex-blend
 //!     (face / vertex / edge counts).
 //!   * **Gregory caps (mixed-radius cube apex)** — direct-apex now completes
 //!     natively for the baseline mixed cube. Broader variable-radius
@@ -65,7 +65,7 @@ fn cube_with_variable_corner_fillets(use_direct_apex: bool) -> BlendResult {
 fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
     // After direct-apex build.e/f, Sphere caps build natively under direct-apex.  The
     // uniform-radius cube apex dispatches to Sphere — direct-apex must
-    // complete without firing `DirectApexFellBackToVertexBlend` AND legacy
+    // complete without firing `DirectApexFellBackToVertexBlend` AND the vertex-blend ladder
     // `insert_vertex_blend` must NOT run after direct-apex (else it would
     // emit `VertexModeFallback` because V is already gone).
     let result_direct_apex = cube_with_three_corner_fillets(true);
@@ -81,9 +81,9 @@ fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
          got {} DirectApexFellBackToVertexBlend warning(s)",
         fallback_warnings.len(),
     );
-    // §6c-direct-apex dispatch.d skip-legacy regression guard: if direct-apex success
-    // didn't actually skip the legacy `insert_vertex_blend` call,
-    // legacy would re-enter for the now-removed apex vertex,
+    // Skip-vertex-blend regression guard: if direct-apex success
+    // didn't actually skip the `insert_vertex_blend` ladder call,
+    // the ladder would re-enter for the now-removed apex vertex,
     // fail at `repair_vertex_outgoing`, and emit a
     // `VertexModeFallback` warning.
     let vertex_mode_fallbacks: Vec<_> = result_direct_apex
@@ -93,8 +93,8 @@ fn direct_apex_dispatch_succeeds_on_uniform_cube_without_fallback() {
         .collect();
     assert!(
         vertex_mode_fallbacks.is_empty(),
-        "direct-apex success path must skip legacy; got {} VertexModeFallback warning(s) — \
-         indicates legacy `insert_vertex_blend` ran after direct-apex already removed V",
+        "direct-apex success path must skip the vertex-blend ladder; got {} VertexModeFallback warning(s) — \
+         indicates the `insert_vertex_blend` ladder ran after direct-apex already removed V",
         vertex_mode_fallbacks.len(),
     );
 }
@@ -115,32 +115,32 @@ fn direct_apex_dispatch_mixed_radius_cube_completes_without_fallback() {
 }
 
 #[test]
-fn direct_apex_dispatch_uniform_geometry_matches_legacy() {
+fn direct_apex_dispatch_uniform_geometry_matches_vertex_blend() {
     // direct-apex Sphere build on uniform cube must produce the same
-    // topology as the pure-legacy run — vertex/edge/face/half-edge
+    // topology as the pure vertex-blend run — vertex/edge/face/half-edge
     // counts identical.
-    let result_legacy = cube_with_three_corner_fillets(false);
+    let result_vertex_blend = cube_with_three_corner_fillets(false);
     let result_direct_apex = cube_with_three_corner_fillets(true);
 
     assert_eq!(
-        result_legacy.brep.vertices.len(),
+        result_vertex_blend.brep.vertices.len(),
         result_direct_apex.brep.vertices.len(),
-        "vertex counts must match between legacy and direct-apex Sphere runs",
+        "vertex counts must match between vertex-blend and direct-apex Sphere runs",
     );
     assert_eq!(
-        result_legacy.brep.edges.len(),
+        result_vertex_blend.brep.edges.len(),
         result_direct_apex.brep.edges.len(),
-        "edge counts must match between legacy and direct-apex Sphere runs",
+        "edge counts must match between vertex-blend and direct-apex Sphere runs",
     );
     assert_eq!(
-        result_legacy.brep.faces.len(),
+        result_vertex_blend.brep.faces.len(),
         result_direct_apex.brep.faces.len(),
-        "face counts must match between legacy and direct-apex Sphere runs",
+        "face counts must match between vertex-blend and direct-apex Sphere runs",
     );
     assert_eq!(
-        result_legacy.brep.half_edges.len(),
+        result_vertex_blend.brep.half_edges.len(),
         result_direct_apex.brep.half_edges.len(),
-        "half-edge counts must match between legacy and direct-apex Sphere runs",
+        "half-edge counts must match between vertex-blend and direct-apex Sphere runs",
     );
 }
 
