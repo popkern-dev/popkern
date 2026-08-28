@@ -48,6 +48,7 @@ pub(crate) mod intersect;
 pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_hierarchy;
 pub(crate) mod merge;
+pub mod merge_fallback;
 pub mod multi_body;
 pub(crate) mod operation;
 pub mod ops;

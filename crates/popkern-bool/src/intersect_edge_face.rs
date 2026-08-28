@@ -51,8 +51,7 @@ pub(crate) fn detect_edge_face_intersections(
     // Edges of B vs faces of A.
     detect_edges_vs_faces(b, a, aabbs_a, tolerance, &mut hits);
 
-    if !hits.is_empty() {
-        #[cfg(debug_assertions)]
+    if !hits.is_empty() && std::env::var_os("PK_BOOL_TRACE").is_some() {
         eprintln!(
             "[intersect] detected {} edge-face intersection(s)",
             hits.len()

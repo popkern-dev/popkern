@@ -450,54 +450,62 @@ pub(crate) fn execute_boolean_full(
 
     // Stage 5: Cellular graph merge — order-independent fragment selection.
     // Falls back to standard graph-merge if cellular fails or produces
-    // invalid topology.
+    // invalid topology. Every fallback firing is recorded structurally
+    // and said once on stderr (`merge_fallback`) — the cellular error
+    // was previously discarded with `.ok()` on all builds, and a whole
+    // campaign's worth of pcurve archaeology traced a defect to
+    // graph-merge before discovering graph-merge was even running.
     let t_merge = Instant::now();
     // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
     // kill-switch (PK-239 precedent).
     let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
-    let result = cellular_enabled
-        .then(|| {
-            crate::cellular::boolean::cellular_graph_merge(
-                &original_a,
-                &original_b,
-                &intersection_result,
-                op,
-                tolerance,
-            )
-            .ok()
-        })
-        .flatten()
-        .filter(|r| {
-            // Explicit fallback boundary: record why the stronger
-            // (order-independent cellular) path didn't apply. Debug-only
-            // logging hid this in release — a whole campaign's worth of
-            // pcurve archaeology traced a defect to graph-merge before
-            // discovering graph-merge was even running.
-            match r.validate() {
-                Ok(()) => true,
+    let cellular_result = if cellular_enabled {
+        match crate::cellular::boolean::cellular_graph_merge(
+            &original_a,
+            &original_b,
+            &intersection_result,
+            op,
+            tolerance,
+        ) {
+            Ok(r) => match r.validate() {
+                Ok(()) => Some(r),
                 Err(e) => {
-                    if cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some() {
-                        eprintln!(
-                            "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
-                        );
-                    }
-                    helpers_pcurve_coherence::trace_cellular_nonmanifold(r);
-                    false
+                    helpers_pcurve_coherence::trace_cellular_nonmanifold(&r);
+                    crate::merge_fallback::record_merge_fallback(
+                        op,
+                        crate::merge_fallback::MergeFallbackReason::CellularInvalid(e.to_string()),
+                    );
+                    None
                 }
+            },
+            Err(diag) => {
+                crate::merge_fallback::record_merge_fallback(
+                    op,
+                    crate::merge_fallback::MergeFallbackReason::CellularError(
+                        diag.into_error().to_string(),
+                    ),
+                );
+                None
             }
-        })
-        .map(Ok)
-        .unwrap_or_else(|| {
-            // Fallback: standard graph-merge
-            graph_merge(
-                &original_a,
-                &original_b,
-                &intersection_result,
-                op,
-                tolerance,
-            )
-        })
-        .map_err(|diag| diag.into_error())?;
+        }
+    } else {
+        crate::merge_fallback::record_merge_fallback(
+            op,
+            crate::merge_fallback::MergeFallbackReason::CellularDisabled,
+        );
+        None
+    };
+    let result = match cellular_result {
+        Some(r) => r,
+        None => graph_merge(
+            &original_a,
+            &original_b,
+            &intersection_result,
+            op,
+            tolerance,
+        )
+        .map_err(|diag| diag.into_error())?,
+    };
     let elapsed_merge = t_merge.elapsed();
     let count_merge = result.faces.len();
     metrics.push(PhaseMetric {
