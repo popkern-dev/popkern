@@ -1,7 +1,7 @@
 //! PK-228/PK-229 — reachability and serving pins for the standard
 //! N-quad Gregory poke commit (`apply_three_quad_decomposition_to_blend`).
 //!
-//! A PK_POKE_PROBE sweep over the full workspace (2026-08-02, PK-228)
+//! A poke-reachability probe sweep over the full workspace (2026-08-02, PK-228)
 //! measured exactly which production classes still commit the
 //! standard poke after PK-222 (exact-boundary), PK-225/PK-226
 //! (setback fan), and the sphere/PnS rungs claimed the historical

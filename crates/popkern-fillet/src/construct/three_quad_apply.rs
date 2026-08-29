@@ -296,7 +296,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         let wired = super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
             brep, boundary, &sub_faces,
         );
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-cap") {
             eprintln!(
                 "[wire_substituted_boundary_to_edges] wrote {wired} of {} segments to BRep edges",
                 boundary.segments.len()

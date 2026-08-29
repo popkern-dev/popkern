@@ -185,7 +185,7 @@ fn construct_one_apex_cap(
         return Ok(None); // non-uniform seam parametrization: stays sharp
     }
 
-    let trace = std::env::var_os("PK_JOIN_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("shell-join");
     if trace {
         eprintln!("[apex] splitting seam {seam_eh:?} at frac {frac:.4}");
     }

@@ -20,7 +20,7 @@ use super::cap_loop_construction_options::CapLoopConstructionOptions;
 /// parity and an empty fidelity-blocker census. PK-167 tracks the
 /// constructive replacement for the winding repair (bridges as
 /// in-place support-loop rewrites; Reauthored cycle primary).
-/// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1` forces V-free
+/// the strict `V_FREE_REPEATED_APEX` override forces V-free
 /// at every valence (diagnostic gates); `=0` restores the
 /// apex-retaining path everywhere as a containment escape hatch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,10 +36,10 @@ pub(crate) enum VFreeRepeatedApexMode {
 
 impl VFreeRepeatedApexMode {
     pub(crate) fn from_environment_adapter() -> Self {
-        match std::env::var("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX") {
-            Ok(value) if matches!(value.trim(), "0" | "false" | "off") => Self::Off,
-            Ok(_) => Self::ExplicitOn,
-            Err(_) => Self::DefaultOn,
+        match crate::dispatch_overrides::V_FREE_REPEATED_APEX.get() {
+            Some(false) => Self::Off,
+            Some(true) => Self::ExplicitOn,
+            None => Self::DefaultOn,
         }
     }
 

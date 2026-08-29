@@ -12,17 +12,17 @@ description = "Boolean operations (union, intersection, subtraction) on BRep sol
 # resource decision, not a correctness one. rayon is already in the
 # workspace tree via faer, so the default adds no new transitive dep.
 default = ["parallel"]
-parallel = ["rayon"]
+parallel = ["dep:rayon"]
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
-rayon = { version = "1", optional = true }
-thiserror = "2"
+rayon = { workspace = true, optional = true }
+thiserror.workspace = true
 
 [dev-dependencies]
-slotmap = "1"
+slotmap.workspace = true
 # The boolean determinism pins build their own rayon pools (PK-300).
-rayon = "1"
+rayon.workspace = true
 # Test-only sibling dependency (the mesh crate uses the same pattern
 # for this crate): the boolean perf budget (PK-272) needs a
 # filleted-operand fixture, and fillet strips can only come from the

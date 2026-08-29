@@ -302,10 +302,10 @@ fn classify_tangent(
 #[path = "starting_points_tests.rs"]
 mod tests;
 
-/// OnceLock'd `PK_SEED_TRACE` gate: a per-call env read takes the
+/// OnceLock'd the `seed` trace topic gate: a per-call env read takes the
 /// process environment lock and serializes parallel SSI dispatch
 /// (PK-329).
 fn seed_trace_enabled() -> bool {
     static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *TRACE.get_or_init(|| std::env::var_os("PK_SEED_TRACE").is_some())
+    *TRACE.get_or_init(|| crate::trace::trace_enabled("seed"))
 }

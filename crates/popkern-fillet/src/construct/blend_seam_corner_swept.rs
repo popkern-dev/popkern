@@ -58,7 +58,7 @@ pub(super) fn repair_pair_corner_swept(
     let a_pos = pos_of(c.anchor_near)?;
     let b_pos = pos_of(c.anchor_far)?;
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    if std::env::var_os("PK_BLEND_SEAM_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("blend-seam") {
         eprintln!(
             "[bsc-swept] a off ({:.3e},{:.3e}) b off ({:.3e},{:.3e})",
             surface_distance(&geom_n, &a_pos, None),
@@ -102,7 +102,7 @@ pub(super) fn repair_pair_corner_swept(
             let off_n = surface_distance(&geom_n, &p, hint_n);
             let off_p = surface_distance(&geom_p, &p, hint_p);
             if off_n > pos_tol || off_p > pos_tol {
-                if std::env::var_os("PK_BLEND_SEAM_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("blend-seam") {
                     eprintln!(
                         "[bsc-swept] sample {i} off_n={off_n:.3e} off_p={off_p:.3e} p=({:.4},{:.4},{:.4})",
                         p.x, p.y, p.z
@@ -151,13 +151,13 @@ pub(super) fn repair_pair_corner_swept(
 
     let dev = brep.measure_edge_deviation(c.seam_edge);
     if dev > pos_tol {
-        if std::env::var_os("PK_BLEND_SEAM_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("blend-seam") {
             eprintln!("[bsc-swept] seam deviation {dev:.3e} > gate {pos_tol:.3e}");
         }
         return Err(Reason::ValidationFailed);
     }
     if let Err(e) = brep.validate() {
-        if std::env::var_os("PK_BLEND_SEAM_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("blend-seam") {
             eprintln!("[bsc-swept] validate failed: {e:?}");
         }
         return Err(Reason::ValidationFailed);

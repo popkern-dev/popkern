@@ -1,5 +1,5 @@
 //! The N=3 corner FALLBACK dispatch, pinned under the diagnostic
-//! POPKERN_SETBACK_DISABLE seam.
+//! SETBACK_DISABLE override seam.
 //!
 //! Since PK-226 every clean N=3 cube corner serves the setback fan
 //! (uniform circular → rolling-ball sphere; everything else → KP20
@@ -21,32 +21,6 @@ use popkern_core::topology::BRep;
 use popkern_fillet::types::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_fillet::{CornerMethod, ExactBoundaryCandidateOutcome, fillet_edges};
 
-struct EnvGuard {
-    key: &'static str,
-    prior: Option<String>,
-}
-
-impl EnvGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let prior = std::env::var(key).ok();
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, prior }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prior {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-}
-
 /// With the setback rung disabled and `use_rational_gregory` on, the
 /// mixed-radius cube corner commits the direct-apex partition: three
 /// Coons corner caps (n_sides = 3) through an accepted exact-boundary
@@ -54,7 +28,7 @@ impl Drop for EnvGuard {
 /// structural validation.
 #[test]
 fn setback_disabled_corner_commits_direct_apex_coons_partition() {
-    let _guard = EnvGuard::set("POPKERN_SETBACK_DISABLE", "1");
+    let _guard = popkern_fillet::dispatch_overrides::SETBACK_DISABLE.set_guard(true);
 
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();

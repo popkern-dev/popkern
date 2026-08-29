@@ -23,4 +23,5 @@ pub mod precision;
 pub mod progress;
 pub mod tolerance;
 pub mod topology;
+pub mod trace;
 pub mod validation;

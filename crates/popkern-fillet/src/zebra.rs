@@ -148,7 +148,7 @@ pub fn zebra_boundary_kink(
             Some((su, sv)) => project_point_to_uv_near(geom, point, su, sv)?,
             None => project_point_to_uv(geom, point)?,
         };
-        if std::env::var_os("PK_ZEBRA_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("zebra") {
             let back = geom.point_at(u, v);
             eprintln!(
                 "  [zebra] face {face:?} uv ({u:.4},{v:.4}) inversion residual {:.3e}",

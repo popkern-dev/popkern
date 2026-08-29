@@ -57,7 +57,7 @@ pub(crate) fn sample_point_for_fragment(
         )
     };
     let picked = |he_idx: usize, p: Point3| -> Point3 {
-        if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("loop-sampling") {
             let c = graph.half_edges[he_idx]
                 .curve
                 .as_ref()
@@ -130,7 +130,7 @@ pub(crate) fn sample_point_for_fragment(
     // interior in UV (side verified by outer-loop containment) and
     // evaluate the face surface.
     if let Some(p) = interior_step_sample(graph, loop_hes, face, brep_a, brep_b) {
-        if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("loop-sampling") {
             eprintln!(
                 "  [sample] interior step -> ({:.3},{:.3},{:.3})",
                 p.x, p.y, p.z
@@ -138,7 +138,7 @@ pub(crate) fn sample_point_for_fragment(
         }
         return p;
     }
-    if std::env::var_os("PK_SAMPLE_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("loop-sampling") {
         eprintln!("  [sample] centroid fallback over {} hes", loop_hes.len());
     }
     compute_centroid(graph, loop_hes)

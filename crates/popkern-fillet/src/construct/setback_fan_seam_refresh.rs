@@ -121,7 +121,7 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
                 continue;
             };
             let g1 = na.cross(&nb).length();
-            if g1 > worst_g1 && std::env::var_os("PK_SETBACK_PROBE").is_some() && g1 > 5.0e-2 {
+            if g1 > worst_g1 && popkern_core::trace::trace_enabled("setback") && g1 > 5.0e-2 {
                 let da = surf_a.point_at(uv_a.x, uv_a.y).distance_to(&c);
                 let db = surf_b.point_at(uv_b.x, uv_b.y).distance_to(&c);
                 eprintln!(

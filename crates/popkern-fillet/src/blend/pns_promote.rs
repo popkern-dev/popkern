@@ -288,7 +288,7 @@ pub fn try_pns_dispatch(
     use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 
     // This step used to swallow its failure reason: it returned
-    // `Option` and printed the cause behind a `POPKERN_PNS_TRACE`
+    // `Option` and printed the cause behind a the `pns` trace topic
     // env var, so in any normal run a PnS decline was invisible and
     // the corner silently fell through to the next rung. The reason
     // is now typed and returned, and the caller turns it into a

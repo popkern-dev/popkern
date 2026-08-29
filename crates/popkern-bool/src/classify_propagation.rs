@@ -61,7 +61,7 @@ pub fn classify_with_propagation(
         let sample = crate::classify::pick_sample_point(brep, seed);
         let pc = point_in_solid(&sample, other_brep, other_aabbs, tolerance)?;
         ray_cast_count += 1;
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [propagate] seed {seed:?} (component of {}) sample ({:.3},{:.3},{:.3}) -> {pc:?}",
                 component.len(),
@@ -95,7 +95,7 @@ fn build_face_adjacency(
 ) -> HashMap<FaceHandle, Vec<FaceHandle>> {
     let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::new();
 
-    let prop_trace = std::env::var_os("PK_PROP_TRACE").is_some();
+    let prop_trace = popkern_core::trace::trace_enabled("classification-propagation");
     for (eh, edge) in &brep.edges {
         // Skip intersection edges — classification may differ across these
         if intersection_edges.contains(&eh) {

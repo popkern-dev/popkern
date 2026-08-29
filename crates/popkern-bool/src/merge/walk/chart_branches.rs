@@ -197,7 +197,7 @@ pub(super) fn anchor_periodic(
         None
     };
     let mut sigma = sub.sigma;
-    let seam_trace = std::env::var_os("PK_SEAM_TRACE").is_some();
+    let seam_trace = popkern_core::trace::trace_enabled("seam");
     let mut assigned_high: BTreeMap<usize, bool> = BTreeMap::new();
     for &(h, tw) in &seam_pairs {
         for he in [h, tw] {
@@ -304,7 +304,7 @@ pub(super) fn anchor_periodic(
             // torus × cylinder wall under the exact-torus NURBS arm).
             (nmax <= u_low + period + period * 1.0e-6).then_some(k * period)
         });
-        if std::env::var_os("PK_BP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("branch-pairing") {
             eprintln!(
                 "  [comp] ci {ci} hes {:?} span [{cmin:.3},{cmax:.3}] seam_low {seam_low:?} strip_shift {strip_shift:?}",
                 components[ci]
@@ -444,7 +444,7 @@ pub(super) fn anchor_periodic(
         }
     }
 
-    if std::env::var_os("PK_BP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("branch-pairing") {
         let mut per_bp: BTreeMap<BranchPoint, Vec<String>> = BTreeMap::new();
         for (&h, &bp) in &start_bp {
             per_bp.entry(bp).or_default().push(format!("dep {h}"));

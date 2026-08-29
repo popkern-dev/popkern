@@ -27,7 +27,7 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 /// Settle stale strip-boundary vertices. Returns how many moved.
 pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usize {
-    let trace = std::env::var_os("PK_RECONCILE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("edge-reconcile");
     // Candidate gate at the genuinely-STALE scale (linear x 1000):
     // NURBS fit precision leaves boundary vertices ~2e-4 off their
     // strips, and settling those micro-offsets breaks welded

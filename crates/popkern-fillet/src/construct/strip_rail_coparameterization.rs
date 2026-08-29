@@ -27,7 +27,7 @@ pub(crate) fn coparameterize_strip_rails(
     tolerance: &Tolerance,
 ) -> usize {
     let gate = tolerance.linear().max(1.0e-9) * 10.0;
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let mut improved = 0_usize;
     // Measurement phase: per-face offender detection is read-only and
     // face-local (a refit rewrites only that face's own half-edge

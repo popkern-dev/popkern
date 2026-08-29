@@ -69,7 +69,7 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
     let mut open = 0usize;
     let mut other = 0usize;
     for err in brep.validate_all() {
-        if std::env::var_os("PK_GAUGE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("gauge") {
             if let popkern_core::error::ValidationError::CurveSurfaceDeviation { edge, .. } = &err {
                 let identity = brep.edges.get(*edge).map(|ed| {
                     let he = &brep.half_edges[ed.half_edge];

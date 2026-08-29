@@ -286,7 +286,7 @@ fn island_chain_pre_pass(
                 break false;
             }
         };
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [island] face {face:?}: seed {seed} chain len {} closed={closed} tip-gap {:.2e}",
                 chain.len(),
@@ -316,7 +316,7 @@ fn island_chain_pre_pass(
                 None => false,
             }
         });
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [island] inside={inside}");
         }
         if !inside {

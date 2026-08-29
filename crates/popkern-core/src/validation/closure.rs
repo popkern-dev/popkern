@@ -97,7 +97,7 @@ impl BRep {
             if let (Some(first), Some(last_end)) = (first_pos, prev_end_pos) {
                 let gap = first.distance_to(&last_end);
                 if gap > self.tolerance.linear() {
-                    if std::env::var_os("PK_CLOSURE_TRACE").is_some() {
+                    if crate::trace::trace_enabled("closure") {
                         eprintln!("  [closure] loop {loop_handle:?} gap {gap:.4}:");
                         let start_he = self.loops[loop_handle].half_edge;
                         let mut he_h = start_he;

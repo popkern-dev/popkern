@@ -49,7 +49,7 @@ pub(crate) fn setback_min_n_for(
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     tolerance: &Tolerance,
 ) -> usize {
-    if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
+    if crate::dispatch_overrides::SETBACK_DISABLE.get() == Some(true) {
         usize::MAX
     } else if !sphere_owns_corner(
         corner_radii_uniform(edge_indices, edge_geometries, tolerance),

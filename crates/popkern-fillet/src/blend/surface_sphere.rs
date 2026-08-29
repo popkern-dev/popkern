@@ -168,7 +168,7 @@ pub(super) fn try_spherical_blend(
     }
 
     let sphere_gate = (tolerance.linear() * 100.0).max(boundary_diag * 1.0e-3);
-    if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("sphere-fit") {
         eprintln!(
             "[spherefit] rolling-ball sphere candidate r={avg_radius:.4} max_dev={max_deviation:.4e} gate={sphere_gate:.4e}"
         );
@@ -192,7 +192,7 @@ pub(super) fn try_spherical_blend(
         fillet_surfaces,
         &center,
         avg_radius,
-        std::env::var_os("PK_SPHEREFIT_TRACE").is_some(),
+        popkern_core::trace::trace_enabled("sphere-fit"),
     ) {
         return None;
     }
@@ -207,7 +207,7 @@ pub(super) fn try_spherical_blend(
         surface,
         boundary_curves: boundary_curves.to_vec(),
         method: {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] rolling-ball");
             }
             CornerMethod::RollingBallSphere

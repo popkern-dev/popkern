@@ -98,7 +98,7 @@ pub(crate) fn fold_embeddings_into_cell(
                 q.1 += dv;
             }
         }
-        if std::env::var_os("PK_FOLD_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("fold-scan") {
             let e2 = &sub.embeddings[&h];
             eprintln!(
                 "      [fold] {face:?} he {h} src {:?} ({:.3},{:.3})->({:.3},{:.3}) shift ({du:.3},{dv:.3})",

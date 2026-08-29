@@ -89,7 +89,7 @@ pub fn trim_self_intersections(
         tolerance,
     )?;
 
-    let trace = std::env::var_os("PK_TRIM_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("trim");
     let dead: BTreeSet<FaceHandle> = split_body
         .faces
         .keys()
@@ -352,7 +352,7 @@ fn author_seam_curve(
             best = Some((d, c));
         }
     }
-    let trace_on = std::env::var_os("PK_TRIM_TRACE").is_some();
+    let trace_on = popkern_core::trace::trace_enabled("trim");
     let Some((d, chosen)) = best else {
         if trace_on {
             eprintln!("  [trim] author {eh:?}: no scan curve candidates");
@@ -433,7 +433,7 @@ fn author_seam_curve(
         }
         return; // no range matches the pcurve: keep the provisional curve
     }
-    if std::env::var_os("PK_TRIM_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("trim") {
         let m = geometry.point_at((t_s + t_e) * 0.5);
         eprintln!(
             "  [trim] author {eh:?}: t_s={t_s:.4} t_e={t_e:.4} curve-mid {m:?} (pcurve mid {mid:?})"

@@ -2158,7 +2158,7 @@ fn flush_gusset_union_is_watertight_and_volume_exact() {
         .translate(-18.0, 0.0, 0.0)
         .expect("center");
     let inset_union = arm.union(&gusset36).expect("inset union");
-    if let Some(dir) = std::env::var_os("PK_PIN_EXPORT") {
+    if let Some(dir) = std::env::var_os("POPKERN_PIN_EXPORT") {
         let d = std::path::Path::new(&dir);
         let _ = arm.export_step(d.join("flush_ref_arm.step"));
         let _ = gusset36.export_step(d.join("flush_ref_gusset36.step"));
@@ -2181,7 +2181,7 @@ fn flush_gusset_union_is_watertight_and_volume_exact() {
                 "flush union: opens={opens:?} vol={v:.3} expected={expected_flush:.3} delta={:.3}",
                 v - expected_flush
             );
-            if let Some(dir) = std::env::var_os("PK_PIN_EXPORT") {
+            if let Some(dir) = std::env::var_os("POPKERN_PIN_EXPORT") {
                 let path = std::path::Path::new(&dir).join("flush_arm_union.step");
                 let _ = out.export_step(&path);
                 eprintln!("flush union: exported {}", path.display());

@@ -303,11 +303,11 @@ fn solve_circle_plane_intersection(
         });
     }
     if c0.abs() > amplitude + 1e-12 {
-        // POPKERN_SPHERE_FIT_TRACE: the reachability numbers behind a
+        // the sphere-fit trace topic: the reachability numbers behind a
         // NoIntersection verdict — |c0| is the plane's normalized
         // offset from the circle centre, amplitude the circle's reach
         // toward the plane.
-        if std::env::var_os("POPKERN_SPHERE_FIT_TRACE").is_some() {
+        if crate::trace::trace_enabled("sphere-fit") {
             eprintln!(
                 "[sphere-fit-trace] circle∩plane MISS: c0={c0:.6} amplitude={amplitude:.6} \
                  centre=({:.4},{:.4},{:.4}) r={radius:.4} n=({:.4},{:.4},{:.4})",

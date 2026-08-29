@@ -55,7 +55,7 @@ pub fn identify_consumed_face_majority(
             .count()
     };
     let (na, nb) = (count(face_a), count(face_b));
-    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("multi-chord") {
         eprintln!(
             "[mc-identify] {face_a:?}:{na} vs {face_b:?}:{nb} of {} desc",
             descendants.len()

@@ -73,7 +73,7 @@ pub(super) fn presplit_boundary_at_endpoints(
                 let edge = he_data.edge;
                 if let Some(curve) = brep.edges[edge].curve.as_ref() {
                     let inv = invert_curve_at_point(curve, endpoint, tolerance);
-                    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("face-split") {
                         eprintln!(
                             "    [presplit-inv] edge {edge:?} window ({:.3},{:.3}) -> {inv:?}",
                             curve.t_start, curve.t_end
@@ -102,13 +102,13 @@ pub(super) fn presplit_boundary_at_endpoints(
         }
         if !on_vertex && let Some(edge) = split_target {
             let r = brep.split_edge_at_point(edge, endpoint, tolerance);
-            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("face-split") {
                 eprintln!(
                     "  [presplit] {face_handle:?} edge {edge:?} at ({:.1},{:.1},{:.1}) -> {r:?}",
                     endpoint.x, endpoint.y, endpoint.z
                 );
             }
-        } else if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+        } else if popkern_core::trace::trace_enabled("face-split") {
             eprintln!(
                 "  [presplit] {face_handle:?} endpoint ({:.1},{:.1},{:.1}) on_vertex={on_vertex} no-target={}",
                 endpoint.x,

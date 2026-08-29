@@ -214,7 +214,7 @@ pub(crate) fn build_face_subdivision(
         overlap_pairs,
         original_brep,
     );
-    if std::env::var_os("PK_CHART_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("chart-dump") {
         eprintln!(
             "  [chart] {face:?} sigma={} poles={:?} issues={:?} filtered={:?}",
             sub.sigma, sub.poles, sub.report.issues, sub.report.filtered
@@ -705,7 +705,7 @@ fn build_face_subdivision_inner(
 
     match u_period {
         Some(period) => {
-            if std::env::var_os("PK_BP_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("branch-pairing") {
                 eprintln!("  [bp-face] {face:?}");
             }
             anchor_periodic(graph, &mut sub, period, &ends)

@@ -21,11 +21,10 @@ pub(super) fn classify_edge(
     off2: &SurfaceGeometry,
     tolerance: &Tolerance,
 ) -> Option<(EdgeJoinClass, f64)> {
-    // OnceLock: this runs per edge, possibly from the parallel
-    // dispatch — a raw env read per call would serialize the stage on
-    // the process environment lock (PK-329).
-    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let trace = *TRACE.get_or_init(|| std::env::var_os("PK_JOIN_TRACE").is_some());
+    // trace_enabled is a lock-free set lookup (the topic set parses
+    // once per process), so the per-edge parallel dispatch never
+    // touches the process env lock (PK-329).
+    let trace = popkern_core::trace::trace_enabled("shell-join");
     let edge = skin.edges.get(eh)?;
     let Some(curve) = edge.curve.as_ref() else {
         if trace {

@@ -86,7 +86,7 @@ pub(super) fn sampled_uv_crossings(
             q.push(b);
         }
     }
-    if std::env::var_os("PK_XING_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("ring-crossing") {
         let (mut lu, mut hu, mut lv, mut hv) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
         for &(_, u, v) in &q {
             lu = lu.min(u);
@@ -159,7 +159,7 @@ pub(super) fn sampled_uv_crossings(
         let Some((_, he, t_boundary)) = best else {
             continue;
         };
-        if std::env::var_os("PK_XING_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("ring-crossing") {
             eprintln!("      [xing-sampled] he {he:?} t2={t_hit:.4} uv=({phu:.4},{phv:.4})");
         }
         let min_sep = (t1 - t0) * 1e-7;

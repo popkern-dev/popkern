@@ -74,7 +74,7 @@ pub fn recompute_edges_with_skips(
     // reproduces the single-loop behavior exactly (first failing edge's
     // error included). The per-edge timing trace forces serial dispatch
     // so thread interleaving cannot garble it.
-    let trace = std::env::var_os("PK_RECOMP_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("recompute");
     let compute_one = |inner_eh: EdgeHandle| -> Result<EdgeOutcome, ShellError> {
         if skip_edges.contains(&inner_eh) {
             return Ok(EdgeOutcome::Skip);
@@ -217,7 +217,7 @@ pub fn recompute_edges_with_skips(
     Ok(undone)
 }
 
-/// Surface-class label for the `PK_RECOMP_TRACE` per-edge timing dump.
+/// Surface-class label for the the `recompute` trace topic per-edge timing dump.
 fn surface_kind(s: &SurfaceGeometry) -> &'static str {
     match s {
         SurfaceGeometry::Plane { .. } => "plane",

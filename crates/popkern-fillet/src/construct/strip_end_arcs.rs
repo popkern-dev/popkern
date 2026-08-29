@@ -39,7 +39,7 @@
 //!
 //! Per-corner and per-slit transactional: each mutation is applied on
 //! a candidate clone and accepted only when `validate()` holds;
-//! declines keep the existing topology and report via PK_CARVE_TRACE.
+//! declines keep the existing topology and report via the corner-carve trace topic.
 //! Tolerances: the 5e-3 anchor-placement gate (same class as route
 //! B's snap gate) for on/off-cylinder classification; 1e-9 for arc
 //! acceptance. Both are local to this pass.
@@ -282,18 +282,18 @@ fn contract_end_corners(
                     *brep = candidate;
                     touched_planes.push(plane_face);
                     total += 1;
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("corner-carve") {
                         eprintln!("  [strip-end] {strip:?}: contracted end corner into foot");
                     }
                 } else {
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("corner-carve") {
                         eprintln!("  [strip-end] {strip:?}: contraction ROLLED BACK");
                     }
                     return total;
                 }
             }
             Err(e) => {
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("corner-carve") {
                     eprintln!("  [strip-end] {strip:?}: kve declined: {e:?}");
                 }
                 return total;
@@ -378,7 +378,7 @@ fn arcify_runout_boundaries(
         // recorded decline whose kept incoherent runout curve folded
         // the strip's trim polygon).
         if denom.abs() < OBLIQUE_SECTION_MIN_COS {
-            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!(
                     "  [strip-end] {strip:?} edge {eh:?}: near-parallel end (|axis·n|={:.4}) — declined",
                     denom.abs()
@@ -406,7 +406,7 @@ fn arcify_runout_boundaries(
             )
         };
         let Some((new_curve, s1, s2)) = section else {
-            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!("  [strip-end] {strip:?} edge {eh:?}: no verified section candidate");
             }
             continue;
@@ -438,10 +438,10 @@ fn arcify_runout_boundaries(
             *brep = candidate;
             touched_planes.push(plane_face);
             rewritten += 1;
-            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!("  [strip-end] {strip:?} edge {eh:?}: exact runout arc authored");
             }
-        } else if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        } else if popkern_core::trace::trace_enabled("corner-carve") {
             eprintln!("  [strip-end] {strip:?} edge {eh:?}: arc ROLLED BACK (validate failed)");
         }
     }

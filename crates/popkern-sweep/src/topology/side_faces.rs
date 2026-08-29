@@ -83,7 +83,7 @@ fn build_closed_profile_topology(
 
         let end_pt = eval_surface_corner(surface, 0.0, 1.0);
         end_vertices.push(builder.add_vertex(end_pt));
-        if std::env::var_os("PK_SWEEP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("sweep") {
             let u1 = eval_surface_corner(surface, 1.0, 0.0);
             eprintln!(
                 "  [sweep] span {i}: u0 ({:.2},{:.2},{:.2}) u1 ({:.2},{:.2},{:.2})",

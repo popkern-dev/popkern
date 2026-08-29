@@ -90,7 +90,7 @@ pub(super) fn reorient_arcs_for_hex_closure(
             (Some(w), Some(a)) => {
                 let score_w = ring_bridge_score(&w, fillet_endpoints, face_supports, tol_slack);
                 let score_a = ring_bridge_score(&a, fillet_endpoints, face_supports, tol_slack);
-                if std::env::var_os("POPKERN_BOUNDARY_HEX_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boundary-hex") {
                     eprintln!(
                         "[boundary-hex] n={n} walk order={:?} score={score_w:?}; \
                          angular order={:?} score={score_a:?}",

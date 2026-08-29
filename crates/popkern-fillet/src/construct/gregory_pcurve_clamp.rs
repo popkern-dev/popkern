@@ -130,7 +130,7 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
                 let after = brep
                     .measure_half_edge_pcurve_deviation(heh)
                     .map(|r| r.max_deviation);
-                if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+                if popkern_core::trace::trace_enabled("pcurve-clamp") {
                     eprintln!(
                         "  [linear_clamp] he {heh:?} face {face:?} dev {before:?} -> {after:?}"
                     );
@@ -157,7 +157,7 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
             };
             u_out || p.y < v_lo - 1e-9 || p.y > v_hi + 1e-9
         });
-        if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+        if popkern_core::trace::trace_enabled("pcurve-clamp") {
             let kind = match &surf.geometry {
                 SurfaceGeometry::Gregory(_) => "Gregory",
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
@@ -204,7 +204,7 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         }
         clamped += 1;
     }
-    if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+    if popkern_core::trace::trace_enabled("pcurve-clamp") {
         eprintln!(
             "  [gregory_pcurve_clamp] total_he={total} with_pcurve={with_pcurve} bounded_seen={bounded_seen} clamped={clamped}"
         );

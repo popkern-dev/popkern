@@ -28,7 +28,7 @@ pub(crate) fn cluster_branches(
     }
     let mut start_bp = BTreeMap::new();
     let mut end_bp = BTreeMap::new();
-    let trace = std::env::var_os("PK_BRANCH_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("chart-branches");
     for (node, mut entries) in per_node {
         if trace {
             for &(u, h, is_start) in &entries {

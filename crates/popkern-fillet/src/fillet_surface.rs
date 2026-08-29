@@ -280,7 +280,7 @@ fn build_nurbs_sweep(
             }
         }
         let arc_pts = sample_arc(&center, fp1, fp2, radius, n_arc);
-        if std::env::var_os("PK_SWEEP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("sweep") {
             eprintln!(
                 "[sweep] sec {i}/{n_sections} t {t:.3} c ({:.3},{:.3},{:.3}) fp1 ({:.3},{:.3},{:.3}) fp2 ({:.3},{:.3},{:.3}) mid ({:.3},{:.3},{:.3})",
                 center.x,

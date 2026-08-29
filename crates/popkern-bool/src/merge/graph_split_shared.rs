@@ -45,7 +45,7 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
                     None => point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some(),
                 };
                 if !on_edge
-                    && std::env::var_os("PK_SPLIT_TRACE").is_some()
+                    && popkern_core::trace::trace_enabled("face-split")
                     && point_on_curved_graph_edge(graph, i, &pos, tolerance * 1.0e4).is_some()
                 {
                     eprintln!(

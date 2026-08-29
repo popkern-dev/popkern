@@ -38,7 +38,7 @@ pub(crate) fn absorb_junction_remnants(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> usize {
-    let trace = std::env::var_os("PK_JUNCTION_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("junction");
     let mut absorbed = 0usize;
     for (vertex, a, b) in smooth_junctions(brep, edge_geometries) {
         let Some(v_pos) = brep.vertices.get(vertex).map(|v| v.position) else {
@@ -214,7 +214,7 @@ fn smooth_junctions(
             .iter()
             .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
     );
-    let trace = std::env::var_os("PK_JUNCTION_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("junction");
     let mut out = Vec::new();
     for (v, egs) in by_vertex {
         let [a, b] = egs.as_slice() else {

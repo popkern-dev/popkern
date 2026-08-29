@@ -233,7 +233,7 @@ pub(in crate::apex_construction) fn merge_coincident_seam_vertices(
     if canonical.is_empty() {
         return BTreeMap::new();
     }
-    if std::env::var_os("PK_SLIR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("support-loop-rewrite") {
         for (dup, target) in &canonical {
             eprintln!(
                 "[slir] vertex merge {dup:?} -> {target:?} (dup preferred: {}, target preferred: {})",

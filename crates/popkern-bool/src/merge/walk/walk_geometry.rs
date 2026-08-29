@@ -149,7 +149,7 @@ pub(super) fn pick_by_angle(
             angle += std::f64::consts::TAU;
         }
 
-        if std::env::var_os("PK_WALK_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("fragment-walk") {
             eprintln!("      [angle] cand {c}: angle={angle:.3e}");
         }
         if angle < best_angle {

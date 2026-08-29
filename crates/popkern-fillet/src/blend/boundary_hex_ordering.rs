@@ -230,7 +230,7 @@ pub(super) fn angular_arc_ordering(
         .collect();
     keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let order: Vec<usize> = keyed.iter().map(|&(_, k)| k).collect();
-    if std::env::var_os("POPKERN_BOUNDARY_HEX_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-hex") {
         eprintln!(
             "[boundary-hex] centroid=({:.4},{:.4},{:.4}) axis=({:.4},{:.4},{:.4}) order={order:?}",
             centroid.x, centroid.y, centroid.z, axis.x, axis.y, axis.z

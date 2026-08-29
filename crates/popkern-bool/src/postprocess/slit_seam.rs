@@ -46,7 +46,7 @@ pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamR
             if he.loop_ != twin.loop_ {
                 return None;
             }
-            if std::env::var_os("PK_SLIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("slit") {
                 eprintln!(
                     "  [slit-scan] {eh:?} same_loop adj={}/{} pcurves={}/{}",
                     he.next == he.twin,
@@ -79,7 +79,7 @@ pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamR
                         Some(p) if p > 0.0 => d.abs() < p * 0.25,
                         _ => true,
                     };
-                    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("slit") {
                         eprintln!(
                             "  [slit] candidate {eh:?} mids ({:.4},{:.4})/({:.4},{:.4}) periods {pu:?}/{pv:?}",
                             ma.x, ma.y, mb.x, mb.y
@@ -162,7 +162,7 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
         match brep.kemr(h) {
             Ok(_) => {
                 if let Err(e) = brep.validate() {
-                    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("slit") {
                         eprintln!("  [slit] kemr {eh:?} validate failed: {e}");
                     }
                     *brep = snapshot;
@@ -171,7 +171,7 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
                 return true;
             }
             Err(e) => {
-                if std::env::var_os("PK_SLIT_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("slit") {
                     eprintln!("  [slit] kemr {eh:?} declined: {e}");
                 }
                 *brep = snapshot;
@@ -253,7 +253,7 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
         }
     }
     if walked != members - 2 {
-        if std::env::var_os("PK_SLIT_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("slit") {
             eprintln!(
                 "  [slit] declined {eh:?}: walked {walked} != members-2 {}",
                 members - 2
@@ -263,7 +263,7 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
         return false;
     }
     if let Err(e) = brep.validate() {
-        if std::env::var_os("PK_SLIT_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("slit") {
             eprintln!("  [slit] declined {eh:?}: validate {e}");
         }
         *brep = snapshot;

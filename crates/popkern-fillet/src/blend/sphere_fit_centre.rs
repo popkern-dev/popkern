@@ -195,7 +195,7 @@ pub(crate) fn select_per_fillet_centre(
     fillet_cylinder: &SurfaceGeometry,
 ) -> Option<Point3> {
     let inscribed = compute_cap_centre(apex, face_normals, r);
-    if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+    if popkern_core::trace::trace_enabled("cap-centre") {
         eprintln!(
             "[cap-centre] apex=({:.4},{:.4},{:.4}) r={r:.3} normals.len()={} inscribed={:?}",
             apex.x,
@@ -250,7 +250,7 @@ pub(crate) fn select_per_fillet_centre(
             interior_dir.z -= n.z;
         }
         let side_dot = apex_to_c.dot(&interior_dir);
-        if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+        if popkern_core::trace::trace_enabled("cap-centre") {
             eprintln!("[cap-centre]   dist_to_axis={dist_to_axis:.4e} side_dot={side_dot:.4e}");
         }
         if dist_to_axis < (r * 1e-6).max(1e-9) && side_dot > 0.0 {

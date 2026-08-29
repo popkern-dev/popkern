@@ -24,14 +24,14 @@ popkern-part = { path = "../popkern-part", features = ["text"] }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-viz = { path = "../popkern-viz" }
-glam = "0.29"
-serde_json = "1"
-thiserror = "2"
-ttf-parser = "0.25.1"
+glam.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ttf-parser.workspace = true
 
 [dev-dependencies]
 # The PK-329 determinism pins build their own rayon pools.
-rayon = "1"
+rayon.workspace = true
 
 [[bin]]
 name = "flagship_boss_plate"

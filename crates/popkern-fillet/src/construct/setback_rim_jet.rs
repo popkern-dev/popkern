@@ -259,7 +259,7 @@ pub(super) fn reconcile_rim_jets(
                 g2.z + 2.0 * delta[2],
             );
         }
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        if popkern_core::trace::trace_enabled("setback") {
             eprintln!("  [rim-jet] patch {pi} side {side}: corner deltas applied");
         }
     }

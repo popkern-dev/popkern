@@ -34,6 +34,7 @@ pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
 pub(crate) mod direct_apex_trace;
+pub mod dispatch_overrides;
 pub mod edges_2d;
 pub mod error;
 mod face_blend;

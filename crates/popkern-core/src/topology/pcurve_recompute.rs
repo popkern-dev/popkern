@@ -93,7 +93,7 @@ impl BRep {
         for heh in he_handles {
             // Existing pcurves are kept UNLESS degenerate or
             // stale-imaged — see keep_or_clear_existing_pcurve for
-            // the verdict (and PK_PCURVE_TRACE for its trace).
+            // the verdict (and the pcurve trace topic for its trace).
             if self.half_edges[heh].pcurve.is_some()
                 && self.keep_or_clear_existing_pcurve(heh, &surface, is_periodic)
             {

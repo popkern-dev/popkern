@@ -7,7 +7,8 @@
 //! the fillet — and rebuilds the `FaceEdge` bridges to maintain
 //! loop closure.
 //!
-//! Activation: `POPKERN_SPHERE_FIT_BOUNDARY=1`. Falls back silently
+//! Activation: `dispatch_overrides::SPHERE_FIT_BOUNDARY` (or the
+//! per-call `BlendBoundaryOptions`). Falls back silently
 //! to the standard boundary on any failure (unsupported variant,
 //! geometric degeneracy, missing topology).
 
@@ -39,7 +40,7 @@ pub(crate) fn apply_sphere_fit_substitution(
     tolerance: &Tolerance,
 ) -> Result<(), &'static str> {
     let r = apply_sphere_fit_substitution_inner(boundary, fillet_surfaces, brep, tolerance);
-    if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("sphere-fit") {
         eprintln!("[spherefit] vertex {:?}: {:?}", boundary.vertex, r);
     }
     r
@@ -144,7 +145,7 @@ fn apply_sphere_fit_substitution_inner(
         // unchanged.
         let cap_centre_k = select_per_fillet_centre(apex, &face_normals, r_k, &fillet.surface)
             .ok_or("cap-centre system is singular")?;
-        if std::env::var("POPKERN_CAPCENTRE_TRACE").is_ok_and(|v| v == "1") {
+        if popkern_core::trace::trace_enabled("cap-centre") {
             eprintln!(
                 "[cap-centre] fillet[{k}] r={r_k:.3} centre=({:.4},{:.4},{:.4})",
                 cap_centre_k.x, cap_centre_k.y, cap_centre_k.z
@@ -312,7 +313,7 @@ fn apply_sphere_fit_substitution_inner(
     boundary.hex_boundary_cps_deg9 = hex_boundary_cps_deg9;
     boundary.fillet_end_arcs = fillet_end_arcs;
 
-    if std::env::var_os("POPKERN_SPHERE_FIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("sphere-fit") {
         use popkern_core::geometry::curve::CurveEval;
         eprintln!("[sphere-fit] boundary segment endpoint coherence:");
         for (i, seg) in boundary.segments.iter().enumerate() {

@@ -107,7 +107,7 @@ pub fn compute_chamfer(
         tolerance,
     )?;
 
-    if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("bevel") {
         let a = offset_points_1.first();
         let b = offset_points_2.first();
         eprintln!("  [chamfer-offsets] p1[0]={a:?} p2[0]={b:?}");
@@ -141,7 +141,7 @@ pub fn compute_chamfer(
         let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
         let d = *anchor - *c;
         let a0 = d.dot(&p2).atan2(d.dot(&p1));
-        if std::env::var_os("PK_RIM_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("rim") {
             use popkern_core::geometry::curve::CurveEval as _;
             let probe = popkern_core::geometry::curve::CurveGeometry::Arc {
                 center: *c,
@@ -261,7 +261,7 @@ pub fn compute_chamfer(
                     while target_angle - t > std::f64::consts::PI {
                         t += std::f64::consts::TAU;
                     }
-                    if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("bevel") {
                         let cp = Point3::new(
                             c.x + *r * (p1.x * t.cos() + p2.x * t.sin()),
                             c.y + *r * (p1.y * t.cos() + p2.y * t.sin()),
@@ -295,7 +295,7 @@ pub fn compute_chamfer(
         let a1e = crossing_near(a1, v_b)
             .or_else(|| crossing_near(a1, v_a))
             .unwrap_or(a1);
-        if std::env::var_os("PK_BEVEL_TRACE").is_some()
+        if popkern_core::trace::trace_enabled("bevel")
             && ((a0e - a0).abs() > 1e-9 || (a1e - a1).abs() > 1e-9)
         {
             eprintln!("  [bevel] rim extended: a0 {a0:.4}->{a0e:.4} a1 {a1:.4}->{a1e:.4}");
@@ -362,7 +362,7 @@ pub fn compute_chamfer(
     };
     let surface = match cone {
         Some((cone_surface, _, _)) => {
-            if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("bevel") {
                 eprintln!("  [bevel] conical recognition: {cone_surface:?}");
             }
             cone_surface
@@ -464,7 +464,7 @@ fn recognize_planar_bevel(control_points: &[Point3]) -> Option<SurfaceGeometry> 
     for p in control_points {
         let dev = (*p - origin).dot(&normal).abs();
         if dev > 1e-9 * scale {
-            if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("bevel") {
                 eprintln!("  [bevel] planar recognition rejected: dev={dev:.3e} scale={scale:.1}");
             }
             return None;
@@ -551,7 +551,7 @@ fn recognize_conical_bevel(
         let cu = (rhs_u * svv - rhs_v * suv) / det;
         let cv = (rhs_v * suu - rhs_u * suv) / det;
         let centroid = mean + bu * cu + bv * cv;
-        if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("bevel") {
             for (i, p) in pts.iter().enumerate() {
                 let d = *p - centroid;
                 let radial = (d - axis * d.dot(&axis)).length();
@@ -573,7 +573,7 @@ fn recognize_conical_bevel(
             // onto the fitted circle afterwards, so the gates only
             // exclude genuinely non-circular rows.
             if axial > 1e-3 * (1.0 + radial.length()) {
-                if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("bevel") {
                     eprintln!("  [bevel-circle] non-coplanar axial={axial:.3e}");
                 }
                 return None; // not coplanar
@@ -584,7 +584,7 @@ fn recognize_conical_bevel(
             r_max = r_max.max(r);
         }
         let r = r_sum / n;
-        if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("bevel") {
             eprintln!(
                 "  [bevel-circle] n={} r={r:.4} spread={:.3e} c=({:.2},{:.2},{:.2})",
                 pts.len(),
@@ -607,7 +607,7 @@ fn recognize_conical_bevel(
         }
         Some((centroid, axis, r, r_max - r_min))
     };
-    let trace = std::env::var_os("PK_BEVEL_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("bevel");
     let (c1, a1, r1, spread1) = fit_circle(points_1)?;
     let (c2, a2, r2, spread2) = fit_circle(points_2)?;
     let scale = r1.max(r2);

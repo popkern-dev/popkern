@@ -301,7 +301,7 @@ pub fn kp20_paper_border_corner_mismatch(
             }
         }
     }
-    if std::env::var_os("KP20_CORNER_MISMATCH_TRACE").is_some() {
+    if crate::trace::trace_enabled("kp-corner-mismatch") {
         eprintln!("    corner mismatch worst at slot {worst_slot:?}: {worst:e}");
     }
     worst

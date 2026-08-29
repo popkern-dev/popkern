@@ -20,6 +20,7 @@ pub mod loader;
 pub mod mesh_data;
 pub mod picking;
 pub mod scene;
+#[cfg(feature = "window")]
 pub mod software_viewer;
 
 // GPU-only

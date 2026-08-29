@@ -319,7 +319,7 @@ pub(super) fn shell_outward_sign(brep: &BRep) -> f64 {
         let x = Vec3::new(centroid.x, centroid.y, centroid.z);
         vol += n.dot(&x) * area;
     }
-    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("convexity") {
         eprintln!("    [shell] signed 6V = {vol:.3e}");
     }
     if vol >= 0.0 { 1.0 } else { -1.0 }

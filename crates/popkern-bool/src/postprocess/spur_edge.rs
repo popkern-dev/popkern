@@ -172,7 +172,7 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
     let before = snapshot.validate_collect_structural().len();
     let after = brep.validate_collect_structural().len();
     if after > before {
-        if std::env::var_os("PK_SPUR_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("spur") {
             eprintln!(
                 "[spur] ghost face {face_h:?}: rollback — structural issues {before} -> {after}"
             );
@@ -290,7 +290,7 @@ fn excise_stub(brep: &mut BRep, stub_h: popkern_core::topology::HalfEdgeHandle) 
             return false;
         };
         if face.outer_loop == loop_h {
-            if std::env::var_os("PK_SPUR_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("spur") {
                 eprintln!("[spur] {stub_h:?}: 1-element OUTER loop — left visible");
             }
             return false;
@@ -351,7 +351,7 @@ fn excise_stub(brep: &mut BRep, stub_h: popkern_core::topology::HalfEdgeHandle) 
     let before = snapshot.validate_collect_structural().len();
     let after = brep.validate_collect_structural().len();
     if after > before {
-        if std::env::var_os("PK_SPUR_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("spur") {
             eprintln!(
                 "[spur] {stub_h:?}: rollback — structural issues {before} -> {after}: {:?}",
                 brep.validate_collect_structural().first()

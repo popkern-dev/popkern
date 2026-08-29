@@ -92,7 +92,7 @@ pub(super) fn insert_anchor_at_position(
         }
     }
     let gate = brep.tolerance.linear().max(1.0e-9) * 1.0e4;
-    if std::env::var_os("PK_ANCHOR_INSERT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("anchor-insert") {
         eprintln!(
             "[anchor-insert] position {position:?} best {:?} gate {gate:.3e}",
             best.as_ref().map(|(eh, p, d)| (*eh, (p.x, p.y, p.z), *d))
@@ -217,7 +217,7 @@ pub(in crate::construct) fn insert_anchor_with_spur(
             tolerance.linear(),
         );
     }
-    if std::env::var_os("POPKERN_ANCHOR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("anchor") {
         eprintln!(
             "[anchor] interior anchor spur on {face:?}: {origin_pos:?} -> {position:?} (vertex {:?})",
             mev.vertex
@@ -289,7 +289,7 @@ pub(in crate::construct) fn insert_interior_rail_spur(
             tolerance.linear(),
         );
     }
-    if std::env::var_os("POPKERN_ANCHOR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("anchor") {
         eprintln!(
             "[anchor] interior-rail spur on {face:?}: corner {corner:?} {corner_pos:?} -> {position:?} (vertex {:?})",
             mev.vertex

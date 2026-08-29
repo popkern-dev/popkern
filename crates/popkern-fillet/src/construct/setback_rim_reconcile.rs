@@ -79,7 +79,7 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
         Some((out, used))
     };
 
-    let probe = std::env::var_os("PK_SETBACK_PROBE").is_some();
+    let probe = popkern_core::trace::trace_enabled("setback");
     for (patch_index, patch) in patches.iter_mut().enumerate() {
         let GregoryPatch::RectangularBiNonic(bp) = patch else {
             continue;
@@ -172,7 +172,7 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
                 // CPs) is what holds the rim above the tessellator's
                 // 1e-3 off-surface gate, or the degree-9 row simply
                 // cannot represent the field.
-                if std::env::var_os("PK_SETBACK_PROBE").is_some() && _pass == 0 {
+                if popkern_core::trace::trace_enabled("setback") && _pass == 0 {
                     // Residual of the CURRENT row against the field is
                     // worst_dev. The floor: interpolate the projected
                     // points' deviation field with ALL 10 CPs free via

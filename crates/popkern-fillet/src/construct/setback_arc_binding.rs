@@ -84,7 +84,7 @@ pub(super) fn find_fillet_face(
     if let Some((fh, contained, worst)) = best_by_arc
         && contained > 0.0
     {
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             eprintln!(
                 "    [fillet-face] arc-bound {fh:?} contained={contained:.2} surface_d={worst:.3e}"
             );

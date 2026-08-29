@@ -51,7 +51,7 @@ pub(crate) fn detect_edge_face_intersections(
     // Edges of B vs faces of A.
     detect_edges_vs_faces(b, a, aabbs_a, tolerance, &mut hits);
 
-    if !hits.is_empty() && std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if !hits.is_empty() && popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "[intersect] detected {} edge-face intersection(s)",
             hits.len()
@@ -207,7 +207,7 @@ fn detect_edges_vs_faces(
                 t_range,
                 tolerance,
             );
-            if std::env::var_os("PK_HIT_TRACE").is_some()
+            if popkern_core::trace::trace_enabled("edge-face-hits")
                 && let Ok(r) = &result
                 && !r.intersections.is_empty()
             {
@@ -283,7 +283,7 @@ fn detect_edges_vs_faces(
                                 })
                                 .unwrap_or(false);
                             if off_surface {
-                                if std::env::var_os("PK_HIT_TRACE").is_some() {
+                                if popkern_core::trace::trace_enabled("edge-face-hits") {
                                     eprintln!(
                                         "  [hit-reject] off-surface t={t:.3} uv=({u:.3},{v:.3})"
                                     );

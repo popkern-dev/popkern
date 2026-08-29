@@ -246,7 +246,7 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
     // the **star point** rather than origin (origin bends the
     // surface through a geometrically-unrelated location and folds
     // every sub-patch at (u=1, v=1); star at least stays near the
-    // cap centre — fold diagnosed via POPKERN_KP_POLAR_DEEP_TRACE,
+    // cap centre — fold diagnosed via the kp-polar-deep trace topic,
     // `f5-tuning-plan.md` 2026-04-21).
     //
     // PK-087: the paper-correct deep-interior derivation now

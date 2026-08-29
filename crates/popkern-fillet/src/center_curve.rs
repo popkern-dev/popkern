@@ -83,7 +83,7 @@ pub fn constant_radius_center_curve(
         crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
     let inward_1 = matches!(side_1, crate::contact::BallSide::Inside);
     let inward_2 = matches!(side_2, crate::contact::BallSide::Inside);
-    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("convexity") {
         eprintln!(
             "    [offset-const] {convexity:?} o=({orientation_1},{orientation_2}) inward=({inward_1},{inward_2})"
         );
@@ -146,7 +146,7 @@ pub fn constant_radius_center_curve(
     // 4. Extract the curve nearest to the edge midpoint.
     let center_curve =
         crate::center_curve_station::select_nearest_curve(&result.intersections, edge_midpoint)?;
-    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("convexity") {
         let (ta, tb) = center_curve.parameter_range();
         let pa = center_curve.point_at(ta);
         let pb = center_curve.point_at(tb);
@@ -423,7 +423,7 @@ fn find_center_point_at_radius(
     // inward-natural primitive shells.
     let (side_1, side_2) =
         crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
-    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("convexity") {
         eprintln!(
             "    [offset] {convexity:?} o=({orientation_1},{orientation_2}) sides=({side_1:?},{side_2:?})"
         );

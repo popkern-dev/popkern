@@ -15,7 +15,7 @@ pub(super) fn trace_trim_overlap_sample(
     a: TrimOverlapTraceSample<'_>,
     b: TrimOverlapTraceSample<'_>,
 ) {
-    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
+    if !crate::trace::trace_enabled("self-intersection") {
         return;
     }
     eprintln!(
@@ -43,7 +43,7 @@ pub(super) fn trace_trim_overlap_point(
     trim_b_contains: Option<TrimContainment>,
     point: &Point3,
 ) {
-    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
+    if !crate::trace::trace_enabled("self-intersection") {
         return;
     }
     eprintln!(

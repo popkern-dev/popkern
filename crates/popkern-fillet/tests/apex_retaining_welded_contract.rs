@@ -29,7 +29,7 @@ mod direct_apex_validate_helpers;
 mod helpers;
 
 use direct_apex_validate_helpers::{
-    EnvGuard, breakdown, build_under_direct_apex, direct_apex_fallback_reasons,
+    breakdown, build_under_direct_apex, direct_apex_fallback_reasons,
 };
 use popkern_core::topology::LoopHandle;
 
@@ -39,7 +39,7 @@ use popkern_core::topology::LoopHandle;
 /// and no structural validation errors.
 #[test]
 fn welded_n3_apex_retaining_declines_semantically() {
-    let _g = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "0");
+    let _g = popkern_fillet::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
 
     let reasons = direct_apex_fallback_reasons(&result);
@@ -82,7 +82,7 @@ fn welded_n3_apex_retaining_declines_semantically() {
 /// classes keep their balanced far-side complexes.
 #[test]
 fn non_welded_and_n4_apex_retaining_classes_keep_serving() {
-    let _g = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "0");
+    let _g = popkern_fillet::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
     for (name, radii) in [
         ("pyramid4_uniform", &[0.05, 0.05, 0.05, 0.05][..]),
         ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07][..]),

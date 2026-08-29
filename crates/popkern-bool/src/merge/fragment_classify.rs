@@ -104,7 +104,7 @@ pub(crate) fn classify_and_select_fragments(
         ) {
             Ok(c) => c,
             Err(e) => {
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [classify] {:?} sample ({:.3},{:.3},{:.3}) point_in_solid ERR {e:?} -> Outside",
                         fragment.face, sample.x, sample.y, sample.z
@@ -113,7 +113,7 @@ pub(crate) fn classify_and_select_fragments(
                 PointClassification::Outside
             }
         };
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [classify] {:?} sample ({:.3},{:.3},{:.3}) -> {classification:?}",
                 fragment.face, sample.x, sample.y, sample.z

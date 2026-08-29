@@ -65,7 +65,7 @@ pub(super) fn synthesize_export_half_edge_pcurve_on_surface(
     let disagreement =
         sampled_edge_surface_disagreement(brep, edge, half_edge, surface, &pcurve, samples)?;
     let gate = step_export_pcurve_association_tolerance(brep);
-    if disagreement > gate && std::env::var_os("PK_STEP_TRACE").is_some() {
+    if disagreement > gate && popkern_core::trace::trace_enabled("step-io") {
         eprintln!(
             "  [step-export] synthesis declined for {half_edge:?} (edge {edge:?}): projected \
              disagreement {disagreement:.3e} > {gate:.3e}"

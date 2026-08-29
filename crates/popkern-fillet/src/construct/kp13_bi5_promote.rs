@@ -8,7 +8,7 @@
 //! Called from
 //! [`apply_three_quad_decomposition_to_blend`](super::three_quad_apply::apply_three_quad_decomposition_to_blend)
 //! when `options.use_kp_polar_gregory && n_sides >= 5` AND the
-//! env var `POPKERN_KP13_BI5=1` is set. Replaces the `N`-entry
+//! `dispatch_overrides::KP13_BI5_DISPATCH` override is set. Replaces the `N`-entry
 //! `sub_patches` vector with `4N` entries in canonical
 //! `(sector, piece)` row-major order matching the shape expected
 //! by [`poke_n_gon_face_into_4n_quads`](super::poke_4n).
@@ -31,7 +31,7 @@
 //!
 //! # Diagnostics
 //!
-//! Set env var `POPKERN_KP13_BI5_TRACE=1` to stream the reason on
+//! Set env var `POPKERN_TRACE=kp-bi5` to stream the reason on
 //! every fallback. Silent by default.
 
 #![allow(dead_code)]
@@ -171,7 +171,7 @@ pub(super) fn promote_decomp_to_kp13_bi5(
 }
 
 /// Top-level dispatch — when the KP13 bi-5 path is gated on
-/// (`POPKERN_KP13_BI5=1`), attempt the promotion. Returns
+/// (`dispatch_overrides::KP13_BI5_DISPATCH`), attempt the promotion. Returns
 /// `Some(patches_4n)` on success (caller replaces
 /// `decomp.sub_patches`) or `None` to fall through to the bi-6
 /// ladder.
@@ -179,7 +179,9 @@ pub(super) fn try_kp13_bi5_dispatch(
     sub_patches: &[GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> Option<Vec<GregoryPatch>> {
-    std::env::var_os("POPKERN_KP13_BI5")?;
+    if crate::dispatch_overrides::KP13_BI5_DISPATCH.get() != Some(true) {
+        return None;
+    }
     match promote_decomp_to_kp13_bi5(sub_patches, fillet_surfaces) {
         Bi5PromoteOutcome::Committed { patches_4n } => Some(patches_4n),
         Bi5PromoteOutcome::Rejected => None,
@@ -200,7 +202,7 @@ fn variant_name(p: &GregoryPatch) -> &'static str {
 }
 
 fn trace(stage: &str, n: usize, detail: Option<String>) {
-    if std::env::var_os("POPKERN_KP13_BI5_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-bi5") {
         match detail {
             Some(d) => eprintln!("[kp13_bi5 N={n}] {stage}: {d}"),
             None => eprintln!("[kp13_bi5 N={n}] {stage}"),

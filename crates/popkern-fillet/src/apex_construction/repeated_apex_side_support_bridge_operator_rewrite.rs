@@ -84,7 +84,7 @@ pub(super) fn try_in_place_support_rewrites(
     }
     for (plan, _) in &plans {
         if let Err(err) = candidate.support_loop_interval_rewrite(plan) {
-            if std::env::var_os("PK_SLIR_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("support-loop-rewrite") {
                 eprintln!("[slir] in-place rewrite declined: {err}");
             }
             return None;
@@ -115,7 +115,7 @@ pub(super) fn try_in_place_support_rewrites(
     for face in &healed_faces {
         candidate.reconcile_periodic_pcurve_branches(*face);
     }
-    if std::env::var_os("PK_SLIR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("support-loop-rewrite") {
         eprintln!(
             "[slir] in-place rewrites committed for {} region(s); welded {} pair(s), merged {} \
              vertex(es); boundary edges left: {}",

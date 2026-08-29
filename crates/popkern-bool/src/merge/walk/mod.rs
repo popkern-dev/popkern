@@ -95,7 +95,7 @@ pub(crate) fn walk_all_fragments_ext(
     let mut fragments = Vec::new();
 
     for (face_ref, he_indices) in &graph.face_edges {
-        if std::env::var_os("PK_WALK_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("fragment-walk") {
             let n_int = he_indices
                 .iter()
                 .filter(|&&h| {
@@ -109,7 +109,7 @@ pub(crate) fn walk_all_fragments_ext(
                 "  [walk-pre] {face_ref:?}: {} hes ({n_int} intersection)",
                 he_indices.len()
             );
-            if std::env::var_os("PK_WALK_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("fragment-walk") {
                 for &h in he_indices.iter() {
                     let he = &graph.half_edges[h];
                     let o = he.origin;
@@ -142,7 +142,7 @@ pub(crate) fn walk_all_fragments_ext(
         // PK-104 stage 3: chart-subdivision permutation walk, primary
         // for the cellular pipeline. Faces whose substrate fails the
         // I1–I5 checks fall through to the 3D-Newell walk below, with
-        // the reason observable under PK_BOOL_TRACE and recorded in
+        // the reason observable under the boolean trace topic and recorded in
         // `walk_fallbacks`.
         let mut walked_by_chart = false;
         // Chart polylines + σ for the role assembly below (present
@@ -248,7 +248,7 @@ pub(crate) fn walk_all_fragments_ext(
                     }
                     loops = orbits;
                     walked_by_chart = true;
-                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
                             "  [walk] {face_ref:?}: chart orbits {} (sigma {}) filtered {:?}",
                             loops.len(),
@@ -258,7 +258,7 @@ pub(crate) fn walk_all_fragments_ext(
                     }
                 } else {
                     walk_fallbacks.push((*face_ref, "chart orbit collision".to_string()));
-                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
                             "  [walk] {face_ref:?}: chart orbit collision — 3D-Newell fallback"
                         );
@@ -267,7 +267,7 @@ pub(crate) fn walk_all_fragments_ext(
             } else {
                 let issues: Vec<String> = sub.report.issues.iter().map(|i| i.to_string()).collect();
                 walk_fallbacks.push((*face_ref, issues.join("; ")));
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [walk] {face_ref:?}: chart substrate incomplete — 3D-Newell fallback ({})",
                         issues.join("; ")
@@ -342,7 +342,7 @@ pub(crate) fn walk_all_fragments_ext(
                     &current_loop,
                 ) {
                     Some(next_he) => {
-                        if std::env::var_os("PK_WALK_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("fragment-walk") {
                             eprintln!("      [step] {he} -> {next_he}");
                         }
                         he = next_he;
@@ -392,7 +392,7 @@ pub(crate) fn walk_all_fragments_ext(
             });
             if current_loop.len() >= min_len && closes {
                 loops.push(current_loop);
-            } else if !closes && std::env::var_os("PK_WALK_TRACE").is_some() {
+            } else if !closes && popkern_core::trace::trace_enabled("fragment-walk") {
                 eprintln!(
                     "      [drop-open-chain] {} hes from he {}",
                     current_loop.len(),
@@ -419,8 +419,8 @@ pub(crate) fn walk_all_fragments_ext(
                 &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
             )
         {
-            let dump = std::env::var_os("PK_LOOP_DUMP_ALL").is_some();
-            let trace = std::env::var_os("PK_BOOL_TRACE").is_some();
+            let dump = popkern_core::trace::trace_enabled("loop-dump-all");
+            let trace = popkern_core::trace::trace_enabled("boolean");
             if trace {
                 let (oi, holes) = &asm.regions[0];
                 eprintln!(
@@ -564,7 +564,7 @@ pub(crate) fn walk_all_fragments_ext(
                 coincident_interface
                     && walk_geometry::loop_outside_outer(graph, &lp, &outer_loop, &outer_newell)
             };
-            if std::env::var_os("PK_WALK_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("fragment-walk") {
                 eprintln!(
                     "    [elect] loop {:?}{} area {:.1} thr {:.1} shares={} sep={}",
                     &lp[..lp.len().min(6)],
@@ -631,7 +631,7 @@ pub(crate) fn walk_all_fragments_ext(
             }
         }
 
-        // PK_LOOP_DUMP_ALL: dump every fragment's loops regardless of
+        // the loop-dump-all trace topic: dump every fragment's loops regardless of
         // size (PK-107 forensics: comparing 11- vs 13-half-edge outer
         // loops between the 3D-Newell and chart walks).
         walk_trace::dump_election_loops(
@@ -652,7 +652,7 @@ pub(crate) fn walk_all_fragments_ext(
             &mut inner_loops_out,
             &outer_loop,
         );
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [walk] {face_ref:?}: outer {} hes, {} inner {:?}, {} separate",
                 outer_loop.len(),
@@ -833,7 +833,7 @@ fn next_around_face(
         })
         .collect();
 
-    if std::env::var_os("PK_WALK_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fragment-walk") {
         let p = graph.nodes[end_node].position;
         eprintln!(
             "    [next] at ({:.3},{:.3},{:.3}) from he {he_idx}: candidates {candidates:?}",

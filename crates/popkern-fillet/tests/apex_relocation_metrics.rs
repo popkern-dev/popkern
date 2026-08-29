@@ -41,32 +41,6 @@ use popkern_core::topology::BRep;
 mod helpers;
 use helpers::{fillet_corner, incident_edges, pick_vertex_with_valence};
 
-struct EnvGuard {
-    key: &'static str,
-    prior: Option<String>,
-}
-
-impl EnvGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let prior = std::env::var(key).ok();
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, prior }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prior {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-}
-
 /// Wrap a fixture build under the apex-relocation flag set.  Returns the
 /// post-fillet BRep and the cap face handles.
 fn build_with_apex_rebuild(
@@ -75,9 +49,9 @@ fn build_with_apex_rebuild(
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
     // The apex-relocation passes (wide wire tolerance, face lift,
     // vertex relocation) are unconditional since #207 cleanup.
-    // POPKERN_SPHERE_FIT_BOUNDARY remains opt-in (production
+    // The sphere-fit override remains opt-in (production
     // divergence on variable-radius corners).
-    let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _g1 = popkern_fillet::dispatch_overrides::SPHERE_FIT_BOUNDARY.set_guard(true);
 
     if is_pyramid {
         let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();

@@ -35,9 +35,9 @@ pub(crate) struct FacePairTask {
 /// process environment lock).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TraceFlags {
-    /// `PK_PAIR_TRACE`: candidate/surface dumps.
+    /// the `pair-scan` trace topic: candidate/surface dumps.
     pub pair: bool,
-    /// `PK_CLIP_TRACE`: clip input/output dumps.
+    /// the `clip` trace topic: clip input/output dumps.
     pub clip: bool,
 }
 
@@ -45,8 +45,8 @@ impl TraceFlags {
     /// Read both trace gates from the environment.
     pub(crate) fn from_env() -> Self {
         Self {
-            pair: std::env::var_os("PK_PAIR_TRACE").is_some(),
-            clip: std::env::var_os("PK_CLIP_TRACE").is_some(),
+            pair: popkern_core::trace::trace_enabled("pair-scan"),
+            clip: popkern_core::trace::trace_enabled("clip"),
         }
     }
 

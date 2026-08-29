@@ -127,7 +127,7 @@ pub(crate) fn execute_boolean_full(
     mut progress: Option<&mut dyn ProgressReporter>,
 ) -> Result<BRep, BoolError> {
     check_cancel(cancel)?;
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [exec] execute_boolean {op:?} ({} vs {} faces)",
             a.faces.len(),
@@ -156,14 +156,14 @@ pub(crate) fn execute_boolean_full(
     check_cancel(cancel)?;
 
     // No-intersection shortcut.
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         helpers::trace_records(
             &intersection_result.records,
             intersection_result.coincidence.face_overlaps.len(),
         );
     }
     if intersection_result.records.is_empty() {
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [exec] -> no-records containment path");
         }
         return handle_no_intersection(
@@ -277,7 +277,7 @@ pub(crate) fn execute_boolean_full(
                         outer_aabbs,
                         tolerance,
                     );
-                    if std::env::var_os("PK_CONTAIN_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("containment") {
                         eprintln!(
                             "[contain] {fh:?} probe ({:.4},{:.4},{:.4}) -> {verdict:?}",
                             probe.x, probe.y, probe.z
@@ -302,7 +302,7 @@ pub(crate) fn execute_boolean_full(
                     &intersection_result.aabbs_b,
                     tolerance,
                 );
-            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            } else if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!(
                     "[boolean] coincident shortcut declined: {n_overlaps} overlaps but \
                      containment not verified — full pipeline"
@@ -435,7 +435,7 @@ pub(crate) fn execute_boolean_full(
             false
         };
         if claim_verified {
-            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!("  [exec] -> empty-selection containment path (verified)");
             }
             let result =
@@ -443,7 +443,7 @@ pub(crate) fn execute_boolean_full(
             log_validation_issues(&result, op);
             return Ok(result);
         }
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [exec] empty-selection containment REFUTED — continuing to cellular");
         }
     }
@@ -567,7 +567,7 @@ pub(crate) fn execute_boolean_full(
     // `operation_pcurve_coherence.rs`.
     helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
 
-    // Debug/PK_BOOL_TRACE diagnostics on the SERVED result. This runs
+    // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier
     // placement fired before reconcile_orientation_flags and reported
     // transient winding findings that the served result doesn't have.

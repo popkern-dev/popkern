@@ -15,7 +15,7 @@ use crate::error::BoolOperation;
 /// operation — this is purely diagnostic to surface topological problems early.
 /// Catches panics from validation on corrupted topology.
 ///
-/// Debug/`PK_BOOL_TRACE`-only (PK-272): `validate_all()` includes the
+/// Debug/the `boolean` trace topic-only (PK-272): `validate_all()` includes the
 /// O(n²) surface-surface self-intersection sweep, and running it on
 /// every release boolean purely to print stderr was measurable
 /// overhead the caller can't act on. The correctness gate for boolean
@@ -25,7 +25,7 @@ use crate::error::BoolOperation;
 /// not a transient pre-reconcile state); the no-intersection paths
 /// serve their result directly and log it as-is.
 pub(crate) fn log_validation_issues(result: &BRep, op: BoolOperation) {
-    if !(cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some()) {
+    if !(cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean")) {
         return;
     }
     let op_name = match op {
@@ -167,7 +167,7 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
 /// Runs sliver analysis on each face and watertightness validation on all
 /// edges. Results are logged to stderr (diagnostic only, does not fail).
 ///
-/// Debug/`PK_BOOL_TRACE`-only (PK-272): before the gate, release
+/// Debug/the `boolean` trace topic-only (PK-272): before the gate, release
 /// builds computed the full sliver and watertightness sweeps and then
 /// discarded them — the eprintlns were `#[cfg(debug_assertions)]` but
 /// the computation was not. Now nothing is computed unless the output
@@ -177,7 +177,7 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
     use crate::imprint::shared_geometry::validate_watertightness;
     use crate::imprint::sliver::{SliverThresholds, analyze_face_polygon};
 
-    if !(cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some()) {
+    if !(cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean")) {
         return;
     }
 
@@ -209,12 +209,12 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
     }
 }
 
-/// PK_BOOL_TRACE-gated face/edge census line for the post-processing
+/// the boolean trace topic-gated face/edge census line for the post-processing
 /// stages — sliver removal silently deleted a cylinder wall once
 /// (PK-150); the per-stage census makes any face-count change in the
 /// post pipeline visible.
 pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         let self_twins = brep
             .half_edges
             .iter()
@@ -232,7 +232,7 @@ pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
 /// Output post-processing pipeline shared by every boolean opcode:
 /// stranded-loop pruning, redundant-edge removal, sliver removal,
 /// face simplification, micro-edge collapse, and tolerance
-/// propagation — each stage census-traced under PK_BOOL_TRACE
+/// propagation — each stage census-traced under the boolean trace topic
 /// (sliver removal silently deleted a cylinder wall once, PK-150).
 pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // Post-processing: prune stranded half-edges left behind by
@@ -286,7 +286,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
             // PK-274: each dissolution is a transactional kve that
             // cleared the pcurves it touched — refill exactly those.
             let _ = result.recompute_pcurves_where_missing();
-            if std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions) {
+            if popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions) {
                 eprintln!(
                     "[boolean] post-processing: dissolved {dissolved} collinear valence-2 vertex(es)"
                 );
@@ -308,7 +308,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     let spur_report =
         crate::postprocess::spur_edge::collapse_degenerate_spur_edges(result, tolerance);
     if spur_report.spurs_removed > 0
-        && (std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions))
+        && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
         eprintln!(
             "[boolean] post-processing: retired {} degenerate spur edge(s)",
@@ -324,7 +324,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // rim-filleted-cylinder subtraction's seam-side bulge).
     let slit_report = crate::postprocess::slit_seam::dissolve_slit_seams(result, tolerance);
     if slit_report.dissolved > 0
-        && (std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions))
+        && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
         eprintln!(
             "[boolean] post-processing: dissolved {} slit seam edge(s)",
@@ -338,7 +338,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     if result.validate().is_ok() {
         let weld = crate::postprocess::parallel_weld::weld_parallel_self_twins(result, tolerance);
         if weld.welded > 0
-            && (cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some())
+            && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
         {
             eprintln!(
                 "[boolean] post-processing: welded {} collapsed-gore rim pair(s) ({} declined)",
@@ -359,7 +359,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // cones, slot planes) with constant flags that the corpus audit
     // measured dishonest. Runs last, after every pcurve author above.
     let flips = result.reconcile_orientation_flags();
-    if flips > 0 && std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if flips > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] post-processing: reconciled {flips} orientation flag(s)");
     }
 }

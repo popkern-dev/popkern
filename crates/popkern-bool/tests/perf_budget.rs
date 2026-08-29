@@ -16,7 +16,7 @@
 //! (O(n²) surface-surface self-intersection sweep) purely to print a
 //! stderr diagnostic — ungated in release. The real correctness gate
 //! is `validate::post_check` (which runs either way); the diagnostic
-//! is now debug/`PK_BOOL_TRACE`-only. The cases below cover the cost
+//! is now debug/the `boolean` trace topic-only. The cases below cover the cost
 //! regimes that change decision:
 //!
 //! - **box-box** — minimal all-planar op: pipeline overhead floor.

@@ -358,7 +358,7 @@ pub(crate) fn thin_wall_candidates(
                         if shielded {
                             continue;
                         }
-                        if std::env::var_os("PK_MAXSAFE_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("max-safe-offset") {
                             eprintln!(
                                 "[maxsafe-wall] {:?}x{:?} gap={:.4} s={:.3} d={:.4} \
                                  p=({:.3},{:.3},{:.3}) q=({:.3},{:.3},{:.3})",

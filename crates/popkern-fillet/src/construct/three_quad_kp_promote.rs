@@ -26,7 +26,7 @@ pub(crate) use three_quad_kp_ring_metrics::{worst_ring_coplanarity, worst_ring_g
 /// inner-spoke G1 residuals. Closes the cap-fillet seam tangent-
 /// plane mismatch documented in Task #144.
 ///
-/// `POPKERN_OUTER_FILLET_G1=1` env var gates the new path during
+/// `dispatch_overrides::OUTER_FILLET_G1` gates the new path during
 /// the spike. Without it, behaviour matches the pre-Phase-6c-B
 /// optimizer (inner-spoke G1 only).
 pub(super) fn promote_decomp_to_kp_binonic(
@@ -79,12 +79,12 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // → bi-nonic); phase 3 engages only when phases 1+2 fail to
     // converge, and the ladder falls through to the bi-quintic-only
     // then bicubic C-twist optimizers if a phase is unavailable.
-    // Env-gate on POPKERN_OUTER_FILLET_G1=1. When set,
+    // Gated on dispatch_overrides::OUTER_FILLET_G1. When set,
     // pass the fillet surfaces to the binonic optimiser so its
     // L-M residual includes per-sample cap-vs-fillet G1 along
     // each cap's outer boundary.
     let outer_fillets: Option<Vec<popkern_core::geometry::surface::SurfaceGeometry>> =
-        if std::env::var("POPKERN_OUTER_FILLET_G1").is_ok_and(|v| v == "1") {
+        if crate::dispatch_overrides::OUTER_FILLET_G1.get() == Some(true) {
             Some(fillet_surfaces.iter().map(|f| f.surface.clone()).collect())
         } else {
             None
@@ -169,7 +169,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             "{}; candidate={candidate_provenance}",
             crossing.diagnostic_label()
         );
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-cap") {
             eprintln!("[kp_binonic.promotion] ring_crossing decline: {detail}");
         }
         return declined_with_selection(

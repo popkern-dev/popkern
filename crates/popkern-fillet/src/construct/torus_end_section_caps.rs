@@ -42,7 +42,7 @@
 //! and accepted only when structural validation holds and every
 //! touched edge lies on BOTH adjacent surfaces within the
 //! acceptance band; a decline keeps the carve topology and reports
-//! via `PK_CARVE_TRACE`. **Tolerances:** on/off-torus
+//! via the `corner-carve` trace topic. **Tolerances:** on/off-torus
 //! classification 1e-6 (class separation is 8e-3 vs 1e-12);
 //! authored-curve endpoint and lie-on checks at 1e-9-per-unit
 //! scale, both local to this pass.
@@ -69,7 +69,7 @@ const EXACT_BAND: f64 = 1.0e-9;
 /// boundary carries the off-surface mitre-chord signature. Returns
 /// the number of capped ends.
 pub(super) fn author_torus_end_section_caps(result: &mut BRep, tolerance: &Tolerance) -> usize {
-    let trace = std::env::var_os("PK_CARVE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("corner-carve");
     let strips: Vec<(FaceHandle, Point3, Vec3, f64, f64)> = result
         .faces
         .iter()

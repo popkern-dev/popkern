@@ -63,7 +63,7 @@ pub(super) fn process_deferred(
     if deferred.is_empty() {
         return;
     }
-    let trace = std::env::var_os("PK_MULTICHORD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("multi-chord");
     let mut cand = brep.clone();
     let separators = cut_corner_separators(&mut cand, trims, sub_faces, tolerance);
     if trace {
@@ -216,7 +216,7 @@ fn consumed_region_merge(
     boundary: &[EdgeHandle],
     claimed: &[FaceHandle],
 ) -> Option<FaceHandle> {
-    let trace = std::env::var_os("PK_MULTICHORD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("multi-chord");
     // The subdivision may have gained separator pieces; membership =
     // original sub-face set PLUS any face sharing a separator/trim
     // boundary with it is approximated by seeding + flood limits.

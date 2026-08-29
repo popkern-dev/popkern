@@ -317,7 +317,7 @@ pub(super) fn apply_serving_shape_gate(
 }
 
 /// Pre-call dispatch trace: face-kind census and cylinder loop
-/// walks, printed under `POPKERN_DIRECT_APEX_TRACE`.
+/// walks, printed under the `direct-apex` trace topic.
 pub(super) fn trace_pre_call_state(brep: &BRep, vertex: popkern_core::topology::VertexHandle) {
     if !crate::direct_apex_trace::enabled() {
         return;

@@ -106,7 +106,7 @@ pub fn decompose_cells(params: &DecomposeParams<'_>) -> CellDecomposition {
         }
     }
 
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         for cell in &cells {
             eprintln!(
                 "  [cells] cell {} membership {:#b} sample ({:.3},{:.3},{:.3})",

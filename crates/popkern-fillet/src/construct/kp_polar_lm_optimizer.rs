@@ -378,7 +378,7 @@ pub(super) fn try_polar_lm_with_report(
     for (idx, candidate) in candidates.iter().enumerate() {
         match try_single_lm(base, candidate) {
             SingleLmOutcome::Accepted(patches) => {
-                if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("kp-polar") {
                     eprintln!("[kp_polar_bi6 lm] warm-start #{idx} produced fold-safe iterate");
                 }
                 return PolarLmReport {

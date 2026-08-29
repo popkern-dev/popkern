@@ -41,7 +41,7 @@ pub(crate) fn weld_parallel_seams(
     result: &mut BRep,
     tolerance: &Tolerance,
 ) -> usize {
-    let trace = std::env::var_os("PK_INTERFERENCE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("interference");
     let pre: std::collections::HashSet<FaceHandle> = source.faces.keys().collect();
     let mut welded = 0usize;
     // Slivers are independent; re-scan after each weld.

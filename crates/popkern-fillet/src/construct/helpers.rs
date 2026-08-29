@@ -236,7 +236,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
                 (b, a)
             };
         let gate = tolerance.linear().max(1e-9) * 100.0;
-        let trace = std::env::var_os("POPKERN_ANCHOR_TRACE").is_some();
+        let trace = popkern_core::trace::trace_enabled("anchor");
         // Only override a walk that is off the WHOLE trim curve —
         // legitimate setback anchors differ from the endpoints but
         // still lie ON the trim (measured: the broad endpoint

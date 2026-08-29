@@ -63,7 +63,7 @@ mod setback_shared_net_unify;
 pub(crate) use boundary_ring::try_boundary_ring_carve;
 use setback_arc_crossings::arc_boundary_crossings;
 
-/// Env-gated (PK_FAN_QUALITY_PROBE) pipeline-stage observability for
+/// Env-gated (the fan-quality trace topic) pipeline-stage observability for
 /// committed cap fans: worst live-seam g0/g1 of the corner-patch
 /// faces. This tracer localized the pentagon5_blunt post-pipeline
 /// pcurve clobber to `corner_patch_support_completion` (PK-087).
@@ -72,7 +72,7 @@ pub(crate) fn fan_quality_stage_probe(
     brep: &BRep,
     corner_patches: &[crate::types::CornerPatchInfo],
 ) {
-    if std::env::var_os("PK_FAN_QUALITY_PROBE").is_none() {
+    if !popkern_core::trace::trace_enabled("fan-quality") {
         return;
     }
     let faces: Vec<FaceHandle> = corner_patches.iter().map(|cp| cp.face).collect();
@@ -194,7 +194,7 @@ fn surgery_inner(
 
     // WIP probe: where does the arc midpoint live relative to the
     // current face partition?
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         for k in 0..n.min(2) {
             let mid = eval_cubic_mid(&arcs[k].cubic);
             let mut nearest = (f64::INFINITY, String::new());
@@ -333,7 +333,7 @@ fn surgery_inner(
         };
         let v1 = split_or_reuse(brep, e1, p1, "crossing 1")?;
         let v2 = split_or_reuse(brep, e2, p2, "crossing 2")?;
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        if popkern_core::trace::trace_enabled("setback") {
             let pv1 = brep.vertices[v1].position;
             let pv2 = brep.vertices[v2].position;
             eprintln!(
@@ -493,7 +493,7 @@ fn surgery_inner(
     // g1 ≤ 2e-3 here — orders under the gates.
     let (seam_g0, seam_g1, seam_g2) =
         setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e} g2={seam_g2:.3e}");
     }
     if seam_g0 > 1.0e-5 || seam_g1 > 5.0e-2 {
@@ -658,7 +658,7 @@ fn build_cap_face_fan(
     if sectors.len() != n {
         return Err(format!("cap has {} sectors for {n} arcs", sectors.len()));
     }
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         eprintln!(
             "  [assembly] min_reg={:.3e} g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} strip_move={:.3e} input_corner={:.3e}",
             report.min_regularity,
@@ -689,7 +689,7 @@ fn build_cap_face_fan(
     //    arc s) + [c_s→m_{s+1}] (first half of arc s+1), so arc k
     //    carries: q_col of sector k−1 (its first half) and m_k + q_row
     //    of sector k (its second half).
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         let dist_to_loop = |pt: Point3| -> f64 {
             let mut best = f64::INFINITY;
             if let Ok(hes) = face_loop_half_edges(brep, blend_face) {
@@ -1032,7 +1032,7 @@ fn build_cap_face_fan(
     }
     let rim_tear =
         setback_shared_net_unify::reunify_shared_boundary_cps(&mut patches, &shared_groups);
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         eprintln!("  [rim-unify] worst shared-CP tear closed: {rim_tear:.3e}");
     }
     // Face ↔ patch assignment by VERTEX-TO-GRID-CORNER agreement,
@@ -1089,7 +1089,7 @@ fn build_cap_face_fan(
         }
     }
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         let mut by_face: std::collections::BTreeMap<usize, Vec<(f64, usize)>> =
             std::collections::BTreeMap::new();
         for &(score, face_idx, patch_idx) in &pairs {
@@ -1142,7 +1142,7 @@ fn build_cap_face_fan(
     // boundary rows (see setback_fan_seam_refresh docs).
     let (refreshed, worst_moved) =
         setback_fan_seam_refresh::refresh_fan_seam_curves(brep, &cap_faces);
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         eprintln!(
             "  [seam-refresh] {refreshed} seam curves refreshed, worst move {worst_moved:.3e}"
         );
@@ -1261,7 +1261,7 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                     continue;
                 };
                 let matched = (match_corner(origin_p), match_corner(dest_p));
-                if std::env::var_os("PK_SETBACK_PROBE").is_some()
+                if popkern_core::trace::trace_enabled("setback")
                     && (matched.0.is_none() || matched.1.is_none())
                 {
                     eprintln!(
@@ -1545,7 +1545,7 @@ fn split_blend_boundary_at(
     let result = brep
         .split_edge(edge, fraction)
         .map_err(|e| format!("rim split: {e}"))?;
-    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+    if popkern_core::trace::trace_enabled("setback") {
         let vp = brep.vertices[result.vertex].position;
         eprintln!(
             "  [rimsplit] target ({:+.4},{:+.4},{:+.4}) edge-dist {d:.2e} t={t_split:.4} t_dist {t_dist:.2e} vertex-off {:.2e}",
@@ -1676,7 +1676,7 @@ fn merge_faces(
         let f1 = brep.loops[brep.half_edges[he].loop_].face;
         let f2 = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
         if region.contains(&f1) && region.contains(&f2) {
-            if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+            if popkern_core::trace::trace_enabled("setback") {
                 eprintln!(
                     "  [merge-leak] ring edge {eh:?} has region on both sides: f1={f1:?} f2={f2:?} \
                      (region size {})",
@@ -1735,7 +1735,7 @@ fn merge_faces(
             })
             .map(|(h, _)| h)
             .collect();
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        if popkern_core::trace::trace_enabled("setback") {
             eprintln!(
                 "  [merge] same-loop bridge half-edges: {}",
                 candidates.len()
@@ -1748,7 +1748,7 @@ fn merge_faces(
             match brep.dissolve_same_loop_bridge(he) {
                 Ok(()) => dissolved = true,
                 Err(e) => {
-                    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+                    if popkern_core::trace::trace_enabled("setback") {
                         eprintln!("  [merge] dissolve declined: {e}");
                     }
                 }

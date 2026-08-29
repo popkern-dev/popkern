@@ -128,7 +128,7 @@ fn try_boundary_ring_carve_gated(
     ) {
         Ok(face) => (Some(face), None),
         Err(reason) => {
-            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!("  [boundary-ring] declined at {vertex:?}: {reason}");
             }
             (None, Some(reason))

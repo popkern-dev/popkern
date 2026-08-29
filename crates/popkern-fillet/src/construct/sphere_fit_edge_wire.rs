@@ -9,7 +9,7 @@
 //! samples `edge.curve` to fit pcurves on the new Gregory surface).
 //!
 //! Activation: same env-gate as the substitution itself
-//! (`POPKERN_SPHERE_FIT_BOUNDARY=1`). Falls back silently when no
+//! (`dispatch_overrides::SPHERE_FIT_BOUNDARY`). Falls back silently when no
 //! match is found between BRep half-edges and boundary segments.
 //!
 //! # Match heuristic

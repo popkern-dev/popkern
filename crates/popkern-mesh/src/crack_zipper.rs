@@ -144,7 +144,7 @@ pub(crate) fn zip_recorded_tolerance_cracks(
     let mut zipped = 0usize;
     for round in 0..MAX_ROUNDS {
         let splits = zip_round(mesh, &closed_edges);
-        if std::env::var_os("PK_ZIP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("crack-zipper") {
             eprintln!("  [zip] round {round}: {splits} splits");
         }
         if splits == 0 {
@@ -373,7 +373,7 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
         mesh.triangles.push(tri);
         mesh.face_map.push(face);
     }
-    if std::env::var_os("PK_ZIP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("crack-zipper") {
         eprintln!(
             "  [zip] open={} off_curve={} no_candidate={} splits={splits}",
             stats.0, stats.1, stats.2
@@ -383,7 +383,7 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
 }
 
 fn trace_skip(reason: &str, pa: &Point3, pb: &Point3) {
-    if std::env::var_os("PK_ZIP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("crack-zipper") {
         eprintln!(
             "  [zip]   {reason}: ({:.4},{:.4},{:.4})-({:.4},{:.4},{:.4})",
             pa.x, pa.y, pa.z, pb.x, pb.y, pb.z

@@ -14,18 +14,18 @@ parallel = ["dep:rayon"]
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
-rayon = { version = "1", optional = true }
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+rayon = { workspace = true, optional = true }
+serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 # Thread-pool control for the PK-278 determinism pins.
-rayon = "1"
+rayon.workspace = true
 popkern-bool = { path = "../popkern-bool" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-io = { path = "../popkern-io" }
 criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
-serde_json = "1"
+serde_json.workspace = true
 backtrace = "0.3"
 
 [[bench]]

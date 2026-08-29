@@ -168,7 +168,7 @@ pub(super) fn apply_multi_chord_for_face(
                         brep, start_v, end_v, h, tolerance,
                     )
             {
-                if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("multi-chord") {
                     eprintln!(
                         "[mc-target] eg{} side{} sub {k}: transplanted anchors \
                          {start_v:?}/{end_v:?} to chain holder {h:?}",
@@ -207,7 +207,7 @@ pub(super) fn apply_multi_chord_for_face(
                 ))
             };
             let Some(target) = target else {
-                if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("multi-chord") {
                     let pa = brep.vertices.get(start_v).map(|v| v.position);
                     let pb = brep.vertices.get(end_v).map(|v| v.position);
                     let faces_of = |v: popkern_core::topology::VertexHandle| -> Vec<popkern_core::topology::FaceHandle> {
@@ -341,7 +341,7 @@ pub(super) fn apply_multi_chord_for_face(
                     break;
                 }
             };
-            if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("multi-chord") {
                 use popkern_core::geometry::CurveEval;
                 let (tt0, tt1) = t3d.parameter_range();
                 let e0 = t3d.point_at(tt0);
@@ -402,7 +402,7 @@ pub(super) fn apply_multi_chord_for_face(
             ) {
                 Ok(kc) => kc,
                 Err(_) => {
-                    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("multi-chord") {
                         eprintln!(
                             "[mc] sub-chord {k} on {target:?}: neither half ({:?}/{:?}) carries a descendant of {fillet_edge:?} (holders: {:?})",
                             split.face_a,

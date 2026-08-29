@@ -8,8 +8,8 @@ description = "Sketch-to-BRep bridge for the popkern CAD kernel"
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-constraint = { path = "../popkern-constraint" }
-thiserror = "2"
-serde = { version = "1", features = ["derive"] }
+thiserror.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 popkern-sweep = { path = "../popkern-sweep" }

@@ -138,7 +138,7 @@ pub(crate) fn split_graph_edge(
     // gives the split parameter; on inversion failure the old
     // behavior is preserved.
     let start_pos = graph.nodes[graph.half_edges[he_idx].origin].position;
-    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("face-split") {
         let ep = graph.nodes[end_node].position;
         let w = graph.half_edges[he_idx]
             .curve
@@ -247,7 +247,7 @@ pub(crate) fn split_graph_edge(
             graph.half_edges[idx].pcurve = None;
         }
     }
-    if std::env::var_os("PK_SPLIT_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("face-split")
         && let Some(((ha, hb), (na2, nb2))) = curve_windows
     {
         eprintln!("[gsplit]   orig w[{ha:.3},{hb:.3}] frag w[{na2:.3},{nb2:.3}]");
@@ -622,7 +622,7 @@ pub(crate) fn split_shared_edges_at_nodes(
                     let p1 = graph.nodes[twin_origin].position;
                     point_on_segment(&pos, &p0, &p1, tolerance).is_some()
                 };
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [shared-split] node {node_idx} vs shared he {i}: on_curve={on_curve}"
                     );
@@ -644,7 +644,7 @@ pub(crate) fn split_shared_edges_at_nodes(
 pub(super) fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
-    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("face-split") {
         let sp = graph.nodes[graph.half_edges[he_idx].origin].position;
         let ep = graph.nodes[end_node].position;
         let np = graph.nodes[node].position;

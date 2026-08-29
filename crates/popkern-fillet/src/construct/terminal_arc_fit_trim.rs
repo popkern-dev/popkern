@@ -36,7 +36,7 @@ pub(super) fn repair_corner_swept(
     c: &CornerCandidate,
     tolerance: &Tolerance,
 ) -> Result<(), TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let strip_surface = match brep
         .faces
         .get(c.strip_face)
@@ -342,7 +342,7 @@ fn compute_swept_stub_arc(
     end_pos: Point3,
     tolerance: &Tolerance,
 ) -> Result<StagedStubArc, TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let (he_twin, edge, primary, strip_pcurve) = {
         let he = brep
             .half_edges

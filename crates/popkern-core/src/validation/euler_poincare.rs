@@ -31,7 +31,7 @@ impl BRep {
         let rhs = 2 * s;
 
         if lhs != rhs {
-            if std::env::var_os("PK_EULER_TRACE").is_some() {
+            if crate::trace::trace_enabled("euler") {
                 let mut orphan_v = 0;
                 let used: std::collections::HashSet<_> =
                     self.half_edges.values().map(|he| he.origin).collect();
@@ -79,7 +79,7 @@ impl BRep {
         // values from one-sided edge artifacts (self-loop circles whose
         // twin was on a non-selected face).
         if two_g < -1 {
-            if std::env::var_os("PK_EULER_TRACE").is_some() {
+            if crate::trace::trace_enabled("euler") {
                 let used: std::collections::HashSet<_> =
                     self.half_edges.values().map(|he| he.origin).collect();
                 let orphan_v = self.vertices.keys().filter(|v| !used.contains(v)).count();

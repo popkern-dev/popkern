@@ -325,7 +325,7 @@ pub(crate) fn cell_clip(
 ) -> Option<super::clip_uv::UvClipResult> {
     let cell = face_chart_cell(brep, face, &brep.tolerance)?;
     let windows = cell_windows(&cell, uv);
-    if std::env::var_os("PK_CLIP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("clip") {
         eprintln!(
             "  [cell-clip] {face:?} cell u[{:.3},{:.3}] v[{:.3},{:.3}] -> {} window(s)",
             cell.u_range.0,

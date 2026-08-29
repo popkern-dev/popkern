@@ -211,7 +211,7 @@ fn absorb_slivers_with_protected(
         // (wall reunification AFTER contact harvest).
         let candidate = find_corner_fragment_target(brep, &retained)
             .inspect(|c| {
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("corner-carve") {
                     eprintln!("  [absorb] Class D corner-fragment: {c:?}");
                 }
             })
@@ -269,7 +269,7 @@ fn absorb_slivers_with_protected(
             // corner fragments deliberately leave absorbed wall
             // chords for the downstream contact harvest.
             let dissolved = super::strip_end_surface::remove_spur_slits(brep, sf);
-            if dissolved > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if dissolved > 0 && popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!("  [absorb] {sf:?}: {dissolved} seam slit(s) dissolved after merge");
             }
         }

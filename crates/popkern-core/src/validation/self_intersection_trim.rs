@@ -313,7 +313,7 @@ impl BRep {
 
         for &inner_loop in &face.inner_loops {
             let inner_polygon = self.loop_uv_polygon(inner_loop, surface, query);
-            if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some() {
+            if crate::trace::trace_enabled("self-intersection") {
                 eprintln!(
                     "[trim-classify] {face_handle:?} inner {inner_loop:?} polygon={:?} query=({:.4},{:.4})",
                     inner_polygon.as_ref().map(|p| p

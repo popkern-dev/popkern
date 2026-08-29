@@ -72,7 +72,7 @@ pub(super) fn edge_same_sense(
     else {
         return true;
     };
-    let sense_trace = std::env::var_os("PK_STEP_SENSE_TRACE").is_some();
+    let sense_trace = popkern_core::trace::trace_enabled("step-sense");
     if let Some(&chain_forward) = normalization.directions.get(&(face_handle, canonical)) {
         let opposes = pcurve_opposes_edge_curve(brep, canonical, &surface.geometry, &pcurve);
         let along_trim = chain_forward != opposes;

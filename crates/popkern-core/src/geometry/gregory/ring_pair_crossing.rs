@@ -166,7 +166,7 @@ const EXEMPTION_BAND_FACTOR: f64 = 10.0;
 /// sweeping through the neighbouring sector, the DOF class the
 /// spoke-row optimizer moves) measures ≥ 5e-2 relative on the
 /// synthetic reproducer. Re-measure the serving envelope (run the
-/// fillet corpus with `POPKERN_KP_TRACE=1` and read the decline
+/// fillet corpus with `POPKERN_TRACE=kp-cap` and read the decline
 /// labels) before tightening.
 pub const MACRO_DEPTH_FACTOR: f64 = 1.0e-2;
 

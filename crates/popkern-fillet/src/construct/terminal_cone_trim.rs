@@ -104,7 +104,7 @@ pub(super) fn repair_corner_conic(
     // triple points sat 2.1e-2 off the cone). They are projected
     // onto the conic below; only gross misplacement declines.
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let span = anchor_in.distance_to(&anchor_out).max(pos_tol);
     let anchor_band = span * 0.2;
 

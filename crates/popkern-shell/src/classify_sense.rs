@@ -137,7 +137,7 @@ pub(crate) fn face_sense(brep: &BRep, fh: FaceHandle) -> Option<FaceSense> {
     // (wrapped seams) votes both ways — that face falls back rather
     // than guessing.
     let agree = votes.unsigned_abs() as usize;
-    if std::env::var_os("PK_SENSE_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("material-sense") {
         eprintln!(
             "[sense] {fh:?} votes={votes} conclusive={conclusive} outer_n={n} \
              bbox=({u0:.3},{v0:.3})..({u1:.3},{v1:.3})"

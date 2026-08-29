@@ -167,7 +167,7 @@ pub(super) fn lift_apex_face_with_bridge(
 /// pipeline stages see consistent UV mappings.  Returns the
 /// number of plane faces lifted.
 pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
-    let trace = std::env::var_os("POPKERN_APEX_FACE_LIFT_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("apex-face-lift");
     let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
     let mut already_lifted: std::collections::BTreeSet<FaceHandle> =
         std::collections::BTreeSet::new();

@@ -1,6 +1,6 @@
 //! PK-167 stage 1b observability: dump the face-family bridge cycle
 //! structure at execution time (post-exposure) under
-//! `PK_SLIR_TRACE=1`. The in-place support-loop rewrite derivation
+//! `POPKERN_TRACE=support-loop-rewrite`. The in-place support-loop rewrite derivation
 //! needs the measured near/far classification of the source loop's
 //! sides — this trace is how that structure was captured on the
 //! V-free mixed-cube fixture (each shared-start source is a 3-sided
@@ -12,7 +12,7 @@ use popkern_core::topology::BRep;
 use super::super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitivePlan;
 
 pub(super) fn trace_cycle_structure(primitive: &FaceFamilyBridgePrimitivePlan, candidate: &BRep) {
-    if std::env::var_os("PK_SLIR_TRACE").is_none() {
+    if !popkern_core::trace::trace_enabled("support-loop-rewrite") {
         return;
     }
     for region in primitive.regions() {

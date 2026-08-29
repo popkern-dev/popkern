@@ -19,18 +19,14 @@ pub fn report_diagnostics(brep: &BRep) {
 /// comparison: 3-D curve point, surface_a evaluation via pcurve_a,
 /// surface_b evaluation via pcurve_b. Lets us see exactly where
 /// things diverge along the curve and on which side the geometry
-/// is broken. Set `POPKERN_NM_DEBUG_THRESHOLD=0.05` to investigate
-/// smaller-magnitude offenders (e.g. systematic Cyl×Plane drift).
+/// is broken.
 #[allow(dead_code)]
 pub fn debug_extreme_non_manifold(brep: &BRep) {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
     let threshold = 5.0 * brep.tolerance.linear().max(1e-9);
     let reports = brep.find_tessellation_non_manifold_edges(16, threshold);
-    let cutoff = std::env::var("POPKERN_NM_DEBUG_THRESHOLD")
-        .ok()
-        .and_then(|s| s.parse::<f64>().ok())
-        .unwrap_or(1.0);
+    let cutoff = 1.0;
     let extreme: Vec<_> = reports
         .iter()
         .filter(|r| r.max_divergence > cutoff)
@@ -105,7 +101,8 @@ pub fn debug_extreme_non_manifold(brep: &BRep) {
 /// that OCCT-strict slicers (Bambu Studio, FreeCAD) flag as
 /// non-manifold when they tessellate the imported STEP.
 ///
-/// Set `POPKERN_NM_VERBOSE=1` to also dump every offending edge
+/// Enable the `non-manifold-verbose` trace topic to also dump every
+/// offending edge
 /// (handle, surface-pair kind, both faces, location, divergence).
 #[allow(dead_code)]
 pub fn report_non_manifold(brep: &BRep) {
@@ -214,7 +211,7 @@ pub fn report_non_manifold(brep: &BRep) {
         );
     }
 
-    if std::env::var("POPKERN_NM_VERBOSE").is_ok() {
+    if popkern_core::trace::trace_enabled("non-manifold-verbose") {
         println!("    -- all non-manifold edges --");
         for r in &reports {
             println!(

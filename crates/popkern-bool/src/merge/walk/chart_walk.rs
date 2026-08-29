@@ -173,7 +173,7 @@ pub(crate) fn walk_chart_orbits(
         let mut h = seed;
         loop {
             let Some(n) = next_in_chart(sub, graph, h) else {
-                if std::env::var_os("PK_WALK_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("fragment-walk") {
                     eprintln!("      [orbit-fail] no successor from he {h}");
                 }
                 return None;
@@ -184,7 +184,7 @@ pub(crate) fn walk_chart_orbits(
             // A permutation orbit cannot revisit a non-seed member; if
             // it does, the substrate lied — bail to fallback.
             if consumed.contains(&n) || orbit.len() > budget {
-                if std::env::var_os("PK_WALK_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("fragment-walk") {
                     eprintln!(
                         "      [orbit-fail] revisit/budget: he {h} -> {n} (seed {seed}, len {}, {n} consumed by orbit {:?})",
                         orbit.len(),

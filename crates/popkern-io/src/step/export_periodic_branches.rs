@@ -92,7 +92,7 @@ pub(super) fn export_pcurve_for_use(
                 brep, edge, half_edge, surface,
             )
         });
-    if result.is_none() && std::env::var_os("PK_STEP_TRACE").is_some() {
+    if result.is_none() && popkern_core::trace::trace_enabled("step-io") {
         use crate::step::export_pcurve_synthesis::sampled_edge_surface_disagreement;
         let stored_dev = stored_raw.as_ref().and_then(|pc| {
             sampled_edge_surface_disagreement(brep, edge, half_edge, surface, pc, 9)
@@ -271,7 +271,7 @@ fn normalize_loop(
         let Some(pc) = chain_pcurve_for_use(brep, face, cursor_he, geometry) else {
             // A use without a pcurve breaks the chain; leave this
             // loop un-normalized rather than guessing across the gap.
-            if std::env::var_os("PK_STEP_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("step-io") {
                 eprintln!(
                     "  [step-export] periodic loop {lh:?} on {face:?} UN-NORMALIZED: use \
                      {cursor_he:?} has no exportable pcurve"
@@ -436,7 +436,7 @@ fn normalize_loop(
     let Some((score, _flips, _winding_ok, assignment)) = best else {
         return;
     };
-    if std::env::var_os("PK_STEP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("step-io") {
         eprintln!(
             "  [step-export] periodic loop {lh:?} on {face:?}: {} use(s), score {score:.3e}, \
              flips {_flips}, winding_ok {_winding_ok}, want_ccw {want_ccw}",
@@ -449,7 +449,7 @@ fn normalize_loop(
         }
         directions.insert((face, use_.half_edge), *fwd);
     }
-    if score > 1e-6 && std::env::var_os("PK_STEP_TRACE").is_some() {
+    if score > 1e-6 && popkern_core::trace::trace_enabled("step-io") {
         eprintln!(
             "  [step-export] periodic loop on face {face:?} does not close in UV after branch normalization (gap {score:.3e})"
         );

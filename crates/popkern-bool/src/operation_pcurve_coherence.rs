@@ -93,16 +93,16 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
             }
         }
         let r = result.recompute_face_pcurves(fh);
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [pc-coherence] recompute {fh:?}: {r:?}");
         }
     }
 }
 
-/// PK_CELL_TRACE diagnostics: dump every edge with a non-2 use count
+/// the cellular trace topic diagnostics: dump every edge with a non-2 use count
 /// (+ position/span) from a cellular assembly that failed validation.
 pub(super) fn trace_cellular_nonmanifold(r: &BRep) {
-    if std::env::var_os("PK_CELL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("cellular") {
         // Dump every edge's use count + position for
         // non-manifold diagnosis.
         for (eh, edge) in r.edges.iter() {

@@ -13,7 +13,7 @@
 //! Faces without complete pcurve loops (or without edge curves) fall
 //! back to the uniform grid+clip path in `tessellate_face`.
 //!
-//! Observability: set `PK_BF_TRACE=1` to log, per face falling back
+//! Observability: set `POPKERN_TRACE=boundary-first` to log, per face falling back
 //! to the uniform-grid tessellator, WHY it fell back (missing pcurve, no
 //! canonical samples, off-surface residual, uncovered ring segment,
 //! periodic full-wrap ring).
@@ -206,7 +206,7 @@ pub(crate) fn tessellate_face_boundary_first(
                     {
                         return Some(fm);
                     }
-                    if std::env::var_os("PK_BF_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boundary-first") {
                         eprintln!("    [bf] face {face_handle:?} u-wrap decline");
                     }
                     boundary_first_unwrap::dump_ring(&ring, "u");
@@ -227,7 +227,7 @@ pub(crate) fn tessellate_face_boundary_first(
     if rings.is_empty() {
         return None;
     }
-    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first-ring") {
         for (ri, ring) in rings.iter().enumerate() {
             eprintln!(
                 "    [bf-ring] face {face_handle:?} ring {ri} ({} pts)",
@@ -244,7 +244,7 @@ pub(crate) fn tessellate_face_boundary_first(
     // Four-sided ruled charts (fillet/chamfer strips) take the
     // structured tensor path: exact boundary conformity, interior on
     // the cross-station lattice, chord error = the edge sampling's
-    // own tolerance. Declines (PK_BF_TRACE reason) continue below.
+    // own tolerance. Declines (the boundary-first trace topic reason) continue below.
     if let Some(fm) = boundary_first_ruled_strip::try_tessellate(
         face_handle,
         surface,
@@ -516,7 +516,8 @@ pub(crate) fn tessellate_face_boundary_first(
                 .collect();
         }
         let n_v = options.min_subdivisions.max(4);
-        let seam_trace = std::env::var_os("PK_BF_SEAM_TRACE").is_some() && u_stations.len() > 100;
+        let seam_trace =
+            popkern_core::trace::trace_enabled("boundary-first-seam") && u_stations.len() > 100;
         let mut kill = [0usize; 4]; // region, clearance, disk, kept — seam band only
         // Interior v-stations CONFORM to the boundary's v-cadence:
         // with a fixed sparse row count, ruling-side boundary samples
@@ -617,7 +618,7 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
 
-    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first-ring") {
         let boundary_n: usize = ring_ranges.iter().map(|&(s, e)| e - s).sum();
         eprintln!(
             "    [bf-grid] face {face_handle:?}: boundary {boundary_n} interior {} (n={n} cell={cell:.4} clearance={clearance:.4})",
@@ -657,7 +658,7 @@ pub(crate) fn tessellate_face_boundary_first(
             triangles.push([t[0], t[2], t[1]]);
         }
     }
-    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first-ring") {
         let mut areas: Vec<f64> = triangles
             .iter()
             .map(|t| {
@@ -714,7 +715,7 @@ pub(crate) fn tessellate_face_boundary_first(
                         (i, d, t)
                     })
                     .min_by(|x, y| x.1.partial_cmp(&y.1).unwrap_or(std::cmp::Ordering::Equal));
-                if std::env::var_os("PK_BF_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boundary-first") {
                     eprintln!("    [bf] span: a={:?}", sources.get(a));
                     eprintln!(
                         "    [bf] ring segment {a}-{b} uncovered at uv ({:.4},{:.4})-({:.4},{:.4}) nearest pt {:?} d={:.4} uv=({:.4},{:.4})",
@@ -755,7 +756,7 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
     if uncovered {
-        if std::env::var_os("PK_BF_DUMP").is_some() {
+        if popkern_core::trace::trace_enabled("boundary-first-dump") {
             eprintln!("    [bf-dump] face {face_handle:?} rings {ring_ranges:?}");
             for (i, &(u, v)) in uv_pts.iter().enumerate() {
                 eprintln!("    [bf-dump] pt {i} {u:.17e} {v:.17e}");
@@ -793,7 +794,7 @@ pub(crate) fn tessellate_face_boundary_first(
             t.swap(1, 2);
         }
     }
-    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first-ring") {
         let mut vol6 = 0.0;
         for t in &triangles {
             let (a, b, c) = (
@@ -866,13 +867,13 @@ fn build_ring(
             continue;
         }
         let Some(pc) = data.pcurve.as_ref() else {
-            if std::env::var_os("PK_BF_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boundary-first") {
                 eprintln!("    [bf] edge {eh:?}: missing pcurve");
             }
             return None;
         };
         let Some(samples) = edge_samples.get(&eh) else {
-            if std::env::var_os("PK_BF_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boundary-first") {
                 eprintln!("    [bf] edge {eh:?}: no canonical samples");
             }
             return None;
@@ -902,7 +903,7 @@ fn build_ring(
                 <= samples.points.last()?.distance_to(&origin)
         };
         let m = samples.points.len();
-        if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+        if popkern_core::trace::trace_enabled("boundary-first-ring") {
             eprintln!("      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge}");
         }
         // Emit all but the last point (the next half-edge provides
@@ -1003,7 +1004,7 @@ fn build_ring(
             // (hexagon6_blunt 0 -> 482; pentagon5_blunt/G2
             // 106 -> 492). Do not reintroduce it.
             if residual > gate {
-                if std::env::var_os("PK_BF_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boundary-first") {
                     eprintln!("    [bf] edge {eh:?}: off-surface residual {residual:.3e}");
                 }
                 return None;

@@ -16,7 +16,7 @@
 //! stations, row count chosen by the meridian chord criterion. The
 //! decomposition is strict — one full-period non-degenerate cross
 //! chain at constant v plus one chart-degenerate apex run — and
-//! anything else declines (with a `PK_BF_TRACE` reason) to the
+//! anything else declines (with a the `boundary-first` trace topic reason) to the
 //! pre-existing paths.
 
 use popkern_core::geometry::Vec3;
@@ -28,7 +28,7 @@ use crate::TessellationOptions;
 use crate::mesh::{FaceMesh, MeshVertex};
 
 fn trace(reason: &str) {
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!("    [bf] full-wrap revolution declined: {reason}");
     }
 }
@@ -418,7 +418,7 @@ pub(super) fn try_tessellate(
             t.swap(1, 2);
         }
     }
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!(
             "    [bf] face {face_handle:?} served as full-wrap revolution: {k} stations x {rows} rows"
         );

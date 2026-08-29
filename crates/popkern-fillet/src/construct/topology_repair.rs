@@ -86,8 +86,8 @@ pub(crate) use topology_repair_snap::snap_incident_edge_curve_endpoints_robust;
 /// fails) the snapshot is restored and we move on. This keeps a
 /// single bad attempt from poisoning the rest of the build.
 pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usize {
-    let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
-    let dump = std::env::var("POPKERN_TOPO_REPAIR_DUMP").is_ok();
+    let trace = popkern_core::trace::trace_enabled("topology-repair");
+    let dump = popkern_core::trace::trace_enabled("topology-repair-dump");
     // Per-face attempt cap.  Each successful repair removes one
     // off-cyl candidate; an upper bound keeps the loop bounded
     // even if surgery somehow generates new candidates.
@@ -154,7 +154,7 @@ pub(crate) fn repair_cylinder_face_off_surface_vertices(brep: &mut BRep) -> usiz
 }
 
 fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairCandidate) -> bool {
-    let trace = std::env::var("POPKERN_TOPO_REPAIR_TRACE").is_ok();
+    let trace = popkern_core::trace::trace_enabled("topology-repair");
     // The two chord edges (he_in and he_out) sit on planar adjacent
     // faces on their twin side. There are two cases:
     //  * Same plane on both sides (e.g. base corner with chord pair
@@ -169,7 +169,7 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     // The different-planes surgery is currently regressing N≥8
     // pyramids (max tess-nm divergence 0.12 → 1.06) — likely the
     // vertex-snap leaves shared neighbours (other cyls, slants)
-    // inconsistent. Gate it behind `POPKERN_TOPO_REPAIR_DIFF=1` so
+    // inconsistent. Gate it behind `dispatch_overrides::TOPO_REPAIR_DIFF` so
     // the same-plane case can land safely while we work the diff
     // case separately. The same-plane case is what fixed the base-
     // corner chord pairs on N=3..7 in the first place.
@@ -214,7 +214,7 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
     let plane_face_in = loop_in.face;
     let plane_face_out = loop_out.face;
     if plane_face_in != plane_face_out {
-        if std::env::var("POPKERN_TOPO_REPAIR_DIFF").is_err() {
+        if crate::dispatch_overrides::TOPO_REPAIR_DIFF.get() != Some(true) {
             if trace {
                 eprintln!(
                     "[topo_repair]   skip diff-planes case ({plane_face_in:?} vs {plane_face_out:?}) — gated"

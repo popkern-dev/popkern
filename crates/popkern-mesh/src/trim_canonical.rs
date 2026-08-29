@@ -45,7 +45,7 @@ pub(crate) fn sample_loop_canonical(
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     chord_height: f64,
 ) -> Option<SampledLoop> {
-    let trace = std::env::var("PK_TRIM_TRACE").is_ok();
+    let trace = popkern_core::trace::trace_enabled("trim");
     let loop_ = brep.loops.get(loop_handle)?;
     let start_he = loop_.half_edge;
     if !brep.half_edges.contains_key(start_he) {

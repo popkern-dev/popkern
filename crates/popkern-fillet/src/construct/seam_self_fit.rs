@@ -134,7 +134,7 @@ pub(in crate::construct) fn try_same_face_seam_fit(brep: &mut BRep, edge: EdgeHa
     }
     if let Some(edge_mut) = brep.edges.get_mut(edge) {
         edge_mut.curve = Some(candidate);
-        if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("edge-reconcile") {
             eprintln!("[fit-tol] {edge:?} same-face seam refit {before:.3e} -> {after:.3e}");
         }
         return true;

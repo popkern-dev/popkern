@@ -278,7 +278,7 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
         }
     }
 
-    if std::env::var_os("PK_CAPG1_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("cap-g1") {
         eprintln!(
             "[capg1] measured_edges={measured_edges} worst_deficit={worst:.4e} (gate {gate:.1e}) worst_g0={worst_g0_gap:.4e} edge={worst_edge:?}"
         );

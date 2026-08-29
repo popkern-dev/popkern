@@ -27,7 +27,7 @@ pub(crate) fn reconcile_all_periodic_pcurve_branches(brep: &mut BRep) -> usize {
     for face in periodic_faces {
         if brep.reconcile_periodic_pcurve_branches(face) {
             changed += 1;
-            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("edge-reconcile") {
                 eprintln!("[periodic-final] reconciled period branches on {face:?}");
             }
         }

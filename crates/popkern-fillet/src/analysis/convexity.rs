@@ -255,7 +255,7 @@ pub(super) fn classify_convexity(
         let d1 = trim_side_witness(face_1, &point, &d1).unwrap_or(d1);
         let d2 = trim_side_witness(face_2, &point, &d2).unwrap_or(d2);
         let dot = d1.dot(&n2) + d2.dot(&n1);
-        if std::env::var_os("PK_CONVEXITY_TRACE").is_some() && i == 0 {
+        if popkern_core::trace::trace_enabled("convexity") && i == 0 {
             eprintln!(
                 "  [cvx] {edge_handle:?} p({:.2},{:.2},{:.2}) n1({:.2},{:.2},{:.2}) d1({:.2},{:.2},{:.2}) n2({:.2},{:.2},{:.2}) d2({:.2},{:.2},{:.2}) dot {dot:.3}",
                 point.x,

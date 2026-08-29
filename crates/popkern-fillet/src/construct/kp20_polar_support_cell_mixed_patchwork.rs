@@ -120,7 +120,7 @@ pub(super) fn build_owner_mixed_support_cell_patchwork(
 }
 
 pub(super) fn trace_support_cell_patchwork_if_requested(surfaces: &[GregoryPatch]) {
-    if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_none() {
+    if !popkern_core::trace::trace_enabled("determinism") {
         return;
     }
     let mut hash = 0xcbf29ce484222325u64;

@@ -86,7 +86,7 @@ pub(crate) fn settle_blend_seam_corners(
     let pre: HashSet<FaceHandle> = source.faces.keys().collect();
     let created: HashSet<FaceHandle> = result.faces.keys().filter(|f| !pre.contains(f)).collect();
     let mut report = BlendSeamCornerReport::default();
-    let trace = std::env::var_os("PK_BLEND_SEAM_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("blend-seam");
     for candidate in recognize_pair_corners(result, &created, tolerance) {
         // Corners are structurally disjoint, but stay defensive
         // across repairs: every handle must still be alive.

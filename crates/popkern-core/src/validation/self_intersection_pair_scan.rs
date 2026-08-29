@@ -440,8 +440,8 @@ impl BRep {
                 _ => false,
             }
         };
-        let serial_for_trace = std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some()
-            || std::env::var_os("POPKERN_SI_CANDIDATE_TRACE").is_some();
+        let serial_for_trace = crate::trace::trace_enabled("self-intersection")
+            || crate::trace::trace_enabled("self-intersection-candidates");
         #[cfg(feature = "parallel")]
         let verdicts: Vec<bool> = if serial_for_trace {
             jobs.iter().map(evaluate).collect()
@@ -459,7 +459,7 @@ impl BRep {
             if !hit {
                 continue;
             }
-            if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_some() {
+            if crate::trace::trace_enabled("self-intersection") {
                 self.trace_self_intersection_pair(face_keys[i], face_keys[j]);
             }
             found.push((face_keys[i], face_keys[j]));

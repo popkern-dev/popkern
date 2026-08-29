@@ -41,7 +41,7 @@ pub(crate) fn try_complete_interference(
     hits: &[StripInterference],
     tolerance: &Tolerance,
 ) -> Result<(), String> {
-    let trace = std::env::var_os("PK_INTERFERENCE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("interference");
     for hit in hits {
         let (ia, ib) = (hit.fillet_a, hit.fillet_b);
         if ia >= edge_geometries.len() || ib >= edge_geometries.len() {

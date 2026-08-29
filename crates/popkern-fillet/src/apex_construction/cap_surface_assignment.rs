@@ -52,7 +52,7 @@ pub(super) fn assign_sphere_cap_surface(
         })?;
     face.surface = Some(SurfaceOnFace {
         geometry: {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] apex-sphere r={radius:.3}");
             }
             SurfaceGeometry::Sphere { center, radius }

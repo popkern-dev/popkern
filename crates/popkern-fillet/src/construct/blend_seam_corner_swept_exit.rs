@@ -46,7 +46,7 @@ pub(super) fn repair_swept_mismatch(
     a_on_n: bool,
     tolerance: &Tolerance,
 ) -> Result<(), Reason> {
-    let trace = std::env::var_os("PK_BLEND_SEAM_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("blend-seam");
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
     let (strip_on, geom_on, strip_off, geom_off) = if a_on_n {
         (c.strip_n, geom_n, c.strip_p, geom_p)

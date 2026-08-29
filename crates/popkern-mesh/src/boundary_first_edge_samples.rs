@@ -121,7 +121,7 @@ pub(crate) fn edge_endpoint_positions(
     ))
 }
 
-/// Env-gated Delaunay validity audit (PK_BF_DELAUNAY_AUDIT): count
+/// Env-gated Delaunay validity audit (the delaunay-audit trace topic): count
 /// circumcircle violations in a Bowyer-Watson output. Proved the
 /// PK-146 seam-band fans were LEGAL (zero violations) — the defect
 /// was the cocircular lattice, not the triangulation.
@@ -130,7 +130,7 @@ pub(crate) fn delaunay_audit(
     bw_pts: &[(f64, f64)],
     tris: &[[usize; 3]],
 ) {
-    if std::env::var_os("PK_BF_DELAUNAY_AUDIT").is_none() || bw_pts.len() <= 500 {
+    if !popkern_core::trace::trace_enabled("delaunay-audit") || bw_pts.len() <= 500 {
         return;
     }
     {

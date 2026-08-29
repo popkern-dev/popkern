@@ -145,7 +145,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
     // "almost tangent" rather than "perfectly tangent", so we use a
     // generous tolerance.
     let tangent_tol = 0.05; // radians ≈ 2.9°
-    if std::env::var_os("PK_IDENTIFY_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fillet-identify") {
         for b in &boundary {
             let kind = brep
                 .faces

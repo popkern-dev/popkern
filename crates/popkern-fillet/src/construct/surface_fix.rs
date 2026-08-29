@@ -197,7 +197,7 @@ pub(crate) fn correct_face_surfaces(
                 .filter_map(crate::blend::sphere_fit_centre::fillet_nominal_radius)
                 .fold(1.0_f64, f64::max);
             let sphere_gate = 0.5 * radius_scale;
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!(
                     "[surface-fix] face {fh:?} sphere candidate sd={sd:.4e} gate={sphere_gate:.4e}"
                 );

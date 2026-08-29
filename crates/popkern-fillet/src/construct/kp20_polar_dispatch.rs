@@ -389,7 +389,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted_summary,
                     lifted.report.validation,
                 );
-                if std::env::var_os("POPKERN_KP20_POLAR_COMPARE").is_some() {
+                if popkern_core::trace::trace_enabled("kp-polar-compare") {
                     diagnostics.push(sampler_comparison_diagnostic(
                         polar.central_vertex,
                         &tensor_border,

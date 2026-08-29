@@ -20,7 +20,7 @@ use popkern_core::topology::BRep;
 /// Returns how many edges recorded.
 pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
     let model_band = brep.tolerance.linear().max(1e-9);
-    let trace = std::env::var_os("PK_RECONCILE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("edge-reconcile");
     let mut recorded = 0usize;
     let mut measured = 0usize;
     let mut skipped_large = 0usize;
@@ -157,7 +157,7 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
         {
             edge_mut.tolerance = Some(current.max((worst * 1.5).min(9.9e-5)));
             recorded += 1;
-            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("edge-reconcile") {
                 eprintln!(
                     "[declared-accuracy] {edge:?} residual {worst:.3e} recorded {:.3e}",
                     (worst * 1.5).min(9.9e-5)

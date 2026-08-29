@@ -158,7 +158,7 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
                                 .and_then(|f| f.surface.as_ref())
                                 .map(|sof| if sof.orientation { 1.0 } else { -1.0 })
                                 .unwrap_or(1.0);
-                            if std::env::var_os("PK_SENSE_TRACE").is_some() {
+                            if popkern_core::trace::trace_enabled("material-sense") {
                                 eprintln!("[sense-mult] {fh:?} sense s={s} flag={flag_sign}");
                             }
                             multipliers.insert(fh, s * flag_sign);
@@ -181,7 +181,7 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
                 .get(&fh)
                 .copied()
                 .ok_or(ShellError::MaterialSenseUnresolved { face: fh })?;
-            if std::env::var_os("PK_SENSE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("material-sense") {
                 eprintln!("[sense-mult] {fh:?} component-wedge mult={mult}");
             }
             multipliers.insert(fh, mult);

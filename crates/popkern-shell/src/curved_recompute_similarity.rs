@@ -176,7 +176,7 @@ pub(crate) fn parallel_map_edge_curve(
 ) -> Option<CurveOnEdge> {
     let lin = tolerance.linear();
     let (t0, t1) = (old.t_start, old.t_end);
-    let trace = std::env::var_os("PK_RECOMP_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("recompute");
     let mut pairs = Vec::with_capacity(SAMPLE_FRACTIONS.len());
     for f in SAMPLE_FRACTIONS {
         let p = old.geometry.point_at(t0 + (t1 - t0) * f);

@@ -106,7 +106,7 @@ pub(super) fn decline_on_lethal_strands(
     if lethal.is_empty() {
         return Ok(());
     }
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         for &heh in &lethal {
             let Some(he) = brep.half_edges.get(heh) else {
                 continue;
@@ -162,7 +162,7 @@ pub(super) fn mask_dangling_halves(
         .filter_map(|&heh| brep.half_edges.get(heh).map(|he| (heh, he.twin)))
         .collect();
 
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         let rev: std::collections::HashMap<HalfEdgeHandle, usize> =
             he_map.iter().map(|(g, h)| (*h, *g)).collect();
         for (heh, _) in &twin_fixups {

@@ -278,7 +278,7 @@ fn sliver_lies_on_face_surface(
             None => true,
         }
     });
-    if !contained && std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if !contained && popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [sliver] absorption of {sliver:?} into {absorber:?} declined: worst vertex              distance {worst:.3e} > {distance:.3e}"
         );

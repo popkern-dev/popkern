@@ -100,7 +100,7 @@ pub fn detect_strip_interference(
             if pts_edge_i.is_empty() || pts_edge_j.is_empty() {
                 continue;
             }
-            let trace = std::env::var_os("PK_INTERFERENCE_TRACE").is_some();
+            let trace = popkern_core::trace::trace_enabled("interference");
             let hit = shared.iter().any(|(trim_a, trim_b)| {
                 // Rails are authored with overhang beyond the edge's
                 // swept extent (the padded offset-surface intersection

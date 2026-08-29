@@ -75,7 +75,7 @@ pub(crate) fn recognize_extruded_cylinder(
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
             let d = p - *p0;
             if (d - offset).length() > 1.0e-8 * (1.0 + row_span + offset.length()) {
-                if std::env::var_os("PK_CANON_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("canonical-samples") {
                     eprintln!(
                         "[canon-cyl] translation decline: dev {:.3e} vs env {:.3e}",
                         (d - offset).length(),
@@ -114,7 +114,7 @@ pub(crate) fn recognize_extruded_cylinder(
     for p in &row0 {
         let d = *p - center;
         if (d.dot(&axis)).abs() > gate {
-            if std::env::var_os("PK_CANON_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("canonical-samples") {
                 eprintln!(
                     "[canon-cyl] plane decline: axial {:.3e} vs gate {:.3e}",
                     (d.dot(&axis)).abs(),
@@ -125,7 +125,7 @@ pub(crate) fn recognize_extruded_cylinder(
         }
         let radial = d - axis * d.dot(&axis);
         if (radial.length() - radius).abs() > gate {
-            if std::env::var_os("PK_CANON_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("canonical-samples") {
                 eprintln!(
                     "[canon-cyl] radius decline: dev {:.3e} vs gate {:.3e} (r {radius:.3})",
                     (radial.length() - radius).abs(),

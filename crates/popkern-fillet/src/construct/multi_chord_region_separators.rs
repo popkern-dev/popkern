@@ -18,7 +18,7 @@ pub(super) fn cut_corner_separators(
     sub_faces: &[FaceHandle],
     tolerance: &Tolerance,
 ) -> Vec<EdgeHandle> {
-    let trace = std::env::var_os("PK_MULTICHORD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("multi-chord");
     // Rail-end anchor positions per trim.
     let mut ends: Vec<(usize, Point3)> = Vec::new();
     let mut spans: Vec<f64> = Vec::new();

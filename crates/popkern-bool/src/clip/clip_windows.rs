@@ -311,7 +311,7 @@ pub(crate) fn clip_curve_uv_space(
     face_b: FaceHandle,
     curve: &CurveOnSurface,
 ) -> Vec<CurveOnSurface> {
-    let trace = std::env::var_os("PK_CLIP_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("clip");
     if trace {
         trace_record_geometry(brep_b, face_a, face_b, curve);
     }
@@ -428,7 +428,7 @@ pub(crate) fn clip_curve_uv_space(
     out
 }
 
-/// PK_CLIP_TRACE preamble: the record's 3D/UV extents and the B
+/// the clip trace topic preamble: the record's 3D/UV extents and the B
 /// face's boundary bbox.
 fn trace_record_geometry(
     brep_b: &BRep,

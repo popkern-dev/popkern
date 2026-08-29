@@ -186,7 +186,7 @@ pub fn shell_preview(
             let into_a = interior_tangent(&brep.faces.get(fa)?.surface.as_ref()?.geometry, ea, near_a.uv)?;
             let ob = nb * (mb.signum() * outward_sign);
             let convex = ob.dot(&into_a) < -1e-6;
-            if std::env::var_os("PK_PREVIEW_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("preview") {
                 eprintln!(
                     "[preview-gap] {eh:?} {fa:?}x{fb:?} ob=({:.2},{:.2},{:.2}) into_a=({:.2},{:.2},{:.2}) convex={convex}",
                     ob.x, ob.y, ob.z, into_a.x, into_a.y, into_a.z

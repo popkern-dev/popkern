@@ -19,11 +19,9 @@ fn incident(brep: &BRep, vertex: popkern_core::topology::VertexHandle) -> Vec<Ed
 
 #[test]
 fn dump() {
+    popkern_fillet::dispatch_overrides::SPHERE_FIT_BOUNDARY.set(Some(true));
     unsafe {
-        std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    }
-    unsafe {
-        std::env::set_var("POPKERN_DIRECT_APEX_TRACE", "1");
+        std::env::set_var("POPKERN_TRACE", "direct-apex");
     }
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
@@ -67,11 +65,9 @@ fn dump() {
 #[test]
 fn dump_pyramid3_uniform() {
     use popkern_core::topology::BRep;
+    popkern_fillet::dispatch_overrides::SPHERE_FIT_BOUNDARY.set(Some(true));
     unsafe {
-        std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    }
-    unsafe {
-        std::env::set_var("POPKERN_DIRECT_APEX_TRACE", "1");
+        std::env::set_var("POPKERN_TRACE", "direct-apex");
     }
     let tol = Tolerance::default();
     let brep = BRep::n_gonal_pyramid(3, 1.0, 0.8, tol).unwrap();
@@ -126,9 +122,7 @@ fn dump_pyramid3_uniform() {
 
 #[test]
 fn dump_vertex_blend() {
-    unsafe {
-        std::env::set_var("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    }
+    popkern_fillet::dispatch_overrides::SPHERE_FIT_BOUNDARY.set(Some(true));
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
     let vertex = brep.vertices.keys().next().unwrap();

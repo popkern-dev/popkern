@@ -49,7 +49,7 @@ pub(super) fn arc_boundary_crossings(
         .ok_or_else(|| "setback arc does not project onto the strip chart".to_string())?;
     let arc_u_mean = mean_u(&arc_uv);
 
-    let trace = std::env::var_os("PK_CARVE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("corner-carve");
     let mut hits: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
     for he in face_loop_half_edges(brep, face)? {
         let edge = brep.half_edges[he].edge;

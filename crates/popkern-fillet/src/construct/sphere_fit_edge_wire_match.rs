@@ -34,7 +34,7 @@ pub(super) fn build_wire_worklist(
     // refit) operate on the curve geometry, not the vertex-to-
     // curve-endpoint identity.
     let allow_multi_sub_edge = sphere_fit_wide_tol;
-    let trace_match = std::env::var_os("POPKERN_WIRE_MATCH_TRACE").is_some();
+    let trace_match = popkern_core::trace::trace_enabled("wire-match");
     // When injection is active, restrict
     // matching to each sub-face's semantic cap index. cap[j]
     // gets row 0 = FilletEnd[j] (segment 2j) and col 9 =

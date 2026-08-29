@@ -140,7 +140,7 @@ fn feasible_start(binonic: &[RectangularGregoryBiNonic]) -> bool {
         return false;
     }
     if let Some(crossing) = binonic_ring_feasible_start_crossing(binonic, RING_CROSSING_TOLERANCE) {
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-cap") {
             eprintln!(
                 "[exact-boundary-binonic] feasible-start ring decline: {}",
                 crossing.diagnostic_label()
@@ -160,13 +160,13 @@ fn acceptable_ring(binonic: &[RectangularGregoryBiNonic]) -> bool {
 }
 
 /// PK-283 accept-gate shared arm: the full ring-crossing scan, with the
-/// codebase-standard `POPKERN_KP_TRACE` decline trace. Returns the
+/// codebase-standard the `kp-cap` trace topic decline trace. Returns the
 /// crossing's diagnostic label so optimizer callers can record it as a
 /// structured rung outcome.
 pub(super) fn ring_crossing_decline_label(binonic: &[RectangularGregoryBiNonic]) -> Option<String> {
     let crossing = binonic_ring_crossing(binonic, RING_CROSSING_TOLERANCE)?;
     let label = crossing.diagnostic_label();
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!("[kp-ring-gate] accept decline: {label}");
     }
     Some(label)

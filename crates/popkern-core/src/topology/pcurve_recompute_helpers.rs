@@ -210,7 +210,7 @@ impl BRep {
 impl BRep {
     /// Verdict on an EXISTING pcurve during face recompute: `true` =
     /// keep it (skip recompute), `false` = it was cleared and must be
-    /// recomputed. `PK_PCURVE_TRACE=1` prints each verdict.
+    /// recomputed. `POPKERN_TRACE=pcurve` prints each verdict.
     ///
     /// Cleared cases, periodic charts only:
     /// - degenerate span (~0 UV extent) under a real edge curve —
@@ -232,7 +232,7 @@ impl BRep {
     ) -> bool {
         use crate::geometry::curve::CurveEval;
         use crate::geometry::surface::SurfaceEval;
-        let trace = std::env::var_os("PK_PCURVE_TRACE").is_some();
+        let trace = crate::trace::trace_enabled("pcurve");
         let Some(existing) = self.half_edges[heh].pcurve.as_ref() else {
             return false;
         };

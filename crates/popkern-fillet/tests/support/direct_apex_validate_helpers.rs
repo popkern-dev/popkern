@@ -8,32 +8,6 @@ use popkern_fillet::{BlendResult, fillet_edges};
 
 use crate::helpers::{incident_edges, pick_vertex_with_valence};
 
-pub(crate) struct EnvGuard {
-    key: &'static str,
-    prior: Option<String>,
-}
-
-impl EnvGuard {
-    pub(crate) fn set(key: &'static str, value: &str) -> Self {
-        let prior = std::env::var(key).ok();
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, prior }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prior {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct MetricBreakdown {
     pub(crate) structural: usize,
@@ -86,7 +60,7 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
     radii: &[f64],
     pyramid_height: f64,
 ) -> BlendResult {
-    let _g = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
+    let _g = popkern_fillet::dispatch_overrides::SPHERE_FIT_BOUNDARY.set_guard(true);
     let tol = Tolerance::default();
     let brep = if is_pyramid {
         BRep::n_gonal_pyramid(radii.len(), 1.0, pyramid_height, tol).unwrap()

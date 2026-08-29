@@ -113,7 +113,7 @@ pub(super) fn extract_fillet_radius(fs: &FilletSurfaceResult) -> Option<f64> {
 ///
 /// Returns a [`PolarPromoteOutcome`]: [`Committed`] on success
 /// (with the worst-case coplanarity for commercial-gate dispatch),
-/// or [`Rejected`] on any failure. Set `POPKERN_KP_POLAR_TRACE=1`
+/// or [`Rejected`] on any failure. Set `POPKERN_TRACE=kp-polar`
 /// to see the fallback reason.
 ///
 /// [`Committed`]: PolarPromoteOutcome::Committed

@@ -7,7 +7,7 @@
 //! options, so faces can run on separate threads. Per-face results are
 //! collected positionally (rayon's indexed `collect`) and flattened in
 //! caller face order, so output is identical at any thread count.
-//! `PK_BF_TRACE` forces the sequential path so interleaved thread
+//! the `boundary-first` trace topic forces the sequential path so interleaved thread
 //! output cannot garble the dump.
 
 use std::collections::{BTreeSet, HashMap, HashSet};

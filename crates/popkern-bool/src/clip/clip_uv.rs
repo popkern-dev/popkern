@@ -100,7 +100,7 @@ pub(crate) fn find_uv_crossings(
             let k = ((boundary_center - u_mean(&normalized)) / period).round();
             if k != 0.0 {
                 normalized = shift_curve_u(&normalized, k * period);
-                if std::env::var_os("PK_CLIP_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("clip") {
                     eprintln!(
                         "    [uvclip-branch] {face:?} query curve shifted by {k:+.0} period(s)"
                     );
@@ -161,14 +161,14 @@ pub(crate) fn find_uv_crossings(
                     hi - lo
                 };
                 if uspan(&working_boundary) > uspan(boundary_pcurve) + 1e-9 {
-                    if std::env::var_os("PK_XING_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("ring-crossing") {
                         eprintln!("      [xing-torn-bnd] he {he_handle:?} skipped (span grew)");
                     }
                     continue;
                 }
             }
 
-            if std::env::var_os("PK_XING_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("ring-crossing") {
                 use popkern_core::geometry::curve::CurveEval;
                 let b0 = working_boundary.point_at(boundary_range.0);
                 let b1 = working_boundary.point_at(boundary_range.1);
@@ -231,7 +231,7 @@ pub(crate) fn find_uv_crossings(
                                         && (w.y - o.y).abs() < 1e-6 * (1.0 + o.y.abs())
                                 };
                                 if !untorn(curve_uv, &working_curve, *t2) {
-                                    if std::env::var_os("PK_XING_TRACE").is_some() {
+                                    if popkern_core::trace::trace_enabled("ring-crossing") {
                                         eprintln!(
                                             "      [xing-torn] he {he_handle:?} t2={t2:.4} rejected"
                                         );
@@ -239,7 +239,7 @@ pub(crate) fn find_uv_crossings(
                                     continue;
                                 }
                             }
-                            if std::env::var_os("PK_XING_TRACE").is_some() {
+                            if popkern_core::trace::trace_enabled("ring-crossing") {
                                 use popkern_core::geometry::curve::CurveEval;
                                 let q = working_curve.point_at(*t2);
                                 let qb = boundary_pcurve.point_at(*t1);
@@ -508,7 +508,7 @@ pub(super) fn uv_clip_one_face(
     is_closed: bool,
     open_windows_allowed: bool,
 ) -> UvClipResult {
-    let trace = std::env::var_os("PK_CLIP_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("clip");
     match find_uv_crossings(brep, face, curve_uv, &brep.tolerance) {
         None => UvClipResult::NoPcurves,
         Some(crossings) if crossings.is_empty() => {

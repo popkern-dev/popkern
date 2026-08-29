@@ -1,7 +1,7 @@
-//! Env-gated election tracing (PK_LOOP_DUMP / PK_LOOP_DUMP_ALL),
+//! Env-gated election tracing (the loop-dump trace topic / the loop-dump-all trace topic),
 //! extracted under the file-size ratchet.
 
-/// PK_LOOP_DUMP / PK_LOOP_DUMP_ALL election tracing (extracted from
+/// the loop-dump trace topic / the loop-dump-all trace topic election tracing (extracted from
 /// the walk body under the file-size ratchet).
 pub(super) fn dump_election_loops(
     graph: &super::super::graph::IntersectionGraph,
@@ -10,7 +10,7 @@ pub(super) fn dump_election_loops(
     inner_loops_out: &[Vec<usize>],
     separate_outers: &[Vec<usize>],
 ) {
-    if std::env::var_os("PK_LOOP_DUMP_ALL").is_some() {
+    if popkern_core::trace::trace_enabled("loop-dump-all") {
         for (tag, lp) in std::iter::once(("outer", outer_loop))
             .chain(inner_loops_out.iter().map(|l| ("inner", l.as_slice())))
             .chain(separate_outers.iter().map(|l| ("separate", l.as_slice())))
@@ -37,7 +37,7 @@ pub(super) fn dump_election_loops(
             eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
         }
     }
-    if std::env::var_os("PK_LOOP_DUMP").is_some() && outer_loop.len() >= 20 {
+    if popkern_core::trace::trace_enabled("loop-dump") && outer_loop.len() >= 20 {
         eprintln!("  [loopdump] {face_ref:?} outer {} hes:", outer_loop.len());
         for &h in outer_loop {
             let n = graph.half_edges[h].origin;

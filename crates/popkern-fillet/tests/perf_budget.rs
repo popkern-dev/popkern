@@ -128,7 +128,7 @@ fn twelve_edge_cube_fillet_within_budget() {
     // real acceptance work, where before the attempt died free on a
     // split error. The other 330 ms of that regression was the
     // PK-203 curve-off-surface audit running unconditionally; PK-298
-    // gated it behind POPKERN_PNS_CURVE_AUDIT (decision-neutral —
+    // gated it behind the pns-curve-audit trace topic (decision-neutral —
     // nothing reads its output).
     assert_budget("12-edge cube fillet (G1)", measured, 930);
 }

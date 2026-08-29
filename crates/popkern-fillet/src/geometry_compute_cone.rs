@@ -219,7 +219,7 @@ pub(crate) fn compute_center_with_fallback(
             Err(walker_err)
                 if offset_intersect_exact_pair || (!either_needs_walker && wants_g2) =>
             {
-                if std::env::var_os("PK_FILLET_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("fillet") {
                     eprintln!("  [walker-fallback] {walker_err:?}");
                 }
                 let reason = format!("walker failed: {walker_err:?}");

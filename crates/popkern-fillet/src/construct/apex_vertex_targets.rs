@@ -93,7 +93,7 @@ pub(super) fn find_target_for_vertex(
 ) -> Option<Point3> {
     use popkern_core::topology::EdgeHandle;
 
-    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("apex-rebuild");
     let cluster_tol = 1e-6_f64;
     let mut cap_loop_edges: Vec<(EdgeHandle, Point3, Point3)> = Vec::new();
     let mut seen_edges: BTreeSet<EdgeHandle> = BTreeSet::new();

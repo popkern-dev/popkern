@@ -139,7 +139,7 @@ pub(super) fn boundary_candidate_selection(
 }
 
 /// PK-275: outcome of the armed outer-fillet G1 rung
-/// (`POPKERN_OUTER_FILLET_G1=1`) for one optimizer candidate. The
+/// (`dispatch_overrides::OUTER_FILLET_G1`) for one optimizer candidate. The
 /// rung previously declined at six optimizer sites with no record —
 /// engagement was unverifiable, so its coverage was silently zero.
 /// `candidate` is `guide` or `exact`; `outcome` is the optimizer's

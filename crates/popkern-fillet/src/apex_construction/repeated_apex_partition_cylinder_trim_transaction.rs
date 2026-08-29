@@ -232,7 +232,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                 }
             };
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
-        if std::env::var_os("PK_SLIR_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("support-loop-rewrite") {
             eprintln!(
                 "[slir] transaction FINAL apply: continuation outcome {}",
                 side_support_result.diagnostic_label()

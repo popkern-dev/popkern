@@ -25,10 +25,10 @@ pub(super) fn promotion_declined(
 }
 
 /// Emit a diagnostic trace when the polar K-P promotion rejects.
-/// Gated on `POPKERN_KP_POLAR_TRACE` so production builds stay
+/// Gated on the `kp-polar` trace topic so production builds stay
 /// silent; set `=1` to see which stage rejected and why.
 pub(super) fn trace_polar(stage: &str, n: usize, detail: Option<String>) {
-    if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-polar") {
         match detail {
             Some(d) => eprintln!("[kp_polar_bi6 N={n}] fallback @ {stage}: {d}"),
             None => eprintln!("[kp_polar_bi6 N={n}] fallback @ {stage}"),

@@ -130,7 +130,7 @@ pub(super) fn apply_face_trim_pipeline(
 
     for (idx, eg) in edge_geometries.iter().enumerate() {
         let Some(ref pd) = perp_data[idx] else {
-            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!(
                     "  [carve] edge idx {idx} ({:?}): NO PERP DATA — no trims registered",
                     eg.analysis.edge
@@ -201,7 +201,7 @@ pub(super) fn apply_face_trim_pipeline(
             descendants,
             tolerance,
         );
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             eprintln!(
                 "  [carve] face {original_face:?}: {} trims -> {} splits, {} failures",
                 trims.len(),
@@ -225,7 +225,7 @@ pub(super) fn apply_face_trim_pipeline(
             }
         }
         region_resolved.extend(outcome.region_resolved.iter().copied());
-        if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("multi-chord") {
             for tr in &outcome.trim_results {
                 eprintln!(
                     "[mc-trim] face {original_face:?} eg{} side{} -> {} trim edge(s)",

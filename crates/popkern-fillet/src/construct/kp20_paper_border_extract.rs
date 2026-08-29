@@ -518,7 +518,7 @@ impl OrientedSegment {
         };
         let start_vec = end_vector(0, &calibration.start);
         let end_vec = end_vector(3, &calibration.end);
-        if std::env::var_os("KP20_MARCH_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-march") {
             eprintln!(
                 "    march trace: start_vec=({:.5},{:.5},{:.5}) end_vec=({:.5},{:.5},{:.5}) fillet_end={}",
                 start_vec.x,
@@ -614,7 +614,7 @@ impl OrientedSegment {
                 use popkern_core::geometry::uv_projection::project_point_to_uv;
                 let snap = |p: Point3| -> Option<Point3> {
                     let (u, v) = project_point_to_uv(&self.surface, &p)?;
-                    if std::env::var_os("KP20_MARCH_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("kp-march") {
                         let out = nurbs.point_at(u, v);
                         eprintln!(
                             "      nurbs snap: raw=({:.5},{:.5},{:.5}) uv=({:.4},{:.4}) out=({:.5},{:.5},{:.5})",

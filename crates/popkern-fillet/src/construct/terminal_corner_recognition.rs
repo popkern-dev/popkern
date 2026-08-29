@@ -144,7 +144,7 @@ fn recognize_corner_pair(
     // which keeps the pass idempotent. Measured against the true
     // support geometry, not the possibly-stale chart.
     let corner_pos = brep.vertices.get(corner)?.position;
-    if std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("terminal-arc")
         && matches!(surface, SurfaceGeometry::Cone { .. })
     {
         eprintln!(

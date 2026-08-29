@@ -104,7 +104,7 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
 /// failure, cavity whose encloser is itself a cavity) DECLINES the
 /// partition (returns false, single-shell result stands, the Euler
 /// gate routes it to graph-merge exactly as before) with the reason
-/// observable under PK_BOOL_TRACE.
+/// observable under the boolean trace topic.
 pub(super) fn partition_shells(
     builder: &mut BRepBuilder,
     tolerance: &popkern_core::tolerance::Tolerance,
@@ -243,7 +243,7 @@ pub(super) fn partition_shells(
                 continue;
             }
             let Some(q) = interior_point(i) else {
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [assemble] shell partition DECLINED: no interior point for nested component {i}"
                     );
@@ -256,7 +256,7 @@ pub(super) fn partition_shells(
                     Ok(PointClassification::Inside) => inside.push(j),
                     Ok(PointClassification::Outside) => {}
                     _ => {
-                        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("boolean") {
                             eprintln!(
                                 "  [assemble] shell partition DECLINED: ambiguous parity of component {i} vs {j}"
                             );
@@ -280,7 +280,7 @@ pub(super) fn partition_shells(
             if let Some(e) = *enc
                 && depth[e] % 2 == 1
             {
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [assemble] shell partition DECLINED: cavity {i} enclosed by cavity {e}"
                     );
@@ -343,7 +343,7 @@ pub(super) fn partition_shells(
             anchored[c] = true;
         }
     }
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [assemble] shell partition: {} component(s) → {} solid(s), {} cavity shell(s)",
             roots.len(),

@@ -29,7 +29,7 @@ pub(super) fn pre_export_face_use_edges(
             if pcurve_exportable_for_face_use(brep, edge, face_use, surface_map).is_some() {
                 continue;
             }
-            if std::env::var_os("PK_STEP_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("step-io") {
                 explain_face_use_fork(brep, edge, face_use, surface_map);
             }
             let Some(local_edge_id) =

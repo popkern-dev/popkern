@@ -71,7 +71,7 @@ pub(crate) fn assemble_result(
     for &frag_idx in &ordered_indices {
         let fragment = &fragments[frag_idx];
         let selection = &selections[frag_idx];
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [gm-assemble] kept {:?} outer {} inner {} flip={} ghes={:?}",
                 fragment.face,
@@ -198,7 +198,7 @@ pub(crate) fn assemble_result(
                 if let Some(curve) = adopted {
                     builder.set_edge_curve(edge_h, curve);
                 } else {
-                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
                             "  [line-fallback] ghe {ghe_idx} src {:?} stored={} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
                             graph.half_edges[ghe_idx].source,
@@ -320,7 +320,7 @@ pub(crate) fn assemble_result(
                 }
                 // Both wired — create a new edge pair and update the map
                 // so subsequent fragments can use the twin.
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [assemble-dup] ghe {ghe} (twin {graph_twin}) for {:?} src {:?}",
                         fragment.face, graph.half_edges[ghe].source

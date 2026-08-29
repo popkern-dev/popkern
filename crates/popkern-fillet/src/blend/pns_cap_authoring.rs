@@ -371,7 +371,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                             uv_points.push(Point3::new(u, v, 0.0));
                             params.push(t);
                         }
-                        if std::env::var("POPKERN_PNS_WIRE_TRACE").is_ok_and(|v| v == "1") {
+                        if popkern_core::trace::trace_enabled("pns-wire") {
                             // Attribution: is the residual the fit, or
                             // a genuine inter-patch gap? Dense 2-D
                             // scan against the worst seam sample.

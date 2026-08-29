@@ -79,7 +79,7 @@ pub(super) fn junction_vertex(
     }
     let (d, t_foot, edge) = best.ok_or_else(|| "no curved boundary edge to split".to_string())?;
     if d > JUNCTION_ON_EDGE_BAND {
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             for he in face_loop_half_edges(brep, face)? {
                 let hd = &brep.half_edges[he];
                 let p = brep.vertices[hd.origin].position;
@@ -104,7 +104,7 @@ pub(super) fn junction_vertex(
         }
         // The mitre-complex class: no rail edge under the junction.
         // The caller decides whether the rail-spur recut applies.
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             eprintln!(
                 "    [boundary-ring] junction ({:.4},{:.4},{:.4}) off {face:?} boundary by {d:.3e} — recut candidate",
                 point.x, point.y, point.z

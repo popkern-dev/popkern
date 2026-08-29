@@ -140,7 +140,7 @@ pub enum BoundarySegment {
 /// Per-call options for [`compute_blend_boundary_with_options`].
 ///
 /// Today's only field, `disable_sphere_fit_substitution`, lets the
-/// caller override the global `POPKERN_SPHERE_FIT_BOUNDARY` env-var
+/// caller override the global sphere-fit dispatch override
 /// gate.  Used by §6c-X.A.7's auto-dispatch: at uniform-radius
 /// apices the sphere-fit substitution produces degenerate cap-loop
 /// edges that the apex vertex-relocation repair can't resolve cleanly
@@ -150,7 +150,7 @@ pub enum BoundarySegment {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct BlendBoundaryOptions {
     /// Force-disable sphere-fit substitution for this call,
-    /// regardless of the `POPKERN_SPHERE_FIT_BOUNDARY` env var.
+    /// regardless of the global sphere-fit dispatch override.
     /// `None` honours the env var (today's default behaviour).
     pub disable_sphere_fit_substitution: Option<bool>,
     /// PK-234: saddle (`OppositeSide`) station pushback. The default
@@ -198,7 +198,7 @@ pub fn compute_blend_boundary(
 
 /// Variant of [`compute_blend_boundary`] that accepts per-call
 /// [`BlendBoundaryOptions`].  Today's only option lets the caller
-/// override the global `POPKERN_SPHERE_FIT_BOUNDARY` env-var
+/// override the global sphere-fit dispatch override
 /// substitution gate.
 pub fn compute_blend_boundary_with_options(
     vertex: VertexHandle,
@@ -246,7 +246,7 @@ pub fn compute_blend_boundary_with_options(
             &mut fillet_arcs,
             &mut fillet_endpoints,
         )
-        && std::env::var_os("PK_CARVE_TRACE").is_some()
+        && popkern_core::trace::trace_enabled("corner-carve")
     {
         eprintln!("  [ring-stations] pushback declined: {reason}");
     }
@@ -291,8 +291,8 @@ pub fn compute_blend_boundary_with_options(
     let sphere_fit_enabled = match options.disable_sphere_fit_substitution {
         Some(true) => false,
         Some(false) => true,
-        None => std::env::var("POPKERN_SPHERE_FIT_BOUNDARY")
-            .map(|v| v == "1")
+        None => crate::dispatch_overrides::SPHERE_FIT_BOUNDARY
+            .get()
             .unwrap_or(false),
     };
 

@@ -25,7 +25,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 /// Expel pockets from every NURBS strip loop. Returns spliced runs.
 pub(crate) fn expel_strip_pockets(brep: &mut BRep, tolerance: &Tolerance) -> usize {
-    let trace = std::env::var_os("PK_JUNCTION_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("junction");
     let strips: Vec<FaceHandle> = brep
         .faces
         .iter()

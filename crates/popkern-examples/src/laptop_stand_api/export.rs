@@ -41,10 +41,10 @@ pub(crate) fn write_assembly_preview(
 }
 
 /// Gate a finished piece (non-empty, watertight, STEP round-trip)
-/// and export STEP + STL + OBJ. `PK_OPEN_DEBUG=1` dumps the first
+/// and export STEP + STL + OBJ. the `open-edges` trace topic dumps the first
 /// open mesh edges when the watertight gate is about to fail.
 pub(crate) fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
-    if std::env::var_os("PK_OPEN_DEBUG").is_some()
+    if popkern_core::trace::trace_enabled("open-edges")
         && let Ok(n) = part.open_edge_count()
         && n > 0
     {

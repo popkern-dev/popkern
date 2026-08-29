@@ -235,7 +235,7 @@ fn ray_crossing_count(
     let t_range = (0.0, 1e6);
     let mut count = 0usize;
 
-    let ray_trace = std::env::var_os("PK_RAY_TRACE").is_some();
+    let ray_trace = popkern_core::trace::trace_enabled("ray-classify");
     for (face_handle, aabb) in face_aabbs {
         if !ray_intersects_aabb(origin, direction, aabb) {
             if ray_trace {
@@ -383,7 +383,7 @@ fn ray_crossing_count(
                                 let rel = (ang(&hit3d) - span_start).rem_euclid(tau);
                                 let margin = 1.0e-6;
                                 if rel > span + margin && rel < tau - margin {
-                                    if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                    if popkern_core::trace::trace_enabled("ray-classify") {
                                         eprintln!(
                                             "  [ray-rej-cyl] {face_handle:?} rel={rel:.3} span={span:.3} from {span_start:.3}"
                                         );
@@ -440,7 +440,7 @@ fn ray_crossing_count(
                                         if hd_len > tolerance.linear()
                                             && (hd * (1.0 / hd_len)).dot(&mean) < min_dot - 0.05
                                         {
-                                            if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                            if popkern_core::trace::trace_enabled("ray-classify") {
                                                 eprintln!(
                                                     "  [ray-rej-sph] {face_handle:?} dot={:.3} min={min_dot:.3}",
                                                     (hd * (1.0 / hd_len)).dot(&mean)
@@ -511,7 +511,7 @@ fn ray_crossing_count(
                                 // 20–130% outside their spans.
                                 let margin = tolerance.linear().max(0.05 * (hi - lo));
                                 if a < lo - margin || a > hi + margin {
-                                    if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                    if popkern_core::trace::trace_enabled("ray-classify") {
                                         eprintln!(
                                             "  [ray-rej-axial] {face_handle:?} a={a:.3} span=[{lo:.3},{hi:.3}]"
                                         );
@@ -573,7 +573,7 @@ fn ray_crossing_count(
                             let m1 = tolerance.linear().max(0.1 * (hi1 - lo1));
                             let m2 = tolerance.linear().max(0.1 * (hi2 - lo2));
                             if a < lo1 - m1 || a > hi1 + m1 || b < lo2 - m2 || b > hi2 + m2 {
-                                if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                if popkern_core::trace::trace_enabled("ray-classify") {
                                     eprintln!(
                                         "  [ray-rej-plane] {face_handle:?} ({a:.3},{b:.3}) box=[{lo1:.3},{hi1:.3}]x[{lo2:.3},{hi2:.3}]"
                                     );
@@ -635,7 +635,7 @@ fn ray_crossing_count(
                         && is_plane
                         && !hit_inside_outer_loop(brep, *face_handle, *u, *v)
                     {
-                        if std::env::var_os("PK_RAY_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("ray-classify") {
                             eprintln!("  [ray-rej] face {face_handle:?} uv=({u:.2},{v:.2})");
                         }
                         continue;
@@ -646,7 +646,7 @@ fn ray_crossing_count(
                     {
                         continue;
                     }
-                    if std::env::var_os("PK_RAY_ACC").is_some() {
+                    if popkern_core::trace::trace_enabled("ray-classify") {
                         let h = *origin + *direction * *t;
                         eprintln!(
                             "  [ray-acc] {face_handle:?} t={t:.2} hit=({:.2},{:.2},{:.2})",
@@ -749,7 +749,7 @@ fn point_in_solid_impl(
     let mut inside_votes = 0u32;
     let mut outside_votes = 0u32;
 
-    let ray_trace = std::env::var_os("PK_RAY_TRACE").is_some();
+    let ray_trace = popkern_core::trace::trace_enabled("ray-classify");
     for direction in &RAY_DIRECTIONS {
         if ray_trace {
             let r = ray_crossing_count(

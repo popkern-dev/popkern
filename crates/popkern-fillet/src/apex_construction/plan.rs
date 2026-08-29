@@ -301,7 +301,7 @@ fn plan_with_rung_ladder(
                 && brep_has_all_fillet_cylinder_faces(brep, fillet_surfaces)
                 && let Some(max_gap) = sphere_anchor_support_gap(brep, &target_topology, *radius)
             {
-                if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("sphere-fit") {
                     eprintln!(
                         "[spherefit] apex {apex:?}: Sphere DEMOTED to Gregory — anchor gap {max_gap:.4e} > support {:.4e}",
                         radius * 0.9
@@ -317,7 +317,7 @@ fn plan_with_rung_ladder(
                 cap_kind = gregory_cap_kind(&terminations, tolerance);
                 target_topology = build_target_topology(&cap_kind, &terminations);
             }
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!(
                     "[spherefit] apex {apex:?}: Direct rung OK, sphere={}",
                     cap_kind.is_sphere()
@@ -332,7 +332,7 @@ fn plan_with_rung_ladder(
             })
         }
         Err(direct_err) => {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[spherefit] apex {apex:?}: Direct rung DECLINED: {direct_err:?}");
             }
             // --- Rung 2: Setback ---

@@ -104,7 +104,7 @@ pub(super) fn repair_corner_planar(
     // Anchors must sit ON both the strip plane and the cap plane —
     // the chord between them is then their intersection line.
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     for anchor in [anchor_in, anchor_out] {
         let off_strip = (anchor - strip_plane.origin).dot(&strip_plane.normal).abs();
         let off_cap = (anchor - cap_plane.origin).dot(&cap_plane.normal).abs();

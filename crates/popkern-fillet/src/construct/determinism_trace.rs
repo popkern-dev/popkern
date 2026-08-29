@@ -1,7 +1,7 @@
 //! Determinism observability (PK-085): geometry fingerprints
-//! for run-to-run bisection. Enable POPKERN_DETERMINISM_TRACE=1
+//! for run-to-run bisection. Enable POPKERN_TRACE=determinism
 //! for stage-boundary fingerprints and
-//! POPKERN_DETERMINISM_FACE_TRACE=1 for per-face hashes; diffing
+//! POPKERN_TRACE=determinism-faces for per-face hashes; diffing
 //! two runs localizes the first divergent pipeline stage / the
 //! faces a divergent builder wrote. Zero cost when unset.
 
@@ -116,7 +116,7 @@ pub(crate) fn determinism_value_hash(value: &impl std::fmt::Debug) -> u64 {
 
 /// True when stage-boundary fingerprinting is enabled.
 pub(crate) fn determinism_trace_enabled() -> bool {
-    std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some()
+    popkern_core::trace::trace_enabled("determinism")
 }
 
 /// Pre-apply fingerprint of the input BRep plus every computed edge
@@ -140,9 +140,9 @@ pub(crate) fn pre_apply_trace(brep: &BRep, edge_geometries: &[crate::construct::
     }
 }
 
-/// Stage-boundary fingerprint print (POPKERN_DETERMINISM_TRACE=1).
+/// Stage-boundary fingerprint print (POPKERN_TRACE=determinism).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
-    if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("determinism") {
         eprintln!(
             "dtrace: {label} geo={:016x} pc={:016x} ec={:016x}",
             determinism_fingerprint(brep),
@@ -150,11 +150,11 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
             determinism_edge_curve_fingerprint(brep)
         );
     }
-    // Blend-face census at stage boundaries (PK_CENSUS_TRACE=1):
+    // Blend-face census at stage boundaries (POPKERN_TRACE=census):
     // names the pass that merges away or re-surfaces a strip face —
     // the region path's serving debts were invisible without a
     // per-stage census.
-    if std::env::var_os("PK_CENSUS_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("census") {
         let mut kinds: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
         let mut blends: Vec<String> = Vec::new();
         for (fh, f) in brep.faces.iter() {
@@ -178,7 +178,7 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
     // whose two loop sides belong to one face is a wrapped-face seam
     // that boundary-first meshing declines on; the stage that mints
     // one names the pass owing a dissolve.
-    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("slit") {
         let mut slits = 0usize;
         for (_, e) in brep.edges.iter() {
             let Some(he) = brep.half_edges.get(e.half_edge) else {
@@ -200,12 +200,12 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
     }
 }
 
-/// Per-face fingerprints (POPKERN_DETERMINISM_FACE_TRACE=1): the
+/// Per-face fingerprints (POPKERN_TRACE=determinism-faces): the
 /// divergent-face set between two runs names the builder that
 /// wrote them. Dual-twist faces report grid and pair hashes
 /// separately.
 pub(crate) fn determinism_face_trace(label: &str, brep: &BRep) {
-    if std::env::var_os("POPKERN_DETERMINISM_FACE_TRACE").is_none() {
+    if !popkern_core::trace::trace_enabled("determinism-faces") {
         return;
     }
     for (handle, face) in &brep.faces {
@@ -253,12 +253,12 @@ pub(crate) fn determinism_face_trace(label: &str, brep: &BRep) {
     }
 }
 
-/// PK-141 campaign observability (PK_TRIM_END_TRACE=1): dump every
+/// PK-141 campaign observability (POPKERN_TRACE=trim-end): dump every
 /// edge geometry's trim-curve endpoints at geometry-phase exit —
 /// separator pairing, corner anchoring, and region siding all key
 /// on these positions.
 pub(crate) fn trace_trim_endpoints(edge_geometries: &[crate::construct::EdgeGeometry]) {
-    if std::env::var_os("PK_TRIM_END_TRACE").is_none() {
+    if !popkern_core::trace::trace_enabled("trim-end") {
         return;
     }
     use popkern_core::geometry::curve::CurveEval;

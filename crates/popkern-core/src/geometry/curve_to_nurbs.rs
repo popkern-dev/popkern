@@ -336,7 +336,7 @@ pub(super) fn arc_to_nurbs(
     if a1 - a0 > TAU {
         a1 = a0 + TAU;
     }
-    if std::env::var_os("PK_ARC_TRACE").is_some() && !((0.0..=TAU).contains(&a0) && a1 <= TAU) {
+    if crate::trace::trace_enabled("arc") && !((0.0..=TAU).contains(&a0) && a1 <= TAU) {
         eprintln!("  [arc2nurbs] OUT-OF-PRINCIPAL range ({a0:.4},{a1:.4})");
     }
 

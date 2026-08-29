@@ -8,8 +8,8 @@ description = "Sweep and loft operations for the popkern BRep kernel"
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
-thiserror = "2"
+thiserror.workspace = true
 
 [dev-dependencies]
 # PK-276 identity-pin fingerprints.
-serde_json = "1"
+serde_json.workspace = true

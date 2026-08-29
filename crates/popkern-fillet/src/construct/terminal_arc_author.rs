@@ -42,7 +42,7 @@ pub(super) fn compute_stub_arc(
     plane: (Point3, Vec3, Vec3),
     tolerance: &Tolerance,
 ) -> Result<StagedStubArc, TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let (he_twin, edge, primary) = {
         let he = brep
             .half_edges
@@ -212,7 +212,7 @@ pub(super) fn compute_stub_chord(
     end_pos: Point3,
     tolerance: &Tolerance,
 ) -> Result<StagedStubArc, TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let (he_twin, edge, primary) = {
         let he = brep
             .half_edges

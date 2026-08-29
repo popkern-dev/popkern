@@ -290,7 +290,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     for p in [&p1, &p2] {
         for sfc in [&sof_1.geometry, &sof_2.geometry] {
             if exact_distance(sfc, p).is_some_and(|d| d > snap_tol) {
-                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("edge-reconcile") {
                     eprintln!(
                         "  [reconcile] edge {edge:?}: skipped, endpoint provably off-surface \
                          (> snap gate {snap_tol:.1e})"
@@ -316,7 +316,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     ) {
         Ok(t) => t,
         Err(e) => {
-            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("edge-reconcile") {
                 let kind = |g: &SurfaceGeometry| match g {
                     SurfaceGeometry::Plane { .. } => "Plane",
                     SurfaceGeometry::Cylinder { .. } => "Cyl",
@@ -348,7 +348,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let trim_start = triple.curve_3d.point_at(triple.t_start);
     let trim_end = triple.curve_3d.point_at(triple.t_end);
     let gap = trim_start.distance_to(&p1).max(trim_end.distance_to(&p2));
-    if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("edge-reconcile") {
         eprintln!("  [reconcile] edge {edge:?}: analytic gap {gap:.3e}");
     }
     if gap > snap_tol {
@@ -382,7 +382,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         );
         let period = std::f64::consts::TAU;
         let span = triple.t_end - triple.t_start;
-        if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("edge-reconcile") {
             eprintln!(
                 "  [reconcile] edge {edge:?}: angular={angular} span={span:.3} kind={:?}",
                 std::mem::discriminant(&triple.curve_3d)
@@ -408,7 +408,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                     .point_at(0.5 * (triple.t_start + triple.t_end));
                 let comp_mid_t = 0.5 * (triple.t_start + triple.t_end) + 0.5 * period;
                 let mid_comp = triple.curve_3d.point_at(comp_mid_t);
-                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("edge-reconcile") {
                     eprintln!(
                         "  [reconcile] edge {edge:?}: prior-mid vote d_short={:.3} d_comp={:.3}",
                         mid_short.distance_to(&pm),
@@ -419,7 +419,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                     // Complement wins: sweep the other way round.
                     pick_t0 = triple.t_end;
                     pick_t1 = triple.t_start + period;
-                    if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("edge-reconcile") {
                         eprintln!(
                             "  [reconcile] edge {edge:?}: complement arc chosen (prior side)"
                         );

@@ -156,7 +156,7 @@ pub(super) fn trace_self_intersection_candidate(
     patch_a: TraceSurfacePatch,
     patch_b: TraceSurfacePatch,
 ) {
-    if std::env::var_os("POPKERN_SELF_INTERSECTION_TRACE").is_none() {
+    if !crate::trace::trace_enabled("self-intersection") {
         return;
     }
     let face_a = patch_a.face;

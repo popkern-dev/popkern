@@ -141,7 +141,7 @@ pub(super) fn arcify_corner_cap_boundaries(
                 }
             }
             let Some(new_curve) = accepted else {
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("corner-carve") {
                     eprintln!(
                         "  [arcify] REJECTED {eh:?}: |s1-C|-r {:.2e}, |s2-C|-r {:.2e}, chord {:.4}",
                         s1.distance_to(&center) - radius,
@@ -194,7 +194,7 @@ pub(super) fn collapse_corner_anchor_chords(
             continue;
         };
         let on_sphere = |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             let start_he = brep.loops[face.outer_loop].half_edge;
             let mut he = start_he;
             let mut desc = Vec::new();
@@ -262,7 +262,7 @@ pub(super) fn collapse_corner_anchor_chords(
                     contracted += 1;
                 }
                 Err(e) => {
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("corner-carve") {
                         eprintln!("  [contact-collapse] kve declined at {:?}: {e:?}", cp.face);
                     }
                     break;
@@ -271,7 +271,7 @@ pub(super) fn collapse_corner_anchor_chords(
         }
         if contracted > 0 {
             if let Err(e) = candidate.validate()
-                && std::env::var_os("PK_CARVE_TRACE").is_some()
+                && popkern_core::trace::trace_enabled("corner-carve")
             {
                 eprintln!(
                     "  [contact-collapse] corner {:?} candidate invalid: {e:?}",
@@ -310,7 +310,7 @@ pub(super) fn collapse_corner_anchor_chords(
             if candidate.validate().is_ok() {
                 *brep = candidate;
                 contracted_total += contracted;
-            } else if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            } else if popkern_core::trace::trace_enabled("corner-carve") {
                 eprintln!(
                     "  [contact-collapse] corner {:?}: {contracted} contractions ROLLED BACK (validate failed)",
                     cp.face

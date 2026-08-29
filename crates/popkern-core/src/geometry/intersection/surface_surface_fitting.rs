@@ -371,7 +371,7 @@ pub(crate) fn fit_marched_trace(
     } else {
         segments
     };
-    if std::env::var_os("PK_SSI_SEG_TRACE").is_some() {
+    if crate::trace::trace_enabled("surface-intersection-segments") {
         for (i, seg) in segments.iter().enumerate() {
             if let (Some(f), Some(l)) = (seg.first(), seg.last()) {
                 let m = &seg[seg.len() / 2];

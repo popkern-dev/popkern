@@ -58,6 +58,12 @@ jobs:
         if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
 
+      - name: Check without default features
+        # The cfg(not(feature)) fallback arms (sequential dispatch,
+        # windowless viz) are never compiled otherwise.
+        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+        run: cargo check --workspace --no-default-features
+
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 

@@ -216,7 +216,7 @@ fn chamfer_edges_internal(
         }
     }
 
-    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fillet") {
         eprintln!("  [chamfer] pre-apply faces={}", brep.faces.len());
     }
     // 3. Apply topology. Chamfers always use mitred vertex mode + no rational-Gregory.
@@ -240,7 +240,7 @@ fn chamfer_edges_internal(
     )
     .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
 
-    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(
             "  [chamfer] post-apply faces={}",
             apply_result.brep.faces.len()

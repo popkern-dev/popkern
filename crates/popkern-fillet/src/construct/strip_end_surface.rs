@@ -176,18 +176,18 @@ pub(crate) fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usiz
                 if candidate.validate().is_ok() {
                     *brep = candidate;
                     removed += 1;
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("corner-carve") {
                         eprintln!("  [strip-end] {plane_face:?}: spur slit removed");
                     }
                 } else {
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("corner-carve") {
                         eprintln!("  [strip-end] {plane_face:?}: spur removal ROLLED BACK");
                     }
                     return removed;
                 }
             }
             Err(e) => {
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("corner-carve") {
                     eprintln!("  [strip-end] {plane_face:?}: kev declined: {e:?}");
                 }
                 return removed;

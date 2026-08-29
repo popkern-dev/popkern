@@ -219,7 +219,7 @@ pub fn measure_live_cap_seams(
             // additionally demand affinely-aligned parameterizations,
             // which the kernel does not require.
             let g0 = p_a.distance_to(&p_ref).max(p_b.distance_to(&p_ref));
-            if std::env::var_os("POPKERN_LIVE_SEAM_SAMPLES").is_some() && g0 > 1e-3 {
+            if popkern_core::trace::trace_enabled("live-seam-samples") && g0 > 1e-3 {
                 eprintln!(
                     "[seam-sample] edge {eh:?} f={f:.3} d_a={:.3e} d_b={:.3e} uv_a=({:.4},{:.4}) uv_b=({:.4},{:.4})",
                     p_a.distance_to(&p_ref),
@@ -286,7 +286,7 @@ pub fn measure_live_cap_seams(
                 }
             }
         }
-        if std::env::var_os("POPKERN_LIVE_SEAM_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("live-seam") {
             let mid =
                 (&curve.geometry as &dyn CurveEval).point_at(0.5 * (curve.t_start + curve.t_end));
             let mut seam_g0 = 0.0_f64;
@@ -393,10 +393,7 @@ impl SeamSide<'_> {
     /// disagree are skipped, and agreeing ones are Richardson-
     /// extrapolated.
     fn normal_curvature_signed(&self, uv: (f64, f64), dir: Vec3, normal: Vec3) -> Option<f64> {
-        let base = std::env::var("PK_G2T_STEP")
-            .ok()
-            .and_then(|s| s.parse::<f64>().ok())
-            .unwrap_or(1e-4);
+        let base = 1e-4;
         let k_h = self.normal_curvature_at_step(uv, dir, normal, base)?;
         let k_h2 = self.normal_curvature_at_step(uv, dir, normal, 0.5 * base)?;
         if (k_h - k_h2).abs() > 0.1 * (1.0 + k_h2.abs()) {

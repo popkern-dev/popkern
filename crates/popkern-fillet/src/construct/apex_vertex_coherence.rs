@@ -43,7 +43,7 @@ pub(crate) fn relocate_apex_vertices(
     cap_faces: &[FaceHandle],
     boundary: &crate::blend::BlendBoundary,
 ) -> (usize, f64) {
-    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("apex-rebuild");
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
 
     // 1. Collect apex vertices from cap face outer loops (existing
@@ -173,7 +173,7 @@ pub(crate) fn relocate_apex_vertices(
 pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> usize {
     use popkern_core::topology::EdgeHandle;
 
-    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("apex-rebuild");
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
 
     let mut apex_vertices: BTreeSet<VertexHandle> = BTreeSet::new();
@@ -277,7 +277,7 @@ pub(crate) fn realign_cap_loop_curve_directions(
     use popkern_core::geometry::CurveGeometry;
     use popkern_core::topology::EdgeHandle;
 
-    let trace = std::env::var_os("POPKERN_APEX_REBUILD_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("apex-rebuild");
     let cap_set: BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
     let cluster_tol = 1e-6_f64;
     // Discover cap-loop edges: edges where one face is cap.

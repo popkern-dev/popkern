@@ -71,7 +71,7 @@ pub(crate) fn intersect_nurbs_nurbs(
     let geom1 = CurveGeometry::Nurbs(curve1.clone());
     let geom2 = CurveGeometry::Nurbs(curve2.clone());
 
-    let nn_trace = std::env::var_os("PK_NN_TRACE").is_some();
+    let nn_trace = crate::trace::trace_enabled("nearest-node");
     if nn_trace {
         eprintln!(
             "      [nn] seg1={} seg2={} candidates={:?}",

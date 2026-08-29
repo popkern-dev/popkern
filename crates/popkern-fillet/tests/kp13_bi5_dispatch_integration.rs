@@ -1,11 +1,11 @@
 //! Integration test: KP13 bi-5 4N dispatch through `fillet_edges`.
 //!
 //! Verifies that:
-//! * With `POPKERN_KP13_BI5` unset, the fillet pipeline runs the
+//! * With the KP13 override unset, the fillet pipeline runs the
 //!   existing bi-6 polar / KP-binonic ladder and produces `N`
 //!   corner Gregory patches (no change from the pre-KP13-bi-5
 //!   baseline).
-//! * With `POPKERN_KP13_BI5=1`, the pipeline *attempts* the KP13
+//! * With the KP13 override set, the pipeline *attempts* the KP13
 //!   bi-5 promotion first — on synthetic fixtures where the
 //!   upstream promotion ladder (biseptic / two-stripe) hasn't
 //!   closed the non-two-stripe gap at N ≥ 5, KP13 bi-5 will reject
@@ -21,10 +21,9 @@
 //! committed promotion — at which point the assertion above
 //! flips to `== 4 * baseline`.
 //!
-//! The env var is mutated via `unsafe { std::env::set_var }`;
-//! callers running `cargo test` in parallel may race on the
-//! process-wide env. We serialise the two paths within a single
-//! test function using explicit set / unset book-ends.
+//! The dispatch is toggled through the typed
+//! `dispatch_overrides::KP13_BI5_DISPATCH` slot (guard-scoped, no
+//! process-wide env mutation).
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
@@ -99,24 +98,12 @@ fn pyramid_apex_fillet(base_r: f64, height: f64, radius: f64) -> Option<usize> {
 /// the wiring didn't regress anything.
 #[test]
 fn kp13_bi5_dispatch_transparent_on_reject() {
-    // SAFETY: env_* are unsafe in Rust 1.80+; unit-test
-    // single-threaded ordering below is sufficient.
-    unsafe {
-        std::env::remove_var("POPKERN_KP13_BI5");
-    }
     let baseline = pyramid_apex_fillet(1.0, 0.8, 0.1);
 
-    // SAFETY: see above.
-    unsafe {
-        std::env::set_var("POPKERN_KP13_BI5", "1");
-    }
-    let gated = pyramid_apex_fillet(1.0, 0.8, 0.1);
-
-    // Clean up.
-    // SAFETY: see above.
-    unsafe {
-        std::env::remove_var("POPKERN_KP13_BI5");
-    }
+    let gated = {
+        let _bi5 = popkern_fillet::dispatch_overrides::KP13_BI5_DISPATCH.set_guard(true);
+        pyramid_apex_fillet(1.0, 0.8, 0.1)
+    };
 
     // On synthetic pyramid fixtures where the upstream two-stripe
     // promotion rejects at N=5, KP13 bi-5 also rejects (same input

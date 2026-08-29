@@ -212,11 +212,11 @@ fn main() {
     // perimeter and vertical edges (vertex-blend caps at the top
     // corners).
     let mut fillet_edges_list: Vec<popkern_core::topology::EdgeHandle> = seam_edges.clone();
-    let seam_only = std::env::var_os("FLAGSHIP_SEAM_ONLY").is_some();
+    let seam_only = std::env::args().any(|a| a == "--seam-only");
     // Corner-free variant: seam + vertical edges only (each vertical
     // fillet ends at perpendicular faces — no 3-fillet corner blends,
     // which are the remaining pre-commercial-quality machinery).
-    let no_top = std::env::var_os("FLAGSHIP_NO_TOP_FILLETS").is_some();
+    let no_top = std::env::args().any(|a| a == "--no-top-fillets");
     for (eh, edge) in unioned.edges.iter() {
         if seam_only {
             break;
@@ -251,7 +251,7 @@ fn main() {
         continuity: popkern_fillet::ContinuityLevel::G1,
         ..Default::default()
     };
-    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("corner-carve") {
         for (fh, f) in unioned.faces.iter() {
             let Some(sof) = f.surface.as_ref() else {
                 continue;
@@ -367,7 +367,7 @@ fn main() {
         result.edge_warnings.len(),
         result.corner_patches.len()
     );
-    if std::env::var_os("FLAGSHIP_FRAGMENT_PROBE").is_some() {
+    if std::env::args().any(|a| a == "--fragment-probe") {
         for (fh, f) in result.brep.faces.iter() {
             if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder {
                 origin,
@@ -453,7 +453,7 @@ fn main() {
             }
         }
     }
-    if std::env::var_os("FLAGSHIP_PCURVE_AUDIT").is_some() {
+    if std::env::args().any(|a| a == "--pcurve-audit") {
         // Pcurve ownership audit: each half-edge's pcurve must land
         // on ITS OWN face's surface (evaluate pcurve mid → surface →
         // compare against the edge-curve mid). A pcurve that lands
@@ -492,7 +492,7 @@ fn main() {
             }
         }
     }
-    if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
+    if std::env::args().any(|a| a == "--topo-dump") {
         use popkern_core::geometry::SurfaceGeometry as SGD;
         for (fh, f) in result.brep.faces.iter() {
             match f.surface.as_ref().map(|s| &s.geometry) {
@@ -754,7 +754,7 @@ fn main() {
             solids.len(),
             result.brep.faces.len()
         );
-        if std::env::var_os("FLAGSHIP_PCURVE_AUDIT").is_some() {
+        if std::env::args().any(|a| a == "--pcurve-audit") {
             // Tessellate the IMPORTED model: the round-tripped file
             // must itself mesh watertight (the FreeCAD-parity trim
             // quality oracle, independent of OpenCASCADE).

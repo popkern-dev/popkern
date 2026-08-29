@@ -12,17 +12,17 @@ description = "Shell and offset solid operations for the popkern BRep kernel"
 # resource decision, not a correctness one. rayon is already in the
 # workspace tree via faer, so the default adds no new transitive dep.
 default = ["parallel"]
-parallel = ["rayon"]
+parallel = ["dep:rayon"]
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-fillet = { path = "../popkern-fillet" }
 popkern-bool = { path = "../popkern-bool" }
-rayon = { version = "1", optional = true }
-thiserror = "2"
+rayon = { workspace = true, optional = true }
+thiserror.workspace = true
 
 [dev-dependencies]
 # PK-276 identity-pin fingerprints.
-serde_json = "1"
+serde_json.workspace = true
 # The determinism pins build their own rayon pools (PK-329).
-rayon = "1"
+rayon.workspace = true

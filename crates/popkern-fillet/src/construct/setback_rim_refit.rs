@@ -230,7 +230,7 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     // blast radius.
     if moved_windowed_neighbour {
         let repaired = brep.repair_edge_curve_endpoint_coherence(1.0e-8);
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        if popkern_core::trace::trace_enabled("setback") {
             eprintln!(
                 "  [rim-refit] windowed-neighbour vertices moved; {repaired} incident curves re-cohered"
             );

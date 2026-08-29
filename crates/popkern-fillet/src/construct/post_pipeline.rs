@@ -73,8 +73,8 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // Gregory boundary evidence and STEP pcurve fidelity. Simple
     // single-edge fillets keep their historical topology so the
     // current algorithmic unfillet path does not need to understand
-    // repair sliver faces. `POPKERN_TOPO_REPAIR=1` remains the
-    // broad diagnostic mode; `POPKERN_TOPO_REPAIR=0` disables even
+    // repair sliver faces. `dispatch_overrides::TOPO_REPAIR` remains the
+    // broad diagnostic mode; its Off state disables even
     // the apex-context default. Different-adjacent-plane chord
     // chains remain separately gated inside `topology_repair`
     // because they require stronger multi-face ownership repair
@@ -97,7 +97,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     if topology_repair_enabled(apex_boundary_context) {
         let repaired = topology_repair::repair_cylinder_face_off_surface_vertices(result);
         determinism_trace("post_topology_repair", result);
-        if std::env::var_os("POPKERN_TOPO_REPAIR_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("topology-repair") {
             eprintln!("[topo_repair] default post-blend repaired {repaired} chord pair(s)");
         }
     }
@@ -133,7 +133,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // faces and collapsed the solid (PK-097; the G2 family was
     // untouched only because the pass happened to no-op there).
     let pp_census = |tag: &str, b: &popkern_core::topology::BRep| {
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             let mut cyls = Vec::new();
             for (fh, f) in b.faces.iter() {
                 if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder { axis, .. }) =
@@ -168,7 +168,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     fanq("post_sliver_absorb", result, corner_patches);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
     determinism_trace("post_cap_insert", result);
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@post_cap_insert] {e:?}");
@@ -184,11 +184,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // cap boundary chords as exact sphere-centered arcs.
     let collapsed =
         super::corner_arc_boundaries::collapse_corner_anchor_chords(result, corner_patches);
-    if collapsed > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+    if collapsed > 0 && popkern_core::trace::trace_enabled("corner-carve") {
         eprintln!("  [contact-collapse] contracted {collapsed} anchor chords");
     }
     let arcs = super::corner_arc_boundaries::arcify_corner_cap_boundaries(result, corner_patches);
-    if arcs > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+    if arcs > 0 && popkern_core::trace::trace_enabled("corner-carve") {
         eprintln!("  [arcify] rewrote {arcs} corner-cap boundary chords");
     }
     determinism_trace("post_corner_arcify", result);
@@ -210,7 +210,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         let (end_contracted, end_arcs, end_spurs) =
             super::strip_end_arcs::reconstruct_strip_end_boundaries(result, &fillet_surfaces);
         if (end_contracted + end_arcs + end_spurs) > 0
-            && std::env::var_os("PK_CARVE_TRACE").is_some()
+            && popkern_core::trace::trace_enabled("corner-carve")
         {
             eprintln!(
                 "  [strip-end] {end_contracted} corners contracted, {end_arcs} runout arcs, {end_spurs} spurs removed"
@@ -226,7 +226,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     if torus_caps > 0 {
         determinism_trace("post_torus_end_caps", result);
     }
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@post_corner_arcify] {e:?}");
@@ -295,7 +295,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         let wired =
             sphere_fit_edge_wire::wire_substituted_boundary_to_edges(result, boundary, sub_faces);
         determinism_trace("post_wire_jobs", result);
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-cap") {
             eprintln!(
                 "[late-wire] re-ran on {} sub_faces, wrote {wired} edges",
                 sub_faces.len()
@@ -312,7 +312,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     for (_boundary, sub_faces) in late_wire_jobs {
         let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
         determinism_trace("post_apex_lift", result);
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("kp-cap") {
             eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
         }
     }
@@ -344,7 +344,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             let n_realigned =
                 apex_vertex_coherence::realign_cap_loop_curve_directions(result, sub_faces);
             determinism_trace("post_realign", result);
-            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("kp-cap") {
                 eprintln!(
                     "[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m; \
                      repaired {n_repaired} base edges; realigned {n_realigned} cap-loop edges"
@@ -375,7 +375,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
                 &[],
             );
             determinism_trace("post_seams", result);
-            if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("kp-cap") {
                 eprintln!(
                     "[support-seam-relocation] sub_faces={} authored={} declined={} \
                      candidates={} max_move={:.6e} max_disagreement={:.6e} rollback={:?}",
@@ -412,13 +412,13 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // *last* so it catches pcurves attached by every prior pipeline
     // stage (attach_fillet_pcurves, sliver_absorb, cap_insert, …).
     determinism_trace("pre_pcurve_clamp", result);
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@pre_pcurve_clamp] {e:?}");
     }
     let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(result);
-    if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+    if popkern_core::trace::trace_enabled("pcurve-clamp") {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
     }
 
@@ -429,7 +429,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     result.normalize_semantic_line_edge_curves_preserving_pcurves(tolerance.linear().max(1.0e-8));
 
     determinism_trace("pre_export_repair", result);
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@pre_export_repair] {e:?}");
@@ -441,7 +441,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
 
     determinism_trace("pre_completion", result);
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@pre_completion] {e:?}");
@@ -452,7 +452,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         &mut repair_report.apex_diagnostics,
     );
     determinism_trace("post_completion", result);
-    if std::env::var_os("PK_CARVE_TRACE").is_some()
+    if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()
     {
         eprintln!("  [closure@post_completion] {e:?}");
@@ -464,10 +464,9 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
 }
 
 fn topology_repair_enabled(apex_boundary_context: bool) -> bool {
-    match std::env::var("POPKERN_TOPO_REPAIR") {
-        Ok(value) => value != "0",
-        Err(_) => apex_boundary_context,
-    }
+    crate::dispatch_overrides::TOPO_REPAIR
+        .get()
+        .unwrap_or(apex_boundary_context)
 }
 
 fn exact_boundary_protected_support_faces(

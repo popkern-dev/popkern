@@ -345,7 +345,7 @@ pub(super) fn rehome_spur_tip(
         e.curve = popkern_core::geometry::CurveOnEdge::line_segment(root_pos, pos, 1e-9);
     }
     *brep = candidate;
-    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("multi-chord") {
         eprintln!(
             "[mc] re-homed spur tip {tip:?} -> {:?} into {host:?} at {pos:?}",
             mev.vertex

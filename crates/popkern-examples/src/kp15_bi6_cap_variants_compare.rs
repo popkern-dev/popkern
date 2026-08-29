@@ -68,10 +68,10 @@ fn main() {
     // filleted apex should look."
     export_real_pyramid_reference(&out);
 
-    // Skip the via-table variants for this iteration — they're cap-
-    // only loose BReps that don't tessellate cleanly. Focus on the
+    // Opt-in via-table variants (`--with-via-table`) — they're cap-
+    // only loose BReps that don't tessellate cleanly. Focus is the
     // real pyramid renders above.
-    if std::env::var("WITH_VIA_TABLE").is_err() {
+    if !std::env::args().any(|a| a == "--with-via-table") {
         return;
     }
 

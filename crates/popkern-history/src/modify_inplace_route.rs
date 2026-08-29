@@ -33,7 +33,7 @@ impl FeatureTree {
         old: &Feature,
         new: &Feature,
     ) -> Option<BRep> {
-        let trace = std::env::var_os("PK_HISTORY_TRACE").is_some();
+        let trace = popkern_core::trace::trace_enabled("history");
         if self.active_config.is_some() {
             return None;
         }
@@ -303,7 +303,7 @@ fn blend_face_between(
         if !(neighbours.contains(&supports.0) && neighbours.contains(&supports.1)) {
             continue;
         }
-        if std::env::var_os("PK_HISTORY_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("history") {
             eprintln!(
                 "  [tweak-route] adj candidate {f:?} identify {:?}",
                 popkern_fillet::identify::identify_blend(brep, f).map(|b| b.kind)

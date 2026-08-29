@@ -243,7 +243,7 @@ pub(crate) fn apply_closed_fillet(
     //    (tessellation, export), and the angle parameterization
     //    pairs exactly with iso-linear pcurves on the supports.
     //    Fit failure falls back to the interpolated trim.
-    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(
             "  [closed-fillet] seam_a={} circle_1={} circle_2={}",
             seam_a.is_some(),
@@ -280,7 +280,7 @@ pub(crate) fn apply_closed_fillet(
                 let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
                 let d = start_at - *center;
                 let theta0 = d.dot(&e2).atan2(d.dot(&e1));
-                if std::env::var_os("PK_RIM_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("rim") {
                     eprintln!(
                         "  [rim-anchor] closed_fillet start_at=({:.3},{:.3},{:.3}) theta0={theta0:.4}",
                         start_at.x, start_at.y, start_at.z
@@ -566,7 +566,7 @@ pub(crate) fn apply_closed_fillet(
 /// Seam-decline observability without a tracing dependency: stderr
 /// under the fillet trace env, silent otherwise.
 fn tracing_note_seam_decline(msg: &str) {
-    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("fillet") {
         eprintln!("  [closed-fillet] {msg}");
     }
 }

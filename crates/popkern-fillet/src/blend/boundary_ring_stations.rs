@@ -114,7 +114,7 @@ pub(super) fn apply_ring_station_pushback(
             })?;
         let (t0, t1) = arc.parameter_range();
         let endpoints = [arc.point_at(t0), arc.point_at(t1)];
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             eprintln!(
                 "  [ring-stations] fillet {k} pushed to arclength {s_pushed:.4} \
                  (crossings demanded {s_needed:.4}); arc ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",

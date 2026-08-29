@@ -118,7 +118,7 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
         Err(plan_err) => {
             return crate::unfillet_corner_group::unfillet_corner_group(brep, blend_face).map_err(
                 |group_err| {
-                    if std::env::var_os("PK_UCG_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("unfillet-corner-group") {
                         eprintln!("[ucg] group surgery declined: {group_err:?}");
                     }
                     plan_err

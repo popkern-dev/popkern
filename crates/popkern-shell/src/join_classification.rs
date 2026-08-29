@@ -165,7 +165,7 @@ pub(crate) fn classify_joins(
     // sequential fold below reproduces the single-loop map/warning
     // order exactly. Tracing forces serial dispatch (the per-edge dump
     // interleaves otherwise).
-    let trace = std::env::var_os("PK_JOIN_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("shell-join");
     let classified = crate::parallel_dispatch::dispatch_ordered(&edge_handles, trace, |&eh| {
         let (outer_f1, outer_f2) = interior_edge_sides(skin, eh, &reverse_face)?;
         if outer_f1 == outer_f2 {
@@ -353,7 +353,7 @@ pub(crate) fn classify_joins(
         }
     }
 
-    if std::env::var_os("PK_JOIN_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("shell-join") {
         eprintln!(
             "[join-plan] effective={:?} gaps={:?}",
             plan.effective,

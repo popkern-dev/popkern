@@ -114,7 +114,7 @@ pub(crate) fn insert_vertex_blend(
     // setback production for corners the sphere does not own,
     // PK-226 extended it to variable/mixed radii). Unsuitable
     // geometry declines transactionally with the reason recorded.
-    // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
+    // dispatch_overrides::SETBACK_DISABLE = diagnostic force-off so tests can
     // pin the vertex-blend fallback dispatch (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let setback_min_n = setback_min_n_for(
@@ -573,7 +573,7 @@ pub(crate) fn kef_cross_face_v_edges(
             break;
         };
         let he_face = brep.loops[brep.half_edges[he].loop_].face;
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("corner-carve") {
             let twin_face = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
             let count = |fh: FaceHandle| {
                 let start = brep.loops[brep.faces[fh].outer_loop].half_edge;

@@ -2,7 +2,7 @@
 //!
 //! The rung extends the bi-nonic phase-3 L-M objective with
 //! cap-vs-fillet G1 samples along each cap sub-patch's outer
-//! boundary. It is armed by `POPKERN_OUTER_FILLET_G1=1`
+//! boundary. It is armed by `dispatch_overrides::OUTER_FILLET_G1`
 //! (`three_quad_kp_promote.rs`) and had ZERO coverage before PK-275
 //! — no test or caller ever set the variable. It was also
 //! unaffordable when it did engage: with the outer block active,
@@ -60,9 +60,7 @@ fn worst_ring_g1(result: &popkern_fillet::BlendResult) -> f64 {
 
 #[test]
 fn armed_outer_fillet_rung_is_observable_and_serves_clean() {
-    // SAFETY: this test binary owns its process; no other test in
-    // this file reads the environment concurrently.
-    unsafe { std::env::set_var("POPKERN_OUTER_FILLET_G1", "1") };
+    let _rung = popkern_fillet::dispatch_overrides::OUTER_FILLET_G1.set_guard(true);
 
     let radii = [0.01, 0.10, 0.20];
     let t0 = std::time::Instant::now();

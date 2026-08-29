@@ -71,7 +71,7 @@ pub(super) fn author_reflex_end_discs(
     tolerance: &Tolerance,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> Vec<FaceHandle> {
-    let trace = std::env::var_os("PK_RIM_DISC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("rim-disc");
     let mut discs = Vec::new();
     for (idx, pd) in perp_data.iter().enumerate() {
         let Some(pd) = pd else { continue };

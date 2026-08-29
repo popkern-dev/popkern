@@ -6,7 +6,7 @@
 //! twin residual scaffolding or dangle unpaired).
 //!
 //! Own test binary by design: every test sets the process-wide
-//! `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1` (disable the
+//! the strict `V_FREE_REPEATED_APEX` override (disable the
 //! promoted-default fallback retry so a V-free decline fails loudly
 //! instead of silently retrying the apex-retaining path). Cargo runs
 //! each integration-test binary in its own process, and all tests
@@ -24,15 +24,13 @@ use direct_apex_validate_helpers::{
 };
 use popkern_core::topology::TopologyRole;
 
-/// Set the strict flag for the whole process, no restore: tests in
-/// this binary run as parallel threads of one process, and a
-/// per-test RAII restore would unset the flag under a still-running
+/// Set the strict override for the whole process, no restore: tests
+/// in this binary run as parallel threads of one process, and a
+/// per-test RAII restore would unset it under a still-running
 /// sibling. Every test here wants the same value, so a plain
 /// idempotent set is the race-free form.
 fn require_strict_v_free() {
-    unsafe {
-        std::env::set_var("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
-    }
+    popkern_fillet::dispatch_overrides::V_FREE_REPEATED_APEX.set(Some(true));
 }
 
 #[test]

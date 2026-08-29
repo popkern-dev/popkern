@@ -105,7 +105,7 @@ pub(super) fn resolve_boundary_substitutes(
     if polys.is_empty() {
         return;
     }
-    if std::env::var_os("PK_BSUB_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-substitute") {
         for (i, poly) in polys.iter().enumerate() {
             eprintln!(
                 "      [bsub] {face:?} poly {i}: {} pts {:?}…",
@@ -165,7 +165,7 @@ pub(super) fn resolve_boundary_substitutes(
         // registered edges by construction; a record spanning a
         // polygon corner votes per-window, majority wins).
         let uv = &sub.embeddings[&h].uv;
-        let trace = std::env::var_os("PK_BSUB_TRACE").is_some();
+        let trace = popkern_core::trace::trace_enabled("boundary-substitute");
         if uv.len() < 3 {
             if trace {
                 eprintln!(

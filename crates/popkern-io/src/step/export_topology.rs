@@ -84,7 +84,7 @@ impl ExportContext {
                     .as_ref()
                     .filter(|_| {
                         let gap = edge_curve_surface_trim_disagreement(brep, eh, curve);
-                        if std::env::var_os("PK_STEP_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("step-io") {
                             eprintln!(
                                 "  [step-export] edge {eh:?} trim disagreement {gap:?} (tol {})",
                                 step_export_pcurve_association_tolerance(brep)

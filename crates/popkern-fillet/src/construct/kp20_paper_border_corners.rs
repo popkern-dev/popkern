@@ -123,7 +123,7 @@ pub(super) fn setback_corners(
             .map(|(d, p, _)| (d, p))
             .or(best_any)
             .unwrap_or((f64::INFINITY, Point3::new(0.0, 0.0, 0.0)));
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        if popkern_core::trace::trace_enabled("setback") {
             eprintln!(
                 "  [corner-select] k={k} coplanar={:?} coherent={:?} any={:?} chosen=({:.4},{:.4},{:.4}) gap={:.3e}",
                 best_coplanar.map(|(d, _, _)| d),

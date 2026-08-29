@@ -168,7 +168,7 @@ fn find_and_cut_slit(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
             if pieces.is_empty() {
                 return None; // nothing meshable would remain — keep the ring
             }
-            if std::env::var_os("PK_BF_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boundary-first") {
                 eprintln!(
                     "    [bf] slit dissolved: edge {:?} double-traversal cut into {} component(s)",
                     ring.sources[s1].0,

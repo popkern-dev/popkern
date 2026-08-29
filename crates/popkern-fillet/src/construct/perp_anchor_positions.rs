@@ -164,7 +164,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                 // sits at edge endpoint `origin` (forward) or
                 // `dest` (reversed).  Returns the anchor position
                 // or `None` if the edge isn't suitable.
-                let trace = std::env::var("POPKERN_ANCHOR_TRACE").is_ok();
+                let trace = popkern_core::trace::trace_enabled("anchor");
                 let place_anchor = |radius: f64, forward: bool, slot: &mut Option<(Point3, u8)>| {
                     let slot_quality = slot.map(|(_, q)| q).unwrap_or(0);
                     if slot_quality >= 2 || edge_len <= 1e-15 {

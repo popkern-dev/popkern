@@ -7,9 +7,9 @@ description = "2D geometric constraint solver for parametric sketch modeling"
 
 [dependencies]
 faer = "0.20"
-slotmap = { version = "1", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-thiserror = "2"
+slotmap.workspace = true
+serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
-serde_json = "1"
+serde_json.workspace = true

@@ -20,7 +20,7 @@ use crate::mesh::{FaceMesh, MeshVertex};
 use popkern_core::topology::{BRep, EdgeHandle};
 
 fn trace(reason: &str) {
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!("    [bf] bipolar revolution declined: {reason}");
     }
 }
@@ -299,7 +299,7 @@ pub(super) fn try_tessellate(
             t.swap(1, 2);
         }
     }
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!(
             "    [bf] face {face_handle:?} served as bipolar revolution: {stations} stations x {} rows",
             rows_v.len()

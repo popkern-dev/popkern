@@ -117,7 +117,7 @@ pub(super) fn expose_owner_repair_spans(
 ) -> Result<OwnerRepairExposureResult, CoreError> {
     let mut exposed_spans = 0usize;
     let mut exposed_half_edges = 0usize;
-    if std::env::var_os("PK_CMS_TRACE").is_some() {
+    if crate::trace::trace_enabled("cylinder-mediated-support") {
         for segment in authoring {
             eprintln!(
                 "[cms] segment loop={:?} idx={} hes={:?} owned(cyl/out/sup/ctx)={:?}/{:?}/{:?}/{:?} boundary={:?} req={:?}",

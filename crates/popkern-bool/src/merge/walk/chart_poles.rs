@@ -51,7 +51,7 @@ pub(crate) fn detect_pole_nodes(
                 let p1 = surface.point_at(u + 1e-4, v);
                 let scale =
                     1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
-                if std::env::var_os("PK_POLE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("pole") {
                     eprintln!(
                         "  [pole?] node {node} uv=({u:.4},{v:.4}) p0=({:.3},{:.3},{:.3}) du-dist={:.3e}",
                         p0.x,

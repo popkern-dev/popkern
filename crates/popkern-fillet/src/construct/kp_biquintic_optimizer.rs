@@ -150,7 +150,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
         }
     }
 
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!(
             "[kp_biquintic N={n}] phase1 (bicubic twist) done: residual={best_bicubic_residual:.3e}"
         );
@@ -219,7 +219,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
     };
     let best_residual = measure_ring_residual(&best_binonic);
 
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!(
             "[kp_biquintic N={n}] phase2 (L-M bi-quintic interior) done: residual={best_residual:.3e}"
         );

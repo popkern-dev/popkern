@@ -119,7 +119,7 @@ fn settle_terminal_faces_with_mode(
     let mut report = TerminalArcTrimReport::default();
     for &face in faces {
         let candidates = recognize_corners(result, face, tolerance, planar_mode);
-        if std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("terminal-arc") {
             eprintln!(
                 "[tat] face {face:?}: {} corner candidates",
                 candidates.len()
@@ -127,7 +127,7 @@ fn settle_terminal_faces_with_mode(
         }
         for candidate in candidates {
             let outcome = repair_corner(result, &candidate, tolerance);
-            if std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("terminal-arc") {
                 eprintln!(
                     "[tat] corner {:?} on {:?} (he {:?},{:?}) -> {:?}",
                     candidate.corner,
@@ -284,7 +284,7 @@ fn repair_corner(
         d - cyl.axis * d.dot(&cyl.axis)
     };
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     for anchor in [anchor_in, anchor_out] {
         if (radial_of(anchor).length() - cyl.radius).abs() > pos_tol {
             if trace {

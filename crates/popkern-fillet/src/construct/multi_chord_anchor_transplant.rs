@@ -39,7 +39,7 @@ pub(super) fn transplant_spur_anchor_pair(
             .map(|(h, _)| h)
             .collect();
         let [he_out] = outgoing.as_slice() else {
-            if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("multi-chord") {
                 eprintln!(
                     "[mc-target]   transplant declined: {v:?} valence {}",
                     outgoing.len()

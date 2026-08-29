@@ -38,7 +38,7 @@ pub(crate) fn loop_uv_runs(
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
-    let trace = std::env::var_os("PK_SEL_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("face-selection");
     let u_period = surface.parameter_periodicity().0;
     let mut runs: Vec<UvRun> = Vec::new();
     let mut last_uv: Option<(f64, f64)> = None;
@@ -371,7 +371,7 @@ pub(crate) fn fragment_cut_offset_sample(
             let u = mu + dir * left.0 * eps * diag;
             let v = mv + dir * left.1 * eps * diag;
             if even_odd_inside(u, v) {
-                if std::env::var_os("PK_SEL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("face-selection") {
                     eprintln!(
                         "      [cut-offset] uv=({u:.4},{v:.4}) eps={eps} dir={dir} area2={area2:.3}"
                     );

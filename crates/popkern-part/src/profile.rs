@@ -225,7 +225,7 @@ impl Profile {
             (sx / n as f64, sy / n as f64)
         };
         let (cx, cy) = (self.center.0 + c.0, self.center.1 + c.1);
-        if std::env::var_os("PK_PART_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("part") {
             eprintln!(
                 "  [extrude] c=({:.4},{:.4}) center=({:.4},{:.4}) path=({cx:.4},{cy:.4})",
                 c.0, c.1, self.center.0, self.center.1

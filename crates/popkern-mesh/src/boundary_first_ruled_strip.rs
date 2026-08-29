@@ -18,7 +18,7 @@
 //! the adaptive edge sampling's own chord tolerance. No protection
 //! filters, no encroachment rounds.
 //!
-//! Any decomposition failure declines (with a `PK_BF_TRACE` reason)
+//! Any decomposition failure declines (with a the `boundary-first` trace topic reason)
 //! and the caller continues on the Delaunay path.
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -40,13 +40,13 @@ struct Chain {
 }
 
 fn trace(reason: &str) {
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!("    [bf] ruled-strip declined: {reason}");
     }
 }
 
 /// Attempt the structured tensor tessellation. Returns `None` (after
-/// recording why under `PK_BF_TRACE`) whenever the face is not a
+/// recording why under the `boundary-first` trace topic) whenever the face is not a
 /// clean four-sided ruled chart; the caller then proceeds with the
 /// Delaunay path unchanged.
 pub(super) fn try_tessellate(
@@ -336,7 +336,7 @@ pub(super) fn try_tessellate(
             t.swap(1, 2);
         }
     }
-    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first-ring") {
         eprintln!(
             "    [bf-ruled-strip] face {face_handle:?}: {nu}x{nv} stations, {} tris",
             triangles.len()

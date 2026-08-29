@@ -45,7 +45,7 @@ pub(crate) fn compute_edge_curve(
             let mapped = crate::curved_recompute_similarity::parallel_map_edge_curve(
                 &old, surf1, surf2, start_pos, end_pos, tolerance,
             );
-            if mapped.is_none() && std::env::var_os("PK_RECOMP_TRACE").is_some() {
+            if mapped.is_none() && popkern_core::trace::trace_enabled("recompute") {
                 eprintln!(
                     "[recomp-seam-decline] {edge_handle:?} start=({:.3},{:.3},{:.3}) \
                      end=({:.3},{:.3},{:.3})",

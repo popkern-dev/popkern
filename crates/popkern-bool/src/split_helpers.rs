@@ -338,7 +338,7 @@ pub(super) fn split_one_face(
             prev = q;
         }
         if len < tolerance.linear() * 10.0 {
-            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("face-split") {
                 eprintln!("  [split1] {face_handle:?} DEGENERATE trim (len {len:.2e}) — skipped");
             }
             return Ok(());
@@ -354,7 +354,7 @@ pub(super) fn split_one_face(
     // vertex". Split the boundary edge at the endpoint first.
     presplit_boundary_at_endpoints(brep, face_handle, curve_3d, tolerance);
 
-    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("face-split") {
         let (t0, t1) = curve_3d.parameter_range();
         let p0 = curve_3d.point_at(t0);
         let p1 = curve_3d.point_at(t1);

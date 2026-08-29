@@ -14,8 +14,8 @@ popkern-io = { path = "../popkern-io" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-mesh = { path = "../popkern-mesh" }
-thiserror = "2"
-ttf-parser = { version = "0.25", optional = true }
+thiserror.workspace = true
+ttf-parser = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -23,4 +23,4 @@ text = ["dep:ttf-parser"]
 
 [dev-dependencies]
 # PK-276 identity-pin fingerprints.
-serde_json = "1"
+serde_json.workspace = true

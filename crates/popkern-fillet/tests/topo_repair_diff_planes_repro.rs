@@ -4,7 +4,7 @@
 //! Pyramid apex-only fillets leave cylinder faces with chord pairs
 //! through an off-cylinder vertex (the cap centre or unfilleted
 //! base corner). The different-planes repair branch
-//! (`POPKERN_TOPO_REPAIR_DIFF=1`) once regressed N≥8 pyramids (max
+//! (`dispatch_overrides::TOPO_REPAIR_DIFF`) once regressed N≥8 pyramids (max
 //! tess-nm divergence 0.12 → 1.06); the anchor on-cylinder
 //! precondition in `try_repair_chord_pair_different_planes` fixed
 //! the class, and `t_136_d_no_regression_from_diff_planes` pins it.
@@ -19,32 +19,6 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 use helpers::{incident_edges, pick_vertex_with_valence};
-
-struct EnvGuard {
-    key: &'static str,
-    prior: Option<String>,
-}
-
-impl EnvGuard {
-    fn set(key: &'static str, value: &str) -> Self {
-        let prior = std::env::var(key).ok();
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self { key, prior }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            match &self.prior {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
-    }
-}
 
 fn fillet_apex_only(n: usize, height: f64, radius: f64) -> BRep {
     let pyr = BRep::n_gonal_pyramid(n, 1.0, height, Tolerance::default()).unwrap();
@@ -71,16 +45,9 @@ fn worst_tess_nm_divergence(brep: &BRep) -> f64 {
 }
 
 fn run_with_flags(n: usize, height: f64, radius: f64, repair: bool, diff: bool) -> BRep {
-    let _g_repair = if repair {
-        Some(EnvGuard::set("POPKERN_TOPO_REPAIR", "1"))
-    } else {
-        None
-    };
-    let _g_diff = if diff {
-        Some(EnvGuard::set("POPKERN_TOPO_REPAIR_DIFF", "1"))
-    } else {
-        None
-    };
+    let _g_repair = repair.then(|| popkern_fillet::dispatch_overrides::TOPO_REPAIR.set_guard(true));
+    let _g_diff =
+        diff.then(|| popkern_fillet::dispatch_overrides::TOPO_REPAIR_DIFF.set_guard(true));
     fillet_apex_only(n, height, radius)
 }
 

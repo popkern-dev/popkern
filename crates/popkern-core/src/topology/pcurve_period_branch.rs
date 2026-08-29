@@ -102,7 +102,7 @@ impl BRep {
                 .zip(spans.iter().cycle().skip(1))
                 .map(|((_, e), (s_next, _))| nearest_branch_delta(s_next - e, period))
                 .sum::<f64>();
-        let trace = std::env::var_os("PK_PCURVE_TRACE").is_some();
+        let trace = crate::trace::trace_enabled("pcurve");
         if trace {
             eprintln!(
                 "[pcurve-period] face {face:?} net u-winding {net:.3} over {} side(s)",

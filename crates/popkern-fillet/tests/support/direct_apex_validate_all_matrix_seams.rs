@@ -150,7 +150,7 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
                 format!(": {}", findings.join(", "))
             }
         );
-        if !findings.is_empty() && std::env::var_os("POPKERN_DIRECT_APEX_TRACE").is_some() {
+        if !findings.is_empty() && popkern_core::trace::trace_enabled("direct-apex") {
             dump_cap_loops(case.name, &result, &cap_faces);
         }
         assert!(

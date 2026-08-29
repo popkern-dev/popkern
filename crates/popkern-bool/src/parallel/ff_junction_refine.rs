@@ -66,7 +66,7 @@ pub(super) fn refine_record_junction_endpoints(
     }
     let (pu_a, pv_a) = surf_a.periodicity();
     let (pu_b, pv_b) = surf_b.periodicity();
-    let trace = std::env::var_os("PK_BOOL_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("boolean");
 
     for record in records.iter_mut() {
         let (t0, t1) = record.curve.curve_3d.parameter_range();

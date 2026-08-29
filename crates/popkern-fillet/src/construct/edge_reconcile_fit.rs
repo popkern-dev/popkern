@@ -90,7 +90,7 @@ pub(super) fn try_curved_fit(
                 let recorded = edge_mut.tolerance.unwrap_or(0.0);
                 if recorded < worst * 1.5 {
                     edge_mut.tolerance = Some(worst * 1.5);
-                    if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("edge-reconcile") {
                         eprintln!("[fit-tol] {edge:?} recorded floor-skip {:.3e}", worst * 1.5);
                     }
                 }
@@ -211,7 +211,7 @@ pub(super) fn try_curved_fit(
             // tolerance. The achieved residual is recorded on the
             // edge below.
             if d1 > (chord_len * 1e-4).max(3.3e-5) {
-                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("edge-reconcile") {
                     let d2 = sof_2
                         .geometry
                         .closest_point(&p)
@@ -233,7 +233,7 @@ pub(super) fn try_curved_fit(
             p1.z + t * (p2.z - p1.z),
         );
         if p.distance_to(&chord_pt) > chord_len * 0.5 {
-            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("edge-reconcile") {
                 eprintln!(
                     "[fit-decline] {edge:?} branch drift {:.3e} at t={t:.3}",
                     p.distance_to(&chord_pt)
@@ -330,7 +330,7 @@ pub(super) fn try_curved_fit(
         // widen — measured: broad recording pushed 4.7e-2 tolerances
         // onto corner chords and tripped 10 Precision errors).
         let model_band = brep.tolerance.linear().max(1e-9);
-        if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("edge-reconcile") {
             eprintln!("[fit-tol] {edge:?} achieved {achieved:.3e}");
         }
         // Record sub-precision residuals with the safety margin

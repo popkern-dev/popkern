@@ -407,7 +407,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
     Ok(a)
 }
 
-/// PK_BOOL_TRACE helper: endpoint/chord dump of every intersection
+/// the boolean trace topic helper: endpoint/chord dump of every intersection
 /// record (a fragmented closed curve shows up as short-chord copies).
 pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_overlaps: usize) {
     eprintln!("  [exec] {} records, {n_overlaps} overlaps", records.len());

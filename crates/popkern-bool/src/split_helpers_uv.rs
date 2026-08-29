@@ -41,7 +41,7 @@ pub(super) fn try_uv_split(
     let mut crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
         Some(c) => c,
         None => {
-            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!("  [bool] face {face_handle:?}: no uv crossings result");
             }
             return Ok(false);
@@ -70,7 +70,7 @@ pub(super) fn try_uv_split(
         let param_eps = (t1_orig - t0_orig).abs() * 1e-9 + 1e-15;
         crossings.dedup_by(|a, b| (a.t_curve - b.t_curve).abs() < param_eps);
     }
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [bool] face {face_handle:?}: crossings={} is_closed={is_closed}",
             crossings.len()
@@ -98,7 +98,7 @@ pub(super) fn try_uv_split(
                 tolerance,
             )
         {
-            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("face-split") {
                 eprintln!("  [split1] {face_handle:?} rim-collinear trim — consumed as no-op");
             }
             return Ok(true);

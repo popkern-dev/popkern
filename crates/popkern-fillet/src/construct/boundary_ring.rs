@@ -120,7 +120,7 @@ fn carve_ring(
     use crate::blend::boundary::BoundarySegment;
 
     let n = fillet_surfaces.len();
-    let trace = std::env::var_os("PK_CARVE_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("corner-carve");
 
     // ---- arcs: one exact strip-end curve per fillet -----------------
     let mut arc_vertices: Vec<[VertexHandle; 2]> = Vec::with_capacity(n);

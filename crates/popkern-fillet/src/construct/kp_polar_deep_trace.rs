@@ -1,6 +1,6 @@
 //! Deep-trace diagnostic helper for the polar bi-6 path.
 //!
-//! Gated on `POPKERN_KP_POLAR_DEEP_TRACE=1`. For every sub-patch
+//! Gated on `POPKERN_TRACE=kp-polar-deep`. For every sub-patch
 //! in the committed (or rejected) cap it prints:
 //! - `self_intersects_with_tolerance` result after bi-9 elevation
 //! - minimum `|∂u × ∂v|` sampled on a 10×10 interior grid (0 = fold)

@@ -15,10 +15,10 @@ popkern-bool = { path = "../popkern-bool" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-sweep = { path = "../popkern-sweep" }
-slotmap = { version = "1", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-thiserror = "2"
+slotmap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 bincode = "1"

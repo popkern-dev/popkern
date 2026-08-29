@@ -404,7 +404,7 @@ pub(crate) fn shell_impl(
     // validate_all.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
-        if std::env::var_os("PK_SHELL_SERVE_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("shell-serve") {
             for e in &validation_errors {
                 eprintln!("[serve-trace] {e}");
             }

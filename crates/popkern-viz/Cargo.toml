@@ -11,24 +11,29 @@ path = "src/main.rs"
 required-features = ["gpu"]
 
 [features]
-default = ["gpu"]
-gpu = ["dep:wgpu", "dep:eframe", "dep:egui"]
+default = ["gpu", "window"]
+# Interactive GPU viewer (wgpu + egui). The headless GPU render path
+# and the `popkern-viz` binary need this.
+gpu = ["dep:wgpu", "dep:eframe", "dep:egui", "dep:pollster", "dep:env_logger"]
+# Windowed CPU software viewer (winit + softbuffer). Headless CPU
+# rendering (`render_to_png` fallback) works without it.
+window = ["dep:winit", "dep:softbuffer"]
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
-thiserror = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-slotmap = "1"
-glam = "0.29"
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+slotmap.workspace = true
+glam.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image.workspace = true
 wgpu = { version = "24", optional = true }
 egui = { version = "0.31", optional = true }
 eframe = { version = "0.31", features = ["wgpu"], optional = true }
-pollster = "0.4"
-env_logger = "0.11"
+pollster = { version = "0.4", optional = true }
+env_logger = { version = "0.11", optional = true }
 log = "0.4"
-softbuffer = "0.4"
-winit = "0.30"
+softbuffer = { version = "0.4", optional = true }
+winit = { version = "0.30", optional = true }

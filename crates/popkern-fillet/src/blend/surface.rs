@@ -106,7 +106,7 @@ fn build_mitred_blend(
         surface,
         boundary_curves,
         method: {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] mitred");
             }
             CornerMethod::Mitred
@@ -335,7 +335,7 @@ fn build_gregory_g1_blend(
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves,
         method: {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] gregory");
             }
             CornerMethod::Gregory
@@ -378,7 +378,7 @@ fn try_nurbs_blend(
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves: boundary_curves.to_vec(),
         method: {
-            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] polar");
             }
             CornerMethod::PolarNurbs

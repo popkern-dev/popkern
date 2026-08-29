@@ -92,7 +92,7 @@ pub(super) fn try_setback_rung(
                     .lock()
                     .unwrap_or_else(|p| p.into_inner()) =
                     Some(format!("setback commit declined: {e}"));
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("corner-carve") {
                     eprintln!("  [setback] declined at {vertex:?}: {e}");
                 }
             }

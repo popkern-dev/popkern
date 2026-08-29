@@ -370,7 +370,7 @@ pub(crate) fn try_circular_center_torus(
     };
     let spine_deviation = deviation(&verify_samples, &center, major_radius);
     let spine_gate = (major_radius + radius) * 1.0e-4;
-    if std::env::var_os("PK_ANALYTIC_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("analytic-intersection") {
         eprintln!(
             "    [torus-arm] best candidate center ({:.4},{:.4},{:.4}) major {major_radius:.4} dev {spine_deviation:.3e} gate {spine_gate:.3e}",
             center.x, center.y, center.z

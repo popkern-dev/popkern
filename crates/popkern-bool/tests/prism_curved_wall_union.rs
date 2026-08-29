@@ -84,7 +84,7 @@ fn union_preserves_boss_side_walls() {
 }
 
 /// Measurement: record the face census and which pipeline produced
-/// it (run with PK_BOOL_TRACE=1 for pipeline attribution).
+/// it (run with POPKERN_TRACE=boolean for pipeline attribution).
 #[test]
 fn union_census_measured() {
     let (cyl, boss) = fixture();

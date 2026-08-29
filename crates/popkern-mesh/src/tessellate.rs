@@ -166,7 +166,7 @@ pub(crate) fn tessellate_face_with_samples(
             v_range.1 = v_range.1.min(nv1);
         }
     }
-    if std::env::var_os("PK_TRIM_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("trim") {
         eprintln!(
             "  [trim] face {face_handle:?} rectangular={rectangular} grid u={u_range:?} v={v_range:?}"
         );
@@ -549,7 +549,7 @@ pub(crate) fn tessellate_brep(
     // construction. Bounded rounds; convergence is guaranteed by the
     // no-new-fraction check.
     const ENCROACHMENT_ROUNDS: usize = 8;
-    let bf_trace = std::env::var_os("PK_BF_TRACE").is_some();
+    let bf_trace = popkern_core::trace::trace_enabled("boundary-first");
     // Incremental rounds (PK-277): round 0 checks every face; later
     // rounds only faces incident to an edge whose canonical samples
     // were refined last round. A face's requests are a pure function
@@ -732,7 +732,7 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
     use std::collections::HashMap;
 
     let n = face_meshes.len();
-    if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("mesh-orientation") {
         for (fi, fm) in face_meshes.iter().enumerate() {
             let class = brep
                 .faces
@@ -920,7 +920,7 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
         }
         let significant = edge_len * 1.0e-3;
         if d1.abs() < significant || d2.abs() < significant {
-            if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("mesh-orientation") {
                 eprintln!(
                     "  [orient] pair ({f1},{f2}) advance below floor: d1={d1:.6} d2={d2:.6} \
                      edge_len={edge_len:.4}"
@@ -945,13 +945,13 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
         if same == opposite {
             // Tied evidence — no trustworthy constraint. Leave the
             // pair unlinked rather than guess.
-            if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("mesh-orientation") {
                 eprintln!("  [orient] pair ({f1},{f2}) tied votes {same}:{opposite} — unlinked");
             }
             continue;
         }
         let same_dir = same > opposite;
-        if same.min(opposite) > 0.0 && std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+        if same.min(opposite) > 0.0 && popkern_core::trace::trace_enabled("mesh-orientation") {
             eprintln!(
                 "  [orient] pair ({f1},{f2}) conflicted votes same={same:.3} opposite={opposite:.3} — majority {}",
                 if same_dir { "same" } else { "opposite" }
@@ -984,7 +984,9 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
                         queue.push_back(g);
                     }
                     Some(assigned) => {
-                        if assigned != want && std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+                        if assigned != want
+                            && popkern_core::trace::trace_enabled("mesh-orientation")
+                        {
                             eprintln!(
                                 "  [orient] parity cycle conflict at faces ({f},{g}) — keeping first assignment"
                             );
@@ -1017,7 +1019,7 @@ fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::Fa
         }
         let enclosed = crate::winding_side::component_is_enclosed(&component, face_meshes);
         let wrong_side = if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
-        if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("mesh-orientation") {
             eprintln!(
                 "  [orient] component {component:?} vol6 {vol6:.4} enclosed={enclosed} \
                  wrong_side={wrong_side}"

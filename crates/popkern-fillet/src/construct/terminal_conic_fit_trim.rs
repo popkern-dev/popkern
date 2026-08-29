@@ -51,7 +51,7 @@ pub(super) fn fit_terminal_conic(
     samples: &[Point3],
     tolerance: &Tolerance,
 ) -> Option<TerminalConic> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let apex = brep.vertices.get(corner)?.position;
     let chord = anchor_out - anchor_in;
     let scale = chord.length().max(1e-12);
@@ -210,7 +210,7 @@ pub(super) fn compute_swept_stub_conic(
     cap: &StripPlane,
     tolerance: &Tolerance,
 ) -> Result<StagedStubArc, TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let (edge, primary, strip_pcurve, cap_half_edge) = {
         let he = brep
             .half_edges

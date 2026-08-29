@@ -4,8 +4,8 @@
 //! V-free topology is the production default, but its Stage-D contract is
 //! only proven for the pyramid repeated-apex class; cube-class apexes
 //! interact with dispatch-time pocket completion (PK-074) and fail native
-//! acceptance under it. When the default (not an explicit
-//! `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1`) fails acceptance,
+//! acceptance under it. When the default (not an explicit strict
+//! `dispatch_overrides::V_FREE_REPEATED_APEX` request) fails acceptance,
 //! the dispatch retries the apex-retaining path once and records the
 //! fallback as a structured diagnostic, so an explicit strict request
 //! still fails loudly while production inputs keep their strongest
@@ -20,16 +20,18 @@ use crate::apex_construction::constructive_builder_options::ConstructiveApexExec
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// Whether the active V-free contract came from the promoted default
-/// rather than an explicit environment request.
+/// rather than an explicit override request.
 pub(super) fn v_free_promoted_by_default() -> bool {
-    std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX").is_none()
+    crate::dispatch_overrides::V_FREE_REPEATED_APEX
+        .get()
+        .is_none()
 }
 
 /// Measured fallback decision for the promoted V-free default: when the
 /// strict result failed structural/G0 acceptance OR the cap-outer G1
 /// commercial gate, retry the apex-retaining path. The strict topology
-/// contract stays available under the explicit environment request
-/// (`POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1`), which never
+/// contract stays available under the explicit strict override
+/// (`dispatch_overrides::V_FREE_REPEATED_APEX`), which never
 /// falls back. Returns the accepted retry result, or `None` when the
 /// strict result stands (or the retry also declined).
 #[allow(clippy::too_many_arguments)]
@@ -49,7 +51,7 @@ pub(super) fn resolve_promoted_v_free_decline(
     {
         return None;
     }
-    if std::env::var_os("PK_CAPG1_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("cap-g1") {
         eprintln!("[capg1] resolve_promoted_v_free_decline: constructive_err={constructive_err:?}");
     }
     let g1_declined = constructive_err.is_none();

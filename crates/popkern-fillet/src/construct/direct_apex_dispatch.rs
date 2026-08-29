@@ -147,7 +147,7 @@ pub(super) fn try_direct_apex_construction(
     // §direct-apex cap-surface option 2 diagnostic: detect Phase-C cylinder-face
     // incoherence (loops with off-cyl vertices, per ADR §25).
     // Today this is purely informational under
-    // `POPKERN_DIRECT_APEX_TRACE=1` — it fires on both Sphere fixtures
+    // the `direct-apex` trace topic — it fires on both Sphere fixtures
     // (where direct-apex still succeeds because the planner finds shared
     // faces despite off-cyl loop vertices) and Gregory fixtures
     // (where direct-apex will fail downstream).  Future slices will use

@@ -57,7 +57,7 @@ pub(crate) fn cellular_graph_merge(
     let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Process edge-face hits.
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [cellular] {} edge-face hits",
             intersection_result.edge_face_hits.len()
@@ -103,7 +103,7 @@ pub(crate) fn cellular_graph_merge(
     // splitter skips nodes not on a shared edge's interior.
     let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
     split_shared_edges_at_nodes(&mut graph, &all_nodes, snap_tol);
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         let mut i = 0;
         while i < graph.half_edges.len() {
             let he = &graph.half_edges[i];
@@ -382,7 +382,7 @@ fn classify_fragments_cellular(
             _ => false,
         };
         if degenerate {
-            if std::env::var_os("PK_CELL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("cellular") {
                 eprintln!(
                     "  [sel] {:?} outer={} DEGENERATE — dropped",
                     fragment.face,
@@ -703,12 +703,12 @@ fn classify_fragments_cellular(
                             other_aabbs,
                             tolerance,
                         );
-                        // PK_PAIR_TRACE: per-probe forensics for the
+                        // the pair-scan trace topic: per-probe forensics for the
                         // offset-pair classifier — prints the exact
-                        // probe points and their verdicts (PK_SEL_TRACE
+                        // probe points and their verdicts (the face-selection trace topic
                         // shows only the resolved pair). This is how
                         // the out-of-corridor ×16 retry was caught.
-                        if std::env::var_os("PK_PAIR_TRACE").is_some() {
+                        if popkern_core::trace::trace_enabled("pair-scan") {
                             eprintln!(
                                 "        [pp] e={e:.3e} +({:.3},{:.3},{:.3})={v_plus:?} -({:.3},{:.3},{:.3})={v_minus:?}",
                                 p_plus.x, p_plus.y, p_plus.z, p_minus.x, p_minus.y, p_minus.z
@@ -734,7 +734,7 @@ fn classify_fragments_cellular(
                             (c_plus_f, c_minus_f)
                         }
                     };
-                    if std::env::var_os("PK_SEL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("face-selection") {
                         eprintln!(
                             "      [pair] {:?} outer={} n=({:.2},{:.2},{:.2}) calibrated={} eps={eps:.2e} c_plus={c_plus:?} c_minus={c_minus:?}",
                             fragment.face,
@@ -778,7 +778,7 @@ fn classify_fragments_cellular(
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side
         // is not selected by the operation predicate.
-        if std::env::var_os("PK_CELL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("cellular") {
             eprintln!(
                 "  [sel] {:?} outer={} sample=({:.2},{:.2},{:.2}) class={class:?} co={cooriented:?}",
                 fragment.face,
@@ -985,7 +985,7 @@ fn rotate_closed_record_to_hits(
     if !closed {
         return record.clone();
     }
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         let gap = c.point_at(t0).distance_to(&c.point_at(t1));
         eprintln!(
             "  [rotate] closed record considered for hit rotation: gap={gap:.3e} t[{t0:.3},{t1:.3}]"
@@ -1016,7 +1016,7 @@ fn rotate_closed_record_to_hits(
         }
         let t_hit = 0.5 * (lo + hi);
         let d_hit = c.point_at(t_hit).distance_to(&hit.point);
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [rotate] hit ({:.3},{:.3},{:.3}) nearest t={t_hit:.4} d={d_hit:.3e}",
                 hit.point.x, hit.point.y, hit.point.z

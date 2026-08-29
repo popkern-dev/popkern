@@ -123,7 +123,7 @@ pub fn measure_cap_outer_boundary(
             let g0 = p_a.distance_to(&p_b);
             if g0 > worst_g0 {
                 worst_g0 = g0;
-                if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
+                if popkern_core::trace::trace_enabled("cap-outer-measure") {
                     let edge_trace = edge
                         .curve
                         .as_ref()
@@ -171,7 +171,7 @@ pub fn measure_cap_outer_boundary(
                 let deficit = 1.0 - (dot(n_a, n_b) / (nn_a * nn_b)).abs();
                 if deficit > worst_g1 {
                     worst_g1 = deficit;
-                    if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
+                    if popkern_core::trace::trace_enabled("cap-outer-measure") {
                         worst_g1_trace = format!(
                             "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) n_a=({:.3},{:.3},{:.3}) n_b=({:.3},{:.3},{:.3}) su_a=({:.3},{:.3},{:.3}) sv_a=({:.3},{:.3},{:.3}) su_b=({:.3},{:.3},{:.3}) sv_b=({:.3},{:.3},{:.3})",
                             uv_a.x,

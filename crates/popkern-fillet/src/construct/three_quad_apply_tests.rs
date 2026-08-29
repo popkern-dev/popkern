@@ -6,7 +6,7 @@
 //!   pre-three-quad hex merge).
 //! * The R8 C7 pin (fallback dispatch commit) moved to
 //!   tests/corner_fallback_dispatch.rs under the
-//!   POPKERN_SETBACK_DISABLE seam; measuring there showed the
+//!   SETBACK_DISABLE override seam; measuring there showed the
 //!   "three-quad poke" contract was vestigial — the committed
 //!   fallback is the direct-apex Coons partition (PK-192).
 

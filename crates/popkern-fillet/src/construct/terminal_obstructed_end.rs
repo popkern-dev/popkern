@@ -65,7 +65,7 @@ pub(super) fn try_repair_obstructed_end(
     cyl: &StripCylinder,
     tolerance: &Tolerance,
 ) -> Result<(), TerminalArcTrimDeclineReason> {
-    let trace = std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some();
+    let trace = popkern_core::trace::trace_enabled("terminal-arc");
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
 
     let radial_of = |p: Point3| -> Vec3 {

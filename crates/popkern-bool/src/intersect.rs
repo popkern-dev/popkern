@@ -403,7 +403,7 @@ pub(crate) fn find_intersections_with_aabbs(
 
     // Diagnostic: detect edge-face intersections (marching path).
     let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
-    if std::env::var_os("PK_PAIR_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("pair-scan") {
         eprintln!("  [hits] {} edge-face hits", edge_face_hits.len());
         for h in &edge_face_hits {
             eprintln!(
@@ -672,7 +672,7 @@ fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolera
                         break false;
                     }
                 };
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [consolidate] chain from seed {seed}: len {} closed={closed}",
                         chain.len()
@@ -721,7 +721,7 @@ fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolera
                 let duplicate = kept_loops
                     .iter()
                     .any(|kl| samples.iter().all(|p| dist_to_polyline(p, kl) < gate));
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     let n = samples.len() as f64;
                     let cx = samples.iter().map(|p| p.x).sum::<f64>() / n;
                     let cy = samples.iter().map(|p| p.y).sum::<f64>() / n;
@@ -820,7 +820,7 @@ fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolera
             }
         }
     }
-    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boolean") {
         let dropped = drop.iter().filter(|&&d| d).count();
         eprintln!(
             "  [consolidate] {} records in {} groups, dropped {}",

@@ -63,9 +63,8 @@ fn run() -> Result<(), String> {
     // postcondition until PK-094 landed the strip-movement-scaled
     // rim gate + cross-seam jet pinning (measured: g1 1.478e-1 →
     // 1.0e-3 on this exact fixture; the PK-123 serving boundary at
-    // r = 0.06 is retired). Override with KP20_APEX_RADIUS to probe.
-    let radius: f64 = std::env::var("KP20_APEX_RADIUS")
-        .ok()
+    // r = 0.06 is retired). Override with `--radius <r>` to probe.
+    let radius: f64 = cli_value("--radius")
         .and_then(|v| v.parse().ok())
         .unwrap_or(0.16);
     let specs: Vec<FilletSpec> = apex_edges
@@ -75,8 +74,8 @@ fn run() -> Result<(), String> {
             radius: FilletRadius::Constant(radius),
         })
         .collect();
-    let continuity = match std::env::var("KP20_APEX_CONTINUITY").as_deref() {
-        Ok("G1") => ContinuityLevel::G1,
+    let continuity = match cli_value("--continuity").as_deref() {
+        Some("G1") | Some("g1") => ContinuityLevel::G1,
         _ => ContinuityLevel::G2,
     };
     let options = FilletOptions {
@@ -247,4 +246,13 @@ fn write_grouped_obj(
         .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// `--flag value` lookup over the process args.
+fn cli_value(flag: &str) -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }

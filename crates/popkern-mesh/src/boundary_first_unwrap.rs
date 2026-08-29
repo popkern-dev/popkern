@@ -74,7 +74,7 @@ pub(super) fn unwrap_dir(
 // edge's run offset by a full period) — they need
 // different fixes.
 pub(super) fn dump_ring(ring: &BoundaryRing, dir: &str) {
-    if std::env::var_os("PK_BF_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("boundary-first") {
         eprintln!("    [bf] full {dir}-wrap ring — cannot chart");
         for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
             eprintln!(

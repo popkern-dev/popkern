@@ -117,7 +117,7 @@ pub(super) fn run_lm<E: LmEval>(
     let mut iters = 0usize;
     let mut accepted = 0usize;
 
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!("[lm {trace_tag}] init: residual={residual_sq:.3e} D={n_dof}");
     }
 
@@ -236,7 +236,7 @@ pub(super) fn run_lm<E: LmEval>(
         }
     }
 
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!(
             "[lm {trace_tag}] done: residual={best_residual:.3e} iters={iters} accepted={accepted}"
         );

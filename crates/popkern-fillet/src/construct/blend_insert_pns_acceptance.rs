@@ -171,7 +171,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     // dispatch attempt (~80%), and with PNS_MIN_VALENCE=3 that cost
     // lands on every cube-class corner that ultimately declines —
     // the 12-edge cube fillet regressed 106ms → 515ms past its CI
-    // budget. `POPKERN_PNS_CURVE_AUDIT=1` restores the measurement;
+    // budget. `POPKERN_TRACE=pns-curve-audit` restores the measurement;
     // the diagnostic records that the audit was skipped otherwise.
     let mut worst_curve_off_surface = 0.0_f64;
     // Identity of the worst curve/surface disagreement — the scalar
@@ -180,7 +180,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     let mut worst_off_detail = if pns_curve_audit_enabled() {
         String::from("none")
     } else {
-        String::from("skipped:set POPKERN_PNS_CURVE_AUDIT=1")
+        String::from("skipped:set POPKERN_TRACE=pns-curve-audit")
     };
     let audit_faces: &[popkern_core::topology::FaceHandle] = if pns_curve_audit_enabled() {
         &audited
@@ -406,13 +406,11 @@ fn surface_kind_name(surface: &popkern_core::geometry::SurfaceGeometry) -> &'sta
     }
 }
 
-/// PK-203 diagnostic-probe switch: `POPKERN_PNS_CURVE_AUDIT=1`
+/// PK-203 diagnostic-probe switch: `POPKERN_TRACE=pns-curve-audit`
 /// enables the curve-off-surface audit inside the PnS acceptance
 /// harness (21 Newton projections per half-edge over the audited
 /// faces — ~80% of a declining n=3 attempt's cost, see PK-298).
 /// Default off; the acceptance decision never reads its output.
 fn pns_curve_audit_enabled() -> bool {
-    std::env::var("POPKERN_PNS_CURVE_AUDIT")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+    popkern_core::trace::trace_enabled("pns-curve-audit")
 }

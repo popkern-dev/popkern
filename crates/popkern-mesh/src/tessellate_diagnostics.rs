@@ -1,4 +1,4 @@
-//! Env-gated tessellation diagnostics (PK_MESH_DEEPCHORD_TRACE):
+//! Env-gated tessellation diagnostics (the deep-chord trace topic):
 //! per face mesh, flag triangle edges whose midpoints deviate from
 //! the face surface by far more than the chord tolerance — the
 //! honest "deep chord" signal that caught the PK-146 seam-band
@@ -16,7 +16,7 @@ pub(super) fn deepchord_trace(
     options: &TessellationOptions,
     stage: &str,
 ) {
-    if std::env::var_os("PK_MESH_DEEPCHORD_TRACE").is_some() {
+    if popkern_core::trace::trace_enabled("deep-chord") {
         for fm in face_meshes {
             let Some(sof) = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref()) else {
                 continue;

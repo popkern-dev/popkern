@@ -123,7 +123,7 @@ pub(super) fn open_chain_pre_pass(
                 // arc never partitioned and classification flood-fill
                 // leaked through the unsplit disc).
                 let edge = &brep.edges[brep.half_edges[he].edge];
-                if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("face-split") {
                     eprintln!(
                         "    [chain-bnd] {original_face:?} edge {:?} curve={} a=({:.3},{:.3},{:.3}) b=({:.3},{:.3},{:.3})",
                         brep.half_edges[he].edge,
@@ -244,7 +244,7 @@ pub(super) fn open_chain_pre_pass(
             } else {
                 ends[tail_idx].1
             };
-            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("face-split") {
                 eprintln!(
                     "  [open-chain] {original_face:?} len {} head ({:.3},{:.3},{:.3}) int={} tail ({:.3},{:.3},{:.3}) int={}",
                     chain.len(),
@@ -340,7 +340,7 @@ pub(super) fn open_chain_pre_pass(
                 used[k] = true;
                 chained.insert(candidates[k].0);
             }
-            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!(
                     "  [open-chain] face {original_face:?}: chained {} segments into one trim",
                     chain.len()

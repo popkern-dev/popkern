@@ -191,7 +191,7 @@ pub(crate) fn cellular_assemble(
                 (prior_pair.1, prior_pair.0)
             };
             edge_he_map.insert(key, pair);
-            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!(
                     "  [assemble] edge key {key}: UNIFIED with key {prior_key} (same_dir={same_dir})"
                 );
@@ -206,7 +206,7 @@ pub(crate) fn cellular_assemble(
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);
 
         edge_he_map.insert(key, (he_fwd, he_twin));
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [assemble] edge key {key}: nodes ({na},{nb}) shared={} curve={}",
                 matches!(
@@ -250,14 +250,14 @@ pub(crate) fn cellular_assemble(
                     // Curve goes nb→na but we need na→nb: swap parameters
                     std::mem::swap(&mut aligned.t_start, &mut aligned.t_end);
                 }
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [assemble] set curve on key {sample_ghe}: t [{:.3},{:.3}]",
                         aligned.t_start, aligned.t_end
                     );
                 }
                 builder.set_edge_curve(edge_h, aligned);
-            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            } else if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!(
                     "  [assemble] shared/self-loop edge key {sample_ghe} ({na},{nb}): NO CURVE on either half"
                 );
@@ -327,7 +327,7 @@ pub(crate) fn cellular_assemble(
     for &fi in &kept {
         let sel = &selections[fi];
         let frag = &fragments[fi];
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [assemble] kept fragment {:?} outer {} inner {} flip={} ghes={:?}",
                 frag.face,
@@ -407,13 +407,13 @@ pub(crate) fn cellular_assemble(
                     }
                     None => false,
                 };
-                if !free && std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if !free && popkern_core::trace::trace_enabled("boolean") {
                     eprintln!("  [resolve] reversal blocked at ghe {ghe} (key {key})");
                 }
                 free
             });
             let (order, extra_twin): (Vec<usize>, bool) = if straight_conflicts && reversed_free {
-                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [resolve] loop of {} re-wired reversed (direction conflict)",
                         raw_hes.len()
@@ -439,7 +439,7 @@ pub(crate) fn cellular_assemble(
                 let key = ghe.min(twin_idx);
 
                 let Some(&(he_fwd, he_twin)) = edge_he_map.get(&key) else {
-                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
                             "  [resolve] ghe {ghe} (key {key}): edge NOT IN MAP — dropped from loop"
                         );
@@ -454,7 +454,7 @@ pub(crate) fn cellular_assemble(
 
                 if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
-                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    if popkern_core::trace::trace_enabled("boolean") {
                         used_by.insert(brep_he, format!("{:?} ghe {ghe}", frag.face));
                     }
                     result.push(brep_he);
@@ -486,14 +486,14 @@ pub(crate) fn cellular_assemble(
                             let _ = dup_twin;
                             used_hes.insert(dup_fwd);
                             result.push(dup_fwd);
-                            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                            if popkern_core::trace::trace_enabled("boolean") {
                                 eprintln!(
                                     "  [resolve] ghe {ghe} (key {key}) for {:?}: conflict with {} — minted duplicate edge",
                                     frag.face,
                                     used_by.get(&brep_he).cloned().unwrap_or_else(|| "?".into())
                                 );
                             }
-                        } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        } else if popkern_core::trace::trace_enabled("boolean") {
                             eprintln!(
                                 "  [resolve] ghe {ghe} (key {key}): conflict and nodes unmapped — dropped"
                             );
@@ -532,14 +532,14 @@ pub(crate) fn cellular_assemble(
             let (inner_hes, _) = resolve_loop(&raw_inner, sel.flip, &mut builder);
             if !inner_hes.is_empty() {
                 if let Err(e) = builder.add_inner_loop(&inner_hes, face_h)
-                    && std::env::var_os("PK_BOOL_TRACE").is_some()
+                    && popkern_core::trace::trace_enabled("boolean")
                 {
                     eprintln!(
                         "  [assemble] add_inner_loop FAILED on {face_h:?} ({} hes): {e}",
                         inner_hes.len()
                     );
                 }
-            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            } else if popkern_core::trace::trace_enabled("boolean") {
                 eprintln!("  [assemble] inner loop resolved EMPTY on {face_h:?}");
             }
         }
