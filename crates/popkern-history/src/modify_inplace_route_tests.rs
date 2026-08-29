@@ -85,6 +85,7 @@ fn fillet_radius_tweak_refreshes_cached_state() {
     let old_feature = Feature::Fillet {
         edges: vec![edge_name.clone()],
         radius: r_old,
+        recipe: Default::default(),
     };
     let fillet_id = tree.add_feature(old_feature.clone(), "fillet");
     tree.cache
@@ -94,6 +95,7 @@ fn fillet_radius_tweak_refreshes_cached_state() {
     let new_feature = Feature::Fillet {
         edges: vec![edge_name],
         radius: r_new,
+        recipe: Default::default(),
     };
     let refreshed = tree
         .try_parameter_tweak_in_place(fillet_id, &old_feature, &new_feature)
@@ -160,6 +162,7 @@ fn edge_set_change_falls_back_to_full_replay() {
         Feature::Fillet {
             edges: vec![edge_name.clone()],
             radius: r,
+            recipe: Default::default(),
         },
         "fillet",
     );
@@ -171,6 +174,7 @@ fn edge_set_change_falls_back_to_full_replay() {
         Feature::Fillet {
             edges: vec![],
             radius: r,
+            recipe: Default::default(),
         },
     );
     assert!(
@@ -265,6 +269,7 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
         Feature::Fillet {
             edges: vec![edge_name.clone()],
             radius: r_old,
+            recipe: Default::default(),
         },
         "fillet",
     );
@@ -289,6 +294,7 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
         Feature::Fillet {
             edges: vec![edge_name],
             radius: r_new,
+            recipe: Default::default(),
         },
     );
     assert!(
@@ -299,4 +305,92 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
         .expect("post-tweak replay");
     let final_brep = tree.current_brep.clone().expect("final body");
     final_brep.validate().expect("tweaked body validates");
+}
+
+/// A recipe change (here G1 → G2) is not a radius tweak: the in-place
+/// radius-modify route must decline so the tree falls back to a full
+/// replay with the new options honoured (PK-361).
+#[test]
+fn fillet_recipe_change_declines_in_place_route() {
+    let tol = Tolerance::default();
+    let mut state_before = BRep::unit_cube(tol).expect("cube");
+    let edge = state_before.edges.keys().next().expect("cube edge");
+    let edge_name = entity_name(7, RoleCategory::Generated, 0);
+    let name_id = state_before.name_pool.intern(edge_name.clone(), None);
+    state_before.edges[edge].name = Some(name_id);
+    let state_at = popkern_blend::fillet_edges(
+        &state_before,
+        &[popkern_blend::FilletSpec {
+            edge,
+            radius: popkern_blend::FilletRadius::Constant(0.1),
+        }],
+        &popkern_blend::FilletOptions::default(),
+        tol,
+        None,
+    )
+    .expect("fillet serves")
+    .brep;
+
+    let mut tree = FeatureTree::new();
+    tree.set_cache_strategy(CacheStrategy::EveryStep);
+    let anchor = tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: rectangle_sketch_json(),
+        },
+        "anchor",
+    );
+    let r_old = tree
+        .parameters_mut()
+        .add_global("r", 0.1, Unit::Meters)
+        .expect("param");
+    let r_new = tree
+        .parameters_mut()
+        .add_global("r2", 0.2, Unit::Meters)
+        .expect("param");
+    let old_feature = Feature::Fillet {
+        edges: vec![edge_name.clone()],
+        radius: r_old,
+        recipe: Default::default(),
+    };
+    let fillet_id = tree.add_feature(old_feature.clone(), "fillet");
+    tree.cache
+        .store_explicit(None, anchor, state_before.clone());
+    tree.cache.store_explicit(None, fillet_id, state_at.clone());
+
+    let g2 = Feature::Fillet {
+        edges: vec![edge_name.clone()],
+        radius: r_new,
+        recipe: crate::feature_blend::FilletRecipeDesc {
+            continuity: crate::feature_blend::ContinuityKind::G2,
+            ..Default::default()
+        },
+    };
+    assert!(
+        tree.try_parameter_tweak_in_place(fillet_id, &old_feature, &g2)
+            .is_none(),
+        "continuity change must not take the radius-only in-place route"
+    );
+
+    // Same recipe on both sides, but a variable law: also not a
+    // constant-radius tweak.
+    let variable = crate::feature_blend::FilletRecipeDesc {
+        radius_law: crate::feature_blend::FilletRadiusLaw::Linear { end: r_new },
+        ..Default::default()
+    };
+    let old_var = Feature::Fillet {
+        edges: vec![edge_name.clone()],
+        radius: r_old,
+        recipe: variable.clone(),
+    };
+    let new_var = Feature::Fillet {
+        edges: vec![edge_name],
+        radius: r_new,
+        recipe: variable,
+    };
+    assert!(
+        tree.try_parameter_tweak_in_place(fillet_id, &old_var, &new_var)
+            .is_none(),
+        "variable-law fillets must not take the constant-radius in-place route"
+    );
 }

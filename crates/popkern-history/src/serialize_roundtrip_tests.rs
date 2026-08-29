@@ -61,6 +61,7 @@ fn save_load_all_feature_types() {
         Feature::Fillet {
             edges: vec![face_name(2)],
             radius: r,
+            recipe: Default::default(),
         },
         "Fillet",
     );
@@ -70,6 +71,7 @@ fn save_load_all_feature_types() {
         Feature::Chamfer {
             edges: vec![face_name(2)],
             distance: cd,
+            kind: Default::default(),
         },
         "Chamfer",
     );

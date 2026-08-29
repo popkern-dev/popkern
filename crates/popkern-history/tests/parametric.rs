@@ -225,6 +225,7 @@ fn expression_chain_across_features() {
         Feature::Fillet {
             edges: vec![bogus_edge],
             radius: fillet_radius,
+            recipe: Default::default(),
         },
         "Fillet1",
     );
@@ -325,6 +326,7 @@ fn conditional_suppression_end_to_end() {
             Feature::Fillet {
                 edges: vec![en],
                 radius: fillet_radius,
+                recipe: Default::default(),
             },
             "Fillet1",
         )
@@ -341,6 +343,7 @@ fn conditional_suppression_end_to_end() {
             Feature::Fillet {
                 edges: vec![bogus],
                 radius: fillet_radius,
+                recipe: Default::default(),
             },
             "Fillet1",
         )

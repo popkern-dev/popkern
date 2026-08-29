@@ -21,6 +21,8 @@ popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
 popkern-part = { path = "../popkern-part", features = ["text"] }
+popkern-history = { path = "../popkern-history" }
+popkern-sketch = { path = "../popkern-sketch" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-viz = { path = "../popkern-viz" }

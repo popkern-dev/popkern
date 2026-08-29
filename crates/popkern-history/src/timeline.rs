@@ -97,7 +97,12 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             }
             names
         }
-        Feature::Fillet { edges, .. } | Feature::Chamfer { edges, .. } => edges.iter().collect(),
+        Feature::Fillet { edges, .. } => edges.iter().collect(),
+        Feature::Chamfer { edges, kind, .. } => {
+            let mut names: Vec<&EntityName> = edges.iter().collect();
+            names.extend(kind.reference_face());
+            names
+        }
         Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {
             Vec::new()
         }

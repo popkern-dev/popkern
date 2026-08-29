@@ -362,3 +362,75 @@ pub(super) fn execute_extrude(
 
     Ok(())
 }
+
+/// Kernel fillet specs for `edges`: the feature's `radius` parameter
+/// combined with the recipe's radius law, every value resolved through
+/// the parameter table.
+pub(super) fn fillet_specs(
+    edges: Vec<popkern_core::topology::EdgeHandle>,
+    radius: crate::parameter::ParameterId,
+    recipe: &crate::feature_blend::FilletRecipeDesc,
+    param_table: &ParameterTable,
+) -> Result<Vec<popkern_blend::FilletSpec>, ReplayError> {
+    use crate::feature_blend::FilletRadiusLaw;
+    let start = resolve_param(param_table, radius)?;
+    let law = match &recipe.radius_law {
+        FilletRadiusLaw::Constant => popkern_blend::FilletRadius::Constant(start),
+        FilletRadiusLaw::Linear { end } => popkern_blend::FilletRadius::Variable {
+            start,
+            end: resolve_param(param_table, *end)?,
+        },
+        FilletRadiusLaw::ByStations(stations) => {
+            let points = stations
+                .iter()
+                .map(|s| Ok((s.t, resolve_param(param_table, s.radius)?)))
+                .collect::<Result<Vec<(f64, f64)>, ReplayError>>()?;
+            popkern_blend::FilletRadius::ByPoints(points)
+        }
+    };
+    Ok(edges
+        .into_iter()
+        .map(|edge| popkern_blend::FilletSpec {
+            edge,
+            radius: law.clone(),
+        })
+        .collect())
+}
+
+/// Kernel chamfer specs for `edges`: the feature's `distance`
+/// parameter combined with the chamfer kind, reference faces resolved
+/// by stable name and every value through the parameter table.
+pub(super) fn chamfer_specs(
+    brep: &BRep,
+    edges: Vec<popkern_core::topology::EdgeHandle>,
+    distance: crate::parameter::ParameterId,
+    kind: &crate::feature_blend::ChamferKindDesc,
+    param_table: &ParameterTable,
+) -> Result<Vec<popkern_blend::ChamferSpec>, ReplayError> {
+    use crate::feature_blend::ChamferKindDesc;
+    let dist = resolve_param(param_table, distance)?;
+    let kernel_kind = match kind {
+        ChamferKindDesc::Equal => popkern_blend::ChamferKind::Equal(dist),
+        ChamferKindDesc::TwoDistance { face, distance_2 } => {
+            popkern_blend::ChamferKind::TwoDistance {
+                face_1: crate::resolve::resolve_face(face, brep)?,
+                dist_1: dist,
+                dist_2: resolve_param(param_table, *distance_2)?,
+            }
+        }
+        ChamferKindDesc::DistanceAngle { face, angle } => {
+            popkern_blend::ChamferKind::DistanceAngle {
+                face: crate::resolve::resolve_face(face, brep)?,
+                distance: dist,
+                angle: resolve_param(param_table, *angle)?,
+            }
+        }
+    };
+    Ok(edges
+        .into_iter()
+        .map(|edge| popkern_blend::ChamferSpec {
+            edge,
+            kind: kernel_kind.clone(),
+        })
+        .collect())
+}

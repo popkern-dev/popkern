@@ -69,12 +69,17 @@ impl FeatureTree {
                 Feature::Fillet {
                     edges: e_old,
                     radius: r_old,
+                    recipe: rc_old,
                 },
                 Feature::Fillet {
                     edges: e_new,
                     radius: r_new,
+                    recipe: rc_new,
                 },
-            ) if e_old == e_new => {
+            ) if e_old == e_new
+                && rc_old == rc_new
+                && rc_old.radius_law == crate::feature_blend::FilletRadiusLaw::Constant =>
+            {
                 let (old_v, new_v) = resolved_pair(table, *r_old, *r_new)?;
                 if (old_v - new_v).abs() < 1.0e-15 {
                     return None;
@@ -120,12 +125,17 @@ impl FeatureTree {
                 Feature::Chamfer {
                     edges: e_old,
                     distance: d_old,
+                    kind: k_old,
                 },
                 Feature::Chamfer {
                     edges: e_new,
                     distance: d_new,
+                    kind: k_new,
                 },
-            ) if e_old == e_new => {
+            ) if e_old == e_new
+                && k_old == k_new
+                && *k_old == crate::feature_blend::ChamferKindDesc::Equal =>
+            {
                 let (old_v, new_v) = resolved_pair(table, *d_old, *d_new)?;
                 if (old_v - new_v).abs() < 1.0e-15 {
                     return None;

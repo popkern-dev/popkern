@@ -95,9 +95,21 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
                 remap_extrude_end(&mut sd.end_condition, op_remap);
             }
         }
-        Feature::Fillet { edges, .. } | Feature::Chamfer { edges, .. } => {
+        Feature::Fillet { edges, .. } => {
             for name in edges.iter_mut() {
                 remap_name(name, op_remap);
+            }
+        }
+        Feature::Chamfer { edges, kind, .. } => {
+            for name in edges.iter_mut() {
+                remap_name(name, op_remap);
+            }
+            match kind {
+                crate::feature_blend::ChamferKindDesc::Equal => {}
+                crate::feature_blend::ChamferKindDesc::TwoDistance { face, .. }
+                | crate::feature_blend::ChamferKindDesc::DistanceAngle { face, .. } => {
+                    remap_name(face, op_remap);
+                }
             }
         }
         Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {}

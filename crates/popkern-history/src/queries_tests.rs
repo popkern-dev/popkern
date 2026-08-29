@@ -70,6 +70,7 @@ fn dependents_returns_transitive_downstream() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -143,6 +144,7 @@ fn dependents_in_timeline_order() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -186,6 +188,7 @@ fn dependencies_returns_direct_parents() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -256,6 +259,7 @@ fn impact_analysis_will_rebuild_matches_dependents() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );

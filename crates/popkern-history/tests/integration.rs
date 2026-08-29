@@ -103,6 +103,7 @@ fn sketch_extrude_fillet_pipeline() {
         Feature::Fillet {
             edges: vec![edge_name],
             radius: radius_param,
+            recipe: Default::default(),
         },
         "Fillet1",
     );
@@ -232,6 +233,7 @@ fn delete_extrude_cascades() {
         Feature::Fillet {
             edges: vec![edge_name],
             radius: radius_param,
+            recipe: Default::default(),
         },
         "Fillet1",
     );
@@ -295,6 +297,7 @@ fn broken_reference_produces_failed() {
         Feature::Fillet {
             edges: vec![bogus],
             radius: radius_param,
+            recipe: Default::default(),
         },
         "BrokenFillet",
     );
@@ -356,6 +359,7 @@ fn dependency_and_impact_queries() {
         Feature::Fillet {
             edges: vec![edge_name],
             radius: radius_param,
+            recipe: Default::default(),
         },
         "Fillet1",
     );

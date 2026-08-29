@@ -48,8 +48,16 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
             }
             v
         }
-        Feature::Fillet { radius, .. } => vec![("radius", *radius)],
-        Feature::Chamfer { distance, .. } => vec![("distance", *distance)],
+        Feature::Fillet { radius, recipe, .. } => {
+            let mut v = vec![("radius", *radius)];
+            v.extend(recipe.param_ids());
+            v
+        }
+        Feature::Chamfer { distance, kind, .. } => {
+            let mut v = vec![("distance", *distance)];
+            v.extend(kind.param_ids());
+            v
+        }
         Feature::Shell { thickness, .. } => vec![("thickness", *thickness)],
         Feature::Thicken { thickness, .. } => vec![("thickness", *thickness)],
         Feature::OffsetSolid { distance, .. } => vec![("distance", *distance)],

@@ -4,6 +4,7 @@
 //! Entity references use [`EntityName`] (stable names) rather than raw handles
 //! so that references survive rollback and tree reordering.
 
+use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
@@ -44,19 +45,33 @@ pub enum Feature {
         #[serde(default)]
         second_direction: Option<ExtrudeSecondDir>,
     },
-    /// Round one or more edges with a constant radius.
+    /// Round one or more edges. `radius` alone is a constant-radius
+    /// `G1` fillet; `recipe` carries the full blend recipe (radius
+    /// law, continuity, caps, profile, interference policy).
     Fillet {
         /// The edges to fillet, identified by stable name.
         edges: Vec<EntityName>,
-        /// Fillet radius (resolved via parameter table).
+        /// Fillet radius, or the start radius of a variable law
+        /// (resolved via parameter table).
         radius: ParameterId,
+        /// The blend recipe (PK-361). Defaults reproduce the
+        /// constant-radius `G1` fillet trees saved before the recipe
+        /// existed.
+        #[serde(default)]
+        recipe: FilletRecipeDesc,
     },
-    /// Chamfer one or more edges with a constant distance.
+    /// Chamfer one or more edges. `distance` alone is an equal-distance
+    /// bevel; `kind` selects two-distance or distance-angle geometry.
     Chamfer {
         /// The edges to chamfer, identified by stable name.
         edges: Vec<EntityName>,
-        /// Chamfer distance (resolved via parameter table).
+        /// Chamfer distance, or the first distance of a two-distance /
+        /// distance-angle kind (resolved via parameter table).
         distance: ParameterId,
+        /// The chamfer geometry kind (PK-361). Defaults to the equal
+        /// bevel trees saved before the kind existed.
+        #[serde(default)]
+        kind: ChamferKindDesc,
     },
     /// Boolean set operation combining the current body with a tool body.
     Boolean {

@@ -29,6 +29,7 @@ pub mod delete;
 pub mod error;
 pub mod expression;
 pub mod feature;
+pub mod feature_blend;
 mod feature_params;
 pub mod format;
 pub mod health;
@@ -67,6 +68,10 @@ pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
 pub use feature::{
     AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, JoinStyleKind, OperationMode,
     RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
+};
+pub use feature_blend::{
+    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
+    FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};

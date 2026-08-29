@@ -16,8 +16,8 @@ use crate::parameter::ParameterTable;
 #[path = "replay_fns.rs"]
 mod replay_fns;
 use replay_fns::{
-    execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
-    extract_plane_from_face, resolve_param, to_bool_operation, to_shell_direction,
+    chamfer_specs, execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
+    extract_plane_from_face, fillet_specs, resolve_param, to_bool_operation, to_shell_direction,
     to_shell_options,
 };
 
@@ -92,20 +92,17 @@ pub(crate) fn execute_feature(
             )?;
             Ok(ExecuteSideEffects::empty())
         }
-        Feature::Fillet { edges, radius } => {
-            let r = resolve_param(param_table, *radius)?;
+        Feature::Fillet {
+            edges,
+            radius,
+            recipe,
+        } => {
             let edge_handles = resolve_edges(edges, brep)?;
-            let specs: Vec<popkern_blend::FilletSpec> = edge_handles
-                .into_iter()
-                .map(|edge| popkern_blend::FilletSpec {
-                    edge,
-                    radius: popkern_blend::FilletRadius::Constant(r),
-                })
-                .collect();
+            let specs = fillet_specs(edge_handles, *radius, recipe, param_table)?;
             let result = popkern_blend::fillet_edges(
                 brep,
                 &specs,
-                &popkern_blend::FilletOptions::default(),
+                &recipe.to_kernel_options(),
                 *tolerance,
                 Some(tracking),
             )
@@ -116,16 +113,13 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
-        Feature::Chamfer { edges, distance } => {
-            let dist = resolve_param(param_table, *distance)?;
+        Feature::Chamfer {
+            edges,
+            distance,
+            kind,
+        } => {
             let edge_handles = resolve_edges(edges, brep)?;
-            let specs: Vec<popkern_blend::ChamferSpec> = edge_handles
-                .into_iter()
-                .map(|edge| popkern_blend::ChamferSpec {
-                    edge,
-                    kind: popkern_blend::ChamferKind::Equal(dist),
-                })
-                .collect();
+            let specs = chamfer_specs(brep, edge_handles, *distance, kind, param_table)?;
             let result = popkern_blend::chamfer_edges(
                 brep,
                 &specs,

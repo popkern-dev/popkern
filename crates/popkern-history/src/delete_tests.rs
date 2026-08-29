@@ -67,6 +67,7 @@ fn cascade_removes_transitive_dependents() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -150,6 +151,7 @@ fn reparent_rewires_dependents_to_grandparent() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -280,6 +282,7 @@ fn reparent_delete_undo_restores_deps() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -328,6 +331,7 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
         Feature::Fillet {
             edges: vec![entity_name(b_op.0)],
             radius: radius_c,
+            recipe: Default::default(),
         },
         "C",
     );
@@ -338,6 +342,7 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
         Feature::Chamfer {
             edges: vec![entity_name(b_op.0)],
             distance: dist_d,
+            kind: Default::default(),
         },
         "D",
     );
