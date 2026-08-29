@@ -150,6 +150,7 @@ mod terminal_chord_trim;
 mod terminal_cone_trim;
 mod terminal_conic_fit_trim;
 mod terminal_corner_recognition;
+mod terminal_iso_trim;
 mod terminal_obstructed_crossing;
 mod terminal_obstructed_end;
 pub(crate) mod three_quad_apply;

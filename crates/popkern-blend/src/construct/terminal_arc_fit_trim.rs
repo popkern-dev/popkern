@@ -257,6 +257,26 @@ pub(super) fn repair_corner_swept(
             }
             return Ok(());
         }
+        // PK-375: neither circular nor conic — the G2 degree-5
+        // section class. The strip's exact terminal iso curve is the
+        // section; settle onto it (no fit).
+        if let SurfaceGeometry::Nurbs(ns) = &strip_surface {
+            let station = super::terminal_iso_trim::TerminalIsoStation {
+                iso_is_u,
+                fixed,
+                free_in: free_of(a_start),
+                free_deep: free_of(a_end),
+                free_out: free_of(b_end),
+            };
+            if trace {
+                eprintln!(
+                    "[tat]   swept terminal section not circular (residual {residual:.3e}) nor conic; trying the exact iso-curve settle"
+                );
+            }
+            return super::terminal_iso_trim::repair_corner_iso(
+                brep, c, ns, &station, anchor_in, anchor_out, &cap, cap_face, tolerance,
+            );
+        }
         if trace {
             eprintln!("[tat]   swept terminal section not circular: residual {residual:.3e}");
         }
