@@ -112,7 +112,6 @@ mod kp20_bi6_assemble;
 mod kp20_bi6_cap;
 mod kp20_bi6_cc_ring;
 mod kp20_bi6_cnet;
-mod kp20_bi6_exports;
 mod kp20_bi6_guide_build;
 mod kp20_bi6_guide_continuity;
 mod kp20_bi6_guide_lsq;
@@ -320,6 +319,11 @@ pub use kp15_bi6_rules::{
     rule_s2_p21, rule_s2_p22, rule_s4,
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+// KP20 macro-cap public surface. The full item list lives in
+// `kp20_bi6_exports.rs` — a dedicated file whose only content is the
+// explicit `pub use` surface (kept out of this file for the 500-line
+// module budget; rustdoc inlines it identically).
+mod kp20_bi6_exports;
 pub use kp20_bi6_exports::*;
 pub use kp20_paper_cap::{
     Kp20PaperCapError, Kp20PaperCapReport, assemble_kp20_paper_cap,

@@ -1,4 +1,7 @@
-//! Public KP20 re-export surface for the Gregory module.
+//! KP20 macro-cap public surface — the explicit `pub use` list for
+//! every KP20 item `gregory` exports. This file is the canonical
+//! answer to "what is the KP20 public API"; keep it a flat, explicit
+//! list (no globs).
 
 pub use super::kp20_bi6_assemble::{
     Kp20Bi6AppendixAFig6cCapOutput, Kp20Bi6AppendixAFig6cSectorSample, Kp20Bi6AssembleError,
@@ -27,18 +30,6 @@ pub use super::kp20_bi6_cnet::{
     kp20_tensor_border_from_regular_cnet, kp20_tensor_border_from_regular_cnet_rows,
 };
 pub use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
-// The kp18_apply_*_join_degree6 helpers carry a known indexing
-// mismatch with solve_kp20_guide_lsq (see kp20_bi6_guide_continuity
-// module-level note). They are re-exported only because removing
-// the public re-exports is out of scope for this commit; production
-// code must NOT call them. The indexing-correct path is the LSQ.
-#[allow(deprecated)]
-mod deprecated_join_reexports {
-    pub use super::super::kp20_bi6_guide_continuity::{
-        kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
-        kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6,
-    };
-}
 pub use super::kp20_bi6_guide_continuity::kp18_guide_join_weights;
 pub use super::kp20_bi6_guide_lsq::{
     Kp20GuideLsqError, Kp20GuideLsqOutput, Kp20GuideLsqReport, solve_kp20_guide_lsq,
@@ -81,9 +72,9 @@ pub use super::kp20_bi6_piece_maps::{
     sample_kp20_macro_patch_from_tau_family_maps, sample_kp20_macro_patch_from_tau_maps,
     sample_kp20_macro_patch_from_valid_planar_bi6_tau_macro_patch,
 };
+pub use super::kp20_bi6_s0_solve::{Kp20S0Projection, Kp20S0Sample, Kp20S0SolveError};
 pub use super::kp20_bi6_s0_solve::{
-    Kp20S0Projection, Kp20S0Sample, Kp20S0SolveError, build_kp20_g2_strip_samples,
-    project_kp20_g2_strip_pair, solve_kp20_s0_projection,
+    build_kp20_g2_strip_samples, project_kp20_g2_strip_pair, solve_kp20_s0_projection,
 };
 pub use super::kp20_bi6_tau::{
     KP20_TAU_CP_COUNT, Kp20TauJet3, Kp20TauMap, kp20_compose_guide_tau_jet,
@@ -116,9 +107,4 @@ pub use super::kp20_bi6_tau_solve_assemble::{
 };
 pub use super::kp20_bi6_validate::{
     Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,
-};
-#[allow(deprecated)]
-pub use deprecated_join_reexports::{
-    kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
-    kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6,
 };

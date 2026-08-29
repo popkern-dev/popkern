@@ -53,9 +53,9 @@ for file in "${files[@]}"; do
             # item 7).
             continue
             ;;
-        docs/architecture/public-release-readiness-plan.md)
-            # The release plan quotes the banned labels as its own
-            # rename inventory.
+        docs/architecture/public-release-readiness-plan.md|docs/reference/kp-naming-map.md)
+            # These docs quote the banned labels as their own
+            # rename/disposition inventory.
             continue
             ;;
     esac

@@ -194,6 +194,37 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 ---
 
+## Karčiauskas–Peters 2020 G² macro cap (setback vertex blends)
+
+### KP20 — G² vertex-blend macro cap
+
+**Citation:** Karčiauskas, K. & Peters, J. (2020). "High quality refinable G-splines for locally quad-dominant meshes with T-gons" / the 2020 G² refinable surface construction (referenced as KP20 throughout).
+
+**Local file:** `docs/papers/20g2Ref.pdf`
+
+**What's implemented:**
+- Full §4.4 macro-cap assembly: 4n bi-9 pieces per n-gon cap on the setback border — the production cap for KP20-class vertex blends (`CapFamily` history: the setback surgery's watertight tiling)
+- §4.3 planar τ family: appendix A fig 6c τ solves (F₃ energy, paper row sets, rotational variants, active-set solver)
+- Characteristic cap net / Stam-eval ring (PR08 §5–6.1 + Stam 1998 inner rings)
+- Piece maps with C²-stitch, orientation and domain validity reports
+- eq (23) µ₀ scaling (κn/10⁵ — the misread that cost a campaign is recorded in the journal), S₀ solve, G² strip weights
+
+**Modules:** `crates/popkern-core/src/geometry/gregory/kp20_bi6_*.rs` (assemble, cap, cnet, cc_ring, math, tau, tau_f3_solve, tau_solve_assemble, piece_maps, s0_solve, guide_build/sample/lsq, stam_eval, validate); fillet-side setback integration in `crates/popkern-fillet/src/construct/kp20_*.rs` and `setback_vertex_topology.rs`
+
+### KP18 — Rapid degree-6 guide construction
+
+**Citation:** Karčiauskas, K. & Peters, J. (2018). "Rapidly contracting subdivision yields finite, effectively C² surfaces" / the 2018 rapid guide construction KP20 delegates its guide to (referenced as KP18; KP20's [23]).
+
+**Local file:** `docs/papers/18rapid.pdf`
+
+**What's implemented:**
+- §3–§4.2 total-degree-6 triangular guide: eq (1) join weights, guide fit consumed through `solve_kp20_guide_lsq` (the authoritative spoke-identifying encoding; the eq (2)–(5) side transcription with a mismatched index convention was deleted after audit)
+- Guide sampling to bi-6/bi-9 corner blocks (`kp20_bi6_guide_sample`, `kp20_bi6_math` Hermite-to-BB tables)
+
+**Modules:** `crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_*.rs`, `kp20_bi6_math.rs`
+
+---
+
 ## Optional / deferred PnS follow-ons
 
 The following papers cover other PnS configurations. We haven't implemented these because our current CAD vertex-blend use case only needs the n-gon configuration. Adding them later would be additive extensions.
