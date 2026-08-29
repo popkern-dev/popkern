@@ -58,6 +58,7 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
             v.extend(kind.param_ids());
             v
         }
+        Feature::Transform { motion } => motion.param_ids(),
         Feature::Shell { thickness, .. } => vec![("thickness", *thickness)],
         Feature::Thicken { thickness, .. } => vec![("thickness", *thickness)],
         Feature::OffsetSolid { distance, .. } => vec![("distance", *distance)],

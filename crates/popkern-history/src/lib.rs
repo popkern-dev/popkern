@@ -31,6 +31,7 @@ pub mod expression;
 pub mod feature;
 pub mod feature_blend;
 mod feature_params;
+pub mod feature_transform;
 pub mod format;
 pub mod health;
 pub(crate) mod measure_cache;
@@ -73,6 +74,7 @@ pub use feature_blend::{
     BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
     FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
+pub use feature_transform::RigidMotionDesc;
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};

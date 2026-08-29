@@ -5,6 +5,7 @@
 //! so that references survive rollback and tree reordering.
 
 use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
+use crate::feature_transform::RigidMotionDesc;
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
@@ -72,6 +73,13 @@ pub enum Feature {
         /// bevel trees saved before the kind existed.
         #[serde(default)]
         kind: ChamferKindDesc,
+    },
+    /// Move the whole current body by a rigid (similarity) motion
+    /// (PK-362). Topology and stable names are preserved; only
+    /// geometry moves.
+    Transform {
+        /// The motion to apply.
+        motion: RigidMotionDesc,
     },
     /// Boolean set operation combining the current body with a tool body.
     Boolean {
@@ -409,7 +417,7 @@ pub struct ExtrudeSecondDir {
 }
 
 /// Identifies a rotation axis for revolve and circular-pattern operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AxisDesc {
     /// An existing model edge whose underlying curve defines the axis.
     Edge(EntityName),

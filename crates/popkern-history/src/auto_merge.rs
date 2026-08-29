@@ -32,6 +32,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Fillet { .. }
         | Feature::Chamfer { .. }
         | Feature::Boolean { .. }
+        | Feature::Transform { .. }
         | Feature::Shell { .. }
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }

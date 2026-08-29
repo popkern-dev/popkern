@@ -186,6 +186,14 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::empty())
         }
+        Feature::Transform { motion } => {
+            let t = motion.resolve(brep, param_table)?;
+            *brep = brep.transform(&t).map_err(|e| ReplayError::FeatureFailed {
+                label: "transform".into(),
+                error: e.to_string(),
+            })?;
+            Ok(ExecuteSideEffects::empty())
+        }
         Feature::Thicken {
             thickness,
             join_style,
