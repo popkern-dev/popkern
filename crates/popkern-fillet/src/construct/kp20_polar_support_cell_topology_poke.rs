@@ -1,11 +1,10 @@
 //! Topology poke contract for KP20 support-cell primitive emission.
 #![allow(dead_code)]
-#![allow(clippy::duplicate_mod)]
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::GregoryPatch;
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, FaceHandle};
 
 use super::Kp20ExpandedSupportPokeShape;
 use crate::construct::kp20_polar_expanded_support_binding::{
@@ -15,15 +14,13 @@ use crate::construct::kp20_polar_expanded_support_binding::{
 };
 use crate::construct::kp20_polar_support_cell_inventory::Kp20SupportCellInventory;
 
-#[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
-mod support_cell_boundary_reconcile;
-#[path = "kp20_polar_support_cell_pcurve_author.rs"]
-mod support_cell_pcurve_author;
-#[path = "kp20_polar_support_cell_topology_pattern.rs"]
-mod support_cell_topology_pattern;
+use crate::construct::kp20_polar_support_cell_boundary_reconcile as support_cell_boundary_reconcile;
+use crate::construct::kp20_polar_support_cell_pcurve_author as support_cell_pcurve_author;
+use crate::construct::kp20_polar_support_cell_topology_pattern as support_cell_topology_pattern;
 #[path = "kp20_polar_support_cell_unit_domain.rs"]
 mod support_cell_unit_domain;
 
+use crate::construct::kp20_polar_support_cell_boundary_trim::face_outer_half_edges;
 use support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
 use support_cell_unit_domain::unit_domain_loop_candidates;
 
@@ -410,31 +407,6 @@ fn validate_support_cell_surface_slots(
         )));
     }
     Ok(())
-}
-
-fn face_outer_half_edges(brep: &BRep, face: FaceHandle) -> Result<Vec<HalfEdgeHandle>, CoreError> {
-    let outer_loop = brep
-        .faces
-        .get(face)
-        .ok_or_else(|| CoreError::InvalidHandle("kp20 support-cell poke face invalid".into()))?
-        .outer_loop;
-    let start = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| CoreError::InvalidHandle("kp20 support-cell poke loop invalid".into()))?
-        .half_edge;
-    let mut out = Vec::new();
-    let mut cursor = start;
-    for _ in 0..=brep.half_edges.len() {
-        out.push(cursor);
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start {
-            return Ok(out);
-        }
-    }
-    Err(CoreError::PreconditionFailed(
-        "kp20 support-cell poke loop did not close".into(),
-    ))
 }
 
 #[cfg(test)]

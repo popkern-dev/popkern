@@ -1,5 +1,4 @@
 //! Segment-aware G0 reconciliation for KP20 support-cell shared full boundaries.
-#![allow(clippy::duplicate_mod)]
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -18,8 +17,7 @@ mod leg_class;
 mod leg_direction;
 #[path = "kp20_polar_support_cell_leg_vector.rs"]
 mod leg_vector;
-#[path = "kp20_polar_support_cell_surface_access.rs"]
-mod surface_access;
+use crate::construct::kp20_polar_support_cell_surface_access as surface_access;
 use surface_access::{
     rectangular_binonic_on_face, set_rectangular_binonic_dual_twist_on_face,
     set_rectangular_binonic_on_face,
@@ -34,8 +32,7 @@ pub(crate) mod boundary_composed;
 mod boundary_prefix;
 #[path = "kp20_polar_support_cell_boundary_row_group.rs"]
 mod boundary_row_group;
-#[path = "kp20_polar_support_cell_boundary_trim.rs"]
-mod boundary_trim;
+use crate::construct::kp20_polar_support_cell_boundary_trim as boundary_trim;
 #[path = "kp20_polar_support_cell_cell_reauthor.rs"]
 mod cell_reauthor;
 #[path = "kp20_polar_support_cell_chain_author.rs"]
@@ -87,8 +84,7 @@ mod group_reconcile;
 mod joint_chain_solve;
 #[path = "kp20_polar_support_cell_normal_solve_status.rs"]
 mod normal_solve_status;
-#[path = "kp20_polar_support_cell_row_fit.rs"]
-mod row_fit;
+use crate::construct::kp20_polar_support_cell_row_fit as row_fit;
 #[path = "kp20_polar_support_cell_row_segment.rs"]
 mod row_segment;
 #[path = "kp20_polar_support_cell_segment_topology.rs"]

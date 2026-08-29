@@ -1,5 +1,4 @@
 //! Result-level completion for Gregory cap/support seam ownership.
-#![allow(clippy::duplicate_mod)]
 
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -17,16 +16,14 @@ use cap_support_pcurve_classification::{
 };
 #[path = "kp20_polar_cap_support_boundary_solve.rs"]
 mod cap_support_boundary_solve;
-#[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
-mod support_cell_boundary_reconcile;
+use crate::construct::kp20_polar_support_cell_boundary_reconcile as support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_completion_apply.rs"]
 mod support_cell_completion_apply;
 #[path = "kp20_polar_support_cell_completion_dispatch.rs"]
 mod support_cell_completion_dispatch;
 #[path = "kp20_polar_support_cell_completion_rank.rs"]
 mod support_cell_completion_rank;
-#[path = "kp20_polar_support_cell_pcurve_author.rs"]
-mod support_cell_pcurve_author;
+use crate::construct::kp20_polar_support_cell_pcurve_author as support_cell_pcurve_author;
 #[path = "corner_patch_support_coherence.rs"]
 mod support_coherence;
 use support_coherence::emit_coherence_validation_diagnostic;

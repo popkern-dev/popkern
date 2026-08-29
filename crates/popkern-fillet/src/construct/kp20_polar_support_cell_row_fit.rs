@@ -3,7 +3,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
-use super::BoundarySide;
+use crate::construct::kp20_polar_support_cell_boundary_trim::BoundarySide;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct BoundaryRowFitSample {

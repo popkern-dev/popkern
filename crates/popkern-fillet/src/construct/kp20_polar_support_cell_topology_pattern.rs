@@ -1,7 +1,7 @@
 use popkern_core::error::CoreError;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::face_outer_half_edges;
+use crate::construct::kp20_polar_support_cell_boundary_trim::face_outer_half_edges;
 
 const MAX_PRESPLIT_SUPPORT_FACE_BOUNDARY_EDGES: usize = 32;
 
@@ -18,6 +18,8 @@ impl Kp20SupportCellTopologyPattern {
         Self::FourCellSupportGrid
     }
 
+    /// Test-only canonical pattern (the poke unit tests exercise it).
+    #[allow(dead_code)]
     pub(crate) fn eight_cell_support_grid() -> Self {
         Self::EightCellSupportGrid
     }

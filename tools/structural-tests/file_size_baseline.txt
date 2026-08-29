@@ -54,7 +54,6 @@ crates/popkern-fillet/src/construct/blend_insert.rs 605
 crates/popkern-fillet/src/construct/closed_fillet.rs 572
 crates/popkern-fillet/src/construct/end_runoff.rs 578
 crates/popkern-fillet/src/construct/kp20_paper_border_extract.rs 971
-crates/popkern-fillet/src/construct/mod.rs 559
 crates/popkern-fillet/src/construct/pns_setback_candidate.rs 509
 crates/popkern-fillet/src/construct/setback_vertex_topology.rs 1929
 crates/popkern-fillet/src/g2_cross_section.rs 597

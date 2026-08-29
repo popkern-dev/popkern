@@ -1,5 +1,4 @@
 //! External cap/support boundary-row solve for committed KP20 cap candidates.
-#![allow(clippy::duplicate_mod)]
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,9 +7,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-#[path = "kp20_polar_support_cell_boundary_trim.rs"]
-#[allow(dead_code)]
-mod boundary_trim;
+use crate::construct::kp20_polar_support_cell_boundary_trim as boundary_trim;
 pub(super) use boundary_trim::BoundarySide;
 #[path = "kp20_polar_cap_support_boundary_fit.rs"]
 mod boundary_fit;
@@ -22,12 +19,8 @@ mod edge_curve;
 mod geometry;
 #[path = "kp20_polar_cap_support_boundary_solve_report.rs"]
 mod report;
-#[path = "kp20_polar_support_cell_row_fit.rs"]
-#[allow(dead_code)]
-mod row_fit;
-#[path = "kp20_polar_support_cell_surface_access.rs"]
-#[allow(dead_code)]
-mod surface_access;
+use crate::construct::kp20_polar_support_cell_row_fit as row_fit;
+use crate::construct::kp20_polar_support_cell_surface_access as surface_access;
 
 pub(super) use report::CapSupportBoundarySolveReport;
 

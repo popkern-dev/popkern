@@ -17,7 +17,6 @@
 //! Twist controls (a grid corner's diagonal neighbour) are
 //! demanded by two boundaries; the writes are averaged and
 //! counted.
-#![allow(clippy::duplicate_mod)]
 
 use std::collections::HashMap;
 

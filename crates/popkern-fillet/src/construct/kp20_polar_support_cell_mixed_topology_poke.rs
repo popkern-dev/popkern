@@ -14,10 +14,9 @@ use crate::construct::kp20_polar_support_cell_inventory::{
     Kp20SupportCellInventory, Kp20SupportCellOwnerInventory,
 };
 
-#[path = "kp20_polar_support_cell_topology_pattern.rs"]
-#[allow(dead_code)]
-mod support_cell_topology_pattern;
+use crate::construct::kp20_polar_support_cell_topology_pattern as support_cell_topology_pattern;
 
+use crate::construct::kp20_polar_support_cell_boundary_trim::face_outer_half_edges;
 use support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
 
 #[derive(Debug, Clone)]
@@ -447,31 +446,6 @@ fn mixed_support_cell_surface_slots(
         });
     }
     Ok(slots)
-}
-
-fn face_outer_half_edges(brep: &BRep, face: FaceHandle) -> Result<Vec<HalfEdgeHandle>, CoreError> {
-    let outer_loop = brep
-        .faces
-        .get(face)
-        .ok_or_else(|| CoreError::InvalidHandle("kp20 mixed support-cell face invalid".into()))?
-        .outer_loop;
-    let start = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| CoreError::InvalidHandle("kp20 mixed support-cell loop invalid".into()))?
-        .half_edge;
-    let mut out = Vec::new();
-    let mut cursor = start;
-    for _ in 0..=brep.half_edges.len() {
-        out.push(cursor);
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start {
-            return Ok(out);
-        }
-    }
-    Err(CoreError::PreconditionFailed(
-        "kp20 mixed support-cell loop did not close".into(),
-    ))
 }
 
 #[cfg(test)]
