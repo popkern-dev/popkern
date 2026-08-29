@@ -116,7 +116,7 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             ..
         } => {
             let mut names: Vec<&EntityName> = faces.iter().collect();
-            names.push(neutral_plane);
+            names.extend(neutral_plane.entity_name());
             names
         }
         Feature::Sweep {

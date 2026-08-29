@@ -133,7 +133,9 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
             for name in faces.iter_mut() {
                 remap_name(name, op_remap);
             }
-            remap_name(neutral_plane, op_remap);
+            if let Some(name) = neutral_plane.entity_name_mut() {
+                remap_name(name, op_remap);
+            }
         }
         Feature::Sweep {
             face, path_edge, ..

@@ -146,7 +146,7 @@ pub(super) fn extract_face_outer_curve(
 /// Extract the plane origin and normal from a face's planar surface.
 ///
 /// Returns an error if the face has no surface or its surface is not a plane.
-pub(super) fn extract_plane_from_face(
+pub(crate) fn extract_plane_from_face(
     brep: &BRep,
     face: FaceHandle,
 ) -> Result<(Point3, Vec3), ReplayError> {

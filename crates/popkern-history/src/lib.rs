@@ -30,6 +30,7 @@ pub mod error;
 pub mod expression;
 pub mod feature;
 pub mod feature_blend;
+pub mod feature_draft;
 mod feature_params;
 pub mod feature_transform;
 pub mod format;
@@ -60,9 +61,7 @@ pub(crate) mod undo_command;
 pub(crate) mod undo_config;
 pub mod unit;
 
-pub use cache::CacheStrategy;
 pub use config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
-pub use csv::CsvImportResult;
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
@@ -74,7 +73,6 @@ pub use feature_blend::{
     BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
     FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
-pub use feature_transform::RigidMotionDesc;
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
@@ -83,6 +81,8 @@ pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, Param
 pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
 pub use unit::{DimensionKind, Unit};
+pub use {cache::CacheStrategy, csv::CsvImportResult};
+pub use {feature_draft::NeutralPlaneDesc, feature_transform::RigidMotionDesc};
 
 use std::collections::HashMap;
 

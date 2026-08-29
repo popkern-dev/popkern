@@ -171,8 +171,7 @@ impl FeatureTree {
                 if (old_v - new_v).abs() < 1.0e-15 {
                     return None;
                 }
-                let neutral_face = crate::resolve::resolve_face(n_old, state_before).ok()?;
-                let (origin, normal) = plane_of(state_before, neutral_face)?;
+                let (origin, normal) = n_old.resolve(state_before).ok()?;
                 let mut state = state_at.clone();
                 for name in f_old {
                     // Draft preserves face handles; resolve against the
@@ -343,19 +342,6 @@ fn blend_face_between(
         Some(candidates[0])
     } else {
         None
-    }
-}
-
-/// Origin + normal of a planar face.
-fn plane_of(
-    brep: &BRep,
-    face: FaceHandle,
-) -> Option<(popkern_core::geometry::Point3, popkern_core::geometry::Vec3)> {
-    match &brep.faces.get(face)?.surface.as_ref()?.geometry {
-        popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. } => {
-            Some((*origin, *normal))
-        }
-        _ => None,
     }
 }
 

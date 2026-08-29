@@ -112,7 +112,7 @@ fn save_load_all_feature_types() {
         Feature::Draft {
             faces: vec![face_name(2)],
             angle: da,
-            neutral_plane: face_name(2),
+            neutral_plane: crate::NeutralPlaneDesc::Face(face_name(2)),
         },
         "Draft",
     );

@@ -5,6 +5,7 @@
 //! so that references survive rollback and tree reordering.
 
 use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
+use crate::feature_draft::NeutralPlaneDesc;
 use crate::feature_transform::RigidMotionDesc;
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
@@ -135,8 +136,10 @@ pub enum Feature {
         faces: Vec<EntityName>,
         /// Draft angle in radians (resolved via parameter table).
         angle: ParameterId,
-        /// Neutral plane face, identified by stable name.
-        neutral_plane: EntityName,
+        /// The neutral plane: a planar model face by stable name, or a
+        /// literal `{origin, normal}` plane (PK-363). Its normal is the
+        /// pull direction.
+        neutral_plane: NeutralPlaneDesc,
     },
     /// Sweep a face along a path curve.
     Sweep {

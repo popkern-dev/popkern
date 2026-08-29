@@ -14,11 +14,10 @@ use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 
 #[path = "replay_fns.rs"]
-mod replay_fns;
+pub(crate) mod replay_fns;
 use replay_fns::{
     chamfer_specs, execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
-    extract_plane_from_face, fillet_specs, resolve_param, to_bool_operation, to_shell_direction,
-    to_shell_options,
+    fillet_specs, resolve_param, to_bool_operation, to_shell_direction, to_shell_options,
 };
 
 use crate::resolve::{
@@ -239,8 +238,7 @@ pub(crate) fn execute_feature(
         } => {
             let ang = resolve_param(param_table, *angle)?;
             let face_handles = resolve_faces(faces, brep)?;
-            let neutral_face = resolve_face(neutral_plane, brep)?;
-            let (neutral_origin, neutral_normal) = extract_plane_from_face(brep, neutral_face)?;
+            let (neutral_origin, neutral_normal) = neutral_plane.resolve(brep)?;
             // Pull direction is the neutral plane normal.
             let pull_direction = neutral_normal;
             let specs: Vec<popkern_draft::DraftSpec> = face_handles

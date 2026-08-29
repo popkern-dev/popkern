@@ -264,7 +264,7 @@ fn feature_entity_names_extracts_all_variants() {
     let f = Feature::Draft {
         faces: vec![entity_name(3)],
         angle: dummy_id,
-        neutral_plane: entity_name(4),
+        neutral_plane: crate::NeutralPlaneDesc::Face(entity_name(4)),
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);

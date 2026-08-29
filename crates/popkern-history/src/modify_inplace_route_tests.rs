@@ -394,3 +394,92 @@ fn fillet_recipe_change_declines_in_place_route() {
         "variable-law fillets must not take the constant-radius in-place route"
     );
 }
+
+/// PK-363: an angle tweak on a draft whose neutral plane is a literal
+/// `{origin, normal}` takes the in-place route (the literal arm
+/// resolves without a model face), and the refreshed body validates.
+#[test]
+fn literal_plane_draft_angle_tweak_routes_in_place() {
+    let mut tree = FeatureTree::new();
+    tree.set_cache_strategy(CacheStrategy::EveryStep);
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: rectangle_sketch_json(),
+        },
+        "sketch",
+    );
+    let height = tree
+        .parameters_mut()
+        .add_global("height", 1.0, Unit::Meters)
+        .expect("height param");
+    tree.add_feature(
+        Feature::Extrude {
+            face: entity_name(1, RoleCategory::Generated, 0),
+            direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
+            end_condition: ExtrudeEnd::Blind { distance: height },
+            mode: OperationMode::NewBody,
+            draft_angle: None,
+            second_direction: None,
+        },
+        "extrude",
+    );
+    tree.replay(Tolerance::default()).expect("extrude replay");
+    let extruded = tree.current_brep.clone().expect("extruded body");
+    // Side walls: faces whose outer loop is not level in z.
+    let walls: Vec<EntityName> = extruded
+        .faces
+        .iter()
+        .filter_map(|(h, f)| {
+            let pts = extruded.face_outer_loop_positions(h);
+            let level = pts.iter().all(|p| (p.z - pts[0].z).abs() < 1e-12);
+            (!level).then(|| extruded.name_pool.get(f.name?).cloned())?
+        })
+        .collect();
+    assert_eq!(walls.len(), 4);
+    let plane = crate::NeutralPlaneDesc::Literal {
+        origin: [0.0, 0.0, 0.0],
+        normal: [0.0, 0.0, 1.0],
+    };
+    let a_old = tree
+        .parameters_mut()
+        .add_global("a", 0.1, Unit::Radians)
+        .expect("param");
+    let draft = tree.add_feature(
+        Feature::Draft {
+            faces: walls.clone(),
+            angle: a_old,
+            neutral_plane: plane.clone(),
+        },
+        "draft",
+    );
+    let rr = tree.replay(Tolerance::default()).expect("draft replay");
+    assert!(
+        matches!(
+            rr.feature_results.get(&draft),
+            Some(crate::FeatureResult::Success { .. })
+        ),
+        "literal-plane draft executes through replay, got {:?}",
+        rr.feature_results.get(&draft)
+    );
+    let a_new = tree
+        .parameters_mut()
+        .add_global("a2", 0.15, Unit::Radians)
+        .expect("param");
+    tree.modify_feature(
+        draft,
+        Feature::Draft {
+            faces: walls,
+            angle: a_new,
+            neutral_plane: plane,
+        },
+    );
+    assert!(
+        tree.cache.get(None, draft).is_some(),
+        "literal-plane angle tweak takes the in-place route"
+    );
+    tree.replay(Tolerance::default())
+        .expect("post-tweak replay");
+    let final_brep = tree.current_brep.clone().expect("final body");
+    final_brep.validate().expect("tweaked body validates");
+}
