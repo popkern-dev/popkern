@@ -14,7 +14,9 @@
 //! ```
 
 use std::fmt;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::time::Stopwatch;
 
 /// Timing data for a single operation.
 #[derive(Debug, Clone)]
@@ -39,20 +41,23 @@ pub struct OperationTiming {
 /// let mut t = HealingTelemetry::new();
 /// let start = HealingTelemetry::start_timer();
 /// // ... do work ...
-/// t.record("gap_repair", start.elapsed(), 12);
+/// t.record_elapsed("gap_repair", start, 12);
 /// assert_eq!(t.operation_count(), 1);
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct HealingTelemetry {
     timings: Vec<OperationTiming>,
+    /// Operations whose duration could not be measured because the
+    /// platform has no monotonic clock (clockless
+    /// `wasm32-unknown-unknown`). Recorded as a count instead of
+    /// fabricating zero-duration rows.
+    unmeasured_operations: usize,
 }
 
 impl HealingTelemetry {
     /// Create an empty telemetry collector.
     pub fn new() -> Self {
-        Self {
-            timings: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Record a completed operation.
@@ -67,11 +72,30 @@ impl HealingTelemetry {
         });
     }
 
-    /// Start a timer — returns an [`Instant`].
+    /// Start a timer — returns a [`Stopwatch`].
     ///
-    /// Call `.elapsed()` on the returned value and pass to [`record`](Self::record).
-    pub fn start_timer() -> Instant {
-        Instant::now()
+    /// Pass the stopwatch to [`record_elapsed`](Self::record_elapsed)
+    /// when the operation completes.
+    pub fn start_timer() -> Stopwatch {
+        Stopwatch::start()
+    }
+
+    /// Record a completed operation timed by `started`. On platforms
+    /// without a monotonic clock the row is counted in
+    /// [`unmeasured_operations`](Self::unmeasured_operations) instead
+    /// of being fabricated with a zero duration.
+    pub fn record_elapsed(&mut self, name: impl Into<String>, started: Stopwatch, entities: usize) {
+        match started.elapsed() {
+            Some(duration) => self.record(name, duration, entities),
+            None => self.unmeasured_operations += 1,
+        }
+    }
+
+    /// Operations that completed without a measurable duration
+    /// (clockless platform). Zero everywhere a monotonic clock
+    /// exists.
+    pub fn unmeasured_operations(&self) -> usize {
+        self.unmeasured_operations
     }
 
     /// Total time across all recorded operations.
@@ -209,14 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn start_timer_returns_recent_instant() {
-        let before = Instant::now();
+    fn start_timer_measures_on_clocked_platforms() {
         let timer = HealingTelemetry::start_timer();
-        let after = Instant::now();
-
-        // Timer should be between before and after.
-        assert!(timer >= before);
-        assert!(timer <= after);
+        let mut t = HealingTelemetry::new();
+        t.record_elapsed("timed", timer, 2);
+        assert_eq!(t.operation_count(), 1);
+        assert_eq!(t.unmeasured_operations(), 0);
     }
 
     #[test]

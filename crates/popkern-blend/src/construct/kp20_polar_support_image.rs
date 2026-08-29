@@ -17,7 +17,6 @@ use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
 use super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
-use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportImageCandidate {
@@ -169,7 +168,7 @@ pub(super) fn support_image_composed_candidate(
         default_sampled,
         Kp20SupportImageParams::identity(),
     )?;
-    let image_search_start = Instant::now();
+    let image_search_start = popkern_core::time::Stopwatch::start();
     let mut image_candidates: Vec<Kp20SupportImageCandidate> = Vec::new();
     let mut evaluated = 0_usize;
     let mut fast_evaluated = 0_usize;
@@ -249,7 +248,7 @@ pub(super) fn support_image_composed_candidate(
     let mut lift_budget_skipped = 0_usize;
     let mut targeted_evaluated = 0_usize;
     let mut targeted_accepted = 0_usize;
-    let lift_start = Instant::now();
+    let lift_start = popkern_core::time::Stopwatch::start();
     for candidate in image_candidates {
         if composed_evaluated >= COUPLED_LIFT_FINALIST_BUDGET {
             lift_budget_skipped += 1;
@@ -375,8 +374,8 @@ pub(super) fn support_image_composed_candidate(
 
 const COUPLED_LIFT_FINALIST_BUDGET: usize = 1;
 
-fn elapsed_ms(start: Instant) -> u128 {
-    start.elapsed().as_millis()
+fn elapsed_ms(start: popkern_core::time::Stopwatch) -> u128 {
+    start.elapsed_or_zero_ms()
 }
 
 fn compare_summaries(a: &Kp20SamplerFoldSummary, b: &Kp20SamplerFoldSummary) -> std::cmp::Ordering {

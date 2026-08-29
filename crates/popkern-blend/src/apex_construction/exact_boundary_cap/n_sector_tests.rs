@@ -142,7 +142,7 @@ fn four_sector_candidate_reports_linear_counts_and_structured_status() {
     assert_eq!(result.inner_spoke_count(), 8);
     assert_eq!(result.ribbon_count(), 8);
     assert!(result.performance.support_sample_count >= 40);
-    assert!(result.performance.elapsed_micros > 0);
+    assert!(result.performance.elapsed_micros.is_some_and(|us| us > 0));
     match result.status {
         ExactBoundaryCapCandidateStatus::Accepted => {
             assert_eq!(
@@ -193,7 +193,7 @@ fn small_angle_sector_candidate_keeps_bounded_linear_evidence() {
         result.sectors[sector_count - 1].sector_name,
         "direct_apex.cap_sector.11"
     );
-    assert!(result.performance.elapsed_micros > 0);
+    assert!(result.performance.elapsed_micros.is_some_and(|us| us > 0));
     if result.status == ExactBoundaryCapCandidateStatus::Declined {
         assert!(!result.diagnostics.is_empty());
         assert!(result.performance.deterministic_skip_code.is_some());

@@ -21,6 +21,7 @@ pub mod naming_criteria;
 pub mod naming_resolve;
 pub mod precision;
 pub mod progress;
+pub mod time;
 pub mod tolerance;
 pub mod topology;
 pub mod trace;

@@ -32,8 +32,10 @@ pub struct ProgressEvent {
     /// Total number of phases the pipeline will run (typically 6:
     /// intersect, split, classify, select, merge, validate).
     pub total_phases: usize,
-    /// Wall-clock duration of the stage that just completed.
-    pub duration: Duration,
+    /// Wall-clock duration of the stage that just completed, or
+    /// `None` on platforms without a monotonic clock (see
+    /// `popkern_core::time::Stopwatch`).
+    pub duration: Option<Duration>,
     /// Stage-specific entity count (pair count for intersection,
     /// fragment count for split, etc.).
     pub entity_count: usize,
@@ -94,7 +96,7 @@ mod tests {
             stage: Stage::Intersection,
             phase_index: 0,
             total_phases: 6,
-            duration: Duration::from_millis(10),
+            duration: Some(Duration::from_millis(10)),
             entity_count: 0,
         };
         assert_eq!(event.percent(), 16);
@@ -106,7 +108,7 @@ mod tests {
             stage: Stage::Validation,
             phase_index: 5,
             total_phases: 6,
-            duration: Duration::from_millis(10),
+            duration: Some(Duration::from_millis(10)),
             entity_count: 0,
         };
         assert_eq!(event.percent(), 100);
@@ -119,7 +121,7 @@ mod tests {
             stage: Stage::Intersection,
             phase_index: 0,
             total_phases: 6,
-            duration: Duration::from_millis(0),
+            duration: Some(Duration::from_millis(0)),
             entity_count: 0,
         });
         // No state to check; just verify it doesn't panic.
@@ -132,14 +134,14 @@ mod tests {
             stage: Stage::Intersection,
             phase_index: 0,
             total_phases: 6,
-            duration: Duration::from_millis(5),
+            duration: Some(Duration::from_millis(5)),
             entity_count: 12,
         });
         reporter.on_phase(ProgressEvent {
             stage: Stage::Merge,
             phase_index: 4,
             total_phases: 6,
-            duration: Duration::from_millis(20),
+            duration: Some(Duration::from_millis(20)),
             entity_count: 18,
         });
         assert_eq!(reporter.events.len(), 2);

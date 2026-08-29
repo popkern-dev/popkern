@@ -78,7 +78,6 @@ pub use queries::ImpactReport;
 pub use unit::{DimensionKind, Unit};
 
 use std::collections::HashMap;
-use std::time::Instant;
 
 use popkern_core::naming::OperationId;
 use popkern_core::tolerance::Tolerance;
@@ -101,7 +100,9 @@ pub struct ReplayResult {
     /// Per-feature outcomes, keyed by [`FeatureId`].
     pub feature_results: HashMap<FeatureId, FeatureResult>,
     /// Wall-clock time spent replaying.
-    pub elapsed: std::time::Duration,
+    /// Total replay wall time, or `None` on platforms without a
+    /// monotonic clock (see `popkern_core::time::Stopwatch`).
+    pub elapsed: Option<std::time::Duration>,
     /// Warnings from expression evaluation (math errors, bounds clamping).
     pub eval_warnings: Vec<(ParameterId, EvaluationWarning)>,
 }
@@ -229,7 +230,7 @@ impl FeatureTree {
     /// Individual feature failures are recorded in
     /// [`ReplayResult::feature_results`].
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
-        let start = Instant::now();
+        let start = popkern_core::time::Stopwatch::start();
 
         // Evaluate parameters — config-aware when a config is active.
         let eval_warnings = if self.active_config.is_some() {
@@ -305,7 +306,7 @@ impl FeatureTree {
             }
         }
 
-        let timer = Instant::now();
+        let timer = popkern_core::time::Stopwatch::start();
         let eval_warnings = expression::evaluate_all(
             &mut self.parameter_table,
             &measure_query::MeasureContext::empty(),

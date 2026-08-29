@@ -31,7 +31,6 @@ pub(crate) fn sweep_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -41,19 +40,19 @@ pub(crate) fn sweep_impl(
     }
     // 1. Analyze profile.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let analyzed = profile::analyze_profile(profile, &tolerance)?;
     tracker.finish_stage("sweep.analyze_profile", t0, analyzed.spans.len());
 
     // 2. Build arc-length table.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let table = arc_length::ArcLengthTable::build(path, ARC_LENGTH_SAMPLES);
     tracker.finish_stage("sweep.arc_length_table", t0, ARC_LENGTH_SAMPLES);
 
     // 3. Compute frames.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let n_samples = compute_sample_count(&table);
     let is_closed_path = check_path_closed(path, &tolerance);
     let (frames, mut warnings) = frame::compute_frames(
@@ -68,14 +67,14 @@ pub(crate) fn sweep_impl(
 
     // 4. Generate surfaces.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let surface_result =
         surface::generate_sweep_surface(&analyzed, &frames, &options.scale, &tolerance)?;
     tracker.finish_stage("sweep.surfaces", t0, surface_result.surfaces.len());
 
     // 5. Self-intersection check (per-surface poll: the check is the
     // costliest per-entity step of the pipeline).
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     for surf in &surface_result.surfaces {
         stage_gate!();
         if let Some(t) = self_intersect::check_self_intersection(surf, &tolerance) {
@@ -90,7 +89,7 @@ pub(crate) fn sweep_impl(
 
     // 6. Build topology.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
         &surface_result.surfaces,
         &surface_result.start_cap,
@@ -119,7 +118,6 @@ pub(crate) fn loft_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -128,13 +126,13 @@ pub(crate) fn loft_impl(
         };
     }
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let result = surface::generate_loft_surface(sections, options, &tolerance)?;
     tracker.finish_stage("loft.surface", t0, sections.len());
 
     if !guides.is_empty() {
         stage_gate!();
-        let t0 = Instant::now();
+        let t0 = popkern_core::time::Stopwatch::start();
         surface::validate_guide_rails(&result.surface, guides, &tolerance)?;
         tracker.finish_stage("loft.guide_rails", t0, guides.len());
     }
@@ -151,7 +149,7 @@ pub(crate) fn loft_impl(
     };
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
         &[result.surface],
         std::slice::from_ref(&result.start_cap),
@@ -182,18 +180,17 @@ pub(crate) fn pipe_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     if tracker.cancelled() {
         return Err(SweepError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let surface_result = pipe::generate_pipe_surface(path, radius, options, &tolerance)?;
     tracker.finish_stage("pipe.surface", t0, surface_result.surfaces.len());
 
     if tracker.cancelled() {
         return Err(SweepError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
         &surface_result.surfaces,
         &surface_result.start_cap,
@@ -226,7 +223,6 @@ pub(crate) fn guided_sweep_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -236,17 +232,17 @@ pub(crate) fn guided_sweep_impl(
     }
     // Generate the base sweep.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let analyzed = profile::analyze_profile(profile, &tolerance)?;
     tracker.finish_stage("guided_sweep.analyze_profile", t0, analyzed.spans.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let table = arc_length::ArcLengthTable::build(path, ARC_LENGTH_SAMPLES);
     tracker.finish_stage("guided_sweep.arc_length_table", t0, ARC_LENGTH_SAMPLES);
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let n_samples = compute_sample_count(&table);
     let is_closed_path = check_path_closed(path, &tolerance);
     let (frames, warnings) = frame::compute_frames(
@@ -260,13 +256,13 @@ pub(crate) fn guided_sweep_impl(
     tracker.finish_stage("guided_sweep.frames", t0, frames.frames.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let surface_result =
         surface::generate_sweep_surface(&analyzed, &frames, &options.scale, &tolerance)?;
     tracker.finish_stage("guided_sweep.surfaces", t0, surface_result.surfaces.len());
 
     // Validate guides against each surface (per-surface poll).
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     for surf in &surface_result.surfaces {
         stage_gate!();
         surface::validate_guide_rails(surf, guides, &tolerance)?;
@@ -274,7 +270,7 @@ pub(crate) fn guided_sweep_impl(
     tracker.finish_stage("guided_sweep.guide_rails", t0, guides.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
         &surface_result.surfaces,
         &surface_result.start_cap,
@@ -302,11 +298,10 @@ pub(crate) fn swept_blend_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     if tracker.cancelled() {
         return Err(SweepError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let result =
         surface::swept_blend::generate_swept_blend_surface(profiles, path, options, &tolerance)?;
     tracker.finish_stage("swept_blend.surface", t0, profiles.len());
@@ -314,7 +309,7 @@ pub(crate) fn swept_blend_impl(
     if tracker.cancelled() {
         return Err(SweepError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
         &[result.surface],
         std::slice::from_ref(&result.start_cap),

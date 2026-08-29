@@ -50,7 +50,11 @@ fn candidate_degeneracy_matrix_produces_structured_reports() {
             "{}",
             case.name
         );
-        assert!(result.performance.elapsed_micros > 0, "{}", case.name);
+        assert!(
+            result.performance.elapsed_micros.is_some_and(|us| us > 0),
+            "{}",
+            case.name
+        );
         if result.status == ExactBoundaryCapCandidateStatus::Declined {
             assert_eq!(
                 result.report.candidate_status,

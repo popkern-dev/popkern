@@ -177,7 +177,6 @@ pub(crate) fn shell_impl(
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
     naming_sink: Option<&mut ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -202,14 +201,14 @@ pub(crate) fn shell_impl(
 
     // Stage 1: classify faces.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let classification =
         classify::classify_faces(brep, thickness, face_thicknesses, direction, removed_faces)?;
     tracker.finish_stage("shell.classify_faces", t0, brep.faces.len());
 
     // Stage 2: compute offset surfaces.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result = surface_offset::compute_offset_surfaces(
         brep,
@@ -225,7 +224,7 @@ pub(crate) fn shell_impl(
 
     // Stage 3: build inner skin.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let (mut inner, skin_map) = inner_skin::build_inner_skin(brep, &all_removed)?;
     tracker.finish_stage("shell.inner_skin", t0, inner.faces.len());
 
@@ -234,7 +233,7 @@ pub(crate) fn shell_impl(
     // offset dissolve out of the skin, so the join plan and the
     // recomputes see the surviving topology only.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let collapse_warnings = collapse_resolve::resolve_face_collapse(
         brep,
         &mut inner,
@@ -263,7 +262,7 @@ pub(crate) fn shell_impl(
     )?;
     tracker.finish_stage("shell.vertex_recompute", t0, inner.vertices.len());
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let undone = edge_recompute::recompute_edges_with_skips(
         &mut inner,
         &offset_result.surfaces,
@@ -281,7 +280,7 @@ pub(crate) fn shell_impl(
         collapse_check::check_skin_collapse(brep, &inner, &skin_map, thickness, &tolerance)?;
     tracker.finish_stage("shell.edge_recompute", t0, inner.edges.len());
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
     // Join construction (PK-325): rolling-ball strips + sphere corner
     // windows on the recomputed skin, via Euler operators only.
@@ -304,7 +303,7 @@ pub(crate) fn shell_impl(
 
     // Stage 5: assemble outer + inner + side walls.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, assembly_maps) =
         assemble::assemble_shell_with_maps(brep, &inner, &all_removed, &skin_map, tolerance)?;
     tracker.finish_stage("shell.assemble", t0, result.faces.len());
@@ -331,7 +330,7 @@ pub(crate) fn shell_impl(
 
     // Stage 6: recompute pcurves for all faces.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     result
         .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;

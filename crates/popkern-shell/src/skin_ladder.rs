@@ -73,7 +73,6 @@ pub(crate) fn offset_skin_ladder(
     ),
     ShellError,
 > {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -82,17 +81,17 @@ pub(crate) fn offset_skin_ladder(
         };
     }
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let classification = classify_faces(brep, distance, face_distances, direction, removed)?;
     tracker.finish_stage(labels[0], t0, brep.faces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let offset = compute_offset_surfaces(brep, &classification, allow_partial, stage_tol)?;
     tracker.finish_stage(labels[1], t0, offset.surfaces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let deleted: Vec<FaceHandle> = if delete_removed_from_skin {
         let mut all = classification.removed_faces.clone();
         all.extend_from_slice(&offset.auto_removed);
@@ -104,7 +103,7 @@ pub(crate) fn offset_skin_ladder(
     tracker.finish_stage(labels[2], t0, skin.faces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     // Face-collapse resolution (PK-326): features thinner than the
     // offset dissolve out of the skin before the join plan is made.
     let collapse_warnings = crate::collapse_resolve::resolve_face_collapse(
@@ -167,7 +166,7 @@ pub(crate) fn offset_skin_ladder(
     tracker.finish_stage(labels[3], t0, skin.edges.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     apply_offset_geometry(&mut skin, &offset.surfaces, &skin_map)?;
     // Join construction (PK-325): Euler surgery inserts the rolling-
     // ball strips and sphere corner windows on the recomputed skin.

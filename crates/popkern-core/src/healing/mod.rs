@@ -218,7 +218,7 @@ pub fn analyze_with_telemetry(
     if options.checks.topological {
         let start = HealingTelemetry::start_timer();
         defects::topological::check_all(brep, &options.tolerance, &mut report);
-        telemetry.record("topological_checks", start.elapsed(), entity_count);
+        telemetry.record_elapsed("topological_checks", start, entity_count);
     }
 
     if options.checks.geometric {
@@ -229,19 +229,19 @@ pub fn analyze_with_telemetry(
             &options.sample_density,
             &mut report,
         );
-        telemetry.record("geometric_checks", start.elapsed(), entity_count);
+        telemetry.record_elapsed("geometric_checks", start, entity_count);
     }
 
     if options.checks.degenerate {
         let start = HealingTelemetry::start_timer();
         defects::degenerate::check_all(brep, &options.tolerance, &mut report);
-        telemetry.record("degenerate_checks", start.elapsed(), entity_count);
+        telemetry.record_elapsed("degenerate_checks", start, entity_count);
     }
 
     if options.checks.import {
         let start = HealingTelemetry::start_timer();
         defects::import::check_all(brep, &options.tolerance, &mut report);
-        telemetry.record("import_checks", start.elapsed(), entity_count);
+        telemetry.record_elapsed("import_checks", start, entity_count);
     }
 
     if options.checks.quality_profile
@@ -264,7 +264,7 @@ pub fn analyze_with_telemetry(
                 });
             }
         }
-        telemetry.record("quality_profile", start.elapsed(), entity_count);
+        telemetry.record_elapsed("quality_profile", start, entity_count);
     }
 
     (report, telemetry)
@@ -288,7 +288,7 @@ pub fn heal_with_telemetry(
 
     let start = HealingTelemetry::start_timer();
     let result = repair::pipeline::run_pipeline(brep, options)?;
-    telemetry.record("repair_pipeline", start.elapsed(), entity_count);
+    telemetry.record_elapsed("repair_pipeline", start, entity_count);
 
     Ok((result, telemetry))
 }

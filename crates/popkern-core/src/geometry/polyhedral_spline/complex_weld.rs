@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::time::Stopwatch;
 
 use super::complex::PolyhedralSplineSurfaceComplex;
 use super::complex_weld_report::{
@@ -39,9 +41,10 @@ pub fn weld_clean_surface_complex_boundaries(
     complex: &PolyhedralSplineSurfaceComplex,
     options: PolyhedralCoverageOptions,
 ) -> Result<PolyhedralWeldedSurfaceComplex, String> {
-    let started_at = Instant::now();
+    let weld_clock = Stopwatch::start();
+    let started_at = weld_clock.elapsed();
     let assembled = assemble_components(complex)?;
-    let assembled_at = Instant::now();
+    let assembled_at = weld_clock.elapsed();
     let brep = assembled.brep;
     let boundaries = brep_boundary_segments(&brep, &assembled.edge_component);
     let mut used = vec![false; boundaries.len()];
@@ -84,7 +87,7 @@ pub fn weld_clean_surface_complex_boundaries(
         &scope.export_quality_scope(),
         export_quality_options(options),
     );
-    let candidates_at = Instant::now();
+    let candidates_at = weld_clock.elapsed();
 
     let result =
         repair_brep_boundary_edges_transactionally(&brep, &candidates, pipeline_options(options))
@@ -94,7 +97,7 @@ pub fn weld_clean_surface_complex_boundaries(
                 failure.stage, failure.reason
             )
         })?;
-    let repaired_at = Instant::now();
+    let repaired_at = weld_clock.elapsed();
     let snap_report = result.report.snap_sewing.as_ref();
     let clean_report = snap_report.and_then(|report| report.clean_report.as_ref());
     let trim_repairs = result
@@ -178,14 +181,14 @@ pub fn weld_clean_surface_complex_boundaries(
             scoped_edge_surfaces.max_deviation,
         ),
     );
-    let quality_at = Instant::now();
+    let quality_at = weld_clock.elapsed();
     let export_blockers = export_quality.topology_blockers
         + export_quality.trim_blockers
         + export_quality.edge_curve_blockers
         + export_quality.pcurve_blockers
         + usize::from(!export_quality.validation_passed);
     let repair_actions = build_brep_repair_action_artifact(&result.report.actions);
-    let actions_at = Instant::now();
+    let actions_at = weld_clock.elapsed();
     let report = PolyhedralBoundaryWeldReport {
         candidate_pairs: result.report.candidate_pairs,
         welded_pairs: clean_report.map_or(0, |report| report.accepted_pairs),
@@ -230,12 +233,12 @@ pub fn weld_clean_surface_complex_boundaries(
         pre_repair_scoped_quality,
         post_repair_scoped_quality,
         timing: PolyhedralBoundaryWeldTiming {
-            assemble_ms: elapsed_ms(assembled_at.duration_since(started_at)),
-            candidate_match_ms: elapsed_ms(candidates_at.duration_since(assembled_at)),
-            repair_pipeline_ms: elapsed_ms(repaired_at.duration_since(candidates_at)),
-            export_quality_ms: elapsed_ms(quality_at.duration_since(repaired_at)),
-            repair_artifact_ms: elapsed_ms(actions_at.duration_since(quality_at)),
-            total_ms: elapsed_ms(actions_at.duration_since(started_at)),
+            assemble_ms: span_ms(started_at, assembled_at),
+            candidate_match_ms: span_ms(assembled_at, candidates_at),
+            repair_pipeline_ms: span_ms(candidates_at, repaired_at),
+            export_quality_ms: span_ms(repaired_at, quality_at),
+            repair_artifact_ms: span_ms(quality_at, actions_at),
+            total_ms: span_ms(started_at, actions_at),
         },
     };
     Ok(PolyhedralWeldedSurfaceComplex {
@@ -245,8 +248,11 @@ pub fn weld_clean_surface_complex_boundaries(
     })
 }
 
-fn elapsed_ms(duration: Duration) -> u128 {
-    duration.as_millis()
+/// Milliseconds between two same-stopwatch checkpoints; `None` when
+/// the platform clock is unavailable (clockless wasm32 browser
+/// target) so timing is honestly absent rather than zero.
+fn span_ms(earlier: Option<Duration>, later: Option<Duration>) -> Option<u128> {
+    Some(later?.saturating_sub(earlier?).as_millis())
 }
 
 fn pipeline_options(options: PolyhedralCoverageOptions) -> BrepRepairPipelineOptions {

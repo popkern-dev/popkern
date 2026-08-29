@@ -64,8 +64,6 @@ pub(crate) fn thicken_impl(
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
-    use std::time::Instant;
-
     // Normalize the open-boundary representation: constructors register
     // sheet rims as null-sentinel twins (`boundary_edges`), while the
     // skin pipeline works in the loopless-twin form (both half-edges
@@ -161,7 +159,7 @@ pub(crate) fn thicken_impl(
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, assembly_maps) = crate::assemble::assemble_shell_with_maps(
         &outer,
         &inner,
@@ -178,7 +176,7 @@ pub(crate) fn thicken_impl(
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     result
         .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;

@@ -1,7 +1,5 @@
 //! Structured timing helpers for KP20 polar dispatch diagnostics.
 
-use std::time::Instant;
-
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct Kp20DispatchStageTiming {
     pub(super) support_domain_ms: u128,
@@ -40,7 +38,7 @@ impl Kp20DispatchStageTiming {
 }
 
 pub(super) fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
-    let start = Instant::now();
+    let start = popkern_core::time::Stopwatch::start();
     let value = f();
-    (value, start.elapsed().as_millis())
+    (value, start.elapsed_or_zero_ms())
 }

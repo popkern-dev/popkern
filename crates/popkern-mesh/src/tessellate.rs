@@ -526,7 +526,6 @@ pub(crate) fn tessellate_brep(
     options: &TessellationOptions,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<TriMesh, MeshError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -538,7 +537,7 @@ pub(crate) fn tessellate_brep(
     // Canonical per-edge samples: adjacent faces share bit-identical
     // boundary vertices (PK-095 closure).
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let mut edge_samples = crate::boundary_first::sample_all_edges(brep, options.chord_height);
     tracker.finish_stage("tessellate.edge_samples", t0, edge_samples.len());
     // Encroachment refinement (Ruppert-style): a face whose Delaunay
@@ -562,7 +561,7 @@ pub(crate) fn tessellate_brep(
         // §17 per-round poll (the per-face closures also short-circuit
         // on a fired token, so a cancelled round finishes fast).
         stage_gate!();
-        let round_started = Instant::now();
+        let round_started = popkern_core::time::Stopwatch::start();
         // Slotmap key order, filtered — request order matches the
         // retired all-faces loop with the no-op faces removed.
         let faces: Vec<FaceHandle> = brep
@@ -624,7 +623,7 @@ pub(crate) fn tessellate_brep(
         ));
     }
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let mut face_meshes = Vec::new();
     let mut sew_candidate_faces = Vec::new();
     let faces: Vec<FaceHandle> = brep
@@ -670,7 +669,7 @@ pub(crate) fn tessellate_brep(
     // pulled onto the base-edge line, reopening the very seams the
     // canonical sampling closed).
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     deepchord_trace(brep, &face_meshes, options, "pre-sew");
     crate::boundary_sew::sew_boundaries_to_edge_polylines(
         brep,
@@ -680,11 +679,11 @@ pub(crate) fn tessellate_brep(
     deepchord_trace(brep, &face_meshes, options, "post-sew");
     tracker.finish_stage("tessellate.sew_boundaries", t0, sew_candidate_faces.len());
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     orient_face_meshes_coherently(brep, &mut face_meshes);
     tracker.finish_stage("tessellate.orient", t0, face_meshes.len());
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let mut mesh = TriMesh::from_face_meshes(face_meshes);
     // Tolerance-scoped T-junction zippering (PK-208): differently
     // sampled boundary chains along RECORDED-tolerance edges are

@@ -70,7 +70,6 @@ pub(crate) fn revolve_impl(
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<SweepResult, SweepError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -80,7 +79,7 @@ pub(crate) fn revolve_impl(
     }
     // 1. Analyze profile into smooth spans.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let analyzed = analyze_profile(profile, &tolerance)?;
 
     if analyzed.spans.is_empty() {
@@ -89,7 +88,7 @@ pub(crate) fn revolve_impl(
     tracker.finish_stage("revolve.analyze_profile", t0, analyzed.spans.len());
 
     // 2. Build a revolution surface for each span (per-span poll).
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let mut surfaces = Vec::with_capacity(analyzed.spans.len());
     for span in &analyzed.spans {
         stage_gate!();
@@ -124,7 +123,7 @@ pub(crate) fn revolve_impl(
     let use_closed_topology = analyzed.is_closed && !is_full_revolution;
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let brep = build_sweep_topology(
         &surfaces,
         &start_caps,

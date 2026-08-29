@@ -85,8 +85,10 @@ impl FilletPhase {
 pub struct ProgressEvent {
     /// Which pipeline phase just completed.
     pub phase: FilletPhase,
-    /// Wall-clock duration of the phase that just completed.
-    pub duration: Duration,
+    /// Wall-clock duration of the phase that just completed, or
+    /// `None` on platforms without a monotonic clock (see
+    /// `popkern_core::time::Stopwatch`).
+    pub duration: Option<Duration>,
     /// Phase-specific entity count (number of edges analysed,
     /// number of trim curves computed, etc.).
     pub entity_count: usize,
@@ -114,8 +116,9 @@ pub struct CornerProgress {
     pub corner_index: usize,
     /// Number of corners this apply phase will construct.
     pub total_corners: usize,
-    /// Wall-clock duration of this corner's construction.
-    pub duration: Duration,
+    /// Wall-clock duration of this corner's construction, or `None`
+    /// on clockless platforms.
+    pub duration: Option<Duration>,
 }
 
 /// Per-edge §18 telemetry captured by the fillet pipeline's
@@ -129,7 +132,7 @@ pub struct EdgeTelemetry {
     /// Wall-clock duration of this edge's geometry computation
     /// (the time spent inside `compute_fillet_geometry` for this
     /// edge alone, excluding the pipeline-wide phases).
-    pub duration: Duration,
+    pub duration: Option<Duration>,
     /// Total Newton iterations consumed by the rolling-ball
     /// contact solver across all walker samples for this edge.
     /// `None` on the offset-intersect path (no walker, no
@@ -165,14 +168,14 @@ impl FilletTelemetry {
     /// time the reporter was called across, approximately equal
     /// to the total `fillet_edges` runtime.
     pub fn total_phase_duration(&self) -> Duration {
-        self.phase_events.iter().map(|e| e.duration).sum()
+        self.phase_events.iter().filter_map(|e| e.duration).sum()
     }
 
     /// Sum of all per-edge compute durations. This is *less than*
     /// [`Self::total_phase_duration`] because many phases (validate,
     /// analyze, apply-topology) run outside the per-edge loop.
     pub fn total_edge_duration(&self) -> Duration {
-        self.edge_events.iter().map(|e| e.duration).sum()
+        self.edge_events.iter().filter_map(|e| e.duration).sum()
     }
 
     /// Number of edges that succeeded (edge events with
@@ -370,7 +373,7 @@ mod tests {
     fn percent_at_first_of_six_is_16() {
         let event = ProgressEvent {
             phase: FilletPhase::Validate,
-            duration: Duration::from_millis(10),
+            duration: Some(Duration::from_millis(10)),
             entity_count: 0,
         };
         assert_eq!(event.percent(), 16);
@@ -380,7 +383,7 @@ mod tests {
     fn percent_at_last_phase_is_100() {
         let event = ProgressEvent {
             phase: FilletPhase::RepairPcurves,
-            duration: Duration::from_millis(10),
+            duration: Some(Duration::from_millis(10)),
             entity_count: 0,
         };
         assert_eq!(event.percent(), 100);
@@ -391,7 +394,7 @@ mod tests {
         let mut reporter = NullReporter;
         reporter.on_phase(ProgressEvent {
             phase: FilletPhase::Analyze,
-            duration: Duration::from_millis(0),
+            duration: Some(Duration::from_millis(0)),
             entity_count: 0,
         });
     }
@@ -401,12 +404,12 @@ mod tests {
         let mut reporter = CaptureReporter::default();
         reporter.on_phase(ProgressEvent {
             phase: FilletPhase::Analyze,
-            duration: Duration::from_millis(5),
+            duration: Some(Duration::from_millis(5)),
             entity_count: 12,
         });
         reporter.on_phase(ProgressEvent {
             phase: FilletPhase::ApplyTopology,
-            duration: Duration::from_millis(20),
+            duration: Some(Duration::from_millis(20)),
             entity_count: 18,
         });
         assert_eq!(reporter.events.len(), 2);

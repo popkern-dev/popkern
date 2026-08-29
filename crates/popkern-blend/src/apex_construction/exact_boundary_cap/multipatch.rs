@@ -4,8 +4,6 @@
 //! This module starts as a dormant implementation surface. Runtime routing
 //! remains unchanged until the orchestration and transaction slices are built.
 
-use std::time::Instant;
-
 use popkern_core::geometry::{NurbsCurve, Point3};
 
 use crate::apex_construction::exact_boundary_cap::ribbon::ExactBoundaryRibbonSample;
@@ -146,7 +144,7 @@ pub(crate) struct ExactBoundaryMultiPatchCandidate {
 pub(crate) fn prepare_multipatch_candidate(
     request: ExactBoundaryMultiPatchCandidateRequest<'_>,
 ) -> ExactBoundaryMultiPatchCandidateAttempt {
-    let started_at = Instant::now();
+    let started_at = popkern_core::time::Stopwatch::start();
     let mut performance = ExactBoundaryMultiPatchPerformanceReport {
         sector_count: 1,
         ..ExactBoundaryMultiPatchPerformanceReport::default()
@@ -156,7 +154,7 @@ pub(crate) fn prepare_multipatch_candidate(
         let mut report =
             ExactBoundaryMultiPatchCandidateReport::declined_for_two_outer_sides(request.sector);
         report.performance.sector_count = performance.sector_count;
-        report.performance.elapsed_micros = started_at.elapsed().as_micros();
+        report.performance.elapsed_micros = started_at.elapsed().map(|d| d.as_micros());
         return ExactBoundaryMultiPatchCandidateAttempt::declined(report);
     }
 
@@ -164,7 +162,7 @@ pub(crate) fn prepare_multipatch_candidate(
         let mut report =
             ExactBoundaryMultiPatchCandidateReport::declined_for_two_outer_sides(request.sector);
         report.performance.sector_count = performance.sector_count;
-        report.performance.elapsed_micros = started_at.elapsed().as_micros();
+        report.performance.elapsed_micros = started_at.elapsed().map(|d| d.as_micros());
         return ExactBoundaryMultiPatchCandidateAttempt::declined(report);
     };
 
@@ -380,7 +378,7 @@ fn declined_with_context(
     inventory: Option<ExactBoundaryMultiPatchInventoryReport>,
     diagnostic: ExactBoundaryMultiPatchDiagnostic,
     performance: ExactBoundaryMultiPatchPerformanceReport,
-    started_at: Instant,
+    started_at: popkern_core::time::Stopwatch,
 ) -> ExactBoundaryMultiPatchCandidateAttempt {
     ExactBoundaryMultiPatchCandidateAttempt::declined(
         ExactBoundaryMultiPatchCandidateReport::declined_with_context(
@@ -394,9 +392,9 @@ fn declined_with_context(
 
 fn finish_performance(
     mut performance: ExactBoundaryMultiPatchPerformanceReport,
-    started_at: Instant,
+    started_at: popkern_core::time::Stopwatch,
 ) -> ExactBoundaryMultiPatchPerformanceReport {
-    performance.elapsed_micros = started_at.elapsed().as_micros();
+    performance.elapsed_micros = started_at.elapsed().map(|d| d.as_micros());
     performance
 }
 

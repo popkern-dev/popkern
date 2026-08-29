@@ -35,7 +35,6 @@ pub(crate) fn fillet_edges_attempt(
     reporter: &mut Option<&mut dyn progress::ProgressReporter>,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
 ) -> Result<BlendResult, BlendError> {
-    use std::time::Instant;
     macro_rules! emit {
         ($phase:expr, $start:expr, $count:expr) => {
             if let Some(r) = reporter.as_deref_mut() {
@@ -114,7 +113,7 @@ pub(crate) fn fillet_edges_attempt(
         options
     };
     // PHASE 0: Validate.
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     validate::validate_fillet_specs(brep, specs)?;
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
@@ -136,14 +135,14 @@ pub(crate) fn fillet_edges_attempt(
     // Capture pre-operation faces for naming.
     let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
     // PHASE 1: Analyze edges.
-    let t1 = Instant::now();
+    let t1 = popkern_core::time::Stopwatch::start();
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
     let analyses = analysis::analyze_edges(brep, &edges, options.propagate_tangent)
         .map_err(BlendError::NoValidEdges)?;
     emit!(progress::FilletPhase::Analyze, t1, analyses.len());
     check_cancel!();
     // PHASE 2: Compute geometry for each edge.
-    let t2 = Instant::now();
+    let t2 = popkern_core::time::Stopwatch::start();
     let mut edge_geometries = Vec::new();
     let mut failures = Vec::new();
     for (i, spec) in specs.iter().enumerate() {
@@ -154,7 +153,7 @@ pub(crate) fn fillet_edges_attempt(
         // NURBS surface intersection mid-stride.
         check_cancel!();
         // §18 telemetry: per-edge Instant bracketing + reporter event.
-        let edge_start = Instant::now();
+        let edge_start = popkern_core::time::Stopwatch::start();
         let compute_result = compute_fillet_geometry(
             &analyses[i],
             &spec.radius,
@@ -199,7 +198,7 @@ pub(crate) fn fillet_edges_attempt(
         });
     }
     // PHASE 3: Detect overlaps (warnings only — don't block the operation).
-    let t3 = Instant::now();
+    let t3 = popkern_core::time::Stopwatch::start();
     let mut overlap_warnings = Vec::new();
     let (overlap_trims, _face_trim_map) = build_overlap_inputs(&edge_geometries, brep);
     let overlaps = overlap::detect_overlaps(&overlap_trims, &tolerance);
@@ -236,7 +235,7 @@ pub(crate) fn fillet_edges_attempt(
     }
 
     // PHASE 4: Apply topology.
-    let t4 = Instant::now();
+    let t4 = popkern_core::time::Stopwatch::start();
     let apply_args = (&edge_geometries, &tolerance, &options.vertex_mode);
     let mut apply_result = construct::apply_blend_geometry(
         brep,
@@ -279,7 +278,7 @@ pub(crate) fn fillet_edges_attempt(
         edge_geometries.len()
     );
     check_cancel!();
-    let t5 = Instant::now();
+    let t5 = popkern_core::time::Stopwatch::start();
     // Structured tail timing (PK-278 profile): the four passes below
     // carried ~2.9 s of the 5.9 s G2 cube before parallelization —
     // recorded as a diagnostic fact so tail regressions stay visible.

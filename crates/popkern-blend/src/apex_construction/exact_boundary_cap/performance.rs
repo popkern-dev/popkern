@@ -1,7 +1,5 @@
 //! Candidate-only performance counters for exact-boundary apex caps.
 
-use std::time::Instant;
-
 use crate::types::{ApexConstructionDiagnostic, ExactBoundaryCandidatePerformanceReport};
 
 use super::pcurves::PreparedExactBoundaryPcurves;
@@ -81,10 +79,10 @@ pub(crate) fn record_pcurve_report(
 /// Finalize candidate timing and deterministic decline evidence.
 pub(crate) fn finalize_performance_report(
     performance: &mut ExactBoundaryCandidatePerformanceReport,
-    started: Instant,
+    started: popkern_core::time::Stopwatch,
     diagnostics: &[ApexConstructionDiagnostic],
 ) {
-    performance.elapsed_micros = started.elapsed().as_micros();
+    performance.elapsed_micros = started.elapsed().map(|d| d.as_micros());
     performance.deterministic_skip_code = deterministic_skip_code(diagnostics);
 }
 

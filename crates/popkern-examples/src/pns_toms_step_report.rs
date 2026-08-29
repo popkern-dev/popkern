@@ -86,14 +86,15 @@ pub(super) fn write_sidecar_report(
         report.welded_scope_vertices,
         report.welded_scope_faces
     ));
+    let ms = |v: Option<u128>| v.map_or_else(|| "unmeasured".to_string(), |m| m.to_string());
     out.push_str(&format!(
         "welded_timing_ms: assemble={} candidate_match={} repair_pipeline={} export_quality={} repair_artifact={} total={}\n",
-        report.welded_timing.assemble_ms,
-        report.welded_timing.candidate_match_ms,
-        report.welded_timing.repair_pipeline_ms,
-        report.welded_timing.export_quality_ms,
-        report.welded_timing.repair_artifact_ms,
-        report.welded_timing.total_ms
+        ms(report.welded_timing.assemble_ms),
+        ms(report.welded_timing.candidate_match_ms),
+        ms(report.welded_timing.repair_pipeline_ms),
+        ms(report.welded_timing.export_quality_ms),
+        ms(report.welded_timing.repair_artifact_ms),
+        ms(report.welded_timing.total_ms)
     ));
     if let Some(bytes) = report.welded_bytes {
         out.push_str(&format!("welded_step_bytes: {bytes}\n"));

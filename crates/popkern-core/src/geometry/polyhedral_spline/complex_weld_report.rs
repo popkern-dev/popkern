@@ -42,10 +42,10 @@ pub struct PolyhedralBoundaryWeldReport {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PolyhedralBoundaryWeldTiming {
-    pub assemble_ms: u128,
-    pub candidate_match_ms: u128,
-    pub repair_pipeline_ms: u128,
-    pub export_quality_ms: u128,
-    pub repair_artifact_ms: u128,
-    pub total_ms: u128,
+    pub assemble_ms: Option<u128>,
+    pub candidate_match_ms: Option<u128>,
+    pub repair_pipeline_ms: Option<u128>,
+    pub export_quality_ms: Option<u128>,
+    pub repair_artifact_ms: Option<u128>,
+    pub total_ms: Option<u128>,
 }

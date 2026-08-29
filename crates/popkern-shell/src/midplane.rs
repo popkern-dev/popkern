@@ -32,7 +32,6 @@ pub(crate) fn midplane_shell_impl(
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
     naming_sink: Option<&mut crate::ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
-    use std::time::Instant;
     let half = thickness / 2.0;
     let half_faces: Vec<(FaceHandle, f64)> = face_thicknesses
         .iter()
@@ -111,7 +110,7 @@ pub(crate) fn midplane_shell_impl(
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, assembly_maps) = crate::assemble::assemble_shell_with_maps(
         &outer_skin,
         &inner_skin,
@@ -154,7 +153,7 @@ pub(crate) fn midplane_shell_impl(
     if tracker.cancelled() {
         return Err(ShellError::Cancelled);
     }
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     result
         .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;

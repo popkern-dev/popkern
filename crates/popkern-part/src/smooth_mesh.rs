@@ -237,7 +237,6 @@ fn attempt(
     options: SmoothMeshOptions,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<(Part, SmoothMeshReport), AttemptError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -253,7 +252,7 @@ fn attempt(
     };
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let complex =
         build_control_net_surface_complex(cage, coverage).map_err(|source| AttemptFailure {
             stage: "spline construction",
@@ -282,7 +281,7 @@ fn attempt(
         .collect();
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let welded = weld_clean_surface_complex_boundaries(&complex, coverage).map_err(|detail| {
         AttemptFailure {
             stage: "boundary weld",
@@ -320,7 +319,7 @@ fn attempt(
     }
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let part = Part::from_brep(welded.brep, tolerance, "smooth mesh").map_err(|source| {
         AttemptFailure {
             stage: "validation",
@@ -334,7 +333,7 @@ fn attempt(
     // the detach layer owns the user-facing latency, this poll merely
     // bounds abandoned-worker burn.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     if options.check_self_intersections {
         let findings = part.brep().validate_all();
         if !findings.is_empty() {

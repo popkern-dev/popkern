@@ -167,7 +167,7 @@ pub fn apply_blend_geometry(
                     return true;
                 }
                 if edge_indices.len() >= 2 {
-                    let corner_started = std::time::Instant::now();
+                    let corner_started = popkern_core::time::Stopwatch::start();
                     let pre = precomputed.get(vertex).copied().unwrap_or(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );

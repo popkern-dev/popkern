@@ -1,7 +1,5 @@
 //! Bounded KP20 lift candidate for high-valence dispatch.
 
-use std::time::Instant;
-
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6CapInput, TensorBorderBi3, assemble_kp20_bi6_cap,
@@ -396,7 +394,7 @@ fn try_support_domain_limited_lift(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LimitedLiftCandidate, String> {
-    let start = Instant::now();
+    let start = popkern_core::time::Stopwatch::start();
     let (macro_patches, support_domain) =
         support_domain_initial_basis_candidate(star_point, tensor_border)?;
     let report = lift_candidate_from_macro_patches_with_profile(
@@ -449,7 +447,7 @@ fn try_support_domain_limited_lift(
         support_two_lane: Some(support_two_lane),
         expanded_support_topology: Some(expanded_support_topology),
         support_strip_reauthor: Some(support_strip_reauthor),
-        elapsed_ms: start.elapsed().as_millis(),
+        elapsed_ms: start.elapsed_or_zero_ms(),
     })
 }
 
@@ -462,7 +460,7 @@ fn default_limited_lift(
         tensor_border: tensor_border.clone(),
     })
     .map_err(|e| e.to_string())?;
-    let start = Instant::now();
+    let start = popkern_core::time::Stopwatch::start();
     let report = lift_candidate_from_macro_patches_with_profile(
         star_point,
         tensor_border,
@@ -489,6 +487,6 @@ fn default_limited_lift(
         support_two_lane: None,
         expanded_support_topology: None,
         support_strip_reauthor: None,
-        elapsed_ms: start.elapsed().as_millis(),
+        elapsed_ms: start.elapsed_or_zero_ms(),
     })
 }

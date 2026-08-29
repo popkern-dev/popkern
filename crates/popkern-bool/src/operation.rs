@@ -14,8 +14,6 @@ mod postprocess;
 
 use postprocess::{log_post_processing_diagnostics, log_validation_issues, run_output_postprocess};
 
-use std::time::Instant;
-
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use crate::cancellation::CancellationToken;
@@ -37,7 +35,7 @@ fn report_phase(
     reporter: &mut Option<&mut dyn ProgressReporter>,
     stage: Stage,
     phase_index: usize,
-    duration: std::time::Duration,
+    duration: Option<std::time::Duration>,
     entity_count: usize,
 ) {
     if let Some(r) = reporter.as_deref_mut() {
@@ -136,7 +134,7 @@ pub(crate) fn execute_boolean_full(
     }
 
     // Stage 1: Intersect — compute face-face intersection curves.
-    let t_intersect = Instant::now();
+    let t_intersect = popkern_core::time::Stopwatch::start();
     let intersection_result =
         find_intersections(&a, &b, tolerance).map_err(|diag| diag.into_error())?;
     let elapsed_intersect = t_intersect.elapsed();
@@ -316,7 +314,7 @@ pub(crate) fn execute_boolean_full(
     let original_b = b.clone();
 
     // Stage 2: Split — trim faces along intersection curves.
-    let t_split = Instant::now();
+    let t_split = popkern_core::time::Stopwatch::start();
     let split_result = split_along_curves(a, b, &intersection_result.records, tolerance)
         .map_err(|diag| diag.into_error())?;
     let split_fragment_count = split_result.a.faces.len() + split_result.b.faces.len();
@@ -336,7 +334,7 @@ pub(crate) fn execute_boolean_full(
     check_cancel(cancel)?;
 
     // Stage 3: Classify — label each fragment as inside/outside/on-boundary.
-    let t_classify = Instant::now();
+    let t_classify = popkern_core::time::Stopwatch::start();
     let classifications_a = classify_fragments(
         &split_result.a,
         &split_result.b,
@@ -378,7 +376,7 @@ pub(crate) fn execute_boolean_full(
     }
 
     // Stage 4: Select — choose which fragments belong to the result.
-    let t_select = Instant::now();
+    let t_select = popkern_core::time::Stopwatch::start();
     let selection = select_faces(op, &all_classifications);
     let elapsed_select = t_select.elapsed();
     let count_select = selection.keep_a.len() + selection.keep_b.len();
@@ -455,7 +453,7 @@ pub(crate) fn execute_boolean_full(
     // was previously discarded with `.ok()` on all builds, and a whole
     // campaign's worth of pcurve archaeology traced a defect to
     // graph-merge before discovering graph-merge was even running.
-    let t_merge = Instant::now();
+    let t_merge = popkern_core::time::Stopwatch::start();
     // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
     // kill-switch (PK-239 precedent).
     let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
@@ -529,7 +527,7 @@ pub(crate) fn execute_boolean_full(
     // returning a corrupted result. The merge-phase cut-behavior fix
     // (commit history) made this consistently green; if a future
     // change regresses, fail loudly.
-    let t_validate = Instant::now();
+    let t_validate = popkern_core::time::Stopwatch::start();
     let pc_report = crate::validate::post_check::post_check(&result, tolerance, false);
     let pc_errors: Vec<String> = pc_report
         .findings

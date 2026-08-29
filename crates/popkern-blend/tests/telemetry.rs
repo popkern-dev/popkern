@@ -55,7 +55,7 @@ fn capture_reporter_records_one_edge_event_per_spec() {
     // Every event should have a non-zero duration.
     for ev in &tel.edge_events {
         assert!(
-            ev.duration.as_nanos() > 0,
+            ev.duration.is_some_and(|d| d.as_nanos() > 0),
             "edge event should have measurable duration, got {:?}",
             ev.duration
         );
@@ -108,7 +108,7 @@ fn capture_reporter_records_one_corner_event_per_vertex_blend() {
         );
         assert_eq!(ev.total_corners, 8, "total must be the honest corner count");
         assert!(
-            ev.duration.as_nanos() > 0,
+            ev.duration.is_some_and(|d| d.as_nanos() > 0),
             "corner event should have measurable duration, got {:?}",
             ev.duration
         );
@@ -150,7 +150,7 @@ fn capture_reporter_records_all_pipeline_phases() {
     // must carry a nonzero duration.
     for e in &tel.phase_events {
         assert!(
-            e.duration.as_nanos() > 0,
+            e.duration.is_some_and(|d| d.as_nanos() > 0),
             "phase {:?} event should have nonzero duration, got {:?}",
             e.phase,
             e.duration
@@ -314,21 +314,21 @@ fn telemetry_aggregate_accessors_are_consistent() {
     tel.edge_events = vec![
         EdgeTelemetry {
             edge: dummy,
-            duration: Duration::from_micros(100),
+            duration: Some(Duration::from_micros(100)),
             newton_iterations: Some(3),
             step_rejections: Some(0),
             succeeded: true,
         },
         EdgeTelemetry {
             edge: dummy,
-            duration: Duration::from_micros(200),
+            duration: Some(Duration::from_micros(200)),
             newton_iterations: Some(5),
             step_rejections: Some(2),
             succeeded: true,
         },
         EdgeTelemetry {
             edge: dummy,
-            duration: Duration::from_micros(150),
+            duration: Some(Duration::from_micros(150)),
             newton_iterations: Some(3),
             step_rejections: Some(1),
             succeeded: false,

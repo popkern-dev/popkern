@@ -95,7 +95,6 @@ pub(crate) fn offset_solid_impl(
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
-    use std::time::Instant;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -120,24 +119,24 @@ pub(crate) fn offset_solid_impl(
         .collect();
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let classification = classify_faces(brep, abs_default, &abs_faces, direction, &[])?;
     tracker.finish_stage("offset.classify_faces", t0, brep.faces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
     let offset_result =
         compute_offset_surfaces(brep, &classification, options.allow_partial, &stage_tol)?;
     tracker.finish_stage("offset.offset_surfaces", t0, offset_result.surfaces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, skin_map) = build_inner_skin(brep, &[])?;
     tracker.finish_stage("offset.skin", t0, result.faces.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     // Face-collapse resolution (PK-326): features thinner than the
     // offset dissolve before the join plan sees the skin.
     let collapse_warnings = crate::collapse_resolve::resolve_face_collapse(
@@ -166,7 +165,7 @@ pub(crate) fn offset_solid_impl(
     tracker.finish_stage("offset.vertex_recompute", t0, result.vertices.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let undone = crate::edge_recompute::recompute_edges_with_skips(
         &mut result,
         &offset_result.surfaces,
@@ -190,7 +189,7 @@ pub(crate) fn offset_solid_impl(
     tracker.finish_stage("offset.edge_recompute", t0, result.edges.len());
 
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
     // Join construction (PK-325): rolling-ball strips + sphere corner
     // windows, via Euler operators only.
@@ -212,7 +211,7 @@ pub(crate) fn offset_solid_impl(
     // keeps every still-accurate pcurve and re-authors only the stale
     // ones.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     result
         .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
@@ -231,7 +230,7 @@ pub(crate) fn offset_solid_impl(
     // Decline. The chord gate's deferred decline lands here when the
     // trim does not apply.
     stage_gate!();
-    let t0 = Instant::now();
+    let t0 = popkern_core::time::Stopwatch::start();
     let mut provenance = crate::global_si_trim::TrimProvenance {
         default_distance: abs_default,
         ..Default::default()

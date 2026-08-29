@@ -163,8 +163,9 @@ pub enum BoolError {
 pub struct PhaseMetric {
     /// Which pipeline stage this measurement covers.
     pub stage: Stage,
-    /// Wall-clock duration of the stage.
-    pub duration: std::time::Duration,
+    /// Wall-clock duration of the stage, or `None` on platforms
+    /// without a monotonic clock (see `popkern_core::time::Stopwatch`).
+    pub duration: Option<std::time::Duration>,
     /// Stage-specific entity count (pairs, fragments, etc.).
     pub entity_count: usize,
 }

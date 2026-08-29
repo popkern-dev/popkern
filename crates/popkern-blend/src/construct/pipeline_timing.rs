@@ -1,7 +1,5 @@
 //! Structured timing facts for the apply-blend construction pipeline.
 
-use std::time::Instant;
-
 use crate::types::{ApexConstructionDiagnostic, ExactBoundaryCapDiagnostic};
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -61,9 +59,9 @@ impl ApplyBlendPipelineTiming {
 }
 
 pub(super) fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
-    let start = Instant::now();
+    let start = popkern_core::time::Stopwatch::start();
     let value = f();
-    (value, start.elapsed().as_millis())
+    (value, start.elapsed_or_zero_ms())
 }
 
 /// Structured timing for the post-apply repair tail of

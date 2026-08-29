@@ -51,7 +51,7 @@ pub(crate) fn emit_corner_progress(
     vertex: popkern_core::topology::VertexHandle,
     corner_index: &mut usize,
     total_corners: usize,
-    started: std::time::Instant,
+    started: popkern_core::time::Stopwatch,
 ) {
     if let Some(r) = reporter.as_deref_mut() {
         r.on_corner(crate::progress::CornerProgress {

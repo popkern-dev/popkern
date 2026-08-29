@@ -175,14 +175,14 @@ pub fn recompute_edges_with_skips(
         };
 
         // Compute edge curve from surface intersection.
-        let trace_started = trace.then(std::time::Instant::now);
+        let trace_started = trace.then(popkern_core::time::Stopwatch::start);
         let computed = compute_edge_curve(inner, inner_eh, &surf1, &surf2, tolerance)?;
         if let Some(t0) = trace_started {
             eprintln!(
                 "[recomp-edge] {inner_eh:?} {}x{} {:.1} ms served={}",
                 surface_kind(&surf1),
                 surface_kind(&surf2),
-                t0.elapsed().as_secs_f64() * 1e3,
+                t0.elapsed_ms().unwrap_or(f64::NAN),
                 computed.is_some()
             );
         }

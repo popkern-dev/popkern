@@ -248,7 +248,7 @@ pub(crate) struct ExactBoundaryMultiPatchPerformanceReport {
     /// Bounded solver iterations consumed.
     pub bounded_iteration_count: usize,
     /// Elapsed candidate preparation and validation time in microseconds.
-    pub elapsed_micros: u128,
+    pub elapsed_micros: Option<u128>,
     /// First deterministic decline code suitable for routing policy.
     pub deterministic_skip_code: Option<String>,
 }

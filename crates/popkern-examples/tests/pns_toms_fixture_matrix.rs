@@ -302,13 +302,23 @@ fn assert_weld_timing_is_recorded(
     label: &str,
     report: &popkern_core::geometry::polyhedral_spline::PolyhedralBoundaryWeldReport,
 ) {
+    let (total, repair, quality) = (
+        report.timing.total_ms.expect("weld total timing on native"),
+        report
+            .timing
+            .repair_pipeline_ms
+            .expect("weld repair timing on native"),
+        report
+            .timing
+            .export_quality_ms
+            .expect("weld export-quality timing on native"),
+    );
     assert!(
-        report.timing.total_ms
-            >= report.timing.repair_pipeline_ms + report.timing.export_quality_ms,
+        total >= repair + quality,
         "{label} weld timing must include repair and export-quality stages"
     );
     assert!(
-        report.timing.repair_pipeline_ms > 0 || report.timing.export_quality_ms > 0,
+        repair > 0 || quality > 0,
         "{label} weld timing should expose nonzero expensive stages"
     );
 }

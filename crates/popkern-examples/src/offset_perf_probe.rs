@@ -135,11 +135,12 @@ fn main() {
         let tracked: f64 = cap
             .events
             .iter()
-            .map(|e| e.duration.as_secs_f64() * 1e3)
+            .filter_map(|e| e.duration)
+            .map(|d| d.as_secs_f64() * 1e3)
             .sum();
         println!("    [tracked {tracked:.1} ms of {total:.1} ms]");
         for e in &cap.events {
-            let ms = e.duration.as_secs_f64() * 1e3;
+            let ms = e.duration.map_or(f64::NAN, |d| d.as_secs_f64() * 1e3);
             if ms > 0.2 {
                 println!("    {}: {ms:.1} ms", e.stage);
             }

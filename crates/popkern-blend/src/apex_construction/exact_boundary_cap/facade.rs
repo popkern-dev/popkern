@@ -1,7 +1,5 @@
 //! Semantic exact-boundary cap candidate facade.
 
-use std::time::Instant;
-
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::apex_construction::error::ApexBuildError;
@@ -91,7 +89,7 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
     baseline_validation_errors: &[popkern_core::error::ValidationError],
     pole_override: Option<popkern_core::geometry::Point3>,
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
-    let started = Instant::now();
+    let started = popkern_core::time::Stopwatch::start();
     let snapshot = brep.clone();
     let mut candidate_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;

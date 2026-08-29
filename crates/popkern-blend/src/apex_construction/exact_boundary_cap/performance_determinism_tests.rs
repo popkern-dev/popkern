@@ -40,7 +40,7 @@ fn exact_boundary_candidate_reports_linear_scaling_counts() {
         assert!(performance.validation_sector_count <= sector_count);
         assert!(performance.validation_pcurve_pair_count <= sector_count * 2);
         assert!(performance.validation_spoke_edge_count <= sector_count);
-        assert!(performance.elapsed_micros > 0);
+        assert!(performance.elapsed_micros.is_some_and(|us| us > 0));
         assert_eq!(result.report.performance, result.performance);
 
         if result.status == ExactBoundaryCapCandidateStatus::Declined {
@@ -86,7 +86,7 @@ fn without_elapsed(
     performance: &ExactBoundaryCandidatePerformanceReport,
 ) -> ExactBoundaryCandidatePerformanceReport {
     let mut stable = performance.clone();
-    stable.elapsed_micros = 0;
+    stable.elapsed_micros = None;
     stable
 }
 

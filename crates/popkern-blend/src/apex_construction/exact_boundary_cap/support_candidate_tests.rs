@@ -31,7 +31,7 @@ fn nurbs_supports_reach_full_candidate_with_family_performance() {
     assert_eq!(result.performance.nurbs_support_ribbon_count, 6);
     assert_eq!(result.performance.support_ribbon_count, 6);
     assert!(result.performance.support_sample_count >= 30);
-    assert!(result.performance.elapsed_micros > 0);
+    assert!(result.performance.elapsed_micros.is_some_and(|us| us > 0));
     if result.status == ExactBoundaryCapCandidateStatus::Accepted {
         assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
     }
@@ -71,7 +71,7 @@ fn sphere_and_cone_full_candidates_report_structured_support_status() {
         let result = run_exact_boundary_cap_candidate(&mut brep, cap_face, &plan, &sectors)
             .expect("analytic support mismatch should produce a structured result");
 
-        assert!(result.performance.elapsed_micros > 0);
+        assert!(result.performance.elapsed_micros.is_some_and(|us| us > 0));
         if result.status == ExactBoundaryCapCandidateStatus::Accepted {
             assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
             assert!(
@@ -105,7 +105,7 @@ fn periodic_cylinder_supports_reach_full_candidate_with_family_performance() {
 
     assert_eq!(result.performance.cylinder_support_ribbon_count, 6);
     assert_eq!(result.performance.support_ribbon_count, 6);
-    assert!(result.performance.elapsed_micros > 0);
+    assert!(result.performance.elapsed_micros.is_some_and(|us| us > 0));
     if result.status == ExactBoundaryCapCandidateStatus::Accepted {
         assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
     }

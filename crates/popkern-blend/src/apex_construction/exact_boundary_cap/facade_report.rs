@@ -26,7 +26,7 @@ pub(super) fn declined_curve_preparation_result(
     informational: Vec<ApexConstructionDiagnostic>,
     candidate_sectors: Vec<ExactBoundaryCapSectorInput>,
     mut performance: ExactBoundaryCandidatePerformanceReport,
-    started: std::time::Instant,
+    started: popkern_core::time::Stopwatch,
 ) -> super::ExactBoundaryCapCandidateResult {
     use super::super::facts::attach_shared_repair_fact_ids;
     use super::super::performance::finalize_performance_report;

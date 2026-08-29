@@ -264,7 +264,9 @@ fn replay_returns_positive_elapsed() {
 
     let result = tree.replay(Tolerance::default()).expect("replay");
     assert!(
-        result.elapsed > std::time::Duration::ZERO,
+        result
+            .elapsed
+            .is_some_and(|e| e > std::time::Duration::ZERO),
         "elapsed should be > 0"
     );
 }

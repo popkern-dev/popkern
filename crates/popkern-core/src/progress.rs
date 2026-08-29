@@ -32,8 +32,11 @@ pub struct ProgressEvent {
     /// early-exiting pipeline may emit fewer events than announced,
     /// never more.
     pub total_stages: usize,
-    /// Wall-clock duration of the stage that just completed.
-    pub duration: Duration,
+    /// Wall-clock duration of the stage that just completed, or
+    /// `None` on platforms without a monotonic clock (clockless
+    /// `wasm32-unknown-unknown`; see [`crate::time::Stopwatch`]) —
+    /// timing is then honestly absent, never a fabricated zero.
+    pub duration: Option<Duration>,
     /// Stage-specific entity count (faces offset, rounds inserted,
     /// surfaces checked, …).
     pub entity_count: usize,
@@ -198,11 +201,11 @@ impl<'a, 'r> StageTracker<'a, 'r> {
     }
 
     /// Emit the completed stage's event and advance the cursor.
-    /// `started` is the instant the stage began.
+    /// `started` is the stopwatch started when the stage began.
     pub fn finish_stage(
         &mut self,
         stage: &'static str,
-        started: std::time::Instant,
+        started: crate::time::Stopwatch,
         entity_count: usize,
     ) {
         let event = ProgressEvent {
@@ -228,7 +231,7 @@ mod tests {
             stage,
             stage_index: index,
             total_stages: total,
-            duration: Duration::from_millis(1),
+            duration: Some(Duration::from_millis(1)),
             entity_count: 3,
         }
     }
@@ -266,7 +269,7 @@ mod tests {
                     stage: "detached.stage",
                     stage_index: 0,
                     total_stages: 1,
-                    duration: Duration::from_millis(2),
+                    duration: Some(Duration::from_millis(2)),
                     entity_count: 9,
                 });
                 "ok"
@@ -289,7 +292,7 @@ mod tests {
         {
             let mut tracker = StageTracker::new(Some(&token), Some(&mut reporter), 3);
             assert!(!tracker.cancelled());
-            let t0 = std::time::Instant::now();
+            let t0 = crate::time::Stopwatch::start();
             tracker.finish_stage("op.first", t0, 5);
             tracker.finish_stage("op.second", t0, 6);
             token.cancel();

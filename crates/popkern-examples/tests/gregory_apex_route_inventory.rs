@@ -79,7 +79,7 @@ fn assert_exact_boundary_performance_report(route: &popkern_blend::ApexConstruct
         route.exact_boundary_pcurve_pair_count
     );
     assert!(
-        performance.elapsed_micros > 0,
+        performance.elapsed_micros.is_some_and(|us| us > 0),
         "exact-boundary performance report should carry elapsed budget evidence"
     );
     assert!(performance.deterministic_skip_code.is_none());

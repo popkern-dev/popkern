@@ -26,7 +26,6 @@ use crate::types::ApexConstructionDiagnostic;
 use candidates::{
     lifted_mapped_candidate_summary, mapped_candidate_summary, tau_candidate_summary,
 };
-use std::time::Instant;
 
 #[path = "kp20_polar_comparison_candidates.rs"]
 mod candidates;
@@ -36,7 +35,7 @@ pub(super) fn sampler_comparison_diagnostic(
     tensor_border: &TensorBorderBi3,
     bounded_affine: Kp20SamplerFoldSummary,
 ) -> ApexConstructionDiagnostic {
-    let total_start = Instant::now();
+    let total_start = popkern_core::time::Stopwatch::start();
     let (orientation_valid, orientation_valid_ms) = timed(|| {
         mapped_candidate_summary(
             star_point,
@@ -246,13 +245,13 @@ fn support_surface_result(
 }
 
 fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
-    let start = Instant::now();
+    let start = popkern_core::time::Stopwatch::start();
     let value = f();
     (value, elapsed_ms(start))
 }
 
-fn elapsed_ms(start: Instant) -> u128 {
-    start.elapsed().as_millis()
+fn elapsed_ms(start: popkern_core::time::Stopwatch) -> u128 {
+    start.elapsed_or_zero_ms()
 }
 
 fn append_candidate_detail(
