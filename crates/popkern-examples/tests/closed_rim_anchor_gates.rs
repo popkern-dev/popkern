@@ -187,7 +187,7 @@ fn render_pk344_bracket_max_grow() {
     let grown = offset_solid(&f.brep, 0.198, &ShellOptions::default(), tol())
         .expect("serves")
         .brep;
-    let out_dir = std::path::Path::new("../../examples/output");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(out_dir).expect("output dir");
     let camera = Camera {
         eye: GVec3::new(2.9, 2.5, 2.6),

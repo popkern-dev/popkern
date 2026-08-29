@@ -43,8 +43,8 @@ fn healed_open_box_is_watertight_and_occ_clean() {
 
     // STEP + OCC oracle leg (skips with a notice when the OCP venv is
     // absent — the corpus convention).
-    let out_dir = std::path::Path::new("../../examples/output/fixtures");
-    std::fs::create_dir_all(out_dir).expect("fixture dir");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixtures");
+    std::fs::create_dir_all(&out_dir).expect("fixture dir");
     let path = out_dir.join("healed_open_box.step");
     part.export_step(&path).expect("STEP export");
 

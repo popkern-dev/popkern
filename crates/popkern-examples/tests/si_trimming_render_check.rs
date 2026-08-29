@@ -1,6 +1,6 @@
 //! PK-327 visual verification renders (geometry-affecting change
 //! rule): the globally trimmed grow of the grooved cylinder next to
-//! its sub-reach sibling. Artifacts land in examples/output.
+//! its sub-reach sibling. Artifacts land in the target tmpdir (path printed).
 
 use glam::Vec3 as GVec3;
 use popkern_core::tolerance::Tolerance;
@@ -14,7 +14,7 @@ fn tol() -> Tolerance {
 }
 
 fn render(brep: &BRep, name: &str, eye: (f32, f32, f32), target: (f32, f32, f32)) {
-    let out_dir = std::path::Path::new("../../examples/output");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(out_dir).expect("output dir");
     let camera = Camera {
         eye: GVec3::new(eye.0, eye.1, eye.2),

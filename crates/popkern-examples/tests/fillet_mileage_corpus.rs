@@ -186,8 +186,10 @@ fn corpus_occ_oracle_leg() {
         eprintln!("[corpus-occ] OCP oracle unavailable — leg skipped");
         return;
     }
-    let out_dir = std::path::Path::new("../../examples/output/fixtures/corpus");
-    std::fs::create_dir_all(out_dir).expect("corpus fixture dir");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("fixtures")
+        .join("corpus");
+    std::fs::create_dir_all(&out_dir).expect("corpus fixture dir");
     let mut checked = 0usize;
     let mut failures: Vec<String> = Vec::new();
     for (name, build) in corpus() {

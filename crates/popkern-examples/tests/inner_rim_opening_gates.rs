@@ -112,7 +112,7 @@ fn render_pk346_bore_pierced_opening() {
         None,
     )
     .expect("serves");
-    let out_dir = std::path::Path::new("../../examples/output");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"));
     std::fs::create_dir_all(out_dir).expect("output dir");
     let camera = Camera {
         eye: GVec3::new(2.6, 2.2, 2.4),

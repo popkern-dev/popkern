@@ -375,8 +375,10 @@ fn occ_oracle_passes(path: &std::path::Path) -> Option<bool> {
 /// measured and pinned in-line).
 #[test]
 fn seam_fixtures_step_export_and_occ() {
-    let out_dir = std::path::Path::new("../../examples/output/fixtures/seam");
-    std::fs::create_dir_all(out_dir).expect("seam fixture dir");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join("fixtures")
+        .join("seam");
+    std::fs::create_dir_all(&out_dir).expect("seam fixture dir");
 
     // Rim fixture: full periodic rim chain through the seam vertex.
     let brep = BRep::cylinder(1.0, 2.0, default_tol()).unwrap();

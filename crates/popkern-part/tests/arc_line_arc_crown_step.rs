@@ -30,8 +30,8 @@ fn arc_line_arc_crown_round_trips() {
 
     part.brep().validate().expect("crown solid must validate");
 
-    let dir = std::path::Path::new("../../examples/output/fixtures");
-    std::fs::create_dir_all(dir).expect("fixture output dir");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixtures");
+    std::fs::create_dir_all(&dir).expect("fixture output dir");
     let path = dir.join("arc_line_arc_crown.step");
     part.export_step(&path).expect("crown solid must export");
     part.assert_step_roundtrip(&path)

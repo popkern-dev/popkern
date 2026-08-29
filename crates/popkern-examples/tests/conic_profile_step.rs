@@ -49,8 +49,8 @@ fn conic_profile_plate_serves_exports_and_survives_occ() {
         base - chamfer_removal
     );
 
-    let out_dir = std::path::Path::new("../../examples/output/fixtures");
-    std::fs::create_dir_all(out_dir).expect("fixture dir");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixtures");
+    std::fs::create_dir_all(&out_dir).expect("fixture dir");
     let path = out_dir.join("conic_profile_plate.step");
     part.export_step(&path).expect("conic STEP export");
 

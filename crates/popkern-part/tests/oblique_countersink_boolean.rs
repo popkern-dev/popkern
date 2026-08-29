@@ -136,8 +136,8 @@ fn oblique_countersink_serves_cone_band_and_watertight_shell() {
 #[test]
 fn oblique_countersink_exports_clean_step() {
     let cut = oblique_countersunk_plate();
-    let dir = std::path::Path::new("../../examples/output/fixtures");
-    std::fs::create_dir_all(dir).expect("fixture output dir");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixtures");
+    std::fs::create_dir_all(&dir).expect("fixture output dir");
     let path = dir.join("oblique_countersink.step");
     cut.export_step(&path).expect("oblique countersink exports");
     cut.assert_step_roundtrip(&path)

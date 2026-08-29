@@ -24,8 +24,12 @@ fn no_unwrap_or_expect_in_library_code() {
     let forbidden_patterns = [".unwrap()", ".expect("];
 
     for file in &files {
-        // Skip files inside a `tests/` directory — those are integration tests, not library code.
-        let is_test_file = file.components().any(|c| c.as_os_str() == "tests");
+        // Skip files inside a `tests/` or `integration_tests/`
+        // directory — those are test code, not library code (the
+        // latter is mounted `#[cfg(test)] mod integration_tests;`).
+        let is_test_file = file
+            .components()
+            .any(|c| c.as_os_str() == "tests" || c.as_os_str() == "integration_tests");
         if is_test_file {
             continue;
         }
@@ -47,7 +51,7 @@ fn no_unwrap_or_expect_in_library_code() {
         //   `integration_tests_*.rs`    — popkern-bool crate uses this convention
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let is_test_module = file_name == "tests.rs"
-            || file_name.ends_with("_tests.rs")
+            || file_name.contains("_tests")
             || file_name.ends_with("_test_helpers.rs")
             || file_name.starts_with("test_")
             || file_name.starts_with("tests_")
@@ -68,15 +72,41 @@ fn no_unwrap_or_expect_in_library_code() {
         if content.lines().any(|line| line.trim() == "#![cfg(test)]") {
             continue;
         }
-        let mut in_test_module = false;
+        // Brace-depth tracking for #[cfg(test)] items: a pending
+        // marker arms on the attribute; the item that follows is
+        // skipped — a `mod x;`/`use`/fn-signature line terminated by
+        // `;` clears it, a braced item skips until its braces
+        // balance. The old latch never reset, leaving everything
+        // after a file's FIRST #[cfg(test)] unchecked (this codebase
+        // routinely mounts `#[cfg(test)] mod x_tests;` near the top
+        // of files, so whole library files went unscanned).
+        let mut cfg_test_pending = false;
+        let mut skip_depth: i32 = 0;
 
         for (line_num, line) in content.lines().enumerate() {
-            // Track #[cfg(test)] module boundaries (simple heuristic)
-            if line.contains("#[cfg(test)]") {
-                in_test_module = true;
+            if skip_depth > 0 {
+                skip_depth += line.matches('{').count() as i32;
+                skip_depth -= line.matches('}').count() as i32;
+                continue;
             }
-
-            if in_test_module {
+            if line.contains("#[cfg(test)]") {
+                cfg_test_pending = true;
+                continue;
+            }
+            if cfg_test_pending {
+                // Everything from the attribute to the item's body
+                // opening (attribute lines, doc lines, multi-line fn
+                // signatures) keeps the marker armed; the item either
+                // opens a brace block (skip until balanced) or ends
+                // with `;` (a `mod x;` mount — skip that line only).
+                let opens = line.matches('{').count() as i32;
+                let closes = line.matches('}').count() as i32;
+                if opens > closes {
+                    skip_depth = opens - closes;
+                    cfg_test_pending = false;
+                } else if line.trim_end().ends_with(';') {
+                    cfg_test_pending = false;
+                }
                 continue;
             }
 

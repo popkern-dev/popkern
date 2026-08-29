@@ -399,14 +399,26 @@ fn boolean_ref_generic_intersection() {
 // ── Curved surface tests ──────────────────────────────────────────────
 
 #[test]
-fn cube_minus_contained_sphere_returns_cube() {
-    // Sphere fully inside cube — containment shortcut returns cube unchanged
+fn cube_minus_contained_sphere_serves_hollow_solid() {
+    // Sphere fully inside cube — the containment path builds a hollow
+    // solid: the cube's outer shell plus the sphere as an inverted
+    // inner void shell. (This assertion replaced a vacuous
+    // `is_ok() || is_err()` left from when the path was a TODO.)
     let t = Tolerance::default().with_linear(1e-3);
     let cube = BRep::unit_cube(t).unwrap();
     let sphere = translate(BRep::sphere(0.3, t).unwrap(), Vec3::new(0.5, 0.5, 0.5));
-    let result = crate::subtraction(cube, sphere, t, None);
-    // Containment subtraction is a TODO — returns cube unchanged or errors
-    assert!(result.is_ok() || result.is_err());
+    let result = crate::subtraction(cube, sphere, t, None).expect("containment subtraction serves");
+    assert!(
+        result.validate().is_ok(),
+        "hollow solid must validate: {:?}",
+        result.validate().err()
+    );
+    assert_eq!(
+        result.faces.len(),
+        7,
+        "6 cube faces + 1 inverted sphere void face"
+    );
+    assert_eq!(result.shells.len(), 2, "outer shell + void shell");
 }
 
 #[test]

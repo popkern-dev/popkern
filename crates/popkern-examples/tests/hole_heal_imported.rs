@@ -89,8 +89,8 @@ fn imported_damaged_model_heals_watertight_and_occ_clean() {
         "healed imported body is watertight"
     );
 
-    let out_dir = std::path::Path::new("../../examples/output/fixtures");
-    std::fs::create_dir_all(out_dir).expect("fixture dir");
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("fixtures");
+    std::fs::create_dir_all(&out_dir).expect("fixture dir");
     let path = out_dir.join("healed_imported_open_box.step");
     part.export_step(&path).expect("STEP export");
 
