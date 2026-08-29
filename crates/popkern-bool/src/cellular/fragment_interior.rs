@@ -109,13 +109,28 @@ pub(super) fn fragment_interior_sample(
     if let Some(p) = u_period.filter(|p| u_hi - u_lo >= p * (1.0 - 1e-9)) {
         let anchor = outer_x[0];
         let fold = |u: f64| -> f64 { u - p * ((u - anchor) / p).floor() };
-        let mut xs: Vec<f64> = outer_x.iter().map(|&u| fold(u)).collect();
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        xs.dedup_by(|b, a| (*b - *a).abs() < p * 1e-9);
         let inner_folded: Vec<Vec<f64>> = inners
             .iter()
             .map(|i| crossings_at(i, cv).into_iter().map(fold).collect())
             .collect();
+        // Partition the period circle by OUTER and INNER crossings
+        // alike: an arc between adjacent crossings is then uniformly
+        // material and uniformly in/out of every inner loop, so the
+        // midpoint tests below are sound. With outer crossings only,
+        // an arc spanning most of the wall was rejected whole because
+        // its midpoint happened to land inside an inner-loop hole,
+        // and the sole surviving arc was the seam-straddling cut
+        // window (measured: cross-drilled cylinder — the kept wall
+        // sampled at the entry-hole centre, classified Inside, and
+        // the cellular body shipped five half-claimed edges).
+        let mut xs: Vec<f64> = outer_x
+            .iter()
+            .copied()
+            .chain(inner_folded.iter().flatten().copied())
+            .map(fold)
+            .collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        xs.dedup_by(|b, a| (*b - *a).abs() < p * 1e-9);
         // 3D boundary samples with walk-direction tangents for the
         // material-side test (the polygon is in walk order).
         let boundary_3d: Vec<(popkern_core::geometry::Point3, popkern_core::geometry::Vec3)> = {

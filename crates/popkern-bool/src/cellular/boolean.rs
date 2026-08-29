@@ -723,15 +723,25 @@ fn classify_fragments_cellular(
                     // (measured: a flush cutter's flank fragment read
                     // anti-oriented at its corner sample and the
                     // relief-mouth membrane was kept). When the two
-                    // scales disagree, trust the coarser one — still
-                    // orders of magnitude below feature size.
+                    // scales disagree, a THIRD pair at 4× breaks the
+                    // tie by majority: blindly trusting the coarser
+                    // scale mis-served coarse-tolerance bodies whose
+                    // sample clearance to the other body sits between
+                    // the two offsets — at linear 1e-3 the 16× probe
+                    // reached 0.09, PAST the sphere face 0.053 away,
+                    // and the straddling verdict dropped every cube
+                    // annulus (measured: centered-sphere subtraction,
+                    // six half-claimed rim edges). All-distinct keeps
+                    // the coarse verdict (prior behavior).
                     let (c_plus_f, c_minus_f) = pair_at(eps);
                     let (c_plus, c_minus) = {
-                        let (c_plus_c, c_minus_c) = pair_at(probe_eps_coarse);
-                        if (c_plus_f, c_minus_f) != (c_plus_c, c_minus_c) {
-                            (c_plus_c, c_minus_c)
+                        let fine = (c_plus_f, c_minus_f);
+                        let coarse = pair_at(probe_eps_coarse);
+                        if fine == coarse {
+                            fine
                         } else {
-                            (c_plus_f, c_minus_f)
+                            let mid = pair_at(probe_eps_coarse.sqrt() * eps.sqrt());
+                            if mid == fine { fine } else { coarse }
                         }
                     };
                     if popkern_core::trace::trace_enabled("face-selection") {
