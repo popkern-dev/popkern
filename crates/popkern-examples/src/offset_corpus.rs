@@ -10,13 +10,13 @@
 //! is convex analytic (plus the torus, whose tube formula holds below
 //! the reach) — the constants feed the SDF-oracle calibration battery.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_core::error::CoreError;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_part::{Part, PartError};
 use std::f64::consts::PI;
 
@@ -116,7 +116,7 @@ pub fn filleted_cube(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
             radius: FilletRadius::Constant(rf),
         })
         .collect();
-    let blend = popkern_fillet::fillet_edges(&base, &specs, &FilletOptions::default(), tol, None)
+    let blend = popkern_blend::fillet_edges(&base, &specs, &FilletOptions::default(), tol, None)
         .map_err(|e| CorpusError::Fillet(format!("{e:?}")))?;
     // Rounded-cube closed forms with core side c = 1 − 2·rf:
     // V = c³ + 6c²·rf + 3πc·rf² + (4π/3)rf³, A = 6c² + 6πc·rf + 4πrf²,

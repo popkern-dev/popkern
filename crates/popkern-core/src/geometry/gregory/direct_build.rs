@@ -241,7 +241,7 @@ pub fn build(
 /// The canonical three-quad spoke topology: spoke k connects
 /// patch k's UOne (not reversed) to patch (k+1)%N's VZero
 /// (reversed). This matches the convention in
-/// `popkern-fillet/src/construct/three_quad_apply.rs`.
+/// `popkern-blend/src/construct/three_quad_apply.rs`.
 fn canonical_spoke_topology(n: usize) -> Vec<Spoke> {
     (0..n)
         .map(|k| Spoke {

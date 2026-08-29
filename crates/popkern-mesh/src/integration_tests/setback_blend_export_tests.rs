@@ -2,21 +2,21 @@
 //! (commit mode) — the honest end-to-end replacing the showcase's
 //! from-parts writer.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
 fn setback_blend_g1_tessellates_closed() {
-    run_setback_closure_gate(popkern_fillet::ContinuityLevel::G1);
+    run_setback_closure_gate(popkern_blend::ContinuityLevel::G1);
 }
 
 #[test]
 fn setback_blend_tessellates_closed() {
-    run_setback_closure_gate(popkern_fillet::ContinuityLevel::G2);
+    run_setback_closure_gate(popkern_blend::ContinuityLevel::G2);
 }
 
-fn run_setback_closure_gate(continuity: popkern_fillet::ContinuityLevel) {
+fn run_setback_closure_gate(continuity: popkern_blend::ContinuityLevel) {
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid

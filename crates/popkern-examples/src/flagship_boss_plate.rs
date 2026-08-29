@@ -240,15 +240,15 @@ fn main() {
         seam_edges.len(),
         fillet_edges_list.len() - seam_edges.len()
     );
-    let specs: Vec<popkern_fillet::FilletSpec> = fillet_edges_list
+    let specs: Vec<popkern_blend::FilletSpec> = fillet_edges_list
         .iter()
-        .map(|&edge| popkern_fillet::FilletSpec {
+        .map(|&edge| popkern_blend::FilletSpec {
             edge,
-            radius: popkern_fillet::FilletRadius::Constant(0.08),
+            radius: popkern_blend::FilletRadius::Constant(0.08),
         })
         .collect();
-    let options = popkern_fillet::FilletOptions {
-        continuity: popkern_fillet::ContinuityLevel::G1,
+    let options = popkern_blend::FilletOptions {
+        continuity: popkern_blend::ContinuityLevel::G1,
         ..Default::default()
     };
     if popkern_core::trace::trace_enabled("corner-carve") {
@@ -304,7 +304,7 @@ fn main() {
                 );
             }
         }
-        match popkern_fillet::analysis::analyze_edges(&unioned, &fillet_edges_list, false) {
+        match popkern_blend::analysis::analyze_edges(&unioned, &fillet_edges_list, false) {
             Ok(list) => {
                 for a in &list {
                     eprintln!(
@@ -330,7 +330,7 @@ fn main() {
             }
         }
         for &eh in &fillet_edges_list {
-            match popkern_fillet::analysis::analyze_edges(&unioned, &[eh], false) {
+            match popkern_blend::analysis::analyze_edges(&unioned, &[eh], false) {
                 Ok(list) => {
                     for a in &list {
                         eprintln!(
@@ -343,9 +343,9 @@ fn main() {
             }
         }
     }
-    let result = match popkern_fillet::fillet_edges(&unioned, &specs, &options, tol, None) {
+    let result = match popkern_blend::fillet_edges(&unioned, &specs, &options, tol, None) {
         Ok(r) => r,
-        Err(popkern_fillet::BlendError::PartialFailure { failures, .. }) => {
+        Err(popkern_blend::BlendError::PartialFailure { failures, .. }) => {
             for (eh, f) in &failures {
                 eprintln!("  fillet FAILED on {eh:?}: {f:?}");
             }

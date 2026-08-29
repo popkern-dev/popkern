@@ -1,3 +1,7 @@
+use popkern_blend::{
+    ApexConstructionDiagnostic, BlendResult, ExactBoundaryCandidateOutcome, FilletOptions,
+    FilletRadius, FilletSpec, fillet_edges,
+};
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::{
     Point3,
@@ -10,10 +14,6 @@ use popkern_core::topology::{
     BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineOptions, BrepSewingClassificationOptions,
     BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, repair_brep_boundary_edges_transactionally,
-};
-use popkern_fillet::{
-    ApexConstructionDiagnostic, BlendResult, ExactBoundaryCandidateOutcome, FilletOptions,
-    FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
@@ -286,7 +286,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         support_report.authored + support_report.declined
     );
     assert_eq!(support_report.decisions.len(), support_report.candidates);
-    let artifact = popkern_fillet::build_blend_repair_action_artifact(&blend.repair_report);
+    let artifact = popkern_blend::build_blend_repair_action_artifact(&blend.repair_report);
     let apex_diagnostic_actions = blend
         .repair_report
         .apex_diagnostics
@@ -295,7 +295,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
             // Mirrors the artifact builder: informational records are
             // observability, not repair actions (PK-201).
             ApexConstructionDiagnostic::ExactBoundaryCap(d) => {
-                !popkern_fillet::types::diagnostic_code_is_informational(&d.code)
+                !popkern_blend::types::diagnostic_code_is_informational(&d.code)
             }
             ApexConstructionDiagnostic::CapSupportContinuity(_)
             | ApexConstructionDiagnostic::SideSupportContinuation(_) => true,
@@ -370,7 +370,7 @@ fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendRe
     assert_eq!(exact_report.performance.pcurve_pair_count, 6);
     assert!(
         exact_report.diagnostics.iter().all(|diagnostic| {
-            popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+            popkern_blend::types::diagnostic_code_is_informational(&diagnostic.code)
                 || (diagnostic.stage == "exact_boundary_cap.support_scope"
                     && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
                 || (diagnostic.stage == "exact_boundary_cap.cap_outer"

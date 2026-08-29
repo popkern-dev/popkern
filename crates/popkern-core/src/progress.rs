@@ -6,7 +6,7 @@
 //! single type across operations, and round-based pipelines can report
 //! honest per-run stage totals (which a static phase enum cannot).
 //!
-//! Boundary note: `popkern-fillet` and `popkern-bool` keep their
+//! Boundary note: `popkern-blend` and `popkern-bool` keep their
 //! shipped, requirement-numbered progress APIs (fillet's carries §18
 //! per-edge telemetry; bool's is typed on its error `Stage`), and
 //! `popkern_core::healing::ProgressCallback` keeps its polling `&self`

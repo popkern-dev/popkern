@@ -14,7 +14,7 @@
 //!   supplies a prepared [`TensorBorder`]. Deriving the bi-3
 //!   border from the fillet's boundary curves is a separate
 //!   geometric step (planned as I.10d).
-//! - **Fillet-crate dispatch.** No `popkern-fillet` integration
+//! - **Fillet-crate dispatch.** No `popkern-blend` integration
 //!   yet (planned as I.10e).
 //! - **(S1) seed propagation.** The full paper-compliant free-
 //!   parameter set includes sector 0's near-star CPs; our

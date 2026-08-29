@@ -1,6 +1,6 @@
 //! CI performance budget gate for the smooth-mesh path (PK-190).
 //!
-//! Companion to `popkern-fillet/tests/perf_budget.rs` — see its header
+//! Companion to `popkern-blend/tests/perf_budget.rs` — see its header
 //! for the budget-justification method (best-of-N release wall clock
 //! on the dev reference machine × 5 CI headroom). This file gates the
 //! PnS mesh-to-BRep smoke tier: the cube cage (direct serve, the

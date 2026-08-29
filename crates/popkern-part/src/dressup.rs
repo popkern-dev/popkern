@@ -2,7 +2,7 @@
 //! caps, variable radii), blend reports, and slider-bound helpers —
 //! the progressive-disclosure layer over [`Part::fillet`].
 
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 use crate::error::PartError;
 use crate::part::Part;
@@ -10,10 +10,10 @@ use crate::select::{EdgeQuery, edge_infos};
 
 /// Requested blend-boundary continuity (re-exported kernel enum:
 /// `G0` positional, `G1` tangent — the default, `G2` curvature).
-pub use popkern_fillet::ContinuityLevel as Continuity;
+pub use popkern_blend::ContinuityLevel as Continuity;
 
 /// End-cap style for open fillet ends (kernel enum).
-pub use popkern_fillet::CapKind;
+pub use popkern_blend::CapKind;
 
 /// A fillet recipe: everything beyond "constant radius" that the
 /// simple [`Part::fillet`] hides.
@@ -75,7 +75,7 @@ impl FilletRecipe {
     /// could not be seam-completed. Default off (transactional
     /// decline).
     pub fn serve_non_interfering(mut self) -> FilletRecipe {
-        self.options.interference_policy = popkern_fillet::InterferencePolicy::ServeNonInterfering;
+        self.options.interference_policy = popkern_blend::InterferencePolicy::ServeNonInterfering;
         self
     }
 
@@ -86,7 +86,7 @@ impl FilletRecipe {
     /// `cos(θ/2)/(1+cos(θ/2))` for section opening angle θ, and
     /// supplying it reproduces the circular blend to roundoff.
     pub fn conic(mut self, rho: f64) -> FilletRecipe {
-        self.options.profile = popkern_fillet::BlendProfile::Conic { rho };
+        self.options.profile = popkern_blend::BlendProfile::Conic { rho };
         self
     }
 
@@ -124,7 +124,7 @@ pub struct BlendReport {
     /// its handles are provenance, not live references, and stay
     /// meaningful in the report even after later operations rebuild
     /// the body.
-    pub continuity: Option<popkern_fillet::BlendContinuityEvidence>,
+    pub continuity: Option<popkern_blend::BlendContinuityEvidence>,
 }
 
 /// Seam sampling density for blend-time continuity evidence. The
@@ -138,17 +138,17 @@ pub(crate) fn measure_blend_evidence(
     post: &popkern_core::topology::BRep,
     pre_faces: &std::collections::BTreeSet<popkern_core::topology::FaceHandle>,
     requested: Continuity,
-) -> popkern_fillet::BlendContinuityEvidence {
+) -> popkern_blend::BlendContinuityEvidence {
     let new_faces: Vec<_> = post
         .faces
         .keys()
         .filter(|f| !pre_faces.contains(f))
         .collect();
-    popkern_fillet::measure_blend_continuity_evidence(
+    popkern_blend::measure_blend_continuity_evidence(
         post,
         &new_faces,
         requested,
-        &popkern_fillet::ContinuityGates::commercial(),
+        &popkern_blend::ContinuityGates::commercial(),
         EVIDENCE_SAMPLES_PER_SEAM,
     )
 }

@@ -31,7 +31,7 @@
 
 pub mod sphere_fit;
 
-// kp_binonic_term submodule lives in popkern-fillet (Stage 6c-B
+// kp_binonic_term submodule lives in popkern-blend (Stage 6c-B
 // requires the cap construction's pub(crate) machinery, which is
 // only accessible from inside that crate). The decisive-negative
 // apex-termination measurement that motivated this split is

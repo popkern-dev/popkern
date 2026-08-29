@@ -48,13 +48,13 @@ fn fillet_radius_tweak_refreshes_cached_state() {
     state_before.edges[edge].name = Some(name_id);
 
     let fillet_at = |radius: f64| -> BRep {
-        popkern_fillet::fillet_edges(
+        popkern_blend::fillet_edges(
             &state_before,
-            &[popkern_fillet::FilletSpec {
+            &[popkern_blend::FilletSpec {
                 edge,
-                radius: popkern_fillet::FilletRadius::Constant(radius),
+                radius: popkern_blend::FilletRadius::Constant(radius),
             }],
-            &popkern_fillet::FilletOptions::default(),
+            &popkern_blend::FilletOptions::default(),
             tol,
             None,
         )

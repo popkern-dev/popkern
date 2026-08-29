@@ -121,7 +121,7 @@ pub fn build_guide_ring_with_twist(
 /// directly. The caller is responsible for ensuring `central[k]`
 /// has the right position / tangent_u / tangent_v / twist for
 /// sub-patch `k` at `C`. Used by the gap-#2 iterative twist
-/// optimizer in `popkern-fillet` — after the first call,
+/// optimizer in `popkern-blend` — after the first call,
 /// subsequent iterations only tweak `central[k].twist` and re-
 /// invoke this builder.
 pub fn build_guide_ring_from_centrals(

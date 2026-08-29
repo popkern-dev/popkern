@@ -10,7 +10,7 @@
 //! (u-periodic charts test every period image against the
 //! branch-unwrapped loop polygon). That combination is exactly what
 //! consumers need when stored loop windings cannot be trusted — the
-//! popkern-fillet convexity classifier's interior-side witness is the
+//! popkern-blend convexity classifier's interior-side witness is the
 //! first client (primitive constructors encode outwardness in the
 //! orientation flag alone and leave loop windings unenforced, so any
 //! interior-on-the-left rule silently mirrors on those faces).

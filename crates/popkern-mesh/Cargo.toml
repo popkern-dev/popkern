@@ -20,7 +20,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 popkern-bool = { path = "../popkern-bool" }
-popkern-fillet = { path = "../popkern-fillet" }
+popkern-blend = { path = "../popkern-blend" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-sweep = { path = "../popkern-sweep" }
 # The tessellation determinism pins build their own rayon pools to

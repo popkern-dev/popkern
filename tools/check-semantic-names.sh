@@ -42,7 +42,7 @@ for file in "${files[@]}"; do
             # regenerated content.
             continue
             ;;
-        crates/popkern-fillet/src/unfillet_plan_contract_tests.rs)
+        crates/popkern-blend/src/unfillet_plan_contract_tests.rs)
             # Contains the banned literals as NEGATIVE assertions (error
             # messages must not leak plan coordinates).
             continue

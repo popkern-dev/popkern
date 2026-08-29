@@ -1,12 +1,12 @@
 //! Inputs to direct-construction — pure geometric data, no
 //! dependency on the fillet-crate topology types.
 //!
-//! The caller (typically `popkern-fillet`) extracts this struct
+//! The caller (typically `popkern-blend`) extracts this struct
 //! from its own `BlendBoundary` + adjacent-face geometry. Keeping
 //! the math layer dependency-free means:
 //!   - Direct construction can be unit-tested without fillet
 //!     scaffolding.
-//!   - Future callers outside `popkern-fillet` (e.g. a sweep or
+//!   - Future callers outside `popkern-blend` (e.g. a sweep or
 //!     offset operation that wants the same construction) can
 //!     build the input struct themselves.
 //!
@@ -57,7 +57,7 @@ pub struct DirectBoundaryInput {
     /// construction uses these as the source of existing
     /// boundary CPs (especially the hex-external edges at
     /// `u=0` and `v=1` which aren't per-spoke data). Upstream
-    /// in `popkern-fillet` builds these via the existing
+    /// in `popkern-blend` builds these via the existing
     /// biseptic promotion ladder; direct-construction then
     /// refines the row-1 / row-2 CPs on top.
     ///

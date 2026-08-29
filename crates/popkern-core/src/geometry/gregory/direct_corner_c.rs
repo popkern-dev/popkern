@@ -16,11 +16,11 @@
 //! Geometric Design* 4(4), extended to N-fold corners per
 //! Chiyokura-Kimura (1983) §3.3. The implementation mirrors
 //! the existing version in
-//! `crates/popkern-fillet/src/blend/gregory_vertex_enclosure.rs`
+//! `crates/popkern-blend/src/blend/gregory_vertex_enclosure.rs`
 //! (which operates on the earlier bicubic Gregory rung) — we
 //! port the same Lagrangian QP to `popkern-core` so the
 //! direct-construction framework doesn't have a reverse
-//! dependency on `popkern-fillet`.
+//! dependency on `popkern-blend`.
 //!
 //! # Mathematical setup (recap)
 //!
@@ -174,7 +174,7 @@ pub fn solve_central_vertex_corner(
     }
 
     // 4. Port of the Lagrangian-QP solver from
-    //    popkern-fillet::blend::gregory_vertex_enclosure.
+    //    popkern-blend::blend::gregory_vertex_enclosure.
     let (t1, t2) = orthonormal_tangent_basis(n_c);
 
     // Project parallelogram seeds into 2-D tangent-plane coords.

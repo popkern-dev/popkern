@@ -8,7 +8,7 @@
 //!
 //! The exploratory probes that drove the campaign (fillet side
 //! checks, tangency, curvature combs, chart verification) are
-//! promoted to unit/integration tests in popkern-fillet; this
+//! promoted to unit/integration tests in popkern-blend; this
 //! example is the clean production story.
 //!
 //! Outputs (picked up by tools/render-apex-showcase.sh):
@@ -18,10 +18,10 @@
 
 use std::path::Path;
 
+use popkern_blend::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_mesh::{TessellationOptions, TriMesh, tessellate};
 
 fn main() {

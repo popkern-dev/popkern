@@ -24,7 +24,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Bi-quintic guide substrate (Option C extension)
 - L-M solver for free guide CPs
 
-**Modules:** `crates/popkern-fillet/src/construct/kp_binonic_optimizer.rs`, `kp_biquintic_optimizer.rs`, `kp_lm_solver.rs`, `kp_twist_optimizer.rs`; `crates/popkern-core/src/geometry/gregory/rectangular_binonic.rs`, `kp_guide_patch.rs`, `kp_guide_patch_biquintic.rs`, `kp_ring_build.rs`, `kp_row1.rs`, `kp_row2.rs`, `kp_interior_fit.rs`
+**Modules:** `crates/popkern-blend/src/construct/kp_binonic_optimizer.rs`, `kp_biquintic_optimizer.rs`, `kp_lm_solver.rs`, `kp_twist_optimizer.rs`; `crates/popkern-core/src/geometry/gregory/rectangular_binonic.rs`, `kp_guide_patch.rs`, `kp_guide_patch_biquintic.rs`, `kp_ring_build.rs`, `kp_row1.rs`, `kp_row2.rs`, `kp_interior_fit.rs`
 
 **Key commits:** `657dc98` (H.6 dispatch), `b8466c3` (H.7 gate), `98a6148` (Option B twist-opt), `002bc27` (L-M phase 3), numerous H.4 sub-phase commits.
 
@@ -37,7 +37,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Twist-extraction from incident-surface normals at hex corners (commercial-grade #2)
 - Parallelogram-rule inner CPs + tangent-plane projection
 
-**Modules:** `crates/popkern-core/src/geometry/gregory/rectangular.rs`; `crates/popkern-fillet/src/blend/gregory_parallelogram.rs`, `gregory_inner_cp_shrink.rs`, `gregory_three_quad.rs`
+**Modules:** `crates/popkern-core/src/geometry/gregory/rectangular.rs`; `crates/popkern-blend/src/blend/gregory_parallelogram.rs`, `gregory_inner_cp_shrink.rs`, `gregory_three_quad.rs`
 
 ### Shirman-Séquin 1987 — Vertex enclosure
 
@@ -47,7 +47,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Shirman-Séquin vertex enclosure at central point of three-quad decomposition
 - Full G² vertex enclosure extension (commercial-grade #3)
 
-**Modules:** `crates/popkern-fillet/src/blend/gregory_vertex_enclosure.rs`; central-point twist construction inside `kp_guide_ring.rs`
+**Modules:** `crates/popkern-blend/src/blend/gregory_vertex_enclosure.rs`; central-point twist construction inside `kp_guide_ring.rs`
 
 ### Longhi 1987 — Triangular Gregory patches
 
@@ -73,7 +73,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - `ρ`, `β`, `γ` reparameterisations; `μ` coefficient tables (`µ̇, µ̈, ⃛µ, µ̃, µ̄, w₁₂₃`)
 - BB rules S1–S4; weights for F_5 functional
 
-**Modules:** `crates/popkern-core/src/geometry/gregory/kp15_bi6_reparam.rs`, `kp15_bi6_mu.rs`, `kp15_bi6_rules.rs`, `kp15_bi6_rule_s3.rs`, `kp15_bi6_cap.rs`, `kp15_bi6_cap_input.rs`, `kp15_bi6_polar_bridge.rs`, `kp15_bi6_tensor_border_extract.rs`; fillet wrapper in `crates/popkern-fillet/src/construct/kp_polar_bi6_apply.rs`
+**Modules:** `crates/popkern-core/src/geometry/gregory/kp15_bi6_reparam.rs`, `kp15_bi6_mu.rs`, `kp15_bi6_rules.rs`, `kp15_bi6_rule_s3.rs`, `kp15_bi6_cap.rs`, `kp15_bi6_cap_input.rs`, `kp15_bi6_polar_bridge.rs`, `kp15_bi6_tensor_border_extract.rs`; fillet wrapper in `crates/popkern-blend/src/construct/kp_polar_bi6_apply.rs`
 
 **Key commits:** I.1–I.10f sequence; ADR `docs/decisions/2026-04-20-phase-i-polar-kp-formula-choice.md`
 
@@ -92,7 +92,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - I.14.a–e cap assembly (F_1 LSQ, eq 17 O piece, C² internal, eq 20 chain rule)
 - 4N BRep subdivision (`poke_4n`) + env-gated dispatch
 
-**Modules:** `crates/popkern-core/src/geometry/gregory/kp13_bi5_*.rs` (22 files); fillet wrappers in `crates/popkern-fillet/src/construct/kp_bi5_macro_apply.rs`, `kp13_bi5_promote.rs`, `poke_4n.rs`
+**Modules:** `crates/popkern-core/src/geometry/gregory/kp13_bi5_*.rs` (22 files); fillet wrappers in `crates/popkern-blend/src/construct/kp_bi5_macro_apply.rs`, `kp13_bi5_promote.rs`, `poke_4n.rs`
 
 **Key commits:** I.11–I.16 + deferred #1–#4 sequence; session-tail commits `d18f788..1688995`
 
@@ -209,7 +209,7 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 - Piece maps with C²-stitch, orientation and domain validity reports
 - eq (23) µ₀ scaling (κn/10⁵ — the misread that cost a campaign is recorded in the journal), S₀ solve, G² strip weights
 
-**Modules:** `crates/popkern-core/src/geometry/gregory/kp20_bi6_*.rs` (assemble, cap, cnet, cc_ring, math, tau, tau_f3_solve, tau_solve_assemble, piece_maps, s0_solve, guide_build/sample/lsq, stam_eval, validate); fillet-side setback integration in `crates/popkern-fillet/src/construct/kp20_*.rs` and `setback_vertex_topology.rs`
+**Modules:** `crates/popkern-core/src/geometry/gregory/kp20_bi6_*.rs` (assemble, cap, cnet, cc_ring, math, tau, tau_f3_solve, tau_solve_assemble, piece_maps, s0_solve, guide_build/sample/lsq, stam_eval, validate); fillet-side setback integration in `crates/popkern-blend/src/construct/kp20_*.rs` and `setback_vertex_topology.rs`
 
 ### KP18 — Rapid degree-6 guide construction
 

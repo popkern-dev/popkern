@@ -3,7 +3,7 @@
 //!
 //! Wires the full `g△ → g → a → p → bi-9` chain into a single
 //! entry point, producing a commercial-grade bi-9 cap suitable for
-//! integration with the existing `popkern-fillet` bi-9 dispatcher
+//! integration with the existing `popkern-blend` bi-9 dispatcher
 //! (same output shape as the the bi-9 cap campaign direct bidegree-9 and the
 //! KP15 bi-6 polar pipelines).
 //!

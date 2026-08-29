@@ -91,7 +91,7 @@ pub fn compute_edge_geometry(
 /// Used by `preview_edge_geometry` and by UI surfaces that want to
 /// show the user every candidate curve before they pick one. Also
 /// the migration target for downstream consumers (`popkern-bool`,
-/// `popkern-fillet`) that previously iterated `intersect_surfaces`'s
+/// `popkern-blend`) that previously iterated `intersect_surfaces`'s
 /// `Vec<SurfaceSurfaceIntersection>`.
 ///
 /// **Multi-branch handling (stage 2b.50):** for **Levin quadric

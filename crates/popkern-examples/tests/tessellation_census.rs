@@ -6,9 +6,9 @@
 //! tessellation was measured innocent by this census, and the pin
 //! keeps it that way.)
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec};
 
 #[test]
 fn fillet_corner_face_triangle_census() {
@@ -39,7 +39,7 @@ fn fillet_corner_face_triangle_census() {
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let result = popkern_fillet::fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None)
+    let result = popkern_blend::fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None)
         .expect("cube fillet");
     // The viz screenshot path loads the body from BRep JSON — run the
     // census on the round-tripped body to cover the same surface.

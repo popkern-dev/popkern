@@ -5,10 +5,10 @@
 //! and mid-campaign states shipped 57 open edges along the seam-side
 //! bulge until the slit-seam dissolution pass landed.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::{Point3, Transform3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use std::collections::HashMap;
 
 fn rim_filleted_cylinder(tol: Tolerance) -> BRep {

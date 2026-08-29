@@ -8,10 +8,10 @@
 
 mod helpers;
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn main() {
     println!("=== Fillet Zoo ===");

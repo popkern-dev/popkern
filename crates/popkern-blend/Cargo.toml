@@ -1,0 +1,37 @@
+[package]
+name = "popkern-blend"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Fillets and chamfers for the popkern BRep kernel"
+
+[features]
+# Parallel corner presolve (PK-278). Default-on: output is bit-identical
+# with or without it (the presolve is a pure solve gated on exact input
+# equality), so opting out is a resource decision, not a correctness one.
+default = ["parallel"]
+parallel = ["dep:rayon"]
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+rayon = { workspace = true, optional = true }
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Thread-pool control for the PK-278 determinism pins.
+rayon.workspace = true
+popkern-bool = { path = "../popkern-bool" }
+popkern-mesh = { path = "../popkern-mesh" }
+popkern-io = { path = "../popkern-io" }
+criterion = { version = "0.5", default-features = false, features = ["plotters", "cargo_bench_support"] }
+serde_json.workspace = true
+backtrace = "0.3"
+
+[[bench]]
+name = "modify_inplace_speedup"
+harness = false
+
+[[bench]]
+name = "fillet_perf"
+harness = false

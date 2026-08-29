@@ -49,7 +49,7 @@ pub(crate) fn offset_rail(
 
     // General rail: NURBS through the projections, deviation measured
     // at fit midpoints against the offset surface.
-    let nurbs = popkern_fillet::center_curve::fit_nurbs_through_points(&qs).ok()?;
+    let nurbs = popkern_blend::center_curve::fit_nurbs_through_points(&qs).ok()?;
     let (t0, t1) = nurbs.parameter_range();
     let mut worst = 0.0f64;
     for i in 0..16 {
@@ -289,7 +289,7 @@ fn circular_spine(spine: &CurveOnEdge, tolerance: &Tolerance) -> Option<(Point3,
     Some((center, normal, r))
 }
 
-/// General spine: drive `popkern_fillet::build_fillet_surface` with a
+/// General spine: drive `popkern_blend::build_fillet_surface` with a
 /// synthetic center-curve result — the spine IS the rolling-ball center
 /// curve (no solve), the rails are the tangency footprints.
 fn general_canal_surface(
@@ -308,8 +308,8 @@ fn general_canal_surface(
     let center_pts: Vec<Point3> = (0..N).map(|i| sample(spine, i)).collect();
     let footprint_1: Vec<Point3> = (0..N).map(|i| sample(rail1, i)).collect();
     let footprint_2: Vec<Point3> = (0..N).map(|i| sample(rail2, i)).collect();
-    let center_curve = popkern_fillet::center_curve::fit_nurbs_through_points(&center_pts)?;
-    let center = popkern_fillet::center_curve::CenterCurveResult {
+    let center_curve = popkern_blend::center_curve::fit_nurbs_through_points(&center_pts)?;
+    let center = popkern_blend::center_curve::CenterCurveResult {
         center_curve,
         sweep_center_curve: None,
         sweep_footprint_1: None,
@@ -318,17 +318,17 @@ fn general_canal_surface(
         footprint_2,
         contact_solutions: None,
     };
-    let result = popkern_fillet::fillet_surface::build_fillet_surface(
+    let result = popkern_blend::fillet_surface::build_fillet_surface(
         off1,
         off2,
         &center,
         radius,
         8,
         true,
-        popkern_fillet::ContinuityLevel::G1,
+        popkern_blend::ContinuityLevel::G1,
         false,
         false,
-        popkern_fillet::types::BlendProfile::Circular,
+        popkern_blend::types::BlendProfile::Circular,
     )?;
     Ok(result.surface)
 }

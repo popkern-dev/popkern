@@ -107,7 +107,7 @@ jobs:
 
       - name: Fillet perf budgets + §17 cancellation latency
         run: |
-          cargo test --release -p popkern-fillet \
+          cargo test --release -p popkern-blend \
             --test perf_budget --test cancellation_latency --test perf_acceptance \
             -- --nocapture
 

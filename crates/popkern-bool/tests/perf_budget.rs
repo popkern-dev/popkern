@@ -1,7 +1,7 @@
 //! Boolean CI performance budget gate (PK-272).
 //!
 //! Absolute wall-clock budgets for end-to-end boolean operations, in
-//! the PK-190 pattern (`popkern-fillet/tests/perf_budget.rs`): each
+//! the PK-190 pattern (`popkern-blend/tests/perf_budget.rs`): each
 //! budget is `measured × 5 headroom`, measured as best-of-5 release
 //! wall clock on the dev reference machine (16-core linux). A
 //! regression past a budget fails the build. Budgets are meaningless
@@ -49,10 +49,10 @@
 //! gate matters more as parts grow, but at bench scale the boolean
 //! pipeline itself dominates.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use std::time::{Duration, Instant};
 
 fn tol() -> Tolerance {

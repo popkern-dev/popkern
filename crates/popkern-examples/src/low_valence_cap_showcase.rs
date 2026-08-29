@@ -29,11 +29,11 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
+use popkern_blend::cap_seam_continuity::{measure_cap_seam_continuity, seam_normal_profile};
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_fillet::cap_seam_continuity::{measure_cap_seam_continuity, seam_normal_profile};
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn main() {
     if let Err(e) = run() {
@@ -231,7 +231,7 @@ fn build_apex(valence: usize, radii: &[f64]) -> Result<(BRep, CornerReport), Str
     ))
 }
 
-fn cap_faces(brep: &BRep, patches: &[popkern_fillet::types::CornerPatchInfo]) -> Vec<FaceHandle> {
+fn cap_faces(brep: &BRep, patches: &[popkern_blend::types::CornerPatchInfo]) -> Vec<FaceHandle> {
     let mut faces: Vec<FaceHandle> = Vec::new();
     for patch in patches {
         if brep.faces.contains_key(patch.face) && !faces.contains(&patch.face) {

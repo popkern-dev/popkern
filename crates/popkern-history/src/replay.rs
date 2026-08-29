@@ -95,17 +95,17 @@ pub(crate) fn execute_feature(
         Feature::Fillet { edges, radius } => {
             let r = resolve_param(param_table, *radius)?;
             let edge_handles = resolve_edges(edges, brep)?;
-            let specs: Vec<popkern_fillet::FilletSpec> = edge_handles
+            let specs: Vec<popkern_blend::FilletSpec> = edge_handles
                 .into_iter()
-                .map(|edge| popkern_fillet::FilletSpec {
+                .map(|edge| popkern_blend::FilletSpec {
                     edge,
-                    radius: popkern_fillet::FilletRadius::Constant(r),
+                    radius: popkern_blend::FilletRadius::Constant(r),
                 })
                 .collect();
-            let result = popkern_fillet::fillet_edges(
+            let result = popkern_blend::fillet_edges(
                 brep,
                 &specs,
-                &popkern_fillet::FilletOptions::default(),
+                &popkern_blend::FilletOptions::default(),
                 *tolerance,
                 Some(tracking),
             )
@@ -119,17 +119,17 @@ pub(crate) fn execute_feature(
         Feature::Chamfer { edges, distance } => {
             let dist = resolve_param(param_table, *distance)?;
             let edge_handles = resolve_edges(edges, brep)?;
-            let specs: Vec<popkern_fillet::ChamferSpec> = edge_handles
+            let specs: Vec<popkern_blend::ChamferSpec> = edge_handles
                 .into_iter()
-                .map(|edge| popkern_fillet::ChamferSpec {
+                .map(|edge| popkern_blend::ChamferSpec {
                     edge,
-                    kind: popkern_fillet::ChamferKind::Equal(dist),
+                    kind: popkern_blend::ChamferKind::Equal(dist),
                 })
                 .collect();
-            let result = popkern_fillet::chamfer_edges(
+            let result = popkern_blend::chamfer_edges(
                 brep,
                 &specs,
-                &popkern_fillet::ChamferOptions::default(),
+                &popkern_blend::ChamferOptions::default(),
                 *tolerance,
                 Some(tracking),
             )

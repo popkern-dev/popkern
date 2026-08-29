@@ -10,7 +10,7 @@
 //!
 //! [`CancellationToken`] is the single cancellation type for every
 //! operation crate. `popkern_bool::cancellation`,
-//! `popkern_fillet::cancellation`, and `popkern_core::healing`
+//! `popkern_blend::cancellation`, and `popkern_core::healing`
 //! re-export it, so one token held by a UI Cancel button can fan into
 //! a boolean, a fillet, a healing pass, and a re-tessellation at once.
 //! (History: three structurally identical tokens existed before

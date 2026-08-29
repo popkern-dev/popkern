@@ -215,7 +215,7 @@ fn pipe_fitting_geometry() {
 // ── Fillet Showcase ─────────────────────────────────────────────────
 
 fn build_fillet_showcase() -> BRep {
-    use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+    use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
     let tol = tol();
     let cube = BRep::unit_cube(tol).expect("cube");

@@ -10,10 +10,10 @@
 //! order) and hash-ordered crack-zipper candidate ties (call-to-call
 //! triangle-count drift, 27304 vs 27333 on this fixture).
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_mesh::{TessellationOptions, TriMesh};
 
 fn served_subtraction() -> BRep {

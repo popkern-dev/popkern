@@ -10,11 +10,11 @@
 //! edges), tessellation — and gates the same outcomes the example
 //! asserts: validation and watertight welding.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_sweep::{SweepOptions, SweepProfile, sweep};
 use std::collections::HashMap;
 
@@ -152,10 +152,10 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
         .edge_warnings
         .iter()
         .filter(|(_, w)| match w {
-            popkern_fillet::BlendWarning::VertexModeFallback { vertex, .. } => {
+            popkern_blend::BlendWarning::VertexModeFallback { vertex, .. } => {
                 vertex.is_some_and(|v| closure_vertices.contains(&v))
             }
-            popkern_fillet::BlendWarning::SliverRetained { .. } => true,
+            popkern_blend::BlendWarning::SliverRetained { .. } => true,
             _ => false,
         })
         .collect();

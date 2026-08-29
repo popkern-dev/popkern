@@ -3,6 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use popkern_blend::{
+    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
+};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
@@ -16,9 +19,6 @@ use popkern_core::topology::{
 use popkern_examples::example_manifests::{ExampleRunManifestInput, write_example_run_manifest};
 use popkern_examples::repair_artifacts::{
     write_repair_action_artifact, write_whole_brep_repair_knowledge_artifact,
-};
-use popkern_fillet::{
-    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
 };
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
@@ -294,7 +294,7 @@ fn gregory_repair_options() -> BrepRepairPipelineOptions {
     }
 }
 
-fn mixed_radius_gregory_cube() -> Result<popkern_fillet::BlendResult, String> {
+fn mixed_radius_gregory_cube() -> Result<popkern_blend::BlendResult, String> {
     let cube = BRep::unit_cube(Tolerance::default()).map_err(|err| err.to_string())?;
     let vertex = cube
         .vertices

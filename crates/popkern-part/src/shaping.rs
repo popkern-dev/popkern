@@ -1,8 +1,8 @@
 //! Shaping operations beyond blends: chamfer, shell, draft, and
 //! rigid transforms.
 
+use popkern_blend::{ChamferKind, ChamferOptions, ChamferSpec, chamfer_edges};
 use popkern_core::geometry::transform::Transform3;
-use popkern_fillet::{ChamferKind, ChamferOptions, ChamferSpec, chamfer_edges};
 
 use crate::error::PartError;
 use crate::part::Part;
@@ -66,7 +66,7 @@ impl Part {
         );
         let result = match attempt {
             Ok(r) => r,
-            Err(popkern_fillet::BlendError::PartialFailure { ref failures, .. })
+            Err(popkern_blend::BlendError::PartialFailure { ref failures, .. })
                 if failures.len() < specs.len() =>
             {
                 let failed: std::collections::HashSet<_> =
@@ -266,14 +266,14 @@ impl Part {
         };
         let face_a = resolve_one("first", select_a(FaceQuery::new()))?;
         let face_b = resolve_one("second", select_b(FaceQuery::new()))?;
-        let spec = popkern_fillet::FaceBlendSpec {
+        let spec = popkern_blend::FaceBlendSpec {
             face_a,
             face_b,
             radius,
             radius_end: None,
-            attach: popkern_fillet::FaceBlendAttach::TrimBoth,
+            attach: popkern_blend::FaceBlendAttach::TrimBoth,
         };
-        let result = popkern_fillet::face_blend(self.brep(), &spec, self.tolerance())
+        let result = popkern_blend::face_blend(self.brep(), &spec, self.tolerance())
             .map_err(|e| PartError::NotApplicable(format!("face_blend failed: {e}")))?;
         let attached = result.attached.ok_or_else(|| {
             PartError::NotApplicable(

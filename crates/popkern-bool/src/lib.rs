@@ -301,7 +301,7 @@ pub fn boolean_with_diagnostics(
 ///
 /// The pipeline runs on a worker thread over private clones (PK-276,
 /// the same detach-on-cancel layer as
-/// `popkern_fillet::fillet_edges_cancellable`): when the token fires,
+/// `popkern_blend::fillet_edges_cancellable`): when the token fires,
 /// this function returns immediately — the latency does not depend on
 /// any stage's internal poll granularity. The abandoned worker
 /// observes the token at its next stage-boundary poll, discards its

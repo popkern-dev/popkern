@@ -1,13 +1,13 @@
 //! Category 4: Fillet and chamfer operations.
 
+use popkern_blend::{
+    ChamferKind, ChamferOptions, ChamferSpec, FilletOptions, FilletRadius, FilletSpec, VertexMode,
+    chamfer_edges, fillet_edge, fillet_edges,
+};
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{
-    ChamferKind, ChamferOptions, ChamferSpec, FilletOptions, FilletRadius, FilletSpec, VertexMode,
-    chamfer_edges, fillet_edge, fillet_edges,
-};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,

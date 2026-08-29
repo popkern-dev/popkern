@@ -1,0 +1,438 @@
+//! §18 memory-high-water / allocation-profile measurement.
+//!
+//! Integration test that installs a `CountingAlloc` as the
+//! `#[global_allocator]` for this binary only, runs representative
+//! fillet operations, and prints per-operation allocation counts
+//! and bytes. Doubles as a regression guard: a hard assertion on
+//! a generous upper bound catches unbounded-allocation regressions
+//! (e.g. an accidental `O(n²)` vec push in a hot loop) without
+//! requiring external tools like Valgrind's DHAT or heaptrack.
+//!
+//! ## Why a custom allocator instead of `dhat` / `heaptrack`
+//!
+//! - **No external toolchain dependency.** Counting atomic adds
+//!   on every alloc/dealloc is cheap (≤ 10ns per op) and runs on
+//!   every target that supports Rust's stable `GlobalAlloc` trait.
+//! - **Queryable at runtime.** §18 requires telemetry to be
+//!   "queryable" — a static atomic counter we read before and
+//!   after a pipeline call IS queryable, no profiling UI required.
+//! - **Per-binary scope.** `#[global_allocator]` inside an
+//!   integration test only affects that test's binary. No risk
+//!   of coupling allocation measurement to the library's runtime
+//!   behaviour.
+//!
+//! ## What this tests ships
+//!
+//! 1. **Baseline measurement** for three representative fillet
+//!    operations, printed to stderr via `--nocapture`.
+//! 2. **Hard upper bounds** on alloc count and byte total,
+//!    generous enough to absorb normal variance but tight enough
+//!    to catch regressions like an `O(n²)` explosion.
+//!
+//! ## Baseline numbers (2026-04-14, debug build, single-threaded)
+//!
+//! | Operation                     | Allocs  | Bytes    | Notes                       |
+//! |-------------------------------|---------|----------|-----------------------------|
+//! | Cone base (walker path)       |      56 |   7.8 KB | Pure walker, no overlap pair|
+//! | Single-edge cube (vertex-blend)     |   2,131 |    251 KB| No overlap pairs (1 edge)   |
+//! | 12-edge cube (vertex-blend, batch)  | 269,250 |  29.4 MB | KP20/Gregory topology path  |
+//!
+//! **Per-phase breakdown for the 12-edge cube** (same workload):
+//!
+//! | Phase            | Allocs  | Bytes    | % of total |
+//! |------------------|---------|----------|------------|
+//! | Validate         |      24 |     624  |   0.06%    |
+//! | Analyze          |      85 |  14,796  |   0.21%    |
+//! | ComputeGeometry  |     639 |   160 KB |   1.6%     |
+//! | DetectOverlaps   |  13,724 |   2.4 MB |  33.5%     |
+//! | ApplyTopology    | 252,303 |  26.8 MB |  93.7%     |
+//! | RepairPcurves    |   2,468 |    95 KB |   0.9%     |
+//!
+//! **Optimisation history:**
+//!
+//! 1. **Baseline (commit 5b136e1):** 342,107 allocs / 103 MB. Flat
+//!    profile was deceptive — investigation showed DetectOverlaps
+//!    was 89% of the volume.
+//!
+//! 2. **AABB pre-filter (commit dcc0f4a):** 243,802 allocs / 75 MB
+//!    (−29% / −31%). `overlap::curves_intersect` now checks curve
+//!    bounding boxes before wrapping curves in `CurveGeometry::Nurbs`
+//!    and calling the full NURBS intersector. Dropped DetectOverlaps
+//!    from 303,788 → 205,484 allocs (−32%).
+//!
+//! 3. **Allocation-free de Boor (this commit):** 40,943 allocs / 6.5 MB
+//!    (−83% / −91% from AABB-filtered baseline). `NurbsCurve::de_boor`
+//!    used to build a fresh `Vec<Homogeneous>` on every `point_at` call
+//!    and `de_boor_1d` kept a Vec scratch buffer for the recursion.
+//!    Both now use a fixed-size stack array (max degree 31). Total
+//!    improvement from 5b136e1 baseline: **−88% allocs, −94% bytes**.
+//!
+//! The dominant phase is now ApplyTopology. The current KP20/Gregory
+//! topology route intentionally keeps the ceiling conservative, but
+//! future work should move the topology-side temporary buffers toward
+//! scratch reuse instead of raising this guard again.
+//!
+//! Run with:
+//! ```sh
+//! cargo test -p popkern-blend --test alloc_profile -- --nocapture
+//! ```
+
+use popkern_blend::{
+    FilletOptions, FilletRadius, FilletSpec, ProgressEvent, ProgressReporter, fillet_edges,
+    fillet_edges_with_progress,
+};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::BRep;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+static ALLOC_BYTES: AtomicUsize = AtomicUsize::new(0);
+static DEALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Serialises the profiled tests so parallel `cargo test` execution
+/// doesn't blend alloc counts from concurrent tests into one another.
+/// Every test that calls `profile()` or installs a `PhaseAllocProfiler`
+/// must `let _guard = PROFILE_LOCK.lock();` at the top.
+static PROFILE_LOCK: Mutex<()> = Mutex::new(());
+
+struct CountingAlloc;
+
+unsafe impl GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        unsafe { System.alloc(layout) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        DEALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        unsafe { System.dealloc(ptr, layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        ALLOC_BYTES.fetch_add(layout.size(), Ordering::Relaxed);
+        unsafe { System.alloc_zeroed(layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        // Realloc counts as a new allocation for our purposes —
+        // it either shrinks in place (rare) or moves + frees the
+        // old buffer. Either way the size delta is worth tracking.
+        ALLOC_COUNT.fetch_add(1, Ordering::Relaxed);
+        if new_size > layout.size() {
+            ALLOC_BYTES.fetch_add(new_size - layout.size(), Ordering::Relaxed);
+        }
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+}
+
+#[global_allocator]
+static ALLOC: CountingAlloc = CountingAlloc;
+
+/// Snapshot of the allocation counters at a point in time.
+#[derive(Debug, Clone, Copy)]
+struct AllocSnapshot {
+    count: usize,
+    bytes: usize,
+    deallocs: usize,
+}
+
+impl AllocSnapshot {
+    fn capture() -> Self {
+        Self {
+            count: ALLOC_COUNT.load(Ordering::Relaxed),
+            bytes: ALLOC_BYTES.load(Ordering::Relaxed),
+            deallocs: DEALLOC_COUNT.load(Ordering::Relaxed),
+        }
+    }
+    fn delta(self, start: Self) -> Self {
+        Self {
+            count: self.count.saturating_sub(start.count),
+            bytes: self.bytes.saturating_sub(start.bytes),
+            deallocs: self.deallocs.saturating_sub(start.deallocs),
+        }
+    }
+}
+
+fn tol() -> Tolerance {
+    Tolerance::default()
+}
+
+/// Run `body`, report the allocation delta it produced, and
+/// return the delta for further assertions.
+fn profile<F: FnOnce()>(label: &str, body: F) -> AllocSnapshot {
+    let start = AllocSnapshot::capture();
+    body();
+    let end = AllocSnapshot::capture();
+    let delta = end.delta(start);
+    eprintln!(
+        "§18 {label}: {} allocs, {} bytes, {} deallocs (net {} live)",
+        delta.count,
+        delta.bytes,
+        delta.deallocs,
+        delta.count.saturating_sub(delta.deallocs)
+    );
+    delta
+}
+
+// ---------------------------------------------------------------------------
+// Per-phase allocation profiler
+// ---------------------------------------------------------------------------
+
+/// `ProgressReporter` impl that snapshots the alloc counters at
+/// every `on_phase` event and prints the delta between consecutive
+/// phases, giving a per-phase allocation breakdown.
+///
+/// Important caveat: phases are contiguous in wall time but
+/// ALSO include nested calls — e.g. `ComputeGeometry` covers the
+/// whole per-edge loop including `offset_surface`,
+/// `intersect_surfaces`, `build_fillet_surface`, and trim-curve
+/// fitting. The per-phase numbers tell us which phase of the
+/// pipeline dominates, not which inner function.
+struct PhaseAllocProfiler {
+    last_snapshot: AllocSnapshot,
+    first: bool,
+    label: &'static str,
+}
+
+impl PhaseAllocProfiler {
+    fn new(label: &'static str) -> Self {
+        Self {
+            last_snapshot: AllocSnapshot::capture(),
+            first: true,
+            label,
+        }
+    }
+}
+
+impl ProgressReporter for PhaseAllocProfiler {
+    fn on_phase(&mut self, event: ProgressEvent) {
+        let now = AllocSnapshot::capture();
+        let delta = now.delta(self.last_snapshot);
+        if self.first {
+            eprintln!("§18 [{label}] per-phase breakdown:", label = self.label);
+            self.first = false;
+        }
+        eprintln!(
+            "  {phase:?}: {allocs} allocs, {bytes} bytes",
+            phase = event.phase,
+            allocs = delta.count,
+            bytes = delta.bytes
+        );
+        self.last_snapshot = now;
+    }
+}
+
+#[test]
+fn per_phase_allocation_breakdown_12_edge_cube() {
+    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Warmup the pipeline outside the measurement window.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
+
+    // Measured run with a per-phase profiler reporter.
+    let mut profiler = PhaseAllocProfiler::new("12-edge cube");
+    let _ = fillet_edges_with_progress(
+        &cube,
+        &specs,
+        &FilletOptions::default(),
+        tol(),
+        None,
+        &mut profiler,
+    );
+    // No assertion — this is a diagnostic printer. The next
+    // commit will use this output to identify which phase needs
+    // arena adoption first.
+}
+
+#[test]
+fn per_phase_allocation_breakdown_cone_walker() {
+    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let cone = BRep::cone(1.0, 2.0, tol()).expect("cone BRep should build");
+    let chosen = cone
+        .edges
+        .keys()
+        .find(|&e| {
+            let he = cone.edges[e].half_edge;
+            let twin = cone.half_edges[he].twin;
+            let face_a = cone.loops[cone.half_edges[he].loop_].face;
+            let face_b = cone.loops[cone.half_edges[twin].loop_].face;
+            face_a != face_b
+        })
+        .unwrap_or_else(|| cone.edges.keys().next().unwrap());
+    let specs = vec![FilletSpec {
+        edge: chosen,
+        radius: FilletRadius::Constant(0.005),
+    }];
+    let _ = fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None);
+
+    let mut profiler = PhaseAllocProfiler::new("cone base walker");
+    let _ = fillet_edges_with_progress(
+        &cone,
+        &specs,
+        &FilletOptions::default(),
+        tol(),
+        None,
+        &mut profiler,
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Baseline measurements (gross totals, no phase breakdown)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn baseline_12_edge_cube_fillet_allocation_profile() {
+    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Setup: build the cube and specs outside the profiled block
+    // so setup costs don't distort the pipeline's own allocation
+    // numbers. We only profile the fillet call itself.
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|e| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+
+    // Warmup: run once to pull caches/JIT into steady state.
+    let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
+
+    let delta = profile("12-edge cube fillet", || {
+        let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
+    });
+
+    // Upper bound tightened after locating + fixing the Stage C1+
+    // pcurve-on-corner-split-twin allocation cascade. The
+    // `cap_outer_acceptance::measure::measure_cap_support_continuity`
+    // pass samples 100 points per cap/support seam edge and
+    // evaluates surfaces at each — every NurbsSurface::point_at
+    // call used to build a fresh `Vec<Homogeneous>` per row plus
+    // one for the column. With Stage C1+ authoring pcurves on both
+    // MEF-created corner-split twins, more edges qualified as
+    // measurable cap/support seams, multiplying the per-edge NURBS
+    // sampling cost into a ~12,500-alloc-per-pair cascade
+    // (12-edge cube fillet: 269k → 612k). Bisected via
+    // `tests/alloc_site_trace.rs`. Fix: `NurbsSurface::eval_homogeneous`
+    // moved to stack scratch arrays (matching the curve hot path).
+    //
+    // Post-fix the 12-edge cube fillet allocates 195k — below the
+    // pre-Stage-C1+ baseline of 269k, the threshold can shrink
+    // accordingly. If this trips, first check the per-phase
+    // breakdown rather than bumping blindly.
+    assert!(
+        delta.count < 250_000,
+        "§18 regression: 12-edge cube fillet made {} allocations \
+         (threshold 250,000; allocation-free NURBS surface eval \
+         baseline ~195k) — run the per-phase profiler to locate the \
+         regression",
+        delta.count
+    );
+    // Bytes re-pinned 35 → 48 MiB (PK-294): fixing the poke
+    // normalization's infinite-window endpoint guards means the n=3
+    // corner PnS attempts now run to their genuine decline point
+    // (mid-edge junction splits + snapshot/restore per corner)
+    // instead of aborting on an empty-curve split error. Measured
+    // 40.07 MB with allocation COUNT simultaneously improving
+    // (195k → 177k), so this is deeper legitimate exploration, not
+    // buffer growth; headroom keeps the gate sensitive to a further
+    // ~20% regression.
+    assert!(
+        delta.bytes < 48 * 1024 * 1024,
+        "§18 regression: 12-edge cube fillet allocated {} bytes \
+         (threshold 48 MiB; measured 40.07 MB at PK-294 close) \
+         — check for unbounded buffer growth",
+        delta.bytes
+    );
+}
+
+#[test]
+fn baseline_single_edge_cube_fillet_allocation_profile() {
+    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let cube = BRep::unit_cube(tol()).unwrap();
+    let edge = cube.edges.keys().next().unwrap();
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+
+    // Warmup.
+    let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
+
+    let delta = profile("single-edge cube fillet", || {
+        let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
+    });
+
+    // Single-edge is a single spec with no overlap pairs, so should
+    // be tiny relative to the 12-edge case. Threshold ~5× baseline
+    // (~2.1k allocs) catches per-edge allocation explosion without
+    // false-positiving on variance.
+    assert!(
+        delta.count < 10_000,
+        "§18 regression: single-edge cube fillet made {} allocations \
+         (threshold 10,000; baseline ~2.1k) — check for regression \
+         on the fast path",
+        delta.count
+    );
+}
+
+#[test]
+fn baseline_cone_base_fillet_allocation_profile() {
+    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // The cone base fillet takes the phase-1b walker path, which
+    // is expected to allocate more than the offset-intersect
+    // path because of per-sample contact solutions. This baseline
+    // captures the current state so future walker optimisations
+    // (arena pooling, Vec reuse) can be measured against it.
+    let cone = BRep::cone(1.0, 2.0, tol()).expect("cone BRep should build");
+    let chosen = cone
+        .edges
+        .keys()
+        .find(|&e| {
+            let he = cone.edges[e].half_edge;
+            let twin = cone.half_edges[he].twin;
+            let face_a = cone.loops[cone.half_edges[he].loop_].face;
+            let face_b = cone.loops[cone.half_edges[twin].loop_].face;
+            face_a != face_b
+        })
+        .unwrap_or_else(|| cone.edges.keys().next().unwrap());
+    let specs = vec![FilletSpec {
+        edge: chosen,
+        radius: FilletRadius::Constant(0.005),
+    }];
+
+    // Warmup — and the serving assertion: the old "~56 alloc"
+    // baseline was measured on a FAILURE path (the cone base fillet
+    // declined at every radius until PK-264), so it profiled error
+    // construction, not the walker. The op must succeed for the
+    // profile to mean anything.
+    fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None)
+        .expect("cone base fillet must serve (PK-264)");
+
+    let delta = profile("cone base fillet (walker path)", || {
+        let _ = fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None);
+    });
+
+    // Walker path allocates per sample (default 20 samples) plus
+    // per-Newton-step temporaries, then the full topology apply.
+    // Baseline ~1.1k allocs on the SERVING path (PK-264, 2026-08-13);
+    // threshold ~10× headroom to absorb sampling/Newton changes
+    // without false-positiving.
+    assert!(
+        delta.count < 12_000,
+        "§18 regression: cone walker fillet made {} allocations \
+         (threshold 12,000; baseline ~1.1k serving) — check for \
+         regression on the walker path",
+        delta.count
+    );
+}

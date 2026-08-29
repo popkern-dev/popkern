@@ -43,7 +43,7 @@ use crate::classify::classify_faces;
 use crate::error::ShellError;
 use crate::max_safe_motion::{thin_wall_candidates, vertex_velocities};
 use crate::types::ShellDirection;
-use popkern_fillet::offset::analytic::radial_normal_sign;
+use popkern_blend::offset::analytic::radial_normal_sign;
 
 /// Fraction of the tightest exact bound reported as the safe maximum
 /// (the fillet-offset convention: the reported value must itself

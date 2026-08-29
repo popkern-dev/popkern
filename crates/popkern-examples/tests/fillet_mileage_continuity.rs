@@ -3,7 +3,7 @@
 //! `fillet_mileage_corpus` gates watertightness; this suite gates the
 //! MEASURED continuity of every fillet operation across the same corpus
 //! parts: per-seam G0/G1/G2 residuals (transverse-aware — see
-//! `popkern_fillet::blend_continuity_evidence`), achieved level
+//! `popkern_blend::blend_continuity_evidence`), achieved level
 //! classified against the commercial gates, and requested-vs-achieved
 //! so a silent downgrade is a test failure, not a stderr line.
 //!
@@ -11,7 +11,7 @@
 //! the printed table is the ledger evidence line, the assertions are
 //! the gate.
 
-use popkern_fillet::ContinuityLevel;
+use popkern_blend::ContinuityLevel;
 use popkern_part::prelude::*;
 
 #[path = "fillet_mileage_corpus_support/parts.rs"]

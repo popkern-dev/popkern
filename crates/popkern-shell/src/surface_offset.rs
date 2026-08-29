@@ -80,7 +80,7 @@ pub fn compute_offset_surfaces(
             // Existence declines (radius through zero, spindle torus)
             // and fold declines on the approximation path come back
             // typed from the dispatch and are mapped below.
-            Some(popkern_fillet::offset::offset_surface_measured(
+            Some(popkern_blend::offset::offset_surface_measured(
                 surface, distance, inward, u_range, v_range, tolerance,
             ))
         },
@@ -146,7 +146,7 @@ pub fn compute_offset_surfaces(
                 }
                 surfaces.insert(face_handle, outcome.surface);
             }
-            Err(popkern_fillet::offset::OffsetError::SpindleTorus { new_minor, .. }) => {
+            Err(popkern_blend::offset::OffsetError::SpindleTorus { new_minor, .. }) => {
                 // Spindled torus (tube swallows the axis): the offset
                 // SURFACE exists as an immersed spindle; construct it
                 // and let the trim stage's pinch arm serve the apple

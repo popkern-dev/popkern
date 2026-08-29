@@ -256,7 +256,7 @@ fn marched_intersection_fit(
     // Pin the exact endpoints.
     samples[0] = a;
     samples[N - 1] = b;
-    let nurbs = popkern_fillet::center_curve::fit_nurbs_through_points(&samples).ok()?;
+    let nurbs = popkern_blend::center_curve::fit_nurbs_through_points(&samples).ok()?;
     let (t0, t1) = nurbs.parameter_range();
     for i in 0..16 {
         let t = t0 + (i as f64 + 0.5) / 16.0 * (t1 - t0);

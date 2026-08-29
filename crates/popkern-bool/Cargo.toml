@@ -27,5 +27,5 @@ rayon.workspace = true
 # for this crate): the boolean perf budget (PK-272) needs a
 # filleted-operand fixture, and fillet strips can only come from the
 # fillet crate. The library dependency graph stays acyclic —
-# popkern-fillet's lib depends only on popkern-core.
-popkern-fillet = { path = "../popkern-fillet" }
+# popkern-blend's lib depends only on popkern-core.
+popkern-blend = { path = "../popkern-blend" }

@@ -11,4 +11,4 @@ winnow = "0.7"
 thiserror.workspace = true
 
 [dev-dependencies]
-popkern-fillet = { path = "../popkern-fillet" }
+popkern-blend = { path = "../popkern-blend" }

@@ -192,7 +192,7 @@ fn part_is_a_top_tier_facade() {
         "popkern-core",
         "popkern-bool",
         "popkern-draft",
-        "popkern-fillet",
+        "popkern-blend",
         "popkern-sweep",
         "popkern-shell",
         "popkern-io",

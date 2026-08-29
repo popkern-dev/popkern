@@ -12,10 +12,10 @@
 //! The Gregory face_area branch uses native 8×8 Gauss-Legendre
 //! quadrature on the UV rectangle rather than tessellation.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_measure::{TopoHandle, body_volume, face_area, min_distance};
 
 fn mixed_radius_cube_with_flag(use_rational_gregory: bool) -> BRep {

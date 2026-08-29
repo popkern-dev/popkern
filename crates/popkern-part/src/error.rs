@@ -45,7 +45,7 @@ pub enum PartError {
         /// Human-readable description of the resolved selection.
         selection: String,
         /// The kernel error.
-        source: popkern_fillet::BlendError,
+        source: popkern_blend::BlendError,
     },
     /// A selector matched nothing. Silent no-op dress-up operations
     /// are how modeling scripts rot, so empty selections are errors

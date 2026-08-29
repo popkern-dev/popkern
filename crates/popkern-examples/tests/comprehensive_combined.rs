@@ -3,6 +3,7 @@
 use std::f64::consts::FRAC_1_SQRT_2;
 use std::sync::Arc;
 
+use popkern_blend::fillet_edge;
 use popkern_bool::{subtraction, union};
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -10,7 +11,6 @@ use popkern_core::geometry::{NurbsCurve, Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_draft::{NeutralReference, draft_face};
-use popkern_fillet::fillet_edge;
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,

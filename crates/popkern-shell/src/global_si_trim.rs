@@ -146,7 +146,7 @@ pub(crate) fn run_trim_stage(
             &provenance.free_form_offsets,
             false,
             |pair| {
-                popkern_fillet::offset::distance_map::scan_offset_self_fold(
+                popkern_blend::offset::distance_map::scan_offset_self_fold(
                     &pair.source,
                     &pair.offset,
                     pair.distance,

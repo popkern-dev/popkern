@@ -5,12 +5,12 @@
 //! where the gap exceeds the diameter, terminating the strip inside
 //! the face trims).
 
+use popkern_blend::{FaceBlendAttach, FaceBlendSpec, face_blend};
 use popkern_bool::union;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_fillet::{FaceBlendAttach, FaceBlendSpec, face_blend};
 
 fn tol() -> Tolerance {
     Tolerance::default()

@@ -5,12 +5,12 @@
 //! walls — the general contact-solver march with an analytically
 //! pinned tangency height).
 
+use popkern_blend::{FaceBlendAttach, FaceBlendSpec, face_blend};
 use popkern_bool::subtraction;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_fillet::{FaceBlendAttach, FaceBlendSpec, face_blend};
 
 fn tol() -> Tolerance {
     Tolerance::default()

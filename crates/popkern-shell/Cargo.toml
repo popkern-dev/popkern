@@ -16,7 +16,7 @@ parallel = ["dep:rayon"]
 
 [dependencies]
 popkern-core = { path = "../popkern-core" }
-popkern-fillet = { path = "../popkern-fillet" }
+popkern-blend = { path = "../popkern-blend" }
 popkern-bool = { path = "../popkern-bool" }
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true

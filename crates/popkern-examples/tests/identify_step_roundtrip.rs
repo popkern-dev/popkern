@@ -10,12 +10,12 @@
 
 use std::sync::Arc;
 
+use popkern_blend::{
+    BlendKind, FilletOptions, FilletRadius, FilletSpec, fillet_edges, identify_blend,
+};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
-use popkern_fillet::{
-    BlendKind, FilletOptions, FilletRadius, FilletSpec, fillet_edges, identify_blend,
-};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
@@ -119,13 +119,13 @@ fn cylinder_fillet_identity_survives_step_roundtrip() {
 fn chamfer_identity_survives_step_roundtrip() {
     let cube = BRep::unit_cube(tol()).expect("cube builds");
     let edge = cube.edges.keys().next().expect("cube edge");
-    let chamfered = popkern_fillet::chamfer_edges(
+    let chamfered = popkern_blend::chamfer_edges(
         &cube,
-        &[popkern_fillet::ChamferSpec {
+        &[popkern_blend::ChamferSpec {
             edge,
-            kind: popkern_fillet::ChamferKind::Equal(0.1),
+            kind: popkern_blend::ChamferKind::Equal(0.1),
         }],
-        &popkern_fillet::ChamferOptions::default(),
+        &popkern_blend::ChamferOptions::default(),
         tol(),
         None,
     )

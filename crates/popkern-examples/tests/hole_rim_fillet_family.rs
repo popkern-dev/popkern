@@ -170,7 +170,7 @@ fn rib_junction_fillets_serve_watertight() {
 /// reports every dropped pair with its reason.
 #[test]
 fn interference_policy_drop_pair_serves_rest() {
-    use popkern_fillet::{
+    use popkern_blend::{
         BlendError, BlendWarning, FilletOptions, FilletRadius, FilletSpec, InterferencePolicy,
         fillet_edges,
     };

@@ -1,7 +1,7 @@
 //! Tests for `build()` and `can_build()` orchestration.
 //!
 //! End-to-end G1-exactness on realistic three-quad geometry
-//! requires the popkern-fillet extraction helper (next the Gregory direct construction
+//! requires the popkern-blend extraction helper (next the Gregory direct construction
 //! step) — tests here are structural: verify the pipeline runs,
 //! the result struct is fully populated, and the error paths
 //! fire as expected.

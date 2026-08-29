@@ -26,6 +26,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::geometry::gregory::{
     Bi6Reparams, CirculantSectorRhs, GregoryPatch, Kp15Bi6GeneratingTable, PolarBoundaryInput,
@@ -36,7 +37,6 @@ use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepProductNode, UnitContext, export_step_file,
@@ -186,11 +186,11 @@ fn export_real_pyramid_reference(out: &Path) {
 }
 
 fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) {
+    use popkern_blend::ApexConstructionDiagnostic;
     use popkern_core::topology::{
         BrepExportQualityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
         analyze_brep_export_quality,
     };
-    use popkern_fillet::ApexConstructionDiagnostic;
     let tol = Tolerance::default();
     // Use the same geometry as `kp_polar_commercial_gates.rs::polar_
     // passes_commercial_gates_on_pentagon5_uniform`: base radius 1.0,

@@ -7,9 +7,9 @@
 
 use std::collections::HashMap;
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 use crate::error::PartError;
 use crate::feature::FeatureLog;

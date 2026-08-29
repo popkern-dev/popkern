@@ -12,11 +12,11 @@
 //! - the result carries the part's faces (cylinder, torus bulges,
 //!   bottom cap), not just the cutter's.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::Transform3;
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
     let brep = BRep::cylinder(1.0, 2.0, tol).expect("cylinder");

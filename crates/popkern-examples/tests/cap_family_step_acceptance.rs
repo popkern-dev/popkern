@@ -1,10 +1,10 @@
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_examples::step_validation::{
     StepImportedValidationFailureKind, StepRoundTripValidationOptions, StepStrictAcceptanceStatus,
     validate_strict_step_acceptance,
 };
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
 fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
@@ -291,7 +291,7 @@ fn surface_kind(surface: &popkern_core::geometry::SurfaceGeometry) -> &'static s
     }
 }
 
-fn mixed_radius_gregory_cube() -> popkern_fillet::BlendResult {
+fn mixed_radius_gregory_cube() -> popkern_blend::BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube

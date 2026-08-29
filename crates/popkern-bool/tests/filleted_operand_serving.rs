@@ -9,10 +9,10 @@
 //! periodic torus fillet strip must serve a `validate_all`-clean
 //! result (winding honesty included), not merely pass `post_check`.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
 fn served_torus_union_winding_honesty() {

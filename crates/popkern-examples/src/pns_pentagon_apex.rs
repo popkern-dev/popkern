@@ -7,10 +7,10 @@ mod helpers;
 
 use std::path::{Path, PathBuf};
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, BrepRepairDiagnosticExport};
 use popkern_examples::repair_artifacts::write_whole_brep_repair_knowledge_artifact;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn main() {
     println!("=== PnS Pentagonal Pyramid Apex ===");

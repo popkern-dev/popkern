@@ -3257,11 +3257,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
+name = "popkern-blend"
+version = "0.1.0"
+dependencies = [
+ "backtrace",
+ "criterion",
+ "popkern-bool",
+ "popkern-core",
+ "popkern-io",
+ "popkern-mesh",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-bool"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-core",
- "popkern-fillet",
  "rayon",
  "slotmap",
  "thiserror 2.0.18",
@@ -3307,10 +3323,10 @@ name = "popkern-examples"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "popkern-blend",
  "popkern-bool",
  "popkern-core",
  "popkern-draft",
- "popkern-fillet",
  "popkern-io",
  "popkern-measure",
  "popkern-mesh",
@@ -3325,31 +3341,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "popkern-fillet"
-version = "0.1.0"
-dependencies = [
- "backtrace",
- "criterion",
- "popkern-bool",
- "popkern-core",
- "popkern-io",
- "popkern-mesh",
- "rayon",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "popkern-history"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "popkern-blend",
  "popkern-bool",
  "popkern-constraint",
  "popkern-core",
  "popkern-draft",
- "popkern-fillet",
  "popkern-measure",
  "popkern-shell",
  "popkern-sketch",
@@ -3364,8 +3364,8 @@ dependencies = [
 name = "popkern-io"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-core",
- "popkern-fillet",
  "thiserror 2.0.18",
  "winnow 0.7.15",
 ]
@@ -3378,9 +3378,9 @@ version = "0.1.0"
 name = "popkern-measure"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-bool",
  "popkern-core",
- "popkern-fillet",
  "popkern-mesh",
  "popkern-sweep",
  "serde",
@@ -3391,9 +3391,9 @@ dependencies = [
 name = "popkern-mesh"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-bool",
  "popkern-core",
- "popkern-fillet",
  "popkern-shell",
  "popkern-sweep",
  "rayon",
@@ -3406,10 +3406,10 @@ dependencies = [
 name = "popkern-part"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-bool",
  "popkern-core",
  "popkern-draft",
- "popkern-fillet",
  "popkern-io",
  "popkern-mesh",
  "popkern-shell",
@@ -3423,9 +3423,9 @@ dependencies = [
 name = "popkern-shell"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-bool",
  "popkern-core",
- "popkern-fillet",
  "rayon",
  "serde_json",
  "thiserror 2.0.18",
@@ -3435,9 +3435,9 @@ dependencies = [
 name = "popkern-sketch"
 version = "0.1.0"
 dependencies = [
+ "popkern-blend",
  "popkern-constraint",
  "popkern-core",
- "popkern-fillet",
  "popkern-sweep",
  "serde",
  "thiserror 2.0.18",

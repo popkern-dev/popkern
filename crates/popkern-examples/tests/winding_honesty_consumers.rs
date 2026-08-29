@@ -11,9 +11,9 @@
 //! caps shipped flag-dishonest (loop CW in UV with `orientation:
 //! true`) before the serving-boundary reconcile.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn pyramid4_apex_fillet() -> BRep {
     let brep = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();

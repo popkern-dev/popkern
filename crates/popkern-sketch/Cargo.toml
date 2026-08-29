@@ -13,4 +13,4 @@ serde.workspace = true
 
 [dev-dependencies]
 popkern-sweep = { path = "../popkern-sweep" }
-popkern-fillet = { path = "../popkern-fillet" }
+popkern-blend = { path = "../popkern-blend" }

@@ -14,7 +14,7 @@
 #
 # Usage:
 #   tools/loc-tests.sh           — workspace summary table
-#   tools/loc-tests.sh fillet    — popkern-fillet detail (per-bucket cloc)
+#   tools/loc-tests.sh fillet    — popkern-blend detail (per-bucket cloc)
 
 set -euo pipefail
 

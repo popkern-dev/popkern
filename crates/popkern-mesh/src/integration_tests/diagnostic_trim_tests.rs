@@ -234,31 +234,31 @@ fn build_fillet_showcase() -> Option<BRep> {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).ok()?;
     let edge_handles: Vec<_> = cube.edges.keys().collect();
-    let specs: Vec<popkern_fillet::FilletSpec> = edge_handles
+    let specs: Vec<popkern_blend::FilletSpec> = edge_handles
         .iter()
-        .map(|&edge| popkern_fillet::FilletSpec {
+        .map(|&edge| popkern_blend::FilletSpec {
             edge,
-            radius: popkern_fillet::FilletRadius::Constant(0.1),
+            radius: popkern_blend::FilletRadius::Constant(0.1),
         })
         .collect();
-    match popkern_fillet::fillet_edges(
+    match popkern_blend::fillet_edges(
         &cube,
         &specs,
-        &popkern_fillet::FilletOptions::default(),
+        &popkern_blend::FilletOptions::default(),
         tol,
         None,
     ) {
         Ok(result) => Some(result.brep),
         Err(e) => {
             println!("  Full fillet failed: {e} -- trying single edge");
-            let single = vec![popkern_fillet::FilletSpec {
+            let single = vec![popkern_blend::FilletSpec {
                 edge: edge_handles[0],
-                radius: popkern_fillet::FilletRadius::Constant(0.1),
+                radius: popkern_blend::FilletRadius::Constant(0.1),
             }];
-            match popkern_fillet::fillet_edges(
+            match popkern_blend::fillet_edges(
                 &cube,
                 &single,
-                &popkern_fillet::FilletOptions::default(),
+                &popkern_blend::FilletOptions::default(),
                 tol,
                 None,
             ) {
@@ -359,7 +359,7 @@ fn print_single_fillet_vertices() {
     let tol = popkern_core::tolerance::Tolerance::default();
     let cube = popkern_core::topology::BRep::unit_cube(tol).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
+    let result = popkern_blend::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
     eprintln!(
         "Single-edge fillet: {} vertices",
         result.brep.vertices.len()
@@ -391,7 +391,7 @@ fn print_fillet_footprint_positions() {
         v_start.x, v_start.y, v_start.z, v_end.x, v_end.y, v_end.z
     );
 
-    let result = popkern_fillet::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
+    let result = popkern_blend::fillet_edge(&cube, edge, 0.1, tol, None).unwrap();
     // Print all non-corner vertices
     for (_, v) in result.brep.vertices.iter() {
         let p = v.position;
@@ -412,7 +412,7 @@ fn trace_fillet_center_curve() {
     let edge = cube.edges.keys().next().unwrap();
 
     // Get the analysis for this edge
-    let analyses = popkern_fillet::analysis::analyze_edges(&cube, &[edge], false).unwrap();
+    let analyses = popkern_blend::analysis::analyze_edges(&cube, &[edge], false).unwrap();
     let analysis = &analyses[0];
 
     eprintln!(
@@ -460,7 +460,7 @@ fn trace_fillet_center_curve() {
             anchor_a.z + (anchor_b.z - anchor_a.z) * t,
         )
     };
-    let cc = popkern_fillet::center_curve::constant_radius_center_curve(
+    let cc = popkern_blend::center_curve::constant_radius_center_curve(
         &analysis.surface_1,
         (u1_lo, u1_hi),
         (v1_lo, v1_hi),

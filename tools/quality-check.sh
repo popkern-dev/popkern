@@ -39,7 +39,7 @@ run_step() {
 
 if [[ "$mode" == "--perf" ]]; then
     run_step "fillet perf budgets + §17 cancellation latency" \
-        cargo test --release -p popkern-fillet \
+        cargo test --release -p popkern-blend \
         --test perf_budget --test cancellation_latency --test perf_acceptance \
         -- --nocapture
     run_step "smooth-mesh perf budgets" \

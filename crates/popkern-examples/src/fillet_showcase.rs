@@ -1,12 +1,12 @@
 //! Fillet showcase: unit cube with edges filleted.
 //!
-//! Demonstrates the `fillet_edges` operation from popkern-fillet.
+//! Demonstrates the `fillet_edges` operation from popkern-blend.
 
 mod helpers;
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn main() {
     println!("=== Fillet Showcase ===");

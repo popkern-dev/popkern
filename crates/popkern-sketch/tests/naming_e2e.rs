@@ -244,12 +244,12 @@ fn graceful_degradation_no_tracking() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: Fillet naming traces to edges (requires popkern-fillet dev-dep)
+// Test 4: Fillet naming traces to edges (requires popkern-blend dev-dep)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn fillet_names_trace_to_edge() {
-    use popkern_fillet::fillet_edge;
+    use popkern_blend::fillet_edge;
 
     // Build a box via sketch → extrude with full tracking.
     let mut sop = make_rectangle_sketch();

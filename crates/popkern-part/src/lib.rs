@@ -3,7 +3,7 @@
 //! A part is a short, readable program: sketch profiles, extrude
 //! them, combine solids, dress edges up, gate the result, export it.
 //! The API is a thin facade — every operation delegates to the
-//! kernel crates (`popkern-sweep`, `popkern-bool`, `popkern-fillet`,
+//! kernel crates (`popkern-sweep`, `popkern-bool`, `popkern-blend`,
 //! `popkern-mesh`, `popkern-io`) and preserves their diagnostics.
 //!
 //! ```no_run

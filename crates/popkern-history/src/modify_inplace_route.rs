@@ -99,10 +99,10 @@ impl FeatureTree {
                         }
                         return None;
                     };
-                    state = match popkern_fillet::modify_fillet_radius(
+                    state = match popkern_blend::modify_fillet_radius(
                         &state,
                         face,
-                        popkern_fillet::FilletRadius::Constant(new_v),
+                        popkern_blend::FilletRadius::Constant(new_v),
                         state.tolerance,
                     ) {
                         Ok(s) => s,
@@ -135,10 +135,10 @@ impl FeatureTree {
                     let edge = crate::resolve::resolve_edge(name, state_before).ok()?;
                     let supports = translate_supports(state_before, &state, edge)?;
                     let face = blend_face_between(&state, supports, StripKind::Chamfer)?;
-                    state = popkern_fillet::modify_chamfer_distance(
+                    state = popkern_blend::modify_chamfer_distance(
                         &state,
                         face,
-                        popkern_fillet::ChamferKind::Equal(new_v),
+                        popkern_blend::ChamferKind::Equal(new_v),
                         state.tolerance,
                     )
                     .ok()?;
@@ -299,19 +299,19 @@ fn blend_face_between(
         if f == supports.0 || f == supports.1 {
             continue;
         }
-        let neighbours = popkern_fillet::identify::blend_neighbours(brep, f);
+        let neighbours = popkern_blend::identify::blend_neighbours(brep, f);
         if !(neighbours.contains(&supports.0) && neighbours.contains(&supports.1)) {
             continue;
         }
         if popkern_core::trace::trace_enabled("history") {
             eprintln!(
                 "  [tweak-route] adj candidate {f:?} identify {:?}",
-                popkern_fillet::identify::identify_blend(brep, f).map(|b| b.kind)
+                popkern_blend::identify::identify_blend(brep, f).map(|b| b.kind)
             );
         }
         let kind_matches = match kind {
-            StripKind::Fillet => popkern_fillet::identify::identify_blend(brep, f)
-                .is_some_and(|b| b.kind == popkern_fillet::identify::BlendKind::Fillet),
+            StripKind::Fillet => popkern_blend::identify::identify_blend(brep, f)
+                .is_some_and(|b| b.kind == popkern_blend::identify::BlendKind::Fillet),
             StripKind::Chamfer => {
                 let oblique = |sf: FaceHandle| -> bool {
                     match (support_normal(sf), support_normal(f)) {

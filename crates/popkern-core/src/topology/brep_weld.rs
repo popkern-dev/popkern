@@ -119,7 +119,7 @@ impl BRep {
     /// This is the surgical counterpart to
     /// [`Self::weld_coincident_vertices`]: callers that want to
     /// merge specific vertices without affecting others use this.
-    /// Used by `popkern_fillet::unfillet` to collapse fillet
+    /// Used by `popkern_blend::unfillet` to collapse fillet
     /// corner vertices into restored sharp-edge corners.
     ///
     /// # Errors

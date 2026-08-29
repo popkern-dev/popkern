@@ -1,6 +1,6 @@
 //! §5.3 R8 C8 — downstream parity scorecard (mesh leg).
 //!
-//! Exercises `popkern-fillet`'s mixed-radius trihedral corner blend
+//! Exercises `popkern-blend`'s mixed-radius trihedral corner blend
 //! with `use_rational_gregory` off (baseline polar-NURBS) and on
 //! (concrete Gregory sub-patches when exposed, otherwise the current
 //! logical macro-cap) and asserts the mesh tessellator produces
@@ -12,12 +12,12 @@
 //! order-of-magnitude, bounded chord-height deviation, no panics,
 //! no empty face meshes for the sub-patches.
 
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
-use popkern_fillet::{
+use popkern_blend::{
     BlendResult, ExactBoundaryCandidateOutcome, FilletOptions, FilletRadius, FilletSpec,
     fillet_edges,
 };
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::BRep;
 use popkern_mesh::{TessellationOptions, tessellate};
 
 struct MeshRun {

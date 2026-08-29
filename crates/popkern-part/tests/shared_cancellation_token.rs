@@ -3,7 +3,7 @@
 //!
 //! Before PK-276 the kernel carried three structurally identical but
 //! distinct token types (`popkern_core::healing`, `popkern_bool`,
-//! `popkern_fillet`), so a UI Cancel button driving a feature rebuild
+//! `popkern_blend`), so a UI Cancel button driving a feature rebuild
 //! that spans a boolean and a fillet needed one token per crate. All
 //! three module paths now re-export `popkern_core::cancellation::
 //! CancellationToken`; this test passing to both entry points from a
@@ -23,25 +23,25 @@ fn one_token_cancels_both_a_fillet_and_a_boolean() {
     let token = popkern_core::cancellation::CancellationToken::new();
     token.cancel();
 
-    let specs: Vec<popkern_fillet::FilletSpec> = cube
+    let specs: Vec<popkern_blend::FilletSpec> = cube
         .edges
         .keys()
         .take(1)
-        .map(|e| popkern_fillet::FilletSpec {
+        .map(|e| popkern_blend::FilletSpec {
             edge: e,
-            radius: popkern_fillet::FilletRadius::Constant(0.1),
+            radius: popkern_blend::FilletRadius::Constant(0.1),
         })
         .collect();
-    let fillet_result = popkern_fillet::fillet_edges_cancellable(
+    let fillet_result = popkern_blend::fillet_edges_cancellable(
         &cube,
         &specs,
-        &popkern_fillet::FilletOptions::default(),
+        &popkern_blend::FilletOptions::default(),
         tol,
         None,
         &token,
     );
     assert!(
-        matches!(fillet_result, Err(popkern_fillet::BlendError::Cancelled)),
+        matches!(fillet_result, Err(popkern_blend::BlendError::Cancelled)),
         "shared token must cancel the fillet, got {fillet_result:?}"
     );
 

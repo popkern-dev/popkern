@@ -1,11 +1,11 @@
+use popkern_blend::{
+    ApexConstructionRoute, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
+    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
+};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepEdgeSurfaceCompatibilityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
-};
-use popkern_fillet::{
-    ApexConstructionRoute, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
-    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
 };
 
 #[test]
@@ -55,7 +55,7 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert!(routes[0].fallback_reason.is_none());
 }
 
-fn assert_exact_boundary_performance_report(route: &popkern_fillet::ApexConstructionRouteDecision) {
+fn assert_exact_boundary_performance_report(route: &popkern_blend::ApexConstructionRouteDecision) {
     let performance = &route.exact_boundary_performance;
     assert_eq!(performance.sector_count, route.exact_boundary_sector_count);
     assert_eq!(
@@ -85,7 +85,7 @@ fn assert_exact_boundary_performance_report(route: &popkern_fillet::ApexConstruc
     assert!(performance.deterministic_skip_code.is_none());
 }
 
-fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRouteDecision) {
+fn assert_exact_boundary_ux_report(route: &popkern_blend::ApexConstructionRouteDecision) {
     let report = &route.exact_boundary_report;
     assert_eq!(report.schema_version, 1);
     assert_eq!(report.route_label, "direct_apex");
@@ -122,13 +122,13 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
         report
             .diagnostics
             .iter()
-            .all(|d| popkern_fillet::types::diagnostic_code_is_informational(&d.code)),
+            .all(|d| popkern_blend::types::diagnostic_code_is_informational(&d.code)),
         "the mixed-radius fixture regressed a residual exceedance: {:#?}",
         report.diagnostics
     );
     assert!(report.diagnostics.iter().all(|diagnostic| {
         diagnostic.schema_version == 1
-            && (popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+            && (popkern_blend::types::diagnostic_code_is_informational(&diagnostic.code)
                 || (diagnostic.residual.is_some_and(|residual| residual > 0.0)
                     && ((diagnostic.stage == "exact_boundary_cap.support_scope"
                         && diagnostic.code
@@ -156,14 +156,14 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     assert!(json.contains("\"source_fact_ids\""));
 }
 
-fn assert_exact_boundary_accepted(result: &popkern_fillet::BlendResult) {
+fn assert_exact_boundary_accepted(result: &popkern_blend::BlendResult) {
     assert!(
         result.repair_report.apex_routes.iter().all(|route| route
             .exact_boundary_report
             .diagnostics
             .iter()
             .all(|diagnostic| {
-                popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+                popkern_blend::types::diagnostic_code_is_informational(&diagnostic.code)
                     || (diagnostic.stage == "exact_boundary_cap.support_scope"
                         && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
                     || (diagnostic.stage == "exact_boundary_cap.cap_outer"
@@ -173,7 +173,7 @@ fn assert_exact_boundary_accepted(result: &popkern_fillet::BlendResult) {
     );
 }
 
-fn assert_exact_boundary_artifact_has_no_decline_actions(result: &popkern_fillet::BlendResult) {
+fn assert_exact_boundary_artifact_has_no_decline_actions(result: &popkern_blend::BlendResult) {
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
         artifact
@@ -252,7 +252,7 @@ impl RouteQuality {
     }
 }
 
-fn mixed_radius_gregory_cube(options: FilletOptions) -> popkern_fillet::BlendResult {
+fn mixed_radius_gregory_cube(options: FilletOptions) -> popkern_blend::BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges = cube

@@ -15,7 +15,7 @@ result_large_err = "allow"
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
-popkern-fillet = { path = "../popkern-fillet" }
+popkern-blend = { path = "../popkern-blend" }
 popkern-sweep = { path = "../popkern-sweep" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }

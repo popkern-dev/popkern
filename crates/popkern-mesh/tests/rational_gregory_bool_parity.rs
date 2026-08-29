@@ -7,11 +7,11 @@
 //! no panics, no topology corruption, non-empty result — not a
 //! precision-parity test.
 
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_bool::{BoolOperation, boolean_ref};
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 /// Fillet the mixed-radius cube corner with the given flag then
 /// subtract a small probe cube from it.

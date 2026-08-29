@@ -1,3 +1,4 @@
+use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
@@ -8,7 +9,6 @@ use popkern_core::topology::{
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
     classify_brep_fidelity_blocker_ownership, repair_brep_boundary_edges_transactionally,
 };
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
@@ -343,7 +343,7 @@ pub(crate) fn mixed_radius_gregory_cube() -> BRep {
     mixed_radius_gregory_cube_result().brep
 }
 
-fn mixed_radius_gregory_cube_result() -> popkern_fillet::BlendResult {
+fn mixed_radius_gregory_cube_result() -> popkern_blend::BlendResult {
     let cube = BRep::unit_cube(popkern_core::tolerance::Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube

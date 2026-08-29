@@ -115,7 +115,7 @@ fn encroaching_subtraction_tessellation_within_budget() {
     if debug_skip("encroaching subtraction tessellation") {
         return;
     }
-    use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+    use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
     let cyl = BRep::cylinder(1.0, 2.0, tol()).expect("cylinder builds");
     let rim: Vec<_> = cyl
         .edges
