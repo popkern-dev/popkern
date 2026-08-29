@@ -154,7 +154,8 @@ impl SketchOnPlane {
 
         // 6. Assign stable names when tracking is active.
         if let Some(ctx) = tracking {
-            assign_brep_names(&mut brep, ctx);
+            let front_faces: Vec<FaceHandle> = built_regions.iter().map(|r| r.face).collect();
+            assign_brep_names(&mut brep, &front_faces, ctx);
         }
 
         let regions = built_regions
@@ -181,13 +182,20 @@ mod lib_tests;
 ///
 /// Faces get `Generated` names, edges get `Generated` names, and
 /// vertices get `Junction` names. All are recorded in the tracking context.
-fn assign_brep_names(brep: &mut BRep, ctx: &mut TrackingContext) {
+///
+/// Face indices are role-stable: each region's front face (the one
+/// facing the sketch normal) is named before any back face, so
+/// `Generated/0` is the first region's front face regardless of which
+/// Euler-op face the loop tracer's direction made it (PK-376).
+fn assign_brep_names(brep: &mut BRep, front_faces: &[FaceHandle], ctx: &mut TrackingContext) {
     use popkern_core::naming_criteria::{
         GeometricCriteria, capture_edge, capture_face, capture_vertex,
     };
 
-    // Collect handles first so we can mutate the BRep in the loop.
-    let face_handles: Vec<_> = brep.faces.keys().collect();
+    // Collect handles first so we can mutate the BRep in the loop:
+    // front faces in region order, then every remaining face.
+    let mut face_handles: Vec<FaceHandle> = front_faces.to_vec();
+    face_handles.extend(brep.faces.keys().filter(|fh| !front_faces.contains(fh)));
     for (i, fh) in face_handles.iter().enumerate() {
         let name = EntityName {
             operation: ctx.operation,

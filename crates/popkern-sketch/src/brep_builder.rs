@@ -34,8 +34,11 @@ struct BuildContext<'a> {
     loops: &'a [TracedLoop],
     sketch: &'a Sketch,
     plane: &'a SketchPlane,
+    /// The sketch plane as a face surface, `orientation: true`. Both
+    /// lamina faces share this chart; the back face carries the same
+    /// geometry with `orientation: false` (PK-376) so every pcurve is
+    /// written once, in one chart, and the flag alone encodes the side.
     surface: SurfaceOnFace,
-    back_surface: SurfaceOnFace,
 }
 
 /// Build a BRep from a nesting tree, traced loops, and sketch geometry.
@@ -71,15 +74,6 @@ pub(crate) fn build_brep(
             },
             orientation: true,
         },
-        back_surface: SurfaceOnFace {
-            geometry: SurfaceGeometry::Plane {
-                origin: plane.origin,
-                normal: -plane.normal,
-                u_axis: plane.v_axis,
-                v_axis: plane.u_axis,
-            },
-            orientation: true,
-        },
     };
 
     for node in nesting_roots {
@@ -104,11 +98,26 @@ fn build_face_region(
     let traced = &ctx.loops[node.loop_index];
 
     // Build outer loop with Euler operators.
-    let (front_face, back_face) = build_outer_loop(brep, traced, ctx)?;
+    let (mef_face, mvfs_face) = build_outer_loop(brep, traced, ctx)?;
 
-    // Attach surfaces.
+    // The orientation flag is DERIVED state (PK-244): the face whose
+    // outer loop winds counter-clockwise about the sketch normal faces
+    // `+normal` (`orientation: true`); its twin faces `-normal`. The
+    // Euler-op role (mef vs mvfs) says nothing about the winding — it
+    // follows the tracer's direction — so assigning by role handed
+    // BOTH faces a flag contradicting their loop (measured: a
+    // rectangle lamina on XY, both faces `WindingDishonest`, and every
+    // sketch→extrude body carried a dishonest base cap; PK-376).
+    let (front_face, back_face) = if loop_winding_about(brep, mef_face, ctx.plane.normal) >= 0.0 {
+        (mef_face, mvfs_face)
+    } else {
+        (mvfs_face, mef_face)
+    };
     brep.faces[front_face].surface = Some(ctx.surface.clone());
-    brep.faces[back_face].surface = Some(ctx.back_surface.clone());
+    brep.faces[back_face].surface = Some(SurfaceOnFace {
+        geometry: ctx.surface.geometry.clone(),
+        orientation: false,
+    });
 
     // Build inner loops (holes) from children that are NOT faces.
     let mut holes = Vec::new();
@@ -128,10 +137,31 @@ fn build_face_region(
     })
 }
 
+/// Signed winding of `face`'s outer loop about `normal`: the Newell
+/// normal of the loop's vertex polygon dotted with `normal` (positive =
+/// counter-clockwise seen from `+normal`).
+fn loop_winding_about(
+    brep: &popkern_core::topology::BRep,
+    face: FaceHandle,
+    normal: popkern_core::geometry::Vec3,
+) -> f64 {
+    let pts = brep.face_outer_loop_positions(face);
+    let mut newell = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+    for i in 0..pts.len() {
+        let a = pts[i];
+        let b = pts[(i + 1) % pts.len()];
+        newell.x += (a.y - b.y) * (a.z + b.z);
+        newell.y += (a.z - b.z) * (a.x + b.x);
+        newell.z += (a.x - b.x) * (a.y + b.y);
+    }
+    newell.dot(&normal)
+}
+
 /// Build the outer loop of a face using Euler operators (mvfs, mev, mef).
 ///
-/// Returns `(front_face, back_face)` where `front_face` is the mef face
-/// (the enclosed polygon) and `back_face` is the original mvfs face.
+/// Returns `(mef_face, mvfs_face)`: the face `mef` enclosed and the
+/// original `mvfs` face. Which one faces the sketch normal is decided
+/// by the caller from the measured loop winding.
 fn build_outer_loop(
     brep: &mut popkern_core::topology::BRep,
     traced: &TracedLoop,
@@ -172,14 +202,15 @@ fn build_outer_loop(
 
     // 4. mef to close the loop and create the face.
     let mef = brep.mef(last_twin, mev1.half_edge).map_err(map_err)?;
-    let front_face = mef.face;
-    let back_face = mvfs.face;
+    let mef_face = mef.face;
+    let mvfs_face = mvfs.face;
 
-    // Attach curves and pcurves to the edges.
-    attach_loop_geometry(brep, traced, ctx, front_face)?;
-    attach_twin_pcurves(brep, traced, ctx, back_face)?;
+    // Attach curves and pcurves to the edges (one shared chart, so the
+    // side each face ends up on does not matter here).
+    attach_loop_geometry(brep, traced, ctx, mef_face)?;
+    attach_twin_pcurves(brep, traced, ctx, mvfs_face)?;
 
-    Ok((front_face, back_face))
+    Ok((mef_face, mvfs_face))
 }
 
 /// Attach 3D curves and pcurves to the half-edges around a face's outer loop.
@@ -393,8 +424,12 @@ fn build_hole_loop(
         let pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
         brep.half_edges[he_fwd].pcurve = Some(pcurve.into());
 
+        // The twin runs j → i: the same chart span, reversed
+        // (t-swap — the canonical-direction convention, PK-303).
         let back_pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
-        brep.half_edges[he_rev].pcurve = Some(back_pcurve.into());
+        let mut back_pcurve: popkern_core::geometry::pcurve::Pcurve = back_pcurve.into();
+        std::mem::swap(&mut back_pcurve.t_start, &mut back_pcurve.t_end);
+        brep.half_edges[he_rev].pcurve = Some(back_pcurve);
 
         front_hes.push(he_fwd);
         back_hes.push(he_rev);
@@ -446,3 +481,7 @@ fn wire_inner_loop(
 #[cfg(test)]
 #[path = "brep_builder_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "brep_builder_winding_tests.rs"]
+mod winding_tests;
