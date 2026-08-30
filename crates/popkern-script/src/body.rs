@@ -92,7 +92,13 @@ impl Body {
     }
 
     fn record(self, model: &mut Model, feature: Feature, label: &str) -> Result<Body, ScriptError> {
-        let id = record_feature(&mut model.tree, model.tolerance, feature, label)?;
+        let id = record_feature(
+            &mut model.tree,
+            model.tolerance,
+            feature,
+            label,
+            Some(self.id),
+        )?;
         let body = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
         model.active = Some(body);
         Ok(Body::new(body))

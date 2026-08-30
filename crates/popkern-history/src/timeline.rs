@@ -210,6 +210,22 @@ pub(crate) fn infer_dependencies(
 // Body resolution
 // ---------------------------------------------------------------------------
 
+/// Whether a feature starts a new body when it has no dependencies
+/// (a sketch on a base or custom plane, a raw body).
+pub(crate) fn starts_new_body(feature: &Feature) -> bool {
+    matches!(
+        feature,
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY
+                | SketchPlaneDesc::XZ
+                | SketchPlaneDesc::YZ
+                | SketchPlaneDesc::Custom { .. }
+                | SketchPlaneDesc::BaseOffset { .. },
+            ..
+        } | Feature::RawBody { .. }
+    )
+}
+
 /// Determine the [`BodyId`] for a newly created feature.
 ///
 /// Rules:

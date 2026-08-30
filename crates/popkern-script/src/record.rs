@@ -15,9 +15,10 @@ pub(crate) fn record_feature(
     tolerance: popkern_core::tolerance::Tolerance,
     feature: Feature,
     label: &str,
+    body: Option<popkern_history::node::BodyId>,
 ) -> Result<FeatureId, ScriptError> {
     let operation = feature.operation_label().to_string();
-    let id = tree.add_feature(feature, label);
+    let id = tree.add_feature_on(feature, label, body);
     let minted = tree
         .feature(id)
         .map(|n| n.label.clone())

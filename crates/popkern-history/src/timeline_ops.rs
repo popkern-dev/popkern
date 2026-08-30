@@ -8,7 +8,7 @@ use popkern_core::naming::OperationId;
 use crate::FeatureTree;
 use crate::error::HistoryError;
 use crate::feature::Feature;
-use crate::node::{FeatureId, FeatureNode};
+use crate::node::{BodyId, FeatureId, FeatureNode};
 use crate::undo::TreeCommand;
 
 use super::{infer_dependencies, register_feature_params, resolve_body};
@@ -26,18 +26,47 @@ impl FeatureTree {
     ///   of their first dependency.  If there are no dependencies, they fall
     ///   back to `BodyId(0)`.
     pub fn add_feature(&mut self, feature: Feature, label: &str) -> FeatureId {
+        self.add_feature_on(feature, label, None)
+    }
+
+    /// [`Self::add_feature`] with the receiving body named explicitly.
+    ///
+    /// A feature that references no entity (`Transform`, `Thicken`,
+    /// `OffsetSolid`, `Boolean`) has no dependency to derive its body
+    /// from, and `resolve_body` fell back to the first body — a
+    /// translate recorded on a tool body moved the base body instead
+    /// (measured, PK-383). `body` wins for such features; a feature
+    /// whose entity references pin it to a body keeps that body (the
+    /// override must not contradict provenance), and a body-starting
+    /// feature (base-plane sketch, raw body) still starts a new body.
+    pub fn add_feature_on(
+        &mut self,
+        feature: Feature,
+        label: &str,
+        body: Option<BodyId>,
+    ) -> FeatureId {
         let label = &self.mint_feature_label(&feature, label);
         let op_id = OperationId(self.next_op_id);
         self.next_op_id += 1;
 
         let depends_on = infer_dependencies(&feature, &self.op_index);
 
-        let body = resolve_body(
+        let derived = resolve_body(
             &feature,
             &depends_on,
             &mut self.body_manager,
             &self.features,
         );
+        let body = match body {
+            Some(explicit)
+                if depends_on.is_empty()
+                    && !crate::timeline::starts_new_body(&feature)
+                    && self.body_manager.bodies().contains(&explicit) =>
+            {
+                explicit
+            }
+            _ => derived,
+        };
 
         let node = FeatureNode {
             feature,

@@ -70,7 +70,8 @@ pub(crate) fn bind_scalar(
                     reason: format!("value must be finite, got {v}"),
                 });
             }
-            Ok(tree.add_global_parameter(&pending, *v, unit)?)
+            // Display value in `unit`; the table stores SI (radians, metres).
+            Ok(tree.add_global_parameter_display(&pending, *v, unit)?)
         }
         Scalar::Param(name) => {
             let target =

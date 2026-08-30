@@ -173,7 +173,7 @@ impl<'m> ProfileBuilder<'m> {
             plane,
             sketch_data: SketchPayload::Analytic(profile),
         };
-        let id = record_feature(&mut model.tree, model.tolerance, feature, label)?;
+        let id = record_feature(&mut model.tree, model.tolerance, feature, label, None)?;
         let body = model
             .tree
             .feature(id)

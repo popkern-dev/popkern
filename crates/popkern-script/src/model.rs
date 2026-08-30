@@ -198,13 +198,13 @@ impl Model {
             .get(id)
             .map(|p| p.unit)
             .unwrap_or(self.unit);
-        self.tree.set_parameter_value(id, value, unit)?;
+        self.tree.set_parameter_value_display(id, value, unit)?;
         Ok(())
     }
 
-    /// Declare a global parameter.
+    /// Declare a global parameter (`value` in `unit`; stored in SI).
     pub fn param(&mut self, name: &str, value: f64, unit: Unit) -> Result<(), ScriptError> {
-        self.tree.add_global_parameter(name, value, unit)?;
+        self.tree.add_global_parameter_display(name, value, unit)?;
         Ok(())
     }
 
@@ -216,6 +216,57 @@ impl Model {
     /// Bind an entity label (`DuplicateLabel` if taken).
     pub fn label(&mut self, name: &str, entity: EntityName) -> Result<(), ScriptError> {
         Ok(self.tree.label_entity(name, entity)?)
+    }
+
+    /// Bind an entity label to the single edge a selection resolves
+    /// to on the active body (spec §6.3 `label(name, selection)`).
+    pub fn label_edge(
+        &mut self,
+        name: &str,
+        selection: &crate::selection::EdgeSelector,
+    ) -> Result<EntityName, ScriptError> {
+        let body = self.active()?;
+        let brep = self.body_brep(body.id)?;
+        let labels = |l: &str| self.entity_by_label(l);
+        let snapshot = crate::selection::resolve_edges(&brep, selection, &labels)?;
+        let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Edges)?;
+        self.tree.label_entity(name, entity.clone())?;
+        Ok(entity)
+    }
+
+    /// Bind an entity label to the single face a selection resolves to.
+    pub fn label_face(
+        &mut self,
+        name: &str,
+        selection: &crate::selection::FaceSelector,
+    ) -> Result<EntityName, ScriptError> {
+        let body = self.active()?;
+        let brep = self.body_brep(body.id)?;
+        let labels = |l: &str| self.entity_by_label(l);
+        let snapshot = crate::selection::resolve_faces(&brep, selection, &labels)?;
+        let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Faces)?;
+        self.tree.label_entity(name, entity.clone())?;
+        Ok(entity)
+    }
+
+    /// Remove an entity label.
+    pub fn unlabel(&mut self, name: &str) -> Result<EntityName, ScriptError> {
+        Ok(self.tree.unlabel_entity(name)?)
+    }
+
+    /// Rename an entity label (references never change).
+    pub fn rename_label(&mut self, old: &str, new: &str) -> Result<(), ScriptError> {
+        Ok(self.tree.rename_entity_label(old, new)?)
+    }
+
+    /// All entity labels.
+    pub fn labels(&self) -> Vec<(String, EntityName)> {
+        self.tree
+            .labels()
+            .entities
+            .iter()
+            .map(|(l, e)| (l.clone(), e.clone()))
+            .collect()
     }
 
     /// Resolve an entity label.
