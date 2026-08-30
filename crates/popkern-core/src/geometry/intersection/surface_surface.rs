@@ -22,6 +22,7 @@ use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
+use crate::geometry::intersection::surface_surface_consumed::point_near_polylines;
 use crate::geometry::intersection::{
     cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_torus, torus_coaxial,
 };
@@ -413,34 +414,6 @@ pub fn intersect_surfaces_with_handler(
     }
     Ok(SurfaceSurfaceIntersectionResult {
         intersections: results,
-    })
-}
-
-/// True when `p` lies within `radius` of any segment of any traced
-/// polyline. The point-to-segment metric (rather than point-to-sample)
-/// is what makes consumption honest for adaptively-stepped traces —
-/// sample spacing may exceed the consumption radius by orders of
-/// magnitude while the chord stays within tolerance of the curve.
-fn point_near_polylines(p: &Point3, polylines: &[Vec<Point3>], radius: f64) -> bool {
-    let radius_sq = radius * radius;
-    polylines.iter().any(|line| {
-        if line.len() == 1 {
-            return line[0].distance_to(p) < radius;
-        }
-        line.windows(2).any(|seg| {
-            let a = seg[0];
-            let b = seg[1];
-            let ab = b - a;
-            let len_sq = ab.dot(&ab);
-            let t = if len_sq > 0.0 {
-                ((*p - a).dot(&ab) / len_sq).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let closest = a + ab * t;
-            let d = *p - closest;
-            d.dot(&d) < radius_sq
-        })
     })
 }
 

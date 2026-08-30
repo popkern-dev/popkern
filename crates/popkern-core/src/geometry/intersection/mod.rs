@@ -36,6 +36,7 @@ mod surface_curve_newton;
 mod surface_curve_overlap;
 pub mod surface_subdivision;
 pub mod surface_surface;
+mod surface_surface_consumed;
 pub(crate) mod torus_coaxial;
 
 pub use surface_curve::{

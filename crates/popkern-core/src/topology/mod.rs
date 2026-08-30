@@ -93,6 +93,7 @@ pub use shared_trim_edge::{
     SharedTrimEdgeValidation, commit_shared_trim_edge_transactionally, validate_shared_trim_edge,
 };
 
+mod brep_inner_loop_rehome;
 /// Edge and face splitting operations.
 /// Sorted-pair serde for handle-keyed maps (JSON-safe, deterministic).
 pub(crate) mod serde_handle_map;

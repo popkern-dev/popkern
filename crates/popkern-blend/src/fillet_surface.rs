@@ -96,6 +96,24 @@ pub fn build_fillet_surface(
     {
         use crate::g2_cross_section::g2_sweep_from_contact_solutions;
 
+        // Circular spine (coaxial plane × cylinder/cone/sphere): the
+        // exact surface of revolution of one G2 section — its rows
+        // are the rails, where the cubic loft below left them by
+        // 2.6e-4 (PK-389). Certified per station; `None` keeps the
+        // loft.
+        if let Some(nurbs) = crate::g2_revolution::g2_revolution_from_contact_solutions(
+            solutions, surface1, surface2,
+        ) {
+            let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
+            let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+            return Ok(FilletSurfaceResult {
+                surface: SurfaceGeometry::Nurbs(nurbs),
+                trim_curve_1: trim_1,
+                trim_curve_2: trim_2,
+                continuity_downgrade: None,
+            });
+        }
+
         // The cross-section builder derives its contact normals from
         // each converged solution's ball center, so no orientation →
         // BallSide translation is needed here (the previous mapping

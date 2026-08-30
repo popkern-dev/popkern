@@ -52,6 +52,7 @@ pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as pos
 pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_cap_presolve;
+pub(crate) mod setback_vertex_loop_walk;
 pub(crate) mod setback_vertex_topology;
 pub(crate) mod trihedral_mitre_corner;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves;

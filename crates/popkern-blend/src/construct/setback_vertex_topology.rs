@@ -1722,16 +1722,26 @@ fn merge_faces(
     // whose two half-edges sit in the SAME loop (bridges the blend
     // loop bounces through twice). Iterate so chains and the old
     // anchor ring unwind from their exposed ends.
+    //
+    // Scoped to the surrendered region's own loops: a periodic seam
+    // anywhere else on the body also has both half-edges in one loop
+    // (measured: the boss cylinder's seam on the flagship boss plate,
+    // untouched by any fillet, was dissolved here under a G2 request
+    // and left the cylinder's loop open by the seam length, PK-389).
     loop {
         let mut dissolved = false;
         let candidates: Vec<HalfEdgeHandle> = brep
             .half_edges
             .iter()
             .filter(|(_, data)| {
-                brep.half_edges
-                    .get(data.twin)
-                    .map(|t| t.loop_ == data.loop_)
-                    .unwrap_or(false)
+                brep.loops
+                    .get(data.loop_)
+                    .is_some_and(|l| region.contains(&l.face))
+                    && brep
+                        .half_edges
+                        .get(data.twin)
+                        .map(|t| t.loop_ == data.loop_)
+                        .unwrap_or(false)
             })
             .map(|(h, _)| h)
             .collect();
@@ -1785,24 +1795,7 @@ fn merge_faces(
 
 // ---- helpers --------------------------------------------------------------
 
-fn face_loop_half_edges(brep: &BRep, face: FaceHandle) -> Result<Vec<HalfEdgeHandle>, String> {
-    let f = brep.faces.get(face).ok_or("face handle invalid")?;
-    let start = brep
-        .loops
-        .get(f.outer_loop)
-        .ok_or("outer loop invalid")?
-        .half_edge;
-    let mut out = Vec::new();
-    let mut he = start;
-    for _ in 0..10_000 {
-        out.push(he);
-        he = brep.half_edges[he].next;
-        if he == start {
-            return Ok(out);
-        }
-    }
-    Err("unterminated face loop".to_string())
-}
+pub(crate) use super::setback_vertex_loop_walk::face_loop_half_edges;
 
 fn half_edge_at_vertex_on_face(
     brep: &BRep,

@@ -297,6 +297,17 @@ fn carve_ring(
             .mef(he_from, he_to)
             .map_err(|e| format!("mef bridge {k} across support: {e}"))?;
         write_ring_curve(brep, mef.edge, curve, v_from, v_to);
+        // A support face with holes: each hole belongs to the side
+        // whose boundary contains it, never by default to the split
+        // face (PK-389: the boss hole rode the corner sliver into the
+        // cap).
+        let rehomed = brep.rehome_inner_loops_after_split(support, mef.face);
+        if trace && !rehomed.is_empty() {
+            eprintln!(
+                "  [boundary-ring] bridge {k}: re-homed {} inner loop(s) across the split",
+                rehomed.len()
+            );
+        }
         let d_old = face_centroid(brep, support)?.distance_to(&vertex_position);
         let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
         slivers.push(if d_new < d_old { mef.face } else { support });
