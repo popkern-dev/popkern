@@ -190,12 +190,11 @@ pub(crate) fn fillet_edges_attempt(
     check_cancel!();
     // Transactional: any per-edge failure fails the whole op.
     if !failures.is_empty() {
-        return Err(BlendError::PartialFailure {
-            failed: failures.len(),
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
+        return Err(BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
             failures,
-        });
+        ));
     }
     // PHASE 3: Detect overlaps (warnings only — don't block the operation).
     let t3 = popkern_core::time::Stopwatch::start();
@@ -212,7 +211,7 @@ pub(crate) fn fillet_edges_attempt(
     // seam trimming (PK-159); every other configuration follows the
     // caller's interference policy — transactional decline (PK-140,
     // default) or drop-the-pair partial service (PK-185).
-    interference_seam::complete_or_decline_interference(
+    let ridge_completed = interference_seam::complete_or_decline_interference(
         &mut edge_geometries,
         brep,
         &tolerance,
@@ -226,12 +225,11 @@ pub(crate) fn fillet_edges_attempt(
     );
     check_cancel!();
     if edge_geometries.is_empty() {
-        return Err(BlendError::PartialFailure {
-            failed: failures.len(),
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
+        return Err(BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
             failures,
-        });
+        ));
     }
 
     // PHASE 4: Apply topology.
@@ -257,18 +255,27 @@ pub(crate) fn fillet_edges_attempt(
         // vertex-blend corner (the dominant cost inside ApplyTopology).
         reporter.as_deref_mut(),
     )
-    .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
-    let stale_anchor_failure = |reason: String| BlendError::PartialFailure {
-        failed: 1,
-        total: specs.len(),
-        partial_result: Box::new(brep.clone()),
-        failures: vec![(
-            fallback_edge_for_specs(specs, &edge_geometries),
-            BlendFailure::InvalidTopology {
-                reason,
-                location: None,
-            },
-        )],
+    .map_err(|apply_error| {
+        // Strips that were ridge-completed against a non-adjacent
+        // neighbour passed every per-edge radius gate; when the apply
+        // phase then fails on such an edge the radius is the cause
+        // (PK-380) — attribute before converting.
+        apply_error
+            .attribute_ridge_completed_failures(brep, &ridge_completed, specs, &edge_geometries)
+            .into_blend_error(specs.len(), brep)
+    })?;
+    let stale_anchor_failure = |reason: String| {
+        BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
+            vec![(
+                fallback_edge_for_specs(specs, &edge_geometries),
+                BlendFailure::InvalidTopology {
+                    reason,
+                    location: None,
+                },
+            )],
+        )
     };
     repair_stale_shell_anchors(&mut apply_result.brep)
         .map_err(|err| stale_anchor_failure(format!("repair stale shell anchors: {err}")))?;
@@ -440,18 +447,17 @@ pub(crate) fn fillet_edges_attempt(
         .apex_diagnostics
         .push(tail_timing.diagnostic());
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
-        return Err(BlendError::PartialFailure {
-            failed: 1,
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
-            failures: vec![(
+        return Err(BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
+            vec![(
                 fallback_edge,
                 BlendFailure::InvalidTopology {
                     reason,
                     location: None,
                 },
             )],
-        });
+        ));
     }
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking.as_deref_mut() {

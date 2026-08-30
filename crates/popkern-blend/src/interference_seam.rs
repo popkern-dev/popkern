@@ -253,14 +253,14 @@ pub(crate) fn complete_or_decline_interference(
     tolerance: &Tolerance,
     policy: crate::types::InterferencePolicy,
     overlap_warnings: &mut Vec<crate::error::BlendWarning>,
-) -> Result<(), crate::error::BlendError> {
+) -> Result<Vec<StripInterference>, crate::error::BlendError> {
     let hits = crate::overlap_strip_interference::detect_strip_interference(
         edge_geometries,
         brep,
         tolerance,
     );
     if hits.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     match try_complete_interference(edge_geometries, brep, &hits, tolerance) {
         Ok(()) => {
@@ -270,7 +270,7 @@ pub(crate) fn complete_or_decline_interference(
                     fillet_b: hit.fillet_b,
                 });
             }
-            Ok(())
+            Ok(hits)
         }
         Err(reason) => match policy {
             crate::types::InterferencePolicy::Decline => {
@@ -300,7 +300,7 @@ pub(crate) fn complete_or_decline_interference(
                     idx += 1;
                     keep
                 });
-                Ok(())
+                Ok(Vec::new())
             }
         },
     }

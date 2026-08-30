@@ -8,12 +8,17 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::tolerance::Tolerance;
 
 /// A mid-face strip interference between two vertex-disjoint fillets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StripInterference {
     /// Spec index of the first fillet.
     pub fillet_a: usize,
     /// Spec index of the second fillet.
     pub fillet_b: usize,
+    /// Closest approach of the two fillet edges (sampled), the space
+    /// both removal strips must share on the common support face.
+    /// Drives the honest radius bound when a ridge-completed pair
+    /// later fails to construct (PK-380).
+    pub gap: f64,
 }
 
 /// Detect mid-face strip interference: two fillets on VERTEX-DISJOINT
@@ -164,6 +169,7 @@ pub fn detect_strip_interference(
                 interferences.push(StripInterference {
                     fillet_a: i,
                     fillet_b: j,
+                    gap: min_distance(&pts_edge_i, &pts_edge_j),
                 });
             }
         }

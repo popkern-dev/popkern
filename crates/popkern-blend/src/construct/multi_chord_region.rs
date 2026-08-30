@@ -196,7 +196,15 @@ pub(super) fn process_deferred(
     if trace {
         eprintln!("[mc-region] batch declined (all_ok={all_ok}); original failures stand");
     }
+    // One report per fillet edge: both sides of an edge are deferred
+    // together, and the count invariant (`failed <= total`, PK-380)
+    // is per edge, not per side.
+    let mut reported: Vec<EdgeHandle> = Vec::new();
     for d in deferred {
+        if reported.contains(&d.fillet_edge) {
+            continue;
+        }
+        reported.push(d.fillet_edge);
         failures.push((
             d.fillet_edge,
             BlendFailure::InvalidTopology {

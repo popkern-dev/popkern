@@ -33,12 +33,34 @@ impl ApplyBlendError {
     pub fn into_blend_error(self, total: usize, brep: &BRep) -> crate::error::BlendError {
         match self {
             Self::Cancelled => crate::error::BlendError::Cancelled,
-            Self::Failures(failures) => crate::error::BlendError::PartialFailure {
-                failed: failures.len(),
-                total,
-                partial_result: Box::new(brep.clone()),
-                failures,
-            },
+            Self::Failures(failures) => {
+                crate::error::BlendError::partial_failure(total, brep.clone(), failures)
+            }
+        }
+    }
+
+    /// Re-attribute apply-phase failures on edges whose strips were
+    /// ridge-completed against a non-adjacent neighbour (see
+    /// [`crate::interference_attribution`]). `Cancelled` passes
+    /// through unchanged.
+    pub fn attribute_ridge_completed_failures(
+        self,
+        input: &BRep,
+        ridge_completed: &[crate::overlap_strip_interference::StripInterference],
+        specs: &[crate::FilletSpec],
+        edge_geometries: &[super::EdgeGeometry],
+    ) -> Self {
+        match self {
+            Self::Cancelled => Self::Cancelled,
+            Self::Failures(failures) => Self::Failures(
+                crate::interference_attribution::attribute_ridge_completed_failures(
+                    input,
+                    failures,
+                    ridge_completed,
+                    specs,
+                    edge_geometries,
+                ),
+            ),
         }
     }
 }

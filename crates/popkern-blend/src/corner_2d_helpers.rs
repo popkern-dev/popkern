@@ -484,16 +484,15 @@ pub(crate) fn circle_basis_like_core(normal: Vec3) -> (Vec3, Vec3) {
 /// `VertexHandle::default()`, which yields `location: None`.
 pub(crate) fn topology_failure(brep: &BRep, vertex: VertexHandle, reason: String) -> BlendError {
     let location = brep.vertices.get(vertex).map(|v| v.position);
-    BlendError::PartialFailure {
-        failed: 1,
-        total: 1,
-        partial_result: Box::new(BRep::new(popkern_core::tolerance::Tolerance::default())),
-        failures: vec![(
+    BlendError::partial_failure(
+        1,
+        BRep::new(popkern_core::tolerance::Tolerance::default()),
+        vec![(
             popkern_core::topology::EdgeHandle::default(),
             BlendFailure::InvalidTopology {
                 reason: format!("2D corner at {vertex:?}: {reason}"),
                 location,
             },
         )],
-    }
+    )
 }

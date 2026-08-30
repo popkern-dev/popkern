@@ -109,12 +109,11 @@ fn chamfer_edges_internal(
     }
 
     if edge_geometries.is_empty() && !failures.is_empty() {
-        return Err(BlendError::PartialFailure {
-            failed: failures.len(),
-            total: specs.len(),
-            partial_result: Box::new(brep.clone()),
+        return Err(BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
             failures,
-        });
+        ));
     }
 
     // 3a. Closed rim chains (PK-135): when the chamfered edges form
@@ -163,11 +162,10 @@ fn chamfer_edges_internal(
                 }
                 // Post-surgery validation failed: transactional decline
                 // with the validation evidence (never ship the clone).
-                return Err(BlendError::PartialFailure {
-                    failed: specs.len(),
-                    total: specs.len(),
-                    partial_result: Box::new(brep.clone()),
-                    failures: specs
+                return Err(BlendError::partial_failure(
+                    specs.len(),
+                    brep.clone(),
+                    specs
                         .iter()
                         .map(|s| {
                             (
@@ -186,18 +184,17 @@ fn chamfer_edges_internal(
                             )
                         })
                         .collect(),
-                });
+                ));
             }
             Some((cap, reason)) => {
                 // Declined chain construction is a hard, transactional
                 // error: the pre-batch per-edge path is measured-broken
                 // for closed chains, so falling through would ship
                 // corrupt topology.
-                return Err(BlendError::PartialFailure {
-                    failed: specs.len(),
-                    total: specs.len(),
-                    partial_result: Box::new(brep.clone()),
-                    failures: specs
+                return Err(BlendError::partial_failure(
+                    specs.len(),
+                    brep.clone(),
+                    specs
                         .iter()
                         .map(|s| {
                             (
@@ -211,7 +208,7 @@ fn chamfer_edges_internal(
                             )
                         })
                         .collect(),
-                });
+                ));
             }
         }
     }

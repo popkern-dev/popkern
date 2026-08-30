@@ -62,6 +62,7 @@ pub mod highlight_line;
 pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
+mod interference_attribution;
 mod interference_seam;
 pub(crate) mod loft_chart_extension;
 pub mod modify;

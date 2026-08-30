@@ -112,6 +112,41 @@ pub enum BlendError {
     Cancelled,
 }
 
+impl BlendError {
+    /// Build the transactional [`BlendError::PartialFailure`] with the
+    /// count invariant enforced by construction: `failures` is
+    /// deduplicated per edge (first report wins — a trim stage that
+    /// defers both sides of one fillet edge must not report the edge
+    /// twice; measured: "24 of 12 edges failed" on the oversized cube
+    /// fillet, PK-380), and `failed` is the distinct-edge count,
+    /// clamped to `total` so `failed <= total` holds for every
+    /// consumer.
+    pub fn partial_failure(
+        total: usize,
+        partial_result: popkern_core::topology::BRep,
+        failures: Vec<(EdgeHandle, BlendFailure)>,
+    ) -> BlendError {
+        let mut seen: Vec<EdgeHandle> = Vec::with_capacity(failures.len());
+        let failures: Vec<(EdgeHandle, BlendFailure)> = failures
+            .into_iter()
+            .filter(|(edge, _)| {
+                if seen.contains(edge) {
+                    false
+                } else {
+                    seen.push(*edge);
+                    true
+                }
+            })
+            .collect();
+        BlendError::PartialFailure {
+            failed: failures.len().min(total.max(1)),
+            total,
+            partial_result: Box::new(partial_result),
+            failures,
+        }
+    }
+}
+
 /// Per-edge failure reason.
 ///
 /// Every variant carries enough structure for a UI or logging layer
