@@ -149,13 +149,21 @@ fn analytic_plane_torus_ssi_is_at_least_5x_faster_than_marching() {
             );
         }
     };
+    // Best-of-K per side, interleaved: a single sample per side let a
+    // descheduling during the analytic run (the whole workspace sweep
+    // running alongside) sink the ratio to 2.99× against a 3× gate
+    // while the isolated ratio is an order of magnitude higher. The
+    // minimum is the load-robust estimator the perf gate already uses.
     const N: usize = 3;
+    const K: usize = 5;
     run_ssi(1); // warmup
-    let (_, analytic_ssi) = time_once(|| run_ssi(N));
-    let marching_ssi = with_marching_pinned(|| {
-        run_ssi(1);
-        time_once(|| run_ssi(N)).1
-    });
+    with_marching_pinned(|| run_ssi(1));
+    let mut analytic_ssi = Duration::MAX;
+    let mut marching_ssi = Duration::MAX;
+    for _ in 0..K {
+        analytic_ssi = analytic_ssi.min(time_once(|| run_ssi(N)).1);
+        marching_ssi = marching_ssi.min(with_marching_pinned(|| time_once(|| run_ssi(N)).1));
+    }
     let ssi_ratio = marching_ssi.as_secs_f64() / analytic_ssi.as_secs_f64().max(1e-12);
     eprintln!(
         "[pk279] raw SSI plane×torus ×{N}: analytic {analytic_ssi:?}, marching {marching_ssi:?}, ratio {ssi_ratio:.1}×"
