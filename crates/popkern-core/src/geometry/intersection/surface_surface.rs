@@ -23,7 +23,7 @@ use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::intersection::{
-    cylinder_cone, cylinder_cylinder, plane_cone, plane_torus, torus_coaxial,
+    cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_torus, torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -115,6 +115,16 @@ pub fn intersect_surfaces_with_handler(
     if let Some(intersections) = cylinder_cone::try_cylinder_cone(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
+        return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
+    // Fast path: COAXIAL cylinder-sphere pair → exact circles, or an
+    // exact empty answer for the tangent / enclosed regimes. The
+    // marching path re-marched a fillet strip × corner sphere tangent
+    // circle from every one of ~2100 tangent seeds (PK-390).
+    if let Some(intersections) =
+        cylinder_sphere::try_cylinder_sphere(surface1, v1_range, surface2, v2_range, tolerance)
+    {
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
     }
 
@@ -362,6 +372,13 @@ pub fn intersect_surfaces_with_handler(
         // side to certify against stay on the tangency-silent
         // contract.
         if demoted && !tangential_crossing_certificate(surface1, surface2, &samples, tolerance) {
+            // The trace is a near-contact blob, not a crossing — but it
+            // IS the answer for every other seed lying on it. Mark it
+            // consumed so the remaining seeds of a tangent band do not
+            // each repeat the identical full-cap march (measured: ~2100
+            // seeds × 20 001 steps on a fillet strip × corner sphere
+            // pair before the analytic arm covered that class, PK-390).
+            consumed.push(samples.iter().map(|s| s.point).collect());
             continue;
         }
 
