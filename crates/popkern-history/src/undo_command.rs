@@ -200,6 +200,15 @@ pub(crate) enum TreeCommand {
         /// The entity the label names after (`None` = label removed).
         new: Option<popkern_core::naming::EntityName>,
     },
+    /// Bind or unbind a body label.
+    SetBodyLabel {
+        /// The label.
+        label: String,
+        /// The body the label named before (`None` = unbound).
+        old: Option<crate::node::BodyId>,
+        /// The body the label names after (`None` = unbound).
+        new: Option<crate::node::BodyId>,
+    },
     /// The document build tolerance was set or cleared.
     SetBuildTolerance {
         /// The attribute before the change.

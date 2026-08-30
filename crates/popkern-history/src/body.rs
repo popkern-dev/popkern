@@ -91,7 +91,6 @@ impl BodyManager {
     }
 
     /// Clear all stored BRep snapshots (used when resetting for replay).
-    #[allow(dead_code)]
     pub fn clear_breps(&mut self) {
         self.body_breps.clear();
     }

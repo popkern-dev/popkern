@@ -127,6 +127,17 @@ impl Body {
         model.body_brep(self.id)
     }
 
+    fn require_alive(self, model: &mut Model) -> Result<(), ScriptError> {
+        if model.tree.current_brep().is_none() {
+            model.tree.replay(model.tolerance)?;
+        }
+        if self.is_alive(model) {
+            Ok(())
+        } else {
+            Err(ScriptError::BodyNotAlive(self.id.0 as u64))
+        }
+    }
+
     fn edges(
         self,
         model: &mut Model,
@@ -332,6 +343,8 @@ impl Body {
     }
 
     fn boolean(self, model: &mut Model, op: BoolOpKind, tool: Body) -> Result<Body, ScriptError> {
+        self.require_alive(model)?;
+        tool.require_alive(model)?;
         if tool.id == self.id {
             return Err(ScriptError::Argument {
                 argument: "tool".into(),

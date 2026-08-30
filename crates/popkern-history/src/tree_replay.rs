@@ -40,6 +40,12 @@ use helpers::{dimension_kind_to_unit, is_pattern_feature};
 impl FeatureTree {
     /// Persist replay results: update body_manager and current_brep.
     pub(crate) fn store_body_breps(&mut self, body_breps: &HashMap<BodyId, BRep>) {
+        // A body absent from this replay's result no longer exists at
+        // the end of the timeline (a boolean consumed it, or the
+        // rollback bar sits before it); a stale snapshot from an
+        // earlier replay must not keep serving it (measured: consumed
+        // tool bodies reported alive, PK-385).
+        self.body_manager.clear_breps();
         for (body_id, brep) in body_breps {
             self.body_manager.set_brep(*body_id, brep.clone());
         }

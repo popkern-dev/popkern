@@ -99,6 +99,15 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
             tree.labels.bind_entity(label, old.clone());
         }
 
+        TreeCommand::SetBodyLabel { label, old, .. } => match old {
+            Some(body) => {
+                tree.labels.bodies.insert(label.clone(), *body);
+            }
+            None => {
+                tree.labels.bodies.remove(label);
+            }
+        },
+
         TreeCommand::SetBuildTolerance { old, .. } => {
             tree.build_tolerance = *old;
         }
@@ -261,6 +270,15 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         TreeCommand::SetEntityLabel { label, new, .. } => {
             tree.labels.bind_entity(label, new.clone());
         }
+
+        TreeCommand::SetBodyLabel { label, new, .. } => match new {
+            Some(body) => {
+                tree.labels.bodies.insert(label.clone(), *body);
+            }
+            None => {
+                tree.labels.bodies.remove(label);
+            }
+        },
 
         TreeCommand::SetBuildTolerance { new, .. } => {
             tree.build_tolerance = *new;

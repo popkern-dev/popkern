@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use crate::FeatureTree;
 use crate::error::HistoryError;
 use crate::feature::Feature;
+use crate::node::BodyId;
 use crate::node::FeatureId;
 use crate::undo::TreeCommand;
 
@@ -41,6 +42,10 @@ pub struct LabelTable {
     /// the next auto-labelled fillet is `fillet-4`).
     #[serde(default)]
     pub auto_counters: BTreeMap<String, u32>,
+    /// `label → BodyId` for user-labelled bodies (tool models). A label
+    /// names history, so it survives the body being consumed.
+    #[serde(default)]
+    pub bodies: BTreeMap<String, BodyId>,
 }
 
 impl LabelTable {
@@ -201,6 +206,55 @@ impl FeatureTree {
     ///
     /// [`HistoryError::EmptyLabel`]; [`HistoryError::DuplicateLabel`]
     /// when `label` already names a different entity.
+    /// Bind a body label (`DuplicateLabel` if the label names another body).
+    pub fn label_body(&mut self, label: &str, body: BodyId) -> Result<(), HistoryError> {
+        if label.is_empty() {
+            return Err(HistoryError::EmptyLabel);
+        }
+        match self.labels.bodies.get(label) {
+            Some(existing) if *existing == body => return Ok(()),
+            Some(_) => return Err(HistoryError::DuplicateLabel(label.to_string())),
+            None => {}
+        }
+        self.labels.bodies.insert(label.to_string(), body);
+        self.record_undo(TreeCommand::SetBodyLabel {
+            label: label.to_string(),
+            old: None,
+            new: Some(body),
+        });
+        Ok(())
+    }
+
+    /// Remove a body label.
+    pub fn unlabel_body(&mut self, label: &str) -> Result<BodyId, HistoryError> {
+        let body = self
+            .labels
+            .bodies
+            .remove(label)
+            .ok_or_else(|| HistoryError::LabelNotFound(label.to_string()))?;
+        self.record_undo(TreeCommand::SetBodyLabel {
+            label: label.to_string(),
+            old: Some(body),
+            new: None,
+        });
+        Ok(body)
+    }
+
+    /// The body a label names.
+    pub fn body_by_label(&self, label: &str) -> Option<BodyId> {
+        self.labels.bodies.get(label).copied()
+    }
+
+    /// The label of a body, if any.
+    pub fn body_label(&self, body: BodyId) -> Option<&str> {
+        self.labels
+            .bodies
+            .iter()
+            .find(|(_, b)| **b == body)
+            .map(|(l, _)| l.as_str())
+    }
+
+    /// Bind an entity label (`DuplicateLabel` if the label names another entity).
     pub fn label_entity(&mut self, label: &str, entity: EntityName) -> Result<(), HistoryError> {
         if label.is_empty() {
             return Err(HistoryError::EmptyLabel);

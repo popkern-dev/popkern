@@ -15,6 +15,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod bodies;
 pub mod body;
 pub mod configs;
 pub mod error;
@@ -46,6 +47,7 @@ pub mod prelude {
     pub use crate::plane::Plane;
     pub use crate::scalar::Scalar;
     pub use crate::selection::{EdgeSelector, FaceSelector, edges, faces};
+    pub use popkern_history::SnapshotOrigin;
     pub use popkern_history::feature::{
         AxisDesc, BasePlane, BoolOpKind, JoinStyleKind, OperationMode, ShellDirectionKind,
         TrimPolicyKind, Vec3Desc,
