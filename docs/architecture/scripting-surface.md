@@ -497,6 +497,7 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-08-30 | Migration verbs landed (PK-384): `modify` via `Edit` (scalar roles, `continuity`, `edges`/`faces`), `insert_before/after`, `reorder`, `suppress/unsuppress`, `delete`, `rollback_to/rollback_to_end`, `dependents`, `undo/redo`, `describe`, `params`, `param_expr`, configurations. Documents now persist `SelectionRecord`s per feature (§6.2 describe text). | none |
 | 2026-08-30 | Rust skin landed (PK-382): `model/save/open/replay/to_brep/to_part/to_step`, gates, `profile` (rect/circle/polygon/path, base + offset + on-face planes), `extrude` (all ends), `revolve`, `fillet` (recipe), `chamfer` (equal), `shell`, booleans, `translate/rotate`, `param/set_param`, feature/entity labels, `feature/features/evidence/report`. `FeatureFailed.error` is a string until PK-388. | none |
 | 2026-08-30 | Initial normative surface (PK-381). Stable set: `model/open/save/replay/to_brep/to_part/to_step`, gates, `profile`, `extrude/revolve`, booleans, `fillet/chamfer`, `shell`, `translate/rotate`, parameters (§4.1), labels, `feature/features/modify/suppress/unsuppress`, `report/evidence`. Everything else `preview`; `promote_to_constraint` reserved. | — |
 

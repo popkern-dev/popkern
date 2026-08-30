@@ -16,7 +16,10 @@
 #![forbid(unsafe_code)]
 
 pub mod body;
+pub mod configs;
 pub mod error;
+pub mod feature_edit;
+pub mod migration;
 pub mod model;
 pub mod plane;
 pub mod profile;
@@ -26,6 +29,8 @@ pub mod selection;
 
 pub use body::{Body, End, RevolveEnd};
 pub use error::{ScriptError, SelectionKind};
+pub use feature_edit::Edit;
+pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
 pub use plane::Plane;
 pub use profile::ProfileBuilder;
@@ -36,6 +41,7 @@ pub use selection::{EdgePredicate, EdgeSelector, FacePredicate, FaceSelector, Se
 pub mod prelude {
     pub use crate::body::{Body, End, RevolveEnd};
     pub use crate::error::ScriptError;
+    pub use crate::feature_edit::Edit;
     pub use crate::model::{FeatureHandle, Model};
     pub use crate::plane::Plane;
     pub use crate::scalar::Scalar;

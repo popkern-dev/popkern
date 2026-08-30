@@ -58,6 +58,7 @@ pub mod queries;
 pub(crate) mod replay;
 mod replay_exact_extrude;
 pub mod replay_report;
+mod tree_replay_config;
 mod tree_state;
 pub(crate) use replay_report::ReplayRangeOutput;
 pub(crate) mod resolve;
@@ -86,7 +87,7 @@ pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use labels::LabelTable;
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
-pub use node::{BodyId, FeatureId, FeatureNode};
+pub use node::{BodyId, FeatureId, FeatureNode, SelectionRecord};
 pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
 pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
@@ -142,6 +143,13 @@ pub struct FeatureTree {
     /// `None` means nothing is frozen.
     #[serde(default)]
     pub(crate) frozen_index: Option<usize>,
+    /// Base values of literal parameters currently pinned by the
+    /// active configuration's overrides. While a configuration is
+    /// active the parameter table shows the EFFECTIVE values (what
+    /// replayed); the next base replay restores these. Persisted so a
+    /// document saved under a configuration keeps its base values.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub(crate) config_pinned_base: HashMap<parameter::ParameterId, f64>,
     /// The BRep produced by the most recent replay, or `None` if the tree
     /// has not been replayed yet.
     ///
@@ -221,6 +229,7 @@ impl FeatureTree {
             active_config: None,
             labels: LabelTable::default(),
             build_tolerance: None,
+            config_pinned_base: HashMap::new(),
         }
     }
 
@@ -258,6 +267,7 @@ impl FeatureTree {
         let eval_warnings = if self.active_config.is_some() {
             self.apply_config_and_evaluate()
         } else {
+            self.restore_config_pinned_base();
             expression::evaluate_all(
                 &mut self.parameter_table,
                 &measure_query::MeasureContext::empty(),
@@ -332,6 +342,9 @@ impl FeatureTree {
         }
 
         let timer = popkern_core::time::Stopwatch::start();
+        if self.active_config.is_none() {
+            self.restore_config_pinned_base();
+        }
         let eval_warnings = expression::evaluate_all(
             &mut self.parameter_table,
             &measure_query::MeasureContext::empty(),

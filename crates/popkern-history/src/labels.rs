@@ -60,7 +60,7 @@ impl LabelTable {
 
 /// The qualified-parameter-name prefix a feature label produces
 /// (`"Extrude 1"` → `extrude_1`, so `extrude_1.distance`).
-pub(crate) fn qualified_prefix(label: &str) -> String {
+pub fn qualified_prefix(label: &str) -> String {
     label.to_lowercase().replace(' ', "_")
 }
 

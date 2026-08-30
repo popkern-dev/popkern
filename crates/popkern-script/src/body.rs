@@ -3,6 +3,7 @@
 //! and returns the served body.
 
 use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
+use popkern_history::SelectionRecord;
 use popkern_history::feature::{
     AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, OperationMode,
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
@@ -10,6 +11,8 @@ use popkern_history::feature::{
 use popkern_history::feature_blend::{ChamferKindDesc, ContinuityKind, FilletRecipeDesc};
 use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::node::BodyId;
+
+use crate::selection::SelectionSnapshot;
 use popkern_history::unit::Unit;
 
 use crate::error::{ScriptError, SelectionKind};
@@ -91,17 +94,33 @@ impl Body {
             .and_then(|&id| model.handle(id).ok())
     }
 
-    fn record(self, model: &mut Model, feature: Feature, label: &str) -> Result<Body, ScriptError> {
+    fn record(
+        self,
+        model: &mut Model,
+        feature: Feature,
+        label: &str,
+        selections: Vec<SelectionRecord>,
+    ) -> Result<Body, ScriptError> {
         let id = record_feature(
             &mut model.tree,
             model.tolerance,
             feature,
             label,
             Some(self.id),
+            selections,
         )?;
         let body = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
         model.active = Some(body);
         Ok(Body::new(body))
+    }
+
+    fn selection_record(role: &str, snapshot: &SelectionSnapshot) -> SelectionRecord {
+        SelectionRecord {
+            role: role.to_string(),
+            describe: snapshot.describe.clone(),
+            labels_used: snapshot.labels_used.clone(),
+            seams_skipped: snapshot.seams_skipped,
+        }
     }
 
     fn brep(self, model: &mut Model) -> Result<popkern_core::topology::BRep, ScriptError> {
@@ -188,7 +207,7 @@ impl Body {
             draft_angle: None,
             second_direction: None,
         };
-        self.record(model, feature, label)
+        self.record(model, feature, label, Vec::new())
     }
 
     /// Revolve the body's last sketch about `axis`.
@@ -215,7 +234,7 @@ impl Body {
             end_condition,
             mode: OperationMode::NewBody,
         };
-        self.record(model, feature, label)
+        self.record(model, feature, label, Vec::new())
     }
 
     /// Constant-radius fillet with the default recipe (G1, rolling ball).
@@ -243,12 +262,13 @@ impl Body {
         }
         let unit = model.unit;
         let radius = Self::bind(model, "radius", &radius.into(), unit)?;
+        let record = Self::selection_record("edges", &snapshot);
         let feature = Feature::Fillet {
             edges: snapshot.names,
             radius,
             recipe,
         };
-        self.record(model, feature, label)
+        self.record(model, feature, label, vec![record])
     }
 
     /// Fillet with a given continuity.
@@ -280,12 +300,13 @@ impl Body {
         }
         let unit = model.unit;
         let distance = Self::bind(model, "distance", &distance.into(), unit)?;
+        let record = Self::selection_record("edges", &snapshot);
         let feature = Feature::Chamfer {
             edges: snapshot.names,
             distance,
             kind: ChamferKindDesc::Equal,
         };
-        self.record(model, feature, "")
+        self.record(model, feature, "", vec![record])
     }
 
     /// Shell: remove `faces` and hollow to `thickness`.
@@ -296,17 +317,18 @@ impl Body {
         thickness: impl Into<Scalar>,
         direction: ShellDirectionKind,
     ) -> Result<Body, ScriptError> {
-        let faces = self.faces(model, &faces_to_remove)?.names;
+        let snapshot = self.faces(model, &faces_to_remove)?;
+        let record = Self::selection_record("faces_to_remove", &snapshot);
         let unit = model.unit;
         let thickness = Self::bind(model, "thickness", &thickness.into(), unit)?;
         let feature = Feature::Shell {
-            faces_to_remove: faces,
+            faces_to_remove: snapshot.names,
             thickness,
             direction,
             join_style: JoinStyleKind::default(),
             trim_policy: TrimPolicyKind::default(),
         };
-        self.record(model, feature, "")
+        self.record(model, feature, "", vec![record])
     }
 
     fn boolean(self, model: &mut Model, op: BoolOpKind, tool: Body) -> Result<Body, ScriptError> {
@@ -320,7 +342,7 @@ impl Body {
             operation: op,
             tool_body: tool.id,
         };
-        self.record(model, feature, "")
+        self.record(model, feature, "", Vec::new())
     }
 
     /// Boolean union with `tool` (consumes the tool body).
@@ -352,7 +374,7 @@ impl Body {
             dy: Self::bind(model, "dy", &dy.into(), unit)?,
             dz: Self::bind(model, "dz", &dz.into(), unit)?,
         };
-        self.record(model, Feature::Transform { motion }, "")
+        self.record(model, Feature::Transform { motion }, "", Vec::new())
     }
 
     /// Rigid rotation about `axis` by `angle` degrees.
@@ -366,7 +388,7 @@ impl Body {
             axis,
             angle: Self::bind(model, "angle", &angle.into(), Unit::Degrees)?,
         };
-        self.record(model, Feature::Transform { motion }, "")
+        self.record(model, Feature::Transform { motion }, "", Vec::new())
     }
 
     /// The literal direction helper for `Vec3Desc`.

@@ -16,9 +16,16 @@ pub(crate) fn record_feature(
     feature: Feature,
     label: &str,
     body: Option<popkern_history::node::BodyId>,
+    selections: Vec<popkern_history::SelectionRecord>,
 ) -> Result<FeatureId, ScriptError> {
     let operation = feature.operation_label().to_string();
-    let id = tree.add_feature_on(feature, label, body);
+    // Recording at a rollback bar inserts there (migration `insert_*`).
+    let id = if tree.rollback_position().is_some() {
+        tree.insert_feature_at_rollback(feature, label)?
+    } else {
+        tree.add_feature_on(feature, label, body)
+    };
+    let _ = tree.set_selection_records(id, selections);
     let minted = tree
         .feature(id)
         .map(|n| n.label.clone())

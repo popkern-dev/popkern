@@ -63,6 +63,27 @@ pub struct FeatureNode {
     /// Not serialized — rebuilt by [`crate::FeatureTree::replay`] after loading.
     #[serde(skip)]
     pub last_result: Option<FeatureResult>,
+    /// How each selection argument was authored (scripting design D3):
+    /// the query's canonical spelling and the labels it cited. Pure
+    /// diagnostics — the feature stores resolved names and never
+    /// re-evaluates the text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub selections: Vec<SelectionRecord>,
+}
+
+/// The authored form of one selection argument of a feature.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionRecord {
+    /// Which argument (`edges`, `faces_to_remove`, `face`, …).
+    pub role: String,
+    /// Canonical spelling of the query at record time.
+    pub describe: String,
+    /// Entity labels the query cited.
+    #[serde(default)]
+    pub labels_used: Vec<String>,
+    /// Seam edges the query matched and the record dropped.
+    #[serde(default)]
+    pub seams_skipped: usize,
 }
 
 /// Serializes `instance_op_ids` with tuple keys encoded as `"inst_seed"` strings.

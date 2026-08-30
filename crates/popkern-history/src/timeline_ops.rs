@@ -78,6 +78,7 @@ impl FeatureTree {
             suppress_if: None,
             instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
+            selections: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();
@@ -97,6 +98,21 @@ impl FeatureTree {
         });
 
         id
+    }
+
+    /// Attach the authored form of a feature's selection arguments
+    /// (diagnostics; see [`crate::node::SelectionRecord`]).
+    pub fn set_selection_records(
+        &mut self,
+        id: FeatureId,
+        records: Vec<crate::node::SelectionRecord>,
+    ) -> Result<(), HistoryError> {
+        let node = self
+            .features
+            .get_mut(id)
+            .ok_or(HistoryError::FeatureNotFound)?;
+        node.selections = records;
+        Ok(())
     }
 
     /// Return the timeline as a slice of [`FeatureId`]s in evaluation order.
@@ -161,6 +177,7 @@ impl FeatureTree {
             suppress_if: None,
             instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
+            selections: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();
