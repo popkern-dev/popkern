@@ -45,6 +45,7 @@
 //! census, not silence.
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use serde::{Deserialize, Serialize};
 
 use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 use crate::types::ContinuityLevel;
@@ -54,7 +55,7 @@ use crate::types::ContinuityLevel;
 /// Tolerances are always explicit parameters in popkern; these are the
 /// blend-seam classification bars, carried inside the evidence record
 /// so a reader knows what the classification meant.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ContinuityGates {
     /// Positional gap gate (model units): both sides of a seam must
     /// lie on the shared edge curve within this distance.
@@ -93,7 +94,7 @@ impl ContinuityGates {
 }
 
 /// Which face family sits on the far side of a blend seam.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlendSeamKind {
     /// Seam between a blend face and a surviving support face — the
     /// boundary the blend was asked to interpolate.
@@ -104,7 +105,7 @@ pub enum BlendSeamKind {
 }
 
 /// Worst residuals measured across one live seam.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct SeamContinuityRecord {
     /// The seam edge (provenance for drill-down; valid on the BRep
     /// the measurement ran against).
@@ -141,7 +142,7 @@ pub struct SeamContinuityRecord {
 }
 
 /// The measured continuity record for one blend operation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlendContinuityEvidence {
     /// What the caller asked for.
     pub requested: ContinuityLevel,

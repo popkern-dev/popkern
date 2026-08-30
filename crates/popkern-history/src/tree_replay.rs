@@ -32,8 +32,11 @@ use crate::measure_cache::MeasureCache;
 use crate::measure_query::MeasureContext;
 use crate::node::{BodyId, FeatureId};
 use crate::parameter::{EvaluationWarning, ParamScope, ParameterId};
+use crate::replay_report::{
+    FeatureEvidence, FeatureReport, ReplayOutcome, ReplayReport, SuppressionReason,
+};
 use crate::{FeatureTree, ReplayRangeOutput, replay};
-use helpers::{dimension_kind_to_unit, is_pattern_feature};
+use helpers::{dimension_kind_to_unit, feature_operation_label, is_pattern_feature};
 
 impl FeatureTree {
     /// Apply config overrides to the parameter table and evaluate all expressions.
@@ -119,6 +122,7 @@ impl FeatureTree {
     ) -> Result<ReplayRangeOutput, ReplayError> {
         let mut body_breps = body_breps;
         let mut results = HashMap::new();
+        let mut report = ReplayReport::default();
         let mut measure_cache = MeasureCache::new();
 
         // Collect seed features of all pattern features in the replay range.
@@ -151,6 +155,11 @@ impl FeatureTree {
         for i in from..to {
             let id = self.timeline[i];
             let node = &self.features[id];
+            let label = node.label.clone();
+            let operation = feature_operation_label(&node.feature);
+            let suppressed_report = |reason: SuppressionReason| {
+                FeatureReport::new(id, &label, operation, ReplayOutcome::Suppressed { reason })
+            };
 
             // Config suppression overrides take priority over the node default.
             let config_suppressed =
@@ -159,6 +168,13 @@ impl FeatureTree {
 
             if base_suppressed {
                 results.insert(id, FeatureResult::Suppressed);
+                report
+                    .features
+                    .push(suppressed_report(if config_suppressed.is_some() {
+                        SuppressionReason::Configuration
+                    } else {
+                        SuppressionReason::Explicit
+                    }));
                 continue;
             }
 
@@ -181,6 +197,9 @@ impl FeatureTree {
 
             if auto_suppressed {
                 results.insert(id, FeatureResult::Suppressed);
+                report
+                    .features
+                    .push(suppressed_report(SuppressionReason::Conditional));
                 continue;
             }
 
@@ -207,6 +226,9 @@ impl FeatureTree {
                 if depends_on_failed || params_depend_on_failed {
                     results.insert(id, FeatureResult::Suppressed);
                     failed_ref_ids.insert(id); // cascade
+                    report.features.push(suppressed_report(
+                        SuppressionReason::DependsOnFailedReference,
+                    ));
                     continue;
                 }
             }
@@ -237,6 +259,7 @@ impl FeatureTree {
             // Reference features are evaluated at the tree level — they
             // don't modify the BRep, so we skip execute_feature entirely.
             if let Feature::Reference { name: _, query } = &node.feature.clone() {
+                let timer = popkern_core::time::Stopwatch::start();
                 let body = node.body;
                 let ctx = MeasureContext {
                     bodies: &body_breps,
@@ -279,6 +302,9 @@ impl FeatureTree {
                         }
                     }
                 };
+                let mut fr_report = FeatureReport::new(id, &label, operation, outcome_of(&fr));
+                fr_report.elapsed = timer.elapsed();
+                report.features.push(fr_report);
                 results.insert(id, fr.clone());
                 self.features[id].last_result = Some(fr);
                 continue;
@@ -286,16 +312,28 @@ impl FeatureTree {
 
             // Pattern features are executed by the pattern_execute module.
             if is_pattern_feature(&node.feature) {
-                let fr = match self.execute_pattern_feature(id, &mut body_breps, tolerance) {
-                    Ok(()) => {
-                        measure_cache.invalidate();
-                        let h = popkern_core::history::HistoryMap::default();
-                        FeatureResult::Success { history: h }
-                    }
-                    Err(e) => FeatureResult::Failed {
-                        error: e.to_string(),
-                    },
-                };
+                let timer = popkern_core::time::Stopwatch::start();
+                let (fr, evidence) =
+                    match self.execute_pattern_feature(id, &mut body_breps, tolerance) {
+                        Ok(pattern_result) => {
+                            measure_cache.invalidate();
+                            let h = popkern_core::history::HistoryMap::default();
+                            (
+                                FeatureResult::Success { history: h },
+                                FeatureEvidence::pattern(&pattern_result),
+                            )
+                        }
+                        Err(e) => (
+                            FeatureResult::Failed {
+                                error: e.to_string(),
+                            },
+                            FeatureEvidence::empty(),
+                        ),
+                    };
+                let mut fr_report = FeatureReport::new(id, &label, operation, outcome_of(&fr))
+                    .with_evidence(evidence);
+                fr_report.elapsed = timer.elapsed();
+                report.features.push(fr_report);
                 results.insert(id, fr.clone());
                 self.features[id].last_result = Some(fr);
                 continue;
@@ -314,6 +352,7 @@ impl FeatureTree {
             // Snapshot BRep before execution for atomic rollback on failure.
             let brep_backup = brep.clone();
 
+            let timer = popkern_core::time::Stopwatch::start();
             let exec_result = replay::execute_feature(
                 &mut brep,
                 &feature,
@@ -325,6 +364,7 @@ impl FeatureTree {
 
             match exec_result {
                 Ok(side_effects) => {
+                    let mut evidence = side_effects.evidence;
                     // Apply deferred side effects only on success.
                     for consumed in &side_effects.consumed_bodies {
                         body_breps.remove(consumed);
@@ -353,6 +393,7 @@ impl FeatureTree {
                         && host != body
                     {
                         let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
+                        let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
                         auto_merge::execute_auto_merge(
                             mode,
                             body,
@@ -361,7 +402,16 @@ impl FeatureTree {
                             &mut merge_ctx,
                             tolerance,
                         )?;
+                        evidence.record_boolean_fallbacks(
+                            popkern_bool::merge_fallback::take_merge_fallback_events(),
+                        );
                     }
+
+                    let mut fr_report =
+                        FeatureReport::new(id, &label, operation, ReplayOutcome::Served)
+                            .with_evidence(evidence);
+                    fr_report.elapsed = timer.elapsed();
+                    report.features.push(fr_report);
 
                     // Skip the normal BRep re-insert below — already handled above.
                     continue;
@@ -372,6 +422,16 @@ impl FeatureTree {
                     // Side effects NOT applied — tool body remains in the map.
                     brep = brep_backup;
                     let error_msg = e.to_string();
+                    let mut fr_report = FeatureReport::new(
+                        id,
+                        &label,
+                        operation,
+                        ReplayOutcome::Failed {
+                            error: error_msg.clone(),
+                        },
+                    );
+                    fr_report.elapsed = timer.elapsed();
+                    report.features.push(fr_report);
                     results.insert(
                         id,
                         FeatureResult::Failed {
@@ -387,6 +447,23 @@ impl FeatureTree {
             body_breps.insert(body, brep);
         }
 
-        Ok((body_breps, results))
+        Ok(ReplayRangeOutput {
+            bodies: body_breps,
+            results,
+            report,
+        })
+    }
+}
+
+/// The report outcome matching a feature result.
+fn outcome_of(result: &FeatureResult) -> ReplayOutcome {
+    match result {
+        FeatureResult::Success { .. } => ReplayOutcome::Served,
+        FeatureResult::Failed { error } => ReplayOutcome::Failed {
+            error: error.clone(),
+        },
+        FeatureResult::Suppressed => ReplayOutcome::Suppressed {
+            reason: SuppressionReason::Explicit,
+        },
     }
 }

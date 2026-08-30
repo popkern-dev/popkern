@@ -15,6 +15,7 @@ use crate::error::ReplayError;
 use crate::feature::Feature;
 use crate::node::{BodyId, FeatureId};
 use crate::parameter::ParameterId;
+use crate::pattern::PatternResult;
 use crate::unit::{DimensionKind, Unit};
 
 // -- Reference parameter helpers ----------------------------------------------
@@ -63,6 +64,32 @@ impl FeatureTree {
 
 // -- Pattern execution helper -------------------------------------------------
 
+/// The operation label of a feature — the same label its structured
+/// errors carry (`ReplayError::FeatureFailed { label }`).
+pub(super) fn feature_operation_label(feature: &Feature) -> &'static str {
+    match feature {
+        Feature::Sketch { .. } => "sketch",
+        Feature::Extrude { .. } => "extrude",
+        Feature::Fillet { .. } => "fillet",
+        Feature::Chamfer { .. } => "chamfer",
+        Feature::Boolean { .. } => "boolean",
+        Feature::Shell { .. } => "shell",
+        Feature::Transform { .. } => "transform",
+        Feature::Thicken { .. } => "thicken",
+        Feature::OffsetSolid { .. } => "offset_solid",
+        Feature::Draft { .. } => "draft",
+        Feature::Sweep { .. } => "sweep",
+        Feature::Loft { .. } => "loft",
+        Feature::Pipe { .. } => "pipe",
+        Feature::Revolve { .. } => "revolve",
+        Feature::Reference { .. } => "reference",
+        Feature::LinearPattern { .. } => "linear_pattern",
+        Feature::CircularPattern { .. } => "circular_pattern",
+        Feature::CurvePattern { .. } => "curve_pattern",
+        Feature::Mirror { .. } => "mirror",
+    }
+}
+
 /// Return `true` if the feature is a pattern variant.
 pub(super) fn is_pattern_feature(feature: &Feature) -> bool {
     matches!(
@@ -92,7 +119,7 @@ impl FeatureTree {
         id: FeatureId,
         body_breps: &mut HashMap<BodyId, BRep>,
         tolerance: &Tolerance,
-    ) -> Result<(), ReplayError> {
+    ) -> Result<PatternResult, ReplayError> {
         let node = &self.features[id];
         let feat = node.feature.clone();
         let op_id = node.operation_id;
@@ -123,7 +150,7 @@ impl FeatureTree {
         };
         let r = crate::pattern_execute::execute_pattern(&mut ctx);
         self.features[id].instance_op_ids = inst_ops;
-        r.map(|_| ())
+        r
     }
 }
 

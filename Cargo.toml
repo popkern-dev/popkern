@@ -30,7 +30,7 @@ debug = "line-tables-only"
 [workspace.dependencies]
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 slotmap = { version = "1", features = ["serde"] }
 rayon = "1"
 glam = "0.29"

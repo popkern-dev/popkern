@@ -12,6 +12,7 @@ use crate::error::ReplayError;
 use crate::feature::Feature;
 use crate::node::BodyId;
 use crate::parameter::ParameterTable;
+use crate::replay_report::{FeatureEvidence, face_census};
 
 #[path = "replay_fns.rs"]
 pub(crate) mod replay_fns;
@@ -31,13 +32,25 @@ use crate::resolve::{
 pub(crate) struct ExecuteSideEffects {
     /// Body IDs that were consumed by this feature (e.g. Boolean tool body).
     pub consumed_bodies: Vec<BodyId>,
+    /// What the operation reported: warnings, blend evidence, fallback
+    /// firings, skip records (the replay report channel).
+    pub evidence: FeatureEvidence,
 }
 
 impl ExecuteSideEffects {
-    /// No side effects.
+    /// No side effects and nothing reported.
     pub fn empty() -> Self {
         Self {
             consumed_bodies: Vec::new(),
+            evidence: FeatureEvidence::empty(),
+        }
+    }
+
+    /// No consumed bodies; the operation's evidence.
+    pub fn reported(evidence: FeatureEvidence) -> Self {
+        Self {
+            consumed_bodies: Vec::new(),
+            evidence,
         }
     }
 }
@@ -97,20 +110,24 @@ pub(crate) fn execute_feature(
             recipe,
         } => {
             let edge_handles = resolve_edges(edges, brep)?;
+            let edges_requested = edge_handles.len();
             let specs = fillet_specs(edge_handles, *radius, recipe, param_table)?;
-            let result = popkern_blend::fillet_edges(
-                brep,
-                &specs,
-                &recipe.to_kernel_options(),
-                *tolerance,
-                Some(tracking),
-            )
-            .map_err(|e| ReplayError::FeatureFailed {
-                label: "fillet".into(),
-                error: e.to_string(),
-            })?;
+            let options = recipe.to_kernel_options();
+            let pre_faces = face_census(brep);
+            let result =
+                popkern_blend::fillet_edges(brep, &specs, &options, *tolerance, Some(tracking))
+                    .map_err(|e| ReplayError::FeatureFailed {
+                        label: "fillet".into(),
+                        error: e.to_string(),
+                    })?;
+            let evidence = FeatureEvidence::blend(
+                &result,
+                &pre_faces,
+                edges_requested,
+                Some(options.continuity),
+            );
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Chamfer {
             edges,
@@ -118,7 +135,9 @@ pub(crate) fn execute_feature(
             kind,
         } => {
             let edge_handles = resolve_edges(edges, brep)?;
+            let edges_requested = edge_handles.len();
             let specs = chamfer_specs(brep, edge_handles, *distance, kind, param_table)?;
+            let pre_faces = face_census(brep);
             let result = popkern_blend::chamfer_edges(
                 brep,
                 &specs,
@@ -130,8 +149,9 @@ pub(crate) fn execute_feature(
                 label: "chamfer".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::blend(&result, &pre_faces, edges_requested, None);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Boolean {
             operation,
@@ -147,15 +167,23 @@ pub(crate) fn execute_feature(
                     })?;
 
             let bool_op = to_bool_operation(*operation);
+            // Drain stale registry entries so the firings taken after
+            // the call belong to this boolean.
+            let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
             let result =
                 popkern_bool::boolean(bool_op, brep.clone(), tool_brep, *tolerance, Some(tracking))
                     .map_err(|e| ReplayError::FeatureFailed {
                         label: "boolean".into(),
                         error: e.to_string(),
                     })?;
+            let mut evidence = FeatureEvidence::empty();
+            evidence.record_boolean_fallbacks(
+                popkern_bool::merge_fallback::take_merge_fallback_events(),
+            );
             *brep = result;
             Ok(ExecuteSideEffects {
                 consumed_bodies: vec![*tool_body],
+                evidence,
             })
         }
         Feature::Shell {
@@ -182,8 +210,9 @@ pub(crate) fn execute_feature(
                 label: "shell".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Transform { motion } => {
             let t = motion.resolve(brep, param_table)?;
@@ -209,8 +238,9 @@ pub(crate) fn execute_feature(
                 label: "thicken".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::OffsetSolid {
             distance,
@@ -228,8 +258,9 @@ pub(crate) fn execute_feature(
                 label: "offset_solid".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Draft {
             faces,
@@ -265,8 +296,9 @@ pub(crate) fn execute_feature(
                 label: "draft".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::draft(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Sweep {
             face,
@@ -292,8 +324,9 @@ pub(crate) fn execute_feature(
                     label: "sweep".into(),
                     error: e.to_string(),
                 })?;
+            let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Loft {
             sections, closed, ..
@@ -316,8 +349,9 @@ pub(crate) fn execute_feature(
                     label: "loft".into(),
                     error: e.to_string(),
                 })?;
+            let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Pipe {
             path_edge, radius, ..
@@ -336,8 +370,9 @@ pub(crate) fn execute_feature(
                 label: "pipe".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Revolve {
             face,
@@ -386,8 +421,9 @@ pub(crate) fn execute_feature(
                 label: "revolve".into(),
                 error: e.to_string(),
             })?;
+            let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Reference { .. } => {
             // Reference features don't modify the BRep. Measurement evaluation

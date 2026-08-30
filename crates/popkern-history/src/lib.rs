@@ -53,6 +53,8 @@ pub(crate) mod pattern_transform;
 pub(crate) mod pattern_validate;
 pub mod queries;
 pub(crate) mod replay;
+pub mod replay_report;
+pub(crate) use replay_report::ReplayRangeOutput;
 pub(crate) mod resolve;
 pub mod serialize;
 pub mod timeline;
@@ -81,6 +83,10 @@ pub use node::{BodyId, FeatureId, FeatureNode};
 pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
 pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
+pub use replay_report::{
+    BlendEvidenceRecord, FallbackRecord, FeatureReport, KernelWarning, RecordSource, ReplayOutcome,
+    ReplayReport, ReplayResult, SkipRecord, SuppressionReason,
+};
 pub use unit::{DimensionKind, Unit};
 pub use {cache::CacheStrategy, csv::CsvImportResult};
 pub use {feature_draft::NeutralPlaneDesc, feature_transform::RigidMotionDesc};
@@ -100,24 +106,6 @@ use slotmap::SlotMap;
 use crate::body::BodyManager;
 use crate::cache::BRepCache;
 use crate::undo::TreeCommand;
-
-/// Per-body BReps paired with per-feature outcomes from a replay pass.
-type ReplayRangeOutput = (HashMap<BodyId, BRep>, HashMap<FeatureId, FeatureResult>);
-
-/// The result of replaying a feature tree.
-///
-/// Contains per-feature outcomes and the total elapsed time.
-#[derive(Debug)]
-pub struct ReplayResult {
-    /// Per-feature outcomes, keyed by [`FeatureId`].
-    pub feature_results: HashMap<FeatureId, FeatureResult>,
-    /// Wall-clock time spent replaying.
-    /// Total replay wall time, or `None` on platforms without a
-    /// monotonic clock (see `popkern_core::time::Stopwatch`).
-    pub elapsed: Option<std::time::Duration>,
-    /// Warnings from expression evaluation (math errors, bounds clamping).
-    pub eval_warnings: Vec<(ParameterId, EvaluationWarning)>,
-}
 
 /// The parametric feature tree.
 ///
@@ -152,6 +140,10 @@ pub struct FeatureTree {
     /// Not serialized — call [`replay`](Self::replay) after loading.
     #[serde(skip)]
     pub(crate) current_brep: Option<BRep>,
+    /// The most recent report for every feature in the timeline
+    /// (session-local; rebuilt by replay).
+    #[serde(skip)]
+    pub(crate) last_report: ReplayReport,
     /// Cache of intermediate BRep snapshots.
     ///
     /// Not serialized — rebuilt on demand after loading.
@@ -203,6 +195,7 @@ impl FeatureTree {
             next_op_id: 1,
             frozen_index: None,
             current_brep: None,
+            last_report: ReplayReport::default(),
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
             op_index: HashMap::new(),
@@ -277,12 +270,14 @@ impl FeatureTree {
             (HashMap::new(), 0)
         };
 
-        let (body_breps, results) = self.replay_range(start_bodies, from, end, &tolerance)?;
-        self.store_body_breps(&body_breps);
+        let out = self.replay_range(start_bodies, from, end, &tolerance)?;
+        self.store_body_breps(&out.bodies);
+        self.last_report.absorb(out.report.clone(), &self.timeline);
         Ok(ReplayResult {
-            feature_results: results,
+            feature_results: out.results,
             elapsed: start.elapsed(),
             eval_warnings,
+            report: out.report,
         })
     }
 
@@ -324,12 +319,14 @@ impl FeatureTree {
             &measure_query::MeasureContext::empty(),
         );
         let end = self.rollback_index.unwrap_or(self.timeline.len());
-        let (body_breps, results) = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
-        self.store_body_breps(&body_breps);
+        let out = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
+        self.store_body_breps(&out.bodies);
+        self.last_report.absorb(out.report.clone(), &self.timeline);
         Ok(ReplayResult {
-            feature_results: results,
+            feature_results: out.results,
             elapsed: timer.elapsed(),
             eval_warnings,
+            report: out.report,
         })
     }
 
@@ -458,6 +455,11 @@ impl FeatureTree {
     /// Return a reference to the BRep produced by the most recent replay.
     ///
     /// Returns `None` if the tree has not been replayed yet.
+    pub fn last_report(&self) -> &ReplayReport {
+        &self.last_report
+    }
+
+    /// The current BRep after the last replay.
     pub fn current_brep(&self) -> Option<&BRep> {
         self.current_brep.as_ref()
     }
