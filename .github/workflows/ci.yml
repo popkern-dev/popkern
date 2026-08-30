@@ -125,3 +125,33 @@ jobs:
           cargo test --release -p popkern-examples \
             --test perf_budget --test offset_determinism_gates \
             -- --nocapture
+
+  licenses:
+    # PK-373 licensing gate (ADR
+    # docs/decisions/2026-08-30-user-scripts-and-output-license-exception.md):
+    # third-party code must match the permissive allowlist in deny.toml
+    # (no copyleft deps, crates.io only), and THIRD-PARTY-NOTICES.md —
+    # the release notices artefact — must match Cargo.lock exactly.
+    name: License policy + third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-deny and cargo-about
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-about
+
+      - name: Dependency license allowlist
+        run: cargo deny check licenses bans sources
+
+      - name: Third-party notices are current
+        run: |
+          cargo about generate --all-features --workspace about.hbs \
+            -o THIRD-PARTY-NOTICES.md
+          git diff --exit-code -- THIRD-PARTY-NOTICES.md || {
+            echo "THIRD-PARTY-NOTICES.md is stale: run tools/license-check.sh --regenerate and commit"
+            exit 1
+          }

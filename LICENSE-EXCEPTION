@@ -1,0 +1,53 @@
+popkern User Scripts and Output Exception
+=========================================
+
+Additional permission under GNU AGPL version 3 section 7
+
+popkern is licensed under the GNU Affero General Public License,
+version 3 (AGPL-3.0-only; see LICENSE). As permitted by section 7 of
+that License, the copyright holders of popkern grant the following
+additional permissions. Terms in capitals ("Program", "covered work",
+"convey", "Corresponding Source") have the meanings given in the
+License.
+
+1. User Scripts. Programs, scripts, feature-tree documents (".pkn"
+   files), migrations, configuration, and any other material that you
+   write to drive, call, or extend popkern through its published
+   interfaces — the Rust crate APIs, the scripting surface, the
+   embedded-language and Python bindings, and the command and daemon
+   protocols — are together "User Scripts". User Scripts are not
+   covered works, and are not part of the Corresponding Source of any
+   covered work, merely because they use those interfaces, are
+   compiled or linked together with popkern, are loaded, interpreted,
+   replayed, or executed by popkern, or are distributed alongside it.
+   You may license User Scripts under terms of your choosing.
+
+2. Output. Geometry, models, meshes, drawings, images, measurements,
+   reports, and exports in any format (STEP, IGES, OBJ, PNG, JSON, or
+   any other), and any other data that popkern produces when run —
+   together "Output" — are not covered works, and popkern's copyright
+   holders claim no rights in them, whether popkern is run locally or
+   over a network. Section 13 of the License (Remote Network
+   Interaction) obliges you to offer the Corresponding Source of the
+   popkern you run to users interacting with it remotely; it does not
+   extend to Output or to the User Scripts that produced it.
+
+3. What stays covered. This exception does not change the License for
+   popkern itself. Modified versions of popkern, works that copy or
+   adapt popkern source code other than by using its published
+   interfaces as described in section 1, and every copy of popkern
+   that you convey — including as part of a program that links it —
+   remain covered works: you must satisfy the License for the popkern
+   portion (in particular, offer its Corresponding Source, including
+   any modifications you made to it), but under this exception the
+   Corresponding Source you must offer excludes your User Scripts.
+
+4. No further restriction. This exception grants permission only; it
+   imposes no additional obligation and removes no permission the
+   License already gives. If you convey a covered work, you may keep
+   this exception attached to it or remove it (section 7). Nothing in
+   this exception is a waiver of any right of the copyright holders
+   other than as stated here.
+
+If you need permissions beyond those in the License and this
+exception, contact the copyright holders.

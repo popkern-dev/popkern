@@ -1,0 +1,70 @@
+# cargo-about configuration — generates THIRD-PARTY-NOTICES.md
+# (PK-373). Regenerate: cargo about generate about.hbs -o THIRD-PARTY-NOTICES.md
+# The accepted set mirrors deny.toml; cargo-deny is the gate, this file
+# only needs to know which texts to collect.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+
+[popkern-core]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-constraint]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-bool]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-draft]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-blend]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-io]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-mesh]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-sketch]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-sweep]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-shell]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-measure]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-viz]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-part]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-history]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-examples]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-lints]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-structural-tests]
+accepted = ["AGPL-3.0-only"]

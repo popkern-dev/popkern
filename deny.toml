@@ -1,0 +1,101 @@
+# cargo-deny policy — PK-373, ADR
+# docs/decisions/2026-08-30-user-scripts-and-output-license-exception.md
+#
+# popkern is AGPL-3.0-only with a §7 user-scripts exception. Third-party
+# code must be permissive: a copyleft dependency (GPL/LGPL/MPL/EPL/...)
+# would change what a conveyor owes downstream and is refused here so it
+# becomes a deliberate decision, not a lockfile accident.
+#
+# Run: cargo deny check licenses bans sources
+
+[graph]
+all-features = true
+
+[licenses]
+# Only the license families present in the graph on 2026-08-30. Add a
+# family together with an ADR note explaining why it is acceptable.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "Unlicense",
+    "CC0-1.0",
+    "BSL-1.0",      # Boost Software License — NOT Business Source
+    "Unicode-3.0",
+]
+confidence-threshold = 0.8
+
+# The workspace itself is AGPL-3.0-only (+ LICENSE-EXCEPTION); the
+# allowlist above is for *third-party* code only.
+[[licenses.exceptions]]
+crate = "popkern-core"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-constraint"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-bool"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-draft"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-blend"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-io"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-mesh"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-sketch"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-sweep"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-shell"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-measure"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-viz"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-part"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-history"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-examples"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-lints"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-structural-tests"
+allow = ["AGPL-3.0-only"]
+
+[[licenses.exceptions]]
+# egui's bundled fonts: font data under the SIL Open Font License and
+# the Ubuntu Font License. Attribution-only, viz crate only; both
+# notices are reproduced in THIRD-PARTY-NOTICES.md.
+crate = "epaint_default_fonts"
+allow = ["OFL-1.1", "Ubuntu-font-1.0"]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
