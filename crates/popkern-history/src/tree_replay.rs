@@ -268,7 +268,7 @@ impl FeatureTree {
                 };
                 let eval_result = measure_cache.get_or_evaluate(query, &ctx);
                 let label = node.label.clone();
-                let qname = format!("{}.value", label.to_lowercase().replace(' ', "_"));
+                let qname = format!("{}.value", crate::labels::qualified_prefix(&label));
                 let dim_unit = dimension_kind_to_unit(query.dimension_kind());
                 let fr = match eval_result {
                     Ok(value) => {

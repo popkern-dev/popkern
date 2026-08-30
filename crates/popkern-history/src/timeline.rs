@@ -104,9 +104,10 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names.extend(kind.reference_face());
             names
         }
-        Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {
-            Vec::new()
-        }
+        Feature::Boolean { .. }
+        | Feature::Thicken { .. }
+        | Feature::OffsetSolid { .. }
+        | Feature::RawBody { .. } => Vec::new(),
         Feature::Shell {
             faces_to_remove, ..
         } => faces_to_remove.iter().collect(),
@@ -222,7 +223,8 @@ pub(super) fn resolve_body(
     body_manager: &mut BodyManager,
     features: &SlotMap<FeatureId, FeatureNode>,
 ) -> BodyId {
-    // A base sketch (no planar face dependency) always starts a new body.
+    // A base sketch (no planar face dependency) and a body snapshot
+    // always start a new body.
     if matches!(
         feature,
         Feature::Sketch {
@@ -231,7 +233,7 @@ pub(super) fn resolve_body(
                 | SketchPlaneDesc::YZ
                 | SketchPlaneDesc::Custom { .. },
             ..
-        }
+        } | Feature::RawBody { .. }
     ) && depends_on.is_empty()
     {
         return body_manager.create_body();

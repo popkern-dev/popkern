@@ -29,6 +29,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Pipe { mode, .. }
         | Feature::Revolve { mode, .. } => *mode,
         Feature::Sketch { .. }
+        | Feature::RawBody { .. }
         | Feature::Fillet { .. }
         | Feature::Chamfer { .. }
         | Feature::Boolean { .. }

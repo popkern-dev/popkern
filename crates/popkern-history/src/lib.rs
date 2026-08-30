@@ -34,6 +34,7 @@ pub mod feature_blend;
 pub mod feature_draft;
 mod feature_params;
 pub mod feature_sketch;
+pub mod feature_snapshot;
 pub mod feature_transform;
 pub mod format;
 pub mod health;
@@ -79,6 +80,7 @@ pub use feature_blend::{
     BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
     FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
+pub use feature_snapshot::SnapshotOrigin;
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
 pub use labels::LabelTable;

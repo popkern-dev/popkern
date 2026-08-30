@@ -83,6 +83,10 @@ pub(crate) fn execute_feature(
             execute_sketch(brep, plane, sketch_data, tracking, tolerance, param_table)?;
             Ok(ExecuteSideEffects::empty())
         }
+        Feature::RawBody { snapshot, .. } => {
+            crate::feature_snapshot::materialize_snapshot(brep, snapshot, tracking, tolerance)?;
+            Ok(ExecuteSideEffects::empty())
+        }
         Feature::Extrude {
             face,
             direction,

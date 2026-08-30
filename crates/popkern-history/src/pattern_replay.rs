@@ -112,7 +112,10 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
                 }
             }
         }
-        Feature::Boolean { .. } | Feature::Thicken { .. } | Feature::OffsetSolid { .. } => {}
+        Feature::Boolean { .. }
+        | Feature::Thicken { .. }
+        | Feature::OffsetSolid { .. }
+        | Feature::RawBody { .. } => {}
         Feature::Transform { motion } => {
             if let Some(name) = motion.entity_name_mut() {
                 remap_name(name, op_remap);

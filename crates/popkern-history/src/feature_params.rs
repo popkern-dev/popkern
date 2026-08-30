@@ -11,6 +11,7 @@ use crate::parameter::ParameterId;
 /// feature is inserted into the timeline.
 pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
     let mut ids: Vec<(&str, ParameterId)> = match feature {
+        Feature::RawBody { .. } => vec![],
         Feature::Extrude {
             end_condition,
             draft_angle,
@@ -102,4 +103,34 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
         ids.push(("offset", *offset_id));
     }
     ids
+}
+
+impl Feature {
+    /// The operation label of a feature — the same label its structured
+    /// errors carry (`ReplayError::FeatureFailed { label }`) and the stem
+    /// of its auto-label (`fillet-3`).
+    pub fn operation_label(&self) -> &'static str {
+        match self {
+            Feature::Sketch { .. } => "sketch",
+            Feature::RawBody { .. } => "raw_body",
+            Feature::Extrude { .. } => "extrude",
+            Feature::Fillet { .. } => "fillet",
+            Feature::Chamfer { .. } => "chamfer",
+            Feature::Boolean { .. } => "boolean",
+            Feature::Shell { .. } => "shell",
+            Feature::Transform { .. } => "transform",
+            Feature::Thicken { .. } => "thicken",
+            Feature::OffsetSolid { .. } => "offset_solid",
+            Feature::Draft { .. } => "draft",
+            Feature::Sweep { .. } => "sweep",
+            Feature::Loft { .. } => "loft",
+            Feature::Pipe { .. } => "pipe",
+            Feature::Revolve { .. } => "revolve",
+            Feature::Reference { .. } => "reference",
+            Feature::LinearPattern { .. } => "linear_pattern",
+            Feature::CircularPattern { .. } => "circular_pattern",
+            Feature::CurvePattern { .. } => "curve_pattern",
+            Feature::Mirror { .. } => "mirror",
+        }
+    }
 }

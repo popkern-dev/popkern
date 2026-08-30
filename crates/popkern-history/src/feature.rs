@@ -7,6 +7,7 @@
 use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
 use crate::feature_draft::NeutralPlaneDesc;
 use crate::feature_sketch::SketchPayload;
+use crate::feature_snapshot::SnapshotOrigin;
 use crate::feature_transform::RigidMotionDesc;
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
@@ -28,6 +29,17 @@ pub enum Feature {
         plane: SketchPlaneDesc,
         /// The sketch itself, in either dialect.
         sketch_data: SketchPayload,
+    },
+    /// A body recorded as a geometry snapshot rather than a recipe
+    /// (PK-367): an import, a polyhedron, a smooth-mesh solid, an
+    /// engraved result. Replay materialises the snapshot as a new body
+    /// and mints every entity a stable name under this feature's
+    /// operation — see [`crate::feature_snapshot`].
+    RawBody {
+        /// The body itself.
+        snapshot: Box<popkern_core::topology::BRep>,
+        /// What produced it.
+        origin: SnapshotOrigin,
     },
     /// Extrude a face by sweeping it along a direction.
     Extrude {
@@ -458,35 +470,6 @@ pub enum RevolveEnd {
         /// Target face, identified by stable name.
         face: EntityName,
     },
-}
-
-impl Feature {
-    /// The operation label of a feature — the same label its structured
-    /// errors carry (`ReplayError::FeatureFailed { label }`) and the stem
-    /// of its auto-label (`fillet-3`).
-    pub fn operation_label(&self) -> &'static str {
-        match self {
-            Feature::Sketch { .. } => "sketch",
-            Feature::Extrude { .. } => "extrude",
-            Feature::Fillet { .. } => "fillet",
-            Feature::Chamfer { .. } => "chamfer",
-            Feature::Boolean { .. } => "boolean",
-            Feature::Shell { .. } => "shell",
-            Feature::Transform { .. } => "transform",
-            Feature::Thicken { .. } => "thicken",
-            Feature::OffsetSolid { .. } => "offset_solid",
-            Feature::Draft { .. } => "draft",
-            Feature::Sweep { .. } => "sweep",
-            Feature::Loft { .. } => "loft",
-            Feature::Pipe { .. } => "pipe",
-            Feature::Revolve { .. } => "revolve",
-            Feature::Reference { .. } => "reference",
-            Feature::LinearPattern { .. } => "linear_pattern",
-            Feature::CircularPattern { .. } => "circular_pattern",
-            Feature::CurvePattern { .. } => "curve_pattern",
-            Feature::Mirror { .. } => "mirror",
-        }
-    }
 }
 
 /// Returns `true`. Used as the `#[serde(default = "default_true")]` target for
