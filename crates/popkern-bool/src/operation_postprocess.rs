@@ -113,6 +113,7 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
     let report = find_redundant_edges(result, tolerance);
 
     if report.redundant_edges.is_empty() {
+        dissolve_redundant_chains(result, tolerance);
         return;
     }
 
@@ -159,6 +160,47 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
 
     if removed > 0 && cfg!(debug_assertions) {
         eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
+    }
+    dissolve_redundant_chains(result, tolerance);
+}
+
+/// Merge co-surfacial face pairs whose shared boundary is a multi-edge
+/// PATH (PK-379): staged per pair, kept only when the body still
+/// validates. Single-edge pairs were handled above; pairs whose
+/// shared edges are not one path stay split (a ring would need an
+/// inner loop, not a merge).
+fn dissolve_redundant_chains(result: &mut BRep, tolerance: &Tolerance) {
+    use crate::postprocess::redundant_chain::{dissolve_chain, shared_coplanar_chain};
+    let mut merged = 0usize;
+    loop {
+        let mut progressed = false;
+        let edges: Vec<_> = result.edges.keys().collect();
+        for eh in edges {
+            let Some(chain) = shared_coplanar_chain(result, eh, tolerance) else {
+                continue;
+            };
+            if chain.len() < 2 {
+                continue;
+            }
+            if !crate::clip::chart_cell::edge_dissolve_keeps_cell_resolvable(
+                result, chain[0], tolerance,
+            ) {
+                continue;
+            }
+            let mut staged = result.clone();
+            if dissolve_chain(&mut staged, &chain).is_ok() && staged.validate().is_ok() {
+                *result = staged;
+                merged += 1;
+                progressed = true;
+                break;
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+    if merged > 0 && cfg!(debug_assertions) {
+        eprintln!("[boolean] post-processing: dissolved {merged} redundant shared chain(s)");
     }
 }
 

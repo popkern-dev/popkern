@@ -223,7 +223,7 @@ pub(super) fn try_uv_split(
 /// True when the UV point lies within tolerance of the face's outer
 /// boundary, sampled through the boundary pcurves (16-station chords
 /// per edge — exact for linear pcurves).
-fn uv_point_on_face_boundary(
+pub(crate) fn uv_point_on_face_boundary(
     brep: &BRep,
     face: FaceHandle,
     p: &popkern_core::geometry::Point3,

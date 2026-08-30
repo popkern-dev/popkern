@@ -447,6 +447,22 @@ pub(super) fn find_fragment_for_curve(
             return Some(*candidate);
         }
     }
+    // A trim that runs ALONG a fragment's boundary (a coplanar
+    // operand edge welded by an earlier split) is strictly inside no
+    // fragment; it belongs to the one whose rim carries it, where the
+    // rim-collinear no-op consumes it. Falling through to the original
+    // handle applied it to the OTHER fragment — measured: the
+    // half-width staggered cube union failed "trim curve end point does
+    // not match any vertex" on the piece that merely shared the trim's
+    // start vertex (PK-379).
+    for candidate in &candidates {
+        if !brep.faces.contains_key(*candidate) {
+            continue;
+        }
+        if super::helpers_uv::uv_point_on_face_boundary(brep, *candidate, &mid_uv, tolerance) {
+            return Some(*candidate);
+        }
+    }
 
     // Fallback: if the original face still exists and no fragment matched,
     // try the original face itself.
