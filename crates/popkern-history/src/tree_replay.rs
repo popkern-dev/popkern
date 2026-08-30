@@ -353,6 +353,15 @@ impl FeatureTree {
             let brep_backup = brep.clone();
 
             let timer = popkern_core::time::Stopwatch::start();
+            let exact_profile = match &feature {
+                Feature::Extrude { face, .. } => crate::replay_exact_extrude::exact_profile_for(
+                    self.features.values().map(|n| (&n.feature, n.operation_id)),
+                    face,
+                    &brep,
+                    &self.parameter_table,
+                ),
+                _ => None,
+            };
             let exec_result = replay::execute_feature(
                 &mut brep,
                 &feature,
@@ -360,6 +369,7 @@ impl FeatureTree {
                 tolerance,
                 &mut body_breps,
                 &self.parameter_table,
+                exact_profile.as_ref(),
             );
 
             match exec_result {

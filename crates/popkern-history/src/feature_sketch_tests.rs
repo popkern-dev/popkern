@@ -38,7 +38,7 @@ fn analytic_arm_round_trips_with_literal_and_parameter_scalars() {
     assert!(json.contains("\"idx\""));
     let back: SketchPayload = serde_json::from_str(&json).unwrap();
     assert_eq!(back, payload);
-    assert_eq!(back.param_ids(), vec![("profile", r)]);
+    assert_eq!(back.param_ids(), vec![("radius".to_string(), r)]);
     assert!(back.constraint_json().is_none());
     assert_eq!(
         back.analytic().unwrap().center[0],
@@ -79,5 +79,5 @@ fn feature_param_ids_include_analytic_bindings() {
         sketch_data: analytic_circle(r.into()).into(),
     };
     let ids = crate::feature_params::feature_param_ids(&feature);
-    assert_eq!(ids, vec![("profile", r)]);
+    assert_eq!(ids, vec![("radius".to_string(), r)]);
 }

@@ -121,7 +121,7 @@ pub(crate) fn resolve_faces(
 }
 
 /// Resolve a [`ParameterId`] to its `f64` value via the parameter table.
-fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f64, ReplayError> {
+pub(crate) fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f64, ReplayError> {
     table
         .get(id)
         .map(|p| p.value)
@@ -157,6 +157,16 @@ pub(crate) fn resolve_sketch_plane(
                     error: e.to_string(),
                 }
             })
+        }
+        SketchPlaneDesc::BaseOffset { base, distance } => {
+            let d = resolve_param(param_table, *distance)?;
+            let mut plane = match base {
+                crate::feature::BasePlane::XY => SketchPlane::xy(),
+                crate::feature::BasePlane::XZ => SketchPlane::xz(),
+                crate::feature::BasePlane::YZ => SketchPlane::yz(),
+            };
+            plane.origin = plane.origin + plane.normal * d;
+            Ok(plane)
         }
         SketchPlaneDesc::Custom { origin, normal } => {
             let o = Point3::new(origin[0], origin[1], origin[2]);

@@ -1,0 +1,19 @@
+[package]
+name = "popkern-script"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Scripting surface recorder: code-first authoring that records into the popkern feature tree"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-constraint = { path = "../popkern-constraint" }
+popkern-sketch = { path = "../popkern-sketch" }
+popkern-history = { path = "../popkern-history" }
+popkern-part = { path = "../popkern-part" }
+popkern-io = { path = "../popkern-io" }
+popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

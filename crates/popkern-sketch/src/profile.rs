@@ -189,6 +189,38 @@ impl<S> AnalyticProfile<S> {
         out
     }
 
+    /// The role name of every scalar, in [`Self::scalars`] order: the
+    /// parameter names a feature tree registers for an analytic
+    /// sketch (`center_x`, `center_y`, then the shape's own roles —
+    /// `width`/`height`, `radius`, `p{i}_x`/`p{i}_y`, or
+    /// `start_x`/`start_y` followed by `s{i}_via_x`/`s{i}_via_y`/
+    /// `s{i}_x`/`s{i}_y` per path segment).
+    pub fn scalar_roles(&self) -> Vec<String> {
+        let mut out = vec!["center_x".to_string(), "center_y".to_string()];
+        match &self.shape {
+            ProfileShape::Rect { .. } => out.extend(["width".to_string(), "height".to_string()]),
+            ProfileShape::Circle { .. } => out.push("radius".to_string()),
+            ProfileShape::Polygon { points } => {
+                for i in 0..points.len() {
+                    out.push(format!("p{i}_x"));
+                    out.push(format!("p{i}_y"));
+                }
+            }
+            ProfileShape::Path { segments, .. } => {
+                out.extend(["start_x".to_string(), "start_y".to_string()]);
+                for (i, seg) in segments.iter().enumerate() {
+                    if matches!(seg, PathSegment::Arc { .. }) {
+                        out.push(format!("s{i}_via_x"));
+                        out.push(format!("s{i}_via_y"));
+                    }
+                    out.push(format!("s{i}_x"));
+                    out.push(format!("s{i}_y"));
+                }
+            }
+        }
+        out
+    }
+
     /// Rebuild the profile with every scalar mapped through `f`.
     pub fn map_scalars<T, E>(
         &self,

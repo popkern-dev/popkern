@@ -1,7 +1,7 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -9,7 +9,7 @@ use popkern_core::topology::BRep;
 use std::collections::HashMap;
 
 use crate::error::ReplayError;
-use crate::feature::Feature;
+use crate::feature::{ExtrudeEnd, Feature, Vec3Desc};
 use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 use crate::replay_report::{FeatureEvidence, face_census};
@@ -77,6 +77,7 @@ pub(crate) fn execute_feature(
     tolerance: &Tolerance,
     body_breps: &mut HashMap<BodyId, BRep>,
     param_table: &ParameterTable,
+    exact_profile: Option<&crate::replay_exact_extrude::ExactProfileWire>,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     match feature {
         Feature::Sketch { plane, sketch_data } => {
@@ -95,6 +96,29 @@ pub(crate) fn execute_feature(
             second_direction,
             ..
         } => {
+            // Analytic profile + blind end: the exact wire sweep
+            // `popkern-part` uses (one code path, one topology).
+            if let Some(exact) = exact_profile
+                && crate::replay_exact_extrude::takes_exact_path(
+                    direction.as_ref(),
+                    end_condition,
+                    draft_angle.as_ref(),
+                    second_direction.as_ref(),
+                    &exact.plane,
+                )
+                && let ExtrudeEnd::Blind { distance } = end_condition
+            {
+                let mut d = crate::resolve::resolve_param(param_table, *distance)?;
+                if let Some(Vec3Desc::Literal(v)) = direction
+                    && Vec3::new(v[0], v[1], v[2]).dot(&exact.plane.normal) < 0.0
+                {
+                    d = -d;
+                }
+                crate::replay_exact_extrude::execute_extrude_exact(
+                    brep, exact, d, tracking, tolerance,
+                )?;
+                return Ok(ExecuteSideEffects::empty());
+            }
             execute_extrude(
                 brep,
                 face,

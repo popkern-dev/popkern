@@ -39,6 +39,7 @@ pub(crate) mod clip;
 pub mod coincidence;
 pub mod csg;
 mod entity_naming;
+mod entity_naming_edges;
 pub mod error;
 mod error_remediation;
 pub mod history;
@@ -142,6 +143,17 @@ pub fn boolean(
     } else {
         Vec::new()
     };
+    // Edges and vertices too (PK-386): a dress-up after a boolean is
+    // recorded by stable name, so the survivors must keep theirs.
+    let (input_edges, input_vertices) = if tracking.is_some() {
+        let mut edges = entity_naming_edges::collect_edge_data(&a);
+        edges.extend(entity_naming_edges::collect_edge_data(&b));
+        let mut vertices = entity_naming_edges::collect_vertex_data(&a);
+        vertices.extend(entity_naming_edges::collect_vertex_data(&b));
+        (edges, vertices)
+    } else {
+        (Vec::new(), Vec::new())
+    };
 
     let mut result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
         // Perturbation fallback: retry with slightly perturbed geometry
@@ -165,6 +177,13 @@ pub fn boolean(
     })?;
     if let Some(ctx) = tracking {
         entity_naming::assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
+        entity_naming_edges::assign_boolean_edge_vertex_names(
+            &mut result,
+            &input_edges,
+            &input_vertices,
+            ctx,
+            &tol,
+        );
     }
     Ok(result)
 }

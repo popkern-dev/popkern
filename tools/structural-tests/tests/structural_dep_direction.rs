@@ -206,3 +206,45 @@ fn part_is_a_top_tier_facade() {
         );
     }
 }
+
+/// `popkern-script` is the recorder tier above Part and History: it
+/// may depend on both facades, and no kernel crate may depend on it.
+#[test]
+fn script_sits_above_part_and_history() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-script/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-script/Cargo.toml");
+    for dep in ["popkern-history", "popkern-part", "popkern-core"] {
+        assert!(
+            declares_dependency(&cargo_toml, dep),
+            "popkern-script must depend on {dep}"
+        );
+    }
+    assert!(
+        !declares_dependency(&cargo_toml, "popkern-viz"),
+        "popkern-script must not depend on popkern-viz (browser viewers are JS; native viewer is separate)"
+    );
+    for below in [
+        "popkern-core",
+        "popkern-constraint",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-blend",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-sketch",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-script"),
+            "{below} must not depend on popkern-script (recorder is above the facades)"
+        );
+    }
+}

@@ -190,8 +190,11 @@ fn circle_profile_replays_to_exact_cylinder_and_tracks_its_parameter() {
     assert_replay_clean(&result);
     let body = body.expect("body");
     assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    // Two half-arc edges → two cylinder walls, one axis, exact radius.
-    assert_eq!(surface_census(&body), (2, 2, 0));
+    // One seamed cylinder wall (the exact wire sweep `popkern-part`
+    // uses — PK-382 unified the analytic + blind path; the compiled
+    // face's two half arcs no longer leak into the solid), one axis,
+    // exact radius.
+    assert_eq!(surface_census(&body), (2, 1, 0));
     for f in body.faces.values() {
         if let Some(SurfaceGeometry::Cylinder {
             origin,
@@ -213,6 +216,15 @@ fn circle_profile_replays_to_exact_cylinder_and_tracks_its_parameter() {
         surface_census(part.brep()),
         (2, 1, 0),
         "sweep serves one seamed wall"
+    );
+    assert_eq!(
+        (body.faces.len(), body.edges.len(), body.vertices.len()),
+        (
+            part.brep().faces.len(),
+            part.brep().edges.len(),
+            part.brep().vertices.len()
+        ),
+        "tree and direct build share one topology"
     );
     let (vh, vp) = (volume(&body), volume(part.brep()));
     assert!((vh - vp).abs() < 1e-6 * vp, "volume {vh} vs {vp}");
@@ -245,7 +257,7 @@ fn circle_profile_replays_to_exact_cylinder_and_tracks_its_parameter() {
             _ => None,
         })
         .collect();
-    assert_eq!(radii.len(), 2);
+    assert_eq!(radii.len(), 1, "one seamed wall after the edit");
     assert!(radii.iter().all(|r| (r - 0.4).abs() < 1e-12));
 }
 

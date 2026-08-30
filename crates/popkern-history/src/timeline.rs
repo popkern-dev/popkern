@@ -64,7 +64,10 @@ fn revolve_end_entity_names(end: &RevolveEnd) -> Vec<&EntityName> {
 /// Collect [`EntityName`] references from a [`SketchPlaneDesc`].
 fn sketch_plane_entity_names(desc: &SketchPlaneDesc) -> Vec<&EntityName> {
     match desc {
-        SketchPlaneDesc::XY | SketchPlaneDesc::XZ | SketchPlaneDesc::YZ => Vec::new(),
+        SketchPlaneDesc::XY
+        | SketchPlaneDesc::XZ
+        | SketchPlaneDesc::YZ
+        | SketchPlaneDesc::BaseOffset { .. } => Vec::new(),
         SketchPlaneDesc::OnFace(name) => vec![name],
         SketchPlaneDesc::OnFaceOffset(name, _) => vec![name],
         SketchPlaneDesc::Custom { .. } => Vec::new(),
@@ -231,7 +234,8 @@ pub(super) fn resolve_body(
             plane: SketchPlaneDesc::XY
                 | SketchPlaneDesc::XZ
                 | SketchPlaneDesc::YZ
-                | SketchPlaneDesc::Custom { .. },
+                | SketchPlaneDesc::Custom { .. }
+                | SketchPlaneDesc::BaseOffset { .. },
             ..
         } | Feature::RawBody { .. }
     ) && depends_on.is_empty()

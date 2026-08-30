@@ -53,6 +53,17 @@ pub(crate) fn replay_seed_chain(
     let mut brep = BRep::new(*tolerance);
     for (feature, op_id) in seed_features {
         let mut ctx = TrackingContext::new(*op_id);
+        let exact_profile = match feature {
+            crate::feature::Feature::Extrude { face, .. } => {
+                crate::replay_exact_extrude::exact_profile_for(
+                    seed_features.iter().map(|(f, op)| (f, *op)),
+                    face,
+                    &brep,
+                    param_table,
+                )
+            }
+            _ => None,
+        };
         replay::execute_feature(
             &mut brep,
             feature,
@@ -60,6 +71,7 @@ pub(crate) fn replay_seed_chain(
             tolerance,
             body_breps,
             param_table,
+            exact_profile.as_ref(),
         )?;
     }
     Ok(brep)
@@ -198,7 +210,8 @@ fn remap_sketch_plane(
         crate::feature::SketchPlaneDesc::XY
         | crate::feature::SketchPlaneDesc::XZ
         | crate::feature::SketchPlaneDesc::YZ
-        | crate::feature::SketchPlaneDesc::Custom { .. } => {}
+        | crate::feature::SketchPlaneDesc::Custom { .. }
+        | crate::feature::SketchPlaneDesc::BaseOffset { .. } => {}
     }
 }
 

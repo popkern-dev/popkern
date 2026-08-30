@@ -297,6 +297,26 @@ pub enum SketchPlaneDesc {
         /// Plane unit normal in world space.
         normal: [f64; 3],
     },
+    /// A base plane translated along its normal by a parameter
+    /// (`xy_at(z)` and friends): keeps the base plane's u/v frame, so a
+    /// profile at height z compiles exactly as on the base plane.
+    BaseOffset {
+        /// Which base plane.
+        base: BasePlane,
+        /// Signed offset along the base normal.
+        distance: ParameterId,
+    },
+}
+
+/// One of the three principal planes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BasePlane {
+    /// The XY plane (normal +Z).
+    XY,
+    /// The XZ plane.
+    XZ,
+    /// The YZ plane.
+    YZ,
 }
 
 /// A serialisable description of a 3-D direction vector.

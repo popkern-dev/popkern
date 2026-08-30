@@ -9,8 +9,21 @@ use crate::parameter::ParameterId;
 ///
 /// Used for automatic scope assignment and qualified-name indexing when a
 /// feature is inserted into the timeline.
-pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
-    let mut ids: Vec<(&str, ParameterId)> = match feature {
+pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(String, ParameterId)> {
+    let mut ids: Vec<(String, ParameterId)> = static_param_ids(feature)
+        .into_iter()
+        .map(|(role, id)| (role.to_string(), id))
+        .collect();
+    if let Feature::Sketch { sketch_data, .. } = feature {
+        ids.extend(sketch_data.param_ids());
+    }
+    ids
+}
+
+/// The statically named parameter roles of a feature (everything but
+/// the analytic sketch's shape scalars, whose roles depend on the shape).
+fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
+    let mut ids: Vec<(&'static str, ParameterId)> = match feature {
         Feature::RawBody { .. } => vec![],
         Feature::Extrude {
             end_condition,
@@ -88,19 +101,23 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
             count, total_angle, ..
         } => vec![("count", *count), ("total_angle", *total_angle)],
         Feature::CurvePattern { count, .. } => vec![("count", *count)],
-        Feature::Sketch { sketch_data, .. } => sketch_data.param_ids(),
+        Feature::Sketch { .. } => vec![],
         Feature::Boolean { .. }
         | Feature::Loft { .. }
         | Feature::Reference { .. }
         | Feature::Mirror { .. } => vec![],
     };
     // Handle SketchPlaneDesc::OnFaceOffset parameter.
-    if let Feature::Sketch {
-        plane: SketchPlaneDesc::OnFaceOffset(_, offset_id),
-        ..
-    } = feature
-    {
-        ids.push(("offset", *offset_id));
+    match feature {
+        Feature::Sketch {
+            plane: SketchPlaneDesc::OnFaceOffset(_, offset_id),
+            ..
+        } => ids.push(("offset", *offset_id)),
+        Feature::Sketch {
+            plane: SketchPlaneDesc::BaseOffset { distance, .. },
+            ..
+        } => ids.push(("plane_offset", *distance)),
+        _ => {}
     }
     ids
 }

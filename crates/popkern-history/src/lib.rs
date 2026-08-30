@@ -56,6 +56,7 @@ pub(crate) mod pattern_transform;
 pub(crate) mod pattern_validate;
 pub mod queries;
 pub(crate) mod replay;
+mod replay_exact_extrude;
 pub mod replay_report;
 mod tree_state;
 pub(crate) use replay_report::ReplayRangeOutput;
@@ -73,8 +74,8 @@ pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
 pub use feature::{
-    AxisDesc, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, JoinStyleKind, OperationMode,
-    RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
+    AxisDesc, BasePlane, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, JoinStyleKind,
+    OperationMode, RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
 };
 pub use feature_blend::{
     BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,

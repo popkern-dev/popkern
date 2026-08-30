@@ -81,7 +81,7 @@ pub(crate) fn materialize_snapshot(
 /// Discard inherited names and mint fresh ones for every entity under
 /// the tracking operation: faces `Generated/i`, edges `Lateral/i`,
 /// vertices `Junction/i`, each `i` in slotmap key order.
-fn own_all_entities(brep: &mut BRep, ctx: &mut TrackingContext) {
+pub(crate) fn own_all_entities(brep: &mut BRep, ctx: &mut TrackingContext) {
     brep.name_pool = NamePool::new();
     let operation = ctx.operation;
     let name = move |category: RoleCategory, index: usize| EntityName {

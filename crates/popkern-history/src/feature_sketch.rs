@@ -127,14 +127,14 @@ impl SketchPayload {
 
     /// Every parameter the payload binds, with a field label for
     /// dependency reporting (the constraint arm binds none).
-    pub(crate) fn param_ids(&self) -> Vec<(&'static str, ParameterId)> {
+    pub(crate) fn param_ids(&self) -> Vec<(String, ParameterId)> {
         match self {
             crate::SketchPayload::Constraint(_) => vec![],
             SketchPayload::Analytic(profile) => profile
                 .scalars()
                 .into_iter()
-                .filter_map(|s| s.parameter())
-                .map(|id| ("profile", id))
+                .zip(profile.scalar_roles())
+                .filter_map(|(s, role)| s.parameter().map(|id| (role, id)))
                 .collect(),
         }
     }

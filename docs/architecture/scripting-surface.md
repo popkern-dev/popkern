@@ -484,12 +484,20 @@ Rule for skins: a script re-generated from a document (the GUI's
 timeline order, one statement per feature, with every scalar as its
 current parameter binding.
 
+Rust skin note (`popkern-script`, phase 2b): `Body` is a copyable
+handle and every op takes the `Model` explicitly
+(`plate.fillet(&mut m, edges()…, 0.08)`), `profile(...).sketch(label)`
+returns the `Body` the sketch belongs to, and `End::Blind(0.4.into())`
+spells `blind(0.4)`. The canonical spellings above are the
+host-language-neutral form; the Rust skin's mapping is one-to-one.
+
 ---
 
 ## 13. Change log
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-08-30 | Rust skin landed (PK-382): `model/save/open/replay/to_brep/to_part/to_step`, gates, `profile` (rect/circle/polygon/path, base + offset + on-face planes), `extrude` (all ends), `revolve`, `fillet` (recipe), `chamfer` (equal), `shell`, booleans, `translate/rotate`, `param/set_param`, feature/entity labels, `feature/features/evidence/report`. `FeatureFailed.error` is a string until PK-388. | none |
 | 2026-08-30 | Initial normative surface (PK-381). Stable set: `model/open/save/replay/to_brep/to_part/to_step`, gates, `profile`, `extrude/revolve`, booleans, `fillet/chamfer`, `shell`, `translate/rotate`, parameters (§4.1), labels, `feature/features/modify/suppress/unsuppress`, `report/evidence`. Everything else `preview`; `promote_to_constraint` reserved. | — |
 
 Promotion rule: `preview → stable` requires (1) a parity fixture

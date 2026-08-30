@@ -3423,6 +3423,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-script"
+version = "0.1.0"
+dependencies = [
+ "popkern-constraint",
+ "popkern-core",
+ "popkern-history",
+ "popkern-io",
+ "popkern-measure",
+ "popkern-mesh",
+ "popkern-part",
+ "popkern-sketch",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-shell"
 version = "0.1.0"
 dependencies = [
