@@ -62,13 +62,20 @@ pub(crate) struct PatternContext<'a> {
 /// fail fatally.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternResult, ReplayError> {
-    // 1. Determine host body BRep for transform computation.
+    // 1. The host: where pattern references (edges, faces, axes) live
+    //    and where instances merge. The seed body is the tool.
+    let host_body = if !ctx.seed_feature_ids.is_empty() {
+        auto_merge::detect_host_body(ctx.seed_feature_ids[0], ctx.features, ctx.body_breps)
+    } else {
+        None
+    };
+    let reference_body = host_body.unwrap_or(ctx.seed_body);
     let host_brep =
         ctx.body_breps
-            .get(&ctx.seed_body)
+            .get(&reference_body)
             .ok_or_else(|| ReplayError::FeatureFailed {
                 label: "pattern".into(),
-                error: format!("seed body {:?} has no BRep", ctx.seed_body).into(),
+                error: format!("pattern body {reference_body:?} has no BRep").into(),
             })?;
 
     // 2. Compute per-instance transforms.
@@ -83,13 +90,6 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
 
     // 4. Determine boolean operation from seed features' mode.
     let bool_op = seed_bool_operation(ctx.seed_features);
-
-    // 5. Detect host body for the boolean merge.
-    let host_body = if !ctx.seed_feature_ids.is_empty() {
-        auto_merge::detect_host_body(ctx.seed_feature_ids[0], ctx.features, ctx.body_breps)
-    } else {
-        None
-    };
 
     // 6. Snapshot the tool body BEFORE instance 0 consumes it.
     let tool_snapshot = ctx.body_breps.get(&ctx.seed_body).cloned();

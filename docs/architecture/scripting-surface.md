@@ -497,6 +497,7 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-08-30 | Full-circle profiles extrude to one periodic wall on every route (PK-387): constraint-dialect circles, every end condition, second direction; draft records a fallback. Exact-route names follow the extrude contract (`Modified 0`/`Cap 0`/`Lateral i`). Every sketch is its own body; Boss/Cut merge into the host named by the on-face reference or the up-to/offset target; `Body::extrude_with` returns the served host. | none |
 | 2026-08-30 | Structured failure payload landed (PK-388): `FeatureFailed.error` is a `FeatureFailure` (§10.3); the PyO3 probe's JSON is serde of the same value (`kind`/`blend_kind`/`reason_kind`, `edge_name`). | none |
 | 2026-08-30 | Bodies landed (PK-385): `tool`, `raw_body`, `label_body`/`body`/`body_label`, `alive_bodies`, `set_active`, `Body::is_alive`; booleans consume the tool and reject dead bodies (`BodyNotAlive`). | none |
 | 2026-08-30 | Migration verbs landed (PK-384): `modify` via `Edit` (scalar roles, `continuity`, `edges`/`faces`), `insert_before/after`, `reorder`, `suppress/unsuppress`, `delete`, `rollback_to/rollback_to_end`, `dependents`, `undo/redo`, `describe`, `params`, `param_expr`, configurations. Documents now persist `SelectionRecord`s per feature (§6.2 describe text). | none |

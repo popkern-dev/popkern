@@ -109,7 +109,14 @@ impl Body {
             Some(self.id),
             selections,
         )?;
-        let body = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
+        let recorded = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
+        // A Boss/Cut feature's own body is consumed by the auto-merge;
+        // the served body is the host it merged into.
+        let body = if model.tree.body_brep(recorded).is_some() {
+            recorded
+        } else {
+            model.tree.merge_host(id).unwrap_or(self.id)
+        };
         model.active = Some(body);
         Ok(Body::new(body))
     }

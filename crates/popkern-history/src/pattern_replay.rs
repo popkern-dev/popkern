@@ -51,6 +51,15 @@ pub(crate) fn replay_seed_chain(
     body_breps: &mut HashMap<BodyId, BRep>,
 ) -> Result<BRep, ReplayError> {
     let mut brep = BRep::new(*tolerance);
+    // The chain's on-face sketch names its host; the chain replays into
+    // a fresh tool body, so the host is where planes, exact profiles and
+    // up-to targets resolve.
+    let host = seed_features.iter().find_map(|(f, _)| match f {
+        crate::feature::Feature::Sketch { plane, .. } => {
+            crate::auto_merge::host_for_sketch_plane(plane, body_breps)
+        }
+        _ => None,
+    });
     for (feature, op_id) in seed_features {
         let mut ctx = TrackingContext::new(*op_id);
         let exact_profile = match feature {
@@ -58,7 +67,7 @@ pub(crate) fn replay_seed_chain(
                 crate::replay_exact_extrude::exact_profile_for(
                     seed_features.iter().map(|(f, op)| (f, *op)),
                     face,
-                    &brep,
+                    host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
                     param_table,
                 )
             }
@@ -72,6 +81,7 @@ pub(crate) fn replay_seed_chain(
             body_breps,
             param_table,
             exact_profile.as_ref(),
+            host,
         )?;
     }
     Ok(brep)

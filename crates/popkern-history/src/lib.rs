@@ -20,6 +20,7 @@
 
 pub(crate) mod auto_merge;
 pub(crate) mod body;
+mod body_query;
 pub mod cache;
 pub mod config;
 pub mod config_api;
@@ -59,7 +60,9 @@ pub(crate) mod pattern_validate;
 pub mod queries;
 pub(crate) mod replay;
 mod replay_exact_extrude;
+mod replay_exact_extrude_names;
 pub mod replay_report;
+mod replay_side_effects;
 mod tree_replay_config;
 mod tree_state;
 pub(crate) use replay_report::ReplayRangeOutput;
@@ -166,6 +169,10 @@ pub struct FeatureTree {
     /// (session-local; rebuilt by replay).
     #[serde(skip)]
     pub(crate) last_report: ReplayReport,
+    /// The body each Boss/Cut feature merged into during the last
+    /// replay (transient; rebuilt by every replay).
+    #[serde(skip)]
+    pub(crate) merged_into: HashMap<FeatureId, BodyId>,
     /// Cache of intermediate BRep snapshots.
     ///
     /// Not serialized — rebuilt on demand after loading.
@@ -225,6 +232,8 @@ impl FeatureTree {
             frozen_index: None,
             current_brep: None,
             last_report: ReplayReport::default(),
+
+            merged_into: HashMap::new(),
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
             op_index: HashMap::new(),
@@ -468,28 +477,6 @@ impl FeatureTree {
     /// The current BRep after the last replay.
     pub fn current_brep(&self) -> Option<&BRep> {
         self.current_brep.as_ref()
-    }
-
-    // -- Body accessors -------------------------------------------------------
-
-    /// Return all body IDs currently tracked by this tree.
-    pub fn bodies(&self) -> Vec<BodyId> {
-        self.body_manager.bodies()
-    }
-
-    /// Return the current BRep snapshot for a body.
-    ///
-    /// Returns `None` if no snapshot has been stored yet (i.e. the tree has
-    /// not been replayed, or the body does not exist).
-    pub fn body_brep(&self, body: BodyId) -> Option<&BRep> {
-        self.body_manager.get_brep(body)
-    }
-
-    /// Return the features assigned to a body, in insertion order.
-    ///
-    /// Returns an empty [`Vec`] if the body does not exist.
-    pub fn body_features(&self, body: BodyId) -> Vec<FeatureId> {
-        self.body_manager.body_features(body)
     }
 }
 

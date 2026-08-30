@@ -41,11 +41,14 @@ pub(super) fn execute_sketch(
     brep: &mut BRep,
     plane_desc: &SketchPlaneDesc,
     payload: &SketchPayload,
+    host_brep: Option<&BRep>,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
 ) -> Result<(), ReplayError> {
-    let plane = resolve_sketch_plane(plane_desc, brep, param_table)?;
+    // An on-face plane lives on the host body (this sketch is its own
+    // tool body); base planes resolve anywhere.
+    let plane = resolve_sketch_plane(plane_desc, host_brep.unwrap_or(brep), param_table)?;
     let failed = |error: String| ReplayError::FeatureFailed {
         label: "sketch".into(),
         error: error.into(),
@@ -180,7 +183,7 @@ pub(crate) fn extract_plane_from_face(
 }
 
 /// Compute the centroid of a face's outer loop vertices.
-fn face_centroid(brep: &BRep, face_handle: FaceHandle) -> Point3 {
+pub(crate) fn face_centroid(brep: &BRep, face_handle: FaceHandle) -> Point3 {
     let positions = brep.face_outer_loop_positions(face_handle);
     if positions.is_empty() {
         return Point3::new(0.0, 0.0, 0.0);
@@ -250,6 +253,7 @@ pub(super) fn execute_extrude(
     end_condition: &ExtrudeEnd,
     draft_angle: Option<&ParameterId>,
     second_direction: Option<&ExtrudeSecondDir>,
+    host_brep: Option<&BRep>,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
@@ -290,7 +294,7 @@ pub(super) fn execute_extrude(
         end_condition,
         centroid,
         dir,
-        None, // host_brep not available here; auto-merge supplies it
+        host_brep,
         brep,
         param_table,
         tolerance,
@@ -321,13 +325,39 @@ pub(super) fn execute_extrude(
     }
 
     // Bidirectional extrude.
+    // Mid-plane on the generic path: the resolved distance is the half
+    // extent; grow the other half from the base face (was a one-way
+    // extrude of half the height before PK-387).
+    if second_direction.is_none() && matches!(end_condition, ExtrudeEnd::MidPlane { .. }) {
+        let mut accounted: HashSet<FaceHandle> =
+            extrude_result.side_faces.iter().copied().collect();
+        accounted.insert(extrude_result.cap_face);
+        let base_face = brep
+            .faces
+            .keys()
+            .find(|fh| !accounted.contains(fh))
+            .ok_or_else(|| ReplayError::FeatureFailed {
+                label: String::new(),
+                error: "could not find base face for mid-plane extrude".into(),
+            })?;
+        brep.extrude(base_face, -dir, dist, Some(tracking))
+            .map_err(|e| ReplayError::FeatureFailed {
+                label: "extrude".into(),
+                error: crate::failure::FeatureFailure::sweep(
+                    "extrude",
+                    &format!("mid-plane second half extrude failed: {e}"),
+                )
+                .into(),
+            })?;
+    }
+
     if let Some(second) = second_direction {
         let dir2 = resolve_direction(&second.direction, brep)?;
         let dist2 = resolve_extrude_distance(
             &second.end_condition,
             centroid,
             dir2,
-            None,
+            host_brep,
             brep,
             param_table,
             tolerance,

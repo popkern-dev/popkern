@@ -405,7 +405,15 @@ fn constraint_sketch_arc_extrudes_to_a_true_cylinder() {
     assert_replay_clean(&result);
     let body = tree.current_brep().expect("body");
     assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    assert_eq!(surface_census(body), (2, 2, 0));
+    // One periodic cylinder wall (PK-387): the constraint dialect's full
+    // circle takes the exact wire sweep like the analytic one.
+    assert_eq!(surface_census(body), (2, 1, 0));
+    let part = Profile::on(Plane::XY)
+        .circle(0.25)
+        .at(1.0, 0.0)
+        .extrude(0.5)
+        .expect("part circle");
+    assert_same_body("constraint circle", body, part.brep(), 1e-9);
     let exact = std::f64::consts::PI * 0.25 * 0.25 * 0.5;
     let v = volume(body);
     assert!(

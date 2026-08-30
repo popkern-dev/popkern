@@ -1,7 +1,7 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::Point3;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -9,7 +9,7 @@ use popkern_core::topology::BRep;
 use std::collections::HashMap;
 
 use crate::error::ReplayError;
-use crate::feature::{ExtrudeEnd, Feature, Vec3Desc};
+use crate::feature::Feature;
 use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 use crate::replay_report::{FeatureEvidence, face_census};
@@ -27,33 +27,7 @@ use crate::resolve::{
 
 /// Side effects produced by a successful feature execution.
 ///
-/// Returned from [`execute_feature`] so that the caller can apply deferred
-/// mutations (e.g. removing consumed tool bodies) only on success.
-pub(crate) struct ExecuteSideEffects {
-    /// Body IDs that were consumed by this feature (e.g. Boolean tool body).
-    pub consumed_bodies: Vec<BodyId>,
-    /// What the operation reported: warnings, blend evidence, fallback
-    /// firings, skip records (the replay report channel).
-    pub evidence: FeatureEvidence,
-}
-
-impl ExecuteSideEffects {
-    /// No side effects and nothing reported.
-    pub fn empty() -> Self {
-        Self {
-            consumed_bodies: Vec::new(),
-            evidence: FeatureEvidence::empty(),
-        }
-    }
-
-    /// No consumed bodies; the operation's evidence.
-    pub fn reported(evidence: FeatureEvidence) -> Self {
-        Self {
-            consumed_bodies: Vec::new(),
-            evidence,
-        }
-    }
-}
+pub(crate) use crate::replay_side_effects::ExecuteSideEffects;
 
 /// Execute a single feature against the current BRep.
 ///
@@ -70,6 +44,7 @@ impl ExecuteSideEffects {
 ///
 /// Returns [`ReplayError`] if entity resolution fails or the underlying
 /// operation fails.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_feature(
     brep: &mut BRep,
     feature: &Feature,
@@ -78,10 +53,20 @@ pub(crate) fn execute_feature(
     body_breps: &mut HashMap<BodyId, BRep>,
     param_table: &ParameterTable,
     exact_profile: Option<&crate::replay_exact_extrude::ExactProfileWire>,
+    merge_host: Option<BodyId>,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     match feature {
         Feature::Sketch { plane, sketch_data } => {
-            execute_sketch(brep, plane, sketch_data, tracking, tolerance, param_table)?;
+            let host_brep = merge_host.and_then(|h| body_breps.get(&h));
+            execute_sketch(
+                brep,
+                plane,
+                sketch_data,
+                host_brep,
+                tracking,
+                tolerance,
+                param_table,
+            )?;
             Ok(ExecuteSideEffects::empty())
         }
         Feature::RawBody { snapshot, .. } => {
@@ -98,26 +83,40 @@ pub(crate) fn execute_feature(
         } => {
             // Analytic profile + blind end: the exact wire sweep
             // `popkern-part` uses (one code path, one topology).
+            let host_brep = merge_host.and_then(|h| body_breps.get(&h));
             if let Some(exact) = exact_profile
-                && crate::replay_exact_extrude::takes_exact_path(
+                && crate::replay_exact_extrude::try_execute_exact(
+                    brep,
+                    exact,
+                    face,
                     direction.as_ref(),
                     end_condition,
                     draft_angle.as_ref(),
                     second_direction.as_ref(),
-                    &exact.plane,
-                )
-                && let ExtrudeEnd::Blind { distance } = end_condition
+                    host_brep,
+                    tracking,
+                    tolerance,
+                    param_table,
+                )?
             {
-                let mut d = crate::resolve::resolve_param(param_table, *distance)?;
-                if let Some(Vec3Desc::Literal(v)) = direction
-                    && Vec3::new(v[0], v[1], v[2]).dot(&exact.plane.normal) < 0.0
-                {
-                    d = -d;
-                }
-                crate::replay_exact_extrude::execute_extrude_exact(
-                    brep, exact, d, tracking, tolerance,
-                )?;
                 return Ok(ExecuteSideEffects::empty());
+            }
+            let mut evidence = FeatureEvidence::empty();
+            if exact_profile.is_some() {
+                // Draft is the one class the exact sweep has no arm for;
+                // the generic extrude splits a full circle into two
+                // co-cylindrical laterals (PK-387) — recorded, never
+                // silent.
+                evidence
+                    .fallbacks
+                    .push(crate::replay_report::FallbackRecord {
+                        source: crate::replay_report::RecordSource::Sweep,
+                        mechanism: "exact periodic profile sweep -> generic face extrude"
+                            .to_string(),
+                        reason: "draft angle requested: the wire sweep has no draft arm; a full \
+                             circle profile extrudes as two co-cylindrical laterals"
+                            .to_string(),
+                    });
             }
             execute_extrude(
                 brep,
@@ -126,11 +125,12 @@ pub(crate) fn execute_feature(
                 end_condition,
                 draft_angle.as_ref(),
                 second_direction.as_ref(),
+                host_brep,
                 tracking,
                 tolerance,
                 param_table,
             )?;
-            Ok(ExecuteSideEffects::empty())
+            Ok(ExecuteSideEffects::reported(evidence))
         }
         Feature::Fillet {
             edges,

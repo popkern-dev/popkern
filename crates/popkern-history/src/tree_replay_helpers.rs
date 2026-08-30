@@ -99,6 +99,13 @@ impl FeatureTree {
         let op_id = node.operation_id;
         let body = node.body;
         let seed_ids = extract_seed_ids(&feat);
+        // The seeds' own body (a sketch's tool body), not the pattern
+        // node's: the pattern merges instances from it into the host.
+        let body = seed_ids
+            .first()
+            .and_then(|s| self.features.get(*s))
+            .map(|n| n.body)
+            .unwrap_or(body);
         let seed_feats: Vec<_> = seed_ids
             .iter()
             .filter_map(|&s| self.features.get(s).map(|n| n.feature.clone()))

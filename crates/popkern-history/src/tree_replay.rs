@@ -304,11 +304,20 @@ impl FeatureTree {
             let brep_backup = brep.clone();
 
             let timer = popkern_core::time::Stopwatch::start();
+            // The body carrying the face this feature's sketch was placed
+            // on (detected through the on-face reference): the Boss/Cut
+            // merge host, and the BRep an on-face sketch plane or an
+            // up-to / offset target resolves against — a tool body's own
+            // BRep never carries them.
+            // (Pattern seeds detect their host too — their planes and
+            // targets live there — but the pattern owns their merge.)
+            let merge_host = auto_merge::detect_host_body(id, &self.features, &body_breps)
+                .or_else(|| auto_merge::host_for_extrude_target(&feature, body, &body_breps));
             let exact_profile = match &feature {
                 Feature::Extrude { face, .. } => crate::replay_exact_extrude::exact_profile_for(
                     self.features.values().map(|n| (&n.feature, n.operation_id)),
                     face,
-                    &brep,
+                    merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
                     &self.parameter_table,
                 ),
                 _ => None,
@@ -321,6 +330,7 @@ impl FeatureTree {
                 &mut body_breps,
                 &self.parameter_table,
                 exact_profile.as_ref(),
+                merge_host,
             );
 
             match exec_result {
@@ -349,8 +359,7 @@ impl FeatureTree {
                     let mode = auto_merge::feature_mode(&feature);
                     if !matches!(mode, OperationMode::NewBody)
                         && !seed_feature_ids.contains(&id)
-                        && let Some(host) =
-                            auto_merge::detect_host_body(id, &self.features, &body_breps)
+                        && let Some(host) = merge_host
                         && host != body
                     {
                         let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
@@ -363,6 +372,7 @@ impl FeatureTree {
                             &mut merge_ctx,
                             tolerance,
                         )?;
+                        self.merged_into.insert(id, host);
                         evidence.record_boolean_fallbacks(
                             popkern_bool::merge_fallback::take_merge_fallback_events(),
                         );

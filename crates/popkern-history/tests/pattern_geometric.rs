@@ -396,14 +396,33 @@ fn mirror_pattern_produces_symmetric_geometry() {
         .iter()
         .map(|(_, v)| v.position.x)
         .collect();
-    for &x in &xs {
+    // Only the SEEDS mirror: every boss vertex (x in [0.2, 0.5]) has a
+    // counterpart at -x; the box itself stays where it is. (Before
+    // PK-387 the seeds lived in the host body, so the pattern's tool
+    // snapshot was the whole box + boss and the "mirror" cloned the
+    // host — every vertex had a counterpart by accident.)
+    let boss_xs: Vec<f64> = xs
+        .iter()
+        .copied()
+        .filter(|x| (0.2..=0.5).contains(x))
+        .collect();
+    assert!(!boss_xs.is_empty(), "boss vertices present");
+    for &x in &boss_xs {
         let has_mirror = xs.iter().any(|&other| (other + x).abs() < 0.1);
         assert!(
             has_mirror,
-            "vertex at x={x} should have a mirrored counterpart near x={}",
+            "boss vertex at x={x} should have a mirrored counterpart near x={}",
             -x
         );
     }
+    assert!(
+        xs.iter().all(|&x| (-0.5 - 1e-9..=1.0 + 1e-9).contains(&x)),
+        "the box is not mirrored: x range {:?}",
+        (
+            xs.iter().cloned().fold(f64::MAX, f64::min),
+            xs.iter().cloned().fold(f64::MIN, f64::max)
+        )
+    );
 }
 
 // ---------------------------------------------------------------------------

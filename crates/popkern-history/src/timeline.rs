@@ -213,17 +213,13 @@ pub(crate) fn infer_dependencies(
 /// Whether a feature starts a new body when it has no dependencies
 /// (a sketch on a base or custom plane, a raw body).
 pub(crate) fn starts_new_body(feature: &Feature) -> bool {
-    matches!(
-        feature,
-        Feature::Sketch {
-            plane: SketchPlaneDesc::XY
-                | SketchPlaneDesc::XZ
-                | SketchPlaneDesc::YZ
-                | SketchPlaneDesc::Custom { .. }
-                | SketchPlaneDesc::BaseOffset { .. },
-            ..
-        } | Feature::RawBody { .. }
-    )
+    // Every sketch is its own body: a sketch executes by REPLACING its
+    // body's BRep with the profile face, so a sketch placed in the body
+    // it references (an on-face sketch inheriting the host through its
+    // dependency) erased the host — the flagship plate vanished under a
+    // same-body boss (PK-387). The host relation is recovered by the
+    // Boss/Cut auto-merge through the on-face reference.
+    matches!(feature, Feature::Sketch { .. } | Feature::RawBody { .. })
 }
 
 /// Determine the [`BodyId`] for a newly created feature.
@@ -244,18 +240,7 @@ pub(super) fn resolve_body(
 ) -> BodyId {
     // A base sketch (no planar face dependency) and a body snapshot
     // always start a new body.
-    if matches!(
-        feature,
-        Feature::Sketch {
-            plane: SketchPlaneDesc::XY
-                | SketchPlaneDesc::XZ
-                | SketchPlaneDesc::YZ
-                | SketchPlaneDesc::Custom { .. }
-                | SketchPlaneDesc::BaseOffset { .. },
-            ..
-        } | Feature::RawBody { .. }
-    ) && depends_on.is_empty()
-    {
+    if starts_new_body(feature) {
         return body_manager.create_body();
     }
 
