@@ -12,5 +12,6 @@ thiserror.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
 popkern-sweep = { path = "../popkern-sweep" }
 popkern-blend = { path = "../popkern-blend" }

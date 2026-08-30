@@ -158,7 +158,7 @@ fn pre_transform_document_loads_unchanged() {
     tree.add_feature(
         Feature::Sketch {
             plane: crate::feature::SketchPlaneDesc::XY,
-            sketch_data: "{}".into(),
+            sketch_data: crate::SketchPayload::Constraint("{}".into()),
         },
         "Sketch1",
     );

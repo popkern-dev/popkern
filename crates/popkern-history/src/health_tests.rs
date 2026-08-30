@@ -52,7 +52,7 @@ fn healthy_tree_no_references_reports_no_issues() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -79,7 +79,7 @@ fn healthy_sketch_on_face_reference_resolves() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json.clone(),
+            sketch_data: crate::SketchPayload::Constraint(sketch_json.clone()),
         },
         "Sketch 1",
     );
@@ -121,7 +121,7 @@ fn broken_reference_detected() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );

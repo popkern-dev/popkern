@@ -87,8 +87,8 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(&str, ParameterId)> {
             count, total_angle, ..
         } => vec![("count", *count), ("total_angle", *total_angle)],
         Feature::CurvePattern { count, .. } => vec![("count", *count)],
-        Feature::Sketch { .. }
-        | Feature::Boolean { .. }
+        Feature::Sketch { sketch_data, .. } => sketch_data.param_ids(),
+        Feature::Boolean { .. }
         | Feature::Loft { .. }
         | Feature::Reference { .. }
         | Feature::Mirror { .. } => vec![],

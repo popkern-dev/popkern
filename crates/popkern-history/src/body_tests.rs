@@ -121,14 +121,14 @@ fn two_independent_sketches_create_two_bodies() {
     let _s1 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
     let _s2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 2",
     );
@@ -167,7 +167,7 @@ fn extrude_inherits_sketch_body() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -223,7 +223,7 @@ fn body_features_returns_correct_list() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -270,7 +270,7 @@ fn body_brep_returns_none_before_replay() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );

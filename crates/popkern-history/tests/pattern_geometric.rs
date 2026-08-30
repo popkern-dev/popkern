@@ -97,7 +97,7 @@ fn build_base_box(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -135,7 +135,7 @@ fn build_box_with_boss() -> (FeatureTree, BodyId, FeatureId, FeatureId) {
     let sk2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::OnFace(cap_face),
-            sketch_data: small_square_sketch_json(),
+            sketch_data: SketchPayload::Constraint(small_square_sketch_json()),
         },
         "Sketch2",
     );

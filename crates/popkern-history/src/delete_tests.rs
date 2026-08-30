@@ -22,7 +22,7 @@ fn entity_name(op_id: u64) -> EntityName {
 fn sketch_xy() -> Feature {
     Feature::Sketch {
         plane: SketchPlaneDesc::XY,
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     }
 }
 
@@ -105,7 +105,7 @@ fn cascade_no_dependents_deletes_only_target() {
     let b = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "B",
     );

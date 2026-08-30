@@ -19,7 +19,7 @@ fn add_dummy_feature(tree: &mut FeatureTree, label: &str) -> crate::node::Featur
     let node = FeatureNode {
         feature: Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         operation_id: OperationId::default(),
         label: label.to_string(),

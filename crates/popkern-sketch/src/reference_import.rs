@@ -97,15 +97,30 @@ impl SketchOnPlane {
                     }
                     CurveGeometry::Arc {
                         center,
+                        normal,
                         radius,
                         start_angle,
                         end_angle,
-                        ..
                     } => {
+                        // The kernel measures arc angles in its own
+                        // frame about `normal`; the sketch measures
+                        // them in the plane's (u, v). Re-measure the
+                        // start in sketch coordinates and carry the
+                        // signed sweep across (flipped when the arc
+                        // normal opposes the plane normal).
+                        use popkern_core::geometry::curve::CurveEval;
                         let (cx, cy) = self.plane.to_2d(*center);
-                        let ah = self
-                            .sketch
-                            .add_arc(cx, cy, *radius, *start_angle, *end_angle);
+                        let (sx, sy) = self
+                            .plane
+                            .to_2d(curve_on_edge.geometry.point_at(*start_angle));
+                        let a0 = (sy - cy).atan2(sx - cx);
+                        let sense = if normal.dot(&self.plane.normal) < 0.0 {
+                            -1.0
+                        } else {
+                            1.0
+                        };
+                        let a1 = a0 + sense * (end_angle - start_angle);
+                        let ah = self.sketch.add_arc(cx, cy, *radius, a0, a1);
                         self.sketch.set_construction(ElementHandle::Arc(ah), true);
                         imported.push(ElementHandle::Arc(ah));
                     }

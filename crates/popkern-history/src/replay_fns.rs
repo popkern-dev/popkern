@@ -15,6 +15,7 @@ use crate::error::ReplayError;
 use crate::feature::{
     BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, ShellDirectionKind, SketchPlaneDesc, Vec3Desc,
 };
+use crate::feature_sketch::SketchPayload;
 use crate::parameter::{ParameterId, ParameterTable};
 use crate::resolve::{
     resolve_direction, resolve_extrude_distance, resolve_face, resolve_sketch_plane,
@@ -31,43 +32,52 @@ pub(super) fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f
         })
 }
 
-/// Execute a sketch feature: deserialize the sketch, place it on a plane,
-/// assign stable names, solve, and convert to BRep.
+/// Execute a sketch feature in either dialect: place it on its plane,
+/// assign stable names, and convert to a BRep lamina. The constraint
+/// arm is deserialised and re-solved so parametric changes take
+/// effect; the analytic arm has its bindings resolved against the
+/// parameter table and is compiled exactly (never solved).
 pub(super) fn execute_sketch(
     brep: &mut BRep,
     plane_desc: &SketchPlaneDesc,
-    sketch_data: &str,
+    payload: &SketchPayload,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
 ) -> Result<(), ReplayError> {
     let plane = resolve_sketch_plane(plane_desc, brep, param_table)?;
-
-    let mut sketch: popkern_constraint::Sketch =
-        serde_json::from_str(sketch_data).map_err(|e| ReplayError::FeatureFailed {
-            label: "sketch".into(),
-            error: format!("failed to deserialize sketch: {e}"),
-        })?;
-
-    // Re-solve the sketch so parametric changes take effect on replay.
-    sketch.solve().map_err(|e| ReplayError::FeatureFailed {
+    let failed = |error: String| ReplayError::FeatureFailed {
         label: "sketch".into(),
-        error: format!("constraint solve failed: {e}"),
-    })?;
-
-    let mut sketch_on_plane = popkern_sketch::SketchOnPlane {
-        sketch,
-        plane,
-        element_names: std::collections::HashMap::new(),
+        error,
     };
-    sketch_on_plane.assign_element_names(tracking.operation);
 
-    let result = sketch_on_plane
-        .to_brep(*tolerance, Some(tracking))
-        .map_err(|e| ReplayError::FeatureFailed {
-            label: "sketch".into(),
-            error: e.to_string(),
-        })?;
+    let result = match payload {
+        crate::SketchPayload::Constraint(sketch_data) => {
+            let mut sketch: popkern_constraint::Sketch = serde_json::from_str(sketch_data)
+                .map_err(|e| failed(format!("failed to deserialize sketch: {e}")))?;
+
+            // Re-solve the sketch so parametric changes take effect on replay.
+            sketch
+                .solve()
+                .map_err(|e| failed(format!("constraint solve failed: {e}")))?;
+
+            let mut sketch_on_plane = popkern_sketch::SketchOnPlane {
+                sketch,
+                plane,
+                element_names: std::collections::HashMap::new(),
+            };
+            sketch_on_plane.assign_element_names(tracking.operation);
+            sketch_on_plane
+                .to_brep(*tolerance, Some(tracking))
+                .map_err(|e| failed(e.to_string()))?
+        }
+        SketchPayload::Analytic(profile) => {
+            let profile = crate::feature_sketch::resolve_profile(profile, param_table)?;
+            profile
+                .to_brep(plane, *tolerance, Some(tracking))
+                .map_err(|e| failed(format!("analytic profile {}: {e}", profile.describe())))?
+        }
+    };
 
     *brep = result.brep;
     Ok(())

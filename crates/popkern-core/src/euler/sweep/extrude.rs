@@ -18,6 +18,13 @@ pub struct ExtrudeResult {
     pub new_edges: Vec<EdgeHandle>,
     /// All new vertices created during extrusion.
     pub new_vertices: Vec<VertexHandle>,
+    /// Each base-loop edge paired with the top (cap-rim) edge that
+    /// `mef` created above it, in loop order. Recorded at Euler time
+    /// so geometry authoring never re-derives the pairing from vertex
+    /// pairs — ambiguous for a bigon lamina (a split circle's two
+    /// half-arcs, a line-plus-arc "D"), where every top edge received
+    /// the SAME base curve and one wall tessellated to nothing.
+    pub top_edge_of_base: Vec<(EdgeHandle, EdgeHandle)>,
 }
 
 impl BRep {
@@ -139,6 +146,7 @@ impl BRep {
 
         let mut top0_he: HalfEdgeHandle = HalfEdgeHandle::default();
         let mut cap_face = FaceHandle::default();
+        let mut top_edge_of_base: Vec<(EdgeHandle, EdgeHandle)> = Vec::with_capacity(n);
 
         for i in 0..n {
             let (he_a, he_b) = if i < n - 1 {
@@ -149,6 +157,7 @@ impl BRep {
 
             let mef_result = self.mef(he_a, he_b)?;
             new_edges.push(mef_result.edge);
+            top_edge_of_base.push((self.half_edges[loop_half_edges[i]].edge, mef_result.edge));
 
             if i == 0 {
                 // The twin from the first mef has origin v0' and lives in
@@ -201,6 +210,7 @@ impl BRep {
             side_faces,
             new_edges,
             new_vertices,
+            top_edge_of_base,
         };
         // PK-316: author the geometry the sweep created — the Euler
         // topology alone leaves mef-inherited base surfaces on every

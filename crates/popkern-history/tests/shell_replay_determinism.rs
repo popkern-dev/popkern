@@ -59,7 +59,7 @@ fn build_offset_family_tree() -> FeatureTree {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -138,7 +138,7 @@ fn shell_knobs_change_the_replayed_body() {
         tree.add_feature(
             Feature::Sketch {
                 plane: SketchPlaneDesc::XY,
-                sketch_data: rectangle_sketch_json(),
+                sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
             },
             "Sketch1",
         );

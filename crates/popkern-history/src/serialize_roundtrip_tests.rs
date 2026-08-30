@@ -38,7 +38,7 @@ fn save_load_all_feature_types() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: "base".into(),
+            sketch_data: crate::SketchPayload::Constraint("base".into()),
         },
         "Sketch",
     );
@@ -169,6 +169,21 @@ fn save_load_all_feature_types() {
         "Pipe",
     );
 
+    // The analytic sketch dialect (PK-364), with one bound dimension.
+    let radius = add_param(&mut tree, "_radius", 0.25, Unit::Meters);
+    tree.add_feature(
+        Feature::Sketch {
+            plane: SketchPlaneDesc::XY,
+            sketch_data: crate::SketchPayload::Analytic(popkern_sketch::AnalyticProfile {
+                shape: popkern_sketch::ProfileShape::Circle {
+                    radius: radius.into(),
+                },
+                center: [1.0.into(), 0.0.into()],
+            }),
+        },
+        "AnalyticSketch",
+    );
+
     let bytes = tree.save().expect("save all features");
     let loaded = FeatureTree::load(&bytes).expect("load all features");
 
@@ -187,6 +202,7 @@ fn save_load_all_feature_types() {
         "Sweep",
         "Loft",
         "Pipe",
+        "AnalyticSketch",
     ];
     for (i, &fid) in loaded.timeline().iter().enumerate() {
         assert_eq!(loaded.feature(fid).unwrap().label, labels[i]);
@@ -216,6 +232,30 @@ fn save_load_all_feature_types() {
     assert!(matches!(f(9), Feature::Revolve { .. }));
     assert!(matches!(f(11), Feature::Loft { .. }));
     assert!(matches!(f(12), Feature::Pipe { .. }));
+    // The analytic arm survives with its binding intact; the constraint
+    // arm stays the bare string (v3 wire form).
+    match f(13) {
+        Feature::Sketch {
+            sketch_data: crate::SketchPayload::Analytic(profile),
+            ..
+        } => {
+            assert_eq!(
+                profile.shape,
+                popkern_sketch::ProfileShape::Circle {
+                    radius: crate::ScalarBinding::Parameter(radius)
+                }
+            );
+            assert_eq!(profile.center, [1.0.into(), 0.0.into()]);
+        }
+        other => panic!("expected analytic sketch, got {other:?}"),
+    }
+    assert!(matches!(
+        f(0),
+        Feature::Sketch {
+            sketch_data: crate::SketchPayload::Constraint(_),
+            ..
+        }
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -228,14 +268,14 @@ fn save_load_preserves_suppressed_and_config() {
     let s0 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "S0",
     );
     let _s1 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "S1",
     );

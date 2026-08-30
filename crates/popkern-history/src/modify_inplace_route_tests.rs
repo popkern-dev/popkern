@@ -70,7 +70,7 @@ fn fillet_radius_tweak_refreshes_cached_state() {
     let anchor = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "anchor",
     );
@@ -134,7 +134,7 @@ fn edge_set_change_falls_back_to_full_replay() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "sketch",
     );
@@ -194,7 +194,7 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "sketch",
     );
@@ -336,7 +336,7 @@ fn fillet_recipe_change_declines_in_place_route() {
     let anchor = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "anchor",
     );
@@ -405,7 +405,7 @@ fn literal_plane_draft_angle_tweak_routes_in_place() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "sketch",
     );

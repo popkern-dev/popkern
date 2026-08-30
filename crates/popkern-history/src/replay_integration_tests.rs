@@ -52,7 +52,7 @@ fn suppress_if_true_skips_feature() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -115,7 +115,7 @@ fn suppress_if_false_executes_feature() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -166,7 +166,7 @@ fn manual_suppress_independent_of_suppress_if() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -231,7 +231,7 @@ fn expression_evaluation_propagates_before_replay() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -295,7 +295,7 @@ fn transaction_rollback_restores_brep_on_failure() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -388,7 +388,7 @@ fn eval_warnings_populated_on_math_error() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );
@@ -430,7 +430,7 @@ fn eval_warnings_populated_on_bounds_clamping() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );

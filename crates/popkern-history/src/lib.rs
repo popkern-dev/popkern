@@ -32,6 +32,7 @@ pub mod feature;
 pub mod feature_blend;
 pub mod feature_draft;
 mod feature_params;
+pub mod feature_sketch;
 pub mod feature_transform;
 pub mod format;
 pub mod health;
@@ -83,6 +84,10 @@ pub use queries::ImpactReport;
 pub use unit::{DimensionKind, Unit};
 pub use {cache::CacheStrategy, csv::CsvImportResult};
 pub use {feature_draft::NeutralPlaneDesc, feature_transform::RigidMotionDesc};
+pub use {
+    feature_sketch::AnalyticSketchDesc, feature_sketch::ScalarBinding,
+    feature_sketch::SketchPayload,
+};
 
 use std::collections::HashMap;
 
@@ -477,19 +482,6 @@ impl FeatureTree {
     /// Returns an empty [`Vec`] if the body does not exist.
     pub fn body_features(&self, body: BodyId) -> Vec<FeatureId> {
         self.body_manager.body_features(body)
-    }
-
-    // -- Index maintenance ----------------------------------------------------
-
-    /// Rebuild the [`OperationId`] -> [`FeatureId`] index from the features
-    /// SlotMap.
-    ///
-    /// Called after deserialization to restore the transient `op_index` field.
-    pub(crate) fn rebuild_indices(&mut self) {
-        self.op_index.clear();
-        for (fid, node) in &self.features {
-            self.op_index.insert(node.operation_id, fid);
-        }
     }
 }
 

@@ -8,6 +8,9 @@
 //! [`CurveOnEdge`] bindings and 2D pcurves (`NurbsCurve` with z=0)
 //! suitable for attaching to BRep edges and half-edges.
 
+#[path = "curve_convert_spline.rs"]
+mod spline;
+
 use crate::error::SketchError;
 use crate::loop_tracer::DirectedEdge;
 use crate::plane::SketchPlane;
@@ -15,6 +18,7 @@ use popkern_constraint::{ElementHandle, Sketch};
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::pcurve::Pcurve;
 
 /// Number of sample points used when approximating conics as NURBS.
 const CONIC_SAMPLE_COUNT: usize = 20;
@@ -35,32 +39,85 @@ pub(crate) fn convert_to_3d(
         ElementHandle::Ellipse(_) => convert_conic_3d(directed, sketch, plane, &directed.element),
         ElementHandle::Parabola(_) => convert_conic_3d(directed, sketch, plane, &directed.element),
         ElementHandle::Hyperbola(_) => convert_conic_3d(directed, sketch, plane, &directed.element),
-        ElementHandle::Spline(h) => convert_spline_3d(directed, sketch, plane, *h),
+        ElementHandle::Spline(h) => spline::convert_spline_3d(directed, sketch, plane, *h),
         ElementHandle::Point(_) => Err(SketchError::InvalidTopology(
             "point elements cannot be converted to curves".into(),
         )),
     }
 }
 
-/// Convert a 2D sketch element to a 2D pcurve (NurbsCurve with z=0).
-///
-/// The resulting NURBS curve lives in the sketch plane's UV parameter
-/// space. Control point z-coordinates are always 0.
+/// Convert a 2D sketch element to a pcurve in the sketch plane's UV
+/// chart, parameterised in the DIRECTED edge's traversal direction
+/// (`t_start` at `directed.start`). Arcs are exact rational quadratics
+/// whose parameter is the 3-D arc's angle (see [`convert_to_3d`]);
+/// every other element's pcurve runs on its own `[0, 1]`.
 pub(crate) fn convert_to_pcurve(
     directed: &DirectedEdge,
     sketch: &Sketch,
-) -> Result<NurbsCurve, SketchError> {
+    plane: &SketchPlane,
+) -> Result<Pcurve, SketchError> {
     match &directed.element {
-        ElementHandle::Line(_) => convert_line_pcurve(directed),
-        ElementHandle::Arc(h) => convert_arc_pcurve(directed, sketch, *h),
+        ElementHandle::Line(_) => convert_line_pcurve(directed).map(Pcurve::from_nurbs),
+        ElementHandle::Arc(h) => convert_arc_pcurve(directed, sketch, plane, *h),
         ElementHandle::Ellipse(_) | ElementHandle::Parabola(_) | ElementHandle::Hyperbola(_) => {
-            convert_conic_pcurve(directed, sketch, &directed.element)
+            convert_conic_pcurve(directed, sketch, &directed.element).map(Pcurve::from_nurbs)
         }
-        ElementHandle::Spline(h) => convert_spline_pcurve(directed, sketch, *h),
+        ElementHandle::Spline(h) => spline::convert_spline_pcurve(directed, sketch, *h),
         ElementHandle::Point(_) => Err(SketchError::InvalidTopology(
             "point elements cannot be converted to pcurves".into(),
         )),
     }
+}
+
+/// A directed arc edge as sketch-plane geometry: centre, radius, the
+/// angle of `directed.start` (sketch-plane `atan2`), and the SIGNED
+/// angular sweep to `directed.end` in the traversal direction.
+///
+/// Sketch arcs run counter-clockwise from their start angle to their
+/// end angle (clockwise when the end angle is the smaller); a graph
+/// edge follows the element unless `reversed`. The sweep is derived
+/// from that sense and the endpoint angles — never from the raw
+/// element angles (a split full circle shares them between halves)
+/// and never by subtracting two `atan2` values (the ±π branch cut
+/// flipped every arc crossing it onto the complementary run; a
+/// constraint-sketch circle extruded as two identical half-arcs,
+/// validate red with a `√2` loop gap).
+struct DirectedArc {
+    cx: f64,
+    cy: f64,
+    r: f64,
+    start_angle: f64,
+    sweep: f64,
+}
+
+fn directed_arc(
+    directed: &DirectedEdge,
+    sketch: &Sketch,
+    handle: popkern_constraint::ArcHandle,
+) -> Result<DirectedArc, SketchError> {
+    use std::f64::consts::TAU;
+    let (cx, cy, r, elem_start, elem_end) = sketch
+        .arc_params(handle)
+        .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
+    let ccw = (elem_end >= elem_start) != directed.reversed;
+    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
+    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
+    let forward = (end_angle - start_angle).rem_euclid(TAU);
+    let magnitude = if ccw { forward } else { TAU - forward };
+    // Coincident endpoints on an arc element mean a full turn (a
+    // split circle's halves never coincide).
+    let magnitude = if !(1e-12..=TAU - 1e-12).contains(&magnitude) {
+        TAU
+    } else {
+        magnitude
+    };
+    Ok(DirectedArc {
+        cx,
+        cy,
+        r,
+        start_angle,
+        sweep: if ccw { magnitude } else { -magnitude },
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -110,32 +167,27 @@ fn convert_line_pcurve(directed: &DirectedEdge) -> Result<NurbsCurve, SketchErro
 
 /// Convert an arc directed edge to a 3D CurveOnEdge.
 ///
-/// Derives the actual angular range from the directed edge's start/end
-/// positions, which may differ from the original arc parameters when a
-/// full circle has been split into two half-arcs.
+/// The kernel's `Arc` evaluator measures angles in the frame
+/// [`circle_basis`](popkern_core::geometry::analytic_curves::circle_basis)
+/// derives from the normal — NOT the sketch plane's `(u, v)` — so the
+/// start angle is re-measured in that frame from the 3-D start point
+/// and the signed sweep (which both right-handed frames share) is
+/// added to it. `t_start`/`t_end` run in the traversal direction.
 fn convert_arc_3d(
     directed: &DirectedEdge,
     sketch: &Sketch,
     plane: &SketchPlane,
     handle: popkern_constraint::ArcHandle,
 ) -> Result<CurveOnEdge, SketchError> {
-    let (cx, cy, r, _original_start, _original_end) = sketch
-        .arc_params(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
-
-    // Derive angles from the directed edge's 2D positions rather than
-    // the sketch arc's original parameters. This correctly handles arcs
-    // that have been split (e.g., full circles split into semicircles).
-    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
-    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
-
-    let center_3d = plane.to_3d(cx, cy);
-
+    let arc = directed_arc(directed, sketch, handle)?;
+    let center_3d = plane.to_3d(arc.cx, arc.cy);
+    let start_angle = arc_frame_angle(plane, &arc, directed.start);
+    let end_angle = start_angle + arc.sweep;
     Ok(CurveOnEdge {
         geometry: CurveGeometry::Arc {
             center: center_3d,
             normal: plane.normal,
-            radius: r,
+            radius: arc.r,
             start_angle,
             end_angle,
         },
@@ -144,40 +196,52 @@ fn convert_arc_3d(
     })
 }
 
-/// Convert an arc directed edge to a 2D pcurve (sampled NURBS).
-///
-/// Derives the actual angular range from the directed edge's start/end
-/// positions, which may differ from the original arc parameters when a
-/// full circle has been split into two half-arcs.
+/// The angle of sketch point `p` about the arc centre, measured in the
+/// frame the kernel's `Arc` evaluator uses for `plane.normal`.
+fn arc_frame_angle(plane: &SketchPlane, arc: &DirectedArc, p: (f64, f64)) -> f64 {
+    use popkern_core::geometry::analytic_curves::circle_basis;
+    let (u, v) = circle_basis(plane.normal);
+    let d = plane.to_3d(p.0, p.1) - plane.to_3d(arc.cx, arc.cy);
+    d.dot(&v).atan2(d.dot(&u))
+}
+
+/// Convert an arc directed edge to an EXACT rational-quadratic pcurve
+/// whose parameter is the 3-D arc's angle (the same frame offset as
+/// [`convert_arc_3d`]), so pcurve and edge curve agree at every span
+/// joint. `t_start` is at `directed.start`; a clockwise traversal has
+/// `t_start > t_end` over a counter-clockwise-spelled NURBS.
 fn convert_arc_pcurve(
     directed: &DirectedEdge,
     sketch: &Sketch,
+    plane: &SketchPlane,
     handle: popkern_constraint::ArcHandle,
-) -> Result<NurbsCurve, SketchError> {
-    let (cx, cy, r, _original_start, _original_end) = sketch
-        .arc_params(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
-
-    // Derive angles from the directed edge's 2D positions.
-    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
-    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
-
-    let n = CONIC_SAMPLE_COUNT;
-    let points: Vec<Point3> = (0..=n)
-        .map(|i| {
-            let t = start_angle + (end_angle - start_angle) * (i as f64 / n as f64);
-            let x = cx + r * t.cos();
-            let y = cy + r * t.sin();
-            Point3::new(x, y, 0.0)
-        })
-        .collect();
-
-    let params: Vec<f64> = (0..=n).map(|i| i as f64 / n as f64).collect();
-    let num_cp = (n / 2).max(4);
-
-    popkern_core::geometry::fitting::fit_curve(&points, &params, 3, num_cp)
-        .map_err(|e| SketchError::InvalidTopology(format!("arc pcurve fitting failed: {e}")))
+) -> Result<Pcurve, SketchError> {
+    let arc = directed_arc(directed, sketch, handle)?;
+    let (a_lo, a_hi) = if arc.sweep >= 0.0 {
+        (arc.start_angle, arc.start_angle + arc.sweep)
+    } else {
+        (arc.start_angle + arc.sweep, arc.start_angle)
+    };
+    let mut spans = crate::exact_arc::arc_spans(arc.cx, arc.cy, arc.r, a_lo, a_hi, 0.0);
+    // Knot labels carry the 3-D frame's angle: both frames are
+    // right-handed about the plane normal, so the offset between the
+    // sketch-plane angle and the evaluator-frame angle is a constant.
+    let offset = arc_frame_angle(plane, &arc, directed.start) - arc.start_angle;
+    for s in &mut spans {
+        s.t0 += offset;
+        s.t1 += offset;
+    }
+    let nurbs = crate::exact_arc::assemble_quadratic(&spans);
+    let mut pcurve = Pcurve::from_nurbs(nurbs);
+    if arc.sweep < 0.0 {
+        std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
+    }
+    Ok(pcurve)
 }
+
+// ---------------------------------------------------------------------------
+// Splines: see `curve_convert_spline`.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Conics (Ellipse, Parabola, Hyperbola) — sample and fit
@@ -332,107 +396,6 @@ fn angle_from_ellipse_point(
 // ---------------------------------------------------------------------------
 // Spline
 // ---------------------------------------------------------------------------
-
-/// Convert a spline directed edge to a 3D CurveOnEdge.
-///
-/// Reads the spline's control points, knots, weights, and degree from
-/// the sketch, transforms control points to 3D, and builds a NURBS
-/// curve directly.
-fn convert_spline_3d(
-    directed: &DirectedEdge,
-    sketch: &Sketch,
-    plane: &SketchPlane,
-    handle: popkern_constraint::SplineHandle,
-) -> Result<CurveOnEdge, SketchError> {
-    let cp_handles = sketch
-        .spline_control_points(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?;
-
-    let degree = sketch
-        .spline_degree(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?;
-
-    let knots = sketch
-        .spline_knots(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?
-        .to_vec();
-
-    let weights = sketch
-        .spline_weights(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?
-        .to_vec();
-
-    let control_points_3d: Result<Vec<Point3>, SketchError> = cp_handles
-        .iter()
-        .map(|&ph| {
-            let (x, y) = sketch.point_position(ph).ok_or_else(|| {
-                SketchError::InvalidTopology("spline control point is invalid".into())
-            })?;
-            Ok(plane.to_3d(x, y))
-        })
-        .collect();
-
-    let control_points_3d = control_points_3d?;
-
-    let (t_start, t_end) = if directed.reversed {
-        (1.0, 0.0)
-    } else {
-        (0.0, 1.0)
-    };
-
-    Ok(CurveOnEdge {
-        geometry: CurveGeometry::Nurbs(NurbsCurve {
-            degree,
-            knots,
-            control_points: control_points_3d,
-            weights,
-        }),
-        t_start,
-        t_end,
-    })
-}
-
-/// Convert a spline directed edge to a 2D pcurve.
-fn convert_spline_pcurve(
-    _directed: &DirectedEdge,
-    sketch: &Sketch,
-    handle: popkern_constraint::SplineHandle,
-) -> Result<NurbsCurve, SketchError> {
-    let cp_handles = sketch
-        .spline_control_points(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?;
-
-    let degree = sketch
-        .spline_degree(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?;
-
-    let knots = sketch
-        .spline_knots(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?
-        .to_vec();
-
-    let weights = sketch
-        .spline_weights(handle)
-        .ok_or_else(|| SketchError::InvalidTopology("spline handle is invalid".into()))?
-        .to_vec();
-
-    let control_points: Result<Vec<Point3>, SketchError> = cp_handles
-        .iter()
-        .map(|&ph| {
-            let (x, y) = sketch.point_position(ph).ok_or_else(|| {
-                SketchError::InvalidTopology("spline control point is invalid".into())
-            })?;
-            Ok(Point3::new(x, y, 0.0))
-        })
-        .collect();
-
-    Ok(NurbsCurve {
-        degree,
-        knots,
-        control_points: control_points?,
-        weights,
-    })
-}
 
 #[cfg(test)]
 #[path = "curve_convert_tests.rs"]

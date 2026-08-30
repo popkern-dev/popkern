@@ -13,7 +13,7 @@ use crate::unit::Unit;
 fn sketch_xy() -> Feature {
     Feature::Sketch {
         plane: SketchPlaneDesc::XY,
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     }
 }
 

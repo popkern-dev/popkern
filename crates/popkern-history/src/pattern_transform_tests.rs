@@ -370,7 +370,7 @@ fn non_pattern_feature_returns_error() {
     let brep = BRep::new(Tolerance::default());
     let feature = Feature::Sketch {
         plane: crate::feature::SketchPlaneDesc::XY,
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     };
     let result = compute_pattern_transforms(&feature, &brep, &ParameterTable::new());
     assert!(

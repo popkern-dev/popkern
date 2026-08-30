@@ -64,7 +64,7 @@ fn sketch_replay_produces_faces() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -101,7 +101,7 @@ fn sketch_and_extrude_replay_produces_box() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -159,7 +159,7 @@ fn suppressed_feature_is_skipped() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -257,7 +257,7 @@ fn replay_returns_positive_elapsed() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -283,7 +283,7 @@ fn replay_from_invalid_id_fails() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -341,7 +341,7 @@ fn revolve_produces_brep() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -412,7 +412,7 @@ fn freeze_skips_frozen_features() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json.clone(),
+            sketch_data: crate::SketchPayload::Constraint(sketch_json.clone()),
         },
         "Sketch 1",
     );

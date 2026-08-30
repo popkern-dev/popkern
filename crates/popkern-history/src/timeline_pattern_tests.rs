@@ -38,7 +38,7 @@ fn add_sketch_and_extrude(
     let sketch = tree.add_feature(
         Feature::Sketch {
             plane: crate::feature::SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         &format!("Sketch{op_id}"),
     );

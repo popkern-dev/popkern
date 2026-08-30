@@ -22,7 +22,7 @@ fn add_seed(tree: &mut FeatureTree, tag: &str) -> (crate::node::FeatureId, crate
     let sketch = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         &format!("Sketch_{tag}"),
     );

@@ -63,7 +63,7 @@ fn save_load_with_expressions_round_trip() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -161,7 +161,7 @@ fn undo_parameter_expression_and_replay() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -311,7 +311,7 @@ fn delete_cleans_up_feature_parameters() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -384,7 +384,7 @@ fn parameter_bounds_clamping() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );

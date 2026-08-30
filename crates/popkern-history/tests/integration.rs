@@ -55,7 +55,7 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -189,7 +189,7 @@ fn rollback_and_insert_feature() {
     let sk2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch2",
     );
@@ -202,7 +202,7 @@ fn rollback_and_insert_feature() {
         .insert_feature_at_rollback(
             Feature::Sketch {
                 plane: SketchPlaneDesc::YZ,
-                sketch_data: rectangle_sketch_json(),
+                sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
             },
             "InsertedSketch",
         )
@@ -383,14 +383,14 @@ fn multiple_sketches_create_separate_bodies() {
     let sk1 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
     let sk2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch2",
     );

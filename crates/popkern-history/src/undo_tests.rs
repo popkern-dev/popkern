@@ -7,7 +7,7 @@ use crate::feature::{Feature, SketchPlaneDesc};
 fn sketch_xy() -> Feature {
     Feature::Sketch {
         plane: SketchPlaneDesc::XY,
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     }
 }
 
@@ -15,7 +15,7 @@ fn sketch_xy() -> Feature {
 fn sketch_xz() -> Feature {
     Feature::Sketch {
         plane: SketchPlaneDesc::XZ,
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     }
 }
 
@@ -79,7 +79,7 @@ fn undo_modify_restores_old_params() {
         id,
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: "modified".to_string(),
+            sketch_data: crate::SketchPayload::Constraint("modified".to_string()),
         },
     );
 
@@ -117,7 +117,7 @@ fn redo_modify_restores_new_params() {
         id,
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: "modified".to_string(),
+            sketch_data: crate::SketchPayload::Constraint("modified".to_string()),
         },
     );
     tree.undo();
@@ -258,7 +258,7 @@ fn new_mutation_truncates_redo_history() {
     let id2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::YZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "C",
     );
@@ -330,7 +330,7 @@ fn undo_reorder_restores_original_position() {
     let id2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::YZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "C",
     );

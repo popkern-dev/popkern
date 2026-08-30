@@ -6,6 +6,7 @@
 
 use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
 use crate::feature_draft::NeutralPlaneDesc;
+use crate::feature_sketch::SketchPayload;
 use crate::feature_transform::RigidMotionDesc;
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
@@ -19,13 +20,14 @@ use serde::{Deserialize, Serialize};
 /// replayed from scratch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Feature {
-    /// A 2D sketch placed on a plane (or face), described by a JSON payload
-    /// produced by `popkern-sketch`.
+    /// A 2D sketch placed on a plane (or face): a constraint sketch
+    /// (JSON, re-solved on replay) or an analytic profile (compiled
+    /// exactly on replay) — see [`SketchPayload`].
     Sketch {
         /// Description of the plane on which the sketch lives.
         plane: SketchPlaneDesc,
-        /// JSON-encoded sketch data (geometry + constraints).
-        sketch_data: String,
+        /// The sketch itself, in either dialect.
+        sketch_data: SketchPayload,
     },
     /// Extrude a face by sweeping it along a direction.
     Extrude {

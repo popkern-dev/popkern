@@ -57,7 +57,7 @@ fn build_sketch_extrude_tree() -> (FeatureTree, FeatureId, FeatureId) {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -139,7 +139,7 @@ fn memory_budget_evicts_oldest() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json.clone(),
+            sketch_data: crate::SketchPayload::Constraint(sketch_json.clone()),
         },
         "Sketch 1",
     );
@@ -165,7 +165,7 @@ fn memory_budget_evicts_oldest() {
     let second_sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 2",
     );
@@ -237,7 +237,7 @@ fn every_nth_caches_only_matching_indices() {
     let s1 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json.clone(),
+            sketch_data: crate::SketchPayload::Constraint(sketch_json.clone()),
         },
         "Sketch 1",
     );
@@ -263,7 +263,7 @@ fn every_nth_caches_only_matching_indices() {
     let s2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json.clone(),
+            sketch_data: crate::SketchPayload::Constraint(sketch_json.clone()),
         },
         "Sketch 2",
     );
@@ -271,7 +271,7 @@ fn every_nth_caches_only_matching_indices() {
     let e2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 3",
     );

@@ -59,7 +59,7 @@ fn replay_with_literal_override_uses_config_value() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch",
     );
@@ -125,7 +125,7 @@ fn replay_with_config_suppression_skips_feature() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch",
     );
@@ -189,7 +189,7 @@ fn replay_without_config_uses_defaults() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch",
     );

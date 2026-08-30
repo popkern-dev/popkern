@@ -3415,6 +3415,7 @@ dependencies = [
  "popkern-io",
  "popkern-mesh",
  "popkern-shell",
+ "popkern-sketch",
  "popkern-sweep",
  "serde_json",
  "thiserror 2.0.18",
@@ -3442,6 +3443,7 @@ dependencies = [
  "popkern-core",
  "popkern-sweep",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 

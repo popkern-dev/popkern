@@ -10,6 +10,7 @@ popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-blend = { path = "../popkern-blend" }
 popkern-sweep = { path = "../popkern-sweep" }
+popkern-sketch = { path = "../popkern-sketch" }
 popkern-io = { path = "../popkern-io" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }

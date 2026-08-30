@@ -110,3 +110,17 @@ mod tests;
 #[cfg(test)]
 #[path = "serialize_roundtrip_tests.rs"]
 mod roundtrip_tests;
+
+impl FeatureTree {
+    /// Rebuild the `OperationId` -> `FeatureId` index from the features
+    /// SlotMap.
+    ///
+    /// Called after deserialization to restore the transient `op_index`
+    /// field.
+    pub(crate) fn rebuild_indices(&mut self) {
+        self.op_index.clear();
+        for (fid, node) in &self.features {
+            self.op_index.insert(node.operation_id, fid);
+        }
+    }
+}

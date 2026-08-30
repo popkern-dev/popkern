@@ -68,7 +68,7 @@ fn parametric_extrude_with_expression() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -173,7 +173,7 @@ fn expression_chain_across_features() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );
@@ -278,7 +278,7 @@ fn conditional_suppression_end_to_end() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );

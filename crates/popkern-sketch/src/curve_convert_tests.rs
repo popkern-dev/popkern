@@ -138,7 +138,10 @@ fn reversed_line_swaps_t() {
 }
 
 #[test]
-fn reversed_arc_swaps_angles() {
+fn reversed_arc_runs_from_its_directed_start_with_a_clockwise_sweep() {
+    // The kernel's Arc evaluator measures angles in its own frame
+    // (`circle_basis`), not the sketch plane's, so the contract is on
+    // EVALUATED endpoints and the signed sweep, never on raw angles.
     let mut sk = Sketch::new();
     let _arc = sk.add_arc(0.0, 0.0, 1.0, 0.0, FRAC_PI_2);
     let plane = SketchPlane::xy();
@@ -151,24 +154,35 @@ fn reversed_arc_swaps_angles() {
     };
 
     let curve = convert_to_3d(&de, &sk, &plane).unwrap();
-    match &curve.geometry {
-        CurveGeometry::Arc {
-            start_angle,
-            end_angle,
-            ..
-        } => {
-            // Original: start=0, end=PI/2. Reversed swaps them.
-            assert!(
-                (*start_angle - FRAC_PI_2).abs() < 1e-10,
-                "reversed arc start_angle should be PI/2, got {start_angle}"
-            );
-            assert!(
-                (*end_angle - 0.0).abs() < 1e-10,
-                "reversed arc end_angle should be 0, got {end_angle}"
-            );
-        }
-        _ => panic!("expected Arc geometry"),
-    }
+    let CurveGeometry::Arc {
+        start_angle,
+        end_angle,
+        ..
+    } = &curve.geometry
+    else {
+        panic!("expected Arc geometry");
+    };
+    assert!(
+        (end_angle - start_angle + FRAC_PI_2).abs() < 1e-10,
+        "reversed quarter arc sweeps −π/2, got {}",
+        end_angle - start_angle
+    );
+    let p0 = curve.geometry.point_at(curve.t_start);
+    let p1 = curve.geometry.point_at(curve.t_end);
+    assert!(
+        p0.distance_to(&Point3::new(0.0, 1.0, 0.0)) < 1e-10,
+        "start {p0:?}"
+    );
+    assert!(
+        p1.distance_to(&Point3::new(1.0, 0.0, 0.0)) < 1e-10,
+        "end {p1:?}"
+    );
+    // Midpoint on the quarter between them (never the ¾ complement).
+    let m = curve.geometry.point_at((curve.t_start + curve.t_end) / 2.0);
+    assert!(
+        m.x > 0.0 && m.y > 0.0,
+        "midpoint {m:?} must stay in the first quadrant"
+    );
 }
 
 #[test]
@@ -179,7 +193,8 @@ fn line_pcurve_has_correct_2d_points() {
     let lh = sk.add_line(p0, p1);
 
     let de = line_directed_edge(&sk, p0, p1, lh, false);
-    let pcurve = convert_to_pcurve(&de, &sk).unwrap();
+    let pcurve = convert_to_pcurve(&de, &sk, &SketchPlane::xy()).unwrap();
+    let pcurve = pcurve.as_nurbs().expect("line pcurve is NURBS");
 
     assert_eq!(pcurve.degree, 1);
     assert_eq!(pcurve.control_points.len(), 2);
@@ -188,4 +203,50 @@ fn line_pcurve_has_correct_2d_points() {
     assert!((pcurve.control_points[0].z - 0.0).abs() < 1e-10);
     assert!((pcurve.control_points[1].x - 5.0).abs() < 1e-10);
     assert!((pcurve.control_points[1].y - 7.0).abs() < 1e-10);
+}
+
+/// A periodic sketch spline is spelled for the kernel as the
+/// equivalent unclamped open NURBS (extended knots, wrapped control
+/// points); both evaluators agree along the whole period, and each
+/// quarter-piece edge carries its own parameter sub-range — the lamina
+/// validates under the full gate (before: every piece carried the
+/// whole spline on `[0, 1]`, and evaluating it indexed past the
+/// control points).
+#[test]
+fn periodic_spline_pieces_carry_their_sub_range_and_match_the_sketch_evaluator() {
+    let mut sop = crate::SketchOnPlane::new(SketchPlane::xy());
+    let through = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)];
+    let (sh, _) = sop
+        .sketch
+        .add_closed_spline_through_points(&through)
+        .unwrap();
+    let result = sop.to_brep(crate::Tolerance::default(), None).unwrap();
+    assert!(
+        result.brep.validate_all().is_empty(),
+        "{:?}",
+        result.brep.validate_all()
+    );
+    assert_eq!(result.brep.edges.len(), 4);
+    let mut covered = 0.0;
+    for e in result.brep.edges.values() {
+        let c = e.curve.as_ref().unwrap();
+        let (lo, hi) = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+        covered += hi - lo;
+        for i in 0..=20 {
+            let t = lo + (hi - lo) * i as f64 / 20.0;
+            let p = c.geometry.point_at(t);
+            let (x, y) = sop.sketch.spline_point_at(sh, t).unwrap();
+            assert!(
+                (p.x - x).abs() < 1e-9 && (p.y - y).abs() < 1e-9,
+                "t={t}: kernel ({}, {}) vs sketch ({x}, {y})",
+                p.x,
+                p.y
+            );
+        }
+    }
+    // Four quarters tile the period exactly once.
+    assert!(
+        (covered - 4.0).abs() < 1e-6,
+        "pieces cover {covered} of period 4"
+    );
 }

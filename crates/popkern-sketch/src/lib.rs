@@ -8,20 +8,28 @@
 //! 1. Define a [`SketchPlane`] in 3D space
 //! 2. Build and solve a 2D sketch using `popkern-constraint`
 //! 3. Convert the sketch into a BRep face via [`SketchOnPlane::to_brep`]
+//!
+//! The second sketch dialect — analytic profiles compiled to exact
+//! wires or faces without a solve — lives in [`profile`] /
+//! [`profile_compile`] and shares steps 1 and 3.
 
 pub(crate) mod brep_builder;
 pub(crate) mod containment;
 pub(crate) mod curve_convert;
 pub(crate) mod edge_graph;
 pub mod error;
+pub(crate) mod exact_arc;
 pub(crate) mod loop_tracer;
 pub(crate) mod nesting;
 pub mod plane;
+pub mod profile;
+pub mod profile_compile;
 pub(crate) mod reference_import;
 pub(crate) mod self_intersection;
 
 pub use error::{SketchError, SketchWarning};
 pub use plane::SketchPlane;
+pub use profile::{AnalyticProfile, PathSegment, ProfileError, ProfileShape};
 
 // Re-export frequently used types from dependencies for convenience.
 pub use popkern_constraint::{Constraint, Sketch};

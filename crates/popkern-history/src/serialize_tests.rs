@@ -58,7 +58,7 @@ fn save_load_preserves_structure() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -124,7 +124,7 @@ fn session_local_fields_not_serialized() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -176,7 +176,7 @@ fn save_load_replay_produces_same_brep() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );
@@ -267,7 +267,7 @@ fn rollback_index_preserved() {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: sketch_json,
+            sketch_data: crate::SketchPayload::Constraint(sketch_json),
         },
         "Sketch 1",
     );

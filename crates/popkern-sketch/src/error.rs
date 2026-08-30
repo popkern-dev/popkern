@@ -27,6 +27,10 @@ pub enum SketchError {
     #[error("invalid topology: {0}")]
     InvalidTopology(String),
 
+    /// An analytic profile that cannot be compiled.
+    #[error(transparent)]
+    Profile(#[from] crate::profile::ProfileError),
+
     /// An error propagated from the constraint solver.
     #[error(transparent)]
     ConstraintError(#[from] popkern_constraint::ConstraintError),

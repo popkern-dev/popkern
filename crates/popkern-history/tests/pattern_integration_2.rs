@@ -58,7 +58,7 @@ fn build_sketch_extrude(distance: f64) -> (FeatureTree, FeatureId, FeatureId) {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch1",
     );

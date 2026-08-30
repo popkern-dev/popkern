@@ -16,9 +16,12 @@
 //! - top edges: the corresponding base edge's curve translated by the
 //!   displacement (a chord line when the base edge carries no curve);
 //! - side faces: a plane from the loop winding when the base edge is
-//!   straight; a ruled NURBS (base curve × displacement) otherwise —
-//!   geometrically exact for any base curve, analytic promotion is a
-//!   recorded follow-up;
+//!   straight; a true `Cylinder` when the base edge is a circular arc
+//!   whose plane normal is parallel to the displacement (PK-377 — an
+//!   extruded arc IS a cylinder, and leaving it as a NURBS degrades
+//!   every downstream consumer to approximate paths); a ruled NURBS
+//!   (base curve × displacement) otherwise — geometrically exact for
+//!   any base curve;
 //! - cap face: the base surface translated by the displacement;
 //! - orientation flags: derived from the outer-loop winding via a
 //!   Newell-normal test at authoring time (the flag is DERIVED state —
@@ -56,18 +59,13 @@ pub(super) fn author_extrude_geometry(
     let new_edge_set: HashSet<EdgeHandle> = result.new_edges.iter().copied().collect();
     let translation = Transform3::translation(displacement.x, displacement.y, displacement.z);
 
-    // Base edges keyed by their (unordered) vertex pair, for top-edge
-    // curve translation.
-    let mut base_edge_by_pair: HashMap<(VertexHandle, VertexHandle), EdgeHandle> = HashMap::new();
-    for (eh, ed) in &brep.edges {
-        if new_edge_set.contains(&eh) {
-            continue;
-        }
-        let Some((a, b)) = edge_vertices(brep, ed.half_edge) else {
-            continue;
-        };
-        base_edge_by_pair.insert(ordered(a, b), eh);
-    }
+    // Top edges keyed by the base edge they were minted above (recorded
+    // by the Euler pass — see `ExtrudeResult::top_edge_of_base`).
+    let base_of_top: HashMap<EdgeHandle, EdgeHandle> = result
+        .top_edge_of_base
+        .iter()
+        .map(|&(base, top)| (top, base))
+        .collect();
 
     // 1. New edge curves.
     for &eh in &result.new_edges {
@@ -80,15 +78,11 @@ pub(super) fn author_extrude_geometry(
         let a_new = new_vertex_set.contains(&va);
         let b_new = new_vertex_set.contains(&vb);
         let curve = if a_new && b_new {
-            // Top edge: translate the matching base edge's curve.
-            let ba = base_vertex_below(brep, va, displacement, &new_vertex_set);
-            let bb = base_vertex_below(brep, vb, displacement, &new_vertex_set);
-            let base_curve = match (ba, bb) {
-                (Some(ba), Some(bb)) => base_edge_by_pair
-                    .get(&ordered(ba, bb))
-                    .and_then(|&be| brep.edges[be].curve.clone()),
-                _ => None,
-            };
+            // Top edge: translate its own base edge's curve.
+            let base_curve = base_of_top
+                .get(&eh)
+                .and_then(|&be| brep.edges.get(be))
+                .and_then(|ed| ed.curve.clone());
             match base_curve {
                 Some(mut c) => {
                     transform_curve_on_edge(&mut c, &translation, 1.0);
@@ -115,11 +109,18 @@ pub(super) fn author_extrude_geometry(
             None => true,
             Some(c) => matches!(c.geometry, CurveGeometry::Line { .. }),
         };
+        let angular_tol = brep.tolerance.angular();
         let surface = if straight {
             side_plane_from_loop(brep, side)?
         } else {
-            ruled_side_surface(base_curve.as_ref(), displacement)
-                .unwrap_or(side_plane_from_loop(brep, side)?)
+            match base_curve
+                .as_ref()
+                .and_then(|c| analytic_side_surface(c, displacement, angular_tol))
+                .or_else(|| ruled_side_surface(base_curve.as_ref(), displacement))
+            {
+                Some(s) => s,
+                None => side_plane_from_loop(brep, side)?,
+            }
         };
         let orientation = winding_orientation(brep, side, &surface);
         brep.faces[side].surface = Some(SurfaceOnFace {
@@ -156,27 +157,6 @@ fn edge_vertices(
     let hed = brep.half_edges.get(he)?;
     let twin = brep.half_edges.get(hed.twin)?;
     Some((hed.origin, twin.origin))
-}
-
-fn ordered<T: Ord + Copy>(a: T, b: T) -> (T, T) {
-    if a <= b { (a, b) } else { (b, a) }
-}
-
-/// The base vertex directly below a new (extruded) vertex: the old
-/// vertex whose position + displacement matches within tolerance.
-fn base_vertex_below(
-    brep: &BRep,
-    v_new: VertexHandle,
-    displacement: Vec3,
-    new_set: &HashSet<VertexHandle>,
-) -> Option<VertexHandle> {
-    let target = brep.vertices[v_new].position - displacement;
-    let tol = brep.tolerance.linear() * 10.0;
-    brep.vertices
-        .iter()
-        .filter(|(vh, _)| !new_set.contains(vh))
-        .find(|(_, vd)| vd.position.distance_to(&target) < tol)
-        .map(|(vh, _)| vh)
 }
 
 /// Reverse a translated curve when its parameter direction opposes
@@ -235,6 +215,41 @@ fn side_plane_from_loop(brep: &BRep, face: FaceHandle) -> Result<SurfaceGeometry
     )
 }
 
+/// Analytic promotion of the side surface (PK-377): a circular-arc base
+/// edge extruded along its own plane normal sweeps a cylinder of the
+/// arc's centre, axis, and radius. The axis keeps the ARC's normal
+/// sign (not the displacement's) so the chart's angular direction
+/// agrees with the arc's own parameter sense. `angular_tol` is the
+/// body's explicit angular tolerance: the sine of the angle between
+/// the arc normal and the displacement must not exceed it. Every
+/// other curved edge, and any arc extruded obliquely (an elliptic
+/// cylinder), returns `None` and keeps the exact ruled NURBS.
+fn analytic_side_surface(
+    base: &CurveOnEdge,
+    displacement: Vec3,
+    angular_tol: f64,
+) -> Option<SurfaceGeometry> {
+    let CurveGeometry::Arc {
+        center,
+        normal,
+        radius,
+        ..
+    } = &base.geometry
+    else {
+        return None;
+    };
+    let axis = normal.normalized()?;
+    let dir = displacement.normalized()?;
+    if axis.cross(&dir).length() > angular_tol || !radius.is_finite() || *radius <= 0.0 {
+        return None;
+    }
+    Some(SurfaceGeometry::Cylinder {
+        origin: *center,
+        axis,
+        radius: *radius,
+    })
+}
+
 /// Ruled surface `base_curve × displacement` as a degree (p,1) NURBS —
 /// geometrically exact for any base curve (the ruling is a rigid
 /// translation of every control point).
@@ -267,8 +282,16 @@ fn ruled_side_surface(base: Option<&CurveOnEdge>, displacement: Vec3) -> Option<
 }
 
 /// Orientation flag from the outer-loop winding: Newell normal of the
-/// loop polygon against the surface normal at the loop's first vertex.
+/// loop's SAMPLED outline against the surface normal at the outline's
+/// centroid. Every half-edge's curve is sampled in traversal
+/// direction — the vertex polygon alone is degenerate for a curved
+/// wall (a half-cylinder's four corners span the chord plane, whose
+/// normal is perpendicular to the cylinder normal at those corners:
+/// the flag was a coin toss on every arc-sided extrusion, PK-377) —
+/// and the centroid lands mid-wall, where the surface normal is
+/// unambiguous.
 fn winding_orientation(brep: &BRep, face: FaceHandle, surface: &SurfaceGeometry) -> bool {
+    const SAMPLES: usize = 16;
     let Some(fd) = brep.faces.get(face) else {
         return true;
     };
@@ -282,7 +305,36 @@ fn winding_orientation(brep: &BRep, face: FaceHandle, surface: &SurfaceGeometry)
         let Some(hed) = brep.half_edges.get(cur) else {
             break;
         };
-        pts.push(brep.vertices[hed.origin].position);
+        let origin = brep.vertices[hed.origin].position;
+        match brep.edges.get(hed.edge).and_then(|e| e.curve.as_ref()) {
+            Some(c) => {
+                // Sample strictly inside the curve's own range: a
+                // malformed edge range must degrade to its vertex,
+                // never panic.
+                let (r0, r1) = c.geometry.parameter_range();
+                let (lo, hi) = (r0.min(r1), r0.max(r1));
+                let clamp = |t: f64| {
+                    if lo.is_finite() && hi.is_finite() {
+                        t.clamp(lo, hi)
+                    } else {
+                        t
+                    }
+                };
+                let (ta, tb) = (clamp(c.t_start), clamp(c.t_end));
+                let forward = c.geometry.point_at(ta).distance_to(&origin)
+                    <= c.geometry.point_at(tb).distance_to(&origin);
+                for i in 0..SAMPLES {
+                    let f = i as f64 / SAMPLES as f64;
+                    let t = if forward {
+                        ta + (tb - ta) * f
+                    } else {
+                        tb + (ta - tb) * f
+                    };
+                    pts.push(c.geometry.point_at(t));
+                }
+            }
+            None => pts.push(origin),
+        }
         cur = hed.next;
         if cur == start {
             break;
@@ -292,14 +344,19 @@ fn winding_orientation(brep: &BRep, face: FaceHandle, surface: &SurfaceGeometry)
         return true;
     }
     let mut newell = Vec3::new(0.0, 0.0, 0.0);
+    let mut centroid = Vec3::new(0.0, 0.0, 0.0);
     for i in 0..pts.len() {
         let a = pts[i];
         let b = pts[(i + 1) % pts.len()];
         newell.x += (a.y - b.y) * (a.z + b.z);
         newell.y += (a.z - b.z) * (a.x + b.x);
         newell.z += (a.x - b.x) * (a.y + b.y);
+        centroid = centroid + Vec3::new(a.x, a.y, a.z);
     }
-    let Some((u, v)) = crate::geometry::uv_projection::project_point_to_uv(surface, &pts[0]) else {
+    let n = pts.len() as f64;
+    let centroid = Point3::new(centroid.x / n, centroid.y / n, centroid.z / n);
+    let Some((u, v)) = crate::geometry::uv_projection::project_point_to_uv(surface, &centroid)
+    else {
         return true;
     };
     surface.normal_at(u, v).dot(&newell) >= 0.0

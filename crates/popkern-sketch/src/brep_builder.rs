@@ -138,14 +138,60 @@ fn build_face_region(
 }
 
 /// Signed winding of `face`'s outer loop about `normal`: the Newell
-/// normal of the loop's vertex polygon dotted with `normal` (positive =
-/// counter-clockwise seen from `+normal`).
+/// normal of the loop's SAMPLED outline dotted with `normal` (positive
+/// = counter-clockwise seen from `+normal`). Every half-edge's curve is
+/// sampled in traversal direction — the vertex polygon alone is
+/// degenerate for a bigon (a split circle has two vertices and zero
+/// polygon area), which assigned the circle lamina's faces by a coin
+/// toss (both `WindingDishonest`).
 fn loop_winding_about(
     brep: &popkern_core::topology::BRep,
     face: FaceHandle,
     normal: popkern_core::geometry::Vec3,
 ) -> f64 {
-    let pts = brep.face_outer_loop_positions(face);
+    use popkern_core::geometry::curve::CurveEval;
+    const SAMPLES: usize = 16;
+    let mut pts: Vec<popkern_core::geometry::Point3> = Vec::new();
+    let start_he = brep.loops[brep.faces[face].outer_loop].half_edge;
+    let mut cursor = start_he;
+    loop {
+        let he = &brep.half_edges[cursor];
+        let origin = brep.vertices[he.origin].position;
+        match brep.edges[he.edge].curve.as_ref() {
+            Some(c) => {
+                // Run the curve from the half-edge's origin.
+                // Sample strictly inside the curve's own range: a
+                // malformed edge range must degrade to its vertex,
+                // never panic.
+                let (r0, r1) = c.geometry.parameter_range();
+                let (lo, hi) = (r0.min(r1), r0.max(r1));
+                let clamp = |t: f64| {
+                    if lo.is_finite() && hi.is_finite() {
+                        t.clamp(lo, hi)
+                    } else {
+                        t
+                    }
+                };
+                let (ta, tb) = (clamp(c.t_start), clamp(c.t_end));
+                let forward = c.geometry.point_at(ta).distance_to(&origin)
+                    <= c.geometry.point_at(tb).distance_to(&origin);
+                for i in 0..SAMPLES {
+                    let f = i as f64 / SAMPLES as f64;
+                    let t = if forward {
+                        ta + (tb - ta) * f
+                    } else {
+                        tb + (ta - tb) * f
+                    };
+                    pts.push(c.geometry.point_at(t));
+                }
+            }
+            None => pts.push(origin),
+        }
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
     let mut newell = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
     for i in 0..pts.len() {
         let a = pts[i];
@@ -190,6 +236,15 @@ fn build_outer_loop(
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, second_pos)
         .map_err(map_err)?;
 
+    // Vertex k is traced edge k's start; edge k runs vertex k → k+1
+    // and IS traced edge k. Recorded here so geometry attaches by
+    // construction — never by matching endpoints, which is ambiguous
+    // for a bigon (a split circle's two halves share both endpoints;
+    // endpoint matching handed both edges the SAME half, validate red
+    // with a √2 loop gap on every circle sketch).
+    let mut vertices = vec![mvfs.vertex, mev1.vertex];
+    let mut edges = vec![mev1.edge];
+
     // 3. mev chain for remaining vertices.
     let mut last_twin = mev1.half_edge_twin;
     for i in 2..n {
@@ -198,145 +253,51 @@ fn build_outer_loop(
             .to_3d(traced.edges[i].start.0, traced.edges[i].start.1);
         let mev = brep.mev(last_twin, pos).map_err(map_err)?;
         last_twin = mev.half_edge_twin;
+        vertices.push(mev.vertex);
+        edges.push(mev.edge);
     }
 
     // 4. mef to close the loop and create the face.
     let mef = brep.mef(last_twin, mev1.half_edge).map_err(map_err)?;
-    let mef_face = mef.face;
-    let mvfs_face = mvfs.face;
+    edges.push(mef.edge);
 
-    // Attach curves and pcurves to the edges (one shared chart, so the
-    // side each face ends up on does not matter here).
-    attach_loop_geometry(brep, traced, ctx, mef_face)?;
-    attach_twin_pcurves(brep, traced, ctx, mvfs_face)?;
+    attach_edge_geometry(brep, traced, ctx, &vertices, &edges)?;
 
-    Ok((mef_face, mvfs_face))
+    Ok((mef.face, mvfs.face))
 }
 
-/// Attach 3D curves and pcurves to the half-edges around a face's outer loop.
-fn attach_loop_geometry(
+/// Attach the 3-D curve and both half-edge pcurves of every outer-loop
+/// edge from its traced edge (`edges[k]` ↔ `traced.edges[k]`, running
+/// `vertices[k]` → `vertices[k + 1]`). The half-edge leaving
+/// `vertices[k]` follows the traced direction and takes the pcurve
+/// as-is; its twin stores the reversed span (t-swap — the
+/// canonical-direction convention, PK-303). Both lamina faces share
+/// one chart, so the side each face ends up on does not matter here.
+fn attach_edge_geometry(
     brep: &mut popkern_core::topology::BRep,
     traced: &TracedLoop,
     ctx: &BuildContext<'_>,
-    face: FaceHandle,
+    vertices: &[VertexHandle],
+    edges: &[popkern_core::topology::EdgeHandle],
 ) -> Result<(), SketchError> {
-    let face_loop = brep.faces[face].outer_loop;
-    let start_he = brep.loops[face_loop].half_edge;
-    let n = traced.edges.len();
+    for (k, (&edge_handle, directed)) in edges.iter().zip(&traced.edges).enumerate() {
+        let curve = curve_convert::convert_to_3d(directed, ctx.sketch, ctx.plane)?;
+        brep.edges[edge_handle].curve = Some(curve);
 
-    let mut cursor = start_he;
-    loop {
-        let origin = brep.half_edges[cursor].origin;
-        let next = brep.half_edges[cursor].next;
-        let origin_2d = ctx.plane.to_2d(brep.vertices[origin].position);
-        let next_origin = brep.half_edges[next].origin;
-        let next_2d = ctx.plane.to_2d(brep.vertices[next_origin].position);
-
-        // The half-edge's SEGMENT is origin → next origin; match the
-        // traced edge by BOTH endpoints. Start-only matching attached
-        // the sketch's OTHER edge leaving the origin whenever a loop's
-        // winding ran opposite the traced direction (measured: every
-        // curve one segment off on the replay sheet — validate red
-        // with a full-edge-length loop gap on both faces, PK-317).
-        if let Some((idx, forward)) = find_matching_segment(traced, origin_2d, next_2d, n) {
-            let directed = &traced.edges[idx];
-            let edge_handle = brep.half_edges[cursor].edge;
-
-            // Attach 3D curve (canonical per edge; consumers resolve
-            // the sense through the half-edge).
-            if brep.edges[edge_handle].curve.is_none() {
-                let curve = curve_convert::convert_to_3d(directed, ctx.sketch, ctx.plane)?;
-                brep.edges[edge_handle].curve = Some(curve);
-            }
-
-            // Attach pcurve FOLLOWING THE HALF-EDGE: a half-edge that
-            // runs opposite the traced direction stores the reversed
-            // span (t-swap — the canonical-direction convention,
-            // PK-303).
-            let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-            let mut pcurve: popkern_core::geometry::pcurve::Pcurve = pcurve.into();
-            if !forward {
-                std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
-            }
-            brep.half_edges[cursor].pcurve = Some(pcurve);
-        }
-
-        cursor = next;
-        if cursor == start_he {
-            break;
-        }
+        let he_a = brep.edges[edge_handle].half_edge;
+        let he_b = brep.half_edges[he_a].twin;
+        let (he_forward, he_backward) = if brep.half_edges[he_a].origin == vertices[k] {
+            (he_a, he_b)
+        } else {
+            (he_b, he_a)
+        };
+        let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch, ctx.plane)?;
+        let mut back = pcurve.clone();
+        std::mem::swap(&mut back.t_start, &mut back.t_end);
+        brep.half_edges[he_forward].pcurve = Some(pcurve);
+        brep.half_edges[he_backward].pcurve = Some(back);
     }
-
     Ok(())
-}
-
-/// Attach pcurves to twin half-edges (on the back face's outer loop).
-fn attach_twin_pcurves(
-    brep: &mut popkern_core::topology::BRep,
-    traced: &TracedLoop,
-    ctx: &BuildContext<'_>,
-    back_face: FaceHandle,
-) -> Result<(), SketchError> {
-    let face_loop = brep.faces[back_face].outer_loop;
-    let start_he = brep.loops[face_loop].half_edge;
-    let n = traced.edges.len();
-
-    let mut cursor = start_he;
-    loop {
-        let next = brep.half_edges[cursor].next;
-        if brep.half_edges[cursor].pcurve.is_none() {
-            let origin = brep.half_edges[cursor].origin;
-            let origin_2d = ctx.plane.to_2d(brep.vertices[origin].position);
-            let next_origin = brep.half_edges[next].origin;
-            let next_2d = ctx.plane.to_2d(brep.vertices[next_origin].position);
-
-            if let Some((idx, forward)) = find_matching_segment(traced, origin_2d, next_2d, n) {
-                let directed = &traced.edges[idx];
-                let pcurve = curve_convert::convert_to_pcurve(directed, ctx.sketch)?;
-                let mut pcurve: popkern_core::geometry::pcurve::Pcurve = pcurve.into();
-                if !forward {
-                    std::mem::swap(&mut pcurve.t_start, &mut pcurve.t_end);
-                }
-                brep.half_edges[cursor].pcurve = Some(pcurve);
-            }
-        }
-
-        cursor = next;
-        if cursor == start_he {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
-/// Find the traced edge whose start position matches the given 2D point.
-/// Match a half-edge SEGMENT (both endpoints) to a traced directed
-/// edge. Returns the traced index and whether the half-edge runs the
-/// traced (forward) direction. A directed edge's end is the next
-/// traced edge's start (the loop is a directed cycle).
-fn find_matching_segment(
-    traced: &TracedLoop,
-    a_2d: (f64, f64),
-    b_2d: (f64, f64),
-    n: usize,
-) -> Option<(usize, bool)> {
-    let close = |p: (f64, f64), q: (f64, f64)| -> bool {
-        let dx = p.0 - q.0;
-        let dy = p.1 - q.1;
-        (dx * dx + dy * dy).sqrt() < 1e-6
-    };
-    for i in 0..n {
-        let start = traced.edges[i].start;
-        let end = traced.edges[(i + 1) % n].start;
-        if close(start, a_2d) && close(end, b_2d) {
-            return Some((i, true));
-        }
-        if close(start, b_2d) && close(end, a_2d) {
-            return Some((i, false));
-        }
-    }
-    None
 }
 
 /// Build inner loop edges and wire them as a hole on the front and back faces.
@@ -421,13 +382,13 @@ fn build_hole_loop(
         brep.edges[edge_h].curve = Some(curve);
 
         // Attach pcurves.
-        let pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
-        brep.half_edges[he_fwd].pcurve = Some(pcurve.into());
+        let pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch, ctx.plane)?;
+        brep.half_edges[he_fwd].pcurve = Some(pcurve);
 
         // The twin runs j → i: the same chart span, reversed
         // (t-swap — the canonical-direction convention, PK-303).
-        let back_pcurve = curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch)?;
-        let mut back_pcurve: popkern_core::geometry::pcurve::Pcurve = back_pcurve.into();
+        let mut back_pcurve =
+            curve_convert::convert_to_pcurve(&traced.edges[i], ctx.sketch, ctx.plane)?;
         std::mem::swap(&mut back_pcurve.t_start, &mut back_pcurve.t_end);
         brep.half_edges[he_rev].pcurve = Some(back_pcurve);
 

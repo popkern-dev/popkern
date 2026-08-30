@@ -48,7 +48,7 @@ fn box_tree() -> FeatureTree {
     tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: rectangle_sketch_json(),
+            sketch_data: crate::SketchPayload::Constraint(rectangle_sketch_json()),
         },
         "Sketch 1",
     );

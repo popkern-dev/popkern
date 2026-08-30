@@ -34,14 +34,14 @@ fn add_three_features_timeline_order() {
     let id0 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
     let id1 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 2",
     );
@@ -64,7 +64,7 @@ fn auto_dependency_extrude_references_sketch() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -100,14 +100,14 @@ fn insert_at_shifts_timeline() {
     let id0 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
     let id2 = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XZ,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 3",
     );
@@ -118,7 +118,7 @@ fn insert_at_shifts_timeline() {
             1,
             Feature::Sketch {
                 plane: SketchPlaneDesc::YZ,
-                sketch_data: String::new(),
+                sketch_data: crate::SketchPayload::Constraint(String::new()),
             },
             "Sketch 2",
         )
@@ -135,7 +135,7 @@ fn insert_with_dependency_after_insert_point_fails() {
     let _sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -173,7 +173,7 @@ fn reorder_violating_dependency_fails() {
     let _sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -210,7 +210,7 @@ fn feature_lookup_returns_correct_node() {
     let id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: "test-data".to_string(),
+            sketch_data: crate::SketchPayload::Constraint("test-data".to_string()),
         },
         "My Sketch",
     );
@@ -231,7 +231,7 @@ fn timeline_returns_correct_slice() {
     let id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "S1",
     );
@@ -272,7 +272,7 @@ fn feature_entity_names_extracts_all_variants() {
     // Sketch OnFace: should extract the face
     let f = Feature::Sketch {
         plane: SketchPlaneDesc::OnFace(entity_name(5)),
-        sketch_data: String::new(),
+        sketch_data: crate::SketchPayload::Constraint(String::new()),
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 1);
@@ -310,7 +310,7 @@ fn reorder_dependent_before_feature_fails() {
     let sketch_id = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch 1",
     );
@@ -422,7 +422,7 @@ fn rename_feature_updates_parameter_qualified_names() {
     let sketch = tree.add_feature(
         Feature::Sketch {
             plane: SketchPlaneDesc::XY,
-            sketch_data: String::new(),
+            sketch_data: crate::SketchPayload::Constraint(String::new()),
         },
         "Sketch1",
     );
