@@ -462,7 +462,8 @@ fn rename_feature_updates_parameter_qualified_names() {
     tree.undo_cursor = 0;
 
     let extrude_id = tree.timeline()[1];
-    tree.rename_feature(extrude_id, "ExtrudeRenamed");
+    tree.rename_feature(extrude_id, "ExtrudeRenamed")
+        .expect("rename");
 
     assert_eq!(tree.feature(extrude_id).unwrap().label, "ExtrudeRenamed");
 

@@ -191,6 +191,22 @@ pub(crate) enum TreeCommand {
         /// The override after the change (`None` = override was cleared).
         new: Option<ParamOverride>,
     },
+    /// An entity label was bound, rebound, or removed in the label table.
+    SetEntityLabel {
+        /// The label.
+        label: String,
+        /// The entity the label named before (`None` = label was unbound).
+        old: Option<popkern_core::naming::EntityName>,
+        /// The entity the label names after (`None` = label removed).
+        new: Option<popkern_core::naming::EntityName>,
+    },
+    /// The document build tolerance was set or cleared.
+    SetBuildTolerance {
+        /// The attribute before the change.
+        old: Option<popkern_core::tolerance::Tolerance>,
+        /// The attribute after the change.
+        new: Option<popkern_core::tolerance::Tolerance>,
+    },
     /// A config feature suppression override was set or cleared.
     SetConfigSuppression {
         /// The configuration being modified.

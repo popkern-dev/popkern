@@ -12,6 +12,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::naming_criteria::GeometricCriteria;
 
+/// Version of the entity-naming scheme this kernel mints: the rule set
+/// that decides which [`EntityName`] (operation, role category, index,
+/// ancestors) each face, edge, and vertex receives from each operation.
+///
+/// Documents record the scheme they were written under next to their
+/// format version. Changing how any operation mints names — role
+/// categories, index order, ancestor recording — is a scheme change:
+/// bump this constant and ship a document migration for the previous
+/// scheme, because every stored reference is an [`EntityName`] minted
+/// under the old rules.
+pub const NAMING_SCHEME_VERSION: u32 = 1;
+
 // ---------------------------------------------------------------------------
 // Primitive handles
 // ---------------------------------------------------------------------------

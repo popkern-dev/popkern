@@ -280,7 +280,7 @@ pub(super) fn register_feature_params(
     label: &str,
 ) {
     let param_fields = feature_param_ids(feature);
-    let prefix = label.to_lowercase().replace(' ', "_");
+    let prefix = crate::labels::qualified_prefix(label);
     for (field_name, param_id) in param_fields {
         if let Some(param) = table.get_mut(param_id) {
             param.scope = ParamScope::Feature(feature_id);

@@ -213,7 +213,7 @@ fn undo_rename_restores_old_label() {
     tree.undo_log.clear();
     tree.undo_cursor = 0;
 
-    tree.rename_feature(id, "New Name");
+    tree.rename_feature(id, "New Name").expect("rename");
     assert_eq!(tree.feature(id).unwrap().label, "New Name");
 
     tree.undo();
@@ -231,7 +231,7 @@ fn redo_rename_restores_new_label() {
     tree.undo_log.clear();
     tree.undo_cursor = 0;
 
-    tree.rename_feature(id, "New Name");
+    tree.rename_feature(id, "New Name").expect("rename");
     tree.undo();
     tree.redo();
     assert_eq!(

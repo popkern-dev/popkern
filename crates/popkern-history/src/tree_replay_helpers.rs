@@ -64,32 +64,6 @@ impl FeatureTree {
 
 // -- Pattern execution helper -------------------------------------------------
 
-/// The operation label of a feature — the same label its structured
-/// errors carry (`ReplayError::FeatureFailed { label }`).
-pub(super) fn feature_operation_label(feature: &Feature) -> &'static str {
-    match feature {
-        Feature::Sketch { .. } => "sketch",
-        Feature::Extrude { .. } => "extrude",
-        Feature::Fillet { .. } => "fillet",
-        Feature::Chamfer { .. } => "chamfer",
-        Feature::Boolean { .. } => "boolean",
-        Feature::Shell { .. } => "shell",
-        Feature::Transform { .. } => "transform",
-        Feature::Thicken { .. } => "thicken",
-        Feature::OffsetSolid { .. } => "offset_solid",
-        Feature::Draft { .. } => "draft",
-        Feature::Sweep { .. } => "sweep",
-        Feature::Loft { .. } => "loft",
-        Feature::Pipe { .. } => "pipe",
-        Feature::Revolve { .. } => "revolve",
-        Feature::Reference { .. } => "reference",
-        Feature::LinearPattern { .. } => "linear_pattern",
-        Feature::CircularPattern { .. } => "circular_pattern",
-        Feature::CurvePattern { .. } => "curve_pattern",
-        Feature::Mirror { .. } => "mirror",
-    }
-}
-
 /// Return `true` if the feature is a pattern variant.
 pub(super) fn is_pattern_feature(feature: &Feature) -> bool {
     matches!(

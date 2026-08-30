@@ -33,6 +33,26 @@ pub enum HistoryError {
         /// Highest version this build can read.
         max_supported: u32,
     },
+    /// The file records an entity-naming scheme this build cannot read
+    /// (newer than [`popkern_core::naming::NAMING_SCHEME_VERSION`], or one
+    /// with no migration).
+    #[error("naming scheme {file_scheme} not supported (this build mints scheme {supported})")]
+    UnsupportedNamingScheme {
+        /// Scheme version recorded in the file.
+        file_scheme: u32,
+        /// Scheme version this build mints and reads.
+        supported: u32,
+    },
+    /// A feature or entity label is already used by another feature or
+    /// entity of the same kind.
+    #[error("duplicate label: {0}")]
+    DuplicateLabel(String),
+    /// A label must not be empty.
+    #[error("label must not be empty")]
+    EmptyLabel,
+    /// No feature or entity carries the given label.
+    #[error("label not found: {0}")]
+    LabelNotFound(String),
     /// A cycle was detected while topologically sorting parameter expressions.
     #[error("expression cycle detected: {0:?}")]
     ExpressionCycle(Vec<crate::parameter::ParameterId>),

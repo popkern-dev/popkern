@@ -36,7 +36,7 @@ use crate::replay_report::{
     FeatureEvidence, FeatureReport, ReplayOutcome, ReplayReport, SuppressionReason,
 };
 use crate::{FeatureTree, ReplayRangeOutput, replay};
-use helpers::{dimension_kind_to_unit, feature_operation_label, is_pattern_feature};
+use helpers::{dimension_kind_to_unit, is_pattern_feature};
 
 impl FeatureTree {
     /// Apply config overrides to the parameter table and evaluate all expressions.
@@ -156,7 +156,7 @@ impl FeatureTree {
             let id = self.timeline[i];
             let node = &self.features[id];
             let label = node.label.clone();
-            let operation = feature_operation_label(&node.feature);
+            let operation = node.feature.operation_label();
             let suppressed_report = |reason: SuppressionReason| {
                 FeatureReport::new(id, &label, operation, ReplayOutcome::Suppressed { reason })
             };

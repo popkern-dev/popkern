@@ -26,6 +26,7 @@ pub mod config_api;
 pub(crate) mod config_eval;
 pub mod csv;
 pub mod delete;
+mod document;
 pub mod error;
 pub mod expression;
 pub mod feature;
@@ -36,6 +37,7 @@ pub mod feature_sketch;
 pub mod feature_transform;
 pub mod format;
 pub mod health;
+pub mod labels;
 pub(crate) mod measure_cache;
 pub mod measure_query;
 pub(crate) mod measure_resolve;
@@ -54,6 +56,7 @@ pub(crate) mod pattern_validate;
 pub mod queries;
 pub(crate) mod replay;
 pub mod replay_report;
+mod tree_state;
 pub(crate) use replay_report::ReplayRangeOutput;
 pub(crate) mod resolve;
 pub mod serialize;
@@ -78,6 +81,7 @@ pub use feature_blend::{
 };
 pub use format::{format_expression, format_expression_with_unit};
 pub use health::{HealthReport, ReferenceIssue};
+pub use labels::LabelTable;
 pub use measure_query::{BoundExtent, Component, MeasureContext, MeasureQuery};
 pub use node::{BodyId, FeatureId, FeatureNode};
 pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, ParameterTable};
@@ -183,6 +187,13 @@ pub struct FeatureTree {
     /// Serialized — restores the last-active config when the file is opened.
     #[serde(default)]
     pub(crate) active_config: Option<ConfigId>,
+    /// Entity labels and auto-label counters (see [`labels`]).
+    #[serde(default)]
+    pub(crate) labels: LabelTable,
+    /// The tolerance the document is built with (see [`document`]
+    /// attributes); `None` means [`Tolerance::default`].
+    #[serde(default)]
+    pub(crate) build_tolerance: Option<Tolerance>,
 }
 
 impl FeatureTree {
@@ -204,6 +215,8 @@ impl FeatureTree {
             parameter_table: ParameterTable::new(),
             configs: SlotMap::with_key(),
             active_config: None,
+            labels: LabelTable::default(),
+            build_tolerance: None,
         }
     }
 
@@ -278,6 +291,7 @@ impl FeatureTree {
             elapsed: start.elapsed(),
             eval_warnings,
             report: out.report,
+            tolerance,
         })
     }
 
@@ -327,6 +341,7 @@ impl FeatureTree {
             elapsed: timer.elapsed(),
             eval_warnings,
             report: out.report,
+            tolerance,
         })
     }
 
@@ -416,38 +431,6 @@ impl FeatureTree {
                 label: "brep_at".into(),
                 error: "replay did not produce a BRep".into(),
             })
-    }
-
-    // -- Cache management -----------------------------------------------------
-
-    /// Replace the caching strategy.  All existing cached snapshots are evicted.
-    pub fn set_cache_strategy(&mut self, strategy: CacheStrategy) {
-        self.cache.set_strategy(strategy);
-    }
-
-    /// Evict all cached BRep snapshots.
-    pub fn clear_cache(&mut self) {
-        self.cache.clear();
-    }
-
-    // -- Feature freeze -------------------------------------------------------
-
-    /// Freeze all features up to (but not including) `index`.
-    ///
-    /// Frozen features are never re-evaluated during replay — the cached
-    /// BRep at the freeze point is used as the starting state.
-    pub fn freeze_to(&mut self, index: usize) {
-        self.frozen_index = Some(index);
-    }
-
-    /// Remove the freeze point, allowing all features to be rebuilt.
-    pub fn unfreeze(&mut self) {
-        self.frozen_index = None;
-    }
-
-    /// Return the current freeze index, or `None` if nothing is frozen.
-    pub fn frozen_index(&self) -> Option<usize> {
-        self.frozen_index
     }
 
     // -- BRep accessor --------------------------------------------------------

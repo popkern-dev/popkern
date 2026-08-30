@@ -87,10 +87,20 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
             tree.rollback_index = *old;
         }
 
-        TreeCommand::RenameFeature { id, old_label, .. } => {
-            if let Some(node) = tree.features.get_mut(*id) {
-                node.label = old_label.clone();
-            }
+        TreeCommand::RenameFeature {
+            id,
+            old_label,
+            new_label,
+        } => {
+            tree.relabel_feature(*id, new_label, old_label);
+        }
+
+        TreeCommand::SetEntityLabel { label, old, .. } => {
+            tree.labels.bind_entity(label, old.clone());
+        }
+
+        TreeCommand::SetBuildTolerance { old, .. } => {
+            tree.build_tolerance = *old;
         }
 
         TreeCommand::SetExpression { param, old, .. } => match old {
@@ -240,10 +250,20 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
             tree.rollback_index = *new;
         }
 
-        TreeCommand::RenameFeature { id, new_label, .. } => {
-            if let Some(node) = tree.features.get_mut(*id) {
-                node.label = new_label.clone();
-            }
+        TreeCommand::RenameFeature {
+            id,
+            old_label,
+            new_label,
+        } => {
+            tree.relabel_feature(*id, old_label, new_label);
+        }
+
+        TreeCommand::SetEntityLabel { label, new, .. } => {
+            tree.labels.bind_entity(label, new.clone());
+        }
+
+        TreeCommand::SetBuildTolerance { new, .. } => {
+            tree.build_tolerance = *new;
         }
 
         TreeCommand::SetExpression { param, new, .. } => match new {

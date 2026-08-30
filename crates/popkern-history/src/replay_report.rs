@@ -73,6 +73,8 @@ pub struct ReplayResult {
     /// [`last_report`](crate::FeatureTree::last_report) keeps their
     /// most recent record.
     pub report: ReplayReport,
+    /// The tolerance this replay built under.
+    pub tolerance: popkern_core::tolerance::Tolerance,
 }
 
 /// Per-body BReps, per-feature outcomes, and the report from a replay pass.

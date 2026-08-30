@@ -26,6 +26,7 @@ impl FeatureTree {
     ///   of their first dependency.  If there are no dependencies, they fall
     ///   back to `BodyId(0)`.
     pub fn add_feature(&mut self, feature: Feature, label: &str) -> FeatureId {
+        let label = &self.mint_feature_label(&feature, label);
         let op_id = OperationId(self.next_op_id);
         self.next_op_id += 1;
 
@@ -112,6 +113,7 @@ impl FeatureTree {
         }
 
         self.next_op_id += 1;
+        let label = &self.mint_feature_label(&feature, label);
 
         let body = resolve_body(
             &feature,
@@ -306,26 +308,6 @@ impl FeatureTree {
             if let Some(refreshed) = in_place {
                 self.cache.store_explicit(None, id, refreshed);
             }
-        }
-    }
-
-    /// Rename a feature.
-    ///
-    /// Records an undo command.  Also updates the qualified names of all
-    /// parameters scoped to this feature so that `"old_label.field"` becomes
-    /// `"new_label.field"`.
-    pub fn rename_feature(&mut self, id: FeatureId, label: &str) {
-        if let Some(node) = self.features.get_mut(id) {
-            let old_label = node.label.clone();
-            node.label = label.to_string();
-            // Update parameter qualified names for this feature.
-            self.parameter_table
-                .rename_feature_params(id, &old_label, label);
-            self.record_undo(TreeCommand::RenameFeature {
-                id,
-                old_label,
-                new_label: label.to_string(),
-            });
         }
     }
 }
