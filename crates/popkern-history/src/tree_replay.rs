@@ -248,7 +248,7 @@ impl FeatureTree {
                         } else {
                             failed_ref_ids.insert(id);
                             FeatureResult::Failed {
-                                error: e.to_string(),
+                                error: crate::failure::FeatureFailure::from(e),
                             }
                         }
                     }
@@ -276,7 +276,7 @@ impl FeatureTree {
                         }
                         Err(e) => (
                             FeatureResult::Failed {
-                                error: e.to_string(),
+                                error: crate::failure::FeatureFailure::from(e),
                             },
                             FeatureEvidence::empty(),
                         ),
@@ -382,7 +382,7 @@ impl FeatureTree {
                     // remains in a consistent state for subsequent features.
                     // Side effects NOT applied — tool body remains in the map.
                     brep = brep_backup;
-                    let error_msg = e.to_string();
+                    let error_msg = crate::failure::FeatureFailure::from(e);
                     let mut fr_report = FeatureReport::new(
                         id,
                         &label,

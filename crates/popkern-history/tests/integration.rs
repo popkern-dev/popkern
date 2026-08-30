@@ -314,7 +314,7 @@ fn broken_reference_produces_failed() {
         Some(FeatureResult::Success { .. })
     ));
     match result.feature_results.get(&fillet_id) {
-        Some(FeatureResult::Failed { error }) => assert!(!error.is_empty()),
+        Some(FeatureResult::Failed { error }) => assert!(!error.to_string().is_empty()),
         other => panic!("expected Failed, got: {other:?}"),
     }
     assert_eq!(

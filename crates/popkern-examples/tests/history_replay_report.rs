@@ -246,7 +246,7 @@ fn failed_and_suppressed_features_report_their_outcome() {
     let result = tree.replay(Tolerance::default()).expect("replay");
     let report = result.report.feature(fillet).expect("reported");
     match &report.outcome {
-        ReplayOutcome::Failed { error } => assert!(!error.is_empty()),
+        ReplayOutcome::Failed { error } => assert!(!error.to_string().is_empty()),
         other => panic!("expected Failed, got {other:?}"),
     }
     assert!(report.blend.is_none(), "a declined blend has no evidence");

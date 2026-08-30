@@ -29,6 +29,8 @@ pub mod delete;
 mod document;
 pub mod error;
 pub mod expression;
+pub mod failure;
+pub mod failure_blend;
 pub mod feature;
 pub mod feature_blend;
 pub mod feature_draft;
@@ -74,6 +76,10 @@ pub use config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
 pub use delete::{DeleteBehavior, DeleteResult};
 pub use error::{FeatureResult, HistoryError, ReplayError};
 pub use expression::{BinOp, CmpOp, Expression, UnaryFunc};
+pub use failure::{
+    BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,
+    RemediationRecord,
+};
 pub use feature::{
     AxisDesc, BasePlane, BoolOpKind, ExtrudeEnd, ExtrudeSecondDir, Feature, JoinStyleKind,
     OperationMode, RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,

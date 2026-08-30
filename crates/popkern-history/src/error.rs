@@ -123,8 +123,9 @@ pub enum ReplayError {
     FeatureFailed {
         /// Human-readable label of the failed feature.
         label: String,
-        /// Error message from the underlying operation.
-        error: String,
+        /// Structured failure payload (spec §10), boxed to keep the
+        /// error small.
+        error: Box<crate::failure::FeatureFailure>,
     },
     /// A stable name reference could not be resolved in the current BRep.
     #[error("reference resolution failed: {0:?}")]
@@ -151,8 +152,8 @@ pub enum FeatureResult {
     /// The feature was attempted but failed; the error message is stored so
     /// it can be displayed without re-evaluating.
     Failed {
-        /// Human-readable description of the failure.
-        error: String,
+        /// Structured failure payload (spec §10).
+        error: crate::failure::FeatureFailure,
     },
     /// The feature is marked suppressed and was not evaluated.
     Suppressed,

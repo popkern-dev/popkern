@@ -152,6 +152,6 @@ fn resolve_to_topo_handle(
 fn measure_err(e: popkern_measure::MeasureError) -> ReplayError {
     ReplayError::FeatureFailed {
         label: "measure".into(),
-        error: e.to_string(),
+        error: e.to_string().into(),
     }
 }

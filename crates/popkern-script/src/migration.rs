@@ -5,8 +5,8 @@
 use popkern_history::feature::Feature;
 use popkern_history::labels::qualified_prefix;
 use popkern_history::node::FeatureId;
-use popkern_history::replay_report::ReplayReport;
-use popkern_history::{DeleteBehavior, FeatureTree};
+use popkern_history::replay_report::{ReplayOutcome, ReplayReport};
+use popkern_history::{DeleteBehavior, FeatureFailure, FeatureTree};
 
 use crate::body::Body;
 use crate::error::{ScriptError, SelectionKind};
@@ -54,7 +54,10 @@ impl Model {
                 Some(row) => Err(ScriptError::FeatureFailed {
                     label: row.label.clone(),
                     operation: row.operation.clone(),
-                    detail: format!("{:?}", row.outcome),
+                    error: Box::new(match &row.outcome {
+                        ReplayOutcome::Failed { error } => error.clone(),
+                        other => FeatureFailure::other(format!("{other:?}")),
+                    }),
                 }),
                 None => Ok(value),
             }

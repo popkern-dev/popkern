@@ -123,14 +123,14 @@ pub(crate) fn execute_auto_merge(
         .remove(&tool_body)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "auto_merge".into(),
-            error: format!("tool body {tool_body:?} has no BRep"),
+            error: format!("tool body {tool_body:?} has no BRep").into(),
         })?;
 
     let host_brep = body_breps
         .remove(&host_body)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "auto_merge".into(),
-            error: format!("host body {host_body:?} has no BRep"),
+            error: format!("host body {host_body:?} has no BRep").into(),
         })?;
 
     let bool_op = match mode {
@@ -147,7 +147,7 @@ pub(crate) fn execute_auto_merge(
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(ctx))
         .map_err(|e| ReplayError::FeatureFailed {
             label: "auto_merge".into(),
-            error: e.to_string(),
+            error: e.to_string().into(),
         })?;
 
     body_breps.insert(host_body, result);

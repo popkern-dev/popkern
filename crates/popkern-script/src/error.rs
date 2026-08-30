@@ -2,7 +2,7 @@
 //! failure kind, every class carrying the values a dialog needs; the
 //! `Display` text is redundant with the fields, never the only carrier.
 
-use popkern_history::{HistoryError, ReplayError};
+use popkern_history::{FeatureFailure, HistoryError, ReplayError};
 use thiserror::Error;
 
 /// What a selection was asked to produce.
@@ -30,15 +30,17 @@ impl std::fmt::Display for SelectionKind {
 pub enum ScriptError {
     /// The appended feature failed to replay; it has been removed
     /// again and the document is as it was before the call.
-    #[error("feature '{label}' ({operation}) failed: {detail}")]
+    #[error("feature '{label}' ({operation}) failed: {error}")]
     FeatureFailed {
         /// The label the feature would have had.
         label: String,
         /// Operation identifier (`Feature::operation_label`).
         operation: String,
-        /// The kernel's message. Structured kernel payloads through the
-        /// replay channel are the recorded follow-up (spec §10.3).
-        detail: String,
+        /// The structured kernel payload (spec §10.2 class): a blend
+        /// decline carries `failures[]` with per-edge reasons and
+        /// remediation, a boolean its stage, and so on. `Display` is
+        /// the kernel's message. Boxed to keep the error small.
+        error: Box<FeatureFailure>,
     },
     /// A selection matched nothing (and `allow_empty` was not set).
     #[error(
@@ -108,6 +110,16 @@ pub enum ScriptError {
     /// The `popkern-part` facade declined (gates, exports).
     #[error(transparent)]
     Part(Box<popkern_part::PartError>),
+}
+
+impl ScriptError {
+    /// The structured kernel payload when this is a feature failure.
+    pub fn feature_failure(&self) -> Option<&FeatureFailure> {
+        match self {
+            ScriptError::FeatureFailed { error, .. } => Some(error),
+            _ => None,
+        }
+    }
 }
 
 impl From<HistoryError> for ScriptError {

@@ -83,7 +83,8 @@ impl NeutralPlaneDesc {
                         label: "draft".into(),
                         error: format!(
                             "literal neutral plane normal {normal:?} is degenerate (length {len})"
-                        ),
+                        )
+                        .into(),
                     });
                 }
                 Ok((

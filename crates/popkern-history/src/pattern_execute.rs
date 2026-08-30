@@ -68,7 +68,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
             .get(&ctx.seed_body)
             .ok_or_else(|| ReplayError::FeatureFailed {
                 label: "pattern".into(),
-                error: format!("seed body {:?} has no BRep", ctx.seed_body),
+                error: format!("seed body {:?} has no BRep", ctx.seed_body).into(),
             })?;
 
     // 2. Compute per-instance transforms.
@@ -317,7 +317,8 @@ fn try_feature_replay(
                         label: String::new(),
                         error: format!(
                             "missing instance OperationId for instance {inst_idx}, seed {seed_idx}"
-                        ),
+                        )
+                        .into(),
                     }
                 })?;
                 Ok((cloned, op))
@@ -331,14 +332,14 @@ fn try_feature_replay(
         .remove(&host_body)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "pattern".into(),
-            error: format!("host body {host_body:?} has no BRep"),
+            error: format!("host body {host_body:?} has no BRep").into(),
         })?;
 
     let mut ctx = TrackingContext::new(pattern_op_id);
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(&mut ctx))
         .map_err(|e| ReplayError::FeatureFailed {
         label: "pattern".into(),
-        error: e.to_string(),
+        error: e.to_string().into(),
     })?;
 
     body_breps.insert(host_body, result);
@@ -369,21 +370,21 @@ fn try_geometry_fallback(
         .transform(transform)
         .map_err(|e| ReplayError::FeatureFailed {
             label: "pattern".into(),
-            error: format!("transform failed: {e}"),
+            error: format!("transform failed: {e}").into(),
         })?;
 
     let host_brep = body_breps
         .remove(&host_body)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "pattern".into(),
-            error: format!("host body {host_body:?} has no BRep for geometry fallback"),
+            error: format!("host body {host_body:?} has no BRep for geometry fallback").into(),
         })?;
 
     let mut ctx = TrackingContext::new(pattern_op_id);
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(&mut ctx))
         .map_err(|e| ReplayError::FeatureFailed {
         label: "pattern".into(),
-        error: e.to_string(),
+        error: e.to_string().into(),
     })?;
 
     body_breps.insert(host_body, result);

@@ -28,7 +28,7 @@ pub(super) fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f
         .map(|p| p.value)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "parameter".into(),
-            error: format!("parameter {id:?} not found"),
+            error: format!("parameter {id:?} not found").into(),
         })
 }
 
@@ -48,7 +48,7 @@ pub(super) fn execute_sketch(
     let plane = resolve_sketch_plane(plane_desc, brep, param_table)?;
     let failed = |error: String| ReplayError::FeatureFailed {
         label: "sketch".into(),
-        error,
+        error: error.into(),
     };
 
     let result = match payload {
@@ -226,7 +226,7 @@ fn apply_draft_to_side_faces(
         )
         .map_err(|e| ReplayError::FeatureFailed {
             label: String::new(),
-            error: format!("draft angle failed: {e}"),
+            error: format!("draft angle failed: {e}").into(),
         })?;
         *brep = draft_result.brep;
     }
@@ -301,7 +301,7 @@ pub(super) fn execute_extrude(
         .extrude(face_handle, dir, dist, Some(tracking))
         .map_err(|e| ReplayError::FeatureFailed {
             label: "extrude".into(),
-            error: e.to_string(),
+            error: crate::failure::FeatureFailure::sweep("extrude", &e).into(),
         })?;
 
     // Apply draft angle to primary direction side faces.
@@ -350,7 +350,11 @@ pub(super) fn execute_extrude(
             .extrude(base_face, dir2, dist2, Some(tracking))
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "extrude".into(),
-                error: format!("second direction extrude failed: {e}"),
+                error: crate::failure::FeatureFailure::sweep(
+                    "extrude",
+                    &format!("second direction extrude failed: {e}"),
+                )
+                .into(),
             })?;
 
         // Apply draft to second direction's side faces if requested.

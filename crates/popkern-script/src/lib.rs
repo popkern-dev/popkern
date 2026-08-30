@@ -34,6 +34,10 @@ pub use feature_edit::Edit;
 pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
 pub use plane::Plane;
+pub use popkern_history::{
+    BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,
+    RemediationRecord,
+};
 pub use profile::ProfileBuilder;
 pub use scalar::Scalar;
 pub use selection::{EdgePredicate, EdgeSelector, FacePredicate, FaceSelector, SelectionSnapshot};

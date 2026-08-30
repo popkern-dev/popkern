@@ -234,15 +234,15 @@ impl FeatureReport {
 }
 
 /// How a feature's execution ended.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ReplayOutcome {
     /// The feature executed and its body was committed.
     Served,
     /// The feature failed; the body was restored to its pre-feature
     /// state (transactional per feature).
     Failed {
-        /// The structured error's display form.
-        error: String,
+        /// The structured failure payload.
+        error: crate::failure::FeatureFailure,
     },
     /// The feature was not executed.
     Suppressed {

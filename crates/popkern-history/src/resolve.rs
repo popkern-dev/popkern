@@ -127,7 +127,7 @@ pub(crate) fn resolve_param(table: &ParameterTable, id: ParameterId) -> Result<f
         .map(|p| p.value)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: "parameter".into(),
-            error: format!("parameter {id:?} not found"),
+            error: format!("parameter {id:?} not found").into(),
         })
 }
 
@@ -145,7 +145,7 @@ pub(crate) fn resolve_sketch_plane(
             let face = resolve_face(name, brep)?;
             SketchPlane::from_face(brep, face).map_err(|e| ReplayError::FeatureFailed {
                 label: "sketch plane".into(),
-                error: e.to_string(),
+                error: e.to_string().into(),
             })
         }
         SketchPlaneDesc::OnFaceOffset(name, offset_param) => {
@@ -154,7 +154,7 @@ pub(crate) fn resolve_sketch_plane(
             SketchPlane::from_face_offset(brep, face, offset).map_err(|e| {
                 ReplayError::FeatureFailed {
                     label: "sketch plane".into(),
-                    error: e.to_string(),
+                    error: e.to_string().into(),
                 }
             })
         }
@@ -173,7 +173,7 @@ pub(crate) fn resolve_sketch_plane(
             let n = Vec3::new(normal[0], normal[1], normal[2]);
             SketchPlane::from_normal(o, n).map_err(|e| ReplayError::FeatureFailed {
                 label: "sketch plane".into(),
-                error: e.to_string(),
+                error: e.to_string().into(),
             })
         }
     }

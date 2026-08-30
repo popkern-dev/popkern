@@ -273,7 +273,7 @@ fn shear_matrix_declines_transactionally() {
         .feature_results
         .values()
         .filter_map(|r| match r {
-            FeatureResult::Failed { error } => Some(error.clone()),
+            FeatureResult::Failed { error } => Some(error.to_string()),
             _ => None,
         })
         .collect::<Vec<_>>();

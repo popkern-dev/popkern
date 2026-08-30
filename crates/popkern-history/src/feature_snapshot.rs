@@ -64,7 +64,7 @@ pub(crate) fn materialize_snapshot(
 ) -> Result<(), ReplayError> {
     let failed = |error: String| ReplayError::FeatureFailed {
         label: "raw_body".into(),
-        error,
+        error: error.into(),
     };
     if snapshot.faces.is_empty() {
         return Err(failed("snapshot has no faces".into()));

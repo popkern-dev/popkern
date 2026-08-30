@@ -102,7 +102,7 @@ impl RigidMotionDesc {
                 .map(|p| p.value)
                 .ok_or_else(|| ReplayError::FeatureFailed {
                     label: "transform".into(),
-                    error: format!("parameter {id:?} not found"),
+                    error: format!("parameter {id:?} not found").into(),
                 })
         };
         match self {
@@ -114,7 +114,7 @@ impl RigidMotionDesc {
                 Transform3::rotation_around_axis(origin, direction, get(*angle)?).map_err(|e| {
                     ReplayError::FeatureFailed {
                         label: "transform".into(),
-                        error: e.to_string(),
+                        error: e.to_string().into(),
                     }
                 })
             }

@@ -146,7 +146,7 @@ pub(crate) fn execute_feature(
                 popkern_blend::fillet_edges(brep, &specs, &options, *tolerance, Some(tracking))
                     .map_err(|e| ReplayError::FeatureFailed {
                         label: "fillet".into(),
-                        error: e.to_string(),
+                        error: crate::failure::FeatureFailure::blend(&e, Some(brep)).into(),
                     })?;
             let evidence = FeatureEvidence::blend(
                 &result,
@@ -175,7 +175,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "chamfer".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::blend(&e, Some(brep)).into(),
             })?;
             let evidence = FeatureEvidence::blend(&result, &pre_faces, edges_requested, None);
             *brep = result.brep;
@@ -191,7 +191,7 @@ pub(crate) fn execute_feature(
                     .cloned()
                     .ok_or_else(|| ReplayError::FeatureFailed {
                         label: "boolean".into(),
-                        error: format!("tool body {tool_body:?} not found"),
+                        error: format!("tool body {tool_body:?} not found").into(),
                     })?;
 
             let bool_op = to_bool_operation(*operation);
@@ -202,7 +202,11 @@ pub(crate) fn execute_feature(
                 popkern_bool::boolean(bool_op, brep.clone(), tool_brep, *tolerance, Some(tracking))
                     .map_err(|e| ReplayError::FeatureFailed {
                         label: "boolean".into(),
-                        error: e.to_string(),
+                        error: crate::failure::FeatureFailure::boolean(
+                            &format!("{operation:?}").to_lowercase(),
+                            &e,
+                        )
+                        .into(),
                     })?;
             let mut evidence = FeatureEvidence::empty();
             evidence.record_boolean_fallbacks(
@@ -236,7 +240,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "shell".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::shell("shell", &e).into(),
             })?;
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
@@ -246,7 +250,7 @@ pub(crate) fn execute_feature(
             let t = motion.resolve(brep, param_table)?;
             *brep = brep.transform(&t).map_err(|e| ReplayError::FeatureFailed {
                 label: "transform".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::other(e.to_string()).into(),
             })?;
             Ok(ExecuteSideEffects::empty())
         }
@@ -264,7 +268,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "thicken".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::shell("thicken", &e).into(),
             })?;
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
@@ -284,7 +288,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "offset_solid".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::shell("offset_solid", &e).into(),
             })?;
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
@@ -322,7 +326,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "draft".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::draft(&e).into(),
             })?;
             let evidence = FeatureEvidence::draft(&result.warnings);
             *brep = result.brep;
@@ -350,7 +354,7 @@ pub(crate) fn execute_feature(
                 popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance, Some(tracking))
                     .map_err(|e| ReplayError::FeatureFailed {
                     label: "sweep".into(),
-                    error: e.to_string(),
+                    error: crate::failure::FeatureFailure::sweep("sweep", &e).into(),
                 })?;
             let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
@@ -375,7 +379,7 @@ pub(crate) fn execute_feature(
             let result = popkern_sweep::loft(&loft_sections, &options, *tolerance, Some(tracking))
                 .map_err(|e| ReplayError::FeatureFailed {
                     label: "loft".into(),
-                    error: e.to_string(),
+                    error: crate::failure::FeatureFailure::sweep("loft", &e).into(),
                 })?;
             let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
@@ -396,7 +400,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "pipe".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::sweep("pipe", &e).into(),
             })?;
             let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;
@@ -447,7 +451,7 @@ pub(crate) fn execute_feature(
             )
             .map_err(|e| ReplayError::FeatureFailed {
                 label: "revolve".into(),
-                error: e.to_string(),
+                error: crate::failure::FeatureFailure::sweep("revolve", &e).into(),
             })?;
             let evidence = FeatureEvidence::sweep(&result.warnings);
             *brep = result.brep;

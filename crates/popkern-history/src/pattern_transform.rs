@@ -28,7 +28,7 @@ fn resolve_param(
         .map(|p| p.value)
         .ok_or_else(|| ReplayError::FeatureFailed {
             label: String::new(),
-            error: format!("parameter {id:?} not found"),
+            error: format!("parameter {id:?} not found").into(),
         })
 }
 
@@ -187,7 +187,7 @@ fn compute_circular_transforms(
         let t = Transform3::rotation_around_axis(origin, dir, angle).map_err(|e| {
             ReplayError::FeatureFailed {
                 label: String::new(),
-                error: e.to_string(),
+                error: e.to_string().into(),
             }
         })?;
         transforms.push(t);
@@ -274,7 +274,7 @@ fn compute_curve_transforms(
                         Transform3::rotation_around_axis(pos, axis, angle).map_err(|e| {
                             ReplayError::FeatureFailed {
                                 label: String::new(),
-                                error: e.to_string(),
+                                error: e.to_string().into(),
                             }
                         })?;
                     rotation.compose(&translation)
@@ -317,7 +317,7 @@ fn compute_mirror_transforms(
     let reflection =
         Transform3::reflection(origin, normal).map_err(|e| ReplayError::FeatureFailed {
             label: String::new(),
-            error: e.to_string(),
+            error: e.to_string().into(),
         })?;
     Ok(vec![Transform3::identity(), reflection])
 }

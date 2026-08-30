@@ -411,7 +411,7 @@ and `message` is always the Rust `Display` string.
 
 | Class | Payload |
 |---|---|
-| `FeatureFailed` | `feature {id, label, operation}`, `error` (one of §10.2), `report` (the partial `ReplayReport` up to the failure) |
+| `FeatureFailed` | `feature {id, label, operation}`, `error` (a `FeatureFailure` — §10.2 class carried as data: `kind` = `BlendDeclined` (`blend_kind`, `message`, `remediation`, `failed/total/failures[]` with `edge`, `edge_name`, `reason_kind`, `remediation`) \| `BooleanFailed` (`operation`, `bool_kind`, `stage?`, `detail`) \| `SweepFailed`/`ShellFailed` (`feature`, `detail`) \| `DraftFailed` \| `ValidationFailed` \| `InvalidParameter` \| `Cancelled` \| `Other` (`detail`)), `report` (the partial `ReplayReport` up to the failure; the recorder's `Model::report()` after the call). Landed PK-388: `popkern_history::FeatureFailure`, carried by `ReplayError::FeatureFailed`, `FeatureResult::Failed`, `ReplayOutcome::Failed`, `ScriptError::FeatureFailed`; `Display` is the kernel's message. |
 | `ResolutionFailed` | `feature`, `name` (EntityName), `selection` (describe/labels), `resolved`/`expected` counts |
 | `CoreError` | `detail` |
 
@@ -497,9 +497,10 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-08-30 | Structured failure payload landed (PK-388): `FeatureFailed.error` is a `FeatureFailure` (§10.3); the PyO3 probe's JSON is serde of the same value (`kind`/`blend_kind`/`reason_kind`, `edge_name`). | none |
 | 2026-08-30 | Bodies landed (PK-385): `tool`, `raw_body`, `label_body`/`body`/`body_label`, `alive_bodies`, `set_active`, `Body::is_alive`; booleans consume the tool and reject dead bodies (`BodyNotAlive`). | none |
 | 2026-08-30 | Migration verbs landed (PK-384): `modify` via `Edit` (scalar roles, `continuity`, `edges`/`faces`), `insert_before/after`, `reorder`, `suppress/unsuppress`, `delete`, `rollback_to/rollback_to_end`, `dependents`, `undo/redo`, `describe`, `params`, `param_expr`, configurations. Documents now persist `SelectionRecord`s per feature (§6.2 describe text). | none |
-| 2026-08-30 | Rust skin landed (PK-382): `model/save/open/replay/to_brep/to_part/to_step`, gates, `profile` (rect/circle/polygon/path, base + offset + on-face planes), `extrude` (all ends), `revolve`, `fillet` (recipe), `chamfer` (equal), `shell`, booleans, `translate/rotate`, `param/set_param`, feature/entity labels, `feature/features/evidence/report`. `FeatureFailed.error` is a string until PK-388. | none |
+| 2026-08-30 | Rust skin landed (PK-382): `model/save/open/replay/to_brep/to_part/to_step`, gates, `profile` (rect/circle/polygon/path, base + offset + on-face planes), `extrude` (all ends), `revolve`, `fillet` (recipe), `chamfer` (equal), `shell`, booleans, `translate/rotate`, `param/set_param`, feature/entity labels, `feature/features/evidence/report`. `FeatureFailed.error` was a string until PK-388. | none |
 | 2026-08-30 | Initial normative surface (PK-381). Stable set: `model/open/save/replay/to_brep/to_part/to_step`, gates, `profile`, `extrude/revolve`, booleans, `fillet/chamfer`, `shell`, `translate/rotate`, parameters (§4.1), labels, `feature/features/modify/suppress/unsuppress`, `report/evidence`. Everything else `preview`; `promote_to_constraint` reserved. | — |
 
 Promotion rule: `preview → stable` requires (1) a parity fixture

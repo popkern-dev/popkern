@@ -107,7 +107,7 @@ pub(crate) fn execute_extrude_exact(
 ) -> Result<(), ReplayError> {
     let failed = |error: String| ReplayError::FeatureFailed {
         label: "extrude".into(),
-        error,
+        error: error.into(),
     };
     // The same centroid arithmetic as `popkern_part::Profile::extrude`:
     // the mean of 64 wire samples, offset by the placement.

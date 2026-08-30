@@ -68,7 +68,7 @@ impl ScalarBinding {
                     .map(|p| p.value)
                     .ok_or_else(|| ReplayError::FeatureFailed {
                         label: "sketch".into(),
-                        error: format!("parameter {id:?} not found"),
+                        error: format!("parameter {id:?} not found").into(),
                     })
             }
         }

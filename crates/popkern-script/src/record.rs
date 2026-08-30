@@ -4,7 +4,7 @@
 use popkern_history::error::FeatureResult;
 use popkern_history::feature::Feature;
 use popkern_history::node::FeatureId;
-use popkern_history::{DeleteBehavior, FeatureTree, ReplayError};
+use popkern_history::{DeleteBehavior, FeatureFailure, FeatureTree, ReplayError};
 
 use crate::error::ScriptError;
 
@@ -33,23 +33,23 @@ pub(crate) fn record_feature(
     let outcome = tree.replay(tolerance);
     let failure = match outcome {
         Ok(result) => match result.feature_results.get(&id) {
-            Some(FeatureResult::Failed { error }) => Some(error.clone()),
+            Some(FeatureResult::Failed { error }) => Some(Box::new(error.clone())),
             _ => None,
         },
         Err(ReplayError::FeatureFailed {
             label: failed,
             error,
         }) if failed == minted => Some(error),
-        Err(other) => Some(other.to_string()),
+        Err(other) => Some(Box::new(FeatureFailure::from(other))),
     };
-    if let Some(detail) = failure {
+    if let Some(error) = failure {
         // Transactional: the document is as it was before the call.
         let _ = tree.delete_feature(id, DeleteBehavior::Cascade);
         let _ = tree.replay(tolerance);
         return Err(ScriptError::FeatureFailed {
             label: minted,
             operation,
-            detail,
+            error,
         });
     }
     Ok(id)
