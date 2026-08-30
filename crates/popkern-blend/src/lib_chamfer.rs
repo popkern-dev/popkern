@@ -236,6 +236,17 @@ fn chamfer_edges_internal(
         None, // chamfers report no per-corner progress (mitred corners are cheap)
     )
     .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
+    // Trihedral mitre corners (PK-378): where all three edges at a
+    // valence-3 vertex are chamfered with planar bevels, replace the
+    // per-edge cluster with the exact mitre apex. Transactional.
+    let mitre = construct::trihedral_mitre_corner::settle_trihedral_mitre_corners(
+        brep,
+        &mut apply_result.brep,
+        &edge_geometries,
+        &tolerance,
+    )
+    .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
+    apply_result.repair_report.trihedral_mitre_corners = mitre.corners_settled;
 
     if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(

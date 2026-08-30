@@ -53,6 +53,7 @@ pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_cap_presolve;
 pub(crate) mod setback_vertex_topology;
+pub(crate) mod trihedral_mitre_corner;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves;
 #[path = "blend_geometry_apply.rs"]
