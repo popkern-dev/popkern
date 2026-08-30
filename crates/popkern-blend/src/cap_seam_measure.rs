@@ -220,7 +220,27 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         let (uv_b, p_b) = seam.side_b.eval_fraction(g);
 
         // G0: each side against the shared curve (trim contract).
-        out.g0 = out.g0.max(dist_to_curve(&p_a).max(dist_to_curve(&p_b)));
+        let (d_a, d_b) = (dist_to_curve(&p_a), dist_to_curve(&p_b));
+        if popkern_core::trace::trace_enabled("seam-measure") {
+            eprintln!(
+                "  [seam-measure] f={f:.3} g={g:.3} a=({:.4},{:.4},{:.4}) d_a={d_a:.3e} b=({:.4},{:.4},{:.4}) d_b={d_b:.3e} curve t[{:.4},{:.4}] c0=({:.4},{:.4},{:.4}) c1=({:.4},{:.4},{:.4})",
+                p_a.x,
+                p_a.y,
+                p_a.z,
+                p_b.x,
+                p_b.y,
+                p_b.z,
+                curve.t_start,
+                curve.t_end,
+                reference[0].x,
+                reference[0].y,
+                reference[0].z,
+                reference[SEAM_REFERENCE_SAMPLES].x,
+                reference[SEAM_REFERENCE_SAMPLES].y,
+                reference[SEAM_REFERENCE_SAMPLES].z
+            );
+        }
+        out.g0 = out.g0.max(d_a.max(d_b));
 
         let (Some(n_a), Some(n_b)) = (seam.side_a.normal(uv_a), seam.side_b.normal(uv_b)) else {
             continue;

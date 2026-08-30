@@ -339,3 +339,117 @@ fn split_edge_at_point_no_curve_returns_error() {
         "edge without curve should fail: {result:?}"
     );
 }
+
+/// PK-391: a pcurve whose parameter range is stale against its edge
+/// (image overshoots the edge's end) must be split where its IMAGE
+/// meets the split point, not at the parameter fraction.
+#[test]
+fn split_edge_cuts_a_stale_range_pcurve_at_its_image() {
+    use crate::geometry::Vec3;
+    use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+    use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
+    use crate::geometry::surface::SurfaceEval;
+    use crate::geometry::uv_projection::project_point_to_uv;
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    // A vertical edge from z=0 to z=1.
+    let (edge, he_ab, he_ba) = brep
+        .edges
+        .iter()
+        .find_map(|(eh, e)| {
+            let he = &brep.half_edges[e.half_edge];
+            let a = brep.vertices[he.origin].position;
+            let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+            ((a.x - b.x).abs() < 1e-12 && (a.y - b.y).abs() < 1e-12 && a.z < b.z).then_some((
+                eh,
+                e.half_edge,
+                he.twin,
+            ))
+        })
+        .expect("vertical edge");
+    let a = brep.vertices[brep.half_edges[he_ab].origin].position;
+    // The edge curve was "shortened": z = 1.25 t over t in [0, 0.8].
+    brep.edges[edge].curve = Some(CurveOnEdge {
+        geometry: CurveGeometry::Line {
+            origin: a,
+            direction: Vec3::new(0.0, 0.0, 1.25),
+        },
+        t_start: 0.0,
+        t_end: 0.8,
+    });
+    // Both pcurves still image the FULL z 0..1.25 line over [0, 1].
+    for (he, forward) in [(he_ab, true), (he_ba, false)] {
+        let face = brep.loops[brep.half_edges[he].loop_].face;
+        let surface = brep.faces[face].surface.clone().expect("surface").geometry;
+        let n = 20;
+        let control_points: Vec<Point3> = (0..n)
+            .map(|k| {
+                let f = k as f64 / (n - 1) as f64;
+                let f = if forward { f } else { 1.0 - f };
+                let p = Point3::new(a.x, a.y, a.z + 1.25 * f);
+                let (u, v) = project_point_to_uv(&surface, &p).expect("project");
+                Point3::new(u, v, 0.0)
+            })
+            .collect();
+        let mut knots = vec![0.0, 0.0];
+        for k in 1..(n - 1) {
+            knots.push(k as f64 / (n - 1) as f64);
+        }
+        knots.extend([1.0, 1.0]);
+        brep.half_edges[he].pcurve = Some(Pcurve {
+            geometry: PcurveGeometry::Nurbs(NurbsCurve {
+                degree: 1,
+                knots,
+                control_points,
+                weights: vec![1.0; n],
+            }),
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    }
+    // Split at fraction 0.8 of the (shortened) edge: absolute t=0.64, z=0.8.
+    let result = brep.split_edge(edge, 0.8).unwrap();
+    let split = brep.vertices[result.vertex].position;
+    assert!((split.z - 0.8).abs() < 1e-9, "split point z {}", split.z);
+    // Every pcurve piece now ends/starts where its image meets the split.
+    for eh in [result.edge_a, result.edge_b] {
+        let e = &brep.edges[eh];
+        for he in [e.half_edge, brep.half_edges[e.half_edge].twin] {
+            let hed = &brep.half_edges[he];
+            let face = brep.loops[hed.loop_].face;
+            let surface = brep.faces[face].surface.as_ref().expect("surface");
+            let pc = hed.pcurve.as_ref().expect("pcurve");
+            let ends = [pc.point_at(pc.t_start), pc.point_at(pc.t_end)];
+            let touches_split = ends
+                .iter()
+                .any(|uv| surface.geometry.point_at(uv.x, uv.y).distance_to(&split) < 1e-9);
+            assert!(
+                touches_split,
+                "edge {eh:?} he {he:?}: pcurve ends image {:?}, none at the split point {split:?}",
+                ends.iter()
+                    .map(|uv| surface.geometry.point_at(uv.x, uv.y))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+    // The piece that starts at the original vertex images nothing past
+    // the split point: the cut is at the image, not 25 % beyond it.
+    // (The other piece's far end still carries the stale overshoot the
+    // producer left — PK-396 — which the split does not own.)
+    let e = &brep.edges[result.edge_a];
+    for he in [e.half_edge, brep.half_edges[e.half_edge].twin] {
+        let hed = &brep.half_edges[he];
+        let face = brep.loops[hed.loop_].face;
+        let surface = brep.faces[face].surface.as_ref().expect("surface");
+        let pc = hed.pcurve.as_ref().expect("pcurve");
+        for k in 0..=16 {
+            let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 16.0;
+            let uv = pc.point_at(t);
+            let z = surface.geometry.point_at(uv.x, uv.y).z;
+            assert!(
+                (-1e-9..=0.8 + 1e-9).contains(&z),
+                "left piece overshoots the split: z {z}"
+            );
+        }
+    }
+}

@@ -67,18 +67,18 @@ fn nine_edge_g2_fillet_serves_with_measured_g2_at_every_showcase_radius() {
         assert!(continuity.measured(), "r={radius}: seams measured");
         // Honest verdict pin. The body serves and validates, and the
         // evidence is MEASURED; the measured level is below G2 today
-        // for two filed reasons — the strip-rail pcurve parametrisation
-        // reads as a fake r/√2 gap (PK-391) and the corner-fan
-        // substrate on the rim+verticals class declines its setback
-        // fan and serves Gregory seams at up to 27° (PK-392). When
-        // either closes this pin flips: retire the downgrade
+        // because the corner-fan substrate on the rim+verticals class
+        // declines its setback fan and serves Gregory seams at up to
+        // 27° (PK-392; the rail-gap artifact was PK-391, closed). When
+        // PK-392 closes this pin flips: retire the downgrade
         // expectation and require `!blend.downgraded()`.
         assert!(
             blend.downgraded(),
-            "r={radius}: measured continuity now meets G2 — retire the PK-391/PK-392 pin: {continuity:?}"
+            "r={radius}: measured continuity now meets G2 — retire the PK-392 pin: {continuity:?}"
         );
-        // Every positional "gap" is the PK-391 parametrisation artifact
-        // (image-equal sides: tangent match to 1e-6), never a crack.
+        // No positional gap above 1e-4 with a tangent match is tolerated
+        // as a "known artifact" any more (PK-391 closed); anything left
+        // here would be a real crack.
         for seam in &continuity.seams {
             if seam.worst_g0_gap > 1e-4 {
                 assert!(

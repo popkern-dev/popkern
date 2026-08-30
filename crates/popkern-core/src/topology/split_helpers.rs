@@ -11,6 +11,78 @@ use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
 /// `right` covers the second. If the pcurve is `None` or splitting
 /// fails, returns `(None, None)`. Handles both `Linear` and `Nurbs`
 /// pcurve variants.
+/// Split a pcurve at the parameter whose IMAGE on `surface` is nearest
+/// `split_pos`, falling back to the parameter fraction `t` when the
+/// pcurve cannot be evaluated against a surface or its image never
+/// comes near the point.
+///
+/// A fraction split trusts that the pcurve's parameter range agrees
+/// with the edge curve's. When an earlier surgery shortened the edge
+/// without trimming its pcurve (measured: a strip rail's side-plane
+/// pcurve still spanned the full plate height while the edge ended at
+/// the rim fillet's rail), the fraction lands the cut 25 % past the
+/// split point and the left piece's image overshoots the edge — every
+/// distance-to-curve consumer then reads a gap of up to 0.7 r (PK-391).
+/// The image is the truth; the parameter is derived from it.
+pub(crate) fn split_pcurve_at_point(
+    pcurve: &Option<Pcurve>,
+    t: f64,
+    surface: Option<&crate::geometry::surface::SurfaceGeometry>,
+    split_pos: &crate::geometry::Point3,
+    tolerance: f64,
+) -> (Option<Pcurve>, Option<Pcurve>) {
+    use crate::geometry::surface::SurfaceEval;
+    let (Some(pc), Some(surface)) = (pcurve, surface) else {
+        return split_pcurve_at(pcurve, t);
+    };
+    if !matches!(pc.geometry, PcurveGeometry::Nurbs(_)) {
+        return split_pcurve_at(pcurve, t);
+    }
+    let (p_start, p_end) = (pc.t_start, pc.t_end);
+    let span = p_end - p_start;
+    if span.abs() <= 0.0 {
+        return split_pcurve_at(pcurve, t);
+    }
+    let image_distance = |f: f64| {
+        let uv = pc.point_at(p_start + f * span);
+        surface.point_at(uv.x, uv.y).distance_to(split_pos)
+    };
+    const COARSE: usize = 64;
+    let mut best = (t, image_distance(t));
+    for i in 0..=COARSE {
+        let f = i as f64 / COARSE as f64;
+        let d = image_distance(f);
+        if d < best.1 {
+            best = (f, d);
+        }
+    }
+    let window = 1.0 / COARSE as f64;
+    let (mut lo, mut hi) = (
+        (best.0 - window).clamp(0.0, 1.0),
+        (best.0 + window).clamp(0.0, 1.0),
+    );
+    for _ in 0..40 {
+        let m1 = lo + (hi - lo) * 0.382;
+        let m2 = lo + (hi - lo) * 0.618;
+        if image_distance(m1) < image_distance(m2) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    let refined = 0.5 * (lo + hi);
+    let refined_distance = image_distance(refined);
+    // Take the image-honest parameter only when the image actually
+    // reaches the split point and it is an interior cut; otherwise the
+    // pcurve is not a faithful image of this edge at all and the
+    // fraction is the least surprising choice.
+    if refined_distance <= tolerance * 10.0 && refined > 1e-9 && refined < 1.0 - 1e-9 {
+        split_pcurve_at(pcurve, refined)
+    } else {
+        split_pcurve_at(pcurve, t)
+    }
+}
+
 pub(crate) fn split_pcurve_at(pcurve: &Option<Pcurve>, t: f64) -> (Option<Pcurve>, Option<Pcurve>) {
     let Some(pc) = pcurve else {
         return (None, None);

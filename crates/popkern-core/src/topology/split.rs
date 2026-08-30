@@ -135,8 +135,31 @@ impl BRep {
         // Split pcurves for he_ab (A->B direction) and he_ba (B->A direction).
         // For he_ab: split at parameter t → left goes to he_ab [A->V], right to he_vb [V->B].
         // For he_ba: split at (1-t) → left goes to he_bv [B->V], right to he_ba [V->A].
-        let (pcurve_ab_left, pcurve_ab_right) = split_pcurve_at(&pcurve_ab, t);
-        let (pcurve_ba_left, pcurve_ba_right) = split_pcurve_at(&pcurve_ba, 1.0 - t);
+        let surface_of = |he: HalfEdgeHandle| -> Option<crate::geometry::surface::SurfaceGeometry> {
+            let loop_ = self.half_edges.get(he)?.loop_;
+            let face = self.loops.get(loop_)?.face;
+            self.faces
+                .get(face)?
+                .surface
+                .as_ref()
+                .map(|s| s.geometry.clone())
+        };
+        let (surface_ab, surface_ba) = (surface_of(he_ab), surface_of(he_ba));
+        let linear = self.tolerance.linear();
+        let (pcurve_ab_left, pcurve_ab_right) = super::split_helpers::split_pcurve_at_point(
+            &pcurve_ab,
+            t,
+            surface_ab.as_ref(),
+            &split_pos,
+            linear,
+        );
+        let (pcurve_ba_left, pcurve_ba_right) = super::split_helpers::split_pcurve_at_point(
+            &pcurve_ba,
+            1.0 - t,
+            surface_ba.as_ref(),
+            &split_pos,
+            linear,
+        );
 
         // Create the new edge (edge_b), inheriting the V→B portion
         // of the parent's curve when present (β-1-A).
