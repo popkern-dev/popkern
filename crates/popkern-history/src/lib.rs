@@ -93,6 +93,7 @@ pub use replay_report::{
     BlendEvidenceRecord, FallbackRecord, FeatureReport, KernelWarning, RecordSource, ReplayOutcome,
     ReplayReport, ReplayResult, SkipRecord, SuppressionReason,
 };
+pub use serialize::{CURRENT_VERSION, MIN_SUPPORTED_VERSION};
 pub use unit::{DimensionKind, Unit};
 pub use {cache::CacheStrategy, csv::CsvImportResult};
 pub use {feature_draft::NeutralPlaneDesc, feature_transform::RigidMotionDesc};

@@ -25,12 +25,14 @@ pub enum HistoryError {
     /// Serialization or deserialization of the tree failed.
     #[error("serialization error: {0}")]
     SerializeError(String),
-    /// The file was saved with a newer format version than this build supports.
-    #[error("file version {file_version} not supported (max: {max_supported})")]
+    /// The file's format version is outside the range this build reads.
+    #[error("file version {file_version} not supported (reads {min_supported}..={max_supported})")]
     UnsupportedVersion {
         /// Version number found in the file.
         file_version: u32,
-        /// Highest version this build can read.
+        /// Oldest version this build can read.
+        min_supported: u32,
+        /// Newest version this build can read (the one it writes).
         max_supported: u32,
     },
     /// The file records an entity-naming scheme this build cannot read

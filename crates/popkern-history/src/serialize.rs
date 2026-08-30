@@ -30,8 +30,19 @@ use popkern_core::naming::NAMING_SCHEME_VERSION;
 use crate::FeatureTree;
 use crate::error::HistoryError;
 
-/// Current document format version.
-const CURRENT_VERSION: u32 = 3;
+/// Current document format version: what [`FeatureTree::save`] writes.
+///
+/// Version history (the compatibility policy is
+/// `docs/decisions/2026-08-30-pkn-format-compatibility-policy.md`):
+/// - **4** (2026-08-30): `naming_scheme` envelope field; label table,
+///   auto-label counters and build tolerance on the tree; `RawBody`,
+///   `Transform`, analytic sketches, draft literal planes, full fillet
+///   recipes. Every field defaults, so version-3 documents load.
+/// - **3**: the format before the scripted-modeling campaign.
+pub const CURRENT_VERSION: u32 = 4;
+
+/// Oldest document format version [`FeatureTree::load`] reads.
+pub const MIN_SUPPORTED_VERSION: u32 = 3;
 
 /// The naming scheme every document without a `naming_scheme` field was
 /// written under: the field arrived while scheme 1 was the only scheme.
@@ -106,8 +117,11 @@ impl FeatureTree {
 
     /// Deserialize a feature tree from bytes.
     ///
-    /// Only version 3 is supported. Returns
-    /// [`HistoryError::UnsupportedVersion`] for any other version.
+    /// Versions [`MIN_SUPPORTED_VERSION`]..=[`CURRENT_VERSION`] are read;
+    /// older ones load through their field defaults (the additions
+    /// since version 3 all default), and the tree is written back at
+    /// [`CURRENT_VERSION`]. Any other version returns
+    /// [`HistoryError::UnsupportedVersion`].
     ///
     /// The returned tree has no BRep state — call [`replay`](Self::replay) to
     /// rebuild it.
@@ -122,9 +136,10 @@ impl FeatureTree {
         let doc: PknDocumentIn = serde_json::from_slice(data)
             .map_err(|e| HistoryError::SerializeError(e.to_string()))?;
 
-        if doc.version != CURRENT_VERSION {
+        if !(MIN_SUPPORTED_VERSION..=CURRENT_VERSION).contains(&doc.version) {
             return Err(HistoryError::UnsupportedVersion {
                 file_version: doc.version,
+                min_supported: MIN_SUPPORTED_VERSION,
                 max_supported: CURRENT_VERSION,
             });
         }
