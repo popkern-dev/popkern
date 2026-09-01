@@ -90,9 +90,8 @@ fn run_out_rims_lie_on_both_surfaces_and_rails_carry_no_gap() {
             "box {w}x{d}x{h}: four strips × two half-section rims"
         );
         // The r-proportional rail artifact (0.64–0.73·r) is gone: no
-        // seam carries a gap within an order of magnitude of it. What
-        // remains (≤ 1.1e-4 with sub-gate tangent jumps on the unit
-        // cube's corner fans) is the PK-392 corner-class residual.
+        // seam carries a gap within an order of magnitude of it (the
+        // corner fans' cubic-sagitta residual went with PK-398).
         let report = m
             .evidence(&m.feature("rounds").expect("label"))
             .expect("evidence");

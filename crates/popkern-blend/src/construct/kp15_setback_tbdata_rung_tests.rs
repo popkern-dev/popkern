@@ -66,7 +66,7 @@ fn extractor_corners(fillet_surfaces: &[FilletSurfaceResult], apex: Point3) -> V
     border
         .sectors
         .iter()
-        .map(|sector| sector[0].rows[0][3])
+        .map(|sector| sector[0].rows[0][6])
         .collect()
 }
 

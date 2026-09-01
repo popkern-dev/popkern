@@ -53,6 +53,9 @@ use super::kp20_bi6_tau_f3_solve::{
     kp20_planar_tau_internal_c2_constraints, solve_kp20_planar_tau_f3_with_scalar_constraints,
 };
 use super::kp20_bi6_tau_solve_assemble::Kp20PlanarTauPaperSolveError;
+use super::kp20_border_degree::{
+    elevate_bi3_rows_to_sextic, reverse_sextic_rows, split_sextic_rows,
+};
 use super::kp20_paper_tau_measure::{
     kp20_paper_tau_affine_seed, kp20_paper_tau_jet_delta, kp20_paper_tau_orientation_summary,
 };
@@ -125,38 +128,6 @@ pub(crate) fn solve_kp20_paper_tau_raw(
 
 // ---- Border pins --------------------------------------------------------
 
-/// De Casteljau halves of one cubic BB row.
-fn split_cubic(row: [Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
-    let mid =
-        |a: Point3, b: Point3| Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0);
-    let p01 = mid(row[0], row[1]);
-    let p12 = mid(row[1], row[2]);
-    let p23 = mid(row[2], row[3]);
-    let p012 = mid(p01, p12);
-    let p123 = mid(p12, p23);
-    let center = mid(p012, p123);
-    ([row[0], p01, p012, center], [center, p123, p23, row[3]])
-}
-
-fn split_border_piece(rows: &[[Point3; 4]; 3]) -> ([[Point3; 4]; 3], [[Point3; 4]; 3]) {
-    let mut first = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
-    let mut second = first;
-    for depth in 0..3 {
-        let (a, b) = split_cubic(rows[depth]);
-        first[depth] = a;
-        second[depth] = b;
-    }
-    (first, second)
-}
-
-fn reverse_border_piece(rows: &[[Point3; 4]; 3]) -> [[Point3; 4]; 3] {
-    let mut out = *rows;
-    for row in out.iter_mut() {
-        row.reverse();
-    }
-    out
-}
-
 /// Equation (14) border pins for the canonical sector under the chosen
 /// layout, pinned onto P4/P3 (the `m⁰` edge) and P3/P2 (the `m¹`
 /// edge).
@@ -184,15 +155,17 @@ pub(crate) fn kp20_paper_tau_border_pin_rows_with_d1_3(
     sector: &super::cc_characteristic_tensor_border::CcSectorBorder,
     d1_3: f64,
 ) -> Vec<Kp20PlanarTauLinearConstraint> {
-    kp20_paper_border_band_placements(n, &sector.near_c.rows, &sector.near_m.rows, d1_3)
-        .into_iter()
-        .map(|(piece, i, j, value)| {
-            Kp20PlanarTauLinearConstraint::pin(
-                Kp20PlanarTauCoeff::new(piece, i, j),
-                [value.x, value.y],
-            )
-        })
-        .collect()
+    kp20_paper_border_band_placements(
+        n,
+        &elevate_bi3_rows_to_sextic(sector.near_c.rows),
+        &elevate_bi3_rows_to_sextic(sector.near_m.rows),
+        d1_3,
+    )
+    .into_iter()
+    .map(|(piece, i, j, value)| {
+        Kp20PlanarTauLinearConstraint::pin(Kp20PlanarTauCoeff::new(piece, i, j), [value.x, value.y])
+    })
+    .collect()
 }
 
 /// Equation (14) border-band placements for one sector, shared by the
@@ -207,10 +180,13 @@ pub(crate) fn kp20_paper_tau_border_pin_rows_with_d1_3(
 /// falsifications: m→c parameterization (d¹₃ at the corner) and the
 /// two-whole-edges reading both break the otherwise-exact rotational
 /// G¹/G² closure; a per-edge d sign flip does the same.
+///
+/// Rows are degree 6 along (PK-398); cubic sources elevate exactly
+/// and reproduce the historical placements.
 pub(crate) fn kp20_paper_border_band_placements(
     n: usize,
-    near_c_rows: &[[Point3; 4]; 3],
-    near_m_rows: &[[Point3; 4]; 3],
+    near_c_rows: &[[Point3; 7]; 3],
+    near_m_rows: &[[Point3; 7]; 3],
     d1_3: f64,
 ) -> Vec<(Kp20PieceId, usize, usize, Point3)> {
     let c = (core::f64::consts::TAU / n as f64).cos();
@@ -218,12 +194,12 @@ pub(crate) fn kp20_paper_border_band_placements(
 
     // Edge A: [c -> m^0] = reverse of the near_c piece ([m^0 -> c]);
     // domain b = 1 line, a descending from c toward m^0.
-    let edge_a = reverse_border_piece(near_c_rows);
-    let (a_c_half, a_m_half) = split_border_piece(&edge_a);
+    let edge_a = reverse_sextic_rows(near_c_rows);
+    let (a_c_half, a_m_half) = split_sextic_rows(&edge_a);
     let band_a_c = kp20_reparameterise_border_piece(a_c_half, d0);
     let band_a_m = kp20_reparameterise_border_piece(a_m_half, d1);
     // Edge B: [c -> m^1] = the near_m piece as stored.
-    let (b_c_half, b_m_half) = split_border_piece(near_m_rows);
+    let (b_c_half, b_m_half) = split_sextic_rows(near_m_rows);
     let band_b_c = kp20_reparameterise_border_piece(b_c_half, d0);
     let band_b_m = kp20_reparameterise_border_piece(b_m_half, d1);
 
@@ -270,16 +246,16 @@ fn band_placements(
 /// parameter midpoint, whose averaged corner bands kink the cap rim.
 pub fn kp20_paper_border_corner_mismatch(
     n: usize,
-    near_c_rows: &[[Point3; 4]; 3],
-    near_m_rows: &[[Point3; 4]; 3],
+    near_c_rows: &[[Point3; 7]; 3],
+    near_m_rows: &[[Point3; 7]; 3],
     d1_3: f64,
 ) -> f64 {
     let c = (core::f64::consts::TAU / n as f64).cos();
     let (d0, _) = kp20_eq14_border_d_profiles(c, d1_3);
-    let edge_a = reverse_border_piece(near_c_rows);
-    let (a_c_half, _) = split_border_piece(&edge_a);
+    let edge_a = reverse_sextic_rows(near_c_rows);
+    let (a_c_half, _) = split_sextic_rows(&edge_a);
     let band_a_c = kp20_reparameterise_border_piece(a_c_half, d0);
-    let (b_c_half, _) = split_border_piece(near_m_rows);
+    let (b_c_half, _) = split_sextic_rows(near_m_rows);
     let band_b_c = kp20_reparameterise_border_piece(b_c_half, d0);
     let mut a_rows = Vec::new();
     band_placements(&mut a_rows, P3, &band_a_c, true, true);

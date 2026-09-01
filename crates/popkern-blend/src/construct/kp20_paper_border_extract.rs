@@ -14,9 +14,11 @@
 //! Layout: sector `k` = (`FilletEnd[k]`, `FaceEdge[k]`); `c` is the
 //! junction where a fillet end meets its trailing face segment, and
 //! the spoke points `m` are the face→fillet junctions. Depth rows are
-//! the cap-side C² prolongation of the ring (the WP1b convention):
-//! `row1 = 2 q0 − q1`, `row2 = 4 q0 − 4 q1 + q2` with `q_d` true ring
-//! samples at depth `d`.
+//! the cap-side C² prolongation of the ring (the WP1b convention)
+//! expressed as the BB coefficients of the cross-derivative field
+//! sampled at true rim points (PK-398): `row1 = row0 − chord`,
+//! `row2 − 2 row1 + row0 = 1.5·(q2 − 2 q1 + q0)` with `q_d` ring
+//! samples at depth `d` from each rim point.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
@@ -29,6 +31,14 @@ use crate::fillet_surface::FilletSurfaceResult;
 #[path = "kp20_paper_border_recovery.rs"]
 mod recovery;
 use recovery::recover_face_edge_surface;
+#[path = "kp20_paper_border_section.rs"]
+mod section;
+#[path = "kp20_paper_border_section_fit.rs"]
+mod section_fit;
+#[path = "kp20_paper_border_setback.rs"]
+mod setback;
+use popkern_core::geometry::gregory::elevate_cubic_row_to_sextic;
+pub use setback::kp20_paper_border_from_fillet_setback;
 
 /// Extraction evidence for diagnostics and gating.
 #[derive(Debug, Clone)]
@@ -57,6 +67,17 @@ pub struct Kp20PaperBorderExtractReport {
     /// surgery) and whose owning surface was recovered by curve
     /// incidence instead.
     pub recovered_face_surfaces: usize,
+    /// Setback path only: worst sample distance between the fitted
+    /// degree-6 section rows and the strips' sections (PK-398).
+    pub section_fit_residual: f64,
+    /// Setback path only: arcs whose section fit was rejected and
+    /// served as the elevated cubic interpolant.
+    pub section_fit_fallbacks: usize,
+    /// Setback path only: corners whose shared corner point lies off
+    /// the strips by more than 1 % of the rim leg (the strips' contact
+    /// curves miss each other), served with χ̃-calibrated ends and no
+    /// shared corner block — the corner data there is not trustworthy.
+    pub gapped_corners: usize,
 }
 
 #[path = "kp20_paper_border_corners.rs"]
@@ -70,8 +91,14 @@ mod kp20_paper_border_corners;
 pub struct Kp20SetbackArc {
     /// Index into the input `fillet_surfaces` slice.
     pub fillet_index: usize,
-    /// Full arc as a cubic Bezier, `corner_prev` → `corner_next`.
+    /// Full arc as a cubic Bezier, `corner_prev` → `corner_next`
+    /// (the coarse arc used for crossing classification and topology
+    /// splitting; the served rim follows the cap rows).
     pub cubic: [Point3; 4],
+    /// The exact section spline halves `[corner_prev → m]`,
+    /// `[m → corner_next]` (degree 6, C² at `m`) that the border rows
+    /// carry (PK-398).
+    pub section_halves: [[Point3; 7]; 2],
     /// Shared corner with the previous fillet (trim intersection).
     pub corner_prev: Point3,
     /// Shared corner with the next fillet.
@@ -287,17 +314,55 @@ pub fn kp20_paper_border_from_blend_boundary(
     let mut first_order_marches = 0_usize;
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
-        let piece_a = curves[2 * k].border_piece_calibrated(
-            &rims[2 * k],
+        let rim_a = elevate_cubic_row_to_sextic(rims[2 * k]);
+        let rim_b = elevate_cubic_row_to_sextic(rims[2 * k + 1]);
+        // Corner-compatible cross jets at c (shared by the two pieces),
+        // then one shared twist step next to c (see `section`).
+        let corner_a = rim_corner_jet(&rim_b, true);
+        let corner_b = rim_corner_jet(&rim_a, false);
+        let samples_a = curves[2 * k].border_piece_calibrated(
+            &rim_a,
             &calibration[0],
             boundary.vertex_position,
             &mut first_order_marches,
+            [None, Some(corner_a)],
         );
-        let piece_b = curves[2 * k + 1].border_piece_calibrated(
-            &rims[2 * k + 1],
+        let samples_b = curves[2 * k + 1].border_piece_calibrated(
+            &rim_b,
             &calibration[1],
             boundary.vertex_position,
             &mut first_order_marches,
+            [Some(corner_b), None],
+        );
+        let (pins_a, pins_a2) = corner_pins(corner_a, true, None);
+        let (pins_b, pins_b2) = corner_pins(corner_b, false, None);
+        let natural_a = section::fit_sextic_field_pinned(&samples_a.jets, pins_a);
+        let natural_b = section::fit_sextic_field_pinned(&samples_b.jets, pins_b);
+        let station_normal = |segment: &OrientedSegment, row0: &[Point3; 7], t: f64| -> Vec3 {
+            segment
+                .surface_normal(popkern_core::geometry::gregory::eval_sextic_row(row0, t))
+                .and_then(|n| n.normalized())
+                .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
+        };
+        let twist = section::corner_twist_step(
+            natural_a[5] - natural_a[6],
+            natural_b[1] - natural_b[0],
+            corner_leg(&rim_a, true),
+            corner_leg(&rim_b, false),
+            station_normal(&curves[2 * k], &rim_a, 11.0 / 12.0),
+            station_normal(&curves[2 * k + 1], &rim_b, 1.0 / 12.0),
+        );
+        let (pins_a, _) = corner_pins(corner_a, true, Some(twist));
+        let (pins_b, _) = corner_pins(corner_b, false, Some(twist));
+        let piece_a = rows_from_cross_fields(
+            &rim_a,
+            &section::fit_sextic_field_pinned(&samples_a.jets, pins_a),
+            &section::fit_sextic_field_pinned(&samples_a.curvatures, pins_a2),
+        );
+        let piece_b = rows_from_cross_fields(
+            &rim_b,
+            &section::fit_sextic_field_pinned(&samples_b.jets, pins_b),
+            &section::fit_sextic_field_pinned(&samples_b.curvatures, pins_b2),
         );
         // Sector rows run [m^k → c] then [c → m^{k+1}]: the FilletEnd
         // piece starts the sector at m and ends at c.
@@ -318,6 +383,9 @@ pub fn kp20_paper_border_from_blend_boundary(
             trim_corners: Vec::new(),
             setback_arcs: Vec::new(),
             recovered_face_surfaces,
+            section_fit_residual: 0.0,
+            section_fit_fallbacks: 0,
+            gapped_corners: 0,
         },
     ))
 }
@@ -375,6 +443,99 @@ fn chi_march_calibration(n: usize) -> Option<[ChiPieceCalibration; 2]> {
             end: measure(near_m, 3)?,
         },
     ])
+}
+
+/// Cap-side cross jet at a piece end, in cubic-depth Bernstein form:
+/// `d1 = row1 − row0`, `d2 = row2 − 2·row1 + row0`.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CornerJet {
+    pub d1: Vec3,
+    pub d2: Vec3,
+}
+
+/// The corner-compatible cross jet at a sector corner `c`, read from
+/// the NEIGHBOURING rim row (PK-398). At `c` the corner piece's two
+/// parameter directions are the two rims, so piece A's cap-side
+/// depth row at `c` IS piece B's rim row in cubic-equivalent Bernstein
+/// form (`leg ×2`, second difference ×5 relative to the degree-6
+/// row). The KP20 corner overlap averages A's rim coefficients next
+/// to `c` with B's cross coefficients at `c`; a χ̃-calibrated guess
+/// there dragged the served rim off the exact section (measured
+/// along-seam curvature 6.83 vs 6.70 at 30 % of the quarter arc from
+/// `c`, g2 1.4e-1), while this jet makes the overlap a no-op on the
+/// rim by construction. `neighbour_starts_at_c` selects which end of
+/// the neighbour's row touches `c`.
+pub(super) fn rim_corner_jet(
+    neighbour_row0: &[Point3; 7],
+    neighbour_starts_at_c: bool,
+) -> CornerJet {
+    let r = neighbour_row0;
+    let (a, b, c) = if neighbour_starts_at_c {
+        (r[0], r[1], r[2])
+    } else {
+        (r[6], r[5], r[4])
+    };
+    CornerJet {
+        d1: b - a,
+        d2: ((c - b) - (b - a)) * 1.25,
+    }
+}
+
+/// Sampled cap-side cross fields along one rim row: `(t, value)`.
+pub(super) struct CrossFieldSamples {
+    /// Cross-jet samples `row1 − row0`.
+    pub jets: Vec<(f64, Vec3)>,
+    /// Cross-curvature samples `row2 − 2·row1 + row0`.
+    pub curvatures: Vec<(f64, Vec3)>,
+}
+
+/// Assemble the three depth rows from the rim row and the fitted
+/// cross-jet / cross-curvature rows.
+pub(super) fn rows_from_cross_fields(
+    row0: &[Point3; 7],
+    d1: &[Vec3; 7],
+    d2: &[Vec3; 7],
+) -> [[Point3; 7]; 3] {
+    let mut rows = [*row0, *row0, *row0];
+    for i in 0..7 {
+        rows[1][i] = row0[i] + d1[i];
+        rows[2][i] = rows[1][i] + (rows[1][i] - row0[i]) + d2[i];
+    }
+    rows
+}
+
+/// Corner pins for a piece ending at `c` (`at_end`) or starting there:
+/// the jet value and, when given, the shared twist step next to `c`.
+pub(super) fn corner_pins(
+    corner: CornerJet,
+    at_end: bool,
+    twist: Option<Vec3>,
+) -> ([Option<Vec3>; 7], [Option<Vec3>; 7]) {
+    let mut d1 = [None; 7];
+    let mut d2 = [None; 7];
+    if at_end {
+        d1[6] = Some(corner.d1);
+        d2[6] = Some(corner.d2);
+        if let Some(step) = twist {
+            d1[5] = Some(corner.d1 + step);
+        }
+    } else {
+        d1[0] = Some(corner.d1);
+        d2[0] = Some(corner.d2);
+        if let Some(step) = twist {
+            d1[1] = Some(corner.d1 + step);
+        }
+    }
+    (d1, d2)
+}
+
+/// The c-quarter rim leg from `c` (the corner block's rim leg).
+pub(super) fn corner_leg(row0: &[Point3; 7], at_end: bool) -> Vec3 {
+    if at_end {
+        (row0[5] - row0[6]) * 0.5
+    } else {
+        (row0[1] - row0[0]) * 0.5
+    }
 }
 
 /// One boundary segment with loop orientation and its owning surface.
@@ -451,6 +612,14 @@ impl OrientedSegment {
         self.point(1.0)
     }
 
+    /// Closest surface point to `p` on the owning surface.
+    fn surface_foot(&self, p: Point3) -> Option<Point3> {
+        use popkern_core::geometry::surface::SurfaceEval;
+        use popkern_core::geometry::uv_projection::project_point_to_uv;
+        let uv = project_point_to_uv(&self.surface, &p)?;
+        Some(self.surface.point_at(uv.0, uv.1))
+    }
+
     /// Surface normal near `p` on the owning surface (used to build
     /// the shared tangent plane at smooth spoke junctions).
     fn surface_normal(&self, p: Point3) -> Option<Vec3> {
@@ -483,92 +652,137 @@ impl OrientedSegment {
         ]
     }
 
-    /// Bi-3 depth-2 border piece with χ̃-calibrated cross rows: at
-    /// each end the march vector is the rim tangent rotated by the
-    /// characteristic signed angle in this surface's tangent plane
-    /// and scaled by the characteristic cross/rim ratio; interior
-    /// columns blend the end vectors.
-    fn border_piece_calibrated(
+    /// χ̃-calibrated march vector at one end of the rim row (`col` 0 or
+    /// 6): the rim tangent rotated by the characteristic signed angle
+    /// in this surface's tangent plane and scaled by the
+    /// characteristic cross/rim ratio (measured on cubic χ̃ rows, so
+    /// the rim leg is the CUBIC-EQUIVALENT `2·(b₁ − b₀)` of the
+    /// degree-6 row).
+    fn calibrated_march(
         &self,
-        row0: &[Point3; 4],
-        calibration: &ChiPieceCalibration,
+        row0: &[Point3; 7],
+        col: usize,
+        cal: &ChiEndCalibration,
         vertex: Point3,
-        first_order_marches: &mut usize,
-    ) -> [[Point3; 4]; 3] {
-        let row0 = *row0;
-        let end_vector = |col: usize, cal: &ChiEndCalibration| -> Vec3 {
-            let rim = if col == 0 {
-                row0[1] - row0[0]
-            } else {
-                row0[3] - row0[2]
-            };
-            let rim_len = rim.length().max(1.0e-14);
-            let t_hat = rim * (1.0 / rim_len);
-            let p = row0[col];
-            let normal = self.surface_normal(p).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-            // Orient the frame so `normal × t_hat` points away from
-            // the blend vertex (into the ring), matching the χ̃
-            // frame's outward side.
-            let mut side = normal.cross(&t_hat);
-            if side.dot(&(p - vertex)) < 0.0 {
-                side = -side;
-            }
-            let side = side.normalized().unwrap_or(side);
-            (t_hat * cal.angle.cos() + side * cal.angle.sin()) * (cal.ratio * rim_len)
+    ) -> Vec3 {
+        let rim = if col == 0 {
+            (row0[1] - row0[0]) * 2.0
+        } else {
+            (row0[6] - row0[5]) * 2.0
         };
-        let start_vec = end_vector(0, &calibration.start);
-        let end_vec = end_vector(3, &calibration.end);
-        if popkern_core::trace::trace_enabled("kp-march") {
-            eprintln!(
-                "    march trace: start_vec=({:.5},{:.5},{:.5}) end_vec=({:.5},{:.5},{:.5}) fillet_end={}",
-                start_vec.x,
-                start_vec.y,
-                start_vec.z,
-                end_vec.x,
-                end_vec.y,
-                end_vec.z,
-                self.is_fillet_end,
-            );
+        let rim_len = rim.length().max(1.0e-14);
+        let t_hat = rim * (1.0 / rim_len);
+        let p = row0[col];
+        let normal = self.surface_normal(p).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+        // Orient the frame so `normal × t_hat` points away from the
+        // blend vertex (into the ring), matching the χ̃ frame's
+        // outward side.
+        let mut side = normal.cross(&t_hat);
+        if side.dot(&(p - vertex)) < 0.0 {
+            side = -side;
         }
-        let mut rows = [row0, row0, row0];
-        for (index, &q0) in row0.iter().enumerate() {
-            let blend = index as f64 / 3.0;
-            let v = start_vec * (1.0 - blend) + end_vec * blend;
+        let side = side.normalized().unwrap_or(side);
+        (t_hat * cal.angle.cos() + side * cal.angle.sin()) * (cal.ratio * rim_len)
+    }
+
+    /// Sample the cap-side cross-jet and cross-curvature fields along
+    /// the rim row (PK-398). The march vector blends `march_ends`
+    /// linearly, kept in the tangent plane at each true curve point
+    /// `S(t)`. Marching from the row's control points — the earlier
+    /// construction — started every interior march off the surface by
+    /// the control polygon's sagitta (1.4e-3 at r = 0.1), which the
+    /// second difference read as cross-curvature (−1.4e-3/ℓ² ≈ −2.0
+    /// against a straight sweep's 0) and served as the cap↔strip
+    /// transverse G2 class (1.4 normalized on every rim+verticals seam).
+    fn march_cross_field(
+        &self,
+        row0: &[Point3; 7],
+        march_ends: [Vec3; 2],
+        first_order_marches: &mut usize,
+    ) -> CrossFieldSamples {
+        const FIELD_SAMPLES: usize = 25;
+        let mut jets = Vec::with_capacity(FIELD_SAMPLES);
+        let mut curvatures = Vec::with_capacity(FIELD_SAMPLES);
+        for j in 0..FIELD_SAMPLES {
+            let t = j as f64 / (FIELD_SAMPLES - 1) as f64;
+            let rim_point = popkern_core::geometry::gregory::eval_sextic_row(row0, t);
+            // March from the rim point's SURFACE foot: at a gapped
+            // corner (trim curves that miss each other — 3.4e-3 on the
+            // blunt pentagon G2 sweeps) the rim row interpolates a
+            // corner 1.6e-3 off the strip, and a march started there
+            // reads the offset as cross-curvature (offset/ℓ² ≈ 16)
+            // exactly like the control-point march did. The fields are
+            // relative to the row, so the rim reconcile's later landing
+            // of the row carries them along.
+            let q0 = self.surface_foot(rim_point).unwrap_or(rim_point);
+            let n_hat = self
+                .surface_normal(q0)
+                .and_then(|n| n.normalized())
+                .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+            // Smootherstep blend: zero slope AND curvature at both
+            // ends, so the corner block's third-order slots agree
+            // between the two pieces by construction. The χ̃ scale
+            // convention makes the cross leg ~2× longer at the spoke
+            // point m than the corner-compatible leg at c, so a linear
+            // blend leaves a length KINK at m (both halves rising
+            // toward it) and a twist step at c; the field must be C²
+            // across m and twist-free at c for the shared junction
+            // pins to agree with the samples (measured: linear blend
+            // forced the constrained fit 1.1e-2 off its samples).
+            let w = t * t * t * (10.0 + t * (-15.0 + 6.0 * t));
+            let blend = march_ends[0] * (1.0 - w) + march_ends[1] * w;
+            let in_plane = blend - n_hat * blend.dot(&n_hat);
+            let v = in_plane
+                .normalized()
+                .map(|u| u * blend.length())
+                .unwrap_or(blend);
             let (q1, q2) = self.ring_march_vector(q0, v, first_order_marches);
             // Cap-side C² prolongation. The WP1b point reflection
             // r1 = 2q0 − q1 mirrors a SURFACE CHORD through q0: the
             // chord leaves the strip's tangent plane by ~κℓ²/2, so
             // the cap's cross-jet tilted out of the surface by
             // ~κℓ/2 radians — measured as a UNIFORM 2.6°–6.9° rim
-            // tangency error along every setback arc (PK-212; worst
-            // on blunt apexes and G2 sweeps, whose legs are longest;
-            // never gated because the commercial gates measure
-            // cap↔cap seams only). G1 across the rim requires the
-            // jet IN the tangent plane: project the chord's normal
-            // component out before reflecting. The second-difference
-            // (curvature) prolongation keeps its invariant
-            // r2 − 2r1 + q0 = q0 − 2q1 + q2, so the G2 content is
-            // unchanged.
+            // tangency error along every setback arc (PK-212). G1
+            // across the rim requires the jet IN the tangent plane:
+            // project the chord's normal component out before
+            // reflecting.
             let chord = q1 - q0;
-            let n_hat = self
-                .surface_normal(q0)
-                .and_then(|n| n.normalized())
-                .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
-            let out_of_plane = n_hat * chord.dot(&n_hat);
-            let r1 = Point3::new(
-                2.0 * q0.x - q1.x + out_of_plane.x,
-                2.0 * q0.y - q1.y + out_of_plane.y,
-                2.0 * q0.z - q1.z + out_of_plane.z,
-            );
-            let r2 = Point3::new(
-                2.0 * r1.x - 2.0 * q1.x + q2.x,
-                2.0 * r1.y - 2.0 * q1.y + q2.y,
-                2.0 * r1.z - 2.0 * q1.z + q2.z,
-            );
-            rows[1][index] = r1;
-            rows[2][index] = r2;
+            let jet = -(chord - n_hat * chord.dot(&n_hat));
+            // Curvature semantics of a Bernstein depth row: derivatives
+            // at the rim are 3·(r1 − r0) and 6·(r2 − 2r1 + r0). With
+            // the leg equal to the sample spacing ℓ the row represents
+            // the surface at depth parameter α = 3ℓ, so its second
+            // difference is α²f''/6 = 1.5·ℓ²f'' — 1.5× the SAMPLE
+            // second difference (≈ ℓ²f''). Exact for straight marches
+            // either way; on curved-spine strips the factor carries the
+            // strip's full curvature into the cap.
+            let second = (q2 - q1) - (q1 - q0);
+            jets.push((t, jet));
+            curvatures.push((t, second * 1.5));
         }
-        rows
+        CrossFieldSamples { jets, curvatures }
+    }
+
+    /// Cross-field samples with χ̃-calibrated ends, or corner-compatible
+    /// jets at `c` where `corner_jets` are given (the cap-side jet is
+    /// the negated march vector).
+    fn border_piece_calibrated(
+        &self,
+        row0: &[Point3; 7],
+        calibration: &ChiPieceCalibration,
+        vertex: Point3,
+        first_order_marches: &mut usize,
+        corner_jets: [Option<CornerJet>; 2],
+    ) -> CrossFieldSamples {
+        let start = match corner_jets[0] {
+            Some(corner) => -corner.d1,
+            None => self.calibrated_march(row0, 0, &calibration.start, vertex),
+        };
+        let end = match corner_jets[1] {
+            Some(corner) => -corner.d1,
+            None => self.calibrated_march(row0, 6, &calibration.end, vertex),
+        };
+        self.march_cross_field(row0, [start, end], first_order_marches)
     }
 
     /// March into the ring by the leg vector `v` on the owning
@@ -668,289 +882,6 @@ fn loop_winding(curves: &[OrientedSegment], centroid: Point3, normal: Vec3) -> f
         acc += a.cross(&b).dot(&normal);
     }
     acc
-}
-
-/// Corner-setback border: the vertex-blend boundary as n fillet-end
-/// arcs set back to the TRIM-INTERSECTION corners — for each pair of
-/// angularly adjacent fillets, the point where their contact curves
-/// on the shared support face intersect. The boundary then lies
-/// entirely on the fillet surfaces: each sector's two pieces are the
-/// halves of ONE arc on ONE G² sweep (C² at the spoke point m by
-/// construction), and the sector corners c sit where two sweeps meet
-/// tangent to the same face (curvature-compatible corner data — the
-/// property the G² sweep buys). This is the classical setback vertex
-/// blend, shaped exactly like the characteristic layout.
-pub fn kp20_paper_border_from_fillet_setback(
-    fillet_surfaces: &[FilletSurfaceResult],
-    vertex_position: Point3,
-) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
-    use popkern_core::geometry::surface::SurfaceEval;
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-    let n = fillet_surfaces.len();
-    if n < 3 {
-        return Err(format!("setback border needs >= 3 fillets, got {n}"));
-    }
-
-    // Angular order of the fillets about the vertex (best-fit frame
-    // from the trim-curve midpoints).
-    let rep_point = |fi: usize| -> Point3 {
-        let c = &fillet_surfaces[fi].trim_curve_1;
-        let (t0, t1) = c.parameter_range();
-        c.point_at(0.5 * (t0 + t1))
-    };
-    let centroid = {
-        let mut acc = [0.0_f64; 3];
-        for fi in 0..n {
-            let p = rep_point(fi);
-            acc[0] += p.x;
-            acc[1] += p.y;
-            acc[2] += p.z;
-        }
-        Point3::new(acc[0] / n as f64, acc[1] / n as f64, acc[2] / n as f64)
-    };
-    let mut axis = Vec3::new(0.0, 0.0, 0.0);
-    for fi in 0..n {
-        let a = rep_point(fi) - centroid;
-        let b = rep_point((fi + 1) % n) - centroid;
-        axis = axis + a.cross(&b);
-    }
-    let axis = axis
-        .normalized()
-        .ok_or_else(|| "degenerate fillet arrangement".to_string())?;
-    let seed = rep_point(0) - centroid;
-    let u0 = (seed - axis * seed.dot(&axis))
-        .normalized()
-        .ok_or_else(|| "degenerate angular frame".to_string())?;
-    let v0 = axis.cross(&u0);
-    let angle_of = |p: Point3| -> f64 {
-        let d = p - centroid;
-        d.dot(&v0).atan2(d.dot(&u0))
-    };
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        angle_of(rep_point(a))
-            .partial_cmp(&angle_of(rep_point(b)))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Setback corners between angularly adjacent fillets — see
-    // `kp20_paper_border_corners` for the pair-selection and
-    // truncated-trim recovery model.
-    let corners =
-        kp20_paper_border_corners::setback_corners(fillet_surfaces, &order, vertex_position);
-    let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
-
-    // Corners cut exactly at the trim intersection. (A fractional
-    // pullback along both arcs onto the shared tangent plane — the
-    // classical setback-distance choice — was probed and retired:
-    // production keeps the exact trim-intersection corner.)
-    // One arc per fillet between its two corners. Pass 1: uv spans.
-    let mut spans: Vec<(usize, f64, f64, f64, f64)> = Vec::with_capacity(n);
-    for k in 0..n {
-        let fillet = &fillet_surfaces[order[k]];
-        let c_prev = corners[(k + n - 1) % n].1;
-        let c_next = corners[k].1;
-        let (ua, va) = project_point_to_uv(&fillet.surface, &c_prev)
-            .ok_or_else(|| "corner projection failed".to_string())?;
-        let (ub, vb) = project_point_to_uv(&fillet.surface, &c_next)
-            .ok_or_else(|| "corner projection failed".to_string())?;
-        spans.push((order[k], ua, va, ub, vb));
-    }
-    let eval_span = |k: usize, t: f64| -> Point3 {
-        let (fi, ua, va, ub, vb) = spans[k];
-        fillet_surfaces[fi]
-            .surface
-            .point_at(ua + (ub - ua) * t, va + (vb - va) * t)
-    };
-    // Pass 2: corners = midpoints of adjacent cut ends (they flank
-    // the shared face symmetrically, so the midpoint sits essentially
-    // on it).
-    let new_corners: Vec<Point3> = (0..n)
-        .map(|j| {
-            let a_end = eval_span(j, 1.0);
-            let b_start = eval_span((j + 1) % n, 0.0);
-            Point3::new(
-                0.5 * (a_end.x + b_start.x),
-                0.5 * (a_end.y + b_start.y),
-                0.5 * (a_end.z + b_start.z),
-            )
-        })
-        .collect();
-    // Pass 3: sector pieces interpolate arc samples and END exactly
-    // at the shared corners.
-    let mut sectors = Vec::with_capacity(n);
-    let mut first_order_marches = 0_usize;
-    let calibration = chi_march_calibration(n)
-        .ok_or_else(|| "characteristic march calibration failed".to_string())?;
-    let interpolate = |pts: [Point3; 4]| -> [Point3; 4] {
-        let inner = |a: f64, b: f64, c: f64, d: f64| {
-            Point3::new(
-                (a * pts[0].x + b * pts[1].x + c * pts[2].x + d * pts[3].x) / 6.0,
-                (a * pts[0].y + b * pts[1].y + c * pts[2].y + d * pts[3].y) / 6.0,
-                (a * pts[0].z + b * pts[1].z + c * pts[2].z + d * pts[3].z) / 6.0,
-            )
-        };
-        [
-            pts[0],
-            inner(-5.0, 18.0, -9.0, 2.0),
-            inner(2.0, -9.0, 18.0, -5.0),
-            pts[3],
-        ]
-    };
-    let mut setback_arcs: Vec<Kp20SetbackArc> = Vec::with_capacity(n);
-    for k in 0..n {
-        let fillet = &fillet_surfaces[spans[k].0];
-        let c_start = new_corners[(k + n - 1) % n];
-        let c_end = new_corners[k];
-        // ONE cubic per arc through the shared corners, split exactly
-        // at its midpoint: the halves share all derivatives at m (the
-        // cross-sector joint whose C² the eq (13)/(14) premises
-        // need), and adjacent arcs share the corner points exactly.
-        let full_arc = interpolate([
-            c_start,
-            eval_span(k, 1.0 / 3.0),
-            eval_span(k, 2.0 / 3.0),
-            c_end,
-        ]);
-        setback_arcs.push(Kp20SetbackArc {
-            fillet_index: spans[k].0,
-            cubic: full_arc,
-            corner_prev: c_start,
-            corner_next: c_end,
-        });
-        let (first_half, second_half) = split_cubic_row(&full_arc);
-        let shim = OrientedSegment {
-            curve: fillet.trim_curve_1.clone(),
-            surface: fillet.surface.clone(),
-            is_fillet_end: true,
-            reversed: false,
-        };
-        let piece_a = shim.border_piece_calibrated(
-            &first_half,
-            &calibration[0],
-            vertex_position,
-            &mut first_order_marches,
-        );
-        let piece_b = shim.border_piece_calibrated(
-            &second_half,
-            &calibration[1],
-            vertex_position,
-            &mut first_order_marches,
-        );
-        sectors.push((spans[k].0, piece_a, piece_b));
-    }
-
-    // m-compatibility conditioning (eq (13)/(14) premise): the two
-    // halves of each arc share a C∞ rim (one split cubic) but their
-    // CROSS rows are marched independently, so the ring data is only
-    // approximately C² across m (measured 1.6e-3..4e-3 on the
-    // pyramid apex). The band placements on the two sectors flanking
-    // the m spoke are drawn from these rows, so the mismatch surfaces
-    // as a cross-sector C⁰ seam gap that step (iv) cannot repair.
-    // Enforce an EXACT symmetric C² junction on rows 1..2: with the
-    // C⁰/C¹/C² joint conditions (equal half lengths), the minimal-
-    // movement solution has the closed form
-    //   k  = (B₂ − A₁)/4
-    //   a₂ = (A₂ + (A₃ − k) + (B₀ − k) + (B₁ − 2k)) / 4
-    //   A₃ = B₀ = a₂ + k,  B₁ = a₂ + 2k.
-    type PiecePair = ([[Point3; 4]; 3], [[Point3; 4]; 3]);
-    let mut pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
-    for (first_half, second_half) in pieces.iter_mut() {
-        for row in 1..3_usize {
-            let a = &first_half[row];
-            let b = &second_half[row];
-            let axis = |sel: fn(&Point3) -> f64| -> (f64, f64, f64, f64) {
-                let k = (sel(&b[2]) - sel(&a[1])) / 4.0;
-                let a2 =
-                    (sel(&a[2]) + (sel(&a[3]) - k) + (sel(&b[0]) - k) + (sel(&b[1]) - 2.0 * k))
-                        / 4.0;
-                (a2, a2 + k, a2 + k, a2 + 2.0 * k)
-            };
-            let (x2, x3, x0, x1) = axis(|p| p.x);
-            let (y2, y3, y0, y1) = axis(|p| p.y);
-            let (z2, z3, z0, z1) = axis(|p| p.z);
-            first_half[row][2] = Point3::new(x2, y2, z2);
-            first_half[row][3] = Point3::new(x3, y3, z3);
-            second_half[row][0] = Point3::new(x0, y0, z0);
-            second_half[row][1] = Point3::new(x1, y1, z1);
-        }
-    }
-    let mut grouped = Vec::with_capacity(n);
-    for s in 0..n {
-        let piece_a = pieces[s].1; // [m_s → c_s]
-        let piece_b = pieces[(s + 1) % n].0; // [c_s → m_{s+1}]
-        grouped.push([
-            Kp20PaperGuideBorderPiece { rows: piece_a },
-            Kp20PaperGuideBorderPiece { rows: piece_b },
-        ]);
-    }
-
-    // Corner face-tangency conditioning: at each corner c the two
-    // G² sweeps are tangent to the shared support face, so the TRUE
-    // ring data at c lies in that tangent plane and the cap must stay
-    // on its outward side (the face wedge occupies the plane up to
-    // c). Any below-plane component in the corner-adjacent cap-side
-    // cross rows is extraction/mismatch noise that pushes the
-    // assembled cap into the wedge (measured as wedge blades stabbing
-    // the dome at larger radii); project it out.
-    let loop_centroid = {
-        let mut acc = [0.0_f64; 3];
-        let mut count = 0.0;
-        for sector in &grouped {
-            for piece in sector {
-                for cp in &piece.rows[0] {
-                    acc[0] += cp.x;
-                    acc[1] += cp.y;
-                    acc[2] += cp.z;
-                    count += 1.0;
-                }
-            }
-        }
-        Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
-    };
-    for s in 0..n {
-        let c_point = grouped[s][0].rows[0][3];
-        // Tangent plane at c from the owning sweep (= the shared
-        // face plane, by G² tangency), oriented outward.
-        let fillet = &fillet_surfaces[order[(s + 1) % n]];
-        let Some((cu, cv)) = project_point_to_uv(&fillet.surface, &c_point) else {
-            continue;
-        };
-        let mut normal = fillet.surface.normal_at(cu, cv);
-        if normal.dot(&(c_point - loop_centroid)) < 0.0 {
-            normal = -normal;
-        }
-        let clamp = |cp: &mut Point3| {
-            let h = (*cp - c_point).dot(&normal);
-            if h < 0.0 {
-                *cp = *cp - normal * h;
-            }
-        };
-        // Piece A of sector s ends at c (columns 3, 2); piece B of
-        // sector s starts at c (columns 0, 1).
-        for row in 1..3 {
-            for col in [3_usize, 2] {
-                clamp(&mut grouped[s][0].rows[row][col]);
-            }
-            for col in [0_usize, 1] {
-                clamp(&mut grouped[s][1].rows[row][col]);
-            }
-        }
-    }
-
-    Ok((
-        Kp20PaperGuideBorder { sectors: grouped },
-        Kp20PaperBorderExtractReport {
-            n,
-            depth: 0.0,
-            max_loop_gap: max_corner_gap,
-            first_order_marches,
-            reversed_for_orientation: false,
-            trim_corners: corners.iter().map(|c| c.1).collect(),
-            setback_arcs,
-            recovered_face_surfaces: 0,
-        },
-    ))
 }
 
 /// De Casteljau halves of one cubic row.

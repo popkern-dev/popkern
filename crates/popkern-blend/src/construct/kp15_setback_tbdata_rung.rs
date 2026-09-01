@@ -75,7 +75,7 @@ pub(super) fn try_kp15_setback_tbdata_rung(
     // corners; forward rotation only — a reversed match means the
     // border winds against the ring and the rung declines (fail
     // closed) rather than committing mirrored geometry.
-    let corner_of = |k: usize| border.sectors[k][0].rows[0][3];
+    let corner_of = |k: usize| border.sectors[k][0].rows[0][6];
     let spacing = (0..n)
         .map(|s| outer_corners[s].distance_to(&outer_corners[(s + 1) % n]))
         .fold(f64::INFINITY, f64::min);
@@ -101,8 +101,12 @@ pub(super) fn try_kp15_setback_tbdata_rung(
     let mut tak_src: Vec<SectorTensorBorderBi3> = Vec::with_capacity(n);
     for s in 0..n {
         let k = (s + rotation) % n;
-        tak_src.push(reversed_rows(&border.sectors[k][0].rows));
-        tad_src.push(border.sectors[k][1].rows);
+        // Cubic reductions that keep the spoke junction C²: piece 0
+        // [m → c] carries m at its start, piece 1 [c → m'] at its end.
+        tak_src.push(reversed_rows(
+            &border.sectors[k][0].bi3_rows_matching_end_jet(false),
+        ));
+        tad_src.push(border.sectors[k][1].bi3_rows_matching_end_jet(true));
     }
     let params = Bi6Reparams::for_valence(n);
 

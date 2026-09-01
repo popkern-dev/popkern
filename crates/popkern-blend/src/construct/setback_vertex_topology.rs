@@ -752,19 +752,6 @@ fn build_cap_face_fan(
                 }
                 p[0]
             };
-            let bez4 = |cps: &[Point3; 4], t: f64| -> Point3 {
-                let mut p = *cps;
-                for level in (1..4).rev() {
-                    for i in 0..level {
-                        p[i] = Point3::new(
-                            p[i].x + (p[i + 1].x - p[i].x) * t,
-                            p[i].y + (p[i + 1].y - p[i].y) * t,
-                            p[i].z + (p[i + 1].z - p[i].z) * t,
-                        );
-                    }
-                }
-                p[0]
-            };
             let strip_dist = |p: Point3| -> f64 {
                 let mut best = f64::INFINITY;
                 for fillet in fillet_surfaces {
@@ -783,7 +770,7 @@ fn build_cap_face_fan(
                     for piece in sector {
                         for i in 0..=128 {
                             let t = i as f64 / 128.0;
-                            best = best.min(bez4(&piece.rows[0], t).distance_to(&p));
+                            best = best.min(bez7(&piece.rows[0], t).distance_to(&p));
                         }
                     }
                 }
@@ -991,7 +978,12 @@ fn build_cap_face_fan(
         .flat_map(|sector| sector.iter())
         .map(|piece| {
             (0..=32)
-                .map(|i| setback_rim_reconcile::eval_cubic(&piece.rows[0], i as f64 / 32.0))
+                .map(|i| {
+                    popkern_core::geometry::gregory::eval_sextic_row(
+                        &piece.rows[0],
+                        i as f64 / 32.0,
+                    )
+                })
                 .collect()
         })
         .collect();

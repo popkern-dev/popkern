@@ -27,12 +27,12 @@ fn production_border(n: usize) -> Kp20PaperGuideBorder {
             .into_iter()
             .map(|[near_c, near_m]| {
                 [
-                    crate::geometry::gregory::kp20_paper_guide::Kp20PaperGuideBorderPiece {
-                        rows: near_c,
-                    },
-                    crate::geometry::gregory::kp20_paper_guide::Kp20PaperGuideBorderPiece {
-                        rows: near_m,
-                    },
+                    crate::geometry::gregory::kp20_paper_guide::Kp20PaperGuideBorderPiece::from_bi3(
+                        near_c,
+                    ),
+                    crate::geometry::gregory::kp20_paper_guide::Kp20PaperGuideBorderPiece::from_bi3(
+                        near_m,
+                    ),
                 ]
             })
             .collect(),
@@ -186,8 +186,8 @@ fn paper_macro_cap_adapter_is_contract_compatible() {
             .into_iter()
             .map(|[near_c, near_m]| {
                 [
-                    Kp20PaperGuideBorderPiece { rows: near_c },
-                    Kp20PaperGuideBorderPiece { rows: near_m },
+                    Kp20PaperGuideBorderPiece::from_bi3(near_c),
+                    Kp20PaperGuideBorderPiece::from_bi3(near_m),
                 ]
             })
             .collect(),
@@ -214,8 +214,9 @@ fn paper_macro_cap_adapter_is_contract_compatible() {
     let mut sectors = Vec::with_capacity(n);
     for sector in &border.sectors {
         let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
+        let (first, second) = (sector[0].bi3_rows(), sector[1].bi3_rows());
         for (depth, row) in rows.iter_mut().enumerate() {
-            *row = merge_cubic_halves(sector[0].rows[depth], sector[1].rows[depth]);
+            *row = merge_cubic_halves(first[depth], second[depth]);
         }
         sectors.push(rows);
     }
@@ -247,4 +248,40 @@ fn merge_cubic_halves(first: [Point3; 4], second: [Point3; 4]) -> [Point3; 4] {
     let p3 = second[3];
     let p2 = lerp(second[3], second[2], 2.0);
     [p0, p1, p2, p3]
+}
+
+/// PK-398 structural fact: the characteristic border's own two-piece
+/// corner data does NOT agree on the KP20 corner piece's overlap — at
+/// `c` its cross leg is 1.0× the CUBIC rim leg while the eq (14) band
+/// (half-piece elevated to degree 6, depth row `½(row0 + row1)`)
+/// needs half of that, so `kp20_paper_border_corner_mismatch` reads
+/// `rim_leg / 2` even for the regular n = 4 border. The paper's
+/// overlap average is therefore always active on bi-3 input; the
+/// setback extractor's corner-compatible jets (`d1 = degree-6 leg`)
+/// are the one input class for which it is a no-op.
+#[test]
+fn characteristic_border_corner_overlap_mismatch_is_half_the_rim_leg() {
+    use crate::geometry::gregory::cc_characteristic_tensor_border::cc_lifted_ring_border_pieces;
+    for n in [3usize, 4, 5, 6] {
+        let pieces = cc_lifted_ring_border_pieces(n, |_, _| 0.0).expect("chi");
+        let [near_c, near_m] = &pieces[0];
+        let rim_leg = (near_c[0][3] - near_c[0][2]).length();
+        let cross_leg = (near_c[1][3] - near_c[0][3]).length();
+        assert!(
+            (cross_leg / rim_leg - 1.0).abs() < 1e-9,
+            "n={n}: cross/rim leg ratio at c {}",
+            cross_leg / rim_leg
+        );
+        let c = (core::f64::consts::TAU / n as f64).cos();
+        let mismatch = crate::geometry::gregory::kp20_paper_border_corner_mismatch(
+            n,
+            &crate::geometry::gregory::elevate_bi3_rows_to_sextic(*near_c),
+            &crate::geometry::gregory::elevate_bi3_rows_to_sextic(*near_m),
+            2.0 * c / 3.0,
+        );
+        assert!(
+            mismatch > 0.3 * rim_leg && mismatch < 0.7 * rim_leg,
+            "n={n}: corner mismatch {mismatch:e} vs rim leg {rim_leg:e}"
+        );
+    }
 }

@@ -127,8 +127,8 @@ impl Fixture {
                 .into_iter()
                 .map(|[near_c, near_m]| {
                     [
-                        Kp20PaperGuideBorderPiece { rows: near_c },
-                        Kp20PaperGuideBorderPiece { rows: near_m },
+                        Kp20PaperGuideBorderPiece::from_bi3(near_c),
+                        Kp20PaperGuideBorderPiece::from_bi3(near_m),
                     ]
                 })
                 .collect(),

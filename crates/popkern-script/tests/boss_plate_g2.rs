@@ -1,5 +1,5 @@
-//! PK-389 — the flagship boss plate serves its 9-edge fillet at G2 with
-//! a MEASURED curvature-continuity verdict.
+//! PK-389/PK-398 — the flagship boss plate serves its 9-edge fillet at
+//! G2 with a MEASURED curvature-continuity verdict that meets the request.
 //!
 //! The selection is the showcase's: the boss/plate junction circle, the
 //! four plate-top rim edges, and the four vertical plate edges. Before
@@ -60,14 +60,11 @@ fn nine_edge_g2_fillet_serves_with_measured_g2_at_every_showcase_radius() {
             .to_part()
             .expect("serving boundary (validate_all) accepts the body");
         // Corner method decides the census: the KP20 setback fans
-        // serve at EVERY showcase radius (their seam-G2
-        // postcondition fails at ~5.4e-2 vs the 5e-2 gate, so they
-        // serve as a recorded G1 downgrade — far better than the 27°
-        // Gregory creases they used to yield to). r=0.1 joined when
-        // the crossing detector became transversality-structural
-        // (PK-392: the setback arc is UV-coincident with the
-        // pre-carve apex boundary by construction; the old count was
-        // a projection-noise knife-edge).
+        // serve at EVERY showcase radius. r=0.1 joined when the
+        // crossing detector became transversality-structural (PK-392:
+        // the setback arc is UV-coincident with the pre-carve apex
+        // boundary by construction; the old count was a
+        // projection-noise knife-edge).
         let expected_faces = 65;
         assert_eq!(part.face_count(), expected_faces, "r={radius}: face census");
         let report = m.evidence(&rounds).expect("fillet evidence");
@@ -75,22 +72,26 @@ fn nine_edge_g2_fillet_serves_with_measured_g2_at_every_showcase_radius() {
         assert_eq!(blend.edges_requested, 9);
         let continuity = blend.continuity.as_ref().expect("measured continuity");
         assert!(continuity.measured(), "r={radius}: seams measured");
-        // Honest verdict pin. The body serves and validates, and the
-        // evidence is MEASURED; the measured level is below G2 today
-        // because the corner fans serve as a recorded G1 downgrade
-        // (cap↔strip seam class 6.85e-2 vs the 5e-2 gate — PK-392
-        // Fork B; the rail-gap artifact was PK-391, closed). When
-        // PK-392 closes this pin flips: retire the downgrade
-        // expectation and require `!blend.downgraded()`.
+        // Honest verdict pin: the body serves, validates, and the
+        // MEASURED continuity meets the request. Until PK-398 the fans
+        // served as a recorded G1 downgrade (cap↔strip seam class
+        // 6.85e-2, then a transverse-curvature class of 1.4): the
+        // border rows were a cubic interpolant marched from control
+        // points; the exact section rows with corner-consistent
+        // Hermite blocks retired both.
         assert!(
-            blend.downgraded(),
-            "r={radius}: measured continuity now meets G2 — retire the PK-392 pin: {continuity:?}"
+            !blend.downgraded(),
+            "r={radius}: measured continuity below the G2 request: {continuity:?}"
         );
-        // No seam gap within an order of magnitude of the retired rail
-        // artifact (0.64–0.73·r); the ~3e-4 that remains is the fan
-        // cap↔strip achieved-gap class (PK-392).
+        assert_eq!(
+            continuity.achieved,
+            Continuity::G2,
+            "r={radius}: achieved level"
+        );
+        // No seam gap within orders of magnitude of the retired rail
+        // artifact (0.64–0.73·r) or the cubic-sagitta class (4.2e-4).
         assert!(
-            continuity.worst_g0_gap < 1e-3,
+            continuity.worst_g0_gap < 1e-8,
             "r={radius}: worst seam gap {:.3e}",
             continuity.worst_g0_gap
         );

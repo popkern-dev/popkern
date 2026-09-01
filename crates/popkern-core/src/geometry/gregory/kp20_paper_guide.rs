@@ -33,17 +33,11 @@ use super::kp20_bi6_guide_lsq::{
 };
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::hermite_to_bi5_corner_block;
+use super::kp20_border_degree::elevate_bi3_rows_to_sextic;
+pub use super::kp20_paper_border_piece::Kp20PaperGuideBorderPiece;
 use crate::geometry::Point3;
 
 const TRI6_CP_COUNT: usize = 28;
-
-/// One bi-3 border piece: rows `[depth][along]`, depth 0 on the cap
-/// boundary.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Kp20PaperGuideBorderPiece {
-    /// Bi-3 BB rows.
-    pub rows: [[Point3; 4]; 3],
-}
 
 /// Two-piece-per-sector border input for the paper guide fit
 /// (`[m^k → c]` then `[c → m^{k+1}]`).
@@ -69,8 +63,8 @@ impl Kp20PaperGuideBorder {
                     second[depth] = b;
                 }
                 [
-                    Kp20PaperGuideBorderPiece { rows: first },
-                    Kp20PaperGuideBorderPiece { rows: second },
+                    Kp20PaperGuideBorderPiece::from_bi3(first),
+                    Kp20PaperGuideBorderPiece::from_bi3(second),
                 ]
             })
             .collect();
@@ -85,12 +79,8 @@ impl Kp20PaperGuideBorder {
             .iter()
             .map(|sector| {
                 [
-                    Kp20PaperGuideBorderPiece {
-                        rows: sector.near_c.rows,
-                    },
-                    Kp20PaperGuideBorderPiece {
-                        rows: sector.near_m.rows,
-                    },
+                    Kp20PaperGuideBorderPiece::from_bi3(sector.near_c.rows),
+                    Kp20PaperGuideBorderPiece::from_bi3(sector.near_m.rows),
                 ]
             })
             .collect();
@@ -427,17 +417,18 @@ fn planar_rows(rows: &[[Point3; 4]; 3]) -> [[[f64; 2]; 4]; 3] {
 
 // ---- Corner jets ----------------------------------------------------------
 
-/// Order-2 corner jet `J[p][q] = ∂^p_s ∂^q_t` of a bi-3 depth-2
-/// border piece at its start (`end = 0`) or end (`end = 1`) corner,
-/// with the along direction `s` pointing INTO the piece at both
-/// corners (frame flip at the end corner) and `t` the depth direction.
-fn border_corner_jet(rows: &[[Point3; 4]; 3], end: usize) -> [[Point3; 3]; 3] {
+/// Order-2 corner jet `J[p][q] = ∂^p_s ∂^q_t` of a degree-6-along,
+/// depth-2 border piece at its start (`end = 0`) or end (`end = 1`)
+/// corner, with the along direction `s` pointing INTO the piece at
+/// both corners (frame flip at the end corner) and `t` the depth
+/// direction.
+fn border_corner_jet(rows: &[[Point3; 7]; 3], end: usize) -> [[Point3; 3]; 3] {
     let zero = Point3::new(0.0, 0.0, 0.0);
     let mut jet = [[zero; 3]; 3];
     // Depth-derivative row curves of the bi-3 (depth degree 3) data:
     // T_t = 3(r1 − r0), T_tt = 6(r2 − 2 r1 + r0).
-    let mut depth_curves = [[zero; 4]; 3];
-    for along in 0..4 {
+    let mut depth_curves = [[zero; 7]; 3];
+    for along in 0..7 {
         let r0 = rows[0][along];
         let r1 = rows[1][along];
         let r2 = rows[2][along];
@@ -454,7 +445,7 @@ fn border_corner_jet(rows: &[[Point3; 4]; 3], end: usize) -> [[Point3; 3]; 3] {
         );
     }
     for (q, curve) in depth_curves.iter().enumerate() {
-        let (value, d1, d2) = cubic_end_jet(curve, end);
+        let (value, d1, d2) = sextic_end_jet(curve, end);
         let sign = |p: usize| if end == 1 && p % 2 == 1 { -1.0 } else { 1.0 };
         jet[0][q] = value;
         jet[1][q] = scale(d1, sign(1));
@@ -463,7 +454,9 @@ fn border_corner_jet(rows: &[[Point3; 4]; 3], end: usize) -> [[Point3; 3]; 3] {
     jet
 }
 
-/// Planar variant returning `[f64; 2]` jets.
+/// Planar variant for the cubic characteristic rows, returning
+/// `[f64; 2]` jets (the rows are elevated exactly; end 2-jets are
+/// degree-invariant).
 fn border_corner_jet_planar(rows: &[[[f64; 2]; 4]; 3], end: usize) -> [[[f64; 2]; 3]; 3] {
     let mut lifted = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
     for depth in 0..3 {
@@ -472,7 +465,7 @@ fn border_corner_jet_planar(rows: &[[[f64; 2]; 4]; 3], end: usize) -> [[[f64; 2]
             lifted[depth][along] = Point3::new(v[0], v[1], 0.0);
         }
     }
-    let jet = border_corner_jet(&lifted, end);
+    let jet = border_corner_jet(&elevate_bi3_rows_to_sextic(lifted), end);
     let mut out = [[[0.0_f64; 2]; 3]; 3];
     for p in 0..3 {
         for q in 0..3 {
@@ -482,19 +475,19 @@ fn border_corner_jet_planar(rows: &[[[f64; 2]; 4]; 3], end: usize) -> [[[f64; 2]
     out
 }
 
-fn cubic_end_jet(cps: &[Point3; 4], end: usize) -> (Point3, Point3, Point3) {
-    let (a, b, c, d) = if end == 0 {
-        (cps[0], cps[1], cps[2], cps[3])
+/// End 2-jet of a degree-6 row: `d1 = 6(b − a)`, `d2 = 30(c − 2b + a)`.
+fn sextic_end_jet(cps: &[Point3; 7], end: usize) -> (Point3, Point3, Point3) {
+    let (a, b, c) = if end == 0 {
+        (cps[0], cps[1], cps[2])
     } else {
-        (cps[3], cps[2], cps[1], cps[0])
+        (cps[6], cps[5], cps[4])
     };
-    let _ = d;
     let value = a;
-    let d1 = Point3::new(3.0 * (b.x - a.x), 3.0 * (b.y - a.y), 3.0 * (b.z - a.z));
+    let d1 = Point3::new(6.0 * (b.x - a.x), 6.0 * (b.y - a.y), 6.0 * (b.z - a.z));
     let d2 = Point3::new(
-        6.0 * (c.x - 2.0 * b.x + a.x),
-        6.0 * (c.y - 2.0 * b.y + a.y),
-        6.0 * (c.z - 2.0 * b.z + a.z),
+        30.0 * (c.x - 2.0 * b.x + a.x),
+        30.0 * (c.y - 2.0 * b.y + a.y),
+        30.0 * (c.z - 2.0 * b.z + a.z),
     );
     (value, d1, d2)
 }

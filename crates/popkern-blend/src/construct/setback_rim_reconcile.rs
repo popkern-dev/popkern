@@ -410,16 +410,6 @@ fn solve_4(mat: &[[f64; 4]; 4], rhs: &[[f64; 3]; 4]) -> Option<[[f64; 3]; 4]> {
     Some(x)
 }
 
-pub(super) fn eval_cubic(cps: &[Point3; 4], t: f64) -> Point3 {
-    let u = 1.0 - t;
-    let (b0, b1, b2, b3) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
-    Point3::new(
-        b0 * cps[0].x + b1 * cps[1].x + b2 * cps[2].x + b3 * cps[3].x,
-        b0 * cps[0].y + b1 * cps[1].y + b2 * cps[2].y + b3 * cps[3].y,
-        b0 * cps[0].z + b1 * cps[1].z + b2 * cps[2].z + b3 * cps[3].z,
-    )
-}
-
 /// Min distance from `p` to any segment of the sampled polylines.
 pub(super) fn distance_to_polylines(p: Point3, polylines: &[Vec<Point3>]) -> f64 {
     let mut best = f64::INFINITY;

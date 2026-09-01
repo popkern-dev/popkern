@@ -10,6 +10,7 @@
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp_polar_shared::weighted_sum;
 use super::kp20_bi6_math::kp20_g2_strip_weights;
+use super::kp20_border_degree::{elevate_bi3_rows_to_sextic, scalar_cubic_times_sextic_reduced};
 use crate::geometry::Point3;
 
 /// KP20 sector quadrant in canonical paper order.
@@ -159,8 +160,8 @@ pub fn split_kp20_tensor_border_with_d1_3(
             right[row] = r;
         }
         out.push(Kp20SplitTensorBorder {
-            near_c: reparameterise_half(left, d0),
-            near_m: reparameterise_half(right, d1),
+            near_c: reparameterise_half(elevate_bi3_rows_to_sextic(left), d0),
+            near_m: reparameterise_half(elevate_bi3_rows_to_sextic(right), d1),
         });
     }
     Ok(out)
@@ -241,15 +242,16 @@ fn split_cubic_half(row: [Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
     ([row[0], p10, p20, p30], [p30, p21, p12, row[3]])
 }
 
-/// Reparameterise one raw bi-3 tensor-border piece by KP20 equation
-/// (14)'s ρ with an explicit cubic `d` profile (BB coefficients along
-/// the piece's own parameter).
+/// Reparameterise one raw tensor-border piece (degree 6 along, three
+/// depth rows) by KP20 equation (14)'s ρ with an explicit cubic `d`
+/// profile (BB coefficients along the piece's own parameter).
 ///
 /// Public entry for callers whose border pieces are natively split
 /// (e.g. the characteristic ring, whose sector boundary has a genuine
 /// parametric corner at `c`), so the de Casteljau halving of
-/// [`split_kp20_tensor_border`] does not apply.
-pub fn kp20_reparameterise_border_piece(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
+/// [`split_kp20_tensor_border`] does not apply. Cubic pieces elevate
+/// exactly first (`elevate_bi3_rows_to_sextic`).
+pub fn kp20_reparameterise_border_piece(rows: [[Point3; 7]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
     reparameterise_half(rows, d)
 }
 
@@ -260,74 +262,27 @@ pub fn kp20_eq14_border_d_profiles(c: f64, d1_3: f64) -> ([f64; 4], [f64; 4]) {
     kp20_eq14_d_profiles(c, d1_3)
 }
 
-fn reparameterise_half(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
-    let source_row0 = elevate_cubic_to_degree6(rows[0]);
-    let source_row1 = elevate_cubic_to_degree6(rows[1]);
-    let source_row2 = elevate_cubic_to_degree6(rows[2]);
+/// Equation (14) on degree-6 rows: `row1 = ½(row0 + row1)`,
+/// `row2 = 0.2·row0 + 0.6·row1 + 0.2·row2 + 0.1·d·(row1 − row0)`. The
+/// product is degree 9 and is reduced to degree 6 with both end
+/// 2-jets preserved exactly (see `kp20_border_degree`); for
+/// elevated-cubic input the reduction is exact and reproduces the
+/// historical cubic pipeline.
+fn reparameterise_half(rows: [[Point3; 7]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
+    let source_row0 = rows[0];
     let mut row1 = [Point3::new(0.0, 0.0, 0.0); 7];
     let mut row2 = [Point3::new(0.0, 0.0, 0.0); 7];
     for i in 0_usize..7 {
-        row1[i] = weighted_sum(&[(0.5, source_row0[i]), (0.5, source_row1[i])]);
-        row2[i] = weighted_sum(&[
-            (0.2, source_row0[i]),
-            (0.6, source_row1[i]),
-            (0.2, source_row2[i]),
-        ]);
+        row1[i] = weighted_sum(&[(0.5, rows[0][i]), (0.5, rows[1][i])]);
+        row2[i] = weighted_sum(&[(0.2, rows[0][i]), (0.6, rows[1][i]), (0.2, rows[2][i])]);
     }
-    let diff = [
-        rows[1][0] - rows[0][0],
-        rows[1][1] - rows[0][1],
-        rows[1][2] - rows[0][2],
-        rows[1][3] - rows[0][3],
-    ];
-    let d_times_diff = multiply_scalar_cubic_vec3_cubic(d, diff);
+    let diff: [crate::geometry::Vec3; 7] = core::array::from_fn(|i| rows[1][i] - rows[0][i]);
+    let d_times_diff = scalar_cubic_times_sextic_reduced(d, diff);
     for i in 0_usize..7 {
         row2[i] = row2[i] + d_times_diff[i] * 0.1;
     }
     Kp20BoundaryHalf {
         rows: [source_row0, row1, row2],
-    }
-}
-
-fn elevate_cubic_to_degree6(row: [Point3; 4]) -> [Point3; 7] {
-    const C3: [f64; 4] = [1.0, 3.0, 3.0, 1.0];
-    const C6: [f64; 7] = [1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0];
-    let mut out = [Point3::new(0.0, 0.0, 0.0); 7];
-    for i in 0_usize..7 {
-        let j_min = i.saturating_sub(3);
-        let j_max = i.min(3);
-        let mut terms = Vec::with_capacity(j_max - j_min + 1);
-        for j in j_min..=j_max {
-            terms.push((C3[j] * binom3(i - j) / C6[i], row[j]));
-        }
-        out[i] = weighted_sum(&terms);
-    }
-    out
-}
-
-fn multiply_scalar_cubic_vec3_cubic(
-    d: [f64; 4],
-    v: [crate::geometry::Vec3; 4],
-) -> [crate::geometry::Vec3; 7] {
-    const C3: [f64; 4] = [1.0, 3.0, 3.0, 1.0];
-    const C6: [f64; 7] = [1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0];
-    let mut out = [crate::geometry::Vec3::zero(); 7];
-    for i in 0_usize..7 {
-        let j_min = i.saturating_sub(3);
-        let j_max = i.min(3);
-        for j in j_min..=j_max {
-            let l = i - j;
-            out[i] = out[i] + v[l] * (d[j] * C3[j] * C3[l] / C6[i]);
-        }
-    }
-    out
-}
-
-const fn binom3(i: usize) -> f64 {
-    match i {
-        0 | 3 => 1.0,
-        1 | 2 => 3.0,
-        _ => 0.0,
     }
 }
 

@@ -17,11 +17,12 @@ use fixtures::fillet_n_gonal_pyramid_result_with_continuity;
 /// prolongation in the border extraction plus the committed-fan rim
 /// cross-jet reconciliation (shared-corner clamped-linear deltas,
 /// curvature-invariant depth application). Gated at the commercial
-/// 5e-2 bar; the blunt pentagon under a G2 request keeps a measured
-/// 6.7e-2 mid-arc bump (f ≈ 0.86) pinned at 8e-2 — every k-varying
-/// interior correction that could chase it was falsified by
-/// measurement (per-column LSQ and a smooth one-DOF bump both wreck
-/// the fan's cross-spoke transverse G2 through twist).
+/// 5e-2 bar on every fixture: the blunt pentagon G2 request's 6.7e-2
+/// mid-arc bump (once pinned at 8e-2 after every k-varying interior
+/// correction was falsified) went with PK-398's field-sampled cross
+/// rows (measured 2.9e-2; its corners are gapped — the G2 sweeps'
+/// contact curves miss by 3.4e-3 — and serve with the χ̃-calibrated
+/// containment ends).
 #[test]
 fn rim_tangency_meets_commercial_bar() {
     for (n, h, continuity, fixture, bar) in [
@@ -37,7 +38,7 @@ fn rim_tangency_meets_commercial_bar() {
             3.0,
             popkern_blend::ContinuityLevel::G2,
             "pentagon5_blunt/G2",
-            8.0e-2,
+            5.0e-2,
         ),
         (
             6,
