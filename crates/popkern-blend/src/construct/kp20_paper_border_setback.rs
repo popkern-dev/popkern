@@ -261,7 +261,11 @@ pub fn kp20_paper_border_from_fillet_setback(
     // overlap average and the rim reconcile remain the containment,
     // as before PK-398) and are counted in the report.
     const GAPPED_CORNER_LEG_FRACTION: f64 = 1.0e-2;
+    /// Minimum sine of the angle between the corner march and the rim
+    /// for a convex tensor corner (10°).
+    const REFLEX_CORNER_SIN_FLOOR: f64 = 0.17;
     let mut gapped_corners = 0_usize;
+    let mut reflex_corners = 0_usize;
     let corner_jets: Vec<Option<(CornerJet, CornerJet)>> = (0..n)
         .map(|k| {
             let next = (k + 1) % n;
@@ -287,17 +291,47 @@ pub fn kp20_paper_border_from_fillet_setback(
             }
             let n_a = station_normal(k, &a_row0, 1.0);
             let n_b = station_normal(next, &b_row0, 0.0);
-            let bisector = (n_a + n_b).normalized().unwrap_or(n_a);
-            let into_plane = |jet: CornerJet| -> CornerJet {
-                let len = jet.d1.length();
-                let flat = jet.d1 - bisector * jet.d1.dot(&bisector);
-                let d1 = flat.normalized().map(|u| u * len).unwrap_or(jet.d1);
-                CornerJet { d1, d2: jet.d2 }
+            let bisector = kp20_paper_border_corners::tangent_plane_bisector(n_a, n_b);
+            let jet_a = kp20_paper_border_corners::jet_into_plane(
+                rim_corner_jet(&b_row0, true),
+                bisector,
+            );
+            let jet_b = kp20_paper_border_corners::jet_into_plane(
+                rim_corner_jet(&a_row0, false),
+                bisector,
+            );
+            // A tensor-product cap corner needs a CONVEX boundary turn
+            // at c (see `cap_corner_is_convex`); flat or reflex turns
+            // keep the χ̃-calibrated ends as recorded containment.
+            let convex = |rim_out: Vec3, station_march: Vec3, corner_march: Vec3| -> bool {
+                kp20_paper_border_corners::cap_corner_is_convex(
+                    bisector,
+                    rim_out,
+                    station_march,
+                    corner_march,
+                    REFLEX_CORNER_SIN_FLOOR,
+                )
             };
-            Some((
-                into_plane(rim_corner_jet(&b_row0, true)),
-                into_plane(rim_corner_jet(&a_row0, false)),
-            ))
+            let a_convex = convex(
+                a_row0[6] - a_row0[5],
+                shims[k].calibrated_march(&a_row0, 6, &calibration[0].end, vertex_position),
+                jet_a.d1 * -1.0,
+            );
+            let b_convex = convex(
+                b_row0[0] - b_row0[1],
+                shims[next].calibrated_march(&b_row0, 0, &calibration[1].start, vertex_position),
+                jet_b.d1 * -1.0,
+            );
+            if !(a_convex && b_convex) {
+                reflex_corners += 1;
+                if section_trace {
+                    eprintln!(
+                        "  [corner] c_{k}: reflex or flat cap corner (a {a_convex}, b {b_convex}) — calibrated ends, no shared block"
+                    );
+                }
+                return None;
+            }
+            Some((jet_a, jet_b))
         })
         .collect();
     let corner_jet_at = |k: usize| -> (Option<CornerJet>, Option<CornerJet>) {
@@ -441,6 +475,8 @@ pub fn kp20_paper_border_from_fillet_setback(
     // (measured rim tangency 7e-2..1.9e-1 on the blunt pentagon G1
     // control against 5e-2).
     let _ = &order;
+    let corner_block_mismatch =
+        kp20_paper_border_corners::corner_block_mismatches(&grouped, section_trace);
     Ok((
         Kp20PaperGuideBorder { sectors: grouped },
         Kp20PaperBorderExtractReport {
@@ -455,6 +491,8 @@ pub fn kp20_paper_border_from_fillet_setback(
             section_fit_residual,
             section_fit_fallbacks,
             gapped_corners,
+            reflex_corners,
+            corner_block_mismatch,
         },
     ))
 }

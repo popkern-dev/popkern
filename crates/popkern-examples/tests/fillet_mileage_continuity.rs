@@ -207,10 +207,17 @@ const BASELINE: &[PartBaseline] = &[
         // rim-arc tangency (PK-212: 0.119 → 6.7e-2 via the tangent-
         // plane border prolongation + rim cross-jet reconciliation;
         // the residual is the pinned mid-arc bump, gated kernel-side
-        // in kp_polar_commercial_gates::rim_tangency).
+        // in kp_polar_commercial_gates::rim_tangency). PK-399: the
+        // setback corners are now exact trim crossings, so the
+        // off-strip corner point no longer splits each strip trim at
+        // an extra vertex (measured on the blunt pentagon: faces 31
+        // unchanged, edges 80 → 70, vertices 51 → 41 — the short
+        // cap↔strip seam stubs next to every corner are gone, no
+        // seam reclassified): the census is 60 (was 65), the rim
+        // tangency 3.8e-3 (was 6.7e-2), achieved G1.
         name: "pentagon_tower",
         achieved_floor: ContinuityLevel::G0,
-        min_gated_seams: 65,
+        min_gated_seams: 60,
         g0_cap: 2.0e-3,
         g1_cap: 1.0e-1,
         expected_downgrades: 1,

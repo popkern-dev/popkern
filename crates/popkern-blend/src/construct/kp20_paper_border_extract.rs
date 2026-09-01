@@ -78,6 +78,18 @@ pub struct Kp20PaperBorderExtractReport {
     /// curves miss each other), served with χ̃-calibrated ends and no
     /// shared corner block — the corner data there is not trustworthy.
     pub gapped_corners: usize,
+    /// Setback path only: corners where the cap boundary's turn is
+    /// flat or reflex (the neighbour rim leaves `c` on the far side of
+    /// this rim, or within 10° of it), where a tensor-product corner
+    /// would fold; served with χ̃-calibrated ends and no shared corner
+    /// block (PK-399 containment — mixed-radius setback placement).
+    pub reflex_corners: usize,
+    /// Setback path only: per corner `c_s`, the eq (14) corner-block
+    /// disagreement between the two pieces meeting there, as the
+    /// assembly's overlap average will see it (PK-399). Machine zero
+    /// when the shared corner block reconciled; a residual here is
+    /// rim movement the assembly is about to apply.
+    pub corner_block_mismatch: Vec<f64>,
 }
 
 #[path = "kp20_paper_border_corners.rs"]
@@ -386,6 +398,8 @@ pub fn kp20_paper_border_from_blend_boundary(
             section_fit_residual: 0.0,
             section_fit_fallbacks: 0,
             gapped_corners: 0,
+            reflex_corners: 0,
+            corner_block_mismatch: Vec::new(),
         },
     ))
 }

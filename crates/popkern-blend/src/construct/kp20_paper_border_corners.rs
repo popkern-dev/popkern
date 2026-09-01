@@ -140,6 +140,85 @@ pub(super) fn setback_corners(
     corners
 }
 
+/// Unit bisector of the two strips' tangent planes at a corner.
+///
+/// A sweep's parametric normal carries its own u×v orientation, not
+/// the face's: adjacent strips can face opposite ways (hexagon6_blunt
+/// G2: one strip's v runs the other way, `n_b = −n_a` at two corners,
+/// and the raw sum was a roundoff vector that rotated the corner jet
+/// by up to 68° — measured 4.7e-3 corner-block mismatch and 1.1e-1
+/// rim tangency, PK-399). The bisector of two PLANES is sign-
+/// invariant: `n_b` is aligned with `n_a` first.
+pub(super) fn tangent_plane_bisector(n_a: Vec3, n_b: Vec3) -> Vec3 {
+    let n_b = if n_a.dot(&n_b) < 0.0 { n_b * -1.0 } else { n_b };
+    (n_a + n_b).normalized().unwrap_or(n_a)
+}
+
+/// Rotate a corner jet's first difference into the plane normal to
+/// `bisector`, preserving its length (curvature untouched).
+pub(super) fn jet_into_plane(jet: super::CornerJet, bisector: Vec3) -> super::CornerJet {
+    let len = jet.d1.length();
+    let flat = jet.d1 - bisector * jet.d1.dot(&bisector);
+    let d1 = flat.normalized().map(|u| u * len).unwrap_or(jet.d1);
+    super::CornerJet { d1, d2: jet.d2 }
+}
+
+/// Whether the cap boundary turns CONVEXLY at a corner, as a
+/// tensor-product corner requires: the neighbour rim (whose negated
+/// leg is `corner_march`) must leave `c` on the ring side of this rim
+/// (`rim_out` = this rim's outgoing tangent at `c`), where the χ̃
+/// `station_march` (oriented away from the vertex) says the ring is,
+/// by at least `sin_floor` of its length. Mixed-radius setbacks can
+/// put the trim-intersection corner on a nearly straight or REFLEX
+/// turn (hexagon6_variable, radii 0.02/0.04/0.06: the c_1 corner jets
+/// sit 26° from the rim tangent on the far side), and a corner-
+/// compatible cross field then sweeps through the rim direction
+/// mid-piece — measured assembly regularity 2.6e-6 and live
+/// cap↔strip g1 2.4e-1 against 8.8e-4 under the χ̃ ends (PK-399).
+pub(super) fn cap_corner_is_convex(
+    bisector: Vec3,
+    rim_out: Vec3,
+    station_march: Vec3,
+    corner_march: Vec3,
+    sin_floor: f64,
+) -> bool {
+    let Some(t_hat) = (rim_out - bisector * rim_out.dot(&bisector)).normalized() else {
+        return true;
+    };
+    let Some(side) = (station_march - t_hat * station_march.dot(&t_hat)).normalized() else {
+        return true;
+    };
+    corner_march.dot(&side) > sin_floor * corner_march.length()
+}
+
+/// Per corner `c_s`, the eq (14) corner-block disagreement between
+/// the two pieces meeting there, as the assembly's overlap average
+/// will see it (`kp20_paper_border_corner_mismatch` with the paper's
+/// default `d¹₃`). Traced as `[corner-block]` under `setback`.
+pub(super) fn corner_block_mismatches(
+    grouped: &[[popkern_core::geometry::gregory::Kp20PaperGuideBorderPiece; 2]],
+    trace: bool,
+) -> Vec<f64> {
+    let n = grouped.len();
+    let d1_3 = 2.0 * (core::f64::consts::TAU / n as f64).cos() / 3.0;
+    grouped
+        .iter()
+        .enumerate()
+        .map(|(s, sector)| {
+            let value = popkern_core::geometry::gregory::kp20_paper_border_corner_mismatch(
+                n,
+                &sector[0].rows,
+                &sector[1].rows,
+                d1_3,
+            );
+            if trace {
+                eprintln!("  [corner-block] c_{s}: mismatch {value:.3e}");
+            }
+            value
+        })
+        .collect()
+}
+
 /// `sin` of the angle between the two strips' surface normals at
 /// `p` — the tangent-coherence measure for corner-pair selection.
 /// `None` when either projection fails (the caller treats that as
@@ -222,10 +301,23 @@ fn coplanar_band_scale(scale: f64) -> f64 {
     (1e-6 * scale).max(1e-9)
 }
 
-/// Closest approach between two trim curves, grid-scanned then
-/// window-refined, always within the curves' parameter domains and
-/// restricted to candidates passing `accept` (the material-side
-/// gate — see `setback_corners`).
+/// Closest approach between two trim curves, always within the
+/// curves' parameter domains and restricted to candidates passing
+/// `accept` (the material-side gate — see `setback_corners`).
+///
+/// A coarse grid scan seeds a damped Gauss–Newton solve of the pair
+/// parameters (residual `A(s) − B(t)`, Jacobian `[A'(s), −B'(t)]`),
+/// which lands on an exact crossing in one step for straight
+/// contact lines and on the true local pair minimum for skew
+/// curves. The former alternating 1-D window scan was measured to
+/// STALL on shallow-angle pairs (PK-399): the blunt pentagon's
+/// shared-face contact lines meet at ~21°, where coordinate descent
+/// contracts by only ~cos² per round while the windows shrank by
+/// 0.35, leaving a 3.4e-3 "gap" on lines that intersect exactly and
+/// a corner 1.7e-3 off both strips (the same class read 4.1e-3 on
+/// the rolling-ball control and 1e-8 on the sharp pyramid, whose
+/// lines meet at ~55°). The window scan remains only as the fallback
+/// when the Newton polish cannot improve on the grid seed.
 fn closest_between_refined(
     ca: &NurbsCurve,
     cb: &NurbsCurve,
@@ -249,14 +341,16 @@ fn closest_between_refined(
             }
         }
     }
+    if let Some(polished) = newton_closest_pair(ca, cb, best_params, accept)
+        && polished.0 < best.0
+    {
+        return polished;
+    }
     let step_a = (a1 - a0) / S as f64;
     let step_b = (b1 - b0) / S as f64;
-    // Local refinement: the coarse grid step can exceed the entire
-    // corner region (full-length rails ~4 units vs a ~2e-2 corner on
-    // hexagon6_variable), leaving the grid minimum an artifact.
-    // Alternate 1-D window scans around the grid minimum, shrinking
-    // the windows each round — monotone descent to the local pair
-    // minimum.
+    // Fallback: alternate 1-D window scans around the grid minimum,
+    // shrinking the windows each round — monotone descent to the
+    // local pair minimum.
     {
         let mut wa = step_a.abs();
         let mut wb = step_b.abs();
@@ -292,6 +386,85 @@ fn closest_between_refined(
     best
 }
 
+/// Damped Gauss–Newton polish of a closest-pair seed `(s, t)`:
+/// minimises `|A(s) − B(t)|²` with Levenberg damping on the 2×2
+/// normal equations, domain-clamped steps, and monotone acceptance
+/// (a step must reduce the distance AND keep its midpoint on the
+/// material side). Returns the polished `(distance, midpoint)`, or
+/// `None` when no accepted step exists (a singular seed).
+fn newton_closest_pair(
+    ca: &NurbsCurve,
+    cb: &NurbsCurve,
+    seed: (f64, f64),
+    accept: &dyn Fn(Point3) -> bool,
+) -> Option<(f64, Point3)> {
+    const MAX_ITERATIONS: usize = 40;
+    const MAX_DAMPING_TRIES: usize = 12;
+    let (a0, a1) = ca.parameter_range();
+    let (b0, b1) = cb.parameter_range();
+    let (a_lo, a_hi) = (a0.min(a1), a0.max(a1));
+    let (b_lo, b_hi) = (b0.min(b1), b0.max(b1));
+    let span = (a_hi - a_lo).max(b_hi - b_lo).max(f64::MIN_POSITIVE);
+    let (mut s, mut t) = (seed.0.clamp(a_lo, a_hi), seed.1.clamp(b_lo, b_hi));
+    let mut pa = ca.point_at(s);
+    let mut pb = cb.point_at(t);
+    let mut d = pa.distance_to(&pb);
+    if !d.is_finite() {
+        return None;
+    }
+    let mut lambda = 0.0_f64;
+    let mut improved = false;
+    for _ in 0..MAX_ITERATIONS {
+        if d < 1.0e-15 {
+            break;
+        }
+        let r = pa - pb;
+        let da = ca.derivative_at(s, 1);
+        let db = cb.derivative_at(t, 1);
+        let (aa, ab, bb) = (da.dot(&da), -da.dot(&db), db.dot(&db));
+        let (g0, g1) = (da.dot(&r), -db.dot(&r));
+        let mut stepped = false;
+        for _ in 0..MAX_DAMPING_TRIES {
+            let m00 = aa * (1.0 + lambda);
+            let m11 = bb * (1.0 + lambda);
+            let det = m00 * m11 - ab * ab;
+            if det.abs() > f64::MIN_POSITIVE {
+                let ds = -(m11 * g0 - ab * g1) / det;
+                let dt = -(m00 * g1 - ab * g0) / det;
+                let s_new = (s + ds).clamp(a_lo, a_hi);
+                let t_new = (t + dt).clamp(b_lo, b_hi);
+                let pa_new = ca.point_at(s_new);
+                let pb_new = cb.point_at(t_new);
+                let d_new = pa_new.distance_to(&pb_new);
+                if d_new < d && accept(midpoint(pa_new, pb_new)) {
+                    let moved = (s_new - s).abs().max((t_new - t).abs());
+                    s = s_new;
+                    t = t_new;
+                    pa = pa_new;
+                    pb = pb_new;
+                    d = d_new;
+                    lambda = if lambda < 1.0e-12 { 0.0 } else { lambda * 0.1 };
+                    stepped = true;
+                    improved = true;
+                    if moved < 1.0e-15 * span {
+                        return Some((d, midpoint(pa, pb)));
+                    }
+                    break;
+                }
+            }
+            lambda = if lambda == 0.0 { 1.0e-3 } else { lambda * 10.0 };
+        }
+        if !stepped {
+            break;
+        }
+    }
+    improved.then(|| (d, midpoint(pa, pb)))
+}
+
 fn midpoint(a: Point3, b: Point3) -> Point3 {
     Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z))
 }
+
+#[cfg(test)]
+#[path = "kp20_paper_border_corners_tests.rs"]
+mod tests;

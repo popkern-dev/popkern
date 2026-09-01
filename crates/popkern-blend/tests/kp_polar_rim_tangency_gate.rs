@@ -17,12 +17,16 @@ use fixtures::fillet_n_gonal_pyramid_result_with_continuity;
 /// prolongation in the border extraction plus the committed-fan rim
 /// cross-jet reconciliation (shared-corner clamped-linear deltas,
 /// curvature-invariant depth application). Gated at the commercial
-/// 5e-2 bar on every fixture: the blunt pentagon G2 request's 6.7e-2
-/// mid-arc bump (once pinned at 8e-2 after every k-varying interior
-/// correction was falsified) went with PK-398's field-sampled cross
-/// rows (measured 2.9e-2; its corners are gapped — the G2 sweeps'
-/// contact curves miss by 3.4e-3 — and serve with the χ̃-calibrated
-/// containment ends).
+/// 5e-2 bar on the sharp fixtures; 1e-2 on the blunt ones. The blunt
+/// pentagon G2 request's 6.7e-2 mid-arc bump (once pinned at 8e-2
+/// after every k-varying interior correction was falsified) went with
+/// PK-398's field-sampled cross rows (2.9e-2, corners served as
+/// gapped); PK-399 found the "gapped" corners were a MINIMISER
+/// artifact (the window scan stalled 3.4e-3 short of exactly crossing
+/// contact lines) plus a sign-blind bisector of opposite-facing strip
+/// normals, and the blunt fixtures now measure 2.9e-3 / 3.8e-3 /
+/// 4.4e-3 — the same polar interior class as the sharp pyramids
+/// (2.2e-3 / 4.9e-3), a mid-quarter bump filed separately.
 #[test]
 fn rim_tangency_meets_commercial_bar() {
     for (n, h, continuity, fixture, bar) in [
@@ -31,21 +35,21 @@ fn rim_tangency_meets_commercial_bar() {
             3.0,
             popkern_blend::ContinuityLevel::G1,
             "pentagon5_blunt/G1",
-            5.0e-2,
+            1.0e-2,
         ),
         (
             5,
             3.0,
             popkern_blend::ContinuityLevel::G2,
             "pentagon5_blunt/G2",
-            5.0e-2,
+            1.0e-2,
         ),
         (
             6,
             3.0,
             popkern_blend::ContinuityLevel::G2,
             "hexagon6_blunt/G2",
-            5.0e-2,
+            1.0e-2,
         ),
         (
             5,
