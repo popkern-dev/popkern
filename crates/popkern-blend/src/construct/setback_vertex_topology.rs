@@ -39,6 +39,8 @@ mod setback_arc_binding;
 #[path = "setback_rim_refit.rs"]
 mod setback_rim_refit;
 use setback_rim_refit::refit_cap_rim;
+#[path = "setback_arc_contact_classify.rs"]
+mod setback_arc_contact_classify;
 #[path = "setback_arc_crossings.rs"]
 mod setback_arc_crossings;
 #[path = "setback_bezier9.rs"]

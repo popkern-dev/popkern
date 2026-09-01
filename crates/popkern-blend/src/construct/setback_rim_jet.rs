@@ -260,7 +260,34 @@ pub(super) fn reconcile_rim_jets(
             );
         }
         if popkern_core::trace::trace_enabled("setback") {
-            eprintln!("  [rim-jet] patch {pi} side {side}: corner deltas applied");
+            // Residual attribution: the linear-in-k profile nulls the
+            // tilt field's linear component only — measure what it
+            // leaves (the PK-392 cap↔strip class lives here).
+            let (mut pre, mut post) = (0.0_f64, 0.0_f64);
+            if let (Some(row0), Some(row1)) =
+                (row_of(patches, pi, side, 0), row_of(patches, pi, side, 1))
+            {
+                for &t in &ts {
+                    let p0 = bezier9_eval(&row0, t);
+                    let p1 = bezier9_eval(&row1, t);
+                    if let Some(n) = support_normal(strips, &p0) {
+                        let j = p1 - p0;
+                        let tilt = j.dot(&n).abs() / j.length().max(1e-15);
+                        post = post.max(tilt);
+                    }
+                }
+                for (m, f) in field.iter().enumerate() {
+                    let p0 = bezier9_eval(&row0, ts[m]);
+                    let p1 = bezier9_eval(&row1, ts[m]);
+                    let j = p1 - p0;
+                    let mag = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt();
+                    let _ = p0;
+                    pre = pre.max(mag / j.length().max(1e-15));
+                }
+            }
+            eprintln!(
+                "  [rim-jet] patch {pi} side {side}: corner deltas applied;                  tilt sin pre={pre:.3e} post={post:.3e}"
+            );
         }
     }
 }

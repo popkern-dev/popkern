@@ -51,6 +51,8 @@ pub(super) fn arc_boundary_crossings(
 
     let trace = popkern_core::trace::trace_enabled("corner-carve");
     let mut hits: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
+    let mut edge_uvs: std::collections::BTreeMap<EdgeHandle, Vec<(f64, f64, f64)>> =
+        std::collections::BTreeMap::new();
     for he in face_loop_half_edges(brep, face)? {
         let edge = brep.half_edges[he].edge;
         let Some(curve) = brep.edges[edge].curve.as_ref() else {
@@ -76,6 +78,7 @@ pub(super) fn arc_boundary_crossings(
                 p.0 += shift;
             }
         }
+        edge_uvs.insert(edge, edge_uv.clone());
         for (arc_s, edge_s) in polyline_intersections(&arc_uv, &edge_uv) {
             let edge_t = e0 + (e1 - e0) * edge_s;
             let point = edge_eval.point_at(edge_t);
@@ -131,137 +134,38 @@ pub(super) fn arc_boundary_crossings(
             keep
         });
     }
-    // Same-edge graze merge FIRST (before the shared-vertex dedup can
-    // erase the edge association): an arc that TERMINATES on a rail
-    // approaches it near-tangentially, and the sampled polyline reads
-    // the tangent wiggle as an extra transversal crossing a few
-    // samples in (measured on the N=3 cube corner: exact endpoint
-    // contacts at 1e-17 next to same-edge grazes at t≈0.03/0.97 with
-    // 2.1e-6 margins). Parameter-adjacent hits on the SAME edge
-    // within the graze band are one contact event — keep the more
-    // exact hit. A genuine poke-out-and-back double crossing of one
-    // edge is far apart in parameter and stays two hits (the honest
-    // decline below).
-    // A near-tangent stretch — the arc running along a boundary edge
-    // for part of its span — produces a RUN of UV crossings with small
-    // margins (measured on the squat-strip box 2.4x1.6x0.4 r=0.1:
-    // 12–31 hits, one exact at t=0 then wobble at t 0.02..0.09 under
-    // 1.3e-3). One stretch is one crossing: cluster per edge by arc-t
-    // adjacency and keep the min-margin representative of each run.
-    {
-        let mut clustered: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
-        for h in hits.drain(..) {
-            match clustered.last_mut() {
-                Some(last) if last.1 == h.1 && (h.0 - last.0).abs() <= 0.05 => {
-                    if h.3 < last.3 {
-                        *last = h;
-                    }
+    // Chain-cluster per edge by arc-t adjacency to the PREVIOUS kept
+    // hit. A near-tangent stretch — the arc running along a boundary
+    // edge for part of its span — produces a RUN of UV crossings
+    // with small margins (measured on the squat-strip box
+    // 2.4x1.6x0.4 r=0.1: 17 kept hits spanning arc t 0.02..0.29).
+    // An earlier representative-anchored chain fragmented long runs
+    // at 0.05 steps from each min-margin representative (measured:
+    // one 0.27-span run became 3 pseudo-crossings); chaining on the
+    // last SEEN t keeps a run whole while the representative tracks
+    // the closest contact.
+    use super::setback_arc_contact_classify::{CLUSTER_ADJACENCY, ContactCluster};
+    let mut clusters: Vec<ContactCluster> = Vec::new();
+    for h in hits.drain(..) {
+        match clusters.last_mut() {
+            Some(c) if c.rep.1 == h.1 && (h.0 - c.t_last) <= CLUSTER_ADJACENCY => {
+                if h.3 < c.rep.3 {
+                    c.rep = h;
                 }
-                _ => clustered.push(h),
+                c.t_last = h.0;
+                c.count += 1;
             }
-        }
-        hits = clustered;
-    }
-    {
-        let chord = arc_eval.point_at(0.0).distance_to(&arc_eval.point_at(1.0));
-        let graze_margin = (1.0e-3 * chord).max(1.0e-9);
-        loop {
-            let mut drop_index = None;
-            'search: for i in 0..hits.len() {
-                for j in (i + 1)..hits.len() {
-                    if hits[i].1 == hits[j].1
-                        && (hits[i].0 - hits[j].0).abs() <= 0.1
-                        && hits[i].3.min(hits[j].3) <= graze_margin
-                    {
-                        drop_index = Some(if hits[i].3 > hits[j].3 { i } else { j });
-                        break 'search;
-                    }
-                }
-            }
-            match drop_index {
-                Some(index) => {
-                    hits.remove(index);
-                }
-                None => break,
-            }
+            _ => clusters.push(ContactCluster {
+                rep: h,
+                t_first: h.0,
+                t_last: h.0,
+                count: 1,
+            }),
         }
     }
-    // Dedup near-identical arc parameters (a crossing at a shared
-    // vertex between consecutive edges registers on both).
-    hits.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-3);
-    // Exact-corner endpoint contact: with uniform radii the trim
-    // intersections are exact (measured 4e-8 corner gaps on
-    // pentagon5_uniform), so the arc ENDS ON the strip boundary
-    // instead of crossing it — there is no sign flip at that end for
-    // the polyline test to find. Synthesize the missing crossing at
-    // an arc endpoint that lies on a boundary edge within a band.
-    if hits.len() < 2 {
-        let chord = arc_eval.point_at(0.0).distance_to(&arc_eval.point_at(1.0));
-        let band = (1.0e-3 * chord).max(1.0e-9);
-        for t_missing in [0.0, 1.0] {
-            if hits.iter().any(|h| (h.0 - t_missing).abs() < 1.0e-3) {
-                continue;
-            }
-            let p_end = arc_eval.point_at(t_missing);
-            let mut best: Option<(f64, EdgeHandle, Point3)> = None;
-            for he in face_loop_half_edges(brep, face)? {
-                let edge = brep.half_edges[he].edge;
-                let Some(curve) = brep.edges[edge].curve.as_ref() else {
-                    continue;
-                };
-                let (e0, e1) = (curve.t_start, curve.t_end);
-                if !(e0.is_finite() && e1.is_finite()) {
-                    continue;
-                }
-                let edge_eval: &dyn CurveEval = &curve.geometry;
-                let mut prev = edge_eval.point_at(e0);
-                for i in 1..=64 {
-                    let q = edge_eval.point_at(e0 + (e1 - e0) * i as f64 / 64.0);
-                    let (d, foot) = point_segment_distance(p_end, prev, q);
-                    if best.as_ref().map(|(bd, _, _)| d < *bd).unwrap_or(true) {
-                        best = Some((d, edge, foot));
-                    }
-                    prev = q;
-                }
-            }
-            if let Some((d, edge, point)) = best
-                && d <= band
-            {
-                if trace {
-                    eprintln!(
-                        "    [crossings] endpoint contact at arc t {t_missing:.1} \
-                         d {d:.3e} — synthesized (exact-corner class)"
-                    );
-                }
-                hits.push((t_missing, edge, point, d));
-            }
-        }
-        hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    }
-    if hits.len() != 2 {
-        return Err(format!(
-            "expected 2 arc/boundary crossings, found {} ({:?})",
-            hits.len(),
-            hits.iter().map(|h| (h.0, h.3)).collect::<Vec<_>>()
-        ));
-    }
-    Ok([
-        (hits[0].0, hits[0].1, hits[0].2),
-        (hits[1].0, hits[1].1, hits[1].2),
-    ])
-}
-
-/// Min distance from `p` to segment `a..b`, with the foot point.
-fn point_segment_distance(p: Point3, a: Point3, b: Point3) -> (f64, Point3) {
-    let ab = b - a;
-    let len2 = ab.dot(&ab);
-    let s = if len2 > 0.0 {
-        ((p - a).dot(&ab) / len2).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let foot = Point3::new(a.x + s * ab.x, a.y + s * ab.y, a.z + s * ab.z);
-    (p.distance_to(&foot), foot)
+    super::setback_arc_contact_classify::classify_contacts(
+        brep, face, arc_eval, &arc_uv, &edge_uvs, clusters, trace,
+    )
 }
 
 /// Fraction of the arc's interior samples that lie INSIDE the

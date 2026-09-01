@@ -325,6 +325,31 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
                 t_end: 1.0,
             });
         }
+        // Strip-side pcurve: the twin keeps its pre-refit image (the
+        // original arc path), stale against the rewritten curve by
+        // the reconcile move size (measured 4.204e-4 on the unit
+        // cube's worst rim seam — the whole-body G0 constant of
+        // PK-392). The trim contract's authority is the served curve:
+        // reproject it onto the strip surface.
+        let twin = brep.half_edges[job.cap_he].twin;
+        let strip_face = brep.loops[brep.half_edges[twin].loop_].face;
+        if !cap_faces.contains(&strip_face)
+            && let Some(surface) = brep
+                .faces
+                .get(strip_face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| s.geometry.clone())
+            && let Some(popkern_core::geometry::CurveGeometry::Nurbs(n)) = brep
+                .edges
+                .get(job.edge)
+                .and_then(|e| e.curve.as_ref())
+                .map(|c| c.geometry.clone())
+            && let Some(fitted) =
+                crate::construct::pcurve_attach_compute::compute_pcurve_on_surface(&n, &surface)
+            && let Some(he_mut) = brep.half_edges.get_mut(twin)
+        {
+            he_mut.pcurve = Some(popkern_core::geometry::pcurve::Pcurve::from_nurbs(fitted));
+        }
     }
 
     // Repair endpoint coherence for NON-rim curves at moved vertices:

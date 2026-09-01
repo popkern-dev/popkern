@@ -229,13 +229,9 @@ fn draft_on_a_circle_serves_one_cone() {
             "{label}: {:?}",
             body.validate_all()
         );
+        assert_eq!(surface_census(body), (2, 0, 1), "{label}: one Cone lateral");
         assert_eq!(
-            surface_census(&body),
-            (2, 0, 1),
-            "{label}: one Cone lateral"
-        );
-        assert_eq!(
-            one_edge_planar_loops(&body),
+            one_edge_planar_loops(body),
             2,
             "{label}: single closed-edge caps"
         );
@@ -268,7 +264,7 @@ fn draft_on_a_circle_serves_one_cone() {
             (r0 - r1).abs(),
             0.5 * 0.1f64.tan()
         );
-        let v = volume(&body);
+        let v = volume(body);
         let frustum = std::f64::consts::PI * 0.5 * (r0 * r0 + r0 * r1 + r1 * r1) / 3.0;
         // The default tessellation inscribes the cone (~0.8 % volume
         // deficit); a cylinder would read 18 % off, so 1 % is decisive.

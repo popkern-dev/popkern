@@ -59,14 +59,16 @@ fn nine_edge_g2_fillet_serves_with_measured_g2_at_every_showcase_radius() {
         let part = m
             .to_part()
             .expect("serving boundary (validate_all) accepts the body");
-        // Corner method decides the census: at r=0.06/0.08 the KP20
-        // setback fans serve (their seam-G2 postcondition fails at
-        // ~5.4e-2 vs the 5e-2 gate, so they serve as a recorded G1
-        // downgrade — far better than the 27° Gregory creases they
-        // used to yield to); at r=0.1 the squat-strip ring arcs hit
-        // the crossing gate (PK-392's open sub-frontier) and the
-        // corners fall back to Gregory caps.
-        let expected_faces = if radius < 0.09 { 65 } else { 29 };
+        // Corner method decides the census: the KP20 setback fans
+        // serve at EVERY showcase radius (their seam-G2
+        // postcondition fails at ~5.4e-2 vs the 5e-2 gate, so they
+        // serve as a recorded G1 downgrade — far better than the 27°
+        // Gregory creases they used to yield to). r=0.1 joined when
+        // the crossing detector became transversality-structural
+        // (PK-392: the setback arc is UV-coincident with the
+        // pre-carve apex boundary by construction; the old count was
+        // a projection-noise knife-edge).
+        let expected_faces = 65;
         assert_eq!(part.face_count(), expected_faces, "r={radius}: face census");
         let report = m.evidence(&rounds).expect("fillet evidence");
         let blend = report.blend.as_ref().expect("blend record");
@@ -75,9 +77,9 @@ fn nine_edge_g2_fillet_serves_with_measured_g2_at_every_showcase_radius() {
         assert!(continuity.measured(), "r={radius}: seams measured");
         // Honest verdict pin. The body serves and validates, and the
         // evidence is MEASURED; the measured level is below G2 today
-        // because the corner-fan substrate on the rim+verticals class
-        // declines its setback fan and serves Gregory seams at up to
-        // 27° (PK-392; the rail-gap artifact was PK-391, closed). When
+        // because the corner fans serve as a recorded G1 downgrade
+        // (cap↔strip seam class 6.85e-2 vs the 5e-2 gate — PK-392
+        // Fork B; the rail-gap artifact was PK-391, closed). When
         // PK-392 closes this pin flips: retire the downgrade
         // expectation and require `!blend.downgraded()`.
         assert!(
