@@ -128,7 +128,14 @@ fn wire_trim_edge_pcurves(
 
         // Wire the EdgeGeometry pcurve onto the kept-face half-edge.
         if let Some(kh) = kept_he {
-            brep.half_edges[kh].pcurve = Some(eg_pcurve.clone().into());
+            // The support-side pcurve is the RAIL's pcurve; this trim
+            // edge may be only a piece of the rail (a corner shortened
+            // it), so slice it to the half-edge's own endpoints on the
+            // support surface and run it with the half-edge. Handing
+            // every piece the whole rail left images spanning the
+            // original rail — the stale range PK-391/PK-396 measured.
+            let sliced = slice_pcurve_to_halfedge(brep, kh, eg_pcurve);
+            brep.half_edges[kh].pcurve = Some(sliced.unwrap_or_else(|| eg_pcurve.clone()).into());
         }
 
         // Compute and wire a pcurve on the fillet surface for the fillet-face half-edge.
@@ -287,4 +294,77 @@ fn attach_remaining_fillet_pcurves(
             brep.half_edges[heh].pcurve = Some(pcurve.into());
         }
     }
+}
+
+/// `pcurve` sliced to the span whose IMAGE on the half-edge's face
+/// surface runs from the half-edge's origin to its destination, and
+/// oriented with the half-edge. `None` when the image never reaches
+/// both endpoints (the rail pcurve is then not this edge's image at
+/// all and the caller keeps the whole rail).
+fn slice_pcurve_to_halfedge(
+    brep: &BRep,
+    he: HalfEdgeHandle,
+    pcurve: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    let he_data = brep.half_edges.get(he)?;
+    let face = brep.loops.get(he_data.loop_)?.face;
+    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    let origin = brep.vertices.get(he_data.origin)?.position;
+    let dest = brep
+        .vertices
+        .get(brep.half_edges.get(he_data.twin)?.origin)?
+        .position;
+    let (t0, t1) = pcurve.parameter_range();
+    if (t1 - t0).abs() <= 0.0 {
+        return None;
+    }
+    let image = |t: f64| {
+        let uv = pcurve.point_at(t);
+        surface.point_at(uv.x, uv.y)
+    };
+    let nearest = |target: &Point3| -> (f64, f64) {
+        const COARSE: usize = 256;
+        let mut best = (t0, image(t0).distance_to(target));
+        for i in 0..=COARSE {
+            let t = t0 + (t1 - t0) * i as f64 / COARSE as f64;
+            let d = image(t).distance_to(target);
+            if d < best.1 {
+                best = (t, d);
+            }
+        }
+        let window = (t1 - t0) / COARSE as f64;
+        let (mut lo, mut hi) = ((best.0 - window).max(t0), (best.0 + window).min(t1));
+        for _ in 0..40 {
+            let m1 = lo + (hi - lo) * 0.382;
+            let m2 = lo + (hi - lo) * 0.618;
+            if image(m1).distance_to(target) < image(m2).distance_to(target) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let t = 0.5 * (lo + hi);
+        (t, image(t).distance_to(target))
+    };
+    let band = brep.tolerance.linear() * 10.0;
+    let (t_origin, d_origin) = nearest(&origin);
+    let (t_dest, d_dest) = nearest(&dest);
+    if d_origin > band || d_dest > band {
+        return None;
+    }
+    let (lo, hi) = (t_origin.min(t_dest), t_origin.max(t_dest));
+    if hi - lo <= 1e-12 * (t1 - t0).abs() {
+        return None;
+    }
+    let mut piece = pcurve.clone();
+    if hi < t1 - 1e-12 {
+        piece = piece.split_at(hi).ok()?.0;
+    }
+    if lo > t0 + 1e-12 {
+        piece = piece.split_at(lo).ok()?.1;
+    }
+    if t_origin > t_dest {
+        piece = reverse_nurbs(&piece);
+    }
+    Some(piece)
 }

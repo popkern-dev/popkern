@@ -99,6 +99,29 @@ pub fn walker_based_center_curve(
     let walk = walk_spine(&request, &walk_opts, tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;
 
+    if popkern_core::trace::trace_enabled("walker")
+        && let (Some(first), Some(last)) = (walk.samples.first(), walk.samples.last())
+    {
+        let (a, b) = (spine.point_at(t_start), spine.point_at(t_end));
+        eprintln!(
+            "[walker] {} samples; spine ends ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}); first t {:.4} c ({:.4},{:.4},{:.4}) last t {:.4} c ({:.4},{:.4},{:.4})",
+            walk.samples.len(),
+            a.x,
+            a.y,
+            a.z,
+            b.x,
+            b.y,
+            b.z,
+            first.t_spine,
+            first.solution.center.x,
+            first.solution.center.y,
+            first.solution.center.z,
+            last.t_spine,
+            last.solution.center.x,
+            last.solution.center.y,
+            last.solution.center.z
+        );
+    }
     let mut center_points: Vec<Point3> = Vec::with_capacity(walk.samples.len());
     let mut footprint_1: Vec<Point3> = Vec::with_capacity(walk.samples.len());
     let mut footprint_2: Vec<Point3> = Vec::with_capacity(walk.samples.len());

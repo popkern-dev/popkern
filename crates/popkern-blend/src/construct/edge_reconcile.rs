@@ -38,8 +38,10 @@ use popkern_core::topology::{BRep, EdgeHandle};
 
 #[path = "edge_reconcile_fit.rs"]
 mod edge_reconcile_fit;
-pub(crate) use edge_reconcile_fit::snap_vertex_and_adjacent_chords;
+#[path = "edge_reconcile_snap.rs"]
+mod edge_reconcile_snap;
 use edge_reconcile_fit::try_curved_fit;
+pub(crate) use edge_reconcile_snap::snap_vertex_and_adjacent_chords;
 
 /// Walk every edge in `brep`. For each edge bordered on one side
 /// by a cylindrical face and on the other by a planar face,

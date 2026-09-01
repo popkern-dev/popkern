@@ -412,6 +412,7 @@ pub(super) fn apply_face_trim_pipeline(
     // dangling. Undo the split by kef-ing the trim edge, but only if
     // the resulting merged face stays small (≤ 8 vertices). This
     // prevents creating oversized faces that no surface can fit.
+    crate::construct::post_pipeline::determinism_trace("post_trim_merge", result);
     for tr in &trim_results {
         if merged_consumed.contains(&tr.consumed) {
             continue;

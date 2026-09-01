@@ -142,6 +142,30 @@ pub(crate) fn pre_apply_trace(brep: &BRep, edge_geometries: &[crate::construct::
 
 /// Stage-boundary fingerprint print (POPKERN_TRACE=determinism).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
+    // POPKERN_TRACE=pcurve-fidelity: the worst same-fraction pcurve
+    // deviation over the body's ANALYTIC-support faces at every stage,
+    // so a stage that rewrites an edge range without re-trimming its
+    // pcurves names itself (PK-396).
+    if popkern_core::trace::trace_enabled("pcurve-fidelity") {
+        let supports: Vec<popkern_core::topology::FaceHandle> = brep
+            .faces
+            .iter()
+            .filter(|(_, f)| {
+                matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Plane { .. }) | Some(SurfaceGeometry::Cylinder { .. })
+                )
+            })
+            .map(|(h, _)| h)
+            .collect();
+        match crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &supports) {
+            Some(fid) => eprintln!(
+                "[pcurve-fidelity] {label}: worst {:.3e} edge {:?} face {:?} fraction {:.3} (measured {})",
+                fid.worst, fid.worst_edge, fid.worst_face, fid.worst_fraction, fid.measured
+            ),
+            None => eprintln!("[pcurve-fidelity] {label}: nothing measurable"),
+        }
+    }
     if popkern_core::trace::trace_enabled("determinism") {
         eprintln!(
             "dtrace: {label} geo={:016x} pc={:016x} ec={:016x}",
