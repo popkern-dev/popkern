@@ -158,9 +158,8 @@ fn analytic_circle_up_to_surface_on_another_body_is_one_periodic_cylinder() {
 #[test]
 fn analytic_circle_up_to_surface_boss_merges_into_its_host() {
     // Boss: the same extrude merges into the body its target lives on.
-    // (Part's own union of these three solids is the PK-394 boolean
-    // class — the tree's merge order serves a valid body, so the merged
-    // result is judged by validation and census, not by Part parity.)
+    // (PK-394 restored Part's own three-solid coplanar union, so the
+    // merged result is full Part parity.)
     let (mut tree, plate_body) = plate_with_pillar();
     add_boss_up_to_pillar(&mut tree, plate_body, OperationMode::Boss);
     let result = tree.replay(Tolerance::default()).expect("replay");
@@ -182,4 +181,23 @@ fn analytic_circle_up_to_surface_boss_merges_into_its_host() {
         Some(plate_body),
         "boss merged into the plate"
     );
+    let plate = Profile::on(Plane::XY)
+        .rect(2.4, 1.6)
+        .extrude(0.4)
+        .expect("plate");
+    let pillar = Profile::on(Plane::xy_at(0.4))
+        .rect(0.4, 0.4)
+        .at(0.9, 0.5)
+        .extrude(1.0)
+        .expect("pillar");
+    let boss_tool = Profile::on(Plane::xy_at(0.4))
+        .circle(0.35)
+        .extrude(1.0)
+        .expect("boss");
+    let part = plate
+        .union(&pillar)
+        .expect("union")
+        .union(&boss_tool)
+        .expect("union");
+    assert_same_body("boss up-to merged ≡ Part union", &body, part.brep());
 }

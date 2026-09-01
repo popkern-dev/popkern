@@ -102,19 +102,20 @@ pub(crate) fn execute_feature(
                 return Ok(ExecuteSideEffects::empty());
             }
             let mut evidence = FeatureEvidence::empty();
-            if exact_profile.is_some() {
-                // Draft is the one class the exact sweep has no arm for;
-                // the generic extrude splits a full circle into two
-                // co-cylindrical laterals (PK-387) — recorded, never
-                // silent.
+            if exact_profile.is_some_and(|e| e.circular) {
+                // A full-circle profile on the generic face extrude
+                // splits its lateral into co-cylindrical (or with
+                // draft, co-conical) halves — recorded, never silent
+                // (PK-387/PK-395; reached only by combinations the
+                // exact sweep declines, e.g. draft + second direction).
                 evidence
                     .fallbacks
                     .push(crate::replay_report::FallbackRecord {
                         source: crate::replay_report::RecordSource::Sweep,
                         mechanism: "exact periodic profile sweep -> generic face extrude"
                             .to_string(),
-                        reason: "draft angle requested: the wire sweep has no draft arm; a full \
-                             circle profile extrudes as two co-cylindrical laterals"
+                        reason: "the exact sweep declined this combination; the full-circle \
+                             profile extrudes as split laterals"
                             .to_string(),
                     });
             }

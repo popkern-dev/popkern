@@ -128,3 +128,14 @@ pub fn served(tree: &mut FeatureTree) -> BRep {
     assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
     body.clone()
 }
+
+/// The served name of the first face under `op` with `category` on the
+/// current body (names carry ancestors, so references read the pool).
+pub fn find_face_name(tree: &FeatureTree, op: u64, category: RoleCategory) -> EntityName {
+    let brep = tree.current_brep().expect("body");
+    brep.faces
+        .values()
+        .filter_map(|f| f.name.and_then(|id| brep.name_pool.get(id).cloned()))
+        .find(|n| n.operation == OperationId(op) && n.role.category == category)
+        .expect("named face")
+}

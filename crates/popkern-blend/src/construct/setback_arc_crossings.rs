@@ -142,6 +142,26 @@ pub(super) fn arc_boundary_crossings(
     // exact hit. A genuine poke-out-and-back double crossing of one
     // edge is far apart in parameter and stays two hits (the honest
     // decline below).
+    // A near-tangent stretch — the arc running along a boundary edge
+    // for part of its span — produces a RUN of UV crossings with small
+    // margins (measured on the squat-strip box 2.4x1.6x0.4 r=0.1:
+    // 12–31 hits, one exact at t=0 then wobble at t 0.02..0.09 under
+    // 1.3e-3). One stretch is one crossing: cluster per edge by arc-t
+    // adjacency and keep the min-margin representative of each run.
+    {
+        let mut clustered: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
+        for h in hits.drain(..) {
+            match clustered.last_mut() {
+                Some(last) if last.1 == h.1 && (h.0 - last.0).abs() <= 0.05 => {
+                    if h.3 < last.3 {
+                        *last = h;
+                    }
+                }
+                _ => clustered.push(h),
+            }
+        }
+        hits = clustered;
+    }
     {
         let chord = arc_eval.point_at(0.0).distance_to(&arc_eval.point_at(1.0));
         let graze_margin = (1.0e-3 * chord).max(1.0e-9);

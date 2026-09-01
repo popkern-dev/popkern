@@ -39,15 +39,39 @@ pub(super) fn try_setback_rung(
         // proven watertight tiling and a G2 cap satisfies G1 (the
         // PnS bi-4 family integrated at its historical 5e-2 seam class —
         // its patches overlap by construction, see PK-097).
-        match crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
+        let gate_seam_g2 = requested_continuity == ContinuityLevel::G2;
+        let mut fan_downgraded_to_g1 = false;
+        let mut surgery = crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
             &commit_snapshot,
             vertex,
             fillet_surfaces_pre,
             tolerance,
-            requested_continuity == ContinuityLevel::G2,
+            gate_seam_g2,
             cap_presolve,
-        ) {
+        );
+        // A fan that fails ONLY the seam-G2 postcondition still beats
+        // every fallback by orders of magnitude (measured on the
+        // rim+verticals box class: the declined fan's seams sat at
+        // g1 2.9e-3 / g2 5.4e-2 while the Gregory fallback served a
+        // 27° crease). Serve the fan as a measured G1 downgrade: the
+        // corner patch records achieved G1 and the quality pass emits
+        // ContinuityDowngraded.
+        if gate_seam_g2
+            && matches!(&surgery, Err(e) if e.starts_with("fan seam G2 postcondition failed"))
+        {
+            fan_downgraded_to_g1 = true;
+            surgery = crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
+                brep,
+                &commit_snapshot,
+                vertex,
+                fillet_surfaces_pre,
+                tolerance,
+                false,
+                cap_presolve,
+            );
+        }
+        match surgery {
             Ok(outcome) => {
                 if let Err(e) = brep.validate() {
                     *brep = commit_snapshot;
@@ -69,7 +93,9 @@ pub(super) fn try_setback_rung(
                             // strips: a KP20 (G2-interior) cap on G1
                             // sweeps yields a G1 blend and must say so.
                             achieved_continuity: match requested_continuity {
-                                ContinuityLevel::G2 => crate::types::ContinuityLevel::G2,
+                                ContinuityLevel::G2 if !fan_downgraded_to_g1 => {
+                                    crate::types::ContinuityLevel::G2
+                                }
                                 _ => crate::types::ContinuityLevel::G1,
                             },
                             classification,

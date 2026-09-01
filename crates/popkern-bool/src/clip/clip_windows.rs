@@ -92,30 +92,27 @@ pub(super) fn decisive_windows(
     // scale); anything closer is ambiguous and falls back to the
     // tuned crossing hull. Closed records keep their PK-111 contract
     // untouched.
-    let boundary_clearance: Option<(Vec<(f64, f64)>, f64)> = if is_closed {
-        None
-    } else {
-        crate::clip::face_uv_boundary(brep, face).map(|boundary| {
-            let mut samples = Vec::new();
-            let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-            for (_, pcurve) in &boundary {
-                let curve = pcurve.to_nurbs();
-                let (b0, b1) = curve.parameter_range();
-                for k in 0..=24 {
-                    let point = curve.point_at(b0 + (b1 - b0) * k as f64 / 24.0);
-                    lo_u = lo_u.min(point.x);
-                    hi_u = hi_u.max(point.x);
-                    lo_v = lo_v.min(point.y);
-                    hi_v = hi_v.max(point.y);
-                    samples.push((point.x, point.y));
-                }
-            }
-            let trim_scale = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2))
-                .sqrt()
-                .max(1e-9);
-            (samples, trim_scale * 0.02)
-        })
+    let (period_u, period_v) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.periodicity())
+        .unwrap_or((None, None));
+    let boundary_clearance = super::clip_windows_clearance::boundary_clearance_samples(brep, face);
+    let near_boundary_at = |t: f64| -> bool {
+        let Some((boundary_samples, clearance)) = boundary_clearance.as_ref() else {
+            return false;
+        };
+        let tt = if t > t_max { t - span } else { t };
+        let p = curve_uv.point_at(tt);
+        super::clip_windows_clearance::near_boundary(
+            boundary_samples,
+            *clearance,
+            (p.x, p.y),
+            (period_u, period_v),
+        )
     };
+
     let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(intervals.len());
     for &(a, b) in &intervals {
         if b - a < min_len {
@@ -132,20 +129,8 @@ pub(super) fn decisive_windows(
         if flags[0] != flags[1] || flags[1] != flags[2] {
             return None;
         }
-        if !flags[0]
-            && let Some((boundary_samples, clearance)) = boundary_clearance.as_ref()
-        {
-            let mid = {
-                let t = a + (b - a) * 0.5;
-                let tt = if t > t_max { t - span } else { t };
-                curve_uv.point_at(tt)
-            };
-            let near_boundary = boundary_samples
-                .iter()
-                .any(|&(u, v)| ((mid.x - u).powi(2) + (mid.y - v).powi(2)).sqrt() < *clearance);
-            if near_boundary {
-                return None;
-            }
+        if !is_closed && !flags[0] && near_boundary_at(a + (b - a) * 0.5) {
+            return None;
         }
         verdicts.push(Some(flags[0]));
     }
@@ -165,6 +150,22 @@ pub(super) fn decisive_windows(
     let mut windows: Vec<(f64, f64)> = Vec::new();
     if is_closed {
         if resolved.iter().all(|&r| r) {
+            return Some(vec![(t_min, t_max)]);
+        }
+        // FLUSH RIM: a closed record whose every interval classifies
+        // outside while every midpoint hugs the trim boundary is a
+        // curve running ALONG the face's rim — the imprint curve of a
+        // tool cap flush with this face (measured: the z=0.4 circle of
+        // a flush-top-only cut classified 3 crossings → all-outside on
+        // the tool lateral and was dropped; the host top never got the
+        // hole and the wall self-intersected it — PK-393). Keep the
+        // whole curve; genuinely-outside closed records have clear
+        // midpoints and still drop.
+        if resolved.iter().all(|&r| !r)
+            && intervals
+                .iter()
+                .all(|&(a, b)| near_boundary_at(a + (b - a) * 0.5))
+        {
             return Some(vec![(t_min, t_max)]);
         }
         let f = resolved.iter().position(|&r| !r)?;

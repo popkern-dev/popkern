@@ -178,41 +178,103 @@ fn constraint_rect_mid_plane_grows_both_halves_on_the_generic_path() {
 }
 
 #[test]
-fn draft_on_a_circle_keeps_the_generic_path_and_records_the_boundary() {
-    let mut tree = FeatureTree::new();
-    tree.add_feature(
-        Feature::Sketch {
-            plane: SketchPlaneDesc::XY,
-            sketch_data: analytic_circle(0.0, 0.0, 0.3),
-        },
-        "circle",
-    );
-    let dist = add_param(&mut tree, "depth", 0.5);
-    let draft = add_param(&mut tree, "draft", 0.1);
-    let extrude = tree.add_feature(
-        Feature::Extrude {
-            face: name(1, RoleCategory::Generated, 0),
-            direction: None,
-            end_condition: ExtrudeEnd::Blind { distance: dist },
-            mode: OperationMode::NewBody,
-            draft_angle: Some(draft),
-            second_direction: None,
-        },
-        "drafted",
-    );
-    let result = tree.replay(Tolerance::default()).expect("replay");
-    assert!(
-        result.report.failures().next().is_none(),
-        "{:?}",
-        result.report
-    );
-    let report = result.report.feature(extrude).expect("report");
-    assert!(
-        report
-            .fallbacks
-            .iter()
-            .any(|f| f.mechanism.contains("exact periodic profile sweep")),
-        "draft on a circle must record the generic-path boundary: {:?}",
-        report.fallbacks
-    );
+fn draft_on_a_circle_serves_one_cone() {
+    // PK-395: the exact route drafts its single periodic lateral with
+    // the same operator the generic path uses — one exact Cone, where
+    // the generic face extrude served two co-conical halves.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    for (label, payload) in [
+        ("analytic", analytic_circle(0.0, 0.0, 0.3)),
+        (
+            "constraint",
+            SketchPayload::Constraint(circle_sketch_json(0.0, 0.0, 0.3)),
+        ),
+    ] {
+        let mut tree = FeatureTree::new();
+        tree.add_feature(
+            Feature::Sketch {
+                plane: SketchPlaneDesc::XY,
+                sketch_data: payload,
+            },
+            "circle",
+        );
+        let dist = add_param(&mut tree, "depth", 0.5);
+        let draft = add_param(&mut tree, "draft", 0.1);
+        let extrude = tree.add_feature(
+            Feature::Extrude {
+                face: name(1, RoleCategory::Generated, 0),
+                direction: None,
+                end_condition: ExtrudeEnd::Blind { distance: dist },
+                mode: OperationMode::NewBody,
+                draft_angle: Some(draft),
+                second_direction: None,
+            },
+            "drafted",
+        );
+        let result = tree.replay(Tolerance::default()).expect("replay");
+        assert!(
+            result.report.failures().next().is_none(),
+            "{label}: {:?}",
+            result.report
+        );
+        let report = result.report.feature(extrude).expect("report");
+        assert!(
+            report.fallbacks.is_empty(),
+            "{label}: the exact drafted arm serves; no fallback: {:?}",
+            report.fallbacks
+        );
+        let body = tree.current_brep().expect("body");
+        assert!(
+            body.validate_all().is_empty(),
+            "{label}: {:?}",
+            body.validate_all()
+        );
+        assert_eq!(
+            surface_census(&body),
+            (2, 0, 1),
+            "{label}: one Cone lateral"
+        );
+        assert_eq!(
+            one_edge_planar_loops(&body),
+            2,
+            "{label}: single closed-edge caps"
+        );
+        // The lateral is an exact cone whose half-angle is the draft
+        // angle, and the cap radii differ by h·tan(angle).
+        let cone = body
+            .faces
+            .values()
+            .find_map(|f| match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(SurfaceGeometry::Cone { half_angle, .. }) => Some(*half_angle),
+                _ => None,
+            })
+            .expect("cone lateral");
+        assert!(
+            (cone.abs() - 0.1).abs() < 1e-9,
+            "{label}: cone half-angle {cone} vs draft 0.1"
+        );
+        let radius_at = |z: f64| -> f64 {
+            body.vertices
+                .values()
+                .filter(|v| (v.position.z - z).abs() < 1e-9)
+                .map(|v| (v.position.x * v.position.x + v.position.y * v.position.y).sqrt())
+                .fold(0.0, f64::max)
+        };
+        let (r0, r1) = (radius_at(0.0), radius_at(0.5));
+        assert!((r0 - 0.3).abs() < 1e-9, "{label}: base radius {r0}");
+        assert!(
+            ((r0 - r1).abs() - 0.5 * 0.1f64.tan()).abs() < 1e-9,
+            "{label}: |Δr| {} vs h·tan(angle) {}",
+            (r0 - r1).abs(),
+            0.5 * 0.1f64.tan()
+        );
+        let v = volume(&body);
+        let frustum = std::f64::consts::PI * 0.5 * (r0 * r0 + r0 * r1 + r1 * r1) / 3.0;
+        // The default tessellation inscribes the cone (~0.8 % volume
+        // deficit); a cylinder would read 18 % off, so 1 % is decisive.
+        assert!(
+            (v - frustum).abs() < 1e-2 * frustum,
+            "{label}: volume {v} vs frustum {frustum}"
+        );
+    }
 }

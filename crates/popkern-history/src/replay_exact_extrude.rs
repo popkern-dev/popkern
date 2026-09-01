@@ -39,6 +39,10 @@ pub(crate) struct ExactProfileWire {
     pub center: [f64; 2],
     /// The sketch plane.
     pub plane: SketchPlane,
+    /// The profile is a single full circle — the class whose generic
+    /// extrude splits the lateral (PK-387) and whose drafted extrude
+    /// has an exact arm (PK-395: draft the one periodic lateral).
+    pub circular: bool,
 }
 
 /// Find the analytic profile that produced `face`, from the features
@@ -59,6 +63,7 @@ pub(crate) fn exact_profile_for<'a>(
         }
         SketchPayload::Constraint(sketch_json) => single_full_circle_profile(sketch_json)?,
     };
+    let circular = matches!(profile.shape, popkern_sketch::ProfileShape::Circle { .. });
     let plane = crate::resolve::resolve_sketch_plane(plane, brep, param_table).ok()?;
     let wire = profile.local_wire(&plane).ok()?;
     let _ = SketchPlaneDesc::XY;
@@ -66,6 +71,7 @@ pub(crate) fn exact_profile_for<'a>(
         wire,
         center: profile.center,
         plane,
+        circular,
     })
 }
 
@@ -104,9 +110,13 @@ pub(crate) fn takes_exact_path(
     direction: Option<&Vec3Desc>,
     draft_angle: Option<&ParameterId>,
     second_direction: Option<&ExtrudeSecondDir>,
+    circular: bool,
     plane: &SketchPlane,
 ) -> bool {
-    if draft_angle.is_some() {
+    if draft_angle.is_some() && !(circular && second_direction.is_none()) {
+        // The wire sweep has no draft arm for general profiles; a full
+        // circle's single periodic lateral is drafted exactly by the
+        // same operator the generic path uses (PK-395).
         return false;
     }
     if let Some(second) = second_direction
@@ -166,9 +176,22 @@ pub(crate) fn try_execute_exact(
     tolerance: &Tolerance,
     param_table: &ParameterTable,
 ) -> Result<bool, ReplayError> {
-    if !takes_exact_path(direction, draft_angle, second_direction, &exact.plane) {
+    if !takes_exact_path(
+        direction,
+        draft_angle,
+        second_direction,
+        exact.circular,
+        &exact.plane,
+    ) {
         return Ok(false);
     }
+    let draft = match draft_angle {
+        Some(param) => {
+            let angle = crate::resolve::resolve_param(param_table, *param)?;
+            (angle.abs() > 1e-10).then_some(angle)
+        }
+        None => None,
+    };
     let face_handle = crate::resolve::resolve_face(face, brep)?;
     let centroid = crate::replay::replay_fns::face_centroid(brep, face_handle);
     let dir = if signed_extent(direction, &exact.plane, 1.0) > 0.0 {
@@ -207,7 +230,15 @@ pub(crate) fn try_execute_exact(
         lo = lo.min(back);
         hi = hi.max(back);
     }
-    execute_extrude_exact(brep, exact, face.operation, (lo, hi), tracking, tolerance)?;
+    execute_extrude_exact(
+        brep,
+        exact,
+        face.operation,
+        (lo, hi),
+        draft,
+        tracking,
+        tolerance,
+    )?;
     Ok(true)
 }
 
@@ -216,6 +247,7 @@ pub(crate) fn execute_extrude_exact(
     exact: &ExactProfileWire,
     sketch_op: OperationId,
     span: (f64, f64),
+    draft: Option<f64>,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
 ) -> Result<(), ReplayError> {
@@ -261,6 +293,46 @@ pub(crate) fn execute_extrude_exact(
     )
     .map_err(|e| failed(format!("exact profile sweep: {e}")))?;
     *brep = result.brep;
+    // Draft: the swept body has ONE periodic lateral; drafting it with
+    // the SAME operator the generic path applies to its split laterals
+    // yields one exact Cone (popkern-draft's cylindrical surface arm),
+    // where the generic route serves two co-conical halves (PK-395).
+    if let Some(angle) = draft {
+        let laterals: Vec<popkern_core::topology::FaceHandle> = brep
+            .faces
+            .iter()
+            .filter(|(_, f)| {
+                matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. })
+                )
+            })
+            .map(|(h, _)| h)
+            .collect();
+        let pull = exact.plane.normal * if hi >= 0.0 { 1.0 } else { -1.0 };
+        let specs: Vec<popkern_draft::DraftSpec> = laterals
+            .iter()
+            .map(|&face| popkern_draft::DraftSpec {
+                face,
+                angle,
+                pull_direction: pull,
+                neutral: popkern_draft::NeutralReference::Plane {
+                    origin: start,
+                    normal: pull,
+                },
+                angle_variation: popkern_draft::AngleVariation::Constant,
+            })
+            .collect();
+        let drafted = popkern_draft::draft_faces(
+            brep,
+            &specs,
+            &popkern_draft::DraftOptions::default(),
+            *tolerance,
+            None,
+        )
+        .map_err(|e| failed(format!("draft of the periodic lateral: {e}")))?;
+        *brep = drafted.brep;
+    }
     // The wire sweep places the profile at `start` (its sampled
     // centroid plus the placement); the name frame measures heights
     // from there along the sketch normal.

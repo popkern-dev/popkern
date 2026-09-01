@@ -13,6 +13,7 @@ mod clip_line;
 mod clip_seam_shift;
 mod clip_uv;
 mod clip_windows;
+mod clip_windows_clearance;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
