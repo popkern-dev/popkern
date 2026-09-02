@@ -314,12 +314,14 @@ impl FeatureTree {
             let merge_host = auto_merge::detect_host_body(id, &self.features, &body_breps)
                 .or_else(|| auto_merge::host_for_extrude_target(&feature, body, &body_breps));
             let exact_profile = match &feature {
-                Feature::Extrude { face, .. } => crate::replay_exact_extrude::exact_profile_for(
-                    self.features.values().map(|n| (&n.feature, n.operation_id)),
-                    face,
-                    merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
-                    &self.parameter_table,
-                ),
+                Feature::Extrude { face, .. } | Feature::Revolve { face, .. } => {
+                    crate::replay_exact_extrude::exact_profile_for(
+                        self.features.values().map(|n| (&n.feature, n.operation_id)),
+                        face,
+                        merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
+                        &self.parameter_table,
+                    )
+                }
                 _ => None,
             };
             let exec_result = replay::execute_feature(

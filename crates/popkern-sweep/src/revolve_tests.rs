@@ -377,3 +377,115 @@ fn rotated_caps_multiple_spans() {
     assert!(rotated[0].control_points[0].x.abs() < 1e-10);
     assert!(rotated[1].control_points[0].x.abs() < 1e-10);
 }
+
+// ---- PK-408: closed profiles serve valid solids ----
+
+fn counts(brep: &popkern_core::topology::BRep) -> (usize, usize, usize) {
+    (brep.vertices.len(), brep.edges.len(), brep.faces.len())
+}
+
+#[test]
+fn full_revolution_of_a_rectangle_is_a_welded_ring() {
+    let result = revolve(
+        &closed_rect_profile(),
+        &Point3::new(0.0, 0.0, 0.0),
+        &Vec3::new(0.0, 0.0, 1.0),
+        TAU,
+        Tolerance::default(),
+        None,
+    )
+    .expect("ring");
+    assert_eq!(counts(&result.brep), (4, 8, 4), "V E F of a ring");
+    result.brep.validate().expect("ring validates");
+    // Geometry stays where the profile was: radii 1 and 2, not centred.
+    let radii: Vec<f64> = result
+        .brep
+        .vertices
+        .values()
+        .map(|v| (v.position.x.powi(2) + v.position.y.powi(2)).sqrt())
+        .collect();
+    assert!(
+        radii
+            .iter()
+            .all(|r| (r - 1.0).abs() < 1e-9 || (r - 2.0).abs() < 1e-9),
+        "{radii:?}"
+    );
+}
+
+#[test]
+fn partial_revolution_of_a_rectangle_validates_with_caps() {
+    for angle in [FRAC_PI_2, PI, 3.0 * FRAC_PI_2] {
+        let result = revolve(
+            &closed_rect_profile(),
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            angle,
+            Tolerance::default(),
+            None,
+        )
+        .expect("partial");
+        assert_eq!(counts(&result.brep), (8, 12, 6), "angle {angle}");
+        result
+            .brep
+            .validate()
+            .unwrap_or_else(|e| panic!("angle {angle}: {e}"));
+    }
+}
+
+#[test]
+fn full_revolution_of_a_profile_touching_the_axis_is_a_disc() {
+    let profile = SweepProfile::Wire(NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.5),
+            Point3::new(0.0, 0.0, 0.5),
+            Point3::new(0.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0; 5],
+    });
+    let result = revolve(
+        &profile,
+        &Point3::new(0.0, 0.0, 0.0),
+        &Vec3::new(0.0, 0.0, 1.0),
+        TAU,
+        Tolerance::default(),
+        None,
+    )
+    .expect("disc");
+    // The span on the axis sweeps nothing and is dropped; the two pole
+    // vertices sweep no circle: a cylinder of three faces.
+    assert_eq!(counts(&result.brep), (4, 5, 3));
+    result.brep.validate().expect("disc validates");
+}
+
+#[test]
+fn clockwise_and_counter_clockwise_profiles_both_serve_outward() {
+    let ccw = closed_rect_profile();
+    let SweepProfile::Wire(curve) = &ccw else {
+        unreachable!()
+    };
+    let cw = SweepProfile::Wire(NurbsCurve {
+        degree: 1,
+        knots: curve.knots.clone(),
+        control_points: curve.control_points.iter().rev().copied().collect(),
+        weights: curve.weights.clone(),
+    });
+    for (label, profile) in [("ccw", &ccw), ("cw", &cw)] {
+        let result = revolve(
+            profile,
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            PI,
+            Tolerance::default(),
+            None,
+        )
+        .expect(label);
+        result
+            .brep
+            .validate()
+            .unwrap_or_else(|e| panic!("{label}: {e}"));
+    }
+}

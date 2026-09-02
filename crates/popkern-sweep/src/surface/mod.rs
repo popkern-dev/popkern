@@ -3,6 +3,7 @@
 //! Transforms a profile along a frame sequence to build skinned NURBS surfaces.
 
 pub(crate) mod canonical;
+pub(crate) mod canonical_curves;
 pub mod guided;
 pub mod loft_continuity;
 pub mod loft_surface;

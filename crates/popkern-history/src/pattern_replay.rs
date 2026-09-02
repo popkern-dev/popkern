@@ -63,7 +63,8 @@ pub(crate) fn replay_seed_chain(
     for (feature, op_id) in seed_features {
         let mut ctx = TrackingContext::new(*op_id);
         let exact_profile = match feature {
-            crate::feature::Feature::Extrude { face, .. } => {
+            crate::feature::Feature::Extrude { face, .. }
+            | crate::feature::Feature::Revolve { face, .. } => {
                 crate::replay_exact_extrude::exact_profile_for(
                     seed_features.iter().map(|(f, op)| (f, *op)),
                     face,

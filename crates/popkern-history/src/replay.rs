@@ -437,9 +437,27 @@ pub(crate) fn execute_feature(
             };
             let angle_val = resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;
 
-            let profile = popkern_sweep::SweepProfile::Face {
-                brep: Box::new(brep.clone()),
-                face: face_handle,
+            // An analytic sketch revolves its EXACT wire (arcs stay
+            // arcs); the compiled face's loop is only a vertex polyline
+            // (PK-408: a circle profile lost its curvature entirely).
+            let profile = match exact_profile {
+                Some(exact) => {
+                    let placement =
+                        exact.plane.u_axis * exact.center[0] + exact.plane.v_axis * exact.center[1];
+                    popkern_sweep::SweepProfile::Wire(popkern_core::geometry::NurbsCurve {
+                        control_points: exact
+                            .wire
+                            .control_points
+                            .iter()
+                            .map(|p| *p + placement)
+                            .collect(),
+                        ..exact.wire.clone()
+                    })
+                }
+                None => popkern_sweep::SweepProfile::Face {
+                    brep: Box::new(brep.clone()),
+                    face: face_handle,
+                },
             };
 
             let result = popkern_sweep::revolve(
