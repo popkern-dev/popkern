@@ -183,11 +183,19 @@ fn into_face_direction(skin: &BRep, he_handle: HalfEdgeHandle, t: f64) -> Option
     let (pt_rev, d_rev) = candidate(1.0 - frac);
     let pt = if d_fwd <= d_rev { pt_fwd } else { pt_rev };
 
+    // The traversal runs from `t_start` to `t_end`; a pcurve authored
+    // over a DESCENDING range (core's closed-edge convention for the
+    // twin half-edge) traverses against increasing parameter, so the
+    // tangent is taken in the traversal's direction (measured: a
+    // grown cylinder's bottom cap rim read its into-cap direction
+    // radially OUTWARD, the rim classified mixed-sign instead of a
+    // gap, and the skin lost both halves of that rim torus).
     let h = (pcurve.t_end - pcurve.t_start).abs().max(1.0e-9) * 1.0e-6;
+    let along = (pcurve.t_end - pcurve.t_start).signum();
     let uv0 = pcurve.point_at(pt - h);
     let uv1 = pcurve.point_at(pt + h);
-    let du = uv1.x - uv0.x;
-    let dv = uv1.y - uv0.y;
+    let du = (uv1.x - uv0.x) * along;
+    let dv = (uv1.y - uv0.y) * along;
     let len = (du * du + dv * dv).sqrt();
     if len < 1.0e-30 {
         return None;

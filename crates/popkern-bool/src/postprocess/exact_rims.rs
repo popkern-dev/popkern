@@ -14,15 +14,17 @@
 //! elsewhere), verified sample for sample before the edge is
 //! rewritten. An edge that fails any check keeps its NURBS.
 //!
-//! Scope today: rims and seam pieces on analytic faces (plane,
-//! cylinder, cone, sphere, torus) of a SUBTRACTION result (bores,
-//! countersinks, cut slots, sphere and torus caps). Union and
-//! intersection rims wait for PK-419 (the G2 closed-fillet ladder
-//! tears on a union's promoted junction rim — measured in the ledger,
-//! not guessed). Sphere and torus rims and seams joined the scope
-//! with PK-418 once the mesher put every hole ring of a periodic
-//! chart on the outer ring's period sheet and the sphere/torus
-//! iso-circle pcurve arms made those rims exact by construction.
+//! Scope: rims and seam pieces on analytic faces (plane, cylinder,
+//! cone, sphere, torus) of every boolean result — bores, countersinks
+//! and cut slots (subtraction), boss junctions (union), sphere and
+//! torus caps. Sphere and torus rims and seams joined the scope with
+//! PK-418 once the mesher put every hole ring of a periodic chart on
+//! the outer ring's period sheet and the sphere/torus iso-circle
+//! pcurve arms made those rims exact by construction; union and
+//! intersection rims joined with PK-419 once the fillet's spine
+//! walker seeded a closed rim at its own station (a midpoint seed had
+//! converged to the antipodal ball, which an exact arc exposed and a
+//! NURBS rim only escaped by ULP luck).
 
 use popkern_core::geometry::circle_recognition::{arc_on_edge, recognize_circular};
 use popkern_core::geometry::curve::CurveGeometry;

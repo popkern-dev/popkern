@@ -195,6 +195,9 @@ pub struct WalkResult {
     pub total_newton_iterations: usize,
 }
 
+/// A `(uv0, uv1)` pair seeding the first contact solve.
+type UvSeed = ((f64, f64), (f64, f64));
+
 /// Failure modes for [`walk_spine`].
 #[derive(Debug, Clone, Error)]
 pub enum WalkerError {
@@ -220,6 +223,22 @@ pub enum WalkerError {
     InitialSeedFailed {
         /// Which surface failed to project the spine start point.
         surface_index: usize,
+    },
+    /// The first contact solution converged at a different station
+    /// of the spine than the one asked for — another point of the
+    /// spine lies in the same spine plane (a closed rim's antipode)
+    /// and the seed was nearer it. See `walker_station`.
+    #[error(
+        "spine walker: the ball at t={t_spine:.4} belongs to station t={nearest_t:.4} (centre ({}, {}, {}))",
+        center.x, center.y, center.z
+    )]
+    StationMismatch {
+        /// Spine parameter that was asked for.
+        t_spine: f64,
+        /// Spine parameter the converged ball is nearest to.
+        nearest_t: f64,
+        /// The converged ball centre.
+        center: popkern_core::geometry::Point3,
     },
 }
 
@@ -247,28 +266,29 @@ pub fn walk_spine(
 
     // Seed the initial guess at t = t_start.
     let p_start = request.spine.point_at(t_start);
+    let seed_from_start = || -> Result<UvSeed, WalkerError> {
+        let uv0 = request
+            .surface_0
+            .closest_point(&p_start)
+            .ok_or(WalkerError::InitialSeedFailed { surface_index: 0 })?;
+        let uv1 = request
+            .surface_1
+            .closest_point(&p_start)
+            .ok_or(WalkerError::InitialSeedFailed { surface_index: 1 })?;
+        Ok((uv0, uv1))
+    };
     let (initial_uv0, initial_uv1) = match request.initial_seed {
         Some(seed) => seed,
-        None => {
-            let uv0 = request
-                .surface_0
-                .closest_point(&p_start)
-                .ok_or(WalkerError::InitialSeedFailed { surface_index: 0 })?;
-            let uv1 = request
-                .surface_1
-                .closest_point(&p_start)
-                .ok_or(WalkerError::InitialSeedFailed { surface_index: 1 })?;
-            (uv0, uv1)
-        }
+        None => seed_from_start()?,
     };
 
-    match options.mode {
+    let run = |uv0: (f64, f64), uv1: (f64, f64)| match options.mode {
         WalkMode::Fixed { n_samples } => walk_fixed(
             request,
             tolerance,
             &options.contact_options,
-            initial_uv0,
-            initial_uv1,
+            uv0,
+            uv1,
             n_samples.max(2),
         ),
         WalkMode::Adaptive {
@@ -284,8 +304,8 @@ pub fn walk_spine(
             request,
             tolerance,
             &options.contact_options,
-            initial_uv0,
-            initial_uv1,
+            uv0,
+            uv1,
             crate::walker_adaptive::AdaptiveParams {
                 initial_dt,
                 min_dt,
@@ -297,6 +317,17 @@ pub fn walk_spine(
                 shrink_factor,
             },
         ),
+    };
+    match run(initial_uv0, initial_uv1) {
+        // A caller-supplied seed converged at the wrong station: walk
+        // once more from the spine start's own projection, which is
+        // the station by construction. A second mismatch is the
+        // caller's structured error.
+        Err(WalkerError::StationMismatch { .. }) if request.initial_seed.is_some() => {
+            let (uv0, uv1) = seed_from_start()?;
+            run(uv0, uv1)
+        }
+        result => result,
     }
 }
 
@@ -394,19 +425,24 @@ pub(crate) fn step_at(
         spine_point: p_spine,
         spine_plane_normal: t_spine_tangent,
     };
-    solve_rolling_ball_contact(&contact_request, contact_options, tolerance, None).map_err(
-        |error| {
-            if sample_index == 0 {
-                WalkerError::InitialContactFailed(error)
-            } else {
-                WalkerError::StepFailed {
-                    t_spine: t,
-                    sample_index,
-                    error,
-                }
+    let solution = solve_rolling_ball_contact(&contact_request, contact_options, tolerance, None)
+        .map_err(|error| {
+        if sample_index == 0 {
+            WalkerError::InitialContactFailed(error)
+        } else {
+            WalkerError::StepFailed {
+                t_spine: t,
+                sample_index,
+                error,
             }
-        },
-    )
+        }
+    })?;
+    // The first sample fixes the station every later sample warm-
+    // starts from: certify it is the one asked for.
+    if sample_index == 0 {
+        crate::walker_station::certify_station(request, t, &solution)?;
+    }
+    Ok(solution)
 }
 
 /// Recenter the contact solver's UV range around `current_uv` for

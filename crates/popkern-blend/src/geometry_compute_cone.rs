@@ -77,14 +77,25 @@ pub(crate) fn compute_center_via_walker(
     };
 
     // Project a query point onto both surfaces to get an initial
-    // UV seed. Use the spine midpoint, nudged toward each surface
-    // normal to break atan2 degeneracies on periodic surfaces.
+    // UV seed, nudged toward each surface normal to break atan2
+    // degeneracies on periodic surfaces.
     //
-    // For blend-on-blend (§12.3), the spine midpoint may NOT lie
-    // on both surfaces (e.g. edge from cube corner to cylinder
-    // rim). Fall back to the edge endpoint that IS on the non-
-    // planar surface by picking the vertex closest to the face
-    // centroid.
+    // The seed point is the spine START when it lies on both
+    // supports: the walk's first station is there, and the contact
+    // solver's station constraint (the plane through the spine point
+    // normal to its tangent) does not by itself pick the ball at that
+    // point — on a closed circular rim the antipode satisfies the
+    // same plane, and a midpoint seed converged to THAT ball. The
+    // strip then originated half a turn from the rail vertex where
+    // the closed-fillet surgery seams the ring (measured: the boss
+    // plate's union rim as an exact arc, 70 open mesh edges; the
+    // NURBS spelling only escaped by evaluating a few ULPs off the
+    // supports, which made an endpoint "closer" than the midpoint —
+    // PK-419).
+    //
+    // For blend-on-blend (§12.3) an endpoint may NOT lie on both
+    // surfaces (edge from a cube corner to a cylinder rim): then the
+    // other endpoint, else the midpoint, whichever is nearest both.
     let (initial_seed, spine_t_range) = {
         use popkern_core::geometry::SurfaceEval;
         use popkern_core::geometry::curve::CurveEval;
@@ -103,12 +114,19 @@ pub(crate) fn compute_center_via_walker(
             };
             d(&analysis.surface_1).max(d(&analysis.surface_2))
         };
-        let mut best_pt = p_mid;
-        for candidate in [p_start, p_end] {
-            if dist_to_surfs(&candidate) < dist_to_surfs(&best_pt) {
-                best_pt = candidate;
-            }
-        }
+        let on_supports = tolerance.linear() * 10.0;
+        let best_pt = [p_start, p_end, p_mid]
+            .into_iter()
+            .find(|p| dist_to_surfs(p) <= on_supports)
+            .unwrap_or_else(|| {
+                let mut best = p_mid;
+                for candidate in [p_start, p_end] {
+                    if dist_to_surfs(&candidate) < dist_to_surfs(&best) {
+                        best = candidate;
+                    }
+                }
+                best
+            });
 
         let nudge = 1.0e-4;
         let proj = |s: &popkern_core::geometry::surface::SurfaceGeometry,
@@ -125,7 +143,20 @@ pub(crate) fn compute_center_via_walker(
             let (u0, v0) = s.closest_point(&best_pt)?;
             let n = s.normal_at(u0, v0);
             let (u, v) = s.closest_point(&(best_pt + n * nudge))?;
-            Some((u.clamp(ur.0, ur.1), v.clamp(vr.0, vr.1)))
+            // A periodic coordinate is carried into the face's window
+            // by whole periods BEFORE the clamp: `closest_point`
+            // answers in the principal branch (u = −0.25 for a station
+            // just behind the seam of a [0, 2π] chart), and clamping
+            // that branch parked the seed ON the seam, a quarter
+            // radian from the station — the contact Newton diverged
+            // from there (measured: the seam-crossing arc piece of a
+            // boss-on-wall chain, residual 2.6e-1; the same station
+            // seeded from the other side converged at once).
+            let (period_u, period_v) = s.parameter_periodicity();
+            Some((
+                wrap_then_clamp(u, ur, period_u),
+                wrap_then_clamp(v, vr, period_v),
+            ))
         };
         let uv0 = proj(&analysis.surface_1, u1_range, v1_range);
         let uv1 = proj(&analysis.surface_2, u2_range, v2_range);
@@ -349,4 +380,23 @@ pub(crate) fn compute_offset_intersect_center_curve(
             .map_err(wrap_err)
         }
     }
+}
+
+/// `x` carried into `[lo, hi]` by whole periods of a periodic chart
+/// axis, then clamped; aperiodic axes clamp directly.
+fn wrap_then_clamp(x: f64, (lo, hi): (f64, f64), period: Option<f64>) -> f64 {
+    let mut x = x;
+    if let Some(p) = period
+        && p > 0.0
+        && lo.is_finite()
+        && hi.is_finite()
+    {
+        if x < lo {
+            x += p * ((lo - x) / p).ceil();
+        }
+        if x > hi {
+            x -= p * ((x - hi) / p).ceil();
+        }
+    }
+    x.clamp(lo, hi)
 }

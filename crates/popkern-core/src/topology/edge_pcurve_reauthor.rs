@@ -4,8 +4,9 @@
 //!
 //! Used when an operator replaces an edge's geometry by an equivalent
 //! form — the boolean's exact-rim promotion (NURBS circle → `Arc`,
-//! PK-417) and the G2 fillet's containment the other way (`Arc` →
-//! rational circle, PK-419). The loop's established UV sense is kept,
+//! PK-417; the G2 fillet's transient re-spelling the other way used
+//! it too until PK-419 retired that containment). The loop's
+//! established UV sense is kept,
 //! not the closed-rim recompute convention: a boolean rim's two faces
 //! may both trace it clockwise (measured on a bored block), and a
 //! convention-aligned re-author tore the seam-bounded wall's loop.

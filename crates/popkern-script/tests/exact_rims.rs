@@ -3,11 +3,12 @@
 //! `Arc`s they are — so the rims select as `circular()`, carry the
 //! bore's radius, take a fillet by label, and the body stays
 //! watertight and STEP-clean. Union rims (a boss meeting a plate) are
-//! the same class.
+//! the same class and host G2 fillets on the exact arc (PK-419).
 
 use std::path::Path;
 
 use popkern_core::geometry::curve::CurveGeometry;
+use popkern_part::prelude::*;
 use popkern_script::prelude::*;
 use popkern_script::{Model, Plane};
 
@@ -83,46 +84,104 @@ fn a_bore_leaves_two_exact_circular_rims_that_select_and_fillet_by_label() {
     }
 }
 
-/// Containment pin (PK-419): a union's junction rim stays NURBS until
-/// the G2 closed-fillet ladder takes an arc there — promoting it left
-/// the flagship boss plate's nine-edge G2 fillet with 70 open mesh
-/// edges. The boss's own top rim is the extrude's exact arc as ever.
+/// A union's junction rim (a boss meeting a plate) is the same class
+/// as a bore's: exact, selectable as `circular()`, and a fillet host
+/// at G1 and at G2. Until PK-419 the union rim stayed NURBS because
+/// the fillet's spine walker seeded a closed rim at its midpoint and
+/// converged to the antipodal ball, tearing the G2 strip along its
+/// rails (70 open mesh edges); the seed now sits at the rim vertex
+/// and the walker certifies the station.
 #[test]
-fn a_union_junction_rim_stays_nurbs_until_pk419() {
-    let mut m = Model::new();
-    let plate = m
-        .profile(Plane::XY)
-        .rect(2.4, 1.6)
-        .sketch("plate_sketch")
-        .expect("sketch")
-        .extrude(&mut m, End::Blind(0.4.into()))
-        .expect("extrude");
-    let boss = m
-        .tool(|m| {
-            m.profile(Plane::xy_at(0.2))
-                .circle(0.35)
-                .sketch("boss_sketch")?
-                .extrude(m, End::Blind(0.8.into()))
-        })
-        .expect("boss");
-    let plate = plate.union(&mut m, boss).expect("union");
-    let brep = m.brep_of(plate).expect("brep");
-    let circular = brep
-        .edges
-        .values()
-        .filter(|e| {
-            matches!(
-                e.curve.as_ref().map(|c| &c.geometry),
-                Some(CurveGeometry::Arc { .. }) | Some(CurveGeometry::Circle { .. })
+fn a_union_junction_rim_is_exact_and_hosts_g1_and_g2_fillets() {
+    for continuity in [ContinuityKind::G1, ContinuityKind::G2] {
+        let mut m = Model::new();
+        let plate = m
+            .profile(Plane::XY)
+            .rect(2.4, 1.6)
+            .sketch("plate_sketch")
+            .expect("sketch")
+            .extrude(&mut m, End::Blind(0.4.into()))
+            .expect("extrude");
+        let boss = m
+            .tool(|m| {
+                m.profile(Plane::xy_at(0.2))
+                    .circle(0.35)
+                    .sketch("boss_sketch")?
+                    .extrude(m, End::Blind(0.8.into()))
+            })
+            .expect("boss");
+        let plate = plate.union(&mut m, boss).expect("union");
+        let brep = m.brep_of(plate).expect("brep");
+        let circular: Vec<f64> = brep
+            .edges
+            .values()
+            .filter_map(|e| match e.curve.as_ref().map(|c| &c.geometry) {
+                Some(CurveGeometry::Arc { radius, .. })
+                | Some(CurveGeometry::Circle { radius, .. }) => Some(*radius),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            circular.len(),
+            2,
+            "the boss top rim and the junction rim are both exact: {circular:?}"
+        );
+        assert!(circular.iter().all(|r| (r - 0.35).abs() < 1e-9));
+        m.label_edge("junction", &edges().circular().at_height(0.4))
+            .expect("the junction rim selects as circular");
+        let plate = plate
+            .fillet_continuity(
+                &mut m,
+                edges().labeled("junction"),
+                0.08,
+                continuity,
+                "round",
             )
-        })
-        .count();
-    assert_eq!(circular, 1, "only the boss top rim is an arc (PK-419)");
-    let junction = m.label_edge("junction", &edges().circular().at_height(0.4));
-    assert!(
-        junction.is_err(),
-        "the junction rim is not circular yet: {junction:?}"
+            .expect("fillet on the junction rim");
+        let _ = plate;
+        assert_eq!(m.report().failures().count(), 0, "{continuity:?}");
+        m.assert_watertight()
+            .unwrap_or_else(|e| panic!("{continuity:?}: {e:?}"));
+        let round = m.feature("round").expect("label");
+        let report = m.evidence(&round).expect("fillet evidence");
+        let blend = report.blend.as_ref().expect("blend record");
+        assert!(
+            !blend.downgraded(),
+            "{continuity:?}: {:?}",
+            blend.continuity
+        );
+        let step =
+            Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("boss_plate_{continuity:?}.step"));
+        m.assert_step_roundtrip(&step).expect("STEP round trip");
+    }
+}
+
+/// A bore rim (subtraction) hosts a G2 fillet on its exact arc too:
+/// the walker's seed rule is spelling-agnostic.
+#[test]
+fn a_bore_rim_hosts_a_g2_fillet_on_its_exact_arc() {
+    let mut m = Model::new();
+    let block = bored_block(&mut m);
+    m.label_edge("bore_rim", &edges().circular().at_height(0.5))
+        .expect("the top rim is circular");
+    let block = block
+        .fillet_continuity(
+            &mut m,
+            edges().labeled("bore_rim"),
+            0.05,
+            ContinuityKind::G2,
+            "round",
+        )
+        .expect("G2 fillet on the bore rim");
+    let _ = block;
+    assert_eq!(m.report().failures().count(), 0);
+    m.assert_watertight().expect("watertight");
+    let round = m.feature("round").expect("label");
+    let report = m.evidence(&round).expect("fillet evidence");
+    let blend = report.blend.as_ref().expect("blend record");
+    assert!(!blend.downgraded(), "{:?}", blend.continuity);
+    assert_eq!(
+        blend.continuity.as_ref().map(|c| c.achieved),
+        Some(Continuity::G2)
     );
-    m.label_edge("junction", &edges().nurbs().at_height(0.4))
-        .expect("the junction rim selects as NURBS");
 }

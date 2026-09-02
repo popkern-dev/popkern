@@ -558,7 +558,7 @@ pub(crate) fn execute_boolean_full(
         return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
     }
 
-    run_output_postprocess(&mut result, op, tolerance);
+    run_output_postprocess(&mut result, tolerance);
 
     // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
     // mechanics and measured rationale in

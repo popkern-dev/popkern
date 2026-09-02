@@ -130,7 +130,7 @@ pub(crate) fn fillet_edges_attempt(
     prepass_warnings.extend(collapsed_warnings);
     let (healed_brep, healed_specs) =
         cusp_subdivide::subdivide_cusp_edges(brep, &skipped, &tolerance);
-    let brep = &crate::rim_demote::for_request(healed_brep, wants_g2_construction, &tolerance);
+    let brep = &healed_brep;
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces, edges and vertices for naming.
     let pre = PreOperationSnapshot::capture(brep);

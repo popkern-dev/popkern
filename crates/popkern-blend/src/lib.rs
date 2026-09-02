@@ -115,6 +115,7 @@ pub(crate) mod vertex_blend_topology;
 pub mod vertex_classifier;
 pub mod walker;
 pub(crate) mod walker_adaptive;
+pub(crate) mod walker_station;
 pub mod zebra;
 pub use blend_continuity_evidence::{
     BlendContinuityEvidence, BlendSeamKind, ContinuityGates, SeamContinuityRecord,
@@ -167,7 +168,6 @@ mod fillet_pipeline;
 mod fillet_pipeline_pcurve_backstop;
 mod fillet_serving_footprint_repair;
 mod fillet_serving_retry;
-mod rim_demote;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;
