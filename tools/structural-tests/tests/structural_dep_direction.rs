@@ -290,3 +290,45 @@ fn rhai_sits_above_script() {
         );
     }
 }
+
+/// `popkern-cli` is the command over the Rhai skin: it may depend on
+/// the skin, the recorder, the facades and the CPU renderer; nothing
+/// depends on it.
+#[test]
+fn cli_sits_above_rhai() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-cli/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-cli/Cargo.toml");
+    for dep in ["popkern-rhai", "popkern-script", "popkern-viz"] {
+        assert!(
+            declares_dependency(&cargo_toml, dep),
+            "popkern-cli must depend on {dep}"
+        );
+    }
+    for below in [
+        "popkern-core",
+        "popkern-constraint",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-blend",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-sketch",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+        "popkern-rhai",
+        "popkern-examples",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-cli"),
+            "{below} must not depend on popkern-cli (the command is the top of the graph)"
+        );
+    }
+}

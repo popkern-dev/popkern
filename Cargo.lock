@@ -3308,6 +3308,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-cli"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "popkern-core",
+ "popkern-part",
+ "popkern-rhai",
+ "popkern-script",
+ "popkern-viz",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-constraint"
 version = "0.1.0"
 dependencies = [

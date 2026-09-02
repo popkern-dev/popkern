@@ -106,11 +106,29 @@ impl ScriptRunError {
                 (kind, payload)
             }
             EvalAltResult::ErrorParsing(..) => ("SyntaxError".to_string(), Value::Null),
-            EvalAltResult::ErrorTerminated(token, _) => (
+            EvalAltResult::ErrorTerminated(token, _) => {
+                let detail = token
+                    .clone()
+                    .into_string()
+                    .unwrap_or_else(|_| "script terminated by the host".to_string());
+                (
+                    "BudgetExceeded".to_string(),
+                    serde_json::json!({
+                        "kind": "BudgetExceeded",
+                        "message": detail,
+                        "budget": "wall_clock",
+                    }),
+                )
+            }
+            EvalAltResult::ErrorTooManyOperations(_) => (
                 "BudgetExceeded".to_string(),
-                serde_json::to_value(token).unwrap_or(Value::Null),
+                serde_json::json!({
+                    "kind": "BudgetExceeded",
+                    "message": "operation budget exceeded: the script ran more interpreter \
+                                operations than the host allows",
+                    "budget": "operations",
+                }),
             ),
-            EvalAltResult::ErrorTooManyOperations(_) => ("BudgetExceeded".to_string(), Value::Null),
             _ => ("ArgumentError".to_string(), Value::Null),
         };
         let message = payload

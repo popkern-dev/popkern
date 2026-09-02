@@ -29,6 +29,9 @@ accepted = ["AGPL-3.0-only"]
 [popkern-rhai]
 accepted = ["AGPL-3.0-only"]
 
+[popkern-cli]
+accepted = ["AGPL-3.0-only"]
+
 [popkern-core]
 accepted = ["AGPL-3.0-only"]
 
