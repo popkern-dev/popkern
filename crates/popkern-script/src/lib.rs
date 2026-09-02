@@ -17,6 +17,7 @@
 
 pub mod bodies;
 pub mod body;
+pub mod body_recipes;
 pub mod configs;
 pub mod error;
 pub mod feature_edit;
@@ -29,6 +30,7 @@ pub mod scalar;
 pub mod selection;
 
 pub use body::{Body, End, RevolveEnd};
+pub use body_recipes::{ChamferSpec, RadiusLaw, ShellOptions};
 pub use error::{ScriptError, SelectionKind};
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;
@@ -45,6 +47,7 @@ pub use selection::{EdgePredicate, EdgeSelector, FacePredicate, FaceSelector, Se
 /// Everything a script needs in scope.
 pub mod prelude {
     pub use crate::body::{Body, End, RevolveEnd};
+    pub use crate::body_recipes::{ChamferSpec, RadiusLaw, ShellOptions};
     pub use crate::error::ScriptError;
     pub use crate::feature_edit::Edit;
     pub use crate::model::{FeatureHandle, Model};

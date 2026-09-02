@@ -312,6 +312,19 @@ impl Body {
         edges: EdgeSelector,
         distance: impl Into<Scalar>,
     ) -> Result<Body, ScriptError> {
+        self.chamfer_kind(model, edges, distance, ChamferKindDesc::Equal, "")
+    }
+
+    /// Chamfer with a bound kind descriptor and label (the recipe
+    /// module binds the kind's scalars and faces).
+    pub(crate) fn chamfer_kind(
+        self,
+        model: &mut Model,
+        edges: EdgeSelector,
+        distance: impl Into<Scalar>,
+        kind: ChamferKindDesc,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
         let snapshot = self.edges(model, &edges)?;
         if snapshot.names.is_empty() {
             return Ok(self);
@@ -322,9 +335,9 @@ impl Body {
         let feature = Feature::Chamfer {
             edges: snapshot.names,
             distance,
-            kind: ChamferKindDesc::Equal,
+            kind,
         };
-        self.record(model, feature, "", vec![record])
+        self.record(model, feature, label, vec![record])
     }
 
     /// Shell: remove `faces` and hollow to `thickness`.
@@ -335,18 +348,32 @@ impl Body {
         thickness: impl Into<Scalar>,
         direction: ShellDirectionKind,
     ) -> Result<Body, ScriptError> {
-        let snapshot = self.faces(model, &faces_to_remove)?;
-        let record = Self::selection_record("faces_to_remove", &snapshot);
-        let unit = model.unit;
-        let thickness = Self::bind(model, "thickness", &thickness.into(), unit)?;
-        let feature = Feature::Shell {
-            faces_to_remove: snapshot.names,
+        let feature = move |thickness, faces| Feature::Shell {
+            faces_to_remove: faces,
             thickness,
             direction,
             join_style: JoinStyleKind::default(),
             trim_policy: TrimPolicyKind::default(),
         };
-        self.record(model, feature, "", vec![record])
+        self.shell_feature(model, faces_to_remove, thickness.into(), feature, "")
+    }
+
+    /// Record a shell feature built by `feature` from the bound
+    /// thickness and resolved faces.
+    pub(crate) fn shell_feature(
+        self,
+        model: &mut Model,
+        faces_to_remove: FaceSelector,
+        thickness: Scalar,
+        feature: impl FnOnce(popkern_history::parameter::ParameterId, Vec<EntityName>) -> Feature,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let snapshot = self.faces(model, &faces_to_remove)?;
+        let record = Self::selection_record("faces_to_remove", &snapshot);
+        let unit = model.unit;
+        let thickness = Self::bind(model, "thickness", &thickness, unit)?;
+        let feature = feature(thickness, snapshot.names);
+        self.record(model, feature, label, vec![record])
     }
 
     fn boolean(self, model: &mut Model, op: BoolOpKind, tool: Body) -> Result<Body, ScriptError> {

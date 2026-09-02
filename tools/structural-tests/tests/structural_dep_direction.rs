@@ -248,3 +248,45 @@ fn script_sits_above_part_and_history() {
         );
     }
 }
+
+/// `popkern-rhai` is a skin over `popkern-script`: it may depend on the
+/// recorder and the facades it re-exports, never on the native viewer,
+/// and nothing below the recorder may depend on it.
+#[test]
+fn rhai_sits_above_script() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-rhai/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-rhai/Cargo.toml");
+    assert!(
+        declares_dependency(&cargo_toml, "popkern-script"),
+        "popkern-rhai must depend on popkern-script"
+    );
+    assert!(
+        !declares_dependency(&cargo_toml, "popkern-viz"),
+        "popkern-rhai must not depend on popkern-viz"
+    );
+    for below in [
+        "popkern-core",
+        "popkern-constraint",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-blend",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-sketch",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-rhai"),
+            "{below} must not depend on popkern-rhai (skins are above the recorder)"
+        );
+    }
+}

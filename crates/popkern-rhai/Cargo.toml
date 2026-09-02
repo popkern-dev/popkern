@@ -1,0 +1,23 @@
+[package]
+name = "popkern-rhai"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Embedded Rhai front-end for the popkern scripting surface: scripts record into the feature tree"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-history = { path = "../popkern-history" }
+popkern-part = { path = "../popkern-part" }
+popkern-script = { path = "../popkern-script" }
+# `std` only: no `ahash/runtime-rng`, so the engine has no getrandom
+# dependency (browser build needs no backend) and hashing is fixed-seed
+# deterministic. `serde` carries reports/errors into script values,
+# `metadata` lets the purity gate enumerate every registered function.
+rhai = { version = "1.26", default-features = false, features = ["std", "serde", "metadata"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+popkern-mesh = { path = "../popkern-mesh" }

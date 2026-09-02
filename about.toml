@@ -18,6 +18,17 @@ accepted = [
     "Ubuntu-font-1.0",
 ]
 
+# Rhai's `smartstring` is MPL-2.0+ (crate-scoped exception, ADR
+# docs/decisions/2026-09-02-mpl-dependency-exception-smartstring.md).
+[smartstring]
+accepted = ["MPL-2.0"]
+
+[popkern-script]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-rhai]
+accepted = ["AGPL-3.0-only"]
+
 [popkern-core]
 accepted = ["AGPL-3.0-only"]
 
