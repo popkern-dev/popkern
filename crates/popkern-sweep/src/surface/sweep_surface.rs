@@ -47,6 +47,27 @@ pub fn generate_sweep_surface(
 
     let total_arc = frames.s_values.last().copied().unwrap_or(1.0).max(1e-30);
 
+    // The wire contract (`SweepProfile::Wire`): profile `x` → frame
+    // normal, `y` → binormal, `z` dropped. A span with a `z` extent is
+    // a world-space profile the caller forgot to express in the path
+    // frame — it would skin to a collapsed, zero-normal face, so it is
+    // refused here with the measured extent (PK-416).
+    let z_extent = profile
+        .spans
+        .iter()
+        .flat_map(|s| s.control_points.iter().map(|p| p.z))
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), z| {
+            (lo.min(z), hi.max(z))
+        });
+    if z_extent.1 - z_extent.0 > _tolerance.linear() {
+        return Err(SweepError::InvalidProfile(format!(
+            "wire profile must lie in the path frame's plane (x → normal, y → binormal, z \
+             constant); its z extent is {:.3e} — express the profile in the sketch plane's \
+             frame and place the swept body afterwards",
+            z_extent.1 - z_extent.0
+        )));
+    }
+
     let mut surfaces = Vec::with_capacity(profile.spans.len());
 
     for span in &profile.spans {

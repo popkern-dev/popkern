@@ -35,6 +35,9 @@ use crate::parameter::{ParameterId, ParameterTable};
 pub(crate) struct ExactProfileWire {
     /// The unplaced wire lifted onto the plane (as `popkern-part` sweeps it).
     pub wire: NurbsCurve,
+    /// The same wire in the plane's own 2-D frame (`z = 0`): what the
+    /// sweep kernel's wire contract takes on any plane but XY.
+    pub flat: NurbsCurve,
     /// Placement on the plane.
     pub center: [f64; 2],
     /// The sketch plane.
@@ -66,9 +69,11 @@ pub(crate) fn exact_profile_for<'a>(
     let circular = matches!(profile.shape, popkern_sketch::ProfileShape::Circle { .. });
     let plane = crate::resolve::resolve_sketch_plane(plane, brep, param_table).ok()?;
     let wire = profile.local_wire(&plane).ok()?;
+    let flat = profile.flat_wire().ok()?;
     let _ = SketchPlaneDesc::XY;
     Some(ExactProfileWire {
         wire,
+        flat,
         center: profile.center,
         plane,
         circular,
@@ -125,6 +130,16 @@ pub(crate) fn takes_exact_path(
         return false;
     }
     along_normal(direction, plane)
+}
+
+/// Whether `plane` is the world XY frame at some height: `u = x`,
+/// `v = y`, `normal = z` (to 1e-12), so a wire lifted onto it is
+/// already in the sweep's path-frame coordinates.
+fn world_xy_frame(plane: &SketchPlane) -> bool {
+    let close = |a: Vec3, b: Vec3| (a - b).length() < 1.0e-12;
+    close(plane.u_axis, Vec3::new(1.0, 0.0, 0.0))
+        && close(plane.v_axis, Vec3::new(0.0, 1.0, 0.0))
+        && close(plane.normal, Vec3::new(0.0, 0.0, 1.0))
 }
 
 /// `None` (the face normal) or a literal parallel to the sketch normal.
@@ -274,25 +289,60 @@ pub(crate) fn execute_extrude_exact(
             "exact profile sweep: empty extent [{lo}, {hi}] along the sketch normal"
         )));
     }
-    let (a, b) = (
-        start + exact.plane.normal * lo,
-        start + exact.plane.normal * hi,
-    );
-    let path = NurbsCurve {
+    let line_path = |a: Point3, b: Point3| NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
         control_points: vec![a, b],
         weights: vec![1.0, 1.0],
     };
-    let result = popkern_sweep::sweep(
-        &popkern_sweep::SweepProfile::Wire(exact.wire.clone()),
-        &path,
-        &popkern_sweep::SweepOptions::default(),
-        *tolerance,
-        None,
-    )
-    .map_err(|e| failed(format!("exact profile sweep: {e}")))?;
-    *brep = result.brep;
+    let sweep = |wire: &NurbsCurve, path: &NurbsCurve| {
+        popkern_sweep::sweep(
+            &popkern_sweep::SweepProfile::Wire(wire.clone()),
+            path,
+            &popkern_sweep::SweepOptions::default(),
+            *tolerance,
+            None,
+        )
+        .map_err(|e| failed(format!("exact profile sweep: {e}")))
+    };
+    // The sweep kernel's wire contract is the PATH FRAME's 2-D plane
+    // (profile x → frame normal, y → binormal; z dropped). On the
+    // world XY frame the lifted wire IS that plane — the very
+    // arithmetic `popkern_part::Profile::extrude` performs, kept
+    // bit-identical (parity fixtures). On any other plane the wire is
+    // swept in the plane's own frame along local z and the body is
+    // placed by the plane's rigid frame afterwards; lifting first
+    // collapsed every span along the plane's v axis (PK-416).
+    if world_xy_frame(&exact.plane) {
+        let (a, b) = (
+            start + exact.plane.normal * lo,
+            start + exact.plane.normal * hi,
+        );
+        *brep = sweep(&exact.wire, &line_path(a, b))?.brep;
+    } else {
+        let (ft0, ft1) = exact.flat.parameter_range();
+        let mut flat_acc = Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..n {
+            let t = ft0 + (ft1 - ft0) * (i as f64) / (n as f64);
+            flat_acc = flat_acc + (exact.flat.point_at(t) - Point3::new(0.0, 0.0, 0.0));
+        }
+        let flat_mean = flat_acc * (1.0 / n as f64);
+        let (cx, cy) = (flat_mean.x + exact.center[0], flat_mean.y + exact.center[1]);
+        let local = sweep(
+            &exact.flat,
+            &line_path(Point3::new(cx, cy, lo), Point3::new(cx, cy, hi)),
+        )?
+        .brep;
+        let placement = popkern_core::geometry::transform::Transform3::from_axis_placement(
+            exact.plane.origin,
+            exact.plane.normal,
+            exact.plane.u_axis,
+        )
+        .map_err(|e| failed(format!("sketch plane frame: {e}")))?;
+        *brep = local
+            .transform(&placement)
+            .map_err(|e| failed(format!("placing the swept body on its sketch plane: {e}")))?;
+    }
     // Draft: the swept body has ONE periodic lateral; drafting it with
     // the SAME operator the generic path applies to its split laterals
     // yields one exact Cone (popkern-draft's cylindrical surface arm),

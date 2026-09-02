@@ -175,6 +175,22 @@ impl AnalyticProfile<f64> {
         wire(&pieces(self, 0.0, 0.0)?, &self.shape, plane)
     }
 
+    /// The exact closed wire in the sketch plane's own 2-D frame
+    /// (`x` along `u_axis`, `y` along `v_axis`, `z = 0`), unplaced and
+    /// unlifted — the form the sweep kernel's wire contract takes
+    /// (profile `x` → frame normal, `y` → binormal). A caller that
+    /// sweeps on any plane but XY sweeps this wire along local `z` and
+    /// places the body with the plane's rigid frame afterwards; lifting
+    /// the wire first collapses every span along the plane's `v_axis`
+    /// (PK-416: a rectangle on YZ extruded to two zero-normal faces).
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::local_wire`].
+    pub fn flat_wire(&self) -> Result<NurbsCurve, ProfileError> {
+        wire_2d(&pieces(self, 0.0, 0.0)?, &self.shape)
+    }
+
     /// The exact closed wire with the placement applied.
     ///
     /// # Errors
@@ -274,15 +290,19 @@ fn wire(
     shape: &ProfileShape<f64>,
     plane: &SketchPlane,
 ) -> Result<NurbsCurve, ProfileError> {
-    let lift = |c: &mut NurbsCurve| {
-        for p in &mut c.control_points {
-            *p = plane.to_3d(p.x, p.y);
-        }
-    };
-    // Rect and polygon: degree-1 wires; circle: the standard form.
-    // Each is spelled in the plane's 2-D frame, then lifted (an affine
-    // map — exact for a rational curve).
-    let mut curve = match shape {
+    let mut curve = wire_2d(pieces, shape)?;
+    // Lifted by the plane's affine map — exact for a rational curve.
+    for p in &mut curve.control_points {
+        *p = plane.to_3d(p.x, p.y);
+    }
+    Ok(curve)
+}
+
+/// Assemble the pieces into one closed wire in the plane's 2-D frame
+/// (`z = 0`). Rect and polygon: degree-1 wires; circle: the standard
+/// form; path: one quadratic span per piece.
+fn wire_2d(pieces: &[Piece], shape: &ProfileShape<f64>) -> Result<NurbsCurve, ProfileError> {
+    let curve = match shape {
         ProfileShape::Rect { .. } | ProfileShape::Polygon { .. } => {
             let pts: Vec<(f64, f64)> = pieces
                 .iter()
@@ -333,7 +353,6 @@ fn wire(
             assemble_quadratic(&spans)
         }
     };
-    lift(&mut curve);
     Ok(curve)
 }
 

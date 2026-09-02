@@ -8,7 +8,13 @@ use crate::error::SweepWarning;
 /// A profile to sweep along a path.
 #[derive(Debug, Clone)]
 pub enum SweepProfile {
-    /// A single wire (open or closed NURBS curve).
+    /// A single wire (open or closed NURBS curve) in the PATH FRAME's
+    /// 2-D coordinates: `x` maps to the frame normal, `y` to the
+    /// binormal, and `z` must be constant (it is dropped after the
+    /// wire is recentred). A world-space profile on a plane other than
+    /// XY has to be expressed in that plane's frame first and the
+    /// swept body placed afterwards; the sweep rejects a wire with a
+    /// `z` extent instead of silently collapsing its spans (PK-416).
     Wire(NurbsCurve),
     /// A face from an existing BRep.
     Face {
