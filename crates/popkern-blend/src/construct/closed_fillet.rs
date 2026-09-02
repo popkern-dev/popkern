@@ -480,78 +480,13 @@ pub(crate) fn apply_closed_fillet(
     //     trim endpoint solved against it landed 1.8e-5 off the rim
     //     arc, outside the split stage's vertex-insertion band
     //     (PK-292).
-    {
-        let author = |brep: &mut BRep, he: popkern_core::topology::HalfEdgeHandle| {
-            let (edge_h, face_h) = {
-                let d = &brep.half_edges[he];
-                (d.edge, brep.loops[d.loop_].face)
-            };
-            let Some(curve) = brep.edges[edge_h].curve.clone() else {
-                return;
-            };
-            let Some(sof) = brep.faces[face_h].surface.clone() else {
-                return;
-            };
-            // A NURBS strip is a ring in u: the generic projection is
-            // seed-biased on it, so the rail's pcurve is found on the
-            // strip's own boundary iso-curve (PK-417).
-            if matches!(
-                sof.geometry,
-                popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
-            ) && let Some(pc) = super::closed_fillet_rail_pcurve::rail_pcurve_on_strip(
-                &sof.geometry,
-                &curve.geometry,
-                (curve.t_start, curve.t_end),
-                tolerance.linear().max(1.0e-9) * 10.0,
-            ) {
-                brep.half_edges[he].pcurve = Some(pc);
-                return;
-            }
-            // Analytic-first: exact plane arcs / iso-lines agree to
-            // machine precision across seam sides; the adaptive fit
-            // is the fallback for genuinely transcendental images.
-            if let Some(pc) = popkern_core::geometry::chart_pcurve::analytic_chart_pcurve(
-                &sof.geometry,
-                &curve.geometry,
-                (curve.t_start, curve.t_end),
-            ) {
-                brep.half_edges[he].pcurve = Some(pc);
-                return;
-            }
-            let Some(pc) = popkern_core::geometry::chart_pcurve::fit_chart_pcurve(
-                &sof.geometry,
-                &curve.geometry,
-                (curve.t_start, curve.t_end),
-                tolerance,
-            ) else {
-                return;
-            };
-            brep.half_edges[he].pcurve = Some(pc.into());
-        };
-        for he in [
-            he_seam_support,
-            he_seam_fillet,
-            he_fresh_support,
-            he_fresh_fillet,
-        ] {
-            author(brep, he);
-            if popkern_core::trace::trace_enabled("fillet") {
-                let d = &brep.half_edges[he];
-                let face = brep.loops[d.loop_].face;
-                let shown = d.pcurve.as_ref().map(|p| {
-                    let a = p.point_at(p.t_start);
-                    let b = p.point_at(p.t_end);
-                    format!(
-                        "t=[{:.3},{:.3}] uv ({:.3},{:.3})->({:.3},{:.3})",
-                        p.t_start, p.t_end, a.x, a.y, b.x, b.y
-                    )
-                });
-                eprintln!(
-                    "  [closed-fillet] authored {he:?} on {face:?} edge {:?}: {shown:?}",
-                    d.edge
-                );
-            }
-        }
+    for he in [
+        he_seam_support,
+        he_seam_fillet,
+        he_fresh_support,
+        he_fresh_fillet,
+    ] {
+        super::closed_fillet_rail_pcurve::author_trim_pcurve(brep, he, tolerance);
     }
 
     // 14. Seam the fillet face: its two boundary circles are

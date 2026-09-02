@@ -163,11 +163,11 @@ pub fn fillet_edges(
 ) -> Result<BlendResult, BlendError> {
     fillet_edges_internal(brep, specs, options, tolerance, tracking, None, None)
 }
-mod fillet_boolean_rim_demote;
 mod fillet_pipeline;
 mod fillet_pipeline_pcurve_backstop;
 mod fillet_serving_footprint_repair;
 mod fillet_serving_retry;
+mod rim_demote;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;

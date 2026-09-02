@@ -14,6 +14,57 @@ use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, HalfEdgeHandle};
+
+/// Author the pcurve of a closed-fillet trim half-edge for its exact
+/// `Arc` rail (step 13b of the closed fillet): the strip-boundary
+/// search on a NURBS strip, the exact plane arm, else the adaptive
+/// chart fit (`fit_chart_pcurve`) — all parameterised by the SAME
+/// angles as the arc and verified. Without angle-matched pcurves the
+/// STEP exporter's pcurve synthesis disagrees with the exact Arc and
+/// the wall face imports broken in OpenCASCADE (PK-292). Leaves the
+/// half-edge untouched when every author declines.
+pub(crate) fn author_trim_pcurve(brep: &mut BRep, he: HalfEdgeHandle, tolerance: &Tolerance) {
+    let (edge_h, face_h) = {
+        let d = &brep.half_edges[he];
+        (d.edge, brep.loops[d.loop_].face)
+    };
+    let Some(curve) = brep.edges[edge_h].curve.clone() else {
+        return;
+    };
+    let Some(sof) = brep.faces[face_h].surface.clone() else {
+        return;
+    };
+    let range = (curve.t_start, curve.t_end);
+    if matches!(sof.geometry, SurfaceGeometry::Nurbs(_))
+        && let Some(pc) = rail_pcurve_on_strip(
+            &sof.geometry,
+            &curve.geometry,
+            range,
+            tolerance.linear().max(1.0e-9) * 10.0,
+        )
+    {
+        brep.half_edges[he].pcurve = Some(pc);
+        return;
+    }
+    if let Some(pc) = popkern_core::geometry::chart_pcurve::analytic_chart_pcurve(
+        &sof.geometry,
+        &curve.geometry,
+        range,
+    ) {
+        brep.half_edges[he].pcurve = Some(pc);
+        return;
+    }
+    if let Some(pc) = popkern_core::geometry::chart_pcurve::fit_chart_pcurve(
+        &sof.geometry,
+        &curve.geometry,
+        range,
+        tolerance,
+    ) {
+        brep.half_edges[he].pcurve = Some(pc.into());
+    }
+}
 
 const SAMPLES: usize = 65;
 const SCAN: usize = 256;

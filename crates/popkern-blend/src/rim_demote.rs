@@ -19,6 +19,16 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_core::topology::edge_pcurve_reauthor::coparameterised_pcurves;
 
+/// The body a fillet request runs on: under a G2 request, the copy
+/// with boolean-made closed `Arc` rims spelled as NURBS (PK-419
+/// containment); otherwise the input unchanged.
+pub(crate) fn for_request(brep: BRep, wants_g2: bool, tolerance: &Tolerance) -> BRep {
+    if !wants_g2 {
+        return brep;
+    }
+    demote_boolean_arc_rims(&brep, tolerance).unwrap_or(brep)
+}
+
 /// A copy of `brep` with boolean-made closed `Arc` rims spelled as
 /// NURBS, or `None` when there is nothing to demote.
 pub(crate) fn demote_boolean_arc_rims(brep: &BRep, tolerance: &Tolerance) -> Option<BRep> {
