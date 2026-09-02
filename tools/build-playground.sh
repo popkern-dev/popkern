@@ -2,7 +2,7 @@
 # Build the browser playground's wasm bundle (design §6.5, PK-410).
 #
 #   tools/build-playground.sh            # web + node bundles, unoptimised
-#   tools/build-playground.sh --opt      # then wasm-opt (level $WASM_OPT_LEVEL, default -O2)
+#   tools/build-playground.sh --opt      # then wasm-opt (level $WASM_OPT_LEVEL, default -O3; measured slower — see below)
 #   tools/build-playground.sh --node     # node bundle only (the smoke tests)
 #   tools/build-playground.sh --web      # web bundle only (the page)
 #
@@ -19,6 +19,13 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 OPT=0; WEB=1; NODE=1
+# The feature set rustc targets (wasm32 baseline + these); NOT
+# --all-features, which let binaryen emit post-MVP types node rejects
+# ("invalid value type 0x0"). Measured 2026-09-02 (PK-414): every
+# wasm-opt level ran the boss plate ~20% SLOWER under node (355 ms
+# unoptimised vs 430-460 ms at -O2/-O3/-O4/-Oz) for 1-3% less gzip, so
+# the shipped bundle is unoptimised and --opt stays an option.
+WASM_OPT_FEATURES="--enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int --enable-mutable-globals --enable-reference-types --enable-multivalue --enable-simd"
 for arg in "$@"; do
   case "$arg" in
     --opt) OPT=1 ;;
@@ -53,7 +60,12 @@ emit() { # target out-dir
   mkdir -p "$2"
   wasm-bindgen --target "$1" --out-dir "$2" --out-name popkern_playground "$WASM"
   if [[ $OPT == 1 ]]; then
-    wasm-opt "${WASM_OPT_LEVEL:--O2}" -o "$2/popkern_playground_bg.wasm" "$2/popkern_playground_bg.wasm"
+    # Rust targets the wasm32 baseline plus bulk memory, sign extension,
+    # non-trapping float-to-int, mutable globals, reference types and
+    # multi-value by default; binaryen must be told so or it rejects
+    # the module ("Bulk memory operation (bulk memory is disabled)").
+    wasm-opt "${WASM_OPT_LEVEL:--O3}" $WASM_OPT_FEATURES \
+      -o "$2/popkern_playground_bg.wasm" "$2/popkern_playground_bg.wasm"
   fi
 }
 [[ $WEB == 1 ]] && emit web web/playground/pkg
@@ -68,4 +80,4 @@ report() { # file
 }
 [[ $WEB == 1 ]] && report web/playground/pkg/popkern_playground_bg.wasm
 [[ $NODE == 1 ]] && report target/playground/node/popkern_playground_bg.wasm
-[[ $OPT == 1 ]] && echo "wasm-opt: ${WASM_OPT_LEVEL:--O2}" || echo "wasm-opt: not run (pass --opt)"
+[[ $OPT == 1 ]] && echo "wasm-opt: ${WASM_OPT_LEVEL:--O3}" || echo "wasm-opt: not run (the shipped bundle; --opt measured slower)"
