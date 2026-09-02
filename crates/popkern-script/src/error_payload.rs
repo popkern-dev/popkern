@@ -22,12 +22,14 @@ impl ScriptError {
                 label,
                 operation,
                 error,
+                report,
             } => json!({
                 "kind": "FeatureFailed",
                 "feature": { "label": label, "operation": operation },
                 "error": translate_parameters(
                     serde_json::to_value(error.as_ref()).unwrap_or(Value::Null),
                 ),
+                "report": serde_json::to_value(report.as_ref()).unwrap_or(Value::Null),
             }),
             ScriptError::EmptySelection {
                 selection,
@@ -244,10 +246,14 @@ fn replay_payload(error: &ReplayError) -> Value {
             "error": translate_parameters(
                 serde_json::to_value(error.as_ref()).unwrap_or(Value::Null),
             ),
+            "report": Value::Null,
         }),
         ReplayError::ResolutionFailed(name) => json!({
             "kind": "ResolutionFailed",
             "name": format!("{name:?}"),
+            "selection": Value::Null,
+            "resolved": 0,
+            "expected": 1,
         }),
         ReplayError::CoreError(e) => json!({ "kind": "CoreError", "detail": e.to_string() }),
         ReplayError::HistoryError(e) => history_payload(e),

@@ -1,0 +1,1653 @@
+{
+  "source": "docs/architecture/scripting-surface.md",
+  "ops": [
+    {
+      "name": "active_body",
+      "section": "2",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "assert_step_roundtrip",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.assert_step_roundtrip(path)",
+      "parameters": [
+        {
+          "name": "path",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "assert_watertight",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.assert_watertight()",
+      "parameters": []
+    },
+    {
+      "name": "bodies",
+      "section": "2",
+      "mark": "preview",
+      "signature": "model.bodies() -> [BodyId]",
+      "parameters": []
+    },
+    {
+      "name": "body",
+      "section": "2",
+      "mark": "preview",
+      "signature": "model.body(id_or_label) -> BodyId",
+      "parameters": [
+        {
+          "name": "id_or_label",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "model",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model(name?, tolerance?, unit?) -> Model",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": true
+        },
+        {
+          "name": "tolerance",
+          "optional": true
+        },
+        {
+          "name": "unit",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "open",
+      "section": "2",
+      "mark": "stable",
+      "signature": "open(path) -> Model",
+      "parameters": [
+        {
+          "name": "path",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "replay",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.replay() -> ReplayReport",
+      "parameters": []
+    },
+    {
+      "name": "replay_lenient",
+      "section": "2",
+      "mark": "preview",
+      "signature": "model.replay_lenient() -> ReplayReport",
+      "parameters": []
+    },
+    {
+      "name": "save",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.save(path)",
+      "parameters": [
+        {
+          "name": "path",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "set_active_body",
+      "section": "2",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "to_brep",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.to_brep() -> BRep",
+      "parameters": []
+    },
+    {
+      "name": "to_obj",
+      "section": "2",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "to_part",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.to_part() -> Part",
+      "parameters": []
+    },
+    {
+      "name": "to_step",
+      "section": "2",
+      "mark": "stable",
+      "signature": "model.to_step(path)",
+      "parameters": [
+        {
+          "name": "path",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "to_stl",
+      "section": "2",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "arc_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "arc_to(via=[x,y], to=[x,y])",
+      "parameters": [
+        {
+          "name": "via",
+          "optional": false
+        },
+        {
+          "name": "to",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "at",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "at(cx, cy)",
+      "parameters": [
+        {
+          "name": "cx",
+          "optional": false
+        },
+        {
+          "name": "cy",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "circle",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "circle(r)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "close",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "close()",
+      "parameters": []
+    },
+    {
+      "name": "line_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "line_to([x,y])",
+      "parameters": []
+    },
+    {
+      "name": "path",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "path([x0,y0])",
+      "parameters": []
+    },
+    {
+      "name": "polygon",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "polygon([[x,y], ...])",
+      "parameters": []
+    },
+    {
+      "name": "profile",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "profile(plane)",
+      "parameters": [
+        {
+          "name": "plane",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "rect",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "rect(w, h)",
+      "parameters": [
+        {
+          "name": "w",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "sketch",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "sketch(label?)",
+      "parameters": [
+        {
+          "name": "label",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "angle",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "angle(a, b, binding)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        },
+        {
+          "name": "binding",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "arc",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "arc(name, c, a, b)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "c",
+          "optional": false
+        },
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "circle",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "circle(name, c, r)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "c",
+          "optional": false
+        },
+        {
+          "name": "r",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "coincident",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "coincident(a, b)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "distance",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "distance(a, b, binding)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        },
+        {
+          "name": "binding",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "equal",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "equal(a, b)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "fixed",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "fixed(p)",
+      "parameters": [
+        {
+          "name": "p",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "horizontal",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "horizontal(l)",
+      "parameters": [
+        {
+          "name": "l",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "line",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "line(name, a, b)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "parallel",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "parallel(a, b)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "perpendicular",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "perpendicular(a, b)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "point",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "point(name, [x,y])",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "radius",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "radius(c, binding)",
+      "parameters": [
+        {
+          "name": "c",
+          "optional": false
+        },
+        {
+          "name": "binding",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "sketch",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "sketch(plane)",
+      "parameters": [
+        {
+          "name": "plane",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "tangent",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "tangent(a, b)",
+      "parameters": [
+        {
+          "name": "a",
+          "optional": false
+        },
+        {
+          "name": "b",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "vertical",
+      "section": "3.2",
+      "mark": "preview",
+      "signature": "vertical(l)",
+      "parameters": [
+        {
+          "name": "l",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "clear_bounds",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "clear_expr",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "param",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "model.param(name, value, unit?, bounds?) -> Param",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "value",
+          "optional": false
+        },
+        {
+          "name": "unit",
+          "optional": true
+        },
+        {
+          "name": "bounds",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "param_expr",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "model.param_expr(name, \"text\", unit?) -> Param",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "unit",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "params",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "model.params() -> [ParamInfo]",
+      "parameters": []
+    },
+    {
+      "name": "rename_param",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "model.rename_param(old, new)",
+      "parameters": [
+        {
+          "name": "old",
+          "optional": false
+        },
+        {
+          "name": "new",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "set_bounds",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "set_expr",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "set_param",
+      "section": "4.1",
+      "mark": "stable",
+      "signature": "model.set_param(name_or_param, value)",
+      "parameters": [
+        {
+          "name": "name_or_param",
+          "optional": false
+        },
+        {
+          "name": "value",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "add_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "add_config(name, description)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "description",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "add_derived_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "add_derived_config(name, parent)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "parent",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "clear_override",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "clear_override",
+      "parameters": []
+    },
+    {
+      "name": "clear_suppression",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "clear_suppression",
+      "parameters": []
+    },
+    {
+      "name": "config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "config(name)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "config_api",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "config_api",
+      "parameters": []
+    },
+    {
+      "name": "configs",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "configs()",
+      "parameters": []
+    },
+    {
+      "name": "delete_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "delete_config",
+      "parameters": []
+    },
+    {
+      "name": "duplicate_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "duplicate_config",
+      "parameters": []
+    },
+    {
+      "name": "rename_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "rename_config",
+      "parameters": []
+    },
+    {
+      "name": "set_active_config",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "set_active_config(name|None)",
+      "parameters": []
+    },
+    {
+      "name": "set_override",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "set_override(config, param, value)",
+      "parameters": [
+        {
+          "name": "config",
+          "optional": false
+        },
+        {
+          "name": "param",
+          "optional": false
+        },
+        {
+          "name": "value",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "set_suppression",
+      "section": "4.3",
+      "mark": "preview",
+      "signature": "set_suppression(config, feature, bool)",
+      "parameters": [
+        {
+          "name": "config",
+          "optional": false
+        },
+        {
+          "name": "feature",
+          "optional": false
+        },
+        {
+          "name": "bool",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "chamfer",
+      "section": "5",
+      "mark": "stable",
+      "signature": "chamfer(edges, distance, kind?)",
+      "parameters": [
+        {
+          "name": "edges",
+          "optional": false
+        },
+        {
+          "name": "distance",
+          "optional": false
+        },
+        {
+          "name": "kind",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "circular_pattern",
+      "section": "5",
+      "mark": "preview",
+      "signature": "circular_pattern(seeds, axis, count, total_angle, geometry_pattern?, overrides?)",
+      "parameters": [
+        {
+          "name": "seeds",
+          "optional": false
+        },
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "count",
+          "optional": false
+        },
+        {
+          "name": "total_angle",
+          "optional": false
+        },
+        {
+          "name": "geometry_pattern",
+          "optional": true
+        },
+        {
+          "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "curve_pattern",
+      "section": "5",
+      "mark": "preview",
+      "signature": "curve_pattern(seeds, curve, count, equal_spacing?, align_to_curve?, geometry_pattern?, overrides?)",
+      "parameters": [
+        {
+          "name": "seeds",
+          "optional": false
+        },
+        {
+          "name": "curve",
+          "optional": false
+        },
+        {
+          "name": "count",
+          "optional": false
+        },
+        {
+          "name": "equal_spacing",
+          "optional": true
+        },
+        {
+          "name": "align_to_curve",
+          "optional": true
+        },
+        {
+          "name": "geometry_pattern",
+          "optional": true
+        },
+        {
+          "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "draft",
+      "section": "5",
+      "mark": "preview",
+      "signature": "draft(faces, angle, neutral)",
+      "parameters": [
+        {
+          "name": "faces",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": false
+        },
+        {
+          "name": "neutral",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "extrude",
+      "section": "5",
+      "mark": "stable",
+      "signature": "extrude(face, end, direction?, mode?, draft_angle?, second?)",
+      "parameters": [
+        {
+          "name": "face",
+          "optional": false
+        },
+        {
+          "name": "end",
+          "optional": false
+        },
+        {
+          "name": "direction",
+          "optional": true
+        },
+        {
+          "name": "mode",
+          "optional": true
+        },
+        {
+          "name": "draft_angle",
+          "optional": true
+        },
+        {
+          "name": "second",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "fillet",
+      "section": "5",
+      "mark": "stable",
+      "signature": "fillet(edges, radius, continuity?, cap?, profile?, interference?, law?)",
+      "parameters": [
+        {
+          "name": "edges",
+          "optional": false
+        },
+        {
+          "name": "radius",
+          "optional": false
+        },
+        {
+          "name": "continuity",
+          "optional": true
+        },
+        {
+          "name": "cap",
+          "optional": true
+        },
+        {
+          "name": "profile",
+          "optional": true
+        },
+        {
+          "name": "interference",
+          "optional": true
+        },
+        {
+          "name": "law",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "intersect",
+      "section": "5",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "linear_pattern",
+      "section": "5",
+      "mark": "preview",
+      "signature": "linear_pattern(seeds, primary, secondary?, geometry_pattern?, overrides?)",
+      "parameters": [
+        {
+          "name": "seeds",
+          "optional": false
+        },
+        {
+          "name": "primary",
+          "optional": false
+        },
+        {
+          "name": "secondary",
+          "optional": true
+        },
+        {
+          "name": "geometry_pattern",
+          "optional": true
+        },
+        {
+          "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "loft",
+      "section": "5",
+      "mark": "preview",
+      "signature": "loft([sections], closed?, mode?)",
+      "parameters": [
+        {
+          "name": "closed",
+          "optional": true
+        },
+        {
+          "name": "mode",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "mirror",
+      "section": "5",
+      "mark": "preview",
+      "signature": "mirror(seeds, plane, merge_result?)",
+      "parameters": [
+        {
+          "name": "seeds",
+          "optional": false
+        },
+        {
+          "name": "plane",
+          "optional": false
+        },
+        {
+          "name": "merge_result",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "offset_solid",
+      "section": "5",
+      "mark": "preview",
+      "signature": "offset_solid(distance, join?, trim?)",
+      "parameters": [
+        {
+          "name": "distance",
+          "optional": false
+        },
+        {
+          "name": "join",
+          "optional": true
+        },
+        {
+          "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "pipe",
+      "section": "5",
+      "mark": "preview",
+      "signature": "pipe(path_edge, radius, mode?)",
+      "parameters": [
+        {
+          "name": "path_edge",
+          "optional": false
+        },
+        {
+          "name": "radius",
+          "optional": false
+        },
+        {
+          "name": "mode",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "raw_body",
+      "section": "5",
+      "mark": "preview",
+      "signature": "raw_body(brep, origin?)",
+      "parameters": [
+        {
+          "name": "brep",
+          "optional": false
+        },
+        {
+          "name": "origin",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "reference",
+      "section": "5",
+      "mark": "preview",
+      "signature": "reference(name, query)",
+      "parameters": [
+        {
+          "name": "name",
+          "optional": false
+        },
+        {
+          "name": "query",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "revolve",
+      "section": "5",
+      "mark": "stable",
+      "signature": "revolve(face, axis, end, mode?)",
+      "parameters": [
+        {
+          "name": "face",
+          "optional": false
+        },
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "end",
+          "optional": false
+        },
+        {
+          "name": "mode",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "rotate",
+      "section": "5",
+      "mark": "stable",
+      "signature": "rotate(axis, angle)",
+      "parameters": [
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "shell",
+      "section": "5",
+      "mark": "stable",
+      "signature": "shell(faces_to_remove, thickness, direction?, join?, trim?)",
+      "parameters": [
+        {
+          "name": "faces_to_remove",
+          "optional": false
+        },
+        {
+          "name": "thickness",
+          "optional": false
+        },
+        {
+          "name": "direction",
+          "optional": true
+        },
+        {
+          "name": "join",
+          "optional": true
+        },
+        {
+          "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "subtract",
+      "section": "5",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "sweep",
+      "section": "5",
+      "mark": "preview",
+      "signature": "sweep(face, path_edge, twist?, mode?)",
+      "parameters": [
+        {
+          "name": "face",
+          "optional": false
+        },
+        {
+          "name": "path_edge",
+          "optional": false
+        },
+        {
+          "name": "twist",
+          "optional": true
+        },
+        {
+          "name": "mode",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "thicken",
+      "section": "5",
+      "mark": "preview",
+      "signature": "thicken(thickness, join?, trim?)",
+      "parameters": [
+        {
+          "name": "thickness",
+          "optional": false
+        },
+        {
+          "name": "join",
+          "optional": true
+        },
+        {
+          "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "transform",
+      "section": "5",
+      "mark": "preview",
+      "signature": "transform(matrix4x4)",
+      "parameters": [
+        {
+          "name": "matrix4x4",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "translate",
+      "section": "5",
+      "mark": "stable",
+      "signature": "translate(dx, dy, dz)",
+      "parameters": [
+        {
+          "name": "dx",
+          "optional": false
+        },
+        {
+          "name": "dy",
+          "optional": false
+        },
+        {
+          "name": "dz",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "union",
+      "section": "5",
+      "mark": "stable",
+      "signature": "body.union(tool_body)",
+      "parameters": [
+        {
+          "name": "tool_body",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "delete",
+      "section": "7",
+      "mark": "preview",
+      "signature": "model.delete(feature)",
+      "parameters": [
+        {
+          "name": "feature",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "dependencies",
+      "section": "7",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "dependents",
+      "section": "7",
+      "mark": "preview",
+      "signature": "feature.dependents() -> [Feature]",
+      "parameters": []
+    },
+    {
+      "name": "describe",
+      "section": "7",
+      "mark": "stable",
+      "signature": "feature.describe() -> text",
+      "parameters": []
+    },
+    {
+      "name": "feature",
+      "section": "7",
+      "mark": "stable",
+      "signature": "model.feature(id_or_label) -> Feature",
+      "parameters": [
+        {
+          "name": "id_or_label",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "features",
+      "section": "7",
+      "mark": "stable",
+      "signature": "model.features() -> [FeatureInfo]",
+      "parameters": []
+    },
+    {
+      "name": "insert_after",
+      "section": "7",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "insert_before",
+      "section": "7",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "modify",
+      "section": "7",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "preview",
+      "section": "7",
+      "mark": "reserved",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "redo",
+      "section": "7",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "reorder",
+      "section": "7",
+      "mark": "preview",
+      "signature": "model.reorder(feature, index)",
+      "parameters": [
+        {
+          "name": "feature",
+          "optional": false
+        },
+        {
+          "name": "index",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "rollback_to",
+      "section": "7",
+      "mark": "preview",
+      "signature": "model.rollback_to(feature)",
+      "parameters": [
+        {
+          "name": "feature",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "suppress",
+      "section": "7",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "undo",
+      "section": "7",
+      "mark": "preview",
+      "signature": "",
+      "parameters": []
+    },
+    {
+      "name": "unsuppress",
+      "section": "7",
+      "mark": "stable",
+      "signature": "",
+      "parameters": []
+    }
+  ],
+  "predicates": [
+    {
+      "name": "allow_empty",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "circular",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "straight",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "conic",
+      "kind": "edge",
+      "mark": "preview"
+    },
+    {
+      "name": "nurbs",
+      "kind": "edge",
+      "mark": "preview"
+    },
+    {
+      "name": "between",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "at_height",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "direction",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "chord_length_between",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "not_seam",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "labeled",
+      "kind": "edge",
+      "mark": "preview"
+    },
+    {
+      "name": "named",
+      "kind": "edge",
+      "mark": "preview"
+    },
+    {
+      "name": "kind",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "facing",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "facing_neg",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "at_height",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "labeled",
+      "kind": "face",
+      "mark": "preview"
+    },
+    {
+      "name": "named",
+      "kind": "face",
+      "mark": "preview"
+    }
+  ],
+  "error_classes": [
+    {
+      "name": "BlendDeclined",
+      "section": "10.2",
+      "fields": [
+        "selection",
+        "blend_kind",
+        "detail"
+      ]
+    },
+    {
+      "name": "EmptySelection",
+      "section": "10.2",
+      "fields": [
+        "selection",
+        "entity"
+      ]
+    },
+    {
+      "name": "SelectionCardinality",
+      "section": "10.2",
+      "fields": [
+        "selection",
+        "expected",
+        "got"
+      ]
+    },
+    {
+      "name": "BooleanFailed",
+      "section": "10.2",
+      "fields": [
+        "operation",
+        "detail"
+      ]
+    },
+    {
+      "name": "SweepFailed",
+      "section": "10.2",
+      "fields": [
+        "feature",
+        "detail"
+      ]
+    },
+    {
+      "name": "ValidationFailed",
+      "section": "10.2",
+      "fields": [
+        "feature",
+        "detail",
+        "issues"
+      ]
+    },
+    {
+      "name": "NotWatertight",
+      "section": "10.2",
+      "fields": [
+        "open_edges"
+      ]
+    },
+    {
+      "name": "IoFailed",
+      "section": "10.2",
+      "fields": [
+        "path",
+        "detail"
+      ]
+    },
+    {
+      "name": "NotApplicable",
+      "section": "10.2",
+      "fields": [
+        "detail"
+      ]
+    },
+    {
+      "name": "Cancelled",
+      "section": "10.2",
+      "fields": []
+    },
+    {
+      "name": "InvalidParameter",
+      "section": "10.2",
+      "fields": [
+        "parameter",
+        "radius",
+        "kernel_path",
+        "value",
+        "reason"
+      ]
+    },
+    {
+      "name": "LabelError",
+      "section": "10.2",
+      "fields": [
+        "label",
+        "reason"
+      ]
+    },
+    {
+      "name": "ParameterError",
+      "section": "10.2",
+      "fields": [
+        "parameter",
+        "reason"
+      ]
+    },
+    {
+      "name": "TimelineError",
+      "section": "10.2",
+      "fields": [
+        "reason"
+      ]
+    },
+    {
+      "name": "DocumentError",
+      "section": "10.2",
+      "fields": [
+        "reason"
+      ]
+    },
+    {
+      "name": "ArgumentError",
+      "section": "10.2",
+      "fields": [
+        "argument",
+        "reason"
+      ]
+    },
+    {
+      "name": "FeatureFailed",
+      "section": "10.3",
+      "fields": [
+        "error",
+        "kind",
+        "blend_kind",
+        "message",
+        "remediation",
+        "edge",
+        "edge_name",
+        "reason_kind",
+        "remediation",
+        "operation",
+        "bool_kind",
+        "detail",
+        "feature",
+        "detail",
+        "detail",
+        "report"
+      ]
+    },
+    {
+      "name": "ResolutionFailed",
+      "section": "10.3",
+      "fields": [
+        "feature",
+        "name",
+        "selection",
+        "resolved",
+        "expected"
+      ]
+    },
+    {
+      "name": "CoreError",
+      "section": "10.3",
+      "fields": [
+        "detail"
+      ]
+    }
+  ]
+}

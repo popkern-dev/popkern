@@ -91,6 +91,12 @@ impl<'m> ProfileBuilder<'m> {
         }
         self
     }
+    /// Close the path (spec §3.1 `.close()`). Paths are always closed
+    /// back to their start when compiled, so this records nothing; it
+    /// exists so the canonical spelling reads as written.
+    pub fn close(self) -> Self {
+        self
+    }
     /// Place the shape at `(x, y)` on the plane.
     pub fn at(mut self, x: impl Into<Scalar>, y: impl Into<Scalar>) -> Self {
         self.center = [x.into(), y.into()];

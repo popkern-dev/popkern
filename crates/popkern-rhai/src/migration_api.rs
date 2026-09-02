@@ -154,6 +154,93 @@ pub fn register(engine: &mut Engine) {
                 .map(Dynamic::from)
                 .collect::<rhai::Array>()
         })
+        .register_fn("set_expr", |m: &mut ScriptModel, name: &str, text: &str| {
+            m.borrow_mut().set_expr(name, text).script()
+        })
+        .register_fn("clear_expr", |m: &mut ScriptModel, name: &str| {
+            m.borrow_mut().clear_expr(name).script()
+        })
+        .register_fn(
+            "set_bounds",
+            |m: &mut ScriptModel, name: &str, min: Dynamic, max: Dynamic| {
+                let (min, max) = (args::float("min", &min)?, args::float("max", &max)?);
+                m.borrow_mut().set_bounds(name, min, max).script()
+            },
+        )
+        .register_fn("clear_bounds", |m: &mut ScriptModel, name: &str| {
+            m.borrow_mut().clear_bounds(name).script()
+        })
+        .register_fn(
+            "rename_param",
+            |m: &mut ScriptModel, old: &str, new: &str| {
+                m.borrow_mut().rename_param(old, new).script()
+            },
+        )
+        .register_fn(
+            "add_derived_config",
+            |m: &mut ScriptModel, name: &str, description: &str, parent: &str| {
+                m.borrow_mut()
+                    .add_derived_config(name, description, parent)
+                    .script()
+            },
+        )
+        .register_fn(
+            "duplicate_config",
+            |m: &mut ScriptModel, source: &str, new: &str| {
+                m.borrow_mut().duplicate_config(source, new).script()
+            },
+        )
+        .register_fn("delete_config", |m: &mut ScriptModel, name: &str| {
+            m.borrow_mut().delete_config(name).script().map(|names| {
+                names
+                    .into_iter()
+                    .map(Dynamic::from)
+                    .collect::<rhai::Array>()
+            })
+        })
+        .register_fn(
+            "rename_config",
+            |m: &mut ScriptModel, old: &str, new: &str| {
+                m.borrow_mut().rename_config(old, new).script()
+            },
+        )
+        .register_fn(
+            "clear_suppression",
+            |m: &mut ScriptModel, config: &str, feature: ScriptFeature| {
+                m.borrow_mut()
+                    .clear_suppression(config, &feature.handle)
+                    .script()
+            },
+        )
+        .register_fn("config", |m: &mut ScriptModel, name: &str| {
+            let info = m.borrow_mut().config(name).script()?;
+            let mut map = rhai::Map::new();
+            map.insert("name".into(), info.name.into());
+            map.insert("description".into(), info.description.into());
+            map.insert(
+                "parent".into(),
+                info.parent.map(Dynamic::from).unwrap_or(Dynamic::UNIT),
+            );
+            map.insert(
+                "overrides".into(),
+                Dynamic::from_array(info.overrides.into_iter().map(Dynamic::from).collect()),
+            );
+            map.insert(
+                "suppressions".into(),
+                Dynamic::from_array(
+                    info.suppressions
+                        .into_iter()
+                        .map(|(label, on)| {
+                            let mut row = rhai::Map::new();
+                            row.insert("feature".into(), label.into());
+                            row.insert("suppressed".into(), on.into());
+                            Dynamic::from_map(row)
+                        })
+                        .collect(),
+                ),
+            );
+            Ok::<_, Box<EvalAltResult>>(Dynamic::from_map(map))
+        })
         .register_fn("to_rhai", |m: &mut ScriptModel| {
             let mut model = m.borrow_mut();
             crate::emit::to_rhai(&mut model).map_err(|e| {

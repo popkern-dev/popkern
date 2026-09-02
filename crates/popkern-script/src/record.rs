@@ -43,6 +43,7 @@ pub(crate) fn record_feature(
         Err(other) => Some(Box::new(FeatureFailure::from(other))),
     };
     if let Some(error) = failure {
+        let report = Box::new(tree.last_report().clone());
         // Transactional: the document is as it was before the call.
         let _ = tree.delete_feature(id, DeleteBehavior::Cascade);
         let _ = tree.replay(tolerance);
@@ -50,6 +51,7 @@ pub(crate) fn record_feature(
             label: minted,
             operation,
             error,
+            report,
         });
     }
     Ok(id)

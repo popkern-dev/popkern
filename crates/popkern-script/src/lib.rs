@@ -25,6 +25,7 @@ pub mod error_payload;
 pub mod feature_edit;
 pub mod migration;
 pub mod model;
+pub mod params;
 pub mod plane;
 pub mod profile;
 mod record;
@@ -39,6 +40,7 @@ pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
+pub use params::ConfigInfo;
 pub use plane::Plane;
 pub use popkern_history::{
     BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,

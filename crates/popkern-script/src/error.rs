@@ -41,6 +41,9 @@ pub enum ScriptError {
         /// remediation, a boolean its stage, and so on. `Display` is
         /// the kernel's message. Boxed to keep the error small.
         error: Box<FeatureFailure>,
+        /// The replay report up to and including the failure (spec
+        /// §10.3 `report`), before the transactional rollback.
+        report: Box<popkern_history::replay_report::ReplayReport>,
     },
     /// A selection matched nothing (and `allow_empty` was not set).
     #[error(

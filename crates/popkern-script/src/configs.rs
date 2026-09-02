@@ -112,4 +112,89 @@ impl Model {
             .filter_map(|id| self.tree.config(id).map(|c| c.name.clone()))
             .collect()
     }
+
+    /// Add a configuration derived from `parent`.
+    pub fn add_derived_config(
+        &mut self,
+        name: &str,
+        description: &str,
+        parent: &str,
+    ) -> Result<(), ScriptError> {
+        let parent = self.config_id(parent)?;
+        self.tree.add_derived_config(name, description, parent)?;
+        Ok(())
+    }
+
+    /// Copy a configuration under a new name.
+    pub fn duplicate_config(&mut self, source: &str, new_name: &str) -> Result<(), ScriptError> {
+        let source = self.config_id(source)?;
+        self.tree.duplicate_config(source, new_name)?;
+        Ok(())
+    }
+
+    /// Delete a configuration; returns the names of derived
+    /// configurations that were re-parented.
+    pub fn delete_config(&mut self, name: &str) -> Result<Vec<String>, ScriptError> {
+        let id = self.config_id(name)?;
+        let result = self.tree.delete_config(id)?;
+        Ok(result
+            .reparented
+            .into_iter()
+            .filter_map(|cid| self.tree.config(cid).map(|c| c.name.clone()))
+            .collect())
+    }
+
+    /// Rename a configuration.
+    pub fn rename_config(&mut self, old: &str, new: &str) -> Result<(), ScriptError> {
+        let id = self.config_id(old)?;
+        self.tree.rename_config(id, new)?;
+        Ok(())
+    }
+
+    /// Remove a feature's suppression entry from a configuration.
+    pub fn clear_suppression(
+        &mut self,
+        config: &str,
+        feature: &FeatureHandle,
+    ) -> Result<(), ScriptError> {
+        let cid = self.config_id(config)?;
+        self.tree.clear_config_suppression(cid, feature.id);
+        Ok(())
+    }
+
+    /// A configuration as the surface lists it.
+    pub fn config(&self, name: &str) -> Result<crate::params::ConfigInfo, ScriptError> {
+        let cid = self.config_id(name)?;
+        let cfg = self
+            .tree
+            .config(cid)
+            .ok_or(popkern_history::HistoryError::ConfigNotFound)?;
+        let table = self.tree.parameters();
+        let mut overrides: Vec<String> = cfg
+            .overrides
+            .keys()
+            .filter_map(|pid| table.qualified_name(*pid))
+            .collect();
+        overrides.sort();
+        let mut suppressions: Vec<(String, bool)> = self
+            .tree
+            .config_suppressions(cid)
+            .map(|s| {
+                s.iter()
+                    .filter_map(|(fid, on)| self.tree.feature(*fid).map(|n| (n.label.clone(), *on)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        suppressions.sort();
+        Ok(crate::params::ConfigInfo {
+            name: cfg.name.clone(),
+            description: cfg.description.clone(),
+            parent: cfg
+                .parent
+                .and_then(|p| self.tree.config(p))
+                .map(|c| c.name.clone()),
+            overrides,
+            suppressions,
+        })
+    }
 }

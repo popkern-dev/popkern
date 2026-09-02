@@ -218,6 +218,7 @@ pub fn register(engine: &mut Engine) {
             next.center = (args::scalar("x", &x)?, args::scalar("y", &y)?);
             Ok::<_, Box<EvalAltResult>>(next)
         })
+        .register_fn("close", |p: &mut ScriptProfile| p.clone())
         .register_fn("sketch", |p: &mut ScriptProfile| p.sketch(""))
         .register_fn("sketch", |p: &mut ScriptProfile, label: &str| {
             p.sketch(label)

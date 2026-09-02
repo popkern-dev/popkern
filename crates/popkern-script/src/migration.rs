@@ -58,6 +58,7 @@ impl Model {
                         ReplayOutcome::Failed { error } => error.clone(),
                         other => FeatureFailure::other(format!("{other:?}")),
                     }),
+                    report: Box::new(report.clone()),
                 }),
                 None => Ok(value),
             }
