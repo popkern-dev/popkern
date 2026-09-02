@@ -80,6 +80,17 @@ impl std::fmt::Display for ScriptRunError {
 }
 
 impl ScriptRunError {
+    /// Human rendering for a terminal: the `Display` line followed by
+    /// one remediation line per hint the payload carries.
+    pub fn render(&self) -> String {
+        let mut text = self.to_string();
+        for line in crate::error::remediation_lines(&self.payload) {
+            text.push_str("\n  ");
+            text.push_str(&line);
+        }
+        text
+    }
+
     fn from_eval(error: &EvalAltResult, script: &str) -> ScriptRunError {
         let position = error.position();
         let (line, column) = (position.line(), position.position());

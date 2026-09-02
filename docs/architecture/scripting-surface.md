@@ -425,6 +425,10 @@ and `message` is always the Rust `Display` string.
   redundant with the fields.
 - Floats cross bit-exactly (serde_json `float_roundtrip` where JSON
   is the carrier).
+- One projection: `popkern_script::ScriptError::payload()` is the
+  envelope every skin presents (PK-403); a skin adapts the carrier
+  (map, exception attributes, JSON), never the field set. Parity is
+  gated per class in `crates/popkern-rhai/tests/error_parity.rs`.
 
 ---
 
@@ -497,6 +501,7 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-09-02 | Error payload projection is one function for every skin (PK-403): `ScriptError::payload()` in `popkern-script` yields the §10.1 envelope as JSON; `InvalidParameter` records carry the **surface** `parameter` with the kernel spec path beside it as `kernel_path` (`specs[0].radius` → `radius`, `options.profile.rho` → `profile`, `dist_b` → `distance_2`, `radius_end`/`….end` → `law`, `specs[i].edge` → `edges`; `popkern_script::surface_parameter`). Rhai skin (PK-402/403): the runtime error's value IS the payload map, positioned at the raising call (a method call is positioned at its method name), `try`/`catch` receives the same map; `ScriptRunError::render()` prints the class, `script:line:column`, the message, and one remediation line per hint. | none |
 | 2026-08-30 | Full-circle profiles extrude to one periodic wall on every route (PK-387): constraint-dialect circles, every end condition, second direction; draft records a fallback. Exact-route names follow the extrude contract (`Modified 0`/`Cap 0`/`Lateral i`). Every sketch is its own body; Boss/Cut merge into the host named by the on-face reference or the up-to/offset target; `Body::extrude_with` returns the served host. | none |
 | 2026-08-30 | Structured failure payload landed (PK-388): `FeatureFailed.error` is a `FeatureFailure` (§10.3); the PyO3 probe's JSON is serde of the same value (`kind`/`blend_kind`/`reason_kind`, `edge_name`). | none |
 | 2026-08-30 | Bodies landed (PK-385): `tool`, `raw_body`, `label_body`/`body`/`body_label`, `alive_bodies`, `set_active`, `Body::is_alive`; booleans consume the tool and reject dead bodies (`BodyNotAlive`). | none |

@@ -45,6 +45,6 @@ pub mod selection_api;
 pub mod values;
 
 pub use engine::{FORBIDDEN_FUNCTIONS, build_engine, registered_function_names};
-pub use error::{error_map, payload};
+pub use error::{error_map, payload, remediation_lines};
 pub use host::{HostOptions, RunOutcome, ScriptHost, ScriptRunError};
 pub use model_api::ScriptModel;
