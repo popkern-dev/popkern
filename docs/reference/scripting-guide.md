@@ -369,7 +369,9 @@ m
   are fast. Prefer G1 unless curvature continuity is the point.
 - The wasm engine runs about three times slower than native; a
   twenty-feature part builds in well under a second natively and in a
-  few seconds in the browser.
+  few seconds in the browser. A 200-feature document (a hundred
+  bodies) took ten seconds in the browser and ten megabytes of wasm
+  memory: tens of features stay interactive, hundreds take seconds.
 - Cut-mode extrudes (`#{ mode: "cut" }`) need a sketch on a face of
   the target body (`on_face(...)`); from a base plane, record the
   cutter with `m.tool(...)` and `subtract` it.

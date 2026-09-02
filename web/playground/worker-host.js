@@ -114,4 +114,8 @@ export class WorkerHost {
   exportPkn() {
     return this.request({ type: "export_pkn" });
   }
+
+  stats() {
+    return this.request({ type: "stats" });
+  }
 }

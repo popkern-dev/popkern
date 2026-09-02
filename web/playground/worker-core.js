@@ -17,10 +17,11 @@ function gateFailure(id, step, detail) {
 export function createHandler(pkg, loadModule) {
   let playground = null;
   let loaded = false;
+  let wasmMemory = null;
 
   async function init(message) {
     if (!loaded) {
-      await loadModule();
+      wasmMemory = (await loadModule()) ?? null;
       loaded = true;
     }
     const version = pkg.protocol_version();
@@ -95,6 +96,16 @@ export function createHandler(pkg, loadModule) {
           return bytesReply(id, () => playground.export_step(String(message.name ?? "model")));
         case "export_pkn":
           return bytesReply(id, () => playground.export_pkn());
+        case "stats":
+          return {
+            reply: {
+              id,
+              ok: true,
+              wasm_memory_bytes: wasmMemory?.buffer?.byteLength ?? null,
+              body_count: playground.body_count(),
+            },
+            transfer: [],
+          };
         default:
           return { reply: gateFailure(id, "worker", `unknown request type ${String(message?.type)}`), transfer: [] };
       }

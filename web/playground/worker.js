@@ -6,16 +6,18 @@ import { createHandler } from "./worker-core.js";
 
 const inBrowser = typeof self !== "undefined" && typeof self.postMessage === "function" && typeof self.addEventListener === "function";
 
+// Resolves to the module's linear memory (for the `stats` verb).
 async function loadModule() {
   if (inBrowser) {
-    await pkg.default();
-    return;
+    const exports = await pkg.default();
+    return exports?.memory ?? null;
   }
   // node: instantiate from the bytes beside the JS module.
   const { readFileSync } = await import("node:fs");
   const { fileURLToPath } = await import("node:url");
   const wasm = fileURLToPath(new URL("./pkg/popkern_playground_bg.wasm", import.meta.url));
-  pkg.initSync({ module: readFileSync(wasm) });
+  const exports = pkg.initSync({ module: readFileSync(wasm) });
+  return exports?.memory ?? null;
 }
 
 const handle = createHandler(pkg, loadModule);

@@ -8,6 +8,9 @@
 // every console message — plus a screenshot.
 //
 //   node browser.mjs <screenshot.png> [chrome-binary]
+//   POPKERN_LAUNCH=1 node browser.mjs <screenshot.png>   # + the launch checklist rows:
+//     throttled cold load (Fast 3G), the three runaway classes under
+//     small budgets, a 200-feature document's memory, keyboard reach
 //
 // Output: one JSON object on stdout. Exit 3 when no browser is found.
 import { spawn } from "node:child_process";
@@ -258,6 +261,9 @@ try {
   await evaluate(`window.playground.editor.value = ${JSON.stringify(await readFile(join(root, "..", "..", "crates/popkern-rhai/examples/boss_plate.rhai"), "utf8"))}`);
   out.after_cancel = await evaluate(`window.playground.run().then((r) => r.envelope?.outcome ?? r.outcome?.outcome)`);
 
+  if (process.env.POPKERN_LAUNCH === "1") {
+    out.launch = await launchRows();
+  }
   out.network = [...new Set(networkUrls)];
   out.foreign_requests = out.network.filter((u) => !u.startsWith(origin));
   out.server_requests = [...new Set(requests)];
@@ -268,6 +274,55 @@ try {
   out.status = await statusText().catch(() => null);
   out.console = consoleLines.slice(0, 40);
   out.exceptions = exceptions.slice(0, 20);
+}
+
+/// The launch-checklist rows (PK-415).
+async function launchRows() {
+  const rows = {};
+  // Keyboard reach and reduced motion, by inspection of the live page.
+  rows.keyboard = await evaluate(`({
+    canvas_focusable: document.getElementById("viewer").tabIndex >= 0,
+    run_button: !!document.getElementById("run"),
+    editor_is_textarea: !!document.querySelector("#editor textarea"),
+    reduced_motion_rule: [...document.styleSheets].some((s) => { try { return [...s.cssRules].some((r) => r.conditionText && r.conditionText.includes("prefers-reduced-motion")); } catch { return false; } }),
+    focus_visible_rule: [...document.styleSheets].some((s) => { try { return [...s.cssRules].some((r) => r.selectorText && r.selectorText.includes("focus-visible")); } catch { return false; } }),
+  })`);
+  // The three runaway classes under small budgets on a fresh host.
+  const spawnHost = `(() => { const Host = window.playground.host.constructor; const h = new Host(() => new Worker("./worker.js", { type: "module" }), { max_operations: 200000, timeout_ms: 400 }); return h.start().then(() => { window.__launchHost = h; return h.info.protocol_version; }); })()`;
+  await evaluate(spawnHost);
+  const timed = async (label, script, grace) => {
+    const started = Date.now();
+    const reply = await evaluate(`(async () => { const h = window.__launchHost; const p = h.run(${JSON.stringify(script)}, "runaway.rhai"); const cancel = new Promise((r) => setTimeout(() => r("timeout"), ${grace})); const first = await Promise.race([p, cancel]); if (first === "timeout") { await h.cancel("launch harness"); const r = await p; return { cancelled: true, outcome: r.outcome?.outcome ?? r.envelope?.outcome, restarts: h.restarts }; } return { cancelled: false, outcome: first.envelope?.outcome ?? first.outcome?.outcome, kind: first.envelope?.kind ?? null, budget: first.envelope?.payload?.budget ?? null }; })()`);
+    return { label, elapsed_ms: Date.now() - started, ...reply };
+  };
+  rows.runaway_ops = await timed("op-bound loop", "let m = model();\nlet i = 0;\nloop { i += 1; }\n", 15000);
+  rows.runaway_wall = await timed("wall-bound feature loop", 'let m = model();\nlet i = 0;\nloop { m.profile(xy_at(i * 1.0)).rect(1.0, 1.0).sketch("s" + i).extrude(blind(0.5)); i += 1; }\n', 15000);
+  rows.runaway_defeats_budgets = await timed("one long kernel call (G2 cube, no progress ticks)", 'let m = model();\nlet cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));\ncube.fillet(edges(), 0.1, #{ continuity: "g2" });\nm\n', 2000);
+  // Memory: a 200-feature document on a generous host.
+  await evaluate(`(() => { const Host = window.playground.host.constructor; const h = new Host(() => new Worker("./worker.js", { type: "module" }), { max_operations: null, timeout_ms: null }); return h.start().then(() => { window.__bigHost = h; return true; }); })()`);
+  const big = `let m = model();\nlet i = 0;\nwhile i < 100 { m.profile(xy_at(i * 1.0)).rect(1.0, 1.0).sketch("s" + i).extrude(blind(0.5)); i += 1; }\nm\n`;
+  const memStart = Date.now();
+  rows.big_document = await evaluate(`(async () => { const h = window.__bigHost; const before = await h.stats(); const r = await h.run(${JSON.stringify(big)}, "big.rhai"); const after = await h.stats(); return { outcome: r.envelope?.outcome ?? r.outcome?.outcome, features: r.envelope?.features ?? null, bodies: r.envelope?.bodies?.length ?? null, wasm_memory_before: before.wasm_memory_bytes, wasm_memory_after: after.wasm_memory_bytes, js_heap: performance.memory ? performance.memory.usedJSHeapSize : null, elapsed_ms: r.envelope?.elapsed_ms ?? null }; })()`);
+  rows.big_document.wall_ms = Date.now() - memStart;
+  // Throttled cold load: Fast 3G, a fresh page load.
+  await send("Network.emulateNetworkConditions", { offline: false, latency: 562.5, downloadThroughput: (1.6 * 1024 * 1024) / 8, uploadThroughput: (750 * 1024) / 8 });
+  await send("Network.setCacheDisabled", { cacheDisabled: true });
+  const t0 = Date.now();
+  await send("Page.navigate", { url: `${origin}/?cold` });
+  const status = await waitFor(
+    `(() => { const s = document.getElementById("status"); if (!s) return null; const t = s.textContent; return /^(served|script error|kernel decline|gate failure|page error|worker error|kernel failed)/.test(t) ? t : null; })()`,
+    240000,
+    "the throttled first run",
+  );
+  rows.cold_load_fast3g = {
+    status,
+    wall_to_first_status_ms: Date.now() - t0,
+    kernel_ready_ms: await evaluate(`window.playground.kernelReadyMs ?? null`),
+    first_render_ms: await evaluate(`window.playground.firstRenderMs ?? null`),
+    bundle_gzip_bytes_note: "the wasm is served uncompressed by this harness; a static host with gzip/brotli halves the transfer",
+  };
+  await send("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  return rows;
 }
 
 console.log(JSON.stringify(out));

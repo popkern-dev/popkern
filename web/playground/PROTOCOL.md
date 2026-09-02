@@ -24,6 +24,7 @@ its budgets, and a hostile script must not be able to wedge the page.
 | `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
 | `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
 | `export_pkn` | — | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
+| `stats` | — | `{ ok: true, wasm_memory_bytes: number \| null, body_count }` — the module's linear memory size (grows, never shrinks) |
 
 `init` must be the first message; it loads the wasm module, registers
 the host clock (`performance.now`) and creates the session under the

@@ -256,7 +256,7 @@ m
 <ul>
 <li>The playground runs a script under an operation budget and a wall clock budget (about 20 s); <code>popkern run --max-ops N --timeout S</code> does the same. A script that overruns is stopped with <code>BudgetExceeded</code>; the last good model stays on screen.</li>
 <li>G2 fillets with corners are the slow path today (seconds each, tens of seconds for a fully rounded cube); G1 rounds and chamfers are fast. Prefer G1 unless curvature continuity is the point.</li>
-<li>The wasm engine runs about three times slower than native; a twenty-feature part builds in well under a second natively and in a few seconds in the browser.</li>
+<li>The wasm engine runs about three times slower than native; a twenty-feature part builds in well under a second natively and in a few seconds in the browser. A 200-feature document (a hundred bodies) took ten seconds in the browser and ten megabytes of wasm memory: tens of features stay interactive, hundreds take seconds.</li>
 <li>Cut-mode extrudes (<code>#{ mode: "cut" }</code>) need a sketch on a face of the target body (<code>on_face(...)</code>); from a base plane, record the cutter with <code>m.tool(...)</code> and <code>subtract</code> it.</li>
 </ul>
 <h2>12. Cheat-sheet</h2>
