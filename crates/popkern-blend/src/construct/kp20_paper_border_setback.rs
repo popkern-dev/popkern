@@ -6,10 +6,12 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
 use popkern_core::geometry::{Point3, Vec3};
 
+use super::section_path::SectionPath;
 use super::{
     CornerJet, CrossFieldSamples, Kp20PaperBorderExtractReport, Kp20SetbackArc, OrientedSegment,
-    chi_march_calibration, corner_pins, elevate_cubic_row_to_sextic, kp20_paper_border_corners,
-    rim_corner_jet, ring_fit, rows_from_cross_fields, section, section_fit, split_cubic_row,
+    chi_march_calibration, corner_jets, corner_pins, elevate_cubic_row_to_sextic,
+    kp20_paper_border_corners, ring_fit, rows_from_cross_fields, section, section_fit,
+    split_cubic_row,
 };
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -87,23 +89,41 @@ pub fn kp20_paper_border_from_fillet_setback(
     // pullback along both arcs onto the shared tangent plane — the
     // classical setback-distance choice — was probed and retired:
     // production keeps the exact trim-intersection corner.)
-    // One arc per fillet between its two corners. Pass 1: uv spans.
-    let mut spans: Vec<(usize, f64, f64, f64, f64)> = Vec::with_capacity(n);
+    // One arc per fillet between its two corners. Pass 1: the arc's
+    // section path on the strip (PK-401, see `section_path`): both
+    // ends are cross-section cuts, the axial displacement between the
+    // two corner stations (non-zero on mixed radii) is taken up in
+    // the arc's interior, so every cap corner turns by the face's
+    // apex angle.
+    let section_trace = popkern_core::trace::trace_enabled("setback");
+    let mut section_axis_fallbacks = 0_usize;
+    let mut paths: Vec<SectionPath> = Vec::with_capacity(n);
     for k in 0..n {
         let fillet = &fillet_surfaces[order[k]];
         let c_prev = corners[(k + n - 1) % n].1;
         let c_next = corners[k].1;
-        let (ua, va) = project_point_to_uv(&fillet.surface, &c_prev)
+        let uv_prev = project_point_to_uv(&fillet.surface, &c_prev)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let (ub, vb) = project_point_to_uv(&fillet.surface, &c_next)
+        let uv_next = project_point_to_uv(&fillet.surface, &c_next)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        spans.push((order[k], ua, va, ub, vb));
+        let path = SectionPath::resolve(fillet, order[k], (uv_prev, c_prev), (uv_next, c_next));
+        if path.axial.is_none() {
+            section_axis_fallbacks += 1;
+        }
+        if section_trace {
+            eprintln!(
+                "  [section-path] arc {k}: axial {:?}, displacement {:?}",
+                path.axial,
+                path.axial_displacement()
+            );
+        }
+        paths.push(path);
     }
     let eval_span = |k: usize, t: f64| -> Point3 {
-        let (fi, ua, va, ub, vb) = spans[k];
-        fillet_surfaces[fi]
+        let (u, v) = paths[k].uv(t);
+        fillet_surfaces[paths[k].fillet_index]
             .surface
-            .point_at(ua + (ub - ua) * t, va + (vb - va) * t)
+            .point_at(u, v)
     };
     // Pass 2: corners = midpoints of adjacent cut ends (they flank
     // the shared face symmetrically, so the midpoint sits essentially
@@ -143,9 +163,7 @@ pub fn kp20_paper_border_from_fillet_setback(
     let mut setback_arcs: Vec<Kp20SetbackArc> = Vec::with_capacity(n);
     let mut section_fit_residual = 0.0_f64;
     let mut section_fit_fallbacks = 0_usize;
-    let section_trace = popkern_core::trace::trace_enabled("setback");
     for k in 0..n {
-        let fillet = &fillet_surfaces[spans[k].0];
         let c_start = new_corners[(k + n - 1) % n];
         let c_end = new_corners[k];
         // The coarse arc: ONE cubic per arc through the shared corners
@@ -200,13 +218,12 @@ pub fn kp20_paper_border_from_fillet_setback(
             }
         };
         setback_arcs.push(Kp20SetbackArc {
-            fillet_index: spans[k].0,
+            fillet_index: paths[k].fillet_index,
             cubic: full_arc,
             section_halves: [first_half, second_half],
             corner_prev: c_start,
             corner_next: c_end,
         });
-        let _ = fillet;
     }
     // Pass 4: cross rows as fitted fields with SHARED junction data
     // (PK-398, PK-400). Each half's corner end takes the corner-
@@ -224,7 +241,7 @@ pub fn kp20_paper_border_from_fillet_setback(
     // one corner block by construction.
     let shims: Vec<OrientedSegment> = (0..n)
         .map(|k| {
-            let fillet = &fillet_surfaces[spans[k].0];
+            let fillet = &fillet_surfaces[paths[k].fillet_index];
             OrientedSegment {
                 curve: fillet.trim_curve_1.clone(),
                 surface: fillet.surface.clone(),
@@ -233,105 +250,26 @@ pub fn kp20_paper_border_from_fillet_setback(
             }
         })
         .collect();
-    let station_normal = |k: usize, row0: &[Point3; 7], t: f64| -> Vec3 {
-        let p = popkern_core::geometry::gregory::eval_sextic_row(row0, t);
-        let surface = &fillet_surfaces[spans[k].0].surface;
-        project_point_to_uv(surface, &p)
-            .and_then(|(u, v)| surface.normal_at(u, v).normalized())
-            .unwrap_or(Vec3::new(0.0, 0.0, 0.0))
-    };
-    // Corner jets per corner c_k: `.0` serves arc k's second half
-    // (ending at c_k, from arc k+1's rim), `.1` serves arc k+1's first
-    // half (from arc k's rim). At a GAPPED corner (the trim curves
-    // miss — closest-approach corners, 4.1e-3 on the blunt pentagon
-    // rolling-ball control) the two strips' tangent planes at c differ
-    // (4.6° there) and no cap is G1 to both at c; each jet is rotated
-    // into the BISECTING plane, splitting the disagreement evenly
-    // (measured: the raw neighbour tangent left the rim 7.1e-2 out of
-    // plane, over the 5e-2 bar). Exact corners: a no-op.
-    // A GAPPED corner — the corner point lies off both strips by more
-    // than GAPPED_CORNER_LEG_FRACTION of the rim leg (1.6e-3 against a
-    // 1e-2 leg on the blunt pentagon G2 sweeps, whose contact curves
-    // miss each other by 3.4e-3) — carries no trustworthy corner data:
-    // the rim row bends to reach the off-surface point and its tangent
-    // there leaves the strips' planes by ~9°. Such corners keep the
-    // χ̃-calibrated ends with no shared corner block (the assembly's
-    // overlap average and the rim reconcile remain the containment,
-    // as before PK-398) and are counted in the report.
-    const GAPPED_CORNER_LEG_FRACTION: f64 = 1.0e-2;
-    /// Minimum sine of the angle between the corner march and the rim
-    /// for a convex tensor corner (10°).
-    const REFLEX_CORNER_SIN_FLOOR: f64 = 0.17;
-    let mut gapped_corners = 0_usize;
-    let mut reflex_corners = 0_usize;
-    let corner_jets: Vec<Option<(CornerJet, CornerJet)>> = (0..n)
-        .map(|k| {
-            let next = (k + 1) % n;
-            let a_row0 = setback_arcs[k].section_halves[1];
-            let b_row0 = setback_arcs[next].section_halves[0];
-            let corner = a_row0[6];
-            let foot = |arc: usize, p: Point3| -> f64 {
-                let surface = &fillet_surfaces[spans[arc].0].surface;
-                project_point_to_uv(surface, &p)
-                    .map(|(u, v)| surface.point_at(u, v).distance_to(&p))
-                    .unwrap_or(f64::INFINITY)
-            };
-            let leg = (a_row0[5] - a_row0[6]).length().max((b_row0[1] - b_row0[0]).length());
-            let gap = foot(k, corner).max(foot(next, corner));
-            if gap > GAPPED_CORNER_LEG_FRACTION * leg {
-                gapped_corners += 1;
-                if section_trace {
-                    eprintln!(
-                        "  [corner] c_{k}: gapped ({gap:.2e} off the strips, leg {leg:.2e}) — calibrated ends, no shared block"
-                    );
-                }
-                return None;
-            }
-            let n_a = station_normal(k, &a_row0, 1.0);
-            let n_b = station_normal(next, &b_row0, 0.0);
-            let bisector = kp20_paper_border_corners::tangent_plane_bisector(n_a, n_b);
-            let jet_a = kp20_paper_border_corners::jet_into_plane(
-                rim_corner_jet(&b_row0, true),
-                bisector,
-            );
-            let jet_b = kp20_paper_border_corners::jet_into_plane(
-                rim_corner_jet(&a_row0, false),
-                bisector,
-            );
-            // A tensor-product cap corner needs a CONVEX boundary turn
-            // at c (see `cap_corner_is_convex`); flat or reflex turns
-            // keep the χ̃-calibrated ends as recorded containment.
-            let convex = |rim_out: Vec3, station_march: Vec3, corner_march: Vec3| -> bool {
-                kp20_paper_border_corners::cap_corner_is_convex(
-                    bisector,
-                    rim_out,
-                    station_march,
-                    corner_march,
-                    REFLEX_CORNER_SIN_FLOOR,
-                )
-            };
-            let a_convex = convex(
-                a_row0[6] - a_row0[5],
-                shims[k].calibrated_march(&a_row0, 6, &calibration[0].end, vertex_position),
-                jet_a.d1 * -1.0,
-            );
-            let b_convex = convex(
-                b_row0[0] - b_row0[1],
-                shims[next].calibrated_march(&b_row0, 0, &calibration[1].start, vertex_position),
-                jet_b.d1 * -1.0,
-            );
-            if !(a_convex && b_convex) {
-                reflex_corners += 1;
-                if section_trace {
-                    eprintln!(
-                        "  [corner] c_{k}: reflex or flat cap corner (a {a_convex}, b {b_convex}) — calibrated ends, no shared block"
-                    );
-                }
-                return None;
-            }
-            Some((jet_a, jet_b))
-        })
-        .collect();
+    // Corner classification (see `corner_jets`): per corner c_k the
+    // shared corner jets (`.0` serves arc k's second half ending at
+    // c_k, `.1` arc k+1's first half), or `None` at a gapped or reflex
+    // corner (χ̃-calibrated ends, no shared block), plus the cap
+    // boundary's turn at every corner.
+    let classified = corner_jets::classify_corners(
+        &setback_arcs,
+        fillet_surfaces,
+        &paths,
+        &shims,
+        &calibration,
+        vertex_position,
+        section_trace,
+    );
+    let corner_jets::CornerClassification {
+        jets: corner_jets,
+        turns: corner_turns,
+        gapped: gapped_corners,
+        reflex: reflex_corners,
+    } = classified;
     let corner_jet_at = |k: usize| -> (Option<CornerJet>, Option<CornerJet>) {
         (
             corner_jets[(k + n - 1) % n].map(|j| j.1),
@@ -376,10 +314,9 @@ pub fn kp20_paper_border_from_fillet_setback(
     // sampled in-plane fields instead of pins derived from them.
     // Tangency stations per half (see `ring_fit::tangency_stations`).
     let tangency_stations = |k: usize, half: usize, row0: &[Point3; 7], s: &CrossFieldSamples| {
-        let (fi, ua, va, ub, vb) = spans[k];
         ring_fit::tangency_stations(
-            &fillet_surfaces[fi].surface,
-            [ua, va, ub, vb],
+            &fillet_surfaces[paths[k].fillet_index].surface,
+            &|span_t| paths[k].uv(span_t),
             half,
             row0,
             s,
@@ -445,7 +382,7 @@ pub fn kp20_paper_border_from_fillet_setback(
         let [(f0, f0c), (f1, f1c)] = &fitted[k];
         let piece_a = rows_from_cross_fields(&first_half, f0, f0c);
         let piece_b = rows_from_cross_fields(&second_half, f1, f1c);
-        sectors.push((spans[k].0, piece_a, piece_b));
+        sectors.push((paths[k].fillet_index, piece_a, piece_b));
     }
     type PiecePair = ([[Point3; 7]; 3], [[Point3; 7]; 3]);
     let pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
@@ -486,6 +423,8 @@ pub fn kp20_paper_border_from_fillet_setback(
             section_fit_fallbacks,
             gapped_corners,
             reflex_corners,
+            corner_turns,
+            section_axis_fallbacks,
             corner_block_mismatch,
             ring_fit_fallback,
         },

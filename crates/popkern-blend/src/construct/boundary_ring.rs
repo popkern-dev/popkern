@@ -151,8 +151,12 @@ fn carve_ring(
             curve.point_at(t0 + 2.0 * (t1 - t0) / 3.0),
             p_end,
         ];
-        let strip_face =
-            setback_arc_binding::find_fillet_face(brep, fillet, &pseudo_cubic, vertex_position)?;
+        let strip_face = setback_arc_binding::find_fillet_face(
+            brep,
+            fillet,
+            &bezier_cubic_curve(&pseudo_cubic),
+            vertex_position,
+        )?;
         // Per endpoint: split the rail where it exists; where the
         // mitre complex replaced the rail with an off-surface chord
         // (junction interior to the chord-bounded trim), restore the

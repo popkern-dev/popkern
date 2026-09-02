@@ -44,6 +44,13 @@ use helpers::{
     measure_cap_outer_boundary, pick_vertex_with_valence,
 };
 
+/// Mixed-radius setback cap↔strip bars (PK-401): the rim seams are the
+/// cap's own border rows (g0 machine zero) and the cap is G1 to the
+/// strips through cross-sectional corners (measured 1.0e-6 / 3.4e-6
+/// on pyramid5_mixed / hexagon6_variable; 30× headroom).
+const MIXED_G0_BAR: f64 = 1.0e-9;
+const MIXED_G1_BAR: f64 = 1.0e-4;
+
 fn run_cube(radii: &[f64]) -> helpers::CapOuterMetrics {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
@@ -175,7 +182,9 @@ fn run_n_pyramid_cap_outer_result(
 /// contract rolled back to mitred (edges = 0); the PK-094/PK-087
 /// setback boundary surgery now commits the KP20 cap fan on the
 /// fillet setback border. Measured at re-pin: g0 = 3.6e-8,
-/// g1 = 1.5e-3 across 20 cap/support edges.
+/// g1 = 1.5e-3 across 20 cap/support edges; with cross-sectional rim
+/// ends (PK-401) g0 = 4.0e-12, g1 = 1.0e-6 — gated at the
+/// mixed-radius class bars `MIXED_G0_BAR` / `MIXED_G1_BAR`.
 #[test]
 fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
@@ -188,13 +197,13 @@ fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
         "pyramid5_mixed setback fan must expose its full cap/support boundary"
     );
     assert!(
-        m.worst_g0_gap <= 5.0e-3,
-        "cap_outer_g0 {:.3e} exceeds the 5e-3 commercial gate",
+        m.worst_g0_gap <= MIXED_G0_BAR,
+        "cap_outer_g0 {:.3e} exceeds the {MIXED_G0_BAR:.0e} mixed-radius bar",
         m.worst_g0_gap
     );
     assert!(
-        m.worst_g1_coplanarity <= 5.0e-2,
-        "cap_outer_g1 {:.3e} exceeds the 5e-2 commercial gate",
+        m.worst_g1_coplanarity <= MIXED_G1_BAR,
+        "cap_outer_g1 {:.3e} exceeds the {MIXED_G1_BAR:.0e} mixed-radius bar",
         m.worst_g1_coplanarity
     );
     let apex_patches = result
@@ -229,7 +238,12 @@ fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
 /// least-squares (exact degree-9 interpolation slung CPs 150x), and
 /// in-place outlier repair in the projection walk (dropped samples
 /// re-parameterized whole pcurves). Measured at re-pin: g0 = 9.5e-5,
-/// g1 = 2.0e-3 across 24 cap/support edges.
+/// g1 = 2.0e-3 across 24 cap/support edges. PK-399's exact corners
+/// exposed the mixed-radius layout defect (the corner between the two
+/// 0.02 strips is a reflex cap-boundary turn, live g1 2.4e-1, served
+/// at 8.8e-4 through the χ̃-calibrated containment); PK-401's
+/// cross-sectional rim ends measure g0 = 8.8e-13, g1 = 3.4e-6 — gated
+/// at the mixed-radius class bars.
 #[test]
 fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
@@ -242,13 +256,13 @@ fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
         "hexagon6_variable setback fan must expose its full cap/support boundary"
     );
     assert!(
-        m.worst_g0_gap <= 5.0e-3,
-        "cap_outer_g0 {:.3e} exceeds the 5e-3 commercial gate",
+        m.worst_g0_gap <= MIXED_G0_BAR,
+        "cap_outer_g0 {:.3e} exceeds the {MIXED_G0_BAR:.0e} mixed-radius bar",
         m.worst_g0_gap
     );
     assert!(
-        m.worst_g1_coplanarity <= 5.0e-2,
-        "cap_outer_g1 {:.3e} exceeds the 5e-2 commercial gate",
+        m.worst_g1_coplanarity <= MIXED_G1_BAR,
+        "cap_outer_g1 {:.3e} exceeds the {MIXED_G1_BAR:.0e} mixed-radius bar",
         m.worst_g1_coplanarity
     );
     let apex_patches = result

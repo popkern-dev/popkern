@@ -378,16 +378,16 @@ fn lift_start(row: &mut [Affine; 7], b0: Affine, q1: &Affine, q2: &Affine) {
 }
 
 /// Tangency stations for one half: the strip's unit normal at the rim
-/// point from the rim's ANALYTIC uv (the section is a straight uv
-/// line on the strip, `span_uv = [ua, va, ub, vb]` from corner to
-/// corner, this half covering `[half/2, (half+1)/2]` — one surface
-/// evaluation, no projection; the projection serves only where the
-/// fitted half is not that line, i.e. the cubic fallback), scaled by
-/// the sampled jet's component perpendicular to the rim, interpolated
-/// between the march samples.
+/// point from the rim's ANALYTIC uv (`uv_at(span_t)` is the arc's
+/// section path on the strip from corner to corner, this half
+/// covering `[half/2, (half+1)/2]` — one surface evaluation, no
+/// projection; the projection serves only where the fitted half is
+/// not that path, i.e. the cubic fallback), scaled by the sampled
+/// jet's component perpendicular to the rim, interpolated between the
+/// march samples.
 pub(super) fn tangency_stations(
     surface: &popkern_core::geometry::SurfaceGeometry,
-    span_uv: [f64; 4],
+    uv_at: &dyn Fn(f64) -> (f64, f64),
     half: usize,
     row0: &[Point3; 7],
     samples: &CrossFieldSamples,
@@ -396,7 +396,6 @@ pub(super) fn tangency_stations(
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     const TANGENCY_STATIONS: usize = 97;
-    let [ua, va, ub, vb] = span_uv;
     let perp: Vec<(f64, f64)> = samples
         .jets
         .iter()
@@ -428,8 +427,7 @@ pub(super) fn tangency_stations(
         .map(|i| {
             let t = i as f64 / (TANGENCY_STATIONS - 1) as f64;
             let p = eval_sextic_row(row0, t);
-            let span_t = (half as f64 + t) * 0.5;
-            let (u, v) = (ua + (ub - ua) * span_t, va + (vb - va) * span_t);
+            let (u, v) = uv_at((half as f64 + t) * 0.5);
             let normal = if surface.point_at(u, v).distance_to(&p) < 1.0e-9 {
                 surface.normal_at(u, v).normalized()
             } else {

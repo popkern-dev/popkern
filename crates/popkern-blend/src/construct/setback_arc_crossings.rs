@@ -21,14 +21,15 @@ use super::*;
 const ARC_SAMPLES: usize = 128;
 const EDGE_SAMPLES: usize = 64;
 
-/// Find where the arc crosses the face's trim boundary. Returns the
-/// two crossings sorted by arc parameter, each carrying the EDGE's
-/// own 3-D point at the crossing (the splitter requires exact point
-/// inversion on the edge).
+/// Find where the arc (the exact section rim, `Kp20SetbackArc::
+/// section_curve`, parametrized `[0, 1]` corner to corner) crosses
+/// the face's trim boundary. Returns the two crossings sorted by arc
+/// parameter, each carrying the EDGE's own 3-D point at the crossing
+/// (the splitter requires exact point inversion on the edge).
 pub(super) fn arc_boundary_crossings(
     brep: &BRep,
     face: FaceHandle,
-    cubic: &[Point3; 4],
+    arc: &NurbsCurve,
 ) -> Result<[(f64, EdgeHandle, Point3); 2], String> {
     let surface = brep
         .faces
@@ -43,8 +44,7 @@ pub(super) fn arc_boundary_crossings(
         _ => None,
     };
 
-    let arc = bezier_cubic_curve(cubic);
-    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc);
+    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc.clone());
     let arc_uv = project_polyline(&surface, u_period, |s| arc_eval.point_at(s), ARC_SAMPLES)
         .ok_or_else(|| "setback arc does not project onto the strip chart".to_string())?;
     let arc_u_mean = mean_u(&arc_uv);
@@ -176,7 +176,7 @@ pub(super) fn arc_boundary_crossings(
 pub(super) fn arc_inside_trim_fraction(
     brep: &BRep,
     face: FaceHandle,
-    cubic: &[Point3; 4],
+    arc: &NurbsCurve,
 ) -> Option<f64> {
     let surface = brep
         .faces
@@ -189,8 +189,7 @@ pub(super) fn arc_inside_trim_fraction(
         | popkern_core::geometry::SurfaceGeometry::Sphere { .. } => Some(std::f64::consts::TAU),
         _ => None,
     };
-    let arc = bezier_cubic_curve(cubic);
-    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc);
+    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc.clone());
     let arc_uv = project_polyline(&surface, u_period, |s| arc_eval.point_at(s), 16)?;
     let arc_u_mean = mean_u(&arc_uv);
 

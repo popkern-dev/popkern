@@ -22,16 +22,17 @@ use super::*;
 pub(super) fn find_fillet_face(
     brep: &BRep,
     fillet: &FilletSurfaceResult,
-    arc_cubic: &[Point3; 4],
+    arc: &NurbsCurve,
     apex: Point3,
 ) -> Result<FaceHandle, String> {
-    // Band: cubic-vs-exact-row sagitta (~2e-4) plus the measured
-    // extractor wobble on variable-radius corners (corner points sit
-    // up to ~3e-3 off the strips). Same-band ties (wall planes near
-    // tangency) are resolved by trim containment then distance.
+    // Band: the exact section rim sits on its strip to the section
+    // fit residual (1e-8..1e-12); the band keeps the measured
+    // extractor wobble class on variable-radius corners (corner
+    // points once sat up to ~3e-3 off the strips). Same-band ties
+    // (wall planes near tangency) are resolved by trim containment
+    // then distance.
     const ARC_ON_SURFACE_BAND: f64 = 5.0e-3;
-    let arc = bezier_cubic_curve(arc_cubic);
-    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc);
+    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc.clone());
     let samples: Vec<Point3> = [0.25, 0.5, 0.75]
         .iter()
         .map(|&t| arc_eval.point_at(t))
@@ -76,7 +77,7 @@ pub(super) fn find_fillet_face(
         // Several faces can share the underlying surface (split strip
         // pieces) — the trim that actually CONTAINS the arc wins;
         // containment fraction first, surface distance as tie-break.
-        let contained = arc_inside_trim_fraction(brep, fh, arc_cubic).unwrap_or(0.0);
+        let contained = arc_inside_trim_fraction(brep, fh, arc).unwrap_or(0.0);
         if best_by_arc.is_none_or(|(_, bc, bd)| contained > bc || (contained == bc && worst < bd)) {
             best_by_arc = Some((fh, contained, worst));
         }

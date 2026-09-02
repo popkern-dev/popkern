@@ -230,7 +230,7 @@ fn surgery_inner(
             let ff = setback_arc_binding::find_fillet_face(
                 brep,
                 &fillet_surfaces[k],
-                &arcs[k].cubic,
+                &arcs[k].section_curve(),
                 vertex_position,
             )?;
             let mut best_edge = f64::INFINITY;
@@ -280,7 +280,7 @@ fn surgery_inner(
             setback_arc_binding::find_fillet_face(
                 brep,
                 &fillet_surfaces[k],
-                &arcs[k].cubic,
+                &arcs[k].section_curve(),
                 vertex_position,
             )
         })
@@ -300,7 +300,7 @@ fn surgery_inner(
     let mut crossing_vertices = vec![[None::<VertexHandle>; 2]; n]; // [X1 at t1, X2 at t2]
     let mut end_segments = vec![[None::<[Point3; 4]>; 2]; n]; // [c_prev→X1, X2→c_next]
     for k in 0..n {
-        let crossings = arc_boundary_crossings(brep, fillet_faces[k], &arcs[k].cubic)?;
+        let crossings = arc_boundary_crossings(brep, fillet_faces[k], &arcs[k].section_curve())?;
         let [(t1, e1, p1), (t2, e2, p2)] = crossings;
         // A crossing can land exactly on an existing vertex — with
         // trim-crossing anchors (PK-095/PK-097) the pre-carve already

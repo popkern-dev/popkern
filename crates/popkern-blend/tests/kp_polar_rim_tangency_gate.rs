@@ -33,8 +33,11 @@ use fixtures::fillet_n_gonal_pyramid_result_with_continuity;
 /// the sampled in-plane field; the blunt corners' 159° cap angle then
 /// amplified the jet's out-of-plane fraction 2.8× in the normal. The
 /// ring-wide fit with shared unknowns and normal-tilt tangency rows
-/// measures 3.4e-5 / 3.4e-4 / 3.2e-4 / 1.4e-4 / 4.2e-5 — every fixture
-/// gated at 1e-3.
+/// measures 5.8e-5 / 2.9e-4 / 2.5e-4 / 1.2e-4 / 2.1e-5 (re-measured at
+/// the PK-401 close; the PK-400 close recorded an intermediate
+/// reading) — every fixture gated at 1e-3. PK-401's cross-sectional
+/// rim ends leave these uniform layouts bit-identical (axial
+/// displacement ~1e-16).
 #[test]
 fn rim_tangency_meets_commercial_bar() {
     for (n, h, continuity, fixture, bar) in [

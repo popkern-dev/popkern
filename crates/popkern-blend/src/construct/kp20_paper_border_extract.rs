@@ -22,7 +22,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
-use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
+use popkern_core::geometry::{NurbsCurve, Point3, SurfaceGeometry, Vec3};
 use popkern_core::topology::BRep;
 
 use crate::blend::{BlendBoundary, BoundarySegment};
@@ -31,6 +31,8 @@ use crate::fillet_surface::FilletSurfaceResult;
 #[path = "kp20_paper_border_recovery.rs"]
 mod recovery;
 use recovery::recover_face_edge_surface;
+#[path = "kp20_paper_border_corner_jets.rs"]
+mod corner_jets;
 #[path = "kp20_paper_border_ring_fit.rs"]
 mod ring_fit;
 #[path = "kp20_paper_border_ring_solve.rs"]
@@ -39,6 +41,8 @@ mod ring_solve;
 mod section;
 #[path = "kp20_paper_border_section_fit.rs"]
 mod section_fit;
+#[path = "kp20_paper_border_section_path.rs"]
+mod section_path;
 #[path = "kp20_paper_border_setback.rs"]
 mod setback;
 use popkern_core::geometry::gregory::elevate_cubic_row_to_sextic;
@@ -86,8 +90,21 @@ pub struct Kp20PaperBorderExtractReport {
     /// flat or reflex (the neighbour rim leaves `c` on the far side of
     /// this rim, or within 10° of it), where a tensor-product corner
     /// would fold; served with χ̃-calibrated ends and no shared corner
-    /// block (PK-399 containment — mixed-radius setback placement).
+    /// block (PK-399 containment). Zero by construction since PK-401:
+    /// every rim arc leaves and arrives cross-sectionally, so the cap
+    /// boundary turns by the face's apex angle at every corner.
     pub reflex_corners: usize,
+    /// Setback path only: per corner `c_s`, the cap boundary's signed
+    /// turn (radians) from the arriving rim to the leaving rim,
+    /// positive towards the vertex (convex). Equal to the shared
+    /// face's apex angle for cross-sectional rim ends (PK-401).
+    pub corner_turns: Vec<f64>,
+    /// Setback path only: arcs whose strip's axial parameter axis
+    /// could not be resolved at both corners (no partial within 18° of
+    /// the contact tangent with the other beyond 72°); such an arc
+    /// serves the straight uv line between its corners instead of the
+    /// cross-sectional-ended path (PK-401). No fixture reaches it.
+    pub section_axis_fallbacks: usize,
     /// Setback path only: per corner `c_s`, the eq (14) corner-block
     /// disagreement between the two pieces meeting there, as the
     /// assembly's overlap average will see it (PK-399). Machine zero
@@ -112,9 +129,14 @@ mod kp20_paper_border_corners;
 pub struct Kp20SetbackArc {
     /// Index into the input `fillet_surfaces` slice.
     pub fillet_index: usize,
-    /// Full arc as a cubic Bezier, `corner_prev` → `corner_next`
-    /// (the coarse arc used for crossing classification and topology
-    /// splitting; the served rim follows the cap rows).
+    /// Full arc as a cubic Bezier, `corner_prev` → `corner_next`: the
+    /// coarse arc the topology splits into its three segments (the
+    /// served rim follows the cap rows). Crossing classification and
+    /// strip-face binding walk the exact `section_curve` instead: a
+    /// single cubic through four points of an S-shaped mixed-radius
+    /// rim (PK-401) overshoots at both ends (sagitta 8.3e-4 on the
+    /// variable-radius cube corner) and its projection re-crossed the
+    /// contact edge 2 % in — a third "crossing" that declined the fan.
     pub cubic: [Point3; 4],
     /// The exact section spline halves `[corner_prev → m]`,
     /// `[m → corner_next]` (degree 6, C² at `m`) that the border rows
@@ -124,6 +146,26 @@ pub struct Kp20SetbackArc {
     pub corner_prev: Point3,
     /// Shared corner with the next fillet.
     pub corner_next: Point3,
+}
+
+impl Kp20SetbackArc {
+    /// The exact rim `corner_prev` → `corner_next` as one degree-6
+    /// NURBS: the two section halves joined at the spoke point
+    /// (`t = 0.5`, a 6-fold interior knot), parametrized like the
+    /// extractor's arc parameter.
+    pub fn section_curve(&self) -> NurbsCurve {
+        let [a, b] = &self.section_halves;
+        let control_points: Vec<Point3> = a.iter().chain(b.iter().skip(1)).copied().collect();
+        NurbsCurve {
+            degree: 6,
+            knots: vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0, 1.0, 1.0,
+                1.0, 1.0, 1.0, 1.0,
+            ],
+            weights: vec![1.0; control_points.len()],
+            control_points,
+        }
+    }
 }
 
 /// Build the paper cap's two-piece border from an apex blend
@@ -408,6 +450,8 @@ pub fn kp20_paper_border_from_blend_boundary(
             section_fit_fallbacks: 0,
             gapped_corners: 0,
             reflex_corners: 0,
+            corner_turns: Vec::new(),
+            section_axis_fallbacks: 0,
             ring_fit_fallback: false,
             corner_block_mismatch: Vec::new(),
         },

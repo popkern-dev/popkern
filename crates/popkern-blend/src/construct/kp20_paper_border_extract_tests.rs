@@ -190,67 +190,107 @@ fn blunt_pyramid_setback_corners_are_exact_trim_crossings() {
             "[{label}] corner-block mismatch {worst_block:.3e}"
         );
         assert!(!report.ring_fit_fallback, "[{label}] ring fit fell back");
+        assert_eq!(report.section_axis_fallbacks, 0, "[{label}] axis fallbacks");
+        assert_turns_are_the_face_angle(&label, n, 3.0, &report.corner_turns);
     }
 }
 
-/// hexagon6_variable (radii 0.02/0.04/0.06/0.06/0.04/0.02): the exact
-/// trim-intersection corners land on flat-or-reflex cap-boundary
-/// turns at two corners. They are NOT gapped (the trims cross to
-/// roundoff) and are served through the χ̃-calibrated containment,
-/// counted honestly — the tensor corner there measured assembly
-/// regularity 2.6e-6 and live g1 2.4e-1 (PK-399).
+/// Every cap corner turns by the shared face's apex angle
+/// (`2·asin(sin(π/n) / √(1 + h²))` for a regular pyramid of unit base
+/// radius and height `h`): the rim arcs' ends are cross-section cuts
+/// whatever the radii (PK-401).
+fn assert_turns_are_the_face_angle(label: &str, n: usize, h: f64, turns: &[f64]) {
+    let face_angle = 2.0 * ((core::f64::consts::PI / n as f64).sin() / (1.0 + h * h).sqrt()).asin();
+    assert_eq!(turns.len(), n, "[{label}] one turn per corner");
+    for (k, turn) in turns.iter().enumerate() {
+        assert!(
+            (turn - face_angle).abs() < 1.0e-6,
+            "[{label}] corner {k} turns {:.4}° against the face angle {:.4}°",
+            turn.to_degrees(),
+            face_angle.to_degrees()
+        );
+    }
+}
+
+/// Mixed-radius layouts (hexagon6_variable 0.02/0.04/0.06/0.06/0.04/
+/// 0.02, pentagon5_variable 0.02/0.04/0.06/0.04/0.02, h = 0.8): the
+/// exact trim-intersection corners of one strip sit at different
+/// stations along its edge, and the straight-uv rim between them
+/// turned the cap boundary FLAT or REFLEX at the corner between the
+/// two small strips (−25.9° on the hexagon, −13.3° on the pentagon;
+/// PK-399 served it through the χ̃-calibrated containment at live g1
+/// 8.8e-4). With cross-sectional rim ends (PK-401) every corner turns
+/// by the face angle, no corner is reflex or gapped, and both pieces
+/// at every corner carry one block.
 #[test]
-fn mixed_radius_setback_reports_reflex_corners_not_gapped() {
+fn mixed_radius_setback_corners_are_convex_face_angle_turns() {
     let tol = Tolerance::default();
-    let pyramid = popkern_core::topology::BRep::n_gonal_pyramid(6, 1.0, 0.8, tol).expect("pyramid");
-    let apex = pyramid
-        .vertices
-        .iter()
-        .find(|(_, v)| v.position.x.abs() < 1e-9 && v.position.y.abs() < 1e-9 && v.position.z > 0.0)
-        .map(|(h, _)| h)
-        .expect("apex");
-    let apex_position = pyramid.vertices[apex].position;
-    let mut apex_edges: Vec<_> = pyramid
-        .edges
-        .iter()
-        .filter_map(|(eh, _)| {
-            let he = pyramid.edges[eh].half_edge;
-            let origin = pyramid.half_edges[he].origin;
-            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
-            (origin == apex || twin_origin == apex).then_some(eh)
-        })
-        .collect();
-    apex_edges.sort();
-    let specs: Vec<FilletSpec> = apex_edges
-        .iter()
-        .zip([0.02, 0.04, 0.06, 0.06, 0.04, 0.02])
-        .map(|(&edge, radius)| FilletSpec {
-            edge,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect();
-    let preview = preview_fillet(&pyramid, &specs, tol).expect("preview");
-    let fillet_surfaces: Vec<FilletSurfaceResult> = preview
-        .per_edge
-        .iter()
-        .map(|eg| FilletSurfaceResult {
-            surface: eg.blend_surface.clone(),
-            trim_curve_1: eg.trim_curve_1.clone(),
-            trim_curve_2: eg.trim_curve_2.clone(),
-            continuity_downgrade: None,
-        })
-        .collect();
-    let (_, report) = kp20_paper_border_from_fillet_setback(&fillet_surfaces, apex_position)
-        .expect("setback extract");
-    assert_eq!(report.gapped_corners, 0);
-    assert!(
-        report.max_loop_gap < 1.0e-12,
-        "corner gap {:.3e}",
-        report.max_loop_gap
-    );
-    assert!(
-        (1..=3).contains(&report.reflex_corners),
-        "reflex corners {}",
-        report.reflex_corners
-    );
+    for (n, radii) in [
+        (6_usize, vec![0.02, 0.04, 0.06, 0.06, 0.04, 0.02]),
+        (5, vec![0.02, 0.04, 0.06, 0.04, 0.02]),
+    ] {
+        let pyramid =
+            popkern_core::topology::BRep::n_gonal_pyramid(n, 1.0, 0.8, tol).expect("pyramid");
+        let apex = pyramid
+            .vertices
+            .iter()
+            .find(|(_, v)| {
+                v.position.x.abs() < 1e-9 && v.position.y.abs() < 1e-9 && v.position.z > 0.0
+            })
+            .map(|(h, _)| h)
+            .expect("apex");
+        let apex_position = pyramid.vertices[apex].position;
+        let mut apex_edges: Vec<_> = pyramid
+            .edges
+            .iter()
+            .filter_map(|(eh, _)| {
+                let he = pyramid.edges[eh].half_edge;
+                let origin = pyramid.half_edges[he].origin;
+                let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+                (origin == apex || twin_origin == apex).then_some(eh)
+            })
+            .collect();
+        apex_edges.sort();
+        let specs: Vec<FilletSpec> = apex_edges
+            .iter()
+            .zip(radii.iter().copied())
+            .map(|(&edge, radius)| FilletSpec {
+                edge,
+                radius: FilletRadius::Constant(radius),
+            })
+            .collect();
+        let preview = preview_fillet(&pyramid, &specs, tol).expect("preview");
+        let fillet_surfaces: Vec<FilletSurfaceResult> = preview
+            .per_edge
+            .iter()
+            .map(|eg| FilletSurfaceResult {
+                surface: eg.blend_surface.clone(),
+                trim_curve_1: eg.trim_curve_1.clone(),
+                trim_curve_2: eg.trim_curve_2.clone(),
+                continuity_downgrade: None,
+            })
+            .collect();
+        let (_, report) = kp20_paper_border_from_fillet_setback(&fillet_surfaces, apex_position)
+            .expect("setback extract");
+        let label = format!("n={n} variable");
+        assert_eq!(report.gapped_corners, 0, "[{label}] gapped corners");
+        assert_eq!(report.reflex_corners, 0, "[{label}] reflex corners");
+        assert_eq!(report.section_axis_fallbacks, 0, "[{label}] axis fallbacks");
+        assert!(!report.ring_fit_fallback, "[{label}] ring fit fell back");
+        assert!(
+            report.max_loop_gap < 1.0e-12,
+            "[{label}] corner gap {:.3e}",
+            report.max_loop_gap
+        );
+        assert_turns_are_the_face_angle(&label, n, 0.8, &report.corner_turns);
+        let worst_block = report
+            .corner_block_mismatch
+            .iter()
+            .copied()
+            .fold(0.0_f64, f64::max);
+        assert!(
+            worst_block < 1.0e-8,
+            "[{label}] corner-block mismatch {worst_block:.3e}"
+        );
+    }
 }

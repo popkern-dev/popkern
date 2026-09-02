@@ -163,18 +163,42 @@ pub(super) fn jet_into_plane(jet: super::CornerJet, bisector: Vec3) -> super::Co
     super::CornerJet { d1, d2: jet.d2 }
 }
 
+/// The cap boundary's signed turn at a corner (radians): the angle
+/// from this rim's arriving direction (`rim_out`, its outgoing tangent
+/// at `c`) to the neighbour rim's leaving direction (the negation of
+/// `corner_march`, the neighbour's leg away from `c`), measured in the
+/// strips' common tangent plane (normal `bisector`), positive towards
+/// the vertex — where the χ̃ `station_march` (oriented away from the
+/// vertex) says the ring is NOT. `None` when either direction has no
+/// in-plane component.
+///
+/// With cross-sectional rim ends (PK-401) the turn equals the shared
+/// face's apex angle at every corner. Straight-uv rim ends on
+/// mixed-radius setbacks put the trim-intersection corner on a flat
+/// or REFLEX turn (hexagon6_variable, radii 0.02/0.04/0.06: −25.9° at
+/// the corner between the two 0.02 strips), where a corner-compatible
+/// cross field sweeps through the rim direction mid-piece — measured
+/// assembly regularity 2.6e-6 and live cap↔strip g1 2.4e-1 (PK-399).
+pub(super) fn cap_corner_turn(
+    bisector: Vec3,
+    rim_out: Vec3,
+    station_march: Vec3,
+    corner_march: Vec3,
+) -> Option<f64> {
+    let t_hat = (rim_out - bisector * rim_out.dot(&bisector)).normalized()?;
+    let side = (station_march - t_hat * station_march.dot(&t_hat)).normalized()?;
+    let leaving = corner_march * -1.0;
+    let leaving = leaving - bisector * leaving.dot(&bisector);
+    if leaving.length() < 1.0e-15 {
+        return None;
+    }
+    Some((-leaving.dot(&side)).atan2(leaving.dot(&t_hat)))
+}
+
 /// Whether the cap boundary turns CONVEXLY at a corner, as a
-/// tensor-product corner requires: the neighbour rim (whose negated
-/// leg is `corner_march`) must leave `c` on the ring side of this rim
-/// (`rim_out` = this rim's outgoing tangent at `c`), where the χ̃
-/// `station_march` (oriented away from the vertex) says the ring is,
-/// by at least `sin_floor` of its length. Mixed-radius setbacks can
-/// put the trim-intersection corner on a nearly straight or REFLEX
-/// turn (hexagon6_variable, radii 0.02/0.04/0.06: the c_1 corner jets
-/// sit 26° from the rim tangent on the far side), and a corner-
-/// compatible cross field then sweeps through the rim direction
-/// mid-piece — measured assembly regularity 2.6e-6 and live
-/// cap↔strip g1 2.4e-1 against 8.8e-4 under the χ̃ ends (PK-399).
+/// tensor-product corner requires: `sin` of the turn
+/// (`cap_corner_turn`) at least `sin_floor`. Degenerate directions
+/// count as convex.
 pub(super) fn cap_corner_is_convex(
     bisector: Vec3,
     rim_out: Vec3,
@@ -182,13 +206,8 @@ pub(super) fn cap_corner_is_convex(
     corner_march: Vec3,
     sin_floor: f64,
 ) -> bool {
-    let Some(t_hat) = (rim_out - bisector * rim_out.dot(&bisector)).normalized() else {
-        return true;
-    };
-    let Some(side) = (station_march - t_hat * station_march.dot(&t_hat)).normalized() else {
-        return true;
-    };
-    corner_march.dot(&side) > sin_floor * corner_march.length()
+    cap_corner_turn(bisector, rim_out, station_march, corner_march)
+        .is_none_or(|turn| turn.sin() > sin_floor)
 }
 
 /// Per corner `c_s`, the eq (14) corner-block disagreement between
