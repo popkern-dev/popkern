@@ -395,7 +395,8 @@ fn full_revolution_of_a_rectangle_is_a_welded_ring() {
         None,
     )
     .expect("ring");
-    assert_eq!(counts(&result.brep), (4, 8, 4), "V E F of a ring");
+    // Two cylinders with seams, two planar annuli (outer loop + hole).
+    assert_eq!(counts(&result.brep), (4, 6, 4), "V E F of a ring");
     result.brep.validate().expect("ring validates");
     // Geometry stays where the profile was: radii 1 and 2, not centred.
     let radii: Vec<f64> = result
@@ -455,9 +456,10 @@ fn full_revolution_of_a_profile_touching_the_axis_is_a_disc() {
         None,
     )
     .expect("disc");
-    // The span on the axis sweeps nothing and is dropped; the two pole
-    // vertices sweep no circle: a cylinder of three faces.
-    assert_eq!(counts(&result.brep), (4, 5, 3));
+    // The span on the axis sweeps nothing and is dropped; the planar
+    // discs are single circle loops, so no pole vertex is needed: a
+    // cylinder of three faces.
+    assert_eq!(counts(&result.brep), (2, 3, 3));
     result.brep.validate().expect("disc validates");
 }
 

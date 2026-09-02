@@ -9,7 +9,7 @@ use crate::surface::canonical::recognize_circle;
 /// Recognize a straight NURBS curve: every control point collinear
 /// with the endpoint chord (relative 1e-9). Returns the origin, unit
 /// direction and length.
-fn recognize_line(
+pub(crate) fn recognize_line(
     curve: &popkern_core::geometry::NurbsCurve,
 ) -> Option<(
     popkern_core::geometry::Point3,
