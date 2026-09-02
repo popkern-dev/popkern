@@ -1,0 +1,68 @@
+{
+  "examples": [
+    {
+      "blurb": "A plate, a boss, a union and G1 rounds selected by geometry — the reference part.",
+      "demonstrates": "extrude, tool bodies, union, fillet with selectors, assert_watertight",
+      "features": 6,
+      "file": "boss_plate.rhai",
+      "thumbnail": "examples/boss_plate.png",
+      "title": "Boss plate"
+    },
+    {
+      "blurb": "A stepped section revolved about Z; exact planes, cylinders and rounded rims.",
+      "demonstrates": "path profiles, revolve, circular edge selection, fillet",
+      "features": 3,
+      "file": "revolved_knob.rhai",
+      "thumbnail": "examples/revolved_knob.png",
+      "title": "Revolved knob"
+    },
+    {
+      "blurb": "A rounded block hollowed from the top to a uniform wall.",
+      "demonstrates": "fillet on vertical edges, shell with an open face",
+      "features": 4,
+      "file": "shelled_enclosure.rhai",
+      "thumbnail": "examples/shelled_enclosure.png",
+      "title": "Shelled enclosure"
+    },
+    {
+      "blurb": "An L-bracket on the YZ plane with equal, two-distance and distance-angle chamfers.",
+      "demonstrates": "sketch planes other than XY, chamfer kinds, allow_empty",
+      "features": 5,
+      "file": "chamfered_bracket.rhai",
+      "thumbnail": "examples/chamfered_bracket.png",
+      "title": "Chamfered bracket"
+    },
+    {
+      "blurb": "A through bore whose exact rims are labelled, then rounded by that label.",
+      "demonstrates": "subtract, exact boolean rims, label_edge, labeled() selection",
+      "features": 7,
+      "file": "bored_block.rhai",
+      "thumbnail": "examples/bored_block.png",
+      "title": "Bored block"
+    },
+    {
+      "blurb": "A variable-radius round growing along one edge under a linear law.",
+      "demonstrates": "fillet radius laws",
+      "features": 3,
+      "file": "tapered_fillet.rhai",
+      "thumbnail": "examples/tapered_fillet.png",
+      "title": "Tapered fillet"
+    },
+    {
+      "blurb": "Parameters, an expression and a named configuration drive a plate and its rib.",
+      "demonstrates": "param, param_expr, p(), expr(), configurations",
+      "features": 6,
+      "file": "parametric_plate.rhai",
+      "thumbnail": "examples/parametric_plate.png",
+      "title": "Parametric plate"
+    },
+    {
+      "blurb": "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",
+      "demonstrates": "translate, rotate, subtract, chamfer on a circular edge",
+      "features": 8,
+      "file": "keyed_shaft.rhai",
+      "thumbnail": "examples/keyed_shaft.png",
+      "title": "Keyed shaft"
+    }
+  ]
+}

@@ -277,3 +277,27 @@ fn fnv1a_bytes(bytes: &[u8]) -> u64 {
     }
     hash
 }
+
+/// PK-412: every gallery script runs in the wasm bundle with the
+/// feature count the manifest promises.
+#[test]
+fn wasm_bundle_serves_every_gallery_script() {
+    let Some(pkg) = bundle() else { return };
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("web/playground/examples.json")).expect("manifest"),
+    )
+    .expect("manifest json");
+    let entries = manifest["examples"].as_array().expect("examples");
+    assert!(entries.len() >= 8);
+    for entry in entries {
+        let file = entry["file"].as_str().expect("file");
+        let script = root().join("crates/popkern-rhai/examples").join(file);
+        let out = smoke(&pkg, &script, None, None);
+        assert_eq!(out["outcome"], "served", "[{file}] {out}");
+        assert_eq!(out["features"], entry["features"], "[{file}] feature count");
+        assert_eq!(out["report_failures"], 0, "[{file}]");
+        for body in out["bodies"].as_array().expect("bodies") {
+            assert_eq!(body["open_edges"], 0, "[{file}] watertight in wasm");
+        }
+    }
+}
