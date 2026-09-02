@@ -182,10 +182,14 @@ fn blunt_pyramid_setback_corners_are_exact_trim_crossings() {
             .iter()
             .copied()
             .fold(0.0_f64, f64::max);
+        // PK-400: both pieces at every corner carry ONE block by
+        // construction (ring-wide fit); the assembly's overlap average
+        // is a no-op to roundoff (was 2e-5..1.2e-4 with pinned fits).
         assert!(
-            worst_block < 2.0e-4,
+            worst_block < 1.0e-8,
             "[{label}] corner-block mismatch {worst_block:.3e}"
         );
+        assert!(!report.ring_fit_fallback, "[{label}] ring fit fell back");
     }
 }
 

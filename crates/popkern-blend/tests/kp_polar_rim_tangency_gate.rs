@@ -16,7 +16,7 @@ use fixtures::fillet_n_gonal_pyramid_result_with_continuity;
 /// 2.6°..6.9° along every arc. Fixed by the tangent-plane
 /// prolongation in the border extraction plus the committed-fan rim
 /// cross-jet reconciliation (shared-corner clamped-linear deltas,
-/// curvature-invariant depth application). Gated at the commercial
+/// curvature-invariant depth application). Was gated at the commercial
 /// 5e-2 bar on the sharp fixtures; 1e-2 on the blunt ones. The blunt
 /// pentagon G2 request's 6.7e-2 mid-arc bump (once pinned at 8e-2
 /// after every k-varying interior correction was falsified) went with
@@ -26,7 +26,15 @@ use fixtures::fillet_n_gonal_pyramid_result_with_continuity;
 /// contact lines) plus a sign-blind bisector of opposite-facing strip
 /// normals, and the blunt fixtures now measure 2.9e-3 / 3.8e-3 /
 /// 4.4e-3 — the same polar interior class as the sharp pyramids
-/// (2.2e-3 / 4.9e-3), a mid-quarter bump filed separately.
+/// (2.2e-3 / 4.9e-3). PK-400 found that class in the border's cross
+/// rows: pinning each half's shared junction data (spoke C² triple,
+/// corner block) to the mean of two independent fits left ONE free
+/// coefficient per row, and the c-quarter followed the pins instead of
+/// the sampled in-plane field; the blunt corners' 159° cap angle then
+/// amplified the jet's out-of-plane fraction 2.8× in the normal. The
+/// ring-wide fit with shared unknowns and normal-tilt tangency rows
+/// measures 3.4e-5 / 3.4e-4 / 3.2e-4 / 1.4e-4 / 4.2e-5 — every fixture
+/// gated at 1e-3.
 #[test]
 fn rim_tangency_meets_commercial_bar() {
     for (n, h, continuity, fixture, bar) in [
@@ -35,35 +43,35 @@ fn rim_tangency_meets_commercial_bar() {
             3.0,
             popkern_blend::ContinuityLevel::G1,
             "pentagon5_blunt/G1",
-            1.0e-2,
+            1.0e-3,
         ),
         (
             5,
             3.0,
             popkern_blend::ContinuityLevel::G2,
             "pentagon5_blunt/G2",
-            1.0e-2,
+            1.0e-3,
         ),
         (
             6,
             3.0,
             popkern_blend::ContinuityLevel::G2,
             "hexagon6_blunt/G2",
-            1.0e-2,
+            1.0e-3,
         ),
         (
             5,
             0.8,
             popkern_blend::ContinuityLevel::G2,
             "pentagon5_sharp/G2",
-            5.0e-2,
+            1.0e-3,
         ),
         (
             5,
             0.8,
             popkern_blend::ContinuityLevel::G1,
             "pentagon5_sharp/G1",
-            5.0e-2,
+            1.0e-3,
         ),
     ] {
         let radii = vec![0.05; n];

@@ -9,7 +9,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use super::{
     CornerJet, CrossFieldSamples, Kp20PaperBorderExtractReport, Kp20SetbackArc, OrientedSegment,
     chi_march_calibration, corner_pins, elevate_cubic_row_to_sextic, kp20_paper_border_corners,
-    rim_corner_jet, rows_from_cross_fields, section, section_fit, split_cubic_row,
+    rim_corner_jet, ring_fit, rows_from_cross_fields, section, section_fit, split_cubic_row,
 };
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -209,21 +209,19 @@ pub fn kp20_paper_border_from_fillet_setback(
         let _ = fillet;
     }
     // Pass 4: cross rows as fitted fields with SHARED junction data
-    // (PK-398). Each half's corner end takes the corner-compatible jet
-    // of the NEIGHBOURING arc's rim (`rim_corner_jet`): arc k's first
-    // half starts at c_{k-1} where arc k-1's second half ends; its
-    // second half ends at c_k where arc k+1's first half starts. At
-    // the spoke point m_k both halves march with ONE vector (the mean
-    // of the two χ̃ calibrations there — the first half is the
-    // sector's near_m piece, calibration[1]; the second half the
+    // (PK-398, PK-400). Each half's corner end takes the corner-
+    // compatible jet of the NEIGHBOURING arc's rim (`rim_corner_jet`):
+    // arc k's first half starts at c_{k-1} where arc k-1's second half
+    // ends; its second half ends at c_k where arc k+1's first half
+    // starts. At the spoke point m_k both halves march with ONE vector
+    // (the mean of the two χ̃ calibrations there — the first half is
+    // the sector's near_m piece, calibration[1]; the second half the
     // near_c piece, calibration[0]; the halves used to take each
-    // other's calibration and reached m with χ̃'s skewed CORNER angle)
-    // and their fitted rows are pinned to one shared value / step /
-    // second difference, so the ring is C² across m by construction.
-    // At each corner the two pieces share one twist step (see
-    // `section::corner_twist_step`). Every field is fitted once
-    // unconstrained to read its natural junction data, then refitted
-    // with the shared pins.
+    // other's calibration and reached m with χ̃'s skewed CORNER angle).
+    // The sampled fields are then fitted ring-wide with the spoke
+    // junctions and corner blocks as shared unknowns (`ring_fit`), so
+    // the ring is C² across every m and both pieces at every c carry
+    // one corner block by construction.
     let shims: Vec<OrientedSegment> = (0..n)
         .map(|k| {
             let fillet = &fillet_surfaces[spans[k].0];
@@ -341,7 +339,6 @@ pub fn kp20_paper_border_from_fillet_setback(
         )
     };
     let mut samples: Vec<[CrossFieldSamples; 2]> = Vec::with_capacity(n);
-    let mut natural: Vec<[[Vec3; 7]; 4]> = Vec::with_capacity(n);
     for k in 0..n {
         let [first_half, second_half] = setback_arcs[k].section_halves;
         let (corner_prev, corner_next) = corner_jet_at(k);
@@ -370,87 +367,84 @@ pub fn kp20_paper_border_from_fillet_setback(
             shims[k].march_cross_field(&first_half, [start, m_vector], &mut first_order_marches);
         let s1 =
             shims[k].march_cross_field(&second_half, [m_vector, end], &mut first_order_marches);
-        let (p0, p0c) = corner_prev
-            .map(|c| corner_pins(c, false, None))
-            .unwrap_or(([None; 7], [None; 7]));
-        let (p1, p1c) = corner_next
-            .map(|c| corner_pins(c, true, None))
-            .unwrap_or(([None; 7], [None; 7]));
-        natural.push([
-            section::fit_sextic_field_pinned(&s0.jets, p0),
-            section::fit_sextic_field_pinned(&s0.curvatures, p0c),
-            section::fit_sextic_field_pinned(&s1.jets, p1),
-            section::fit_sextic_field_pinned(&s1.curvatures, p1c),
-        ]);
         samples.push([s0, s1]);
     }
-    // Shared corner block at c_k (arc k's second half ↔ arc k+1's first
-    // half), solved on the c-quarters of the natural fields; each piece
-    // gets the full-row pins that reproduce it (`section`).
-    let corner_pins_at: Vec<Option<section::CornerBlockPins>> = (0..n)
+    // Ring-wide fit of every cross row with the shared junction data
+    // as unknowns (PK-400, see `ring_fit`): the spoke junctions and
+    // corner blocks are single unknowns, so the C²-at-m and shared-
+    // block invariants hold by construction, and the rows follow the
+    // sampled in-plane fields instead of pins derived from them.
+    // Tangency stations per half (see `ring_fit::tangency_stations`).
+    let tangency_stations = |k: usize, half: usize, row0: &[Point3; 7], s: &CrossFieldSamples| {
+        let (fi, ua, va, ub, vb) = spans[k];
+        ring_fit::tangency_stations(
+            &fillet_surfaces[fi].surface,
+            [ua, va, ub, vb],
+            half,
+            row0,
+            s,
+        )
+    };
+    let ring: Vec<[ring_fit::RingPiece<'_>; 2]> = (0..n)
         .map(|k| {
-            corner_jets[k]?;
-            let next = (k + 1) % n;
-            let a_row0 = setback_arcs[k].section_halves[1];
-            let b_row0 = setback_arcs[next].section_halves[0];
-            let (_, a0) = popkern_core::geometry::gregory::split_sextic_row(&a_row0);
-            let (_, a1) = section::split_sextic_vec_row(&natural[k][2]);
-            let (_, a2) = section::split_sextic_vec_row(&natural[k][3]);
-            let (b0, _) = popkern_core::geometry::gregory::split_sextic_row(&b_row0);
-            let (b1, _) = section::split_sextic_vec_row(&natural[next][0]);
-            let (b2, _) = section::split_sextic_vec_row(&natural[next][1]);
-            // Quarter stations 4, 5 of A (parameters 5/6, 11/12 of the
-            // half) and 1, 2 of B (1/12, 1/6).
-            let n_a = [
-                station_normal(k, &a_row0, 5.0 / 6.0),
-                station_normal(k, &a_row0, 11.0 / 12.0),
-            ];
-            let n_b = [
-                station_normal(next, &b_row0, 1.0 / 12.0),
-                station_normal(next, &b_row0, 1.0 / 6.0),
-            ];
-            Some(section::shared_corner_block(
-                &a0, &a1, &a2, &b0, &b1, &b2, n_a, n_b,
-            ))
+            let [first_half, second_half] = &setback_arcs[k].section_halves;
+            [
+                ring_fit::RingPiece {
+                    row0: first_half,
+                    samples: &samples[k][0],
+                    tangency: tangency_stations(k, 0, first_half, &samples[k][0]),
+                },
+                ring_fit::RingPiece {
+                    row0: second_half,
+                    samples: &samples[k][1],
+                    tangency: tangency_stations(k, 1, second_half, &samples[k][1]),
+                },
+            ]
         })
         .collect();
+    let mut ring_fit_fallback = false;
+    let fitted: Vec<ring_fit::RingRows> = match ring_fit::fit_ring_cross_fields(&ring, &corner_jets)
+    {
+        Some(rows) => rows,
+        None => {
+            // Singular normal equations (degenerate sampling): each
+            // piece keeps its own pinned fit with the corner jets
+            // only; the assembly's overlap average and the fan's rim
+            // reconcile remain the containment for the shared data.
+            ring_fit_fallback = true;
+            if section_trace {
+                eprintln!("  [ring-fit] singular normal equations — per-piece pinned fits");
+            }
+            (0..n)
+                .map(|k| {
+                    let (corner_prev, corner_next) = corner_jet_at(k);
+                    let (p0, p0c) = corner_prev
+                        .map(|c| corner_pins(c, false, None))
+                        .unwrap_or(([None; 7], [None; 7]));
+                    let (p1, p1c) = corner_next
+                        .map(|c| corner_pins(c, true, None))
+                        .unwrap_or(([None; 7], [None; 7]));
+                    let [s0, s1] = &samples[k];
+                    [
+                        (
+                            section::fit_sextic_field_pinned(&s0.jets, p0),
+                            section::fit_sextic_field_pinned(&s0.curvatures, p0c),
+                        ),
+                        (
+                            section::fit_sextic_field_pinned(&s1.jets, p1),
+                            section::fit_sextic_field_pinned(&s1.curvatures, p1c),
+                        ),
+                    ]
+                })
+                .collect()
+        }
+    };
+    drop(ring);
     for k in 0..n {
         let [first_half, second_half] = setback_arcs[k].section_halves;
-        let (corner_prev, corner_next) = corner_jet_at(k);
-        let [n_d1_a, n_d2_a, n_d1_b, n_d2_b] = &natural[k];
-        let m_d1 = section::shared_junction(
-            section::end_junction(n_d1_a, true),
-            section::end_junction(n_d1_b, false),
-        );
-        let m_d2 = section::shared_junction(
-            section::end_junction(n_d2_a, true),
-            section::end_junction(n_d2_b, false),
-        );
-        let (mut p0, mut p0c) = corner_prev
-            .map(|c| corner_pins(c, false, None))
-            .unwrap_or(([None; 7], [None; 7]));
-        if let Some(prev_block) = &corner_pins_at[(k + n - 1) % n] {
-            section::pins_from_quarter(prev_block.2, false, &mut p0);
-            section::pins_from_quarter(prev_block.3, false, &mut p0c);
-        }
-        section::pins_ending_with(m_d1, &mut p0);
-        section::pins_ending_with(m_d2, &mut p0c);
-        let (mut p1, mut p1c) = corner_next
-            .map(|c| corner_pins(c, true, None))
-            .unwrap_or(([None; 7], [None; 7]));
-        if let Some(block) = &corner_pins_at[k] {
-            section::pins_from_quarter(block.0, true, &mut p1);
-            section::pins_from_quarter(block.1, true, &mut p1c);
-        }
-        section::pins_starting_with(m_d1, &mut p1);
-        section::pins_starting_with(m_d2, &mut p1c);
-        let [s0, s1] = &samples[k];
-        let f0 = section::fit_sextic_field_pinned(&s0.jets, p0);
-        let f0c = section::fit_sextic_field_pinned(&s0.curvatures, p0c);
-        let f1 = section::fit_sextic_field_pinned(&s1.jets, p1);
-        let f1c = section::fit_sextic_field_pinned(&s1.curvatures, p1c);
-        let piece_a = rows_from_cross_fields(&first_half, &f0, &f0c);
-        let piece_b = rows_from_cross_fields(&second_half, &f1, &f1c);
+        let [(f0, f0c), (f1, f1c)] = &fitted[k];
+        let piece_a = rows_from_cross_fields(&first_half, f0, f0c);
+        let piece_b = rows_from_cross_fields(&second_half, f1, f1c);
         sectors.push((spans[k].0, piece_a, piece_b));
     }
     type PiecePair = ([[Point3; 7]; 3], [[Point3; 7]; 3]);
@@ -493,6 +487,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             gapped_corners,
             reflex_corners,
             corner_block_mismatch,
+            ring_fit_fallback,
         },
     ))
 }

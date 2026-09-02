@@ -31,6 +31,10 @@ use crate::fillet_surface::FilletSurfaceResult;
 #[path = "kp20_paper_border_recovery.rs"]
 mod recovery;
 use recovery::recover_face_edge_surface;
+#[path = "kp20_paper_border_ring_fit.rs"]
+mod ring_fit;
+#[path = "kp20_paper_border_ring_solve.rs"]
+mod ring_solve;
 #[path = "kp20_paper_border_section.rs"]
 mod section;
 #[path = "kp20_paper_border_section_fit.rs"]
@@ -90,6 +94,11 @@ pub struct Kp20PaperBorderExtractReport {
     /// when the shared corner block reconciled; a residual here is
     /// rim movement the assembly is about to apply.
     pub corner_block_mismatch: Vec<f64>,
+    /// Setback path only: `true` when the ring-wide cross-field fit
+    /// (PK-400) hit singular normal equations and every piece kept
+    /// its own corner-pinned fit instead (the shared junction data
+    /// are then the assembly's overlap average, as before PK-398).
+    pub ring_fit_fallback: bool,
 }
 
 #[path = "kp20_paper_border_corners.rs"]
@@ -399,6 +408,7 @@ pub fn kp20_paper_border_from_blend_boundary(
             section_fit_fallbacks: 0,
             gapped_corners: 0,
             reflex_corners: 0,
+            ring_fit_fallback: false,
             corner_block_mismatch: Vec::new(),
         },
     ))
