@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Client-side only: scripts, workers and the wasm module come from this
+     origin; nothing may connect anywhere else. Blob URLs carry downloads. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>popkern playground</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="bar">
+  <h1>popkern <span class="muted">playground</span></h1>
+  <div class="bar-actions">
+    <label id="examples-row" hidden>Example <select id="examples" aria-label="Example scripts"><option value="">choose…</option></select></label>
+    <button id="reset" type="button" title="Restore the boss plate">reset</button>
+    <button id="run" type="button" title="Ctrl/Cmd+Enter">run</button>
+    <button id="cancel" type="button" title="Stop the worker and start a fresh one">stop</button>
+  </div>
+  <p id="status" class="status" role="status" aria-live="polite">starting…</p>
+</header>
+<main class="layout">
+  <section class="pane pane-editor" aria-label="Script">
+    <div id="editor"></div>
+  </section>
+  <section class="pane pane-viewer" aria-label="Model">
+    <div class="viewer-wrap">
+      <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel to zoom, right-drag or shift-drag to pan, arrow keys to orbit"></canvas>
+      <div id="overlay" class="overlay" hidden role="alert">
+        <div class="overlay-head"><span id="overlay-class" class="overlay-class"></span><button id="overlay-goto" type="button" hidden>go to line</button></div>
+        <pre id="overlay-text"></pre>
+      </div>
+    </div>
+    <div class="viewer-bar">
+      <span id="pick" class="muted">click a face to see its stable name</span>
+      <label><input id="edges" type="checkbox" checked> edges</label>
+      <button id="fit" type="button">fit</button>
+      <button id="show-code" type="button" title="The document as canonical Rhai">show as code</button>
+      <button id="download-step" type="button">STEP</button>
+      <button id="download-pkn" type="button">.pkn</button>
+    </div>
+  </section>
+  <section class="pane pane-side" aria-label="Report and parameters">
+    <h2>Replay report</h2>
+    <p id="report-summary" class="muted">no run yet</p>
+    <table class="report"><thead><tr><th>feature</th><th>op</th><th>outcome</th><th>time</th></tr></thead><tbody id="report"></tbody></table>
+    <h2>Parameters</h2>
+    <p id="params-empty" class="muted">declared parameters appear here as sliders</p>
+    <div id="params" class="params"></div>
+    <h2>Guide</h2>
+    <p class="muted">The <a href="./guide.html">scripting guide</a> is one page: every verb, every selector, every error class.</p>
+  </section>
+</main>
+<div id="code-dialog" class="dialog" hidden role="dialog" aria-label="Document as code">
+  <div class="dialog-box">
+    <div class="dialog-head"><strong>document as canonical Rhai</strong><span><button id="code-use" type="button">use as script</button> <button id="code-close" type="button">close</button></span></div>
+    <pre id="code-text"></pre>
+  </div>
+</div>
+<footer class="foot muted">
+  Everything runs in this tab: your script and your model never leave the browser, nothing is uploaded, and no analytics are loaded.
+  Scripts you write and models you export are yours (see the repository's LICENSE-EXCEPTION). Kernel: popkern, AGPL-3.0.
+</footer>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

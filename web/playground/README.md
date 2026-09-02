@@ -1,0 +1,47 @@
+# popkern playground (static page)
+
+The browser playground: a script editor, the kernel compiled to
+WebAssembly running in a Web Worker, a three.js viewer, the replay
+report, parameter sliders, STEP/`.pkn` downloads and show-as-code.
+Everything runs in the tab — no server-side component, no network
+use beyond loading these files.
+
+## Build and serve
+
+```
+tools/build-playground.sh --web        # → web/playground/pkg/ (gitignored)
+cd web/playground && python3 -m http.server 8000
+```
+
+Any static file server works; the page needs `application/wasm` for
+`.wasm` (every common server has it) and must be served over HTTP —
+`file://` cannot load module workers. There is no bundler and no
+build step for the JS: the files here are what the browser loads.
+
+## Files
+
+| File | Role |
+|---|---|
+| `index.html`, `style.css` | The page and its CSP (`'self'` for everything; `'wasm-unsafe-eval'` for the module) |
+| `app.js` | Page logic: editor → worker → viewer, report, parameters, downloads, show-as-code, error overlay |
+| `editor.js` | Dependency-free editor (textarea + highlighted mirror + gutter) |
+| `viewer.js` | three.js scene, per-face colouring and picking, orbit control |
+| `worker.js`, `worker-core.js` | The Web Worker owning one `Playground` session |
+| `worker-host.js` | The page's side of the protocol: request matching, cancel = terminate + restart |
+| `PROTOCOL.md` | The worker message shapes (versioned; the daemon's socket schema grows from it) |
+| `vendor/` | Pinned third-party code with hashes in `vendor/LICENSES.md` |
+| `test/host.test.mjs` | Headless protocol harness under node `worker_threads` |
+| `test/browser.mjs` | Headless Chrome harness over the DevTools protocol (serves the page itself) |
+| `examples.json`, `examples/` | The gallery manifest and scripts (phase 4c) |
+
+The Rust side runs both harnesses from
+`crates/popkern-playground/tests/page.rs` and skips, with a recorded
+reason, when the bundle, node or a browser is absent.
+
+## Budgets and runaway scripts
+
+The worker runs scripts under an operation budget and a wall-clock
+budget (`performance.now` is registered as the kernel's clock). A
+script that defeats both is stopped by the page: the worker is
+terminated and a fresh one started, the last good model stays on
+screen.

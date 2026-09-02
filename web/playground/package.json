@@ -1,0 +1,6 @@
+{
+  "name": "popkern-playground-page",
+  "private": true,
+  "type": "module",
+  "description": "Static assets of the popkern browser playground (no build step; the wasm bundle comes from tools/build-playground.sh)"
+}

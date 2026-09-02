@@ -135,6 +135,27 @@ pub fn report_value(model: &Model) -> Value {
             "downgraded_blends".into(),
             report.downgraded_blends().count().into(),
         );
+        // Per-row derived facts a panel shows directly: wall time in
+        // milliseconds and the blend's downgrade verdict (measured
+        // continuity below the request), which the record only
+        // exposes as a method.
+        if let Some(Value::Array(rows)) = map.get_mut("features") {
+            for (row, feature) in rows.iter_mut().zip(&report.features) {
+                let Value::Object(row) = row else { continue };
+                row.insert(
+                    "elapsed_ms".into(),
+                    feature
+                        .elapsed
+                        .map(|d| Value::from(d.as_secs_f64() * 1000.0))
+                        .unwrap_or(Value::Null),
+                );
+                if let (Some(Value::Object(blend)), Some(evidence)) =
+                    (row.get_mut("blend"), feature.blend.as_ref())
+                {
+                    blend.insert("downgraded".into(), evidence.downgraded().into());
+                }
+            }
+        }
     }
     value
 }

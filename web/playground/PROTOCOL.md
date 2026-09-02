@@ -1,0 +1,78 @@
+# Playground worker protocol — version 1
+
+The page never calls the wasm module directly. It posts messages to a
+Web Worker (`worker.js`) that owns one `Playground` session, and the
+worker answers with the engine's envelope plus the body buffers as
+transferable typed arrays. The same shapes are the seed of the daemon's
+WebSocket schema (design §6.4, phase 6): a GUI that speaks this to a
+worker will speak it to a socket.
+
+Every request carries a client-chosen `id`; every reply echoes it. The
+worker answers requests one at a time in order; a request that arrives
+while the engine is busy waits (the wasm call is synchronous). A page
+that wants to abandon a run terminates the worker (`WorkerHost.cancel`)
+and starts a fresh one — the engine has no cooperative cancel beyond
+its budgets, and a hostile script must not be able to wedge the page.
+
+## Requests
+
+| type | fields | reply |
+|---|---|---|
+| `init` | `options: { max_operations: number \| null, timeout_ms: number \| null }` | `{ ok, protocol_version, clock_available }` |
+| `run` | `source: string`, `name: string` | envelope reply |
+| `set_param` | `name: string`, `value: number` | envelope reply |
+| `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
+| `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
+| `export_pkn` | — | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
+
+`init` must be the first message; it loads the wasm module, registers
+the host clock (`performance.now`) and creates the session under the
+budgets. `clock_available` is `false` only where the worker has no
+`performance` object — then the wall-clock budget cannot fire and the
+envelope's `wall_budget` says `unavailable`.
+
+## Envelope reply
+
+```
+{
+  id,
+  ok: true,
+  envelope: {
+    outcome: "served" | "script_error" | "kernel_decline" | "gate_failure",
+    kind?, rendered?, payload?,        // script_error / kernel_decline
+    step?, detail?,                    // gate_failure
+    printed: string[],
+    elapsed_ms: number | null,
+    clock_available: boolean,
+    wall_budget: "none" | "armed" | "unavailable",
+    report: ReplayReport | null,       // spec §11 + is_clean/failures/downgraded_blends
+    features: number,
+    params: [{ name, value, unit, expression, bounds: [lo, hi] | null, read_only }],
+    bodies: [{ id, label, vertex_count, triangle_count, face_count,
+               face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }]
+  },
+  buffers: [{ positions: Float32Array, normals: Float32Array,
+              indices: Uint32Array, face_ids: Uint32Array }]   // one per body, transferred
+}
+```
+
+`buffers[i]` belongs to `envelope.bodies[i]`. `face_ids[t]` indexes
+`face_labels` for triangle `t`. A failed run (`ok: true`, outcome not
+`served`) carries no bodies: the page keeps the last good model on
+screen and shows the outcome beside it. The classes and payload fields
+are the scripting-surface spec §10; the partition
+(`script_error`/`kernel_decline`/`gate_failure`) is the one `popkern
+run` maps to exit codes 2/3/4.
+
+## Errors
+
+A malformed request, a message before `init`, or an exception inside
+the worker answers `{ id, ok: false, outcome: { outcome:
+"gate_failure", step: "worker", detail } }` — the same shape as an
+engine gate failure, so the page has one error path.
+
+## Versioning
+
+`protocol_version` is the engine's `PROTOCOL_VERSION`. The page refuses
+to speak to a worker whose version it does not know. Bumped when a
+request or reply shape changes; additive fields do not bump.
