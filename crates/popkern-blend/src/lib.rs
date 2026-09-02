@@ -13,6 +13,7 @@ pub mod cap_seam_continuity;
 pub(crate) mod cap_seam_measure;
 pub mod center_curve;
 pub mod center_curve_helpers;
+pub(crate) mod center_curve_projection;
 mod center_curve_station;
 mod center_curve_sweep_channel;
 pub mod center_curve_walker;

@@ -32,16 +32,40 @@ pub(crate) fn gross_overhang_sweep_span(
     radius: f64,
 ) -> Option<(f64, f64)> {
     let (full_min, full_max) = center_curve.parameter_range();
+    let full = full_max - full_min;
     let anchor_start = edge_anchor_at(0.0);
     let anchor_end = edge_anchor_at(1.0);
     let t_a = crate::center_curve_station::closest_t_on_nurbs(center_curve, &anchor_start);
     let t_b = crate::center_curve_station::closest_t_on_nurbs(center_curve, &anchor_end);
-    let (lo, hi) = if t_a <= t_b { (t_a, t_b) } else { (t_b, t_a) };
-    let span_valid = hi - lo > (full_max - full_min) * 1.0e-6;
+    let (mut lo, mut hi) = if t_a <= t_b { (t_a, t_b) } else { (t_b, t_a) };
     let chord = anchor_start.distance_to(&anchor_end).max(1.0e-12);
+    // A CLOSED carrier (a plane × cylinder offset circle) bounds two
+    // windows between the anchors; the edge's own is the one holding
+    // its interior station. An anchor AT the carrier's seam resolves
+    // to either end of the parameter range, and the window that runs
+    // the long way round sections the whole circle: footprints clamp
+    // on the bounded support and the sweep twists (PK-421, measured
+    // on a seam-straddling boss chain's 0.25-rad pieces). The wrapped
+    // window carries past `full_max`; the sampler folds it back.
+    let closed = center_curve
+        .point_at(full_min)
+        .distance_to(&center_curve.point_at(full_max))
+        <= 1.0e-9 * chord.max(1.0);
+    if closed {
+        let t_m =
+            crate::center_curve_station::closest_t_on_nurbs(center_curve, &edge_anchor_at(0.5));
+        if !(lo <= t_m && t_m <= hi) {
+            (lo, hi) = (hi, lo + full);
+        }
+    }
+    let span_valid = hi - lo > full * 1.0e-6;
     let pad = (hi - lo) * (radius / chord);
-    let padded = ((lo - pad).max(full_min), (hi + pad).min(full_max));
-    (span_valid && (full_max - full_min) > 3.0 * (padded.1 - padded.0)).then_some(padded)
+    let padded = if closed {
+        (lo - pad, hi + pad)
+    } else {
+        ((lo - pad).max(full_min), (hi + pad).min(full_max))
+    };
+    (span_valid && full > 3.0 * (padded.1 - padded.0)).then_some(padded)
 }
 
 /// Trimmed-center refit + aligned footprints for the sweep channel.
@@ -63,8 +87,17 @@ pub(crate) fn sweep_channel_artifacts(
     let mut centers = Vec::with_capacity(n_samples);
     let mut f1 = Vec::with_capacity(n_samples);
     let mut f2 = Vec::with_capacity(n_samples);
+    let (full_min, full_max) = center_curve.parameter_range();
+    let full = (full_max - full_min).max(1.0e-300);
     for i in 0..n_samples {
         let t = lo + (hi - lo) * (i as f64) / ((n_samples - 1) as f64);
+        // A window wrapped past the carrier's end (closed carrier)
+        // folds back onto the parameter range.
+        let t = if t < full_min || t > full_max {
+            full_min + (t - full_min).rem_euclid(full)
+        } else {
+            t
+        };
         let center_pt = center_curve.point_at(t);
         f1.push(project_onto_surface(
             surface1, u1_range, v1_range, &center_pt,

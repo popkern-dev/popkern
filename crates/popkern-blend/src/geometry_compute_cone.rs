@@ -154,8 +154,8 @@ pub(crate) fn compute_center_via_walker(
             // seeded from the other side converged at once).
             let (period_u, period_v) = s.parameter_periodicity();
             Some((
-                wrap_then_clamp(u, ur, period_u),
-                wrap_then_clamp(v, vr, period_v),
+                crate::center_curve_projection::wrap_then_clamp(u, ur, period_u),
+                crate::center_curve_projection::wrap_then_clamp(v, vr, period_v),
             ))
         };
         let uv0 = proj(&analysis.surface_1, u1_range, v1_range);
@@ -212,7 +212,9 @@ pub(crate) fn compute_center_with_fallback(
     either_needs_walker: bool,
     wants_g2: bool,
 ) -> Result<(CenterCurveResult, Option<String>), BlendFailure> {
-    if either_needs_walker || wants_g2 {
+    let walker_wanted = (either_needs_walker || wants_g2)
+        && crate::dispatch_overrides::WALKER_DISABLE.get() != Some(true);
+    if walker_wanted {
         let w = compute_center_via_walker(
             analysis,
             radius,
@@ -380,23 +382,4 @@ pub(crate) fn compute_offset_intersect_center_curve(
             .map_err(wrap_err)
         }
     }
-}
-
-/// `x` carried into `[lo, hi]` by whole periods of a periodic chart
-/// axis, then clamped; aperiodic axes clamp directly.
-fn wrap_then_clamp(x: f64, (lo, hi): (f64, f64), period: Option<f64>) -> f64 {
-    let mut x = x;
-    if let Some(p) = period
-        && p > 0.0
-        && lo.is_finite()
-        && hi.is_finite()
-    {
-        if x < lo {
-            x += p * ((lo - x) / p).ceil();
-        }
-        if x > hi {
-            x -= p * ((x - hi) / p).ceil();
-        }
-    }
-    x.clamp(lo, hi)
 }

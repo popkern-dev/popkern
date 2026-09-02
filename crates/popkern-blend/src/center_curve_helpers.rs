@@ -3,7 +3,7 @@
 //! Provides surface projection, footprint clipping, NURBS fitting,
 //! and parameter range clamping used by the [`super::center_curve`] module.
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 
 /// Clip footprint points to the face's UV parameter bounds.
@@ -248,63 +248,7 @@ pub fn fit_nurbs_through_points(points: &[Point3]) -> Result<NurbsCurve, String>
     })
 }
 
-/// Project a 3D point onto a surface by finding the closest surface point.
-///
-/// For planes, uses the analytic closed-form projection. For other surface
-/// types, samples a coarse grid and picks the nearest point.
-pub fn project_onto_surface(
-    surface: &SurfaceGeometry,
-    u_range: (f64, f64),
-    v_range: (f64, f64),
-    point: &Point3,
-) -> Result<Point3, String> {
-    match surface {
-        SurfaceGeometry::Plane {
-            origin,
-            normal,
-            u_axis,
-            v_axis,
-        } => {
-            // Project onto the plane: p_proj = p - ((p - origin) . n) * n
-            let d = *point - *origin;
-            let dist = d.dot(normal);
-            let projected = *point - *normal * dist;
-
-            // Clamp to parameter range
-            let dp = projected - *origin;
-            let u = dp.dot(u_axis);
-            let v = dp.dot(v_axis);
-            let u_clamped = u.clamp(u_range.0, u_range.1);
-            let v_clamped = v.clamp(v_range.0, v_range.1);
-            Ok(*origin + *u_axis * u_clamped + *v_axis * v_clamped)
-        }
-        _ => {
-            // Coarse grid search for general surfaces.
-            let n_u = 20;
-            let n_v = 20;
-            let mut best_pt =
-                surface.point_at((u_range.0 + u_range.1) * 0.5, (v_range.0 + v_range.1) * 0.5);
-            let mut best_dist = best_pt.distance_to(point);
-
-            for iu in 0..n_u {
-                let u =
-                    u_range.0 + (u_range.1 - u_range.0) * (iu as f64) / ((n_u - 1).max(1) as f64);
-                for iv in 0..n_v {
-                    let v = v_range.0
-                        + (v_range.1 - v_range.0) * (iv as f64) / ((n_v - 1).max(1) as f64);
-                    let sp = surface.point_at(u, v);
-                    let d = sp.distance_to(point);
-                    if d < best_dist {
-                        best_dist = d;
-                        best_pt = sp;
-                    }
-                }
-            }
-
-            Ok(best_pt)
-        }
-    }
-}
+pub use crate::center_curve_projection::project_onto_surface;
 
 #[cfg(test)]
 mod tests {

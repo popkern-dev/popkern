@@ -112,3 +112,9 @@ pub static TOPO_REPAIR: DispatchOverride = DispatchOverride::new();
 /// the cross-plane chord-pair repair (production default: off — it
 /// once regressed N ≥ 8 pyramids).
 pub static TOPO_REPAIR_DIFF: DispatchOverride = DispatchOverride::new();
+
+/// Spine-walker force-off: `Some(true)` routes every centre curve
+/// through the offset-intersect path so tests can pin that fallback
+/// (production default: the walker whenever a cone, cylinder or torus
+/// support or a G2 request calls for it).
+pub static WALKER_DISABLE: DispatchOverride = DispatchOverride::new();
