@@ -130,10 +130,8 @@ pub(crate) fn tessellate_face_boundary_first(
         // (shell rim slit arms) are chart artifacts — cut the ring
         // into its genuine boundary components before charting, or
         // Delaunay coverage chases the zero-width arms forever.
-        for mut ring in boundary_first_slit::dissolve_slits(built, {
-            use popkern_core::geometry::surface::SurfaceEval as _;
-            surface.parameter_periodicity()
-        }) {
+        for mut ring in boundary_first_slit::dissolve_slits(built, surface.parameter_periodicity())
+        {
             // Periodic surfaces (analytic cylinders: u = angle) can have
             // pcurves authored in different period branches; a ring that
             // crosses the seam jumps ~2π in the UV chart and Delaunay
@@ -141,7 +139,6 @@ pub(crate) fn tessellate_face_boundary_first(
             // nearest each previous sample (positions are canonical 3D
             // points and unaffected; cos/sin accept any branch).
             {
-                use popkern_core::geometry::surface::SurfaceEval as _;
                 let (period_u, period_v) = surface.parameter_periodicity();
                 // A sample AT a chart pole (sphere pole, cone apex) has
                 // undefined azimuth: shifting u by half a period leaves
@@ -219,14 +216,17 @@ pub(crate) fn tessellate_face_boundary_first(
                     return None;
                 }
             }
-            if ring.uv.len() >= 3 {
-                rings.push(ring);
+            for lobe in boundary_first_slit::dissolve_pinches(ring) {
+                if lobe.uv.len() >= 3 {
+                    rings.push(lobe);
+                }
             }
         }
     }
     if rings.is_empty() {
         return None;
     }
+    boundary_first_unwrap::align_hole_sheets(&mut rings, surface);
     if popkern_core::trace::trace_enabled("boundary-first-ring") {
         for (ri, ring) in rings.iter().enumerate() {
             eprintln!(
@@ -940,7 +940,6 @@ fn build_ring(
             // not lie on this surface (sphere seam pole chord) —
             // fall back to the uniform-grid path.
             let uvp = pc.point_at(tp);
-            let sof = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
             let target = samples.points[idx];
             let (mut uu, mut vv) = (uvp.x, uvp.y);
             // Analytic cylinders: invert analytically (atan2 in the

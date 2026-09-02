@@ -54,6 +54,17 @@ pub(crate) fn point_inside_face_uv(
         Some(b) => b,
         None => return false,
     };
+    // A face whose EVERY boundary edge is used twice by its own loops
+    // (a revolved circle's torus: its tube seam and its equator seam,
+    // nothing else) has no genuine boundary — it covers its whole
+    // chart, and every on-surface query is inside. Neither periodic
+    // route below can say so: the chart cell declines a ring that
+    // winds both axes, and the u-parity count never folds v, so a
+    // box subtraction found both of its intersection circles
+    // "outside" and served the torus untouched (PK-418).
+    if crate::clip::face_covers_full_chart(brep, face) {
+        return true;
+    }
     // SEAM-BRANCH chaining: on a periodic chart a seam edge carries
     // one pcurve shared by both of its uses, so the raw contour
     // jumps a full period mid-loop and even-odd containment reads

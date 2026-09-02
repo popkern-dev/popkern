@@ -81,3 +81,33 @@ fn an_ellipse_and_a_line_are_not_circles() {
     };
     assert!(recognize_circular(&line, (0.0, 1.0), 1e-6).is_none());
 }
+
+/// A straight run at a coarse gate is not a circle either: the
+/// least-squares fit of collinear samples answers an enormous radius
+/// whose sagitta sits under the gate (a bore's seam line read as a
+/// circle of radius 8078 with a zero-degree sweep at 1e-3, PK-418).
+#[test]
+fn a_straight_nurbs_seam_is_not_a_circle_at_a_coarse_gate() {
+    let line = CurveGeometry::Line {
+        origin: Point3::new(0.2, 0.0, -0.566),
+        direction: Vec3::new(0.0, 0.0, 1.0),
+    }
+    .to_nurbs();
+    for gate in [1e-9, 1e-6, 1e-3, 1e-2] {
+        assert!(
+            recognize_circular(&line, line.parameter_range(), gate).is_none(),
+            "gate {gate:e}"
+        );
+    }
+    // A genuine shallow arc whose sagitta clears the gate still
+    // recognises: radius 10, chord ~1.6 → sagitta 0.032 > 1e-3.
+    let shallow = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 10.0,
+        start_angle: 0.0,
+        end_angle: 0.16,
+    }
+    .to_nurbs();
+    assert!(recognize_circular(&shallow, shallow.parameter_range(), 1e-3).is_some());
+}

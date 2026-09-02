@@ -100,6 +100,26 @@ fn circle_profile_revolves_to_a_torus_with_its_curvature() {
     let part = m.to_part().expect("torus validates");
     assert_eq!(surface_kinds(part.brep()), ["Torus"]);
     m.assert_watertight().expect("watertight");
+    // PK-418: the tube seam (the profile circle at angle 0) runs a
+    // full period in the torus chart's v on both of its sides — its
+    // pcurves collapsed to a point when the span's end angle was
+    // reached in two half-turn steps that cancelled at ±π, and a box
+    // subtraction then found its intersection circles outside the
+    // face and served the torus untouched.
+    let seam_spans: Vec<f64> = brep
+        .half_edges
+        .values()
+        .filter_map(|h| h.pcurve.as_ref())
+        .map(|p| (p.point_at(p.t_end).y - p.point_at(p.t_start).y).abs())
+        .filter(|dv| *dv > 1.0)
+        .collect();
+    assert_eq!(seam_spans.len(), 2, "two tube-seam sides: {seam_spans:?}");
+    assert!(
+        seam_spans
+            .iter()
+            .all(|dv| (dv - std::f64::consts::TAU).abs() < 1e-9),
+        "{seam_spans:?}"
+    );
 }
 
 #[test]

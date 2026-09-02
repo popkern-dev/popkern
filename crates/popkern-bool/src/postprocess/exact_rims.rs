@@ -14,12 +14,15 @@
 //! elsewhere), verified sample for sample before the edge is
 //! rewritten. An edge that fails any check keeps its NURBS.
 //!
-//! Scope today: rims between distinct plane/cylinder/cone faces of a
-//! SUBTRACTION result (bores, countersinks, cut slots). Union and
+//! Scope today: rims and seam pieces on analytic faces (plane,
+//! cylinder, cone, sphere, torus) of a SUBTRACTION result (bores,
+//! countersinks, cut slots, sphere and torus caps). Union and
 //! intersection rims wait for PK-419 (the G2 closed-fillet ladder
-//! tears on a union's promoted junction rim); sphere and torus rims
-//! and periodic seams wait for PK-418 (the mesher's shared-sample
-//! path). Both are measured in the ledger, not guessed.
+//! tears on a union's promoted junction rim — measured in the ledger,
+//! not guessed). Sphere and torus rims and seams joined the scope
+//! with PK-418 once the mesher put every hole ring of a periodic
+//! chart on the outer ring's period sheet and the sphere/torus
+//! iso-circle pcurve arms made those rims exact by construction.
 
 use popkern_core::geometry::circle_recognition::{arc_on_edge, recognize_circular};
 use popkern_core::geometry::curve::CurveGeometry;
@@ -51,7 +54,7 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
         let CurveGeometry::Nurbs(_) = &curve.geometry else {
             continue;
         };
-        if !rim_between_developable_faces(brep, edge) {
+        if !rim_between_analytic_faces(brep, edge) {
             continue;
         }
         let range = (curve.t_start, curve.t_end);
@@ -98,16 +101,16 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
     report
 }
 
-/// The promotion's scope: an edge between two distinct faces whose
-/// surfaces are planes, cylinders or cones — the bore, boss and
-/// countersink rim class. A periodic seam (both half-edges on one
-/// face) is the surface's own iso-curve and keeps its form; arcs on
-/// spheres and tori stay NURBS until the mesher's shared-sample path
-/// carries Arc meridians (measured: a sphere-cube subtraction at the
-/// 1e-3 tolerance meshed its sphere face with 546 triangles instead
-/// of 384 and lost 70% of its volume once the seam meridians became
-/// arcs; the 1e-6 and 1e-4 bodies were unaffected) — PK-418.
-fn rim_between_developable_faces(brep: &BRep, edge: EdgeHandle) -> bool {
+/// The promotion's scope: an edge whose faces are analytic surfaces of
+/// the bore, boss, countersink and cap class — planes, cylinders,
+/// cones, spheres and tori — including a periodic seam (both
+/// half-edges on one face): a boolean splits a sphere's or torus's
+/// seam meridian into pieces it re-spells as NURBS, and those pieces
+/// are the same exact circle as the primitive's own seam. Free-form
+/// (NURBS, Gregory, polyhedral-spline) faces keep their NURBS rims:
+/// their pcurves are fits either way and the arc spelling buys the
+/// consumer nothing it can select on.
+fn rim_between_analytic_faces(brep: &BRep, edge: EdgeHandle) -> bool {
     let Some(e) = brep.edges.get(edge) else {
         return false;
     };
@@ -121,9 +124,6 @@ fn rim_between_developable_faces(brep: &BRep, edge: EdgeHandle) -> bool {
     let (Some(fa), Some(fb)) = (face_of(forward.loop_), face_of(backward.loop_)) else {
         return false;
     };
-    if fa == fb {
-        return false;
-    }
     [fa, fb].iter().all(|f| {
         matches!(
             brep.faces
@@ -133,6 +133,8 @@ fn rim_between_developable_faces(brep: &BRep, edge: EdgeHandle) -> bool {
             Some(SurfaceGeometry::Plane { .. })
                 | Some(SurfaceGeometry::Cylinder { .. })
                 | Some(SurfaceGeometry::Cone { .. })
+                | Some(SurfaceGeometry::Sphere { .. })
+                | Some(SurfaceGeometry::Torus { .. })
         )
     })
 }

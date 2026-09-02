@@ -276,11 +276,25 @@ pub(crate) fn recognize_revolved_span(
                 let (z, r) = axial_radial(p, axis_origin, &axis);
                 (z - z_c).atan2(r - r_c)
             };
-            let (v_a, mut v_b) = (minor(&p_a), minor(&p_b));
-            // Follow the span's direction through its midpoint so v_b
-            // sits on the correct side of the ±π cut.
-            let v_m = minor(&span.point_at(0.5 * (t0 + t1)));
-            v_b = v_a + angle_step(v_a, v_m) + angle_step(v_m, v_b);
+            // Follow the span's direction through its interior so v_b
+            // sits on the correct side of the ±π cut. A FULL circle
+            // profile (a torus from a circle sketch) returns to v_a,
+            // and two half-turn steps through its midpoint were each
+            // ambiguous at exactly ±π and cancelled: the tube seam's
+            // pcurve collapsed to a point and a box subtraction found
+            // both of its intersection circles "outside" the face
+            // (PK-418). Eight steps of at most a quarter turn are
+            // unambiguous for any span up to a full circle.
+            let v_a = minor(&p_a);
+            let steps = 8;
+            let mut v_prev = v_a;
+            let mut v_b = v_a;
+            for k in 1..=steps {
+                let t = t0 + (t1 - t0) * k as f64 / steps as f64;
+                let v_k = minor(&span.point_at(t));
+                v_b += angle_step(v_prev, v_k);
+                v_prev = v_k;
+            }
             return Some(RevolvedSurface {
                 geometry,
                 chart: RevolutionChart::Angular {

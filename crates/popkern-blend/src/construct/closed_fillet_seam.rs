@@ -79,12 +79,19 @@ pub(super) fn find_seam_edge_at_vertex(
     None
 }
 
-/// Replace a seam edge's curve geometry with a straight line that
-/// preserves the canonical "forward" direction of the edge — the
-/// curve starts at `edge.half_edge.origin`'s current position and
-/// ends at the twin's `origin` current position. Used to update
-/// the seam after one of its endpoint vertices moved to the new
-/// contact-circle height.
+/// Re-window a seam edge's curve to its vertices' current positions
+/// after one endpoint moved to the new contact-circle height. The
+/// canonical "forward" direction is preserved: the curve starts at
+/// `edge.half_edge.origin` and ends at the twin's `origin`.
+///
+/// A straight seam (cylinder, cone) is rebuilt as the line between
+/// the vertices. A curved seam — a sphere's meridian, a torus's tube
+/// circle — keeps its geometry and takes the parameter window whose
+/// ends project to the moved vertices: replacing it with the chord
+/// (the old behaviour for every form) left a capped ball's seam 0.29
+/// off its sphere after the cap-rim fillet (PK-418). When either
+/// vertex does not lie on the curve within the body's tolerance the
+/// chord is authored as before, and the validator reports it.
 pub(super) fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle) {
     use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 
@@ -110,6 +117,14 @@ pub(super) fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle) {
         return;
     }
 
+    if let Some(curve) = edata.curve.clone()
+        && !matches!(curve.geometry, CurveGeometry::Line { .. })
+        && let Some(windowed) = rewindowed(&curve, v_start_pos, v_end_pos, brep.tolerance.linear())
+    {
+        brep.edges[edge].curve = Some(windowed);
+        return;
+    }
+
     brep.edges[edge].curve = Some(CurveOnEdge {
         geometry: CurveGeometry::Line {
             origin: v_start_pos,
@@ -118,6 +133,34 @@ pub(super) fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle) {
         t_start: 0.0,
         t_end: 1.0,
     });
+}
+
+/// `curve` over the parameter window running from the point nearest
+/// `start` to the point nearest `end`, when both lie on the curve
+/// within `gate` and the window keeps the curve's direction.
+fn rewindowed(
+    curve: &popkern_core::geometry::curve::CurveOnEdge,
+    start: Point3,
+    end: Point3,
+    gate: f64,
+) -> Option<popkern_core::geometry::curve::CurveOnEdge> {
+    let eval: &dyn CurveEval = &curve.geometry;
+    let t_a = eval.closest_point(&start)?;
+    let t_b = eval.closest_point(&end)?;
+    if eval.point_at(t_a).distance_to(&start) > gate || eval.point_at(t_b).distance_to(&end) > gate
+    {
+        return None;
+    }
+    // The old window ran start → end; the new one must too.
+    let forward = (curve.t_end - curve.t_start).signum();
+    if (t_b - t_a).abs() < 1e-12 || (t_b - t_a).signum() != forward {
+        return None;
+    }
+    Some(popkern_core::geometry::curve::CurveOnEdge {
+        geometry: curve.geometry.clone(),
+        t_start: t_a,
+        t_end: t_b,
+    })
 }
 
 /// Author the strip's transverse seam curve between the two contact

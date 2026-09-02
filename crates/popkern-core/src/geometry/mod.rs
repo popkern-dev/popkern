@@ -27,6 +27,7 @@ pub mod point;
 pub mod polyhedral_spline;
 pub mod polyhedral_spline_patch;
 pub mod revolution;
+pub mod revolution_iso_pcurve;
 pub mod surface;
 pub mod surface_helpers;
 pub mod trim_domain;

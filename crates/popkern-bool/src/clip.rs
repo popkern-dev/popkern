@@ -172,6 +172,25 @@ pub(crate) fn face_uv_boundary_chained(
     Some(boundary)
 }
 
+/// True when EVERY boundary half-edge of `face` has its twin in one
+/// of the face's own loops — the face's boundary is nothing but its
+/// own seams (a revolved circle's torus: tube seam and equator seam),
+/// so it has no genuine boundary and covers its whole chart. Every
+/// on-surface point is on such a face.
+pub(crate) fn face_covers_full_chart(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(boundary) = face_uv_boundary(brep, face) else {
+        return false;
+    };
+    !boundary.is_empty()
+        && boundary.iter().all(|(he, _)| {
+            brep.half_edges
+                .get(*he)
+                .and_then(|h| brep.half_edges.get(h.twin))
+                .and_then(|t| brep.loops.get(t.loop_))
+                .is_some_and(|l| l.face == face)
+        })
+}
+
 /// PK-304 classification gate: is a torus-surface hit at `(u, v)` on
 /// `face`'s chart cell? `Some(true/false)` = decisive; `None` = the
 /// hit sits within a border sliver of the cell (ambiguous — belongs
@@ -184,7 +203,14 @@ pub(crate) fn torus_hit_in_face_cell(
     v: f64,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Option<bool> {
-    let cell = chart_cell::face_chart_cell(brep, face, tolerance)?;
+    let Some(cell) = chart_cell::face_chart_cell(brep, face, tolerance) else {
+        // A face with no genuine boundary (both seams of a revolved
+        // circle's torus, nothing else) covers its whole chart: every
+        // surface hit is on it. Answering "unknown" poisoned every ray
+        // from inside the tube and a box subtraction dropped the cut
+        // plane's annulus as Outside (PK-418).
+        return face_covers_full_chart(brep, face).then_some(true);
+    };
     let (fu, fv) = cell.fold(u, v);
     let border = 1.0e-7;
     let near_border = (fu - cell.u_range.0).abs() < border

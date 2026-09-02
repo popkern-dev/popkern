@@ -9,6 +9,8 @@
 //! regular samples. Returns `false` on a genuine net full wrap — the
 //! caller routes those to the structured-revolution or uniform-grid paths.
 
+use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
+
 use super::BoundaryRing;
 
 pub(super) fn unwrap_dir(
@@ -68,6 +70,74 @@ pub(super) fn unwrap_dir(
         _ => true,
     }
 }
+/// Put every hole ring on the outer ring's period sheet.
+///
+/// The unwrap makes each ring continuous on its own, but the sheet a
+/// ring lands on is an accident of its first sample: a seam sample
+/// whose projection reads u = 2π − ε (its ordinate a rounding below
+/// the axis) carries the whole outer ring one period over, while the
+/// holes, whose pcurves never touch the seam, stay on the base sheet.
+/// The holes then fall OUTSIDE the outer polygon, the even-odd region
+/// test admits the grid under them, and the face over-fills (measured
+/// on a sphere-cube subtraction at the 1e-3 tolerance once its rims
+/// were exact arcs: 546 triangles instead of 384, 29.1 units of UV
+/// area inside a 16.1-unit ring, 70% of the body's volume lost).
+/// Delaunay in the chart needs all rings on ONE sheet, so each hole is
+/// shifted by the whole-period offset (u and v, ±2 periods) under
+/// which a majority of its samples fall inside the outer ring; zero
+/// shift wins ties. A ring no shift places inside keeps its sheet —
+/// it may be a second boundary component rather than a hole.
+pub(super) fn align_hole_sheets(rings: &mut [BoundaryRing], surface: &SurfaceGeometry) {
+    let (period_u, period_v) = surface.parameter_periodicity();
+    let offsets = |period: Option<f64>| -> Vec<f64> {
+        match period {
+            Some(p) if p > 0.0 => [0.0, -1.0, 1.0, -2.0, 2.0].iter().map(|k| k * p).collect(),
+            _ => vec![0.0],
+        }
+    };
+    let (du_offsets, dv_offsets) = (offsets(period_u), offsets(period_v));
+    if du_offsets.len() == 1 && dv_offsets.len() == 1 {
+        return;
+    }
+    let Some((outer, holes)) = rings.split_first_mut() else {
+        return;
+    };
+    let outer = std::slice::from_ref(&*outer);
+    for hole in holes {
+        // A genuine hole has ALL its samples inside the outer ring; a
+        // second boundary component that merely shares part of the
+        // outer ring's border (a pinch lobe) never has a majority, and
+        // must not be dragged onto the outer's sheet (measured: the
+        // torus band's upper lobe was shifted onto the lower lobe's
+        // equator and coverage failed on every coincident segment).
+        let mut best = (hole.uv.len() / 2, 0.0, 0.0);
+        for &du in &du_offsets {
+            for &dv in &dv_offsets {
+                let inside = hole
+                    .uv
+                    .iter()
+                    .filter(|(u, v)| super::point_in_region((u + du, v + dv), outer))
+                    .count();
+                if inside > best.0 {
+                    best = (inside, du, dv);
+                }
+            }
+        }
+        let (_, du, dv) = best;
+        if du != 0.0 || dv != 0.0 {
+            if popkern_core::trace::trace_enabled("boundary-first") {
+                eprintln!(
+                    "    [bf] hole ring shifted by ({du:.4},{dv:.4}) onto the outer ring's sheet"
+                );
+            }
+            for uv in &mut hole.uv {
+                uv.0 += du;
+                uv.1 += dv;
+            }
+        }
+    }
+}
+
 // On decline, dump the unwrapped ring samples: the jump
 // pattern distinguishes genuine winding (monotone drift
 // over the ring) from branch-incoherent pcurves (one

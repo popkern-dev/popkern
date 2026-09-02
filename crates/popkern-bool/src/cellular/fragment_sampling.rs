@@ -39,7 +39,7 @@ pub(crate) fn loop_uv_runs(
     use popkern_core::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
     let trace = popkern_core::trace::trace_enabled("face-selection");
-    let u_period = surface.parameter_periodicity().0;
+    let (u_period, v_period) = surface.parameter_periodicity();
     let mut runs: Vec<UvRun> = Vec::new();
     let mut last_uv: Option<(f64, f64)> = None;
 
@@ -275,11 +275,23 @@ pub(crate) fn loop_uv_runs(
         // Mixing branches in one polygon opens a phantom interval
         // spanning the branch gap. Shift each run by whole periods so
         // it lands adjacent to the previous one.
-        if let (Some(p), Some((lu, _)), Some(&(fu, _))) = (u_period, last_uv, run.first()) {
-            let k = ((lu - fu) / p).round();
-            if k != 0.0 {
+        // Both axes: a torus band's seam pieces carry the stored
+        // tube-seam pcurve on the [−2π, 0] v-sheet while its
+        // intersection circles project onto [0, 2π]; the mixed polygon's
+        // centroid row then scanned the OTHER band and a revolved
+        // circle's box subtraction served an empty body (PK-418).
+        if let (Some((lu, lv)), Some(&(fu, fv))) = (last_uv, run.first()) {
+            let shift = |period: Option<f64>, last: f64, first: f64| -> f64 {
+                match period {
+                    Some(p) if p > 0.0 => p * ((last - first) / p).round(),
+                    _ => 0.0,
+                }
+            };
+            let (du, dv) = (shift(u_period, lu, fu), shift(v_period, lv, fv));
+            if du != 0.0 || dv != 0.0 {
                 for uv in &mut run {
-                    uv.0 += k * p;
+                    uv.0 += du;
+                    uv.1 += dv;
                 }
             }
         }

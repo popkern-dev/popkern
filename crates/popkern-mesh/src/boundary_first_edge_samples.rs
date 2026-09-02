@@ -73,7 +73,14 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
         // curve-endpoint evaluations can differ from the topological
         // vertex by ~1e-8 (refit/snap noise), and two edges meeting
         // at a vertex would then produce near-miss boundary points
-        // that straddle the weld rounding.
+        // that straddle the weld rounding. The gate is the body's own
+        // linear tolerance (floored at 1e-6): a curve end within the
+        // tolerance of its vertex IS that vertex by the body's
+        // contract (a bored sphere at the 1e-3 tolerance carries its
+        // exact seam arc's end 1e-4 from the vertex the 1e-3
+        // intersection placed; an absolute 1e-6 gate left the seam
+        // and rim rings disagreeing there and 16 open mesh edges).
+        let snap_gate = brep.tolerance.linear().max(1.0e-6);
         if let (Some(first), Some(last), Some((va, vb))) = (
             points.first().copied(),
             points.last().copied(),
@@ -86,7 +93,6 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
             } else {
                 (vb, va)
             };
-            let snap_gate = 1.0e-6;
             if first.distance_to(&pa) < snap_gate {
                 points[0] = pa;
             }

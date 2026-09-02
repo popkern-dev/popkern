@@ -180,3 +180,98 @@ fn find_and_cut_slit(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
     }
     None
 }
+
+/// Split `ring` at every PINCH — a chart point the ring visits twice
+/// (same UV within the chart epsilon and the same 3-D position) —
+/// into the simple polygons that touch there.
+///
+/// A band around a doubly-periodic chart whose loop traverses the
+/// v-seam twice is such a ring: a torus cut by a plane keeps the
+/// bottom band, and its loop runs one half of the band on the base
+/// u-sheet and the other half one period over, the two halves
+/// meeting only at the equator/tube-seam corner (2π, 2π). The chain
+/// is continuous, so the unwrap cannot fold it; as one polygon it is
+/// a bow-tie (measured: Delaunay coverage failed at the pinch, the
+/// encroachment rounds split the equator forever, and the fallback
+/// grid left 16 open edges). Each lobe is a plain rectangle on its
+/// own sheet; both consume the canonical equator samples, so they
+/// weld. Runs after the unwrap (the pinch is a property of the
+/// unwrapped chart) and on every chart.
+pub(super) fn dissolve_pinches(ring: BoundaryRing) -> Vec<BoundaryRing> {
+    let mut out = Vec::new();
+    let mut work = vec![ring];
+    while let Some(ring) = work.pop() {
+        match find_and_cut_pinch(&ring) {
+            Some(pieces) => work.extend(pieces),
+            None => out.push(ring),
+        }
+    }
+    out.sort_by(|a, b| {
+        b.uv.len().cmp(&a.uv.len()).then_with(|| {
+            a.uv.first()
+                .map(|p| (p.0, p.1))
+                .partial_cmp(&b.uv.first().map(|p| (p.0, p.1)))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    });
+    out
+}
+
+fn find_and_cut_pinch(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
+    let n = ring.uv.len();
+    if n < 6 || ring.sources.len() != n {
+        return None;
+    }
+    let (mut u0, mut u1, mut v0, mut v1) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for &(u, v) in &ring.uv {
+        u0 = u0.min(u);
+        u1 = u1.max(u);
+        v0 = v0.min(v);
+        v1 = v1.max(v);
+    }
+    let eps_uv = ((u1 - u0).hypot(v1 - v0)).max(1e-12) * 1e-6;
+    let scale = ring
+        .pos
+        .iter()
+        .zip(ring.pos.iter().cycle().skip(1))
+        .map(|(a, b)| a.distance_to(b))
+        .fold(0.0_f64, f64::max);
+    let eps_pos = (1.0 + scale) * 1e-9;
+    for i in 0..n {
+        for j in (i + 3)..n {
+            if i == 0 && j + 3 > n {
+                continue; // too close around the wrap to bound a lobe
+            }
+            let (pu, pv) = ring.uv[i];
+            let (qu, qv) = ring.uv[j];
+            if (pu - qu).hypot(pv - qv) > eps_uv || ring.pos[i].distance_to(&ring.pos[j]) > eps_pos
+            {
+                continue;
+            }
+            let take = |indices: Vec<usize>| BoundaryRing {
+                uv: indices.iter().map(|&k| ring.uv[k]).collect(),
+                pos: indices.iter().map(|&k| ring.pos[k]).collect(),
+                sources: indices.iter().map(|&k| ring.sources[k]).collect(),
+            };
+            let lobe_a = take((i..j).collect());
+            let lobe_b = take((j..n).chain(0..i).collect());
+            if lobe_a.uv.len() < 3 || lobe_b.uv.len() < 3 {
+                continue;
+            }
+            if popkern_core::trace::trace_enabled("boundary-first") {
+                eprintln!(
+                    "    [bf] pinch dissolved at uv ({pu:.4},{pv:.4}): ring cut into {} + {} points",
+                    lobe_a.uv.len(),
+                    lobe_b.uv.len()
+                );
+            }
+            return Some(vec![lobe_a, lobe_b]);
+        }
+    }
+    None
+}

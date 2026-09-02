@@ -18,6 +18,7 @@
 use crate::geometry::chart_pcurve::{analytic_chart_pcurve, fit_chart_pcurve};
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
+use crate::geometry::revolution_iso_pcurve::iso_circle_pcurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{NurbsCurve, Point3};
 use crate::tolerance::Tolerance;
@@ -83,8 +84,8 @@ pub fn coparameterised_pcurves(
 }
 
 /// The pcurve of `curve` on `surface`: the exact plane arm, the
-/// iso-line of a chart circle on a cylinder or cone, else the
-/// co-parameterised chart fit.
+/// iso-line of a chart circle on a surface of revolution (cylinder,
+/// cone, sphere, torus), else the co-parameterised chart fit.
 fn pcurve_for(
     surface: &SurfaceGeometry,
     curve: &CurveOnEdge,
@@ -100,67 +101,6 @@ fn pcurve_for(
     let fitted = fit_chart_pcurve(surface, &curve.geometry, range, tolerance)?;
     Some(Pcurve {
         geometry: PcurveGeometry::Nurbs(fitted),
-        t_start: range.0,
-        t_end: range.1,
-    })
-}
-
-/// A rim that is a chart iso-circle of a cylinder or cone (its plane
-/// perpendicular to the axis, its centre on the axis) gets the
-/// iso-linear pcurve the primitive and sweep builders spell — `u` the
-/// chart angle, `v` the station — parameterised by the arc's angles.
-fn iso_circle_pcurve(
-    surface: &SurfaceGeometry,
-    curve: &CurveGeometry,
-    range: (f64, f64),
-) -> Option<Pcurve> {
-    let CurveGeometry::Arc {
-        center,
-        normal,
-        radius,
-        ..
-    } = curve
-    else {
-        return None;
-    };
-    let (origin, axis, station, chart_radius) = match surface {
-        SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius: r,
-        } => {
-            let v = (*center - *origin).dot(axis);
-            (*origin, *axis, v, *r)
-        }
-        SurfaceGeometry::Cone {
-            apex,
-            axis,
-            half_angle,
-        } => {
-            let v = (*center - *apex).dot(axis);
-            (*apex, *axis, v, (v * half_angle.tan()).abs())
-        }
-        _ => return None,
-    };
-    let axial = axis.normalized()?;
-    let aligned = normal.dot(&axial).abs() > 1.0 - 1.0e-9;
-    let on_axis = {
-        let d = *center - origin;
-        (d - axial * d.dot(&axial)).length() < 1.0e-9 * radius.max(1.0)
-    };
-    if !(aligned && on_axis && (chart_radius - radius).abs() < 1.0e-9 * radius.max(1.0)) {
-        return None;
-    }
-    let (e1, e2) = crate::geometry::analytic_surfaces::orthonormal_basis(axial);
-    let start = curve.point_at(range.0) - origin;
-    let u0 = start.dot(&e2).atan2(start.dot(&e1));
-    let sense = if normal.dot(&axial) >= 0.0 { 1.0 } else { -1.0 };
-    let sweep = range.1 - range.0;
-    Some(Pcurve {
-        geometry: PcurveGeometry::Linear {
-            start: (u0, station),
-            end: (u0 + sense * sweep, station),
-        },
         t_start: range.0,
         t_end: range.1,
     })

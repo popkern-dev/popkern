@@ -53,6 +53,14 @@ pub fn recognize_circular(
         .map(|i| curve.point_at(t0 + (t1 - t0) * i as f64 / (SAMPLES - 1) as f64))
         .collect();
     let closed = pts[0].distance_to(&pts[SAMPLES - 1]) <= gate;
+    // Samples that are collinear within the gate carry no circle: the
+    // least-squares fit then answers an enormous radius whose sagitta
+    // over the sample span is below the gate (a bore's straight seam
+    // line read as a circle of radius 8078 with a zero-degree sweep at
+    // the 1e-3 tolerance, and the degenerate arc tore the mesh).
+    if !closed && chord_sagitta(&pts) <= gate {
+        return None;
+    }
     let m = pts.len() as f64;
     let c0 = Point3::new(
         pts.iter().map(|p| p.x).sum::<f64>() / m,
@@ -147,6 +155,30 @@ pub fn recognize_circular(
         max_deviation,
         closed,
     })
+}
+
+/// Largest distance of any sample from the line through the first
+/// sample and the sample farthest from it — zero for a straight run.
+fn chord_sagitta(pts: &[Point3]) -> f64 {
+    let origin = pts[0];
+    let far = pts
+        .iter()
+        .max_by(|a, b| {
+            a.distance_to(&origin)
+                .partial_cmp(&b.distance_to(&origin))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .copied()
+        .unwrap_or(origin);
+    let Some(dir) = (far - origin).normalized() else {
+        return 0.0;
+    };
+    pts.iter()
+        .map(|p| {
+            let d = *p - origin;
+            (d - dir * d.dot(&dir)).length()
+        })
+        .fold(0.0, f64::max)
 }
 
 /// The `Arc` edge curve for a recognised circle: angle-parameterised
