@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>popkern scripting guide</title>
+<link rel="stylesheet" href="./guide.css">
+</head>
+<body>
+<nav class="top"><a href="./index.html">← playground</a></nav>
+<main class="guide">
+<h1>popkern scripting guide</h1>
+<p>One page that gets a person — or a language model given this page as context — productive in popkern's Rhai dialect. Everything here is executable: every code block on this page runs in the test suite and must serve (or raise exactly the error class its comment names), and every stable verb, selector predicate and error class of the <a href="../architecture/scripting-surface.md">scripting surface</a> is named here by its exact spelling (<code>crates/popkern-rhai/tests/guide.rs</code> checks both). Try any block in the playground (<code>web/playground/</code>) or with <code>popkern run file.rhai --png out.png --step out.step</code>.</p>
+<h2>1. The mental model in five sentences</h2>
+<ol>
+<li>A script <strong>records a feature tree</strong>; the tree is the truth, the script is one way of writing it down. <code>save("part.pkn")</code> stores the tree; <code>open("part.pkn")</code> gets it back; "show as code" prints the canonical script for any tree.</li>
+<li>Every operation appends <strong>one feature</strong> and replays it immediately. A feature the kernel declines is not recorded: the model is exactly as it was before the call, and the error tells you why.</li>
+<li>Selections are <strong>queries evaluated once</strong>, at the call. The document stores the entities' stable names, never the query as code — an edited script re-resolves, a saved document does not.</li>
+<li>Every number you pass becomes a <strong>parameter</strong> (<code>extrude-1.distance</code>, <code>rounds.radius</code>) that sliders and <code>set_param</code> can edit later without changing the script.</li>
+<li>Booleans, fillets and shells are <strong>transactional and honest</strong>: the replay report says what was measured (a G2 request that achieved G1 is reported as downgraded, never as a green tick).</li>
+</ol>
+<h2>2. Rhai in ninety seconds (for Python and JavaScript hands)</h2>
+<pre class="lang-rhai"><code>let m = model();                      // `let`, not `var`; no `const` needed
+let width = 2.4;                      // numbers are f64; 2 and 2.0 differ (2 is an int)
+let plate = m.profile(xy()).rect(width, 1.6).sketch("plate").extrude(blind(0.4));
+print(plate.label);                   // print writes to the run's output, not stdout
+let rounds = plate.fillet(edges().straight().direction("z"), 0.1, #{ label: "rounds" });
+m
+</code></pre>
+<ul>
+<li>**Options ride in a trailing <code>#{ key: value }</code> map.** Unknown keys are an <code>ArgumentError</code>, so a typo cannot silently do nothing.</li>
+<li><strong>Enums are strings</strong>: <code>"g2"</code>, <code>"cylinder"</code>, <code>"z"</code>, <code>"inward"</code>, <code>"cut"</code>. Recipes are constructor calls: <code>conic(0.7)</code>, <code>linear(0.2)</code>, <code>two_distance(faces(), 0.05)</code>.</li>
+<li>**Closures are <code>|args| expr</code>**, and they receive the model when a verb needs a nested recording: <code>m.tool(|m| ...)</code>, <code>m.insert_before(anchor, |m, b| ...)</code>.</li>
+<li><strong>The script's last expression is its value.</strong> End with <code>m</code> so the host receives the model (the playground and <code>popkern run</code> use it).</li>
+<li><strong>Errors are maps.</strong> <code>try { ... } catch (e) { print(e.kind) }</code> gives you the same structured payload the host prints; every error is positioned at the raising call.</li>
+<li>Not available on purpose: <code>eval</code>, <code>sleep</code>, <code>exit</code>, timestamps, file I/O beyond <code>open</code>/<code>save</code>/<code>to_step</code>. Scripts are pure functions of their text.</li>
+<li>Integers vs floats matter: <code>rect(2, 1)</code> is an <code>ArgumentError</code> (<code>w</code> expects a number); write <code>rect(2.0, 1.0)</code>.</li>
+</ul>
+<h2>3. The boss plate, line by line</h2>
+<pre class="lang-rhai"><code>let m = model(#{ unit: "m" });
+// A plate: a rectangle on the XY plane, extruded 0.4 up.
+let plate = m.profile(xy()).rect(2.4, 1.6).sketch("plate_sketch")
+             .extrude(blind(0.4));
+// A boss: a circle 0.2 above the base, extruded 0.8, recorded as a
+// tool body so the union can consume it.
+let boss = m.tool(|m| m.profile(xy_at(0.2)).circle(0.35).sketch("boss_sketch")
+             .extrude(blind(0.8)));
+plate = plate.union(boss);
+// Rounds: the boss-to-plate junction, the plate's top edges, the
+// plate's vertical corners — all by geometry, none by index.
+plate.fillet(
+    edges().between("cylinder", "plane").at_height(0.4)
+        .or(edges().straight().at_height(0.4))
+        .or(edges().straight().direction("z")),
+    0.08, #{ continuity: "g1", label: "rounds" });
+m.assert_watertight();
+print(m.feature("rounds").describe());
+m
+</code></pre>
+<p><code>plate = plate.union(boss)</code> reads oddly to Rust eyes: every verb returns the body it served, and the union's result replaces the receiving body, so rebinding keeps the variable pointing at the live body.</p>
+<h2>4. Planes, profiles, sketches</h2>
+<p>A profile is a closed outline on a plane; <code>sketch(label)</code> records it as a feature and starts a new body.</p>
+<table>
+<tr><th>Spelling</th><th>Meaning</th></tr>
+<tr><td><code>xy()</code>, <code>xz()</code>, <code>yz()</code></td><td>the base planes</td></tr>
+<tr><td><code>xy_at(z)</code>, <code>xz_at(y)</code>, <code>yz_at(x)</code></td><td>a base plane offset along its normal. In-plane coordinates <code>(u, v)</code> are <code>(x, y)</code> on XY, <code>(x, z)</code> on XZ and <code>(y, z)</code> on YZ; <code>plane_at</code> uses the frame of its normal (u along the least-aligned world axis)</td></tr>
+<tr><td><code>on_face(faces()...)</code>, <code>on_face_offset(faces()..., d)</code></td><td>the plane of a planar face (the query must pick exactly one face)</td></tr>
+<tr><td><code>plane_at([ox, oy, oz], [nx, ny, nz])</code></td><td>a custom plane by origin and normal</td></tr>
+<tr><td><code>.rect(w, h)</code>, <code>.circle(r)</code>, <code>.polygon([[x, y], ...])</code></td><td>closed outlines centred on the plane origin</td></tr>
+<tr><td><code>.path(x0, y0).line_to(x, y).arc_to([vx, vy], [x, y]).close()</code></td><td>a path of lines and three-point arcs, closed back to its start</td></tr>
+<tr><td><code>.at(cx, cy)</code></td><td>place the outline's centre</td></tr>
+</table>
+<pre class="lang-rhai"><code>let m = model();
+let knob = m.profile(xz())
+    .path(0.0, 0.0).line_to(0.45, 0.0).line_to(0.45, 0.25).line_to(0.30, 0.25)
+    .line_to(0.30, 0.55).line_to(0.0, 0.55).close()
+    .sketch("knob_section")
+    .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
+m
+</code></pre>
+<p>Profiles work on every plane, not only XY — an L-bracket sketched on <code>yz()</code> extrudes along +x.</p>
+<h2>5. Features</h2>
+<p>Every feature verb is a method on a body; every one returns the body it served; every one takes an optional trailing options map with at least <code>label</code>.</p>
+<table>
+<tr><th>Verb</th><th>Positional arguments</th><th>Options</th><th>Notes</th></tr>
+<tr><td><code>extrude(end)</code></td><td><code>end</code>: <code>blind(d)</code>, <code>through_all()</code>, <code>up_to_surface(faces()...)</code>, <code>offset_from_surface(faces()..., d)</code>, <code>mid_plane(half_d)</code></td><td><code>label</code>, <code>mode</code> (<code>"new_body"</code> default, <code>"boss"</code>, <code>"cut"</code>)</td><td><code>boss</code>/<code>cut</code> fold the new body into the body the sketch sits on (<code>on_face</code> sketches); a base-plane sketch is its own body — combine it with <code>union</code>/<code>subtract</code>.</td></tr>
+<tr><td><code>revolve(axis, end)</code></td><td><code>axis</code>: <code>axis_at([o], [d])</code> or <code>axis(edges()...)</code>; <code>end</code>: <code>blind(angle_deg)</code>, <code>full_circle()</code>, <code>mid_plane(half_angle)</code></td><td><code>label</code></td><td>Revolved spans become exact planes, cylinders, cones and tori.</td></tr>
+<tr><td><code>union(tool)</code>, <code>subtract(tool)</code>, <code>intersect(tool)</code></td><td>a body from <code>m.tool(...)</code></td><td><code>label</code></td><td>The tool body is consumed; rebinding (<code>plate = plate.union(boss)</code>) keeps the live body.</td></tr>
+<tr><td><code>fillet(edges, radius)</code></td><td><code>edges()...</code> query; <code>radius</code> scalar</td><td><code>label</code>, <code>continuity</code> (<code>"g0"</code>, <code>"g1"</code>, <code>"g2"</code>), <code>cap</code> (<code>"open"</code>, <code>"flat"</code>, <code>"rounded"</code>, <code>"tangent_match"</code>), <code>profile</code> (<code>circular()</code>, <code>conic(rho)</code>, <code>curvature_continuous()</code>), <code>interference</code> (<code>"decline"</code>, <code>"serve_non_interfering"</code>), <code>law</code> (<code>constant()</code>, <code>linear(end_radius)</code>, <code>by_stations([[t, r], ...])</code>)</td><td>A radius the edge cannot carry is a <code>FeatureFailed</code> with the maximum radius and a <code>ReduceRadius</code> remediation.</td></tr>
+<tr><td><code>chamfer(edges, distance)</code></td><td>as fillet</td><td><code>label</code>, <code>kind</code> (<code>equal()</code> default, <code>two_distance(faces()..., d2)</code>, <code>distance_angle(faces()..., angle_deg)</code>)</td><td>The face query of a kind must resolve on the chamfered body.</td></tr>
+<tr><td><code>shell(faces_to_remove, thickness)</code></td><td><code>faces()...</code> (may be <code>.allow_empty()</code> for a closed hollow)</td><td><code>label</code>, <code>direction</code> (<code>"inward"</code> default, <code>"outward"</code>, <code>"midplane"</code>), <code>join</code> (<code>"arc"</code>, <code>"intersection"</code>), <code>trim</code> (<code>"trim"</code>, <code>"decline"</code>)</td><td></td></tr>
+<tr><td><code>translate(dx, dy, dz)</code>, <code>rotate(axis, angle_deg)</code></td><td>rigid motions; the distances and the angle are scalars (<code>p()</code>/<code>expr()</code> apply)</td><td><code>label</code></td><td>Usually applied to tool bodies before a boolean. Selector arguments (<code>at_height(z)</code>, <code>chord_length_between</code>) are plain numbers, not parameters.</td></tr>
+</table>
+<pre class="lang-rhai"><code>let m = model();
+let block = m.profile(xy()).rect(1.2, 0.8).sketch("block_sketch").extrude(blind(0.5));
+let bore = m.tool(|m| m.profile(xy_at(-0.1)).circle(0.18).sketch("bore_sketch").extrude(blind(0.7)));
+block = block.subtract(bore);
+m.label_edge("bore_rim", edges().circular().at_height(0.5));
+block = block.fillet(edges().labeled("bore_rim"), 0.05, #{ label: "rim_round" });
+block = block.chamfer(edges().straight().at_height(0.0), 0.04,
+    #{ kind: distance_angle(faces().facing_neg("z"), 30.0), label: "lead_in" });
+m.assert_watertight();
+m
+</code></pre>
+<p>A shell hollows a body from a removed face; round the corners first, and keep the wall thinner than any round it must follow:</p>
+<pre class="lang-rhai"><code>let m = model();
+let box = m.profile(xy()).rect(1.6, 1.0).sketch("outline").extrude(blind(0.6));
+box = box.fillet(edges().straight().direction("z"), 0.15, #{ label: "corners" });
+box = box.shell(faces().facing("z").at_height(0.6), 0.06, #{ direction: "inward", label: "hollow" });
+m.assert_watertight();
+m
+</code></pre>
+<p>Scalars: any numeric argument accepts a literal, <code>p("name")</code> for a declared parameter, or <code>expr("text")</code> for an expression over parameters.</p>
+<h2>6. Selecting edges and faces</h2>
+<p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries; <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
+<table>
+<tr><th>Edge predicate</th><th>Meaning</th></tr>
+<tr><td><code>circular()</code>, <code>straight()</code>, <code>conic()</code>, <code>nurbs()</code></td><td>the edge's curve kind</td></tr>
+<tr><td><code>between("cylinder", "plane")</code></td><td>the two adjacent surface kinds (<code>"plane"</code>, <code>"cylinder"</code>, <code>"cone"</code>, <code>"sphere"</code>, <code>"torus"</code>, <code>"nurbs"</code>)</td></tr>
+<tr><td><code>at_height(z)</code></td><td>the edge lies at that z</td></tr>
+<tr><td><code>direction("z")</code> / <code>direction([x, y, z])</code></td><td>a straight edge along that direction</td></tr>
+<tr><td><code>chord_length_between(min, max)</code></td><td>endpoint distance in that range (a closed circle's chord is 0; use it to tell straight edges apart by length, and <code>at_height</code> plus the feature order to tell concentric rims apart)</td></tr>
+<tr><td><code>not_seam()</code></td><td>exclude periodic seams (they are excluded from blends anyway)</td></tr>
+<tr><td><code>labeled("name")</code></td><td>an edge labelled with <code>label_edge</code></td></tr>
+<tr><td><code>named("rounds/Generated/3")</code></td><td>the entity's stable name (what "show as code" emits when a query went stale)</td></tr>
+</table>
+<table>
+<tr><th>Face predicate</th><th>Meaning</th></tr>
+<tr><td><code>kind("plane")</code></td><td>surface kind</td></tr>
+<tr><td><code>facing("z")</code>, <code>facing_neg("z")</code></td><td>outward normal along ± an axis (or <code>[x, y, z]</code>)</td></tr>
+<tr><td><code>at_height(z)</code></td><td>a planar face at that z</td></tr>
+<tr><td><code>labeled("name")</code>, <code>named("plate_sketch/Generated/0")</code></td><td>as for edges</td></tr>
+</table>
+<pre class="lang-rhai"><code>let m = model();
+// A triangular prism: its top face has exactly one edge along x.
+let prism = m.profile(xy()).polygon([[0.0, 0.0], [1.0, 0.0], [0.5, 0.8]]).sketch("tri").extrude(blind(1.0));
+m.label_face("top", faces().facing("z").at_height(1.0));
+m.label_edge("front_top", edges().straight().at_height(1.0).direction("x").chord_length_between(0.9, 1.1));
+prism.fillet(edges().straight().direction("z").or(edges().labeled("front_top")), 0.08, #{ label: "rounds" });
+prism.chamfer(edges().circular().allow_empty(), 0.02, #{ label: "no_rims" });   // a no-op, recorded as such
+print(m.labels().len());
+m
+</code></pre>
+<p>Labels: <code>label_edge(name, query)</code>, <code>label_face(name, query)</code>, <code>unlabel(name)</code>, <code>rename_label(old, new)</code>, <code>labels()</code>. Entity labels and feature labels are separate namespaces; a duplicate is a <code>LabelError</code>.</p>
+<h2>7. Parameters, expressions, configurations</h2>
+<pre class="lang-rhai"><code>let m = model();
+m.param("wall", 0.3, "m");
+m.param("span", 2.0, "m");
+m.param_expr("lip", "wall * 0.5", "m");
+let plate = m.profile(xy()).rect(p("span"), 1.2).sketch("plate_sketch").extrude(blind(p("wall")));
+plate = plate.fillet(edges().straight().direction("z"), 0.1, #{ label: "corners" });
+let rib = m.tool(|m| m.profile(xy_at(p("wall"))).rect(expr("span * 0.8"), 0.12).sketch("rib_sketch").extrude(blind(p("lip"))));
+plate = plate.union(rib);
+m.set_bounds("wall", 0.1, 1.0);
+m.set_expr("lip", "wall * 0.4");
+m.clear_expr("lip");
+m.clear_bounds("wall");
+m.rename_param("lip", "rib_height");
+m.set_param("wall", 0.35);
+m.add_config("heavy", "double wall");
+m.set_override("heavy", "wall", 0.6);
+m.set_active_config("heavy");
+m.replay();
+m.set_active_config(());
+print(m.params().len());
+print(m.configs().len());
+m
+</code></pre>
+<p>Units: <code>"m"</code>, <code>"mm"</code>, <code>"cm"</code>, <code>"in"</code>, <code>"deg"</code>, <code>"rad"</code>, <code>"ratio"</code>. Every literal you pass to a feature becomes <code>feature.role</code> (<code>extrude-1.distance</code>, <code>corners.radius</code>) — <code>params()</code> lists them and <code>set_param</code> edits them. Configurations (<code>add_config</code>, <code>add_derived_config(name, parent)</code>, <code>duplicate_config</code>, <code>delete_config</code>, <code>rename_config</code>, <code>set_override</code>, <code>clear_override</code>, <code>set_suppression(config, feature, true)</code>, <code>clear_suppression</code>, <code>set_active_config</code>, <code>configs()</code>, <code>config(name)</code>) are preview verbs: they work, and their spellings may still move.</p>
+<h2>8. Reading the model back</h2>
+<pre class="lang-rhai"><code>let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube.fillet(edges().straight().direction("z"), 0.1, #{ label: "rounds" });
+let rounds = m.feature("rounds");
+print(rounds.describe());               // "rounds — fillet 0.1 on 4 edges: ..."
+print(rounds.evidence().outcome);       // the feature's replay row
+print(m.features().len());              // timeline order
+print(m.report().failures.len());       // spec §11 report: features, warnings, blend evidence
+print(m.bodies().len());
+print(m.active().label);
+m.label_face("top", faces().facing("z").at_height(1.0));
+print(m.entity_spelling("top"));        // "extrude-1/Cap/0": the label's stable entity name
+print(m.to_rhai());                     // the document as canonical Rhai ("show as code")
+m
+</code></pre>
+<p><code>report()</code> carries, per feature, the outcome, the wall time, kernel warnings, and for blends the measured continuity beside the requested one. <code>assert_watertight()</code> and <code>assert_step_roundtrip(path)</code> are gates: they raise <code>NotWatertight</code> / <code>ValidationFailed</code> instead of returning.</p>
+<h2>9. Editing a saved document (migration verbs)</h2>
+<p>The same verbs a GUI's history tree would use. Stable: <code>feature(label)</code>, <code>features()</code>, <code>describe()</code>, <code>modify(#{...})</code>, <code>suppress()</code>, <code>unsuppress()</code>, <code>evidence()</code>. Preview: <code>insert_before</code>, <code>insert_after</code>, <code>reorder</code>, <code>delete</code>, <code>rollback_to</code>, <code>rollback_to_end</code>, <code>undo</code>, <code>redo</code>, <code>dependents</code>, <code>to_rhai</code>.</p>
+<pre class="lang-rhai"><code>let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube = cube.fillet(edges().straight().direction("z"), 0.1, #{ label: "rounds" });
+let rounds = m.feature("rounds");
+rounds.modify(#{ radius: 0.12 });
+rounds.suppress();
+rounds.unsuppress();
+m.insert_before(rounds, |m, b| b.chamfer(edges().straight().at_height(0.0), 0.05, #{ label: "foot_break" }));
+m.reorder(m.feature("foot_break"), 2);
+m.rollback_to(m.feature("foot_break"));
+m.rollback_to_end();
+m.rename(rounds, "corner_rounds");
+print(m.feature("corner_rounds").dependents().len());
+m.replay();
+m
+</code></pre>
+<p><code>insert_before(anchor, |m, b| ...)</code> hands the closure the model and the body as it was <strong>before</strong> the anchor; the closure records exactly one feature there. Names are the truth: a feature inserted earlier keeps every later selection valid because later features reference entities by stable name, not by index.</p>
+<h2>10. When it goes wrong: the error classes</h2>
+<p>Every failure is a map with a <code>kind</code> and the fields below; the host prints it as <code>Kind at file:line:column: message</code> plus one remediation line per hint. In a script, <code>try</code>/<code>catch</code> receives the same map.</p>
+<table>
+<tr><th>Class</th><th>When</th><th>Fields</th></tr>
+<tr><td><code>ArgumentError</code></td><td>wrong type, unknown option key, unknown parameter name, bad enum spelling</td><td><code>argument</code>, <code>reason</code></td></tr>
+<tr><td><code>EmptySelection</code></td><td>a query matched nothing (add <code>.allow_empty()</code> if a no-op is intended)</td><td><code>selection</code>, <code>entity</code></td></tr>
+<tr><td><code>SelectionCardinality</code></td><td>a single-entity argument matched several</td><td><code>selection</code>, <code>expected</code>, <code>got</code></td></tr>
+<tr><td><code>FeatureFailed</code></td><td>the kernel declined the feature (its <code>error</code> carries the class below)</td><td><code>feature</code>, <code>error</code>, <code>report</code></td></tr>
+<tr><td><code>BlendDeclined</code></td><td>inside <code>FeatureFailed</code>: a fillet/chamfer the geometry cannot carry — each failure names the edge, the <code>max_radius</code> and a remediation (<code>ReduceRadius</code>)</td><td><code>selection</code>, <code>blend_kind</code>, <code>detail</code>, <code>failures</code></td></tr>
+<tr><td><code>InvalidParameter</code></td><td>inside <code>FeatureFailed</code>: a negative radius, a distance out of range</td><td><code>parameter</code>, <code>kernel_path</code>, <code>value</code>, <code>reason</code></td></tr>
+<tr><td><code>BooleanFailed</code>, <code>SweepFailed</code>, <code>ShellFailed</code>, <code>DraftFailed</code></td><td>a boolean, extrude/revolve, shell or draft declined</td><td><code>operation</code>/<code>feature</code>, <code>detail</code></td></tr>
+<tr><td><code>ResolutionFailed</code></td><td>on replay, a stored name no longer resolves (after a migration)</td><td><code>feature</code>, <code>name</code>, <code>selection</code>, <code>resolved</code>, <code>expected</code></td></tr>
+<tr><td><code>LabelError</code></td><td>unknown or duplicate label</td><td><code>label</code>, <code>reason</code></td></tr>
+<tr><td><code>ParameterError</code></td><td>bad bounds, dimension mismatch, dangling expression</td><td><code>parameter</code>, <code>reason</code></td></tr>
+<tr><td><code>TimelineError</code></td><td>a consumed tool body, an invalid reorder, an insertion that breaks a dependency</td><td><code>reason</code></td></tr>
+<tr><td><code>DocumentError</code>, <code>IoFailed</code>, <code>NotApplicable</code></td><td>a document that will not open, a path that will not write, an op the body cannot take</td><td><code>reason</code> / <code>path</code>, <code>detail</code></td></tr>
+<tr><td><code>NotWatertight</code>, <code>ValidationFailed</code></td><td>a gate failed</td><td><code>open_edges</code> / <code>feature</code>, <code>detail</code>, <code>issues</code></td></tr>
+<tr><td><code>CoreError</code></td><td>a kernel invariant tripped (report it)</td><td><code>detail</code></td></tr>
+<tr><td><code>Cancelled</code>, <code>BudgetExceeded</code></td><td>the host stopped the run (playground and CLI budgets: <code>budget</code> is <code>operations</code> or <code>wall_clock</code>)</td><td><code>budget</code></td></tr>
+<tr><td><code>SyntaxError</code></td><td>Rhai could not parse the script</td><td>position</td></tr>
+</table>
+<pre class="lang-rhai"><code>// raises: FeatureFailed
+let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube.fillet(edges(), 0.9);
+</code></pre>
+<pre class="lang-rhai"><code>// raises: EmptySelection
+let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube.fillet(edges().circular(), 0.1);
+</code></pre>
+<pre class="lang-rhai"><code>// raises: ArgumentError
+let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube.fillet(edges(), 0.1, #{ continuity: "g1", colour: "red" });
+</code></pre>
+<pre class="lang-rhai"><code>let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+try {
+    cube.fillet(edges(), 0.9);
+} catch (e) {
+    print(e.kind);                      // "FeatureFailed"
+    print(e.error.kind);                // "BlendDeclined"
+    print(e.error.failures[0].max_radius);
+}
+m
+</code></pre>
+<h2>11. Budgets, size, speed</h2>
+<ul>
+<li>The playground runs a script under an operation budget and a wall clock budget (about 20 s); <code>popkern run --max-ops N --timeout S</code> does the same. A script that overruns is stopped with <code>BudgetExceeded</code>; the last good model stays on screen.</li>
+<li>G2 fillets with corners are the slow path today (seconds each, tens of seconds for a fully rounded cube); G1 rounds and chamfers are fast. Prefer G1 unless curvature continuity is the point.</li>
+<li>The wasm engine runs about three times slower than native; a twenty-feature part builds in well under a second natively and in a few seconds in the browser.</li>
+<li>Cut-mode extrudes (<code>#{ mode: "cut" }</code>) need a sketch on a face of the target body (<code>on_face(...)</code>); from a base plane, record the cutter with <code>m.tool(...)</code> and <code>subtract</code> it.</li>
+</ul>
+<h2>12. Cheat-sheet</h2>
+<pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
+m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
+PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)
+END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_plane(h) full_circle()
+AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
+body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
+body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
+body.fillet(E, r, #{label, continuity, cap, profile, interference, law})
+body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
+body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
+E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
+   .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
+F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()
+m.param(name, v, unit) param_expr(name, text, unit) set_param set_expr clear_expr
+  set_bounds clear_bounds rename_param params()      p("name")  expr("a * 2")
+m.label_edge label_face unlabel rename_label labels()
+m.feature(label) features() report() bodies() active() assert_watertight() assert_step_roundtrip(path)
+feature.describe() evidence() modify(#{…}) suppress() unsuppress() dependents()
+m.insert_before(f, |m, b| …) insert_after reorder(f, i) delete(f) rollback_to(f) rollback_to_end() undo() redo()
+m.add_config add_derived_config duplicate_config delete_config rename_config set_active_config
+  set_override clear_override set_suppression clear_suppression configs() config(name)
+</code></pre>
+<p>Gallery scripts that exercise all of this: <code>crates/popkern-rhai/examples/</code> (<code>boss_plate</code>, <code>revolved_knob</code>, <code>shelled_enclosure</code>, <code>chamfered_bracket</code>, <code>bored_block</code>, <code>tapered_fillet</code>, <code>parametric_plate</code>, <code>keyed_shaft</code>).</p>
+</main>
+</body>
+</html>
