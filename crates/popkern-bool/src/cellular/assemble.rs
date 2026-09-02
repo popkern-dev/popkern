@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use popkern_core::{
     constructors::builder::BRepBuilder,
+    geometry::Point3,
     geometry::curve::{CurveGeometry, CurveOnEdge},
     tolerance::Tolerance,
     topology::{BRep, HalfEdgeHandle, VertexHandle},
@@ -137,42 +138,42 @@ pub(crate) fn cellular_assemble(
             }
         }
     };
-    // COINCIDENT-PAIR UNIFICATION: on a coplanar interface, a face's
-    // boundary edge piece and an intersection record can span the
-    // SAME two nodes with the SAME geometry as two distinct graph
-    // pairs — one used by each side's kept fragment. Creating both
-    // left each brep edge with a single use (non-manifold seam along
-    // a flush gusset's wall line). Distinct graph pairs that connect
-    // the same nodes with matching curve midpoints share ONE brep
-    // edge; the loop wiring then consumes complementary directions.
-    let mut span_map: HashMap<(usize, usize, i64, i64, i64), usize> = HashMap::new();
-    let span_key = |key: usize| -> (usize, usize, i64, i64, i64) {
+    // COINCIDENT-PAIR UNIFICATION: a boundary edge piece and a record
+    // spanning the SAME points with the SAME geometry share ONE brep
+    // edge (creating both left a non-manifold seam along a flush
+    // gusset's wall line); the loop wiring then consumes complementary
+    // directions. Judged at the tolerance: `assemble_span_unify.rs`.
+    let mut spans = super::assemble_span_unify::SpanRegistry::new(tolerance.linear() * 10.0);
+    let span_points = |key: usize| -> (
+        (usize, usize),
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+    ) {
         use popkern_core::geometry::curve::CurveEval;
         let na = graph.half_edges[key].origin;
         let nb = graph.half_edges[graph.half_edges[key].twin].origin;
-        let (lo, hi) = (na.min(nb), na.max(nb));
+        let (pa, pb) = (graph.nodes[na].position, graph.nodes[nb].position);
         let mid = graph.half_edges[key]
             .curve
             .as_ref()
             .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref())
             .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)))
             .unwrap_or_else(|| {
-                let pa = graph.nodes[na].position;
-                let pb = graph.nodes[nb].position;
-                popkern_core::geometry::Point3::new(
+                Point3::new(
                     0.5 * (pa.x + pb.x),
                     0.5 * (pa.y + pb.y),
                     0.5 * (pa.z + pb.z),
                 )
             });
-        let q = |v: f64| (v / 1.0e-6).round() as i64;
-        (lo, hi, q(mid.x), q(mid.y), q(mid.z))
+        ((na, nb), pa, pb, mid)
     };
     for (&key, &sample_ghe) in &canonical_edges {
         if is_degenerate_key(key) {
             continue;
         }
-        if let Some(&prior_key) = span_map.get(&span_key(key)) {
+        let (nodes, pa, pb, mid) = span_points(key);
+        if let Some(prior_key) = spans.prior_for(nodes, pa, pb, mid) {
             // Align directions: the two graph pairs may run opposite
             // ways along the same span. Handing both sides the same
             // forward half-edge produced direction conflicts and the
@@ -198,9 +199,8 @@ pub(crate) fn cellular_assemble(
             }
             continue;
         }
-        span_map.insert(span_key(key), key);
-        let na = graph.half_edges[key].origin;
-        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
+        spans.register(nodes, pa, pb, mid, key);
+        let (na, nb) = nodes;
         let vh_a = node_to_vertex[&na];
         let vh_b = node_to_vertex[&nb];
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);

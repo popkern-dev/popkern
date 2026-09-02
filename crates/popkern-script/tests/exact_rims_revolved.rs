@@ -157,6 +157,64 @@ fn a_torus_cut_above_its_spine_keeps_both_latitude_rims_and_its_seams_exact() {
     m.assert_watertight().expect("watertight");
 }
 
+/// The cut IN the torus's equator plane: the intersection runs along
+/// the torus's own equator seam edge (PK-420). Both equators are exact
+/// circular rims shared by the plane annulus and the half torus.
+#[test]
+fn a_torus_cut_through_its_equator_keeps_both_equators_as_shared_rims() {
+    let mut m = Model::new();
+    let ring = m
+        .profile(Plane::XZ)
+        .circle(0.3)
+        .at(1.0, 0.0)
+        .sketch("tube_section")
+        .expect("sketch")
+        .revolve(&mut m, z_axis(), RevolveEnd::FullCircle, "ring")
+        .expect("revolve");
+    let cutter = m
+        .tool(|m| {
+            m.profile(Plane::XY)
+                .rect(3.0, 3.0)
+                .sketch("half_box")?
+                .extrude(m, End::Blind(1.0.into()))
+        })
+        .expect("cutter");
+    let half = ring.subtract(&mut m, cutter).expect("subtract");
+    let brep = m.brep_of(half).expect("brep");
+    let radii = arc_radii(&brep);
+    for want in [0.7, 1.3] {
+        assert!(
+            radii.iter().any(|r| (r - want).abs() < 1e-9),
+            "equator rim of radius {want}: {radii:?}"
+        );
+    }
+    assert_eq!(
+        nurbs_edges(&brep),
+        0,
+        "no NURBS edge remains on the half torus"
+    );
+    assert!(brep.validate_all().is_empty());
+    // Every equator rim is shared by the annulus and the torus band.
+    let shared_rims = brep
+        .edges
+        .values()
+        .filter(|e| {
+            let he = &brep.half_edges[e.half_edge];
+            let fa = brep.loops[he.loop_].face;
+            let fb = brep.loops[brep.half_edges[he.twin].loop_].face;
+            fa != fb
+                && matches!(
+                    e.curve.as_ref().map(|c| &c.geometry),
+                    Some(CurveGeometry::Arc { radius, .. }) if (radius - 0.7).abs() < 1e-9 || (radius - 1.3).abs() < 1e-9
+                )
+        })
+        .count();
+    assert_eq!(shared_rims, 2, "both equators are two-faced rims");
+    m.label_face("cap", &faces().kind(SurfaceKind::Plane).at_height(0.0))
+        .expect("the annulus selects");
+    m.assert_watertight().expect("watertight");
+}
+
 /// The coarse end of the envelope: the sphere face's hole rings ride
 /// the outer ring's period sheet, so the mesh stays closed and the
 /// volume stays right when the model's tolerance is 1e-3.

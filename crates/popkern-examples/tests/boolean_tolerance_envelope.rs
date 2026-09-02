@@ -30,6 +30,25 @@ fn volume(brep: &BRep) -> f64 {
     (vol / 6.0).abs()
 }
 
+/// Mesh edges used by exactly one triangle (position-welded).
+fn open_edges(mesh: &popkern_mesh::TriMesh) -> usize {
+    use std::collections::HashMap;
+    type Bits = (u64, u64, u64);
+    let key = |p: popkern_core::geometry::Point3| -> Bits {
+        (p.x.to_bits(), p.y.to_bits(), p.z.to_bits())
+    };
+    let mut count: HashMap<(Bits, Bits), usize> = HashMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let a = key(mesh.vertices[t[k]].position);
+            let b = key(mesh.vertices[t[(k + 1) % 3]].position);
+            let e = if a <= b { (a, b) } else { (b, a) };
+            *count.entry(e).or_insert(0) += 1;
+        }
+    }
+    count.values().filter(|&&c| c != 2).count()
+}
+
 fn nurbs_edges(brep: &BRep) -> usize {
     brep.edges
         .values()
@@ -129,6 +148,57 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
                 assert!(
                     msg.contains("stranded") || msg.contains("not closed") || msg.contains("gap"),
                     "decline must carry assembly diagnostics: {msg}"
+                );
+            }
+        }
+
+        // The same torus cut IN its equator plane (z = 0): the tool's
+        // bottom face contains the torus's own equator circles, so the
+        // intersection records run along existing edges. The records
+        // unify with those edges at the boolean tolerance and the kept
+        // half torus welds to the annulus along them (PK-420: at 1e-3
+        // an exact-node unification caught four of eight quarters and
+        // the served body was two torus faces with curveless edges,
+        // validator-clean, 4% of the volume). Serves through 1e-3
+        // with the half-torus volume π²Rr².
+        let torus = BRep::torus(1.0, 0.3, t).unwrap();
+        let box_ = BRep::unit_cube(t)
+            .unwrap()
+            .transform(&Transform3::scale_uniform(3.0))
+            .unwrap()
+            .transform(&Transform3::translation(-1.5, -1.5, 0.0))
+            .unwrap();
+        match popkern_bool::subtraction(torus, box_, t, None) {
+            Ok(b) => {
+                // Serves clean at every tolerance in the envelope
+                // (1e-2 included): a served body must be clean.
+                assert!(
+                    b.validate_all().is_empty(),
+                    "torus-box(z=0) at {lin:e} must be validator-clean"
+                );
+                assert_eq!(
+                    nurbs_edges(&b),
+                    0,
+                    "torus-box(z=0) at {lin:e}: every rim is an exact arc"
+                );
+                let v = volume(&b);
+                let truth = std::f64::consts::PI.powi(2) * 0.09;
+                let rel = (v - truth).abs() / truth;
+                assert!(
+                    rel < 0.02,
+                    "torus-box(z=0) at {lin:e}: vol {v:.4} vs {truth:.4}"
+                );
+                let mesh = tessellate(&b, &TessellationOptions::default()).unwrap();
+                assert_eq!(
+                    open_edges(&mesh),
+                    0,
+                    "torus-box(z=0) at {lin:e}: watertight"
+                );
+            }
+            Err(e) => {
+                assert!(
+                    lin >= 5e-3,
+                    "torus-box(z=0) at {lin:e} must serve, got: {e}"
                 );
             }
         }

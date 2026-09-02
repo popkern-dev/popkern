@@ -109,30 +109,28 @@ pub(crate) fn walk_all_fragments_ext(
                 "  [walk-pre] {face_ref:?}: {} hes ({n_int} intersection)",
                 he_indices.len()
             );
-            if popkern_core::trace::trace_enabled("fragment-walk") {
-                for &h in he_indices.iter() {
-                    let he = &graph.half_edges[h];
-                    let o = he.origin;
-                    let e = graph.half_edges[he.twin].origin;
-                    let po = graph.nodes[o].position;
-                    let pe = graph.nodes[e].position;
-                    eprintln!(
-                        "      [he] {h} n{o}({:.9},{:.9},{:.9}) -> n{e}({:.9},{:.9},{:.9}) twin {} src {:?} curve {}",
-                        po.x,
-                        po.y,
-                        po.z,
-                        pe.x,
-                        pe.y,
-                        pe.z,
-                        he.twin,
-                        he.source,
-                        he.curve
-                            .as_ref()
-                            .or(graph.half_edges[he.twin].curve.as_ref())
-                            .map(|c| format!("[{:.2},{:.2}]", c.t_start, c.t_end))
-                            .unwrap_or_else(|| "none".into())
-                    );
-                }
+            for &h in he_indices.iter() {
+                let he = &graph.half_edges[h];
+                let o = he.origin;
+                let e = graph.half_edges[he.twin].origin;
+                let po = graph.nodes[o].position;
+                let pe = graph.nodes[e].position;
+                eprintln!(
+                    "      [he] {h} n{o}({:.9},{:.9},{:.9}) -> n{e}({:.9},{:.9},{:.9}) twin {} src {:?} curve {}",
+                    po.x,
+                    po.y,
+                    po.z,
+                    pe.x,
+                    pe.y,
+                    pe.z,
+                    he.twin,
+                    he.source,
+                    he.curve
+                        .as_ref()
+                        .or(graph.half_edges[he.twin].curve.as_ref())
+                        .map(|c| format!("[{:.2},{:.2}]", c.t_start, c.t_end))
+                        .unwrap_or_else(|| "none".into())
+                );
             }
         }
         let face_hes: HashSet<usize> = he_indices.iter().copied().collect();
@@ -276,11 +274,13 @@ pub(crate) fn walk_all_fragments_ext(
             }
         }
 
-        // Sort starting edges: seam-like first, then other non-shared, then shared.
-        // Seam-like edges (where the twin is also on this face) form the outer
-        // boundary "spine" that connects self-loop circles. Starting from them
-        // ensures the outer boundary walk includes expanded cap circles rather
-        // than consuming them as standalone loops.
+        // A boundary edge covered by a record is not walked (see
+        // `boundary_predicates::boundary_covered_by_records`).
+        if !walked_by_chart {
+            boundary_predicates::skip_covered(graph, he_indices, tolerance, &mut visited);
+        }
+        // Start seam-like first (twin on this face: the outer "spine" that
+        // connects self-loop circles), then other non-shared, then shared.
         let mut sorted_hes: Vec<usize> = he_indices.clone();
         sorted_hes.sort_by_key(|&idx| {
             let is_shared = matches!(

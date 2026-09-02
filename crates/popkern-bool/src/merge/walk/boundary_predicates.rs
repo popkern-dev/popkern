@@ -111,3 +111,91 @@ pub(super) fn apex_turnaround_candidate(
     }
     None
 }
+
+/// Boundary half-edges of the face (both halves of the edge) that a
+/// Shared record registered on the face COVERS: the same two nodes
+/// and the same 3-D points at the quarter, middle and three-quarter
+/// stations, in either direction. A cut that runs along an edge the
+/// operand already has (a box whose bottom lies in a torus's equator
+/// plane) gives the face two coincident closed pairs at one node; the
+/// 3D-Newell walk chained all four halves into a zero-area loop and
+/// lost the equator from BOTH bands (measured on a revolved circle's
+/// torus, PK-420). Here the RECORD outranks the boundary edge — the
+/// opposite of the chart walker's dedup — because this walker treats
+/// a Shared record as a cut (in, around, back out) while a boundary
+/// edge whose twin is on the same face is a seam it passes through:
+/// keeping the original folded both bands into one slit fragment.
+/// The assembly unifies the record with the original's edge, so the
+/// served body keeps the original's exact curve.
+fn boundary_covered_by_records(
+    graph: &IntersectionGraph,
+    he_indices: &[usize],
+    gate: f64,
+) -> Vec<usize> {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let is_record = |h: usize| {
+        matches!(
+            graph.half_edges[h].source,
+            crate::merge::graph::EdgeSource::Shared { .. }
+        )
+    };
+    let ends = |h: usize| -> (usize, usize) {
+        (
+            graph.half_edges[h].origin,
+            graph.half_edges[graph.half_edges[h].twin].origin,
+        )
+    };
+    // The 3-D point a fraction `f` along the half-edge's own traversal.
+    let probe = |h: usize, f: f64| -> Option<popkern_core::geometry::Point3> {
+        let he = &graph.half_edges[h];
+        if let Some(c) = he.curve.as_ref() {
+            return Some(c.geometry.point_at(c.t_start + f * (c.t_end - c.t_start)));
+        }
+        let c = graph.half_edges[he.twin].curve.as_ref()?;
+        Some(c.geometry.point_at(c.t_end - f * (c.t_end - c.t_start)))
+    };
+    let mut covered = Vec::new();
+    for &b in he_indices.iter().filter(|&&h| !is_record(h)) {
+        let (b0, b1) = ends(b);
+        let by_record = he_indices.iter().any(|&r| {
+            if !is_record(r) {
+                return false;
+            }
+            let (r0, r1) = ends(r);
+            let same = r0 == b0 && r1 == b1;
+            let reversed = r0 == b1 && r1 == b0;
+            if !(same || reversed) {
+                return false;
+            }
+            [0.25_f64, 0.5, 0.75].iter().all(|&f| {
+                let g = if same { f } else { 1.0 - f };
+                match (probe(r, f), probe(b, g)) {
+                    (Some(p), Some(q)) => p.distance_to(&q) <= gate,
+                    // Curveless straight spans: the nodes decide, but a
+                    // closed span (one node) cannot be judged.
+                    _ => b0 != b1,
+                }
+            })
+        });
+        if by_record {
+            covered.push(b);
+            covered.push(graph.half_edges[b].twin);
+        }
+    }
+    covered
+}
+
+/// Mark every boundary half-edge a record covers as visited, so the
+/// 3D-Newell walk neither starts from nor steps onto it.
+pub(super) fn skip_covered(
+    graph: &IntersectionGraph,
+    he_indices: &[usize],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    visited: &mut HashSet<usize>,
+) {
+    visited.extend(boundary_covered_by_records(
+        graph,
+        he_indices,
+        tolerance.linear() * 10.0,
+    ));
+}
