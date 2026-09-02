@@ -1,0 +1,138 @@
+//! Exact rims (PK-417): intersection edges that trace a circle leave
+//! the boolean as the analytic `Arc` they are.
+//!
+//! The pipeline carries every intersection curve as a NURBS triple —
+//! including the rational circles the plane × cylinder / cone solvers
+//! author exactly — so a bore's rims reached the result as NURBS:
+//! `circular()` could not select them, fillets and STEP consumers lost
+//! the analytic path, and two rims of one bore differed in spelling
+//! from the extruded cylinder's own caps. This pass runs at the tail
+//! of output post-processing: every NURBS edge whose samples lie on
+//! one circle within the body's tolerance is re-spelled as an
+//! angle-parameterised `Arc` with pcurves co-parameterised on both
+//! faces (the exact plane arm where it applies, the chart fit
+//! elsewhere), verified sample for sample before the edge is
+//! rewritten. An edge that fails any check keeps its NURBS.
+//!
+//! Scope today: rims between distinct plane/cylinder/cone faces of a
+//! SUBTRACTION result (bores, countersinks, cut slots). Union and
+//! intersection rims wait for PK-419 (the G2 closed-fillet ladder
+//! tears on a union's promoted junction rim); sphere and torus rims
+//! and periodic seams wait for PK-418 (the mesher's shared-sample
+//! path). Both are measured in the ledger, not guessed.
+
+use popkern_core::geometry::circle_recognition::{arc_on_edge, recognize_circular};
+use popkern_core::geometry::curve::CurveGeometry;
+use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::edge_pcurve_reauthor::coparameterised_pcurves;
+use popkern_core::topology::{BRep, EdgeHandle};
+
+/// What the pass did.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ExactRimReport {
+    /// NURBS edges re-spelled as arcs.
+    pub promoted: usize,
+    /// Circular edges left as NURBS because a pcurve could not be
+    /// authored or verified on one of their faces.
+    pub declined: usize,
+}
+
+/// Promote every circular NURBS edge of `brep` to an exact `Arc`.
+pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimReport {
+    let gate = tolerance.linear();
+    let mut report = ExactRimReport::default();
+    let edges: Vec<EdgeHandle> = brep.edges.keys().collect();
+    for edge in edges {
+        let Some(curve) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+            continue;
+        };
+        let CurveGeometry::Nurbs(_) = &curve.geometry else {
+            continue;
+        };
+        if !rim_between_developable_faces(brep, edge) {
+            continue;
+        }
+        let range = (curve.t_start, curve.t_end);
+        let Some(fit) = recognize_circular(&curve.geometry, range, gate) else {
+            continue;
+        };
+        // The arc runs the old curve's way: the edge's forward
+        // half-edge keeps traversing its curve forward.
+        let arc = arc_on_edge(&curve.geometry, range, &fit);
+        match coparameterised_pcurves(brep, edge, &arc, gate * 10.0, tolerance) {
+            Some(pcurves) => {
+                if popkern_core::trace::trace_enabled("exact-rims") {
+                    for (he, pcurve) in &pcurves {
+                        let before = brep.half_edges.get(*he).and_then(|h| h.pcurve.as_ref());
+                        let show = |p: &Pcurve| {
+                            let a = p.point_at(p.t_start);
+                            let b = p.point_at(p.t_end);
+                            let m = p.point_at(p.t_start + (p.t_end - p.t_start) * 0.25);
+                            format!(
+                                "t=[{:.3},{:.3}] uv ({:.3},{:.3})->({:.3},{:.3}) q=({:.3},{:.3})",
+                                p.t_start, p.t_end, a.x, a.y, b.x, b.y, m.x, m.y
+                            )
+                        };
+                        eprintln!(
+                            "[exact-rims] edge {edge:?} he {he:?}: before {} | after {}",
+                            before.map(show).unwrap_or_else(|| "none".into()),
+                            show(pcurve)
+                        );
+                    }
+                }
+                if let Some(e) = brep.edges.get_mut(edge) {
+                    e.curve = Some(arc);
+                }
+                for (he, pcurve) in pcurves {
+                    if let Some(h) = brep.half_edges.get_mut(he) {
+                        h.pcurve = Some(pcurve);
+                    }
+                }
+                report.promoted += 1;
+            }
+            None => report.declined += 1,
+        }
+    }
+    report
+}
+
+/// The promotion's scope: an edge between two distinct faces whose
+/// surfaces are planes, cylinders or cones — the bore, boss and
+/// countersink rim class. A periodic seam (both half-edges on one
+/// face) is the surface's own iso-curve and keeps its form; arcs on
+/// spheres and tori stay NURBS until the mesher's shared-sample path
+/// carries Arc meridians (measured: a sphere-cube subtraction at the
+/// 1e-3 tolerance meshed its sphere face with 546 triangles instead
+/// of 384 and lost 70% of its volume once the seam meridians became
+/// arcs; the 1e-6 and 1e-4 bodies were unaffected) — PK-418.
+fn rim_between_developable_faces(brep: &BRep, edge: EdgeHandle) -> bool {
+    let Some(e) = brep.edges.get(edge) else {
+        return false;
+    };
+    let Some(forward) = brep.half_edges.get(e.half_edge) else {
+        return false;
+    };
+    let Some(backward) = brep.half_edges.get(forward.twin) else {
+        return false;
+    };
+    let face_of = |loop_| brep.loops.get(loop_).map(|l| l.face);
+    let (Some(fa), Some(fb)) = (face_of(forward.loop_), face_of(backward.loop_)) else {
+        return false;
+    };
+    if fa == fb {
+        return false;
+    }
+    [fa, fb].iter().all(|f| {
+        matches!(
+            brep.faces
+                .get(*f)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry),
+            Some(SurfaceGeometry::Plane { .. })
+                | Some(SurfaceGeometry::Cylinder { .. })
+                | Some(SurfaceGeometry::Cone { .. })
+        )
+    })
+}

@@ -2,6 +2,7 @@
 
 /// Edge topology entity.
 pub mod edge;
+pub mod edge_pcurve_reauthor;
 /// Face topology entity.
 pub mod face;
 /// Half-edge topology entity.

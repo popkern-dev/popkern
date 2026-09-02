@@ -276,7 +276,11 @@ pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
 /// face simplification, micro-edge collapse, and tolerance
 /// propagation — each stage census-traced under the boolean trace topic
 /// (sliver removal silently deleted a cylinder wall once, PK-150).
-pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
+pub(crate) fn run_output_postprocess(
+    result: &mut BRep,
+    op: crate::BoolOperation,
+    tolerance: &Tolerance,
+) {
     // Post-processing: prune stranded half-edges left behind by
     // broken merge loops. The merge phase occasionally tags
     // half-edges with a loop handle they're not reachable from;
@@ -389,6 +393,27 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
         }
     }
     trace_face_census("post-parallel-weld", result);
+
+    // Exact rims (PK-417): intersection edges that trace a circle are
+    // re-spelled as the analytic Arc they are, with co-parameterised
+    // pcurves on both faces, so a bore's rims select as `circular()`
+    // and keep the analytic path downstream. Cut rims only for now:
+    // the G2 closed-fillet ladder does not yet take a union's
+    // junction rim as an arc (PK-419 carries the measured evidence).
+    let rims = if op == crate::BoolOperation::Subtraction {
+        crate::postprocess::exact_rims::promote_exact_rims(result, tolerance)
+    } else {
+        crate::postprocess::exact_rims::ExactRimReport::default()
+    };
+    if rims.promoted + rims.declined > 0
+        && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
+    {
+        eprintln!(
+            "[boolean] post-processing: {} circular rim(s) promoted to exact arcs ({} declined)",
+            rims.promoted, rims.declined
+        );
+    }
+    trace_face_census("post-exact-rims", result);
 
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than

@@ -1,6 +1,7 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod collinear_vertex;
+pub mod exact_rims;
 pub mod face_simplify;
 pub mod loop_repair;
 pub mod parallel_weld;

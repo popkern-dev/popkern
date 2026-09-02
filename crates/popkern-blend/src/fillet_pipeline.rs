@@ -130,6 +130,14 @@ pub(crate) fn fillet_edges_attempt(
     prepass_warnings.extend(collapsed_warnings);
     let (healed_brep, healed_specs) =
         cusp_subdivide::subdivide_cusp_edges(brep, &skipped, &tolerance);
+    // PK-419 containment: the G2 ladder runs boolean-made closed arc
+    // rims in their NURBS spelling (see `fillet_boolean_rim_demote`).
+    let healed_brep = if wants_g2_construction {
+        crate::fillet_boolean_rim_demote::demote_boolean_arc_rims(&healed_brep, &tolerance)
+            .unwrap_or(healed_brep)
+    } else {
+        healed_brep
+    };
     let brep = &healed_brep;
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces, edges and vertices for naming.
