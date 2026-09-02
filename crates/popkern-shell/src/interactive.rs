@@ -131,6 +131,13 @@ pub fn shell_with_control(
     )?;
     if let Some(ctx) = tracking {
         crate::assign_shell_names(&mut result.brep, ctx, brep, &provenance);
+        let pre = popkern_blend::naming::PreOperationSnapshot::capture(brep);
+        popkern_blend::naming::assign_output_edge_vertex_names(
+            &mut result.brep,
+            ctx,
+            &pre,
+            &tolerance,
+        );
     }
     Ok(result)
 }

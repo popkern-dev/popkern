@@ -57,6 +57,13 @@ pub fn resolve_name(name: &EntityName, brep: &BRep) -> Resolution {
     };
 
     let matches = collect_matches(name_id, brep);
+    let matches = if matches.is_empty() {
+        // Provenance: an entity a later operation renamed keeps the
+        // requested name in its ancestor chain (`Modified` names).
+        collect_successors(name_id, brep)
+    } else {
+        matches
+    };
 
     match matches.len() {
         0 => {
@@ -70,6 +77,53 @@ pub fn resolve_name(name: &EntityName, brep: &BRep) -> Resolution {
         1 => Resolution::Exact(matches[0]),
         _ => Resolution::Split(matches),
     }
+}
+
+/// Whether `name_id` appears in the ancestor chain of the pool entry
+/// `id` (transitively, bounded by the pool size).
+fn descends_from(id: NameId, name_id: NameId, brep: &BRep) -> bool {
+    let mut frontier = vec![id];
+    let mut seen = std::collections::HashSet::new();
+    while let Some(current) = frontier.pop() {
+        if !seen.insert(current) {
+            continue;
+        }
+        let Some(name) = brep.name_pool.get(current) else {
+            continue;
+        };
+        for ancestor in &name.ancestors {
+            if *ancestor == name_id {
+                return true;
+            }
+            frontier.push(*ancestor);
+        }
+    }
+    false
+}
+
+/// Collect the entities whose names descend from `name_id`: the
+/// successors of a renamed entity (one, or several after a split).
+fn collect_successors(name_id: NameId, brep: &BRep) -> Vec<ResolvedEntity> {
+    let mut matches = Vec::new();
+    for (handle, vertex) in &brep.vertices {
+        if vertex
+            .name
+            .is_some_and(|id| descends_from(id, name_id, brep))
+        {
+            matches.push(ResolvedEntity::Vertex(handle));
+        }
+    }
+    for (handle, edge) in &brep.edges {
+        if edge.name.is_some_and(|id| descends_from(id, name_id, brep)) {
+            matches.push(ResolvedEntity::Edge(handle));
+        }
+    }
+    for (handle, face) in &brep.faces {
+        if face.name.is_some_and(|id| descends_from(id, name_id, brep)) {
+            matches.push(ResolvedEntity::Face(handle));
+        }
+    }
+    matches
 }
 
 /// Collect all entities in a BRep whose `name` field matches `name_id`.
@@ -270,6 +324,47 @@ mod tests {
 
         let resolution = resolve_name(&name, &brep);
         assert!(matches!(resolution, Resolution::Exact(ResolvedEntity::Face(h)) if h == fh));
+    }
+
+    #[test]
+    fn resolve_follows_provenance_to_the_renamed_successor() {
+        // A later operation renames a face `Modified` with the original
+        // as ancestor (blend/boolean/shell naming): the original name
+        // resolves to the successor without geometric fallback, and two
+        // successors resolve as a split.
+        let mut brep = BRep::unit_cube(Tolerance::default()).expect("cube");
+        let faces: Vec<FaceHandle> = brep.faces.keys().collect();
+        let original = make_name(1, RoleCategory::Generated, 0);
+        let original_id = brep.name_pool.intern(original.clone(), None);
+        let renamed = EntityName {
+            operation: OperationId(2),
+            role: EntityRole {
+                category: RoleCategory::Modified,
+                index: 0,
+            },
+            ancestors: vec![original_id],
+        };
+        let renamed_id = brep.name_pool.intern(renamed.clone(), None);
+        brep.faces[faces[0]].name = Some(renamed_id);
+        assert!(matches!(
+            resolve_name(&original, &brep),
+            Resolution::Exact(ResolvedEntity::Face(h)) if h == faces[0]
+        ));
+        // Two generations deep, and a second successor → Split.
+        let twice = EntityName {
+            operation: OperationId(3),
+            role: EntityRole {
+                category: RoleCategory::Modified,
+                index: 0,
+            },
+            ancestors: vec![renamed_id],
+        };
+        let twice_id = brep.name_pool.intern(twice, None);
+        brep.faces[faces[1]].name = Some(twice_id);
+        match resolve_name(&original, &brep) {
+            Resolution::Split(entities) => assert_eq!(entities.len(), 2),
+            other => panic!("expected Split, got {other:?}"),
+        }
     }
 
     #[test]

@@ -13,7 +13,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
 use crate::error::{BlendError, BlendFailure, BlendWarning};
 use crate::geometry_compute::{build_overlap_inputs, compute_fillet_geometry};
-use crate::naming::assign_fillet_names;
+use crate::naming::{PreOperationSnapshot, assign_fillet_names, assign_output_edge_vertex_names};
 use crate::types::{BlendResult, FilletOptions, FilletSpec};
 use crate::{
     analysis, cancellation, collapsed_skip, construct, continuity, cusp_subdivide,
@@ -132,8 +132,9 @@ pub(crate) fn fillet_edges_attempt(
         cusp_subdivide::subdivide_cusp_edges(brep, &skipped, &tolerance);
     let brep = &healed_brep;
     let specs: &[FilletSpec] = &healed_specs;
-    // Capture pre-operation faces for naming.
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    // Capture pre-operation faces, edges and vertices for naming.
+    let pre = PreOperationSnapshot::capture(brep);
+    let pre_faces: &std::collections::HashSet<FaceHandle> = &pre.faces;
     // PHASE 1: Analyze edges.
     let t1 = popkern_core::time::Stopwatch::start();
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
@@ -461,7 +462,8 @@ pub(crate) fn fillet_edges_attempt(
     }
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking.as_deref_mut() {
-        assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
+        assign_fillet_names(&mut apply_result.brep, ctx, pre_faces);
+        assign_output_edge_vertex_names(&mut apply_result.brep, ctx, &pre, &tolerance);
     }
     // PK-211 displaced-pcurve + PK-294 loop-winding backstops: see
     // `fillet_pipeline_pcurve_backstop` for both defect classes.

@@ -104,6 +104,13 @@ pub fn shell(
     })?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, brep, &provenance);
+        let pre = popkern_blend::naming::PreOperationSnapshot::capture(brep);
+        popkern_blend::naming::assign_output_edge_vertex_names(
+            &mut result.brep,
+            ctx,
+            &pre,
+            &tolerance,
+        );
     }
     Ok(result)
 }
@@ -152,6 +159,13 @@ pub fn shell_variable(
     })?;
     if let Some(ctx) = tracking {
         assign_shell_names(&mut result.brep, ctx, brep, &provenance);
+        let pre = popkern_blend::naming::PreOperationSnapshot::capture(brep);
+        popkern_blend::naming::assign_output_edge_vertex_names(
+            &mut result.brep,
+            ctx,
+            &pre,
+            &tolerance,
+        );
     }
     Ok(result)
 }

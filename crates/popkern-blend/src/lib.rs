@@ -73,7 +73,9 @@ pub(crate) mod modify_inplace_chart;
 pub(crate) mod modify_inplace_closed_sweep;
 pub(crate) mod modify_inplace_geometry;
 pub(crate) mod modify_inplace_sweep;
-pub(crate) mod naming;
+/// Stable-name assignment for blend outputs; the edge/vertex pass is
+/// shared with `popkern-shell`.
+pub mod naming;
 pub mod offset;
 pub mod overlap;
 mod overlap_strip_interference;

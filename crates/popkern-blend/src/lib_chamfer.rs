@@ -84,8 +84,9 @@ fn chamfer_edges_internal(
     // §10.1 — reject invalid parameters at the API boundary.
     validate::validate_chamfer_specs(brep, specs)?;
 
-    // Capture pre-operation faces for naming.
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    // Capture pre-operation faces, edges and vertices for naming.
+    let pre = crate::naming::PreOperationSnapshot::capture(brep);
+    let pre_faces: &std::collections::HashSet<FaceHandle> = &pre.faces;
 
     // 1. Analyze edges.
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
@@ -151,7 +152,13 @@ fn chamfer_edges_internal(
                 let structural = result.validate();
                 if structural.is_ok() {
                     if let Some(ctx) = tracking {
-                        assign_fillet_names(&mut result, ctx, &pre_faces);
+                        assign_fillet_names(&mut result, ctx, pre_faces);
+                        crate::naming::assign_output_edge_vertex_names(
+                            &mut result,
+                            ctx,
+                            &pre,
+                            &tolerance,
+                        );
                     }
                     return Ok(BlendResult {
                         brep: result,
@@ -293,7 +300,13 @@ fn chamfer_edges_internal(
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
-        assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
+        assign_fillet_names(&mut apply_result.brep, ctx, pre_faces);
+        crate::naming::assign_output_edge_vertex_names(
+            &mut apply_result.brep,
+            ctx,
+            &pre,
+            &tolerance,
+        );
     }
     // PK-244 serving-boundary flag reconcile: flags are derived state.
     apply_result.repair_report.orientation_flag_reconciliations +=
