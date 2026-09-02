@@ -8,7 +8,7 @@ use crate::feature::Vec3Desc;
 use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Describes one direction axis of a linear pattern.
 ///
@@ -35,7 +35,7 @@ pub struct InstanceOverride {
     /// Whether this instance is suppressed (skipped) during replay.
     pub suppressed: bool,
     /// Parameter values that differ from the seed for this instance.
-    pub param_overrides: HashMap<ParameterId, f64>,
+    pub param_overrides: BTreeMap<ParameterId, f64>,
 }
 
 /// Result of replaying a single pattern instance.

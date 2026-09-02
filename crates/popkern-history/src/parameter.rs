@@ -5,7 +5,7 @@
 //! base units.  Built-in read-only constants (`pi`, `e`, `tau`) are inserted
 //! at construction time.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use slotmap::{SlotMap, new_key_type};
@@ -93,7 +93,8 @@ pub struct Parameter {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParameterTable {
     params: SlotMap<ParameterId, Parameter>,
-    name_index: HashMap<String, ParameterId>,
+    /// Sorted: the saved document is byte-deterministic (PK-410).
+    name_index: BTreeMap<String, ParameterId>,
 }
 
 impl Default for ParameterTable {
@@ -107,7 +108,7 @@ impl ParameterTable {
     pub fn new() -> Self {
         let mut table = Self {
             params: SlotMap::with_key(),
-            name_index: HashMap::new(),
+            name_index: BTreeMap::new(),
         };
         // Insert built-in read-only constants.
         let builtins = [

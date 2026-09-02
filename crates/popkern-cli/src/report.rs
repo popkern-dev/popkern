@@ -9,38 +9,7 @@ use serde_json::Value;
 
 use crate::args::Cli;
 
-/// How the run ended.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "outcome", rename_all = "snake_case")]
-pub enum Outcome {
-    /// The script ran and every requested export succeeded.
-    Served,
-    /// The script itself failed (syntax, argument, budget).
-    ScriptError {
-        /// The §10 class (`SyntaxError`, `ArgumentError`, `BudgetExceeded`, …).
-        kind: String,
-        /// The rendered error (class, position, message, remediation).
-        rendered: String,
-        /// The §10 payload.
-        payload: Value,
-    },
-    /// A feature declined in the kernel.
-    KernelDecline {
-        /// The §10 class (`FeatureFailed`, `BlendDeclined`, …).
-        kind: String,
-        /// The rendered error.
-        rendered: String,
-        /// The §10 payload.
-        payload: Value,
-    },
-    /// A gate or export failed after the script ran.
-    GateFailure {
-        /// Which step (`assert_watertight`, `step`, `png`, `pkn`, `param`).
-        step: String,
-        /// The error text.
-        detail: String,
-    },
-}
+pub use popkern_rhai::Outcome;
 
 /// One run's summary.
 #[derive(Debug, Clone, Serialize)]

@@ -4,7 +4,6 @@
 //! previous file untouched because it fails before writing).
 
 use popkern_rhai::{HostOptions, ScriptHost};
-use popkern_script::Model;
 
 use crate::args::Cli;
 use crate::report::{Outcome, RunSummary};
@@ -22,51 +21,9 @@ pub enum CliError {
     },
 }
 
-/// The §10 classes that mean the kernel declined a feature (exit 3)
-/// rather than the script being wrong (exit 2).
-const KERNEL_CLASSES: &[&str] = &[
-    "FeatureFailed",
-    "BlendDeclined",
-    "BooleanFailed",
-    "SweepFailed",
-    "ShellFailed",
-    "DraftFailed",
-    "ResolutionFailed",
-    "CoreError",
-];
-
-/// The §10 classes that are gates or I/O (exit 4).
-const GATE_CLASSES: &[&str] = &["NotWatertight", "ValidationFailed", "IoFailed"];
-
-fn classify(kind: &str, rendered: String, payload: serde_json::Value) -> Outcome {
-    if KERNEL_CLASSES.contains(&kind) {
-        Outcome::KernelDecline {
-            kind: kind.to_string(),
-            rendered,
-            payload,
-        }
-    } else if GATE_CLASSES.contains(&kind) {
-        Outcome::GateFailure {
-            step: kind.to_string(),
-            detail: rendered,
-        }
-    } else {
-        Outcome::ScriptError {
-            kind: kind.to_string(),
-            rendered,
-            payload,
-        }
-    }
-}
-
 /// The exit code for a summary.
 pub fn exit_code(summary: &RunSummary) -> u8 {
-    match summary.outcome {
-        Outcome::Served => 0,
-        Outcome::ScriptError { .. } => 2,
-        Outcome::KernelDecline { .. } => 3,
-        Outcome::GateFailure { .. } => 4,
-    }
+    summary.outcome.exit_code()
 }
 
 fn host(cli: &Cli) -> ScriptHost {
@@ -74,20 +31,6 @@ fn host(cli: &Cli) -> ScriptHost {
         max_operations: cli.max_ops,
         timeout: cli.timeout,
     })
-}
-
-fn report_value(model: &Model) -> serde_json::Value {
-    let report = model.report();
-    let mut value = serde_json::to_value(report).unwrap_or(serde_json::Value::Null);
-    if let serde_json::Value::Object(map) = &mut value {
-        map.insert("is_clean".into(), report.is_clean().into());
-        map.insert("failures".into(), report.failures().count().into());
-        map.insert(
-            "downgraded_blends".into(),
-            report.downgraded_blends().count().into(),
-        );
-    }
-    value
 }
 
 /// Run the script and produce every requested output.
@@ -112,7 +55,7 @@ pub fn execute(cli: &Cli) -> RunSummary {
     let outcome = match host.run(&source, &name) {
         Ok(outcome) => outcome,
         Err(error) => {
-            summary.outcome = classify(&error.kind, error.render(), *error.payload.clone());
+            summary.outcome = popkern_rhai::outcome::from_run_error(&error);
             return summary;
         }
     };
@@ -130,23 +73,15 @@ pub fn execute(cli: &Cli) -> RunSummary {
             .set_param(key, *value)
             .and_then(|_| model.replay().map(|_| ()))
         {
-            let payload = e.payload();
-            let kind = payload["kind"]
-                .as_str()
-                .unwrap_or("ArgumentError")
-                .to_string();
-            summary.outcome = classify(&kind, format!("--param {key}: {e}"), payload);
+            summary.outcome =
+                popkern_rhai::outcome::from_script_error(&e, &format!("--param {key}"));
             return summary;
         }
     }
-    summary.report = Some(report_value(&model));
+    summary.report = Some(popkern_rhai::report_value(&model));
     summary.features = model.features().len();
-    if let Some(row) = model.report().failures().next() {
-        summary.outcome = Outcome::KernelDecline {
-            kind: "FeatureFailed".into(),
-            rendered: format!("feature '{}' ({}) failed", row.label, row.operation),
-            payload: serde_json::to_value(row).unwrap_or(serde_json::Value::Null),
-        };
+    if let Some(outcome) = popkern_rhai::outcome::first_failure(&model) {
+        summary.outcome = outcome;
         return summary;
     }
     if let Some(path) = &cli.pkn {

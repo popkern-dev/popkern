@@ -67,7 +67,30 @@ impl Model {
             path: path.display().to_string(),
             detail: e.to_string(),
         })?;
-        let tree = FeatureTree::load(&data)?;
+        Model::from_pkn_bytes(&data)
+    }
+
+    /// Save the document at the current format version.
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
+        let path = path.as_ref();
+        let data = self.to_pkn_bytes()?;
+        std::fs::write(path, data).map_err(|e| ScriptError::Io {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        })
+    }
+
+    /// The document as `.pkn` bytes at the current format version —
+    /// exactly what [`Model::save`] writes. Hosts without a filesystem
+    /// (the browser playground) hand these to a download.
+    pub fn to_pkn_bytes(&self) -> Result<Vec<u8>, ScriptError> {
+        Ok(self.tree.save()?)
+    }
+
+    /// Open a document from `.pkn` bytes (the in-memory form of
+    /// [`Model::open`]).
+    pub fn from_pkn_bytes(data: &[u8]) -> Result<Model, ScriptError> {
+        let tree = FeatureTree::load(data)?;
         let tolerance = tree.effective_build_tolerance();
         let active = tree
             .timeline()
@@ -80,16 +103,6 @@ impl Model {
             unit: Unit::Meters,
             active,
             pending_counter: 0,
-        })
-    }
-
-    /// Save the document at the current format version.
-    pub fn save(&self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
-        let path = path.as_ref();
-        let data = self.tree.save()?;
-        std::fs::write(path, data).map_err(|e| ScriptError::Io {
-            path: path.display().to_string(),
-            detail: e.to_string(),
         })
     }
 
@@ -303,6 +316,20 @@ impl Model {
     /// Export the active body as STEP.
     pub fn to_step(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
         Ok(self.to_part()?.export_step(path)?)
+    }
+
+    /// The active body as STEP Part 21 bytes with `name` as the
+    /// product name — what [`Model::to_step`] writes for a path whose
+    /// file stem is `name`. Hosts without a filesystem (the browser
+    /// playground) hand these to a download.
+    pub fn to_step_bytes(&mut self, name: &str) -> Result<Vec<u8>, ScriptError> {
+        Ok(self.to_part()?.step_bytes(name)?)
+    }
+
+    /// The current BRep of `body` (replaying first when the tree
+    /// holds no snapshot for it).
+    pub fn brep_of(&mut self, body: Body) -> Result<BRep, ScriptError> {
+        self.body_brep(body.id)
     }
 
     /// Gate: the active body tessellates watertight.

@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Build the browser playground's wasm bundle (design §6.5, PK-410).
+#
+#   tools/build-playground.sh            # web + node bundles, unoptimised
+#   tools/build-playground.sh --opt      # then wasm-opt (level $WASM_OPT_LEVEL, default -O2)
+#   tools/build-playground.sh --node     # node bundle only (the smoke tests)
+#   tools/build-playground.sh --web      # web bundle only (the page)
+#
+# Outputs:
+#   web/playground/pkg/            wasm-bindgen --target web   (the page loads this)
+#   target/playground/node/        wasm-bindgen --target nodejs (smoke tests)
+#
+# Tools: rustup target wasm32-unknown-unknown; wasm-bindgen-cli at the
+# exact version of the wasm-bindgen crate in Cargo.lock (the ABI is
+# version-locked and mismatches fail obscurely, so this script checks
+# first); wasm-opt from binaryen for --opt. Each missing tool prints
+# its install command and fails.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+OPT=0; WEB=1; NODE=1
+for arg in "$@"; do
+  case "$arg" in
+    --opt) OPT=1 ;;
+    --node) WEB=0; NODE=1 ;;
+    --web) WEB=1; NODE=0 ;;
+    *) echo "unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
+LOCKED=$(awk '/^name = "wasm-bindgen"$/{getline; sub(/version = "/,""); sub(/"/,""); print; exit}' Cargo.lock)
+if [[ -z "$LOCKED" ]]; then
+  echo "cannot read the wasm-bindgen version from Cargo.lock" >&2; exit 1
+fi
+if ! rustup target list --installed 2>/dev/null | grep -q '^wasm32-unknown-unknown$'; then
+  echo "missing target: run  rustup target add wasm32-unknown-unknown" >&2; exit 1
+fi
+if ! command -v wasm-bindgen >/dev/null; then
+  echo "missing wasm-bindgen: run  cargo install wasm-bindgen-cli --version $LOCKED --locked" >&2; exit 1
+fi
+CLI=$(wasm-bindgen --version | awk '{print $2}')
+if [[ "$CLI" != "$LOCKED" ]]; then
+  echo "wasm-bindgen-cli $CLI does not match the locked crate $LOCKED: run  cargo install wasm-bindgen-cli --version $LOCKED --locked --force" >&2; exit 1
+fi
+if [[ $OPT == 1 ]] && ! command -v wasm-opt >/dev/null; then
+  echo "missing wasm-opt: install binaryen (apt install binaryen) or  cargo install wasm-opt" >&2; exit 1
+fi
+
+cargo build --profile playground --target wasm32-unknown-unknown -p popkern-playground
+WASM=target/wasm32-unknown-unknown/playground/popkern_playground.wasm
+
+emit() { # target out-dir
+  mkdir -p "$2"
+  wasm-bindgen --target "$1" --out-dir "$2" --out-name popkern_playground "$WASM"
+  if [[ $OPT == 1 ]]; then
+    wasm-opt "${WASM_OPT_LEVEL:--O2}" -o "$2/popkern_playground_bg.wasm" "$2/popkern_playground_bg.wasm"
+  fi
+}
+[[ $WEB == 1 ]] && emit web web/playground/pkg
+[[ $NODE == 1 ]] && emit nodejs target/playground/node
+
+report() { # file
+  local raw gz
+  raw=$(stat -c %s "$1")
+  gz=$(gzip -9 -c "$1" | wc -c)
+  awk -v f="$1" -v raw="$raw" -v gz="$gz" \
+    'BEGIN { printf "%s: %d bytes raw, %d bytes gzip (%.2f MB / %.2f MB)\n", f, raw, gz, raw/1048576, gz/1048576 }'
+}
+[[ $WEB == 1 ]] && report web/playground/pkg/popkern_playground_bg.wasm
+[[ $NODE == 1 ]] && report target/playground/node/popkern_playground_bg.wasm
+[[ $OPT == 1 ]] && echo "wasm-opt: ${WASM_OPT_LEVEL:--O2}" || echo "wasm-opt: not run (pass --opt)"

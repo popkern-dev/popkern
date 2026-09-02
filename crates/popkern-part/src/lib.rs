@@ -32,6 +32,7 @@ mod engrave;
 mod error;
 mod feature;
 mod part;
+mod part_export;
 mod part_polyhedron;
 pub mod poly;
 mod profile;

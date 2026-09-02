@@ -20,3 +20,8 @@ glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+# Host parity gate: the browser engine and the command share one class
+# partition (crates/popkern-cli/tests/playground_parity.rs).
+popkern-playground = { path = "../popkern-playground" }

@@ -25,7 +25,8 @@ use crate::parameter::ParameterId;
 // map to/from `Vec<(K, V)>` (a JSON array of 2-element arrays) so that the
 // round-trip is lossless without adding an external crate.
 
-/// Serialise/deserialise a `HashMap<K, V>` as `Vec<(K, V)>`.
+/// Serialise/deserialise a `HashMap<K, V>` as `Vec<(K, V)>`, sorted by
+/// key so the document bytes never depend on hash order.
 mod serde_map_as_vec {
     use std::collections::HashMap;
     use std::hash::Hash;
@@ -36,10 +37,11 @@ mod serde_map_as_vec {
     pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        K: Serialize + Eq + Hash,
+        K: Serialize + Eq + Hash + Ord,
         V: Serialize,
     {
-        let vec: Vec<(&K, &V)> = map.iter().collect();
+        let mut vec: Vec<(&K, &V)> = map.iter().collect();
+        vec.sort_by(|a, b| a.0.cmp(b.0));
         vec.serialize(serializer)
     }
 

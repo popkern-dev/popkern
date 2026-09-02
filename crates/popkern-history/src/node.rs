@@ -95,7 +95,10 @@ fn serialize_op_ids<S: serde::Serializer>(
 ) -> Result<S::Ok, S::Error> {
     use serde::ser::SerializeMap;
     let mut s = serializer.serialize_map(Some(map.len()))?;
-    for (&(inst, seed), op_id) in map {
+    // Sorted: the document bytes must not depend on hash order.
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by_key(|entry| *entry.0);
+    for (&(inst, seed), op_id) in entries {
         let key = format!("{inst}_{seed}");
         s.serialize_entry(&key, op_id)?;
     }

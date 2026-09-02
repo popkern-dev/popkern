@@ -322,6 +322,7 @@ fn cli_sits_above_rhai() {
         "popkern-history",
         "popkern-script",
         "popkern-rhai",
+        "popkern-playground",
         "popkern-examples",
     ] {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
@@ -329,6 +330,52 @@ fn cli_sits_above_rhai() {
         assert!(
             !declares_dependency(&toml, "popkern-cli"),
             "{below} must not depend on popkern-cli (the command is the top of the graph)"
+        );
+    }
+}
+
+/// `popkern-playground` is the browser engine over the Rhai skin: it
+/// may depend on the skin, the recorder and the mesher; never on the
+/// native viewer (browsers render kernel triangles in JS) and nothing
+/// below the command tier depends on it.
+#[test]
+fn playground_sits_above_rhai() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-playground/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-playground/Cargo.toml");
+    for dep in ["popkern-rhai", "popkern-script", "popkern-mesh"] {
+        assert!(
+            declares_dependency(&cargo_toml, dep),
+            "popkern-playground must depend on {dep}"
+        );
+    }
+    assert!(
+        !declares_dependency(&cargo_toml, "popkern-viz"),
+        "popkern-playground must not depend on popkern-viz (browsers render in JS)"
+    );
+    for below in [
+        "popkern-core",
+        "popkern-constraint",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-blend",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-sketch",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+        "popkern-rhai",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-playground"),
+            "{below} must not depend on popkern-playground (hosts are the top of the graph)"
         );
     }
 }

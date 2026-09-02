@@ -303,7 +303,7 @@ impl FeatureTree {
                         .entry(instance_idx)
                         .or_insert_with(|| InstanceOverride {
                             suppressed: false,
-                            param_overrides: std::collections::HashMap::new(),
+                            param_overrides: std::collections::BTreeMap::new(),
                         });
                 entry.suppressed = true;
             }
@@ -341,7 +341,7 @@ impl FeatureTree {
                         .entry(instance_idx)
                         .or_insert_with(|| InstanceOverride {
                             suppressed: false,
-                            param_overrides: std::collections::HashMap::new(),
+                            param_overrides: std::collections::BTreeMap::new(),
                         });
                 entry.param_overrides.insert(param, value);
             }

@@ -108,6 +108,9 @@ allow = ["AGPL-3.0-only"]
 [[licenses.exceptions]]
 crate = "popkern-cli"
 allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-playground"
+allow = ["AGPL-3.0-only"]
 # Rhai's identifier type is `smartstring` (MPL-2.0+): file-level weak
 # copyleft, used unmodified as a crates.io dependency. Crate-scoped on
 # purpose — see docs/decisions/2026-09-02-mpl-dependency-exception-smartstring.md.

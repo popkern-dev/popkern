@@ -3314,6 +3314,7 @@ dependencies = [
  "glam",
  "popkern-core",
  "popkern-part",
+ "popkern-playground",
  "popkern-rhai",
  "popkern-script",
  "popkern-viz",
@@ -3459,6 +3460,22 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "ttf-parser",
+]
+
+[[package]]
+name = "popkern-playground"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "popkern-core",
+ "popkern-mesh",
+ "popkern-part",
+ "popkern-rhai",
+ "popkern-script",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
 ]
 
 [[package]]
