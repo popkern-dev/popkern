@@ -19,7 +19,9 @@ use crate::error::{ScriptError, SelectionKind};
 use crate::model::{FeatureHandle, Model};
 use crate::record::record_feature;
 use crate::scalar::{Scalar, bind_scalar};
-use crate::selection::{EdgeSelector, FaceSelector, exactly_one, resolve_edges, resolve_faces};
+use crate::selection::{
+    EdgeSelector, EntityRef, FaceSelector, exactly_one, resolve_edges, resolve_faces,
+};
 
 /// A body of the document. Cheap to copy; all state lives in the model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -94,7 +96,7 @@ impl Body {
             .and_then(|&id| model.handle(id).ok())
     }
 
-    fn record(
+    pub(crate) fn record(
         self,
         model: &mut Model,
         feature: Feature,
@@ -121,7 +123,7 @@ impl Body {
         Ok(Body::new(body))
     }
 
-    fn selection_record(role: &str, snapshot: &SelectionSnapshot) -> SelectionRecord {
+    pub(crate) fn selection_record(role: &str, snapshot: &SelectionSnapshot) -> SelectionRecord {
         SelectionRecord {
             role: role.to_string(),
             describe: snapshot.describe.clone(),
@@ -134,7 +136,7 @@ impl Body {
         model.body_brep(self.id)
     }
 
-    fn require_alive(self, model: &mut Model) -> Result<(), ScriptError> {
+    pub(crate) fn require_alive(self, model: &mut Model) -> Result<(), ScriptError> {
         if model.tree.current_brep().is_none() {
             model.tree.replay(model.tolerance)?;
         }
@@ -145,35 +147,27 @@ impl Body {
         }
     }
 
-    fn edges(
+    pub(crate) fn edges(
         self,
         model: &mut Model,
         selector: &EdgeSelector,
     ) -> Result<crate::selection::SelectionSnapshot, ScriptError> {
         let brep = self.brep(model)?;
-        let labels = |l: &str| model.entity_by_label(l);
+        let labels = |r: EntityRef| model.resolve_entity_ref(r);
         resolve_edges(&brep, selector, &labels)
     }
 
-    fn faces(
+    pub(crate) fn faces(
         self,
         model: &mut Model,
         selector: &FaceSelector,
     ) -> Result<crate::selection::SelectionSnapshot, ScriptError> {
         let brep = self.brep(model)?;
-        let labels = |l: &str| model.entity_by_label(l);
+        let labels = |r: EntityRef| model.resolve_entity_ref(r);
         resolve_faces(&brep, selector, &labels)
     }
 
-    fn one_face(
-        self,
-        model: &mut Model,
-        selector: &FaceSelector,
-    ) -> Result<EntityName, ScriptError> {
-        exactly_one(self.faces(model, selector)?, SelectionKind::Faces)
-    }
-
-    fn bind(
+    pub(crate) fn bind(
         model: &mut Model,
         role: &str,
         s: &Scalar,
@@ -182,7 +176,39 @@ impl Body {
         bind_scalar(&mut model.tree, &mut model.pending_counter, role, s, unit)
     }
 
-    fn extrude_end(self, model: &mut Model, end: End) -> Result<ExtrudeEnd, ScriptError> {
+    /// Resolve a single-face argument, recording the query under
+    /// `role` so the document can show it back as code.
+    pub(crate) fn one_face_recorded(
+        self,
+        model: &mut Model,
+        role: &str,
+        selector: &FaceSelector,
+        records: &mut Vec<SelectionRecord>,
+    ) -> Result<EntityName, ScriptError> {
+        let snapshot = self.faces(model, selector)?;
+        records.push(Self::selection_record(role, &snapshot));
+        exactly_one(snapshot, SelectionKind::Faces)
+    }
+
+    /// Resolve a single-edge argument, recording the query under `role`.
+    pub(crate) fn one_edge_recorded(
+        self,
+        model: &mut Model,
+        role: &str,
+        selector: &EdgeSelector,
+        records: &mut Vec<SelectionRecord>,
+    ) -> Result<EntityName, ScriptError> {
+        let snapshot = self.edges(model, selector)?;
+        records.push(Self::selection_record(role, &snapshot));
+        exactly_one(snapshot, SelectionKind::Edges)
+    }
+
+    fn extrude_end(
+        self,
+        model: &mut Model,
+        end: End,
+        records: &mut Vec<SelectionRecord>,
+    ) -> Result<ExtrudeEnd, ScriptError> {
         let unit = model.unit;
         Ok(match end {
             End::Blind(d) => ExtrudeEnd::Blind {
@@ -190,10 +216,10 @@ impl Body {
             },
             End::ThroughAll => ExtrudeEnd::ThroughAll,
             End::UpToSurface(sel) => ExtrudeEnd::UpToSurface {
-                face: self.one_face(model, &sel)?,
+                face: self.one_face_recorded(model, "end_face", &sel, records)?,
             },
             End::OffsetFromSurface(sel, d) => ExtrudeEnd::OffsetFromSurface {
-                face: self.one_face(model, &sel)?,
+                face: self.one_face_recorded(model, "end_face", &sel, records)?,
                 offset: Self::bind(model, "offset", &d, unit)?,
             },
             End::MidPlane(d) => ExtrudeEnd::MidPlane {
@@ -216,7 +242,8 @@ impl Body {
         label: &str,
     ) -> Result<Body, ScriptError> {
         let face = self.last_sketch_face(model)?;
-        let end_condition = self.extrude_end(model, end)?;
+        let mut records = Vec::new();
+        let end_condition = self.extrude_end(model, end, &mut records)?;
         let feature = Feature::Extrude {
             face,
             direction: None,
@@ -225,7 +252,7 @@ impl Body {
             draft_angle: None,
             second_direction: None,
         };
-        self.record(model, feature, label, Vec::new())
+        self.record(model, feature, label, records)
     }
 
     /// Revolve the body's last sketch about `axis`.
@@ -312,7 +339,14 @@ impl Body {
         edges: EdgeSelector,
         distance: impl Into<Scalar>,
     ) -> Result<Body, ScriptError> {
-        self.chamfer_kind(model, edges, distance, ChamferKindDesc::Equal, "")
+        self.chamfer_kind(
+            model,
+            edges,
+            distance,
+            ChamferKindDesc::Equal,
+            "",
+            Vec::new(),
+        )
     }
 
     /// Chamfer with a bound kind descriptor and label (the recipe
@@ -324,6 +358,7 @@ impl Body {
         distance: impl Into<Scalar>,
         kind: ChamferKindDesc,
         label: &str,
+        mut records: Vec<SelectionRecord>,
     ) -> Result<Body, ScriptError> {
         let snapshot = self.edges(model, &edges)?;
         if snapshot.names.is_empty() {
@@ -331,13 +366,13 @@ impl Body {
         }
         let unit = model.unit;
         let distance = Self::bind(model, "distance", &distance.into(), unit)?;
-        let record = Self::selection_record("edges", &snapshot);
+        records.insert(0, Self::selection_record("edges", &snapshot));
         let feature = Feature::Chamfer {
             edges: snapshot.names,
             distance,
             kind,
         };
-        self.record(model, feature, label, vec![record])
+        self.record(model, feature, label, records)
     }
 
     /// Shell: remove `faces` and hollow to `thickness`.
@@ -376,7 +411,13 @@ impl Body {
         self.record(model, feature, label, vec![record])
     }
 
-    fn boolean(self, model: &mut Model, op: BoolOpKind, tool: Body) -> Result<Body, ScriptError> {
+    pub(crate) fn boolean_labeled(
+        self,
+        model: &mut Model,
+        op: BoolOpKind,
+        tool: Body,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
         self.require_alive(model)?;
         tool.require_alive(model)?;
         if tool.id == self.id {
@@ -389,22 +430,22 @@ impl Body {
             operation: op,
             tool_body: tool.id,
         };
-        self.record(model, feature, "", Vec::new())
+        self.record(model, feature, label, Vec::new())
     }
 
     /// Boolean union with `tool` (consumes the tool body).
     pub fn union(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean(model, BoolOpKind::Union, tool)
+        self.boolean_labeled(model, BoolOpKind::Union, tool, "")
     }
 
     /// Boolean subtraction of `tool`.
     pub fn subtract(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean(model, BoolOpKind::Subtraction, tool)
+        self.boolean_labeled(model, BoolOpKind::Subtraction, tool, "")
     }
 
     /// Boolean intersection with `tool`.
     pub fn intersect(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean(model, BoolOpKind::Intersection, tool)
+        self.boolean_labeled(model, BoolOpKind::Intersection, tool, "")
     }
 
     /// Rigid translation.

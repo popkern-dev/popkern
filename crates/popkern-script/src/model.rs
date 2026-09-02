@@ -13,6 +13,7 @@ use popkern_part::Part;
 use crate::body::Body;
 use crate::error::ScriptError;
 use crate::profile::ProfileBuilder;
+use crate::selection::EntityRef;
 
 /// A recorded feature: its id and the label it received.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -227,7 +228,7 @@ impl Model {
     ) -> Result<EntityName, ScriptError> {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
-        let labels = |l: &str| self.entity_by_label(l);
+        let labels = |r: EntityRef| self.resolve_entity_ref(r);
         let snapshot = crate::selection::resolve_edges(&brep, selection, &labels)?;
         let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Edges)?;
         self.tree.label_entity(name, entity.clone())?;
@@ -242,7 +243,7 @@ impl Model {
     ) -> Result<EntityName, ScriptError> {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
-        let labels = |l: &str| self.entity_by_label(l);
+        let labels = |r: EntityRef| self.resolve_entity_ref(r);
         let snapshot = crate::selection::resolve_faces(&brep, selection, &labels)?;
         let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Faces)?;
         self.tree.label_entity(name, entity.clone())?;
@@ -270,7 +271,7 @@ impl Model {
     }
 
     /// Resolve an entity label.
-    pub(crate) fn entity_by_label(&self, label: &str) -> Result<EntityName, ScriptError> {
+    pub fn entity_by_label(&self, label: &str) -> Result<EntityName, ScriptError> {
         self.tree
             .entity_by_label(label)
             .cloned()

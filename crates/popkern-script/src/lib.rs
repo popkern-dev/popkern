@@ -19,6 +19,7 @@ pub mod bodies;
 pub mod body;
 pub mod body_recipes;
 pub mod configs;
+pub mod entity_spelling;
 pub mod error;
 pub mod error_payload;
 pub mod feature_edit;
@@ -29,9 +30,10 @@ pub mod profile;
 mod record;
 pub mod scalar;
 pub mod selection;
+pub mod selection_parse;
 
 pub use body::{Body, End, RevolveEnd};
-pub use body_recipes::{ChamferSpec, RadiusLaw, ShellOptions};
+pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
 pub use error::{ScriptError, SelectionKind};
 pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
@@ -44,12 +46,15 @@ pub use popkern_history::{
 };
 pub use profile::ProfileBuilder;
 pub use scalar::Scalar;
-pub use selection::{EdgePredicate, EdgeSelector, FacePredicate, FaceSelector, SelectionSnapshot};
+pub use selection::{
+    EdgePredicate, EdgeSelector, EntityRef, FacePredicate, FaceSelector, SelectionSnapshot,
+};
+pub use selection_parse::{SelectionParseError, parse_edges, parse_faces};
 
 /// Everything a script needs in scope.
 pub mod prelude {
     pub use crate::body::{Body, End, RevolveEnd};
-    pub use crate::body_recipes::{ChamferSpec, RadiusLaw, ShellOptions};
+    pub use crate::body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
     pub use crate::error::ScriptError;
     pub use crate::feature_edit::Edit;
     pub use crate::model::{FeatureHandle, Model};

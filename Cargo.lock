@@ -3455,6 +3455,7 @@ dependencies = [
  "popkern-mesh",
  "popkern-part",
  "popkern-script",
+ "popkern-sketch",
  "rhai",
  "serde",
  "serde_json",

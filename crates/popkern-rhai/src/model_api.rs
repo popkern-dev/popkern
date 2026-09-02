@@ -14,7 +14,7 @@ use crate::body_api::ScriptBody;
 use crate::error::{IntoScriptResult, argument_error};
 use crate::feature_api::ScriptFeature;
 use crate::profile_api::ScriptProfile;
-use crate::values::{label_map, param_map, to_value};
+use crate::values::{label_map, param_map, report_map};
 
 /// A shared handle to the recorder session.
 #[derive(Clone)]
@@ -126,10 +126,10 @@ pub fn register(engine: &mut Engine) {
             m.borrow_mut().save(path).script()
         })
         .register_fn("replay", |m: &mut ScriptModel| {
-            m.borrow_mut().replay().script().map(|r| to_value(&r))
+            m.borrow_mut().replay().script().map(|r| report_map(&r))
         })
         .register_fn("report", |m: &mut ScriptModel| {
-            to_value(m.borrow_mut().report())
+            report_map(m.borrow_mut().report())
         })
         .register_fn("to_step", |m: &mut ScriptModel, path: &str| {
             m.borrow_mut().to_step(path).script()
@@ -241,5 +241,20 @@ pub fn register(engine: &mut Engine) {
                 .map(|(l, n)| label_map(l, n))
                 .collect::<rhai::Array>()
         })
+        .register_fn(
+            "label_entity",
+            |m: &mut ScriptModel, name: &str, spelled: &str| {
+                m.borrow_mut()
+                    .label_spelled(name, spelled)
+                    .script()
+                    .map(|_| ())
+            },
+        )
+        .register_fn("entity_spelling", |m: &mut ScriptModel, label: &str| {
+            let model = m.borrow_mut();
+            let entity = model.entity_by_label(label).script()?;
+            model.spell_entity(&entity).script()
+        })
         .register_fn("to_string", |_: &mut ScriptModel| "Model".to_string());
+    crate::migration_api::register(engine);
 }

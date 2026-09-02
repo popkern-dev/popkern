@@ -4,7 +4,7 @@
 use popkern_core::naming::EntityName;
 use popkern_core::topology::BRep;
 
-use super::{EdgeSelector, FaceSelector};
+use super::{EdgeSelector, EntityRef, FaceSelector};
 use crate::error::{ScriptError, SelectionKind};
 
 /// What the document stores for a selection (D3).
@@ -28,10 +28,10 @@ fn name_of(brep: &BRep, id: Option<popkern_core::naming::NameId>) -> Option<Enti
 pub(crate) fn resolve_edges(
     brep: &BRep,
     selector: &EdgeSelector,
-    resolve_label: &dyn Fn(&str) -> Result<EntityName, ScriptError>,
+    resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
 ) -> Result<SelectionSnapshot, ScriptError> {
     let describe = selector.describe();
-    let query = selector.to_query(resolve_label)?;
+    let query = selector.to_query(resolve)?;
     let infos = popkern_part::edge_infos(brep);
     let handles = query.resolve(&infos);
     let seams: std::collections::HashSet<_> = infos
@@ -74,10 +74,10 @@ pub(crate) fn resolve_edges(
 pub(crate) fn resolve_faces(
     brep: &BRep,
     selector: &FaceSelector,
-    resolve_label: &dyn Fn(&str) -> Result<EntityName, ScriptError>,
+    resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
 ) -> Result<SelectionSnapshot, ScriptError> {
     let describe = selector.describe();
-    let query = selector.to_query(resolve_label)?;
+    let query = selector.to_query(resolve)?;
     let infos = popkern_part::face_infos(brep);
     let handles = query.resolve(&infos);
     let names: Vec<EntityName> = handles

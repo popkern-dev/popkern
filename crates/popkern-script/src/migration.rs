@@ -12,7 +12,7 @@ use crate::body::Body;
 use crate::error::{ScriptError, SelectionKind};
 use crate::feature_edit::Edit;
 use crate::model::{FeatureHandle, Model};
-use crate::selection::{resolve_edges, resolve_faces};
+use crate::selection::{EntityRef, resolve_edges, resolve_faces};
 
 /// A parameter as the surface lists it.
 #[derive(Debug, Clone, PartialEq)]
@@ -189,7 +189,7 @@ impl Model {
             if edit.continuity.is_some() || edit.edges.is_some() || edit.faces.is_some() {
                 // Selections resolve against the body the feature sees.
                 let before = m.tree.brep_at(index, m.tolerance)?.clone();
-                let labels = |l: &str| m.entity_by_label(l);
+                let labels = |r: EntityRef| m.resolve_entity_ref(r);
                 match (&mut new_feature, &edit.edges, &edit.faces) {
                     (Feature::Fillet { edges, recipe, .. }, sel, _) => {
                         if let Some(kind) = edit.continuity {

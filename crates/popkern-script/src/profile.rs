@@ -4,7 +4,7 @@
 use popkern_history::feature::{Feature, SketchPlaneDesc};
 
 use crate::plane::Plane;
-use crate::selection::{exactly_one, resolve_faces};
+use crate::selection::{EntityRef, exactly_one, resolve_faces};
 use popkern_history::feature_sketch::{ScalarBinding, SketchPayload};
 use popkern_sketch::profile::{AnalyticProfile, PathSegment, ProfileShape};
 
@@ -165,9 +165,10 @@ impl<'m> ProfileBuilder<'m> {
         };
         let center = [bind("center_x", &center[0])?, bind("center_y", &center[1])?];
         let profile = AnalyticProfile { shape, center };
+        let mut records = Vec::new();
         let plane = match plane.simple_desc() {
             Some(desc) => desc,
-            None => resolve_plane(model, &plane)?,
+            None => resolve_plane(model, &plane, &mut records)?,
         };
         let feature = Feature::Sketch {
             plane,
@@ -179,7 +180,7 @@ impl<'m> ProfileBuilder<'m> {
             feature,
             label,
             None,
-            Vec::new(),
+            records,
         )?;
         let body = model
             .tree
@@ -192,7 +193,11 @@ impl<'m> ProfileBuilder<'m> {
 }
 
 /// Resolve the planes that need a parameter or a face of the active body.
-fn resolve_plane(model: &mut Model, plane: &Plane) -> Result<SketchPlaneDesc, ScriptError> {
+fn resolve_plane(
+    model: &mut Model,
+    plane: &Plane,
+    records: &mut Vec<popkern_history::SelectionRecord>,
+) -> Result<SketchPlaneDesc, ScriptError> {
     let unit = model.unit;
     match plane {
         Plane::Offset(base, d) => Ok(SketchPlaneDesc::BaseOffset {
@@ -208,11 +213,10 @@ fn resolve_plane(model: &mut Model, plane: &Plane) -> Result<SketchPlaneDesc, Sc
         Plane::OnFace(sel) | Plane::OnFaceOffset(sel, _) => {
             let body = model.active()?;
             let brep = model.body_brep(body.id)?;
-            let labels = |l: &str| model.entity_by_label(l);
-            let face = exactly_one(
-                resolve_faces(&brep, sel, &labels)?,
-                crate::error::SelectionKind::Faces,
-            )?;
+            let labels = |r: EntityRef| model.resolve_entity_ref(r);
+            let snapshot = resolve_faces(&brep, sel, &labels)?;
+            records.push(Body::selection_record("plane", &snapshot));
+            let face = exactly_one(snapshot, crate::error::SelectionKind::Faces)?;
             match plane {
                 Plane::OnFaceOffset(_, d) => Ok(SketchPlaneDesc::OnFaceOffset(
                     face,

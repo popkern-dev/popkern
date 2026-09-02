@@ -5,17 +5,23 @@
 //! constant-radius ops do.
 
 use popkern_core::naming::EntityName;
-use popkern_history::feature::{Feature, JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
+use popkern_history::feature::{
+    AxisDesc, BoolOpKind, Feature, JoinStyleKind, RevolveEnd as TreeRevolveEnd, ShellDirectionKind,
+    TrimPolicyKind,
+};
 use popkern_history::feature_blend::{
     ChamferKindDesc, FilletRadiusLaw, FilletRecipeDesc, RadiusStation,
 };
+use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::unit::Unit;
 
-use crate::body::Body;
+use crate::body::{Body, RevolveEnd};
 use crate::error::{ScriptError, SelectionKind};
 use crate::model::Model;
 use crate::scalar::{Scalar, bind_scalar};
-use crate::selection::{EdgeSelector, FaceSelector, exactly_one, resolve_edges, resolve_faces};
+use crate::selection::{
+    EdgeSelector, EntityRef, FaceSelector, exactly_one, resolve_edges, resolve_faces,
+};
 
 /// How a fillet's radius varies along each edge (spec §5 `law`).
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +58,21 @@ pub enum ChamferSpec {
     },
 }
 
+/// A revolve/rotation axis (spec §1.4): a literal, or an edge of the
+/// active body selected by a query (recorded as the `axis` selection).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AxisSpec {
+    /// `axis_at(origin, direction)`.
+    Literal {
+        /// A point on the axis.
+        origin: [f64; 3],
+        /// The axis direction.
+        direction: [f64; 3],
+    },
+    /// `axis(edge_selection)` — must resolve to exactly one edge.
+    Edge(EdgeSelector),
+}
+
 /// Shell options beyond thickness (spec §5 `shell`): direction
 /// defaults to `inward`, join to `arc`, trim to `trim`.
 #[derive(Debug, Clone, Copy)]
@@ -80,7 +101,7 @@ impl Model {
     pub fn resolve_edge(&mut self, selection: &EdgeSelector) -> Result<EntityName, ScriptError> {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
-        let labels = |l: &str| self.entity_by_label(l);
+        let labels = |r: EntityRef| self.resolve_entity_ref(r);
         exactly_one(
             resolve_edges(&brep, selection, &labels)?,
             SelectionKind::Edges,
@@ -92,7 +113,7 @@ impl Model {
     pub fn resolve_face(&mut self, selection: &FaceSelector) -> Result<EntityName, ScriptError> {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
-        let labels = |l: &str| self.entity_by_label(l);
+        let labels = |r: EntityRef| self.resolve_entity_ref(r);
         exactly_one(
             resolve_faces(&brep, selection, &labels)?,
             SelectionKind::Faces,
@@ -166,18 +187,19 @@ impl Body {
         label: &str,
     ) -> Result<Body, ScriptError> {
         let unit = model.unit;
+        let mut records = Vec::new();
         let kind = match kind {
             ChamferSpec::Equal => ChamferKindDesc::Equal,
             ChamferSpec::TwoDistance { face, distance_2 } => ChamferKindDesc::TwoDistance {
-                face: model.resolve_face(&face)?,
+                face: self.one_face_recorded(model, "face", &face, &mut records)?,
                 distance_2: model.bind("distance_2", &distance_2, unit)?,
             },
             ChamferSpec::DistanceAngle { face, angle } => ChamferKindDesc::DistanceAngle {
-                face: model.resolve_face(&face)?,
+                face: self.one_face_recorded(model, "face", &face, &mut records)?,
                 angle: model.bind("angle", &angle, Unit::Degrees)?,
             },
         };
-        self.chamfer_kind(model, edges, distance, kind, label)
+        self.chamfer_kind(model, edges, distance, kind, label, records)
     }
 
     /// Shell with the full option set and a label.
@@ -197,5 +219,95 @@ impl Body {
             trim_policy: options.trim,
         };
         self.shell_feature(model, faces_to_remove, thickness.into(), feature, label)
+    }
+
+    fn axis(
+        self,
+        model: &mut Model,
+        axis: AxisSpec,
+        records: &mut Vec<popkern_history::SelectionRecord>,
+    ) -> Result<AxisDesc, ScriptError> {
+        Ok(match axis {
+            AxisSpec::Literal { origin, direction } => AxisDesc::Literal { origin, direction },
+            AxisSpec::Edge(selection) => {
+                AxisDesc::Edge(self.one_edge_recorded(model, "axis", &selection, records)?)
+            }
+        })
+    }
+
+    /// Revolve the body's last sketch about a queried or literal axis,
+    /// with a label.
+    pub fn revolve_with(
+        self,
+        model: &mut Model,
+        axis: AxisSpec,
+        end: RevolveEnd,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let face = self.last_sketch_face(model)?;
+        let mut records = Vec::new();
+        let axis = self.axis(model, axis, &mut records)?;
+        let end_condition = match end {
+            RevolveEnd::Blind(a) => TreeRevolveEnd::Blind {
+                angle: Body::bind(model, "angle", &a, Unit::Degrees)?,
+            },
+            RevolveEnd::FullCircle => TreeRevolveEnd::FullCircle,
+            RevolveEnd::MidPlane(a) => TreeRevolveEnd::MidPlane {
+                half_angle: Body::bind(model, "half_angle", &a, Unit::Degrees)?,
+            },
+        };
+        let feature = Feature::Revolve {
+            face,
+            axis,
+            end_condition,
+            mode: popkern_history::feature::OperationMode::NewBody,
+        };
+        self.record(model, feature, label, records)
+    }
+
+    /// Boolean with an explicit label.
+    pub fn boolean_with(
+        self,
+        model: &mut Model,
+        operation: BoolOpKind,
+        tool: Body,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        self.boolean_labeled(model, operation, tool, label)
+    }
+
+    /// Rigid translation with a label.
+    pub fn translate_with(
+        self,
+        model: &mut Model,
+        dx: impl Into<Scalar>,
+        dy: impl Into<Scalar>,
+        dz: impl Into<Scalar>,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let unit = model.unit;
+        let motion = RigidMotionDesc::Translate {
+            dx: Body::bind(model, "dx", &dx.into(), unit)?,
+            dy: Body::bind(model, "dy", &dy.into(), unit)?,
+            dz: Body::bind(model, "dz", &dz.into(), unit)?,
+        };
+        self.record(model, Feature::Transform { motion }, label, Vec::new())
+    }
+
+    /// Rigid rotation about a queried or literal axis, with a label.
+    pub fn rotate_with(
+        self,
+        model: &mut Model,
+        axis: AxisSpec,
+        angle: impl Into<Scalar>,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let mut records = Vec::new();
+        let axis = self.axis(model, axis, &mut records)?;
+        let motion = RigidMotionDesc::Rotate {
+            axis,
+            angle: Body::bind(model, "angle", &angle.into(), Unit::Degrees)?,
+        };
+        self.record(model, Feature::Transform { motion }, label, records)
     }
 }

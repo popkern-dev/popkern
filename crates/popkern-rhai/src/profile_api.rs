@@ -2,8 +2,7 @@
 //! §§1.4, 3.1, 5). A profile is a value the script builds up and
 //! records with `.sketch(label)`.
 
-use popkern_history::feature::AxisDesc;
-use popkern_script::{EdgeSelector, End, FaceSelector, Plane, Scalar};
+use popkern_script::{AxisSpec, EdgeSelector, End, FaceSelector, Plane, Scalar};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
 use crate::args;
@@ -37,16 +36,14 @@ pub enum ScriptAxis {
 }
 
 impl ScriptAxis {
-    /// Resolve to the tree's axis descriptor.
-    pub fn resolve(&self, model: &ScriptModel) -> Result<AxisDesc, Box<EvalAltResult>> {
+    /// The recorder's axis argument.
+    pub fn spec(&self) -> AxisSpec {
         match self {
-            ScriptAxis::Literal { origin, direction } => Ok(AxisDesc::Literal {
+            ScriptAxis::Literal { origin, direction } => AxisSpec::Literal {
                 origin: *origin,
                 direction: *direction,
-            }),
-            ScriptAxis::Edge(selection) => Ok(AxisDesc::Edge(
-                model.borrow_mut().resolve_edge(selection).script()?,
-            )),
+            },
+            ScriptAxis::Edge(selection) => AxisSpec::Edge(selection.clone()),
         }
     }
 }

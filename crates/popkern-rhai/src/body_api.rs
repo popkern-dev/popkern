@@ -2,7 +2,7 @@
 //! records into the shared model and returns the served body, so
 //! calls chain in timeline order.
 
-use popkern_history::feature::OperationMode;
+use popkern_history::feature::{BoolOpKind, OperationMode};
 use popkern_script::{Body, EdgeSelector, End, FaceSelector, RevolveEnd};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
@@ -68,10 +68,14 @@ impl ScriptBody {
                 ));
             }
         };
-        let axis = axis.resolve(&self.model)?;
         let body = self
             .body
-            .revolve(&mut self.model.borrow_mut(), axis, end, &options.label()?)
+            .revolve_with(
+                &mut self.model.borrow_mut(),
+                axis.spec(),
+                end,
+                &options.label()?,
+            )
             .script()?;
         Ok(self.served(body))
     }
@@ -137,9 +141,19 @@ impl ScriptBody {
     fn boolean(
         &self,
         tool: ScriptBody,
-        op: fn(Body, &mut popkern_script::Model, Body) -> Result<Body, popkern_script::ScriptError>,
+        op: BoolOpKind,
+        options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
-        let body = op(self.body, &mut self.model.borrow_mut(), tool.body).script()?;
+        let options = Options::parse("boolean", options, LABEL_ONLY)?;
+        let body = self
+            .body
+            .boolean_with(
+                &mut self.model.borrow_mut(),
+                op,
+                tool.body,
+                &options.label()?,
+            )
+            .script()?;
         Ok(self.served(body))
     }
 
@@ -148,25 +162,38 @@ impl ScriptBody {
         dx: Dynamic,
         dy: Dynamic,
         dz: Dynamic,
+        options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("translate", options, LABEL_ONLY)?;
         let body = self
             .body
-            .translate(
+            .translate_with(
                 &mut self.model.borrow_mut(),
                 args::scalar("dx", &dx)?,
                 args::scalar("dy", &dy)?,
                 args::scalar("dz", &dz)?,
+                &options.label()?,
             )
             .script()?;
         Ok(self.served(body))
     }
 
-    fn rotate(&self, axis: ScriptAxis, angle: Dynamic) -> Result<ScriptBody, Box<EvalAltResult>> {
-        let axis = axis.resolve(&self.model)?;
+    fn rotate(
+        &self,
+        axis: ScriptAxis,
+        angle: Dynamic,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("rotate", options, LABEL_ONLY)?;
         let angle = args::scalar("angle", &angle)?;
         let body = self
             .body
-            .rotate(&mut self.model.borrow_mut(), axis, angle)
+            .rotate_with(
+                &mut self.model.borrow_mut(),
+                axis.spec(),
+                angle,
+                &options.label()?,
+            )
             .script()?;
         Ok(self.served(body))
     }
@@ -249,21 +276,55 @@ pub fn register(engine: &mut Engine) {
             },
         )
         .register_fn("union", |b: &mut ScriptBody, tool: ScriptBody| {
-            b.boolean(tool, Body::union)
-        })
-        .register_fn("subtract", |b: &mut ScriptBody, tool: ScriptBody| {
-            b.boolean(tool, Body::subtract)
-        })
-        .register_fn("intersect", |b: &mut ScriptBody, tool: ScriptBody| {
-            b.boolean(tool, Body::intersect)
+            b.boolean(tool, BoolOpKind::Union, &Dynamic::UNIT)
         })
         .register_fn(
+            "union",
+            |b: &mut ScriptBody, tool: ScriptBody, o: Dynamic| {
+                b.boolean(tool, BoolOpKind::Union, &o)
+            },
+        )
+        .register_fn("subtract", |b: &mut ScriptBody, tool: ScriptBody| {
+            b.boolean(tool, BoolOpKind::Subtraction, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "subtract",
+            |b: &mut ScriptBody, tool: ScriptBody, o: Dynamic| {
+                b.boolean(tool, BoolOpKind::Subtraction, &o)
+            },
+        )
+        .register_fn("intersect", |b: &mut ScriptBody, tool: ScriptBody| {
+            b.boolean(tool, BoolOpKind::Intersection, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "intersect",
+            |b: &mut ScriptBody, tool: ScriptBody, o: Dynamic| {
+                b.boolean(tool, BoolOpKind::Intersection, &o)
+            },
+        )
+        .register_fn(
             "translate",
-            |b: &mut ScriptBody, dx: Dynamic, dy: Dynamic, dz: Dynamic| b.translate(dx, dy, dz),
+            |b: &mut ScriptBody, dx: Dynamic, dy: Dynamic, dz: Dynamic| {
+                b.translate(dx, dy, dz, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "translate",
+            |b: &mut ScriptBody, dx: Dynamic, dy: Dynamic, dz: Dynamic, o: Dynamic| {
+                b.translate(dx, dy, dz, &o)
+            },
         )
         .register_fn(
             "rotate",
-            |b: &mut ScriptBody, axis: ScriptAxis, angle: Dynamic| b.rotate(axis, angle),
+            |b: &mut ScriptBody, axis: ScriptAxis, angle: Dynamic| {
+                b.rotate(axis, angle, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "rotate",
+            |b: &mut ScriptBody, axis: ScriptAxis, angle: Dynamic, o: Dynamic| {
+                b.rotate(axis, angle, &o)
+            },
         )
         .register_fn("last", |b: &mut ScriptBody| b.last())
         .register_fn("to_string", |b: &mut ScriptBody| {

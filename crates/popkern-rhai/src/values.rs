@@ -13,6 +13,22 @@ pub fn to_value<T: Serialize>(value: &T) -> Dynamic {
     rhai::serde::to_dynamic(value).unwrap_or(Dynamic::UNIT)
 }
 
+/// A replay report as a map with the derived `is_clean`, `failures`
+/// and `downgraded_blends` views the spec §11 shape lists.
+pub fn report_map(report: &popkern_history::replay_report::ReplayReport) -> Dynamic {
+    let mut map = to_value(report).try_cast::<Map>().unwrap_or_default();
+    map.insert("is_clean".into(), report.is_clean().into());
+    map.insert(
+        "failures".into(),
+        Dynamic::from_array(report.failures().map(to_value).collect()),
+    );
+    map.insert(
+        "downgraded_blends".into(),
+        Dynamic::from_array(report.downgraded_blends().map(to_value).collect()),
+    );
+    Dynamic::from_map(map)
+}
+
 /// A parameter row as `#{ name, value, unit, expression, bounds, read_only }`.
 pub fn param_map(info: &ParamInfo) -> Dynamic {
     let mut map = Map::new();

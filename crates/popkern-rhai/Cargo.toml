@@ -10,6 +10,7 @@ popkern-core = { path = "../popkern-core" }
 popkern-history = { path = "../popkern-history" }
 popkern-part = { path = "../popkern-part" }
 popkern-script = { path = "../popkern-script" }
+popkern-sketch = { path = "../popkern-sketch" }
 # `std` only: no `ahash/runtime-rng`, so the engine has no getrandom
 # dependency (browser build needs no backend) and hashing is fixed-seed
 # deterministic. `serde` carries reports/errors into script values,

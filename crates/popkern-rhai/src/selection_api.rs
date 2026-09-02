@@ -67,6 +67,9 @@ pub fn register(engine: &mut Engine) {
         .register_fn("labeled", |s: &mut EdgeSelector, l: &str| {
             s.clone().labeled(l)
         })
+        .register_fn("named", |s: &mut EdgeSelector, t: &str| {
+            s.clone().spelled(t)
+        })
         .register_fn("or", |s: &mut EdgeSelector, other: EdgeSelector| {
             s.clone().or(other)
         })
@@ -84,6 +87,9 @@ pub fn register(engine: &mut Engine) {
         .register_fn("at_height", face_at_height)
         .register_fn("labeled", |s: &mut FaceSelector, l: &str| {
             s.clone().labeled(l)
+        })
+        .register_fn("named", |s: &mut FaceSelector, t: &str| {
+            s.clone().spelled(t)
         })
         .register_fn("allow_empty", |s: &mut FaceSelector| {
             s.clone().allow_empty()

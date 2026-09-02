@@ -32,6 +32,19 @@ pub enum EdgePredicate {
     Labeled(String),
     /// Exactly this entity.
     Named(EntityName),
+    /// Exactly the entity a spelling names (`rounds/Generated/0`,
+    /// see `Model::spell_entity`); resolved at record time.
+    Spelled(String),
+}
+
+/// A reference to an entity by text, resolved by the model at record
+/// time: an entity label, or a spelled name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntityRef<'a> {
+    /// An entity label (`labeled("mount")`).
+    Label(&'a str),
+    /// A spelled name (`named("rounds/Generated/0")`).
+    Spelled(&'a str),
 }
 
 /// One face predicate of the surface grammar.
@@ -49,6 +62,8 @@ pub enum FacePredicate {
     Labeled(String),
     /// Exactly this entity.
     Named(EntityName),
+    /// Exactly the entity a spelling names.
+    Spelled(String),
 }
 
 /// An edge selection: a disjunction of conjunctions.
@@ -114,6 +129,7 @@ impl EdgePredicate {
             EdgePredicate::NotSeam => "not_seam()".into(),
             EdgePredicate::Labeled(l) => format!("labeled({l:?})"),
             EdgePredicate::Named(n) => format!("named({n:?})"),
+            EdgePredicate::Spelled(t) => format!("named({t:?})"),
         }
     }
 }
@@ -127,6 +143,7 @@ impl FacePredicate {
             FacePredicate::AtHeight(z) => format!("at_height({z})"),
             FacePredicate::Labeled(l) => format!("labeled({l:?})"),
             FacePredicate::Named(n) => format!("named({n:?})"),
+            FacePredicate::Spelled(t) => format!("named({t:?})"),
         }
     }
 }
@@ -181,6 +198,10 @@ impl EdgeSelector {
     /// Exactly this entity.
     pub fn named(self, name: EntityName) -> Self {
         self.push(EdgePredicate::Named(name))
+    }
+    /// Exactly the entity a spelling names (`rounds/Generated/0`).
+    pub fn spelled(self, text: &str) -> Self {
+        self.push(EdgePredicate::Spelled(text.to_string()))
     }
     /// Union with another whole selection.
     pub fn or(mut self, other: EdgeSelector) -> Self {
@@ -238,10 +259,10 @@ impl EdgeSelector {
         self.allow_empty
     }
     /// Compile to the `popkern-part` query used for resolution.
-    /// `resolve_label` maps an entity label to its name.
+    /// `resolve` maps an entity label or spelling to its name.
     pub(crate) fn to_query(
         &self,
-        resolve_label: &dyn Fn(&str) -> Result<EntityName, ScriptError>,
+        resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
     ) -> Result<EdgeQuery, ScriptError> {
         let mut query: Option<EdgeQuery> = None;
         for branch in &self.branches {
@@ -262,11 +283,15 @@ impl EdgeSelector {
                     EdgePredicate::ChordLengthBetween(a, b) => q.chord_length_between(*a, *b),
                     EdgePredicate::NotSeam => q.not_seam(),
                     EdgePredicate::Labeled(l) => {
-                        let name = resolve_label(l)?;
+                        let name = resolve(EntityRef::Label(l))?;
                         q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
                     }
                     EdgePredicate::Named(n) => {
                         let name = n.clone();
+                        q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
+                    }
+                    EdgePredicate::Spelled(t) => {
+                        let name = resolve(EntityRef::Spelled(t))?;
                         q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
                     }
                 };
@@ -313,6 +338,10 @@ impl FaceSelector {
     pub fn named(self, name: EntityName) -> Self {
         self.push(FacePredicate::Named(name))
     }
+    /// Exactly the entity a spelling names.
+    pub fn spelled(self, text: &str) -> Self {
+        self.push(FacePredicate::Spelled(text.to_string()))
+    }
     /// An empty result is a recorded no-op instead of an error.
     pub fn allow_empty(mut self) -> Self {
         self.allow_empty = true;
@@ -352,7 +381,7 @@ impl FaceSelector {
     }
     pub(crate) fn to_query(
         &self,
-        resolve_label: &dyn Fn(&str) -> Result<EntityName, ScriptError>,
+        resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
     ) -> Result<FaceQuery, ScriptError> {
         let mut q = FaceQuery::new();
         for p in &self.predicates {
@@ -362,11 +391,15 @@ impl FaceSelector {
                 FacePredicate::FacingNeg(d) => q.facing_neg(*d),
                 FacePredicate::AtHeight(z) => q.at_height(*z),
                 FacePredicate::Labeled(l) => {
-                    let name = resolve_label(l)?;
+                    let name = resolve(EntityRef::Label(l))?;
                     q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
                 }
                 FacePredicate::Named(n) => {
                     let name = n.clone();
+                    q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
+                }
+                FacePredicate::Spelled(t) => {
+                    let name = resolve(EntityRef::Spelled(t))?;
                     q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
                 }
             };
