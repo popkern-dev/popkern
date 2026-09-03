@@ -375,6 +375,13 @@ m
 - Cut-mode extrudes (`#{ mode: "cut" }`) need a sketch on a face of
   the target body (`on_face(...)`); from a base plane, record the
   cutter with `m.tool(...)` and `subtract` it.
+- A single expression may nest to 64 levels at the top level and 32
+  inside a `fn` body (the same limit in every build — CLI, tests, and
+  the wasm playground). Computed-geometry arithmetic rarely reaches
+  it, but a deep chain like `a + b*c/d - f(g(x))` repeated in a point
+  literal can; if you hit `Expression exceeds maximum complexity`,
+  bind sub-results to `let` locals (`let ang = rot - half; [r*cos(ang),
+  r*sin(ang)]`), which also reads better.
 
 ## 12. Cheat-sheet
 

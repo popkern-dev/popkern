@@ -259,6 +259,7 @@ m
 <li>G2 fillets with corners are the slow path today (seconds each, tens of seconds for a fully rounded cube); G1 rounds and chamfers are fast. Prefer G1 unless curvature continuity is the point.</li>
 <li>The wasm engine runs about three times slower than native; a twenty-feature part builds in well under a second natively and in a few seconds in the browser. A 200-feature document (a hundred bodies) took ten seconds in the browser and ten megabytes of wasm memory: tens of features stay interactive, hundreds take seconds.</li>
 <li>Cut-mode extrudes (<code>#{ mode: "cut" }</code>) need a sketch on a face of the target body (<code>on_face(...)</code>); from a base plane, record the cutter with <code>m.tool(...)</code> and <code>subtract</code> it.</li>
+<li>A single expression may nest to 64 levels at the top level and 32 inside a <code>fn</code> body (the same limit in every build — CLI, tests, and the wasm playground). Computed-geometry arithmetic rarely reaches it, but a deep chain like <code>a + b*c/d - f(g(x))</code> repeated in a point literal can; if you hit <code>Expression exceeds maximum complexity</code>, bind sub-results to <code>let</code> locals (<code>let ang = rot - half; [r*cos(ang), r*sin(ang)]</code>), which also reads better.</li>
 </ul>
 <h2>12. Cheat-sheet</h2>
 <pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()

@@ -18,6 +18,19 @@ pub const FORBIDDEN_FUNCTIONS: &[&str] = &["timestamp", "sleep", "exit", "eval"]
 /// line.
 pub fn build_engine(print: impl Fn(&str) + 'static) -> Engine {
     let mut engine = Engine::new_raw();
+    // Pin the parse-time expression-depth limits explicitly so every
+    // build profile agrees. Rhai's defaults are LOWER in debug (32
+    // global / 16 in function bodies) than release (64 / 32), so a
+    // computed-geometry script — `a + b*c/d` chains and nested-array
+    // point literals, which naturally nest deep — could parse in the
+    // release wasm playground yet be rejected by a debug `cargo test`
+    // gate, a portability trap where the test bar is stricter than
+    // production. These are Rhai's release defaults: a wasm-safe
+    // ceiling (the untrusted playground already parses at 64/32) that
+    // still admits the arithmetic depth such scripts want. Parse-depth
+    // is a stack-overflow guard, not a runtime lever — runtime is
+    // bounded separately by `set_max_operations`.
+    engine.set_max_expr_depths(64, 32);
     // `CorePackage` minus `LanguageCorePackage` (which carries `sleep`,
     // `exit`, `take`, tags, `parse_json`, and metadata introspection).
     engine.register_global_module(ArithmeticPackage::new().as_shared_module());
