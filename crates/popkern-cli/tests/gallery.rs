@@ -101,6 +101,16 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         8,
         "translate, rotate, subtract, chamfer on a circular edge",
     ),
+    (
+        "planetary_gearbox",
+        "Planetary gearbox",
+        "A 4:1 planetary set — sun, three phased planets, an internal ring gear cut by \
+         a toothed disc, and a spider carrier — six meshing bodies whose involute teeth \
+         and assembly phasing are all computed in the script.",
+        45,
+        "computed involute teeth, internal ring gears, meshing-assembly phasing, \
+         the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
+    ),
 ];
 
 fn root() -> PathBuf {

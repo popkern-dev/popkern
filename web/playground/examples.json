@@ -95,6 +95,14 @@
       "file": "keyed_shaft.rhai",
       "thumbnail": "examples/keyed_shaft.png",
       "title": "Keyed shaft"
+    },
+    {
+      "blurb": "A 4:1 planetary set — sun, three phased planets, an internal ring gear cut by a toothed disc, and a spider carrier — six meshing bodies whose involute teeth and assembly phasing are all computed in the script.",
+      "demonstrates": "computed involute teeth, internal ring gears, meshing-assembly phasing, the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
+      "features": 45,
+      "file": "planetary_gearbox.rhai",
+      "thumbnail": "examples/planetary_gearbox.png",
+      "title": "Planetary gearbox"
     }
   ]
 }
