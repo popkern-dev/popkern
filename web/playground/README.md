@@ -17,6 +17,27 @@ Any static file server works; the page needs `application/wasm` for
 `.wasm` (every common server has it) and must be served over HTTP —
 `file://` cannot load module workers. There is no bundler and no
 build step for the JS: the files here are what the browser loads.
+Every URL in the page is relative and the CSP lives in meta tags, so
+the page is subpath-agnostic — it serves identically from `/` and
+from a mounted prefix.
+
+## Sandbox deploy (`/routes/`)
+
+```
+tools/deploy-playground-routes.sh              # build, copy, verify
+tools/deploy-playground-routes.sh --no-build   # redeploy the built bundle
+```
+
+One command builds the bundle, copies the runtime assets (not the
+harnesses or npm metadata) to `~/code/.routes/static/popkern-playground/`,
+and verifies the served copy: content types by `curl`, then the
+`test/browser.mjs` harness pointed at the deployed URL via
+`POPKERN_PAGE_ORIGIN` — a real kernel run, request accounting, and
+recorded load numbers in `docs/reports/playground/routes-deploy.json`.
+The sandbox's Caddy serves the tree at `/routes/popkern-playground/`
+(locally on port 7681 and on the tunnel hostname); the script's
+header documents the `conf.d` reverse-proxy variant a live
+`popkern-daemon` session will use instead.
 
 ## Files
 

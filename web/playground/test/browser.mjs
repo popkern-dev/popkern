@@ -11,6 +11,10 @@
 //   POPKERN_LAUNCH=1 node browser.mjs <screenshot.png>   # + the launch checklist rows:
 //     throttled cold load (Fast 3G), the three runaway classes under
 //     small budgets, a 200-feature document's memory, keyboard reach
+//   POPKERN_PAGE_ORIGIN=<url> node browser.mjs <screenshot.png>
+//     drive an already-served copy of the page (e.g. the sandbox
+//     /routes/ deploy) instead of this harness's own static server;
+//     foreign-request accounting is relative to that origin.
 //
 // Output: one JSON object on stdout. Exit 3 when no browser is found.
 import { spawn } from "node:child_process";
@@ -50,7 +54,11 @@ const server = createServer(async (req, res) => {
   }
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const origin = `http://127.0.0.1:${server.address().port}`;
+// An externally served copy (the sandbox /routes/ deploy) takes over as
+// the page under test; the local server stays up but unvisited, so
+// server_requests being empty distinguishes the two modes in the JSON.
+const external = (process.env.POPKERN_PAGE_ORIGIN ?? "").replace(/\/+$/, "");
+const origin = external || `http://127.0.0.1:${server.address().port}`;
 
 const candidates = [chromeArg, process.env.POPKERN_CHROME, "google-chrome", "chromium", "chromium-browser", "google-chrome-stable"].filter(Boolean);
 const profile = await mkdtemp(join(tmpdir(), "popkern-playground-chrome-"));
@@ -265,7 +273,11 @@ try {
     out.launch = await launchRows();
   }
   out.network = [...new Set(networkUrls)];
-  out.foreign_requests = out.network.filter((u) => !u.startsWith(origin));
+  // Foreign means another scheme://host:port — CSP 'self' semantics.
+  // (Under a subpath deploy the page origin is host + prefix, but a
+  // same-host request outside the prefix still never leaves the box.)
+  const pageHost = new URL(`${origin}/`).origin;
+  out.foreign_requests = out.network.filter((u) => !u.startsWith(`${pageHost}/`));
   out.server_requests = [...new Set(requests)];
   out.console = consoleLines.slice(0, 40);
   out.exceptions = exceptions.slice(0, 20);
