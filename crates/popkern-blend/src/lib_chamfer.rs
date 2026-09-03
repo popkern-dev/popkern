@@ -149,7 +149,18 @@ fn chamfer_edges_internal(
                 // PK-244 serving-boundary flag reconcile (see
                 // fillet_pipeline): flags are derived state.
                 let _ = result.reconcile_orientation_flags();
-                let structural = result.validate();
+                // Check 9 (curve-surface consistency) is part of this
+                // serve gate: a chamfer that leaves a stale edge piece
+                // off its re-trimmed neighbour passes structural
+                // validation and ships an invalid body the NEXT
+                // boolean declines on (measured: chamfering a rounded
+                // plate's corner-fillet top arcs left the vertical
+                // tangent edge's top segment unconsumed, 7.5e-3 off
+                // the chamfer surface; the body served here and the
+                // following subtract failed its result validation).
+                let structural = result
+                    .validate()
+                    .and_then(|()| result.validate_curve_surface());
                 if structural.is_ok() {
                     if let Some(ctx) = tracking {
                         assign_fillet_names(&mut result, ctx, pre_faces);
@@ -311,6 +322,36 @@ fn chamfer_edges_internal(
     // PK-244 serving-boundary flag reconcile: flags are derived state.
     apply_result.repair_report.orientation_flag_reconciliations +=
         apply_result.brep.reconcile_orientation_flags();
+
+    // Check 9 (curve-surface consistency) arms this serve gate too: a
+    // chamfer terminating AT a tangent junction (a corner fillet's
+    // top arc, whose ends meet the straight rim edges G1) can leave
+    // the neighbour's stale edge piece off the re-trimmed surface —
+    // structural validation passes and the invalid body surfaces as
+    // the NEXT boolean's decline (measured: rounded plate, corner-arc
+    // chamfer 0.03, vertical tangent edge's top segment 7.5e-3 off).
+    // Declining here is transactional; construction support for the
+    // tangent-termination class is the filed follow-up.
+    if let Err(deviation) = apply_result.brep.validate_curve_surface() {
+        return Err(BlendError::partial_failure(
+            specs.len(),
+            brep.clone(),
+            specs
+                .iter()
+                .map(|s| {
+                    (
+                        s.edge,
+                        BlendFailure::InvalidTopology {
+                            reason: format!(
+                                "chamfer result failed curve-surface validation: {deviation}"
+                            ),
+                            location: None,
+                        },
+                    )
+                })
+                .collect(),
+        ));
+    }
 
     Ok(BlendResult {
         brep: apply_result.brep,
