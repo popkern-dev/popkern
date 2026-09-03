@@ -57,6 +57,38 @@
       "title": "Parametric plate"
     },
     {
+      "blurb": "A printable two-body box: shelled base with screw bosses from a loop, a bar-lip lid with loop-cut vents, exact-cone countersinks and a vents-off configuration.",
+      "demonstrates": "loops computing placements, shell, multi-body documents, configurations suppressing loop features, chord_length_between",
+      "features": 71,
+      "file": "project_box.rhai",
+      "thumbnail": "examples/project_box.png",
+      "title": "Project box"
+    },
+    {
+      "blurb": "A deep-groove bearing: races revolved with exact torus grooves, chamfered lead-ins, and a ring of balls placed by trigonometry — ten bodies.",
+      "demonstrates": "revolve with arc paths, exact torus and sphere surfaces, trigonometric placement loops, multi-body export",
+      "features": 30,
+      "file": "ball_bearing.rhai",
+      "thumbnail": "examples/ball_bearing.png",
+      "title": "Ball bearing"
+    },
+    {
+      "blurb": "A twenty-tooth spur gear whose flanks are true involutes computed in the script, bored and keyed in one combined cut.",
+      "demonstrates": "computed polygon profiles, script functions, boolean tool unions",
+      "features": 8,
+      "file": "involute_gear.rhai",
+      "thumbnail": "examples/involute_gear.png",
+      "title": "Involute gear"
+    },
+    {
+      "blurb": "Seven backswept blades carved by one star-shaped cut whose spiral walls and tapered trailing edges this script computes.",
+      "demonstrates": "script functions, computed star polygons, logarithmic spirals, single-cut cavities",
+      "features": 11,
+      "file": "centrifugal_impeller.rhai",
+      "thumbnail": "examples/centrifugal_impeller.png",
+      "title": "Centrifugal impeller"
+    },
+    {
       "blurb": "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",
       "demonstrates": "translate, rotate, subtract, chamfer on a circular edge",
       "features": 8,
