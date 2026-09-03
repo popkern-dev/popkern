@@ -209,3 +209,73 @@ fn tangential_out_of_window_contact_terminates() {
         "no true intersection exists inside the window, got {hits:?}"
     );
 }
+
+/// The 9-control-point rational-quadratic circle the extrude rim
+/// pcurves and `plane_uv_conic` produce.
+fn rational_circle(cx: f64, cy: f64, r: f64, phase_deg: f64) -> NurbsCurve {
+    let w = std::f64::consts::FRAC_1_SQRT_2;
+    let p = phase_deg.to_radians();
+    let s2 = std::f64::consts::SQRT_2;
+    let at = |deg: f64, scale: f64| {
+        let a = p + deg.to_radians();
+        Point3::new(cx + scale * r * a.cos(), cy + scale * r * a.sin(), 0.0)
+    };
+    NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        control_points: vec![
+            at(0.0, 1.0),
+            at(45.0, s2),
+            at(90.0, 1.0),
+            at(135.0, s2),
+            at(180.0, 1.0),
+            at(225.0, s2),
+            at(270.0, 1.0),
+            at(315.0, s2),
+            at(0.0, 1.0),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+    }
+}
+
+/// Two offset rational circles cross at exactly two transversal
+/// points; both must be found. Measured miss (PK-427): near the
+/// converged root the A segment collapses below the fat-line
+/// helper's absolute epsilons, and treating "no fat line" as "no
+/// intersection" discarded the root — a cap face's clip then saw
+/// ONE crossing for a bore-class record and dropped it as Outside.
+#[test]
+fn two_offset_rational_circles_yield_both_crossings() {
+    let rim = rational_circle(0.0, 0.3, 0.3, 0.0);
+    let record = rational_circle(0.0, -0.1, 0.25, -90.0);
+    let mut hits: Vec<(f64, f64)> =
+        intersect_nurbs_nurbs(&rim, (0.0, 1.0), &record, (0.0, 1.0), &Tolerance::default())
+            .into_iter()
+            .filter_map(|i| match i {
+                CurveIntersection::Point { point, .. } => Some((point.x, point.y)),
+                _ => None,
+            })
+            .collect();
+    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    assert_eq!(hits.len(), 2, "both transversal crossings: {hits:?}");
+    assert!((hits[0].0 + 0.187265).abs() < 1e-4 && (hits[1].0 - 0.187265).abs() < 1e-4);
+    assert!((hits[0].1 - 0.065625).abs() < 1e-4 && (hits[1].1 - 0.065625).abs() < 1e-4);
+}
+
+/// The single quadrant pair that held the missed crossing, in
+/// isolation — the bezier-clipping path alone must serve it.
+#[test]
+fn the_converged_collapse_quadrant_still_finds_its_crossing() {
+    let rim = rational_circle(0.0, 0.3, 0.3, 0.0);
+    let record = rational_circle(0.0, -0.1, 0.25, -90.0);
+    let hits = intersect_nurbs_nurbs(
+        &rim,
+        (0.5, 0.75),
+        &record,
+        (0.5, 0.75),
+        &Tolerance::default(),
+    );
+    assert_eq!(hits.len(), 1, "the quadrant's crossing: {hits:?}");
+}

@@ -12,8 +12,10 @@ mod clip_crossings_rescue;
 mod clip_line;
 mod clip_seam_shift;
 mod clip_uv;
+mod clip_uv_crossings;
 mod clip_windows;
 mod clip_windows_clearance;
+mod clip_windows_decisive;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -27,7 +29,8 @@ pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
 use clip_seam_shift::{is_near_seam, shift_curve_u};
 #[cfg(test)]
 use clip_uv::uv_range_from_crossings;
-pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, find_uv_crossings};
+pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings};
+pub(crate) use clip_uv_crossings::find_uv_crossings;
 pub(crate) use clip_windows::clip_curve_uv_space;
 
 /// Stage 2b.58: extract the underlying `CurveOnSurface` (NURBS
@@ -122,6 +125,57 @@ pub(crate) fn face_uv_boundary(
         }
     }
     Some(boundary)
+}
+
+/// The UV contours of a face's INNER loops (holes), one walked
+/// contour per loop, in the same `(half_edge, pcurve)` form as
+/// [`face_uv_boundary`]. A loop whose half-edge chain is broken or
+/// lacks a pcurve is skipped rather than failing the face — the
+/// outer boundary alone is still a usable (if hole-blind) answer,
+/// and the callers that need holes treat these contours additively.
+/// Region-semantics consumers (containment parity, record-crossing
+/// detection, boundary-clearance hugging) must see holes: a face
+/// that gained an inner loop in an earlier boolean otherwise
+/// classifies its hole as face interior, and the next boolean
+/// imprints trims INSIDE the hole (measured: a lid∪lip union's ring
+/// face at the flush plane — the following vent subtract carved its
+/// slot into the ring's hole region, OCC `InvalidImbricationOfWires`,
+/// 8 open mesh edges).
+pub(crate) fn face_uv_inner_boundaries(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Vec<Vec<(HalfEdgeHandle, popkern_core::geometry::pcurve::Pcurve)>> {
+    let Some(face_data) = brep.faces.get(face) else {
+        return Vec::new();
+    };
+    let mut contours = Vec::new();
+    'loops: for &inner in &face_data.inner_loops {
+        let Some(loop_data) = brep.loops.get(inner) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        if !brep.half_edges.contains_key(start) {
+            continue;
+        }
+        let mut contour = Vec::new();
+        let mut cursor = start;
+        let limit = brep.half_edges.len() + 1;
+        for _ in 0..limit {
+            let Some(he) = brep.half_edges.get(cursor) else {
+                continue 'loops;
+            };
+            let Some(pcurve) = he.pcurve.as_ref() else {
+                continue 'loops;
+            };
+            contour.push((cursor, pcurve.clone()));
+            cursor = he.next;
+            if cursor == start {
+                break;
+            }
+        }
+        contours.push(contour);
+    }
+    contours
 }
 
 /// [`face_uv_boundary`] with period branches CHAIN-NORMALIZED: a
@@ -343,8 +397,19 @@ pub(crate) fn clip_curve_to_faces(
     let degenerate_vertex_polygon = |brep: &BRep, face: popkern_core::topology::FaceHandle| {
         brep.face_outer_loop_positions(face).len() < 3
     };
+    // A face with INNER loops routes to UV clipping too: the vertex
+    // polygon cannot represent holes, so a line lying wholly inside a
+    // hole clipped "on-face" and a slot chain imprinted into the hole
+    // region (the keyed-bore / vent-slot class, PK-427).
+    let has_holes = |brep: &BRep, face: popkern_core::topology::FaceHandle| {
+        brep.faces
+            .get(face)
+            .is_some_and(|f| !f.inner_loops.is_empty())
+    };
     if degenerate_vertex_polygon(brep_a, face_a)
         || degenerate_vertex_polygon(brep_b, face_b)
+        || has_holes(brep_a, face_a)
+        || has_holes(brep_b, face_b)
         || face_polygon_is_reflex(brep_a, face_a)
         || face_polygon_is_reflex(brep_b, face_b)
         || face_has_curved_boundary(brep_a, face_a)

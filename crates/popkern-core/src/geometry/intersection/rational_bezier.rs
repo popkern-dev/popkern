@@ -128,6 +128,28 @@ pub(crate) fn evaluate_bezier_midpoint_h(points: &[HPoint]) -> Point3 {
 /// and the polygon crossing tests must use the WEIGHTED coefficients
 /// wᵢ·dᵢ. Using raw dᵢ (the polynomial formula) clips off true roots
 /// on rational arcs.
+/// Is a collapsed (sub-epsilon) A segment within convergence reach of
+/// B's control polygon? The band is absolute and generous relative
+/// to convergence scales (the measured converged collapse sat 5e-7
+/// from B) while far below the flush-graze separations whose
+/// exploration strands tuned welds.
+fn collapsed_segment_near(a: Point3, b_cart: &[Point3]) -> bool {
+    const NEAR: f64 = 1.0e-5;
+    if b_cart.len() == 1 {
+        return b_cart[0].distance_to(&a) < NEAR;
+    }
+    b_cart.windows(2).any(|seg| {
+        let ab = seg[1] - seg[0];
+        let len_sq = ab.length_squared();
+        let t = if len_sq > 1e-30 {
+            ((a - seg[0]).dot(&ab) / len_sq).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (seg[0] + ab * t).distance_to(&a) < NEAR
+    })
+}
+
 pub(crate) fn clip_against_fat_line(
     a_points: &[Point3],
     b_points: &[HPoint],
@@ -146,13 +168,37 @@ pub(crate) fn clip_against_fat_line(
     let line_dir = a_last - a_first;
     let line_len_sq = line_dir.length_squared();
 
-    // Degenerate A (all control points coincide)
+    // Degenerate A (all control points coincide): no fat line can be
+    // established. That is NOT automatically a proof of disjointness
+    // — near a converged transversal crossing the A segment
+    // legitimately collapses below any absolute epsilon while B
+    // still spans the root (measured: two rational circle pcurves
+    // crossing at (−0.187, 0.066); the discarded branch was the
+    // crossing itself and the cap face's clip saw one crossing
+    // instead of two). But a blanket "no reduction" answer explores
+    // every far-away collapse too, and the extra depth-exhaustion
+    // candidates it mints strand tuned flush welds (measured: the
+    // fanned gusset union). Decide by MEASURED proximity: a collapse
+    // NEAR B's control polygon keeps converging; a far one is a
+    // genuine exclusion.
     if line_len_sq < 1e-30 {
+        if collapsed_segment_near(a_points[0], &b_cart) {
+            return Some(b_range);
+        }
         return None;
     }
 
     // Compute a normal perpendicular to the fat line
-    let normal = compute_fat_line_normal(&line_dir, a_points, &b_cart)?;
+    // A missing normal is the same converged-collapse class as the
+    // degenerate chord above — its cross products fell below the
+    // helper's absolute thresholds — judged by the same proximity
+    // rule.
+    let Some(normal) = compute_fat_line_normal(&line_dir, a_points, &b_cart) else {
+        if collapsed_segment_near(a_points[0], &b_cart) {
+            return Some(b_range);
+        }
+        return None;
+    };
 
     // Signed distance of a point from the fat line
     let signed_distance = |p: Point3| -> f64 { (p - a_first).dot(&normal) };

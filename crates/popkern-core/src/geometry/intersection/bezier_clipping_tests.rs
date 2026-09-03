@@ -22,8 +22,24 @@ fn clip_edge_cases() {
     // Empty/short inputs
     assert!(clip_against_fat_line(&[p(0.0, 0.0)], &hw(&h), (0.0, 1.0)).is_none());
     assert!(clip_against_fat_line(&h, &[], (0.0, 1.0)).is_none());
-    // Degenerate A (coincident)
-    assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &hw(&h), (0.0, 1.0)).is_none());
+    // Degenerate A (coincident control points): no fat line can be
+    // established, and the verdict is decided by MEASURED proximity.
+    // A collapse ON the other curve is a converged transversal root
+    // and must keep converging (the old blanket `None` discarded the
+    // root: two rational circle pcurves crossing at (−0.187, 0.066)
+    // lost one crossing and a cap-face record was dropped as Outside
+    // — PK-427); a collapse far away is a genuine exclusion (a
+    // blanket keep minted depth-exhaustion candidates that stranded
+    // the fanned gusset's tuned flush weld).
+    assert_eq!(
+        clip_against_fat_line(&[p(0.5, 0.0), p(0.5, 0.0)], &hw(&h), (0.0, 1.0)),
+        Some((0.0, 1.0)),
+        "collapse on B keeps converging"
+    );
+    assert!(
+        clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &hw(&h), (0.0, 1.0)).is_none(),
+        "collapse far from B is an exclusion"
+    );
 }
 
 #[test]

@@ -8,6 +8,8 @@
 pub(crate) mod helpers;
 #[path = "operation_pcurve_coherence.rs"]
 mod helpers_pcurve_coherence;
+#[path = "operation_no_intersection.rs"]
+pub(crate) mod no_intersection;
 
 #[path = "operation_postprocess.rs"]
 mod postprocess;
@@ -64,9 +66,8 @@ fn check_cancel(cancel: Option<&CancellationToken>) -> Result<(), BoolError> {
     Ok(())
 }
 
-use self::helpers::{
-    handle_empty_selection, handle_no_intersection, verify_whole_body_containment,
-};
+use self::helpers::{handle_empty_selection, verify_whole_body_containment};
+use self::no_intersection::handle_no_intersection;
 
 /// Execute a boolean operation on two BRep solids.
 ///

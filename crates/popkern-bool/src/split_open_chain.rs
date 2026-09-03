@@ -147,8 +147,14 @@ pub(super) fn open_chain_pre_pass(
                         // 64 spans: a quarter-arc rim's 16-span
                         // sagitta (~1.2e-3) still exceeded the 1e-4
                         // on-boundary gate and boundary heads read
-                        // interior; 64 spans sit at ~7e-5.
-                        let n = 64;
+                        // interior; 64 spans sit at ~7e-5. A CLOSED
+                        // rim (a bore's full circle, a==b) carries
+                        // 4x the arc in one edge — its 64-span
+                        // sagitta (1.8e-4 at r 0.15) re-crossed the
+                        // gate and a keyway chain ending ON the bore
+                        // rim read interior again; closed edges get
+                        // 256.
+                        let n = if a.distance_to(&b) < 1e-9 { 256 } else { 64 };
                         let mut prev = a;
                         for i in 1..=n {
                             let t = c.t_start + (c.t_end - c.t_start) * (i as f64) / (n as f64);

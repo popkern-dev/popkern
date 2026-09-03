@@ -1,4 +1,4 @@
-//! Analytic cylinder×cylinder intersection (non-parallel axes).
+//! Analytic cylinder×cylinder intersection.
 //!
 //! The marching solver fragments the everyday cross-drill class
 //! (perpendicular bore through a cylinder wall) into overlapping
@@ -17,10 +17,12 @@ use std::f64::consts::TAU;
 
 use crate::error::CoreError;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
+use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::intersection::marching::MarchSample;
 use crate::geometry::intersection::surface_surface::{
     SurfaceSurfaceIntersection, fit_march_samples,
 };
+use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
@@ -30,10 +32,10 @@ use crate::tolerance::Tolerance;
 /// O(h⁴), far below linear tolerance at this density.
 const LOOP_SAMPLES: usize = 512;
 
-/// Try the analytic cylinder×cylinder path. Returns `None` for
-/// non-cylinder pairs and for (near-)parallel axes — parallel
-/// cylinders meet in lines or coincide, which the line/coincident
-/// detectors own.
+/// Try the analytic cylinder×cylinder path. Returns `None` only for
+/// non-cylinder pairs and for near-coincident parallel pairs (the
+/// coincident detector owns those); parallel offset axes take the
+/// exact line arm below.
 pub(crate) fn try_cylinder_cylinder(
     surface1: &SurfaceGeometry,
     v1_range: (f64, f64),
@@ -59,7 +61,18 @@ pub(crate) fn try_cylinder_cylinder(
     let a1n = a1.normalized()?;
     let a2n = a2.normalized()?;
     if a1n.cross(&a2n).length() < tolerance.angular() {
-        return None;
+        // POPKERN_ANALYTIC_PARCYL_SSI=0 pins the marching path for
+        // A/B measurement and containment (PK-239 precedent; a
+        // per-call read like the torus switch).
+        let arm_enabled = std::env::var_os("POPKERN_ANALYTIC_PARCYL_SSI")
+            .map(|v| v != "0")
+            .unwrap_or(true);
+        if !arm_enabled {
+            return None;
+        }
+        return try_parallel_axes(
+            *o1, *a1, a1n, *r1, v1_range, *o2, *a2, a2n, *r2, v2_range, tolerance,
+        );
     }
     // Parameterize on the SMALLER cylinder (its rulings cross the
     // larger transversally over the whole pierce).
@@ -261,44 +274,128 @@ pub(crate) fn try_cylinder_cylinder(
     Some(results)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::curve::CurveEval as _;
+/// Parallel-axis cylinder×cylinder: the cross-section is a plain 2D
+/// circle×circle problem, so the surfaces meet in zero, one
+/// (tangency) or two lines parallel to the shared axis direction.
+/// The marching path solved this class numerically — the everyday
+/// boss-beside-fillet booleans of a shelled box spent ~400 ms per
+/// union fitting NURBS through straight lines (measured, PK-427) —
+/// and the fitted spellings then miss every exact-line downstream
+/// serve. Tangency is silent (the PK-252 contract: a tangent contact
+/// is not a crossing curve) and near-coincident pairs return `None`
+/// so the coincident detector keeps owning them.
+#[allow(clippy::too_many_arguments)]
+fn try_parallel_axes(
+    o1: Point3,
+    a1: Vec3,
+    a1n: Vec3,
+    r1: f64,
+    v1_range: (f64, f64),
+    o2: Point3,
+    a2: Vec3,
+    a2n: Vec3,
+    r2: f64,
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+) -> Option<Vec<SurfaceSurfaceIntersection>> {
+    let lin = tolerance.linear();
+    // Axis separation measured in the cross-section plane of axis 1.
+    let delta = o2 - o1;
+    let w = delta - a1n * delta.dot(&a1n);
+    let d = w.length();
+    if d < lin && (r1 - r2).abs() < lin {
+        return None; // coincident surfaces — the coincident detector owns them
+    }
+    if d > r1 + r2 - lin {
+        // Separated, or externally tangent (silent).
+        return Some(Vec::new());
+    }
+    if d < (r1 - r2).abs() + lin {
+        // Nested, or internally tangent (silent).
+        return Some(Vec::new());
+    }
 
-    #[test]
-    fn cross_drill_pierce_loops_exact() {
-        let body = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 16.0,
-        };
-        let drill = SurfaceGeometry::Cylinder {
-            origin: Point3::new(-40.0, 0.0, 20.0),
-            axis: Vec3::new(1.0, 0.0, 0.0),
-            radius: 6.0,
-        };
-        let tol = Tolerance::default();
-        let curves = try_cylinder_cylinder(&body, (0.0, 40.0), &drill, (0.0, 80.0), &tol)
-            .expect("cylinder pair must take the analytic path");
-        assert_eq!(curves.len(), 2, "full pierce must yield two loops");
-        for c in &curves {
-            let SurfaceSurfaceIntersection::Curve(cos) = c else {
-                panic!("expected curve");
-            };
-            let (t0, t1) = cos.curve_3d.parameter_range();
-            let mut worst = 0.0_f64;
-            for i in 0..=200 {
-                let t = t0 + (t1 - t0) * f64::from(i) / 200.0;
-                let p = cos.curve_3d.point_at(t);
-                let d_body = ((p.x * p.x + p.y * p.y).sqrt() - 16.0).abs();
-                let d_drill = ((p.y * p.y + (p.z - 20.0) * (p.z - 20.0)).sqrt() - 6.0).abs();
-                worst = worst.max(d_body.max(d_drill));
-            }
-            assert!(
-                worst < 1e-6,
-                "pierce loop deviates {worst:.3e} from the surfaces"
-            );
-        }
+    // 2D circle×circle roots in the (e, perp) frame of axis 1.
+    let e = w * (1.0 / d);
+    let perp = a1n.cross(&e);
+    let along = (d * d + r1 * r1 - r2 * r2) / (2.0 * d);
+    let h_sq = r1 * r1 - along * along;
+    if h_sq <= 0.0 {
+        return Some(Vec::new());
+    }
+    let h = h_sq.sqrt();
+    let mid = o1 + e * along;
+
+    // Span both callers' axial windows with headroom, in arclength
+    // along the shared direction (the clip stage owns exact
+    // trimming; matching `case_parallel`'s pad convention).
+    let len1 = a1.length().max(1e-12);
+    let len2 = a2.length().max(1e-12);
+    let start2 = delta.dot(&a1n); // arclength offset of o2's plane
+    let (mut t_lo, mut t_hi) = (v1_range.0 * len1, v1_range.1 * len1);
+    for t2 in [
+        start2 + v2_range.0 * len2 * a2n.dot(&a1n),
+        start2 + v2_range.1 * len2 * a2n.dot(&a1n),
+    ] {
+        t_lo = t_lo.min(t2);
+        t_hi = t_hi.max(t2);
+    }
+    let pad = (t_hi - t_lo).abs().max(1.0);
+    let (t_lo, t_hi) = (t_lo - pad, t_hi + pad);
+
+    let (p1a, p1b) = orthonormal_basis(a1n);
+    let (p2a, p2b) = orthonormal_basis(a2n);
+    let mut results = Vec::with_capacity(2);
+    for sign in [1.0, -1.0] {
+        let q = mid + perp * (sign * h);
+        let radial1 = q - o1;
+        let u1 = norm_angle(f64::atan2(radial1.dot(&p1b), radial1.dot(&p1a)));
+        let radial2 = (q - o2) - a2n * (q - o2).dot(&a2n);
+        let u2 = norm_angle(f64::atan2(radial2.dot(&p2b), radial2.dot(&p2a)));
+        let a = q + a1n * t_lo;
+        let b = q + a1n * t_hi;
+        // Chart v satisfies point = origin + … + axis·v, so
+        // v = (p − o)·axis / |axis|².
+        let v_of = |p: Point3, o: Point3, axis: Vec3, len: f64| (p - o).dot(&axis) / (len * len);
+        let curve_3d = nurbs_line(a, b);
+        let curve_uv1 = nurbs_line(
+            Point3::new(u1, v_of(a, o1, a1, len1), 0.0),
+            Point3::new(u1, v_of(b, o1, a1, len1), 0.0),
+        );
+        let curve_uv2 = nurbs_line(
+            Point3::new(u2, v_of(a, o2, a2, len2), 0.0),
+            Point3::new(u2, v_of(b, o2, a2, len2), 0.0),
+        );
+        results.push(SurfaceSurfaceIntersection::Curve(CurveOnSurface {
+            curve_3d,
+            curve_uv1,
+            curve_uv2,
+            is_closed: false,
+        }));
+    }
+    Some(results)
+}
+
+/// Normalize an angle into the cylinder chart's [0, 2π) branch.
+fn norm_angle(a: f64) -> f64 {
+    let mut r = a % TAU;
+    if r < 0.0 {
+        r += TAU;
+    }
+    r
+}
+
+/// Degree-1 NURBS line whose parameter is arclength.
+fn nurbs_line(p0: Point3, p1: Point3) -> NurbsCurve {
+    let len = p0.distance_to(&p1).max(1e-12);
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, len, len],
+        control_points: vec![p0, p1],
+        weights: vec![1.0, 1.0],
     }
 }
+
+#[cfg(test)]
+#[path = "cylinder_cylinder_tests.rs"]
+mod tests;

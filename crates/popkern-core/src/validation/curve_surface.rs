@@ -29,6 +29,14 @@
 //! at ~1.3e-1).
 
 use crate::error::ValidationError;
+
+/// The `check9` trace topic: name the failing (edge side, face)
+/// pairing and sample when the deviation check fires — the error
+/// type carries only the edge, and locating the face cost a probe
+/// during PK-427's chamfer diagnosis.
+fn popkern_trace_check9() -> bool {
+    crate::trace::trace_enabled("check9")
+}
 use crate::geometry::curve::CurveEval;
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::uv_projection::project_point_to_uv;
@@ -198,6 +206,12 @@ impl BRep {
                         }
                     }
                     if fine_dev > tolerance {
+                        if popkern_trace_check9() {
+                            eprintln!(
+                                "[check9] side {side:?} face {face:?} t {t:.3} point ({:.4},{:.4},{:.4}) dev {fine_dev:.4} trange ({:.3},{:.3})",
+                                point.x, point.y, point.z, curve.t_start, curve.t_end
+                            );
+                        }
                         if stop_at_first {
                             return Some(fine_dev);
                         }

@@ -48,8 +48,13 @@ pub fn boolean_with_perturbation(
     tolerance: Tolerance,
     config: &PerturbationConfig,
 ) -> Result<BRep, BoolError> {
-    // First try without perturbation
-    match crate::boolean_ref(op, a, b, tolerance, None) {
+    // First try without perturbation. Straight to the execution
+    // core: routing through `boolean` recursed — `boolean`'s
+    // perturbation fallback re-entered this function, whose first
+    // unperturbed try re-entered `boolean`, unboundedly, before any
+    // perturbed attempt ever ran (measured: a bearing's races∪ball
+    // union overflowed the stack on its first perturbable error).
+    match crate::operation::execute_boolean(op, a.clone(), b.clone(), &tolerance) {
         Ok(result) => return Ok(result),
         Err(e) => {
             // Only retry for errors that perturbation can fix
@@ -84,7 +89,7 @@ pub fn boolean_with_perturbation(
             Err(_) => continue,
         };
 
-        match crate::boolean_ref(op, a, &perturbed_b, tolerance, None) {
+        match crate::operation::execute_boolean(op, a.clone(), perturbed_b, &tolerance) {
             Ok(mut result) => {
                 // Project result vertices back toward original surfaces.
                 // For small perturbations this is approximately correct.

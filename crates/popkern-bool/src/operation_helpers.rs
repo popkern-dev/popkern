@@ -1,17 +1,13 @@
-//! Helper functions for the boolean pipeline orchestrator.
-//!
-//! Contains the no-intersection shortcut handlers (disjoint, containment,
-//! reverse containment) and the BRep copy/combine utilities.
+//! Helper functions for the boolean pipeline orchestrator: the BRep
+//! copy/combine utilities, empty-selection handling, containment
+//! verification and record tracing. The no-intersection dispatch
+//! lives in `operation_no_intersection.rs` (500-line cap).
 
 use std::collections::HashMap;
 
-use popkern_core::{
-    tolerance::Tolerance,
-    topology::{BRep, FaceHandle},
-};
+use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::classify::point_in_solid;
-use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
+use crate::error::{BoolError, BoolOperation, Classification};
 use crate::split::SplitResult;
 
 /// Handle the case where no intersection curves were found between the solids.
@@ -19,150 +15,6 @@ use crate::split::SplitResult;
 /// Determines the spatial relationship (disjoint, containment, or coincident)
 /// by classifying a sample point from A against B, then returns the
 /// appropriate result for the given operation.
-pub(super) fn handle_no_intersection(
-    op: BoolOperation,
-    a: BRep,
-    b: BRep,
-    aabbs_a: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::geometry::intersection::surface_subdivision::Aabb,
-    )],
-    aabbs_b: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::geometry::intersection::surface_subdivision::Aabb,
-    )],
-    tolerance: &Tolerance,
-) -> Result<BRep, BoolError> {
-    // Pick a vertex from A to classify against B.
-    let sample_point_a = a
-        .vertices
-        .values()
-        .next()
-        .map(|v| v.position)
-        .ok_or_else(|| BoolError::DegenerateInput("solid A has no vertices".to_string()))?;
-
-    let classification = point_in_solid(&sample_point_a, &b, aabbs_b, tolerance)?;
-
-    let result = match classification {
-        PointClassification::Outside => {
-            // A's sample point is outside B. Check reverse: is B inside A?
-            let sample_point_b = b
-                .vertices
-                .values()
-                .next()
-                .map(|v| v.position)
-                .ok_or_else(|| BoolError::DegenerateInput("solid B has no vertices".to_string()))?;
-            let reverse = point_in_solid(&sample_point_b, &a, aabbs_a, tolerance)?;
-            match reverse {
-                PointClassification::Inside => {
-                    // B is inside A — reverse containment.
-                    handle_reverse_containment(op, a, b, tolerance)
-                }
-                _ => {
-                    // Truly disjoint.
-                    handle_disjoint(op, a, b, tolerance)
-                }
-            }
-        }
-        PointClassification::Inside => {
-            // Containment: A is entirely inside B.
-            handle_containment(op, a, b, tolerance)
-        }
-        PointClassification::OnBoundary => {
-            // Coincident boundary — ambiguous case.
-            Err(BoolError::CoincidentFaces {
-                face_a: a.faces.keys().next().unwrap_or_default(),
-                face_b: b.faces.keys().next().unwrap_or_default(),
-            })
-        }
-    };
-
-    // Log validation issues on the no-intersection result.
-    if let Ok(ref brep) = result {
-        super::log_validation_issues(brep, op);
-    }
-
-    result
-}
-
-/// Handle disjoint solids (A is entirely outside B) with no intersections.
-fn handle_disjoint(
-    op: BoolOperation,
-    a: BRep,
-    b: BRep,
-    tolerance: &Tolerance,
-) -> Result<BRep, BoolError> {
-    match op {
-        BoolOperation::Union => {
-            // Combine both BReps into one.
-            combine_breps(a, b)
-        }
-        BoolOperation::Intersection => {
-            // Empty result.
-            Ok(BRep::new(*tolerance))
-        }
-        BoolOperation::Subtraction => {
-            // A minus nothing = A.
-            Ok(a)
-        }
-    }
-}
-
-/// Handle containment (A is entirely inside B) with no intersections.
-fn handle_containment(
-    op: BoolOperation,
-    a: BRep,
-    b: BRep,
-    tolerance: &Tolerance,
-) -> Result<BRep, BoolError> {
-    match op {
-        BoolOperation::Union => {
-            // B fully contains A, so union is just B.
-            Ok(b)
-        }
-        BoolOperation::Intersection => {
-            // A is inside B, so intersection is A.
-            Ok(a)
-        }
-        BoolOperation::Subtraction => {
-            // A − B when A is inside B: A is entirely consumed by B, result is empty.
-            Ok(BRep::new(*tolerance))
-        }
-    }
-}
-
-/// Handle reverse containment (B is entirely inside A) with no intersections.
-fn handle_reverse_containment(
-    op: BoolOperation,
-    a: BRep,
-    b: BRep,
-    tolerance: &Tolerance,
-) -> Result<BRep, BoolError> {
-    match op {
-        BoolOperation::Union => {
-            // A fully contains B, so union is just A.
-            Ok(a)
-        }
-        BoolOperation::Intersection => {
-            // B is inside A, so intersection is B.
-            Ok(b)
-        }
-        BoolOperation::Subtraction => {
-            // A − B when B is inside A: hollow solid (A with B-shaped void).
-            build_hollow_solid(a, b, tolerance)
-        }
-    }
-}
-
-/// Build a hollow solid: A with a B-shaped void inside.
-///
-/// Copies all of B's topology into A with flipped surface normals, creating
-/// an inner void. The result has A's original outer faces plus B's faces
-/// with inverted orientation.
-fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, BoolError> {
-    copy_brep_into(a, b, true)
-}
-
 /// Combine two disjoint BReps into a single BRep by copying all topology
 /// from `b` into `a`.
 ///
@@ -223,7 +75,11 @@ pub(super) fn handle_empty_selection(
 ///
 /// When `flip_b_normals` is true, the surface orientation on every copied face
 /// is inverted, producing an inner void shell for hollow-solid subtraction.
-fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, BoolError> {
+pub(crate) fn copy_brep_into(
+    mut a: BRep,
+    b: BRep,
+    flip_b_normals: bool,
+) -> Result<BRep, BoolError> {
     use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
     // Build handle maps for B → new handles in A.

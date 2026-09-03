@@ -188,6 +188,20 @@ pub fn boolean(
     Ok(result)
 }
 
+/// Concatenate two solids into ONE multi-solid [`BRep`] with NO
+/// boolean semantics: every shell of `b` is copied beside `a`'s.
+/// This is the whole-document view (an export or render of several
+/// bodies at once) — no classification runs, so kissing or even
+/// overlapping bodies concatenate verbatim. For material semantics
+/// use [`boolean`].
+///
+/// # Errors
+///
+/// Returns [`BoolError`] if the structural copy fails.
+pub fn concatenate_solids(a: BRep, b: BRep) -> Result<BRep, BoolError> {
+    operation::helpers::combine_breps(a, b)
+}
+
 /// Perform a boolean operation on two solids, borrowing both inputs.
 ///
 /// Clones `a` and `b` internally before operating. Prefer [`boolean`] when
