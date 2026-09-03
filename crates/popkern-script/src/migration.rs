@@ -68,6 +68,7 @@ impl Model {
             self.active = active;
             let _ = self.tree.replay(self.tolerance);
         }
+        self.note_full_replay();
         outcome
     }
 
@@ -329,13 +330,17 @@ impl Model {
     pub fn rollback_to(&mut self, feature: &FeatureHandle) -> Result<ReplayReport, ScriptError> {
         let index = self.index_of(feature)?;
         self.tree.rollback_to(index);
-        Ok(self.tree.replay(self.tolerance)?.report)
+        let report = self.tree.replay(self.tolerance)?.report;
+        self.note_full_replay();
+        Ok(report)
     }
 
     /// Clear the rollback bar.
     pub fn rollback_to_end(&mut self) -> Result<ReplayReport, ScriptError> {
         self.tree.rollback_to_end();
-        Ok(self.tree.replay(self.tolerance)?.report)
+        let report = self.tree.replay(self.tolerance)?.report;
+        self.note_full_replay();
+        Ok(report)
     }
 
     /// Features that transitively depend on `feature`, in timeline order.
@@ -352,6 +357,7 @@ impl Model {
         let done = self.tree.undo();
         if done {
             self.tree.replay(self.tolerance)?;
+            self.note_full_replay();
         }
         Ok(done)
     }
@@ -361,6 +367,7 @@ impl Model {
         let done = self.tree.redo();
         if done {
             self.tree.replay(self.tolerance)?;
+            self.note_full_replay();
         }
         Ok(done)
     }

@@ -11,7 +11,7 @@ use std::sync::Arc;
 fn export_unit_cube_entity_counts() {
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    let solid_id = ctx.export_brep(&brep).unwrap();
+    let solid_id = ctx.export_brep_items(&brep).unwrap()[0];
 
     // Count entity types
     let count =
@@ -45,7 +45,7 @@ fn export_unit_cube_entity_counts() {
 fn export_cube_surfaces_are_planes() {
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let plane_count = ctx
         .entities
@@ -64,7 +64,7 @@ fn export_cube_surfaces_are_planes() {
 fn export_brep_vertex_points_reference_cartesian_points() {
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     for entity in &ctx.entities {
         if entity.type_name == "VERTEX_POINT" {
@@ -114,7 +114,7 @@ fn export_brep_with_inner_loop() {
 
     let brep = b.build_unchecked();
     let mut ctx = ExportContext::new();
-    let solid_id = ctx.export_brep(&brep).unwrap();
+    let solid_id = ctx.export_brep_items(&brep).unwrap()[0];
 
     let count =
         |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
@@ -135,7 +135,7 @@ fn export_brep_edges_without_curves_synthesize_lines() {
     // unit_cube doesn't set curves, so the exporter should synthesize them
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let line_count = ctx
         .entities
@@ -153,7 +153,7 @@ fn export_brep_edges_without_curves_synthesize_lines() {
 fn export_oriented_edge_has_correct_structure() {
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     for entity in &ctx.entities {
         if entity.type_name == "ORIENTED_EDGE" {
@@ -176,7 +176,7 @@ fn export_cube_has_surface_curves_and_pcurves() {
     // unit_cube has pcurves on all half-edges
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let count =
         |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
@@ -211,7 +211,7 @@ fn cylinder_export_has_seam_curve() {
     let tol = Tolerance::default();
     let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&cyl).unwrap();
+    ctx.export_brep_items(&cyl).unwrap();
 
     let count =
         |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
@@ -257,7 +257,7 @@ fn cylinder_seam_pcurves_are_branch_separated_and_co_parameterized() {
     let tol = Tolerance::default();
     let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&cyl).unwrap();
+    ctx.export_brep_items(&cyl).unwrap();
 
     let entity = |id: crate::step::parser::types::EntityId| {
         ctx.entities.iter().find(|e| e.id == id).unwrap()
@@ -361,7 +361,7 @@ fn cube_has_no_seam_curves() {
     // A cube has no seam edges — all edges are shared between distinct faces.
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let seam_count = ctx
         .entities
@@ -421,7 +421,7 @@ fn open_boundary_brep_exports_as_surface_model() {
 fn collapsed_surface_trim_missing_curve_exports_degenerate_bspline() {
     let brep = collapsed_trim_sheet();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let count =
         |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };
@@ -483,7 +483,7 @@ fn missing_half_edge_pcurve_synthesizes_during_surface_curve_export() {
     brep.half_edges[half_edges[0]].pcurve = None;
 
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let surface_curve = ctx
         .entities

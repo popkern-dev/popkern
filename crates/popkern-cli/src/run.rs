@@ -95,7 +95,9 @@ pub fn execute(cli: &Cli) -> RunSummary {
         summary.outputs.push(path.clone());
     }
     if cli.step.is_some() || cli.png.is_some() {
-        let part = match model.to_part() {
+        // Whole-model view: every alive body (a multi-body document's
+        // STEP and thumbnail carry all of it, not the active body).
+        let part = match model.to_part_all() {
             Ok(part) => part,
             Err(e) => {
                 summary.outcome = Outcome::GateFailure {

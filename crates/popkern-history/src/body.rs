@@ -95,6 +95,14 @@ impl BodyManager {
         self.body_breps.clear();
     }
 
+    /// Clone every alive body's stored BRep snapshot — the complete
+    /// end-of-timeline state of the last completed replay (consumed
+    /// bodies are absent by [`FeatureTree::store_body_breps`]'s
+    /// clear-then-store contract). The seed of the append fast path.
+    pub fn all_breps(&self) -> std::collections::HashMap<BodyId, BRep> {
+        self.body_breps.clone()
+    }
+
     /// Clear all feature assignments (used when resetting for replay).
     ///
     /// Body ids are preserved; only the per-body feature lists are cleared.

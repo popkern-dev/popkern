@@ -187,6 +187,7 @@ impl<'m> ProfileBuilder<'m> {
             label,
             None,
             records,
+            &mut model.geometry_current,
         )?;
         let body = model
             .tree

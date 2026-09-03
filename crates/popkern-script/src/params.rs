@@ -45,6 +45,7 @@ impl Model {
                 reason: format!("expression '{text}': {e}"),
             })?;
         self.tree.set_parameter_expression(id, expression)?;
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -52,6 +53,7 @@ impl Model {
     pub fn clear_expr(&mut self, name: &str) -> Result<(), ScriptError> {
         let id = self.param_by_name(name)?;
         self.tree.clear_parameter_expression(id);
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -72,6 +74,7 @@ impl Model {
             .unwrap_or(Unit::Meters);
         self.tree
             .set_parameter_bounds(id, unit.to_si(min), unit.to_si(max));
+        self.geometry_current = false;
         Ok(())
     }
 

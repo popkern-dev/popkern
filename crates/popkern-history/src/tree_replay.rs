@@ -4,6 +4,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+use crate::replay_report::ReplayResult;
+use crate::{expression, measure_query};
+
 #[cfg(test)]
 #[path = "replay_integration_tests.rs"]
 mod integration_tests;
@@ -438,5 +441,55 @@ fn outcome_of(result: &FeatureResult) -> ReplayOutcome {
         FeatureResult::Suppressed => ReplayOutcome::Suppressed {
             reason: SuppressionReason::Explicit,
         },
+    }
+}
+
+impl FeatureTree {
+    /// Replay ONLY the final timeline feature, seeding every body's
+    /// state from the last completed replay's stored snapshots.
+    ///
+    /// This is the append fast path of the record loop: recording is
+    /// append-only and each record ends with a completed replay, so
+    /// the stored per-body BReps ARE the exact state the new feature
+    /// executes against — replaying the whole prefix again is O(n²)
+    /// across a session (measured: a 63-feature gallery script spent
+    /// 0.9 s executing features and 23 s re-executing prefixes).
+    ///
+    /// CONTRACT (the caller guarantees, or the call falls back to
+    /// [`FeatureTree::replay`]): the stored body snapshots reflect a
+    /// completed replay of the timeline minus its final feature, with
+    /// no parameter/config/timeline mutation since. The method itself
+    /// falls back on: an empty timeline, a rollback bar, an active
+    /// configuration, a frozen index, or no stored snapshots. The
+    /// incremental result is gated identical to a full replay by the
+    /// recorder's equivalence tests; PK-422 replaces this contract
+    /// with tree-diff invalidation.
+    pub fn replay_appended(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
+        let n = self.timeline.len();
+        let snapshots = self.body_manager.all_breps();
+        if n == 0
+            || self.rollback_index.is_some()
+            || self.active_config.is_some()
+            || self.frozen_index.is_some()
+            || (n > 1 && snapshots.is_empty())
+        {
+            return self.replay(tolerance);
+        }
+        let start = popkern_core::time::Stopwatch::start();
+        self.restore_config_pinned_base();
+        let eval_warnings = expression::evaluate_all(
+            &mut self.parameter_table,
+            &measure_query::MeasureContext::empty(),
+        );
+        let out = self.replay_range(snapshots, n - 1, n, &tolerance)?;
+        self.store_body_breps(&out.bodies);
+        self.last_report.absorb(out.report.clone(), &self.timeline);
+        Ok(ReplayResult {
+            feature_results: out.results,
+            elapsed: start.elapsed(),
+            eval_warnings,
+            report: out.report,
+            tolerance,
+        })
     }
 }

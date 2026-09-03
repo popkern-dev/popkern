@@ -110,6 +110,7 @@ impl Body {
             label,
             Some(self.id),
             selections,
+            &mut model.geometry_current,
         )?;
         let recorded = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
         // A Boss/Cut feature's own body is consumed by the auto-merge;
@@ -137,8 +138,9 @@ impl Body {
     }
 
     pub(crate) fn require_alive(self, model: &mut Model) -> Result<(), ScriptError> {
-        if model.tree.current_brep().is_none() {
+        if !model.geometry_current || model.tree.current_brep().is_none() {
             model.tree.replay(model.tolerance)?;
+            model.note_full_replay();
         }
         if self.is_alive(model) {
             Ok(())

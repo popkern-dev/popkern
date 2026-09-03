@@ -33,6 +33,8 @@ pub struct Model {
     pub(crate) unit: Unit,
     pub(crate) active: Option<BodyId>,
     pub(crate) pending_counter: u64,
+    /// Append fast-path freshness bit — see `record::record_feature`.
+    pub(crate) geometry_current: bool,
 }
 
 impl Model {
@@ -51,6 +53,7 @@ impl Model {
             unit: Unit::Meters,
             active: None,
             pending_counter: 0,
+            geometry_current: true,
         }
     }
 
@@ -103,6 +106,7 @@ impl Model {
             unit: Unit::Meters,
             active,
             pending_counter: 0,
+            geometry_current: true,
         })
     }
 
@@ -119,13 +123,23 @@ impl Model {
     /// Mutable access to the tree for migration verbs the surface does
     /// not wrap yet. The caller owns replay afterwards.
     pub fn tree_mut(&mut self) -> &mut FeatureTree {
+        // Arbitrary tree mutation may invalidate the stored body
+        // snapshots; the next record replays fully.
+        self.geometry_current = false;
         &mut self.tree
     }
 
     /// Full replay under the document tolerance.
     pub fn replay(&mut self) -> Result<ReplayReport, ScriptError> {
         let result = self.tree.replay(self.tolerance)?;
+        self.note_full_replay();
         Ok(result.report)
+    }
+
+    /// Record that the tree just completed a full replay — the append
+    /// fast path's freshness bit (see `record::record_feature`).
+    pub(crate) fn note_full_replay(&mut self) {
+        self.geometry_current = self.tree.rollback_position().is_none();
     }
 
     /// The last replay report.
@@ -213,6 +227,9 @@ impl Model {
             .map(|p| p.unit)
             .unwrap_or(self.unit);
         self.tree.set_parameter_value_display(id, value, unit)?;
+        // Earlier features may consume this parameter; their stored
+        // geometry is stale until the next full replay.
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -298,8 +315,13 @@ impl Model {
     }
 
     pub(crate) fn body_brep(&mut self, body: BodyId) -> Result<BRep, ScriptError> {
-        if self.tree.body_brep(body).is_none() {
+        // A stale document (parameter/config edit since the last
+        // replay) must not resolve selections against pre-edit
+        // geometry — replay before reading (the same freshness bit
+        // the record fast path uses).
+        if !self.geometry_current || self.tree.body_brep(body).is_none() {
             self.tree.replay(self.tolerance)?;
+            self.note_full_replay();
         }
         self.tree
             .body_brep(body)
@@ -311,6 +333,30 @@ impl Model {
     pub fn to_part(&mut self) -> Result<Part, ScriptError> {
         let brep = self.to_brep()?;
         Ok(Part::from_brep(brep, self.tolerance, "popkern-script")?)
+    }
+
+    /// EVERY alive body as one [`Part`] — the bodies CONCATENATED
+    /// into one multi-solid BRep with no boolean semantics (each body
+    /// keeps its own shells; kissing bodies stay separate solids).
+    /// This is what a whole-model export or render means for a
+    /// multi-body document (a bearing's races and balls; a box and
+    /// its lid) — [`Model::to_part`] stays the ACTIVE body's view.
+    pub fn to_part_all(&mut self) -> Result<Part, ScriptError> {
+        let bodies = self.alive_bodies();
+        let mut breps = Vec::with_capacity(bodies.len());
+        for body in bodies {
+            breps.push(self.body_brep(body.id)?);
+        }
+        let mut iter = breps.into_iter();
+        let Some(first) = iter.next() else {
+            return self.to_part();
+        };
+        let mut part = Part::from_brep(first, self.tolerance, "popkern-script")?;
+        for brep in iter {
+            let next = Part::from_brep(brep, self.tolerance, "popkern-script")?;
+            part = part.concatenate(&next)?;
+        }
+        Ok(part)
     }
 
     /// Export the active body as STEP.

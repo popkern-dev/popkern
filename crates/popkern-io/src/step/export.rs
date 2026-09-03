@@ -62,8 +62,7 @@ pub fn export_step(doc: &StepDocument, options: &StepExportOptions) -> Result<Ve
         let mut product_shape_item_ids = Vec::new();
         for shape in &product.shapes {
             for brep in &shape.solids {
-                let item_id = ctx.export_brep(brep)?;
-                product_shape_item_ids.push(item_id);
+                product_shape_item_ids.extend(ctx.export_brep_items(brep)?);
             }
         }
         shape_item_ids.push(product_shape_item_ids);

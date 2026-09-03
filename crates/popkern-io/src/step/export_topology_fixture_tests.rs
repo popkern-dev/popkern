@@ -14,7 +14,7 @@ fn imported_fixture_cube_exports_shared_manifold_topology() {
     .expect("fixture cube imports");
     let brep = imported.document.products[0].shapes[0].solids[0].clone();
     let mut ctx = ExportContext::new();
-    ctx.export_brep(&brep).unwrap();
+    ctx.export_brep_items(&brep).unwrap();
 
     let count =
         |name: &str| -> usize { ctx.entities.iter().filter(|e| e.type_name == name).count() };

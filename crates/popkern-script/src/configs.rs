@@ -52,6 +52,7 @@ impl Model {
         };
         self.tree.set_active_config(id);
         self.tree.replay(self.tolerance)?;
+        self.note_full_replay();
         Ok(())
     }
 
@@ -80,6 +81,7 @@ impl Model {
             .unwrap_or(self.unit);
         self.tree
             .set_config_override(cid, pid, ParamOverride::Literal(unit.to_si(value)))?;
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -88,6 +90,7 @@ impl Model {
         let cid = self.config_id(config)?;
         let pid = self.param_id(param)?;
         self.tree.clear_config_override(cid, pid);
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -101,6 +104,7 @@ impl Model {
         let cid = self.config_id(config)?;
         self.tree
             .set_config_suppression(cid, feature.id, suppressed);
+        self.geometry_current = false;
         Ok(())
     }
 
@@ -137,6 +141,7 @@ impl Model {
     pub fn delete_config(&mut self, name: &str) -> Result<Vec<String>, ScriptError> {
         let id = self.config_id(name)?;
         let result = self.tree.delete_config(id)?;
+        self.geometry_current = false;
         Ok(result
             .reparented
             .into_iter()
@@ -159,6 +164,7 @@ impl Model {
     ) -> Result<(), ScriptError> {
         let cid = self.config_id(config)?;
         self.tree.clear_config_suppression(cid, feature.id);
+        self.geometry_current = false;
         Ok(())
     }
 

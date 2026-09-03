@@ -166,6 +166,25 @@ impl Part {
         self.combine(other, popkern_bool::BoolOperation::Union, "union")
     }
 
+    /// Concatenate `other` beside this part into one multi-solid
+    /// part, with NO boolean semantics: both bodies keep their own
+    /// shells, kissing or overlapping bodies stay separate solids.
+    /// The whole-document export/render view — for material merges
+    /// use [`Part::union`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PartError`] if the underlying copy fails.
+    pub fn concatenate(&self, other: &Part) -> Result<Part, PartError> {
+        let tolerance = finer(self.tolerance, other.tolerance);
+        let combined = popkern_bool::concatenate_solids(self.brep.clone(), other.brep.clone())
+            .map_err(|source| PartError::Boolean {
+                operation: "concatenate",
+                source,
+            })?;
+        Part::from_brep(combined, tolerance, "concatenate")
+    }
+
     /// Boolean subtraction (`self − other`).
     ///
     /// # Errors

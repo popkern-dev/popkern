@@ -38,7 +38,15 @@ impl ExportContext {
     ///
     /// Closed BReps become `MANIFOLD_SOLID_BREP`; BReps with explicit boundary
     /// edges become `SHELL_BASED_SURFACE_MODEL`.
-    pub(crate) fn export_brep(&mut self, brep: &BRep) -> Result<EntityId, IoError> {
+    /// Export a [`BRep`] to one representation item PER SHELL.
+    ///
+    /// A multi-shell body (a disjoint union: a bearing's races and
+    /// balls in one document export) is NOT one manifold solid — one
+    /// `CLOSED_SHELL` swallowing every disjoint shell fails
+    /// `BRepCheck` downstream. Each closed shell becomes its own
+    /// `MANIFOLD_SOLID_BREP`. Single-shell bodies and open-shell
+    /// (sheet) bodies keep their historical single-item forms.
+    pub(crate) fn export_brep_items(&mut self, brep: &BRep) -> Result<Vec<EntityId>, IoError> {
         // Maps from popkern handles to STEP entity IDs
         let mut vertex_map: HashMap<VertexHandle, EntityId> = HashMap::new();
         let mut edge_map: HashMap<EdgeHandle, EntityId> = HashMap::new();
@@ -149,42 +157,75 @@ impl ExportContext {
             &mut local_edge_map,
         )?;
 
-        // 3. Export faces (surfaces already exported; reuses cached IDs)
-        let mut face_ids: Vec<EntityId> = Vec::new();
-        for (fh, face) in &brep.faces {
-            let surface_id = surface_map.get(&fh).map(|surface| surface.id);
-            let maps = TopologyExportMaps {
-                edge: &edge_map,
-                local_edge: &local_edge_map,
-            };
-            let face_id = self.export_face(brep, fh, face, &maps, surface_id)?;
-            face_ids.push(face_id);
+        // 3. Export faces (surfaces already exported; reuses cached
+        // IDs), grouped by their owning brep SHELL.
+        let mut face_ids_by_shell: Vec<Vec<EntityId>> = Vec::new();
+        let mut shell_handles: Vec<_> = brep.shells.keys().collect();
+        shell_handles.sort();
+        for &sh in &shell_handles {
+            let mut ids = Vec::new();
+            for (fh, face) in &brep.faces {
+                if face.shell != sh {
+                    continue;
+                }
+                let surface_id = surface_map.get(&fh).map(|surface| surface.id);
+                let maps = TopologyExportMaps {
+                    edge: &edge_map,
+                    local_edge: &local_edge_map,
+                };
+                let face_id = self.export_face(brep, fh, face, &maps, surface_id)?;
+                ids.push(face_id);
+            }
+            if !ids.is_empty() {
+                face_ids_by_shell.push(ids);
+            }
+        }
+        // Faces with no live shell (defensive) travel together.
+        {
+            let mut orphans = Vec::new();
+            for (fh, face) in &brep.faces {
+                if brep.shells.contains_key(face.shell) {
+                    continue;
+                }
+                let surface_id = surface_map.get(&fh).map(|surface| surface.id);
+                let maps = TopologyExportMaps {
+                    edge: &edge_map,
+                    local_edge: &local_edge_map,
+                };
+                orphans.push(self.export_face(brep, fh, face, &maps, surface_id)?);
+            }
+            if !orphans.is_empty() {
+                face_ids_by_shell.push(orphans);
+            }
         }
 
-        // 4. Emit shell item. Face-local STEP edge curves preserve geometric
-        // fidelity for incoherent face uses, but they also make STEP topology
-        // single-sided at those uses. Do not declare that representation as a
-        // manifold solid.
+        // 4. Emit shell items. Face-local STEP edge curves preserve
+        // geometric fidelity for incoherent face uses, but they also
+        // make STEP topology single-sided at those uses. Do not
+        // declare that representation as a manifold solid.
         let exports_open_shell = brep.has_boundary_edges() || !local_edge_map.is_empty();
-        let face_refs: Vec<_> = face_ids.iter().map(|&id| ref_(id)).collect();
-        let shell_type = if exports_open_shell {
-            "OPEN_SHELL"
-        } else {
-            "CLOSED_SHELL"
-        };
-        let shell_id = self.emit(shell_type, vec![str_param(""), list(face_refs)]);
-
-        // 5. Emit the top-level representation item.
-        let item_id = if exports_open_shell {
-            self.emit(
+        if exports_open_shell {
+            // Historical sheet form: one SHELL_BASED_SURFACE_MODEL
+            // over every shell.
+            let shell_refs: Vec<_> = face_ids_by_shell
+                .into_iter()
+                .map(|ids| {
+                    let refs: Vec<_> = ids.iter().map(|&id| ref_(id)).collect();
+                    ref_(self.emit("OPEN_SHELL", vec![str_param(""), list(refs)]))
+                })
+                .collect();
+            return Ok(vec![self.emit(
                 "SHELL_BASED_SURFACE_MODEL",
-                vec![str_param(""), list(vec![ref_(shell_id)])],
-            )
-        } else {
-            self.emit("MANIFOLD_SOLID_BREP", vec![str_param(""), ref_(shell_id)])
-        };
-
-        Ok(item_id)
+                vec![str_param(""), list(shell_refs)],
+            )]);
+        }
+        let mut items = Vec::with_capacity(face_ids_by_shell.len());
+        for ids in face_ids_by_shell {
+            let refs: Vec<_> = ids.iter().map(|&id| ref_(id)).collect();
+            let shell_id = self.emit("CLOSED_SHELL", vec![str_param(""), list(refs)]);
+            items.push(self.emit("MANIFOLD_SOLID_BREP", vec![str_param(""), ref_(shell_id)]));
+        }
+        Ok(items)
     }
 
     /// Export a single face with its loops.

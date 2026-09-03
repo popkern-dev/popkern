@@ -26,6 +26,7 @@ impl Model {
             "",
             None,
             Vec::new(),
+            &mut self.geometry_current,
         )?;
         let body = self
             .tree
@@ -56,8 +57,9 @@ impl Model {
 
     /// Bodies alive at the end of the timeline (consumed tools excluded).
     pub fn alive_bodies(&mut self) -> Vec<Body> {
-        if self.tree.current_brep().is_none() {
+        if !self.geometry_current || self.tree.current_brep().is_none() {
             let _ = self.tree.replay(self.tolerance);
+            self.note_full_replay();
         }
         self.tree
             .bodies()
