@@ -29,9 +29,6 @@ pub(super) fn classify_partial_overlap(
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Option<Classification> {
-    use crate::coincidence::overlap_boundary::point_in_polygon_2d;
-    use popkern_core::geometry::surface::SurfaceGeometry;
-
     // Find a partial overlap for this fragment's face.
     let overlap = coincidence.face_overlaps.iter().find(|fo| {
         let matches = if operand_is_a {
@@ -42,74 +39,76 @@ pub(super) fn classify_partial_overlap(
         matches && !fo.full_overlap
     })?;
 
-    // Get both face surfaces — must be planar for UV projection.
-    let surf_a = brep_a.faces.get(overlap.face_a)?.surface.as_ref()?;
+    // The overlap region is where BOTH coincident faces cover the same
+    // plane. Test the fragment's 3D centroid for containment in EACH
+    // face's own 2D region via the curve-aware `point_inside_face_uv`
+    // (PK-435: the earlier polygon-projection test bailed on a disc —
+    // fewer than three boundary vertices — so a coincident disc/rect
+    // overlap never applied the keep-one-skin rule and the disc's lens
+    // fragment fell to ray-casting on the coincident plane, where ray
+    // parity is ill-defined and dropped the kept union skin).
+    let centroid = compute_centroid(graph, &fragment.outer_loop);
+    if !point_in_face_plane(brep_a, overlap.face_a, centroid)
+        || !point_in_face_plane(brep_b, overlap.face_b, centroid)
+    {
+        return None; // Not in the overlap region — fall through to ray casting.
+    }
+
+    // In the overlap region — apply coincidence rules.
+    let orientation = overlap.orientation;
+    Some(match (operation, orientation) {
+        (BoolOperation::Subtraction, CoincidenceOrientation::Same) => Classification::Inside,
+        (BoolOperation::Subtraction, CoincidenceOrientation::Opposite) => {
+            if operand_is_a {
+                Classification::OnBoundaryCrossing
+            } else {
+                Classification::Inside
+            }
+        }
+        (BoolOperation::Union, CoincidenceOrientation::Same) => {
+            if operand_is_a {
+                Classification::OnBoundaryCooriented
+            } else {
+                Classification::Inside
+            }
+        }
+        (BoolOperation::Union, CoincidenceOrientation::Opposite) => Classification::Inside,
+        (BoolOperation::Intersection, CoincidenceOrientation::Same) => {
+            if operand_is_a {
+                Classification::OnBoundaryCooriented
+            } else {
+                Classification::Outside
+            }
+        }
+        (BoolOperation::Intersection, CoincidenceOrientation::Opposite) => Classification::Outside,
+    })
+}
+
+/// Curve-aware test: does `point` (a 3D position on or near the shared
+/// plane) lie inside `face`'s 2D region? Projects `point` into the
+/// face's planar UV and defers to `point_inside_face_uv`, which walks
+/// the face's actual boundary curves (so a disc's circular rim is
+/// handled, unlike a vertex-polygon projection).
+fn point_in_face_plane(
+    brep: &BRep,
+    face: popkern_core::topology::FaceHandle,
+    point: popkern_core::geometry::Point3,
+) -> bool {
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let Some(sof) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+        return false;
+    };
     let SurfaceGeometry::Plane {
         origin,
         u_axis,
         v_axis,
         ..
-    } = &surf_a.geometry
+    } = &sof.geometry
     else {
-        return None;
+        return false;
     };
-
-    // Project both face boundaries into shared UV space.
-    let project = |brep: &BRep, fh: popkern_core::topology::FaceHandle| -> Vec<(f64, f64)> {
-        crate::clip::face_vertex_positions(brep, fh)
-            .iter()
-            .map(|p| {
-                let d = *p - *origin;
-                (d.dot(u_axis), d.dot(v_axis))
-            })
-            .collect()
-    };
-    let poly_a = project(brep_a, overlap.face_a);
-    let poly_b = project(brep_b, overlap.face_b);
-
-    if poly_a.len() < 3 || poly_b.len() < 3 {
-        return None;
-    }
-
-    // Get fragment centroid and project to UV.
-    let centroid = compute_centroid(graph, &fragment.outer_loop);
-    let d = centroid - *origin;
-    let u = d.dot(u_axis);
-    let v = d.dot(v_axis);
-
-    // Check if centroid is inside BOTH polygons (= in the overlap region).
-    if point_in_polygon_2d(u, v, &poly_a) && point_in_polygon_2d(u, v, &poly_b) {
-        // In the overlap region — apply coincidence rules.
-        let orientation = overlap.orientation;
-        Some(match (operation, orientation) {
-            (BoolOperation::Subtraction, CoincidenceOrientation::Same) => Classification::Inside,
-            (BoolOperation::Subtraction, CoincidenceOrientation::Opposite) => {
-                if operand_is_a {
-                    Classification::OnBoundaryCrossing
-                } else {
-                    Classification::Inside
-                }
-            }
-            (BoolOperation::Union, CoincidenceOrientation::Same) => {
-                if operand_is_a {
-                    Classification::OnBoundaryCooriented
-                } else {
-                    Classification::Inside
-                }
-            }
-            (BoolOperation::Union, CoincidenceOrientation::Opposite) => Classification::Inside,
-            (BoolOperation::Intersection, CoincidenceOrientation::Same) => {
-                if operand_is_a {
-                    Classification::OnBoundaryCooriented
-                } else {
-                    Classification::Outside
-                }
-            }
-            (BoolOperation::Intersection, CoincidenceOrientation::Opposite) => {
-                Classification::Outside
-            }
-        })
-    } else {
-        None // Not in overlap region — fall through to ray casting.
-    }
+    let d = point - *origin;
+    let uv = Point3::new(d.dot(u_axis), d.dot(v_axis), 0.0);
+    crate::split_inner_loop::point_inside_face_uv(brep, face, uv, &brep.tolerance)
 }

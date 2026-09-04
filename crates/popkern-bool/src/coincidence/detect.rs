@@ -198,7 +198,8 @@ fn detect_face_coincidences(
 
             // Tier A: analytic O(1) comparison for same-type surfaces
             if are_surfaces_coincident_analytic(surf_a, surf_b, &tol.core) {
-                let orientation = classify_face_orientation(a, *face_a, b, *face_b);
+                let orientation =
+                    classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
                 let overlap_center = compute_overlap_center(a, *face_a, b, *face_b);
                 map.face_overlaps.push(FaceOverlap {
                     face_a: *face_a,
@@ -212,7 +213,8 @@ fn detect_face_coincidences(
 
             // Tier B: sample-based detection for near-coincident surfaces
             if is_near_coincident(surf_a, a, *face_a, surf_b, b, *face_b, tol) {
-                let orientation = classify_face_orientation(a, *face_a, b, *face_b);
+                let orientation =
+                    classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
                 let overlap_center = compute_overlap_center(a, *face_a, b, *face_b);
                 map.face_overlaps.push(FaceOverlap {
                     face_a: *face_a,
