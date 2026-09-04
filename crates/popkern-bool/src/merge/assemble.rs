@@ -16,6 +16,10 @@ use popkern_core::{
 };
 
 use super::fragment_classify::FragmentSelection;
+
+#[path = "assemble_loop_chain.rs"]
+mod loop_chain;
+use loop_chain::reorder_into_closed_chain;
 #[path = "assemble_curve_adopt.rs"]
 mod curve_adopt;
 pub(crate) use curve_adopt::subrange_healed_curve;
@@ -359,13 +363,16 @@ pub(crate) fn assemble_result(
         } else {
             fragment.outer_loop.clone()
         };
-        let outer_he_handles = resolve_loop_hes(
+        let mut outer_he_handles = resolve_loop_hes(
             &raw_outer,
             selection.flip,
             &mut he_map,
             &node_to_vertex,
             &mut builder,
         );
+        if let Some(chained) = reorder_into_closed_chain(builder.brep(), &outer_he_handles) {
+            outer_he_handles = chained;
+        }
 
         if !outer_he_handles.is_empty() {
             builder.add_loop(&outer_he_handles, face_h).map_err(|e| {
@@ -386,13 +393,16 @@ pub(crate) fn assemble_result(
             } else {
                 inner_loop.clone()
             };
-            let inner_he_handles = resolve_loop_hes(
+            let mut inner_he_handles = resolve_loop_hes(
                 &raw_inner,
                 selection.flip,
                 &mut he_map,
                 &node_to_vertex,
                 &mut builder,
             );
+            if let Some(chained) = reorder_into_closed_chain(builder.brep(), &inner_he_handles) {
+                inner_he_handles = chained;
+            }
 
             if !inner_he_handles.is_empty() {
                 builder
