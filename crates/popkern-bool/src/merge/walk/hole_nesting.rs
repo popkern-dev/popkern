@@ -13,7 +13,10 @@
 
 use std::collections::HashSet;
 
-use popkern_core::geometry::Vec3;
+use popkern_core::geometry::intersection::surface_subdivision::Aabb;
+use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use super::super::graph::IntersectionGraph;
 use super::walk_geometry::{self, signed_area};
@@ -196,6 +199,152 @@ pub(super) fn promote_disjoint_turnaround_holes(
     let mut promoted: Vec<Vec<usize>> = Vec::new();
     inner_loops_out.retain(|hole| {
         if has_turnaround(hole) && loops_bbox_disjoint(graph, hole, outer_loop) {
+            promoted.push(hole.clone());
+            false
+        } else {
+            true
+        }
+    });
+    promoted
+}
+
+/// Both operands and their face AABBs, computed once per boolean, so
+/// the exterior-disjoint promotion's per-loop membership test does not
+/// rebuild them for every face of every fragment.
+pub(super) struct OppositeAabbs<'a> {
+    brep_a: &'a BRep,
+    brep_b: &'a BRep,
+    a: Vec<(FaceHandle, Aabb)>,
+    b: Vec<(FaceHandle, Aabb)>,
+}
+
+impl<'a> OppositeAabbs<'a> {
+    /// Precompute both operands' face AABBs.
+    pub(super) fn new(brep_a: &'a BRep, brep_b: &'a BRep) -> Self {
+        Self {
+            brep_a,
+            brep_b,
+            a: crate::intersect::compute_face_aabbs(brep_a),
+            b: crate::intersect::compute_face_aabbs(brep_b),
+        }
+    }
+
+    /// The solid and AABBs OPPOSITE the given face's operand — the
+    /// membership target for a face-piece of `operand` (an A-face is
+    /// tested against B, a B-face against A).
+    fn opposite(&self, operand: super::super::graph::Operand) -> (&BRep, &[(FaceHandle, Aabb)]) {
+        match operand {
+            super::super::graph::Operand::A => (self.brep_b, &self.b),
+            super::super::graph::Operand::B => (self.brep_a, &self.a),
+        }
+    }
+}
+
+/// EXTERIOR-DISJOINT PROMOTION (PK-438): a "hole" whose curve-sampled
+/// 3D box is strictly disjoint from the primary outer AND whose
+/// interior sample lies strictly OUTSIDE the opposite operand cannot be
+/// a hole of this fragment — it is a spatially separate trim component
+/// of the SAME surface. A tool wall that protrudes below the workpiece
+/// carries an in-body wall piece (kept) and a below-body protrusion
+/// piece (culled) on one face; the election glued the protrusion in as
+/// an inner loop, so a single classify sample (taken in the in-body
+/// piece) dragged the outside-body protrusion into the result, where it
+/// triple-claimed the shared flush rim and stranded it (6 open edges).
+///
+/// The opposite operand for an A-face is B and vice versa. The
+/// Outside-vs-opposite gate is what separates this class from the
+/// disjoint holes the tuned nesting KEEPS (PK-343's holder-chain slot
+/// ring, which classifies Inside/OnBoundary against the opposite
+/// operand and stays attached). The membership sample is the loop's
+/// curve-sampled centroid; only a decisive `Outside` promotes — an
+/// `Inside`, `OnBoundary`, or classification error keeps the loop
+/// attached (a curved protrusion whose centroid leaves its own surface
+/// fails safe as a kept hole rather than a wrong promotion). A single
+/// self-loop rim (a full closed circle) is never promoted: it is a
+/// disk-shaped hole boundary by construction, not a stray patch. The
+/// turnaround class (PK-343) is promoted separately and unconditionally.
+pub(super) fn promote_exterior_disjoint_holes(
+    graph: &IntersectionGraph,
+    inner_loops_out: &mut Vec<Vec<usize>>,
+    outer_loop: &[usize],
+    operand: super::super::graph::Operand,
+    opposite: &OppositeAabbs,
+    tolerance: &Tolerance,
+) -> Vec<Vec<usize>> {
+    let (opp_brep, opp_aabbs) = opposite.opposite(operand);
+    use popkern_core::geometry::curve::CurveEval as _;
+    let loop_centroid = |lp: &[usize]| -> Option<Point3> {
+        let mut sum = Point3::new(0.0, 0.0, 0.0);
+        let mut n = 0.0_f64;
+        for &h in lp {
+            let he = &graph.half_edges[h];
+            if let Some(c) = he
+                .curve
+                .as_ref()
+                .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+            {
+                for i in 0..8 {
+                    let t = c.t_start + (c.t_end - c.t_start) * (i as f64) / 8.0;
+                    let p = c.geometry.point_at(t);
+                    sum.x += p.x;
+                    sum.y += p.y;
+                    sum.z += p.z;
+                    n += 1.0;
+                }
+            } else {
+                let p = graph.nodes[he.origin].position;
+                sum.x += p.x;
+                sum.y += p.y;
+                sum.z += p.z;
+                n += 1.0;
+            }
+        }
+        (n > 0.0).then(|| Point3::new(sum.x / n, sum.y / n, sum.z / n))
+    };
+    // The pathology is a fragment whose outer piece is KEPT (its wall is
+    // inside the opposite operand — a tool wall inside the workpiece) but
+    // whose disjoint inner piece is DISCARDED (outside the opposite
+    // operand — the same wall protruding past the body). The two pieces
+    // sit in DIFFERENT membership regions, so they cannot share a
+    // fragment. A workpiece face's genuine through-hole is the opposite
+    // configuration — its outer face and its hole are BOTH outside the
+    // (thin) tool — so both vote the same way and the loop stays put.
+    // Requiring the outer to be strictly Inside is also what keeps the
+    // centroid membership honest: a loop whose centroid leaves its own
+    // surface (a tapered or non-convex face) fails safe as a kept hole.
+    let outer_inside = loop_centroid(outer_loop).is_some_and(|c| {
+        matches!(
+            crate::classify::point_in_solid(&c, opp_brep, opp_aabbs, tolerance),
+            Ok(crate::error::PointClassification::Inside)
+        )
+    });
+    let mut promoted: Vec<Vec<usize>> = Vec::new();
+    inner_loops_out.retain(|hole| {
+        // A single self-loop half-edge is a full closed rim (a drilled
+        // bore's exit circle): by construction the boundary of a
+        // disk-shaped face hole, never a stray trimmed-away patch. Its
+        // curve-sampled box can read disjoint from an outer on another
+        // z-band and its centroid (the circle centre) lands ON a face
+        // plane, giving a misleading Outside vote — so exclude it. The
+        // below-body protrusion pathology is always a multi-edge trimmed
+        // loop (rim arcs + trim edges).
+        if hole.len() < 2 {
+            return true;
+        }
+        // Only a fragment whose outer wall is kept (inside the opposite
+        // operand) can be carrying a discarded protrusion.
+        if !outer_inside {
+            return true;
+        }
+        if !loops_bbox_disjoint(graph, hole, outer_loop) {
+            return true;
+        }
+        let Some(centroid) = loop_centroid(hole) else {
+            return true;
+        };
+        let pc = crate::classify::point_in_solid(&centroid, opp_brep, opp_aabbs, tolerance);
+        let outside = matches!(pc, Ok(crate::error::PointClassification::Outside));
+        if outside {
             promoted.push(hole.clone());
             false
         } else {

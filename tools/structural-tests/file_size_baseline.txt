@@ -12,7 +12,7 @@ crates/popkern-bool/src/clip/clip_uv.rs 709
 crates/popkern-bool/src/intersect.rs 862
 crates/popkern-bool/src/merge/graph_split.rs 807
 crates/popkern-bool/src/merge/walk/chart_subdivision.rs 753
-crates/popkern-bool/src/merge/walk/mod.rs 995
+crates/popkern-bool/src/merge/walk/mod.rs 972
 crates/popkern-bool/src/merge/walk/walk_geometry.rs 541
 crates/popkern-bool/src/operation.rs 594
 crates/popkern-bool/src/split.rs 631
