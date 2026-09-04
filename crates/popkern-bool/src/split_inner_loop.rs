@@ -83,7 +83,7 @@ pub(crate) fn point_inside_face_uv(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.periodicity())
+        .map(|s| crate::clip::classification_chart_periods(&s.geometry))
         .unwrap_or((None, None));
     let mut polygon = Vec::new();
     // Per-pcurve sample RUNS (segments only within one pcurve — the

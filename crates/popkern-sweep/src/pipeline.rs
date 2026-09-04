@@ -127,13 +127,57 @@ pub(crate) fn loft_impl(
     }
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let result = surface::generate_loft_surface(sections, options, &tolerance)?;
+    // Span-wise lofting: when every section splits into the SAME
+    // number of smooth spans (at tangent-discontinuity knots — a
+    // stadium's line/arc joints, a polygon's corners), each span
+    // family lofts to its own surface, exactly as a swept profile's
+    // spans do. Arcs stay arcs per span, and the wall becomes N
+    // ordinary bounded faces instead of ONE u-periodic face — a
+    // periodic wall cut by a non-contractible intersection loop is a
+    // fragmentation class the boolean pipelines do not serve yet
+    // (PK-440: the propeller blade's girdle). Sections with
+    // mismatched span structures keep the single-surface path.
+    let span_sets: Vec<Vec<popkern_core::geometry::NurbsCurve>> = sections
+        .iter()
+        .map(|s| crate::profile::detect_and_split(&s.curve))
+        .collect::<Result<Vec<_>, _>>()?;
+    let span_wise =
+        span_sets[0].len() > 1 && span_sets.iter().all(|v| v.len() == span_sets[0].len());
+    let (surfaces, start_caps, end_caps) = if span_wise {
+        let n_spans = span_sets[0].len();
+        let mut surfaces = Vec::with_capacity(n_spans);
+        let mut start_caps = Vec::with_capacity(n_spans);
+        let mut end_caps = Vec::with_capacity(n_spans);
+        for j in 0..n_spans {
+            let span_sections: Vec<LoftSection> = span_sets
+                .iter()
+                .map(|set| LoftSection {
+                    curve: set[j].clone(),
+                    position: None,
+                })
+                .collect();
+            let r = surface::generate_loft_surface(&span_sections, options, &tolerance)?;
+            surfaces.push(r.surface);
+            start_caps.push(r.start_cap);
+            end_caps.push(r.end_cap);
+        }
+        (surfaces, start_caps, end_caps)
+    } else {
+        let result = surface::generate_loft_surface(sections, options, &tolerance)?;
+        (
+            vec![result.surface],
+            vec![result.start_cap],
+            vec![result.end_cap],
+        )
+    };
     tracker.finish_stage("loft.surface", t0, sections.len());
 
     if !guides.is_empty() {
         stage_gate!();
         let t0 = popkern_core::time::Stopwatch::start();
-        surface::validate_guide_rails(&result.surface, guides, &tolerance)?;
+        for surface in &surfaces {
+            surface::validate_guide_rails(surface, guides, &tolerance)?;
+        }
         tracker.finish_stage("loft.guide_rails", t0, guides.len());
     }
 
@@ -158,9 +202,9 @@ pub(crate) fn loft_impl(
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
     let brep = topology::side_faces::build_sweep_topology(
-        &[result.surface],
-        std::slice::from_ref(&result.start_cap),
-        std::slice::from_ref(&result.end_cap),
+        &surfaces,
+        &start_caps,
+        &end_caps,
         is_closed,
         tolerance,
         tracking,

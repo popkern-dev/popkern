@@ -25,3 +25,5 @@ thiserror = { workspace = true }
 # Host parity gate: the browser engine and the command share one class
 # partition (crates/popkern-cli/tests/playground_parity.rs).
 popkern-playground = { path = "../popkern-playground" }
+# Probe/forensics over rendered meshes in tests.
+popkern-mesh = { path = "../popkern-mesh" }

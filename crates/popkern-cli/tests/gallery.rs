@@ -95,6 +95,14 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "script functions, computed star polygons, logarithmic spirals, single-cut cavities",
     ),
     (
+        "coil_spring",
+        "Coil spring",
+        "Three springs from one verb: a compression spring, a tapered valve spring, and a \
+         left-hand spring phased a quarter turn — every path an exact rational helix.",
+        6,
+        "helical_sweep, exact helix paths, taper_to, left_hand winding, start_angle phasing",
+    ),
+    (
         "keyed_shaft",
         "Keyed shaft",
         "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",

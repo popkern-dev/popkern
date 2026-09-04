@@ -229,7 +229,7 @@ fn check_closed(curve: &NurbsCurve, tolerance: &Tolerance) -> bool {
 }
 
 /// Detect tangent discontinuities and split the curve at those parameters.
-fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
+pub(crate) fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
     let (t_min, t_max) = curve.parameter_range();
     let n = PROFILE_SAMPLES;
 

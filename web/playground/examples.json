@@ -89,6 +89,14 @@
       "title": "Centrifugal impeller"
     },
     {
+      "blurb": "Three springs from one verb: a compression spring, a tapered valve spring, and a left-hand spring phased a quarter turn — every path an exact rational helix.",
+      "demonstrates": "helical_sweep, exact helix paths, taper_to, left_hand winding, start_angle phasing",
+      "features": 6,
+      "file": "coil_spring.rhai",
+      "thumbnail": "examples/coil_spring.png",
+      "title": "Coil spring"
+    },
+    {
       "blurb": "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",
       "demonstrates": "translate, rotate, subtract, chamfer on a circular edge",
       "features": 8,

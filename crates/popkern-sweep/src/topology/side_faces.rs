@@ -260,7 +260,16 @@ fn build_closed_profile_topology(
         builder.set_half_edge_pcurve(he_top_rev, uv_line_chart(1.0, 1.0, 0.0, 1.0));
         builder.set_half_edge_pcurve(he_left_down, uv_line_chart(0.0, 1.0, 0.0, 0.0));
         if n_spans == 1 {
-            // Single span: left_up is the seam at u=0.
+            // Single span: left_up is the seam at u=0 — BOTH seam
+            // halves share the u=0 pcurve, the same aliasing every
+            // analytic periodic chart (cylinder, torus) carries.
+            // Downstream classification must treat the chart as
+            // period-identified; for NURBS walls that is
+            // `classification_chart_periods` (PK-440: with no period
+            // the even-odd contour is degenerate and every interior
+            // point reads OUTSIDE). Moving this half to u=1 instead
+            // broke consumers tuned to the shared-seam convention
+            // (loft_add regression, bisected).
             builder.set_half_edge_pcurve(he_left_up, uv_line_chart(0.0, 0.0, 0.0, 1.0));
         } else {
             // Multi-span: this face's upward half-edge on its RIGHT

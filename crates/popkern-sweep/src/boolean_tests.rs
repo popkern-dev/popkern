@@ -150,13 +150,23 @@ fn loft_add_produces_brep() {
     ];
     let opts = LoftOptions::default();
 
+    // The barrel pierces the cube top and bottom: its ONE periodic
+    // NURBS wall is cut by two chart-wrapping circles — the
+    // non-contractible-loop split class the boolean pipelines do not
+    // serve yet (PK-443). Before PK-440 the wall's records were
+    // silently clipped away by the degenerate periodic-chart
+    // classification and this union "passed" WITHOUT the barrel stubs
+    // (the cube came back alone). The classification is honest now,
+    // so the union declines instead of serving wrong geometry; this
+    // pins the honest decline until PK-443 serves the split.
     let result = loft_add(&cube, &sections, &opts, tol, None);
-    assert!(result.is_ok(), "loft_add failed: {:?}", result.err());
-    let brep = &result.unwrap().brep; // ok in tests
+    let err = result.err().expect(
+        "PK-443 has landed? loft_add now serves — assert the stubs \
+         exist (faces > 6, watertight) and retire this decline pin",
+    );
     assert!(
-        brep.faces.len() >= 6,
-        "expected >= 6 faces, got {}",
-        brep.faces.len()
+        matches!(err, crate::error::SweepError::Boolean(_)),
+        "expected the boolean decline, got {err:?}"
     );
 }
 

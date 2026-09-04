@@ -3313,6 +3313,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "popkern-core",
+ "popkern-mesh",
  "popkern-part",
  "popkern-playground",
  "popkern-rhai",

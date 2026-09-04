@@ -193,13 +193,13 @@ pub(crate) fn tessellate_face_with_samples(
         }
     }
 
-    // Adaptive subdivision of UV space.
+    let max_subdivisions = crate::adaptive::effective_max_subdivisions(surface, options);
     let cells = adaptive_subdivide(
         surface,
         u_range,
         v_range,
         options.min_subdivisions,
-        options.max_subdivisions,
+        max_subdivisions,
         options.chord_height,
     );
 

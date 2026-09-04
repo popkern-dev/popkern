@@ -93,6 +93,10 @@ m
 <tr><td><code>chamfer(edges, distance)</code></td><td>as fillet</td><td><code>label</code>, <code>kind</code> (<code>equal()</code> default, <code>two_distance(faces()..., d2)</code>, <code>distance_angle(faces()..., angle_deg)</code>)</td><td>The face query of a kind must resolve on the chamfered body.</td></tr>
 <tr><td><code>shell(faces_to_remove, thickness)</code></td><td><code>faces()...</code> (may be <code>.allow_empty()</code> for a closed hollow)</td><td><code>label</code>, <code>direction</code> (<code>"inward"</code> default, <code>"outward"</code>, <code>"midplane"</code>), <code>join</code> (<code>"arc"</code>, <code>"intersection"</code>), <code>trim</code> (<code>"trim"</code>, <code>"decline"</code>)</td><td></td></tr>
 <tr><td><code>translate(dx, dy, dz)</code>, <code>rotate(axis, angle_deg)</code></td><td>rigid motions; the distances and the angle are scalars (<code>p()</code>/<code>expr()</code> apply)</td><td><code>label</code></td><td>Usually applied to tool bodies before a boolean. Selector arguments (<code>at_height(z)</code>, <code>chord_length_between</code>) are plain numbers, not parameters.</td></tr>
+<tr><td><code>sweep(path_body, path_edge)</code></td><td>the body carrying the path edge, then an edge query on it (exactly one edge)</td><td><code>label</code>, <code>mode</code>, <code>twist</code></td><td>The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. <code>twist</code> in degrees over the full path. The path body is referenced, not consumed.</td></tr>
+<tr><td><code>loft(sections)</code></td><td>on <code>Model</code>: <code>m.loft([s0, s1, …])</code> — ordered sketch bodies, each contributing its most recent sketch face</td><td><code>label</code>, <code>mode</code>, <code>closed</code></td><td>Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles).</td></tr>
+<tr><td><code>pipe(path_edge, radius)</code></td><td>an edge query on the receiving body (exactly one edge), then the tube radius</td><td><code>label</code>, <code>mode</code></td><td>The tube is a new body; the path body keeps its edge.</td></tr>
+<tr><td><code>helical_sweep(axis, radius, pitch, turns)</code></td><td><code>axis_at([o], [d])</code> or <code>axis(edges()...)</code>; then helix radius, pitch (advance per turn), turns (fractional allowed)</td><td><code>label</code>, <code>mode</code>, <code>taper_to</code>, <code>start_angle</code>, <code>left_hand</code></td><td>Springs, coils, auger flights, thread forms. <code>taper_to</code> is the end radius of a conical helix; <code>start_angle</code> (degrees) phases multiple helical bodies apart — multi-start threads, blades; <code>left_hand: true</code> mirrors the winding. The profile contributes its shape; placement comes from the helix.</td></tr>
 </table>
 <pre class="lang-rhai"><code>let m = model();
 let block = m.profile(xy()).rect(1.2, 0.8).sketch("block_sketch").extrude(blind(0.5));
@@ -114,6 +118,18 @@ m.assert_watertight();
 m
 </code></pre>
 <p>Scalars: any numeric argument accepts a literal, <code>p("name")</code> for a declared parameter, or <code>expr("text")</code> for an expression over parameters.</p>
+<p>The sweep family: <code>helical_sweep</code> coils a profile about an axis, and <code>loft</code> skins ordered section sketches (each sketch is its own body; the loft consumes them):</p>
+<pre class="lang-rhai"><code>let m = model();
+let spring = m.profile(xy()).circle(0.04).sketch("wire_section")
+    .helical_sweep(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), 0.3, 0.12, 6.5,
+        #{ label: "coil" });
+let s0 = m.profile(xy_at(2.0)).circle(0.3).sketch("horn_base");
+let s1 = m.profile(xy_at(2.35)).circle(0.18).sketch("horn_waist");
+let s2 = m.profile(xy_at(2.7)).circle(0.26).sketch("horn_lip");
+let horn = m.loft([s0, s1, s2], #{ label: "horn" });
+m.assert_watertight();
+m
+</code></pre>
 <h2>6. Selecting edges and faces</h2>
 <p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries; <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
 <table>
@@ -272,6 +288,9 @@ body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
+body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
+body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
+m.loft([s0, s1, …], #{label, mode, closed})
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
 F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()

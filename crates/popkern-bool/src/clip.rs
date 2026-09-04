@@ -8,6 +8,7 @@
 //! Line (degree-1) clipping is in the [`clip_line`] submodule.
 
 pub(crate) mod chart_cell;
+mod chart_periods;
 mod clip_crossings_rescue;
 mod clip_line;
 mod clip_seam_shift;
@@ -24,6 +25,7 @@ use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
+pub(crate) use chart_periods::classification_chart_periods;
 pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
 #[cfg(test)]
 use clip_seam_shift::{is_near_seam, shift_curve_u};
@@ -199,7 +201,7 @@ pub(crate) fn face_uv_boundary_chained(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.periodicity())
+        .map(|s| classification_chart_periods(&s.geometry))
         && (pu.is_some() || pv.is_some())
         && boundary.len() > 1
     {

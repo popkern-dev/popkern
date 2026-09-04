@@ -44,11 +44,31 @@ pub(crate) fn fit_march_samples(
     }
 
     let degree = 3.min(samples.len() - 1);
-    let n_cp = (samples.len() / 5).clamp(degree + 1, 200);
+    let m = samples.len();
 
-    // 3D curve
+    // 3D curve, residual-adaptive: a fixed 1-in-5 control ratio (and
+    // a hard 200-point cap) under-resolved tight curvature — a blade
+    // girdle rounding a 6e-3-radius edge fitted 3.7e-4 off the true
+    // intersection and the imprinted edge failed the curve-surface
+    // band (PK-440). Double the control count until the worst sample
+    // residual is far inside any serving band (1e-7 of the curve's
+    // own scale), up to full interpolation.
     let pts_3d: Vec<Point3> = samples.iter().map(|s| s.point).collect();
-    let curve_3d = fit_curve(&pts_3d, &params, degree, n_cp)?;
+    let target = 1.0e-7 * total_length.max(1.0);
+    let mut n_cp = (m / 5).clamp(degree + 1, m);
+    let curve_3d = loop {
+        use crate::geometry::curve::CurveEval as _;
+        let c = fit_curve(&pts_3d, &params, degree, n_cp)?;
+        let worst = pts_3d
+            .iter()
+            .zip(&params)
+            .map(|(p, &t)| p.distance_to(&c.point_at(t)))
+            .fold(0.0_f64, f64::max);
+        if worst <= target || n_cp >= m {
+            break c;
+        }
+        n_cp = (n_cp * 2).min(m);
+    };
 
     // UV1 curve (using Point3(u1, v1, 0.0) convention)
     let pts_uv1: Vec<Point3> = samples

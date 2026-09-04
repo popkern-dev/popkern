@@ -15,6 +15,27 @@ pub(crate) struct UvCell {
     pub v_max: f64,
 }
 
+/// The per-face subdivision cap, scaled to the surface's parametric
+/// extent: a multi-turn swept NURBS (a 6.5-turn spring is 26 knot
+/// spans in v) needs ~17 samples per coil turn to hold the chord
+/// tolerance, far past a fixed cap of 64 — the capped mesh rendered
+/// visibly faceted coils (PK-440). Eight cells per knot span keeps
+/// single-span faces at the configured cap while long periodic sweeps
+/// refine to their true chord tolerance; 512 bounds the quad-tree.
+pub(crate) fn effective_max_subdivisions(
+    surface: &SurfaceGeometry,
+    options: &crate::TessellationOptions,
+) -> usize {
+    let span_count = |knots: &[f64]| knots.windows(2).filter(|w| w[1] > w[0] + 1e-12).count();
+    match surface {
+        SurfaceGeometry::Nurbs(ns) => options
+            .max_subdivisions
+            .max(8 * span_count(&ns.knots_u).max(span_count(&ns.knots_v)))
+            .min(512),
+        _ => options.max_subdivisions,
+    }
+}
+
 /// Compute the chord-height error for a UV cell.
 ///
 /// This measures the distance from the bilinear interpolation of the four

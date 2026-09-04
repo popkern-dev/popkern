@@ -184,14 +184,31 @@ fn interior_step_sample(
         he.pcurve.as_ref().map(|p| (p, false))
     };
 
-    // UV polygon of the outer loop (8 samples per half-edge).
+    let trace = popkern_core::trace::trace_enabled("loop-sampling");
+    // UV polygon of the outer loop. Density adapts to the loop's
+    // half-edge count: a whole closed intersection loop can arrive as
+    // ONE self-loop half-edge, and an 8-gon of a girdle-shaped curve
+    // under-covers it so badly that the 5%-of-diagonal interior step
+    // lands outside the polygon on both sides (PK-440: the cylinder
+    // disc inside a propeller blade fell to the knife-edge centroid
+    // and classified Outside — the phantom disc served).
+    let per_he = (64 / loop_hes.len().max(1)).clamp(8, 64);
     let mut polygon: Vec<(f64, f64)> = Vec::new();
     for &h in loop_hes {
-        let (pc, reversed) = pcurve_for(h)?;
+        let Some((pc, reversed)) = pcurve_for(h) else {
+            if trace {
+                eprintln!(
+                    "  [sample] interior step decline: he {h} has no pcurve in {face:?} \
+                     (he.face {:?}, twin.face {:?})",
+                    graph.half_edges[h].face, graph.half_edges[graph.half_edges[h].twin].face
+                );
+            }
+            return None;
+        };
         let (t0, t1) = pc.parameter_range();
         let (s0, s1) = if reversed { (t1, t0) } else { (t0, t1) };
-        for i in 0..8 {
-            let t = s0 + (s1 - s0) * (i as f64) / 8.0;
+        for i in 0..per_he {
+            let t = s0 + (s1 - s0) * (i as f64) / per_he as f64;
             let q = pc.point_at(t);
             polygon.push((q.x, q.y));
         }
@@ -256,11 +273,32 @@ fn interior_step_sample(
         }
         inside
     };
-    for sign in [1.0_f64, -1.0] {
-        let (u, v) = (q.x + px * delta * sign, q.y + py * delta * sign);
-        if contains(u, v) {
-            return Some(surface.point_at(u, v));
+    // A thin fragment (a blade cross-section on a hub wall is a
+    // slanted strip ~3% of the loop diagonal wide) is jumped clean
+    // over by the 5% step on BOTH sides — refine the step until a
+    // side is contained (PK-440). The smallest step is still orders
+    // of magnitude above classification tolerance.
+    for delta in [delta, delta * 0.2, delta * 0.04, delta * 0.008] {
+        for sign in [1.0_f64, -1.0] {
+            let (u, v) = (q.x + px * delta * sign, q.y + py * delta * sign);
+            if contains(u, v) {
+                return Some(surface.point_at(u, v));
+            }
         }
+    }
+    if trace {
+        eprintln!(
+            "  [sample] interior step decline: neither side of ({:.4},{:.4})±{delta:.4} \
+             contained in the {}-pt outer polygon of {face:?} bbox u[{lo_u:.4},{hi_u:.4}] \
+             v[{lo_v:.4},{hi_v:.4}] first ({:.4},{:.4}) mid ({:.4},{:.4})",
+            q.x,
+            q.y,
+            polygon.len(),
+            polygon[0].0,
+            polygon[0].1,
+            polygon[polygon.len() / 2].0,
+            polygon[polygon.len() / 2].1
+        );
     }
     None
 }
