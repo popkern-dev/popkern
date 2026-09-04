@@ -16,13 +16,15 @@ use crate::replay_report::{FeatureEvidence, face_census};
 
 #[path = "replay_fns.rs"]
 pub(crate) mod replay_fns;
+#[path = "replay_sweep.rs"]
+mod replay_sweep;
 use replay_fns::{
-    chamfer_specs, execute_extrude, execute_sketch, extract_edge_curve, extract_face_outer_curve,
-    fillet_specs, resolve_param, to_bool_operation, to_shell_direction, to_shell_options,
+    chamfer_specs, execute_extrude, execute_sketch, fillet_specs, resolve_param, to_bool_operation,
+    to_shell_direction, to_shell_options,
 };
 
 use crate::resolve::{
-    resolve_axis, resolve_edge, resolve_edges, resolve_face, resolve_faces, resolve_revolve_angle,
+    resolve_axis, resolve_edges, resolve_face, resolve_faces, resolve_revolve_angle,
 };
 
 /// Side effects produced by a successful feature execution.
@@ -52,9 +54,10 @@ pub(crate) fn execute_feature(
     tolerance: &Tolerance,
     body_breps: &mut HashMap<BodyId, BRep>,
     param_table: &ParameterTable,
-    exact_profile: Option<&crate::replay_exact_extrude::ExactProfileWire>,
+    exact_profiles: &crate::replay_exact_extrude::ExactProfileSet,
     merge_host: Option<BodyId>,
 ) -> Result<ExecuteSideEffects, ReplayError> {
+    let exact_profile = exact_profiles.primary.as_ref();
     match feature {
         Feature::Sketch { plane, sketch_data } => {
             let host_brep = merge_host.and_then(|h| body_breps.get(&h));
@@ -338,75 +341,58 @@ pub(crate) fn execute_feature(
             path_edge,
             twist,
             ..
-        } => {
-            let tw = resolve_param(param_table, *twist)?;
-            let face_handle = resolve_face(face, brep)?;
-            let edge_handle = resolve_edge(path_edge, brep)?;
-            let path_curve = extract_edge_curve(brep, edge_handle)?;
-            let profile = popkern_sweep::SweepProfile::Face {
-                brep: Box::new(brep.clone()),
-                face: face_handle,
-            };
-            let options = popkern_sweep::SweepOptions {
-                twist: tw,
-                ..popkern_sweep::SweepOptions::default()
-            };
-            let result =
-                popkern_sweep::sweep(&profile, &path_curve, &options, *tolerance, Some(tracking))
-                    .map_err(|e| ReplayError::FeatureFailed {
-                    label: "sweep".into(),
-                    error: crate::failure::FeatureFailure::sweep("sweep", &e).into(),
-                })?;
-            let evidence = FeatureEvidence::sweep(&result.warnings);
-            *brep = result.brep;
-            Ok(ExecuteSideEffects::reported(evidence))
-        }
+        } => replay_sweep::execute_sweep(
+            brep,
+            face,
+            path_edge,
+            *twist,
+            tracking,
+            tolerance,
+            body_breps,
+            param_table,
+            exact_profile,
+        ),
         Feature::Loft {
             sections, closed, ..
-        } => {
-            let mut loft_sections = Vec::new();
-            for section_name in sections {
-                let face_handle = resolve_face(section_name, brep)?;
-                let curve = extract_face_outer_curve(brep, face_handle)?;
-                loft_sections.push(popkern_sweep::LoftSection {
-                    curve,
-                    position: None,
-                });
-            }
-            let options = popkern_sweep::LoftOptions {
-                closed: *closed,
-                ..popkern_sweep::LoftOptions::default()
-            };
-            let result = popkern_sweep::loft(&loft_sections, &options, *tolerance, Some(tracking))
-                .map_err(|e| ReplayError::FeatureFailed {
-                    label: "loft".into(),
-                    error: crate::failure::FeatureFailure::sweep("loft", &e).into(),
-                })?;
-            let evidence = FeatureEvidence::sweep(&result.warnings);
-            *brep = result.brep;
-            Ok(ExecuteSideEffects::reported(evidence))
-        }
+        } => replay_sweep::execute_loft(
+            brep,
+            sections,
+            *closed,
+            tracking,
+            tolerance,
+            body_breps,
+            exact_profiles,
+        ),
         Feature::Pipe {
             path_edge, radius, ..
-        } => {
-            let r = resolve_param(param_table, *radius)?;
-            let edge_handle = resolve_edge(path_edge, brep)?;
-            let path_curve = extract_edge_curve(brep, edge_handle)?;
-            let result = popkern_sweep::pipe(
-                &path_curve,
-                &popkern_sweep::PipeRadius::Constant(r),
-                &popkern_sweep::SweepOptions::default(),
-                *tolerance,
-                Some(tracking),
-            )
-            .map_err(|e| ReplayError::FeatureFailed {
-                label: "pipe".into(),
-                error: crate::failure::FeatureFailure::sweep("pipe", &e).into(),
-            })?;
-            let evidence = FeatureEvidence::sweep(&result.warnings);
-            *brep = result.brep;
-            Ok(ExecuteSideEffects::reported(evidence))
-        }
+        } => replay_sweep::execute_pipe(brep, path_edge, *radius, tracking, tolerance, param_table),
+        Feature::HelicalSweep {
+            face,
+            axis,
+            start_radius,
+            end_radius,
+            pitch,
+            turns,
+            start_angle,
+            left_handed,
+            ..
+        } => replay_sweep::execute_helical_sweep(
+            brep,
+            replay_sweep::HelicalSweepInputs {
+                face,
+                axis,
+                start_radius: *start_radius,
+                end_radius: *end_radius,
+                pitch: *pitch,
+                turns: *turns,
+                start_angle: *start_angle,
+                left_handed: *left_handed,
+            },
+            tracking,
+            tolerance,
+            param_table,
+            exact_profile,
+        ),
         Feature::Revolve {
             face,
             axis,

@@ -62,18 +62,12 @@ pub(crate) fn replay_seed_chain(
     });
     for (feature, op_id) in seed_features {
         let mut ctx = TrackingContext::new(*op_id);
-        let exact_profile = match feature {
-            crate::feature::Feature::Extrude { face, .. }
-            | crate::feature::Feature::Revolve { face, .. } => {
-                crate::replay_exact_extrude::exact_profile_for(
-                    seed_features.iter().map(|(f, op)| (f, *op)),
-                    face,
-                    host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
-                    param_table,
-                )
-            }
-            _ => None,
-        };
+        let exact_profiles = crate::replay_exact_extrude::exact_profile_set(
+            feature,
+            seed_features.iter().map(|(f, op)| (f, *op)),
+            host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
+            param_table,
+        );
         replay::execute_feature(
             &mut brep,
             feature,
@@ -81,7 +75,7 @@ pub(crate) fn replay_seed_chain(
             tolerance,
             body_breps,
             param_table,
-            exact_profile.as_ref(),
+            &exact_profiles,
             host,
         )?;
     }
@@ -176,6 +170,10 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
         }
         Feature::Pipe { path_edge, .. } => {
             remap_name(path_edge, op_remap);
+        }
+        Feature::HelicalSweep { face, axis, .. } => {
+            remap_name(face, op_remap);
+            remap_axis_desc(axis, op_remap);
         }
         Feature::Revolve {
             face,

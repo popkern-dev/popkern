@@ -221,7 +221,7 @@ impl Body {
         self.shell_feature(model, faces_to_remove, thickness.into(), feature, label)
     }
 
-    fn axis(
+    pub(crate) fn axis(
         self,
         model: &mut Model,
         axis: AxisSpec,

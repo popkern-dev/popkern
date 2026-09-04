@@ -425,6 +425,8 @@ fn t55_spring_coil() {
         end_radius: 1.0,
         pitch: HelixPitch::Constant(0.5),
         turns: 3.0,
+        start_angle: 0.0,
+        left_handed: false,
     };
     match build_helix_path(&spec) {
         Ok((helix_path, _warnings)) => {

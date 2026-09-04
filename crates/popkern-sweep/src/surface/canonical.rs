@@ -68,9 +68,20 @@ pub(crate) fn recognize_extruded_cylinder(
     let row_span = (row0[NU - 1] - row0[0]).length();
     let mut axis_dir: Option<Vec3> = None;
     let mut height = 0.0;
+    let mut rail_dir: Option<Vec3> = None;
     for j in 1..NV {
         let v = j as f64 / (NV - 1) as f64;
         let offset = surface.point_at(0.0, v) - row0[0];
+        // Row offsets must be collinear: a profile parallel to a
+        // curved rail's axis passes the per-row translation test
+        // (every row is a rigid translate) while the rail curves —
+        // that surface is not an extrusion (PK-440).
+        if !offsets_collinear(&mut rail_dir, offset, row_span) {
+            if popkern_core::trace::trace_enabled("canonical-samples") {
+                eprintln!("[canon-cyl] rail decline: row offsets not collinear");
+            }
+            return None;
+        }
         for (i, p0) in row0.iter().enumerate() {
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
             let d = p - *p0;
@@ -293,9 +304,20 @@ pub(crate) fn recognize_extruded_plane(
     // above this envelope.
     let mut axis_dir: Option<Vec3> = None;
     let mut height = 0.0;
+    let mut rail_dir: Option<Vec3> = None;
     for j in 1..NV {
         let v = j as f64 / (NV - 1) as f64;
         let offset = surface.point_at(0.0, v) - row0[0];
+        // Row offsets must be collinear: a straight profile parallel
+        // to a curved path's axis passes the per-row translation test
+        // exactly (every row is a rigid translate of row 0), yet the
+        // rail curves — an arc-path sweep's inner and outer walls are
+        // cylinder patches, not planes (PK-440: a 45° arc sweep
+        // promoted its walls to planes and every corner edge deviated
+        // by the arc's sagitta).
+        if !offsets_collinear(&mut rail_dir, offset, len) {
+            return None;
+        }
         for (i, p0) in row0.iter().enumerate() {
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
             // 1e-8: measured construction noise reaches ~1.5e-9
@@ -334,6 +356,25 @@ pub(crate) fn recognize_extruded_plane(
             v_scale: height,
         },
     ))
+}
+
+/// Track that successive row offsets share one direction (a straight
+/// extrusion rail). The first non-degenerate offset seeds `rail_dir`;
+/// later offsets must have no cross-rail component beyond the shared
+/// construction-noise envelope (`1e-8 · (1 + span + |offset|)`).
+fn offsets_collinear(rail_dir: &mut Option<Vec3>, offset: Vec3, span: f64) -> bool {
+    match rail_dir {
+        None => {
+            if offset.length() > 1.0e-12 {
+                *rail_dir = offset.normalized();
+            }
+            true
+        }
+        Some(rail) => {
+            let across = offset - *rail * offset.dot(rail);
+            across.length() <= 1.0e-8 * (1.0 + span + offset.length())
+        }
+    }
 }
 
 /// Circumcenter of three points, constrained to the plane through

@@ -189,6 +189,8 @@ fn helical_sweep_circle() {
         end_radius: 3.0,
         pitch: HelixPitch::Constant(2.0),
         turns: 1.0,
+        start_angle: 0.0,
+        left_handed: false,
     };
     let result = popkern_sweep::helical_sweep(
         &profile,

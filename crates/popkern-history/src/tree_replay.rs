@@ -316,17 +316,12 @@ impl FeatureTree {
             // targets live there — but the pattern owns their merge.)
             let merge_host = auto_merge::detect_host_body(id, &self.features, &body_breps)
                 .or_else(|| auto_merge::host_for_extrude_target(&feature, body, &body_breps));
-            let exact_profile = match &feature {
-                Feature::Extrude { face, .. } | Feature::Revolve { face, .. } => {
-                    crate::replay_exact_extrude::exact_profile_for(
-                        self.features.values().map(|n| (&n.feature, n.operation_id)),
-                        face,
-                        merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
-                        &self.parameter_table,
-                    )
-                }
-                _ => None,
-            };
+            let exact_profiles = crate::replay_exact_extrude::exact_profile_set(
+                &feature,
+                self.features.values().map(|n| (&n.feature, n.operation_id)),
+                merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
+                &self.parameter_table,
+            );
             let exec_result = replay::execute_feature(
                 &mut brep,
                 &feature,
@@ -334,7 +329,7 @@ impl FeatureTree {
                 tolerance,
                 &mut body_breps,
                 &self.parameter_table,
-                exact_profile.as_ref(),
+                &exact_profiles,
                 merge_host,
             );
 

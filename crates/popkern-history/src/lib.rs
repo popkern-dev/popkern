@@ -35,6 +35,7 @@ pub mod failure_blend;
 pub mod feature;
 pub mod feature_blend;
 pub mod feature_draft;
+pub mod feature_extrude;
 mod feature_params;
 pub mod feature_sketch;
 pub mod feature_snapshot;

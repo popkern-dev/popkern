@@ -117,6 +117,11 @@ fn validate_spec(spec: &HelixSpec) -> Result<(), SweepError> {
             "helix axis direction must be non-zero".into(),
         ));
     }
+    if !spec.start_angle.is_finite() {
+        return Err(SweepError::InvalidPath(
+            "helix start angle must be finite".into(),
+        ));
+    }
     match &spec.pitch {
         HelixPitch::Constant(p) if *p < 0.0 => {
             return Err(SweepError::InvalidPath(
@@ -151,7 +156,12 @@ fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, Swee
     if n_quarters == 0 {
         return Err(SweepError::InvalidPath("helix has no turns".into()));
     }
-    let total_angle = spec.turns * 2.0 * PI;
+    // A left-hand helix winds clockwise about the axis while still
+    // advancing along it; phase and winding are rigid transforms of
+    // the same exact quarter arcs (each still subtends 90°, so the
+    // rational midpoint weight is unchanged).
+    let winding = if spec.left_handed { -1.0 } else { 1.0 };
+    let total_angle = winding * spec.turns * 2.0 * PI;
     let total_height = spec.turns * pitch;
 
     // Each quarter arc has 3 control points; shared endpoints → 2*n + 1 total.
@@ -161,7 +171,7 @@ fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, Swee
 
     for i in 0..=n_quarters {
         let frac = i as f64 / n_quarters as f64;
-        let angle = frac * total_angle;
+        let angle = spec.start_angle + frac * total_angle;
         let z = frac * total_height;
 
         // On-curve point.
@@ -174,7 +184,7 @@ fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, Swee
         // Midpoint (weighted) — except after the last on-curve point.
         if i < n_quarters {
             let frac_mid = (i as f64 + 0.5) / n_quarters as f64;
-            let angle_mid = frac_mid * total_angle;
+            let angle_mid = spec.start_angle + frac_mid * total_angle;
             let z_mid = frac_mid * total_height;
 
             // For a rational quarter-arc, the weighted midpoint control
@@ -221,7 +231,8 @@ fn build_variable_helix(spec: &HelixSpec) -> Result<NurbsCurve, SweepError> {
     let n_samples = (spec.turns * SAMPLES_PER_TURN as f64).ceil() as usize;
     let n_samples = n_samples.max(8);
 
-    let total_angle = spec.turns * 2.0 * PI;
+    let winding = if spec.left_handed { -1.0 } else { 1.0 };
+    let total_angle = winding * spec.turns * 2.0 * PI;
 
     let mut points = Vec::with_capacity(n_samples + 1);
     let mut params = Vec::with_capacity(n_samples + 1);
@@ -230,7 +241,7 @@ fn build_variable_helix(spec: &HelixSpec) -> Result<NurbsCurve, SweepError> {
 
     for i in 0..=n_samples {
         let frac = i as f64 / n_samples as f64;
-        let angle = frac * total_angle;
+        let angle = spec.start_angle + frac * total_angle;
 
         // Interpolate radius.
         let radius = spec.start_radius + frac * (spec.end_radius - spec.start_radius);
@@ -348,144 +359,5 @@ fn estimate_profile_radius(curve: &NurbsCurve) -> f64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::curve::CurveEval;
-
-    fn constant_helix_spec() -> HelixSpec {
-        HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 5.0,
-            end_radius: 5.0,
-            pitch: HelixPitch::Constant(2.0),
-            turns: 2.0,
-        }
-    }
-
-    #[test]
-    fn constant_helix_builds_valid_curve() {
-        let spec = constant_helix_spec();
-        let (curve, warnings) = build_helix_path(&spec).unwrap(); // ok in tests
-        assert!(warnings.is_empty());
-        assert!(curve.control_points.len() >= 9);
-        let p0 = curve.point_at(0.0);
-        let r0 = (p0.x * p0.x + p0.y * p0.y).sqrt();
-        assert!((r0 - 5.0).abs() < 0.5, "expected radius ~5.0, got {}", r0);
-        assert!(p0.z.abs() < 0.1, "expected z~0 at t=0, got {}", p0.z);
-        let p1 = curve.point_at(1.0);
-        assert!((p1.z - 4.0).abs() < 0.5, "expected z~4.0, got {}", p1.z);
-    }
-
-    #[test]
-    fn constant_helix_quarter_turn_check() {
-        let spec = HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 1.0,
-            end_radius: 1.0,
-            pitch: HelixPitch::Constant(4.0),
-            turns: 1.0,
-        };
-        let (curve, _) = build_helix_path(&spec).unwrap(); // ok in tests
-        // At t=0.25 (quarter turn), z should be ~1.0 and radius ~1.0.
-        let p = curve.point_at(0.25);
-        let r = (p.x * p.x + p.y * p.y).sqrt();
-        assert!((r - 1.0).abs() < 0.3, "expected radius ~1.0, got {}", r);
-        assert!((p.z - 1.0).abs() < 0.5, "expected z~1.0, got {}", p.z);
-    }
-
-    #[test]
-    fn variable_helix_emits_warning() {
-        let spec = HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 1.0,
-            end_radius: 3.0,
-            pitch: HelixPitch::Constant(2.0),
-            turns: 1.0,
-        };
-        let (curve, warnings) = build_helix_path(&spec).unwrap(); // ok in tests
-        assert!(
-            warnings
-                .iter()
-                .any(|w| matches!(w, SweepWarning::HelixApproximated))
-        );
-        assert!(!curve.control_points.is_empty());
-    }
-
-    fn circle_nurbs(r: f64) -> NurbsCurve {
-        let w = FRAC_1_SQRT_2;
-        NurbsCurve {
-            degree: 2,
-            knots: vec![
-                0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-            ],
-            control_points: vec![
-                Point3::new(r, 0.0, 0.0),
-                Point3::new(r, r, 0.0),
-                Point3::new(0.0, r, 0.0),
-                Point3::new(-r, r, 0.0),
-                Point3::new(-r, 0.0, 0.0),
-                Point3::new(-r, -r, 0.0),
-                Point3::new(0.0, -r, 0.0),
-                Point3::new(r, -r, 0.0),
-                Point3::new(r, 0.0, 0.0),
-            ],
-            weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
-        }
-    }
-
-    #[test]
-    fn detect_torus_for_circle_on_circular_helix() {
-        let spec = HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 5.0,
-            end_radius: 5.0,
-            pitch: HelixPitch::Constant(0.0),
-            turns: 1.0,
-        };
-        let profile = SweepProfile::Wire(circle_nurbs(0.5));
-        let result = detect_analytic_helix(&spec, &profile);
-        assert!(result.is_some(), "expected torus detection");
-        match result {
-            Some(SurfaceGeometry::Torus {
-                major_radius,
-                minor_radius,
-                ..
-            }) => {
-                assert!((major_radius - 5.0).abs() < 1e-6);
-                assert!((minor_radius - 0.5).abs() < 0.1);
-            }
-            _ => panic!("expected Torus variant"),
-        }
-    }
-
-    #[test]
-    fn detect_torus_returns_none_for_nonzero_pitch() {
-        let spec = HelixSpec {
-            axis_origin: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vec3::new(0.0, 0.0, 1.0),
-            start_radius: 5.0,
-            end_radius: 5.0,
-            pitch: HelixPitch::Constant(1.0),
-            turns: 1.0,
-        };
-        let profile = SweepProfile::Wire(circle_nurbs(1.0));
-        assert!(detect_analytic_helix(&spec, &profile).is_none());
-    }
-
-    #[test]
-    fn invalid_specs_return_errors() {
-        let mut spec = constant_helix_spec();
-        spec.turns = 0.0;
-        assert!(build_helix_path(&spec).is_err());
-        spec.turns = 2.0;
-        spec.start_radius = 0.0;
-        assert!(build_helix_path(&spec).is_err());
-        spec.start_radius = 5.0;
-        spec.pitch = HelixPitch::Constant(-1.0);
-        assert!(build_helix_path(&spec).is_err());
-    }
-}
+#[path = "helix_tests.rs"]
+mod tests;

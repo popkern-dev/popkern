@@ -48,6 +48,48 @@ pub(crate) struct ExactProfileWire {
     pub circular: bool,
 }
 
+/// Exact analytic wires for a feature's profile inputs: the profile
+/// face's own wire (extrude, revolve, sweep, helical sweep) and the
+/// per-section wires of a loft (index-aligned with `Feature::Loft`'s
+/// section list; `None` where a section has no analytic sketch).
+#[derive(Debug, Default)]
+pub(crate) struct ExactProfileSet {
+    /// The feature's own profile-face wire.
+    pub primary: Option<ExactProfileWire>,
+    /// Loft section wires, in section order.
+    pub sections: Vec<Option<ExactProfileWire>>,
+}
+
+/// The exact-wire inputs for one feature: the profile face's own wire
+/// for extrude/revolve/sweep/helical sweep, per-section wires for a
+/// loft, and empty for everything else. Loft sections live in sketch
+/// bodies of their own; base-plane sketches never consult the brep
+/// argument, so the executing body's brep is a safe stand-in there.
+pub(crate) fn exact_profile_set<'a>(
+    feature: &Feature,
+    features: impl Iterator<Item = (&'a Feature, OperationId)> + Clone,
+    brep: &BRep,
+    param_table: &ParameterTable,
+) -> ExactProfileSet {
+    match feature {
+        Feature::Extrude { face, .. }
+        | Feature::Revolve { face, .. }
+        | Feature::Sweep { face, .. }
+        | Feature::HelicalSweep { face, .. } => ExactProfileSet {
+            primary: exact_profile_for(features, face, brep, param_table),
+            sections: Vec::new(),
+        },
+        Feature::Loft { sections, .. } => ExactProfileSet {
+            primary: None,
+            sections: sections
+                .iter()
+                .map(|s| exact_profile_for(features.clone(), s, brep, param_table))
+                .collect(),
+        },
+        _ => ExactProfileSet::default(),
+    }
+}
+
 /// Find the analytic profile that produced `face`, from the features
 /// in scope (`(feature, operation)` pairs).
 pub(crate) fn exact_profile_for<'a>(

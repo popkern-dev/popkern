@@ -162,6 +162,8 @@ fn helical_sweep_is_winding_honest() {
         end_radius: 2.0,
         pitch: HelixPitch::Constant(1.0),
         turns: 2.0,
+        start_angle: 0.0,
+        left_handed: false,
     };
     let result = popkern_sweep::helical_sweep(
         &circle_profile(0.3),

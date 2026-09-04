@@ -18,6 +18,7 @@
 pub mod bodies;
 pub mod body;
 pub mod body_recipes;
+pub mod body_sweep;
 pub mod configs;
 pub mod entity_spelling;
 pub mod error;
@@ -35,6 +36,7 @@ pub mod selection_parse;
 
 pub use body::{Body, End, RevolveEnd};
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
+pub use body_sweep::{HelixParams, LoftOptions};
 pub use error::{ScriptError, SelectionKind};
 pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
@@ -57,6 +59,7 @@ pub use selection_parse::{SelectionParseError, parse_edges, parse_faces};
 pub mod prelude {
     pub use crate::body::{Body, End, RevolveEnd};
     pub use crate::body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
+    pub use crate::body_sweep::{HelixParams, LoftOptions};
     pub use crate::error::ScriptError;
     pub use crate::feature_edit::Edit;
     pub use crate::model::{FeatureHandle, Model};

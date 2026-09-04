@@ -28,6 +28,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Sweep { mode, .. }
         | Feature::Loft { mode, .. }
         | Feature::Pipe { mode, .. }
+        | Feature::HelicalSweep { mode, .. }
         | Feature::Revolve { mode, .. } => *mode,
         Feature::Sketch { .. }
         | Feature::RawBody { .. }

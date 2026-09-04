@@ -23,6 +23,20 @@ const GRID_SIZE: usize = 20;
 pub fn check_self_intersection(surface: &NurbsSurface, _tolerance: &Tolerance) -> Option<f64> {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
 
+    // The v-direction follows the sweep path, so adjacent samples must
+    // sit close enough that the frame's own rotation between them stays
+    // well under the fold threshold — a fixed grid across a multi-turn
+    // helix reads 117° of frame rotation per step as a "fold" (PK-440
+    // false positive on a 6.5-turn spring). Two samples per knot span
+    // track the surface's actual v-complexity; finer sampling only
+    // sharpens genuine fold detection.
+    let v_spans = surface
+        .knots_v
+        .windows(2)
+        .filter(|w| w[1] > w[0] + 1e-12)
+        .count();
+    let grid_v = GRID_SIZE.max(2 * v_spans).min(400);
+
     // For each u-sample, walk along v and check that adjacent normals
     // don't reverse. A reversal in the v-direction normal indicates the
     // surface folds back on itself along the sweep path.
@@ -30,8 +44,8 @@ pub fn check_self_intersection(surface: &NurbsSurface, _tolerance: &Tolerance) -
         let u = u_min + (iu as f64 / GRID_SIZE as f64) * (u_max - u_min);
         let mut prev_normal: Option<popkern_core::geometry::Vec3> = None;
 
-        for iv in 0..=GRID_SIZE {
-            let v = v_min + (iv as f64 / GRID_SIZE as f64) * (v_max - v_min);
+        for iv in 0..=grid_v {
+            let v = v_min + (iv as f64 / grid_v as f64) * (v_max - v_min);
             let normal = surface.normal_at(u, v);
             let len = normal.length();
 

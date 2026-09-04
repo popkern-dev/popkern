@@ -79,6 +79,20 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         Feature::Draft { angle, .. } => vec![("angle", *angle)],
         Feature::Sweep { twist, .. } => vec![("twist", *twist)],
         Feature::Pipe { radius, .. } => vec![("radius", *radius)],
+        Feature::HelicalSweep {
+            start_radius,
+            end_radius,
+            pitch,
+            turns,
+            start_angle,
+            ..
+        } => vec![
+            ("start_radius", *start_radius),
+            ("end_radius", *end_radius),
+            ("pitch", *pitch),
+            ("turns", *turns),
+            ("start_angle", *start_angle),
+        ],
         Feature::Revolve { end_condition, .. } => match end_condition {
             RevolveEnd::Blind { angle } => vec![("angle", *angle)],
             RevolveEnd::MidPlane { half_angle } => vec![("half_angle", *half_angle)],
@@ -142,6 +156,7 @@ impl Feature {
             Feature::Sweep { .. } => "sweep",
             Feature::Loft { .. } => "loft",
             Feature::Pipe { .. } => "pipe",
+            Feature::HelicalSweep { .. } => "helical_sweep",
             Feature::Revolve { .. } => "revolve",
             Feature::Reference { .. } => "reference",
             Feature::LinearPattern { .. } => "linear_pattern",

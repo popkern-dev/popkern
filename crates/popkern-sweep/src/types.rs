@@ -60,6 +60,14 @@ pub struct HelixSpec {
     pub pitch: HelixPitch,
     /// Number of turns.
     pub turns: f64,
+    /// Phase: angle in radians about the axis at which the helix
+    /// starts, measured from the axis frame's reference direction.
+    /// Lets multiple helical bodies about one axis be phased apart
+    /// (propeller blades, multi-start threads).
+    pub start_angle: f64,
+    /// Winding sense. `false` = right-hand (counter-clockwise about
+    /// `axis_dir` while advancing along it); `true` = left-hand.
+    pub left_handed: bool,
 }
 
 /// Helix pitch specification.

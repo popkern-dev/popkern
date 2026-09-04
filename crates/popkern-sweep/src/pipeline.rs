@@ -137,16 +137,23 @@ pub(crate) fn loft_impl(
         tracker.finish_stage("loft.guide_rails", t0, guides.len());
     }
 
-    // Check if the first section is closed.
-    let is_closed = if !sections.is_empty() {
-        let curve = &sections[0].curve;
-        let (t_min, t_max) = curve.parameter_range();
-        let start = curve.point_at(t_min);
-        let end = curve.point_at(t_max);
+    // Closure must be consistent: the topology builder caps (or not)
+    // the whole loft from one answer, so a mix of open and closed
+    // sections would silently build garbage.
+    let section_closed = |s: &LoftSection| {
+        let (t_min, t_max) = s.curve.parameter_range();
+        let start = s.curve.point_at(t_min);
+        let end = s.curve.point_at(t_max);
         tolerance.points_coincident(&start, &end)
-    } else {
-        false
     };
+    let is_closed = sections.first().map(section_closed).unwrap_or(false);
+    if let Some(mixed) = sections.iter().position(|s| section_closed(s) != is_closed) {
+        return Err(SweepError::InvalidProfile(format!(
+            "loft sections mix open and closed profiles (section 0 is \
+             {}, section {mixed} is not)",
+            if is_closed { "closed" } else { "open" }
+        )));
+    }
 
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
