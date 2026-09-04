@@ -10,7 +10,6 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::clip::face_vertex_positions;
 use crate::error::PointClassification;
 
 use super::types::CoincidenceOrientation;
@@ -67,7 +66,15 @@ fn face_outward_normal(
         None => return Vec3::new(0.0, 0.0, 1.0),
     };
 
-    let positions = face_vertex_positions(brep, face);
+    // Boundary positions sampled along edge CURVES, not just vertices:
+    // a disc's rim carries exactly ONE vertex (the seam), so a
+    // vertex-only "centroid" sits ON the rim — radially on the
+    // adjacent wall surface — and both material probes below read
+    // boundary noise (measured: the hub's bottom cap fell back to the
+    // flag-adjusted normal and its coincident pair mis-typed
+    // Opposite, while the top cap's identical fallback was right by
+    // luck). Curve samples put the centroid at the true face middle.
+    let positions = brep.face_outer_loop_sample_positions(face, 8);
     if positions.is_empty() {
         return Vec3::new(0.0, 0.0, 1.0);
     }

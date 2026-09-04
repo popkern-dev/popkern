@@ -76,14 +76,15 @@ fn arm_mid_height_into_hub_union_serves_watertight() {
     assert_eq!(out.open_edge_count().expect("mesh"), 0, "watertight");
 }
 
-// PK-439: the flush-cap arm∪hub union still declines with a single
-// graph-merge strand (the periodic-wall 3D-Newell walk continues along
-// the coincident cap rim instead of turning down the wall-crossing).
-// The two PK-435 coincidence fixes (material-side orientation +
-// curve-aware partial-overlap classify) take it from 4 stranded sides
-// to 1; the remaining wall-walk substrate is tracked by PK-439.
+// PK-439 closed the flush-cap class at root: the 3D-Newell walk now
+// measures true departure tangents (twin-owned curves borrowed, not
+// chord-approximated), walks curved faces material-on-left like the
+// planar convention, only accepts STRUCTURAL boundary dead-ends as
+// half-split chains, and samples all-shared fragments in the
+// fragment's own face chart. With the PK-435 coincidence fixes
+// (material-side orientation over curve-sampled centroids +
+// curve-aware partial-overlap classify), the union serves watertight.
 #[test]
-#[ignore = "PK-439: flush-cap periodic-wall walk strands one wall-crossing side"]
 fn arm_into_hub_union_serves_watertight() {
     let out = hub().union(&arm()).expect("arm ∪ hub union serves");
     let issues = out.brep().validate_all();
@@ -92,7 +93,6 @@ fn arm_into_hub_union_serves_watertight() {
 }
 
 #[test]
-#[ignore = "PK-439: flush-cap periodic-wall walk strands one wall-crossing side"]
 fn arm_off_seam_into_hub_union_serves_watertight() {
     let out = hub()
         .union(&arm_plus_y())

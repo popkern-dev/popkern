@@ -200,6 +200,11 @@ fn detect_face_coincidences(
             if are_surfaces_coincident_analytic(surf_a, surf_b, &tol.core) {
                 let orientation =
                     classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
+                if popkern_core::trace::trace_enabled("boolean") {
+                    eprintln!(
+                        "  [coincidence] overlap A:{face_a:?} B:{face_b:?} -> {orientation:?} (analytic)"
+                    );
+                }
                 let overlap_center = compute_overlap_center(a, *face_a, b, *face_b);
                 map.face_overlaps.push(FaceOverlap {
                     face_a: *face_a,
@@ -215,6 +220,11 @@ fn detect_face_coincidences(
             if is_near_coincident(surf_a, a, *face_a, surf_b, b, *face_b, tol) {
                 let orientation =
                     classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
+                if popkern_core::trace::trace_enabled("boolean") {
+                    eprintln!(
+                        "  [coincidence] overlap A:{face_a:?} B:{face_b:?} -> {orientation:?} (sampled)"
+                    );
+                }
                 let overlap_center = compute_overlap_center(a, *face_a, b, *face_b);
                 map.face_overlaps.push(FaceOverlap {
                     face_a: *face_a,

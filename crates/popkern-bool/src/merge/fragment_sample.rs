@@ -163,13 +163,35 @@ fn interior_step_sample(
     };
     let surface = &brep.faces.get(face.face)?.surface.as_ref()?.geometry;
 
+    // The pcurve in THIS face's chart, with the traversal direction of
+    // half-edge `h`. Pairs store the face_a chart on the forward half
+    // and the face_b chart on the twin, so `h.pcurve` alone mixes
+    // charts on cross-registered loops: an all-shared wall strip's
+    // longest edge carried the ARM-plane chart, the step landed at a
+    // wall angle far outside the strip, and the doomed strip
+    // classified Outside and served (PK-439, flush-cap prism ∪ hub
+    // off-seam). `reversed` = the chart lives on the twin, so its
+    // samples must run t1→t0 to follow `h`.
+    let pcurve_for = |h: usize| -> Option<(&popkern_core::geometry::pcurve::Pcurve, bool)> {
+        let he = &graph.half_edges[h];
+        if he.face.as_ref() == Some(face) {
+            return he.pcurve.as_ref().map(|p| (p, false));
+        }
+        let tw = &graph.half_edges[he.twin];
+        if tw.face.as_ref() == Some(face) {
+            return tw.pcurve.as_ref().map(|p| (p, true));
+        }
+        he.pcurve.as_ref().map(|p| (p, false))
+    };
+
     // UV polygon of the outer loop (8 samples per half-edge).
     let mut polygon: Vec<(f64, f64)> = Vec::new();
     for &h in loop_hes {
-        let pc = graph.half_edges[h].pcurve.as_ref()?;
+        let (pc, reversed) = pcurve_for(h)?;
         let (t0, t1) = pc.parameter_range();
+        let (s0, s1) = if reversed { (t1, t0) } else { (t0, t1) };
         for i in 0..8 {
-            let t = t0 + (t1 - t0) * (i as f64) / 8.0;
+            let t = s0 + (s1 - s0) * (i as f64) / 8.0;
             let q = pc.point_at(t);
             polygon.push((q.x, q.y));
         }
@@ -200,14 +222,14 @@ fn interior_step_sample(
     let he_idx = loop_hes
         .iter()
         .copied()
-        .filter(|&h| graph.half_edges[h].pcurve.is_some())
+        .filter(|&h| pcurve_for(h).is_some())
         .max_by(|&x, &y| {
             span_of(x)
                 .partial_cmp(&span_of(y))
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then_with(|| y.cmp(&x))
         })?;
-    let pc = graph.half_edges[he_idx].pcurve.as_ref()?;
+    let (pc, _) = pcurve_for(he_idx)?;
     let (t0, t1) = pc.parameter_range();
     let tm = (t0 + t1) * 0.5;
     let h = ((t1 - t0) * 1e-3).max(1e-9);
