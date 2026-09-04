@@ -110,6 +110,10 @@ fn the_guides_option_keys_are_the_bindings_option_keys() {
         "shell",
         "translate",
         "rotate",
+        "sweep",
+        "loft",
+        "pipe",
+        "helical_sweep",
     ];
     let mut wrong = Vec::new();
     for (verb, key) in &named {

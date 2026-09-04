@@ -947,6 +947,50 @@
       ]
     },
     {
+      "name": "helical_sweep",
+      "section": "5",
+      "mark": "stable",
+      "signature": "helical_sweep(face, axis, radius, pitch, turns, taper_to?, start_angle?, left_hand?, mode?)",
+      "parameters": [
+        {
+          "name": "face",
+          "optional": false
+        },
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "radius",
+          "optional": false
+        },
+        {
+          "name": "pitch",
+          "optional": false
+        },
+        {
+          "name": "turns",
+          "optional": false
+        },
+        {
+          "name": "taper_to",
+          "optional": true
+        },
+        {
+          "name": "start_angle",
+          "optional": true
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "mode",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "intersect",
       "section": "5",
       "mark": "stable",
@@ -984,9 +1028,13 @@
     {
       "name": "loft",
       "section": "5",
-      "mark": "preview",
-      "signature": "loft([sections], closed?, mode?)",
+      "mark": "stable",
+      "signature": "m.loft(sections, closed?, mode?)",
       "parameters": [
+        {
+          "name": "sections",
+          "optional": false
+        },
         {
           "name": "closed",
           "optional": true
@@ -1040,7 +1088,7 @@
     {
       "name": "pipe",
       "section": "5",
-      "mark": "preview",
+      "mark": "stable",
       "signature": "pipe(path_edge, radius, mode?)",
       "parameters": [
         {
@@ -1167,11 +1215,15 @@
     {
       "name": "sweep",
       "section": "5",
-      "mark": "preview",
-      "signature": "sweep(face, path_edge, twist?, mode?)",
+      "mark": "stable",
+      "signature": "sweep(face, path_body, path_edge, twist?, mode?)",
       "parameters": [
         {
           "name": "face",
+          "optional": false
+        },
+        {
+          "name": "path_body",
           "optional": false
         },
         {

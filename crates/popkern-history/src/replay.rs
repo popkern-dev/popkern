@@ -365,7 +365,15 @@ pub(crate) fn execute_feature(
         ),
         Feature::Pipe {
             path_edge, radius, ..
-        } => replay_sweep::execute_pipe(brep, path_edge, *radius, tracking, tolerance, param_table),
+        } => replay_sweep::execute_pipe(
+            brep,
+            path_edge,
+            *radius,
+            tracking,
+            tolerance,
+            body_breps,
+            param_table,
+        ),
         Feature::HelicalSweep {
             face,
             axis,

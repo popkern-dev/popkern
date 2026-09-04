@@ -165,8 +165,15 @@ fn pipe_along_model_edge_serves() {
         .expect("sketch")
         .extrude(&mut m, End::Blind(Scalar::from(0.3)))
         .expect("extrude");
-    disc.pipe(&mut m, edges().circular().at_height(0.3), 0.06)
+    let tube = disc
+        .pipe(&mut m, edges().circular().at_height(0.3), 0.06)
         .expect("pipe");
+    // The tube is its own body; the path body is referenced, not
+    // consumed (a pipe must not replace the solid it borrowed an edge
+    // from).
+    assert!(disc.is_alive(&m), "path body survives the pipe");
+    assert!(tube.is_alive(&m), "tube body serves");
+    assert_ne!(disc.id, tube.id, "the tube is a new body");
     let part = m.to_part().expect("pipe validates");
     assert!(part.face_count() >= 1);
     m.assert_watertight().expect("watertight pipe ring");

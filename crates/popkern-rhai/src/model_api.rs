@@ -115,6 +115,36 @@ fn param_expr(
     m.borrow_mut().param_expr(name, text, unit).script()
 }
 
+fn loft(
+    m: &mut ScriptModel,
+    sections: rhai::Array,
+    options: &Dynamic,
+) -> Result<ScriptBody, Box<EvalAltResult>> {
+    let options = Options::parse("loft", options, &["label", "mode", "closed"])?;
+    let bodies = sections
+        .iter()
+        .map(|d| {
+            d.clone()
+                .try_cast::<ScriptBody>()
+                .map(|sb| sb.body)
+                .ok_or_else(|| {
+                    argument_error("sections", "each loft section must be a Body (a sketch)")
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let loft_options = popkern_script::LoftOptions {
+        closed: options.with("closed", args::boolean)?.unwrap_or(false),
+        mode: options
+            .with("mode", args::mode)?
+            .unwrap_or(popkern_history::feature::OperationMode::NewBody),
+    };
+    let body = m
+        .borrow_mut()
+        .loft_with(&bodies, loft_options, &options.label()?)
+        .script()?;
+    Ok(ScriptBody::new(m.clone(), body))
+}
+
 /// Register the model value and its global constructors.
 pub fn register(engine: &mut Engine) {
     engine
@@ -144,6 +174,13 @@ pub fn register(engine: &mut Engine) {
         .register_get("tolerance", |m: &mut ScriptModel| {
             m.borrow_mut().tolerance().linear()
         })
+        .register_fn("loft", |m: &mut ScriptModel, sections: rhai::Array| {
+            loft(m, sections, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "loft",
+            |m: &mut ScriptModel, sections: rhai::Array, o: Dynamic| loft(m, sections, &o),
+        )
         .register_fn("profile", |m: &mut ScriptModel, plane: Plane| {
             ScriptProfile::new(m.clone(), plane)
         })

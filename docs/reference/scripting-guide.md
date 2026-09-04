@@ -131,6 +131,10 @@ least `label`.
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
+| `sweep(path_body, path_edge)` | the body carrying the path edge, then an edge query on it (exactly one edge) | `label`, `mode`, `twist` | The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. `twist` in degrees over the full path. The path body is referenced, not consumed. |
+| `loft(sections)` | on `Model`: `m.loft([s0, s1, …])` — ordered sketch bodies, each contributing its most recent sketch face | `label`, `mode`, `closed` | Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles). |
+| `pipe(path_edge, radius)` | an edge query on the receiving body (exactly one edge), then the tube radius | `label`, `mode` | The tube is a new body; the path body keeps its edge. |
+| `helical_sweep(axis, radius, pitch, turns)` | `axis_at([o], [d])` or `axis(edges()...)`; then helix radius, pitch (advance per turn), turns (fractional allowed) | `label`, `mode`, `taper_to`, `start_angle`, `left_hand` | Springs, coils, auger flights, thread forms. `taper_to` is the end radius of a conical helix; `start_angle` (degrees) phases multiple helical bodies apart — multi-start threads, blades; `left_hand: true` mirrors the winding. The profile contributes its shape; placement comes from the helix. |
 
 ```rhai
 let m = model();
@@ -160,6 +164,23 @@ m
 Scalars: any numeric argument accepts a literal, `p("name")` for a
 declared parameter, or `expr("text")` for an expression over
 parameters.
+
+The sweep family: `helical_sweep` coils a profile about an axis, and
+`loft` skins ordered section sketches (each sketch is its own body;
+the loft consumes them):
+
+```rhai
+let m = model();
+let spring = m.profile(xy()).circle(0.04).sketch("wire_section")
+    .helical_sweep(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), 0.3, 0.12, 6.5,
+        #{ label: "coil" });
+let s0 = m.profile(xy_at(2.0)).circle(0.3).sketch("horn_base");
+let s1 = m.profile(xy_at(2.35)).circle(0.18).sketch("horn_waist");
+let s2 = m.profile(xy_at(2.7)).circle(0.26).sketch("horn_lip");
+let horn = m.loft([s0, s1, s2], #{ label: "horn" });
+m.assert_watertight();
+m
+```
 
 ## 6. Selecting edges and faces
 
@@ -396,6 +417,9 @@ body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
+body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
+body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
+m.loft([s0, s1, …], #{label, mode, closed})
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
 F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()

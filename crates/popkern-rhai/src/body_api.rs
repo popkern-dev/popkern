@@ -3,7 +3,8 @@
 //! calls chain in timeline order.
 
 use popkern_history::feature::{BoolOpKind, OperationMode};
-use popkern_script::{Body, EdgeSelector, End, FaceSelector, RevolveEnd};
+use popkern_script::body_sweep::HelixParams;
+use popkern_script::{Body, EdgeSelector, End, FaceSelector, RevolveEnd, Scalar};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
 use crate::args::{self, Options};
@@ -22,6 +23,8 @@ pub struct ScriptBody {
 
 const EXTRUDE_OPTIONS: &[&str] = &["label", "mode"];
 const LABEL_ONLY: &[&str] = &["label"];
+const SWEEP_OPTIONS: &[&str] = &["label", "mode", "twist"];
+const HELICAL_OPTIONS: &[&str] = &["label", "mode", "taper_to", "start_angle", "left_hand"];
 
 impl ScriptBody {
     pub(crate) fn new(model: ScriptModel, body: Body) -> ScriptBody {
@@ -198,6 +201,92 @@ impl ScriptBody {
         Ok(self.served(body))
     }
 
+    fn sweep(
+        &self,
+        path_body: ScriptBody,
+        path: EdgeSelector,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("sweep", options, SWEEP_OPTIONS)?;
+        let mode = options
+            .with("mode", args::mode)?
+            .unwrap_or(OperationMode::NewBody);
+        let twist = options
+            .with("twist", args::scalar)?
+            .unwrap_or_else(|| Scalar::from(0.0));
+        let body = self
+            .body
+            .sweep_with(
+                &mut self.model.borrow_mut(),
+                path_body.body,
+                path,
+                twist,
+                mode,
+                &options.label()?,
+            )
+            .script()?;
+        Ok(self.served(body))
+    }
+
+    fn pipe(
+        &self,
+        path: EdgeSelector,
+        radius: Dynamic,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let radius = args::scalar("radius", &radius)?;
+        let options = Options::parse("pipe", options, EXTRUDE_OPTIONS)?;
+        let mode = options
+            .with("mode", args::mode)?
+            .unwrap_or(OperationMode::NewBody);
+        let body = self
+            .body
+            .pipe_with(
+                &mut self.model.borrow_mut(),
+                path,
+                radius,
+                mode,
+                &options.label()?,
+            )
+            .script()?;
+        Ok(self.served(body))
+    }
+
+    fn helical_sweep(
+        &self,
+        axis: ScriptAxis,
+        radius: Dynamic,
+        pitch: Dynamic,
+        turns: Dynamic,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("helical_sweep", options, HELICAL_OPTIONS)?;
+        let mode = options
+            .with("mode", args::mode)?
+            .unwrap_or(OperationMode::NewBody);
+        let helix = HelixParams {
+            radius: args::scalar("radius", &radius)?,
+            taper_to: options.with("taper_to", args::scalar)?,
+            pitch: args::scalar("pitch", &pitch)?,
+            turns: args::scalar("turns", &turns)?,
+            start_angle: options
+                .with("start_angle", args::scalar)?
+                .unwrap_or_else(|| Scalar::from(0.0)),
+            left_handed: options.with("left_hand", args::boolean)?.unwrap_or(false),
+        };
+        let body = self
+            .body
+            .helical_sweep_with(
+                &mut self.model.borrow_mut(),
+                axis.spec(),
+                helix,
+                mode,
+                &options.label()?,
+            )
+            .script()?;
+        Ok(self.served(body))
+    }
+
     fn last(&self) -> Result<ScriptFeature, Box<EvalAltResult>> {
         let handle = self
             .body
@@ -325,6 +414,49 @@ pub fn register(engine: &mut Engine) {
             |b: &mut ScriptBody, axis: ScriptAxis, angle: Dynamic, o: Dynamic| {
                 b.rotate(axis, angle, &o)
             },
+        )
+        .register_fn(
+            "sweep",
+            |b: &mut ScriptBody, path_body: ScriptBody, path: EdgeSelector| {
+                b.sweep(path_body, path, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "sweep",
+            |b: &mut ScriptBody, path_body: ScriptBody, path: EdgeSelector, o: Dynamic| {
+                b.sweep(path_body, path, &o)
+            },
+        )
+        .register_fn(
+            "pipe",
+            |b: &mut ScriptBody, path: EdgeSelector, radius: Dynamic| {
+                b.pipe(path, radius, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "pipe",
+            |b: &mut ScriptBody, path: EdgeSelector, radius: Dynamic, o: Dynamic| {
+                b.pipe(path, radius, &o)
+            },
+        )
+        .register_fn(
+            "helical_sweep",
+            |b: &mut ScriptBody,
+             axis: ScriptAxis,
+             radius: Dynamic,
+             pitch: Dynamic,
+             turns: Dynamic| {
+                b.helical_sweep(axis, radius, pitch, turns, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "helical_sweep",
+            |b: &mut ScriptBody,
+             axis: ScriptAxis,
+             radius: Dynamic,
+             pitch: Dynamic,
+             turns: Dynamic,
+             o: Dynamic| { b.helical_sweep(axis, radius, pitch, turns, &o) },
         )
         .register_fn("last", |b: &mut ScriptBody| b.last())
         .register_fn("to_string", |b: &mut ScriptBody| {

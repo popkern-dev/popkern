@@ -81,6 +81,16 @@ pub fn vec3(argument: &str, value: &Dynamic) -> Result<[f64; 3], Box<EvalAltResu
 }
 
 /// A string argument.
+/// A boolean argument.
+pub fn boolean(argument: &str, value: &Dynamic) -> Result<bool, Box<EvalAltResult>> {
+    value.as_bool().map_err(|_| {
+        argument_error(
+            argument,
+            format!("expected true or false, got {}", value.type_name()),
+        )
+    })
+}
+
 pub fn text(argument: &str, value: &Dynamic) -> Result<String, Box<EvalAltResult>> {
     value.clone().into_string().map_err(|_| {
         argument_error(

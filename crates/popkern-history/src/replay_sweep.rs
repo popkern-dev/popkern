@@ -154,19 +154,34 @@ pub(super) fn execute_loft(
     })
 }
 
-/// The `Feature::Pipe` arm: constant-radius tube along an edge of the
-/// executing body (the recorder records the pipe on the path body).
+/// The `Feature::Pipe` arm: constant-radius tube along a path edge.
+/// The tube is its own body; the path edge lives on another body
+/// (referenced, not consumed).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_pipe(
     brep: &mut BRep,
     path_edge: &EntityName,
     radius: ParameterId,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
+    body_breps: &HashMap<BodyId, BRep>,
     param_table: &ParameterTable,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let r = resolve_param(param_table, radius)?;
-    let edge_handle = resolve_edge(path_edge, brep)?;
-    let path_curve = extract_edge_curve(brep, edge_handle)?;
+    let path_curve = if let Ok(e) = resolve_edge(path_edge, brep) {
+        extract_edge_curve(brep, e)?
+    } else if let Some(curve) = body_breps.values().find_map(|b| {
+        resolve_edge(path_edge, b)
+            .ok()
+            .map(|e| extract_edge_curve(b, e))
+    }) {
+        curve?
+    } else {
+        return Err(ReplayError::FeatureFailed {
+            label: "pipe".into(),
+            error: format!("pipe path edge {path_edge:?} not found in any body").into(),
+        });
+    };
     let result = popkern_sweep::pipe(
         &path_curve,
         &popkern_sweep::PipeRadius::Constant(r),

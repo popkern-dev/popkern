@@ -224,7 +224,14 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
     // dependency) erased the host — the flagship plate vanished under a
     // same-body boss (PK-387). The host relation is recovered by the
     // Boss/Cut auto-merge through the on-face reference.
-    matches!(feature, Feature::Sketch { .. } | Feature::RawBody { .. })
+    //
+    // A pipe's only dependency is its path edge; inheriting that body
+    // would REPLACE the path solid with the tube (PK-440). The tube is
+    // a new body; the path body is referenced, not consumed.
+    matches!(
+        feature,
+        Feature::Sketch { .. } | Feature::RawBody { .. } | Feature::Pipe { .. }
+    )
 }
 
 /// Determine the [`BodyId`] for a newly created feature.

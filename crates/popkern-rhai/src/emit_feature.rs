@@ -126,6 +126,19 @@ fn end_condition(
     })
 }
 
+/// The body owning the feature that minted `operation` (loft sections
+/// name their sketch's operation; that sketch's node carries the body).
+fn body_of_operation(
+    tree: &popkern_history::FeatureTree,
+    operation: popkern_core::naming::OperationId,
+) -> Option<popkern_history::node::BodyId> {
+    tree.timeline()
+        .iter()
+        .filter_map(|id| tree.feature(*id))
+        .find(|n| n.operation_id == operation)
+        .map(|n| n.body)
+}
+
 fn axis(spell: Speller<'_>, axis: &AxisDesc) -> Result<String, EmitError> {
     Ok(match axis {
         AxisDesc::Literal { origin, direction } => {
@@ -232,6 +245,106 @@ pub fn statement(
                 axis(spell, a)?,
                 end,
                 options(vec![label_option(label)])
+            )
+        }
+        Feature::Sweep { mode, .. } => {
+            if !matches!(mode, OperationMode::NewBody) {
+                return Err(decline("sweep boss/cut modes have no spelling in the skin"));
+            }
+            // The path edge lives on another body; spelling it needs
+            // cross-body selection verification the emitter does not
+            // have yet (the recorded query would be re-verified against
+            // the wrong body's state).
+            return Err(decline(
+                "sweep paths cross bodies; the skin has no verified spelling for them yet",
+            ));
+        }
+        Feature::Loft {
+            sections,
+            closed,
+            mode,
+        } => {
+            if !matches!(mode, OperationMode::NewBody) {
+                return Err(decline("loft boss/cut modes have no spelling in the skin"));
+            }
+            let vars = sections
+                .iter()
+                .map(|s| {
+                    body_of_operation(tree, s.operation)
+                        .map(&tool_var)
+                        .ok_or_else(|| {
+                            EmitError::not_applicable(
+                                label,
+                                op,
+                                "a loft section's sketch is not in the timeline",
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let mut pairs = Vec::new();
+            if *closed {
+                pairs.push(("closed", "true".to_string()));
+            }
+            pairs.push(label_option(label));
+            // Model-level call: sections are sketch bodies, so the
+            // statement starts (re-binds) the first section's body.
+            return Ok(Statement {
+                call: format!("m.loft([{}]{})", vars.join(", "), options(pairs)),
+                starts_body: true,
+            });
+        }
+        Feature::Pipe {
+            path_edge,
+            radius,
+            mode,
+        } => {
+            if !matches!(mode, OperationMode::NewBody) {
+                return Err(decline("pipe boss/cut modes have no spelling in the skin"));
+            }
+            format!(
+                ".pipe({}, {}{})",
+                spell("path_edge", std::slice::from_ref(path_edge), false)?,
+                scalar(tree, *radius, context)?,
+                options(vec![label_option(label)])
+            )
+        }
+        Feature::HelicalSweep {
+            axis: a,
+            start_radius,
+            end_radius,
+            pitch,
+            turns,
+            start_angle,
+            left_handed,
+            mode,
+            ..
+        } => {
+            if !matches!(mode, OperationMode::NewBody) {
+                return Err(decline(
+                    "helical_sweep boss/cut modes have no spelling in the skin",
+                ));
+            }
+            let r = scalar(tree, *start_radius, context)?;
+            let taper = scalar(tree, *end_radius, context)?;
+            let phase = scalar(tree, *start_angle, context)?;
+            let mut pairs = Vec::new();
+            if taper != r {
+                pairs.push(("taper_to", taper));
+            }
+            if phase != "0" {
+                pairs.push(("start_angle", phase));
+            }
+            if *left_handed {
+                pairs.push(("left_hand", "true".to_string()));
+            }
+            pairs.push(label_option(label));
+            format!(
+                ".helical_sweep({}, {}, {}, {}{})",
+                axis(spell, a)?,
+                r,
+                scalar(tree, *pitch, context)?,
+                scalar(tree, *turns, context)?,
+                options(pairs)
             )
         }
         Feature::Fillet {
