@@ -8,6 +8,7 @@ pub mod parallel_weld;
 pub mod quality;
 pub(crate) mod redundant_chain;
 pub mod redundant_edge;
+pub mod self_twin_stub;
 pub mod slit_seam;
 pub mod sliver_removal;
 pub mod spur_edge;

@@ -323,9 +323,16 @@ impl SurfaceEval for SurfaceGeometry {
     }
 
     fn closest_point(&self, point: &Point3) -> Option<(f64, f64)> {
-        // Honor the domain: non-periodic axes must not return
-        // extrapolated parameters the surface never takes (the
-        // periodic axes keep their wrap-around freedom).
+        // NURBS delegates to its knot-span-aware seeded projection —
+        // the generic 5×5 multi-start cannot resolve a multi-sheet
+        // chart (PK-446: a 6.5-turn coil wall answered a rim
+        // projection 6e-2 of surface away). Analytic surfaces honor
+        // the domain: non-periodic axes must not return extrapolated
+        // parameters the surface never takes (the periodic axes keep
+        // their wrap-around freedom).
+        if let SurfaceGeometry::Nurbs(nurbs) = self {
+            return nurbs.closest_point(point);
+        }
         closest_point_gauss_newton_bounded(self, point, self.is_periodic())
     }
 

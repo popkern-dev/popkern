@@ -392,3 +392,63 @@ fn spring_double_end_grind_serves() {
     // PK-445: the double-ground coil meshes watertight AND faithful.
     assert_meshes_watertight_and_faithful(&brep, coil_analytic_volume(2), "double grind");
 }
+
+/// STATION-ALIGNED deep grind (PK-448): a cut plane through the
+/// helix centreline EXACTLY at a construction station (z = 0.9 =
+/// 6 × pitch on the 6.5-turn coil) drives the walker into an
+/// unhandled degeneracy — the assembly shipped two phantom face/loop
+/// pairs plus a curveless self-twinned stub, the mesh hid it, and
+/// the STEP export carried a free-boundary wire the OCC oracle
+/// rejects (an off-station cut at z = 0.91 serves a clean 3-face
+/// genus-0 body). Until the construction handles the class, the
+/// boolean must DECLINE honestly rather than serve the corrupt body;
+/// when it one day serves, the serve must be census-clean.
+#[test]
+fn station_aligned_deep_grind_declines_or_serves_clean() {
+    let mut m = Model::new();
+    let z_axis = AxisSpec::Literal {
+        origin: [0.0, 0.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+    };
+    let spring = m
+        .profile(Plane::XY)
+        .circle(0.04)
+        .sketch("wire_section")
+        .expect("wire sketch")
+        .helical_sweep(&mut m, z_axis, HelixParams::new(0.3, 0.15, 6.5))
+        .expect("coil");
+    let top = m
+        .profile(Plane::xy_at(0.9))
+        .rect(1.0, 1.0)
+        .sketch("grind_top")
+        .expect("plate sketch")
+        .extrude(&mut m, End::Blind(Scalar::from(0.2)))
+        .expect("plate");
+    match spring.subtract(&mut m, top) {
+        Err(e) => {
+            let msg = format!("{e:?}");
+            assert!(
+                msg.contains("self-twinned stub") || msg.contains("ValidationFailed"),
+                "decline must be the structured stub/validation class, got: {msg}"
+            );
+        }
+        Ok(ground) => {
+            // The construction learned the class — hold it to a
+            // census-clean serve (every edge exactly twice-used, no
+            // self-twinned half-edges).
+            let brep = m.brep_of(ground).expect("brep");
+            for (eh, _) in brep.edges.iter() {
+                let uses = brep
+                    .half_edges
+                    .iter()
+                    .filter(|(_, he)| he.edge == eh && brep.loops.contains_key(he.loop_))
+                    .count();
+                assert_eq!(uses, 2, "edge {eh:?} not exactly twice-used");
+            }
+            assert!(
+                brep.half_edges.iter().all(|(h, he)| he.twin != h),
+                "served body carries a self-twinned half-edge"
+            );
+        }
+    }
+}

@@ -561,10 +561,10 @@ pub(crate) fn execute_boolean_full(
     }
 
     run_output_postprocess(&mut result, tolerance);
+    postprocess::decline_on_unrepairable_stubs(&mut result, tolerance)?;
 
     // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
-    // mechanics and measured rationale in
-    // `operation_pcurve_coherence.rs`.
+    // mechanics and rationale in `operation_pcurve_coherence.rs`.
     helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs

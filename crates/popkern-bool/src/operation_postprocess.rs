@@ -214,6 +214,31 @@ fn dissolve_redundant_chains(result: &mut BRep, tolerance: &Tolerance) {
 /// discarded them — the eprintlns were `#[cfg(debug_assertions)]` but
 /// the computation was not. Now nothing is computed unless the output
 /// can be observed.
+/// Decline the boolean when the output carries degenerate self-twin
+/// stubs the splice repair could not remove — the body has residue
+/// beyond the stub (Euler ledger broken; measured on the
+/// station-aligned coil grind, PK-448: the cut plane through the
+/// helix centerline exactly at a construction station shipped two
+/// phantom face/loop pairs plus a curveless stub; the mesh hid it and
+/// the STEP export carried a free-boundary wire the OCC oracle
+/// rejects). Idempotent: a clean or already-repaired body reports
+/// nothing.
+pub(super) fn decline_on_unrepairable_stubs(
+    result: &mut BRep,
+    tolerance: &Tolerance,
+) -> Result<(), crate::error::BoolError> {
+    let stubs = crate::postprocess::self_twin_stub::remove_self_twin_stubs(result, tolerance);
+    if stubs.unrepaired > 0 {
+        return Err(crate::error::BoolError::ValidationFailed(format!(
+            "output carries {} degenerate self-twinned stub half-edge(s) that cannot be \
+             spliced (Euler ledger inconsistent beyond the stub) — declining rather than \
+             serving a body whose STEP export would ship free-boundary wires",
+            stubs.unrepaired
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Tolerance) {
     use crate::clip::face_vertex_positions;
     use crate::imprint::shared_geometry::validate_watertightness;
@@ -389,6 +414,24 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
         }
     }
     trace_face_census("post-parallel-weld", result);
+
+    // Degenerate self-twin stubs (PK-448): a curveless zero-extent
+    // self-twinned half riding a live loop meshes invisibly and
+    // validates, but STEP-exports as a degenerate closed free wire
+    // the OCC oracle rejects. Splice it out; real-extent one-sided
+    // survivors stay.
+    if result.validate().is_ok() {
+        let stubs = crate::postprocess::self_twin_stub::remove_self_twin_stubs(result, tolerance);
+        if stubs.removed > 0
+            && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
+        {
+            eprintln!(
+                "[boolean] post-processing: {} degenerate self-twin stub(s) removed ({} kept with real extent)",
+                stubs.removed, stubs.kept
+            );
+        }
+    }
+    trace_face_census("post-self-twin-stub", result);
 
     // Exact rims (PK-417): intersection edges that trace a circle are
     // re-spelled as the analytic Arc they are, with co-parameterised

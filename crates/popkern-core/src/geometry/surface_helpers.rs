@@ -47,9 +47,72 @@ pub fn closest_point_gauss_newton_bounded(
     closest_point_gauss_newton_impl(surface, point, periodic)
 }
 
+/// Gauss-Newton closest-point refinement from CALLER-SUPPLIED seed
+/// parameters, clamping per `periodic` exactly like
+/// [`closest_point_gauss_newton_bounded`]. Seeds are coarse-selected
+/// first — only the `refine` best (by evaluated distance) walk the
+/// full iteration — so a dense knot-aware seed lattice stays cheap.
+///
+/// This exists because the fixed 5×5 start grid cannot resolve a
+/// multi-sheet NURBS chart: on a 6.5-turn helical tube wall every
+/// start seeded the wrong turn's basin, `closest_point` for a point
+/// ON the rim returned a border parameter 6e-2 of surface away, and
+/// the watertightness diagnostic reported a phantom gap on a clean
+/// body (PK-446).
+pub fn closest_point_from_seeds(
+    surface: &dyn SurfaceEval,
+    point: &Point3,
+    seeds: &[(f64, f64)],
+    periodic: (bool, bool),
+    refine: usize,
+) -> Option<(f64, f64)> {
+    let mut ranked: Vec<(f64, (f64, f64))> = seeds
+        .iter()
+        .map(|&(u, v)| (surface.point_at(u, v).distance_to(point), (u, v)))
+        .collect();
+    ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(refine.max(1));
+    let starts: Vec<(f64, f64)> = ranked.into_iter().map(|(_, s)| s).collect();
+    gauss_newton_over_starts(surface, point, &starts, periodic)
+}
+
 fn closest_point_gauss_newton_impl(
     surface: &dyn SurfaceEval,
     point: &Point3,
+    periodic: (bool, bool),
+) -> Option<(f64, f64)> {
+    let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    // Clamp infinite ranges for the search
+    let u_lo = u0.max(-100.0);
+    let u_hi = u1.min(100.0);
+    let v_lo = v0.max(-100.0);
+    let v_hi = v1.min(100.0);
+
+    // 5x5 grid of starts plus domain corners for periodic surfaces.
+    // The 5x5 grid covers the interior; corners catch periodic boundary
+    // cases where the closest point is near u=0 or v=0 on a torus/sphere.
+    let n_grid = 5;
+    let mut starts = Vec::with_capacity(n_grid * n_grid + 4);
+    for i in 0..n_grid {
+        let u = u_lo + (u_hi - u_lo) * (i as f64 + 0.5) / (n_grid as f64);
+        for j in 0..n_grid {
+            let v = v_lo + (v_hi - v_lo) * (j as f64 + 0.5) / (n_grid as f64);
+            starts.push((u, v));
+        }
+    }
+    // Add domain corners (important for periodic surfaces)
+    starts.push((u_lo, v_lo));
+    starts.push((u_lo, v_hi));
+    starts.push((u_hi, v_lo));
+    starts.push((u_hi, v_hi));
+
+    gauss_newton_over_starts(surface, point, &starts, periodic)
+}
+
+fn gauss_newton_over_starts(
+    surface: &dyn SurfaceEval,
+    point: &Point3,
+    starts: &[(f64, f64)],
     periodic: (bool, bool),
 ) -> Option<(f64, f64)> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
@@ -82,29 +145,6 @@ fn closest_point_gauss_newton_impl(
     };
     let du_cap = step_cap(periodic.0, u0, u1);
     let dv_cap = step_cap(periodic.1, v0, v1);
-    // Clamp infinite ranges for the search
-    let u_lo = u0.max(-100.0);
-    let u_hi = u1.min(100.0);
-    let v_lo = v0.max(-100.0);
-    let v_hi = v1.min(100.0);
-
-    // 5x5 grid of starts plus domain corners for periodic surfaces.
-    // The 5x5 grid covers the interior; corners catch periodic boundary
-    // cases where the closest point is near u=0 or v=0 on a torus/sphere.
-    let n_grid = 5;
-    let mut starts = Vec::with_capacity(n_grid * n_grid + 4);
-    for i in 0..n_grid {
-        let u = u_lo + (u_hi - u_lo) * (i as f64 + 0.5) / (n_grid as f64);
-        for j in 0..n_grid {
-            let v = v_lo + (v_hi - v_lo) * (j as f64 + 0.5) / (n_grid as f64);
-            starts.push((u, v));
-        }
-    }
-    // Add domain corners (important for periodic surfaces)
-    starts.push((u_lo, v_lo));
-    starts.push((u_lo, v_hi));
-    starts.push((u_hi, v_lo));
-    starts.push((u_hi, v_hi));
 
     let max_iter = 20;
     let step_tol = 1e-12;
@@ -112,7 +152,7 @@ fn closest_point_gauss_newton_impl(
 
     let mut best: Option<(f64, f64, f64)> = None; // (u, v, dist)
 
-    for (u_start, v_start) in starts {
+    for &(u_start, v_start) in starts {
         let mut u = u_start;
         let mut v = v_start;
 
