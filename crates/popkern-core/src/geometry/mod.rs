@@ -23,6 +23,7 @@ pub mod nurbs_curve;
 pub mod nurbs_ops;
 pub mod nurbs_surface;
 pub mod pcurve;
+pub mod pcurve_split;
 pub mod pcurve_trace;
 pub mod point;
 pub mod polyhedral_spline;

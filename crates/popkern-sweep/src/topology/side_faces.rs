@@ -260,17 +260,19 @@ fn build_closed_profile_topology(
         builder.set_half_edge_pcurve(he_top_rev, uv_line_chart(1.0, 1.0, 0.0, 1.0));
         builder.set_half_edge_pcurve(he_left_down, uv_line_chart(0.0, 1.0, 0.0, 0.0));
         if n_spans == 1 {
-            // Single span: left_up is the seam at u=0 — BOTH seam
-            // halves share the u=0 pcurve, the same aliasing every
-            // analytic periodic chart (cylinder, torus) carries.
-            // Downstream classification must treat the chart as
-            // period-identified; for NURBS walls that is
-            // `classification_chart_periods` (PK-440: with no period
-            // the even-odd contour is degenerate and every interior
-            // point reads OUTSIDE). Moving this half to u=1 instead
-            // broke consumers tuned to the shared-seam convention
-            // (loft_add regression, bisected).
-            builder.set_half_edge_pcurve(he_left_up, uv_line_chart(0.0, 0.0, 0.0, 1.0));
+            // Single span: left and right longitudinal boundaries are
+            // the SAME seam edge. An analytic periodic chart keeps
+            // the aliased shared-seam convention (consumers
+            // period-identify via `periodicity()`); a NURBS wall has
+            // no evaluable periodicity, so its trim loop must be
+            // CHART-CONTINUOUS: the upward seam half runs at u=1
+            // (geometric closure makes u=0 and u=1 the same 3D
+            // curve). Aliasing both halves at u=0 left two chart
+            // discontinuities in every trimmed boolean output —
+            // PK-441: the cut helical wall could not mesh watertight
+            // (576 pinch-dissolves from the discontinuous contour).
+            let seam_u = if chart.is_some() { 0.0 } else { 1.0 };
+            builder.set_half_edge_pcurve(he_left_up, uv_line_chart(seam_u, 0.0, seam_u, 1.0));
         } else {
             // Multi-span: this face's upward half-edge on its RIGHT
             // seam sits at u=1 of THIS surface (the twin — the

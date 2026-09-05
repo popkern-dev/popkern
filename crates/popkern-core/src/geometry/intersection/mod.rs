@@ -37,6 +37,8 @@ mod surface_curve_overlap;
 pub mod surface_subdivision;
 pub mod surface_surface;
 mod surface_surface_consumed;
+mod surface_surface_crease_split;
+mod surface_surface_seam_split;
 pub(crate) mod torus_coaxial;
 
 pub use surface_curve::{
@@ -329,6 +331,9 @@ pub fn intersect_curves(
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+#[path = "surface_surface_crease_tests.rs"]
+mod surface_surface_crease_tests;
 #[cfg(test)]
 #[path = "surface_surface_order_tests.rs"]
 mod surface_surface_order_tests;

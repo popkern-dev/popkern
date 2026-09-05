@@ -26,37 +26,66 @@ struct SurfaceCell {
     max: Point3,
 }
 
-/// Build an `n x n` grid of surface cells, each with an AABB computed from
-/// the four corner evaluations.
+/// Grid density per axis: knot-span-aware for NURBS surfaces. A fixed
+/// `n` under-seeds a long wrapped chart — an 8-wide grid over a 6-turn
+/// helical wall put Newton seeds up to 3/8 turn from the crossing, the
+/// solves diverged, and every classification ray through the coil
+/// counted ZERO wall crossings (interior points read Outside and the
+/// double-grind's kept cap fragment was discarded — PK-441). Knot
+/// spans measure where the surface actually bends; the cap keeps the
+/// candidate set bounded.
+fn grid_density(surface: &SurfaceGeometry, base: usize) -> (usize, usize) {
+    match surface {
+        SurfaceGeometry::Nurbs(s) => {
+            let spans = |knots: &[f64]| {
+                knots
+                    .windows(2)
+                    .filter(|w| w[1] > w[0] + 1.0e-12)
+                    .count()
+                    .max(1)
+            };
+            (
+                spans(&s.knots_u).clamp(base, 48),
+                spans(&s.knots_v).clamp(base, 48),
+            )
+        }
+        _ => (base, base),
+    }
+}
+
+/// Build a grid of surface cells, each with an AABB computed from
+/// the four corner evaluations. Density is per-axis (see
+/// [`grid_density`]).
 fn build_surface_grid(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),
     v_range: (f64, f64),
-    n: usize,
+    base_n: usize,
 ) -> Vec<SurfaceCell> {
+    let (nu, nv) = grid_density(surface, base_n);
     let (u0, u1) = u_range;
     let (v0, v1) = v_range;
-    let du = (u1 - u0) / n as f64;
-    let dv = (v1 - v0) / n as f64;
+    let du = (u1 - u0) / nu as f64;
+    let dv = (v1 - v0) / nv as f64;
 
-    // Pre-evaluate all grid corner points: (n+1) x (n+1).
-    let mut pts = vec![Point3::new(0.0, 0.0, 0.0); (n + 1) * (n + 1)];
-    for iu in 0..=n {
-        for iv in 0..=n {
+    // Pre-evaluate all grid corner points: (nu+1) x (nv+1).
+    let mut pts = vec![Point3::new(0.0, 0.0, 0.0); (nu + 1) * (nv + 1)];
+    for iu in 0..=nu {
+        for iv in 0..=nv {
             let u = u0 + iu as f64 * du;
             let v = v0 + iv as f64 * dv;
-            pts[iu * (n + 1) + iv] = surface.point_at(u, v);
+            pts[iu * (nv + 1) + iv] = surface.point_at(u, v);
         }
     }
 
-    let mut cells = Vec::with_capacity(n * n);
-    for iu in 0..n {
-        for iv in 0..n {
+    let mut cells = Vec::with_capacity(nu * nv);
+    for iu in 0..nu {
+        for iv in 0..nv {
             let corners = [
-                pts[iu * (n + 1) + iv],
-                pts[iu * (n + 1) + iv + 1],
-                pts[(iu + 1) * (n + 1) + iv],
-                pts[(iu + 1) * (n + 1) + iv + 1],
+                pts[iu * (nv + 1) + iv],
+                pts[iu * (nv + 1) + iv + 1],
+                pts[(iu + 1) * (nv + 1) + iv],
+                pts[(iu + 1) * (nv + 1) + iv + 1],
             ];
             let mut bmin = corners[0];
             let mut bmax = corners[0];

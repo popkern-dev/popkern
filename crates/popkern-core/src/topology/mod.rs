@@ -57,6 +57,7 @@ pub use brep_nonmanifold_policy::{
     assess_edge_pair_topology_policy,
 };
 
+mod loop_chart_continuity;
 mod pcurve_loop_winding_repair;
 mod pcurve_period_branch;
 /// Pcurve recomputation for BRep faces.

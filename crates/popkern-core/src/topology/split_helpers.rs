@@ -84,107 +84,12 @@ pub(crate) fn split_pcurve_at_point(
 }
 
 pub(crate) fn split_pcurve_at(pcurve: &Option<Pcurve>, t: f64) -> (Option<Pcurve>, Option<Pcurve>) {
-    let Some(pc) = pcurve else {
-        return (None, None);
-    };
-    let (p_start, p_end) = (pc.t_start, pc.t_end);
-    let split_param = p_start + t * (p_end - p_start);
-    match &pc.geometry {
-        PcurveGeometry::Linear { start, end } => {
-            let span = p_end - p_start;
-            let s = if span.abs() > 0.0 { t } else { 0.0 };
-            let mid = (
-                start.0 + s * (end.0 - start.0),
-                start.1 + s * (end.1 - start.1),
-            );
-            (
-                Some(Pcurve::linear(*start, mid, p_start, split_param)),
-                Some(Pcurve::linear(mid, *end, split_param, p_end)),
-            )
-        }
-        PcurveGeometry::Elliptical {
-            center,
-            u_radius,
-            v_radius,
-            rotation,
-            start_angle,
-            end_angle,
-        } => {
-            // Angle interpolates linearly with normalised parameter.
-            let mid_angle = start_angle + t * (end_angle - start_angle);
-            let left = Pcurve::elliptical(
-                *center,
-                *u_radius,
-                *v_radius,
-                *rotation,
-                *start_angle,
-                mid_angle,
-                p_start,
-                split_param,
-            );
-            let right = Pcurve::elliptical(
-                *center,
-                *u_radius,
-                *v_radius,
-                *rotation,
-                mid_angle,
-                *end_angle,
-                split_param,
-                p_end,
-            );
-            (Some(left), Some(right))
-        }
-        PcurveGeometry::Sinusoidal {
-            u_offset,
-            v_const,
-            v_cos,
-            v_sin,
-        } => {
-            // Sinusoidal form is closed-form on any sub-range —
-            // restrict the parameter window without changing the
-            // analytic formula.
-            let left =
-                Pcurve::sinusoidal(*u_offset, *v_const, *v_cos, *v_sin, p_start, split_param);
-            let right = Pcurve::sinusoidal(*u_offset, *v_const, *v_cos, *v_sin, split_param, p_end);
-            (Some(left), Some(right))
-        }
-        PcurveGeometry::Nurbs(curve) => match curve.split_at(split_param) {
-            Ok((left, right)) => (
-                Some(Pcurve::from_nurbs(left)),
-                Some(Pcurve::from_nurbs(right)),
-            ),
-            Err(_) => (None, None),
+    match pcurve {
+        Some(pc) => match pc.split_at_fraction(t) {
+            Some((left, right)) => (Some(left), Some(right)),
+            None => (None, None),
         },
-        PcurveGeometry::CylinderArcViaRationalQuad {
-            theta_a,
-            theta_b,
-            v_const,
-        } => {
-            // Splitting the rational quadratic at any sub-range
-            // produces two pieces of the SAME analytic curve with
-            // unchanged angular span — only the parameter sub-
-            // ranges change.  The angular formula already handles
-            // arbitrary sub-ranges via `Pcurve.t_start, t_end`.
-            let left = Pcurve {
-                geometry: PcurveGeometry::CylinderArcViaRationalQuad {
-                    theta_a: *theta_a,
-                    theta_b: *theta_b,
-                    v_const: *v_const,
-                },
-                t_start: p_start,
-                t_end: split_param,
-            };
-            let right = Pcurve {
-                geometry: PcurveGeometry::CylinderArcViaRationalQuad {
-                    theta_a: *theta_a,
-                    theta_b: *theta_b,
-                    v_const: *v_const,
-                },
-                t_start: split_param,
-                t_end: p_end,
-            };
-            (Some(left), Some(right))
-        }
+        None => (None, None),
     }
 }
 
