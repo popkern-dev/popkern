@@ -362,9 +362,16 @@ pub(crate) fn march_one_direction(
                         }
                     }
 
-                    // Wrap parameters for periodic surfaces before domain check.
-                    let (periodic_u1, periodic_v1) = surface1.is_periodic();
-                    let (periodic_u2, periodic_v2) = surface2.is_periodic();
+                    // Wrap parameters for periodic surfaces before the
+                    // domain check — including geometrically-closed
+                    // NURBS charts, whose seam is not a boundary of
+                    // the surface, only of the chart (the wrap keeps
+                    // evaluation inside the chart; see
+                    // `geometry::chart_periods`).
+                    let (periodic_u1, periodic_v1) =
+                        crate::geometry::chart_periods::marching_periodicity(surface1);
+                    let (periodic_u2, periodic_v2) =
+                        crate::geometry::chart_periods::marching_periodicity(surface2);
                     sample.u1 = wrap_parameter(sample.u1, u1_range, periodic_u1);
                     sample.v1 = wrap_parameter(sample.v1, v1_range, periodic_v1);
                     sample.u2 = wrap_parameter(sample.u2, u2_range, periodic_u2);
@@ -380,7 +387,19 @@ pub(crate) fn march_one_direction(
                     let exits_v2 =
                         !periodic_v2 && (sample.v2 < v2_range.0 || sample.v2 > v2_range.1);
                     if exits_u1 || exits_v1 || exits_u2 || exits_v2 {
-                        // Exited domain; stop marching in this direction.
+                        // Exited domain; stop marching in this
+                        // direction. The exiting sample IS emitted:
+                        // window trimming downstream refines the
+                        // exact boundary crossing from the straddling
+                        // pair, and discarding the outside sample
+                        // left the trace up to one whole step short
+                        // of the window when the last inside sample
+                        // did not reach the pad band (measured: a
+                        // blade-girdle record ended 9.1e-5 shy of its
+                        // span-boundary junction, the open-chain weld
+                        // bridged the gap, and the welded tail bent
+                        // 3.3e-5 off the span surface — PK-443).
+                        samples.push(sample);
                         return samples;
                     }
 

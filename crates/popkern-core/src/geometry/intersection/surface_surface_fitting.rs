@@ -151,8 +151,13 @@ pub(crate) fn split_samples_at_period_jumps(
     surface2: &SurfaceGeometry,
     tolerance: &crate::tolerance::Tolerance,
 ) -> Vec<Vec<MarchSample>> {
-    let (p1u, p1v) = surface1.periodicity();
-    let (p2u, p2v) = surface2.periodicity();
+    // Periods include geometrically-closed NURBS charts (the march
+    // wraps their seam; see `geometry::chart_periods`). Kernel NURBS
+    // charts are clamped to [0, span], so seam positions at whole
+    // multiples of the period hold for them exactly as for analytic
+    // angle charts.
+    let (p1u, p1v) = crate::geometry::chart_periods::geometric_chart_periods(surface1);
+    let (p2u, p2v) = crate::geometry::chart_periods::geometric_chart_periods(surface2);
     if p1u.is_none() && p1v.is_none() && p2u.is_none() && p2v.is_none() {
         return vec![samples];
     }
@@ -206,7 +211,7 @@ pub(crate) fn split_samples_at_period_jumps(
                     best = Some((t, i));
                 }
             }
-            let (t, _) = best?;
+            let (t, axis) = best?;
             let lerp = |x: f64, y: f64| x + t * (y - x);
             let guess_point = crate::geometry::Point3::new(
                 lerp(a.point.x, b.point.x),
@@ -214,18 +219,50 @@ pub(crate) fn split_samples_at_period_jumps(
                 lerp(a.point.z, b.point.z),
             );
             let g: Vec<f64> = (0..4).map(|i| lerp(ca[i], cb_unwrapped[i])).collect();
-            let dir = (b.point - a.point).normalized()?;
-            let refined = crate::geometry::intersection::marching::marching_newton::march_project(
-                surface1,
-                g[0],
-                g[1],
-                surface2,
-                g[2],
-                g[3],
-                &guess_point,
-                &dir,
-                tolerance,
-            )?;
+            // Pin the jumping coordinate AT the seam: the free
+            // projection slides along the intersection curve and left
+            // the cut ~2e-4 off the seam, so neither piece's endpoint
+            // matched the seam-edge hit node and micro pieces fit to
+            // garbage (measured: the spring-grind seam sliver,
+            // PK-443). Fall back to the free projection when the
+            // pinned solve declines (curve tangent to the seam).
+            let seam_value = {
+                // Reconstruct the seam multiple the crossing search chose.
+                let p = periods[axis]?;
+                let lo = ca[axis].min(cb_unwrapped[axis]);
+                (((lo / p).floor()) + 1.0) * p
+            };
+            let pin = crate::geometry::intersection::marching::BoundaryPin {
+                on_surface_one: axis < 2,
+                axis_u: axis % 2 == 0,
+                value: seam_value,
+            };
+            let pinned =
+                crate::geometry::intersection::marching::marching_newton::newton_boundary_crossing(
+                    surface1, g[0], g[1], surface2, g[2], g[3], pin, tolerance,
+                );
+            let refined = match pinned {
+                Some(s)
+                    if s.point.distance_to(&guess_point)
+                        <= a.point.distance_to(&b.point) * 4.0 + tolerance.linear() =>
+                {
+                    s
+                }
+                _ => {
+                    let dir = (b.point - a.point).normalized()?;
+                    crate::geometry::intersection::marching::marching_newton::march_project(
+                        surface1,
+                        g[0],
+                        g[1],
+                        surface2,
+                        g[2],
+                        g[3],
+                        &guess_point,
+                        &dir,
+                        tolerance,
+                    )?
+                }
+            };
             // Both copies carry the SAME 3D point; each side's UVs are
             // rebranched nearest its neighbour sample.
             let rebranch = |val: f64, near: f64, period: Option<f64>| match period {
@@ -331,12 +368,30 @@ pub(crate) fn fit_marched_trace(
     // radius-scale curve deviations). The chart-cell clip design
     // (docs/architecture/periodic-chart-cell-clipping.md) subsumes
     // this scoping.
+    //
+    // A geometrically-closed NURBS chart is different from that
+    // analytic scoping: its records CANNOT wrap (the pcurve would
+    // leave the chart), and the march wraps its seam
+    // (`geometry::chart_periods`), so any trace on such a surface must
+    // split at the seam jumps — the splitter emits the refined seam
+    // crossing on both branches, terminating each record exactly on
+    // the seam (PK-443: a spring-grind section arc crossed the wall
+    // seam mid-way; unsplit, the far side stayed on the wrong branch).
     let both_periodic = {
         let (p1u, p1v) = surface1.periodicity();
         let (p2u, p2v) = surface2.periodicity();
         (p1u.is_some() || p1v.is_some()) && (p2u.is_some() || p2v.is_some())
     };
-    let segments = if both_periodic {
+    let chart_closed_nurbs = {
+        let closed = |s: &SurfaceGeometry| {
+            matches!(s, SurfaceGeometry::Nurbs(_)) && {
+                let (u, v) = crate::geometry::chart_periods::geometric_chart_periods(s);
+                u.is_some() || v.is_some()
+            }
+        };
+        closed(surface1) || closed(surface2)
+    };
+    let segments = if both_periodic || chart_closed_nurbs {
         split_samples_at_period_jumps(samples.to_vec(), surface1, surface2, tolerance)
     } else {
         vec![samples.to_vec()]
@@ -392,11 +447,17 @@ pub(crate) fn fit_marched_trace(
         segments
     };
     if crate::trace::trace_enabled("surface-intersection-segments") {
+        eprintln!(
+            "  [ssi-seg] is_closed={} both_periodic={} n_seg={}",
+            is_closed,
+            both_periodic,
+            segments.len()
+        );
         for (i, seg) in segments.iter().enumerate() {
             if let (Some(f), Some(l)) = (seg.first(), seg.last()) {
                 let m = &seg[seg.len() / 2];
                 eprintln!(
-                    "  [ssi-seg] {i}/{}: n={} uv1 ({:.3},{:.3})->({:.3},{:.3}) mid ({:.3},{:.3}) p ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                    "  [ssi-seg] {i}/{}: n={} uv1 ({:.3},{:.3})->({:.3},{:.3}) mid ({:.3},{:.3}) p ({:.9},{:.9},{:.9})->({:.9},{:.9},{:.9})",
                     segments.len(),
                     seg.len(),
                     f.u1,

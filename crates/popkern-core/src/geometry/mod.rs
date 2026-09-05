@@ -7,6 +7,7 @@ pub use transform::Transform3;
 pub mod analytic_surfaces;
 pub mod bernstein_poly;
 pub mod chart_pcurve;
+pub mod chart_periods;
 pub mod circle_recognition;
 pub mod curve;
 pub mod curve_inversion;

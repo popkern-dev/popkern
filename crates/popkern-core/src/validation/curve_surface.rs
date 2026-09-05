@@ -208,8 +208,13 @@ impl BRep {
                     if fine_dev > tolerance {
                         if popkern_trace_check9() {
                             eprintln!(
-                                "[check9] side {side:?} face {face:?} t {t:.3} point ({:.4},{:.4},{:.4}) dev {fine_dev:.4} trange ({:.3},{:.3})",
-                                point.x, point.y, point.z, curve.t_start, curve.t_end
+                                "[check9] side {side:?} face {face:?} ({}) t {t:.3} point ({:.6},{:.6},{:.6}) dev {fine_dev:.3e} trange ({:.3},{:.3})",
+                                surface.geometry.kind_name(),
+                                point.x,
+                                point.y,
+                                point.z,
+                                curve.t_start,
+                                curve.t_end
                             );
                         }
                         if stop_at_first {

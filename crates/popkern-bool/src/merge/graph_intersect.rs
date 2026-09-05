@@ -102,6 +102,23 @@ pub(crate) fn insert_intersection_curves(
         let pcurve_b: Option<popkern_core::geometry::pcurve::Pcurve> =
             Some(record.curve.curve_uv2.clone().into());
 
+        if popkern_core::trace::trace_enabled("record-insert") {
+            eprintln!(
+                "  [record-insert] A={:?} B={:?} start ({:.9},{:.9},{:.9})->n{} end ({:.9},{:.9},{:.9})->n{} t [{:.4},{:.4}]",
+                record.face_a,
+                record.face_b,
+                start_pt.x,
+                start_pt.y,
+                start_pt.z,
+                start_node,
+                end_pt.x,
+                end_pt.y,
+                end_pt.z,
+                end_node,
+                t_start,
+                t_end,
+            );
+        }
         let (fwd, twin) = graph.add_half_edge_pair_with_pcurves(
             start_node,
             end_node,

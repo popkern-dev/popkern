@@ -185,6 +185,39 @@ fn interior_step_sample(
     };
 
     let trace = popkern_core::trace::trace_enabled("loop-sampling");
+    // UV run of one half-edge in THIS face's chart, following the
+    // half-edge's traversal direction: the face-owned pcurve when
+    // present, else the walk's chart embedding (which projects the
+    // trimmed 3D curve). Split record pieces carry NO pcurves by
+    // design — graph_split strips the stale full-span charts — and
+    // declining on them dropped the whole interior step (measured: a
+    // spring-grind section disc fell to the knife-edge centroid ON
+    // its own chord, ray-classified Outside, and the subtraction
+    // stranded the wall record's other side — PK-443).
+    let chart_run = |h: usize, n: usize| -> Option<Vec<(f64, f64)>> {
+        if let Some((pc, reversed)) = pcurve_for(h) {
+            let (t0, t1) = pc.parameter_range();
+            let (s0, s1) = if reversed { (t1, t0) } else { (t0, t1) };
+            return Some(
+                (0..n)
+                    .map(|i| {
+                        let t = s0 + (s1 - s0) * (i as f64) / n as f64;
+                        let q = pc.point_at(t);
+                        (q.x, q.y)
+                    })
+                    .collect(),
+            );
+        }
+        let emb = super::walk::chart_embedding::build_embedding(graph, face, h, surface)?;
+        // The embedding's own density serves; drop its final sample so
+        // concatenated runs do not duplicate junction points.
+        let mut uv = emb.uv;
+        if uv.len() > 1 {
+            uv.pop();
+        }
+        Some(uv)
+    };
+
     // UV polygon of the outer loop. Density adapts to the loop's
     // half-edge count: a whole closed intersection loop can arrive as
     // ONE self-loop half-edge, and an 8-gon of a girdle-shaped curve
@@ -193,26 +226,21 @@ fn interior_step_sample(
     // disc inside a propeller blade fell to the knife-edge centroid
     // and classified Outside — the phantom disc served).
     let per_he = (64 / loop_hes.len().max(1)).clamp(8, 64);
-    let mut polygon: Vec<(f64, f64)> = Vec::new();
+    let mut runs: Vec<(usize, Vec<(f64, f64)>)> = Vec::with_capacity(loop_hes.len());
     for &h in loop_hes {
-        let Some((pc, reversed)) = pcurve_for(h) else {
+        let Some(run) = chart_run(h, per_he) else {
             if trace {
                 eprintln!(
-                    "  [sample] interior step decline: he {h} has no pcurve in {face:?} \
+                    "  [sample] interior step decline: he {h} has no chart run in {face:?} \
                      (he.face {:?}, twin.face {:?})",
                     graph.half_edges[h].face, graph.half_edges[graph.half_edges[h].twin].face
                 );
             }
             return None;
         };
-        let (t0, t1) = pc.parameter_range();
-        let (s0, s1) = if reversed { (t1, t0) } else { (t0, t1) };
-        for i in 0..per_he {
-            let t = s0 + (s1 - s0) * (i as f64) / per_he as f64;
-            let q = pc.point_at(t);
-            polygon.push((q.x, q.y));
-        }
+        runs.push((h, run));
     }
+    let polygon: Vec<(f64, f64)> = runs.iter().flat_map(|(_, r)| r.iter().copied()).collect();
     if polygon.len() < 3 {
         return None;
     }
@@ -229,31 +257,28 @@ fn interior_step_sample(
     }
     let delta = diag * 0.05;
 
-    // Longest outer edge with a pcurve.
+    // Longest outer edge (3D span) whose run can supply a midpoint
+    // and tangent.
     let span_of = |h: usize| -> f64 {
         let he = &graph.half_edges[h];
         let a = graph.nodes[he.origin].position;
         let b = graph.nodes[graph.half_edges[he.twin].origin].position;
         a.distance_to(&b)
     };
-    let he_idx = loop_hes
+    let (_, run) = runs
         .iter()
-        .copied()
-        .filter(|&h| pcurve_for(h).is_some())
-        .max_by(|&x, &y| {
-            span_of(x)
-                .partial_cmp(&span_of(y))
+        .filter(|(_, r)| r.len() >= 2)
+        .max_by(|(x, _), (y, _)| {
+            span_of(*x)
+                .partial_cmp(&span_of(*y))
                 .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| y.cmp(&x))
+                .then_with(|| y.cmp(x))
         })?;
-    let (pc, _) = pcurve_for(he_idx)?;
-    let (t0, t1) = pc.parameter_range();
-    let tm = (t0 + t1) * 0.5;
-    let h = ((t1 - t0) * 1e-3).max(1e-9);
-    let q = pc.point_at(tm);
-    let q_ahead = pc.point_at((tm + h).min(t1));
-    let q_behind = pc.point_at((tm - h).max(t0));
-    let (tx, ty) = (q_ahead.x - q_behind.x, q_ahead.y - q_behind.y);
+    let mid = run.len() / 2;
+    let q = run[mid];
+    let q_ahead = run[(mid + 1).min(run.len() - 1)];
+    let q_behind = run[mid.saturating_sub(1)];
+    let (tx, ty) = (q_ahead.0 - q_behind.0, q_ahead.1 - q_behind.1);
     let t_len = (tx * tx + ty * ty).sqrt();
     if t_len <= 0.0 {
         return None;
@@ -280,7 +305,7 @@ fn interior_step_sample(
     // of magnitude above classification tolerance.
     for delta in [delta, delta * 0.2, delta * 0.04, delta * 0.008] {
         for sign in [1.0_f64, -1.0] {
-            let (u, v) = (q.x + px * delta * sign, q.y + py * delta * sign);
+            let (u, v) = (q.0 + px * delta * sign, q.1 + py * delta * sign);
             if contains(u, v) {
                 return Some(surface.point_at(u, v));
             }
@@ -291,8 +316,8 @@ fn interior_step_sample(
             "  [sample] interior step decline: neither side of ({:.4},{:.4})±{delta:.4} \
              contained in the {}-pt outer polygon of {face:?} bbox u[{lo_u:.4},{hi_u:.4}] \
              v[{lo_v:.4},{hi_v:.4}] first ({:.4},{:.4}) mid ({:.4},{:.4})",
-            q.x,
-            q.y,
+            q.0,
+            q.1,
             polygon.len(),
             polygon[0].0,
             polygon[0].1,

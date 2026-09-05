@@ -10,6 +10,10 @@ pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
 #[path = "surface_surface_torus_seed.rs"]
 mod surface_surface_torus_seed;
 
+#[path = "surface_surface_trim.rs"]
+mod surface_surface_trim;
+use surface_surface_trim::trim_to_windows;
+
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::intersection::coincident::{
@@ -315,8 +319,11 @@ pub fn intersect_surfaces_with_handler(
             (range.0 - entry_band, range.1 + entry_band)
         }
     };
-    let (periodic_u1, periodic_v1) = surface1.is_periodic();
-    let (periodic_u2, periodic_v2) = surface2.is_periodic();
+    // Periodicity here includes geometrically-closed NURBS charts —
+    // the march wraps their seam instead of terminating on it (see
+    // `geometry::chart_periods`).
+    let (periodic_u1, periodic_v1) = crate::geometry::chart_periods::marching_periodicity(surface1);
+    let (periodic_u2, periodic_v2) = crate::geometry::chart_periods::marching_periodicity(surface2);
     let march_u1 = pad_window(u1_range, periodic_u1);
     let march_v1 = pad_window(v1_range, periodic_v1);
     let march_u2 = pad_window(u2_range, periodic_u2);
@@ -341,26 +348,13 @@ pub fn intersect_surfaces_with_handler(
         // the caller's windows — it must not widen the EMITTED curve:
         // callers key curve endpoints against their own trim windows
         // (measured: 1% overhang declined the variable-radius setback
-        // serve). Trim leading/trailing samples that sit outside the
-        // caller's windows in a non-periodic direction.
-        let outside = |s: &MarchSample| {
-            let out = |x: f64, range: (f64, f64), periodic: bool| {
-                !periodic && (x < range.0 || x > range.1)
-            };
-            out(s.u1, u1_range, periodic_u1)
-                || out(s.v1, v1_range, periodic_v1)
-                || out(s.u2, u2_range, periodic_u2)
-                || out(s.v2, v2_range, periodic_v2)
-        };
-        let first_inside = samples.iter().position(|s| !outside(s));
-        let samples: Vec<MarchSample> = match first_inside {
-            Some(start) => {
-                let end =
-                    samples.len() - samples.iter().rev().position(|s| !outside(s)).unwrap_or(0);
-                samples[start..end].to_vec()
-            }
-            None => Vec::new(),
-        };
+        // serve). Trim leading/trailing samples outside the caller's
+        // windows, refining each trimmed end onto the exact window
+        // boundary — mechanism and measured rationale in
+        // `surface_surface_trim`.
+        let samples = trim_to_windows(
+            &samples, surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+        );
 
         if samples.len() < 2 {
             continue; // too few samples to fit

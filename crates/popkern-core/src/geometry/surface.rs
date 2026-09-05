@@ -164,6 +164,20 @@ pub struct SurfaceOnFace {
 }
 
 impl SurfaceGeometry {
+    /// Short variant name for diagnostics and trace output.
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            SurfaceGeometry::Plane { .. } => "Plane",
+            SurfaceGeometry::Cylinder { .. } => "Cylinder",
+            SurfaceGeometry::Cone { .. } => "Cone",
+            SurfaceGeometry::Sphere { .. } => "Sphere",
+            SurfaceGeometry::Torus { .. } => "Torus",
+            SurfaceGeometry::Nurbs(_) => "Nurbs",
+            SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
+        }
+    }
+
     /// Returns whether the surface is periodic in the u and v directions,
     /// as a tuple `(periodic_u, periodic_v)`.
     ///

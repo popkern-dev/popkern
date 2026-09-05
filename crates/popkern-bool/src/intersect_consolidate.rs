@@ -97,24 +97,48 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
                     .map(|k| c.point_at(t0 + (t1 - t0) * k as f64 / 32.0))
                     .collect()
             };
-            let on_poly = |p: &popkern_core::geometry::Point3| -> bool {
-                poly_a.windows(2).any(|w| {
+            // Arc-length position of `p`'s closest on-polyline witness
+            // within the gate, or None when off the polyline.
+            let arc_pos = |p: &popkern_core::geometry::Point3| -> Option<f64> {
+                let mut best: Option<(f64, f64)> = None; // (dist, arc)
+                let mut acc = 0.0;
+                for w in poly_a.windows(2) {
                     let d = w[1] - w[0];
-                    let l2 = d.dot(&d).max(1e-300);
-                    let t = ((*p - w[0]).dot(&d) / l2).clamp(0.0, 1.0);
+                    let l = d.dot(&d).max(1e-300).sqrt();
+                    let t = ((*p - w[0]).dot(&d) / (l * l)).clamp(0.0, 1.0);
                     let q = w[0] + d * t;
-                    q.distance_to(p) < gate
-                })
+                    let dist = q.distance_to(p);
+                    if dist < gate && best.is_none_or(|(bd, _)| dist < bd) {
+                        best = Some((dist, acc + t * l));
+                    }
+                    acc += l;
+                }
+                best.map(|(_, arc)| arc)
             };
             for b in 0..idxs.len() {
                 if a == b || drop[idxs[b]] {
                     continue;
                 }
-                if info[b].3 <= info[a].3 + gate
-                    && on_poly(&info[b].0)
-                    && on_poly(&info[b].2)
-                    && on_poly(&info[b].1)
-                {
+                if info[b].3 > info[a].3 + gate {
+                    continue;
+                }
+                let (Some(p0), Some(p2), Some(p1)) = (
+                    arc_pos(&info[b].0),
+                    arc_pos(&info[b].2),
+                    arc_pos(&info[b].1),
+                ) else {
+                    continue;
+                };
+                // A duplicate OVERLAPS the polyline: its projections
+                // spread along it comparably to its own extent. A
+                // CHAINED continuation shorter than the gate projects
+                // all three points onto one clamped endpoint (spread
+                // ≈ 0) — dropping it severed a seam-sliver record and
+                // stranded the assembly (measured: the spring-grind
+                // section arc's 5.6e-4 piece across the wall seam,
+                // PK-443).
+                let spread = p0.max(p1).max(p2) - p0.min(p1).min(p2);
+                if spread + tolerance.linear() >= 0.5 * info[b].3 {
                     drop[idxs[b]] = true;
                 }
             }
