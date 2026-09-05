@@ -10,7 +10,6 @@ use crate::geometry::surface::SurfaceGeometry;
 /// a seam crossing, and each emitted segment stays continuous on the
 /// principal branch. Downstream fragment-junction welding (the split
 /// stage's island/open-chain pre-passes) reassembles the pieces.
-
 pub(crate) fn split_samples_at_period_jumps(
     samples: Vec<MarchSample>,
     surface1: &SurfaceGeometry,

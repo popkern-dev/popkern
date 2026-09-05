@@ -11,6 +11,7 @@
 //! rather than individual fragments.
 
 use super::fragment_interior::{fragment_interior_sample, planar_outward_normal};
+use super::record_rotation::rotate_closed_record_to_hits;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -559,7 +560,34 @@ fn classify_fragments_cellular(
                 let hazard = cut
                     && !mids.is_empty()
                     && point_near_any_edge(other.0, &shortcut, eps_probe * 10.0);
-                if hazard { mids[0] } else { shortcut }
+                if hazard {
+                    mids[0]
+                } else if cut && mids.is_empty() {
+                    // ALL-SHARED outer loop off the tuned overlap
+                    // path: every boundary point lies ON the other
+                    // operand (a cut-plane disc inside a wall), so
+                    // both edge midpoints and the node centroid are
+                    // knife-edge samples — the centroid of the grind
+                    // disc's two rim-graze nodes IS the
+                    // plane×rim×seam triple-degeneracy point, and
+                    // its parity coin-flip dropped the disc and
+                    // stranded the wall rim (PK-444, spring end
+                    // grind). Route through the medial interior
+                    // sampler graph-merge uses for this class
+                    // (PK-341/PK-441 hardening); its decline keeps
+                    // the centroid, stranding the assembly into an
+                    // honest decline rather than a wrong body.
+                    crate::merge::fragment_sample_interior::interior_step_sample(
+                        graph,
+                        &fragment.outer_loop,
+                        &fragment.face,
+                        brep_a,
+                        brep_b,
+                    )
+                    .unwrap_or(shortcut)
+                } else {
+                    shortcut
+                }
             } else {
                 frag_surface
                     .as_ref()
@@ -964,162 +992,4 @@ fn sample_fragment_point(
     }
     let n = loop_hes.len() as f64;
     popkern_core::geometry::Point3::new(sx / n, sy / n, sz / n)
-}
-
-/// Rotate a CLOSED intersection record's parameterization so its
-/// closure point coincides with an edge-face hit lying on the curve.
-/// Open records and closed records with no hit on them pass through
-/// unchanged.
-fn rotate_closed_record_to_hits(
-    record: &crate::intersect::IntersectionRecord,
-    hits: &[crate::intersect_edge_face::EdgeFaceHit],
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> crate::intersect::IntersectionRecord {
-    use popkern_core::geometry::curve::CurveEval as _;
-    let c = &record.curve.curve_3d;
-    let (t0, t1) = c.parameter_range();
-    // Rotation is only meaningful for a genuinely CLOSED record. The
-    // record's own flag is authoritative — the clip stage keeps it
-    // honest (a multi-window clip emits open arcs flagged open). The
-    // geometric gap check remains as a torn-closure guard, NOT as the
-    // closure test itself: a pure distance gate at containment scale
-    // (linear × 100) swallowed open corner arcs whose tip gap was
-    // 0.17 and "rotated" them into gap-bridging garbage curves
-    // (measured: cube∪sphere grew 12 arcs running through out-of-face
-    // regions and the assembly went non-manifold).
-    let closed = record.curve.is_closed
-        && c.point_at(t0).distance_to(&c.point_at(t1)) < tolerance.linear() * 100.0;
-    if !closed {
-        return record.clone();
-    }
-    if popkern_core::trace::trace_enabled("boolean") {
-        let gap = c.point_at(t0).distance_to(&c.point_at(t1));
-        eprintln!(
-            "  [rotate] closed record considered for hit rotation: gap={gap:.3e} t[{t0:.3},{t1:.3}]"
-        );
-    }
-    for hit in hits {
-        // Nearest parameter on the curve to the hit point.
-        let mut best = (f64::INFINITY, t0);
-        for k in 0..=256 {
-            let t = t0 + (t1 - t0) * k as f64 / 256.0;
-            let d = c.point_at(t).distance_to(&hit.point);
-            if d < best.0 {
-                best = (d, t);
-            }
-        }
-        let (mut lo, mut hi) = (
-            (best.1 - (t1 - t0) / 256.0).max(t0),
-            (best.1 + (t1 - t0) / 256.0).min(t1),
-        );
-        for _ in 0..48 {
-            let m1 = lo + (hi - lo) / 3.0;
-            let m2 = hi - (hi - lo) / 3.0;
-            if c.point_at(m1).distance_to(&hit.point) < c.point_at(m2).distance_to(&hit.point) {
-                hi = m2;
-            } else {
-                lo = m1;
-            }
-        }
-        let t_hit = 0.5 * (lo + hi);
-        let d_hit = c.point_at(t_hit).distance_to(&hit.point);
-        if popkern_core::trace::trace_enabled("boolean") {
-            eprintln!(
-                "  [rotate] hit ({:.3},{:.3},{:.3}) nearest t={t_hit:.4} d={d_hit:.3e}",
-                hit.point.x, hit.point.y, hit.point.z
-            );
-        }
-        if d_hit > tolerance.linear() * 100.0 {
-            continue;
-        }
-        // Interior rotation only.
-        if (t_hit - t0).abs() < (t1 - t0) * 1e-4 || (t1 - t_hit).abs() < (t1 - t0) * 1e-4 {
-            continue;
-        }
-        let mut out = record.clone();
-        let rotate = |curve: &popkern_core::geometry::NurbsCurve|
-            -> Option<popkern_core::geometry::NurbsCurve> {
-            let (a, b) = curve.split_at(t_hit).ok()?;
-            // New curve = b then a, reparameterized to [0, 1] with
-            // the join at the original closure (multiplicity-degree
-            // interior knot — legal C0 join).
-            let (b0, b1) = {
-                let n = &b;
-                (n.knots[0], *n.knots.last()?)
-            };
-            let (a0, a1) = {
-                let n = &a;
-                (n.knots[0], *n.knots.last()?)
-            };
-            let len_b = b1 - b0;
-            let len_a = a1 - a0;
-            let total = len_a + len_b;
-            if total < 1e-12 {
-                return None;
-            }
-            let mut knots: Vec<f64> = b
-                .knots
-                .iter()
-                .map(|&k| (k - b0) / total)
-                .collect();
-            let join = len_b / total;
-            // Skip a's leading clamp knots (degree+1 of them) — the
-            // join point carries multiplicity = degree from b's tail
-            // clamp minus the shared control point.
-            let a_knots_tail: Vec<f64> = a
-                .knots
-                .iter()
-                .skip(a.degree + 1)
-                .map(|&k| join + (k - a0) / total)
-                .collect();
-            // Replace b's trailing clamp (degree+1 copies) with
-            // multiplicity-degree at the join.
-            for _ in 0..1 {
-                knots.pop();
-            }
-            knots.extend(a_knots_tail);
-            let mut control_points = b.control_points.clone();
-            // JUNCTION CONTINUITY: the splice joins the original END
-            // (b's tail) to the original START (a's head). In 3D
-            // those coincide, but a UV curve on a periodic chart
-            // unwraps continuously, so its two ends differ by one
-            // period — splicing raw control points leaves a full-
-            // period jump mid-curve and every downstream chart
-            // embedding of the rotated record is garbage (measured:
-            // the cross-drill pierce loop's drill-chart pcurve).
-            // Translate the appended piece so the junction matches;
-            // for 3D curves the delta is ~zero and this is a no-op.
-            let delta = match (b.control_points.last(), a.control_points.first()) {
-                (Some(bl), Some(af)) => *bl - *af,
-                _ => popkern_core::geometry::Vec3::zero(),
-            };
-            control_points.extend(a.control_points.iter().skip(1).map(|&p| p + delta));
-            let mut weights = b.weights.clone();
-            weights.extend(a.weights.iter().skip(1).copied());
-            Some(popkern_core::geometry::NurbsCurve {
-                degree: b.degree,
-                knots,
-                control_points,
-                weights,
-            })
-        };
-        if let (Some(c3), Some(u1), Some(u2)) = (
-            rotate(&record.curve.curve_3d),
-            rotate(&record.curve.curve_uv1),
-            rotate(&record.curve.curve_uv2),
-        ) {
-            out.curve.curve_3d = c3;
-            out.curve.curve_uv1 = u1;
-            out.curve.curve_uv2 = u2;
-            // Weld the new closure exactly onto the hit point.
-            if let Some(cp) = out.curve.curve_3d.control_points.first_mut() {
-                *cp = hit.point;
-            }
-            if let Some(cp) = out.curve.curve_3d.control_points.last_mut() {
-                *cp = hit.point;
-            }
-            return out;
-        }
-    }
-    record.clone()
 }

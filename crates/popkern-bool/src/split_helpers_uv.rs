@@ -69,6 +69,24 @@ pub(super) fn try_uv_split(
         });
         let param_eps = (t1_orig - t0_orig).abs() * 1e-9 + 1e-15;
         crossings.dedup_by(|a, b| (a.t_curve - b.t_curve).abs() < param_eps);
+        // GEOMETRIC dedup: one boundary point can be reported by
+        // several boundary pieces at DIFFERENT query parameters — a
+        // presplit micro-stub collinear with the trim reports the
+        // shared corner again 1.6% into a 1.5e-4-wide trim, past the
+        // parameter dedup, and the enter/exit pairing then clips the
+        // trim to a point and the face split fails its endpoint
+        // precondition (measured: the spring top grind's 5.6e-4
+        // corner connector against the rim stub left by its own
+        // presplit). Crossings within the same UV band used for
+        // on-boundary tests are one crossing; a trim whose ALL
+        // crossings merge falls to the fully-interior/rim-collinear
+        // no-op paths, the tuned outcome for boundary-running trims.
+        let uv_band = tolerance.linear() * 10.0;
+        crossings.dedup_by(|a, b| {
+            let pa = curve_uv.point_at(a.t_curve);
+            let pb = curve_uv.point_at(b.t_curve);
+            ((pa.x - pb.x).powi(2) + (pa.y - pb.y).powi(2)).sqrt() < uv_band
+        });
     }
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(

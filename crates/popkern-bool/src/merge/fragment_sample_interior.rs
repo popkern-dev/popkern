@@ -11,8 +11,7 @@ use super::graph::{FaceRef, IntersectionGraph, Operand};
 /// outer-loop polygon contains, then evaluating the face surface.
 /// `None` when pcurves/surface are unavailable or neither side is
 /// contained (seam-wrapped charts) — the caller falls back.
-
-pub(super) fn interior_step_sample(
+pub(crate) fn interior_step_sample(
     graph: &IntersectionGraph,
     loop_hes: &[usize],
     face: &FaceRef,
@@ -317,7 +316,6 @@ pub(super) fn interior_step_sample(
 /// Whether any two non-adjacent polygon segments properly cross.
 /// Quadratic, but only the all-shared interior-step fallback pays it,
 /// on polygons of at most a few hundred points.
-
 fn polygon_self_intersects(poly: &[(f64, f64)]) -> bool {
     let n = poly.len();
     if n < 4 {

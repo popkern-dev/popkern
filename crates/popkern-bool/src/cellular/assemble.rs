@@ -9,8 +9,6 @@ use std::collections::HashMap;
 
 use popkern_core::{
     constructors::builder::BRepBuilder,
-    geometry::Point3,
-    geometry::curve::{CurveGeometry, CurveOnEdge},
     tolerance::Tolerance,
     topology::{BRep, HalfEdgeHandle, VertexHandle},
 };
@@ -144,30 +142,7 @@ pub(crate) fn cellular_assemble(
     // gusset's wall line); the loop wiring then consumes complementary
     // directions. Judged at the tolerance: `assemble_span_unify.rs`.
     let mut spans = super::assemble_span_unify::SpanRegistry::new(tolerance.linear() * 10.0);
-    let span_points = |key: usize| -> (
-        (usize, usize),
-        popkern_core::geometry::Point3,
-        popkern_core::geometry::Point3,
-        popkern_core::geometry::Point3,
-    ) {
-        use popkern_core::geometry::curve::CurveEval;
-        let na = graph.half_edges[key].origin;
-        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
-        let (pa, pb) = (graph.nodes[na].position, graph.nodes[nb].position);
-        let mid = graph.half_edges[key]
-            .curve
-            .as_ref()
-            .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref())
-            .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)))
-            .unwrap_or_else(|| {
-                Point3::new(
-                    0.5 * (pa.x + pb.x),
-                    0.5 * (pa.y + pb.y),
-                    0.5 * (pa.z + pb.z),
-                )
-            });
-        ((na, nb), pa, pb, mid)
-    };
+    let span_points = |key: usize| super::assemble_edge_geometry::span_sample_points(graph, key);
     for (&key, &sample_ghe) in &canonical_edges {
         if is_degenerate_key(key) {
             continue;
@@ -220,101 +195,14 @@ pub(crate) fn cellular_assemble(
             );
         }
 
-        // Attach curve geometry.
-        // For shared (intersection) edges: use the graph's actual intersection
-        // curve. Both incident faces share the exact same CurveOnEdge, enforcing
-        // the shared geometry principle (spec §4.5, §9.2) for watertightness.
-        // For original/split edges and self-loops: use the graph's stored curve
-        // if available, otherwise synthesize a line from endpoints.
-        let is_shared = matches!(
-            graph.half_edges[sample_ghe].source,
-            crate::merge::graph::EdgeSource::Shared { .. }
+        super::assemble_edge_geometry::attach_edge_curve(
+            &mut builder,
+            graph,
+            sample_ghe,
+            edge_h,
+            na,
+            nb,
         );
-        if is_shared || na == nb {
-            // Shared edge or self-loop: use the graph's actual intersection
-            // curve for watertightness (spec §4.5, §9.2).
-            //
-            // Determine which graph half-edge owns the curve and align the
-            // parameterization to match the canonical edge direction (na→nb).
-            let (curve_he, curve_ref) = if graph.half_edges[sample_ghe].curve.is_some() {
-                (sample_ghe, graph.half_edges[sample_ghe].curve.as_ref())
-            } else {
-                let twin = graph.half_edges[sample_ghe].twin;
-                (twin, graph.half_edges[twin].curve.as_ref())
-            };
-
-            if let Some(curve) = curve_ref {
-                let curve_origin = graph.half_edges[curve_he].origin;
-                let mut aligned = curve.clone();
-                if curve_origin != na && na != nb {
-                    // Curve goes nb→na but we need na→nb: swap parameters
-                    std::mem::swap(&mut aligned.t_start, &mut aligned.t_end);
-                }
-                if popkern_core::trace::trace_enabled("boolean") {
-                    eprintln!(
-                        "  [assemble] set curve on key {sample_ghe}: t [{:.3},{:.3}]",
-                        aligned.t_start, aligned.t_end
-                    );
-                }
-                builder.set_edge_curve(edge_h, aligned);
-            } else if popkern_core::trace::trace_enabled("boolean") {
-                eprintln!(
-                    "  [assemble] shared/self-loop edge key {sample_ghe} ({na},{nb}): NO CURVE on either half"
-                );
-            }
-        } else {
-            // Original/split edge: ADOPT the stored curve when its
-            // endpoints coincide with this edge's nodes — an
-            // untouched curved boundary edge synthesized as a line
-            // degraded arcs to their chords (a cylinder wall's
-            // bottom arc and the wedge ellipse both flattened, the
-            // chord then generated phantom edge-face hits and the
-            // mesher's boundary-first pass bailed on the off-surface
-            // curve). Fragments of a SPLIT curved edge whose stored
-            // curve spans the whole original fail the endpoint match
-            // and keep the line fallback.
-            let p_start = graph.nodes[na].position;
-            let p_end = graph.nodes[nb].position;
-            let stored = graph.half_edges[sample_ghe].curve.as_ref().or_else(|| {
-                graph.half_edges[graph.half_edges[sample_ghe].twin]
-                    .curve
-                    .as_ref()
-            });
-            let adopted = stored.and_then(|c| {
-                use popkern_core::geometry::curve::CurveEval;
-                let c0 = c.geometry.point_at(c.t_start);
-                let c1 = c.geometry.point_at(c.t_end);
-                let tol = 1.0e-6;
-                if c0.distance_to(&p_start) < tol && c1.distance_to(&p_end) < tol {
-                    Some(c.clone())
-                } else if c0.distance_to(&p_end) < tol && c1.distance_to(&p_start) < tol {
-                    let mut rev = c.clone();
-                    std::mem::swap(&mut rev.t_start, &mut rev.t_end);
-                    Some(rev)
-                } else {
-                    // SPLIT piece with a full-span stored curve:
-                    // subrange + end-heal (see graph-merge assemble).
-                    crate::merge::assemble::subrange_healed_curve(c, &p_start, &p_end)
-                }
-            });
-            if let Some(curve) = adopted {
-                builder.set_edge_curve(edge_h, curve);
-            } else {
-                let dir = p_end - p_start;
-                let len = dir.length();
-                if len > 1e-12 {
-                    let line = CurveOnEdge {
-                        geometry: CurveGeometry::Line {
-                            origin: p_start,
-                            direction: dir * (1.0 / len),
-                        },
-                        t_start: 0.0,
-                        t_end: len,
-                    };
-                    builder.set_edge_curve(edge_h, line);
-                }
-            }
-        }
     }
 
     // Step 5: Wire fragment loops.
@@ -338,6 +226,30 @@ pub(crate) fn cellular_assemble(
             );
         }
         let face_h = builder.add_face(shell);
+
+        // This fragment's face surface — needed to orient installed
+        // pcurves by sampled comparison. Installs are scoped to
+        // NURBS-chart faces, mirroring the PK-441 graph-split scoping:
+        // only there does the projection recompute LOSE exactness
+        // (measured: the spring wall's degree-1 borders came back as
+        // 23-CP fits and the next boolean's clip miscounted crossings),
+        // while analytic charts get exact Linear/Arc pcurves from the
+        // tuned recompute — installing graph pcurves on them regressed
+        // the chamfered-socket corpus (898 open mesh edges).
+        let frag_surface = match frag.face.operand {
+            Operand::A => brep_a,
+            Operand::B => brep_b,
+        }
+        .faces
+        .get(frag.face.face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone())
+        .filter(|g| {
+            matches!(
+                g,
+                popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+            )
+        });
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
@@ -452,11 +364,34 @@ pub(crate) fn cellular_assemble(
                 // double edges correctly.
                 let brep_he = if ghe == key { he_fwd } else { he_twin };
 
+                // The wired half-edge carries THIS fragment's chart
+                // (per-face UV correction, as in graph-merge's
+                // assembly), oriented to the brep pcurve convention by
+                // sampled comparison. Without the install the whole
+                // output re-projects — exact borders come back as
+                // fitted approximations (see `pcurve_for_face`).
+                let install_pcurve = |bld: &mut BRepBuilder, he: HalfEdgeHandle| {
+                    let Some(surface) = frag_surface.as_ref() else {
+                        return; // non-NURBS chart — recompute authors exact pcurves
+                    };
+                    if let Some(pc) =
+                        super::assemble_edge_geometry::pcurve_for_face(graph, ghe, &frag.face)
+                    {
+                        let pc = super::assemble_edge_geometry::orient_pcurve_to_half_edge(
+                            bld.brep(),
+                            he,
+                            pc,
+                            Some(surface),
+                        );
+                        bld.set_half_edge_pcurve(he, pc);
+                    }
+                };
                 if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
                     if popkern_core::trace::trace_enabled("boolean") {
                         used_by.insert(brep_he, format!("{:?} ghe {ghe}", frag.face));
                     }
+                    install_pcurve(builder, brep_he);
                     result.push(brep_he);
                 } else {
                     // The preferred direction is taken by another
@@ -474,6 +409,7 @@ pub(crate) fn cellular_assemble(
                     let is_self_loop = ghe_data.origin == graph.half_edges[ghe_data.twin].origin;
                     if is_self_loop && !used_hes.contains(&twin_brep) {
                         used_hes.insert(twin_brep);
+                        install_pcurve(builder, twin_brep);
                         result.push(twin_brep);
                     } else {
                         let origin_node = ghe_data.origin;
@@ -485,6 +421,7 @@ pub(crate) fn cellular_assemble(
                             let (_dup_edge, dup_fwd, dup_twin) = builder.add_edge(vh_start, vh_end);
                             let _ = dup_twin;
                             used_hes.insert(dup_fwd);
+                            install_pcurve(builder, dup_fwd);
                             result.push(dup_fwd);
                             if popkern_core::trace::trace_enabled("boolean") {
                                 eprintln!(

@@ -3499,6 +3499,7 @@ dependencies = [
 name = "popkern-script"
 version = "0.1.0"
 dependencies = [
+ "popkern-bool",
  "popkern-constraint",
  "popkern-core",
  "popkern-history",

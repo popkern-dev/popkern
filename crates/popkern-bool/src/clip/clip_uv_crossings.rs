@@ -174,7 +174,7 @@ pub(crate) fn find_uv_crossings(
                 let b0 = working_boundary.point_at(boundary_range.0);
                 let b1 = working_boundary.point_at(boundary_range.1);
                 eprintln!(
-                    "      [xing-try] he {he_handle:?} bnd({:.3},{:.3})->({:.3},{:.3}) brange({:.3},{:.3}) bcps={} qcps={}",
+                    "      [xing-try] he {he_handle:?} bnd({:.6},{:.6})->({:.6},{:.6}) brange({:.6e},{:.6e}) bcps={} qcps={}",
                     b0.x,
                     b0.y,
                     b1.x,

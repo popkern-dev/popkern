@@ -15,12 +15,14 @@
 
 pub(crate) mod assemble;
 pub(crate) mod assemble_cleanup;
+mod assemble_edge_geometry;
 mod assemble_span_unify;
 pub mod boolean;
 pub mod cell;
 pub mod decompose;
 pub(crate) mod fragment_interior;
 pub(crate) mod fragment_sampling;
+mod record_rotation;
 pub mod select;
 
 pub use cell::{Cell, CellDecomposition};

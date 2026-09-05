@@ -61,6 +61,7 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
             }
         }
     }
+    let mut rebuilt = false;
     for fh in incoherent {
         // Clear the face's use pcurves first: the recompute skips
         // uses that already carry one, so the wrong-branch
@@ -95,6 +96,21 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
         let r = result.recompute_face_pcurves(fh);
         if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [pc-coherence] recompute {fh:?}: {r:?}");
+        }
+        rebuilt = true;
+    }
+    // The orientation flag is derived from loop winding × surface,
+    // and `reconcile_orientation_flags` ran BEFORE this sweep — a
+    // rebuilt face's recomputed pcurves can wind opposite the
+    // assembly-installed ones the reconcile judged (measured: the
+    // torus fillet strip of a filleted-cylinder union read
+    // winding-dishonest on validate_all, signed area +π² against
+    // flag false). Re-reconcile so the served flags match the served
+    // pcurves.
+    if rebuilt {
+        let flips = result.reconcile_orientation_flags();
+        if flips > 0 && popkern_core::trace::trace_enabled("boolean") {
+            eprintln!("  [pc-coherence] re-reconciled {flips} orientation flag(s)");
         }
     }
 }

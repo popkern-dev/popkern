@@ -222,6 +222,7 @@ fn spring_end_grind_subtraction_serves() {
         .expect("plate sketch")
         .extrude(&mut m, End::Blind(Scalar::from(0.1)))
         .expect("plate");
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
     let ground = spring.subtract(&mut m, plate).expect("grind");
     let brep = m.brep_of(ground).expect("brep");
     assert!(
@@ -233,6 +234,13 @@ fn spring_end_grind_subtraction_serves() {
         brep.validate_curve_surface().is_ok(),
         "ground spring curve-surface lie: {:?}",
         brep.validate_curve_surface().err()
+    );
+    // PK-444: the grind serves through the PRIMARY cellular route —
+    // the graph-merge fallback registry must stay silent.
+    let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+    assert!(
+        fallbacks.is_empty(),
+        "grind fell back to graph-merge: {fallbacks:?}"
     );
 }
 
@@ -267,6 +275,7 @@ fn spring_double_end_grind_serves() {
         .expect("plate sketch")
         .extrude(&mut m, End::Blind(Scalar::from(0.1)))
         .expect("plate");
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
     let ground = spring.subtract(&mut m, plate_bot).expect("bottom grind");
     let plate_top = m
         .profile(Plane::xy_at(0.905))
@@ -286,5 +295,13 @@ fn spring_double_end_grind_serves() {
         brep.validate_curve_surface().is_ok(),
         "double-ground spring curve-surface lie: {:?}",
         brep.validate_curve_surface().err()
+    );
+    // PK-444: BOTH grinds serve through the PRIMARY cellular route —
+    // the graph-merge fallback registry must stay silent through the
+    // full double-cut chain.
+    let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+    assert!(
+        fallbacks.is_empty(),
+        "a grind fell back to graph-merge: {fallbacks:?}"
     );
 }
