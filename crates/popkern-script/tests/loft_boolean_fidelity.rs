@@ -131,12 +131,76 @@ fn blade_hub_union_serves_with_full_outward_mesh() {
     }
 }
 
+/// A lofted 16-gon-section blade unioned with the revolved hub
+/// (PK-442): every facet is its own face today, the facet × hub
+/// records march and imprint cleanly, and the union serves
+/// watertight. (The single-creased-wall variant of this class lives
+/// at core level: `surface_surface_crease_tests` pins the march
+/// through C0 creases with geometric-crease-gated splitting.)
+#[test]
+fn polygon_section_blade_union_hub_serves_watertight() {
+    fn polygon_section(m: &mut Model, z: f64, r: f64, label: &str) -> Body {
+        let n = 16usize;
+        let p = m.profile(Plane::xy_at(z));
+        let mut path = p.path(r, 0.0);
+        for k in 1..n {
+            let a = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
+            path = path.line_to(r * a.cos(), r * a.sin());
+        }
+        path.close().sketch(label).expect("section")
+    }
+    let mut m = Model::new();
+    let hub = m
+        .profile(Plane::XZ)
+        .path(0.0, -0.22)
+        .line_to(0.14, -0.22)
+        .line_to(0.14, 0.10)
+        .line_to(0.025, 0.30)
+        .line_to(0.0, 0.30)
+        .close()
+        .sketch("hub_section")
+        .expect("hub sketch")
+        .revolve(
+            &mut m,
+            AxisDesc::Literal {
+                origin: [0.0, 0.0, 0.0],
+                direction: [0.0, 0.0, 1.0],
+            },
+            RevolveEnd::FullCircle,
+            "hub",
+        )
+        .expect("hub revolve");
+    let s0 = polygon_section(&mut m, 0.08, 0.055, "b0");
+    let s1 = polygon_section(&mut m, 0.25, 0.075, "b1");
+    let s2 = polygon_section(&mut m, 0.45, 0.045, "b2");
+    let blade = m.loft(&[s0, s1, s2]).expect("loft");
+    let x_axis = AxisDesc::Literal {
+        origin: [0.0, 0.0, 0.0],
+        direction: [1.0, 0.0, 0.0],
+    };
+    let blade = blade.rotate(&mut m, x_axis, -90.0).expect("rotate");
+    let joined = hub.union(&mut m, blade).expect("union");
+    let brep = m.brep_of(joined).expect("brep");
+    assert!(
+        brep.faces.len() > 10,
+        "hub plus faceted blade expected, got {} faces",
+        brep.faces.len()
+    );
+    assert!(brep.validate().is_ok(), "{:?}", brep.validate().err());
+    m.assert_watertight()
+        .expect("polygon blade ∪ hub watertight mesh");
+}
+
 /// Spring end grinding: the plate's section loop crosses the helical
 /// tube wall's seam mid-way — the march wraps the geometrically-closed
 /// chart, the record chain closes through the seam and rim junctions,
-/// and the subtraction serves a valid body. (Mesh watertightness of
-/// the cut helical wall is PK-441's remaining frontier — this pins the
-/// BOOLEAN serve, which OCC validates.)
+/// and the subtraction serves a valid body (PK-441: chart-continuous
+/// trim loops, exact corner records, robust classification). Mesh
+/// watertightness at full FIDELITY is the chart-aware meshing
+/// campaign's frontier: boundary-first honestly declines the cut
+/// wall (its boundary-only Delaunay is a ribbon of tube-diameter
+/// chords) and the uniform-grid fallback leaves rim T-junction
+/// chains beyond the crack zipper's band.
 #[test]
 fn spring_end_grind_subtraction_serves() {
     let mut m = Model::new();
@@ -168,6 +232,59 @@ fn spring_end_grind_subtraction_serves() {
     assert!(
         brep.validate_curve_surface().is_ok(),
         "ground spring curve-surface lie: {:?}",
+        brep.validate_curve_surface().err()
+    );
+}
+
+/// Double-ended spring grinding: the SECOND cut's plane grazes the
+/// coil's top rim within 3.4e-5 of the seam-rim vertex — a triple
+/// degeneracy (cut plane × rim circle × seam) that fragments the
+/// records into a 5.6e-4 corner micro-circuit. Serving it exercises
+/// the whole PK-441 chain: consolidation extent-guarded welds, closed-
+/// edge split direction resolution, pcurve preservation through graph
+/// splits, knot-span ray seeding, medial fragment sampling, and the
+/// output loop's chart-continuity normalization. (Watertight meshing
+/// of the cut wall is the chart-aware meshing campaign's scope — see
+/// the single-grind pin's note.)
+#[test]
+fn spring_double_end_grind_serves() {
+    let mut m = Model::new();
+    let z_axis = AxisSpec::Literal {
+        origin: [0.0, 0.0, 0.0],
+        direction: [0.0, 0.0, 1.0],
+    };
+    let spring = m
+        .profile(Plane::XY)
+        .circle(0.04)
+        .sketch("wire_section")
+        .expect("wire sketch")
+        .helical_sweep(&mut m, z_axis, HelixParams::new(0.3, 0.15, 6.0))
+        .expect("coil");
+    let plate_bot = m
+        .profile(Plane::xy_at(-0.105))
+        .rect(1.0, 1.0)
+        .sketch("grind_bot")
+        .expect("plate sketch")
+        .extrude(&mut m, End::Blind(Scalar::from(0.1)))
+        .expect("plate");
+    let ground = spring.subtract(&mut m, plate_bot).expect("bottom grind");
+    let plate_top = m
+        .profile(Plane::xy_at(0.905))
+        .rect(1.0, 1.0)
+        .sketch("grind_top")
+        .expect("plate sketch")
+        .extrude(&mut m, End::Blind(Scalar::from(0.1)))
+        .expect("plate");
+    let ground2 = ground.subtract(&mut m, plate_top).expect("top grind");
+    let brep = m.brep_of(ground2).expect("brep");
+    assert!(
+        brep.validate().is_ok(),
+        "double-ground spring invalid: {:?}",
+        brep.validate().err()
+    );
+    assert!(
+        brep.validate_curve_surface().is_ok(),
+        "double-ground spring curve-surface lie: {:?}",
         brep.validate_curve_surface().err()
     );
 }
