@@ -152,21 +152,26 @@ fn loft_add_produces_brep() {
 
     // The barrel pierces the cube top and bottom: its ONE periodic
     // NURBS wall is cut by two chart-wrapping circles — the
-    // non-contractible-loop split class the boolean pipelines do not
-    // serve yet (PK-443). Before PK-440 the wall's records were
-    // silently clipped away by the degenerate periodic-chart
-    // classification and this union "passed" WITHOUT the barrel stubs
-    // (the cube came back alone). The classification is honest now,
-    // so the union declines instead of serving wrong geometry; this
-    // pins the honest decline until PK-443 serves the split.
+    // non-contractible-loop split class (PK-443). Before PK-440 the
+    // wall's records were silently clipped away and this union
+    // "passed" WITHOUT the barrel stubs; PK-440 flipped that to an
+    // honest decline; PK-443 serves the split (records terminate
+    // exactly on the wall's seam junction, the chart walk cuts the
+    // periodic wall into bands). The union must carry both barrel
+    // stubs: more faces than the bare cube, and watertight.
     let result = loft_add(&cube, &sections, &opts, tol, None);
-    let err = result.err().expect(
-        "PK-443 has landed? loft_add now serves — assert the stubs \
-         exist (faces > 6, watertight) and retire this decline pin",
-    );
+    assert!(result.is_ok(), "loft_add failed: {:?}", result.err());
+    let brep = &result.unwrap().brep; // ok in tests
     assert!(
-        matches!(err, crate::error::SweepError::Boolean(_)),
-        "expected the boolean decline, got {err:?}"
+        brep.faces.len() > 6,
+        "expected the cube plus barrel stub faces, got {} faces",
+        brep.faces.len()
+    );
+    let validation = brep.validate();
+    assert!(
+        validation.is_ok(),
+        "loft_add result invalid: {:?}",
+        validation.err()
     );
 }
 
@@ -189,13 +194,23 @@ fn loft_cut_produces_brep() {
     ];
     let opts = LoftOptions::default();
 
+    // The barrel bores straight through: the result must be the cube
+    // with a cylindrical hole — the barrel's wall band survives as the
+    // bore wall, so strictly more faces than the bare cube (a vacuous
+    // "cube came back alone" result had exactly 6).
     let result = loft_cut(&cube, &sections, &opts, tol, None);
     assert!(result.is_ok(), "loft_cut failed: {:?}", result.err());
     let brep = &result.unwrap().brep; // ok in tests
     assert!(
-        !brep.faces.is_empty(),
-        "expected >= 1 face, got {}",
+        brep.faces.len() > 6,
+        "expected the cube plus the bore wall, got {} faces",
         brep.faces.len()
+    );
+    let validation = brep.validate();
+    assert!(
+        validation.is_ok(),
+        "loft_cut result invalid: {:?}",
+        validation.err()
     );
 }
 

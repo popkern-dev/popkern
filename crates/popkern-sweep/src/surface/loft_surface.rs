@@ -42,6 +42,38 @@ pub fn generate_loft_surface(
     options: &LoftOptions,
     tolerance: &Tolerance,
 ) -> Result<LoftSurfaceResult, SweepError> {
+    generate_loft_surface_at_stations(sections, options, tolerance, None)
+}
+
+/// Loft with the v-parameterization supplied by the caller.
+///
+/// Span-wise lofting MUST use one shared station parameterization for
+/// every span family: per-span chord-length params (each span's own
+/// centroid chain) interpolate the shared boundary columns at
+/// DIFFERENT parameters, so adjacent span surfaces disagreed along
+/// their common boundary between sections — measured 9.1e-5 at a
+/// propeller blade's girdle junctions, where the two boundary-crossing
+/// refinements each landed exactly on their own span's boundary iso
+/// and the merge graph minted disjoint junction nodes (PK-443). With
+/// shared stations the boundary columns pose identical interpolation
+/// problems on both sides, so adjacent spans share their boundary
+/// curve exactly.
+///
+/// `stations` must be strictly increasing with one value per section;
+/// `None` computes chord-length parameters from these sections'
+/// centroids (the single-surface path).
+///
+/// # Errors
+///
+/// Returns `SweepError::IncompatibleSections` as
+/// [`generate_loft_surface`] does, or when `stations` has the wrong
+/// length.
+pub fn generate_loft_surface_at_stations(
+    sections: &[LoftSection],
+    options: &LoftOptions,
+    tolerance: &Tolerance,
+    stations: Option<&[f64]>,
+) -> Result<LoftSurfaceResult, SweepError> {
     // Validate section count.
     if sections.len() < 2 {
         return Err(SweepError::IncompatibleSections(format!(
@@ -49,12 +81,25 @@ pub fn generate_loft_surface(
             sections.len()
         )));
     }
+    if let Some(stations) = stations
+        && stations.len() != sections.len()
+    {
+        return Err(SweepError::IncompatibleSections(format!(
+            "{} stations for {} sections",
+            stations.len(),
+            sections.len()
+        )));
+    }
 
     // Step 1: Make sections compatible (same control point count).
     let compatible = make_sections_compatible(sections, tolerance)?;
 
-    // Step 2: Compute v-parameterization via chord-length.
-    let v_params = compute_v_params(&compatible, options);
+    // Step 2: v-parameterization — the caller's shared stations, else
+    // chord-length from these sections' centroids.
+    let v_params = match stations {
+        Some(stations) => stations.to_vec(),
+        None => compute_v_params(&compatible, options),
+    };
 
     // Step 3: Column interpolation to build the surface.
     let mut surface = interpolate_columns(&compatible, &v_params)?;
@@ -158,6 +203,15 @@ fn resample_sections(curves: &[&NurbsCurve]) -> Result<Vec<NurbsCurve>, SweepErr
     Ok(result)
 }
 
+/// Chord-length station parameters from the FULL section curves — the
+/// shared v-parameterization for span-wise lofting (one station per
+/// section, owned by the section, not by any span family). See
+/// [`generate_loft_surface_at_stations`].
+pub fn loft_station_params(sections: &[LoftSection], options: &LoftOptions) -> Vec<f64> {
+    let curves: Vec<NurbsCurve> = sections.iter().map(|s| s.curve.clone()).collect();
+    compute_v_params(&curves, options)
+}
+
 /// Compute chord-length v-parameterization from section centroids.
 fn compute_v_params(sections: &[NurbsCurve], options: &LoftOptions) -> Vec<f64> {
     let n = sections.len();
@@ -229,30 +283,65 @@ fn interpolate_columns(
     let mut surface_weights = Vec::with_capacity(num_u * num_v_cp);
 
     for j in 0..num_u {
-        // Collect j-th control point from each section.
-        let column_points: Vec<Point3> = sections.iter().map(|s| s.control_points[j]).collect();
+        // Interpolate the j-th column in HOMOGENEOUS space: rational
+        // sections (arcs, circles) carry their shape in the weights,
+        // and fitting the Euclidean control points alone stamped
+        // weight 1.0 on every column — every arc span lofted to a
+        // PARABOLIC sheet 6.1% of the arc radius off the true
+        // surface, while the cap rim edges carried the exact rational
+        // arcs (measured: 1.52e-3 at a blade root's 0.025 arc,
+        // 3.66e-4 at its 0.006 tip, both 6.1%·r — PK-443). With the
+        // square interpolation system both (w·P) and (w) reproduce
+        // the section rows exactly, so every station curve of the
+        // surface IS its section, and constant-weight columns stay
+        // exactly rational in between.
+        let column_w: Vec<f64> = sections.iter().map(|s| s.weights[j]).collect();
+        let weighted_points: Vec<Point3> = sections
+            .iter()
+            .zip(&column_w)
+            .map(|(s, &w)| {
+                let p = s.control_points[j];
+                Point3::new(p.x * w, p.y * w, p.z * w)
+            })
+            .collect();
+        let weight_points: Vec<Point3> =
+            column_w.iter().map(|&w| Point3::new(w, 0.0, 0.0)).collect();
 
-        let fitted = fit_curve(&column_points, v_params, v_degree, num_v_cp)
+        let fitted_wp = fit_curve(&weighted_points, v_params, v_degree, num_v_cp)
             .map_err(|e| SweepError::IncompatibleSections(format!("column fit failed: {e}")))?;
+        let fitted_w = fit_curve(&weight_points, v_params, v_degree, num_v_cp)
+            .map_err(|e| SweepError::IncompatibleSections(format!("weight fit failed: {e}")))?;
 
         // All columns must produce the same knot vector.
         match &first_knots_v {
             Some(knots) => {
-                if knots.len() != fitted.knots.len() {
+                if knots.len() != fitted_wp.knots.len() {
                     return Err(SweepError::IncompatibleSections(
                         "inconsistent v-knot vectors across columns".into(),
                     ));
                 }
             }
             None => {
-                first_knots_v = Some(fitted.knots.clone());
+                first_knots_v = Some(fitted_wp.knots.clone());
             }
         }
 
-        // The fitted curve's control points become row j of the surface grid.
-        // Surface layout is row-major: cp(i_u, i_v) = cps[i_u * num_v + i_v].
-        surface_cps.extend_from_slice(&fitted.control_points);
-        surface_weights.extend_from_slice(&fitted.weights);
+        // The fitted homogeneous points become row j of the surface
+        // grid (row-major: cp(i_u, i_v) = cps[i_u * num_v + i_v]).
+        for (wp, w_cp) in fitted_wp
+            .control_points
+            .iter()
+            .zip(&fitted_w.control_points)
+        {
+            let w = w_cp.x;
+            if w <= 1.0e-12 || !w.is_finite() {
+                return Err(SweepError::IncompatibleSections(format!(
+                    "column {j} weight interpolation left the rational cone (w = {w:.3e})"
+                )));
+            }
+            surface_cps.push(Point3::new(wp.x / w, wp.y / w, wp.z / w));
+            surface_weights.push(w);
+        }
     }
 
     let knots_v = first_knots_v
@@ -307,180 +396,5 @@ fn build_clamped_knots(n: usize, degree: usize) -> Vec<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::surface::SurfaceEval;
-
-    /// Create a unit circle as a rational NURBS (degree 2, 9 control points).
-    fn unit_circle_at_z(z: f64, radius: f64) -> NurbsCurve {
-        let w = std::f64::consts::FRAC_1_SQRT_2;
-        let r = radius;
-        NurbsCurve {
-            degree: 2,
-            knots: vec![
-                0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-            ],
-            control_points: vec![
-                Point3::new(r, 0.0, z),
-                Point3::new(r, r, z),
-                Point3::new(0.0, r, z),
-                Point3::new(-r, r, z),
-                Point3::new(-r, 0.0, z),
-                Point3::new(-r, -r, z),
-                Point3::new(0.0, -r, z),
-                Point3::new(r, -r, z),
-                Point3::new(r, 0.0, z),
-            ],
-            weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
-        }
-    }
-
-    fn make_section(curve: NurbsCurve) -> LoftSection {
-        LoftSection {
-            curve,
-            position: None,
-        }
-    }
-
-    #[test]
-    fn loft_two_identical_circles() {
-        let sections = vec![
-            make_section(unit_circle_at_z(0.0, 1.0)),
-            make_section(unit_circle_at_z(1.0, 1.0)),
-        ];
-        let options = LoftOptions::default();
-        let tol = Tolerance::default();
-        let result = generate_loft_surface(&sections, &options, &tol);
-        assert!(result.is_ok(), "loft failed: {:?}", result.err());
-
-        let result = result.unwrap(); // ok in tests
-        let surf = &result.surface;
-
-        // Should have 9 control points in u (from circle) and 2 in v.
-        assert_eq!(surf.num_u, 9);
-        assert_eq!(surf.num_v, 2);
-
-        // Evaluate at the midpoint: should be approximately on a unit circle at z=0.5.
-        let mid = surf.point_at(0.0, 0.5);
-        assert!((mid.z - 0.5).abs() < 0.3, "expected z~0.5, got {}", mid.z);
-        let r = (mid.x * mid.x + mid.y * mid.y).sqrt();
-        assert!((r - 1.0).abs() < 0.3, "expected radius~1.0, got {}", r);
-    }
-
-    #[test]
-    fn loft_circle_to_larger_circle() {
-        let sections = vec![
-            make_section(unit_circle_at_z(0.0, 1.0)),
-            make_section(unit_circle_at_z(1.0, 2.0)),
-        ];
-        let options = LoftOptions::default();
-        let tol = Tolerance::default();
-        let result = generate_loft_surface(&sections, &options, &tol);
-        assert!(result.is_ok(), "loft failed: {:?}", result.err());
-
-        let result = result.unwrap(); // ok in tests
-        let surf = &result.surface;
-
-        // At v=0, should be on the smaller circle.
-        let p0 = surf.point_at(0.0, 0.0);
-        let r0 = (p0.x * p0.x + p0.y * p0.y).sqrt();
-        assert!((r0 - 1.0).abs() < 0.3, "expected r~1.0 at v=0, got {}", r0);
-
-        // At v=1, should be on the larger circle.
-        let p1 = surf.point_at(0.0, 1.0);
-        let r1 = (p1.x * p1.x + p1.y * p1.y).sqrt();
-        assert!((r1 - 2.0).abs() < 0.3, "expected r~2.0 at v=1, got {}", r1);
-    }
-
-    #[test]
-    fn loft_three_sections() {
-        let sections = vec![
-            make_section(unit_circle_at_z(0.0, 1.0)),
-            make_section(unit_circle_at_z(1.0, 1.5)),
-            make_section(unit_circle_at_z(2.0, 1.0)),
-        ];
-        let result =
-            generate_loft_surface(&sections, &LoftOptions::default(), &Tolerance::default());
-        let surf = &result.unwrap().surface; // ok in tests
-        assert_eq!(surf.num_u, 9);
-        assert_eq!(surf.num_v, 3);
-        assert!(surf.point_at(0.0, 0.0).z.abs() < 0.3);
-        assert!((surf.point_at(0.0, 1.0).z - 2.0).abs() < 0.3);
-    }
-
-    #[test]
-    fn loft_too_few_sections_errors() {
-        let opts = LoftOptions::default();
-        let tol = Tolerance::default();
-        // Zero sections.
-        let r0 = generate_loft_surface(&[], &opts, &tol);
-        assert!(r0.unwrap_err().to_string().contains("at least 2"));
-        // One section.
-        let r1 = generate_loft_surface(&[make_section(unit_circle_at_z(0.0, 1.0))], &opts, &tol);
-        assert!(r1.unwrap_err().to_string().contains("at least 2"));
-    }
-
-    #[test]
-    fn loft_incompatible_sections_resampled() {
-        // Circle (9 CPs, degree 2) vs line segment (2 CPs, degree 1).
-        let circle = unit_circle_at_z(0.0, 1.0);
-        let line = NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![Point3::new(-1.0, 0.0, 1.0), Point3::new(1.0, 0.0, 1.0)],
-            weights: vec![1.0, 1.0],
-        };
-        let sections = vec![make_section(circle), make_section(line)];
-        let options = LoftOptions::default();
-        let tol = Tolerance::default();
-        let result = generate_loft_surface(&sections, &options, &tol);
-        // Should succeed after resampling.
-        assert!(result.is_ok(), "loft failed: {:?}", result.err());
-
-        let result = result.unwrap(); // ok in tests
-        // Both should have been resampled to RESAMPLE_COUNT points.
-        assert_eq!(result.surface.num_u, RESAMPLE_COUNT);
-    }
-
-    #[test]
-    fn loft_caps_match_sections() {
-        let sections = vec![
-            make_section(unit_circle_at_z(0.0, 1.0)),
-            make_section(unit_circle_at_z(3.0, 1.0)),
-        ];
-        let result =
-            generate_loft_surface(&sections, &LoftOptions::default(), &Tolerance::default());
-        let result = result.unwrap(); // ok in tests
-        assert!(result.start_cap.point_at(0.0).z.abs() < 0.01);
-        assert!((result.end_cap.point_at(0.0).z - 3.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn v_params_uniform_for_coincident_centroids() {
-        // Two circles at the same location.
-        let sections = vec![
-            unit_circle_at_z(0.0, 1.0),
-            unit_circle_at_z(0.0, 1.0),
-            unit_circle_at_z(0.0, 1.0),
-        ];
-        let options = LoftOptions::default();
-        let params = compute_v_params(&sections, &options);
-        assert_eq!(params.len(), 3);
-        assert!((params[0]).abs() < 1e-10);
-        assert!((params[1] - 0.5).abs() < 1e-10);
-        assert!((params[2] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn build_clamped_knots_basic() {
-        let knots = build_clamped_knots(5, 2);
-        // Length = 5 + 2 + 1 = 8
-        assert_eq!(knots.len(), 8);
-        assert_eq!(knots[0], 0.0);
-        assert_eq!(knots[1], 0.0);
-        assert_eq!(knots[2], 0.0);
-        assert_eq!(knots[7], 1.0);
-        assert_eq!(knots[6], 1.0);
-        assert_eq!(knots[5], 1.0);
-    }
-}
+#[path = "loft_surface_tests.rs"]
+mod tests;

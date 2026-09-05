@@ -148,6 +148,12 @@ pub(crate) fn loft_impl(
         let mut surfaces = Vec::with_capacity(n_spans);
         let mut start_caps = Vec::with_capacity(n_spans);
         let mut end_caps = Vec::with_capacity(n_spans);
+        // ONE station parameterization shared by every span family,
+        // computed from the full sections: per-span chord-length
+        // params made adjacent span surfaces disagree along their
+        // shared boundary between sections (PK-443) — see
+        // `generate_loft_surface_at_stations`.
+        let stations = surface::loft_station_params(sections, options);
         for j in 0..n_spans {
             let span_sections: Vec<LoftSection> = span_sets
                 .iter()
@@ -156,7 +162,12 @@ pub(crate) fn loft_impl(
                     position: None,
                 })
                 .collect();
-            let r = surface::generate_loft_surface(&span_sections, options, &tolerance)?;
+            let r = surface::generate_loft_surface_at_stations(
+                &span_sections,
+                options,
+                &tolerance,
+                Some(&stations),
+            )?;
             surfaces.push(r.surface);
             start_caps.push(r.start_cap);
             end_caps.push(r.end_cap);

@@ -11,6 +11,9 @@ pub mod sweep_surface;
 pub mod swept_blend;
 
 pub use guided::{GuideValidation, apply_guide_rails, validate_guide_rails};
-pub use loft_surface::{LoftSurfaceResult, generate_loft_surface};
+pub use loft_surface::{
+    LoftSurfaceResult, generate_loft_surface, generate_loft_surface_at_stations,
+    loft_station_params,
+};
 pub use sweep_surface::{SweepSurfaceResult, generate_sweep_surface};
 pub use swept_blend::generate_swept_blend_surface;
