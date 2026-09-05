@@ -103,6 +103,16 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "helical_sweep, exact helix paths, taper_to, left_hand winding, start_angle phasing",
     ),
     (
+        "propeller",
+        "Marine propeller",
+        "Three lofted blades — stadium sections whose chord and pitch the script \
+         computes per station — twisted, phased 120° apart and unioned onto a \
+         revolved hub with a tapered nose.",
+        26,
+        "loft through computed sections, rational stadium profiles, rigid rotations, \
+         chart-wrapping boolean unions on closed lofted walls",
+    ),
+    (
         "keyed_shaft",
         "Keyed shaft",
         "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",

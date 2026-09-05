@@ -93,14 +93,43 @@ pub fn render(
         }
     }
 
-    // Wireframe overlay.
+    // Wireframe overlay, depth-tested against the rasterized faces so
+    // hidden edges stay hidden.
     if show_wireframe {
         let edges = mesh_data::extract_edge_pairs(brep);
+        // Bias scaled to the rasterized scene's depth spread: it must
+        // exceed the facet-sagitta depth error of edges lying ON
+        // their faces, while staying far below real occlusion
+        // separations. 1% of the spread does both for tessellated
+        // scenes (constants mis-scale one way or the other; see
+        // `draw_line_depth`).
+        let bias = {
+            let mut lo = f32::INFINITY;
+            let mut hi = f32::NEG_INFINITY;
+            for d in &fb.depth {
+                if *d < 1.0 {
+                    lo = lo.min(*d);
+                    hi = hi.max(*d);
+                }
+            }
+            if hi > lo { (hi - lo) * 0.01 } else { 1.0e-4 }
+        };
         for (pa, pb) in &edges {
-            if let (Some((x0, y0)), Some((x1, y1))) =
-                (project_point(*pa, &vp, w, h), project_point(*pb, &vp, w, h))
-            {
-                wireframe::draw_line(&mut fb, x0, y0, x1, y1, wireframe::WIREFRAME_COLOR);
+            if let (Some((x0, y0, z0)), Some((x1, y1, z1))) = (
+                project_point_depth(*pa, &vp, w, h),
+                project_point_depth(*pb, &vp, w, h),
+            ) {
+                wireframe::draw_line_depth(
+                    &mut fb,
+                    x0,
+                    y0,
+                    z0,
+                    x1,
+                    y1,
+                    z1,
+                    bias,
+                    wireframe::WIREFRAME_COLOR,
+                );
             }
         }
     }
@@ -234,8 +263,13 @@ fn project_and_shade(
     })
 }
 
-/// Project a world-space point to screen coordinates.
-fn project_point(pos: [f32; 3], vp: &glam::Mat4, width: f32, height: f32) -> Option<(f32, f32)> {
+/// Project a world-space point to screen coordinates with depth.
+fn project_point_depth(
+    pos: [f32; 3],
+    vp: &glam::Mat4,
+    width: f32,
+    height: f32,
+) -> Option<(f32, f32, f32)> {
     let p = glam::Vec4::new(pos[0], pos[1], pos[2], 1.0);
     let clip = *vp * p;
 
@@ -248,8 +282,9 @@ fn project_point(pos: [f32; 3], vp: &glam::Mat4, width: f32, height: f32) -> Opt
     let ndc = clip / clip.w;
     let sx = (ndc.x + 1.0) * 0.5 * width;
     let sy = (1.0 - ndc.y) * 0.5 * height;
+    let sz = (ndc.z + 1.0) * 0.5;
 
-    Some((sx, sy))
+    Some((sx, sy, sz))
 }
 
 #[cfg(test)]

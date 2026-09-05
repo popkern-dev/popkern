@@ -97,6 +97,14 @@
       "title": "Coil spring"
     },
     {
+      "blurb": "Three lofted blades — stadium sections whose chord and pitch the script computes per station — twisted, phased 120° apart and unioned onto a revolved hub with a tapered nose.",
+      "demonstrates": "loft through computed sections, rational stadium profiles, rigid rotations, chart-wrapping boolean unions on closed lofted walls",
+      "features": 26,
+      "file": "propeller.rhai",
+      "thumbnail": "examples/propeller.png",
+      "title": "Marine propeller"
+    },
+    {
       "blurb": "A shaft with a keyway cut by a moved and turned tool, and a chamfered lead-in.",
       "demonstrates": "translate, rotate, subtract, chamfer on a circular edge",
       "features": 8,

@@ -83,13 +83,16 @@ pub fn build_mesh_vertices(brep: &BRep, mesh: &TriMesh) -> (Vec<MeshVertex>, Vec
 // Edge extraction
 // ---------------------------------------------------------------------------
 
-/// Extract edge position pairs from a BRep for wireframe rendering.
+/// Extract edge polyline segments from a BRep for wireframe rendering.
 ///
-/// Walks all edges, resolves both endpoint vertex positions, and returns
-/// one `([f32; 3], [f32; 3])` pair per edge.  Edges whose half-edge
-/// topology is incomplete are silently skipped.
+/// Edges that carry a curve are sampled along it (a curved edge drawn
+/// as one endpoint chord painted long straight diagonals across every
+/// lofted blade and coil); curveless edges fall back to the endpoint
+/// chord. Edges whose half-edge topology is incomplete are silently
+/// skipped.
 pub fn extract_edge_pairs(brep: &BRep) -> Vec<([f32; 3], [f32; 3])> {
     let mut pairs: Vec<([f32; 3], [f32; 3])> = Vec::with_capacity(brep.edges.len());
+    let as_f32 = |p: popkern_core::geometry::Point3| [p.x as f32, p.y as f32, p.z as f32];
 
     for (_edge_handle, edge) in &brep.edges {
         let he_a_handle = edge.half_edge;
@@ -101,25 +104,50 @@ pub fn extract_edge_pairs(brep: &BRep) -> Vec<([f32; 3], [f32; 3])> {
             continue;
         };
 
+        if let Some(curve) = edge.curve.as_ref() {
+            use popkern_core::geometry::curve::CurveEval;
+            // Segment count follows the curve's knot structure: a
+            // multi-turn helical seam spans many knot spans, and a
+            // fixed count drew it as a polygonal ring.
+            let segments = match &curve.geometry {
+                popkern_core::geometry::curve::CurveGeometry::Line { .. } => 1,
+                popkern_core::geometry::curve::CurveGeometry::Nurbs(n) if n.degree <= 1 => {
+                    // A polyline is exact at its knots.
+                    n.knots
+                        .windows(2)
+                        .filter(|w| w[1] > w[0] + 1.0e-12)
+                        .count()
+                        .max(1)
+                }
+                popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => {
+                    let spans = n
+                        .knots
+                        .windows(2)
+                        .filter(|w| w[1] > w[0] + 1.0e-12)
+                        .count()
+                        .max(1);
+                    (spans * 6).clamp(24, 512)
+                }
+                _ => 24,
+            };
+            let (t0, t1) = (curve.t_start, curve.t_end);
+            let mut prev = as_f32(curve.geometry.point_at(t0));
+            for i in 1..=segments {
+                let t = t0 + (t1 - t0) * (i as f64) / segments as f64;
+                let next = as_f32(curve.geometry.point_at(t));
+                pairs.push((prev, next));
+                prev = next;
+            }
+            continue;
+        }
+
         let Some(va) = brep.vertices.get(he_a.origin) else {
             continue;
         };
         let Some(vb) = brep.vertices.get(he_b.origin) else {
             continue;
         };
-
-        let pa = [
-            va.position.x as f32,
-            va.position.y as f32,
-            va.position.z as f32,
-        ];
-        let pb = [
-            vb.position.x as f32,
-            vb.position.y as f32,
-            vb.position.z as f32,
-        ];
-
-        pairs.push((pa, pb));
+        pairs.push((as_f32(va.position), as_f32(vb.position)));
     }
 
     pairs

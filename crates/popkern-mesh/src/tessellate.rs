@@ -2,19 +2,22 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry, Vec3};
+use popkern_core::geometry::{SurfaceEval, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::adaptive::adaptive_subdivide;
 
 #[path = "tessellate_diagnostics.rs"]
 mod tessellate_diagnostics;
+#[path = "tessellate_orientation.rs"]
+mod tessellate_orientation;
 #[path = "tessellate_pcurve_range.rs"]
 mod tessellate_pcurve_range;
 use crate::mesh::{FaceMesh, MeshVertex, TriMesh};
 use crate::{MeshError, TessellationOptions};
 use tessellate_diagnostics::deepchord_trace;
 pub(crate) use tessellate_diagnostics::face_mesh_diagonal;
+use tessellate_orientation::orient_face_meshes_coherently;
 use tessellate_pcurve_range::pcurve_parameter_range;
 #[cfg(test)]
 use tessellate_pcurve_range::unwrap_periodic;
@@ -248,6 +251,11 @@ pub(crate) fn tessellate_face_with_samples(
                    hi: f64|
      -> Vec<f64> {
         use std::ops::Bound::Excluded;
+        // A zero-extent cell side (a seam-touching sliver trim) has
+        // lo == hi; an equal excluded range panics in BTreeMap.
+        if sortable(lo) >= sortable(hi) {
+            return Vec::new();
+        }
         registry
             .get(&line.to_bits())
             .map(|m| {
@@ -720,327 +728,12 @@ pub(crate) fn tessellate_brep(
 /// wedge volume. Faces with no measurable shared-edge constraint keep
 /// their flag-derived facing, as before.
 /// Position-weld key of a mesh vertex: the bit patterns of (x, y, z).
-type PositionBitKey = (u64, u64, u64);
+pub(crate) type PositionBitKey = (u64, u64, u64);
 
 /// Winding votes for a face-mesh pair (mesh indices, lower first):
 /// summed matched arc length voting that the two boundaries traverse
 /// shared edges in the (same, opposite) direction.
-type PairWindingVotes = std::collections::HashMap<(usize, usize), (f64, f64)>;
-
-fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::FaceMesh]) {
-    use std::collections::HashMap;
-
-    let n = face_meshes.len();
-    if popkern_core::trace::trace_enabled("mesh-orientation") {
-        for (fi, fm) in face_meshes.iter().enumerate() {
-            let class = brep
-                .faces
-                .get(fm.face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| match &s.geometry {
-                    SurfaceGeometry::Plane { origin, .. } => format!("Plane z={:.3}", origin.z),
-                    SurfaceGeometry::Cylinder { radius, .. } => format!("Cyl r={radius:.3}"),
-                    SurfaceGeometry::Cone { apex, .. } => format!("Cone apex_z={:.3}", apex.z),
-                    _ => "other".to_string(),
-                });
-            let mut v6 = 0.0;
-            for t in &fm.triangles {
-                let (a, b, c) = (
-                    fm.vertices[t[0]].position,
-                    fm.vertices[t[1]].position,
-                    fm.vertices[t[2]].position,
-                );
-                v6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
-                    + a.z * (b.x * c.y - b.y * c.x);
-            }
-            eprintln!(
-                "  [orient] mesh {fi} = {:?} {class:?} tris={} verts={} wedge={:.5}",
-                fm.face,
-                fm.triangles.len(),
-                fm.vertices.len(),
-                v6 / 6.0
-            );
-        }
-    }
-    let mesh_index_of: HashMap<popkern_core::topology::FaceHandle, usize> = face_meshes
-        .iter()
-        .enumerate()
-        .map(|(fi, fm)| (fm.face, fi))
-        .collect();
-
-    // Boundary directed segments per face mesh: triangle edges used
-    // exactly once (position-welded so duplicated boundary vertices
-    // at the same position don't hide the match).
-    let boundary_segments: Vec<Vec<(Point3, Point3)>> = face_meshes
-        .iter()
-        .map(|fm| {
-            let key =
-                |p: &Point3| -> PositionBitKey { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
-            let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::new();
-            for t in &fm.triangles {
-                for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                    let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
-                    if ka == kb {
-                        continue;
-                    }
-                    if ka < kb {
-                        *counts.entry((ka, kb)).or_default() += 1;
-                    } else {
-                        *counts.entry((kb, ka)).or_default() -= 1;
-                    }
-                }
-            }
-            let from_bits = |k: (u64, u64, u64)| -> Point3 {
-                Point3::new(
-                    f64::from_bits(k.0),
-                    f64::from_bits(k.1),
-                    f64::from_bits(k.2),
-                )
-            };
-            counts
-                .into_iter()
-                .filter(|&(_, c)| c != 0)
-                .map(|((ka, kb), c)| {
-                    if c > 0 {
-                        (from_bits(ka), from_bits(kb))
-                    } else {
-                        (from_bits(kb), from_bits(ka))
-                    }
-                })
-                .collect()
-        })
-        .collect();
-
-    // Signed arc-length advance of a face's boundary along a
-    // canonical edge polyline. Positive = traverses the edge in
-    // increasing parameter, negative = decreasing; magnitude = the
-    // summed length of matched segments (the vote's weight).
-    let advance_along = |segs: &[(Point3, Point3)], polyline: &[(f64, Point3)]| -> f64 {
-        let mut length = 0.0_f64;
-        for w in polyline.windows(2) {
-            length += w[0].1.distance_to(&w[1].1);
-        }
-        if length <= 0.0 {
-            return 0.0;
-        }
-        let tol = (length * 1.0e-3).max(1.0e-9);
-        // Arc-length parameter of the nearest polyline point, or None
-        // if the point is farther than tol from every segment.
-        let project = |p: &Point3| -> Option<f64> {
-            let mut best: Option<(f64, f64)> = None; // (dist, s)
-            let mut s0 = 0.0_f64;
-            for w in polyline.windows(2) {
-                let (a, b) = (w[0].1, w[1].1);
-                let ab = b - a;
-                let len = ab.length();
-                if len <= 0.0 {
-                    continue;
-                }
-                let t = ((*p - a).dot(&ab) / (len * len)).clamp(0.0, 1.0);
-                let q = a + ab * t;
-                let d = p.distance_to(&q);
-                if best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, s0 + len * t));
-                }
-                s0 += len;
-            }
-            best.and_then(|(d, s)| (d <= tol).then_some(s))
-        };
-        // Closed polylines (rim circles): a raw arc-length delta
-        // telescopes to zero around the loop — the wraparound
-        // segment's jump (−circumference + step) cancels every other
-        // step and the cap↔wall constraint silently vanishes
-        // (measured: a cylinder cap stayed inside-out, mesh wedge
-        // volume exactly ⅔ of 2πr²h). Wrap each per-segment delta to
-        // the short way around.
-        let closed = polyline
-            .first()
-            .zip(polyline.last())
-            .is_some_and(|(a, b)| a.1.distance_to(&b.1) <= tol);
-        let mut advance = 0.0_f64;
-        for (p, q) in segs {
-            if let (Some(sp), Some(sq)) = (project(p), project(q)) {
-                let mut d = sq - sp;
-                if closed {
-                    d -= length * (d / length).round();
-                }
-                advance += d;
-            }
-        }
-        advance
-    };
-
-    // Face-pair parity votes over shared BRep edges, accumulated by
-    // weight (summed matched boundary length). Same-signed advance on
-    // both sides means one of the pair is inside-out.
-    let mut votes: PairWindingVotes = HashMap::new(); // (same, opposite)
-    for (_, edge) in brep.edges.iter() {
-        let Some(curve) = edge.curve.as_ref() else {
-            continue;
-        };
-        if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
-            continue;
-        }
-        let he = edge.half_edge;
-        let (Some(h1), Some(h2)) = (
-            brep.half_edges.get(he),
-            brep.half_edges
-                .get(he)
-                .and_then(|h| brep.half_edges.get(h.twin)),
-        ) else {
-            continue;
-        };
-        let (Some(l1), Some(l2)) = (brep.loops.get(h1.loop_), brep.loops.get(h2.loop_)) else {
-            continue;
-        };
-        if l1.face == l2.face {
-            continue; // seam edge: no cross-face constraint
-        }
-        let (Some(&f1), Some(&f2)) = (mesh_index_of.get(&l1.face), mesh_index_of.get(&l2.face))
-        else {
-            continue;
-        };
-        const ORIENT_SAMPLES: usize = 33;
-        let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
-        let polyline: Vec<(f64, Point3)> = (0..ORIENT_SAMPLES)
-            .map(|i| {
-                let t = curve.t_start
-                    + (curve.t_end - curve.t_start) * i as f64 / (ORIENT_SAMPLES - 1) as f64;
-                (t, eval.point_at(t))
-            })
-            .collect();
-        let d1 = advance_along(&boundary_segments[f1], &polyline);
-        let d2 = advance_along(&boundary_segments[f2], &polyline);
-        // Require a non-trivial matched length on BOTH sides before
-        // trusting the vote (a lone straggler segment is sew noise).
-        let mut edge_len = 0.0;
-        for w in polyline.windows(2) {
-            edge_len += w[0].1.distance_to(&w[1].1);
-        }
-        let significant = edge_len * 1.0e-3;
-        if d1.abs() < significant || d2.abs() < significant {
-            if popkern_core::trace::trace_enabled("mesh-orientation") {
-                eprintln!(
-                    "  [orient] pair ({f1},{f2}) advance below floor: d1={d1:.6} d2={d2:.6} \
-                     edge_len={edge_len:.4}"
-                );
-            }
-            continue;
-        }
-        let weight = d1.abs().min(d2.abs());
-        let entry = votes.entry((f1.min(f2), f1.max(f2))).or_default();
-        if d1 * d2 > 0.0 {
-            entry.0 += weight;
-        } else {
-            entry.1 += weight;
-        }
-    }
-
-    // Majority-resolved adjacency, sorted for deterministic traversal.
-    let mut adj: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n]; // (other, same_direction)
-    let mut pairs: Vec<_> = votes.iter().collect();
-    pairs.sort_by_key(|(k, _)| **k);
-    for (&(f1, f2), &(same, opposite)) in pairs {
-        if same == opposite {
-            // Tied evidence — no trustworthy constraint. Leave the
-            // pair unlinked rather than guess.
-            if popkern_core::trace::trace_enabled("mesh-orientation") {
-                eprintln!("  [orient] pair ({f1},{f2}) tied votes {same}:{opposite} — unlinked");
-            }
-            continue;
-        }
-        let same_dir = same > opposite;
-        if same.min(opposite) > 0.0 && popkern_core::trace::trace_enabled("mesh-orientation") {
-            eprintln!(
-                "  [orient] pair ({f1},{f2}) conflicted votes same={same:.3} opposite={opposite:.3} — majority {}",
-                if same_dir { "same" } else { "opposite" }
-            );
-        }
-        adj[f1].push((f2, same_dir));
-        adj[f2].push((f1, same_dir));
-    }
-    // BFS parity propagation per component (deterministic: seeds in
-    // index order, adjacency sorted above).
-    let mut flip: Vec<Option<bool>> = vec![None; n];
-    for seed in 0..n {
-        if flip[seed].is_some() {
-            continue;
-        }
-        flip[seed] = Some(false);
-        let mut queue = std::collections::VecDeque::from([seed]);
-        let mut component = vec![seed];
-        while let Some(f) = queue.pop_front() {
-            let f_flip = flip[f].unwrap_or(false);
-            for &(g, same_dir) in &adj[f] {
-                // Opposite traversal (same_dir=false) is CONSISTENT:
-                // g keeps f's parity. Same-direction traversal means
-                // one of the two is inside-out relative to the other.
-                let want = if same_dir { !f_flip } else { f_flip };
-                match flip[g] {
-                    None => {
-                        flip[g] = Some(want);
-                        component.push(g);
-                        queue.push_back(g);
-                    }
-                    Some(assigned) => {
-                        if assigned != want
-                            && popkern_core::trace::trace_enabled("mesh-orientation")
-                        {
-                            eprintln!(
-                                "  [orient] parity cycle conflict at faces ({f},{g}) — keeping first assignment"
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        // Component-global side: an OUTER boundary component encloses
-        // positive volume (outward facing); a VOID boundary — a
-        // component enclosed inside another component of the same body
-        // (ray-crossing parity, position-only, so it needs no facing
-        // decisions) — encloses negative volume, facing into the void.
-        // The former unconditional-positive rule meshed every hollow
-        // body's inner skin inside-out (see winding_side).
-        let mut vol6 = 0.0;
-        for &f in &component {
-            let s = if flip[f] == Some(true) { -1.0 } else { 1.0 };
-            let fm = &face_meshes[f];
-            for t in &fm.triangles {
-                let (a, b, c) = (
-                    fm.vertices[t[0]].position,
-                    fm.vertices[t[1]].position,
-                    fm.vertices[t[2]].position,
-                );
-                vol6 += s
-                    * (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
-                        + a.z * (b.x * c.y - b.y * c.x));
-            }
-        }
-        let enclosed = crate::winding_side::component_is_enclosed(&component, face_meshes);
-        let wrong_side = if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
-        if popkern_core::trace::trace_enabled("mesh-orientation") {
-            eprintln!(
-                "  [orient] component {component:?} vol6 {vol6:.4} enclosed={enclosed} \
-                 wrong_side={wrong_side}"
-            );
-        }
-        if wrong_side {
-            for &f in &component {
-                flip[f] = flip[f].map(|x| !x);
-            }
-        }
-    }
-    for (fi, fm) in face_meshes.iter_mut().enumerate() {
-        if flip[fi] == Some(true) {
-            for t in &mut fm.triangles {
-                t.swap(1, 2);
-            }
-            for v in &mut fm.vertices {
-                v.normal = -v.normal;
-            }
-        }
-    }
-}
+pub(crate) type PairWindingVotes = std::collections::HashMap<(usize, usize), (f64, f64)>;
 
 #[cfg(test)]
 mod tests {

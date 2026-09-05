@@ -4,20 +4,17 @@
 // then rotated from its build axis out to radial, phased 120° apart,
 // and unioned onto a revolved hub with a tapered nose.
 //
-// NOT in the gallery yet: the blade ∪ hub union is the PK-443
-// acceptance fixture (a chart-wrapping intersection loop on a closed
-// lofted wall — the face split does not serve that class yet, and the
-// union honestly declines). When PK-443 lands: run this script, add
-// root fillets, and promote it to the gallery table
-// (crates/popkern-cli/tests/gallery.rs).
+// This model is the PK-443 acceptance fixture: each blade ∪ hub union
+// cuts a chart-wrapping intersection loop (the blade girdle) into the
+// blade's closed lofted wall — the non-contractible-loop split class.
 let m = model();
 
 let pi = 3.141592653589793;
 
 // ---- Hub with nose cone: one revolved section ----
 let hub = m.profile(xz())
-    .path(0.0, -0.22).line_to(0.16, -0.22).line_to(0.16, 0.12)
-    .line_to(0.03, 0.34).line_to(0.0, 0.34).close()
+    .path(0.0, -0.22).line_to(0.14, -0.22).line_to(0.14, 0.10)
+    .line_to(0.025, 0.30).line_to(0.0, 0.30).close()
     .sketch("hub_section")
     .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle(),
              #{ label: "hub" });
@@ -52,10 +49,10 @@ fn blade_section(m, z, c, t, pitch_deg, label) {
 }
 
 fn blade(m, phase_deg, tag) {
-    let s0 = blade_section(m, 0.02, 0.15, 0.050, 52.0, tag + "_root");
-    let s1 = blade_section(m, 0.13, 0.20, 0.034, 40.0, tag + "_mid1");
-    let s2 = blade_section(m, 0.24, 0.17, 0.022, 30.0, tag + "_mid2");
-    let s3 = blade_section(m, 0.34, 0.09, 0.012, 24.0, tag + "_tip");
+    let s0 = blade_section(m, 0.08, 0.16, 0.050, 55.0, tag + "_root");
+    let s1 = blade_section(m, 0.22, 0.22, 0.032, 42.0, tag + "_mid1");
+    let s2 = blade_section(m, 0.38, 0.19, 0.020, 32.0, tag + "_mid2");
+    let s3 = blade_section(m, 0.52, 0.09, 0.010, 25.0, tag + "_tip");
     let b = m.loft([s0, s1, s2, s3], #{ label: tag + "_loft" });
     // Stand the blade out radially, then phase it about the shaft.
     let b = b.rotate(axis_at([0.0, 0.0, 0.0], [1.0, 0.0, 0.0]), -90.0,

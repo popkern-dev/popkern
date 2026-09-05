@@ -205,6 +205,13 @@ impl Camera {
         };
 
         self.eye = center + dir * distance;
+
+        // Fit the depth range to the model: the default 0.1..1000
+        // planes compress a fitted model's whole depth into ~1% of
+        // z-buffer resolution, and depth-tested overlays (hidden-edge
+        // wireframe) drown in the quantization.
+        self.near = (distance - radius * 2.0).max(distance * 0.05);
+        self.far = distance + radius * 4.0;
     }
 }
 
