@@ -231,7 +231,11 @@ pub(super) fn anchor_periodic(
     // the chart and its shoelace sign is the true handedness. A
     // contradiction flips σ AND the seam borders (the dv-rule
     // mirrors with σ).
-    if let Some(s) = boundary_shoelace_sigma(graph, sub)
+    let shoelace = boundary_shoelace_sigma(graph, sub);
+    if seam_trace {
+        eprintln!("  [seam] shoelace {shoelace:?} vs provisional sigma {sigma:+.0}");
+    }
+    if let Some(s) = shoelace
         && s != sigma
     {
         sigma = s;

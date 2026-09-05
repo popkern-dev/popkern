@@ -147,3 +147,14 @@ pub(super) fn trace_cellular_nonmanifold(r: &BRep) {
         }
     }
 }
+
+/// Loop chart continuity on closed charts (PK-441): assembly adoption
+/// and projection recompute cannot pick a seam BRANCH, and a trim
+/// loop with both seam sides on one border carries chart
+/// discontinuities into every consumer (the doubly-ground coil's wall
+/// meshed with hundreds of open edges). Whole-period shifts only —
+/// exact on geometrically closed charts.
+pub(super) fn normalize_output_loop_charts(result: &mut BRep) {
+    let faces: Vec<_> = result.faces.keys().collect();
+    result.normalize_loop_chart_continuity(&faces);
+}

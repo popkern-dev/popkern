@@ -21,10 +21,7 @@ use crate::merge::fragment_classify::FragmentSelection;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_build::insert_operand_topology;
 use crate::merge::graph_intersect::insert_intersection_curves;
-use crate::merge::graph_split::{
-    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_graph_edge,
-    split_shared_edges_at_nodes,
-};
+use crate::merge::graph_split::{remove_collinear_duplicates, split_shared_edges_at_nodes};
 use crate::merge::graph_split_shared::split_edges_at_shared_nodes;
 use crate::merge::radial::sort_all_radial;
 use crate::merge::walk::{Fragment, walk_all_fragments_ext};
@@ -69,13 +66,13 @@ pub(crate) fn cellular_graph_merge(
             );
         }
     }
-    let mut hit_nodes: Vec<usize> = Vec::new();
-    for hit in &intersection_result.edge_face_hits {
-        let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
-        if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
-            hit_nodes.push(split_graph_edge(&mut graph, he_idx, hit.point, t_param));
-        }
-    }
+    let breps = Some((original_a, original_b, tolerance.linear()));
+    let hit_nodes = crate::merge::graph_split_node::split_edges_at_face_hits(
+        &mut graph,
+        &intersection_result.edge_face_hits,
+        snap_tol,
+        breps,
+    );
 
     // Insert intersection curves as shared edges, then
     // split them at edge-face hit nodes they pass through (the loop
@@ -137,7 +134,7 @@ pub(crate) fn cellular_graph_merge(
             .iter()
             .any(|o| !o.full_overlap)
     {
-        split_edges_at_shared_nodes(&mut graph, snap_tol);
+        split_edges_at_shared_nodes(&mut graph, snap_tol, breps);
         if intersection_result
             .coincidence
             .face_overlaps

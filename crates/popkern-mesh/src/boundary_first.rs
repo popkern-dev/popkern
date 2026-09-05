@@ -29,6 +29,9 @@ use crate::mesh::{FaceMesh, MeshVertex};
 
 #[path = "boundary_first_delaunay.rs"]
 mod boundary_first_delaunay;
+#[path = "boundary_first_fidelity.rs"]
+mod boundary_first_fidelity;
+use boundary_first_fidelity::closed_chart_fidelity_ok;
 #[path = "boundary_first_edge_samples.rs"]
 mod boundary_first_edge_samples;
 #[path = "boundary_first_revolution.rs"]
@@ -794,38 +797,9 @@ pub(crate) fn tessellate_face_boundary_first(
             t.swap(1, 2);
         }
     }
-    if popkern_core::trace::trace_enabled("boundary-first-ring") {
-        let mut vol6 = 0.0;
-        for t in &triangles {
-            let (a, b, c) = (
-                vertices[t[0]].position,
-                vertices[t[1]].position,
-                vertices[t[2]].position,
-            );
-            vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
-                + a.z * (b.x * c.y - b.y * c.x);
-        }
-        let mut uv_area2 = 0.0;
-        let mut ring_area2 = 0.0;
-        for t in &triangles {
-            let (a, b, c) = (vertices[t[0]].uv, vertices[t[1]].uv, vertices[t[2]].uv);
-            uv_area2 += ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs();
-        }
-        for ring in &rings {
-            let m = ring.uv.len();
-            let mut s = 0.0;
-            for i in 0..m {
-                let (x1, y1) = ring.uv[i];
-                let (x2, y2) = ring.uv[(i + 1) % m];
-                s += x1 * y2 - x2 * y1;
-            }
-            ring_area2 += s;
-        }
-        eprintln!(
-            "    [bf-vol] face {face_handle:?} tris {} wedge6 {vol6:.1} uv_area2 {uv_area2:.2} ring_area2 {:.2}",
-            triangles.len(),
-            ring_area2.abs()
-        );
+    boundary_first_fidelity::trace_bf_volume(face_handle, &vertices, &triangles, &rings);
+    if !closed_chart_fidelity_ok(face_handle, surface, &vertices, &triangles, options) {
+        return None;
     }
     Some(FaceMesh {
         face: face_handle,

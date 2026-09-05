@@ -11,9 +11,7 @@ use super::fragment_classify::classify_and_select_fragments;
 use super::graph::IntersectionGraph;
 use super::graph_build::insert_operand_topology;
 use super::graph_intersect::insert_intersection_curves;
-use super::graph_split::{
-    EndpointClass, classify_endpoint, remove_collinear_duplicates, split_graph_edge,
-};
+use super::graph_split::remove_collinear_duplicates;
 use super::graph_split_shared::{
     split_edges_at_shared_nodes, split_shared_edges_at_interior_nodes,
 };
@@ -49,14 +47,14 @@ pub(crate) fn graph_merge(
     let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Process edge-face hits — split edges at pierce points.
-    for hit in &intersection_result.edge_face_hits {
-        let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
-        if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
-            split_graph_edge(&mut graph, he_idx, hit.point, t_param);
-        }
-        // OnVertex → already exists, no split needed
-        // OnFaceInterior → will be handled when inserting curves
-    }
+    // (OnVertex already exists; OnFaceInterior is handled when
+    // inserting curves.)
+    let _ = super::graph_split_node::split_edges_at_face_hits(
+        &mut graph,
+        &intersection_result.edge_face_hits,
+        snap_tol,
+        Some((original_a, original_b, tolerance.linear())),
+    );
 
     // Insert intersection curves as shared edges.
     insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
@@ -66,7 +64,11 @@ pub(crate) fn graph_merge(
     // through the seam's phase-2 pierce node; unsplit, the walk
     // cannot route through it and the flanking fragments never close
     // — PK-295).
-    split_shared_edges_at_interior_nodes(&mut graph, snap_tol);
+    split_shared_edges_at_interior_nodes(
+        &mut graph,
+        snap_tol,
+        Some((original_a, original_b, tolerance.linear())),
+    );
 
     // Split ORIGINAL edges at shared-record endpoint
     // nodes. Phase 2 pierces edges named by edge-face hits, but its
@@ -79,7 +81,11 @@ pub(crate) fn graph_merge(
     // and the union discarded the entire wall). Runs unconditionally
     // — the pass is node-driven and curve-verified, and a shared
     // node genuinely mid-edge always means a missed split.
-    split_edges_at_shared_nodes(&mut graph, snap_tol);
+    split_edges_at_shared_nodes(
+        &mut graph,
+        snap_tol,
+        Some((original_a, original_b, tolerance.linear())),
+    );
     // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result

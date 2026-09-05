@@ -521,6 +521,7 @@ pub(crate) fn execute_boolean_full(
     // merge carried over intact keeps its authoritative pcurves.
     let mut result = result;
     let _ = result.recompute_pcurves_where_missing();
+    helpers_pcurve_coherence::normalize_output_loop_charts(&mut result);
 
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
     // post-check (manifold, Euler, half-edge cycles, watertightness).

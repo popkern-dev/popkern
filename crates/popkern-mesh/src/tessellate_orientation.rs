@@ -145,6 +145,19 @@ pub(super) fn orient_face_meshes_coherently(
                 if closed {
                     d -= length * (d / length).round();
                 }
+                // A genuine on-curve chord advances by roughly its own
+                // chord length (arc/chord ≤ π/2 even for a semicircle
+                // chord). A boundary segment that merely CONNECTS the
+                // curve's two endpoints — the closing chord of a
+                // crescent face, whose vertices are shared with the
+                // edge — projects successfully at both ends yet fakes
+                // a near-full-length advance, cancelling the true
+                // traversal and flipping the vote (measured: grind-cut
+                // cap d = −0.016 instead of +0.854 on a 0.87 rim).
+                let chord = p.distance_to(q);
+                if d.abs() > chord * 4.0 {
+                    continue;
+                }
                 advance += d;
             }
         }
@@ -209,6 +222,13 @@ pub(super) fn orient_face_meshes_coherently(
             continue;
         }
         let weight = d1.abs().min(d2.abs());
+        if popkern_core::trace::trace_enabled("mesh-orientation") {
+            eprintln!(
+                "  [orient] vote ({f1},{f2}) {} w={weight:.5} d1={d1:.5} d2={d2:.5} \
+                 edge_len={edge_len:.4}",
+                if d1 * d2 > 0.0 { "same" } else { "opposite" }
+            );
+        }
         let entry = votes.entry((f1.min(f2), f1.max(f2))).or_default();
         if d1 * d2 > 0.0 {
             entry.0 += weight;

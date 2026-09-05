@@ -428,7 +428,7 @@ fn trace_clip_input(
         }
     };
     eprintln!(
-        "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) dA={:.1e} dB={:.1e} kept={}",
+        "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.9},{:.9},{:.9})->({:.9},{:.9},{:.9}) dA={:.1e} dB={:.1e} kept={}",
         p0.x,
         p0.y,
         p0.z,
@@ -450,7 +450,7 @@ fn trace_clip_output(
     let p0 = clipped.curve_3d.point_at(t0);
     let p1 = clipped.curve_3d.point_at(t1);
     eprintln!(
-        "  [clip-out] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) closed={}",
+        "  [clip-out] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.9},{:.9},{:.9})->({:.9},{:.9},{:.9}) closed={}",
         p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, clipped.is_closed
     );
 }

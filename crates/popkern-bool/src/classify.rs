@@ -239,7 +239,7 @@ fn ray_crossing_count(
     for (face_handle, aabb) in face_aabbs {
         if !ray_intersects_aabb(origin, direction, aabb) {
             if ray_trace {
-                eprintln!("  [ray] {face_handle:?} aabb miss");
+                eprintln!("  [ray] {face_handle:?} aabb miss {aabb:?}");
             }
             continue;
         }

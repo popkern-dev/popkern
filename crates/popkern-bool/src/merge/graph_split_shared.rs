@@ -3,9 +3,8 @@
 //! `graph_split.rs` (500-line ratchet).
 
 use super::graph::{EdgeSource, IntersectionGraph};
-use super::graph_split::{
-    point_on_curved_graph_edge, point_on_graph_edge_curve, point_on_segment, split_at_existing_node,
-};
+use super::graph_split::{point_on_curved_graph_edge, point_on_graph_edge_curve, point_on_segment};
+use super::graph_split_node::split_at_existing_node_with_pcurves;
 
 /// Split SHARED intersection-record edges at existing nodes lying on
 /// their curve INTERIOR. Phase 2 splits operand edges where they
@@ -20,7 +19,15 @@ use super::graph_split::{
 /// self-twinned half-edges). Mirror of
 /// [`split_edges_at_shared_nodes`], which splits NON-shared edges at
 /// shared-record endpoints.
-pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
+pub(crate) fn split_shared_edges_at_interior_nodes(
+    graph: &mut IntersectionGraph,
+    tolerance: f64,
+    breps: Option<(
+        &popkern_core::topology::BRep,
+        &popkern_core::topology::BRep,
+        f64,
+    )>,
+) {
     let mut did_split = true;
     while did_split {
         did_split = false;
@@ -57,7 +64,7 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
                     );
                 }
                 if on_edge {
-                    split_at_existing_node(graph, i, node_idx);
+                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     did_split = true;
                     break;
                 }
@@ -148,7 +155,7 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
                     None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
                 };
                 if on_edge {
-                    split_at_existing_node(graph, i, node_idx);
+                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     did_split = true;
                     break 'outer;
                 }
@@ -158,7 +165,15 @@ pub(crate) fn split_shared_edges_at_interior_nodes(graph: &mut IntersectionGraph
     }
 }
 
-pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
+pub(crate) fn split_edges_at_shared_nodes(
+    graph: &mut IntersectionGraph,
+    tolerance: f64,
+    breps: Option<(
+        &popkern_core::topology::BRep,
+        &popkern_core::topology::BRep,
+        f64,
+    )>,
+) {
     // Collect shared edge endpoint node indices.
     let shared_nodes: Vec<usize> = {
         let set: std::collections::HashSet<usize> = graph
@@ -197,14 +212,14 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
                     // classify_endpoint: a 180° arc was split at
                     // points on its chord, off-surface).
                     if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
-                        split_at_existing_node(graph, i, node_idx);
+                        split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                         did_split = true;
                         break;
                     }
                 } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
                     // Mirror case: the node sits ON the curve but
                     // off its chord.
-                    split_at_existing_node(graph, i, node_idx);
+                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     did_split = true;
                     break;
                 }
@@ -295,7 +310,7 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
                     None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
                 };
                 if on_edge {
-                    split_at_existing_node(graph, i, node_idx);
+                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     did_split = true;
                     break 'outer;
                 }

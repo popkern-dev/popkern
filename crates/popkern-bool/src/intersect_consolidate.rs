@@ -292,15 +292,24 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
         // Self-weld: a nearly-closed loop record (closure gap within
         // the marching slop) becomes exactly closed — 3D and both UV
         // charts — so the graph sees one node, not an open arc with
-        // a 1e-3 gap.
+        // a 1e-3 gap. Guarded by the record's OWN extent: a true loop
+        // closes a gap far smaller than its diameter, while a short
+        // exact CONNECTOR between two distinct junctions (rim crossing
+        // to seam crossing, 5.6e-4 apart at a grazing corner —
+        // PK-441) has a "gap" comparable to its whole extent and must
+        // keep both endpoints.
         for &i in idxs.iter().filter(|&&i| !drop[i]) {
-            let (s3, e3) = {
+            let (s3, e3, ext) = {
                 let c = &records[i].curve.curve_3d;
                 let (t0, t1) = c.parameter_range();
-                (c.point_at(t0), c.point_at(t1))
+                (
+                    c.point_at(t0),
+                    c.point_at(t1),
+                    c.point_at(t0).distance_to(&c.point_at(0.5 * (t0 + t1))),
+                )
             };
             let d = s3.distance_to(&e3);
-            if d > tolerance.linear() && d < gate {
+            if d > tolerance.linear() && d < gate && d < 0.5 * ext {
                 let weld = popkern_core::geometry::Point3::new(
                     0.5 * (s3.x + e3.x),
                     0.5 * (s3.y + e3.y),
@@ -337,16 +346,33 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
         // Weld junctions among the survivors: cluster endpoints and
         // move each cluster's endpoints (3D + both UV charts stay
         // consistent because the curves are only ADJUSTED at their
-        // endpoint control points, which both charts share).
+        // endpoint control points, which both charts share). The weld
+        // distance is capped by a quarter of the SHORTER record's own
+        // extent: moving an endpoint further materially deforms the
+        // record, and a short exact connector's two junctions (5.6e-4
+        // apart at a grazing rim × seam corner, both Newton-refined —
+        // PK-441) must not be averaged into one.
         let survivors: Vec<usize> = idxs.iter().copied().filter(|&i| !drop[i]).collect();
+        let survivor_extents: Vec<f64> = survivors
+            .iter()
+            .map(|&i| {
+                let c = &records[i].curve.curve_3d;
+                let (t0, t1) = c.parameter_range();
+                let s = c.point_at(t0);
+                s.distance_to(&c.point_at(t1))
+                    .max(s.distance_to(&c.point_at(0.5 * (t0 + t1))))
+            })
+            .collect();
         for a_pos in 0..survivors.len() {
             for b_pos in (a_pos + 1)..survivors.len() {
                 let (ia, ib) = (survivors[a_pos], survivors[b_pos]);
+                let pair_gate =
+                    gate.min(0.25 * survivor_extents[a_pos].min(survivor_extents[b_pos]));
                 for (a_end, b_end) in [(false, true), (true, false), (false, false), (true, true)] {
                     let pa = endpoint_of(&records[ia], a_end);
                     let pb = endpoint_of(&records[ib], b_end);
                     let d = pa.distance_to(&pb);
-                    if d > tolerance.linear() && d < gate {
+                    if d > tolerance.linear() && d < pair_gate {
                         let weld = popkern_core::geometry::Point3::new(
                             0.5 * (pa.x + pb.x),
                             0.5 * (pa.y + pb.y),
