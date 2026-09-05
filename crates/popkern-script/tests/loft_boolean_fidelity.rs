@@ -191,16 +191,99 @@ fn polygon_section_blade_union_hub_serves_watertight() {
         .expect("polygon blade ∪ hub watertight mesh");
 }
 
+/// PK-445 mesh serve gate: watertight (position-welded open-edge
+/// census — the official topological gate alone passes zero-volume
+/// ribbons) AND faithful (signed volume within 2% of the analytic
+/// helical-tube volume π·r²·L; the ribbon read 49%, the uniform-grid
+/// fallback 9% low with T-junction cracks).
+fn assert_meshes_watertight_and_faithful(
+    brep: &popkern_core::topology::BRep,
+    expected_volume: f64,
+    label: &str,
+) {
+    let options = popkern_mesh::TessellationOptions {
+        chord_height: 5.0e-4,
+        min_subdivisions: 4,
+        max_subdivisions: 512,
+    };
+    let mesh = popkern_mesh::tessellate(brep, &options).expect("mesh");
+    let mut vol6 = 0.0;
+    for t in &mesh.triangles {
+        let a = mesh.vertices[t[0]].position;
+        let b = mesh.vertices[t[1]].position;
+        let c = mesh.vertices[t[2]].position;
+        vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x);
+    }
+    let volume = vol6 / 6.0;
+    let mut edge_uses: std::collections::HashMap<(u64, u64), i64> =
+        std::collections::HashMap::new();
+    let key = |p: popkern_core::geometry::Point3| -> u64 {
+        let q = |x: f64| ((x * 1.0e7).round() as i64) as u64;
+        q(p.x)
+            .wrapping_mul(0x9E3779B97F4A7C15)
+            .wrapping_add(q(p.y).wrapping_mul(0xC2B2AE3D27D4EB4F))
+            .wrapping_add(q(p.z))
+    };
+    for t in &mesh.triangles {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let a = key(mesh.vertices[t[i]].position);
+            let b = key(mesh.vertices[t[j]].position);
+            *edge_uses.entry((a.min(b), a.max(b))).or_insert(0) += if a < b { 1 } else { -1 };
+        }
+    }
+    let open: usize = edge_uses.values().filter(|&&c| c != 0).count();
+    assert_eq!(open, 0, "{label}: mesh has {open} open edges");
+    let rel = (volume - expected_volume).abs() / expected_volume;
+    assert!(
+        rel < 0.02,
+        "{label}: mesh volume {volume:.6} vs analytic {expected_volume:.6} ({:.2}% off)",
+        rel * 100.0
+    );
+}
+
+/// Analytic volume of the 6-turn coil after `cuts` end grinds:
+/// π·r²·L (helix arc length L = turns·√((2πR)² + pitch²)) minus one
+/// ground sliver per cut. Each grind plane sits 0.005 past the wire
+/// centre's extreme, so the sliver is the tube material beyond it —
+/// integrated as circular-segment cross-sections along the helix
+/// (the ~4.6° pitch tilt of the cross-section plane changes the
+/// integral at the 0.3% level of the sliver itself, far inside the
+/// mesh gate's band).
+fn coil_analytic_volume(cuts: usize) -> f64 {
+    let big_r = 0.3_f64;
+    let pitch = 0.15_f64;
+    let wire_r = 0.04_f64;
+    let speed = ((std::f64::consts::TAU * big_r).powi(2) + pitch * pitch).sqrt();
+    let full = std::f64::consts::PI * wire_r * wire_r * 6.0 * speed;
+    // Sliver: wire centre height z = pitch·t (t in turns); the plane
+    // at −0.005 removes the segment below it while z + 0.005 < r.
+    let seg = |d: f64| -> f64 {
+        // Area of the disc part at signed centre distance d beyond
+        // the cut line (d ≤ r).
+        wire_r * wire_r * (d / wire_r).acos() - d * (wire_r * wire_r - d * d).sqrt()
+    };
+    let t_end = (wire_r - 0.005) / pitch;
+    let n = 4096;
+    let mut sliver = 0.0;
+    for k in 0..n {
+        let t = t_end * (k as f64 + 0.5) / n as f64;
+        sliver += seg(pitch * t + 0.005) * speed * t_end / n as f64;
+    }
+    full - cuts as f64 * sliver
+}
+
 /// Spring end grinding: the plate's section loop crosses the helical
 /// tube wall's seam mid-way — the march wraps the geometrically-closed
 /// chart, the record chain closes through the seam and rim junctions,
 /// and the subtraction serves a valid body (PK-441: chart-continuous
-/// trim loops, exact corner records, robust classification). Mesh
-/// watertightness at full FIDELITY is the chart-aware meshing
-/// campaign's frontier: boundary-first honestly declines the cut
-/// wall (its boundary-only Delaunay is a ribbon of tube-diameter
-/// chords) and the uniform-grid fallback leaves rim T-junction
-/// chains beyond the crack zipper's band.
+/// trim loops, exact corner records, robust classification). The
+/// PK-445 mesh gate below serves at fidelity: the cut wall meshes
+/// boundary-first on a per-direction curvature-adaptive lattice
+/// (the chart-diagonal probe read the coiled chart by phase luck and
+/// left the interior empty — the ribbon class), with breadth-first
+/// canonical edge sampling (the depth-first cap left half the seam
+/// as one segment whose protecting disk evacuated half the lattice).
 #[test]
 fn spring_end_grind_subtraction_serves() {
     let mut m = Model::new();
@@ -242,6 +325,8 @@ fn spring_end_grind_subtraction_serves() {
         fallbacks.is_empty(),
         "grind fell back to graph-merge: {fallbacks:?}"
     );
+    // PK-445: the ground coil meshes watertight AND faithful.
+    assert_meshes_watertight_and_faithful(&brep, coil_analytic_volume(1), "single grind");
 }
 
 /// Double-ended spring grinding: the SECOND cut's plane grazes the
@@ -304,4 +389,6 @@ fn spring_double_end_grind_serves() {
         fallbacks.is_empty(),
         "a grind fell back to graph-merge: {fallbacks:?}"
     );
+    // PK-445: the double-ground coil meshes watertight AND faithful.
+    assert_meshes_watertight_and_faithful(&brep, coil_analytic_volume(2), "double grind");
 }

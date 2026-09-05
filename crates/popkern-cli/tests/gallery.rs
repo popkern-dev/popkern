@@ -97,10 +97,12 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     (
         "coil_spring",
         "Coil spring",
-        "Three springs from one verb: a compression spring, a tapered valve spring, and a \
-         left-hand spring phased a quarter turn — every path an exact rational helix.",
-        6,
-        "helical_sweep, exact helix paths, taper_to, left_hand winding, start_angle phasing",
+        "Three springs from one verb: a ground-end compression spring, a tapered valve \
+         spring, and a left-hand spring phased a quarter turn — every path an exact \
+         rational helix.",
+        12,
+        "helical_sweep, exact helix paths, ground flat ends, taper_to, left_hand winding, \
+         start_angle phasing",
     ),
     (
         "propeller",

@@ -50,22 +50,48 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
         }
         let eval: &dyn CurveEval = &curve.geometry;
         let at = |f: f64| eval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f);
-        // Adaptive subdivision by chord height, depth-limited.
+        // Adaptive subdivision by chord height — BREADTH-FIRST under
+        // the budget. The old left-to-right scan refined depth-first,
+        // so hitting the cap mid-curve left everything right of the
+        // cursor UNREFINED: the 6-turn coil seam capped at fraction
+        // 0.5 and its ring carried one segment spanning HALF the
+        // chart, whose diametral protecting disk evacuated 50% of
+        // the interior lattice (measured: the ground spring meshed
+        // watertight at 49% of its analytic volume). Splitting the
+        // worst-deviation intervals first keeps a capped refinement
+        // uniform along the curve.
         let mut fractions = vec![0.0, 1.0];
-        let mut i = 0;
-        while i + 1 < fractions.len() {
-            let (a, b) = (fractions[i], fractions[i + 1]);
-            let (pa, pm, pb) = (at(a), at(0.5 * (a + b)), at(b));
-            let chord_mid = Point3::new(
-                0.5 * (pa.x + pb.x),
-                0.5 * (pa.y + pb.y),
-                0.5 * (pa.z + pb.z),
-            );
-            if pm.distance_to(&chord_mid) > chord_height && fractions.len() < 256 && (b - a) > 1e-3
-            {
-                fractions.insert(i + 1, 0.5 * (a + b));
-            } else {
-                i += 1;
+        let cap = 512usize;
+        loop {
+            let mut split_at: Vec<(f64, usize)> = Vec::new();
+            for i in 0..fractions.len() - 1 {
+                let (a, b) = (fractions[i], fractions[i + 1]);
+                if (b - a) <= 1e-3 {
+                    continue;
+                }
+                let (pa, pm, pb) = (at(a), at(0.5 * (a + b)), at(b));
+                let chord_mid = Point3::new(
+                    0.5 * (pa.x + pb.x),
+                    0.5 * (pa.y + pb.y),
+                    0.5 * (pa.z + pb.z),
+                );
+                let dev = pm.distance_to(&chord_mid);
+                if dev > chord_height {
+                    split_at.push((dev, i));
+                }
+            }
+            if split_at.is_empty() || fractions.len() >= cap {
+                break;
+            }
+            let budget = cap - fractions.len();
+            if split_at.len() > budget {
+                split_at.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
+                split_at.truncate(budget);
+                split_at.sort_by_key(|&(_, i)| i);
+            }
+            for &(_, i) in split_at.iter().rev() {
+                let mid = 0.5 * (fractions[i] + fractions[i + 1]);
+                fractions.insert(i + 1, mid);
             }
         }
         let mut points: Vec<Point3> = fractions.iter().map(|&f| at(f)).collect();

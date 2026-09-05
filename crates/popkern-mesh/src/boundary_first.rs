@@ -34,10 +34,14 @@ mod boundary_first_fidelity;
 use boundary_first_fidelity::closed_chart_fidelity_ok;
 #[path = "boundary_first_edge_samples.rs"]
 mod boundary_first_edge_samples;
+#[path = "boundary_first_lattice.rs"]
+mod boundary_first_lattice;
 #[path = "boundary_first_revolution.rs"]
 mod boundary_first_revolution;
 #[path = "boundary_first_revolution_bipolar.rs"]
 mod boundary_first_revolution_bipolar;
+#[path = "boundary_first_ring_condition.rs"]
+mod boundary_first_ring_condition;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
@@ -258,81 +262,9 @@ pub(crate) fn tessellate_face_boundary_first(
         return Some(fm);
     }
 
-    // Collinear boundary runs (straight edges sampled at several
-    // stations) sit exactly on one line in UV; Bowyer–Watson then
-    // connects the run's endpoints directly and the interior
-    // stations never join the hull — the coverage check below would
-    // reject the whole face. Nudge each strictly-collinear boundary
-    // point INWARD by an invisible epsilon in UV (3D positions stay
-    // canonical, so shared-edge closure is unaffected).
-    for ring in &mut rings {
-        let n = ring.uv.len();
-        if n < 3 {
-            continue;
-        }
-        let mut scale = 0.0_f64;
-        for i in 0..n {
-            let a = ring.uv[i];
-            let b = ring.uv[(i + 1) % n];
-            scale = scale.max((a.0 - b.0).abs().max((a.1 - b.1).abs()));
-        }
-        let eps = scale.max(1e-9) * 1.0e-7;
-        let mut area2 = 0.0;
-        for i in 0..n {
-            let (x1, y1) = ring.uv[i];
-            let (x2, y2) = ring.uv[(i + 1) % n];
-            area2 += x1 * y2 - x2 * y1;
-        }
-        let inward = if area2 > 0.0 { 1.0 } else { -1.0 };
-        let orig: Vec<(f64, f64)> = ring.uv.clone();
-        for i in 0..n {
-            let p = orig[i];
-            let q = orig[(i + n - 1) % n];
-            let r = orig[(i + 1) % n];
-            let cross = (p.0 - q.0) * (r.1 - q.1) - (p.1 - q.1) * (r.0 - q.0);
-            let span = ((r.0 - q.0).powi(2) + (r.1 - q.1).powi(2))
-                .sqrt()
-                .max(1e-300);
-            if (cross / span).abs() < eps {
-                // Left normal of q→r is inward for CCW rings.
-                let (dx, dy) = ((r.0 - q.0) / span, (r.1 - q.1) / span);
-                ring.uv[i] = (p.0 - -(dy * eps * inward), p.1 + -(dx * eps * inward));
-            }
-        }
-    }
-
-    // Deterministic micro-jitter on every boundary point's UV
-    // (≈1e-7 of the ring scale, direction hashed from the index):
-    // exact COCIRCULAR point groups — font-glyph arcs flatten into
-    // them by construction — read as degenerate to the incircle
-    // test the same way exactly-collinear runs do, and cascade
-    // coverage holes through the Delaunay. The jitter is orders of
-    // magnitude below any chord tolerance; 3D positions stay
-    // canonical, so shared-edge closure is unaffected.
-    {
-        let mut scale = 0.0_f64;
-        for ring in &rings {
-            let n = ring.uv.len();
-            for i in 0..n {
-                let a = ring.uv[i];
-                let b = ring.uv[(i + 1) % n];
-                scale = scale.max((a.0 - b.0).abs().max((a.1 - b.1).abs()));
-            }
-        }
-        let eps = scale.max(1e-9) * 1.0e-7;
-        let mut k = 0u64;
-        for ring in &mut rings {
-            for uv in &mut ring.uv {
-                // Cheap deterministic hash → angle.
-                k = k
-                    .wrapping_mul(6364136223846793005)
-                    .wrapping_add(1442695040888963407);
-                let angle = (k >> 11) as f64 / (1u64 << 53) as f64 * std::f64::consts::TAU;
-                uv.0 += eps * angle.cos();
-                uv.1 += eps * angle.sin();
-            }
-        }
-    }
+    // UV conditioning for the incircle test (`boundary_first_ring_condition`).
+    boundary_first_ring_condition::nudge_collinear_runs(&mut rings);
+    boundary_first_ring_condition::jitter_cocircular(&mut rings);
 
     // Point set: boundary points (fixed) + interior grid points.
     let mut uv_pts: Vec<(f64, f64)> = Vec::new();
@@ -381,6 +313,17 @@ pub(crate) fn tessellate_face_boundary_first(
             n *= 2;
         }
     }
+    // Per-direction station counts for NURBS charts — the diagonal
+    // probe above reads a coiled chart by phase luck (n=4 ribbon,
+    // see `boundary_first_lattice`); analytic charts keep the grid.
+    let (n_u, n_v) = if matches!(
+        surface,
+        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+    ) {
+        boundary_first_lattice::directional_stations(surface, (u0, u1), (v0, v1), options)
+    } else {
+        (n, n)
+    };
     // Chart metric scale (mm per parameter unit at the chart
     // centre). The chart mixes units (radians × millimetres on a
     // cylinder), and every proximity quantity below — cell size,
@@ -400,9 +343,19 @@ pub(crate) fn tessellate_face_boundary_first(
         let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
         (du.max(1e-9), dv.max(1e-9))
     };
-    let cell = ((su * (u1 - u0)) / n as f64)
-        .max((sv * (v1 - v0)) / n as f64)
-        .max(1e-12);
+    // Cell for the clearance band and segment refinement: the SMALLER
+    // per-direction spacing on directional lattices (an anisotropic
+    // band's clearance derived from its long direction evacuated the
+    // whole interior); the tuned max formula elsewhere.
+    let cell = if n_u != n || n_v != n {
+        ((su * (u1 - u0)) / n_u as f64)
+            .min((sv * (v1 - v0)) / n_v as f64)
+            .max(1e-12)
+    } else {
+        ((su * (u1 - u0)) / n as f64)
+            .max((sv * (v1 - v0)) / n as f64)
+            .max(1e-12)
+    };
     let clearance = cell / 3.0;
     // LONG boundary segments on CURVED charts must be refined before
     // the grid: the diametral-disk exclusion below evacuates every
@@ -428,8 +381,27 @@ pub(crate) fn tessellate_face_boundary_first(
             for k in 0..m {
                 let a = ring.uv[k];
                 let b = ring.uv[(k + 1) % m];
-                let len2 = (su * (b.0 - a.0)).powi(2) + (sv * (b.1 - a.1)).powi(2);
-                if len2 > (1.5 * cell) * (1.5 * cell) {
+                let (du, dv) = (su * (b.0 - a.0), sv * (b.1 - a.1));
+                let len2 = du.powi(2) + dv.powi(2);
+                // Threshold against the lattice spacing along the
+                // segment's DOMINANT direction: on an anisotropic
+                // directional lattice, judging a v-running seam
+                // segment by the (much smaller) u-cell refined it to
+                // HALF the interior row spacing, the refined rail sat
+                // exactly midway between rows as one near-cocircular
+                // family, and Bowyer–Watson fanned long-u chords
+                // through the inter-row band (the PK-146 class —
+                // measured: ground-spring volume fell from 0.0502 to
+                // 0.0456 at default options). Square grids keep the
+                // single cell.
+                let thr = if n_u != n || n_v != n {
+                    let cell_u = (su * (u1 - u0)) / n_u as f64;
+                    let cell_v = (sv * (v1 - v0)) / n_v as f64;
+                    if du.abs() > dv.abs() { cell_u } else { cell_v }
+                } else {
+                    cell
+                };
+                if len2 > (1.5 * thr) * (1.5 * thr) {
                     let (eh, f_lo, f_hi) = ring.sources[k];
                     split_requests.push((eh, 0.5 * (f_lo + f_hi)));
                 }
@@ -606,18 +578,60 @@ pub(crate) fn tessellate_face_boundary_first(
             );
         }
     } else {
-        for i in 1..n {
-            for j in 1..n {
-                let u = u0 + (u1 - u0) * i as f64 / n as f64;
-                let v = v0 + (v1 - v0) * j as f64 / n as f64;
-                if point_in_region((u, v), &rings)
-                    && dist_to_rings((u, v), &rings, su, sv) > clearance
-                    && !in_any_diametral_disk(u, v)
-                {
+        let mut census = [0usize; 4]; // region, clearance, disk, kept
+        for i in 1..n_u {
+            for j in 1..n_v {
+                let u = u0 + (u1 - u0) * i as f64 / n_u as f64;
+                let v = v0 + (v1 - v0) * j as f64 / n_v as f64;
+                if !point_in_region((u, v), &rings) {
+                    census[0] += 1;
+                } else if dist_to_rings((u, v), &rings, su, sv) <= clearance {
+                    census[1] += 1;
+                } else if in_any_diametral_disk(u, v) {
+                    census[2] += 1;
+                } else {
+                    census[3] += 1;
                     uv_pts.push((u, v));
                     pos_pts.push(None);
                 }
             }
+        }
+        // Lattice kill census + boundary-segment metric stats: the
+        // diagnosis surface for evacuated interiors (a depth-first
+        // sampling cap once left ONE seam segment spanning half the
+        // chart whose diametral disk killed 50% of the lattice —
+        // "max" names that class instantly).
+        if popkern_core::trace::trace_enabled("boundary-first-ring") {
+            let mut seg_lens: Vec<f64> = Vec::new();
+            let mut worst = ((0.0, 0.0), (0.0, 0.0), 0.0_f64);
+            for ring in &rings {
+                let m = ring.uv.len();
+                for k in 0..m {
+                    let a = ring.uv[k];
+                    let b = ring.uv[(k + 1) % m];
+                    let l = ((su * (b.0 - a.0)).powi(2) + (sv * (b.1 - a.1)).powi(2)).sqrt();
+                    if l > worst.2 {
+                        worst = (a, b, l);
+                    }
+                    seg_lens.push(l);
+                }
+            }
+            seg_lens.sort_by(f64::total_cmp);
+            let med = seg_lens.get(seg_lens.len() / 2).copied().unwrap_or(0.0);
+            let long = seg_lens.iter().filter(|&&l| l > 3.0 * cell).count();
+            eprintln!(
+                "    [bf-census] face {face_handle:?} n_u={n_u} n_v={n_v}: region={} clearance={} disk={} kept={} | segs {} med {med:.4} max {:.4} at ({:.4},{:.4})->({:.4},{:.4}) long(>3cell) {long}",
+                census[0],
+                census[1],
+                census[2],
+                census[3],
+                seg_lens.len(),
+                worst.2,
+                worst.0.0,
+                worst.0.1,
+                worst.1.0,
+                worst.1.1
+            );
         }
     }
 
@@ -896,15 +910,23 @@ fn build_ring(
             let s_end = sof.geometry.point_at(p_end.x, p_end.y);
             let pcurve_forward_along_walk =
                 s_start.distance_to(&origin) <= s_end.distance_to(&origin);
-            // Fraction along the WALK is k/(m-1); convert to the
-            // curve fraction (f) orientation… the pcurve maps the
-            // same geometric edge, so use the walk fraction with the
-            // pcurve's own direction.
-            let walk_f = k as f64 / (m - 1) as f64;
-            let tp = if pcurve_forward_along_walk {
-                pc.t_start + (pc.t_end - pc.t_start) * walk_f
+            // Seed at the sample's CURVE-WINDOW fraction, not the
+            // uniform walk fraction k/(m-1): canonical samples are
+            // ADAPTIVE (encroachment splits refine specific spans),
+            // so index and curve fraction diverge — on the coil seam
+            // a uniform-index seed sat half a pitch from its target
+            // and the Newton refinement converged onto the ADJACENT
+            // TURN of the helix (residual 0.156 ≈ the pitch; the
+            // whole wall fell back to the uniform-grid path at fine
+            // tolerances). The pcurve direction relative to the
+            // CURVE is the walk-relative direction composed with the
+            // sample orientation.
+            let curve_f = samples.fractions[idx];
+            let pcurve_along_curve = pcurve_forward_along_walk == forward;
+            let tp = if pcurve_along_curve {
+                pc.t_start + (pc.t_end - pc.t_start) * curve_f
             } else {
-                pc.t_end - (pc.t_end - pc.t_start) * walk_f
+                pc.t_end - (pc.t_end - pc.t_start) * curve_f
             };
             // The pcurve is only a SEED: refine each UV by point
             // inversion of the canonical 3D sample so imprecise
@@ -978,7 +1000,11 @@ fn build_ring(
             // 106 -> 492). Do not reintroduce it.
             if residual > gate {
                 if popkern_core::trace::trace_enabled("boundary-first") {
-                    eprintln!("    [bf] edge {eh:?}: off-surface residual {residual:.3e}");
+                    eprintln!(
+                        "    [bf] edge {eh:?}: off-surface residual {residual:.3e} at sample {idx}/{m} \
+                         target ({:.4},{:.4},{:.4}) seed uv ({:.4},{:.4}) refined ({uu:.4},{vv:.4})",
+                        target.x, target.y, target.z, uvp.x, uvp.y
+                    );
                 }
                 return None;
             }

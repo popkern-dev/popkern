@@ -597,8 +597,12 @@ pub(crate) fn tessellate_brep(
             let Some(samples) = edge_samples.get_mut(&eh) else {
                 continue;
             };
-            if samples.fractions.len() >= 96 {
-                continue; // refinement cap per edge
+            if samples.fractions.len() >= 512 {
+                // Refinement cap per edge — matches the adaptive
+                // sampler's own cap (96 starved the xfine cut-curve
+                // splits and the coverage check bounced the whole
+                // wall to the uniform-grid path).
+                continue;
             }
             let idx = samples.fractions.partition_point(|&f| f < fraction);
             let near = |f: f64| (f - fraction).abs() < 1e-4;
