@@ -95,6 +95,16 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "script functions, computed star polygons, logarithmic spirals, single-cut cavities",
     ),
     (
+        "polyhedral_dice",
+        "Polyhedral dice",
+        "The five Platonic solids as a dice set — face normals computed from the \
+         golden ratio, each die carved from a block by one exact plane cut per \
+         face pair, and a filleted d6 dimpled with 21 spherical pips.",
+        176,
+        "plane_at custom sketch planes, intersect, computed face normals, \
+         spherical dimple cuts, multi-body sets",
+    ),
+    (
         "coil_spring",
         "Coil spring",
         "Three springs from one verb: a ground-end compression spring, a tapered valve \
