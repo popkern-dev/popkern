@@ -75,10 +75,33 @@ pub(crate) fn march(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
     );
 
-    // March in -T direction.
-    let mut backward = march_one_direction(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance, handler,
-    );
+    // A forward trace that CLOSED already covers the whole loop —
+    // the backward march would re-trace it lap-for-lap (measured on
+    // the coil-grind SSI: every closed marched loop carried 2x
+    // samples as two duplicate laps that seam-splitting turned into
+    // duplicate records and consolidation had to dedupe — PK-450).
+    let forward_closed = forward.len() > 20 && {
+        let total_arc: f64 = forward
+            .windows(2)
+            .map(|w| w[0].point.distance_to(&w[1].point))
+            .sum();
+        let avg_step = total_arc / (forward.len() - 1) as f64;
+        let tol = (avg_step * 2.0).max(tolerance.linear());
+        forward[0]
+            .point
+            .distance_to(&forward[forward.len() - 1].point)
+            < tol
+    };
+
+    // March in -T direction (only when the loop is still open).
+    let mut backward = if forward_closed {
+        Vec::new()
+    } else {
+        march_one_direction(
+            surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance,
+            handler,
+        )
+    };
 
     // Reverse backward so it goes from far-negative to start.
     backward.reverse();
