@@ -33,6 +33,48 @@ pub struct NurbsSurface {
 }
 
 impl NurbsSurface {
+    /// Knot-span-midpoint + chart-border projection seeds for
+    /// multi-sheet closest-point queries (PK-446): every span
+    /// midpoint pair (subsampled to 48/axis) plus the chart borders —
+    /// a border minimum (a rim point ON the v=1 line of a coiled
+    /// wall) is farther from every span MIDPOINT than from the
+    /// adjacent turn's surface, so midpoint-only ranking walked the
+    /// wrong sheet. Returns `None` for few-span charts (≤5 stations
+    /// per axis), where a generic multi-start already covers the
+    /// basin structure.
+    pub fn projection_seeds(&self) -> Option<Vec<(f64, f64)>> {
+        let axis_seeds = |knots: &[f64]| -> Vec<f64> {
+            let mut uniq: Vec<f64> = Vec::new();
+            for &k in knots {
+                if uniq.last().is_none_or(|&last| k > last) {
+                    uniq.push(k);
+                }
+            }
+            let mut mids: Vec<f64> = uniq.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
+            if mids.len() > 48 {
+                let step = mids.len() as f64 / 48.0;
+                mids = (0..48).map(|i| mids[(i as f64 * step) as usize]).collect();
+            }
+            if let (Some(&lo), Some(&hi)) = (uniq.first(), uniq.last()) {
+                mids.insert(0, lo);
+                mids.push(hi);
+            }
+            mids
+        };
+        let us = axis_seeds(&self.knots_u);
+        let vs = axis_seeds(&self.knots_v);
+        if us.len() <= 5 && vs.len() <= 5 {
+            return None;
+        }
+        let mut seeds = Vec::with_capacity(us.len() * vs.len());
+        for &u in &us {
+            for &v in &vs {
+                seeds.push((u, v));
+            }
+        }
+        Some(seeds)
+    }
+
     /// Access control point at grid position (i_u, i_v) in the flat array.
     pub(super) fn cp(&self, i_u: usize, i_v: usize) -> &Point3 {
         &self.control_points[i_u * self.num_v + i_v]
@@ -153,43 +195,12 @@ impl SurfaceEval for NurbsSurface {
         // (subsampled to 48/axis), coarse-select by distance, and
         // Newton-refine only the best few.
         use crate::geometry::surface::{closest_point_from_seeds, closest_point_gauss_newton};
-        let axis_seeds = |knots: &[f64]| -> Vec<f64> {
-            let mut uniq: Vec<f64> = Vec::new();
-            for &k in knots {
-                if uniq.last().is_none_or(|&last| k > last) {
-                    uniq.push(k);
-                }
-            }
-            let mut mids: Vec<f64> = uniq.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
-            if mids.len() > 48 {
-                let step = mids.len() as f64 / 48.0;
-                mids = (0..48).map(|i| mids[(i as f64 * step) as usize]).collect();
-            }
-            // The chart BORDERS are seed stations too: a border
-            // minimum (a rim point ON the v=1 line of a coiled wall)
-            // is farther from every span MIDPOINT than from the
-            // adjacent turn's surface, so midpoint-only ranking
-            // walked the wrong sheet.
-            if let (Some(&lo), Some(&hi)) = (uniq.first(), uniq.last()) {
-                mids.insert(0, lo);
-                mids.push(hi);
-            }
-            mids
-        };
-        let us = axis_seeds(&self.knots_u);
-        let vs = axis_seeds(&self.knots_v);
-        if us.len() <= 5 && vs.len() <= 5 {
+        match self.projection_seeds() {
             // Few spans — the generic multi-start already covers the
             // basin structure; keep the tuned path.
-            return closest_point_gauss_newton(self, point);
+            None => closest_point_gauss_newton(self, point),
+            Some(seeds) => closest_point_from_seeds(self, point, &seeds, (false, false), 6),
         }
-        let mut seeds = Vec::with_capacity(us.len() * vs.len());
-        for &u in &us {
-            for &v in &vs {
-                seeds.push((u, v));
-            }
-        }
-        closest_point_from_seeds(self, point, &seeds, (false, false), 6)
     }
 
     fn bounding_box(

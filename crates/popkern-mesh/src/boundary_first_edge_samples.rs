@@ -204,3 +204,31 @@ pub(crate) fn delaunay_audit(
         );
     }
 }
+
+/// Whether a half-edge's pcurve runs ALONG the ring-walk direction —
+/// the walk mirrors the pcurve window when it does not. Detected from
+/// the pcurve endpoint images against the walk origin, EXCEPT closed
+/// edges on APERIODIC charts (closed NURBS walls), which walk IN
+/// pcurve direction by construction: the endpoint test is 0-vs-0
+/// noise there (both ends image to the same 3D point) and a flip
+/// lands the seam junction on the wrong geometric-closure copy,
+/// which no ring unwrap repairs (PK-449). Periodic charts keep the
+/// endpoint test: their ring-level unwrap absorbs copy jumps, and
+/// forcing pcurve direction turned a cap-cut sphere's rim into a
+/// phantom full wrap.
+pub(super) fn pcurve_forward_along_walk(
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    origin: &Point3,
+    closed_edge: bool,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    if closed_edge && surface.parameter_periodicity() == (None, None) {
+        return true;
+    }
+    let p_start = pc.point_at(pc.t_start);
+    let p_end = pc.point_at(pc.t_end);
+    let s_start = surface.point_at(p_start.x, p_start.y);
+    let s_end = surface.point_at(p_end.x, p_end.y);
+    s_start.distance_to(origin) <= s_end.distance_to(origin)
+}

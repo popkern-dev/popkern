@@ -7,7 +7,6 @@ use std::f64::consts::TAU;
 
 use crate::geometry::Point3;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
-use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 /// Project a 3D point onto a surface's UV parameter space.
@@ -107,7 +106,18 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             }
             Some((u, v))
         }
-        SurfaceGeometry::Nurbs(nurbs) => nurbs_gauss_newton_project(surface, nurbs, point),
+        // NURBS: the clamped 5-start multistart, UNCHANGED for the
+        // cold construction paths — trim/clip/pcurve authoring sites
+        // depend on its basin behavior (swapping in the knot-seeded
+        // multi-sheet projection, even as best-of-both, moved a
+        // boss-plate fillet-strip projection onto another fold and
+        // the served body carried a real 5.2e-3 curve-surface lie).
+        // Multi-sheet-correct DISTANCE measurement lives in
+        // [`project_point_to_uv_multisheet`] for validation
+        // consumers (PK-449).
+        SurfaceGeometry::Nurbs(nurbs) => {
+            uv_projection_clamped::nurbs_gauss_newton_project(surface, nurbs, point)
+        }
         // Gregory patches are non-analytic-inverse; fall through
         // to the generic Gauss-Newton projection. The default
         // [`SurfaceEval::closest_point`] dispatches via
@@ -121,6 +131,44 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
 
 #[path = "uv_projection_clamped.rs"]
 mod uv_projection_clamped;
+
+/// Multi-sheet-correct closest-preimage projection, for VALIDATION
+/// consumers that measure true distance-to-surface (check 9, gap
+/// diagnostics). On a multi-span NURBS chart this takes the best of
+/// the knot-span-seeded projection (resolves multi-sheet basins —
+/// the 5-start grid walked every start into the wrong turn of a
+/// 6.5-turn coiled wall and reported a 0.4168 phantom deviation for
+/// an on-seam point, PK-446/PK-449) and the clamped 5-start grid
+/// (broad exploration where coarse seed ranking cuts the right span
+/// from the refined few). Construction paths keep
+/// [`project_point_to_uv`]: they depend on its basin behavior, and a
+/// closer preimage on ANOTHER FOLD is the wrong answer there.
+pub fn project_point_to_uv_multisheet(
+    surface: &SurfaceGeometry,
+    point: &Point3,
+) -> Option<(f64, f64)> {
+    if let SurfaceGeometry::Nurbs(nurbs) = surface
+        && let Some(seeds) = nurbs.projection_seeds()
+    {
+        let seeded = crate::geometry::surface::closest_point_from_seeds(
+            nurbs,
+            point,
+            &seeds,
+            (false, false),
+            6,
+        );
+        let grid = uv_projection_clamped::nurbs_gauss_newton_project(surface, nurbs, point);
+        return match (seeded, grid) {
+            (Some(a), Some(b)) => {
+                let da = point.distance_to(&surface.point_at(a.0, a.1));
+                let db = point.distance_to(&surface.point_at(b.0, b.1));
+                Some(if da <= db { a } else { b })
+            }
+            (a, b) => a.or(b),
+        };
+    }
+    project_point_to_uv(surface, point)
+}
 
 /// Project a 3D point to UV using the previous UV as starting guess.
 ///
@@ -161,79 +209,6 @@ pub fn project_point_to_uv_near(
         }
         _ => project_point_to_uv(surface, point),
     }
-}
-
-/// Multi-start Gauss-Newton projection of a 3D point onto a NURBS surface.
-///
-/// Tries five starting points (parameter domain centre plus four corners) and
-/// returns the `(u, v)` with the smallest final Euclidean distance, or `None`
-/// if no starting point converges to within 1.0 units.
-fn nurbs_gauss_newton_project(
-    surface: &SurfaceGeometry,
-    nurbs: &NurbsSurface,
-    point: &Point3,
-) -> Option<(f64, f64)> {
-    const MAX_ITER: usize = 20;
-    const STEP_TOL: f64 = 1e-12;
-    const MAX_DIST: f64 = 1.0;
-
-    let ((u_lo, u_hi), (v_lo, v_hi)) = nurbs.parameter_range();
-    let u_mid = 0.5 * (u_lo + u_hi);
-    let v_mid = 0.5 * (v_lo + v_hi);
-
-    let starts = [
-        (u_mid, v_mid),
-        (u_lo, v_lo),
-        (u_lo, v_hi),
-        (u_hi, v_lo),
-        (u_hi, v_hi),
-    ];
-
-    let mut best_uv: Option<(f64, f64)> = None;
-    let mut best_dist = f64::INFINITY;
-
-    for (u0, v0) in starts {
-        let mut u = u0;
-        let mut v = v0;
-
-        for _ in 0..MAX_ITER {
-            // Fused analytic point+partials: one basis contraction per
-            // iteration instead of the 5-evaluation point + FD pattern
-            // (PK-281).
-            let (s, su, sv) = nurbs.point_and_first_partials(u, v);
-            let diff = *point - s;
-
-            let rhs_u = diff.dot(&su);
-            let rhs_v = diff.dot(&sv);
-
-            let a00 = su.dot(&su);
-            let a01 = su.dot(&sv);
-            let a11 = sv.dot(&sv);
-            let det = a00 * a11 - a01 * a01;
-
-            if det.abs() < f64::EPSILON {
-                break;
-            }
-
-            let du = (a11 * rhs_u - a01 * rhs_v) / det;
-            let dv = (a00 * rhs_v - a01 * rhs_u) / det;
-
-            u = (u + du).clamp(u_lo, u_hi);
-            v = (v + dv).clamp(v_lo, v_hi);
-
-            if du * du + dv * dv < STEP_TOL {
-                break;
-            }
-        }
-
-        let dist = point.distance_to(&surface.point_at(u, v));
-        if dist < best_dist {
-            best_dist = dist;
-            best_uv = Some((u, v));
-        }
-    }
-
-    if best_dist <= MAX_DIST { best_uv } else { None }
 }
 
 /// Compute bounded parameter ranges for a face's surface.

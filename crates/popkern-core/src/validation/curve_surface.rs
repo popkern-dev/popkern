@@ -39,7 +39,7 @@ fn popkern_trace_check9() -> bool {
 }
 use crate::geometry::curve::CurveEval;
 use crate::geometry::surface::SurfaceEval;
-use crate::geometry::uv_projection::project_point_to_uv;
+use crate::geometry::uv_projection::project_point_to_uv_multisheet;
 use crate::topology::{BRep, Edge};
 
 /// Curve stations checked per (edge, face) pairing: both endpoints
@@ -147,7 +147,7 @@ impl BRep {
             for fraction in SAMPLE_FRACTIONS {
                 let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
                 let point = curve.geometry.point_at(t);
-                let cold = project_point_to_uv(&surface.geometry, &point);
+                let cold = project_point_to_uv_multisheet(&surface.geometry, &point);
                 let seeded = prev_uv.and_then(|(pu, pv)| {
                     crate::geometry::uv_projection::project_point_to_uv_near(
                         &surface.geometry,
@@ -180,7 +180,7 @@ impl BRep {
                     for k in 0..=16 {
                         let ft = curve.t_start + (t - curve.t_start) * (k as f64) / 16.0;
                         let fp = curve.geometry.point_at(ft);
-                        let cold_f = project_point_to_uv(&surface.geometry, &fp);
+                        let cold_f = project_point_to_uv_multisheet(&surface.geometry, &fp);
                         let seeded_f = fine_uv.and_then(|(pu, pv)| {
                             crate::geometry::uv_projection::project_point_to_uv_near(
                                 &surface.geometry,

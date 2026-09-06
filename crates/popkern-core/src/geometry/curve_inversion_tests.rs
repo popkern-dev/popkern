@@ -353,6 +353,45 @@ fn invert_generic_nurbs_finds_on_curve_points() {
 }
 
 #[test]
+fn nearest_param_resolves_the_correct_turn_on_a_coiled_curve() {
+    // PK-449: a fixed-count coarse scan on a many-turn helical NURBS
+    // can rank the ADJACENT COIL TURN's distance basin above the true
+    // one (measured on the 6.5-turn sweep seam: wrong-turn sample
+    // 0.209 vs right-turn 0.219), so a point ON the curve classified
+    // off-curve and a legitimate pierce split never happened. The
+    // knot-seeded nearest-param must land on the right turn at EVERY
+    // phase, not just the lucky ones.
+    use crate::geometry::curve::CurveEval as _;
+    use crate::geometry::curve_inversion::nearest_param_on_curve;
+    let turns = 6.5;
+    let n_pts = 262; // ~40 interpolation stations per turn
+    let pts: Vec<Point3> = (0..n_pts)
+        .map(|i| {
+            let s = turns * i as f64 / (n_pts - 1) as f64;
+            let a = std::f64::consts::TAU * s;
+            Point3::new(0.26 * a.cos(), 0.26 * a.sin(), 0.15 * s)
+        })
+        .collect();
+    let params: Vec<f64> = (0..n_pts).map(|i| i as f64 / (n_pts - 1) as f64).collect();
+    let nurbs =
+        crate::geometry::fitting::interpolate_curve(&pts, &params, 3).expect("helix interpolation");
+    let curve = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(nurbs),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    for k in 0..64 {
+        let t_probe = 0.02 + 0.96 * k as f64 / 63.0;
+        let probe = curve.geometry.point_at(t_probe);
+        let (t, d) = nearest_param_on_curve(&curve, &probe);
+        assert!(
+            d < 1.0e-9 && (t - t_probe).abs() < 1.0e-3,
+            "phase {t_probe:.4}: nearest_param answered t={t:.4} d={d:.3e} — wrong turn"
+        );
+    }
+}
+
+#[test]
 fn ellipse_returns_unsupported() {
     let curve = CurveOnEdge {
         geometry: CurveGeometry::Ellipse {

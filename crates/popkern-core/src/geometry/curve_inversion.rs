@@ -26,6 +26,8 @@ use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
+pub use crate::geometry::curve_nearest_param::nearest_param_on_curve;
+
 #[path = "curve_inversion_circular_arc.rs"]
 mod curve_inversion_circular_arc;
 
@@ -195,15 +197,14 @@ pub fn invert_curve_at_point(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Generic NURBS inversion (coarse scan + ternary refinement)
-// ---------------------------------------------------------------------------
-
 /// Invert a point onto an arbitrary NURBS curve over the edge window:
 /// 64-sample coarse scan for the nearest bracket, then ternary
 /// refinement of the squared distance. Unimodal within one sample
 /// bracket for the tolerances and curvatures this kernel handles;
 /// the caller-facing contract stays "on-curve or PointOffCurve".
+/// (Callers that must resolve MULTI-SHEET curves — a many-turn sweep
+/// seam — use [`nearest_param_on_curve`], whose coarse density adapts
+/// to the knot-span count; this site keeps its measured behavior.)
 fn invert_nurbs_generic(
     curve: &CurveOnEdge,
     point: Point3,

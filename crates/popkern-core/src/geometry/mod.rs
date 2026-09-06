@@ -11,6 +11,7 @@ pub mod chart_periods;
 pub mod circle_recognition;
 pub mod curve;
 pub mod curve_inversion;
+pub mod curve_nearest_param;
 pub mod curve_on_surface;
 pub mod curve_semantics;
 mod curve_to_nurbs;

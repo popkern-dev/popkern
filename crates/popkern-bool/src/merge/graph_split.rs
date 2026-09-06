@@ -372,9 +372,14 @@ pub(crate) fn expand_self_loops(
 /// node, no duplicates). Must be called after Phase 3.
 /// True when `point` (already on the node-to-node CHORD of graph
 /// edge `he_idx` at chord parameter `t_chord`) also lies on the
-/// edge's REAL curve within `tolerance`. Straight/curveless edges
-/// are trivially true; curved edges get a local ternary-search
-/// refinement around the chord-parameter estimate.
+/// edge's REAL curve within `tolerance`, NEAR the chord position.
+/// Straight/curveless edges are trivially true; curved edges get a
+/// local ternary-search refinement around the chord-parameter
+/// estimate. Locality is load-bearing: a GLOBAL on-curve test
+/// matches every node lying anywhere on a closed ring against every
+/// chord segment of that ring, and the spurious OnEdge splits
+/// stranded the filleted-torus assembly (measured during PK-449 —
+/// do not widen this to the knot-seeded global inversion).
 pub(super) fn point_on_graph_edge_curve(
     graph: &IntersectionGraph,
     he_idx: usize,
@@ -423,7 +428,13 @@ pub(super) fn point_on_graph_edge_curve(
 /// outright on mixed-path rational arcs (measured: both hit-splits
 /// of a gusset cap arc lost their windows, the stale full window
 /// kept re-matching, and the edge was split five ways with
-/// duplicate pairs).
+/// duplicate pairs). Its 32-sample first-minimum semantics are
+/// LOAD-BEARING for the split-window and curve-adoption sites:
+/// delegating to the adaptive multi-sheet inversion cracked a
+/// cap-cut sphere's rim windows during PK-449 — multi-sheet
+/// robustness lives at the classification site
+/// (`point_on_curved_graph_edge`), which is where the density
+/// defect was measured.
 pub(crate) fn nearest_param_on_curve(
     curve: &popkern_core::geometry::CurveOnEdge,
     point: &Point3,
@@ -491,42 +502,15 @@ pub(super) fn point_on_curved_graph_edge(
     if !curved {
         return None;
     }
-    use popkern_core::geometry::curve::CurveEval;
+    // Knot-seeded global inversion: the private 16-sample scan here
+    // ranked the ADJACENT COIL TURN's basin above the true one on a
+    // 6.5-turn helical seam (0.209 vs 0.219), so the seam × plate
+    // pierce point classified OnFaceInterior, the seam never split at
+    // the crossing, and the whole wall dropped to a knife-edge sample
+    // (PK-449 — the station-aligned deep grind's real mechanism).
     let (ta, tb) = (curve.t_start, curve.t_end);
-    let n: usize = 16;
-    let mut best = (0usize, f64::MAX);
-    for i in 0..=n {
-        let t = ta + (tb - ta) * i as f64 / n as f64;
-        let d = curve.geometry.point_at(t).distance_to(point);
-        if d < best.1 {
-            best = (i, d);
-        }
-    }
-    let (mut lo, mut hi) = (
-        ta + (tb - ta) * (best.0.saturating_sub(1)) as f64 / n as f64,
-        ta + (tb - ta) * (best.0 + 1).min(n) as f64 / n as f64,
-    );
-    let mut best_t = ta + (tb - ta) * best.0 as f64 / n as f64;
-    let mut best_d = best.1;
-    for _ in 0..40 {
-        let m1 = lo + (hi - lo) / 3.0;
-        let m2 = hi - (hi - lo) / 3.0;
-        let d1 = curve.geometry.point_at(m1).distance_to(point);
-        let d2 = curve.geometry.point_at(m2).distance_to(point);
-        if d1 < d2 {
-            hi = m2;
-            if d1 < best_d {
-                best_d = d1;
-                best_t = m1;
-            }
-        } else {
-            lo = m1;
-            if d2 < best_d {
-                best_d = d2;
-                best_t = m2;
-            }
-        }
-    }
+    let (best_t, best_d) =
+        popkern_core::geometry::curve_inversion::nearest_param_on_curve(curve, point);
     if best_d > tolerance {
         return None;
     }

@@ -88,3 +88,79 @@ pub(super) fn nurbs_gauss_newton_single(
     let dist = point.distance_to(&surface.point_at(u, v));
     if dist <= MAX_DIST { Some((u, v)) } else { None }
 }
+
+/// Multi-start Gauss-Newton projection of a 3D point onto a NURBS surface.
+///
+/// Tries five starting points (parameter domain centre plus four corners) and
+/// returns the `(u, v)` with the smallest final Euclidean distance, or `None`
+/// if no starting point converges to within 1.0 units. Iterates CLAMP to the
+/// chart domain — this projector's consumers (trim/clip/classification)
+/// require in-chart parameters. Few-span charts only: multi-sheet charts
+/// take the knot-seeded path above (PK-446/PK-449).
+pub(super) fn nurbs_gauss_newton_project(
+    surface: &SurfaceGeometry,
+    nurbs: &NurbsSurface,
+    point: &Point3,
+) -> Option<(f64, f64)> {
+    const MAX_ITER: usize = 20;
+    const STEP_TOL: f64 = 1e-12;
+    const MAX_DIST: f64 = 1.0;
+
+    let ((u_lo, u_hi), (v_lo, v_hi)) = nurbs.parameter_range();
+    let u_mid = 0.5 * (u_lo + u_hi);
+    let v_mid = 0.5 * (v_lo + v_hi);
+
+    let starts = [
+        (u_mid, v_mid),
+        (u_lo, v_lo),
+        (u_lo, v_hi),
+        (u_hi, v_lo),
+        (u_hi, v_hi),
+    ];
+
+    let mut best_uv: Option<(f64, f64)> = None;
+    let mut best_dist = f64::INFINITY;
+
+    for (u0, v0) in starts {
+        let mut u = u0;
+        let mut v = v0;
+
+        for _ in 0..MAX_ITER {
+            // Fused analytic point+partials: one basis contraction per
+            // iteration instead of the 5-evaluation point + FD pattern
+            // (PK-281).
+            let (s, su, sv) = nurbs.point_and_first_partials(u, v);
+            let diff = *point - s;
+
+            let rhs_u = diff.dot(&su);
+            let rhs_v = diff.dot(&sv);
+
+            let a00 = su.dot(&su);
+            let a01 = su.dot(&sv);
+            let a11 = sv.dot(&sv);
+            let det = a00 * a11 - a01 * a01;
+
+            if det.abs() < f64::EPSILON {
+                break;
+            }
+
+            let du = (a11 * rhs_u - a01 * rhs_v) / det;
+            let dv = (a00 * rhs_v - a01 * rhs_u) / det;
+
+            u = (u + du).clamp(u_lo, u_hi);
+            v = (v + dv).clamp(v_lo, v_hi);
+
+            if du * du + dv * dv < STEP_TOL {
+                break;
+            }
+        }
+
+        let dist = point.distance_to(&surface.point_at(u, v));
+        if dist < best_dist {
+            best_dist = dist;
+            best_uv = Some((u, v));
+        }
+    }
+
+    if best_dist <= MAX_DIST { best_uv } else { None }
+}

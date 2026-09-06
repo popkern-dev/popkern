@@ -899,17 +899,13 @@ fn build_ring(
         for k in 0..(m - 1) {
             let idx = if forward { k } else { m - 1 - k };
             let f = samples.fractions[idx];
-            // Pcurve param at the same fraction of ITS window,
-            // mirrored when the pcurve runs against the walk
-            // direction. The pcurve's own direction is detected from
-            // its endpoint images.
-            let p_start = pc.point_at(pc.t_start);
-            let p_end = pc.point_at(pc.t_end);
             let sof = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
-            let s_start = sof.geometry.point_at(p_start.x, p_start.y);
-            let s_end = sof.geometry.point_at(p_end.x, p_end.y);
-            let pcurve_forward_along_walk =
-                s_start.distance_to(&origin) <= s_end.distance_to(&origin);
+            let pcurve_forward_along_walk = boundary_first_edge_samples::pcurve_forward_along_walk(
+                pc,
+                &sof.geometry,
+                &origin,
+                closed_edge,
+            );
             // Seed at the sample's CURVE-WINDOW fraction, not the
             // uniform walk fraction k/(m-1): canonical samples are
             // ADAPTIVE (encroachment splits refine specific spans),

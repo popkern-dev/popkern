@@ -393,18 +393,48 @@ fn spring_double_end_grind_serves() {
     assert_meshes_watertight_and_faithful(&brep, coil_analytic_volume(2), "double grind");
 }
 
-/// STATION-ALIGNED deep grind (PK-448): a cut plane through the
-/// helix centreline EXACTLY at a construction station (z = 0.9 =
-/// 6 × pitch on the 6.5-turn coil) drives the walker into an
-/// unhandled degeneracy — the assembly shipped two phantom face/loop
-/// pairs plus a curveless self-twinned stub, the mesh hid it, and
-/// the STEP export carried a free-boundary wire the OCC oracle
-/// rejects (an off-station cut at z = 0.91 serves a clean 3-face
-/// genus-0 body). Until the construction handles the class, the
-/// boolean must DECLINE honestly rather than serve the corrupt body;
-/// when it one day serves, the serve must be census-clean.
+/// Analytic volume of the 6.5-turn coil after a DEEP cut: everything
+/// above `plane_z` removed (a band of partial circular-segment
+/// sections, then whole turns). Same tilt caveat as
+/// [`coil_analytic_volume`] — the ~4.6° section tilt moves the
+/// integral well inside the mesh gate's 2% band.
+fn coil_deep_cut_volume(plane_z: f64) -> f64 {
+    let big_r = 0.3_f64;
+    let pitch = 0.15_f64;
+    let wire_r = 0.04_f64;
+    let turns = 6.5_f64;
+    let speed = ((std::f64::consts::TAU * big_r).powi(2) + pitch * pitch).sqrt();
+    let full = std::f64::consts::PI * wire_r * wire_r * turns * speed;
+    let seg = |d: f64| -> f64 {
+        wire_r * wire_r * (d / wire_r).acos() - d * (wire_r * wire_r - d * d).sqrt()
+    };
+    let s_lo = (plane_z - wire_r) / pitch;
+    let s_hi = ((plane_z + wire_r) / pitch).min(turns);
+    let n = 4096;
+    let mut removed = 0.0;
+    for k in 0..n {
+        let s = s_lo + (s_hi - s_lo) * (k as f64 + 0.5) / n as f64;
+        removed += seg(plane_z - pitch * s) * speed * (s_hi - s_lo) / n as f64;
+    }
+    removed += (turns - s_hi).max(0.0) * speed * std::f64::consts::PI * wire_r * wire_r;
+    full - removed
+}
+
+/// STATION-ALIGNED deep grind (PK-448 → PK-449): a cut plane through
+/// the helix centreline exactly at a construction station (z = 0.9 =
+/// 6 × pitch on the 6.5-turn coil) used to lose the seam × plate
+/// pierce point to the ADJACENT COIL TURN — the graph splitter's
+/// fixed-count coarse scan ranked the wrong turn's basin, the pierce
+/// classified OnFaceInterior, the seam never split at the crossing,
+/// the chart walker declined its substrate, and the wall dropped to
+/// a knife-edge sample (two phantom face/loop pairs, a curveless
+/// self-twinned stub, an OCC-rejected STEP; an off-station cut at
+/// z = 0.91 always served by phase luck). With the knot-seeded curve
+/// inversion the class SERVES census-clean through primary cellular;
+/// the PK-448 unrepairable-stub decline stays armed as the fallback
+/// boundary behind it.
 #[test]
-fn station_aligned_deep_grind_declines_or_serves_clean() {
+fn station_aligned_deep_grind_serves_census_clean() {
     let mut m = Model::new();
     let z_axis = AxisSpec::Literal {
         origin: [0.0, 0.0, 0.0],
@@ -424,31 +454,39 @@ fn station_aligned_deep_grind_declines_or_serves_clean() {
         .expect("plate sketch")
         .extrude(&mut m, End::Blind(Scalar::from(0.2)))
         .expect("plate");
-    match spring.subtract(&mut m, top) {
-        Err(e) => {
-            let msg = format!("{e:?}");
-            assert!(
-                msg.contains("self-twinned stub") || msg.contains("ValidationFailed"),
-                "decline must be the structured stub/validation class, got: {msg}"
-            );
-        }
-        Ok(ground) => {
-            // The construction learned the class — hold it to a
-            // census-clean serve (every edge exactly twice-used, no
-            // self-twinned half-edges).
-            let brep = m.brep_of(ground).expect("brep");
-            for (eh, _) in brep.edges.iter() {
-                let uses = brep
-                    .half_edges
-                    .iter()
-                    .filter(|(_, he)| he.edge == eh && brep.loops.contains_key(he.loop_))
-                    .count();
-                assert_eq!(uses, 2, "edge {eh:?} not exactly twice-used");
-            }
-            assert!(
-                brep.half_edges.iter().all(|(h, he)| he.twin != h),
-                "served body carries a self-twinned half-edge"
-            );
-        }
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let ground = spring
+        .subtract(&mut m, top)
+        .expect("station-aligned deep grind serves");
+    let brep = m.brep_of(ground).expect("brep");
+    assert!(
+        brep.validate().is_ok(),
+        "station-aligned grind invalid: {:?}",
+        brep.validate().err()
+    );
+    assert!(
+        brep.validate_curve_surface().is_ok(),
+        "station-aligned grind curve-surface lie: {:?}",
+        brep.validate_curve_surface().err()
+    );
+    let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+    assert!(
+        fallbacks.is_empty(),
+        "station-aligned grind fell back to graph-merge: {fallbacks:?}"
+    );
+    // Census-clean: every edge exactly twice-used, no self-twins —
+    // the serve contract PK-448 specified.
+    for (eh, _) in brep.edges.iter() {
+        let uses = brep
+            .half_edges
+            .iter()
+            .filter(|(_, he)| he.edge == eh && brep.loops.contains_key(he.loop_))
+            .count();
+        assert_eq!(uses, 2, "edge {eh:?} not exactly twice-used");
     }
+    assert!(
+        brep.half_edges.iter().all(|(h, he)| he.twin != h),
+        "served body carries a self-twinned half-edge"
+    );
+    assert_meshes_watertight_and_faithful(&brep, coil_deep_cut_volume(0.9), "station grind");
 }
