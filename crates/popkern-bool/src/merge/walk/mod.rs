@@ -112,9 +112,10 @@ pub(crate) fn walk_all_fragments_ext(
         // the reason observable under the boolean trace topic and recorded in
         // `walk_fallbacks`.
         let mut walked_by_chart = false;
-        // Chart polylines + σ for the role assembly below (present
-        // only when the chart walk produced the orbit partition).
-        let mut chart_roles: Option<(Vec<chart_walk::ChartPolyline>, f64)> = None;
+        // Chart polylines + σ + chart u-period for the role assembly
+        // below (present only when the chart walk produced the orbit
+        // partition).
+        let mut chart_roles: Option<(Vec<chart_walk::ChartPolyline>, f64, Option<f64>)> = None;
         // Since PK-107 every face of a coincident boolean
         // chart-walks, overlap faces included: the substrate's
         // duplicate-cover dedup, gap-substitute completion, and
@@ -211,6 +212,7 @@ pub(crate) fn walk_all_fragments_ext(
                                 .map(|o| chart_walk::orbit_polyline(&sub, o))
                                 .collect(),
                             sub.sigma,
+                            sub.u_period,
                         ));
                     }
                     loops = orbits;
@@ -394,12 +396,13 @@ pub(crate) fn walk_all_fragments_ext(
         // material-left walk, not by 3D election (see
         // `assemble_chart_roles`). Falls through to the 3D-Newell
         // election only when no orbit winds positive (substrate lie).
-        if let Some((polys, sigma)) = chart_roles.take()
+        if let Some((polys, sigma, u_period)) = chart_roles.take()
             && let Some(asm) = chart_walk::assemble_chart_roles(
                 graph,
                 &loops,
                 &polys,
                 sigma,
+                u_period,
                 &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
             )
         {

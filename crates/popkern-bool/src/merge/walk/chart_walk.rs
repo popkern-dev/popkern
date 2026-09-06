@@ -332,9 +332,67 @@ pub(crate) fn assemble_chart_roles(
     loops: &[Vec<usize>],
     polys: &[ChartPolyline],
     sigma: f64,
+    u_period: Option<f64>,
     source_inner_edges: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> Option<ChartRoleAssembly> {
     let mut areas: Vec<f64> = polys.iter().map(|p| sigma * polyline_shoelace(p)).collect();
+    // A chart-WRAPPING orbit — net u displacement of one closure
+    // period across the unfolded seam — is NON-CONTRACTIBLE: it
+    // cannot bound a disk, so it can never take the hole role. Its
+    // implicit-closure shoelace sign is phase luck (the closing jump
+    // contributes ±period·(u_wrap − mean-u of the loop)): a coil
+    // wall's seam-crossing cut oval read negative at plane z=0.85,
+    // filed as an inner hole, the wall never partitioned, one
+    // interior sample above the plane classified the whole wall
+    // Inside, and an EMPTY body SERVED (PK-452; z=0.9 served only
+    // because the sign happened to land positive). Wrapping orbits
+    // are region boundaries by construction; the provenance override
+    // below still outranks this (sign only decides where both are
+    // silent).
+    // Wrap detection is the chart u-WINDING NUMBER: the embedding may
+    // fold the seam crossing back into the chart (the coil oval's
+    // polyline closes at u = 0 exactly), so first-vs-last displacement
+    // reads 0 — but the interior samples still traverse the full
+    // period with one fold jump. Minimal-image du maps fold jumps to
+    // ~0 while genuine traversal accumulates ±period; a nonzero
+    // rounded winding is a wrap. Embedding samples are dense pcurve
+    // samples, well under half a period apart, so the minimal image
+    // is faithful.
+    let wrapping: Vec<bool> = match u_period {
+        Some(p) if p > 0.0 => polys
+            .iter()
+            .map(|poly| {
+                let mut acc = 0.0;
+                for w in poly.windows(2) {
+                    let du = w[1].0 - w[0].0;
+                    acc += du - p * (du / p).round();
+                }
+                if let (Some(a), Some(b)) = (poly.first(), poly.last()) {
+                    let du = a.0 - b.0;
+                    acc += du - p * (du / p).round();
+                }
+                (acc / p).round() as i64 != 0
+            })
+            .collect(),
+        _ => vec![false; polys.len()],
+    };
+    for (i, a) in areas.iter_mut().enumerate() {
+        if wrapping[i] && *a < 0.0 {
+            *a = -*a;
+        }
+    }
+    if popkern_core::trace::trace_enabled("boolean") {
+        for (i, poly) in polys.iter().enumerate() {
+            eprintln!(
+                "  [roles] orbit {i}: len {} area {:.5} wrap={} uv {:?}->{:?} (u_period {u_period:?})",
+                loops[i].len(),
+                areas[i],
+                wrapping[i],
+                poly.first(),
+                poly.last()
+            );
+        }
+    }
     // Provenance override: an orbit consisting ENTIRELY of the source
     // face's INNER-loop edges is a hole BY CONSTRUCTION — the chart
     // embedding's shoelace sign for unpaired closed rims was measured
@@ -410,71 +468,4 @@ pub(crate) fn assemble_chart_roles(
             .map(|i| (i, std::mem::take(&mut holes_of[i])))
             .collect(),
     })
-}
-
-/// Canonical form for loop-set comparison: each loop rotated so its
-/// smallest half-edge index leads (loops are cyclic; direction is
-/// preserved because direction is part of the contract). Test-only
-/// since the dual-walk probe retired (PK-108); the convention pins
-/// use it to compare partitions.
-#[cfg(test)]
-pub(crate) fn canonical_loops(loops: &[Vec<usize>]) -> BTreeSet<Vec<usize>> {
-    loops
-        .iter()
-        .filter(|l| !l.is_empty())
-        .map(|l| {
-            let min_pos = l
-                .iter()
-                .enumerate()
-                .min_by_key(|&(_, &v)| v)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            let mut rotated = Vec::with_capacity(l.len());
-            rotated.extend_from_slice(&l[min_pos..]);
-            rotated.extend_from_slice(&l[..min_pos]);
-            rotated
-        })
-        .collect()
-}
-
-/// Divergence between two walk partitions of one face (test-only
-/// since the dual-walk probe retired — PK-108).
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) struct DualWalkDiff {
-    /// Loops present in both partitions (canonical form).
-    pub matched: usize,
-    /// 3D-Newell loops the orbit partition does not contain.
-    pub newell_only: Vec<Vec<usize>>,
-    /// Orbits the 3D-Newell walk never emitted. Orbits consuming only
-    /// half-edges the 3D-Newell walk left unwalked are benign extras (it
-    /// skips some cross-registered seeds); orbits sharing half-edges
-    /// with differing 3D-Newell loops are true routing divergences.
-    pub orbit_only: Vec<Vec<usize>>,
-}
-
-#[cfg(test)]
-impl DualWalkDiff {
-    /// Orbit-only loops that share half-edges with Newell-only loops —
-    /// the genuinely divergent routing (as opposed to benign extras).
-    pub fn contested(&self) -> usize {
-        let newell_hes: BTreeSet<usize> = self.newell_only.iter().flatten().copied().collect();
-        self.orbit_only
-            .iter()
-            .filter(|o| o.iter().any(|h| newell_hes.contains(h)))
-            .count()
-    }
-}
-
-/// Compare two walk partitions (test-only since PK-108).
-#[cfg(test)]
-pub(crate) fn compare_walks(newell: &[Vec<usize>], orbits: &[Vec<usize>]) -> DualWalkDiff {
-    let l = canonical_loops(newell);
-    let o = canonical_loops(orbits);
-    let matched = l.intersection(&o).count();
-    DualWalkDiff {
-        matched,
-        newell_only: l.difference(&o).cloned().collect(),
-        orbit_only: o.difference(&l).cloned().collect(),
-    }
 }

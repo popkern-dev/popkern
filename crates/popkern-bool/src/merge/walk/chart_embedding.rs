@@ -14,7 +14,9 @@
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
+use popkern_core::geometry::uv_projection::{
+    project_point_to_uv_multisheet, project_point_to_uv_near,
+};
 
 use crate::merge::graph::{FaceRef, IntersectionGraph};
 
@@ -136,9 +138,10 @@ pub(crate) fn build_embedding(
         // helper ignores hints on analytic surfaces).
         let a = graph.nodes[graph.half_edges[h].origin].position;
         let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
-        let ua = project_point_to_uv(surface, &a)?;
+        // Sheet-correct anchor (same rationale as `projection_run`).
+        let ua = project_point_to_uv_multisheet(surface, &a)?;
         let (mut ub, mut vb) = project_point_to_uv_near(surface, &b, ua.0, ua.1)
-            .or_else(|| project_point_to_uv(surface, &b))?;
+            .or_else(|| project_point_to_uv_multisheet(surface, &b))?;
         let (pp_u, pp_v) = surface.parameter_periodicity();
         if let Some(pp) = pp_u {
             ub += ((ua.0 - ub) / pp).round() * pp;
@@ -175,6 +178,17 @@ pub(crate) fn build_embedding(
     let flipped = first3.distance_to(&p_end) + last3.distance_to(&p_start);
     if flipped < as_is {
         uv.reverse();
+    }
+    if popkern_core::trace::trace_enabled("branch-pairing") {
+        let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
+            (lo.min(u), hi.max(u))
+        });
+        eprintln!(
+            "  [embed] he {raw} (resolved {h}) source {source:?} n {} u[{ulo:.4},{uhi:.4}] first {:?} last {:?}",
+            uv.len(),
+            uv.first(),
+            uv.last()
+        );
     }
     Some(ChartEmbedding {
         uv,
@@ -285,10 +299,19 @@ fn projection_run(
     let mid = N_SAMPLES / 2;
     let mut run = vec![(f64::NAN, f64::NAN); ts.len()];
     let p_mid = c.geometry.point_at(ts[mid]);
-    run[mid] = project_point_to_uv(surface, &p_mid)?;
+    // The anchor must be SHEET-CORRECT: the cold 5-start projector
+    // walks the adjacent coil turn on many-turn closed NURBS walls
+    // (the PK-446 class), and every subsequent sample is continued
+    // NEAR its neighbour — a wrong-sheet anchor glues the whole run
+    // to the wrong turn (measured, PK-452: a seam-crossing cut
+    // oval's run projected onto the turn at v ≈ 0.55 instead of
+    // 0.86, folded to a sub-period span, both endpoints clustered
+    // into ONE seam branch, and the walk isolated the oval instead
+    // of splitting the wall into bands).
+    run[mid] = project_point_to_uv_multisheet(surface, &p_mid)?;
     let proj_near = |p: &popkern_core::geometry::Point3, seed: (f64, f64)| -> Option<(f64, f64)> {
         let (mut u, mut v) = project_point_to_uv_near(surface, p, seed.0, seed.1)
-            .or_else(|| project_point_to_uv(surface, p))?;
+            .or_else(|| project_point_to_uv_multisheet(surface, p))?;
         if let Some(pp) = u_period {
             u += ((seed.0 - u) / pp).round() * pp;
         }

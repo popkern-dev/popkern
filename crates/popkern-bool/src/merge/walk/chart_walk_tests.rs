@@ -8,8 +8,10 @@
 //! these tests exist so a sign error in the angle formula fails a
 //! unit test, not a fixture hunt.
 
+use std::collections::BTreeSet;
+
 use super::chart_subdivision::build_face_subdivision;
-use super::chart_walk::{canonical_loops, compare_walks, walk_chart_orbits};
+use super::chart_walk::walk_chart_orbits;
 use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
@@ -175,4 +177,67 @@ fn compare_walks_reports_divergence_classes() {
     assert_eq!(diff.newell_only, vec![vec![7, 8]]);
     assert_eq!(diff.orbit_only, vec![vec![9, 10]]);
     assert_eq!(diff.contested(), 0, "disjoint extras are not contested");
+}
+
+/// Canonical form for loop-set comparison: each loop rotated so its
+/// smallest half-edge index leads (loops are cyclic; direction is
+/// preserved because direction is part of the contract). Test-only
+/// since the dual-walk probe retired (PK-108); the convention pins
+/// use it to compare partitions.
+pub(super) fn canonical_loops(loops: &[Vec<usize>]) -> BTreeSet<Vec<usize>> {
+    loops
+        .iter()
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let min_pos = l
+                .iter()
+                .enumerate()
+                .min_by_key(|&(_, &v)| v)
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+            let mut rotated = Vec::with_capacity(l.len());
+            rotated.extend_from_slice(&l[min_pos..]);
+            rotated.extend_from_slice(&l[..min_pos]);
+            rotated
+        })
+        .collect()
+}
+
+/// Divergence between two walk partitions of one face (test-only
+/// since the dual-walk probe retired — PK-108).
+#[derive(Debug)]
+pub(super) struct DualWalkDiff {
+    /// Loops present in both partitions (canonical form).
+    pub matched: usize,
+    /// 3D-Newell loops the orbit partition does not contain.
+    pub newell_only: Vec<Vec<usize>>,
+    /// Orbits the 3D-Newell walk never emitted. Orbits consuming only
+    /// half-edges the 3D-Newell walk left unwalked are benign extras (it
+    /// skips some cross-registered seeds); orbits sharing half-edges
+    /// with differing 3D-Newell loops are true routing divergences.
+    pub orbit_only: Vec<Vec<usize>>,
+}
+
+impl DualWalkDiff {
+    /// Orbit-only loops that share half-edges with Newell-only loops —
+    /// the genuinely divergent routing (as opposed to benign extras).
+    pub fn contested(&self) -> usize {
+        let newell_hes: BTreeSet<usize> = self.newell_only.iter().flatten().copied().collect();
+        self.orbit_only
+            .iter()
+            .filter(|o| o.iter().any(|h| newell_hes.contains(h)))
+            .count()
+    }
+}
+
+/// Compare two walk partitions (test-only since PK-108).
+pub(super) fn compare_walks(newell: &[Vec<usize>], orbits: &[Vec<usize>]) -> DualWalkDiff {
+    let l = canonical_loops(newell);
+    let o = canonical_loops(orbits);
+    let matched = l.intersection(&o).count();
+    DualWalkDiff {
+        matched,
+        newell_only: l.difference(&o).cloned().collect(),
+        orbit_only: o.difference(&l).cloned().collect(),
+    }
 }
