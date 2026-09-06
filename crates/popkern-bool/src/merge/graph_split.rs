@@ -186,7 +186,16 @@ pub(crate) fn split_graph_edge_with_pcurves(
             // Defensive: a split point far off the curve means the
             // caller's bookkeeping is wrong — keep the old (no
             // window split) behavior rather than corrupt windows.
+            // This decline is otherwise silent (the edge keeps its
+            // full window and downstream adoption degrades to
+            // chords), so it traces under the face-split key.
             if dist > 1.0e-3 {
+                if popkern_core::trace::trace_enabled("face-split") {
+                    eprintln!(
+                        "[gsplit-decline] he {he_idx} window split declined: nearest t {t_split:.6} dist {dist:.6} on w[{:.3},{:.3}]",
+                        c.t_start, c.t_end
+                    );
+                }
                 return None;
             }
             let p_ts = c.geometry.point_at(c.t_start);
@@ -428,20 +437,39 @@ pub(super) fn point_on_graph_edge_curve(
 /// outright on mixed-path rational arcs (measured: both hit-splits
 /// of a gusset cap arc lost their windows, the stale full window
 /// kept re-matching, and the edge was split five ways with
-/// duplicate pairs). Its 32-sample first-minimum semantics are
+/// duplicate pairs). Its first-minimum single-bracket semantics are
 /// LOAD-BEARING for the split-window and curve-adoption sites:
 /// delegating to the adaptive multi-sheet inversion cracked a
 /// cap-cut sphere's rim windows during PK-449 — multi-sheet
 /// robustness lives at the classification site
 /// (`point_on_curved_graph_edge`), which is where the density
-/// defect was measured.
+/// defect was first measured. Only the coarse DENSITY adapts here
+/// (PK-451): 32 stays the floor — every window with ≤ 16 NURBS
+/// knot spans scans bit-identically to the historical 32-sample
+/// body — but a many-turn curve (the 6.5-turn coil seam put 4.9
+/// samples per turn at n = 32) gets 2 samples per span so the
+/// coarse minimum cannot land on the adjacent turn's basin.
 pub(crate) fn nearest_param_on_curve(
     curve: &popkern_core::geometry::CurveOnEdge,
     point: &Point3,
 ) -> (f64, f64) {
     use popkern_core::geometry::curve::CurveEval;
     let (ta, tb) = (curve.t_start, curve.t_end);
-    let n: usize = 32;
+    let n: usize = match &curve.geometry {
+        popkern_core::geometry::curve::CurveGeometry::Nurbs(nurbs) => {
+            let (lo, hi) = (ta.min(tb), ta.max(tb));
+            let mut spans = 0usize;
+            let mut last = f64::NEG_INFINITY;
+            for &k in &nurbs.knots {
+                if k >= lo && k <= hi && k > last {
+                    spans += 1;
+                    last = k;
+                }
+            }
+            (2 * spans).clamp(32, 4096)
+        }
+        _ => 32,
+    };
     let mut best = (0usize, f64::MAX);
     for i in 0..=n {
         let t = ta + (tb - ta) * i as f64 / n as f64;

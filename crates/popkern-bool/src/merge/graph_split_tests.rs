@@ -236,3 +236,47 @@ fn split_graph_edge_source_propagation() {
         g.half_edges[3].source
     );
 }
+
+#[test]
+fn split_workhorse_resolves_the_correct_turn_on_a_coiled_curve() {
+    // PK-451: the split-window/adoption workhorse kept a fixed
+    // 32-sample coarse scan — the density class whose 16-sample
+    // variant lost the seam pierce to the ADJACENT COIL TURN at the
+    // classification site (PK-449). MEASURED boundary: 32 samples
+    // survive every phase of the 6.5-turn coil seam (4.9/turn,
+    // 4096-phase sweep clean) but lose phases on a 13-turn coil
+    // (2.5/turn — this pin fails under the fixed count). The coarse
+    // count now adapts to the NURBS knot-span count (floor 32, so
+    // few-span windows scan bit-identically to the historical body);
+    // a
+    // point ON a many-turn curve must invert to its own turn at
+    // EVERY phase, not just the lucky ones.
+    use popkern_core::geometry::CurveOnEdge;
+    use popkern_core::geometry::curve::{CurveEval as _, CurveGeometry};
+    let turns = 13.0;
+    let n_pts = 524;
+    let pts: Vec<Point3> = (0..n_pts)
+        .map(|i| {
+            let s = turns * i as f64 / (n_pts - 1) as f64;
+            let a = std::f64::consts::TAU * s;
+            Point3::new(0.26 * a.cos(), 0.26 * a.sin(), 0.15 * s)
+        })
+        .collect();
+    let params: Vec<f64> = (0..n_pts).map(|i| i as f64 / (n_pts - 1) as f64).collect();
+    let nurbs = popkern_core::geometry::fitting::interpolate_curve(&pts, &params, 3)
+        .expect("helix interpolation");
+    let curve = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(nurbs),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    for k in 0..64 {
+        let t_probe = 0.02 + 0.96 * k as f64 / 63.0;
+        let probe = curve.geometry.point_at(t_probe);
+        let (t, d) = nearest_param_on_curve(&curve, &probe);
+        assert!(
+            d < 1e-9 && (t - t_probe).abs() < 1e-3,
+            "phase {t_probe:.4}: inverted to t {t:.4} d {d:.3e} (adjacent-turn basin)"
+        );
+    }
+}
