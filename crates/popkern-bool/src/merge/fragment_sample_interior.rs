@@ -60,15 +60,40 @@ pub(crate) fn interior_step_sample(
         if let Some((pc, reversed)) = pcurve_for(h) {
             let (t0, t1) = pc.parameter_range();
             let (s0, s1) = if reversed { (t1, t0) } else { (t0, t1) };
-            return Some(
-                (0..n)
-                    .map(|i| {
-                        let t = s0 + (s1 - s0) * (i as f64) / n as f64;
-                        let q = pc.point_at(t);
-                        (q.x, q.y)
-                    })
-                    .collect(),
-            );
+            let mut run: Vec<(f64, f64)> = (0..n)
+                .map(|i| {
+                    let t = s0 + (s1 - s0) * (i as f64) / n as f64;
+                    let q = pc.point_at(t);
+                    (q.x, q.y)
+                })
+                .collect();
+            // Orient by the GRAPH NODES: registration direction does
+            // not guarantee a stored pcurve runs with its half-edge
+            // (split shared pairs violate it — the chart embedding
+            // measures orientation the same way). Trusting the
+            // registration flag ran a banana fragment's third flank
+            // BACKWARDS, the chart polygon bowtied, the
+            // self-intersection gate declined, and the knife-edge
+            // centroid fell in the banana's concave hollow — off the
+            // solid — so the tip's cap disc classified Outside and
+            // the subtraction stranded (PK-453, the z = 0.75 deep
+            // grind whose plate top crosses the coil's cap rim).
+            // Closed self-loops (origin == end) have no node
+            // authority and keep the registration direction.
+            let he = &graph.half_edges[h];
+            let end_node = graph.half_edges[he.twin].origin;
+            if he.origin != end_node && run.len() >= 2 {
+                let p_start = graph.nodes[he.origin].position;
+                let p_end = graph.nodes[end_node].position;
+                let first = surface.point_at(run[0].0, run[0].1);
+                let last = surface.point_at(run[run.len() - 1].0, run[run.len() - 1].1);
+                let as_is = first.distance_to(&p_start) + last.distance_to(&p_end);
+                let flipped = first.distance_to(&p_end) + last.distance_to(&p_start);
+                if flipped < as_is {
+                    run.reverse();
+                }
+            }
+            return Some(run);
         }
         let emb = super::walk::chart_embedding::build_embedding(graph, face, h, surface)?;
         // The embedding's own density serves; drop its final sample so
@@ -115,11 +140,20 @@ pub(crate) fn interior_step_sample(
     // (volume 0.82 vs 2.26 — PK-441). Decline to the centroid
     // fallback instead; a wrong-but-knife-edge centroid strands the
     // assembly and the boolean declines honestly.
-    if polygon_self_intersects(&polygon) {
+    if let Some((i, j)) = polygon_self_intersection(&polygon) {
         if trace {
+            let n = polygon.len();
+            let lobe = &polygon[(i + 1).min(n - 1)..=j.min(n - 1)];
+            let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
+            for &(u, v) in lobe {
+                lo = (lo.0.min(u), lo.1.min(v));
+                hi = (hi.0.max(u), hi.1.max(v));
+            }
             eprintln!(
-                "  [sample] interior step decline: self-intersecting {}-pt chart polygon of {face:?}",
-                polygon.len()
+                "  [sample] interior step decline: self-intersecting {n}-pt chart polygon of {face:?} (segs {i}x{j}, lobe {} pts, extent ({:.5},{:.5}))",
+                lobe.len(),
+                hi.0 - lo.0,
+                hi.1 - lo.1
             );
         }
         return None;
@@ -316,10 +350,10 @@ pub(crate) fn interior_step_sample(
 /// Whether any two non-adjacent polygon segments properly cross.
 /// Quadratic, but only the all-shared interior-step fallback pays it,
 /// on polygons of at most a few hundred points.
-fn polygon_self_intersects(poly: &[(f64, f64)]) -> bool {
+fn polygon_self_intersection(poly: &[(f64, f64)]) -> Option<(usize, usize)> {
     let n = poly.len();
     if n < 4 {
-        return false;
+        return None;
     }
     let seg = |i: usize| (poly[i], poly[(i + 1) % n]);
     let cross = |o: (f64, f64), a: (f64, f64), b: (f64, f64)| {
@@ -341,9 +375,9 @@ fn polygon_self_intersects(poly: &[(f64, f64)]) -> bool {
             if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
                 && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
             {
-                return true;
+                return Some((i, j));
             }
         }
     }
-    false
+    None
 }

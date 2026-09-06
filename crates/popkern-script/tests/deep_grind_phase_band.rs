@@ -169,3 +169,18 @@ fn off_station_deep_grind_serves_at_the_former_empty_phase() {
 fn off_station_deep_grind_serves_at_the_former_euler_phase() {
     grind_serves_watertight(0.8);
 }
+
+/// PK-453: the plate top (z = 0.95) crosses the coil's tilted cap rim
+/// — the intersection is a wall-arc → cap-arc → wall-arc chain and
+/// the new flat cap of the surviving tip is a thin BANANA whose
+/// boundary meets itself tangentially. The interior sampler's chart
+/// polygon ran one flank BACKWARDS (registration direction trusted
+/// over the graph nodes), bowtied, declined to the knife-edge
+/// centroid in the banana's concave hollow — off the solid — and the
+/// disc classified Outside: cellular went non-manifold and graph-merge
+/// stranded the chain (honest decline). Runs now orient by the graph
+/// nodes, the same authority the chart embedding uses.
+#[test]
+fn station_grind_with_cap_rim_crossing_serves() {
+    grind_serves_watertight(0.75);
+}
