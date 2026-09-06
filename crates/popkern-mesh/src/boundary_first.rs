@@ -822,6 +822,14 @@ pub(crate) fn tessellate_face_boundary_first(
     })
 }
 
+/// The surface-on-face of a half-edge's loop (ring-walk helper).
+fn sof_ring_geometry<'a>(
+    brep: &'a BRep,
+    data: &popkern_core::topology::HalfEdge,
+) -> Option<&'a popkern_core::geometry::surface::SurfaceOnFace> {
+    brep.faces[brep.loops[data.loop_].face].surface.as_ref()
+}
+
 /// Walk one loop, concatenating canonical edge samples in loop order.
 /// UV comes from each half-edge's pcurve at the matching fraction
 /// (reversed when the half-edge runs against the edge curve); 3D is
@@ -832,6 +840,16 @@ fn build_ring(
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
 ) -> Option<BoundaryRing> {
     let start = brep.loops.get(loop_handle)?.half_edge;
+    let start = boundary_first_edge_samples::rotate_ring_start(brep, start);
+    // Continuity-based closed-edge entry applies only to MIXED loops
+    // (a closed edge following an open predecessor — the PK-454
+    // seam-split defect class). All-closed loops (a ring tube's
+    // seam + rim pairs) carry pcurves authored as one consistent
+    // family and keep the historical direction rules — re-deciding
+    // them by raw uv distance broke a served pipe ring (127 open
+    // mesh edges).
+    let loop_has_open = boundary_first_edge_samples::edge_endpoint_positions(brep, start)
+        .is_some_and(|(a, b)| a.distance_to(&b) >= 1.0e-9);
     let mut uv = Vec::new();
     let mut pos = Vec::new();
     let mut sources = Vec::new();
@@ -868,31 +886,32 @@ fn build_ring(
         };
         let origin = brep.vertices[data.origin].position;
 
-        // Direction: does the canonical polyline start at this
-        // half-edge's origin? For CLOSED edges (both endpoints are
-        // the same point) that test is degenerate — use the pcurve's
-        // walk direction instead: its early image must match the
-        // polyline's second sample rather than its second-to-last.
-        let closed_edge = samples
-            .points
-            .first()
-            .zip(samples.points.last())
-            .map(|(a, b)| a.distance_to(b) < 1e-9)
-            .unwrap_or(false);
-        let forward = if closed_edge && samples.points.len() >= 3 {
-            let sof_dir = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
-            let (pt0, pt1) = pc.parameter_range();
-            let early_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.05);
-            let early = sof_dir.geometry.point_at(early_uv.x, early_uv.y);
-            early.distance_to(&samples.points[1])
-                <= early.distance_to(&samples.points[samples.points.len() - 2])
-        } else {
-            samples.points.first()?.distance_to(&origin)
-                <= samples.points.last()?.distance_to(&origin)
-        };
+        let (closed_edge, closed_entry_forward, forward) =
+            boundary_first_edge_samples::ring_walk_direction(
+                pc,
+                &sof_ring_geometry(brep, data)?.geometry,
+                samples,
+                if loop_has_open {
+                    uv.last().copied()
+                } else {
+                    None
+                },
+                &origin,
+            )?;
         let m = samples.points.len();
         if popkern_core::trace::trace_enabled("boundary-first-ring") {
-            eprintln!("      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge}");
+            let (pt0, pt1) = pc.parameter_range();
+            let a = pc.point_at(pt0);
+            let b = pc.point_at(pt1);
+            eprintln!(
+                "      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge} fwd={forward} entry={closed_entry_forward:?} pc ({:.4},{:.4})->({:.4},{:.4}) uvlast {:?}",
+                a.x,
+                a.y,
+                b.x,
+                b.y,
+                uv.last()
+                    .map(|&(u, v): &(f64, f64)| ((u * 1e4).round() / 1e4, (v * 1e4).round() / 1e4))
+            );
         }
         // Emit all but the last point (the next half-edge provides
         // its own start, which is the shared vertex).
@@ -900,12 +919,15 @@ fn build_ring(
             let idx = if forward { k } else { m - 1 - k };
             let f = samples.fractions[idx];
             let sof = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
-            let pcurve_forward_along_walk = boundary_first_edge_samples::pcurve_forward_along_walk(
-                pc,
-                &sof.geometry,
-                &origin,
-                closed_edge,
-            );
+            let pcurve_forward_along_walk = match closed_entry_forward {
+                Some(entry_forward) => entry_forward,
+                None => boundary_first_edge_samples::pcurve_forward_along_walk(
+                    pc,
+                    &sof.geometry,
+                    &origin,
+                    closed_edge,
+                ),
+            };
             // Seed at the sample's CURVE-WINDOW fraction, not the
             // uniform walk fraction k/(m-1): canonical samples are
             // ADAPTIVE (encroachment splits refine specific spans),
@@ -933,60 +955,12 @@ fn build_ring(
             // fall back to the uniform-grid path.
             let uvp = pc.point_at(tp);
             let target = samples.points[idx];
-            let (mut uu, mut vv) = (uvp.x, uvp.y);
-            // Analytic cylinders: invert analytically (atan2 in the
-            // surface's own basis) — the generic Newton projection
-            // wanders across period branches and reversed-branch
-            // pcurve seeds walked rings the long way around the seam
-            // (span 2π). Canonical branch here; the ring-level
-            // unwrap restores continuity.
-            if let popkern_core::geometry::SurfaceGeometry::Cylinder { origin, axis, .. } =
-                &sof.geometry
-            {
-                let (perp1, perp2) =
-                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
-                let d = target - *origin;
-                (uu, vv) = (d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis));
-            } else if sof.geometry.point_at(uu, vv).distance_to(&target) > 1.0e-9
-                && let Some((ru, rv)) =
-                    popkern_core::geometry::uv_projection::project_point_to_uv_near(
-                        &sof.geometry,
-                        &target,
-                        uu,
-                        vv,
-                    )
-            {
-                (uu, vv) = (ru, rv);
-            }
-            let mut residual = sof.geometry.point_at(uu, vv).distance_to(&target);
-            let scale = samples
-                .points
-                .first()?
-                .distance_to(samples.points.last()?)
-                .max(1e-9);
-            let gate = 1.0e-3 * scale.max(1.0);
-            if residual > gate {
-                // The pcurve seed can be DISPLACED (a setback fan's
-                // stale rim pcurves sit 1.8e-3 off) and the seeded
-                // local projection then converges near the displaced
-                // location, reading 1.4e-3 where the true nearest
-                // point is 5e-5 away — the face fell back to the
-                // uniform-grid path and the mesh cracked. Retry with a COLD
-                // global projection under the SAME gate before giving
-                // up; the ring-level periodic unwrap downstream
-                // restores branch continuity exactly as it does for
-                // analytic inversions.
-                if let Some((gu, gv)) = popkern_core::geometry::uv_projection::project_point_to_uv(
-                    &sof.geometry,
-                    &target,
-                ) {
-                    let g_res = sof.geometry.point_at(gu, gv).distance_to(&target);
-                    if g_res < residual {
-                        (uu, vv) = (gu, gv);
-                        residual = g_res;
-                    }
-                }
-            }
+            let (uu, vv, residual, gate) = boundary_first_edge_samples::refine_boundary_uv(
+                &sof.geometry,
+                (uvp.x, uvp.y),
+                &target,
+                samples,
+            )?;
             // NOTE: widening this gate by recorded entity tolerance
             // was tried twice (with and without the cold retry above)
             // and is FALSIFIED both times: it repartitions the

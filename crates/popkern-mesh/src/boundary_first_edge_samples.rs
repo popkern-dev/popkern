@@ -232,3 +232,191 @@ pub(super) fn pcurve_forward_along_walk(
     let s_end = surface.point_at(p_end.x, p_end.y);
     s_start.distance_to(origin) <= s_end.distance_to(origin)
 }
+
+/// Start the ring walk at a NON-closed edge when the loop has one: a
+/// closed edge's traversal branch is decided by continuity with the
+/// previous exit uv (see [`ring_walk_direction`]), which needs a
+/// predecessor — a loop-opening closed edge falls back to its
+/// authored pcurve direction, which is phase-arbitrary for boolean
+/// records (PK-454: the z = 0.45 band grind's loop began at the cut
+/// oval and the ring entered it on the wrong seam branch).
+pub(super) fn rotate_ring_start(
+    brep: &BRep,
+    start: popkern_core::topology::HalfEdgeHandle,
+) -> popkern_core::topology::HalfEdgeHandle {
+    let mut cand = start;
+    for _ in 0..10_000 {
+        // GEOMETRIC closure, not vertex-handle identity: a tube seam
+        // can carry two distinct vertex handles at one position.
+        if edge_endpoint_positions(brep, cand).is_some_and(|(a, b)| a.distance_to(&b) >= 1.0e-9) {
+            return cand;
+        }
+        cand = brep.half_edges[cand].next;
+        if cand == start {
+            break;
+        }
+    }
+    start
+}
+
+/// Ring-walk direction decision for one half-edge: returns
+/// `(closed_edge, closed_entry_forward, forward)`.
+///
+/// For a CLOSED edge on an APERIODIC chart the pcurve's authored
+/// direction is PHASE-ARBITRARY (a boolean record's fitted pcurve
+/// runs whichever way the march seeded), and a seam-crossing edge has
+/// its two pcurve ends on the two closure branches: entering on the
+/// wrong one span-jumps the ring across the whole chart, the jump
+/// segment is uncovered, and encroachment splits churn without
+/// converging (PK-454: 1100 open mesh edges on an OCC-valid body).
+/// The ENTRY end is the one branch-continuous with the previous ring
+/// exit uv; the sample-walk direction is then DERIVED — never probed
+/// at the closure point, where every distance is knife-edge — from
+/// the pcurve-vs-curve alignment measured at 25% along:
+/// `forward = entry == along`. Open edges keep the origin-distance
+/// test; closed edges on periodic charts keep the early-image test
+/// (their ring-level unwrap absorbs closure-copy jumps — PK-449).
+pub(super) fn ring_walk_direction(
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    samples: &EdgeSamples,
+    uv_last: Option<(f64, f64)>,
+    origin: &Point3,
+) -> Option<(bool, Option<bool>, bool)> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let closed_edge = samples
+        .points
+        .first()
+        .zip(samples.points.last())
+        .map(|(a, b)| a.distance_to(b) < 1e-9)
+        .unwrap_or(false);
+    let aperiodic = surface.parameter_periodicity() == (None, None);
+    // `uv_last` is the previous ring exit ONLY on mixed loops (the
+    // caller passes None for all-closed loops, whose pcurve family is
+    // authored consistently and keeps the historical rules).
+    let closed_entry_forward = if closed_edge && aperiodic {
+        uv_last.map(|(lu, lv)| {
+            let (pt0, pt1) = pc.parameter_range();
+            let a = pc.point_at(pt0);
+            let b = pc.point_at(pt1);
+            let da = (a.x - lu).powi(2) + (a.y - lv).powi(2);
+            let db = (b.x - lu).powi(2) + (b.y - lv).powi(2);
+            da <= db
+        })
+    } else {
+        None
+    };
+    let forward = if let (Some(entry_forward), true) =
+        (closed_entry_forward, samples.points.len() >= 5)
+    {
+        let (pt0, pt1) = pc.parameter_range();
+        let q_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.25);
+        let q = surface.point_at(q_uv.x, q_uv.y);
+        let n = samples.points.len();
+        let along =
+            q.distance_to(&samples.points[n / 4]) <= q.distance_to(&samples.points[n - 1 - n / 4]);
+        entry_forward == along
+    } else if closed_edge && samples.points.len() >= 3 {
+        let (pt0, pt1) = pc.parameter_range();
+        let early_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.05);
+        let early = surface.point_at(early_uv.x, early_uv.y);
+        early.distance_to(&samples.points[1])
+            <= early.distance_to(&samples.points[samples.points.len() - 2])
+    } else {
+        samples.points.first()?.distance_to(origin) <= samples.points.last()?.distance_to(origin)
+    };
+    Some((closed_edge, closed_entry_forward, forward))
+}
+
+/// Refine a boundary sample's UV from its pcurve seed by point
+/// inversion of the canonical 3D sample, returning
+/// `(u, v, residual, gate)`. The pcurve is only a SEED — imprecise
+/// pcurves (straight chords for bulging curves) still yield exact
+/// boundary UVs. Chain, best image wins at every rung:
+/// - analytic cylinders invert by atan2 in the surface's own basis
+///   (the generic Newton wanders period branches);
+/// - the seeded projection is kept only when it lands CLOSER than the
+///   seed's own image — near a geometrically-closed chart's seam it
+///   can stall clamped on the border (PK-454: a fit-quality seed at
+///   u = 0.9839 "refined" to the u = 1.0 border 3.1e-3 off-surface);
+/// - a COLD global projection retries under the same gate (a setback
+///   fan's stale rim pcurves sat 1.8e-3 off and the seeded projection
+///   converged near the displaced location);
+/// - the knot-seeded MULTI-SHEET projector is the last resort: on a
+///   many-turn closed NURBS wall the seeded projection stalls on the
+///   border and the cold 5-start walks the ADJACENT COIL TURN, so
+///   both read millimetres for a point ON the surface (PK-454, 1023
+///   open mesh edges on an OCC-valid body).
+///
+/// The residual gate itself must NOT be widened by recorded entity
+/// tolerance — tried twice, falsified twice: it repartitions the
+/// boundary-first/uniform-grid face split and the mixed boundaries
+/// crack far worse (hexagon6_blunt 0 → 482).
+pub(super) fn refine_boundary_uv(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    seed: (f64, f64),
+    target: &Point3,
+    samples: &EdgeSamples,
+) -> Option<(f64, f64, f64, f64)> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let (mut uu, mut vv) = seed;
+    if let popkern_core::geometry::SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
+        let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+        let d = *target - *origin;
+        (uu, vv) = (d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis));
+    } else if surface.point_at(uu, vv).distance_to(target) > 1.0e-9
+        && let Some((ru, rv)) =
+            popkern_core::geometry::uv_projection::project_point_to_uv_near(surface, target, uu, vv)
+    {
+        let seed_res = surface.point_at(uu, vv).distance_to(target);
+        let refined_res = surface.point_at(ru, rv).distance_to(target);
+        if refined_res < seed_res {
+            (uu, vv) = (ru, rv);
+        }
+    }
+    let mut residual = surface.point_at(uu, vv).distance_to(target);
+    let scale = samples
+        .points
+        .first()?
+        .distance_to(samples.points.last()?)
+        .max(1e-9);
+    let gate = 1.0e-3 * scale.max(1.0);
+    if residual > gate {
+        if let Some((gu, gv)) =
+            popkern_core::geometry::uv_projection::project_point_to_uv(surface, target)
+        {
+            let g_res = surface.point_at(gu, gv).distance_to(target);
+            if g_res < residual {
+                (uu, vv) = (gu, gv);
+                residual = g_res;
+            }
+        }
+        // The rescue must stay on the RING'S BRANCH: the multi-sheet
+        // projector returns the best image on any closure copy, and a
+        // period-shifted uv splices a foreign branch into the ring (a
+        // pipe tube's rescued samples tore 127 open edges where the
+        // historical gate failure fell back to the uniform grid and
+        // meshed watertight). Accept only an image within half a
+        // closure period of the pcurve seed per closed axis; anything
+        // farther keeps the gate failure — the tuned fallback.
+        if residual > gate
+            && let Some((su, sv)) =
+                popkern_core::geometry::uv_projection::project_point_to_uv_multisheet(
+                    surface, target,
+                )
+        {
+            let (pu, pv) = popkern_core::geometry::chart_periods::geometric_chart_periods(surface);
+            let on_seed_branch = |x: f64, sx: f64, p: Option<f64>| match p {
+                Some(p) if p.is_finite() && p > 0.0 => (x - sx).abs() <= 0.5 * p,
+                _ => true,
+            };
+            let s_res = surface.point_at(su, sv).distance_to(target);
+            if s_res < residual && on_seed_branch(su, seed.0, pu) && on_seed_branch(sv, seed.1, pv)
+            {
+                (uu, vv) = (su, sv);
+                residual = s_res;
+            }
+        }
+    }
+    Some((uu, vv, residual, gate))
+}

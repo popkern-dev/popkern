@@ -10,8 +10,10 @@ pub(crate) mod marching_newton;
 mod marching_helpers;
 
 use marching_helpers::{
-    estimate_normal_near_singularity, find_tangent_march_direction, wrap_parameter,
+    estimate_normal_near_singularity, find_tangent_march_direction, principal_branch_seed,
+    wrap_parameter,
 };
+
 pub use marching_newton::BoundaryPin;
 pub(crate) use marching_newton::march_project;
 use marching_newton::march_project_with_iters;
@@ -70,6 +72,14 @@ pub(crate) fn march(
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
 ) -> (Vec<MarchSample>, bool) {
+    // The SEED must sit on the principal period branch every marched
+    // step is wrapped onto — mechanism and measured rationale in
+    // [`principal_branch_seed`] (PK-454).
+    let start = principal_branch_seed(
+        start, surface1, u1_range, v1_range, surface2, u2_range, v2_range,
+    );
+    let start = &start;
+
     // March in +T direction.
     let forward = march_one_direction(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
@@ -80,18 +90,7 @@ pub(crate) fn march(
     // the coil-grind SSI: every closed marched loop carried 2x
     // samples as two duplicate laps that seam-splitting turned into
     // duplicate records and consolidation had to dedupe — PK-450).
-    let forward_closed = forward.len() > 20 && {
-        let total_arc: f64 = forward
-            .windows(2)
-            .map(|w| w[0].point.distance_to(&w[1].point))
-            .sum();
-        let avg_step = total_arc / (forward.len() - 1) as f64;
-        let tol = (avg_step * 2.0).max(tolerance.linear());
-        forward[0]
-            .point
-            .distance_to(&forward[forward.len() - 1].point)
-            < tol
-    };
+    let forward_closed = marching_helpers::forward_trace_closed(&forward, tolerance);
 
     // March in -T direction (only when the loop is still open).
     let mut backward = if forward_closed {

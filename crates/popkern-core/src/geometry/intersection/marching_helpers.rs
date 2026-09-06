@@ -119,3 +119,71 @@ pub(super) fn find_tangent_march_direction(
 
     best_dir.normalized()
 }
+
+/// Wrap a march SEED's periodic coordinates onto the principal
+/// branch of each window, by the surface's REAL period (analytic or
+/// geometric chart closure — never the window span, which relocates
+/// the seed geometrically on a sub-period patch: a grazing
+/// strip × cap seed moved by the 0.6-rad window span and the tangent
+/// contact vanished in one operand order). A seed expressed on
+/// another branch (u = −0.09 on a period-1 closed chart) differs
+/// from its first marched neighbour by a full period; the seam
+/// splitter reads that as a spurious crossing, the closed-trace
+/// rejoin glues the wrong-branch point onto the tail, and the
+/// connector piece strands (PK-454: the z = 0.55 band grind served a
+/// 24.6% volume lie).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn principal_branch_seed(
+    start: &super::MarchSample,
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+) -> super::MarchSample {
+    let real = |analytic: Option<f64>, chart: Option<f64>| analytic.or(chart);
+    let (a1u, a1v) = surface1.periodicity();
+    let (c1u, c1v) = crate::geometry::chart_periods::geometric_chart_periods(surface1);
+    let (a2u, a2v) = surface2.periodicity();
+    let (c2u, c2v) = crate::geometry::chart_periods::geometric_chart_periods(surface2);
+    let wrap = |x: f64, range: (f64, f64), p: Option<f64>| -> f64 {
+        match p {
+            Some(p) if p.is_finite() && p > 0.0 && x.is_finite() => {
+                range.0 + (x - range.0).rem_euclid(p)
+            }
+            _ => x,
+        }
+    };
+    let mut s = start.clone();
+    s.u1 = wrap(s.u1, u1_range, real(a1u, c1u));
+    s.v1 = wrap(s.v1, v1_range, real(a1v, c1v));
+    s.u2 = wrap(s.u2, u2_range, real(a2u, c2u));
+    s.v2 = wrap(s.v2, v2_range, real(a2v, c2v));
+    s
+}
+
+/// Whether a forward march trace already closed on itself (endpoints
+/// within twice the average step). Traces under the march topic.
+pub(super) fn forward_trace_closed(forward: &[super::MarchSample], tolerance: &Tolerance) -> bool {
+    forward.len() > 20
+        && {
+            let total_arc: f64 = forward
+                .windows(2)
+                .map(|w| w[0].point.distance_to(&w[1].point))
+                .sum();
+            let avg_step = total_arc / (forward.len() - 1) as f64;
+            let tol = (avg_step * 2.0).max(tolerance.linear());
+            let gap = forward[0]
+                .point
+                .distance_to(&forward[forward.len() - 1].point);
+            if crate::trace::trace_enabled("march") {
+                eprintln!(
+                    "  [march] fwd {} pts arc {total_arc:.4} avg_step {avg_step:.5} tol {tol:.5} gap {gap:.5} -> closed={}",
+                    forward.len(),
+                    gap < tol
+                );
+            }
+            gap < tol
+        }
+}

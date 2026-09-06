@@ -285,6 +285,15 @@ pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_
         };
         let (u1lo, u1hi) = uv_span(&r.curve.curve_uv1);
         let (u2lo, u2hi) = uv_span(&r.curve.curve_uv2);
+        {
+            let (a0, a1) = r.curve.curve_uv1.parameter_range();
+            let p0 = r.curve.curve_uv1.point_at(a0);
+            let p1 = r.curve.curve_uv1.point_at(a1);
+            eprintln!(
+                "    [rec {i} uv1-ends] ({:.6},{:.6}) -> ({:.6},{:.6})",
+                p0.x, p0.y, p1.x, p1.y
+            );
+        }
         eprintln!(
             "    [rec {i}] ({:?},{:?}) ({:.6},{:.6},{:.6})->({:.6},{:.6},{:.6}) chord {:.4} u1[{u1lo:.4},{u1hi:.4}] u2[{u2lo:.4},{u2hi:.4}]",
             r.face_a,

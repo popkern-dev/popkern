@@ -164,18 +164,30 @@ pub(crate) fn weld_closed_loop(samples: &[MarchSample]) -> Vec<MarchSample> {
 /// `fit_marched_trace`). Merges only when the junction is
 /// branch-continuous on every uv axis — a genuine seam jump there
 /// (seed exactly on a seam) is left split.
-fn rejoin_closed_trace_ends(mut segments: Vec<Vec<MarchSample>>) -> Vec<Vec<MarchSample>> {
+fn rejoin_closed_trace_ends(
+    mut segments: Vec<Vec<MarchSample>>,
+    periods: [Option<f64>; 4],
+) -> Vec<Vec<MarchSample>> {
     let Some(first) = segments.first().and_then(|s| s.first()) else {
         return segments;
     };
     let Some(last) = segments.last().and_then(|s| s.last()) else {
         return segments;
     };
+    // Branch slack is PERIOD-AWARE: the fixed π/2 slack is meaningless
+    // on a period-1 NURBS chart (a full-period junction jump of ~1.0
+    // passed it, gluing a wrong-branch seed sample onto the tail —
+    // PK-454). On a periodic axis anything approaching half a period
+    // is a genuine seam jump, never junction slop.
     const BRANCH_SLACK: f64 = std::f64::consts::FRAC_PI_2;
-    let continuous = (first.u1 - last.u1).abs() < BRANCH_SLACK
-        && (first.v1 - last.v1).abs() < BRANCH_SLACK
-        && (first.u2 - last.u2).abs() < BRANCH_SLACK
-        && (first.v2 - last.v2).abs() < BRANCH_SLACK;
+    let slack = |p: Option<f64>| match p {
+        Some(p) if p.is_finite() && p > 0.0 => BRANCH_SLACK.min(0.45 * p),
+        _ => BRANCH_SLACK,
+    };
+    let continuous = (first.u1 - last.u1).abs() < slack(periods[0])
+        && (first.v1 - last.v1).abs() < slack(periods[1])
+        && (first.u2 - last.u2).abs() < slack(periods[2])
+        && (first.v2 - last.v2).abs() < slack(periods[3]);
     if !continuous {
         return segments;
     }
@@ -251,11 +263,50 @@ pub(crate) fn fit_marched_trace(
     // 0.016-wide connector at the cylinder seam). Rejoin the ends
     // when their junction is branch-continuous; a seed exactly ON a
     // seam yields a near-period jump there and correctly skips.
+    if crate::trace::trace_enabled("seam-split") {
+        for (i, seg) in segments.iter().enumerate() {
+            let (f, l) = (&seg[0], &seg[seg.len() - 1]);
+            eprintln!(
+                "  [fit-seg] pre-rejoin {i}: {} pts uv1 ({:.4},{:.4})->({:.4},{:.4}) 3d ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}) is_closed={is_closed}",
+                seg.len(),
+                f.u1,
+                f.v1,
+                l.u1,
+                l.v1,
+                f.point.x,
+                f.point.y,
+                f.point.z,
+                l.point.x,
+                l.point.y,
+                l.point.z
+            );
+        }
+    }
     let segments = if is_closed && segments.len() > 1 {
-        rejoin_closed_trace_ends(segments)
+        let combined = |s: &SurfaceGeometry| -> (Option<f64>, Option<f64>) {
+            let (au, av) = s.periodicity();
+            let (cu, cv) = crate::geometry::chart_periods::geometric_chart_periods(s);
+            (au.or(cu), av.or(cv))
+        };
+        let (p1u, p1v) = combined(surface1);
+        let (p2u, p2v) = combined(surface2);
+        rejoin_closed_trace_ends(segments, [p1u, p1v, p2u, p2v])
     } else {
         segments
     };
+    if crate::trace::trace_enabled("seam-split") {
+        for (i, seg) in segments.iter().enumerate() {
+            let (f, l) = (&seg[0], &seg[seg.len() - 1]);
+            eprintln!(
+                "  [fit-seg] post-rejoin {i}: {} pts uv1 ({:.4},{:.4})->({:.4},{:.4})",
+                seg.len(),
+                f.u1,
+                f.v1,
+                l.u1,
+                l.v1
+            );
+        }
+    }
     // C0 crease crossings cut the runs too: a smooth fit across a
     // faceted chart's corner rounds the true tangent break (PK-442 —
     // see `surface_surface_crease_split`).
@@ -332,7 +383,23 @@ pub(crate) fn fit_marched_trace(
         segments
             .into_iter()
             .map(|seg| {
-                if seg.len() > 4 {
+                // The weld closes a marching TIP GAP (~one step). A
+                // seam-REJOINED closed trace already terminates on the
+                // pinned crossing at BOTH ends: its 3D ends coincide
+                // exactly while its UVs deliberately differ by the
+                // period branch. Welding it pops the exact crossing
+                // sample ("trailing samples within half a step of the
+                // start" — distance 0 qualifies) and re-appends the
+                // closure with the PREVIOUS sample's uv, so the fitted
+                // pcurve terminates short of the seam (measured,
+                // PK-454: a 0.0027 chart gap at the z = 0.5 band
+                // grind's seam junction tore the whole wall lattice —
+                // 1023 open mesh edges on a validator-clean serve).
+                let already_exact = seg
+                    .first()
+                    .zip(seg.last())
+                    .is_some_and(|(f, l)| f.point.distance_to(&l.point) <= tolerance.linear());
+                if seg.len() > 4 && !already_exact {
                     weld_closed_loop(&seg)
                 } else {
                     seg

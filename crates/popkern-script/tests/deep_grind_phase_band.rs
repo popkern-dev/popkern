@@ -184,3 +184,39 @@ fn off_station_deep_grind_serves_at_the_former_euler_phase() {
 fn station_grind_with_cap_rim_crossing_serves() {
     grind_serves_watertight(0.75);
 }
+
+/// PK-454, three former phase-luck classes of the two-piece band
+/// grind (the plate's bottom AND top planes both cross the coil):
+///
+/// - z = 0.55 served a 24.6% volume LIE: the SSI seed entered the
+///   march on the wrong period branch, the seam splitter cut a
+///   spurious one-point segment, the rejoin embedded a period jump,
+///   and the z = 0.55 wall crossing lost its connector — the wall
+///   never split and the band's ring survived the subtraction.
+///   Fixed by wrapping the seed onto the marcher's principal branch.
+/// - z = 0.5 served with 1023 open mesh edges: the closed-loop weld
+///   popped the pinned seam-crossing sample (3D distance 0 from the
+///   start), the pcurve terminated short of the seam, and later the
+///   mesher's seeded/cold projections both failed near the seam of
+///   the many-turn wall. Fixed by skipping the weld on already-exact
+///   closures and adding the knot-seeded multi-sheet projector as
+///   the boundary-refinement last resort.
+/// - z = 0.45 served with ~1100 open mesh edges: the ring walked the
+///   cut oval from the wrong seam branch (closed-edge direction was
+///   probed at the closure point, where every distance is
+///   knife-edge). Fixed by branch-continuity entry + derived walk
+///   direction in the ring builder.
+#[test]
+fn band_grind_serves_at_the_former_ring_branch_phase() {
+    grind_serves_watertight(0.45);
+}
+
+#[test]
+fn band_grind_serves_at_the_former_weld_pop_phase() {
+    grind_serves_watertight(0.5);
+}
+
+#[test]
+fn band_grind_serves_at_the_former_volume_lie_phase() {
+    grind_serves_watertight(0.55);
+}
