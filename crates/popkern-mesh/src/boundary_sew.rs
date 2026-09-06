@@ -181,7 +181,27 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
             }
         }
         let edges = usable;
-        let boundary = face_mesh_boundary_vertices(fm);
+        let (boundary, components) = face_mesh_boundary_vertices(fm);
+        // An internally TORN face mesh (open edges inside the face)
+        // turns interior vertices into "boundary" and the projection
+        // band — 20% of the face diagonal, larger than a shallow
+        // face's own depth — mass-snaps them onto the rim polylines
+        // (measured, PK-455 diagnosis: 2168 vertices of a broken
+        // dimple cap collapsed onto its rim circle, 785 open edges).
+        // The tear is detectable structurally: a healthy face has one
+        // boundary component per BRep loop. Skip sewing a torn face —
+        // the open-edge census then reports the genuine defect
+        // instead of a destroyed face (PK-458).
+        let expected_components = 1 + face.inner_loops.len();
+        if components > expected_components {
+            if popkern_core::trace::trace_enabled("sew") {
+                eprintln!(
+                    "  [sew] face {:?}: {components} boundary components (loops {expected_components}) — internally torn, not sewn",
+                    fm.face
+                );
+            }
+            continue;
+        }
         for (vi, v) in fm.vertices.iter_mut().enumerate() {
             if !boundary.contains(&vi) {
                 continue;
@@ -232,10 +252,14 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
     }
 }
 
-/// Vertex indices on the face mesh's boundary: endpoints of edges
+/// Vertex indices on the face mesh's boundary — endpoints of edges
 /// used by exactly one triangle after position welding (clipping can
-/// duplicate vertices at identical positions).
-fn face_mesh_boundary_vertices(fm: &crate::mesh::FaceMesh) -> std::collections::HashSet<usize> {
+/// duplicate vertices at identical positions) — plus the number of
+/// connected boundary COMPONENTS over those edges (PK-458: the
+/// internal-tear detector).
+fn face_mesh_boundary_vertices(
+    fm: &crate::mesh::FaceMesh,
+) -> (std::collections::HashSet<usize>, usize) {
     use std::collections::HashMap;
     let mut canon: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut remap = Vec::with_capacity(fm.vertices.len());
@@ -265,9 +289,39 @@ fn face_mesh_boundary_vertices(fm: &crate::mesh::FaceMesh) -> std::collections::
             boundary_canon.insert(b);
         }
     }
-    (0..fm.vertices.len())
-        .filter(|&i| boundary_canon.contains(&remap[i]))
-        .collect()
+    // Components over the boundary edges (union-find on canon ids).
+    let mut parent: HashMap<usize, usize> = boundary_canon.iter().map(|&x| (x, x)).collect();
+    fn find(parent: &mut HashMap<usize, usize>, mut x: usize) -> usize {
+        while parent[&x] != x {
+            let up = parent[&parent[&x]];
+            parent.insert(x, up);
+            x = up;
+        }
+        x
+    }
+    for (&(a, b), &c) in &counts {
+        if c == 1 {
+            let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+    }
+    let components = {
+        let keys: Vec<usize> = parent.keys().copied().collect();
+        let mut roots = std::collections::HashSet::new();
+        for k in keys {
+            let r = find(&mut parent, k);
+            roots.insert(r);
+        }
+        roots.len()
+    };
+    (
+        (0..fm.vertices.len())
+            .filter(|&i| boundary_canon.contains(&remap[i]))
+            .collect(),
+        components,
+    )
 }
 
 fn project_to_segment_param(p: Point3, a: Point3, b: Point3) -> (f64, Point3) {
@@ -282,3 +336,7 @@ fn project_to_segment_param(p: Point3, a: Point3, b: Point3) -> (f64, Point3) {
         Point3::new(a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t),
     )
 }
+
+#[cfg(test)]
+#[path = "boundary_sew_tests.rs"]
+mod tests;
