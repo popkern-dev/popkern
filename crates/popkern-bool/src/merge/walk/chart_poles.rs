@@ -25,9 +25,19 @@ pub(crate) fn detect_pole_nodes(
     if u_period.is_some()
         && matches!(
             surface,
-            SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. }
+            SurfaceGeometry::Sphere { .. }
+                | SurfaceGeometry::Cone { .. }
+                | SurfaceGeometry::Nurbs(_)
         )
     {
+        // NURBS included since PK-456: a u-closed surface of
+        // revolution whose profile touches the axis collapses a whole
+        // v-border row to one point — the same pole shape as the
+        // analytic sphere/cone, and the du-collapse test below is the
+        // authority either way (the enum match is only a cheap
+        // filter). Without it, a pole-ended seam clusters into u
+        // branches and the face declines on degree imbalance
+        // (measured: every x/y-revolved sphere-dimple boolean).
         let (mut v_lo, mut v_hi) = (f64::MAX, f64::MIN);
         for emb in sub.embeddings.values() {
             for &(_, v) in &emb.uv {

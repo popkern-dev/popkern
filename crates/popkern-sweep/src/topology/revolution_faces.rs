@@ -312,15 +312,24 @@ pub(crate) fn build_full_revolution_topology(
                 canonical_pcurves(&exact.chart),
             ),
             None => (
+                // The face chart is the TRANSPOSE of the construction
+                // surface: angle in u, profile in v (PK-456). The
+                // closed direction then matches every other closed
+                // chart in the kernel — analytic revolutions, swept
+                // and lofted walls — so the boolean chart walk and
+                // the closed-chart meshers apply instead of the
+                // v-closed decline (PK-455). Transposition reverses
+                // the chart normal; the flipped orientation keeps the
+                // material side.
                 SurfaceOnFace {
-                    geometry: SurfaceGeometry::Nurbs(surfaces[i].clone()),
-                    orientation: true,
+                    geometry: SurfaceGeometry::Nurbs(surfaces[i].transposed()),
+                    orientation: false,
                 },
                 (
-                    uv_line(0.0, 0.0, 1.0, 0.0),
-                    uv_line(1.0, 0.0, 1.0, 1.0),
-                    uv_line(1.0, 1.0, 0.0, 1.0),
-                    uv_line(0.0, 1.0, 0.0, 0.0),
+                    uv_line(0.0, 0.0, 0.0, 1.0),
+                    uv_line(0.0, 1.0, 1.0, 1.0),
+                    uv_line(1.0, 1.0, 1.0, 0.0),
+                    uv_line(1.0, 0.0, 0.0, 0.0),
                 ),
             ),
         };

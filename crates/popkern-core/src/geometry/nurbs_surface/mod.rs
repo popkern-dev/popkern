@@ -85,6 +85,35 @@ impl NurbsSurface {
         self.weights[i_u * self.num_v + i_v]
     }
 
+    /// The same surface with the parameter axes swapped: `S'(u, v) =
+    /// S(v, u)`, exactly (degrees, knot vectors and the control grid
+    /// transpose; no refit). Transposition reverses the chart
+    /// orientation — `∂u' × ∂v' = −(∂u × ∂v)` — so a face that keeps
+    /// its material side must flip its stored orientation flag with
+    /// it. Introduced for PK-456: surfaces of revolution author their
+    /// closed (angle) direction in `u` like every other closed chart
+    /// in the kernel.
+    pub fn transposed(&self) -> NurbsSurface {
+        let mut control_points = Vec::with_capacity(self.control_points.len());
+        let mut weights = Vec::with_capacity(self.weights.len());
+        for j_v in 0..self.num_v {
+            for i_u in 0..self.num_u {
+                control_points.push(*self.cp(i_u, j_v));
+                weights.push(self.wt(i_u, j_v));
+            }
+        }
+        NurbsSurface {
+            degree_u: self.degree_v,
+            degree_v: self.degree_u,
+            knots_u: self.knots_v.clone(),
+            knots_v: self.knots_u.clone(),
+            control_points,
+            num_u: self.num_v,
+            num_v: self.num_u,
+            weights,
+        }
+    }
+
     /// Evaluate the surface at (u, v) using tensor-product de Boor in
     /// homogeneous coordinates.
     ///
@@ -215,6 +244,9 @@ impl SurfaceEval for NurbsSurface {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "transpose_tests.rs"]
+mod transpose_tests;
 
 #[cfg(test)]
 mod eval_span_local_tests;
