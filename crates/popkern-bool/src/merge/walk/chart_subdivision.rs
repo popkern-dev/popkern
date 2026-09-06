@@ -279,10 +279,20 @@ fn build_face_subdivision_inner(
     // loops walked as interior ISLANDS and the face never split into
     // bands). v-closed NURBS charts stay out of scope — the v-period
     // cell-fold path is torus-specific.
-    let u_period = u_analytic.or_else(|| {
-        let (u_chart, _) = crate::clip::classification_chart_periods(surface);
-        u_chart
-    });
+    let (u_chart, v_chart) = crate::clip::classification_chart_periods(surface);
+    let u_period = u_analytic.or(u_chart);
+    // A chart closed geometrically in v ONLY (a NURBS surface of
+    // revolution stores the angle in v) has no seam machinery on
+    // this path: its azimuth ring pairs onto itself at the junction
+    // node, the loop partition strands the seam pair as a zero-area
+    // slit, and the roles coin-flip on zero shoelaces (measured,
+    // PK-455: the SECOND same-face sphere-dimple subtract rebuilt the
+    // surviving cap as rim-ring + seam-slit and the trim clip shred
+    // the mesh). Decline to the recorded 3D-Newell fallback instead.
+    if u_period.is_none() && v_period.is_none() && v_chart.is_some() {
+        sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
+        return sub;
+    }
     // Doubly-periodic (torus) charts: a SUB-PERIOD face (quarter
     // patch — the popkern torus primitive's native granularity) needs
     // no seam machinery at all. Its chart cell is computed from the

@@ -333,14 +333,50 @@ pub(crate) fn tessellate_face_with_samples(
                 .position
                 .distance_to(&vertices[indices[2]].position);
 
-            if diag_02_13 <= diag_01_23 {
+            // A chart-degenerate border (a NURBS revolution cap's pole
+            // row: every u = 1 sample is the same 3D point) gives the
+            // pole-side cell two coincident corners — one of its two
+            // triangles is a zero-length-edge sliver. Emitting it
+            // leaves a permanent (P, P) half-edge no neighbour can
+            // cancel (measured, PK-455: eight per dimple pole, flagged
+            // as an open edge by every watertight census). The other
+            // triangle of the cell is the honest pole fan — keep it.
+            // A cell whose BOTH triangles are degenerate (a 1-cell
+            // grid over a bipolar chart) keeps them: an empty cell is
+            // a hole, and the caller asked for a mesh this coarse.
+            let degenerate = |a: usize, b: usize, c: usize| -> bool {
+                let pa = vertices[a].position;
+                let pb = vertices[b].position;
+                let pc = vertices[c].position;
+                let (ab, bc, ca) = (
+                    pa.distance_to(&pb),
+                    pb.distance_to(&pc),
+                    pc.distance_to(&pa),
+                );
+                let max = ab.max(bc).max(ca);
+                ab.min(bc).min(ca) < 1.0e-9 * max
+            };
+            let pair = if diag_02_13 <= diag_01_23 {
                 // Split along 0-3 diagonal.
-                triangles.push([indices[0], indices[1], indices[3]]);
-                triangles.push([indices[0], indices[3], indices[2]]);
+                [
+                    [indices[0], indices[1], indices[3]],
+                    [indices[0], indices[3], indices[2]],
+                ]
             } else {
                 // Split along 1-2 diagonal.
-                triangles.push([indices[0], indices[1], indices[2]]);
-                triangles.push([indices[1], indices[3], indices[2]]);
+                [
+                    [indices[0], indices[1], indices[2]],
+                    [indices[1], indices[3], indices[2]],
+                ]
+            };
+            let kept: Vec<[usize; 3]> = pair
+                .into_iter()
+                .filter(|t| !degenerate(t[0], t[1], t[2]))
+                .collect();
+            if kept.is_empty() {
+                triangles.extend(pair);
+            } else {
+                triangles.extend(kept);
             }
             continue;
         }
@@ -382,12 +418,38 @@ pub(crate) fn tessellate_face_with_samples(
                 )
             })
             .collect();
+        // Same zero-length-edge guard as the quad branch (distinct
+        // indices can still intern the same 3D point on a
+        // chart-degenerate border row), with the same escape hatch: a
+        // cell must never end up empty.
+        let mut kept: Vec<[usize; 3]> = Vec::new();
+        let mut dropped: Vec<[usize; 3]> = Vec::new();
         for i in 0..ring_idx.len() {
             let a = ring_idx[i];
             let b = ring_idx[(i + 1) % ring_idx.len()];
-            if a != b {
-                triangles.push([center, a, b]);
+            if a == b {
+                continue;
             }
+            let (pa, pb, pc) = (
+                vertices[center].position,
+                vertices[a].position,
+                vertices[b].position,
+            );
+            let (ab, bc, ca) = (
+                pa.distance_to(&pb),
+                pb.distance_to(&pc),
+                pc.distance_to(&pa),
+            );
+            if ab.min(bc).min(ca) >= 1.0e-9 * ab.max(bc).max(ca) {
+                kept.push([center, a, b]);
+            } else {
+                dropped.push([center, a, b]);
+            }
+        }
+        if kept.is_empty() {
+            triangles.extend(dropped);
+        } else {
+            triangles.extend(kept);
         }
     }
 
