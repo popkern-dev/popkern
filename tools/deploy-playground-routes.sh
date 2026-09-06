@@ -93,6 +93,19 @@ check "examples.json" "application/json"
 check "examples/boss_plate.rhai" ""
 check "guide.html" "text/html"
 
+# Deploys replace the tree in place, so the server must tell browsers to
+# revalidate. Without Cache-Control: no-cache, heuristic caching (10% of
+# Last-Modified age) showed a days-stale example manifest after a
+# redeploy (2026-09-06). The header lives in ~/Caddyfile's /routes/
+# handler; fail loudly if this sandbox's server lost it.
+if ! curl -sI "$URL/examples.json" | grep -qi '^cache-control: *no-cache'; then
+  echo "FAIL $URL/examples.json served without Cache-Control: no-cache —" >&2
+  echo "     browsers will cache the old manifest; add the header to the" >&2
+  echo "     static /routes/ handler in ~/Caddyfile and caddy reload" >&2
+  exit 1
+fi
+echo "  ok examples.json (Cache-Control: no-cache)"
+
 if [[ $VERIFY == 1 ]]; then
   # The DevTools harness against the deployed copy: real kernel run,
   # face pick, parameter edit, cancel path, request accounting.
