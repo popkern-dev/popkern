@@ -425,6 +425,14 @@ impl BRep {
         // Capture the original surface before mef (which doesn't copy it).
         let original_surface = self.faces[face].surface.clone();
 
+        let entry_at_start = tolerance.points_coincident(
+            &self.vertices[self.half_edges[he_entry].origin].position,
+            &curve_start,
+        );
+        if crate::trace::trace_enabled("face-split") {
+            eprintln!("    [split-face] entry_at_start={entry_at_start}");
+        }
+
         // Call mef to split the face topology.
         let mef_result = self.mef(he_entry, he_exit)?;
 
@@ -440,14 +448,24 @@ impl BRep {
             t_end,
         });
 
-        // Assign pcurves to the new half-edges.
-        // mef_result.half_edge: entry->exit (on the original face side) gets the
-        // forward UV trim curve.
-        // mef_result.half_edge_twin: exit->entry (on the new face side) gets the
-        // reversed UV trim curve.
-        self.half_edges[mef_result.half_edge].pcurve = Some(trim_curve_uv.clone().into());
-        self.half_edges[mef_result.half_edge_twin].pcurve =
-            Some(reverse_nurbs_curve(trim_curve_uv).into());
+        // Assign pcurves to the new half-edges by each half-edge's OWN
+        // traversal direction. mef's half_edge runs origin(he_entry) →
+        // origin(he_exit) — usually the trim's forward direction, but
+        // the inner-loop matcher may return the pair SWAPPED relative
+        // to the trim's parameterization (the winding rule owns
+        // entry/exit order — PK-185/PK-186). A forward pcurve on a
+        // backwards half-edge makes the loop's traversal disagree with
+        // its geometry (measured, PK-428: both keyed-bore cap trims
+        // took the swapped branch, every wall×cap pairing in the merge
+        // graph then claimed the SAME direction and minted duplicate
+        // edges — 8 self-twinned faces, non-manifold serve).
+        let (forward_he, backward_he) = if entry_at_start {
+            (mef_result.half_edge, mef_result.half_edge_twin)
+        } else {
+            (mef_result.half_edge_twin, mef_result.half_edge)
+        };
+        self.half_edges[forward_he].pcurve = Some(trim_curve_uv.clone().into());
+        self.half_edges[backward_he].pcurve = Some(reverse_nurbs_curve(trim_curve_uv).into());
 
         // Both faces should keep the original surface geometry.
         // The original face (containing he_entry's side) already has it.

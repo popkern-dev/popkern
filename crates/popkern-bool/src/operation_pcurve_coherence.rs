@@ -161,6 +161,22 @@ pub(super) fn trace_cellular_nonmanifold(r: &BRep) {
                 eprintln!("  [nm] {eh:?} uses={uses} at {pos}{endpoints}");
             }
         }
+        // Coincident-vertex census: cellular stub edges are minted
+        // between DUPLICATE nodes the graph failed to unify — the
+        // duplicate pair is the root, the stub only the symptom.
+        let verts: Vec<_> = r.vertices.iter().collect();
+        for i in 0..verts.len() {
+            for j in (i + 1)..verts.len() {
+                let d = verts[i].1.position.distance_to(&verts[j].1.position);
+                if d < 1.0e-4 {
+                    let p = verts[i].1.position;
+                    eprintln!(
+                        "  [nm-dup] {:?} ~ {:?} d={d:.3e} at ({:.7},{:.7},{:.7})",
+                        verts[i].0, verts[j].0, p.x, p.y, p.z
+                    );
+                }
+            }
+        }
     }
 }
 

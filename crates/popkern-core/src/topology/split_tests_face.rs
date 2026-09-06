@@ -323,3 +323,136 @@ fn split_edge_no_pcurve_stays_none() {
     assert!(brep.half_edges[he_a].pcurve.is_none());
     assert!(brep.half_edges[he_b].pcurve.is_none());
 }
+
+/// PK-428: the inner-loop matcher (`match_inner_loop_cut`) may return
+/// entry/exit SWAPPED relative to the trim's parameterization — the
+/// winding rule owns the order. The trim pcurves must then follow each
+/// half-edge's OWN traversal direction; the historical
+/// forward-on-`half_edge` assignment put a forward pcurve on a
+/// backwards half-edge for the swapped order, and every consumer that
+/// samples a loop through its pcurves read geometry running against
+/// the traversal. Both trim parameterizations are exercised so
+/// whichever order the winding rule picks, the swapped branch is hit
+/// by one of them.
+#[test]
+fn split_face_inner_loop_cut_pcurves_follow_half_edge_direction() {
+    use crate::geometry::SurfaceOnFace;
+    use crate::geometry::surface::SurfaceGeometry;
+    use crate::topology::FaceHandle;
+    use crate::topology::trim::InnerLoopPiece;
+
+    let tolerance = Tolerance::default();
+    let line = |a: Point3, b: Point3| NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![a, b],
+        weights: vec![1.0, 1.0],
+    };
+    let polyline = |pts: &[Point3]| {
+        let n = pts.len();
+        let mut knots = vec![0.0, 0.0];
+        for i in 1..n - 1 {
+            knots.push(i as f64 / (n - 1) as f64);
+        }
+        knots.push(1.0);
+        knots.push(1.0);
+        NurbsCurve {
+            degree: 1,
+            knots,
+            control_points: pts.to_vec(),
+            weights: vec![1.0; n],
+        }
+    };
+    // Square face in the z=0 plane with an identity chart (uv = xy),
+    // outer loop CCW, plus a square hole (CW) built from four pieces
+    // so its corners are real loop vertices.
+    let build = || -> (BRep, FaceHandle) {
+        let mut brep = BRep::new(Tolerance::default());
+        let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+        let mev1 = brep
+            .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+            .unwrap();
+        let mev2 = brep
+            .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
+            .unwrap();
+        let mev3 = brep
+            .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
+            .unwrap();
+        let mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+        let face = mef_r.face;
+        brep.faces[face].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0),
+                normal: crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+                u_axis: crate::geometry::Vec3::new(1.0, 0.0, 0.0),
+                v_axis: crate::geometry::Vec3::new(0.0, 1.0, 0.0),
+            },
+            orientation: true,
+        });
+        // Authored so the STORED face-side loop winds like a real
+        // boolean hole (opposite the outer loop) — the winding rule
+        // only swaps entry/exit against that storage direction.
+        let hole = [
+            Point3::new(0.3, 0.3, 0.0),
+            Point3::new(0.7, 0.3, 0.0),
+            Point3::new(0.7, 0.7, 0.0),
+            Point3::new(0.3, 0.7, 0.0),
+        ];
+        let pieces: Vec<InnerLoopPiece> = (0..4)
+            .map(|i| {
+                let c = line(hole[i], hole[(i + 1) % 4]);
+                InnerLoopPiece {
+                    curve_3d: c.clone(),
+                    curve_uv: c,
+                }
+            })
+            .collect();
+        brep.add_inner_loop_from_pieces(face, &pieces, &tolerance)
+            .unwrap();
+        (brep, face)
+    };
+    // A V-shaped trim in the material below the hole, both ends on
+    // hole corners.
+    let v_path = [
+        Point3::new(0.3, 0.3, 0.0),
+        Point3::new(0.5, 0.1, 0.0),
+        Point3::new(0.7, 0.3, 0.0),
+    ];
+    for reversed in [false, true] {
+        let mut pts = v_path.to_vec();
+        if reversed {
+            pts.reverse();
+        }
+        let trim = polyline(&pts);
+        let (mut brep, face) = build();
+        let result = brep
+            .split_face(face, &trim, &trim, &tolerance)
+            .unwrap_or_else(|e| panic!("inner-loop cut (reversed={reversed}): {e}"));
+        let edge = result.new_edges[0];
+        let he = brep.edges[edge].half_edge;
+        let twin = brep.half_edges[he].twin;
+        for h in [he, twin] {
+            let origin = brep.vertices[brep.half_edges[h].origin].position;
+            let dest = brep.vertices[brep.half_edges[brep.half_edges[h].twin].origin].position;
+            let pcurve = brep.half_edges[h].pcurve.as_ref().expect("trim pcurve");
+            let (t0, t1) = pcurve.parameter_range();
+            let s = pcurve.point_at(t0);
+            let e = pcurve.point_at(t1);
+            let d_fwd = ((s.x - origin.x).powi(2) + (s.y - origin.y).powi(2)).sqrt()
+                + ((e.x - dest.x).powi(2) + (e.y - dest.y).powi(2)).sqrt();
+            assert!(
+                d_fwd < 1.0e-9,
+                "pcurve runs against its half-edge (reversed={reversed}): \
+                 pcurve ({:.3},{:.3})->({:.3},{:.3}) vs he ({:.3},{:.3})->({:.3},{:.3})",
+                s.x,
+                s.y,
+                e.x,
+                e.y,
+                origin.x,
+                origin.y,
+                dest.x,
+                dest.y
+            );
+        }
+    }
+}

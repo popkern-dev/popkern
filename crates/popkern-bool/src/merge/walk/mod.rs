@@ -17,6 +17,7 @@ pub(crate) mod chart_walk;
 mod chart_walk_tests;
 mod hole_nesting;
 mod next_edge;
+mod region_filter;
 pub(crate) mod walk_geometry;
 mod walk_loop_measures;
 mod walk_trace;
@@ -101,6 +102,20 @@ pub(crate) fn walk_all_fragments_ext(
     let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b);
 
     for (face_ref, he_indices) in &graph.face_edges {
+        // Record pieces inside one of this face's own holes are
+        // phantoms for it — they bound the OTHER operand's material
+        // (see `region_filter`). Walking them chained zero-area
+        // doubled rings into the face's inner loops (PK-428).
+        let filtered_hes;
+        let he_indices = match region_filter::drop_hole_interior_record_pieces(
+            graph, face_ref, he_indices, brep_a, brep_b, tolerance,
+        ) {
+            Some(kept) => {
+                filtered_hes = kept;
+                &filtered_hes
+            }
+            None => he_indices,
+        };
         walk_trace::dump_face_pre(graph, face_ref, he_indices);
         let face_hes: HashSet<usize> = he_indices.iter().copied().collect();
         let mut visited: HashSet<usize> = HashSet::new();
@@ -576,13 +591,32 @@ pub(crate) fn walk_all_fragments_ext(
                 // subtracted wedge had no rest plane — shell gap = the
                 // full prism width).
                 let twin_of = |target: &[usize]| {
-                    inner_loops_out.iter().position(|existing| {
-                        existing.len() == target.len()
-                            && target.iter().all(|&he_idx| {
-                                let twin = graph.half_edges[he_idx].twin;
-                                existing.contains(&twin)
+                    inner_loops_out
+                        .iter()
+                        .position(|existing| {
+                            existing.len() == target.len()
+                                && target.iter().all(|&he_idx| {
+                                    let twin = graph.half_edges[he_idx].twin;
+                                    existing.contains(&twin)
+                                })
+                        })
+                        // PARTIAL twin pair (PK-428): a hole ring and
+                        // the region piece it bounds share their
+                        // record pieces as twins while carrying
+                        // DIFFERENT boundary arcs (the keyed-bore
+                        // cap's combined bore+key ring vs the
+                        // slot-outside-bore piece: one walks the major
+                        // arc, the other the minor). Two distinct
+                        // holes never share an edge — a shared twin
+                        // half-edge is the region-pair signature, and
+                        // the same winding rule assigns the roles.
+                        .or_else(|| {
+                            inner_loops_out.iter().position(|existing| {
+                                target.iter().any(|&he_idx| {
+                                    existing.contains(&graph.half_edges[he_idx].twin)
+                                })
                             })
-                    })
+                        })
                 };
                 match twin_of(&lp) {
                     None => inner_loops_out.push(lp),
