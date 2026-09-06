@@ -31,6 +31,8 @@ use crate::mesh::{FaceMesh, MeshVertex};
 mod boundary_first_delaunay;
 #[path = "boundary_first_fidelity.rs"]
 mod boundary_first_fidelity;
+#[path = "boundary_first_fold.rs"]
+mod boundary_first_fold;
 use boundary_first_fidelity::closed_chart_fidelity_ok;
 #[path = "boundary_first_edge_samples.rs"]
 mod boundary_first_edge_samples;
@@ -811,6 +813,7 @@ pub(crate) fn tessellate_face_boundary_first(
             t.swap(1, 2);
         }
     }
+    boundary_first_fold::drop_degenerate_slivers(&mut triangles, &vertices);
     boundary_first_fidelity::trace_bf_volume(face_handle, &vertices, &triangles, &rings);
     if !closed_chart_fidelity_ok(face_handle, surface, &vertices, &triangles, options) {
         return None;
@@ -850,9 +853,14 @@ fn build_ring(
     // mesh edges).
     let loop_has_open = boundary_first_edge_samples::edge_endpoint_positions(brep, start)
         .is_some_and(|(a, b)| a.distance_to(&b) >= 1.0e-9);
+    // Chain-continuity period lift + folded-seam unfold (PK-457, same
+    // scope as the PK-454 entry rule; see
+    // `boundary_first_fold::fold_shift_for_leg`).
+    let ring_periods = boundary_first_fold::ring_chain_periods(brep, loop_handle, loop_has_open);
     let mut uv = Vec::new();
     let mut pos = Vec::new();
     let mut sources = Vec::new();
+    let mut first_leg_starts: HashMap<EdgeHandle, (f64, f64)> = HashMap::new();
     let mut he = start;
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];
@@ -915,6 +923,7 @@ fn build_ring(
         }
         // Emit all but the last point (the next half-edge provides
         // its own start, which is the shared vertex).
+        let mut leg_shift: Option<(f64, f64)> = None;
         for k in 0..(m - 1) {
             let idx = if forward { k } else { m - 1 - k };
             let f = samples.fractions[idx];
@@ -978,6 +987,50 @@ fn build_ring(
                 }
                 return None;
             }
+            // Fold placement is decided at the leg's FIRST sample and
+            // applied to the whole leg (a folded seam pair's second
+            // leg belongs one period over; the chain lift would fight
+            // the deliberate jump, so a shifted leg skips it). The
+            // jump crosses a degenerate (pole) vertex, and the ring
+            // gets BOTH its chart images — the crossing then runs
+            // along the zero-3D-length pole row (a convex-hull edge
+            // Delaunay always keeps) instead of a full-period
+            // diagonal no refinement can ever cover (measured: one
+            // seam span split per round toward the pole, all eight
+            // rounds, on every revolved-NURBS dimple cap).
+            let (uu, vv) = match leg_shift {
+                Some(shift) if shift != (0.0, 0.0) => (uu + shift.0, vv + shift.1),
+                Some(_) => {
+                    boundary_first_fold::lift_to_chain((uu, vv), uv.last().copied(), ring_periods)
+                }
+                None => {
+                    let shift = boundary_first_fold::fold_shift_for_leg(
+                        &sof.geometry,
+                        first_leg_starts.get(&eh).copied(),
+                        (uu, vv),
+                        uv.last().copied(),
+                        ring_periods,
+                    );
+                    leg_shift = Some(shift);
+                    if shift == (0.0, 0.0) {
+                        boundary_first_fold::lift_to_chain(
+                            (uu, vv),
+                            uv.last().copied(),
+                            ring_periods,
+                        )
+                    } else {
+                        uv.push((uu, vv));
+                        pos.push(popkern_core::geometry::Point3::new(
+                            target.x + 0.0,
+                            target.y + 0.0,
+                            target.z + 0.0,
+                        ));
+                        sources.push((eh, f, f));
+                        (uu + shift.0, vv + shift.1)
+                    }
+                }
+            };
+            first_leg_starts.entry(eh).or_insert((uu, vv));
             uv.push((uu, vv));
             // Normalize negative zeros: two arcs meeting at an anchor
             // evaluate the shared point as +0.0 / −0.0 in a coordinate,
@@ -996,35 +1049,7 @@ fn build_ring(
             break;
         }
     }
-    // Canonicalize near-duplicate CONSECUTIVE positions (arc joints:
-    // the two arcs meeting at an anchor evaluate the shared point
-    // ~1e-17 apart, and the position-weld keys are BIT patterns).
-    // Both entries snap to the pair's lexicographically smaller bit
-    // pattern — a direction-independent choice, so the two faces
-    // sharing the edges pick the SAME canonical point even though
-    // they traverse in opposite orders (a keep-first dedupe diverged
-    // and left an unpaired sliver at a strip-anchored rim, PK-344).
-    if !pos.is_empty() {
-        let scale = pos
-            .iter()
-            .zip(pos.iter().cycle().skip(1))
-            .map(|(a, b)| a.distance_to(b))
-            .fold(0.0_f64, f64::max)
-            .max(1e-12);
-        let weld = scale * 1e-9;
-        let n = pos.len();
-        for i in 0..n {
-            let j = (i + 1) % n;
-            let (a, b) = (pos[i], pos[j]);
-            let bits =
-                |p: &popkern_core::geometry::Point3| (p.x.to_bits(), p.y.to_bits(), p.z.to_bits());
-            if bits(&a) != bits(&b) && a.distance_to(&b) <= weld {
-                let canonical = if bits(&a) <= bits(&b) { a } else { b };
-                pos[i] = canonical;
-                pos[j] = canonical;
-            }
-        }
-    }
+    boundary_first_fold::weld_consecutive_positions(&mut pos);
     Some(BoundaryRing { uv, pos, sources })
 }
 
