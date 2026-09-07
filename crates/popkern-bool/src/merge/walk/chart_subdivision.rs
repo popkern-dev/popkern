@@ -303,6 +303,19 @@ fn build_face_subdivision_inner(
     let cell_fold = if v_period.is_some() {
         match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
             Some(cell) => Some((cell, u_period, v_period)),
+            // No resolvable cell — the face WRAPS at least one
+            // period. A face that wraps u but is v-BOUNDED (a
+            // revolved groove arc: full-ring torus band) is, for the
+            // walk, exactly a u-closed wall: the v-period of the
+            // SURFACE never enters its chart, and the tuned u-seam
+            // machinery owns it (measured, PK-459: a radial drill
+            // through a two-arc revolved tube's band declined here
+            // and the 3D-Newell fallback elected a drill rim as the
+            // face's outer — the wall classified Inside and the
+            // serve kept two once-used rim circles). Faces wrapping
+            // BOTH periods (a closed profile revolved full circle as
+            // one face) stay out of scope and decline.
+            None if face_v_extent_bounded(original_brep, face.face, v_period) => None,
             None => {
                 sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
                 return sub;
@@ -662,4 +675,35 @@ pub(crate) fn face_surface<'a>(
     };
     let s = brep.faces.get(face.face)?.surface.as_ref()?;
     Some((&s.geometry, s.orientation))
+}
+
+/// True when the face's boundary pcurves span strictly less than the
+/// surface's v-period: the face is a v-bounded band of a
+/// doubly-periodic surface, and its chart never touches the v-seam.
+fn face_v_extent_bounded(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+    v_period: Option<f64>,
+) -> bool {
+    let Some(period) = v_period else {
+        return false;
+    };
+    let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
+        return false;
+    };
+    let mut lo = f64::INFINITY;
+    let mut hi = f64::NEG_INFINITY;
+    for contour in
+        std::iter::once(boundary).chain(crate::clip::face_uv_inner_boundaries(brep, face))
+    {
+        for (_he, pcurve) in &contour {
+            let (t0, t1) = pcurve.parameter_range();
+            for i in 0..=16 {
+                let q = pcurve.point_at(t0 + (t1 - t0) * i as f64 / 16.0);
+                lo = lo.min(q.y);
+                hi = hi.max(q.y);
+            }
+        }
+    }
+    lo.is_finite() && hi - lo < period * (1.0 - 1.0e-6)
 }
