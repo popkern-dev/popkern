@@ -45,10 +45,84 @@ fn optional_param(
     id.map(|id| resolve_param(table, id)).transpose()
 }
 
+/// Dispatch the three fastener feature arms (single entry so the
+/// main replay match stays one arm).
+pub(super) fn execute_any(
+    feature: &crate::feature::Feature,
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    param_table: &ParameterTable,
+) -> Result<ExecuteSideEffects, ReplayError> {
+    use crate::feature::Feature;
+    match feature {
+        Feature::Fastener {
+            kind,
+            thread,
+            length,
+            thread_length,
+            clearance,
+            tip_chamfer,
+        } => execute_fastener(
+            brep,
+            *kind,
+            thread,
+            *length,
+            *thread_length,
+            *clearance,
+            *tip_chamfer,
+            tolerance,
+            param_table,
+        ),
+        Feature::TappedHole {
+            axis,
+            thread,
+            depth,
+            clearance,
+            entry_chamfer,
+        } => execute_tapped_hole(
+            brep,
+            axis,
+            thread,
+            *depth,
+            *clearance,
+            *entry_chamfer,
+            tolerance,
+            param_table,
+        ),
+        Feature::ClearanceHole {
+            axis,
+            thread,
+            fit,
+            depth,
+            countersink,
+            counterbore,
+            entry_chamfer,
+        } => execute_clearance_hole(
+            brep,
+            axis,
+            thread,
+            fit,
+            *depth,
+            *countersink,
+            *counterbore,
+            *entry_chamfer,
+            tolerance,
+            param_table,
+        ),
+        _ => Err(ReplayError::FeatureFailed {
+            label: "fastener".into(),
+            error: crate::failure::FeatureFailure::other(
+                "not a fastener feature (dispatch invariant)".to_string(),
+            )
+            .into(),
+        }),
+    }
+}
+
 /// The `Feature::Fastener` arm: build a fastener body in the
 /// insertion frame (new body — the incoming brep is replaced).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_fastener(
+fn execute_fastener(
     brep: &mut BRep,
     kind: FastenerKind,
     thread: &ThreadDesc,
@@ -122,7 +196,7 @@ pub(super) fn execute_fastener(
 
 /// The `Feature::TappedHole` arm: cut a threaded hole into the body.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_tapped_hole(
+fn execute_tapped_hole(
     brep: &mut BRep,
     axis: &AxisDesc,
     thread: &ThreadDesc,
@@ -153,7 +227,7 @@ pub(super) fn execute_tapped_hole(
 /// The `Feature::ClearanceHole` arm: cut a clearance hole into the
 /// body.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_clearance_hole(
+fn execute_clearance_hole(
     brep: &mut BRep,
     axis: &AxisDesc,
     thread: &ThreadDesc,

@@ -216,10 +216,8 @@ pub enum Feature {
         mode: OperationMode,
     },
     /// A generated fastener body with a real modeled thread
-    /// (PK-460): hex bolt, socket-cap or countersunk screw, threaded
-    /// rod, or hex nut, built in the insertion frame (axis +Z,
-    /// origin at the bearing plane) and placed with the ordinary
-    /// transforms. Always creates a new body.
+    /// (PK-460): bolt/screw/rod/nut, built in the insertion frame
+    /// (axis +Z, origin at the bearing plane). Always a new body.
     Fastener {
         /// Which fastener to build.
         kind: crate::feature_fastener::FastenerKind,

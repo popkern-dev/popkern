@@ -403,60 +403,11 @@ pub(crate) fn execute_feature(
             param_table,
             exact_profile,
         ),
-        Feature::Fastener {
-            kind,
-            thread,
-            length,
-            thread_length,
-            clearance,
-            tip_chamfer,
-        } => replay_fastener::execute_fastener(
-            brep,
-            *kind,
-            thread,
-            *length,
-            *thread_length,
-            *clearance,
-            *tip_chamfer,
-            tolerance,
-            param_table,
-        ),
-        Feature::TappedHole {
-            axis,
-            thread,
-            depth,
-            clearance,
-            entry_chamfer,
-        } => replay_fastener::execute_tapped_hole(
-            brep,
-            axis,
-            thread,
-            *depth,
-            *clearance,
-            *entry_chamfer,
-            tolerance,
-            param_table,
-        ),
-        Feature::ClearanceHole {
-            axis,
-            thread,
-            fit,
-            depth,
-            countersink,
-            counterbore,
-            entry_chamfer,
-        } => replay_fastener::execute_clearance_hole(
-            brep,
-            axis,
-            thread,
-            fit,
-            *depth,
-            *countersink,
-            *counterbore,
-            *entry_chamfer,
-            tolerance,
-            param_table,
-        ),
+        f @ (Feature::Fastener { .. }
+        | Feature::TappedHole { .. }
+        | Feature::ClearanceHole { .. }) => {
+            replay_fastener::execute_any(f, brep, tolerance, param_table)
+        }
         Feature::Revolve {
             face,
             axis,
