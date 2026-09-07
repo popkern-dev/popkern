@@ -52,11 +52,28 @@ impl ChartMap {
 /// parameterization deviates from the 3D edge curve's by up to a few
 /// percent mid-span — consumers in this kernel treat pcurves as
 /// association seeds and refine by inversion, which absorbs that.
+/// Sample count resolving every distinct knot span at least twice.
+///
+/// The recognizers' fixed sample ladders ALIAS on periodic paths: a
+/// helical sweep with a whole-multiple-of-4 turn count put the fixed
+/// 5 path samples exactly one full turn apart, every sampled row was
+/// a perfect translate of row 0, and both flank walls of a
+/// thread-groove tool were minted as Planes (PK-460 — the boolean
+/// then intersected phantom planes ±137 units wide). Two samples per
+/// span cannot alias: within one span the surface is polynomial, and
+/// the spans partition every station of the path.
+fn span_resolving_samples(knots: &[f64], floor: usize) -> usize {
+    let spans = knots.windows(2).filter(|w| w[1] > w[0] + 1e-12).count();
+    (2 * spans + 1).clamp(floor, 129)
+}
+
 pub(crate) fn recognize_extruded_cylinder(
     surface: &NurbsSurface,
 ) -> Option<(SurfaceGeometry, ChartMap)> {
-    const NU: usize = 33;
-    const NV: usize = 5;
+    #[allow(non_snake_case)]
+    let NU: usize = span_resolving_samples(&surface.knots_u, 33);
+    #[allow(non_snake_case)]
+    let NV: usize = span_resolving_samples(&surface.knots_v, 5);
     // 1. Translation test.
     let row0: Vec<Point3> = (0..NU)
         .map(|i| surface.point_at(i as f64 / (NU - 1) as f64, 0.0))
@@ -270,8 +287,10 @@ pub(crate) fn canonical_normal_agreement(
 pub(crate) fn recognize_extruded_plane(
     surface: &NurbsSurface,
 ) -> Option<(SurfaceGeometry, ChartMap)> {
-    const NU: usize = 17;
-    const NV: usize = 5;
+    #[allow(non_snake_case)]
+    let NU: usize = span_resolving_samples(&surface.knots_u, 17);
+    #[allow(non_snake_case)]
+    let NV: usize = span_resolving_samples(&surface.knots_v, 5);
     let row0: Vec<Point3> = (0..NU)
         .map(|i| surface.point_at(i as f64 / (NU - 1) as f64, 0.0))
         .collect();

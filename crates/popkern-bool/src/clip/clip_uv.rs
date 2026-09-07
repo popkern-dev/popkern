@@ -5,6 +5,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 pub(super) const TWO_PI: f64 = std::f64::consts::TAU;
 
 /// A crossing between a UV intersection curve and a face's UV boundary.
+#[derive(Clone)]
 pub(crate) struct UvCrossing {
     pub t_curve: f64,
     pub boundary_he: popkern_core::topology::HalfEdgeHandle,

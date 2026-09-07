@@ -3384,6 +3384,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-fastener"
+version = "0.1.0"
+dependencies = [
+ "popkern-blend",
+ "popkern-bool",
+ "popkern-core",
+ "popkern-sketch",
+ "popkern-sweep",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-history"
 version = "0.1.0"
 dependencies = [
@@ -3393,6 +3405,7 @@ dependencies = [
  "popkern-constraint",
  "popkern-core",
  "popkern-draft",
+ "popkern-fastener",
  "popkern-measure",
  "popkern-shell",
  "popkern-sketch",
@@ -3453,6 +3466,7 @@ dependencies = [
  "popkern-bool",
  "popkern-core",
  "popkern-draft",
+ "popkern-fastener",
  "popkern-io",
  "popkern-mesh",
  "popkern-shell",
@@ -3502,6 +3516,7 @@ dependencies = [
  "popkern-bool",
  "popkern-constraint",
  "popkern-core",
+ "popkern-fastener",
  "popkern-history",
  "popkern-io",
  "popkern-measure",

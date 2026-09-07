@@ -233,3 +233,62 @@ fn invalid_specs_return_errors() {
     spec.start_angle = f64::NAN;
     assert!(build_helix_path(&spec).is_err());
 }
+
+/// Canonical recognition must not ALIAS on whole-turn periodic
+/// paths: at a turn count divisible by 4 the recognizers' former
+/// fixed 5-sample path ladder landed every sample one full turn
+/// apart, every sampled row was a perfect translate of row 0, and a
+/// helical wall passed the extruded-plane translation test — both
+/// flanks of a thread-groove tool were minted as Planes and the
+/// boolean intersected phantom planes (PK-460). Span-resolving
+/// sampling (two samples per knot span) cannot alias.
+#[test]
+fn four_turn_helical_walls_are_not_recognized_as_planes() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let profile_wire = popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(-0.1, -0.05, 0.0),
+            Point3::new(0.1, -0.05, 0.0),
+            Point3::new(0.1, 0.05, 0.0),
+            Point3::new(-0.1, 0.05, 0.0),
+            Point3::new(-0.1, -0.05, 0.0),
+        ],
+        weights: vec![1.0; 5],
+    };
+    let spec = HelixSpec {
+        axis_origin: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vec3::new(0.0, 0.0, 1.0),
+        start_radius: 3.0,
+        end_radius: 3.0,
+        pitch: HelixPitch::Constant(1.0),
+        turns: 4.0,
+        start_angle: 0.0,
+        left_handed: false,
+    };
+    let result = crate::helical_sweep(
+        &crate::SweepProfile::Wire(profile_wire),
+        &spec,
+        &crate::SweepOptions::default(),
+        popkern_core::tolerance::Tolerance::default(),
+        None,
+    )
+    .expect("4-turn helical sweep");
+    let planes = result
+        .brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            f.surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+        })
+        .count();
+    // The two end caps are legitimately planar; the four helical
+    // walls must stay NURBS.
+    assert_eq!(
+        planes, 2,
+        "{planes} planar faces on a 4-turn helical sweep (walls aliased into planes)"
+    );
+}

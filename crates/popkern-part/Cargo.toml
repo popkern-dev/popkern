@@ -9,6 +9,7 @@ description = "Code-first part modeling API over the popkern BRep kernel"
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-blend = { path = "../popkern-blend" }
+popkern-fastener = { path = "../popkern-fastener" }
 popkern-sweep = { path = "../popkern-sweep" }
 popkern-sketch = { path = "../popkern-sketch" }
 popkern-io = { path = "../popkern-io" }

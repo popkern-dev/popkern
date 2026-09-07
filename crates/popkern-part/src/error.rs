@@ -101,6 +101,16 @@ pub enum PartError {
         /// The kernel error.
         source: popkern_io::error::IoError,
     },
+    /// A fastener build or cut failed (designation parse, spec
+    /// numbers, thread-form overlap, or a kernel decline carried
+    /// whole). The stage names which fastener feature failed.
+    #[error("fastener {stage}: {source}")]
+    Fastener {
+        /// The fastener feature ("hex bolt", "tapped hole", ...).
+        stage: &'static str,
+        /// The structured fastener error.
+        source: popkern_fastener::FastenerError,
+    },
     /// The operation does not apply to this part's geometry (e.g.
     /// engraving a non-planar face). The message names the entity
     /// and the reason.

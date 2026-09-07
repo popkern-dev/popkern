@@ -240,7 +240,47 @@ pub(crate) fn fit_marched_trace(
         };
         closed(surface1) || closed(surface2)
     };
-    let segments = if both_periodic || chart_closed_nurbs {
+    // MULTI-WRAP records segment even on mixed pairs: a trace that
+    // WINDS a periodic chart repeatedly — a thread-groove flank's
+    // helical intersection with its shank advances one full period
+    // per turn — fits a pcurve through every seam jump and the
+    // split/merge strands the seam pieces between the crossings
+    // (measured: 2-turn groove cut, 3 lethal strands incl. the seam
+    // edge span between its two helix crossings, PK-460). The
+    // discriminator is NET WINDING (the unwrapped span exceeding
+    // 1.5 periods), not jump count: the tuned wrapped-record classes
+    // include CLOSED loops that cross the seam twice with zero net
+    // winding (a plane×cylinder ellipse; the grazing strip×cap
+    // operand-order pin regressed under a jump-count gate), while a
+    // genuine multi-wrap trace accumulates a full period per turn.
+    let multi_wrap = {
+        let winds = |axis: usize, period: Option<f64>| -> bool {
+            let Some(p) = period.filter(|p| p.is_finite() && *p > 0.0) else {
+                return false;
+            };
+            let get = |s: &MarchSample| match axis {
+                0 => s.u1,
+                1 => s.v1,
+                2 => s.u2,
+                _ => s.v2,
+            };
+            let mut unwrapped = 0.0_f64;
+            let mut lo = 0.0_f64;
+            let mut hi = 0.0_f64;
+            for w in samples.windows(2) {
+                let mut d = get(&w[1]) - get(&w[0]);
+                d -= p * (d / p).round();
+                unwrapped += d;
+                lo = lo.min(unwrapped);
+                hi = hi.max(unwrapped);
+            }
+            hi - lo > 1.5 * p
+        };
+        let (p1u, p1v) = surface1.periodicity();
+        let (p2u, p2v) = surface2.periodicity();
+        winds(0, p1u) || winds(1, p1v) || winds(2, p2u) || winds(3, p2v)
+    };
+    let segments = if both_periodic || chart_closed_nurbs || multi_wrap {
         crate::geometry::intersection::surface_surface_seam_split::split_samples_at_period_jumps(
             samples.to_vec(),
             surface1,

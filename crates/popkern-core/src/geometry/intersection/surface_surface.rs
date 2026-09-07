@@ -60,8 +60,67 @@ pub fn intersect_surfaces(
 }
 
 /// Intersect two surfaces with a custom degeneracy handler.
+///
+/// The `ssi` trace topic logs one line per call: the surface types,
+/// windows, and what came back — the first stop when a boolean's
+/// records go missing (an analytic arm, the coincident detector, and
+/// the marching path all return through here).
 #[allow(clippy::too_many_arguments)]
 pub fn intersect_surfaces_with_handler(
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+    handler: &dyn DegeneracyHandler,
+) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
+    let result = intersect_surfaces_inner(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance, handler,
+    );
+    if crate::trace::trace_enabled("ssi") {
+        let kind = |s: &SurfaceGeometry| -> &'static str {
+            match s {
+                SurfaceGeometry::Plane { .. } => "Plane",
+                SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                SurfaceGeometry::Sphere { .. } => "Sphere",
+                SurfaceGeometry::Cone { .. } => "Cone",
+                SurfaceGeometry::Torus { .. } => "Torus",
+                SurfaceGeometry::Nurbs(_) => "Nurbs",
+                _ => "Other",
+            }
+        };
+        match &result {
+            Ok(r) => {
+                let curves = r
+                    .intersections
+                    .iter()
+                    .filter(|i| matches!(i, SurfaceSurfaceIntersection::Curve(_)))
+                    .count();
+                let regions = r.intersections.len() - curves;
+                eprintln!(
+                    "  [ssi] {}x{} u1[{:.3},{:.3}] v1[{:.3},{:.3}] u2[{:.3},{:.3}] v2[{:.3},{:.3}] -> {curves} curve(s), {regions} region(s)",
+                    kind(surface1),
+                    kind(surface2),
+                    u1_range.0,
+                    u1_range.1,
+                    v1_range.0,
+                    v1_range.1,
+                    u2_range.0,
+                    u2_range.1,
+                    v2_range.0,
+                    v2_range.1,
+                );
+            }
+            Err(e) => eprintln!("  [ssi] {}x{} -> ERROR {e}", kind(surface1), kind(surface2)),
+        }
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn intersect_surfaces_inner(
     surface1: &SurfaceGeometry,
     u1_range: (f64, f64),
     v1_range: (f64, f64),
@@ -344,6 +403,22 @@ pub fn intersect_surfaces_with_handler(
             surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance, handler,
         );
 
+        // For EMITTING traces, consumption covers the FULL trace, not
+        // the emitted span: seeds converge unclamped and legitimately
+        // land on curve stretches beyond the caller's windows (the
+        // march windows are padded), and consuming only the trimmed
+        // polyline re-marched the identical curve once per
+        // out-of-window seed — a thread-groove flank × shank pair
+        // re-traced its 28-unit helix 19 times and flooded
+        // consolidation with duplicate records (PK-460). Scoped to
+        // emitting traces only: a trace TRIMMED TO NOTHING or a
+        // failed-certificate blob keeps its tuned consumption (the
+        // grazing strip×cap pin measured that full consumption there
+        // starves the honest re-seeds — tangent-chart uv registration
+        // is sloppy enough that a blob's samples can all read
+        // out-of-window while later seeds trace the real crossing).
+        let full_trace: Vec<Point3> = samples.iter().map(|s| s.point).collect();
+
         // The entry band exists so an out-of-window seed can walk into
         // the caller's windows — it must not widen the EMITTED curve:
         // callers key curve endpoints against their own trim windows
@@ -373,12 +448,14 @@ pub fn intersect_surfaces_with_handler(
             // each repeat the identical full-cap march (measured: ~2100
             // seeds × 20 001 steps on a fillet strip × corner sphere
             // pair before the analytic arm covered that class, PK-390).
+            // Trimmed span only — see the scoping note on
+            // `full_trace` above.
             consumed.push(samples.iter().map(|s| s.point).collect());
             continue;
         }
 
-        // Mark the traced polyline as consumed.
-        consumed.push(samples.iter().map(|s| s.point).collect());
+        // Mark the traced polyline as consumed (full trace — see above).
+        consumed.push(full_trace);
 
         // 4. Segment at UV period jumps, weld marched closure, fit
         //    (PK-304) — mechanism and measured rationale in

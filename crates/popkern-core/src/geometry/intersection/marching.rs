@@ -151,10 +151,21 @@ pub(crate) fn march_one_direction(
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
 ) -> Vec<MarchSample> {
-    let max_steps = 10_000;
+    let max_steps = 200_000;
     let epsilon = tolerance.solver();
     let min_step = tolerance.linear();
     let max_step = tolerance.linear() * 1000.0;
+    // The step ceiling is the curvature-quality (chord-sag) bound
+    // when the local curvature justifies more than the
+    // tolerance-scaled default: a tolerance-scaled ceiling caps the
+    // marchable arc length at max_steps × 1000·tol regardless of the
+    // geometry's scale, and an M6 thread's helical flank × shank
+    // curve (arc ≈ 28 at radius 3, PK-460) silently truncated at
+    // arc 10 while the sag bound allowed 3.4× the step. Flat regions
+    // (curvature below resolution) keep the tolerance-scaled ceiling
+    // — sag imposes no bound there and unbounded growth would jump
+    // features. The ×16 headroom bounds the worst case explicitly.
+    let mut step_ceiling = max_step;
     let mut step_size = tolerance.linear() * 50.0;
     // Branch point candidates detected during march (spec §2.4).
     // Used by find_branch_points in starting_points.rs to seed
@@ -163,6 +174,8 @@ pub(crate) fn march_one_direction(
     let mut branch_points: Vec<BranchPoint> = Vec::new();
 
     let mut samples = vec![start.clone()];
+    // Termination cause for the march trace: every break overwrites it.
+    let mut termination = "step-budget";
 
     for _ in 0..max_steps {
         let current = &samples[samples.len() - 1];
@@ -174,6 +187,7 @@ pub(crate) fn march_one_direction(
         // Check singularity: degenerate normal on surface 1.
         if n1.length() < epsilon {
             if handler.on_singularity(&current.point) {
+                termination = "singularity-1";
                 break;
             }
             // Handler returned false (robust): attempt normal estimation near singularity.
@@ -200,6 +214,7 @@ pub(crate) fn march_one_direction(
                         reduced_step *= 0.5;
                     }
                     if !recovered {
+                        termination = "singular-normal-1-unrecovered";
                         break;
                     }
                 }
@@ -209,6 +224,7 @@ pub(crate) fn march_one_direction(
         // Check singularity: degenerate normal on surface 2.
         if n2.length() < epsilon {
             if handler.on_singularity(&current.point) {
+                termination = "singularity-2";
                 break;
             }
             // Handler returned false (robust): attempt normal estimation near singularity.
@@ -235,6 +251,7 @@ pub(crate) fn march_one_direction(
                         reduced_step *= 0.5;
                     }
                     if !recovered {
+                        termination = "singular-normal-2-unrecovered";
                         break;
                     }
                 }
@@ -249,6 +266,7 @@ pub(crate) fn march_one_direction(
         let t_normalized = if t_len < epsilon {
             let angle = n1.angle_to(&n2);
             if handler.on_tangent_during_march(&current.point, angle) {
+                termination = "tangency";
                 break;
             }
             // Handler returned false (robust): use perturbation-based direction.
@@ -265,13 +283,19 @@ pub(crate) fn march_one_direction(
                 tolerance,
             ) {
                 Some(dir) => dir * direction_sign,
-                None => break,
+                None => {
+                    termination = "tangent-direction-lost";
+                    break;
+                }
             }
         } else {
             // Normalize tangent direction and apply direction sign.
             match t_raw.normalized() {
                 Some(t) => t * direction_sign,
-                None => break, // cannot normalize zero vector
+                None => {
+                    termination = "zero-tangent";
+                    break;
+                }
             }
         };
 
@@ -294,7 +318,7 @@ pub(crate) fn march_one_direction(
                 Some((mut sample, iters)) => {
                     // Adaptive step based on iteration count.
                     if iters < 3 {
-                        step_size = (retry_step * 1.5).min(max_step);
+                        step_size = (retry_step * 1.5).min(step_ceiling);
                     } else if iters > 8 {
                         step_size = (retry_step * 0.5).max(min_step);
                     } else {
@@ -307,11 +331,23 @@ pub(crate) fn march_one_direction(
                     let curvature = estimate_intersection_curvature(
                         surface1, sample.u1, sample.v1, surface2, sample.u2, sample.v2,
                     );
-                    let curvature_cap =
-                        curvature_based_step(curvature, tolerance.linear(), min_step, max_step);
+                    let curvature_cap = curvature_based_step(
+                        curvature,
+                        tolerance.linear(),
+                        min_step,
+                        max_step * 16.0,
+                    );
                     if curvature_cap < step_size {
                         step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }
+                    // Measurable curvature makes the sag bound the
+                    // honest ceiling (never below the tolerance-scaled
+                    // default; see the declaration).
+                    step_ceiling = if curvature > 1e-12 {
+                        max_step.max(curvature_cap)
+                    } else {
+                        max_step
+                    };
 
                     // Near-tangent / branch point detection: monitor the
                     // Jacobian condition via |N1 × N2| / (|N1| * |N2|).
@@ -409,6 +445,7 @@ pub(crate) fn march_one_direction(
                     let exits_v2 =
                         !periodic_v2 && (sample.v2 < v2_range.0 || sample.v2 > v2_range.1);
                     if exits_u1 || exits_v1 || exits_u2 || exits_v2 {
+                        termination = "domain-exit";
                         // Exited domain; stop marching in this
                         // direction. The exiting sample IS emitted:
                         // window trimming downstream refines the
@@ -422,6 +459,7 @@ pub(crate) fn march_one_direction(
                         // bridged the gap, and the welded tail bent
                         // 3.3e-5 off the span surface — PK-443).
                         samples.push(sample);
+                        trace_march_termination(termination, &samples);
                         return samples;
                     }
 
@@ -435,6 +473,7 @@ pub(crate) fn march_one_direction(
                         && sample.point.distance_to(&start.point) < closure_tol
                     {
                         samples.push(sample);
+                        trace_march_termination("closure", &samples);
                         return samples;
                     }
 
@@ -453,11 +492,30 @@ pub(crate) fn march_one_direction(
         }
 
         if !succeeded {
+            termination = "newton-exhausted";
             break;
         }
     }
+    trace_march_termination(termination, &samples);
 
     samples
+}
+
+/// One `march` trace line per directional trace naming WHY it ended —
+/// "step-budget" means the trace was TRUNCATED mid-curve (every
+/// legitimate ending names itself); downstream honest-decline gates
+/// catch the missing span, but the cause is only visible here.
+fn trace_march_termination(termination: &str, samples: &[MarchSample]) {
+    if crate::trace::trace_enabled("march") {
+        let last = &samples[samples.len() - 1].point;
+        eprintln!(
+            "  [march] direction ended: {termination} after {} pts at ({:.4},{:.4},{:.4})",
+            samples.len(),
+            last.x,
+            last.y,
+            last.z
+        );
+    }
 }
 
 /// Refine a surface×surface intersection point exactly onto a chart

@@ -30,6 +30,7 @@
 pub mod dressup;
 mod engrave;
 mod error;
+pub mod fastener;
 mod feature;
 mod part;
 mod part_export;
