@@ -59,6 +59,7 @@ pub(super) fn reorder_into_closed_chain(
             .map(|(i, _)| i)
             .collect();
         if matches.len() != 1 {
+            trace_reorder_decline(brep, handles, "ambiguous-or-missing-successor", tip);
             return None;
         }
         let next = remaining.remove(matches[0]);
@@ -68,6 +69,36 @@ pub(super) fn reorder_into_closed_chain(
     if tip == chain_start {
         Some(chain)
     } else {
+        trace_reorder_decline(brep, handles, "open-chain", tip);
         None
+    }
+}
+
+/// Why a loop's resolved handles could not be re-sequenced — the
+/// invalid-loop class is only diagnosable here, where the set's
+/// orientation mix is still visible.
+fn trace_reorder_decline(
+    brep: &BRep,
+    handles: &[HalfEdgeHandle],
+    reason: &str,
+    tip: popkern_core::topology::VertexHandle,
+) {
+    if popkern_core::trace::trace_enabled("boolean") {
+        eprintln!(
+            "  [loop-chain] decline ({reason}) at tip {tip:?}; {} handles:",
+            handles.len()
+        );
+        for &h in handles {
+            let s = brep.half_edges[h].origin;
+            let e = brep.half_edges[brep.half_edges[h].twin].origin;
+            let sp = brep.vertices.get(s).map(|v| v.position);
+            let ep = brep.vertices.get(e).map(|v| v.position);
+            if let (Some(sp), Some(ep)) = (sp, ep) {
+                eprintln!(
+                    "    he {h:?} {s:?}({:.3},{:.3},{:.3}) -> {e:?}({:.3},{:.3},{:.3})",
+                    sp.x, sp.y, sp.z, ep.x, ep.y, ep.z
+                );
+            }
+        }
     }
 }

@@ -172,7 +172,19 @@ pub(crate) fn cut_thread(
     if let Some(floor) = tool_floor {
         z0 = z0.max(floor);
     }
-    let mut current = body.clone();
+    // ONE boolean for ALL starts: the starts' grooves are cut from a
+    // single multi-shell tool (the disjoint groove coils
+    // concatenated). Sequential per-start subtracts were measured
+    // silently dropping the SECOND start's groove: the first cut
+    // turns the shank wall into multi-wrap helical band faces whose
+    // chart embedding spans several periods, the chart substrate
+    // declines ("anchored interior spans 19.3 > period 6.28"), the
+    // 3D-Newell fallback cannot partition a non-contractible band,
+    // and the second subtract served the body unchanged — an 8.3%
+    // volume lie on an M8x1 two-start rod (PK-460). Against the
+    // INTACT wall, one cut with every groove present partitions with
+    // the tuned machinery.
+    let mut combined: Option<BRep> = None;
     for start_index in 0..spec.starts() {
         let mut tool = helical_tool(spec, profile, z0, turns, start_index, stage, tolerance)?;
         if let Some(transform) = placement {
@@ -183,9 +195,20 @@ pub(crate) fn cut_thread(
                     detail: format!("tool placement transform failed: {e}"),
                 })?;
         }
-        current = subtract(&current, &tool, stage, tolerance)?;
+        combined = Some(match combined {
+            None => tool,
+            Some(existing) => popkern_bool::concatenate_solids(existing, tool).map_err(|e| {
+                FastenerError::Construction {
+                    stage: stage.to_string(),
+                    detail: format!("thread tool concatenation failed: {e}"),
+                }
+            })?,
+        });
     }
-    Ok(current)
+    let Some(tool) = combined else {
+        return Ok(body.clone());
+    };
+    subtract(body, &tool, stage, tolerance)
 }
 
 /// Build the helical tool body for one thread start.

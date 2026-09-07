@@ -114,6 +114,13 @@ pub(crate) fn next_in_chart(
     // Two clockwise passes with a pending-arrival stack: a departure
     // matches the most recent pending arrival (wedge nesting); the
     // second pass closes pairs straddling the angular origin.
+    if crate::trace_enabled_wedge() {
+        let names: Vec<String> = slots
+            .iter()
+            .map(|(a, d, hh)| format!("{}{}@{a:.3}", if *d { "dep" } else { "arr" }, hh))
+            .collect();
+        eprintln!("      [wedge] bp {bp_key:?} slots {}", names.join(" "));
+    }
     let mut pending: Vec<usize> = Vec::new();
     let mut matched: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut used_deps: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -147,6 +154,62 @@ pub(crate) fn next_in_chart(
         if let Some(d) = leftover_deps.pop() {
             matched.insert(a, d);
         }
+    }
+    // NEAR-TIE TWIN-MATCH REPAIR: when a record chain meets a face
+    // boundary almost tangentially (a thread groove exiting through
+    // a rim at an x.75 phase meets it 0.013 rad off the tangent),
+    // the slot angles of the record pair and the boundary departure
+    // tie within the pcurve-fit slop, the sweep order flips, and the
+    // parenthesis matching pairs the record arrival with its OWN
+    // TWIN — the walk then traverses the chain out-and-back as a
+    // zero-area ring and the region beside it never gets a fragment
+    // (measured: the thread cap's kept crescent vanished and the
+    // whole cap classified away, stranding the mouth records —
+    // PK-460). A twin pairing inside a near-tie cluster is the
+    // degenerate signature; swapping with the tied pair restores
+    // both rings. Far-from-tie twin pairings are LEGITIMATE U-turns
+    // (the rotated torus × torus junction this matching was built
+    // for) and are left alone.
+    const NEAR_TIE: f64 = 0.02;
+    let angle_of = |he: usize, is_dep: bool| -> Option<f64> {
+        slots
+            .iter()
+            .find(|(_, d, hh)| *d == is_dep && *hh == he)
+            .map(|(a, _, _)| *a)
+    };
+    let circ_close = |a: f64, b: f64| -> bool {
+        let d = (a - b).abs();
+        d.min(std::f64::consts::TAU - d) < NEAR_TIE
+    };
+    let twin_matched: Vec<(usize, usize)> = matched
+        .iter()
+        .filter(|(a, d)| graph.half_edges[**a].twin == **d)
+        .map(|(a, d)| (*a, *d))
+        .collect();
+    for (a, d) in twin_matched {
+        let (Some(a_ang), Some(d_ang)) = (angle_of(a, false), angle_of(d, true)) else {
+            continue;
+        };
+        let swap = matched
+            .iter()
+            .filter(|(a2, _)| **a2 != a)
+            .filter(|(a2, d2)| {
+                let close = angle_of(**d2, true).is_some_and(|x| circ_close(x, d_ang))
+                    || angle_of(**a2, false).is_some_and(|x| circ_close(x, a_ang));
+                close && graph.half_edges[a].twin != **d2 && graph.half_edges[**a2].twin != d
+            })
+            .map(|(a2, d2)| (*a2, *d2))
+            .min_by_key(|&(a2, _)| a2);
+        if let Some((a2, d2)) = swap {
+            matched.insert(a, d2);
+            matched.insert(a2, d);
+            if crate::trace_enabled_wedge() {
+                eprintln!("      [wedge] near-tie twin repair at {bp_key:?}: {a}->{d2}, {a2}->{d}");
+            }
+        }
+    }
+    if crate::trace_enabled_wedge() {
+        eprintln!("      [wedge] h {h} -> {:?}", matched.get(&h));
     }
     matched.get(&h).copied()
 }

@@ -141,7 +141,6 @@ fn m6_rod_serves_with_iso_volume() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn left_hand_rod_mirrors_the_right_hand_volume() {
     let spec = ThreadSpec::parse("M6").expect("M6").left_handed();
     let rod = ThreadedRod::new(spec.clone(), 4.0)
@@ -152,7 +151,6 @@ fn left_hand_rod_mirrors_the_right_hand_volume() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn two_start_fine_rod_serves() {
     let spec = ThreadSpec::parse("M8x1").expect("M8 fine").with_starts(2);
     let rod = ThreadedRod::new(spec.clone(), 5.0)

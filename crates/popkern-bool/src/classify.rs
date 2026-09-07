@@ -233,7 +233,15 @@ fn ray_crossing_count(
         direction: *direction,
     };
     let t_range = (0.0, 1e6);
-    let mut count = 0usize;
+    // Accepted crossing parameters, deduplicated ACROSS faces before
+    // the parity count: a crossing through (or near) a shared edge is
+    // one crossing of the closed body but is legitimately reported by
+    // BOTH adjacent faces — summing per-face counts read it twice and
+    // flipped the parity (measured on a thread coil: an inside-void
+    // sample's clean +z ray counted its single flank crossing once
+    // per adjacent wall, voted even, and the opening fragment was
+    // kept — PK-460).
+    let mut crossing_ts: Vec<f64> = Vec::new();
 
     let ray_trace = popkern_core::trace::trace_enabled("ray-classify");
     for (face_handle, aabb) in face_aabbs {
@@ -253,15 +261,32 @@ fn ray_crossing_count(
 
         let ((u_min, u_max), (v_min, v_max)) = face_parameter_range(brep, *face_handle);
 
-        let result = intersect_surface_curve(
+        // NURBS faces query a PADDED window and treat band hits as an
+        // inconclusive RAY: a ray grazing along a tool's corner edge
+        // converges just outside both adjacent charts (measured on a
+        // thread coil: the exit crossings landed at u = −0.014 and
+        // u = 1.04 of the two walls, both range-rejected, the parity
+        // read 0, and an inside-tool sample classified Outside —
+        // PK-460). A crossing that near a chart edge cannot be
+        // honestly assigned to either face; the vote loop's other
+        // directions decide instead. Analytic faces keep their tuned
+        // trim gates (below) untouched.
+        let is_nurbs = matches!(
             surface,
-            (u_min, u_max),
-            (v_min, v_max),
-            &ray_curve,
-            t_range,
-            tolerance,
-        )
-        .map_err(|_| ())?;
+            popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+        );
+        let band = 0.05;
+        let (qu, qv) = if is_nurbs {
+            let (du, dv) = (u_max - u_min, v_max - v_min);
+            (
+                (u_min - band * du, u_max + band * du),
+                (v_min - band * dv, v_max + band * dv),
+            )
+        } else {
+            ((u_min, u_max), (v_min, v_max))
+        };
+        let result = intersect_surface_curve(surface, qu, qv, &ray_curve, t_range, tolerance)
+            .map_err(|_| ())?;
         if ray_trace {
             eprintln!(
                 "  [ray] {face_handle:?} u({u_min:.2},{u_max:.2}) v({v_min:.2},{v_max:.2}) hits {}",
@@ -275,6 +300,51 @@ fn ray_crossing_count(
                     // Only forward intersections (t > 0).
                     if *t < tolerance.linear() {
                         continue;
+                    }
+
+                    // Chart-edge band verdict for NURBS faces (see the
+                    // padded query above): a hit within the edge band
+                    // — EITHER side of the native window — poisons
+                    // the ray. One-sided rejection was measured
+                    // nondeterministic on a thread tool's end-cap
+                    // corner: the same ray's Newton landed at
+                    // v = 1.0012 in one call (rejected) and
+                    // v = 1.0000005 in the next (counted), flipping
+                    // the parity per call. Within the band the
+                    // crossing cannot be honestly assigned; a
+                    // different direction decides.
+                    if is_nurbs {
+                        let (du, dv) = (u_max - u_min, v_max - v_min);
+                        let band_u = 0.005 * du;
+                        let band_v = 0.005 * dv;
+                        let near_edge = (*u - u_min).abs() < band_u
+                            || (*u - u_max).abs() < band_u
+                            || (*v - v_min).abs() < band_v
+                            || (*v - v_max).abs() < band_v;
+                        let in_native = *u >= u_min + band_u
+                            && *u <= u_max - band_u
+                            && *v >= v_min + band_v
+                            && *v <= v_max - band_v;
+                        if near_edge || !in_native {
+                            if in_native {
+                            } else if *u < u_min - band_u
+                                || *u > u_max + band_u
+                                || *v < v_min - band_v
+                                || *v > v_max + band_v
+                            {
+                                // Deep in the pad, far outside the
+                                // face: an extended-basis phantom,
+                                // not an edge ambiguity — skip it
+                                // without poisoning the ray.
+                                continue;
+                            }
+                            if popkern_core::trace::trace_enabled("ray-classify") {
+                                eprintln!(
+                                    "  [ray-band] {face_handle:?} u={u:.4} v={v:.4} in edge band — ray inconclusive"
+                                );
+                            }
+                            return Err(());
+                        }
                     }
 
                     let normal = surface.normal_at(*u, *v);
@@ -518,6 +588,27 @@ fn ray_crossing_count(
                                     }
                                     continue;
                                 }
+                                // A hit OUTSIDE the span but inside
+                                // the margin is on the surface's
+                                // extension right at the face's end —
+                                // it can neither be counted (an
+                                // extended-cone phantom 0.045 past a
+                                // chamfer ring's top edge broke the
+                                // parity and kept a hex wall fragment
+                                // inside the tool, PK-460) nor
+                                // silently dropped (the flush-probe
+                                // knife hits the margin exists for).
+                                // The ray is inconclusive; another
+                                // direction decides.
+                                let slop = tolerance.linear() * 10.0;
+                                if a < lo - slop || a > hi + slop {
+                                    if popkern_core::trace::trace_enabled("ray-classify") {
+                                        eprintln!(
+                                            "  [ray-band-axial] {face_handle:?} a={a:.3} span=[{lo:.3},{hi:.3}] — ray inconclusive"
+                                        );
+                                    }
+                                    return Err(());
+                                }
                             }
                         }
                     }
@@ -654,13 +745,28 @@ fn ray_crossing_count(
                         );
                     }
                     // Transversal crossing.
-                    count += 1;
+                    crossing_ts.push(*t);
                 }
                 SurfaceCurveIntersection::Overlap { .. } => {
                     // Ray lies on the surface — inconclusive.
                     return Err(());
                 }
             }
+        }
+    }
+
+    // Distinct-crossing count: hits within the shared-edge slop of an
+    // already-counted parameter are the same crossing seen from the
+    // other face. Direction magnitudes are ~1, so parameter distance
+    // is world distance.
+    crossing_ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let dedup = tolerance.linear() * 10.0;
+    let mut count = 0usize;
+    let mut last: Option<f64> = None;
+    for t in crossing_ts {
+        if last.is_none_or(|l| t - l > dedup) {
+            count += 1;
+            last = Some(t);
         }
     }
 

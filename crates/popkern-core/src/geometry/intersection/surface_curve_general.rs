@@ -44,18 +44,77 @@ fn grid_density(surface: &SurfaceGeometry, base: usize) -> (usize, usize) {
                     .count()
                     .max(1)
             };
-            (
+            let d = (
                 spans(&s.knots_u).clamp(base, 48),
                 spans(&s.knots_v).clamp(base, 48),
-            )
+            );
+            if crate::trace::trace_enabled("ray-classify") {
+                eprintln!(
+                    "  [scg-grid] nurbs spans u={} v={} -> grid {}x{}",
+                    spans(&s.knots_u),
+                    spans(&s.knots_v),
+                    d.0,
+                    d.1
+                );
+            }
+            d
         }
         _ => (base, base),
     }
 }
 
-/// Build a grid of surface cells, each with an AABB computed from
-/// the four corner evaluations. Density is per-axis (see
-/// [`grid_density`]).
+/// Build one cell whose AABB CONTAINS its surface patch: the box of
+/// the four corners plus the centre evaluation, inflated by the
+/// centre's deviation from the corner-only box. A corner-only box
+/// under-covers a curved cell by the sagitta — a 48-cell grid over a
+/// 6.5-turn helical thread wall left each cell's bulge 0.27 world
+/// units outside its box, every classification ray through the coil
+/// was AABB-culled before Newton ran, interior points read Outside,
+/// and the fragment keep/discard verdicts scrambled per sample
+/// (PK-460). The centre deviation measures the local sagitta; adding
+/// it once more bounds the quarter-cell bulges the centre itself
+/// cannot see (quadratic-safe), and a flat cell inflates by zero, so
+/// planar/fine geometry keeps byte-identical boxes.
+fn padded_cell(surface: &SurfaceGeometry, u_range: (f64, f64), v_range: (f64, f64)) -> SurfaceCell {
+    let corners = [
+        surface.point_at(u_range.0, v_range.0),
+        surface.point_at(u_range.0, v_range.1),
+        surface.point_at(u_range.1, v_range.0),
+        surface.point_at(u_range.1, v_range.1),
+    ];
+    let mut bmin = corners[0];
+    let mut bmax = corners[0];
+    for c in &corners[1..] {
+        bmin = Point3::new(bmin.x.min(c.x), bmin.y.min(c.y), bmin.z.min(c.z));
+        bmax = Point3::new(bmax.x.max(c.x), bmax.y.max(c.y), bmax.z.max(c.z));
+    }
+    let centre = surface.point_at(0.5 * (u_range.0 + u_range.1), 0.5 * (v_range.0 + v_range.1));
+    let dev = {
+        let dx = (bmin.x - centre.x).max(centre.x - bmax.x).max(0.0);
+        let dy = (bmin.y - centre.y).max(centre.y - bmax.y).max(0.0);
+        let dz = (bmin.z - centre.z).max(centre.z - bmax.z).max(0.0);
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    };
+    bmin = Point3::new(
+        bmin.x.min(centre.x) - dev,
+        bmin.y.min(centre.y) - dev,
+        bmin.z.min(centre.z) - dev,
+    );
+    bmax = Point3::new(
+        bmax.x.max(centre.x) + dev,
+        bmax.y.max(centre.y) + dev,
+        bmax.z.max(centre.z) + dev,
+    );
+    SurfaceCell {
+        u_range,
+        v_range,
+        min: bmin,
+        max: bmax,
+    }
+}
+
+/// Build a grid of surface cells with patch-containing AABBs (see
+/// [`padded_cell`]). Density is per-axis (see [`grid_density`]).
 fn build_surface_grid(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),
@@ -67,57 +126,32 @@ fn build_surface_grid(
     let (v0, v1) = v_range;
     let du = (u1 - u0) / nu as f64;
     let dv = (v1 - v0) / nv as f64;
-
-    // Pre-evaluate all grid corner points: (nu+1) x (nv+1).
-    let mut pts = vec![Point3::new(0.0, 0.0, 0.0); (nu + 1) * (nv + 1)];
-    for iu in 0..=nu {
-        for iv in 0..=nv {
-            let u = u0 + iu as f64 * du;
-            let v = v0 + iv as f64 * dv;
-            pts[iu * (nv + 1) + iv] = surface.point_at(u, v);
-        }
-    }
-
     let mut cells = Vec::with_capacity(nu * nv);
     for iu in 0..nu {
         for iv in 0..nv {
-            let corners = [
-                pts[iu * (nv + 1) + iv],
-                pts[iu * (nv + 1) + iv + 1],
-                pts[(iu + 1) * (nv + 1) + iv],
-                pts[(iu + 1) * (nv + 1) + iv + 1],
-            ];
-            let mut bmin = corners[0];
-            let mut bmax = corners[0];
-            for c in &corners[1..] {
-                if c.x < bmin.x {
-                    bmin.x = c.x;
-                }
-                if c.y < bmin.y {
-                    bmin.y = c.y;
-                }
-                if c.z < bmin.z {
-                    bmin.z = c.z;
-                }
-                if c.x > bmax.x {
-                    bmax.x = c.x;
-                }
-                if c.y > bmax.y {
-                    bmax.y = c.y;
-                }
-                if c.z > bmax.z {
-                    bmax.z = c.z;
-                }
-            }
-            cells.push(SurfaceCell {
-                u_range: (u0 + iu as f64 * du, u0 + (iu + 1) as f64 * du),
-                v_range: (v0 + iv as f64 * dv, v0 + (iv + 1) as f64 * dv),
-                min: bmin,
-                max: bmax,
-            });
+            cells.push(padded_cell(
+                surface,
+                (u0 + iu as f64 * du, u0 + (iu + 1) as f64 * du),
+                (v0 + iv as f64 * dv, v0 + (iv + 1) as f64 * dv),
+            ));
         }
     }
     cells
+}
+
+/// Interior distinct knot values strictly inside `(a, b)` — the
+/// per-span refinement stations for a hit cell.
+fn interior_knots_in(knots: &[f64], a: f64, b: f64) -> Vec<f64> {
+    let mut out: Vec<f64> = Vec::new();
+    for &k in knots {
+        if k > a + 1.0e-12
+            && k < b - 1.0e-12
+            && out.last().is_none_or(|&last| (k - last).abs() > 1.0e-12)
+        {
+            out.push(k);
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -300,29 +334,101 @@ pub(crate) fn intersect_surface_curve_general(
     let margin = tolerance.linear() * 10.0; // small margin for AABB overlap test
     let mut point_results: Vec<(f64, f64, f64, Point3)> = Vec::new();
 
+    // Per-span refinement for hit cells: the density clamp keeps the
+    // coarse grid bounded (a 198-span thread wall grids at 48), so a
+    // hit cell may span several knot spans — and a Newton seed at its
+    // midpoint sits spans away from the crossing on a wrapped chart
+    // and diverges (the PK-441 class, re-measured on the PK-460
+    // thread coil at 4-span cells). Hit cells refine to single-span
+    // sub-cells (padded boxes, re-culled) before seeding; only the
+    // ray's corridor pays.
+    let (knots_u, knots_v): (&[f64], &[f64]) = match surface {
+        SurfaceGeometry::Nurbs(s) => (&s.knots_u, &s.knots_v),
+        _ => (&[], &[]),
+    };
     for cseg in &curve_segments {
         for cell in &surface_cells {
             if !aabb_overlap(&cseg.min, &cseg.max, &cell.min, &cell.max, margin) {
                 continue;
             }
+            let mut u_edges = vec![cell.u_range.0];
+            u_edges.extend(interior_knots_in(knots_u, cell.u_range.0, cell.u_range.1));
+            u_edges.push(cell.u_range.1);
+            let mut v_edges = vec![cell.v_range.0];
+            v_edges.extend(interior_knots_in(knots_v, cell.v_range.0, cell.v_range.1));
+            v_edges.push(cell.v_range.1);
+            let refined = u_edges.len() > 2 || v_edges.len() > 2;
+            for ui in 0..u_edges.len() - 1 {
+                for vi in 0..v_edges.len() - 1 {
+                    let sub = if refined {
+                        padded_cell(
+                            surface,
+                            (u_edges[ui], u_edges[ui + 1]),
+                            (v_edges[vi], v_edges[vi + 1]),
+                        )
+                    } else {
+                        SurfaceCell {
+                            u_range: cell.u_range,
+                            v_range: cell.v_range,
+                            min: cell.min,
+                            max: cell.max,
+                        }
+                    };
+                    if refined && !aabb_overlap(&cseg.min, &cseg.max, &sub.min, &sub.max, margin) {
+                        continue;
+                    }
+                    let (sub_u, sub_v) = (sub.u_range, sub.v_range);
 
-            // Seed Newton from the midpoints of the curve segment and surface cell.
-            let t_mid = 0.5 * (cseg.t_range.0 + cseg.t_range.1);
-            let u_mid = 0.5 * (cell.u_range.0 + cell.u_range.1);
-            let v_mid = 0.5 * (cell.v_range.0 + cell.v_range.1);
+                    // Seed Newton at the curve sample NEAREST the
+                    // sub-cell, not the segment's t-midpoint: a
+                    // classification RAY arrives as one Bezier
+                    // segment spanning t ∈ (0, 1e6), so the midpoint
+                    // seed sat at t = 5e5 — half a million units from
+                    // every real crossing — and Newton either
+                    // diverged or converged onto the EXTENDED surface
+                    // basis (u ≈ −304) and was range-rejected: rays
+                    // through thread coils counted zero wall
+                    // crossings and interior points classified
+                    // Outside (PK-460). Nine samples per segment keep
+                    // the seed within an eighth of the segment.
+                    let u_mid = 0.5 * (sub_u.0 + sub_u.1);
+                    let v_mid = 0.5 * (sub_v.0 + sub_v.1);
+                    let cell_centre = Point3::new(
+                        0.5 * (sub.min.x + sub.max.x),
+                        0.5 * (sub.min.y + sub.max.y),
+                        0.5 * (sub.min.z + sub.max.z),
+                    );
+                    let t_mid = (0..=8)
+                        .map(|k| {
+                            cseg.t_range.0 + (cseg.t_range.1 - cseg.t_range.0) * k as f64 / 8.0
+                        })
+                        .min_by(|&a, &b| {
+                            let da = curve.point_at(a).distance_to(&cell_centre);
+                            let db = curve.point_at(b).distance_to(&cell_centre);
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .unwrap_or(0.5 * (cseg.t_range.0 + cseg.t_range.1));
 
-            if let Some((t, u, v, pt)) =
-                newton_surface_curve(curve, t_mid, surface, u_mid, v_mid, tolerance)
-            {
-                // Check that the result is within the requested ranges.
-                if t >= t_range.0 - tolerance.parametric_base()
-                    && t <= t_range.1 + tolerance.parametric_base()
-                    && u >= u_range.0 - tolerance.parametric_base()
-                    && u <= u_range.1 + tolerance.parametric_base()
-                    && v >= v_range.0 - tolerance.parametric_base()
-                    && v <= v_range.1 + tolerance.parametric_base()
-                {
-                    point_results.push((t, u, v, pt));
+                    let solved =
+                        newton_surface_curve(curve, t_mid, surface, u_mid, v_mid, tolerance);
+                    if crate::trace::trace_enabled("scg-newton") {
+                        eprintln!(
+                            "  [scg-newton] seed u={u_mid:.4} v={v_mid:.4} t={t_mid:.3} -> {:?}",
+                            solved.as_ref().map(|(t, u, v, _)| (*t, *u, *v))
+                        );
+                    }
+                    if let Some((t, u, v, pt)) = solved {
+                        // Check that the result is within the requested ranges.
+                        if t >= t_range.0 - tolerance.parametric_base()
+                            && t <= t_range.1 + tolerance.parametric_base()
+                            && u >= u_range.0 - tolerance.parametric_base()
+                            && u <= u_range.1 + tolerance.parametric_base()
+                            && v >= v_range.0 - tolerance.parametric_base()
+                            && v <= v_range.1 + tolerance.parametric_base()
+                        {
+                            point_results.push((t, u, v, pt));
+                        }
+                    }
                 }
             }
         }

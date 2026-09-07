@@ -262,11 +262,32 @@ fn pcurve_run(
         window = Some((pc.t_start, pc.t_end));
     }
     let (s0, s1) = window?;
-    let mut run = Vec::with_capacity(N_SAMPLES + 1);
+    let mut run = Vec::with_capacity(N_SAMPLES + 3);
     for i in 0..=N_SAMPLES {
         let t = s0 + (s1 - s0) * i as f64 / N_SAMPLES as f64;
         let p = pc.point_at(t);
         run.push((p.x, p.y));
+        if i == 0 {
+            // ENDPOINT-REFINED direction sample (mirrored before the
+            // final point below): `start_dir`/`end_dir` are chords of
+            // the first/last run segment, and a 1/16-run chord on a
+            // curved record is up to ~0.06 rad off the true tangent —
+            // more than the angular separation of a thread groove
+            // meeting a rim near-tangentially (0.013 rad measured,
+            // PK-460), so the walk's wedge matching at such junctions
+            // ordered the slots wrong and fused the two adjacent
+            // regions into one orbit. A δ = span/1000 neighbour makes
+            // the chord direction honest at the only places it is
+            // consumed.
+            let td = s0 + (s1 - s0) * 1.0e-3;
+            let pd = pc.point_at(td);
+            run.push((pd.x, pd.y));
+        }
+        if i == N_SAMPLES - 1 {
+            let td = s0 + (s1 - s0) * (1.0 - 1.0e-3);
+            let pd = pc.point_at(td);
+            run.push((pd.x, pd.y));
+        }
     }
     Some(run)
 }
@@ -333,5 +354,15 @@ fn projection_run(
         let p = c.geometry.point_at(ts[i]);
         run[i] = proj_near(&p, run[i + 1])?;
     }
+    // Endpoint-refined direction samples (same rationale as
+    // `pcurve_run`): δ = span/1000 neighbours next to each end make
+    // `start_dir`/`end_dir` honest tangents instead of 1/16-run
+    // chords.
+    let td0 = t0 + (t1 - t0) * 1.0e-3;
+    let td1 = t0 + (t1 - t0) * (1.0 - 1.0e-3);
+    let d0 = proj_near(&c.geometry.point_at(td0), run[0])?;
+    let d1 = proj_near(&c.geometry.point_at(td1), run[ts.len() - 1])?;
+    run.insert(1, d0);
+    run.insert(run.len() - 1, d1);
     Some(run)
 }

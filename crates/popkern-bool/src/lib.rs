@@ -392,3 +392,8 @@ pub fn boolean_with_progress(
         Some(reporter),
     )
 }
+
+/// Wedge-matching trace gate (fragment-walk successor diagnostics).
+pub(crate) fn trace_enabled_wedge() -> bool {
+    popkern_core::trace::trace_enabled("wedge-match")
+}

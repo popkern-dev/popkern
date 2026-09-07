@@ -557,6 +557,41 @@ pub(crate) fn execute_boolean_full(
         count_validate,
     );
     if !pc_errors.is_empty() {
+        // The boolean trace topic dumps every failing loop's half-edge
+        // chain WITH positions — post-check names the loop handle but
+        // the wiring (which edge the chain skips, where the gap sits)
+        // is only visible here, on the invalid result being declined.
+        if popkern_core::trace::trace_enabled("boolean") {
+            for (lh, l) in result.loops.iter() {
+                let mut chain = Vec::new();
+                let mut he = l.half_edge;
+                for _ in 0..result.half_edges.len() + 1 {
+                    let Some(h) = result.half_edges.get(he) else {
+                        break;
+                    };
+                    let p = result.vertices.get(h.origin).map(|v| v.position);
+                    chain.push((he, h.edge, p));
+                    he = h.next;
+                    if he == l.half_edge {
+                        break;
+                    }
+                }
+                let closed_gap = chain
+                    .windows(2)
+                    .filter_map(|w| Some(w[0].2?.distance_to(&w[1].2?)))
+                    .fold(0.0_f64, f64::max);
+                let _ = closed_gap;
+                eprintln!("  [invalid-loop] {lh:?} {} hes:", chain.len());
+                for (heh, eh, p) in &chain {
+                    if let Some(p) = p {
+                        eprintln!(
+                            "    he {heh:?} edge {eh:?} origin ({:.4},{:.4},{:.4})",
+                            p.x, p.y, p.z
+                        );
+                    }
+                }
+            }
+        }
         return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
     }
 

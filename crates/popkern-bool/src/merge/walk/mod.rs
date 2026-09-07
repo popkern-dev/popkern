@@ -240,6 +240,20 @@ pub(crate) fn walk_all_fragments_ext(
                             sub.report.filtered
                         );
                     }
+                    if popkern_core::trace::trace_enabled("fragment-walk") {
+                        for (oi, o) in loops.iter().enumerate() {
+                            eprintln!("      [orbit-hes] {oi}:");
+                            for &h in o {
+                                let e = sub.embeddings.get(&h);
+                                eprintln!(
+                                    "        he {h} src {:?} uv {:?} -> {:?}",
+                                    graph.half_edges[h].source,
+                                    e.map(|e| e.uv[0]),
+                                    e.and_then(|e| e.uv.last().copied()),
+                                );
+                            }
+                        }
+                    }
                 } else {
                     walk_fallbacks.push((*face_ref, "chart orbit collision".to_string()));
                     if popkern_core::trace::trace_enabled("boolean") {
