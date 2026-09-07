@@ -134,6 +134,11 @@ least `label`.
 | `sweep(path_body, path_edge)` | the body carrying the path edge, then an edge query on it (exactly one edge) | `label`, `mode`, `twist` | The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. `twist` in degrees over the full path. The path body is referenced, not consumed. |
 | `loft(sections)` | on `Model`: `m.loft([s0, s1, …])` — ordered sketch bodies, each contributing its most recent sketch face | `label`, `mode`, `closed` | Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles). |
 | `pipe(path_edge, radius)` | an edge query on the receiving body (exactly one edge), then the tube radius | `label`, `mode` | The tube is a new body; the path body keeps its edge. |
+| `bolt(spec, length)` | on `Model`: `spec` is a designation string (`"M6"`, `"M6x0.75"`, `"1/4-20"`, `"#8-32"` — millimetre-magnitude numbers bound in model units) or `#{ major: .., pitch: .. }`; `length` is under-head (hex/socket) or overall (countersunk) | `label`, `head` (`"hex"` default, `"socket"`, `"countersunk"`), `thread_length`, `left_hand`, `starts`, `tip_chamfer` | Real modeled threads (PK-460). Bodies build in the insertion frame — axis +Z, origin at the bearing plane, threads toward +Z — and place with `translate`/`rotate`. Author fastener models in a default-unit session with millimetre-magnitude numbers. |
+| `threaded_rod(spec, length)` | as `bolt` | `label`, `left_hand`, `starts`, `tip_chamfer` | Full-length external thread, both ends free-running. |
+| `nut(spec)` | as `bolt` (no length) | `label`, `clearance`, `thickness`, `left_hand`, `starts` | `clearance` grows the internal form for printed fits (0.15–0.3 typical); `thickness` overrides the ISO 4032 nominal. |
+| `tapped_hole(axis, spec, depth)` | `axis_at(origin, direction)` with the direction pointing INTO the material; `spec` as above; `depth`: `blind(d)` or `through_all()` | `label`, `clearance`, `left_hand`, `starts`, `entry_chamfer` | Bore at the internal minor diameter plus a modeled internal thread; a fastener on the same axis mates by construction. Blind taps thread to ¾ lead above the bottom (the tap-relief shoulder). |
+| `clearance_hole(axis, spec, depth)` | as `tapped_hole` | `label`, `fit` (`"close"`, `"normal"` default, `"loose"`), `diameter`, `countersink`, `counterbore`, `entry_chamfer` | ISO 273 hole series, or an explicit `diameter`; `countersink`/`counterbore` sink the matching head standard plus the given extra room. |
 | `helical_sweep(axis, radius, pitch, turns)` | `axis_at([o], [d])` or `axis(edges()...)`; then helix radius, pitch (advance per turn), turns (fractional allowed) | `label`, `mode`, `taper_to`, `start_angle`, `left_hand` | Springs, coils, auger flights, thread forms. `taper_to` is the end radius of a conical helix; `start_angle` (degrees) phases multiple helical bodies apart — multi-start threads, blades; `left_hand: true` mirrors the winding. The profile contributes its shape; placement comes from the helix. |
 
 ```rhai
@@ -420,6 +425,11 @@ body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
+m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
+m.nut(SPEC, #{label, clearance, thickness, left_hand, starts})
+body.tapped_hole(AXIS, SPEC, DEPTH, #{label, clearance, left_hand, starts, entry_chamfer})
+body.clearance_hole(AXIS, SPEC, DEPTH, #{label, fit, diameter, countersink, counterbore, entry_chamfer})
+SPEC: "M6" "M6x0.75" "1/4-20" "#8-32" (mm) or #{ major, pitch } (model units)   DEPTH: blind(d) through_all()
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
 F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()

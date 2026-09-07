@@ -53,7 +53,7 @@ pub(crate) fn sweep_impl(
     // 3. Compute frames.
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let n_samples = compute_sample_count(&table);
+    let n_samples = compute_sample_count(&table, path);
     let is_closed_path = check_path_closed(path, &tolerance);
     let (frames, mut warnings) = frame::compute_frames(
         path,
@@ -305,7 +305,7 @@ pub(crate) fn guided_sweep_impl(
 
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let n_samples = compute_sample_count(&table);
+    let n_samples = compute_sample_count(&table, path);
     let is_closed_path = check_path_closed(path, &tolerance);
     let (frames, warnings) = frame::compute_frames(
         path,
@@ -395,10 +395,32 @@ pub(crate) const ARC_LENGTH_SAMPLES: usize = 100;
 pub(crate) const MIN_FRAMES: usize = 10;
 
 /// Compute sample count based on path arc length.
-pub(crate) fn compute_sample_count(table: &arc_length::ArcLengthTable) -> usize {
-    // Roughly 10 samples per unit length, minimum MIN_FRAMES.
-    let count = (table.total_length * 10.0).ceil() as usize;
-    count.clamp(MIN_FRAMES, 200)
+pub(crate) fn compute_sample_count(
+    table: &arc_length::ArcLengthTable,
+    path: &popkern_core::geometry::NurbsCurve,
+) -> usize {
+    // Roughly 10 samples per unit length — PLUS a knot-span floor:
+    // frame density must track the path's own complexity, not its
+    // absolute size. A 5-turn helix authored at millimetre-in-SI
+    // scale has total length ~0.1, the length rule handed it
+    // MIN_FRAMES (~2 frames per turn), and the skinned tool surface
+    // genuinely folded (PK-460 — the sweep's self-intersection gate
+    // caught it, but the construction, not the gate, was wrong).
+    // Eight samples per distinct knot span keeps every quarter-arc of
+    // a stitched helix resolved at any scale; the cap covers
+    // pathological knot counts.
+    // The length rule keeps its long-tuned [MIN_FRAMES, 200] band —
+    // large-scale sweeps are bit-identical to before. The span floor
+    // only RAISES counts the length rule under-serves (six per span
+    // = 15° per frame on a stitched quarter-arc helix, well inside
+    // the 120° fold threshold), capped for pathological knot counts.
+    let spans = path
+        .knots
+        .windows(2)
+        .filter(|w| w[1] > w[0] + 1e-12)
+        .count();
+    let by_length = ((table.total_length * 10.0).ceil() as usize).clamp(MIN_FRAMES, 200);
+    by_length.max((6 * spans).min(1024))
 }
 
 /// Check if a path curve is closed (start point equals end point).

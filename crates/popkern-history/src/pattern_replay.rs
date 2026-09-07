@@ -171,6 +171,10 @@ fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<Operatio
         Feature::Pipe { path_edge, .. } => {
             remap_name(path_edge, op_remap);
         }
+        Feature::Fastener { .. } => {}
+        Feature::TappedHole { axis, .. } | Feature::ClearanceHole { axis, .. } => {
+            remap_axis_desc(axis, op_remap);
+        }
         Feature::HelicalSweep { face, axis, .. } => {
             remap_name(face, op_remap);
             remap_axis_desc(axis, op_remap);

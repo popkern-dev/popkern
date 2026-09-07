@@ -143,9 +143,9 @@ fn helical_sweep_circle() {
 fn compute_sample_count_reasonable() {
     let path = z_path(5.0);
     let table = arc_length::ArcLengthTable::build(&path, 100);
-    let count = compute_sample_count(&table);
+    let count = compute_sample_count(&table, &path);
     assert!(count >= MIN_FRAMES);
-    assert!(count <= 200);
+    assert!(count <= 1024);
 }
 
 #[test]

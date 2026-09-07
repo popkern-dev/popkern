@@ -10,6 +10,7 @@ popkern-core = { path = "../popkern-core" }
 popkern-constraint = { path = "../popkern-constraint" }
 popkern-sketch = { path = "../popkern-sketch" }
 popkern-history = { path = "../popkern-history" }
+popkern-fastener = { path = "../popkern-fastener" }
 popkern-part = { path = "../popkern-part" }
 popkern-io = { path = "../popkern-io" }
 popkern-mesh = { path = "../popkern-mesh" }

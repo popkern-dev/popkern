@@ -79,6 +79,68 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         Feature::Draft { angle, .. } => vec![("angle", *angle)],
         Feature::Sweep { twist, .. } => vec![("twist", *twist)],
         Feature::Pipe { radius, .. } => vec![("radius", *radius)],
+        Feature::Fastener {
+            thread,
+            length,
+            thread_length,
+            clearance,
+            ..
+        } => {
+            let mut v = vec![
+                ("major_diameter", thread.major_diameter),
+                ("pitch", thread.pitch),
+                ("length", *length),
+            ];
+            if let Some(id) = thread_length {
+                v.push(("thread_length", *id));
+            }
+            if let Some(id) = clearance {
+                v.push(("clearance", *id));
+            }
+            v
+        }
+        Feature::TappedHole {
+            thread,
+            depth,
+            clearance,
+            ..
+        } => {
+            let mut v = vec![
+                ("major_diameter", thread.major_diameter),
+                ("pitch", thread.pitch),
+                ("clearance", *clearance),
+            ];
+            if let Some(id) = depth {
+                v.push(("depth", *id));
+            }
+            v
+        }
+        Feature::ClearanceHole {
+            thread,
+            fit,
+            depth,
+            countersink,
+            counterbore,
+            ..
+        } => {
+            let mut v = vec![
+                ("major_diameter", thread.major_diameter),
+                ("pitch", thread.pitch),
+            ];
+            if let crate::feature_fastener::ClearanceFitDesc::Custom(id) = fit {
+                v.push(("hole_diameter", *id));
+            }
+            if let Some(id) = depth {
+                v.push(("depth", *id));
+            }
+            if let Some(id) = countersink {
+                v.push(("countersink", *id));
+            }
+            if let Some(id) = counterbore {
+                v.push(("counterbore", *id));
+            }
+            v
+        }
         Feature::HelicalSweep {
             start_radius,
             end_radius,
@@ -157,6 +219,15 @@ impl Feature {
             Feature::Loft { .. } => "loft",
             Feature::Pipe { .. } => "pipe",
             Feature::HelicalSweep { .. } => "helical_sweep",
+            Feature::Fastener { kind, .. } => match kind {
+                crate::feature_fastener::FastenerKind::HexBolt => "hex_bolt",
+                crate::feature_fastener::FastenerKind::SocketCapScrew => "socket_cap_screw",
+                crate::feature_fastener::FastenerKind::CountersunkScrew => "countersunk_screw",
+                crate::feature_fastener::FastenerKind::ThreadedRod => "threaded_rod",
+                crate::feature_fastener::FastenerKind::HexNut => "hex_nut",
+            },
+            Feature::TappedHole { .. } => "tapped_hole",
+            Feature::ClearanceHole { .. } => "clearance_hole",
             Feature::Revolve { .. } => "revolve",
             Feature::Reference { .. } => "reference",
             Feature::LinearPattern { .. } => "linear_pattern",

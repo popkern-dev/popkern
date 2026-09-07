@@ -3498,6 +3498,7 @@ name = "popkern-rhai"
 version = "0.1.0"
 dependencies = [
  "popkern-core",
+ "popkern-fastener",
  "popkern-history",
  "popkern-mesh",
  "popkern-part",

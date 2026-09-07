@@ -100,7 +100,7 @@ pub fn text(argument: &str, value: &Dynamic) -> Result<String, Box<EvalAltResult
     })
 }
 
-fn spelling<T: Copy>(
+pub(crate) fn spelling<T: Copy>(
     argument: &str,
     value: &Dynamic,
     table: &[(&str, T)],

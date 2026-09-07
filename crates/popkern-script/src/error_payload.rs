@@ -301,6 +301,9 @@ fn part_payload(error: &PartError) -> Value {
         PartError::Io { path, source } => {
             json!({ "kind": "IoFailed", "path": path, "detail": source.to_string() })
         }
+        PartError::Fastener { stage, source } => json!({
+            "kind": "FastenerFailed", "stage": stage, "detail": source.to_string(),
+        }),
         PartError::NotApplicable(detail) => json!({ "kind": "NotApplicable", "detail": detail }),
         PartError::Cancelled => json!({ "kind": "Cancelled" }),
     }

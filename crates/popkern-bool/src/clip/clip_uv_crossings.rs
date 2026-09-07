@@ -404,13 +404,15 @@ pub(crate) fn find_uv_crossings(
     // when the curve TRANSVERSALLY crosses there — a tangential
     // graze legitimately yields two equal-t crossings and must keep
     // its parity.
-    // The grouping gate is WIDER than the intersector's own agreement
-    // (adjacent-span reports of one hit land ~1e-5 apart on a 394-CP
-    // record) — the parity probe below keeps the wide gate honest: an
-    // odd number of true crossings inside the band collapses to one,
-    // an even number (a graze, or a thin in-face sliver) keeps every
-    // report, so the in/out parity downstream never flips.
-    let group_eps = span * 1e-3;
+    // The grouping gate sits an order above the intersector's own
+    // agreement (duplicate reports of one hit land within ~1e-6 of
+    // span) and orders below any distinct-crossing spacing (a
+    // 1e-3-of-span gate merged two REAL crossings of the radial
+    // keyway pin's slot records and stranded the serve). The parity
+    // probe keeps the collapse honest: an odd number of true
+    // crossings inside the band collapses to one, an even number (a
+    // graze) keeps every report, so downstream parity never flips.
+    let group_eps = span * 1e-5;
     let mut deduped: Vec<UvCrossing> = Vec::new();
     let mut i = 0;
     while i < crossings.len() {

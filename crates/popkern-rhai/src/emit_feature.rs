@@ -347,6 +347,153 @@ pub fn statement(
                 options(pairs)
             )
         }
+        Feature::Fastener {
+            kind,
+            thread,
+            length,
+            thread_length,
+            clearance,
+            tip_chamfer,
+        } => {
+            use popkern_history::feature_fastener::FastenerKind;
+            let spec = format!(
+                "#{{ major: {}, pitch: {} }}",
+                scalar(tree, thread.major_diameter, context)?,
+                scalar(tree, thread.pitch, context)?
+            );
+            let mut pairs = Vec::new();
+            match kind {
+                FastenerKind::SocketCapScrew => pairs.push(("head", quoted("socket"))),
+                FastenerKind::CountersunkScrew => pairs.push(("head", quoted("countersunk"))),
+                FastenerKind::HexBolt | FastenerKind::ThreadedRod | FastenerKind::HexNut => {}
+            }
+            if let Some(id) = thread_length {
+                pairs.push(("thread_length", scalar(tree, *id, context)?));
+            }
+            if let Some(id) = clearance {
+                pairs.push(("clearance", scalar(tree, *id, context)?));
+            }
+            if thread.left_handed {
+                pairs.push(("left_hand", "true".to_string()));
+            }
+            if thread.starts > 1 {
+                pairs.push(("starts", thread.starts.to_string()));
+            }
+            if !tip_chamfer && !matches!(kind, FastenerKind::HexNut) {
+                pairs.push(("tip_chamfer", "false".to_string()));
+            }
+            let call = match kind {
+                FastenerKind::HexNut => {
+                    let thickness = scalar(tree, *length, context)?;
+                    if thickness != "0" {
+                        pairs.push(("thickness", thickness));
+                    }
+                    pairs.push(label_option(label));
+                    format!("m.nut({spec}{})", options(pairs))
+                }
+                FastenerKind::ThreadedRod => {
+                    pairs.push(label_option(label));
+                    format!(
+                        "m.threaded_rod({spec}, {}{})",
+                        scalar(tree, *length, context)?,
+                        options(pairs)
+                    )
+                }
+                _ => {
+                    pairs.push(label_option(label));
+                    format!(
+                        "m.bolt({spec}, {}{})",
+                        scalar(tree, *length, context)?,
+                        options(pairs)
+                    )
+                }
+            };
+            return Ok(Statement {
+                call,
+                starts_body: true,
+            });
+        }
+        Feature::TappedHole {
+            axis: a,
+            thread,
+            depth,
+            clearance,
+            entry_chamfer,
+        } => {
+            let spec = format!(
+                "#{{ major: {}, pitch: {} }}",
+                scalar(tree, thread.major_diameter, context)?,
+                scalar(tree, thread.pitch, context)?
+            );
+            let depth = match depth {
+                Some(id) => format!("blind({})", scalar(tree, *id, context)?),
+                None => "through_all()".to_string(),
+            };
+            let mut pairs = Vec::new();
+            let clearance_text = scalar(tree, *clearance, context)?;
+            if clearance_text != "0" {
+                pairs.push(("clearance", clearance_text));
+            }
+            if thread.left_handed {
+                pairs.push(("left_hand", "true".to_string()));
+            }
+            if thread.starts > 1 {
+                pairs.push(("starts", thread.starts.to_string()));
+            }
+            if !entry_chamfer {
+                pairs.push(("entry_chamfer", "false".to_string()));
+            }
+            pairs.push(label_option(label));
+            format!(
+                ".tapped_hole({}, {spec}, {depth}{})",
+                axis(spell, a)?,
+                options(pairs)
+            )
+        }
+        Feature::ClearanceHole {
+            axis: a,
+            thread,
+            fit,
+            depth,
+            countersink,
+            counterbore,
+            entry_chamfer,
+        } => {
+            use popkern_history::feature_fastener::ClearanceFitDesc;
+            let spec = format!(
+                "#{{ major: {}, pitch: {} }}",
+                scalar(tree, thread.major_diameter, context)?,
+                scalar(tree, thread.pitch, context)?
+            );
+            let depth = match depth {
+                Some(id) => format!("blind({})", scalar(tree, *id, context)?),
+                None => "through_all()".to_string(),
+            };
+            let mut pairs = Vec::new();
+            match fit {
+                ClearanceFitDesc::Normal => {}
+                ClearanceFitDesc::Close => pairs.push(("fit", quoted("close"))),
+                ClearanceFitDesc::Loose => pairs.push(("fit", quoted("loose"))),
+                ClearanceFitDesc::Custom(id) => {
+                    pairs.push(("diameter", scalar(tree, *id, context)?));
+                }
+            }
+            if let Some(id) = countersink {
+                pairs.push(("countersink", scalar(tree, *id, context)?));
+            }
+            if let Some(id) = counterbore {
+                pairs.push(("counterbore", scalar(tree, *id, context)?));
+            }
+            if !entry_chamfer {
+                pairs.push(("entry_chamfer", "false".to_string()));
+            }
+            pairs.push(label_option(label));
+            format!(
+                ".clearance_hole({}, {spec}, {depth}{})",
+                axis(spell, a)?,
+                options(pairs)
+            )
+        }
         Feature::Fillet {
             edges,
             radius,

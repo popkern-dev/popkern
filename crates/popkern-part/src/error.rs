@@ -108,8 +108,9 @@ pub enum PartError {
     Fastener {
         /// The fastener feature ("hex bolt", "tapped hole", ...).
         stage: &'static str,
-        /// The structured fastener error.
-        source: popkern_fastener::FastenerError,
+        /// The structured fastener error (boxed: it carries whole
+        /// kernel error payloads).
+        source: Box<popkern_fastener::FastenerError>,
     },
     /// The operation does not apply to this part's geometry (e.g.
     /// engraving a non-planar face). The message names the entity

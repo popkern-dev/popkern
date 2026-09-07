@@ -17,6 +17,7 @@
 
 pub mod bodies;
 pub mod body;
+pub mod body_fastener;
 pub mod body_recipes;
 pub mod body_sweep;
 pub mod configs;
@@ -35,6 +36,9 @@ pub mod selection;
 pub mod selection_parse;
 
 pub use body::{Body, End, RevolveEnd};
+pub use body_fastener::{
+    ClearanceFitArg, ClearanceHoleArgs, FastenerOptions, TapHoleOptions, ThreadSpecArg,
+};
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
 pub use body_sweep::{HelixParams, LoftOptions};
 pub use error::{ScriptError, SelectionKind};

@@ -771,6 +771,38 @@
       ]
     },
     {
+      "name": "bolt",
+      "section": "5",
+      "mark": "preview",
+      "signature": "m.bolt(spec, length, head?, thread_length?, left_hand?, starts?)",
+      "parameters": [
+        {
+          "name": "spec",
+          "optional": false
+        },
+        {
+          "name": "length",
+          "optional": false
+        },
+        {
+          "name": "head",
+          "optional": true
+        },
+        {
+          "name": "thread_length",
+          "optional": true
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "starts",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "chamfer",
       "section": "5",
       "mark": "stable",
@@ -818,6 +850,46 @@
         },
         {
           "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "clearance_hole",
+      "section": "5",
+      "mark": "preview",
+      "signature": "clearance_hole(axis, spec, depth, fit?, diameter?, countersink?, counterbore?, entry_chamfer?)",
+      "parameters": [
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "spec",
+          "optional": false
+        },
+        {
+          "name": "depth",
+          "optional": false
+        },
+        {
+          "name": "fit",
+          "optional": true
+        },
+        {
+          "name": "diameter",
+          "optional": true
+        },
+        {
+          "name": "countersink",
+          "optional": true
+        },
+        {
+          "name": "counterbore",
+          "optional": true
+        },
+        {
+          "name": "entry_chamfer",
           "optional": true
         }
       ]
@@ -1066,6 +1138,34 @@
       ]
     },
     {
+      "name": "nut",
+      "section": "5",
+      "mark": "preview",
+      "signature": "m.nut(spec, clearance?, thickness?, left_hand?, starts?)",
+      "parameters": [
+        {
+          "name": "spec",
+          "optional": false
+        },
+        {
+          "name": "clearance",
+          "optional": true
+        },
+        {
+          "name": "thickness",
+          "optional": true
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "starts",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "offset_solid",
       "section": "5",
       "mark": "preview",
@@ -1241,6 +1341,42 @@
       ]
     },
     {
+      "name": "tapped_hole",
+      "section": "5",
+      "mark": "preview",
+      "signature": "tapped_hole(axis, spec, depth, clearance?, left_hand?, starts?, entry_chamfer?)",
+      "parameters": [
+        {
+          "name": "axis",
+          "optional": false
+        },
+        {
+          "name": "spec",
+          "optional": false
+        },
+        {
+          "name": "depth",
+          "optional": false
+        },
+        {
+          "name": "clearance",
+          "optional": true
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "starts",
+          "optional": true
+        },
+        {
+          "name": "entry_chamfer",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "thicken",
       "section": "5",
       "mark": "preview",
@@ -1256,6 +1392,30 @@
         },
         {
           "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "threaded_rod",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.threaded_rod(spec, length, left_hand?, starts?)",
+      "parameters": [
+        {
+          "name": "spec",
+          "optional": false
+        },
+        {
+          "name": "length",
+          "optional": false
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "starts",
           "optional": true
         }
       ]

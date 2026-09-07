@@ -215,6 +215,69 @@ pub enum Feature {
         #[serde(default)]
         mode: OperationMode,
     },
+    /// A generated fastener body with a real modeled thread
+    /// (PK-460): hex bolt, socket-cap or countersunk screw, threaded
+    /// rod, or hex nut, built in the insertion frame (axis +Z,
+    /// origin at the bearing plane) and placed with the ordinary
+    /// transforms. Always creates a new body.
+    Fastener {
+        /// Which fastener to build.
+        kind: crate::feature_fastener::FastenerKind,
+        /// The thread.
+        thread: crate::feature_fastener::ThreadDesc,
+        /// Under-head / overall / rod length; a nut's thickness
+        /// (≤ 0 = the standard nominal thickness).
+        length: ParameterId,
+        /// Thread only the last `thread_length` of the shank
+        /// (`None` = full thread).
+        thread_length: Option<ParameterId>,
+        /// Internal fit clearance (nut only; `None` = exact basic
+        /// profile).
+        clearance: Option<ParameterId>,
+        /// 45° lead-in chamfer on the threaded tip (screws/rods).
+        #[serde(default = "crate::feature_fastener::default_true")]
+        tip_chamfer: bool,
+    },
+    /// A tapped (threaded) hole cut into the body: bore at the
+    /// internal minor diameter plus a real modeled internal thread
+    /// (PK-460). The axis direction points INTO the material.
+    TappedHole {
+        /// The hole axis (origin on the entry surface, direction
+        /// into the material).
+        axis: AxisDesc,
+        /// The thread.
+        thread: crate::feature_fastener::ThreadDesc,
+        /// Blind depth along the axis; `None` = through.
+        depth: Option<ParameterId>,
+        /// Internal fit clearance (0 = exact basic profile).
+        clearance: ParameterId,
+        /// 45° lead-in chamfer at the entry.
+        #[serde(default)]
+        entry_chamfer: bool,
+    },
+    /// A plain clearance hole for a screw, with optional countersink
+    /// or counterbore (PK-460).
+    ClearanceHole {
+        /// The hole axis (origin on the entry surface, direction
+        /// into the material).
+        axis: AxisDesc,
+        /// The screw thread the hole clears.
+        thread: crate::feature_fastener::ThreadDesc,
+        /// Hole diameter series or explicit diameter.
+        fit: crate::feature_fastener::ClearanceFitDesc,
+        /// Blind depth along the axis; `None` = through.
+        depth: Option<ParameterId>,
+        /// Sink a 90° countersink sized from the countersunk-head
+        /// standard plus this extra radial room.
+        countersink: Option<ParameterId>,
+        /// Sink a counterbore sized from the socket-head standard
+        /// plus this extra radial/axial room.
+        counterbore: Option<ParameterId>,
+        /// 45° entry chamfer (skipped under a countersink or
+        /// counterbore).
+        #[serde(default)]
+        entry_chamfer: bool,
+    },
     /// Revolve a face around an axis.
     Revolve {
         /// The face to revolve.

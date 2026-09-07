@@ -46,7 +46,10 @@ fn wrap(
     tolerance: Tolerance,
     summary: String,
 ) -> Result<Part, PartError> {
-    let brep = result.map_err(|source| PartError::Fastener { stage, source })?;
+    let brep = result.map_err(|source| PartError::Fastener {
+        stage,
+        source: Box::new(source),
+    })?;
     Part::from_validated(brep, tolerance, "fastener", summary)
 }
 

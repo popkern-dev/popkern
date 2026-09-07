@@ -128,6 +128,10 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         } => vec![face, path_edge],
         Feature::Loft { sections, .. } => sections.iter().collect(),
         Feature::Pipe { path_edge, .. } => vec![path_edge],
+        Feature::Fastener { .. } => Vec::new(),
+        Feature::TappedHole { axis, .. } | Feature::ClearanceHole { axis, .. } => {
+            axis_desc_entity_names(axis)
+        }
         Feature::HelicalSweep { face, axis, .. } => {
             let mut names = vec![face];
             names.extend(axis_desc_entity_names(axis));

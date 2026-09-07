@@ -14,6 +14,8 @@ use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 use crate::replay_report::{FeatureEvidence, face_census};
 
+#[path = "replay_fastener.rs"]
+mod replay_fastener;
 #[path = "replay_fns.rs"]
 pub(crate) mod replay_fns;
 #[path = "replay_sweep.rs"]
@@ -400,6 +402,60 @@ pub(crate) fn execute_feature(
             tolerance,
             param_table,
             exact_profile,
+        ),
+        Feature::Fastener {
+            kind,
+            thread,
+            length,
+            thread_length,
+            clearance,
+            tip_chamfer,
+        } => replay_fastener::execute_fastener(
+            brep,
+            *kind,
+            thread,
+            *length,
+            *thread_length,
+            *clearance,
+            *tip_chamfer,
+            tolerance,
+            param_table,
+        ),
+        Feature::TappedHole {
+            axis,
+            thread,
+            depth,
+            clearance,
+            entry_chamfer,
+        } => replay_fastener::execute_tapped_hole(
+            brep,
+            axis,
+            thread,
+            *depth,
+            *clearance,
+            *entry_chamfer,
+            tolerance,
+            param_table,
+        ),
+        Feature::ClearanceHole {
+            axis,
+            thread,
+            fit,
+            depth,
+            countersink,
+            counterbore,
+            entry_chamfer,
+        } => replay_fastener::execute_clearance_hole(
+            brep,
+            axis,
+            thread,
+            fit,
+            *depth,
+            *countersink,
+            *counterbore,
+            *entry_chamfer,
+            tolerance,
+            param_table,
         ),
         Feature::Revolve {
             face,
