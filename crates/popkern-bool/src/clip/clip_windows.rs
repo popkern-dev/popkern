@@ -48,7 +48,17 @@ fn record_is_transversal(
         let (Some(unit_a), Some(unit_b)) = (normal_a.normalized(), normal_b.normalized()) else {
             return false;
         };
-        if unit_a.cross(&unit_b).length() < MIN_NORMAL_CROSS {
+        let cross = unit_a.cross(&unit_b).length();
+        if cross < MIN_NORMAL_CROSS {
+            if popkern_core::trace::trace_enabled("clip-far") {
+                use popkern_core::geometry::curve::CurveEval as _;
+                let (t0, t1) = curve.curve_3d.parameter_range();
+                let pm = curve.curve_3d.point_at(t0 + fraction * (t1 - t0));
+                eprintln!(
+                    "    [transversal] record ({:.3},{:.3},{:.3})-sample f{fraction} cross {cross:.3e} -> NOT transversal",
+                    pm.x, pm.y, pm.z
+                );
+            }
             return false;
         }
     }
@@ -220,6 +230,15 @@ pub(crate) fn clip_curve_uv_space(
             ts.extend(ts_b.unwrap_or_default());
             ts.sort_by(f64::total_cmp);
             ts.dedup_by(|b, a| (*b - *a).abs() < span * 1e-6);
+            if popkern_core::trace::trace_enabled("clip-far") {
+                let (t0m, t1m) = curve.curve_3d.parameter_range();
+                let p0 = curve.curve_3d.point_at(t0m);
+                let p1 = curve.curve_3d.point_at(t1m);
+                eprintln!(
+                    "    [pierce-ts] record ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}): ts {:?}",
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, ts
+                );
+            }
             let cleared = super::clip_pierce_windows::intervals_clear_of_boundary(
                 brep_a, face_a, brep_b, face_b, curve, &ts,
             );
