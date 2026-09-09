@@ -8,7 +8,7 @@
 /// `C(t_lo + f·(t_hi − t_lo))` over interior fractions. Used by the
 /// recompute survival rule to compare an existing pcurve with a
 /// freshly fitted candidate.
-pub(super) fn pcurve_fraction_contract_error(
+pub(in crate::topology) fn pcurve_fraction_contract_error(
     surface: &crate::geometry::surface::SurfaceGeometry,
     pcurve: &crate::geometry::pcurve::Pcurve,
     curve: &crate::geometry::curve::CurveOnEdge,

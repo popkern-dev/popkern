@@ -144,6 +144,41 @@ pub(super) fn ray_crossing_count(
                         }
                     }
 
+                    // A hit on the FACE must lie inside the face's own
+                    // AABB: the solver window covers the surface's
+                    // basis extension, and a hit past the trim (a
+                    // groove wall's helical chart runs half a lead
+                    // beyond the body; a classify ray 0.125 above the
+                    // nut hit it at z = 5.16 and voted Inside,
+                    // PK-464) is never a body crossing. Margin covers
+                    // the AABB's sampling sag.
+                    {
+                        let hp = *origin + *direction * *t;
+                        let diag = aabb.max.distance_to(&aabb.min);
+                        let m = (tolerance.linear() * 10.0).max(diag * 1.0e-3);
+                        if hp.x < aabb.min.x - m
+                            || hp.x > aabb.max.x + m
+                            || hp.y < aabb.min.y - m
+                            || hp.y > aabb.max.y + m
+                            || hp.z < aabb.min.z - m
+                            || hp.z > aabb.max.z + m
+                        {
+                            if ray_trace {
+                                eprintln!(
+                                    "  [ray-rej-aabb] {face_handle:?} hit ({:.3},{:.3},{:.3}) t={t:.3} uv=({u:.3},{v:.3}) surf_at=({:?}) from ({:.3},{:.3},{:.3}) box {:?}",
+                                    hp.x,
+                                    hp.y,
+                                    hp.z,
+                                    surface.point_at(*u, *v),
+                                    origin.x,
+                                    origin.y,
+                                    origin.z,
+                                    aabb
+                                );
+                            }
+                            continue;
+                        }
+                    }
                     let normal = surface.normal_at(*u, *v);
                     let n_len = normal.length();
                     if n_len < tolerance.numerical_floor() {
@@ -275,6 +310,32 @@ pub(super) fn ray_crossing_count(
                             }
                             None => return Err(()),
                         }
+                    }
+                    // MULTI-TURN helical bands (cylinder/cone charts
+                    // whose boundary tiles several turns): the face's
+                    // own uv boundary is the trim truth — see
+                    // `multi_turn_band_hit` (PK-464). Both modes: the
+                    // classified-against body is a finished operand
+                    // in the propagation path too, and the gate
+                    // self-scopes to ≥3 boundary crossings at the
+                    // hit's v (plain walls and holed plates never
+                    // reach it).
+                    if let Some(on_face) = gates::multi_turn_band_hit(
+                        brep,
+                        *face_handle,
+                        surface,
+                        *u,
+                        *v,
+                        (u_min, u_max),
+                        tolerance,
+                    ) && !on_face
+                    {
+                        if ray_trace {
+                            eprintln!(
+                                "  [ray-rej-band] {face_handle:?} uv=({u:.3},{v:.3}) off the multi-turn band"
+                            );
+                        }
+                        continue;
                     }
                     // A hit OUTSIDE the face's outer pcurve polygon is
                     // not on the face at all — the padded parameter box

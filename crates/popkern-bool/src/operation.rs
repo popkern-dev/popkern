@@ -234,11 +234,19 @@ pub(crate) fn execute_boolean_full(
     check_cancel(cancel)?;
 
     // Stage 3: Classify — label each fragment as inside/outside/on-boundary.
+    // The classified-against body is the SPLIT operand, so its face
+    // AABBs must be computed from the split body too: the pre-split
+    // operand boxes collide by handle with the split faces and pair a
+    // face with another face's box (latent until the per-hit face-box
+    // gate cross-referenced them — a contained-cubes intersection
+    // rejected every real hit and served empty, PK-464).
     let t_classify = popkern_core::time::Stopwatch::start();
+    let split_aabbs_a = crate::intersect::compute_face_aabbs(&split_result.a);
+    let split_aabbs_b = crate::intersect::compute_face_aabbs(&split_result.b);
     let classifications_a = classify_fragments(
         &split_result.a,
         &split_result.b,
-        &intersection_result.aabbs_b,
+        &split_aabbs_b,
         &split_result.fragments_a.intersection_edges,
         tolerance,
     )?;
@@ -246,7 +254,7 @@ pub(crate) fn execute_boolean_full(
     let classifications_b = classify_fragments(
         &split_result.b,
         &split_result.a,
-        &intersection_result.aabbs_a,
+        &split_aabbs_a,
         &split_result.fragments_b.intersection_edges,
         tolerance,
     )?;
@@ -366,7 +374,31 @@ pub(crate) fn execute_boolean_full(
             tolerance,
         ) {
             Ok(r) => match r.validate() {
-                Ok(()) => Some(r),
+                // Pcurve completeness is part of the acceptance
+                // (PK-463): the cellular assembly leaves record-use
+                // pcurves to the recompute, and a recompute skip
+                // (projection failure) is silent — the served body
+                // meshed torn on the chamfered rod while graph-merge
+                // served it watertight. Attempt the fill HERE and
+                // decline to graph-merge when any face still misses
+                // one; the accepted result's later shared recompute
+                // is then a no-op.
+                Ok(()) => {
+                    let mut r = r;
+                    let _ = r.recompute_pcurves_where_missing();
+                    match first_missing_pcurve_face(&r) {
+                        None => Some(r),
+                        Some(fh) => {
+                            crate::merge_fallback::record_merge_fallback(
+                                op,
+                                crate::merge_fallback::MergeFallbackReason::CellularInvalid(
+                                    format!("face {fh:?} pcurve-incomplete after recompute"),
+                                ),
+                            );
+                            None
+                        }
+                    }
+                }
                 Err(e) => {
                     helpers_pcurve_coherence::trace_cellular_nonmanifold(&r);
                     crate::merge_fallback::record_merge_fallback(
@@ -419,7 +451,11 @@ pub(crate) fn execute_boolean_full(
     // in their pcurve inventory are recomputed (PK-274): a face the
     // merge carried over intact keeps its authoritative pcurves.
     let mut result = result;
-    let _ = result.recompute_pcurves_where_missing();
+    if let Err(e) = result.recompute_pcurves_where_missing()
+        && popkern_core::trace::trace_enabled("boolean")
+    {
+        eprintln!("[boolean] pcurve recompute declined: {e}");
+    }
     helpers_pcurve_coherence::normalize_output_loop_charts(&mut result);
 
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
@@ -521,6 +557,33 @@ impl BoolDiagnostics {
             reason: "unknown error in boolean pipeline".to_string(),
         })
     }
+}
+
+/// First face with surface geometry whose loop half-edges are missing
+/// a pcurve — the cellular acceptance gate's completeness scan
+/// (PK-463). `None` = trim inventory complete.
+fn first_missing_pcurve_face(r: &BRep) -> Option<popkern_core::topology::FaceHandle> {
+    for (fh, fd) in &r.faces {
+        if fd.surface.is_none() {
+            continue;
+        }
+        for lh in std::iter::once(fd.outer_loop).chain(fd.inner_loops.iter().copied()) {
+            let Some(ld) = r.loops.get(lh) else { continue };
+            let start = ld.half_edge;
+            let mut he = start;
+            for _ in 0..r.half_edges.len() + 1 {
+                let Some(h) = r.half_edges.get(he) else { break };
+                if h.pcurve.is_none() {
+                    return Some(fh);
+                }
+                he = h.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]

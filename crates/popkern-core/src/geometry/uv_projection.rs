@@ -116,7 +116,26 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
         // [`project_point_to_uv_multisheet`] for validation
         // consumers (PK-449).
         SurfaceGeometry::Nurbs(nurbs) => {
-            uv_projection_clamped::nurbs_gauss_newton_project(surface, nurbs, point)
+            uv_projection_clamped::nurbs_gauss_newton_project(surface, nurbs, point).or_else(|| {
+                // Rescue on HARD failure only (all five starts ended
+                // >1 unit away — every basin walked onto another
+                // sheet): the knot-span-seeded multi-start resolves
+                // coiled multi-sheet charts (PK-446/PK-449). Scoped
+                // to the None path so every succeeding projection
+                // keeps its tuned basin byte-identically (measured,
+                // PK-463: a groove-flank trim endpoint ON the chart
+                // border projected >1 off through all five starts,
+                // the pcurve recompute silently skipped the
+                // half-edge, and the served body meshed torn).
+                let seeds = nurbs.projection_seeds()?;
+                crate::geometry::surface::closest_point_from_seeds(
+                    nurbs,
+                    point,
+                    &seeds,
+                    (false, false),
+                    6,
+                )
+            })
         }
         // Gregory patches are non-analytic-inverse; fall through
         // to the generic Gauss-Newton projection. The default

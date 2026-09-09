@@ -49,8 +49,27 @@ pub(super) fn anchor_periodic(
         .copied()
         .filter(|h| !seam_hes.contains(h))
         .collect();
-    let (components, seam_nodes, (lo, hi, span)) =
+    let true_seam_nodes = seam_nodes.clone();
+    let (components, seam_nodes, lattice_nodes, (lo, hi, span)) =
         anchoring::anchor_components(sub, &interior, seam_nodes, period, ends);
+    // Period-lattice junctions (whether or not the overwrap retry
+    // barriered them), minus the true seam nodes: their border copies
+    // are one azimuth and cluster as one branch (see
+    // `cluster_branches`). Computed unconditionally — a small
+    // residual band whose flood never overwraps still carries
+    // lattice junctions (PK-464: the crest band above the top
+    // chamfer ring declined 1-in/0-out at both its per-turn
+    // junctions).
+    let wrap_nodes: BTreeSet<usize> = seam_nodes
+        .difference(&true_seam_nodes)
+        .copied()
+        .chain(
+            lattice_nodes
+                .iter()
+                .copied()
+                .filter(|n| !true_seam_nodes.contains(n)),
+        )
+        .collect();
     if span > period * (1.0 + 1e-6) {
         sub.report
             .issues
@@ -317,7 +336,15 @@ pub(super) fn anchor_periodic(
                 }
             }
         }
-        let clustered = cluster_branches(&hes, ends, &u_start, &u_end, period, &sub.poles);
+        let clustered = cluster_branches(
+            &hes,
+            ends,
+            &u_start,
+            &u_end,
+            period,
+            &sub.poles,
+            &wrap_nodes,
+        );
         if first_result.is_none() {
             first_result = Some(clustered.clone());
         }
@@ -349,7 +376,10 @@ pub(super) fn anchor_periodic(
         node_branches.entry(bp.node).or_default().insert(bp.branch);
     }
     for (node, branches) in &node_branches {
-        if branches.len() > 1 && !seam_nodes.contains(node) {
+        // Wrap nodes cluster as one branch by construction; any
+        // remaining split there is the seam machinery's business,
+        // not an off-seam defect.
+        if branches.len() > 1 && !seam_nodes.contains(node) && !wrap_nodes.contains(node) {
             sub.report
                 .issues
                 .push(SubdivisionIssue::BranchSplitOffSeam { node: *node });

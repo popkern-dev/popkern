@@ -161,7 +161,6 @@ fn two_start_fine_rod_serves() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn rod_with_tip_chamfer_serves_watertight() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let rod = ThreadedRod::new(spec, 4.0)
@@ -171,7 +170,6 @@ fn rod_with_tip_chamfer_serves_watertight() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn m6_nut_thread_serves_with_grown_volume() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let clearance = 0.15;

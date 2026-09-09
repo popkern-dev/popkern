@@ -73,13 +73,16 @@ fn disjoint_cubes_subtraction_returns_a() {
 fn contained_cube_union_returns_outer() {
     let a = BRep::unit_cube(tol()).expect("unit cube a");
     let mut b = BRep::unit_cube(tol()).expect("unit cube b");
-    for (_, v) in &mut b.vertices {
-        v.position = popkern_core::geometry::Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
+    // Geometry-honest enlargement: vertex translation alone leaves the
+    // stored surfaces stale (the classify hit-box gate rightly
+    // rejects hits on a surface that no longer matches its face).
+    let b = b
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap();
     let result = execute_boolean(BoolOperation::Union, a, b, &tol())
         .expect("contained union should succeed");
     assert_eq!(result.faces.len(), 6);
@@ -89,13 +92,16 @@ fn contained_cube_union_returns_outer() {
 fn contained_cube_intersection_returns_inner() {
     let a = BRep::unit_cube(tol()).expect("unit cube a");
     let mut b = BRep::unit_cube(tol()).expect("unit cube b");
-    for (_, v) in &mut b.vertices {
-        v.position = popkern_core::geometry::Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
+    // Geometry-honest enlargement: vertex translation alone leaves the
+    // stored surfaces stale (the classify hit-box gate rightly
+    // rejects hits on a surface that no longer matches its face).
+    let b = b
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap();
     let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
         .expect("contained intersection should succeed");
     assert_eq!(result.faces.len(), 6);
@@ -135,13 +141,16 @@ fn contained_cube_subtraction_a_inside_b_is_empty() {
     // A is inside B → A − B = empty (A is entirely consumed).
     let a = BRep::unit_cube(tol()).expect("unit cube a");
     let mut b = BRep::unit_cube(tol()).expect("unit cube b");
-    for (_, v) in &mut b.vertices {
-        v.position = popkern_core::geometry::Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
+    // Geometry-honest enlargement: vertex translation alone leaves the
+    // stored surfaces stale (the classify hit-box gate rightly
+    // rejects hits on a surface that no longer matches its face).
+    let b = b
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap();
     let result = execute_boolean(BoolOperation::Subtraction, a, b, &tol())
         .expect("containment subtraction should succeed");
     assert_eq!(result.faces.len(), 0, "A inside B: A − B should be empty");
@@ -169,13 +178,16 @@ fn containment_subtraction_creates_hollow() {
 fn reverse_containment_union_returns_outer() {
     // B is inside A → union is just A.
     let mut a = BRep::unit_cube(tol()).expect("unit cube a");
-    for (_, v) in &mut a.vertices {
-        v.position = popkern_core::geometry::Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
+    // Geometry-honest enlargement: vertex translation alone leaves the
+    // stored surfaces stale (the classify hit-box gate rightly
+    // rejects hits on a surface that no longer matches its face).
+    let a = a
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap();
     let b = BRep::unit_cube(tol()).expect("unit cube b");
     let result = execute_boolean(BoolOperation::Union, a, b, &tol())
         .expect("reverse containment union should succeed");
@@ -186,13 +198,16 @@ fn reverse_containment_union_returns_outer() {
 fn reverse_containment_intersection_returns_inner() {
     // B is inside A → intersection is B.
     let mut a = BRep::unit_cube(tol()).expect("unit cube a");
-    for (_, v) in &mut a.vertices {
-        v.position = popkern_core::geometry::Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
+    // Geometry-honest enlargement: vertex translation alone leaves the
+    // stored surfaces stale (the classify hit-box gate rightly
+    // rejects hits on a surface that no longer matches its face).
+    let a = a
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap();
     let b = BRep::unit_cube(tol()).expect("unit cube b");
     let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
         .expect("reverse containment intersection should succeed");

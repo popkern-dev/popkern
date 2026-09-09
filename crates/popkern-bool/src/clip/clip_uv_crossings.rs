@@ -8,6 +8,7 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use super::clip_branch_normalize;
 use super::clip_crossings_rescue::sampled_uv_crossings;
 use super::clip_seam_shift::{is_near_seam, shift_curve_u};
 use super::clip_uv::{TWO_PI, UvCrossing};
@@ -71,45 +72,13 @@ pub(crate) fn find_uv_crossings(
             )
         })
         .unwrap_or(false);
-    // PERIOD-BRANCH NORMALIZATION: the query curve may live on any
-    // whole-period u-branch of a periodic chart (a plane×cylinder
-    // marcher parameterized one gusset-web ellipse at u ∈ [2π, 4π]),
-    // while the face's pcurves live on the principal branch. UV
-    // curve×curve intersection then finds no true crossings — and
-    // the ±π seam dance below cannot bridge a full period (measured:
-    // the arc-web×underside record clipped to the EXTENDED
-    // cylinder's phantom re-crossing instead of the true weld line,
-    // and the fanned arm's gusset union went non-manifold). Shift
-    // the query curve by whole periods so its u-centre lands nearest
-    // the boundary's u-centre; crossing t-parameters are unaffected.
-    let curve_uv = &{
-        let mut normalized = curve_uv.clone();
-        if surface_is_periodic && !boundary_nurbs.is_empty() {
-            let period = {
-                use popkern_core::geometry::SurfaceEval as _;
-                brep.faces
-                    .get(face)
-                    .and_then(|f| f.surface.as_ref())
-                    .and_then(|s| s.geometry.parameter_periodicity().0)
-                    .unwrap_or(std::f64::consts::TAU)
-            };
-            let u_mean = |c: &NurbsCurve| {
-                c.control_points.iter().map(|p| p.x).sum::<f64>() / c.control_points.len() as f64
-            };
-            let boundary_center = boundary_nurbs.iter().map(|(_, pc)| u_mean(pc)).sum::<f64>()
-                / boundary_nurbs.len() as f64;
-            let k = ((boundary_center - u_mean(&normalized)) / period).round();
-            if k != 0.0 {
-                normalized = shift_curve_u(&normalized, k * period);
-                if popkern_core::trace::trace_enabled("clip") {
-                    eprintln!(
-                        "    [uvclip-branch] {face:?} query curve shifted by {k:+.0} period(s)"
-                    );
-                }
-            }
-        }
-        normalized
-    };
+    let curve_uv = &clip_branch_normalize::normalize_query_branch(
+        brep,
+        face,
+        &boundary_nurbs,
+        curve_uv,
+        surface_is_periodic,
+    );
     let needs_shift = surface_is_periodic
         && (is_near_seam(curve_uv) || boundary_nurbs.iter().any(|(_, pc)| is_near_seam(pc)))
         && (in_periodic_range(curve_uv)
@@ -173,12 +142,21 @@ pub(crate) fn find_uv_crossings(
                 use popkern_core::geometry::curve::CurveEval;
                 let b0 = working_boundary.point_at(boundary_range.0);
                 let b1 = working_boundary.point_at(boundary_range.1);
+                let mids: Vec<String> = (1..5)
+                    .map(|k| {
+                        let t = boundary_range.0
+                            + (boundary_range.1 - boundary_range.0) * k as f64 / 5.0;
+                        let p = working_boundary.point_at(t);
+                        format!("({:.3},{:.3})", p.x, p.y)
+                    })
+                    .collect();
                 eprintln!(
-                    "      [xing-try] he {he_handle:?} bnd({:.6},{:.6})->({:.6},{:.6}) brange({:.6e},{:.6e}) bcps={} qcps={}",
+                    "      [xing-try] he {he_handle:?} bnd({:.6},{:.6})->({:.6},{:.6}) mids {} brange({:.6e},{:.6e}) bcps={} qcps={}",
                     b0.x,
                     b0.y,
                     b1.x,
                     b1.y,
+                    mids.join(" "),
                     boundary_range.0,
                     boundary_range.1,
                     working_boundary.control_points.len(),
@@ -192,6 +170,19 @@ pub(crate) fn find_uv_crossings(
                 curve_range,
                 tolerance,
             );
+            if popkern_core::trace::trace_enabled("ring-crossing") {
+                match &result {
+                    Ok(r) => {
+                        eprintln!(
+                            "      [xing-raw] he {he_handle:?} -> {} hit(s) qrange {curve_range:?} qcp0 {:?} qcpN {:?}",
+                            r.intersections.len(),
+                            working_curve.control_points.first(),
+                            working_curve.control_points.last()
+                        );
+                    }
+                    Err(e) => eprintln!("      [xing-err] he {he_handle:?} -> {e}"),
+                }
+            }
 
             if let Ok(result) = result {
                 use popkern_core::geometry::intersection::CurveIntersection;

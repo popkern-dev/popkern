@@ -207,14 +207,22 @@ fn detect_edges_vs_faces(
                 t_range,
                 tolerance,
             );
-            if popkern_core::trace::trace_enabled("edge-face-hits")
-                && let Ok(r) = &result
-                && !r.intersections.is_empty()
-            {
-                eprintln!(
-                    "  [hit-pair] face {face_h:?} u[{u_min:.3},{u_max:.3}] v[{v_min:.3},{v_max:.3}] -> {} isects",
-                    r.intersections.len()
-                );
+            if popkern_core::trace::trace_enabled("edge-face-hits") {
+                match &result {
+                    Ok(r) => eprintln!(
+                        "  [hit-pair] edge {edge_h:?} ({:.2},{:.2},{:.2})-({:.2},{:.2},{:.2}) x face {face_h:?} u[{u_min:.3},{u_max:.3}] v[{v_min:.3},{v_max:.3}] -> {} isects",
+                        v_start.x,
+                        v_start.y,
+                        v_start.z,
+                        v_end.x,
+                        v_end.y,
+                        v_end.z,
+                        r.intersections.len()
+                    ),
+                    Err(e) => {
+                        eprintln!("  [hit-pair] edge {edge_h:?} x face {face_h:?} -> error {e}")
+                    }
+                }
             }
 
             // Acceptance is trim-honest: the padded range above gives the
@@ -262,30 +270,46 @@ fn detect_edges_vs_faces(
                         let eps = tolerance.linear();
                         let (t_lo, t_hi) = (t_range.0.min(t_range.1), t_range.0.max(t_range.1));
                         if t < t_lo + eps || t > t_hi - eps {
+                            if popkern_core::trace::trace_enabled("edge-face-hits") {
+                                eprintln!(
+                                    "  [hit-reject] endpoint t={t:.4} window [{t_lo:.4},{t_hi:.4}] edge {edge_h:?} face {face_h:?}"
+                                );
+                            }
                             continue;
                         }
                         // 3D honesty: the curve point must lie ON the
-                        // face's surface. Judged by PROJECTION, not by the
-                        // solver's claimed (u,v) — the solver uv is coarse
+                        // face's surface, proven by EITHER evaluation
+                        // route. The solver's claimed (u,v) can be coarse
                         // (measured 0.3 off on a plane-splitter's sheet
-                        // face while the 3D hit itself was exact).
+                        // face while the 3D hit itself was exact), so a
+                        // projection check backs it up — but projection
+                        // alone must not VETO: on a helical thread flank
+                        // the cold projection basin converges on the
+                        // ADJACENT COIL TURN, 0.875 away, while the
+                        // solver uv evaluates exactly on the surface
+                        // (measured: the tip-chamfer cone's seam edge
+                        // crossing the groove flank — the rejected pierce
+                        // node left the record chain seam-crossing and
+                        // the chart walk declined the whole face,
+                        // PK-463).
                         {
                             use popkern_core::geometry::SurfaceEval as _;
                             let p_curve = edge_curve.point_at(t);
-                            let off_surface =
-                                popkern_core::geometry::uv_projection::project_point_to_uv(
+                            let on_by = tolerance.linear() * 10.0;
+                            let d_solver = surface_on_face.point_at(u, v).distance_to(&p_curve);
+                            let off_surface = d_solver > on_by
+                                && popkern_core::geometry::uv_projection::project_point_to_uv(
                                     surface_on_face,
                                     &p_curve,
                                 )
                                 .map(|(pu, pv)| {
-                                    surface_on_face.point_at(pu, pv).distance_to(&p_curve)
-                                        > tolerance.linear() * 10.0
+                                    surface_on_face.point_at(pu, pv).distance_to(&p_curve) > on_by
                                 })
                                 .unwrap_or(false);
                             if off_surface {
                                 if popkern_core::trace::trace_enabled("edge-face-hits") {
                                     eprintln!(
-                                        "  [hit-reject] off-surface t={t:.3} uv=({u:.3},{v:.3})"
+                                        "  [hit-reject] off-surface t={t:.3} uv=({u:.3},{v:.3}) d_solver={d_solver:.6}"
                                     );
                                 }
                                 continue;
@@ -297,6 +321,11 @@ fn detect_edges_vs_faces(
                                 || v < ev_min - uv_margin
                                 || v > ev_max + uv_margin)
                         {
+                            if popkern_core::trace::trace_enabled("edge-face-hits") {
+                                eprintln!(
+                                    "  [hit-reject] trim-box uv=({u:.4},{v:.4}) box u[{eu_min:.4},{eu_max:.4}] v[{ev_min:.4},{ev_max:.4}] edge {edge_h:?} face {face_h:?}"
+                                );
+                            }
                             continue;
                         }
                         hits.push(EdgeFaceHit {

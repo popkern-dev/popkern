@@ -171,19 +171,35 @@ pub(super) fn uv_clip_one_face(
             // segments of a pocket cut into a cylinder cap were
             // discarded, while a plane×wall circle wholly outside
             // the tool's trimmed bottom face was kept whole).
-            // Disambiguate by containment of the curve midpoint.
+            // Disambiguate by containment — MAJORITY over five
+            // interior samples, not the midpoint alone: a
+            // near-tangent record skims a trim edge at one station
+            // (the hex-corner chamfer cone's hyperbola apex grazes
+            // the cone's r-flat rim exactly at the record midpoint),
+            // and the single-sample verdict flipped Outside by the
+            // boundary band's width while every other station sat
+            // well inside — the sixth wall's corner cuts dropped
+            // whole and the merge stranded 4 record sides (PK-464).
+            // With zero crossings all samples lie on one side modulo
+            // boundary noise, so the majority is the honest verdict.
             use popkern_core::geometry::curve::CurveEval;
             let (t_min, t_max) = curve_uv.parameter_range();
-            let mid = curve_uv.point_at(0.5 * (t_min + t_max));
             // REGION containment (hole-aware): a record wholly inside
             // a hole is off the face (the vent-slot class); a record
             // crossing a hole has crossings and never reaches here.
-            if crate::split_inner_loop::point_inside_face_region_uv(
-                brep,
-                face,
-                mid,
-                &brep.tolerance,
-            ) {
+            let mut inside_votes = 0usize;
+            for k in 1..=5 {
+                let t = t_min + (t_max - t_min) * k as f64 / 6.0;
+                if crate::split_inner_loop::point_inside_face_region_uv(
+                    brep,
+                    face,
+                    curve_uv.point_at(t),
+                    &brep.tolerance,
+                ) {
+                    inside_votes += 1;
+                }
+            }
+            if inside_votes >= 3 {
                 UvClipResult::Windows(vec![(t_min, t_max)])
             } else {
                 UvClipResult::Outside

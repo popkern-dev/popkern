@@ -169,7 +169,21 @@ pub(super) fn drop_hole_interior_record_pieces(
             kept.push(idx);
             continue;
         }
-        let mid: Point3 = match he.curve.as_ref() {
+        // A twin half-edge carries no curve of its own — its partner
+        // does, and the curve midpoint is direction-independent. The
+        // chord fallback is a last resort ONLY when neither direction
+        // has a curve: the chord of a wide arc dips off the curve by
+        // the full sagitta, and on the nut cap the tool tip-band's
+        // r = 3.15 arc (true midpoint azimuth −π/2, far outside the
+        // bore) chord-sampled at r = 1.90 INSIDE the bore — the twin
+        // dropped as hole-interior while its partner stayed, and the
+        // 2-in/1-out imbalance declined both caps to the 3D-Newell
+        // fallback (PK-464).
+        let curve = he
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+        let mid: Point3 = match curve {
             Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
             None => {
                 let a = graph.nodes[he.origin].position;

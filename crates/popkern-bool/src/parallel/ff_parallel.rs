@@ -21,6 +21,10 @@ use crate::clip::clip_curve_to_faces;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 
+#[path = "ff_parallel_trace.rs"]
+mod ff_parallel_trace;
+use ff_parallel_trace::{trace_clip_input, trace_clip_output, trace_pair_surfaces};
+
 /// A face pair selected by BVH overlap filtering, awaiting intersection.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FacePairTask {
@@ -337,6 +341,59 @@ fn clip_and_classify(
                             continue;
                         }
                     }
+                    // Surface honesty: a kept window's interior must
+                    // lie ON both carrier surfaces. A near-tangent
+                    // pair's marched trace can bridge two hyperbola
+                    // branches through the tangency region where no
+                    // real intersection exists; the tiny bridge
+                    // windows survive the UV clip (their pcurve
+                    // crossings look legitimate) and strand in the
+                    // merge (measured, PK-464: the hex-corner
+                    // chamfer ring cone grazing the across-flats
+                    // plane at its base — two 0.007-span windows per
+                    // wall, 0.65 OFF the cone, 4 half-claimed record
+                    // sides). The gate sits far above the record-fit
+                    // slop (~1e-4) and far below any bridge.
+                    let both_analytic = !matches!(
+                        inp.surf_a,
+                        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                    ) && !matches!(
+                        inp.surf_b,
+                        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                    );
+                    if both_analytic {
+                        use popkern_core::geometry::curve::CurveEval as _;
+                        use popkern_core::geometry::surface::SurfaceEval as _;
+                        let (c0, c1) = clipped.curve_3d.parameter_range();
+                        let band = tolerance.linear() * 1000.0;
+                        let mut worst = 0.0_f64;
+                        for k in 1..4 {
+                            let p = clipped.curve_3d.point_at(c0 + (c1 - c0) * k as f64 / 4.0);
+                            for s in [inp.surf_a, inp.surf_b] {
+                                let d =
+                                    popkern_core::geometry::uv_projection::project_point_to_uv_multisheet(
+                                        s, &p,
+                                    )
+                                    .map(|(u, v)| s.point_at(u, v).distance_to(&p))
+                                    .unwrap_or(0.0);
+                                worst = worst.max(d);
+                            }
+                        }
+                        if worst > band {
+                            if trace.clip {
+                                eprintln!(
+                                    "  [clip-drop] A{face_a:?} x B{face_b:?}: window interior {worst:.4} off a carrier surface (tangency bridge)"
+                                );
+                            }
+                            continue;
+                        }
+                    }
+                    // NURBS carriers keep tuned behavior: the
+                    // multisheet distance on a coiled wall can read a
+                    // phantom deviation for an on-surface point, and
+                    // the gate dropped a load-bearing deep-grind
+                    // window (measured: the z=0.45 band-grind pin
+                    // tore at 1021 open edges).
                     // Classify tangency at curve midpoint.
                     // Uses popkern_core::adaptive_precision::
                     // adaptive_cross_ratio_sq_lt so near-parallel
@@ -388,85 +445,4 @@ fn clip_and_classify(
         tolerance,
     );
     records
-}
-
-fn trace_pair_surfaces(
-    face_a: FaceHandle,
-    face_b: FaceHandle,
-    surf_a: &popkern_core::geometry::surface::SurfaceGeometry,
-    surf_b: &popkern_core::geometry::surface::SurfaceGeometry,
-    ((u1_min, u1_max), (v1_min, v1_max)): ((f64, f64), (f64, f64)),
-    ((u2_min, u2_max), (v2_min, v2_max)): ((f64, f64), (f64, f64)),
-) {
-    let kind = |s: &popkern_core::geometry::surface::SurfaceGeometry| match s {
-        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
-        popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-        popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
-        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
-        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
-        _ => "Nurbs/other",
-    };
-    eprintln!(
-        "  [pair-surf] {face_a:?}({}) u[{u1_min:.1},{u1_max:.1}] v[{v1_min:.1},{v1_max:.1}] x {face_b:?}({}) u[{u2_min:.1},{u2_max:.1}] v[{v2_min:.1},{v2_max:.1}]",
-        kind(surf_a),
-        kind(surf_b)
-    );
-    if let popkern_core::geometry::surface::SurfaceGeometry::Plane { u_axis, v_axis, .. } = surf_a {
-        eprintln!(
-            "    [pair-axes] A ua=({:.2},{:.2},{:.2}) va=({:.2},{:.2},{:.2})",
-            u_axis.x, u_axis.y, u_axis.z, v_axis.x, v_axis.y, v_axis.z
-        );
-    }
-}
-
-fn trace_clip_input(
-    face_a: FaceHandle,
-    face_b: FaceHandle,
-    surf_a: &popkern_core::geometry::surface::SurfaceGeometry,
-    surf_b: &popkern_core::geometry::surface::SurfaceGeometry,
-    curve: &popkern_core::geometry::curve_on_surface::CurveOnSurface,
-    kept: usize,
-) {
-    let (t0, t1) = curve.curve_3d.parameter_range();
-    let p0 = curve.curve_3d.point_at(t0);
-    let p1 = curve.curve_3d.point_at(t1);
-    let plane_dist = |s: &popkern_core::geometry::surface::SurfaceGeometry,
-                      p: &popkern_core::geometry::Point3|
-     -> f64 {
-        match s {
-            popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. } => {
-                ((p.x - origin.x) * normal.x
-                    + (p.y - origin.y) * normal.y
-                    + (p.z - origin.z) * normal.z)
-                    .abs()
-            }
-            _ => f64::NAN,
-        }
-    };
-    eprintln!(
-        "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.9},{:.9},{:.9})->({:.9},{:.9},{:.9}) dA={:.1e} dB={:.1e} kept={}",
-        p0.x,
-        p0.y,
-        p0.z,
-        p1.x,
-        p1.y,
-        p1.z,
-        plane_dist(surf_a, &p0),
-        plane_dist(surf_b, &p0),
-        kept
-    );
-}
-
-fn trace_clip_output(
-    face_a: FaceHandle,
-    face_b: FaceHandle,
-    clipped: &popkern_core::geometry::curve_on_surface::CurveOnSurface,
-) {
-    let (t0, t1) = clipped.curve_3d.parameter_range();
-    let p0 = clipped.curve_3d.point_at(t0);
-    let p1 = clipped.curve_3d.point_at(t1);
-    eprintln!(
-        "  [clip-out] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.9},{:.9},{:.9})->({:.9},{:.9},{:.9}) closed={}",
-        p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, clipped.is_closed
-    );
 }

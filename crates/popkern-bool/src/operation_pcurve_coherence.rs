@@ -14,8 +14,17 @@
 
 use popkern_core::topology::BRep;
 
-/// Detect and rebuild wrong-branch pcurves on doubly-periodic faces.
+/// Detect and rebuild wrong-branch pcurves on doubly-periodic faces,
+/// and IMAGE-DISHONEST pcurves on any periodic face: a use pcurve
+/// whose fraction-matched image runs away from its own 3-D edge curve
+/// (the nut's top mouth-chamfer ring transplanted a piece sweeping
+/// azimuth 0→3.9 the MAJOR way while the curve covers 3.9→2π; the
+/// loop then read chart-continuous with zero net winding, the seam
+/// sides co-branched, and the annulus meshed torn — PK-464). Clearing
+/// and recomputing routes the piece through the branch-honest chained
+/// projection.
 pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
+    use popkern_core::geometry::curve::CurveEval as _;
     let mut incoherent: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     for (fh, fd) in &result.faces {
         let Some(sof) = fd.surface.as_ref() else {
@@ -23,9 +32,11 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
         };
         use popkern_core::geometry::surface::SurfaceEval as _;
         let (pu, pv) = sof.geometry.parameter_periodicity();
-        let (Some(pu), Some(pv)) = (pu, pv) else {
+        if pu.is_none() && pv.is_none() {
             continue;
-        };
+        }
+        let doubly = pu.is_some() && pv.is_some();
+        let image_gate = result.tolerance.linear().max(1.0e-9) * 100.0;
         let mut loops = vec![fd.outer_loop];
         loops.extend(fd.inner_loops.iter().copied());
         'face: for lh in loops {
@@ -39,19 +50,55 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
                     break;
                 };
                 if let Some(pc) = hd.pcurve.as_ref() {
-                    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) =
-                        (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-                    for k in 0..=8 {
-                        let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
-                        let q = pc.point_at(t);
-                        lo_u = lo_u.min(q.x);
-                        hi_u = hi_u.max(q.x);
-                        lo_v = lo_v.min(q.y);
-                        hi_v = hi_v.max(q.y);
+                    if doubly {
+                        let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) =
+                            (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                        for k in 0..=8 {
+                            let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
+                            let q = pc.point_at(t);
+                            lo_u = lo_u.min(q.x);
+                            hi_u = hi_u.max(q.x);
+                            lo_v = lo_v.min(q.y);
+                            hi_v = hi_v.max(q.y);
+                        }
+                        if let (Some(pu), Some(pv)) = (pu, pv)
+                            && (hi_u - lo_u > 0.75 * pu || hi_v - lo_v > 0.75 * pv)
+                        {
+                            incoherent.push(fh);
+                            break 'face;
+                        }
                     }
-                    if hi_u - lo_u > 0.75 * pu || hi_v - lo_v > 0.75 * pv {
-                        incoherent.push(fh);
-                        break 'face;
+                    // Fraction-matched image honesty against the 3-D
+                    // edge curve (direction resolved by the endpoint
+                    // nearer the half-edge origin).
+                    if let Some(c) = result.edges.get(hd.edge).and_then(|e| e.curve.as_ref())
+                        && let Some(v) = result.vertices.get(hd.origin)
+                    {
+                        let cs = c.geometry.point_at(c.t_start);
+                        let ce = c.geometry.point_at(c.t_end);
+                        let (ta, tb) = if v.position.distance_to(&cs) <= v.position.distance_to(&ce)
+                        {
+                            (c.t_start, c.t_end)
+                        } else {
+                            (c.t_end, c.t_start)
+                        };
+                        let mut worst = 0.0_f64;
+                        for k in 1..4 {
+                            let f = k as f64 / 4.0;
+                            let q = pc.point_at(pc.t_start + (pc.t_end - pc.t_start) * f);
+                            let s = sof.geometry.point_at(q.x, q.y);
+                            let cp = c.geometry.point_at(ta + (tb - ta) * f);
+                            worst = worst.max(s.distance_to(&cp));
+                        }
+                        if worst > image_gate {
+                            if popkern_core::trace::trace_enabled("boolean") {
+                                eprintln!(
+                                    "  [pc-coherence] {fh:?} use pcurve image {worst:.4} off its edge curve — rebuilding face"
+                                );
+                            }
+                            incoherent.push(fh);
+                            break 'face;
+                        }
                     }
                 }
                 cur = hd.next;

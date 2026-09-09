@@ -43,11 +43,21 @@ impl BRep {
     /// either (PK-274).
     pub fn recompute_pcurves_where_missing(&mut self) -> Result<(), crate::error::CoreError> {
         let mut faces = std::collections::BTreeSet::new();
-        for half_edge in self.half_edges.values() {
-            if half_edge.pcurve.is_none()
-                && let Some(loop_data) = self.loops.get(half_edge.loop_)
-            {
-                faces.insert(loop_data.face);
+        for (heh, half_edge) in self.half_edges.iter() {
+            if half_edge.pcurve.is_none() {
+                match self.loops.get(half_edge.loop_) {
+                    Some(loop_data) => {
+                        faces.insert(loop_data.face);
+                    }
+                    None => {
+                        if crate::trace::trace_enabled("pcurve") {
+                            eprintln!(
+                                "  [pcurve] missing-pcurve he {heh:?} has DEAD loop {:?}",
+                                half_edge.loop_
+                            );
+                        }
+                    }
+                }
             }
         }
         let faces: Vec<FaceHandle> = faces.into_iter().collect();

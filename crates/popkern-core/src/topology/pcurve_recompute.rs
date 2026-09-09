@@ -166,11 +166,17 @@ impl BRep {
                 // Degree-1: straight line in UV.
                 let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
-                    None => continue,
+                    None => {
+                        trace_skip(heh, "origin projection failed");
+                        continue;
+                    }
                 };
                 let (u_e, v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
                     Some(uv) => uv,
-                    None => continue,
+                    None => {
+                        trace_skip(heh, "dest projection failed");
+                        continue;
+                    }
                 };
                 NurbsCurve {
                     degree: 1,
@@ -203,11 +209,17 @@ impl BRep {
                 // control-point overshoot.
                 let (mut u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
-                    None => continue,
+                    None => {
+                        trace_skip(heh, "origin projection failed");
+                        continue;
+                    }
                 };
                 let (raw_u_e, raw_v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
                     Some(uv) => uv,
-                    None => continue,
+                    None => {
+                        trace_skip(heh, "dest projection failed");
+                        continue;
+                    }
                 };
                 // Branch-honest sampling on periodic charts (PK-286):
                 // cold projections live in the principal branch, so an
@@ -389,85 +401,16 @@ impl BRep {
                             weights: vec![1.0, 1.0],
                         }
                     } else {
+                        trace_skip(heh, "too few uv samples");
                         continue;
                     }
                 }
             };
 
-            // Survival rule: a recomputed pcurve only replaces an
-            // existing one when it satisfies the fraction-matched trim
-            // contract at least as well. Construction passes author
-            // dense pcurves with better-than-refit fidelity (PK-087:
-            // a blanket recompute degraded surgery-authored 33-point
-            // pcurves 8.5e-7 → 1.35e-3, and a refit over a partially
-            // diverged projection walk tore pentagon5_blunt fan seam
-            // normals to 2.9e-1). Half-edges without an existing
-            // pcurve or without a 3-D curve to measure against are
-            // written unconditionally, as before.
-            // The survival rule below still measures an analytic
-            // candidate against any existing pcurve — exactness is
-            // verified, not assumed (see pcurve_recompute_analytic).
-            let mut candidate: crate::geometry::pcurve::Pcurve = edge_curve
-                .as_ref()
-                .and_then(|c| {
-                    super::pcurve_recompute_analytic::exact_plane_pcurve(
-                        &surface,
-                        &c.geometry,
-                        edge_direction.0,
-                        edge_direction.1,
-                    )
-                })
-                .unwrap_or_else(|| pcurve.into());
-            // Branch consistency (PK-125): on periodic surfaces the
-            // projection's principal branch can sit whole periods away
-            // from the face's chart window. The 3-D image is identical
-            // there, so the contract comparison below is decided by
-            // trig ULPs — and a wrong-branch candidate that "wins" the
-            // tie throws every chart-space consumer (boundary-row
-            // relocks, trim fits, seam measures) a full period off
-            // (measured: pyramid4_mixed support pcurve replaced by its
-            // u − 2π copy; the export-repair relock chased the
-            // off-window trace into a cap-surface fold). Translate the
-            // candidate onto the EXISTING pcurve's branch first — an
-            // exact, image-preserving move.
-            if let Some(existing) = self.half_edges[heh].pcurve.as_ref() {
-                let (period_u, period_v) = surface.periodicity();
-                let branch_shift = |delta: f64, period: Option<f64>| -> f64 {
-                    match period {
-                        Some(period) if period > 0.0 => (delta / period).round() * period,
-                        _ => 0.0,
-                    }
-                };
-                let midpoint_of = |pc: &crate::geometry::pcurve::Pcurve| {
-                    let (t0, t1) = pc.parameter_range();
-                    pc.point_at(0.5 * (t0 + t1))
-                };
-                let target = midpoint_of(existing);
-                let current = midpoint_of(&candidate);
-                let shift_u = branch_shift(target.x - current.x, period_u);
-                let shift_v = branch_shift(target.y - current.y, period_v);
-                if shift_u != 0.0 || shift_v != 0.0 {
-                    candidate = candidate.translated_uv(shift_u, shift_v);
-                }
-            }
-            let keep_existing = match (&self.half_edges[heh].pcurve, edge_curve) {
-                (Some(existing), Some(curve_on_edge)) => {
-                    pcurve_fraction_contract_error(
-                        &surface,
-                        existing,
-                        curve_on_edge,
-                        edge_direction,
-                    ) <= pcurve_fraction_contract_error(
-                        &surface,
-                        &candidate,
-                        curve_on_edge,
-                        edge_direction,
-                    )
-                }
-                _ => false,
-            };
-            if !keep_existing {
-                self.half_edges[heh].pcurve = Some(candidate);
+            // Survival rule + branch consistency — extracted to
+            // `install_pcurve_with_survival` (pcurve_recompute_helpers)
+            // under the file-size ratchet.
+            if self.install_pcurve_with_survival(heh, &surface, edge_direction, pcurve) {
                 freshly_authored.insert(heh);
             }
         }
@@ -642,8 +585,8 @@ mod pcurve_stale_repair;
 #[path = "pcurve_region_recompute.rs"]
 mod pcurve_region_recompute;
 #[path = "pcurve_survival.rs"]
-mod pcurve_survival;
-use pcurve_survival::pcurve_fraction_contract_error;
+pub(super) mod pcurve_survival;
+use super::pcurve_recompute_helpers::trace_skip;
 
 #[cfg(test)]
 #[path = "pcurve_recompute_tests.rs"]

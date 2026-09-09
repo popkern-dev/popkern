@@ -116,6 +116,84 @@ pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamR
             if !has_other(he.origin) || !has_other(twin.origin) {
                 return None;
             }
+            // GEOMETRIC slit test: a true slit's two halves have (at
+            // least) one loop segment between them lying ON the seam
+            // curve itself — the flap folds back along the seam. A
+            // LOAD-BEARING seam connects two rings that both wrap the
+            // chart (a mouth-chamfer cone's annulus between its cap
+            // circle and its cut ring); its two in-between segments
+            // both carry content far off the seam, and dissolving it
+            // turns the wrapped annulus into an outer-ring +
+            // inner-ring trim no periodic chart can hold (measured,
+            // PK-464: the nut's top chamfer cone meshed 261 open
+            // edges). Co-branched pcurve mids alone cannot tell the
+            // two apart — the served seam pcurves CAN land on one
+            // branch (the deeper authoring defect is the recorded
+            // follow-up).
+            {
+                use popkern_core::geometry::curve::CurveEval as _;
+                let seam_curve = brep.edges.get(eh)?.curve.as_ref();
+                let on_seam = |p: &popkern_core::geometry::Point3| -> bool {
+                    match seam_curve {
+                        Some(c) => {
+                            let band = {
+                                let len = c
+                                    .geometry
+                                    .point_at(c.t_start)
+                                    .distance_to(&c.geometry.point_at(c.t_end))
+                                    .max(1e-9);
+                                len * 0.05 + _tolerance.linear() * 100.0
+                            };
+                            (0..=16).any(|k| {
+                                let t = c.t_start + (c.t_end - c.t_start) * k as f64 / 16.0;
+                                c.geometry.point_at(t).distance_to(p) < band
+                            })
+                        }
+                        None => true, // zero-length residue: trivially on-seam
+                    }
+                };
+                let segment_on_seam = |from: popkern_core::topology::HalfEdgeHandle,
+                                       until: popkern_core::topology::HalfEdgeHandle|
+                 -> Option<bool> {
+                    let mut cur = brep.half_edges.get(from)?.next;
+                    for _ in 0..brep.half_edges.len() + 1 {
+                        if cur == until {
+                            return Some(true);
+                        }
+                        let hd = brep.half_edges.get(cur)?;
+                        let p = brep.vertices.get(hd.origin)?.position;
+                        if !on_seam(&p) {
+                            return Some(false);
+                        }
+                        // Edge-curve INTERIOR too: a closed ring's only
+                        // vertex sits on the seam by construction (the
+                        // cap circle closes at the seam azimuth), so a
+                        // vertex-only test reads the whole circle as
+                        // on-seam and lets the dissolve disconnect a
+                        // wrapped annulus.
+                        if let Some(c) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
+                            for k in [0.25, 0.5, 0.75] {
+                                let t = c.t_start + (c.t_end - c.t_start) * k;
+                                if !on_seam(&c.geometry.point_at(t)) {
+                                    return Some(false);
+                                }
+                            }
+                        }
+                        cur = hd.next;
+                    }
+                    Some(false)
+                };
+                let side_a = segment_on_seam(ed.half_edge, he.twin).unwrap_or(false);
+                let side_b = segment_on_seam(he.twin, ed.half_edge).unwrap_or(false);
+                if !side_a && !side_b {
+                    if popkern_core::trace::trace_enabled("slit") {
+                        eprintln!(
+                            "  [slit] {eh:?} declined: both loop segments carry off-seam content (load-bearing seam)"
+                        );
+                    }
+                    return None;
+                }
+            }
             Some(eh)
         })
         .collect();
@@ -192,6 +270,16 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
                 break;
             }
         }
+    }
+    // A loop already down to the slit pair alone cannot survive the
+    // splice as a cycle (members − 2 underflowed on a degenerate
+    // two-member loop, PK-464) — decline and restore.
+    if members < 3 {
+        if popkern_core::trace::trace_enabled("slit") {
+            eprintln!("  [slit] declined {eh:?}: loop has only {members} member(s)");
+        }
+        *brep = snapshot;
+        return false;
     }
 
     // Splice: bypass both halves. In the consecutive (out-and-back)

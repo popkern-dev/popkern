@@ -426,7 +426,15 @@ pub fn hex_nut(params: &NutParams, tolerance: Tolerance) -> Result<BRep, Fastene
         // so the thread ends are chamfered into the cone.
         let r_mouth =
             params.spec.major_diameter() / 2.0 + params.spec.pitch() / 8.0 + params.clearance;
-        let r_in = r_bore - thread_form::embed_margin(&params.spec);
+        // Strictly INSIDE the bore void (2x the embed margin):
+        // r_bore - embed is EXACTLY the thread groove-base radius,
+        // and a cutter cylinder coincident with the groove-base
+        // bands poisons boolean classification samples ON the
+        // shared surface (measured, PK-464: the propagate seed at
+        // (r_in, 0, 0.24) read Inside by parity luck and the
+        // chamfer cone's void-side band was kept — 5 self-twinned
+        // duplicate edges in the serve). The deeper cut is void-only.
+        let r_in = r_bore - 2.0 * thread_form::embed_margin(&params.spec);
         let eps = 0.05 * m;
         body = subtract(
             &body,

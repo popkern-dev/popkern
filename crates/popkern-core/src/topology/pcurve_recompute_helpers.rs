@@ -289,3 +289,95 @@ impl BRep {
         false
     }
 }
+
+/// One-line skip diagnostic for the per-half-edge recompute loop:
+/// every silent `continue` names itself under `POPKERN_TRACE=pcurve`
+/// (PK-463: a projection-failure skip served a pcurve-less face and
+/// the mesh tore — the skip was invisible).
+pub(super) fn trace_skip(heh: crate::topology::HalfEdgeHandle, reason: &str) {
+    if crate::trace::trace_enabled("pcurve") {
+        eprintln!("  [pcurve] {heh:?} SKIP: {reason}");
+    }
+}
+
+impl BRep {
+    /// Survival rule (PK-087) + branch consistency (PK-125) for one
+    /// recomputed pcurve candidate. A recomputed pcurve only replaces
+    /// an existing one when it satisfies the fraction-matched trim
+    /// contract at least as well — construction passes author dense
+    /// pcurves with better-than-refit fidelity (a blanket recompute
+    /// degraded surgery-authored 33-point pcurves 8.5e-7 → 1.35e-3).
+    /// Half-edges without an existing pcurve or without a 3-D curve
+    /// to measure against are written unconditionally. An analytic
+    /// exact-plane candidate replaces the projected fit when
+    /// available (exactness verified, see pcurve_recompute_analytic).
+    ///
+    /// Branch consistency: on periodic surfaces the projection's
+    /// principal branch can sit whole periods from the face's chart
+    /// window; the 3-D image is identical there, so the contract
+    /// comparison is decided by trig ULPs — and a wrong-branch
+    /// candidate that "wins" the tie throws every chart-space
+    /// consumer a full period off (measured: pyramid4_mixed support
+    /// pcurve replaced by its u − 2π copy). The candidate is
+    /// translated onto the EXISTING pcurve's branch first — an exact,
+    /// image-preserving move.
+    ///
+    /// Returns `true` when the candidate was installed.
+    pub(super) fn install_pcurve_with_survival(
+        &mut self,
+        heh: crate::topology::HalfEdgeHandle,
+        surface: &crate::geometry::surface::SurfaceGeometry,
+        edge_direction: (f64, f64),
+        pcurve: crate::geometry::NurbsCurve,
+    ) -> bool {
+        use super::pcurve_recompute::pcurve_survival::pcurve_fraction_contract_error;
+        let edge_curve = &self.edges[self.half_edges[heh].edge].curve;
+        let mut candidate: crate::geometry::pcurve::Pcurve = edge_curve
+            .as_ref()
+            .and_then(|c| {
+                super::pcurve_recompute_analytic::exact_plane_pcurve(
+                    surface,
+                    &c.geometry,
+                    edge_direction.0,
+                    edge_direction.1,
+                )
+            })
+            .unwrap_or_else(|| pcurve.into());
+        if let Some(existing) = self.half_edges[heh].pcurve.as_ref() {
+            let (period_u, period_v) = surface.periodicity();
+            let branch_shift = |delta: f64, period: Option<f64>| -> f64 {
+                match period {
+                    Some(period) if period > 0.0 => (delta / period).round() * period,
+                    _ => 0.0,
+                }
+            };
+            let midpoint_of = |pc: &crate::geometry::pcurve::Pcurve| {
+                let (t0, t1) = pc.parameter_range();
+                pc.point_at(0.5 * (t0 + t1))
+            };
+            let target = midpoint_of(existing);
+            let current = midpoint_of(&candidate);
+            let shift_u = branch_shift(target.x - current.x, period_u);
+            let shift_v = branch_shift(target.y - current.y, period_v);
+            if shift_u != 0.0 || shift_v != 0.0 {
+                candidate = candidate.translated_uv(shift_u, shift_v);
+            }
+        }
+        let keep_existing = match (&self.half_edges[heh].pcurve, edge_curve) {
+            (Some(existing), Some(curve_on_edge)) => {
+                pcurve_fraction_contract_error(surface, existing, curve_on_edge, edge_direction)
+                    <= pcurve_fraction_contract_error(
+                        surface,
+                        &candidate,
+                        curve_on_edge,
+                        edge_direction,
+                    )
+            }
+            _ => false,
+        };
+        if !keep_existing {
+            self.half_edges[heh].pcurve = Some(candidate);
+        }
+        !keep_existing
+    }
+}

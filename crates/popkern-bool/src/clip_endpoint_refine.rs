@@ -58,16 +58,28 @@ pub(crate) fn refine_endpoints_onto_boundaries(
     let band = tolerance.linear() * 250.0;
     for end in [false, true] {
         let p = endpoint(piece, end);
-        // The record lives on BOTH faces; a boundary junction on
-        // either face's rim is solved against the OTHER face's
-        // surface (the record's second carrier).
-        let refined = refine_against_face(brep_a, face_a, surf_b, windows_b, &p, band, tolerance)
-            .or_else(|| {
-                refine_against_face(brep_b, face_b, surf_a, windows_a, &p, band, tolerance)
-            });
+        // Outward unit tangent of the record at this endpoint: an
+        // endpoint move ALONG it is a parameter re-trim of the same
+        // curve, not a lateral drag — a shallow record × boundary
+        // crossing amplifies the lateral fit slop into an along-curve
+        // junction miss by 1/sin(crossing angle) (measured, PK-464:
+        // the mouth-chamfer circle met the nut's crest-band helix at
+        // slope 0.16 and the window end sat 6.2e-4 along the record
+        // from the true junction — beyond the lateral band). The
+        // lateral component keeps the tuned band; the total move gets
+        // 8× headroom.
+        let tan_out = endpoint_outward_tangent(piece, end);
+        let refined = refine_against_face(
+            brep_a, face_a, surf_b, windows_b, &p, band, &tan_out, tolerance,
+        )
+        .or_else(|| {
+            refine_against_face(
+                brep_b, face_b, surf_a, windows_a, &p, band, &tan_out, tolerance,
+            )
+        });
         if let Some(r) = refined
             && r.distance_to(&p) > tolerance.linear()
-            && r.distance_to(&p) < band
+            && r.distance_to(&p) < band * 64.0
         {
             if popkern_core::trace::trace_enabled("clip") {
                 eprintln!(
@@ -82,7 +94,7 @@ pub(crate) fn refine_endpoints_onto_boundaries(
                     r.distance_to(&p)
                 );
             }
-            set_endpoint_3d_uv(piece, end, r, surf_a, surf_b);
+            set_endpoint_3d_uv(piece, end, r, surf_a, surf_b, tolerance);
         }
     }
 }
@@ -92,8 +104,26 @@ fn endpoint(piece: &CurveOnSurface, end: bool) -> Point3 {
     piece.curve_3d.point_at(if end { t1 } else { t0 })
 }
 
+/// Unit tangent at the piece's endpoint pointing OUTWARD (past the
+/// end), by an inside finite difference. Zero vector on degenerate
+/// spans — the caller's lateral test then reduces to the plain
+/// distance gate.
+fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::geometry::Vec3 {
+    let (t0, t1) = piece.curve_3d.parameter_range();
+    let span = t1 - t0;
+    let (t_at, t_in) = if end {
+        (t1, t1 - span * 1e-3)
+    } else {
+        (t0, t0 + span * 1e-3)
+    };
+    let d = piece.curve_3d.point_at(t_at) - piece.curve_3d.point_at(t_in);
+    d.normalized()
+        .unwrap_or(popkern_core::geometry::Vec3::zero())
+}
+
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
+#[allow(clippy::too_many_arguments)]
 fn refine_against_face(
     brep: &BRep,
     face: FaceHandle,
@@ -101,6 +131,7 @@ fn refine_against_face(
     other_windows: ((f64, f64), (f64, f64)),
     p: &Point3,
     band: f64,
+    tan_out: &popkern_core::geometry::Vec3,
     tolerance: &Tolerance,
 ) -> Option<Point3> {
     let face_data = brep.faces.get(face)?;
@@ -146,14 +177,34 @@ fn refine_against_face(
                     tolerance,
                 ) {
                     for isect in &result.intersections {
-                        if let SurfaceCurveIntersection::Point { point, .. } = isect {
+                        if let SurfaceCurveIntersection::Point { point, t, .. } = isect {
                             let d = point.distance_to(p);
-                            if d < band_eff
+                            // Tangent-decomposed acceptance: within
+                            // the tuned band as before, or laterally
+                            // within it with the along-record move
+                            // allowed the measured amplification —
+                            // the lateral fit slop maps to an
+                            // along-curve junction miss by
+                            // 1/sin(crossing angle) between the
+                            // record and the boundary edge (capped at
+                            // 16×; measured 2.9e-3 at a 0.16-slope
+                            // helix × circle crossing, PK-464).
+                            let mv = *point - *p;
+                            let along = mv.dot(tan_out);
+                            let lateral = (mv - *tan_out * along).length();
+                            let span = c.t_end - c.t_start;
+                            let edge_tan = (c.geometry.point_at(t + span.abs() * 1e-4)
+                                - c.geometry.point_at(t - span.abs() * 1e-4))
+                            .normalized();
+                            let sin_angle =
+                                edge_tan.map(|et| et.cross(tan_out).length()).unwrap_or(1.0);
+                            let allowed = band_eff / sin_angle.max(1.0 / 16.0);
+                            let accept = d < band_eff || (lateral < band_eff && d < allowed);
+                            if accept
                                 && best.is_none_or(|b| point.distance_to(p) < b.distance_to(p))
                             {
                                 best = Some(*point);
                             }
-                            let _ = d;
                         }
                     }
                 }
@@ -174,12 +225,24 @@ fn clone_curve_geometry(g: &CurveGeometry) -> CurveGeometry {
 /// Move one endpoint of the piece: the 3D end control point, and each
 /// UV chart's end control point re-projected near its current value
 /// (clamped NURBS — the endpoint IS a control point).
+///
+/// A LARGE move (beyond 50× linear) re-authors the whole piece by
+/// interpolation through on-curve samples with the corrected end
+/// sample instead: the bare end-control-point move shifts every
+/// point of the final span by the endpoint's delta VECTOR, whose
+/// direction rotates off the local tangent along the span — a
+/// 6.2e-4 tangential end correction on a 0.44-rad circle arc bent
+/// the span 4.0e-5 off both carrier surfaces and the serve failed
+/// the curve-surface gate (PK-464). Interpolated samples stay on
+/// the fitted curve, so the correction is confined to the last
+/// segment, whose ends are both on-surface.
 fn set_endpoint_3d_uv(
     piece: &mut CurveOnSurface,
     end: bool,
     r: Point3,
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
+    tolerance: &Tolerance,
 ) {
     let set_cp = |c: &mut popkern_core::geometry::nurbs_curve::NurbsCurve, p: Point3| {
         if end {
@@ -190,6 +253,54 @@ fn set_endpoint_3d_uv(
             *cp = p;
         }
     };
+    let move_d = endpoint(piece, end).distance_to(&r);
+    if move_d > tolerance.linear() * 50.0 {
+        let n = 17usize;
+        let (t0, t1) = piece.curve_3d.parameter_range();
+        let mut pts: Vec<Point3> = (0..n)
+            .map(|k| {
+                piece
+                    .curve_3d
+                    .point_at(t0 + (t1 - t0) * k as f64 / (n - 1) as f64)
+            })
+            .collect();
+        let idx = if end { n - 1 } else { 0 };
+        pts[idx] = r;
+        // Keep the piece's parameter domain: downstream bookkeeping
+        // (window t ranges, node parameters, closure flags) reads it.
+        let params: Vec<f64> = (0..n)
+            .map(|k| t0 + (t1 - t0) * k as f64 / (n - 1) as f64)
+            .collect();
+        if let Ok(fitted) = popkern_core::geometry::fitting::fit_curve(&pts, &params, 3, n) {
+            piece.curve_3d = fitted;
+        } else {
+            set_cp(&mut piece.curve_3d, r);
+        }
+        for (uv_curve, surf) in [
+            (&mut piece.curve_uv1, surf_a),
+            (&mut piece.curve_uv2, surf_b),
+        ] {
+            let (u0, u1) = uv_curve.parameter_range();
+            let mut uv_pts: Vec<Point3> = (0..n)
+                .map(|k| uv_curve.point_at(u0 + (u1 - u0) * k as f64 / (n - 1) as f64))
+                .collect();
+            let uv_params: Vec<f64> = (0..n)
+                .map(|k| u0 + (u1 - u0) * k as f64 / (n - 1) as f64)
+                .collect();
+            let near = uv_pts[idx];
+            if let Some((nu, nv)) = project_point_to_uv_near(surf, &r, near.x, near.y) {
+                uv_pts[idx] = Point3::new(nu, nv, 0.0);
+                if let Ok(fitted) =
+                    popkern_core::geometry::fitting::fit_curve(&uv_pts, &uv_params, 3, n)
+                {
+                    *uv_curve = fitted;
+                } else {
+                    set_cp(uv_curve, Point3::new(nu, nv, 0.0));
+                }
+            }
+        }
+        return;
+    }
     set_cp(&mut piece.curve_3d, r);
     for (uv_curve, surf) in [
         (&mut piece.curve_uv1, surf_a),

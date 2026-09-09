@@ -107,13 +107,16 @@ mod tests {
         let tol = Tolerance::default();
         let a = BRep::unit_cube(tol).unwrap();
         let mut b = BRep::unit_cube(tol).unwrap();
-        for (_, v) in &mut b.vertices {
-            v.position = popkern_core::geometry::Point3::new(
-                v.position.x * 3.0 - 1.0,
-                v.position.y * 3.0 - 1.0,
-                v.position.z * 3.0 - 1.0,
-            );
-        }
+        // Geometry-honest enlargement: vertex translation alone leaves the
+        // stored surfaces stale (the classify hit-box gate rightly
+        // rejects hits on a surface that no longer matches its face).
+        let b = b
+            .transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+            .unwrap()
+            .transform(&popkern_core::geometry::Transform3::translation(
+                -1.0, -1.0, -1.0,
+            ))
+            .unwrap();
         let tree = CsgNode::Intersection(
             Box::new(CsgNode::Leaf(Box::new(a))),
             Box::new(CsgNode::Leaf(Box::new(b))),

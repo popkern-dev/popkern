@@ -215,7 +215,10 @@ pub fn tapped_hole(
     )?;
     if options.entry_chamfer {
         let r_mouth = spec.major_diameter() / 2.0 + spec.pitch() / 8.0 + options.clearance;
-        let r_in = r_bore - thread_form::embed_margin(spec);
+        // Strictly inside the bore void — see the hex-nut mouth
+        // chamfer: r_bore - embed is exactly the groove-base radius
+        // and a coincident cutter cylinder poisons classification.
+        let r_in = r_bore - 2.0 * thread_form::embed_margin(spec);
         let eps = 0.25 * spec.pitch();
         let ring = revolved_tool(
             &[(r_in, -eps), (r_mouth + eps, -eps), (r_in, r_mouth - r_in)],

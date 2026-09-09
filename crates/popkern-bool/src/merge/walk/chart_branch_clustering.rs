@@ -10,6 +10,16 @@ use super::super::chart_subdivision::{BranchPoint, FaceChartSubdivision, Subdivi
 use crate::merge::graph::IntersectionGraph;
 
 /// Cluster endpoint u values per node; branch index ascends with u.
+///
+/// `wrap_nodes`: period-lattice junction nodes with NO seam edge —
+/// the overwrap retry's barrier set minus the true seam nodes. Their
+/// u = 0 and u = period endpoint copies are the SAME azimuth (a
+/// boundary helix run split per cell arrives at one border copy and
+/// departs at the other), so they cluster as ONE branch, like a
+/// pole: keeping them split left every per-turn junction of the
+/// nut's bore-crest band 1-in/0-out + 0-in/1-out and both caps of
+/// the walk declined (PK-464). True seam nodes keep their split —
+/// the seam-edge pair owns the border crossing there.
 #[allow(clippy::type_complexity)]
 pub(crate) fn cluster_branches(
     hes: &[usize],
@@ -18,6 +28,7 @@ pub(crate) fn cluster_branches(
     u_end: &BTreeMap<usize, f64>,
     period: f64,
     poles: &BTreeMap<usize, f64>,
+    wrap_nodes: &std::collections::BTreeSet<usize>,
 ) -> (BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>) {
     // node -> [(u, he, is_start)]
     let mut per_node: BTreeMap<usize, Vec<(f64, usize, bool)>> = BTreeMap::new();
@@ -39,8 +50,9 @@ pub(crate) fn cluster_branches(
             }
         }
         // A POLE node is one geometric point whose incident endpoints
-        // carry their meridians' azimuths — never split it by u.
-        let is_pole = poles.contains_key(&node);
+        // carry their meridians' azimuths — never split it by u. A
+        // WRAP node's copies are one azimuth mod the period — same.
+        let is_pole = poles.contains_key(&node) || wrap_nodes.contains(&node);
         entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let mut branch = 0u32;
         let mut prev_u: Option<f64> = None;

@@ -5,11 +5,7 @@
 
 // Structural lint marker: this file is test code, included via #[cfg(test)] in lib.rs.
 #[cfg(test)]
-use popkern_core::{
-    geometry::{Point3, Vec3},
-    tolerance::Tolerance,
-    topology::BRep,
-};
+use popkern_core::{geometry::Vec3, tolerance::Tolerance, topology::BRep};
 
 use crate::csg::{CsgNode, csg_eval};
 
@@ -68,15 +64,17 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
 }
 
 /// Scale a unit cube [0,1]^3 to [-1,2]^3 so it fully contains any other unit cube at origin.
-fn scale_to_enclosing(mut brep: BRep) -> BRep {
-    for (_, v) in &mut brep.vertices {
-        v.position = Point3::new(
-            v.position.x * 3.0 - 1.0,
-            v.position.y * 3.0 - 1.0,
-            v.position.z * 3.0 - 1.0,
-        );
-    }
-    brep
+fn scale_to_enclosing(brep: BRep) -> BRep {
+    // Geometry-honest enlargement: vertex translation alone leaves
+    // the stored surfaces stale, and the classify hit-box gate
+    // rightly rejects hits on a surface that no longer matches its
+    // face.
+    brep.transform(&popkern_core::geometry::Transform3::scale_uniform(3.0))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            -1.0, -1.0, -1.0,
+        ))
+        .unwrap()
 }
 
 // ── Overlapping cubes ──────────────────────────────────────────────────
@@ -255,14 +253,14 @@ fn containment_subtraction_a_inside_b_is_empty() {
 fn containment_subtraction_hollow_solid() {
     // outer − inner = hollow solid with 12 faces.
     let outer = BRep::unit_cube(tol()).unwrap();
-    let mut inner = BRep::unit_cube(tol()).unwrap();
-    for (_, v) in &mut inner.vertices {
-        v.position = Point3::new(
-            v.position.x * 0.6 + 0.2,
-            v.position.y * 0.6 + 0.2,
-            v.position.z * 0.6 + 0.2,
-        );
-    }
+    let inner = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::scale_uniform(0.6))
+        .unwrap()
+        .transform(&popkern_core::geometry::Transform3::translation(
+            0.2, 0.2, 0.2,
+        ))
+        .unwrap();
     let result =
         crate::subtraction(outer, inner, tol(), None).expect("hollow subtraction should succeed");
     assert_eq!(result.faces.len(), 12, "hollow solid should have 12 faces");

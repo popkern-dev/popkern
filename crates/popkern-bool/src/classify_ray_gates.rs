@@ -316,3 +316,131 @@ pub(super) fn plane_box_gate(
     }
     HitGate::Accept
 }
+
+/// Multi-turn band trim gate (cylinder/cone sibling of the torus
+/// cell gate, PK-464): a helical thread band's chart unrolls SEVERAL
+/// periods in u, so its vertex-derived parameter window covers the
+/// whole surface and the coarse angular/axial gates pass every
+/// untrimmed hit — a classification ray from the nut's bore void
+/// "hit" the crest cylinder inside a groove span, read odd parity,
+/// and the mouth-chamfer tool's void cylinder was kept (5 duplicate
+/// self-twinned edges). The face's own uv boundary is the trim
+/// truth: fold the hit by whole periods onto the boundary branch
+/// nearest its v, then even-odd test against the sampled boundary.
+///
+/// Returns `Some(true)` on-face, `Some(false)` off-face, `None` when
+/// the face is not a multi-turn band (caller keeps tuned behavior).
+pub(super) fn multi_turn_band_hit(
+    brep: &BRep,
+    face_handle: popkern_core::topology::FaceHandle,
+    surface: &SurfaceGeometry,
+    u: f64,
+    v: f64,
+    u_window: (f64, f64),
+    _tolerance: &Tolerance,
+) -> Option<bool> {
+    use popkern_core::geometry::SurfaceEval as _;
+    // Analytic periodic charts fold the hit onto the boundary's
+    // branch; helical NURBS bands (thread groove walls) test in
+    // their own chart directly. Everything else keeps tuned gates.
+    let period = match surface {
+        SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. } => {
+            let p = surface.parameter_periodicity().0?;
+            // Scope: only faces whose vertex-derived solver WINDOW
+            // spans more than two periods — the signature that the
+            // coarse angular/axial gates carry no trim information
+            // (a plain wall's padded window stays under 1.5 periods;
+            // the nut's crest band queried at u ∈ ±100).
+            if u_window.1 - u_window.0 <= p * 2.0 {
+                return None;
+            }
+            Some(p)
+        }
+        SurfaceGeometry::Nurbs(_) => None,
+        _ => return None,
+    };
+    let outer = crate::clip::face_uv_boundary(brep, face_handle)?;
+    // Second signature for analytic charts: the OUTER loop must tile
+    // many pieces (a helical band's turns; the nut crest band
+    // carries 14+). A plain or drilled closed wall also gets a
+    // full-period window from its seam-only vertices, but its outer
+    // loop stays small — and its tuned coarse gates must stay
+    // untouched. NURBS bands (thread groove walls, whose chart runs
+    // half a lead past the body) apply from 4 pieces: their trims
+    // are the only truth the ray has.
+    let min_pieces = if period.is_some() { 8 } else { 4 };
+    if outer.len() < min_pieces {
+        return None;
+    }
+    let mut polygon: Vec<(f64, f64)> = Vec::new();
+    for contour in
+        std::iter::once(outer).chain(crate::clip::face_uv_inner_boundaries(brep, face_handle))
+    {
+        for (_he, pcurve) in &contour {
+            let (t0, t1) = pcurve.parameter_range();
+            for i in 0..64 {
+                let t = t0 + (t1 - t0) * i as f64 / 64.0;
+                let q = pcurve.point_at(t);
+                polygon.push((q.x, q.y));
+            }
+        }
+    }
+    if polygon.len() < 3 {
+        return None;
+    }
+    let (u_lo, u_hi) = polygon
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
+            (lo.min(q.0), hi.max(q.0))
+        });
+    // Fold the hit u onto the polygon's branch (stored pcurves are
+    // branch-folded to the principal period, so the whole boundary
+    // shares one strip). NURBS band charts are aperiodic: no fold.
+    let center = 0.5 * (u_lo + u_hi);
+    let uq = match period {
+        Some(p) => u + ((center - u) / p).round() * p,
+        None => u,
+    };
+    let _ = center;
+    // Even-odd along the +u ray at height v; the MULTI-BAND signature
+    // is >= 3 crossings at this v (a helical band's turns tile the
+    // strip; a plain wall or drilled boss crosses at most twice, and
+    // those keep the tuned coarse gates untouched).
+    let mut inside = false;
+    let mut crossings = 0usize;
+    let n = polygon.len();
+    for i in 0..n {
+        let (x0, y0) = polygon[i];
+        let (x1, y1) = polygon[(i + 1) % n];
+        if (y0 > v) != (y1 > v) {
+            crossings += 1;
+            let x_cross = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
+            if x_cross > uq {
+                inside = !inside;
+            }
+        }
+    }
+    if popkern_core::trace::trace_enabled("ray-classify") {
+        eprintln!(
+            "  [band-gate] {face_handle:?} uv=({u:.3},{v:.3}) uq={uq:.3} crossings={crossings} inside={inside}"
+        );
+    }
+    if crossings == 0 {
+        // Beyond the boundary's v extent the hit is on the INFINITE
+        // surface, not the face (a classify ray 0.125 above the nut
+        // read the crest cylinder's extension and voted Inside).
+        // AT a rim's exact v the horizontal test degenerates (rim
+        // segments run along constant v) — there, no verdict.
+        let (v_lo, v_hi) = polygon
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
+                (lo.min(q.1), hi.max(q.1))
+            });
+        let eps = (v_hi - v_lo).abs() * 1e-6 + 1e-9;
+        if v < v_lo - eps || v > v_hi + eps {
+            return Some(false);
+        }
+        return None;
+    }
+    Some(inside)
+}

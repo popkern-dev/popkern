@@ -151,8 +151,11 @@ fn ref_span(sub: &FaceChartSubdivision, components: &[Vec<usize>]) -> (f64, f64)
 /// face the tuned flood anchors within one period keeps its shifts
 /// byte-identically.
 ///
-/// Returns the components, the effective barrier node set, and the
-/// reference component's (lo, hi, span).
+/// Returns the components, the effective barrier node set, the
+/// period-lattice junction nodes (computed unconditionally — the
+/// branch clustering merges their border copies whether or not the
+/// overwrap retry ran, PK-464), and the reference component's
+/// (lo, hi, span).
 #[allow(clippy::type_complexity)]
 pub(super) fn anchor_components(
     sub: &mut FaceChartSubdivision,
@@ -160,12 +163,17 @@ pub(super) fn anchor_components(
     seam_nodes: BTreeSet<usize>,
     period: f64,
     ends: &dyn Fn(usize) -> (usize, usize),
-) -> (Vec<Vec<usize>>, BTreeSet<usize>, (f64, f64, f64)) {
+) -> (
+    Vec<Vec<usize>>,
+    BTreeSet<usize>,
+    BTreeSet<usize>,
+    (f64, f64, f64),
+) {
     let (mut components, applied) = run_flood(sub, interior, &seam_nodes, period, ends);
     let (mut lo, mut hi) = ref_span(sub, &components);
     let mut span = if hi > lo { hi - lo } else { 0.0 };
     let mut seam_nodes = seam_nodes;
-    if span > period * (1.0 + 1e-6) {
+    let lattice_nodes: BTreeSet<usize> = {
         let mut node_us: BTreeMap<usize, Vec<f64>> = BTreeMap::new();
         for &h in interior {
             let (s, e) = ends(h);
@@ -174,7 +182,7 @@ pub(super) fn anchor_components(
             }
         }
         let eps = period * 1.0e-6;
-        let lattice_nodes: BTreeSet<usize> = node_us
+        node_us
             .iter()
             .filter(|(_, us)| {
                 us.len() > 1
@@ -183,8 +191,10 @@ pub(super) fn anchor_components(
                         .all(|u| (u - period * (u / period).round()).abs() < eps)
             })
             .map(|(n, _)| *n)
-            .collect();
-        if !lattice_nodes.is_empty() {
+            .collect()
+    };
+    if span > period * (1.0 + 1e-6) && !lattice_nodes.is_empty() {
+        {
             for (&h, &shift) in &applied {
                 if let Some(emb) = sub.embeddings.get_mut(&h) {
                     emb.shift_u(-shift);
@@ -211,5 +221,5 @@ pub(super) fn anchor_components(
             seam_nodes = widened;
         }
     }
-    (components, seam_nodes, (lo, hi, span))
+    (components, seam_nodes, lattice_nodes, (lo, hi, span))
 }
