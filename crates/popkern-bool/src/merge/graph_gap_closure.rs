@@ -346,11 +346,15 @@ pub(crate) fn close_record_gaps(
                 if !monotone {
                     continue 'pair;
                 }
-                // NO DOUBLE COVER: the bridge must not run along record
-                // coverage that already exists for this pair — a bridge
-                // retracing an existing curve twins its edges (measured:
-                // two wedge bridges re-covered served chains and the
-                // assembly self-twinned 54 edges).
+                // NO DOUBLE COVER, and NO CROSSING: the bridge must
+                // not run along coverage that already exists for
+                // this pair (retracing twins its edges — 54
+                // self-twinned edges measured), and its STRICT MIDDLE
+                // must stay clear of every other pair's records too —
+                // a bridge riding through foreign record territory
+                // seals a legitimate opening (junction-adjacent
+                // proximity at the bridge ends is the normal meeting
+                // pattern and stays legal).
                 {
                     let mut covered = false;
                     'cover: for (hx, hedge) in graph.half_edges.iter().enumerate() {
@@ -364,13 +368,16 @@ pub(crate) fn close_record_gaps(
                         else {
                             continue;
                         };
-                        if (xfa, xfb) != (pfa, pfb) {
-                            continue;
-                        }
+                        let same_pair = (xfa, xfb) == (pfa, pfb);
                         let Some(c) = hedge.curve.as_ref() else {
                             continue;
                         };
-                        for pt in pts.iter().take(last).skip(1) {
+                        let (skip_n, take_n) = if same_pair {
+                            (1, last.saturating_sub(1))
+                        } else {
+                            (3, last.saturating_sub(5))
+                        };
+                        for pt in pts.iter().skip(skip_n).take(take_n) {
                             if let Some(t) = (&c.geometry
                                 as &dyn popkern_core::geometry::curve::CurveEval)
                                 .closest_point(pt)
