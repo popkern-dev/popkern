@@ -26,7 +26,46 @@ use super::graph::{EdgeSource, IntersectionGraph};
 /// A genuine interior graze has no such neighbour and keeps its
 /// honest drop; fully-wired junction clusters (the 5.6e-4 exact
 /// connectors of PK-441) are out of scope by the dead-end condition.
-pub(crate) fn weld_dead_end_shared_endpoints(graph: &mut IntersectionGraph, band: f64) {
+/// FAR-TIER weld certificate: does `point` lie on `surface` within
+/// `gate`? A cold NURBS projection can succeed into the wrong basin
+/// of a multi-turn chart (the PK-463 class), so an off-carrier first
+/// answer retries through the knot-span-seeded multi-start.
+fn on_carrier(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    point: &popkern_core::geometry::Point3,
+    gate: f64,
+) -> bool {
+    use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
+    if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, point)
+        && surface.point_at(u, v).distance_to(point) <= gate
+    {
+        return true;
+    }
+    if let SurfaceGeometry::Nurbs(nurbs) = surface
+        && let Some(seeds) = nurbs.projection_seeds()
+        && let Some((u, v)) = popkern_core::geometry::surface::closest_point_from_seeds(
+            nurbs,
+            point,
+            &seeds,
+            (false, false),
+            6,
+        )
+        && surface.point_at(u, v).distance_to(point) <= gate
+    {
+        return true;
+    }
+    false
+}
+
+pub(crate) fn weld_dead_end_shared_endpoints(
+    graph: &mut IntersectionGraph,
+    band: f64,
+    carriers: Option<(
+        &popkern_core::topology::BRep,
+        &popkern_core::topology::BRep,
+        f64,
+    )>,
+) {
     let n_nodes = graph.nodes.len();
     let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n_nodes];
     for (i, he) in graph.half_edges.iter().enumerate() {
@@ -141,6 +180,121 @@ pub(crate) fn weld_dead_end_shared_endpoints(graph: &mut IntersectionGraph, band
                 d < band || (d < band * 100.0 && on_extension(n, &graph.nodes[m].position));
             if accept && best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, m));
+            }
+        }
+        // FAR TIER: a record crossing the face boundary NEAR-TANGENT
+        // amplifies clip slop by 1/sin(crossing angle) into an
+        // along-boundary endpoint miss far past the tangent-ray
+        // annulus (measured, PK-465: the angled tap's thread exit
+        // crosses the mouth rim at helix pitch angle — every exit
+        // record stopped 0.04–0.15 short of an EXISTING rim/seam/
+        // pierce junction node, the graze cascade unwalked the exit
+        // ring, and the merge stranded 20 sides). At this scale the
+        // tangent-ray perp test is meaningless (curvature sag alone
+        // exceeds the band), so the certificate changes shape: the
+        // junction must lie on BOTH carrier surfaces of the record's
+        // face pair (within a slop-scaled gate), sit inside a 25°
+        // forward cone of the record's endpoint tangent, be within
+        // 20% of the record's own chord, and be UNAMBIGUOUS (second
+        // candidate at least twice as far).
+        if best.is_none()
+            && let Some((brep_a, brep_b, lin)) = carriers
+        {
+            use popkern_core::geometry::curve::CurveEval as _;
+            let rec_scale = incident[n]
+                .iter()
+                .map(|&h| {
+                    let q = graph.half_edges[graph.half_edges[h].twin].origin;
+                    graph.nodes[q].position.distance_to(&p)
+                })
+                .fold(0.0f64, f64::max);
+            let far_cap = (0.2 * rec_scale).max(band * 100.0);
+            let outward_dirs: Vec<popkern_core::geometry::Vec3> = incident[n]
+                .iter()
+                .filter_map(|&h| {
+                    let he = &graph.half_edges[h];
+                    let c = he
+                        .curve
+                        .as_ref()
+                        .or_else(|| graph.half_edges[he.twin].curve.as_ref())?;
+                    let span = c.t_end - c.t_start;
+                    if !span.is_finite() || span.abs() < 1e-30 {
+                        return None;
+                    }
+                    let d_start = c.geometry.point_at(c.t_start).distance_to(&p);
+                    let d_end = c.geometry.point_at(c.t_end).distance_to(&p);
+                    let (t_at, t_in) = if d_start <= d_end {
+                        (c.t_start, c.t_start + span * 1e-3)
+                    } else {
+                        (c.t_end, c.t_end - span * 1e-3)
+                    };
+                    (c.geometry.point_at(t_at) - c.geometry.point_at(t_in)).normalized()
+                })
+                .collect();
+            let pair_surfaces = incident[n].iter().find_map(|&h| {
+                if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[h].source {
+                    let sa = &brep_a.faces.get(face_a)?.surface.as_ref()?.geometry;
+                    let sb = &brep_b.faces.get(face_b)?.surface.as_ref()?.geometry;
+                    Some((sa, sb))
+                } else {
+                    None
+                }
+            });
+            let far_trace = popkern_core::trace::trace_enabled("weld-far");
+            if far_trace {
+                eprintln!(
+                    "  [weld-far?] node {n} ({:.4},{:.4},{:.4}) rec_scale {rec_scale:.3} far_cap {far_cap:.3} dirs {} pair {}",
+                    p.x,
+                    p.y,
+                    p.z,
+                    outward_dirs.len(),
+                    pair_surfaces.is_some()
+                );
+            }
+            if let Some((surf_a, surf_b)) = pair_surfaces {
+                let mut cands: Vec<(f64, usize)> = Vec::new();
+                for (m, inc) in incident.iter().enumerate() {
+                    if m == n || inc.is_empty() || !inc.iter().any(|&h| !is_shared(h)) {
+                        continue;
+                    }
+                    let q = graph.nodes[m].position;
+                    let d = q.distance_to(&p);
+                    // Anything the unconditional tier owns is done;
+                    // the tangent-ray annulus overlaps this range but
+                    // ran first — the far tier only sees its refusals.
+                    if d < band || d > far_cap {
+                        continue;
+                    }
+                    let Some(dir_to_m) = (q - p).normalized() else {
+                        continue;
+                    };
+                    let cone = outward_dirs
+                        .iter()
+                        .map(|o| o.dot(&dir_to_m))
+                        .fold(f64::NEG_INFINITY, f64::max);
+                    let gate = (d * 0.02).max(lin * 100.0);
+                    let ca = on_carrier(surf_a, &q, gate);
+                    let cb = on_carrier(surf_b, &q, gate);
+                    if far_trace {
+                        eprintln!(
+                            "  [weld-far?]   cand {m} ({:.4},{:.4},{:.4}) d {d:.3e} cone {cone:.3} on_a {ca} on_b {cb}",
+                            q.x, q.y, q.z
+                        );
+                    }
+                    if cone <= 0.9 || !ca || !cb {
+                        continue;
+                    }
+                    cands.push((d, m));
+                }
+                cands.sort_by(|x, y| x.0.total_cmp(&y.0));
+                if let [first, rest @ ..] = cands.as_slice()
+                    && rest.first().is_none_or(|s| s.0 > first.0 * 2.0)
+                {
+                    best = Some((first.0, first.1));
+                    if popkern_core::trace::trace_enabled("boolean") {
+                        eprintln!("  [weld-far] node {n} certified at d={:.2e}", first.0);
+                    }
+                }
             }
         }
         if let Some((d, m)) = best {

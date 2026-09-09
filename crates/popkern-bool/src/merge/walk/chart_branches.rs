@@ -364,10 +364,33 @@ pub(super) fn anchor_periodic(
             break;
         }
     }
-    let (start_bp, end_bp) = match chosen.or(first_result) {
+    let (mut start_bp, mut end_bp) = match chosen.or(first_result) {
         Some(r) => r,
         None => return,
     };
+
+    // When the component-level config search could not balance,
+    // border-endpoint entries at TRUE seam nodes still carry two-copy
+    // freedom the component bumps cannot express (a full-period rim
+    // chain is anchored, but its endpoint AT the seam node may
+    // register at either border). Node-local rebalance (PK-465).
+    if !is_balanced(&start_bp, &end_bp) {
+        clustering::rebalance_seam_border_entries(
+            &mut start_bp,
+            &mut end_bp,
+            &true_seam_nodes,
+            &seam_hes,
+            &|h, is_start| {
+                let emb = &sub.embeddings[&h];
+                if is_start {
+                    emb.uv[0].0
+                } else {
+                    emb.uv[emb.uv.len() - 1].0
+                }
+            },
+            period,
+        );
+    }
 
     // I2: off-seam nodes must be single-branch.
     let mut node_branches: HashMap<usize, BTreeSet<u32>> = HashMap::new();

@@ -362,6 +362,74 @@ pub(crate) fn find_intersections_with_aabbs(
             }
         }
     }
+    // Edge-face pierce points, computed BEFORE the face-face solves:
+    // each transversal pierce of an edge through the other operand's
+    // face is a junction the face-face records must reach, and a
+    // known-exact point ON the intersection curves of both face pairs
+    // adjacent to the edge. Passing them to the SSI as junction seeds
+    // rescues narrow near-tangent lens curves the patch-midpoint
+    // seeding cannot find (measured, PK-465: the angled tap's
+    // thread-runout crest band crossed the tilted bore wall in
+    // 0.05–0.15-long lenses; the wall×crest pair returned EMPTY while
+    // all lens endpoints existed as pierce hits, and the missing
+    // records cascaded into 20 half-claimed strand declines).
+    let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
+    let mut pair_seeds: std::collections::HashMap<
+        (FaceHandle, FaceHandle),
+        Vec<popkern_core::geometry::Point3>,
+    > = std::collections::HashMap::new();
+    let faces_of_edge =
+        |brep: &BRep, eh: popkern_core::topology::EdgeHandle| -> Option<(FaceHandle, FaceHandle)> {
+            let he_h = brep.edges.get(eh)?.half_edge;
+            let he = brep.half_edges.get(he_h)?;
+            let f1 = brep.loops.get(he.loop_)?.face;
+            let tw = brep.half_edges.get(he.twin)?;
+            let f2 = brep.loops.get(tw.loop_)?.face;
+            Some((f1, f2))
+        };
+    for h in &edge_face_hits {
+        let owner = if h.edge_of_a { a } else { b };
+        let Some((f1, f2)) = faces_of_edge(owner, h.edge) else {
+            continue;
+        };
+        if popkern_core::trace::trace_enabled("pair-scan") {
+            eprintln!(
+                "  [hit-map] edge {:?} (of {}) faces ({f1:?},{f2:?}) pierces {:?} at ({:.4},{:.4},{:.4})",
+                h.edge,
+                if h.edge_of_a { "A" } else { "B" },
+                h.face,
+                h.point.x,
+                h.point.y,
+                h.point.z
+            );
+        }
+        for fe in [f1, f2] {
+            let key = if h.edge_of_a {
+                (fe, h.face)
+            } else {
+                (h.face, fe)
+            };
+            let seeds = pair_seeds.entry(key).or_default();
+            if !seeds
+                .iter()
+                .any(|q| q.distance_to(&h.point) < tolerance.linear())
+            {
+                seeds.push(h.point);
+            }
+        }
+    }
+
+    if popkern_core::trace::trace_enabled("pair-scan") {
+        let mut keys: Vec<_> = pair_seeds.iter().collect();
+        keys.sort_by_key(|(k, _)| *k);
+        for ((fa, fb), pts) in keys {
+            eprintln!(
+                "  [pair-seeds] {fa:?} x {fb:?}: {} pierce seed(s)",
+                pts.len()
+            );
+        }
+    }
+
     // Resolve BVH index pairs into face-pair tasks, in BVH order. The
     // task list is a deterministic pure function of the two solids, and
     // ff_parallel::process_pairs returns outcomes in task order, so the
@@ -377,9 +445,15 @@ pub(crate) fn find_intersections_with_aabbs(
             } else {
                 return None;
             };
+            let face_a = aabbs_a[a_idx].0;
+            let face_b = aabbs_b[b_idx].0;
             Some(crate::parallel::ff_parallel::FacePairTask {
-                face_a: aabbs_a[a_idx].0,
-                face_b: aabbs_b[b_idx].0,
+                face_a,
+                face_b,
+                seeds: pair_seeds
+                    .get(&(face_a, face_b))
+                    .cloned()
+                    .unwrap_or_default(),
             })
         })
         .collect();
@@ -401,8 +475,6 @@ pub(crate) fn find_intersections_with_aabbs(
     // logic to preserve branch topology when subdividing faces.
     label_branch_point_endpoints(&mut records, tolerance);
 
-    // Diagnostic: detect edge-face intersections (marching path).
-    let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
     if popkern_core::trace::trace_enabled("pair-scan") {
         eprintln!("  [hits] {} edge-face hits", edge_face_hits.len());
         for h in &edge_face_hits {

@@ -36,6 +36,7 @@ pub mod classify_propagation;
 pub(crate) mod classify_uv_loops;
 pub mod classify_winding;
 pub(crate) mod clip;
+mod clip_endpoint_far;
 mod clip_endpoint_refine;
 pub mod coincidence;
 pub mod csg;

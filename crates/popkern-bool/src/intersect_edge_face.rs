@@ -26,6 +26,10 @@ pub(crate) struct EdgeFaceHit {
     pub t_edge: f64,
     /// UV parameters (u, v) on the face surface at the intersection.
     pub uv: (f64, f64),
+    /// True when `edge` belongs to solid A (and `face` to solid B);
+    /// false for the reverse. Without this the operand-scoped handles
+    /// are ambiguous to consumers holding both solids.
+    pub edge_of_a: bool,
 }
 
 /// Detect edge-face intersections between two solids (diagnostic only).
@@ -46,10 +50,10 @@ pub(crate) fn detect_edge_face_intersections(
     let mut hits = Vec::new();
 
     // Edges of A vs faces of B.
-    detect_edges_vs_faces(a, b, aabbs_b, tolerance, &mut hits);
+    detect_edges_vs_faces(a, b, aabbs_b, tolerance, true, &mut hits);
 
     // Edges of B vs faces of A.
-    detect_edges_vs_faces(b, a, aabbs_a, tolerance, &mut hits);
+    detect_edges_vs_faces(b, a, aabbs_a, tolerance, false, &mut hits);
 
     if !hits.is_empty() && popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
@@ -67,6 +71,7 @@ fn detect_edges_vs_faces(
     face_brep: &BRep,
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
+    edge_of_a: bool,
     hits: &mut Vec<EdgeFaceHit>,
 ) {
     use popkern_core::geometry::CurveEval;
@@ -334,6 +339,7 @@ fn detect_edges_vs_faces(
                             point: edge_curve.point_at(t),
                             t_edge: t,
                             uv: (u, v),
+                            edge_of_a,
                         });
                     }
                 }

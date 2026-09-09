@@ -575,6 +575,15 @@ fn build_face_subdivision_inner(
             break;
         }
         for (h, tw) in grazes {
+            if popkern_core::trace::trace_enabled("chart-dump") {
+                let (a, b) = ends(h);
+                let pa = graph.nodes[a].position;
+                let pb = graph.nodes[b].position;
+                eprintln!(
+                    "    [chart] graze-drop he {h} tw {tw} n{a}({:.4},{:.4},{:.4})->n{b}({:.4},{:.4},{:.4})",
+                    pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
+                );
+            }
             sub.embeddings.remove(&h);
             sub.embeddings.remove(&tw);
             sub.report.filtered.push(FilteredRecord::InteriorGraze(h));

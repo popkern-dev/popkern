@@ -298,6 +298,140 @@ fn classify_tangent(
     cos_angle > 1.0 - tolerance.angular()
 }
 
+/// Convert caller-supplied junction points into march seeds.
+///
+/// Each point is a 3D location known to lie ON the intersection —
+/// typically an edge-face pierce from a 1D edge×surface solve, which
+/// stays robust exactly where patch-midpoint Newton seeding goes blind
+/// (a narrow near-tangent lens; see
+/// `intersect_surfaces_with_seeds`). The point is projected onto both
+/// surfaces, required to lie on BOTH carriers within 10× linear
+/// tolerance (an edge pierce merely near this pair's second surface is
+/// not a junction of this pair), converged with the same Newton the
+/// interior seeding uses, and re-branched into the query windows.
+/// Failures drop the seed silently — over-seeding costs only checks.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn push_junction_seeds(
+    starting_points: &mut Vec<StartingPoint>,
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+    seed_points: &[crate::geometry::Point3],
+    phantom_cache: &mut Vec<crate::geometry::Point3>,
+) {
+    // Junction seeds exist for the class where the 2D patch seeding
+    // goes blind: narrow near-tangent lenses on free-form charts. An
+    // analytic-analytic pair that reaches the marching path has
+    // complete seeding and tuned degeneracy handling — injected
+    // seeds there added risk with no need (measured: a torus-groove
+    // Cylinder×Torus pair exploded to 200k curves under six seeds
+    // and the served mesh tore).
+    let free_form = |s: &SurfaceGeometry| {
+        matches!(
+            s,
+            SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory { .. }
+        )
+    };
+    if !free_form(surface1) && !free_form(surface2) {
+        return;
+    }
+    let mut injected: Vec<StartingPoint> = Vec::new();
+    // Project a junction point onto one surface, verified on-carrier.
+    // A cold NURBS projection can SUCCEED into the wrong basin (a
+    // multi-turn helical flank walks the adjacent turn, landing
+    // 0.05–0.9 of surface away — the PK-463 class), so a projection
+    // that lands off-carrier retries through the knot-span-seeded
+    // multi-start before the seed is given up.
+    let on_gate = tolerance.linear() * 10.0;
+    let project_on =
+        |surface: &SurfaceGeometry, p: &crate::geometry::Point3| -> Option<(f64, f64)> {
+            let uv = crate::geometry::uv_projection::project_point_to_uv(surface, p);
+            if let Some((u, v)) = uv
+                && surface.point_at(u, v).distance_to(p) <= on_gate
+            {
+                return Some((u, v));
+            }
+            if let SurfaceGeometry::Nurbs(nurbs) = surface {
+                let seeds = nurbs.projection_seeds()?;
+                let (u, v) = crate::geometry::surface::closest_point_from_seeds(
+                    nurbs,
+                    p,
+                    &seeds,
+                    (false, false),
+                    6,
+                )?;
+                if surface.point_at(u, v).distance_to(p) <= on_gate {
+                    return Some((u, v));
+                }
+            }
+            None
+        };
+    for p in seed_points {
+        let Some((u1s, v1s)) = project_on(surface1, p) else {
+            continue;
+        };
+        let Some((u2s, v2s)) = project_on(surface2, p) else {
+            continue;
+        };
+        let n1 = surface1.normal_at(u1s, v1s);
+        let n2 = surface2.normal_at(u2s, v2s);
+        // COINCIDENT/TANGENT gate: a pierce point on a flush pair
+        // projects onto both surfaces trivially, but n1×n2 is noise
+        // and the fallback march direction traces a phantom line
+        // along the shared surface (measured: seeding flush-union
+        // pairs emitted garbage curves and the whole coplanar corpus
+        // family declined). Injected seeds must be genuinely
+        // transversal — the tangency-silent contract stays with the
+        // interior seeding's classifier.
+        let norms = n1.length() * n2.length();
+        if norms < tolerance.numerical_floor()
+            || n1.cross(&n2).length() / norms <= tolerance.angular()
+        {
+            continue;
+        }
+        let dir = pick_march_dir(n1, n2, surface1, u1s, v1s);
+        let Some(mut sample) =
+            march_project(surface1, u1s, v1s, surface2, u2s, v2s, p, &dir, tolerance)
+        else {
+            continue;
+        };
+        let _ = crate::geometry::intersection::marching::rebranch_sample_pub(
+            surface1,
+            u1_range,
+            v1_range,
+            surface2,
+            u2_range,
+            v2_range,
+            &mut sample,
+            tolerance,
+            phantom_cache,
+        );
+        if seed_trace_enabled() {
+            eprintln!(
+                "  [seed] junction seed ({:.4},{:.4},{:.4}) -> uv1 ({:.4},{:.4}) uv2 ({:.4},{:.4})",
+                p.x, p.y, p.z, sample.u1, sample.v1, sample.u2, sample.v2
+            );
+        }
+        injected.push(StartingPoint {
+            sample,
+            is_tangent: false,
+        });
+    }
+    // RESCUE ORDER: the march queue pops LIFO, so seeds appended last
+    // march FIRST — and a junction seed then REPLACES the interior
+    // seeding's march start on a curve both would find, shifting a
+    // closed ring's closure point by the fit slop (measured: the
+    // deep-grind band's ring record moved 5e-5 and the phase-pinned
+    // serve tore 1025 mesh edges). Junction seeds go to the FRONT so
+    // they pop LAST: they only march what the interior seeding left
+    // unconsumed.
+    starting_points.splice(0..0, injected);
+}
+
 #[cfg(test)]
 #[path = "starting_points_tests.rs"]
 mod tests;

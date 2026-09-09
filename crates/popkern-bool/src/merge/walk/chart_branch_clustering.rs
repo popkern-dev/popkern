@@ -75,6 +75,124 @@ pub(crate) fn cluster_branches(
     (start_bp, end_bp)
 }
 
+/// Per-node rebalance of border-endpoint entries at TRUE seam nodes.
+///
+/// A non-seam run terminating exactly ON the chart border (endpoint u
+/// on the period lattice) at a seam node can legitimately register at
+/// either border copy — u = 0 and u = period are the same azimuth.
+/// The floating-component search cannot express this freedom when the
+/// run's component spans a full period (a split rim chain is anchored,
+/// yet its endpoint AT the seam node still has two-copy freedom).
+/// Measured on the angled tap (PK-465): the tilted wall's top-rim
+/// pieces both clustered by body-side sample (arrival low, departure
+/// high) while the seam pair also splits arrival-low/departure-high,
+/// leaving node 9 with branches 2-in/0-out and 0-in/2-out; the only
+/// balanced assignment is the cross-pairing.
+///
+/// The repair is node-local — an entry belongs to exactly one node, so
+/// rebalancing each imbalanced seam node independently composes to
+/// global balance. Per node: exactly two branches, candidates are
+/// non-seam entries whose EXACT endpoint u lies on the lattice
+/// (within `period * 5e-4`, the anchoring lattice eps), bounded
+/// enumeration (≤ 8 candidates, fewest flips first, deterministic
+/// tie order), first assignment balancing the node wins. A wrong but
+/// balanced flip is the same ambiguity class the seam config search
+/// already navigates by first-balanced-wins; downstream walk
+/// validation still gates the result.
+pub(crate) fn rebalance_seam_border_entries(
+    start_bp: &mut BTreeMap<usize, BranchPoint>,
+    end_bp: &mut BTreeMap<usize, BranchPoint>,
+    true_seam_nodes: &std::collections::BTreeSet<usize>,
+    seam_hes: &std::collections::BTreeSet<usize>,
+    endpoint_u: &dyn Fn(usize, bool) -> f64,
+    period: f64,
+) {
+    let lattice_eps = period * 5.0e-4;
+    let trace = popkern_core::trace::trace_enabled("chart-branches");
+    // node -> [(he, is_start, branch)]
+    let mut per_node: BTreeMap<usize, Vec<(usize, bool, u32)>> = BTreeMap::new();
+    for (&h, bp) in start_bp.iter() {
+        per_node
+            .entry(bp.node)
+            .or_default()
+            .push((h, true, bp.branch));
+    }
+    for (&h, bp) in end_bp.iter() {
+        per_node
+            .entry(bp.node)
+            .or_default()
+            .push((h, false, bp.branch));
+    }
+    let node_balanced = |ents: &[(usize, bool, u32)]| {
+        let mut deg: BTreeMap<u32, (i64, i64)> = BTreeMap::new();
+        for &(_, is_start, b) in ents {
+            let e = deg.entry(b).or_default();
+            if is_start {
+                e.1 += 1;
+            } else {
+                e.0 += 1;
+            }
+        }
+        deg.values().all(|&(arr, dep)| arr == dep)
+    };
+    for (node, entries) in per_node {
+        if !true_seam_nodes.contains(&node) || node_balanced(&entries) {
+            continue;
+        }
+        let branches: std::collections::BTreeSet<u32> = entries.iter().map(|e| e.2).collect();
+        if branches.len() != 2 {
+            continue;
+        }
+        let bs: Vec<u32> = branches.into_iter().collect();
+        let cand: Vec<usize> = entries
+            .iter()
+            .enumerate()
+            .filter(|&(_, &(h, is_start, _))| {
+                if seam_hes.contains(&h) {
+                    return false;
+                }
+                let u = endpoint_u(h, is_start);
+                let k = (u / period).round();
+                (u - k * period).abs() < lattice_eps
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if cand.is_empty() || cand.len() > 8 {
+            continue;
+        }
+        let mut masks: Vec<u32> = (1..(1u32 << cand.len())).collect();
+        masks.sort_by_key(|m| (m.count_ones(), *m));
+        for m in masks {
+            let mut trial = entries.clone();
+            for (bit, &ei) in cand.iter().enumerate() {
+                if (m >> bit) & 1 == 1 {
+                    let e = &mut trial[ei];
+                    e.2 = if e.2 == bs[0] { bs[1] } else { bs[0] };
+                }
+            }
+            if !node_balanced(&trial) {
+                continue;
+            }
+            for &(h, is_start, b) in &trial {
+                let bp = BranchPoint { node, branch: b };
+                if is_start {
+                    start_bp.insert(h, bp);
+                } else {
+                    end_bp.insert(h, bp);
+                }
+            }
+            if trace {
+                eprintln!(
+                    "  [branch] seam-border rebalance at node {node}: mask {m:#b} over {} candidate entr{}",
+                    cand.len(),
+                    if cand.len() == 1 { "y" } else { "ies" }
+                );
+            }
+            break;
+        }
+    }
+}
+
 /// I4 predicate: every branch point has in-degree == out-degree.
 pub(crate) fn is_balanced(
     start_bp: &BTreeMap<usize, BranchPoint>,

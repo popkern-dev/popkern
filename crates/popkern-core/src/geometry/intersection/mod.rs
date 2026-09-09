@@ -46,7 +46,7 @@ pub use surface_curve::{
 };
 pub use surface_surface::{
     SurfaceSurfaceIntersection, SurfaceSurfaceIntersectionResult, intersect_surfaces,
-    intersect_surfaces_with_handler,
+    intersect_surfaces_with_handler, intersect_surfaces_with_seeds,
 };
 
 use crate::error::CoreError;

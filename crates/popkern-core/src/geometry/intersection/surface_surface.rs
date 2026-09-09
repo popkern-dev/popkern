@@ -70,7 +70,57 @@ pub fn intersect_surfaces_with_handler(
     handler: &dyn DegeneracyHandler,
 ) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
     let result = intersect_surfaces_inner(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance, handler,
+        surface1,
+        u1_range,
+        v1_range,
+        surface2,
+        u2_range,
+        v2_range,
+        tolerance,
+        handler,
+        &[],
+    );
+    trace_ssi(
+        &result, surface1, surface2, u1_range, v1_range, u2_range, v2_range,
+    );
+    result
+}
+
+/// Intersect two surfaces with caller-supplied junction seed points.
+///
+/// Each seed is a 3D point known to lie ON the intersection — typically
+/// an edge-face pierce point from a 1D edge×surface solve, which stays
+/// robust exactly where the 2D patch-midpoint seeding goes blind: a
+/// narrow near-tangent lens. Measured on the angled tap (PK-465): the
+/// thread-runout crest band crosses the tilted bore wall in
+/// 0.05–0.15-long lens segments; uniform patch sampling produced zero
+/// seeds and the whole face pair came back empty while every lens
+/// endpoint was already known as an edge pierce. Seeds are projected
+/// onto both surfaces, converged by the same Newton the interior
+/// seeding uses, and marched like any transversal seed; a seed landing
+/// on an already-traced curve is consumed by the standard segment
+/// dedup, so over-seeding costs only the checks.
+#[allow(clippy::too_many_arguments)]
+pub fn intersect_surfaces_with_seeds(
+    surface1: &SurfaceGeometry,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    surface2: &SurfaceGeometry,
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+    tolerance: &Tolerance,
+    seed_points: &[Point3],
+) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
+    let result = intersect_surfaces_inner(
+        surface1,
+        u1_range,
+        v1_range,
+        surface2,
+        u2_range,
+        v2_range,
+        tolerance,
+        &RobustDegeneracyHandler,
+        seed_points,
     );
     trace_ssi(
         &result, surface1, surface2, u1_range, v1_range, u2_range, v2_range,
@@ -94,6 +144,7 @@ fn intersect_surfaces_inner(
     v2_range: (f64, f64),
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
+    seed_points: &[Point3],
 ) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
     // Analytic fast paths (exact solvers + coincidence detection);
     // `None` falls through to the marching solver.
@@ -135,6 +186,27 @@ fn intersect_surfaces_inner(
         surface1,
         surface2,
         tolerance,
+    );
+
+    // Caller-supplied junction seeds (see
+    // [`intersect_surfaces_with_seeds`]): project each onto both
+    // surfaces and converge with the same Newton the interior seeding
+    // uses. A seed that fails to project or converge is dropped
+    // silently — it costs the caller nothing, and the pierce points
+    // callers supply can legitimately sit on face pairs that do not
+    // intersect near them (an edge bounds two faces; only one may
+    // carry the continuing curve).
+    crate::geometry::intersection::starting_points::push_junction_seeds(
+        &mut starting_points,
+        surface1,
+        u1_range,
+        v1_range,
+        surface2,
+        u2_range,
+        v2_range,
+        tolerance,
+        seed_points,
+        &mut seed_phantom_cache,
     );
 
     // 2. Handle tangent starting points -> coincident region detection

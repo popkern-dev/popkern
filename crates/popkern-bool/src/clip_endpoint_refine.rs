@@ -27,6 +27,8 @@ use popkern_core::geometry::uv_projection::project_point_to_uv_near;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use crate::clip_endpoint_far::{far_junction, project_onto_curve_dense, retrim_piece_to_junction};
+
 /// Refine both endpoints of `piece` onto exact boundary junctions
 /// where they lie within the record-fit slop band of a face-boundary
 /// edge. No-op for endpoints away from every boundary.
@@ -41,6 +43,7 @@ pub(crate) fn refine_endpoints_onto_boundaries(
     surf_b: &SurfaceGeometry,
     windows_b: ((f64, f64), (f64, f64)),
     piece: &mut CurveOnSurface,
+    source: &CurveOnSurface,
     tolerance: &Tolerance,
 ) {
     // The record-fit slop class measures 2e-5..1.8e-4; the band stays
@@ -95,11 +98,64 @@ pub(crate) fn refine_endpoints_onto_boundaries(
                 );
             }
             set_endpoint_3d_uv(piece, end, r, surf_a, surf_b, tolerance);
+            continue;
+        }
+        // FAR RE-TRIM: a record crossing a boundary NEAR-TANGENT puts
+        // the clip's crossing parameter far along the curve from the
+        // true junction — beyond any lateral-slop band (measured,
+        // PK-465: the angled tap's thread exit crosses the mouth rim
+        // at helix pitch angle; endpoints landed 0.04–0.54 from
+        // existing exact junctions, in BOTH directions — stopped
+        // short and overshot past the rim). The tangent-ray tests are
+        // meaningless at this scale, so the certificate changes: the
+        // exact edge×surface junction must lie ON the record's SOURCE
+        // (pre-clip) curve within the fit-slop gate, and the endpoint
+        // is then RE-TRIMMED along the source to the junction's own
+        // parameter — a parameter correction of the same clip, never
+        // a lateral drag, so a mid-face T-junction (off the curve)
+        // can never be captured.
+        // This endpoint's parameter ON THE SOURCE (the piece's own
+        // parameter domain may have been re-fit by an earlier
+        // refinement and no longer align with the source).
+        let Some(t_on_source) = project_onto_curve_dense(&source.curve_3d, &p) else {
+            continue;
+        };
+        if source.curve_3d.point_at(t_on_source).distance_to(&p) > tolerance.linear() * 2000.0 {
+            continue;
+        }
+        if let Some(cands) = far_junction(
+            brep_a,
+            face_a,
+            surf_a,
+            windows_a,
+            brep_b,
+            face_b,
+            surf_b,
+            windows_b,
+            &p,
+            source,
+            t_on_source,
+            tolerance,
+        ) {
+            for (j, t_star) in cands {
+                if retrim_piece_to_junction(
+                    piece, source, end, t_star, j, brep_a, face_a, surf_a, brep_b, face_b, surf_b,
+                    tolerance,
+                ) {
+                    if popkern_core::trace::trace_enabled("clip") {
+                        eprintln!(
+                            "    [clip-retrim] end {} ({:.4},{:.4},{:.4}) -> junction ({:.4},{:.4},{:.4}) t* {t_star:.4}",
+                            end as u8, p.x, p.y, p.z, j.x, j.y, j.z
+                        );
+                    }
+                    break;
+                }
+            }
         }
     }
 }
 
-fn endpoint(piece: &CurveOnSurface, end: bool) -> Point3 {
+pub(crate) fn endpoint(piece: &CurveOnSurface, end: bool) -> Point3 {
     let (t0, t1) = piece.curve_3d.parameter_range();
     piece.curve_3d.point_at(if end { t1 } else { t0 })
 }
@@ -124,6 +180,67 @@ fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
 #[allow(clippy::too_many_arguments)]
+/// Every boundary edge handle of `face` — outer AND inner loops. The
+/// refinement's junction search must see hole rims too: a record
+/// exiting through a bore mouth crosses the top face's INNER loop
+/// (measured, PK-465 — the angled tap's exit records cross the mouth
+/// rim, which the outer-loop-only walk never visited).
+pub(crate) fn boundary_edges_outer(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Vec<popkern_core::topology::EdgeHandle> {
+    let Some(face_data) = brep.faces.get(face) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let Some(lp) = brep.loops.get(face_data.outer_loop) else {
+        return out;
+    };
+    let start = lp.half_edge;
+    let mut he = start;
+    for _ in 0..brep.half_edges.len().max(1) {
+        let Some(h) = brep.half_edges.get(he) else {
+            break;
+        };
+        out.push(h.edge);
+        he = h.next;
+        if he == start {
+            break;
+        }
+    }
+    out
+}
+
+pub(crate) fn boundary_edges(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Vec<popkern_core::topology::EdgeHandle> {
+    let mut out = Vec::new();
+    let Some(face_data) = brep.faces.get(face) else {
+        return out;
+    };
+    let loops = std::iter::once(face_data.outer_loop).chain(face_data.inner_loops.iter().copied());
+    for lh in loops {
+        let Some(lp) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = lp.half_edge;
+        let mut he = start;
+        for _ in 0..brep.half_edges.len().max(1) {
+            let Some(h) = brep.half_edges.get(he) else {
+                break;
+            };
+            out.push(h.edge);
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
 fn refine_against_face(
     brep: &BRep,
     face: FaceHandle,
@@ -134,14 +251,9 @@ fn refine_against_face(
     tan_out: &popkern_core::geometry::Vec3,
     tolerance: &Tolerance,
 ) -> Option<Point3> {
-    let face_data = brep.faces.get(face)?;
-    let lp = brep.loops.get(face_data.outer_loop)?;
-    let start = lp.half_edge;
-    let mut he = start;
     let mut best: Option<Point3> = None;
-    for _ in 0..brep.half_edges.len().max(1) {
-        let h = brep.half_edges.get(he)?;
-        if let Some(edge) = brep.edges.get(h.edge)
+    for eh in boundary_edges_outer(brep, face) {
+        if let Some(edge) = brep.edges.get(eh)
             && let Some(c) = edge.curve.as_ref()
         {
             // Nearness gate by TRUE distance to the edge curve —
@@ -214,15 +326,11 @@ fn refine_against_face(
                 }
             }
         }
-        he = h.next;
-        if he == start {
-            break;
-        }
     }
     best
 }
 
-fn clone_curve_geometry(g: &CurveGeometry) -> CurveGeometry {
+pub(crate) fn clone_curve_geometry(g: &CurveGeometry) -> CurveGeometry {
     g.clone()
 }
 

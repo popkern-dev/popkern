@@ -12,6 +12,7 @@ mod chart_periods;
 mod clip_branch_normalize;
 mod clip_crossings_rescue;
 mod clip_line;
+mod clip_pierce_windows;
 mod clip_seam_shift;
 mod clip_uv;
 mod clip_uv_crossings;

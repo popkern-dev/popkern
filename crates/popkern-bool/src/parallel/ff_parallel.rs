@@ -12,7 +12,9 @@
 //! sound without locks.
 
 use popkern_core::geometry::CurveEval;
-use popkern_core::geometry::intersection::{SurfaceSurfaceIntersection, intersect_surfaces};
+use popkern_core::geometry::intersection::{
+    SurfaceSurfaceIntersection, intersect_surfaces_with_seeds,
+};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -26,12 +28,17 @@ mod ff_parallel_trace;
 use ff_parallel_trace::{trace_clip_input, trace_clip_output, trace_pair_surfaces};
 
 /// A face pair selected by BVH overlap filtering, awaiting intersection.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct FacePairTask {
     /// Face from solid A.
     pub face_a: FaceHandle,
     /// Face from solid B.
     pub face_b: FaceHandle,
+    /// Edge-face pierce points adjacent to this pair: known-exact
+    /// junction points ON the pair's intersection curves, fed to the
+    /// SSI as march seeds (rescues narrow near-tangent lenses the
+    /// interior seeding misses — PK-465).
+    pub seeds: Vec<popkern_core::geometry::Point3>,
 }
 
 /// Debug-trace gates for the pair loop, read from the environment once
@@ -163,8 +170,8 @@ pub(crate) fn process_pairs(
         }
     }
     let solve = |inp: &PairInputs<'_>| {
-        intersect_surfaces(
-            inp.surf_a, inp.r1.0, inp.r1.1, inp.surf_b, inp.r2.0, inp.r2.1, tolerance,
+        intersect_surfaces_with_seeds(
+            inp.surf_a, inp.r1.0, inp.r1.1, inp.surf_b, inp.r2.0, inp.r2.1, tolerance, inp.seeds,
         )
         .map_err(|e| e.to_string())
     };
@@ -231,27 +238,36 @@ struct PairInputs<'x> {
     r1: ((f64, f64), (f64, f64)),
     surf_b: &'x popkern_core::geometry::surface::SurfaceGeometry,
     r2: ((f64, f64), (f64, f64)),
+    seeds: &'x [popkern_core::geometry::Point3],
 }
 
 impl PairInputs<'_> {
-    /// Bit-exact equality of everything `intersect_surfaces` reads.
+    /// Bit-exact equality of everything the seeded SSI reads. Seeds
+    /// participate: two pairs sharing surfaces and windows but carrying
+    /// different pierce seeds may march different curve sets.
     fn same_solver_inputs(&self, other: &Self) -> bool {
         self.r1 == other.r1
             && self.r2 == other.r2
             && self.surf_a == other.surf_a
             && self.surf_b == other.surf_b
+            && self.seeds.len() == other.seeds.len()
+            && self
+                .seeds
+                .iter()
+                .zip(other.seeds)
+                .all(|(p, q)| p.x == q.x && p.y == q.y && p.z == q.z)
     }
 }
 
 /// Surface + window resolution for one pair. Faces without surface
 /// geometry yield `None` (the sequential loop skipped them).
 fn resolve_pair_inputs<'x>(
-    task: &FacePairTask,
+    task: &'x FacePairTask,
     a: &'x BRep,
     b: &'x BRep,
     trace: TraceFlags,
 ) -> Option<PairInputs<'x>> {
-    let FacePairTask { face_a, face_b } = *task;
+    let FacePairTask { face_a, face_b, .. } = *task;
     if trace.pair {
         eprintln!("  [pair] {face_a:?} x {face_b:?}");
     }
@@ -269,6 +285,7 @@ fn resolve_pair_inputs<'x>(
         r1,
         surf_b,
         r2,
+        seeds: &task.seeds,
     })
 }
 
@@ -283,7 +300,7 @@ fn clip_and_classify(
     tolerance: &Tolerance,
     trace: TraceFlags,
 ) -> Vec<IntersectionRecord> {
-    let FacePairTask { face_a, face_b } = *task;
+    let FacePairTask { face_a, face_b, .. } = *task;
     let mut records = Vec::new();
     for isect in &result.intersections {
         match isect {
@@ -300,6 +317,16 @@ fn clip_and_classify(
                     );
                 }
                 for mut clipped in clipped_list {
+                    if trace.clip {
+                        use popkern_core::geometry::curve::CurveEval as _;
+                        let (t0, t1) = clipped.curve_3d.parameter_range();
+                        let p0 = clipped.curve_3d.point_at(t0);
+                        let p1 = clipped.curve_3d.point_at(t1);
+                        eprintln!(
+                            "  [clip-piece] pre-refine t[{t0:.3},{t1:.3}] ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                            p0.x, p0.y, p0.z, p1.x, p1.y, p1.z
+                        );
+                    }
                     // Boundary-crossing endpoints refine onto the
                     // exact edge-curve x surface junction so the
                     // graph mints ONE node per junction (see
@@ -314,6 +341,7 @@ fn clip_and_classify(
                         inp.surf_b,
                         (inp.r2.0, inp.r2.1),
                         &mut clipped,
+                        curve,
                         tolerance,
                     );
                     if trace.clip {
