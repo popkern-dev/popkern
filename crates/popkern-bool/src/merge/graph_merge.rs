@@ -93,6 +93,15 @@ pub(crate) fn graph_merge(
         tolerance.linear() * 500.0,
         Some((original_a, original_b, tolerance.linear())),
     );
+    // Bridge the short junction-to-junction gaps the SSI march cannot
+    // trace (grazing tangency exhausts the constrained Newton) — see
+    // `graph_gap_closure` (PK-465).
+    super::graph_gap_closure::close_record_gaps(
+        &mut graph,
+        original_a,
+        original_b,
+        tolerance.linear(),
+    );
     // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result

@@ -4,7 +4,7 @@
 mod marching_linalg;
 
 #[path = "marching_newton.rs"]
-pub(crate) mod marching_newton;
+pub mod marching_newton;
 
 #[path = "marching_helpers.rs"]
 mod marching_helpers;

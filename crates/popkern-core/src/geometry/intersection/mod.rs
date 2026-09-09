@@ -41,6 +41,7 @@ mod surface_surface_crease_split;
 mod surface_surface_seam_split;
 pub(crate) mod torus_coaxial;
 
+pub use marching::marching_newton::project_point_to_surface_pair;
 pub use surface_curve::{
     SurfaceCurveIntersection, SurfaceCurveIntersectionResult, intersect_surface_curve,
 };

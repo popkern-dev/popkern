@@ -282,3 +282,109 @@ pub fn refine_boundary_crossing(
     newton_boundary_crossing(surface1, u1, v1, surface2, u2, v2, pin, tolerance)
         .map(|s| (s.u1, s.v1, s.u2, s.v2, s.point))
 }
+
+/// A point converged onto a surface-pair intersection: the 3D point
+/// plus its uv registration on each surface.
+pub type SurfacePairProjection = (Point3, (f64, f64), (f64, f64));
+
+/// Project a 3D point onto the intersection curve of two surfaces.
+///
+/// Public entry for junction-anchored consumers (the boolean's gap
+/// closure, PK-465): given a point NEAR the intersection of two
+/// surfaces, converge it onto the curve with the same constrained
+/// Newton the SSI march uses, seeded by per-surface projections. The
+/// uv guesses go through the knot-span multi-start on free-form
+/// charts (a cold projection can walk an adjacent turn's basin).
+/// Returns the converged point and both uv registrations, or `None`
+/// when either projection or the Newton fails.
+pub fn project_point_to_surface_pair(
+    surface1: &SurfaceGeometry,
+    surface2: &SurfaceGeometry,
+    near: &Point3,
+    tolerance: &Tolerance,
+) -> Option<SurfacePairProjection> {
+    let project = |surface: &SurfaceGeometry| -> Option<(f64, f64)> {
+        let gate = tolerance.linear().max(1e-12);
+        let cold = crate::geometry::uv_projection::project_point_to_uv(surface, near);
+        if let Some((u, v)) = cold
+            // A wrong-turn basin on a coiled chart reads 0.05-0.9 of
+            // surface away while still "succeeding" — anything beyond
+            // 1e4x linear falls to the knot-seeded multi-start, and
+            // the better of the two answers wins.
+            && surface.point_at(u, v).distance_to(near) < gate * 1.0e4
+        {
+            return Some((u, v));
+        }
+        if let SurfaceGeometry::Nurbs(nurbs) = surface {
+            let seeds = nurbs.projection_seeds()?;
+            let multi = crate::geometry::surface::closest_point_from_seeds(
+                nurbs,
+                near,
+                &seeds,
+                (false, false),
+                6,
+            );
+            return match (cold, multi) {
+                (Some(c), Some(m)) => {
+                    if surface.point_at(m.0, m.1).distance_to(near)
+                        <= surface.point_at(c.0, c.1).distance_to(near)
+                    {
+                        Some(m)
+                    } else {
+                        Some(c)
+                    }
+                }
+                (c, m) => m.or(c),
+            };
+        }
+        cold
+    };
+    let (u1, v1) = project(surface1)?;
+    let (u2, v2) = project(surface2)?;
+    let n1 = surface1.normal_at(u1, v1);
+    let n2 = surface2.normal_at(u2, v2);
+    let dir = {
+        let cross = n1.cross(&n2);
+        if cross.length() > 1e-12 {
+            cross
+        } else {
+            surface1.partial_u(u1, v1)
+        }
+    };
+    if let Some(sample) = march_project(surface1, u1, v1, surface2, u2, v2, near, &dir, tolerance) {
+        return Some((sample.point, (sample.u1, sample.v1), (sample.u2, sample.v2)));
+    }
+    // (continued below)
+    // GRAZING fallback: the constrained Newton conditions on n1×n2
+    // and exhausts where the surfaces graze — exactly the pairs the
+    // junction-anchored callers exist for. Alternating projection
+    // (project to A, then to B, repeat) converges linearly onto the
+    // intersection neighborhood regardless of crossing angle; each
+    // re-projection is seeded at the previous uv so multi-sheet
+    // charts keep their basin.
+    let mut q = *near;
+    let (mut cu1, mut cv1) = (u1, v1);
+    let (mut cu2, mut cv2) = (u2, v2);
+    for _ in 0..60 {
+        let (nu1, nv1) =
+            crate::geometry::uv_projection::project_point_to_uv_near(surface1, &q, cu1, cv1)?;
+        let p1 = surface1.point_at(nu1, nv1);
+        let (nu2, nv2) =
+            crate::geometry::uv_projection::project_point_to_uv_near(surface2, &p1, cu2, cv2)?;
+        let p2 = surface2.point_at(nu2, nv2);
+        let step = p2.distance_to(&q);
+        (cu1, cv1, cu2, cv2) = (nu1, nv1, nu2, nv2);
+        q = p2;
+        if step < tolerance.linear() * 0.01 {
+            break;
+        }
+    }
+    let d1 = surface1.point_at(cu1, cv1).distance_to(&q);
+    let (fu2, fv2) =
+        crate::geometry::uv_projection::project_point_to_uv_near(surface2, &q, cu2, cv2)?;
+    let d2 = surface2.point_at(fu2, fv2).distance_to(&q);
+    if d1 > tolerance.linear() * 10.0 || d2 > tolerance.linear() * 10.0 {
+        return None;
+    }
+    Some((q, (cu1, cv1), (fu2, fv2)))
+}
