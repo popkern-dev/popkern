@@ -32,7 +32,8 @@ use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::intersection::project_point_to_surface_pair;
 use popkern_core::topology::BRep;
 
-use super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
+use super::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
+use super::graph_gap_targets::{Target, push_synthetic_junction_targets};
 
 /// Close short record gaps between junction nodes. `band` is the
 /// weld-scale tolerance (`linear * 500`), `lin` the linear tolerance.
@@ -182,18 +183,27 @@ pub(crate) fn close_record_gaps(
         // hole-bottom lens tip.)
         ranked.sort_by(|a, b| a.1.total_cmp(&b.1).then(a.2.cmp(&b.2)));
         ranked.truncate(6);
-        let cands: Vec<(f64, usize)> = ranked.into_iter().map(|(_, d, m)| (d, m)).collect();
+        let mut cands: Vec<(f64, Target)> = ranked
+            .into_iter()
+            .map(|(_, d, m)| (d, Target::Node(m)))
+            .collect();
+        push_synthetic_junction_targets(
+            &mut cands, graph, original_a, original_b, face_a, face_b, &p, &outward, cap, lin,
+        );
         if gap_trace {
             eprintln!(
                 "  [gap-close?] processing n{n}: {} candidate(s)",
                 cands.len()
             );
         }
-        'cand: for (gap, m) in cands {
-            let q = graph.nodes[m].position;
+        'cand: for (gap, target) in cands {
+            let q = match target {
+                Target::Node(m) => graph.nodes[m].position,
+                Target::Junction(pt) => pt,
+            };
             if gap_trace {
                 eprintln!(
-                    "  [gap-close?]   cand n{m} ({:.4},{:.4},{:.4}) gap {gap:.3e}",
+                    "  [gap-close?]   cand {target:?} ({:.4},{:.4},{:.4}) gap {gap:.3e}",
                     q.x, q.y, q.z
                 );
             }
@@ -205,14 +215,16 @@ pub(crate) fn close_record_gaps(
                 popkern_core::topology::FaceHandle,
                 popkern_core::topology::FaceHandle,
             )> = vec![(face_a, face_b)];
-            for &h in &incident[m] {
-                if let EdgeSource::Shared {
-                    face_a: fa,
-                    face_b: fb,
-                } = graph.half_edges[h].source
-                    && !pairs.contains(&(fa, fb))
-                {
-                    pairs.push((fa, fb));
+            if let Target::Node(m) = target {
+                for &h in &incident[m] {
+                    if let EdgeSource::Shared {
+                        face_a: fa,
+                        face_b: fb,
+                    } = graph.half_edges[h].source
+                        && !pairs.contains(&(fa, fb))
+                    {
+                        pairs.push((fa, fb));
+                    }
                 }
             }
             // Faces whose surfaces CONTAIN both tips are carrier
@@ -439,6 +451,10 @@ pub(crate) fn close_record_gaps(
                 let source = EdgeSource::Shared {
                     face_a: pfa,
                     face_b: pfb,
+                };
+                let m = match target {
+                    Target::Node(m) => m,
+                    Target::Junction(pt) => graph.add_node(pt, NodeSource::Intersection),
                 };
                 let (fwd, twin) = graph.add_half_edge_pair_with_pcurves(
                     n,

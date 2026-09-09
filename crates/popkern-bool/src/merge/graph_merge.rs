@@ -102,6 +102,14 @@ pub(crate) fn graph_merge(
         original_b,
         tolerance.linear(),
     );
+    // A bridge can terminate at a MINTED junction sitting mid-span on
+    // a boundary edge — the node-driven split pass runs again so the
+    // boundary gains its junction there.
+    split_edges_at_shared_nodes(
+        &mut graph,
+        snap_tol,
+        Some((original_a, original_b, tolerance.linear())),
+    );
     // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result

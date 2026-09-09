@@ -63,6 +63,12 @@ pub(super) fn pierce_crossing_params(
         ) else {
             continue;
         };
+        if popkern_core::trace::trace_enabled("clip-far") {
+            eprintln!(
+                "    [pierce-inv] {face_x:?} edge {eh:?} x other-surf: {} isect(s)",
+                result.intersections.len()
+            );
+        }
         for isect in &result.intersections {
             let popkern_core::geometry::intersection::SurfaceCurveIntersection::Point {
                 point, ..
