@@ -50,8 +50,11 @@ mod boundary_first_ruled_strip;
 mod boundary_first_slit;
 #[path = "boundary_first_unwrap.rs"]
 mod boundary_first_unwrap;
+#[path = "boundary_first_wrap_slit.rs"]
+mod boundary_first_wrap_slit;
 use boundary_first_delaunay::bowyer_watson;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
+use boundary_first_wrap_slit::{join_wrapped_rings, stash_wrapped_ring};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
 /// and, per point, the canonical edge + curve fraction it came from
@@ -131,6 +134,7 @@ pub(crate) fn tessellate_face_boundary_first(
 
     // Build boundary rings from canonical samples.
     let mut rings: Vec<BoundaryRing> = Vec::new();
+    let (mut wrapped_rings, mut wrapped_period) = (Vec::<BoundaryRing>::new(), None::<f64>);
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
     for lh in loops {
@@ -212,11 +216,9 @@ pub(crate) fn tessellate_face_boundary_first(
                     {
                         return Some(fm);
                     }
-                    if popkern_core::trace::trace_enabled("boundary-first") {
-                        eprintln!("    [bf] face {face_handle:?} u-wrap decline");
-                    }
-                    boundary_first_unwrap::dump_ring(&ring, "u");
-                    return None;
+                    stash_wrapped_ring(ring, &mut wrapped_rings); // PK-468 band slit
+                    wrapped_period = Some(p);
+                    continue;
                 }
                 if let Some(p) = period_v
                     && !boundary_first_unwrap::unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
@@ -231,6 +233,9 @@ pub(crate) fn tessellate_face_boundary_first(
                 }
             }
         }
+    }
+    if let Some(p) = wrapped_period {
+        rings.push(join_wrapped_rings(face_handle, &wrapped_rings, p, surface)?);
     }
     if rings.is_empty() {
         return None;
