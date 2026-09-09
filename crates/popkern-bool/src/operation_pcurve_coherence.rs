@@ -26,13 +26,30 @@ use popkern_core::topology::BRep;
 pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
     use popkern_core::geometry::curve::CurveEval as _;
     let mut incoherent: Vec<popkern_core::topology::FaceHandle> = Vec::new();
+    let mut wrong_preimage: Vec<(
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::HalfEdgeHandle,
+    )> = Vec::new();
     for (fh, fd) in &result.faces {
         let Some(sof) = fd.surface.as_ref() else {
             continue;
         };
         use popkern_core::geometry::surface::SurfaceEval as _;
         let (pu, pv) = sof.geometry.parameter_periodicity();
-        if pu.is_none() && pv.is_none() {
+        // APERIODIC NURBS charts join the image-honesty sweep: a
+        // self-overlapping base (a multi-turn thread flank whose
+        // turns merge at the runout) admits many uv preimages for one
+        // 3-D point, and a pcurve registered on the wrong preimage
+        // branch is chart-continuous yet images onto ANOTHER TURN —
+        // the mesher follows the pcurve and the served (geometrically
+        // correct) body meshes torn (measured, PK-468: the m5
+        // countersunk tip carried a coil pcurve sweeping the full
+        // chart u-range for a 1.5-long arc; 154 open mesh segments).
+        let is_free_form = matches!(
+            sof.geometry,
+            popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+        );
+        if pu.is_none() && pv.is_none() && !is_free_form {
             continue;
         }
         let doubly = pu.is_some() && pv.is_some();
@@ -96,8 +113,22 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
                                     "  [pc-coherence] {fh:?} use pcurve image {worst:.4} off its edge curve — rebuilding face"
                                 );
                             }
-                            incoherent.push(fh);
-                            break 'face;
+                            if is_free_form && pu.is_none() && pv.is_none() {
+                                // Self-overlapping free-form charts:
+                                // distance cannot pick the preimage
+                                // (every turn is equally on-surface),
+                                // so the whole-face recompute would
+                                // regenerate the same wrong branch
+                                // (measured: the m5 coil pcurve came
+                                // back 0.72 off after rebuild). The
+                                // repair is ANCHORED: only this use is
+                                // re-registered, chained from a
+                                // neighbouring honest pcurve.
+                                wrong_preimage.push((fh, cur));
+                            } else {
+                                incoherent.push(fh);
+                                break 'face;
+                            }
                         }
                     }
                 }
@@ -145,6 +176,13 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
             eprintln!("  [pc-coherence] recompute {fh:?}: {r:?}");
         }
         rebuilt = true;
+    }
+    for (fh, heh) in wrong_preimage {
+        let ok = reregister_use_pcurve_anchored(result, fh, heh);
+        if popkern_core::trace::trace_enabled("boolean") {
+            eprintln!("  [pc-coherence] anchored re-register {heh:?} on {fh:?}: {ok}");
+        }
+        rebuilt = rebuilt || ok;
     }
     // The orientation flag is derived from loop winding × surface,
     // and `reconcile_orientation_flags` ran BEFORE this sweep — a
@@ -236,4 +274,107 @@ pub(super) fn trace_cellular_nonmanifold(r: &BRep) {
 pub(super) fn normalize_output_loop_charts(result: &mut BRep) {
     let faces: Vec<_> = result.faces.keys().collect();
     result.normalize_loop_chart_continuity(&faces);
+}
+
+/// Re-register ONE use pcurve on a self-overlapping free-form chart,
+/// anchored by a neighbouring honest pcurve in the same loop: the
+/// seed uv comes from the loop predecessor's pcurve end (or the
+/// successor's start), and every sample chains through
+/// `project_point_to_uv_near` so the whole curve stays on the
+/// anchor's preimage branch. Distance alone cannot pick the branch —
+/// on a multi-turn thread flank whose turns merge at the runout,
+/// every turn is equally on-surface — only the loop context can.
+/// Returns false (pcurve untouched) when no honest neighbour anchor
+/// exists or the chained registration fails its own image audit.
+fn reregister_use_pcurve_anchored(
+    result: &mut BRep,
+    fh: popkern_core::topology::FaceHandle,
+    heh: popkern_core::topology::HalfEdgeHandle,
+) -> bool {
+    use popkern_core::geometry::curve::CurveEval as _;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    use popkern_core::geometry::uv_projection::project_point_to_uv_near;
+    let Some(fd) = result.faces.get(fh) else {
+        return false;
+    };
+    let Some(sof) = fd.surface.as_ref() else {
+        return false;
+    };
+    let surface = sof.geometry.clone();
+    let Some(hd) = result.half_edges.get(heh) else {
+        return false;
+    };
+    let (prev, next) = (hd.prev, hd.next);
+    let origin = hd.origin;
+    let edge = hd.edge;
+    let Some(origin_pos) = result.vertices.get(origin).map(|v| v.position) else {
+        return false;
+    };
+    let Some(c) = result
+        .edges
+        .get(edge)
+        .and_then(|e| e.curve.as_ref())
+        .cloned()
+    else {
+        return false;
+    };
+    // Traversal direction: pcurve start maps to this half-edge's
+    // origin.
+    let cs = c.geometry.point_at(c.t_start);
+    let ce = c.geometry.point_at(c.t_end);
+    let (t_lo, t_hi) = if origin_pos.distance_to(&cs) <= origin_pos.distance_to(&ce) {
+        (c.t_start, c.t_end)
+    } else {
+        (c.t_end, c.t_start)
+    };
+    // Anchor seed: predecessor's pcurve END, else successor's START.
+    let anchor = result
+        .half_edges
+        .get(prev)
+        .and_then(|p| p.pcurve.as_ref())
+        .map(|pc| pc.point_at(pc.t_end))
+        .or_else(|| {
+            result
+                .half_edges
+                .get(next)
+                .and_then(|nx| nx.pcurve.as_ref())
+                .map(|pc| pc.point_at(pc.t_start))
+        });
+    let Some(anchor) = anchor else {
+        return false;
+    };
+    let n = 17usize;
+    let mut uvs: Vec<popkern_core::geometry::Point3> = Vec::with_capacity(n);
+    let mut chain = (anchor.x, anchor.y);
+    let gate = result.tolerance.linear().max(1.0e-9) * 100.0;
+    for k in 0..n {
+        let t = t_lo + (t_hi - t_lo) * k as f64 / (n - 1) as f64;
+        let p = c.geometry.point_at(t);
+        let Some((u, v)) = project_point_to_uv_near(&surface, &p, chain.0, chain.1) else {
+            return false;
+        };
+        if surface.point_at(u, v).distance_to(&p) > gate {
+            return false;
+        }
+        chain = (u, v);
+        uvs.push(popkern_core::geometry::Point3::new(u, v, 0.0));
+    }
+    let params: Vec<f64> = (0..n).map(|k| k as f64 / (n - 1) as f64).collect();
+    let Ok(fitted) = popkern_core::geometry::fitting::fit_curve(&uvs, &params, 3, n) else {
+        return false;
+    };
+    // Final image audit of the replacement itself.
+    for k in [4, 8, 12] {
+        let q = fitted.point_at(params[k]);
+        let img = surface.point_at(q.x, q.y);
+        let p = c.geometry.point_at(t_lo + (t_hi - t_lo) * params[k]);
+        if img.distance_to(&p) > gate {
+            return false;
+        }
+    }
+    if let Some(hd) = result.half_edges.get_mut(heh) {
+        hd.pcurve = Some(fitted.into());
+        return true;
+    }
+    false
 }
