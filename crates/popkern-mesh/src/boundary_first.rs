@@ -13,10 +13,9 @@
 //! Faces without complete pcurve loops (or without edge curves) fall
 //! back to the uniform grid+clip path in `tessellate_face`.
 //!
-//! Observability: set `POPKERN_TRACE=boundary-first` to log, per face falling back
-//! to the uniform-grid tessellator, WHY it fell back (missing pcurve, no
-//! canonical samples, off-surface residual, uncovered ring segment,
-//! periodic full-wrap ring).
+//! Observability: `POPKERN_TRACE=boundary-first` logs, per face falling
+//! back to the uniform grid, WHY (missing pcurve, no canonical samples,
+//! off-surface residual, uncovered ring segment, unchartable wrap).
 
 use std::collections::HashMap;
 
@@ -50,11 +49,13 @@ mod boundary_first_ruled_strip;
 mod boundary_first_slit;
 #[path = "boundary_first_unwrap.rs"]
 mod boundary_first_unwrap;
+#[path = "boundary_first_wrap_pair.rs"]
+mod boundary_first_wrap_pair;
 #[path = "boundary_first_wrap_slit.rs"]
 mod boundary_first_wrap_slit;
 use boundary_first_delaunay::bowyer_watson;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
-use boundary_first_wrap_slit::{join_wrapped_rings, stash_wrapped_ring};
+use boundary_first_wrap_pair::{join_wrapped_rings, stash_wrapped_ring};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
 /// and, per point, the canonical edge + curve fraction it came from
@@ -134,7 +135,7 @@ pub(crate) fn tessellate_face_boundary_first(
 
     // Build boundary rings from canonical samples.
     let mut rings: Vec<BoundaryRing> = Vec::new();
-    let (mut wrapped_rings, mut wrapped_period) = (Vec::<BoundaryRing>::new(), None::<f64>);
+    let (mut wrapped_rings, mut wrapped_period) = (Vec::<BoundaryRing>::new(), None::<f64>); // PK-468
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
     for lh in loops {
@@ -235,7 +236,7 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
     if let Some(p) = wrapped_period {
-        rings.push(join_wrapped_rings(face_handle, &wrapped_rings, p, surface)?);
+        rings.extend(join_wrapped_rings(face_handle, &wrapped_rings, p, surface)?);
     }
     if rings.is_empty() {
         return None;
