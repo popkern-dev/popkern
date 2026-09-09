@@ -181,7 +181,14 @@ pub(super) fn anchor_components(
                 node_us.entry(n).or_default().push(u_at(sub, h, n, ends));
             }
         }
-        let eps = period * 1.0e-6;
+        // Lattice epsilon covers record-endpoint fit slop: a crest
+        // circle's pcurve endpoint landed 1.2e-3 off the period
+        // lattice (M5 countersunk tip chamfer) and the junction
+        // failed the exact test — no barrier retry, no wrap-node
+        // merge, ChartOverwrap 7.85 declined the cone. Real interior
+        // nodes sit far off the lattice; the ALL-endpoints
+        // requirement keeps the set surgical.
+        let eps = period * 5.0e-4;
         node_us
             .iter()
             .filter(|(_, us)| {

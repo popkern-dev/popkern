@@ -186,7 +186,29 @@ pub(crate) fn build_embedding(
         } else {
             EmbeddingSource::TwinPcurve
         };
-        run = Some((samples, source));
+        // IMAGE HONESTY: a stored record pcurve can be authored on
+        // the wrong chart BRANCH — its image then sweeps the long
+        // way round while the 3D curve takes the short (measured,
+        // PK-464: the M5 countersunk's tip-band arc pcurve spanned
+        // 4.71 rad through the +x azimuth where the band does not
+        // exist; the anchored chart overwrapped 7.85 and the cone
+        // declined to 3D-Newell). Verify the run's midpoint image
+        // against the 3D curve's midpoint; a mismatch falls through
+        // to the projection source, which walks the true samples.
+        let image_honest = match curve {
+            Some(c) => {
+                use popkern_core::geometry::curve::CurveEval as _;
+                use popkern_core::geometry::surface::SurfaceEval as _;
+                let mid_uv = samples.0[samples.0.len() / 2];
+                let s = surface.point_at(mid_uv.0, mid_uv.1);
+                let cm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                s.distance_to(&cm) < 1.0e-2
+            }
+            None => true,
+        };
+        if image_honest {
+            run = Some((samples, source));
+        }
     }
     if run.is_none()
         && let Some(c) = curve

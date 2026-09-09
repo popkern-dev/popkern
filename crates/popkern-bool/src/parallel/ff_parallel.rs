@@ -361,11 +361,25 @@ fn clip_and_classify(
                         inp.surf_b,
                         popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
                     );
-                    if both_analytic {
+                    {
                         use popkern_core::geometry::curve::CurveEval as _;
                         use popkern_core::geometry::surface::SurfaceEval as _;
                         let (c0, c1) = clipped.curve_3d.parameter_range();
-                        let band = tolerance.linear() * 1000.0;
+                        // Analytic-analytic pairs use the tight band
+                        // (their projected distances are exact). A
+                        // NURBS carrier's multisheet distance can
+                        // read a phantom ~0.08 for an on-surface
+                        // point (the deep-grind pin), so mixed pairs
+                        // keep only a COARSE structural-lie gate: a
+                        // record piece sweeping the wrong way round a
+                        // chart sits ~the feature radius off its
+                        // carrier (measured 1.4 on the M5 tip-band
+                        // arc that overwrapped the chamfer cone).
+                        let band = if both_analytic {
+                            tolerance.linear() * 1000.0
+                        } else {
+                            0.1_f64.max(tolerance.linear() * 1000.0)
+                        };
                         let mut worst = 0.0_f64;
                         for k in 1..4 {
                             let p = clipped.curve_3d.point_at(c0 + (c1 - c0) * k as f64 / 4.0);
