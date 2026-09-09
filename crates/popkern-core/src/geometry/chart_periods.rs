@@ -54,12 +54,25 @@ pub fn geometric_chart_periods(geometry: &SurfaceGeometry) -> (Option<f64>, Opti
 /// Per-direction flags for the marching wrap: true where the surface
 /// is analytically periodic OR its NURBS chart closes geometrically.
 pub fn marching_periodicity(geometry: &SurfaceGeometry) -> (bool, bool) {
-    let (analytic_u, analytic_v) = geometry.is_periodic();
+    let (u, v) = marching_periods(geometry);
+    (u.is_some(), v.is_some())
+}
+
+/// Per-direction TRUE periods for the marching wrap: the analytic
+/// period where the surface is analytically periodic, else the
+/// geometric chart period where the NURBS chart closes, else `None`.
+///
+/// The wrap must fold at the GEOMETRIC period, not the query-window
+/// span: the boolean solvers query padded windows (50% headroom), so
+/// a cone's u window spans 1.5·2π — wrapping modulo that span let a
+/// groove × tip-chamfer trace carry u continuously across 1.5 laps
+/// with ZERO seam jumps, the fitted record's pcurve anchored an
+/// interior span of 9.42 > 2π, the chart walk declined the face, and
+/// the cut stranded 10 faces (PK-460, chamfered rod).
+pub fn marching_periods(geometry: &SurfaceGeometry) -> (Option<f64>, Option<f64>) {
+    let (analytic_u, analytic_v) = geometry.periodicity();
     let (chart_u, chart_v) = geometric_chart_periods(geometry);
-    (
-        analytic_u || chart_u.is_some(),
-        analytic_v || chart_v.is_some(),
-    )
+    (analytic_u.or(chart_u), analytic_v.or(chart_v))
 }
 
 /// Interior knot values where a NURBS chart GEOMETRICALLY creases,

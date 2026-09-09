@@ -328,14 +328,16 @@ pub(crate) fn march_one_direction(
                     // the surface, only of the chart (the wrap keeps
                     // evaluation inside the chart; see
                     // `geometry::chart_periods`).
-                    let (periodic_u1, periodic_v1) =
-                        crate::geometry::chart_periods::marching_periodicity(surface1);
-                    let (periodic_u2, periodic_v2) =
-                        crate::geometry::chart_periods::marching_periodicity(surface2);
-                    sample.u1 = wrap_parameter(sample.u1, u1_range, periodic_u1);
-                    sample.v1 = wrap_parameter(sample.v1, v1_range, periodic_v1);
-                    sample.u2 = wrap_parameter(sample.u2, u2_range, periodic_u2);
-                    sample.v2 = wrap_parameter(sample.v2, v2_range, periodic_v2);
+                    let (period_u1, period_v1) =
+                        crate::geometry::chart_periods::marching_periods(surface1);
+                    let (period_u2, period_v2) =
+                        crate::geometry::chart_periods::marching_periods(surface2);
+                    let (periodic_u1, periodic_v1) = (period_u1.is_some(), period_v1.is_some());
+                    let (periodic_u2, periodic_v2) = (period_u2.is_some(), period_v2.is_some());
+                    sample.u1 = wrap_parameter(sample.u1, u1_range, period_u1);
+                    sample.v1 = wrap_parameter(sample.v1, v1_range, period_v1);
+                    sample.u2 = wrap_parameter(sample.u2, u2_range, period_u2);
+                    sample.v2 = wrap_parameter(sample.v2, v2_range, period_v2);
 
                     // Check domain bounds — only stop for non-periodic directions.
                     let exits_u1 =

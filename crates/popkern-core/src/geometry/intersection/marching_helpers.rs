@@ -13,18 +13,30 @@ use std::f64::consts::TAU;
 ///
 /// If `is_periodic` is false the value is returned unchanged.
 /// If the period is non-positive the value is returned unchanged.
-pub(super) fn wrap_parameter(u: f64, u_range: (f64, f64), is_periodic: bool) -> f64 {
-    if !is_periodic {
+pub(super) fn wrap_parameter(u: f64, u_range: (f64, f64), period: Option<f64>) -> f64 {
+    let Some(p) = period else {
+        return u;
+    };
+    let span = u_range.1 - u_range.0;
+    if span <= 0.0 || !u.is_finite() || !span.is_finite() {
         return u;
     }
-    let period = u_range.1 - u_range.0;
-    if period <= 0.0 || !u.is_finite() || !period.is_finite() {
-        return u;
-    }
+    // Wrap modulo the TRUE geometric period when the query window
+    // covers at least one full period: the boolean solvers pad their
+    // windows 50%, and wrapping modulo the padded SPAN (1.5 periods)
+    // let a trace run 1.5 laps with zero seam jumps — the fitted
+    // record's chart span exceeded the period and the chart walk
+    // declined the face (PK-460, chamfered rod's tip-chamfer cone).
+    // Sub-period windows keep the span wrap (tuned behavior).
+    let modulus = if p.is_finite() && p > 0.0 && span >= p {
+        p
+    } else {
+        span
+    };
     // Use modular arithmetic instead of a while loop to avoid
     // potential infinite loops with extreme values.
     let offset = u - u_range.0;
-    let rem = offset.rem_euclid(period);
+    let rem = offset.rem_euclid(modulus);
     u_range.0 + rem
 }
 

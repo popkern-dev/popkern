@@ -145,7 +145,7 @@ fn march_two_perpendicular_planes() {
 #[test]
 fn wrap_parameter_basic() {
     // Just past the top of [0, TAU]: wraps back near the bottom.
-    let wrapped_high = wrap_parameter(6.5, (0.0, TAU), true);
+    let wrapped_high = wrap_parameter(6.5, (0.0, TAU), Some(TAU));
     assert!(
         (wrapped_high - (6.5 - TAU)).abs() < 1e-10,
         "expected {}, got {}",
@@ -154,7 +154,7 @@ fn wrap_parameter_basic() {
     );
 
     // Just below 0 on [0, TAU]: wraps to near TAU.
-    let wrapped_low = wrap_parameter(-0.5, (0.0, TAU), true);
+    let wrapped_low = wrap_parameter(-0.5, (0.0, TAU), Some(TAU));
     assert!(
         (wrapped_low - (TAU - 0.5)).abs() < 1e-10,
         "expected {}, got {}",
@@ -164,7 +164,7 @@ fn wrap_parameter_basic() {
 
     // Non-periodic: value is returned unchanged.
     assert_eq!(
-        wrap_parameter(6.5, (0.0, TAU), false),
+        wrap_parameter(6.5, (0.0, TAU), None),
         6.5,
         "non-periodic value should be unchanged"
     );
@@ -432,14 +432,14 @@ fn degenerate_nurbs_surface(origin: Point3) -> SurfaceGeometry {
 #[test]
 fn wrap_parameter_zero_period() {
     // Degenerate range where start == end → period = 0.
-    let result = wrap_parameter(3.0, (2.0, 2.0), true);
+    let result = wrap_parameter(3.0, (2.0, 2.0), Some(TAU));
     assert_eq!(
         result, 3.0,
         "zero-period periodic parameter should be returned unchanged"
     );
 
     // Inverted range → period < 0.
-    let result_neg = wrap_parameter(3.0, (5.0, 2.0), true);
+    let result_neg = wrap_parameter(3.0, (5.0, 2.0), Some(TAU));
     assert_eq!(
         result_neg, 3.0,
         "negative-period range should be returned unchanged"

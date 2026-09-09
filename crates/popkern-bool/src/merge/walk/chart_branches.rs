@@ -6,10 +6,13 @@
 //! component search, per-node branch clustering, and the boundary
 //! shoelace σ calibration.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+#[path = "chart_branch_anchoring.rs"]
+mod anchoring;
 #[path = "chart_branch_clustering.rs"]
 pub(crate) mod clustering;
+use anchoring::ref_comp_of;
 
 use clustering::{boundary_shoelace_sigma, cluster_branches, is_balanced};
 
@@ -46,108 +49,12 @@ pub(super) fn anchor_periodic(
         .copied()
         .filter(|h| !seam_hes.contains(h))
         .collect();
-    let mut node_to_hes: HashMap<usize, Vec<usize>> = HashMap::new();
-    for &h in &interior {
-        let (s, e) = ends(h);
-        for n in [s, e] {
-            // Pole nodes are excluded like seam nodes: their endpoint
-            // u is the incident meridian's azimuth, not a shared
-            // chart coordinate — translating a neighbour to match it
-            // would smear the frame (the boundary-first unwrap
-            // learned the same lesson with degenerate anchors).
-            if !seam_nodes.contains(&n) && !sub.poles.contains_key(&n) {
-                node_to_hes.entry(n).or_default().push(h);
-            }
-        }
-    }
-    let u_at = |sub: &FaceChartSubdivision, h: usize, n: usize| -> f64 {
-        let (s, _) = ends(h);
-        let emb = &sub.embeddings[&h];
-        if s == n {
-            emb.uv[0].0
-        } else {
-            emb.uv[emb.uv.len() - 1].0
-        }
-    };
-    // Anchor value for the BFS translation. A CLOSED self-loop (both
-    // ends on one node — a full pierce ring closing at its hit node)
-    // has TWO u values at that node, one period apart, so endpoint
-    // matching is ill-defined: aligning its twin start-to-start
-    // stacks the pair over TWO periods and the overwrap check
-    // declines the face (measured: the cross-drill's second pierce
-    // loop). Self-loops anchor by their span MIDPOINT instead — the
-    // twin's reversed unwrap then lands on the same period cell.
-    let anchor_u = |sub: &FaceChartSubdivision, h: usize, n: usize| -> f64 {
-        let (s, e) = ends(h);
-        if s == e {
-            let emb = &sub.embeddings[&h];
-            let (lo, hi) = emb
-                .uv
-                .iter()
-                .fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
-                    (lo.min(u), hi.max(u))
-                });
-            0.5 * (lo + hi)
-        } else {
-            u_at(sub, h, n)
-        }
-    };
-    let mut comp_of: HashMap<usize, usize> = HashMap::new();
-    let mut components: Vec<Vec<usize>> = Vec::new();
-    for &seed in &interior {
-        if comp_of.contains_key(&seed) {
-            continue;
-        }
-        let comp_id = components.len();
-        let mut members = vec![seed];
-        comp_of.insert(seed, comp_id);
-        let mut queue = VecDeque::from([seed]);
-        while let Some(h) = queue.pop_front() {
-            let (s, e) = ends(h);
-            for n in [s, e] {
-                if seam_nodes.contains(&n) {
-                    continue;
-                }
-                for &g in node_to_hes.get(&n).into_iter().flatten() {
-                    if comp_of.contains_key(&g) {
-                        continue;
-                    }
-                    let delta = anchor_u(sub, h, n) - anchor_u(sub, g, n);
-                    let k = (delta / period).round();
-                    if k != 0.0
-                        && let Some(emb) = sub.embeddings.get_mut(&g)
-                    {
-                        emb.shift_u(k * period);
-                    }
-                    comp_of.insert(g, comp_id);
-                    members.push(g);
-                    queue.push_back(g);
-                }
-            }
-        }
-        components.push(members);
-    }
-
-    // Reference frame: the largest component (ties: lowest first he).
-    let ref_comp = components
-        .iter()
-        .enumerate()
-        .max_by_key(|(i, m)| (m.len(), usize::MAX - i))
-        .map(|(i, _)| i);
-    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
-    if let Some(rc) = ref_comp {
-        for &h in &components[rc] {
-            for &(u, _) in &sub.embeddings[&h].uv {
-                lo = lo.min(u);
-                hi = hi.max(u);
-            }
-        }
-    }
-    if hi > lo && hi - lo > period * (1.0 + 1e-6) {
-        sub.report.issues.push(SubdivisionIssue::ChartOverwrap {
-            span: hi - lo,
-            period,
-        });
+    let (components, seam_nodes, (lo, hi, span)) =
+        anchoring::anchor_components(sub, &interior, seam_nodes, period, ends);
+    if span > period * (1.0 + 1e-6) {
+        sub.report
+            .issues
+            .push(SubdivisionIssue::ChartOverwrap { span, period });
         return;
     }
 
@@ -282,6 +189,7 @@ pub(super) fn anchor_periodic(
             .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
     };
     let mut floating: Vec<usize> = Vec::new();
+    let ref_comp = ref_comp_of(&components);
     for ci in (0..components.len()).filter(|&i| Some(i) != ref_comp) {
         let (mut cmin, mut cmax) = (f64::MAX, f64::MIN);
         for h in &components[ci] {
