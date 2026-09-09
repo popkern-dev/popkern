@@ -45,25 +45,87 @@ pub(crate) struct ChartEmbedding {
     /// True when both directions of the pair are registered on this
     /// face with this face as their primary owner — a chart seam pair.
     pub seam_like: bool,
+    /// Endpoint-refined direction sample next to `uv[0]` (δ =
+    /// span/1000 along the source curve): `start_dir`/`end_dir` are
+    /// chords, and a 1/16-run chord on a curved record is up to
+    /// ~0.06 rad off the true tangent — more than the angular
+    /// separation of a thread groove meeting a rim near-tangentially
+    /// (0.013 rad measured, PK-460), so the walk's wedge matching at
+    /// such junctions ordered the slots wrong and fused two adjacent
+    /// regions into one orbit. Kept OUT of `uv`: injecting δ-points
+    /// into the shared polyline perturbed every other run consumer
+    /// (boundary substitutes, orbit polylines, branch measures) and
+    /// tore the propeller hub shell (measured: one closed free-bound
+    /// wire in the OCC oracle).
+    pub refined_first: Option<(f64, f64)>,
+    /// Endpoint-refined direction sample next to the run's last point
+    /// (see `refined_first`).
+    pub refined_last: Option<(f64, f64)>,
 }
 
+/// A sampled run beside its endpoint-refined δ-samples (see
+/// [`ChartEmbedding::refined_first`]).
+type RunWithRefinedEnds = (Vec<(f64, f64)>, Option<(f64, f64)>, Option<(f64, f64)>);
+
+/// Acceptance cone for endpoint-refined directions: the chord error
+/// the refinement corrects is ≤ ~0.06 rad, so a refined direction more
+/// than ~0.3 rad off the chord is an artifact, never a correction.
+const REFINED_DIR_AGREEMENT: f64 = 0.95;
+
 impl ChartEmbedding {
-    /// Chart departure direction at the run start (first non-degenerate
-    /// segment), or `None` when the run is a single point.
+    /// Chart departure direction at the run start (the endpoint-refined
+    /// δ-sample when it AGREES with the coarse chord, else the first
+    /// non-degenerate run segment), or `None` when the run is a single
+    /// point.
+    ///
+    /// The refinement corrects the 1/16-run chord's tangent error
+    /// (≤ ~0.06 rad measured); a δ-sample whose direction leaves that
+    /// cone is a projection artifact — on a closed chart the δ-point
+    /// can project across the seam branch and the "tangent" points
+    /// across the chart (measured, PK-460: the propeller hub's blade
+    /// junction wedges scrambled and the shell tore — one closed
+    /// free-bound wire). Such a sample falls back to the chord.
     pub fn start_dir(&self) -> Option<(f64, f64)> {
-        first_dir(self.uv.iter())
+        let chord = first_dir(self.uv.iter());
+        if let (Some(&(u0, v0)), Some((ur, vr)), Some((cu, cv))) =
+            (self.uv.first(), self.refined_first, chord)
+        {
+            let (du, dv) = (ur - u0, vr - v0);
+            let len = (du * du + dv * dv).sqrt();
+            if len > 1e-13 && (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT {
+                return Some((du / len, dv / len));
+            }
+        }
+        chord
     }
 
     /// Chart arrival direction at the run end (direction of travel of
-    /// the last non-degenerate segment).
+    /// the last non-degenerate segment; endpoint-refined when the
+    /// δ-sample agrees with the coarse chord — see `start_dir`).
     pub fn end_dir(&self) -> Option<(f64, f64)> {
-        first_dir(self.uv.iter().rev()).map(|(du, dv)| (-du, -dv))
+        let chord = first_dir(self.uv.iter().rev()).map(|(du, dv)| (-du, -dv));
+        if let (Some(&(u1, v1)), Some((ur, vr)), Some((cu, cv))) =
+            (self.uv.last(), self.refined_last, chord)
+        {
+            let (du, dv) = (u1 - ur, v1 - vr);
+            let len = (du * du + dv * dv).sqrt();
+            if len > 1e-13 && (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT {
+                return Some((du / len, dv / len));
+            }
+        }
+        chord
     }
 
     /// Translate the whole run in u by `delta` (period-branch move).
     pub fn shift_u(&mut self, delta: f64) {
         for uv in &mut self.uv {
             uv.0 += delta;
+        }
+        if let Some(r) = &mut self.refined_first {
+            r.0 += delta;
+        }
+        if let Some(r) = &mut self.refined_last {
+            r.0 += delta;
         }
     }
 }
@@ -114,7 +176,7 @@ pub(crate) fn build_embedding(
         .or_else(|| graph.half_edges[graph.half_edges[h].twin].curve.as_ref());
     let curve_is_own = graph.half_edges[h].curve.is_some();
 
-    let mut run: Option<(Vec<(f64, f64)>, EmbeddingSource)> = None;
+    let mut run: Option<(RunWithRefinedEnds, EmbeddingSource)> = None;
 
     if let Some(pc) = graph.half_edges[h].pcurve.as_ref()
         && let Some(samples) = pcurve_run(pc, curve, curve_is_own, surface)
@@ -149,16 +211,20 @@ pub(crate) fn build_embedding(
         if let Some(pv) = pp_v {
             vb += ((ua.1 - vb) / pv).round() * pv;
         }
-        run = Some((vec![ua, (ub, vb)], EmbeddingSource::EndpointProjection));
+        run = Some((
+            (vec![ua, (ub, vb)], None, None),
+            EmbeddingSource::EndpointProjection,
+        ));
     }
 
-    let (mut uv, source) = run?;
+    let ((mut uv, mut refined_first, mut refined_last), source) = run?;
     // The resolved half-edge `h` runs opposite the registered `raw`
     // when the twin owned this face's pcurve/curve — reverse into
     // `raw`'s traversal direction (the fragment sampler's measured
     // zigzag lesson).
     if h != raw {
         uv.reverse();
+        std::mem::swap(&mut refined_first, &mut refined_last);
     }
     if uv.len() < 2 {
         return None;
@@ -178,6 +244,7 @@ pub(crate) fn build_embedding(
     let flipped = first3.distance_to(&p_end) + last3.distance_to(&p_start);
     if flipped < as_is {
         uv.reverse();
+        std::mem::swap(&mut refined_first, &mut refined_last);
     }
     if popkern_core::trace::trace_enabled("branch-pairing") {
         let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
@@ -194,6 +261,8 @@ pub(crate) fn build_embedding(
         uv,
         source,
         seam_like,
+        refined_first,
+        refined_last,
     })
 }
 
@@ -209,7 +278,7 @@ fn pcurve_run(
     curve: Option<&CurveOnEdge>,
     curve_is_own: bool,
     surface: &SurfaceGeometry,
-) -> Option<Vec<(f64, f64)>> {
+) -> Option<RunWithRefinedEnds> {
     let verify = |s0: f64, s1: f64| -> bool {
         let Some(c) = curve else {
             // No 3D curve to verify against: accept the pcurve range.
@@ -262,34 +331,17 @@ fn pcurve_run(
         window = Some((pc.t_start, pc.t_end));
     }
     let (s0, s1) = window?;
-    let mut run = Vec::with_capacity(N_SAMPLES + 3);
+    let mut run = Vec::with_capacity(N_SAMPLES + 1);
     for i in 0..=N_SAMPLES {
         let t = s0 + (s1 - s0) * i as f64 / N_SAMPLES as f64;
         let p = pc.point_at(t);
         run.push((p.x, p.y));
-        if i == 0 {
-            // ENDPOINT-REFINED direction sample (mirrored before the
-            // final point below): `start_dir`/`end_dir` are chords of
-            // the first/last run segment, and a 1/16-run chord on a
-            // curved record is up to ~0.06 rad off the true tangent —
-            // more than the angular separation of a thread groove
-            // meeting a rim near-tangentially (0.013 rad measured,
-            // PK-460), so the walk's wedge matching at such junctions
-            // ordered the slots wrong and fused the two adjacent
-            // regions into one orbit. A δ = span/1000 neighbour makes
-            // the chord direction honest at the only places it is
-            // consumed.
-            let td = s0 + (s1 - s0) * 1.0e-3;
-            let pd = pc.point_at(td);
-            run.push((pd.x, pd.y));
-        }
-        if i == N_SAMPLES - 1 {
-            let td = s0 + (s1 - s0) * (1.0 - 1.0e-3);
-            let pd = pc.point_at(td);
-            run.push((pd.x, pd.y));
-        }
     }
-    Some(run)
+    // Endpoint-refined direction samples at δ = span/1000, carried
+    // BESIDE the run (see `ChartEmbedding::refined_first`).
+    let pd0 = pc.point_at(s0 + (s1 - s0) * 1.0e-3);
+    let pd1 = pc.point_at(s0 + (s1 - s0) * (1.0 - 1.0e-3));
+    Some((run, Some((pd0.x, pd0.y)), Some((pd1.x, pd1.y))))
 }
 
 /// Project the 3D curve into the chart, middle sample first so the
@@ -307,7 +359,7 @@ fn projection_run(
     c: &CurveOnEdge,
     curve_is_own: bool,
     surface: &SurfaceGeometry,
-) -> Option<Vec<(f64, f64)>> {
+) -> Option<RunWithRefinedEnds> {
     let (u_period, v_period) = surface.parameter_periodicity();
     let (t0, t1) = if curve_is_own {
         (c.t_start, c.t_end)
@@ -355,14 +407,11 @@ fn projection_run(
         run[i] = proj_near(&p, run[i + 1])?;
     }
     // Endpoint-refined direction samples (same rationale as
-    // `pcurve_run`): δ = span/1000 neighbours next to each end make
-    // `start_dir`/`end_dir` honest tangents instead of 1/16-run
-    // chords.
+    // `pcurve_run`), carried BESIDE the run (see
+    // `ChartEmbedding::refined_first`).
     let td0 = t0 + (t1 - t0) * 1.0e-3;
     let td1 = t0 + (t1 - t0) * (1.0 - 1.0e-3);
     let d0 = proj_near(&c.geometry.point_at(td0), run[0])?;
     let d1 = proj_near(&c.geometry.point_at(td1), run[ts.len() - 1])?;
-    run.insert(1, d0);
-    run.insert(run.len() - 1, d1);
-    Some(run)
+    Some((run, Some(d0), Some(d1)))
 }

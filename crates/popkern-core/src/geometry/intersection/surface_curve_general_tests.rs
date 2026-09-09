@@ -1,5 +1,6 @@
 use super::*;
 use crate::geometry::curve::CurveGeometry;
+use crate::geometry::surface::SurfaceEval;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;

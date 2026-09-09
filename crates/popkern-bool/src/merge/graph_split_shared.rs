@@ -319,3 +319,82 @@ pub(crate) fn split_edges_at_shared_nodes(
         }
     }
 }
+
+/// Weld DEAD-END shared-record endpoint nodes onto the boundary node
+/// they missed.
+///
+/// A clipped record's endpoint is evaluated on the FITTED record
+/// curve and carries its lateral slop (~1e-4..1e-3 measured), while
+/// the boundary edge it crosses was split at the edge-face hit's
+/// exact Newton solve — two nodes for one junction, up to the fit
+/// slop apart, far beyond the graph snap (2× linear). The record
+/// then dead-ends at its own node, the chart walk's graze filter
+/// deletes the pair, the face never partitions, and the merge
+/// strands (measured: a chamfered rod's bottom-face groove chain
+/// ended at n43 = (−1.239468, 2.731961) while the rim split sat at
+/// n18 = (−1.239313, 2.732050), 1.8e-4 apart — every headed
+/// fastener declined, PK-460).
+///
+/// Scope is the graze filter's own trigger: only endpoint nodes whose
+/// ENTIRE incidence is shared-record half-edges are candidates, and
+/// only a node carrying non-record incidence (a boundary split or
+/// original vertex) within the marching-slop band may receive them.
+/// A genuine interior graze has no such neighbour and keeps its
+/// honest drop; fully-wired junction clusters (the 5.6e-4 exact
+/// connectors of PK-441) are out of scope by the dead-end condition.
+pub(crate) fn weld_dead_end_shared_endpoints(graph: &mut IntersectionGraph, band: f64) {
+    let n_nodes = graph.nodes.len();
+    let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n_nodes];
+    for (i, he) in graph.half_edges.iter().enumerate() {
+        incident[he.origin].push(i);
+    }
+    let is_shared = |h: usize| {
+        matches!(
+            graph.half_edges[h].source,
+            crate::merge::graph::EdgeSource::Shared { .. }
+        )
+    };
+    let mut welds: Vec<(usize, usize)> = Vec::new();
+    for n in 0..n_nodes {
+        if incident[n].is_empty() {
+            continue;
+        }
+        let all_record = incident[n].iter().all(|&h| is_shared(h));
+        if !all_record {
+            continue;
+        }
+        let p = graph.nodes[n].position;
+        let mut best: Option<(f64, usize)> = None;
+        for (m, inc) in incident.iter().enumerate() {
+            if m == n || inc.is_empty() {
+                continue;
+            }
+            let has_boundary = inc.iter().any(|&h| !is_shared(h));
+            if !has_boundary {
+                continue;
+            }
+            let d = graph.nodes[m].position.distance_to(&p);
+            if d < band && best.is_none_or(|(bd, _)| d < bd) {
+                best = Some((d, m));
+            }
+        }
+        if let Some((d, m)) = best {
+            if popkern_core::trace::trace_enabled("boolean") {
+                let q = graph.nodes[m].position;
+                eprintln!(
+                    "  [weld-dead-end] node {n} ({:.6},{:.6},{:.6}) -> {m} ({:.6},{:.6},{:.6}) d={d:.2e}",
+                    p.x, p.y, p.z, q.x, q.y, q.z
+                );
+            }
+            welds.push((n, m));
+        }
+    }
+    for (n, m) in welds {
+        let moved: Vec<usize> = graph.nodes[n].outgoing.clone();
+        for h in moved {
+            graph.half_edges[h].origin = m;
+            graph.nodes[m].outgoing.push(h);
+        }
+        graph.nodes[n].outgoing.clear();
+    }
+}

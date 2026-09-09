@@ -114,10 +114,29 @@ fn newton_project(
 
         let delta = solve_4x4(j, rhs)?;
 
-        u1 -= delta[0];
-        v1 -= delta[1];
-        u2 -= delta[2];
-        v2 -= delta[3];
+        // WORLD-METRIC trust region — not domain clamping (that
+        // variant is measured-falsified above): a healthy Newton
+        // step's world-space motion is residual-scale, while a
+        // near-singular Jacobian row can fling one variable across
+        // the whole chart in a single iteration (measured: a
+        // thread-root band × chamfer-cone solve stepped the band's
+        // path parameter 16 WINDOWS in one iteration, and whether it
+        // happened flipped on a 5e-17 tilt of the cone axis — a
+        // knife-edge, not a convergence property). Scaling the step
+        // so neither surface moves more than a few residuals leaves
+        // out-of-domain excursions and quadratic tail convergence
+        // untouched and turns the blowup into a recoverable move.
+        let w1 = (s1u * delta[0] + s1v * delta[1]).length();
+        let w2 = (s2u * delta[2] + s2v * delta[3]).length();
+        let motion = w1.max(w2);
+        let residual = (f.x * f.x + f.y * f.y + f.z * f.z).sqrt() + f4.abs();
+        let cap = 8.0 * residual + tolerance.linear();
+        let scale = if motion > cap { cap / motion } else { 1.0 };
+
+        u1 -= delta[0] * scale;
+        v1 -= delta[1] * scale;
+        u2 -= delta[2] * scale;
+        v2 -= delta[3] * scale;
     }
 
     None
@@ -237,4 +256,29 @@ pub(crate) fn newton_boundary_crossing(
         v2 -= delta[3];
     }
     None
+}
+
+/// Refine a surface×surface intersection point exactly onto a chart
+/// iso-boundary (see [`BoundaryPin`]): Newton on `S1 = S2` with one
+/// chart coordinate pinned to the boundary value. Used by boolean
+/// junction-endpoint refinement — per-pair clip crossings evaluate
+/// FITTED record curves and carry the fit's lateral slop (~1e-4–1e-3
+/// measured at grazing junction clusters), while this solve lands on
+/// the TRUE intersection∩boundary point. Returns the refined chart
+/// coordinates of both surfaces and the 3D point, or `None` when the
+/// solve is singular (curve tangent to the boundary) or does not
+/// converge — callers keep the unrefined endpoint then.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_boundary_crossing(
+    surface1: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    surface2: &SurfaceGeometry,
+    u2: f64,
+    v2: f64,
+    pin: BoundaryPin,
+    tolerance: &Tolerance,
+) -> Option<(f64, f64, f64, f64, Point3)> {
+    newton_boundary_crossing(surface1, u1, v1, surface2, u2, v2, pin, tolerance)
+        .map(|s| (s.u1, s.v1, s.u2, s.v2, s.point))
 }

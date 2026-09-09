@@ -7,6 +7,8 @@ use surface_surface_tangential::tangential_crossing_certificate;
 #[path = "surface_surface_fitting.rs"]
 mod surface_surface_fitting;
 pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
+#[path = "surface_surface_implicit_seed.rs"]
+mod surface_surface_implicit_seed;
 #[path = "surface_surface_torus_seed.rs"]
 mod surface_surface_torus_seed;
 
@@ -19,14 +21,8 @@ use crate::geometry::Point3;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
-use crate::geometry::intersection::plane_cylinder;
-use crate::geometry::intersection::plane_plane::try_plane_plane;
-use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::intersection::surface_surface_consumed::point_near_polylines;
-use crate::geometry::intersection::{
-    cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_torus, torus_coaxial,
-};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 
@@ -87,7 +83,6 @@ mod surface_surface_trace;
 use surface_surface_trace::trace_ssi;
 #[path = "surface_surface_fastpath.rs"]
 mod surface_surface_fastpath;
-use surface_surface_fastpath::try_coincident_fast;
 
 #[allow(clippy::too_many_arguments)]
 fn intersect_surfaces_inner(
@@ -100,111 +95,11 @@ fn intersect_surfaces_inner(
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
 ) -> Result<SurfaceSurfaceIntersectionResult, CoreError> {
-    // Fast path: both surfaces are planes → analytic solver.
-    if let (
-        SurfaceGeometry::Plane {
-            origin: o1,
-            normal: n1,
-            u_axis: ua1,
-            v_axis: va1,
-        },
-        SurfaceGeometry::Plane {
-            origin: o2,
-            normal: n2,
-            u_axis: ua2,
-            v_axis: va2,
-        },
-    ) = (surface1, surface2)
-    {
-        let intersections = try_plane_plane(
-            *o1, *n1, *ua1, *va1, u1_range, v1_range, *o2, *n2, *ua2, *va2, u2_range, v2_range,
-            tolerance,
-        )?;
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: plane-sphere pair → analytic solver.
-    if let Some(intersections) = plane_sphere::try_plane_sphere(
+    // Analytic fast paths (exact solvers + coincidence detection);
+    // `None` falls through to the marching solver.
+    if let Some(result) = surface_surface_fastpath::try_analytic_pair(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-    ) {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: plane-cylinder pair → analytic solver.
-    if let Some(intersections) = plane_cylinder::try_plane_cylinder(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-    ) {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: plane-cone pair → analytic solver.
-    if let Some(intersections) = plane_cone::try_plane_cone(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-    ) {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: COAXIAL cylinder-cone pair → exact circle(s); the
-    // marching path fragmented this everyday class (PK-147).
-    if let Some(intersections) = cylinder_cone::try_cylinder_cone(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-    ) {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: COAXIAL cylinder-sphere pair → exact circles, or an
-    // exact empty answer for the tangent / enclosed regimes. The
-    // marching path re-marched a fillet strip × corner sphere tangent
-    // circle from every one of ~2100 tangent seeds (PK-390).
-    if let Some(intersections) =
-        cylinder_sphere::try_cylinder_sphere(surface1, v1_range, surface2, v2_range, tolerance)
-    {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // Fast path: cylinder-cylinder with non-parallel axes → exact
-    // ruling-swept branches. The marching path fragments the
-    // cross-drill class into overlapping partial traces and loses
-    // whole branches (PK-170).
-    if let Some(intersections) =
-        cylinder_cylinder::try_cylinder_cylinder(surface1, v1_range, surface2, v2_range, tolerance)
-    {
-        return Ok(SurfaceSurfaceIntersectionResult { intersections });
-    }
-
-    // PK-279 torus analytic arms: plane×torus in any orientation
-    // (exact circles / sampled-analytic spiric sections) and coaxial
-    // {cylinder, cone, sphere, torus}×torus (exact circles). A `None`
-    // (non-torus pair, skew/offset axes, numeric-guard decline) keeps
-    // the marching fallback; coincident coaxial tori fall through to
-    // the coincident detector. POPKERN_ANALYTIC_TORUS_SSI=0 is the
-    // diagnostic kill-switch (PK-239 precedent) pinning the marching
-    // path for A/B measurement and containment.
-    // Deliberately a per-call env read (NOT OnceLock'd like the trace
-    // gates): the torus-SSI acceptance ratio test toggles this
-    // kill-switch mid-process to A/B the marching path, and a cached
-    // read froze its second measurement on the analytic arm. One read
-    // per intersect call is negligible next to the solve itself.
-    let torus_arms_enabled = std::env::var_os("POPKERN_ANALYTIC_TORUS_SSI")
-        .map(|v| v != "0")
-        .unwrap_or(true);
-    if torus_arms_enabled {
-        if let Some(intersections) = plane_torus::try_plane_torus(
-            surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-        ) {
-            return Ok(SurfaceSurfaceIntersectionResult { intersections });
-        }
-        if let Some(intersections) = torus_coaxial::try_torus_coaxial(
-            surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-        ) {
-            return Ok(SurfaceSurfaceIntersectionResult { intersections });
-        }
-    }
-
-    // Fast path: coincident surfaces → return CoincidentRegion immediately.
-    if let Some(result) = try_coincident_fast(
-        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-    ) {
+    )? {
         return Ok(result);
     }
 
@@ -214,6 +109,24 @@ fn intersect_surfaces_inner(
     let mut starting_points = find_starting_points(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     );
+    // Seeds too are accepted unclamped and can carry a wrong-preimage
+    // registration on self-overlapping extended bases — re-branch
+    // them into the query windows (same rationale as the march's
+    // `rebranch_out_of_window`).
+    let mut seed_phantom_cache = Vec::new();
+    for sp in &mut starting_points {
+        let _ = crate::geometry::intersection::marching::rebranch_sample_pub(
+            surface1,
+            u1_range,
+            v1_range,
+            surface2,
+            u2_range,
+            v2_range,
+            &mut sp.sample,
+            tolerance,
+            &mut seed_phantom_cache,
+        );
+    }
     // CLOSEST-APPROACH seeding fallback for torus pairs (PK-310) —
     // mechanics and measured rationale in
     // `surface_surface_torus_seed.rs`.
@@ -358,100 +271,129 @@ fn intersect_surfaces_inner(
     let march_u2 = pad_window(u2_range, periodic_u2);
     let march_v2 = pad_window(v2_range, periodic_v2);
 
-    while let Some((seed, demoted)) = branch_queue.pop() {
-        // Cap total curves to avoid runaway branching.
-        if results.len() >= MAX_CURVES {
-            break;
-        }
+    // RESCUE loop: when ordinary seeding-and-marching emits nothing
+    // (an extrapolation-phantom basin can swallow every
+    // patch-midpoint solve — or leave only phantom seeds that
+    // domain-kill at step one), seed once more from exact
+    // implicit-distance sign changes on a knot-span grid — a
+    // crossing certificate, not a guess (see
+    // surface_surface_implicit_seed) — and march those.
+    let mut rescue_tried = false;
+    'rescue: loop {
+        while let Some((seed, demoted)) = branch_queue.pop() {
+            // Cap total curves to avoid runaway branching.
+            if results.len() >= MAX_CURVES {
+                break;
+            }
 
-        // Skip if already traced through this region.
-        if point_near_polylines(&seed.point, &consumed, consumed_radius) {
-            continue;
-        }
+            // Skip if already traced through this region.
+            if point_near_polylines(&seed.point, &consumed, consumed_radius) {
+                continue;
+            }
 
-        let (samples, is_closed) = march(
-            surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance, handler,
-        );
-
-        // For EMITTING traces, consumption covers the FULL trace, not
-        // the emitted span: seeds converge unclamped and legitimately
-        // land on curve stretches beyond the caller's windows (the
-        // march windows are padded), and consuming only the trimmed
-        // polyline re-marched the identical curve once per
-        // out-of-window seed — a thread-groove flank × shank pair
-        // re-traced its 28-unit helix 19 times and flooded
-        // consolidation with duplicate records (PK-460). Scoped to
-        // emitting traces only: a trace TRIMMED TO NOTHING or a
-        // failed-certificate blob keeps its tuned consumption (the
-        // grazing strip×cap pin measured that full consumption there
-        // starves the honest re-seeds — tangent-chart uv registration
-        // is sloppy enough that a blob's samples can all read
-        // out-of-window while later seeds trace the real crossing).
-        let full_trace: Vec<Point3> = samples.iter().map(|s| s.point).collect();
-
-        // The entry band exists so an out-of-window seed can walk into
-        // the caller's windows — it must not widen the EMITTED curve:
-        // callers key curve endpoints against their own trim windows
-        // (measured: 1% overhang declined the variable-radius setback
-        // serve). Trim leading/trailing samples outside the caller's
-        // windows, refining each trimmed end onto the exact window
-        // boundary — mechanism and measured rationale in
-        // `surface_surface_trim`.
-        let samples = trim_to_windows(
-            &samples, surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-        );
-
-        if samples.len() < 2 {
-            continue; // too few samples to fit
-        }
-        // A demoted-tangent trace must certify an actual CROSSING
-        // before emission: probes offset to either side of the traced
-        // curve must flip the sign of the analytic operand's implicit
-        // distance. Near-contact blobs (surfaces within tolerance
-        // around a touch, no sign change) and pairs with no analytic
-        // side to certify against stay on the tangency-silent
-        // contract.
-        if demoted && !tangential_crossing_certificate(surface1, surface2, &samples, tolerance) {
-            // The trace is a near-contact blob, not a crossing — but it
-            // IS the answer for every other seed lying on it. Mark it
-            // consumed so the remaining seeds of a tangent band do not
-            // each repeat the identical full-cap march (measured: ~2100
-            // seeds × 20 001 steps on a fillet strip × corner sphere
-            // pair before the analytic arm covered that class, PK-390).
-            // Trimmed span only — see the scoping note on
-            // `full_trace` above.
-            consumed.push(samples.iter().map(|s| s.point).collect());
-            continue;
-        }
-
-        // Mark the traced polyline as consumed (full trace — see above).
-        consumed.push(full_trace);
-
-        // 4. Segment at UV period jumps, weld marched closure, fit
-        //    (PK-304) — mechanism and measured rationale in
-        //    `surface_surface_fitting::fit_marched_trace`.
-        fit_marched_trace(
-            &samples,
-            is_closed,
-            surface1,
-            surface2,
-            tolerance,
-            &mut results,
-        );
-
-        // 5. Branch detection: look for additional intersection
-        //    branches near this seed.
-        if results.len() < MAX_CURVES {
-            let new_branches = find_branch_points(
-                surface1, u1_range, v1_range, surface2, u2_range, v2_range, &samples, &seed,
-                tolerance,
+            let (samples, is_closed) = march(
+                surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance,
+                handler,
             );
-            for branch in new_branches {
-                if !point_near_polylines(&branch.point, &consumed, consumed_radius) {
-                    branch_queue.push((branch, demoted));
+
+            // For EMITTING traces, consumption covers the FULL trace, not
+            // the emitted span: seeds converge unclamped and legitimately
+            // land on curve stretches beyond the caller's windows (the
+            // march windows are padded), and consuming only the trimmed
+            // polyline re-marched the identical curve once per
+            // out-of-window seed — a thread-groove flank × shank pair
+            // re-traced its 28-unit helix 19 times and flooded
+            // consolidation with duplicate records (PK-460). Scoped to
+            // emitting traces only: a trace TRIMMED TO NOTHING or a
+            // failed-certificate blob keeps its tuned consumption (the
+            // grazing strip×cap pin measured that full consumption there
+            // starves the honest re-seeds — tangent-chart uv registration
+            // is sloppy enough that a blob's samples can all read
+            // out-of-window while later seeds trace the real crossing).
+            let full_trace: Vec<Point3> = samples.iter().map(|s| s.point).collect();
+
+            // The entry band exists so an out-of-window seed can walk into
+            // the caller's windows — it must not widen the EMITTED curve:
+            // callers key curve endpoints against their own trim windows
+            // (measured: 1% overhang declined the variable-radius setback
+            // serve). Trim leading/trailing samples outside the caller's
+            // windows, refining each trimmed end onto the exact window
+            // boundary — mechanism and measured rationale in
+            // `surface_surface_trim`.
+            let samples = trim_to_windows(
+                &samples, surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+            );
+
+            if samples.len() < 2 {
+                continue; // too few samples to fit
+            }
+            // A demoted-tangent trace must certify an actual CROSSING
+            // before emission: probes offset to either side of the traced
+            // curve must flip the sign of the analytic operand's implicit
+            // distance. Near-contact blobs (surfaces within tolerance
+            // around a touch, no sign change) and pairs with no analytic
+            // side to certify against stay on the tangency-silent
+            // contract.
+            if demoted && !tangential_crossing_certificate(surface1, surface2, &samples, tolerance)
+            {
+                // The trace is a near-contact blob, not a crossing — but it
+                // IS the answer for every other seed lying on it. Mark it
+                // consumed so the remaining seeds of a tangent band do not
+                // each repeat the identical full-cap march (measured: ~2100
+                // seeds × 20 001 steps on a fillet strip × corner sphere
+                // pair before the analytic arm covered that class, PK-390).
+                // Trimmed span only — see the scoping note on
+                // `full_trace` above.
+                consumed.push(samples.iter().map(|s| s.point).collect());
+                continue;
+            }
+
+            // Mark the traced polyline as consumed (full trace — see above).
+            consumed.push(full_trace);
+
+            // 4. Segment at UV period jumps, weld marched closure, fit
+            //    (PK-304) — mechanism and measured rationale in
+            //    `surface_surface_fitting::fit_marched_trace`.
+            fit_marched_trace(
+                &samples,
+                is_closed,
+                surface1,
+                surface2,
+                tolerance,
+                &mut results,
+            );
+
+            // 5. Branch detection: look for additional intersection
+            //    branches near this seed.
+            if results.len() < MAX_CURVES {
+                let new_branches = find_branch_points(
+                    surface1, u1_range, v1_range, surface2, u2_range, v2_range, &samples, &seed,
+                    tolerance,
+                );
+                for branch in new_branches {
+                    if !point_near_polylines(&branch.point, &consumed, consumed_radius) {
+                        branch_queue.push((branch, demoted));
+                    }
                 }
             }
         }
+        if results.is_empty() && !rescue_tried {
+            rescue_tried = true;
+            surface_surface_implicit_seed::push_implicit_grid_seeds(
+                &mut branch_queue,
+                surface1,
+                u1_range,
+                v1_range,
+                surface2,
+                u2_range,
+                v2_range,
+                tolerance,
+            );
+            if !branch_queue.is_empty() {
+                continue 'rescue;
+            }
+        }
+        break;
     }
     Ok(SurfaceSurfaceIntersectionResult {
         intersections: results,

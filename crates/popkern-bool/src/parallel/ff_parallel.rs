@@ -295,7 +295,23 @@ fn clip_and_classify(
                         clipped_list.len(),
                     );
                 }
-                for clipped in clipped_list {
+                for mut clipped in clipped_list {
+                    // Boundary-crossing endpoints refine onto the
+                    // exact edge-curve x surface junction so the
+                    // graph mints ONE node per junction (see
+                    // clip_endpoint_refine).
+                    crate::clip_endpoint_refine::refine_endpoints_onto_boundaries(
+                        a,
+                        face_a,
+                        inp.surf_a,
+                        (inp.r1.0, inp.r1.1),
+                        b,
+                        face_b,
+                        inp.surf_b,
+                        (inp.r2.0, inp.r2.1),
+                        &mut clipped,
+                        tolerance,
+                    );
                     if trace.clip {
                         trace_clip_output(face_a, face_b, &clipped);
                     }

@@ -53,7 +53,7 @@ fn stage_context(_stage: &str, e: FastenerError) -> FastenerError {
 
 /// Chamfer the tip of a shank at `z` to just below the minor
 /// diameter (thread lead-in; 45°).
-fn tip_chamfer(
+pub(crate) fn tip_chamfer(
     body: &BRep,
     spec: &ThreadSpec,
     z: f64,

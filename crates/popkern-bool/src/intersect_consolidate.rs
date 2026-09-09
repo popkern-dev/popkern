@@ -21,9 +21,19 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
     for (i, r) in records.iter().enumerate() {
         groups.entry((r.face_a, r.face_b)).or_default().push(i);
     }
+    // DETERMINISTIC group order: HashMap iteration order is
+    // per-process random, and the dedupe/weld decisions below are
+    // order-dependent (an earlier-processed group keeps its copy and
+    // drops the later one) — the same boolean flip-flopped between
+    // serve and decline across identical runs (PK-460, the flagged
+    // intersect nondeterminism). Order groups by their smallest
+    // record index: content-derived and stable.
+    let mut ordered_groups: Vec<Vec<usize>> = groups.into_values().collect();
+    ordered_groups.sort_by_key(|idxs| idxs.iter().copied().min().unwrap_or(usize::MAX));
+    let n_groups = ordered_groups.len();
     let mut drop = vec![false; records.len()];
     // Junction weld targets: (record index, is_start, new point set).
-    for idxs in groups.values() {
+    for idxs in &ordered_groups {
         if idxs.len() < 2 {
             continue;
         }
@@ -390,12 +400,9 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
         eprintln!(
             "  [consolidate] {} records in {} groups, dropped {}",
             records.len(),
-            groups.len(),
+            n_groups,
             dropped
         );
-        for (k, v) in &groups {
-            eprintln!("    group {k:?}: {} records", v.len());
-        }
     }
     let mut keep_iter = drop.into_iter();
     records.retain(|_| !keep_iter.next().unwrap_or(false));

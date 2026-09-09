@@ -187,3 +187,29 @@ pub(super) fn forward_trace_closed(forward: &[super::MarchSample], tolerance: &T
             gap < tol
         }
 }
+
+/// Recover a usable surface normal at a singular evaluation during the
+/// march (split from `march_one_direction` under the 500-line file
+/// budget): try direct estimation near the point, then walk `u`
+/// forward with a halving step up to three times. Returns the normal
+/// and the possibly reduced step size, or `None` when unrecoverable.
+pub(super) fn recover_singular_normal(
+    surface: &crate::geometry::surface::SurfaceGeometry,
+    u: f64,
+    v: f64,
+    step_size: f64,
+    tolerance: &crate::tolerance::Tolerance,
+) -> Option<(crate::geometry::Vec3, f64)> {
+    let delta = tolerance.linear() * 10.0;
+    if let Some(estimated) = estimate_normal_near_singularity(surface, u, v, delta) {
+        return Some((estimated, step_size));
+    }
+    let mut reduced_step = step_size * 0.5;
+    for _attempt in 0..3 {
+        if let Some(en) = estimate_normal_near_singularity(surface, u + reduced_step, v, delta) {
+            return Some((en, reduced_step));
+        }
+        reduced_step *= 0.5;
+    }
+    None
+}

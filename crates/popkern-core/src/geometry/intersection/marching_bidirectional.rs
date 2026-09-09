@@ -95,8 +95,27 @@ pub(crate) fn march(
 pub(super) fn trace_march_termination(termination: &str, samples: &[MarchSample]) {
     if crate::trace::trace_enabled("march") {
         let last = &samples[samples.len() - 1].point;
+        // Arc alongside the count: a budget-saturated march with arc
+        // ≈ count × min-step is a tolerance-floor crawl (no new
+        // geometry per step); one with real arc is a legitimate long
+        // curve. The distinction picks the containment (PK-460).
+        let arc: f64 = samples
+            .windows(2)
+            .map(|w| w[0].point.distance_to(&w[1].point))
+            .sum();
+        // Closest return to the start after the closure-check
+        // grace window: a budget-saturated march whose return
+        // distance stays large is an open drift (spiral/multi-sheet);
+        // one that repeatedly passes near the start is a closure
+        // detection miss (PK-460).
+        let start = &samples[0].point;
+        let closest_return = samples
+            .iter()
+            .skip(21)
+            .map(|s| s.point.distance_to(start))
+            .fold(f64::INFINITY, f64::min);
         eprintln!(
-            "  [march] direction ended: {termination} after {} pts at ({:.4},{:.4},{:.4})",
+            "  [march] direction ended: {termination} after {} pts arc {arc:.4} return {closest_return:.2e} at ({:.4},{:.4},{:.4})",
             samples.len(),
             last.x,
             last.y,

@@ -15,7 +15,7 @@
 //! let spec = ThreadSpec::parse("M6")?;              // ISO coarse: 6.0 × 1.0
 //! let bolt = HexBolt::new(spec.clone(), 20.0).build(Tolerance::default())?;
 //! let nut = HexNut::new(spec).clearance(0.2).build(Tolerance::default())?;
-//! # Ok::<(), popkern_part::PartError>(())
+//! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!
 //! Dimensions are plain numbers in the caller's model units

@@ -9,15 +9,15 @@ pub(crate) mod marching_newton;
 #[path = "marching_helpers.rs"]
 mod marching_helpers;
 
+#[allow(unused_imports)]
+use marching_helpers::estimate_normal_near_singularity;
 use marching_helpers::{
-    estimate_normal_near_singularity, find_tangent_march_direction, principal_branch_seed,
-    wrap_parameter,
+    find_tangent_march_direction, principal_branch_seed, recover_singular_normal, wrap_parameter,
 };
 
-pub use marching_newton::BoundaryPin;
 pub(crate) use marching_newton::march_project;
 use marching_newton::march_project_with_iters;
-use marching_newton::newton_boundary_crossing;
+pub use marching_newton::{BoundaryPin, refine_boundary_crossing};
 
 use crate::geometry::intersection::adaptive_step::{
     curvature_based_step, estimate_intersection_curvature,
@@ -28,33 +28,14 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
-/// A detected branch point where the intersection curve splits.
-#[derive(Debug, Clone)]
-pub struct BranchPoint {
-    /// The 3D location of the branch point.
-    pub point: Point3,
-    /// Parameters on surface 1.
-    pub u1: f64,
-    /// Parameters on surface 1.
-    pub v1: f64,
-    /// The Jacobian condition indicator (sin of normal angle) at this point.
-    pub condition: f64,
-}
+#[path = "marching_types.rs"]
+mod marching_types;
+pub use marching_types::{BranchPoint, MarchSample};
 
-/// A sample point on a surface-surface intersection curve.
-#[derive(Debug, Clone)]
-pub struct MarchSample {
-    /// Parameter on surface 1, u direction.
-    pub u1: f64,
-    /// Parameter on surface 1, v direction.
-    pub v1: f64,
-    /// Parameter on surface 2, u direction.
-    pub u2: f64,
-    /// Parameter on surface 2, v direction.
-    pub v2: f64,
-    /// The 3D point (equal to surface1.point_at(u1, v1) at convergence).
-    pub point: Point3,
-}
+#[path = "marching_rebranch.rs"]
+mod marching_rebranch;
+use marching_rebranch::rebranch_out_of_window;
+pub(crate) use marching_rebranch::rebranch_sample_pub;
 
 /// March in one direction along the intersection curve.
 #[allow(clippy::too_many_arguments)]
@@ -95,6 +76,20 @@ pub(crate) fn march_one_direction(
     let mut samples = vec![start.clone()];
     // Termination cause for the march trace: every break overwrites it.
     let mut termination = "step-budget";
+    // Wrong-preimage landings allow a few halve-and-retry attempts
+    // (a smaller step near the phantom boundary can stay real), but
+    // a march that keeps converging into the extrapolated basin must
+    // STOP: unbounded retries re-projected the same phantom family
+    // ~800k times on one two-start rod cut (5× wall time, measured).
+    let mut phantom_retries = 0u32;
+    let mut phantom_cache: Vec<Point3> = Vec::new();
+    // ORBIT GUARD state (see the near-return check after the strict
+    // closure test): accumulated arc, arc at the last counted
+    // near-return, and how many well-separated near-returns failed
+    // strict closure.
+    let mut arc_acc = 0.0_f64;
+    let mut last_near_arc = f64::NEG_INFINITY;
+    let mut near_returns = 0u32;
 
     for _ in 0..max_steps {
         let current = &samples[samples.len() - 1];
@@ -109,33 +104,16 @@ pub(crate) fn march_one_direction(
                 termination = "singularity-1";
                 break;
             }
-            // Handler returned false (robust): attempt normal estimation near singularity.
-            let delta = tolerance.linear() * 10.0;
-            match estimate_normal_near_singularity(surface1, current.u1, current.v1, delta) {
-                Some(estimated) => n1 = estimated,
+            // Handler returned false (robust): estimate near the
+            // singularity, walking forward with a halving step.
+            match recover_singular_normal(surface1, current.u1, current.v1, step_size, tolerance) {
+                Some((estimated, reduced)) => {
+                    n1 = estimated;
+                    step_size = reduced;
+                }
                 None => {
-                    // Estimation failed: reduce step size and retry up to 3 times.
-                    let mut recovered = false;
-                    let mut reduced_step = step_size * 0.5;
-                    for _attempt in 0..3 {
-                        let test_n = estimate_normal_near_singularity(
-                            surface1,
-                            current.u1 + reduced_step,
-                            current.v1,
-                            delta,
-                        );
-                        if let Some(en) = test_n {
-                            n1 = en;
-                            step_size = reduced_step;
-                            recovered = true;
-                            break;
-                        }
-                        reduced_step *= 0.5;
-                    }
-                    if !recovered {
-                        termination = "singular-normal-1-unrecovered";
-                        break;
-                    }
+                    termination = "singular-normal-1-unrecovered";
+                    break;
                 }
             }
         }
@@ -146,33 +124,14 @@ pub(crate) fn march_one_direction(
                 termination = "singularity-2";
                 break;
             }
-            // Handler returned false (robust): attempt normal estimation near singularity.
-            let delta = tolerance.linear() * 10.0;
-            match estimate_normal_near_singularity(surface2, current.u2, current.v2, delta) {
-                Some(estimated) => n2 = estimated,
+            match recover_singular_normal(surface2, current.u2, current.v2, step_size, tolerance) {
+                Some((estimated, reduced)) => {
+                    n2 = estimated;
+                    step_size = reduced;
+                }
                 None => {
-                    // Estimation failed: reduce step size and retry up to 3 times.
-                    let mut recovered = false;
-                    let mut reduced_step = step_size * 0.5;
-                    for _attempt in 0..3 {
-                        let test_n = estimate_normal_near_singularity(
-                            surface2,
-                            current.u2 + reduced_step,
-                            current.v2,
-                            delta,
-                        );
-                        if let Some(en) = test_n {
-                            n2 = en;
-                            step_size = reduced_step;
-                            recovered = true;
-                            break;
-                        }
-                        reduced_step *= 0.5;
-                    }
-                    if !recovered {
-                        termination = "singular-normal-2-unrecovered";
-                        break;
-                    }
+                    termination = "singular-normal-2-unrecovered";
+                    break;
                 }
             }
         }
@@ -235,6 +194,30 @@ pub(crate) fn march_one_direction(
                 tolerance,
             ) {
                 Some((mut sample, iters)) => {
+                    // Wrong-preimage landings re-branch into the query
+                    // windows before the domain check; a landing that
+                    // cannot re-branch is an extrapolation phantom and
+                    // counts as a failed projection (the halve-step
+                    // retry below keeps the march on the real curve —
+                    // see `rebranch_out_of_window`).
+                    if !rebranch_out_of_window(
+                        surface1,
+                        u1_range,
+                        v1_range,
+                        surface2,
+                        u2_range,
+                        v2_range,
+                        &mut sample,
+                        tolerance,
+                        &mut phantom_cache,
+                    ) {
+                        phantom_retries += 1;
+                        retry_step *= 0.5;
+                        if retry_step < min_step || phantom_retries > 8 {
+                            break;
+                        }
+                        continue;
+                    }
                     // Adaptive step based on iteration count.
                     if iters < 3 {
                         step_size = (retry_step * 1.5).min(step_ceiling);
@@ -365,6 +348,19 @@ pub(crate) fn march_one_direction(
                         !periodic_v2 && (sample.v2 < v2_range.0 || sample.v2 > v2_range.1);
                     if exits_u1 || exits_v1 || exits_u2 || exits_v2 {
                         termination = "domain-exit";
+                        if crate::trace::trace_enabled("march") {
+                            eprintln!(
+                                "      [march-exit] u1={:.6} v1={:.6} u2={:.6} v2={:.6} flags {}{}{}{} w1={u1_range:?} {v1_range:?} w2={u2_range:?} {v2_range:?}",
+                                sample.u1,
+                                sample.v1,
+                                sample.u2,
+                                sample.v2,
+                                exits_u1 as u8,
+                                exits_v1 as u8,
+                                exits_u2 as u8,
+                                exits_v2 as u8
+                            );
+                        }
                         // Exited domain; stop marching in this
                         // direction. The exiting sample IS emitted:
                         // window trimming downstream refines the
@@ -388,12 +384,64 @@ pub(crate) fn march_one_direction(
                     // distance (avoid false closure on first few steps).
                     let min_steps_before_closure_check = 20;
                     let closure_tol = step_size * 1.5;
-                    if samples.len() > min_steps_before_closure_check
-                        && sample.point.distance_to(&start.point) < closure_tol
+                    let dist_to_start = sample.point.distance_to(&start.point);
+                    if samples.len() > min_steps_before_closure_check && dist_to_start < closure_tol
                     {
                         samples.push(sample);
                         trace_march_termination("closure", &samples);
                         return samples;
+                    }
+
+                    // ORBIT GUARD: a trace that keeps returning NEAR
+                    // its start without ever strictly closing is
+                    // re-traversing the same near-closed contact ring
+                    // — a numerical orbit, not new geometry. Measured
+                    // (PK-460, conic cube corner): a near-tangent
+                    // ring of circumference ~1 returned to within
+                    // 3.8e-3..7.6e-3 of its start (strict closure
+                    // needed 2.8e-3) and orbited ~400 laps to the
+                    // step budget — 200k samples per trace, 41 GB
+                    // peak RSS, an OOM SIGKILL in the sweep. Two
+                    // near-returns separated by a full lap of arc
+                    // certify the orbit; terminating there hands
+                    // downstream the same honestly-named truncation
+                    // the step budget produced, at lap ~2 instead of
+                    // lap ~400. Open marches (a thread helix) never
+                    // return near their start; genuinely closed
+                    // loops strictly close on the first lap.
+                    //
+                    // A near-return counts ONLY when the march passes
+                    // the start region travelling in the START'S OWN
+                    // direction: an orbit re-treads the same curve, so
+                    // it arrives aligned, while a legitimate open
+                    // trace can pass NEAR its start transversally — a
+                    // deep-grind plane cuts a coil tube in two arcs of
+                    // one S-shaped trace whose far arc passes within
+                    // the band travelling the other way (measured:
+                    // the direction-blind guard truncated it mid-curve
+                    // and the boolean failed validation at 6.9e-5).
+                    let near_band = closure_tol * 8.0;
+                    let prev_point = samples[samples.len() - 1].point;
+                    arc_acc += sample.point.distance_to(&prev_point);
+                    if samples.len() > min_steps_before_closure_check
+                        && dist_to_start < near_band
+                        && arc_acc - last_near_arc > 50.0 * near_band
+                    {
+                        let aligned = {
+                            let step_dir = sample.point - prev_point;
+                            let start_dir = samples[1].point - samples[0].point;
+                            let lens = step_dir.length() * start_dir.length();
+                            lens > 1e-30 && step_dir.dot(&start_dir) / lens > 0.9
+                        };
+                        if aligned {
+                            last_near_arc = arc_acc;
+                            near_returns += 1;
+                            if near_returns >= 2 {
+                                samples.push(sample);
+                                trace_march_termination("orbit-no-closure", &samples);
+                                return samples;
+                            }
+                        }
                     }
 
                     samples.push(sample);
@@ -418,31 +466,6 @@ pub(crate) fn march_one_direction(
     trace_march_termination(termination, &samples);
 
     samples
-}
-
-/// Refine a surface×surface intersection point exactly onto a chart
-/// iso-boundary (see [`BoundaryPin`]): Newton on `S1 = S2` with one
-/// chart coordinate pinned to the boundary value. Used by boolean
-/// junction-endpoint refinement — per-pair clip crossings evaluate
-/// FITTED record curves and carry the fit's lateral slop (~1e-4–1e-3
-/// measured at grazing junction clusters), while this solve lands on
-/// the TRUE intersection∩boundary point. Returns the refined chart
-/// coordinates of both surfaces and the 3D point, or `None` when the
-/// solve is singular (curve tangent to the boundary) or does not
-/// converge — callers keep the unrefined endpoint then.
-#[allow(clippy::too_many_arguments)]
-pub fn refine_boundary_crossing(
-    surface1: &SurfaceGeometry,
-    u1: f64,
-    v1: f64,
-    surface2: &SurfaceGeometry,
-    u2: f64,
-    v2: f64,
-    pin: BoundaryPin,
-    tolerance: &Tolerance,
-) -> Option<(f64, f64, f64, f64, Point3)> {
-    newton_boundary_crossing(surface1, u1, v1, surface2, u2, v2, pin, tolerance)
-        .map(|s| (s.u1, s.v1, s.u2, s.v2, s.point))
 }
 
 #[path = "marching_bidirectional.rs"]

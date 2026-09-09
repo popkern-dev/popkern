@@ -11,9 +11,89 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::face_vertex_positions;
 
+/// Outer-loop outline as an ordered polygon: every loop vertex plus
+/// interior samples of each curved edge, in traversal order (each
+/// half-edge's samples follow its own direction along the edge curve).
+///
+/// The VERTEX polygon is an under-approximation of a face bounded by
+/// curved edges — it drops the sagitta bulge between junction
+/// vertices. Cyrus-Beck against the chord polygon made the clip
+/// window depend on WHICH junction vertices happened to exist: a
+/// grind-plane trim across a coil end-cap disc is collinear with the
+/// chord between its own two junction points, so with both junctions
+/// already minted the trim lay ON the hull edge and clipped to an
+/// empty window ([cb] s=[0.524,0.524]) — the split then failed and
+/// the whole boolean declined, flipping on record ORDER (measured,
+/// PK-460: coil_spring top grind). Sampling the true boundary curves
+/// restores the bulge; the disc strictly contains its chords and the
+/// clip is order-independent.
+fn face_outline_sample_positions(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    samples_per_edge: usize,
+) -> Vec<Point3> {
+    let face = &brep.faces[face_handle];
+    let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+        return Vec::new();
+    };
+    let start_he = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start_he) {
+        return Vec::new();
+    }
+    let mut positions = Vec::new();
+    let mut current = start_he;
+    let limit = brep.half_edges.len() + 1;
+    for _ in 0..limit {
+        let he = &brep.half_edges[current];
+        let origin = brep.vertices[he.origin].position;
+        positions.push(origin);
+        if let Some(c) = brep.edges[he.edge].curve.as_ref() {
+            // Straight edges carry no bulge; skip their samples so
+            // planar fixtures keep byte-identical polygons.
+            let curved = !matches!(
+                c.geometry,
+                popkern_core::geometry::curve::CurveGeometry::Line { .. }
+            );
+            if curved {
+                // The half-edge may traverse the edge curve in either
+                // direction: sample from whichever end sits at this
+                // half-edge's origin.
+                let forward = c.geometry.point_at(c.t_start).distance_to(&origin)
+                    <= c.geometry.point_at(c.t_end).distance_to(&origin);
+                let n = samples_per_edge.max(2);
+                for i in 1..n {
+                    let f = i as f64 / n as f64;
+                    let t = if forward {
+                        c.t_start + (c.t_end - c.t_start) * f
+                    } else {
+                        c.t_end + (c.t_start - c.t_end) * f
+                    };
+                    positions.push(c.geometry.point_at(t));
+                }
+            }
+        }
+        current = he.next;
+        if current == start_he {
+            break;
+        }
+    }
+    positions
+}
+
 /// Clip a degree-1 NURBS line to the interior of a face's boundary polygon.
 ///
-/// Uses Cyrus-Beck line clipping against each edge of the face's outer loop.
+/// Uses Cyrus-Beck line clipping against each edge of the face's outer
+/// loop VERTEX polygon (the long-tuned path). When that polygon clips
+/// the line to a DEGENERATE window, the clip retries against the
+/// curve-sampled outline: the vertex polygon under-covers a curved
+/// boundary by the sagitta, so a trim collinear with the chord between
+/// its own two junction vertices lies ON the hull edge and clips to
+/// nothing — whether it happens depends on WHICH junction vertices
+/// exist, i.e. record order (measured, PK-460: the coil end-cap disc's
+/// grind trim clipped to s=[0.524,0.524] and the whole boolean
+/// declined). The rescue is scoped to the degenerate outcome so every
+/// healthy clip keeps its byte-identical tuned window.
+///
 /// Returns `Some((t_enter, t_exit))` if the line segment intersects the polygon,
 /// or `None` if the line is entirely outside.
 pub(crate) fn clip_line_to_face(
@@ -21,7 +101,43 @@ pub(crate) fn clip_line_to_face(
     face_handle: FaceHandle,
     curve: &NurbsCurve,
 ) -> Option<(f64, f64)> {
-    let positions = face_vertex_positions(brep, face_handle);
+    let vertex_polygon = face_vertex_positions(brep, face_handle);
+    match clip_line_to_polygon(&vertex_polygon, curve, face_handle) {
+        Some((s_enter, s_exit)) if s_exit - s_enter < 1.0e-3 => {
+            // Degenerate window — retry on the curve-sampled outline
+            // (identical to the vertex polygon when every boundary
+            // edge is straight, so only curved boundaries re-clip).
+            let sampled = face_outline_sample_positions(brep, face_handle, 8);
+            let rescued = if sampled.len() > vertex_polygon.len() {
+                clip_line_to_polygon(&sampled, curve, face_handle)
+            } else {
+                None
+            };
+            let (s_enter, s_exit) = rescued.unwrap_or((s_enter, s_exit));
+            let (t_min, t_max) = curve.parameter_range();
+            Some((
+                t_min + s_enter * (t_max - t_min),
+                t_min + s_exit * (t_max - t_min),
+            ))
+        }
+        Some((s_enter, s_exit)) => {
+            let (t_min, t_max) = curve.parameter_range();
+            Some((
+                t_min + s_enter * (t_max - t_min),
+                t_min + s_exit * (t_max - t_min),
+            ))
+        }
+        None => None,
+    }
+}
+
+/// Cyrus-Beck clip of the line against one polygon; returns the
+/// `[0, 1]` line-parameter window.
+fn clip_line_to_polygon(
+    positions: &[Point3],
+    curve: &NurbsCurve,
+    face_handle: FaceHandle,
+) -> Option<(f64, f64)> {
     if positions.len() < 3 {
         return None;
     }
@@ -113,17 +229,13 @@ pub(crate) fn clip_line_to_face(
         return None;
     }
 
-    // Convert from [0,1] line parameter to the curve's parameter domain.
-    let t_enter = t_min + s_enter * (t_max - t_min);
-    let t_exit = t_min + s_exit * (t_max - t_min);
-
     if popkern_core::trace::trace_enabled("clip") {
         eprintln!(
             "  [cb] {face_handle:?}: s=[{s_enter:.3},{s_exit:.3}] n_verts={}",
             positions.len()
         );
     }
-    Some((t_enter, t_exit))
+    Some((s_enter, s_exit))
 }
 
 /// Clip a degree-1 intersection curve to a single face's boundary polygon.
