@@ -38,7 +38,7 @@ pub(super) fn ray_crossing_count(
     // sample's clean +z ray counted its single flank crossing once
     // per adjacent wall, voted even, and the opening fragment was
     // kept — PK-460).
-    let mut crossing_ts: Vec<f64> = Vec::new();
+    let mut crossing_ts: Vec<(f64, bool)> = Vec::new();
 
     let ray_trace = popkern_core::trace::trace_enabled("ray-classify");
     for (face_handle, aabb) in face_aabbs {
@@ -192,7 +192,8 @@ pub(super) fn ray_crossing_count(
                     }
                     let d_unit = *direction * (1.0 / d_len);
 
-                    let dot = n_unit.dot(&d_unit).abs();
+                    let signed_dot = n_unit.dot(&d_unit);
+                    let dot = signed_dot.abs();
 
                     // If the hit is nearly tangent, the ray is inconclusive.
                     if dot < tolerance.angular() {
@@ -359,10 +360,19 @@ pub(super) fn ray_crossing_count(
                         }
                         continue;
                     }
-                    if skip_hole_hits
-                        && is_plane
-                        && hit_inside_inner_loop(brep, *face_handle, *u, *v)
-                    {
+                    // INNER-loop (hole) hits are dropped in BOTH
+                    // modes: a plane face's inner loops are its
+                    // brought-in holes, whose pcurves are the
+                    // operand's originals and survive splits intact —
+                    // only new/split edges carry the mid-split
+                    // staleness that scopes the OUTER gate above.
+                    // Counting a hole-covered plane hit flipped the
+                    // parity of every ray rising through the nut's
+                    // open thread bottom (the bottom cap's enlarged
+                    // hole "hit" at t=1.28 made a below-body sample
+                    // read Inside and the void cylinder was kept,
+                    // PK-464).
+                    if is_plane && hit_inside_inner_loop(brep, *face_handle, *u, *v) {
                         continue;
                     }
                     if popkern_core::trace::trace_enabled("ray-classify") {
@@ -372,8 +382,22 @@ pub(super) fn ray_crossing_count(
                             h.x, h.y, h.z
                         );
                     }
-                    // Transversal crossing.
-                    crossing_ts.push(*t);
+                    // Transversal crossing, signed (groundwork for
+                    // the signed-alternation consistency check —
+                    // PK-466): the sign convention verified on plane
+                    // faces reads INVERTED on some curved faces
+                    // (measured: both crossings of a cone read
+                    // "enter"), so the alternation repair cannot arm
+                    // until the per-surface outward semantics are
+                    // reconciled. The parity count below ignores the
+                    // sign.
+                    let outward_sign = if surface_on_face.orientation {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let entering = signed_dot * outward_sign > 0.0;
+                    crossing_ts.push((*t, entering));
                 }
                 SurfaceCurveIntersection::Overlap { .. } => {
                     // Ray lies on the surface — inconclusive.
@@ -387,16 +411,15 @@ pub(super) fn ray_crossing_count(
     // already-counted parameter are the same crossing seen from the
     // other face. Direction magnitudes are ~1, so parameter distance
     // is world distance.
-    crossing_ts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    crossing_ts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let dedup = tolerance.linear() * 10.0;
-    let mut count = 0usize;
-    let mut last: Option<f64> = None;
-    for t in crossing_ts {
-        if last.is_none_or(|l| t - l > dedup) {
-            count += 1;
-            last = Some(t);
+    let mut kept: Vec<(f64, bool)> = Vec::new();
+    for (t, entering) in crossing_ts {
+        if kept.last().is_none_or(|&(l, _)| t - l > dedup) {
+            kept.push((t, entering));
         }
     }
+    let count = kept.len();
 
     Ok(count)
 }

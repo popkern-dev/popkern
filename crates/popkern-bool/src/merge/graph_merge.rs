@@ -88,10 +88,7 @@ pub(crate) fn graph_merge(
     );
     // Rescue record endpoints that missed their boundary junction by
     // the record-fit slop (see `weld_dead_end_shared_endpoints`).
-    super::graph_split_shared::weld_dead_end_shared_endpoints(
-        &mut graph,
-        tolerance.linear() * 500.0,
-    );
+    super::graph_weld::weld_dead_end_shared_endpoints(&mut graph, tolerance.linear() * 500.0);
     // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result

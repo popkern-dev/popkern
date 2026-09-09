@@ -159,11 +159,15 @@ fn refine_against_face(
                         .distance_to(&c.geometry.point_at(0.5 * (t0 + t1))),
                 );
             let band_eff = band.min(0.02 * chord);
+            // The near gate matches the widened LATERAL acceptance
+            // (4x): the fit slop that displaces the endpoint from the
+            // junction displaces it from the boundary edge by the
+            // same lateral amount.
             let near = (&c.geometry as &dyn popkern_core::geometry::curve::CurveEval)
                 .closest_point(p)
                 .map(|t| {
                     let tc = t.clamp(t0.min(t1), t0.max(t1));
-                    c.geometry.point_at(tc).distance_to(p) < band_eff
+                    c.geometry.point_at(tc).distance_to(p) < band_eff * 8.0
                 })
                 .unwrap_or(false);
             if near {

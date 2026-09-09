@@ -7,10 +7,16 @@ use popkern_core::tolerance::Tolerance;
 use popkern_part::Part;
 use popkern_part::fastener::{CountersunkScrew, HexBolt, HexNut, SocketCapScrew, ThreadSpec};
 
+/// Bounding box over the TESSELLATED surface — the BRep vertex set
+/// under-reads curved faces (a cylindrical head's only vertices sit
+/// on its seam azimuth, so a vertex bbox misses the diameter).
 fn bbox(part: &Part) -> ([f64; 3], [f64; 3]) {
+    let mesh = part
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("tessellate");
     let mut lo = [f64::MAX; 3];
     let mut hi = [f64::MIN; 3];
-    for (_, v) in part.brep().vertices.iter() {
+    for v in &mesh.vertices {
         let p = v.position;
         for (i, c) in [p.x, p.y, p.z].into_iter().enumerate() {
             lo[i] = lo[i].min(c);
@@ -21,7 +27,6 @@ fn bbox(part: &Part) -> ([f64; 3], [f64; 3]) {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn m6_hex_bolt_serves_watertight_with_iso_dimensions() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let bolt = HexBolt::new(spec, 8.0)
@@ -35,17 +40,25 @@ fn m6_hex_bolt_serves_watertight_with_iso_dimensions() {
     // corners keep the full width. Height: head −4 → tip 8.
     assert!((hi[2] - 8.0).abs() < 1e-6, "tip at z=8: {}", hi[2]);
     assert!((lo[2] + 4.0).abs() < 1e-6, "head base at z=−4: {}", lo[2]);
+    // The head hexagon has one flat facing +Y, so its corners align
+    // with the ±Y axis (at 90° and 270°) and the across-corners
+    // diameter shows in the Y extent; the X extent measures across
+    // flats.
     let across_corners = 2.0 / 3.0_f64.sqrt() * 10.0;
     assert!(
-        (hi[0] - lo[0] - across_corners).abs() < 1e-6,
+        (hi[1] - lo[1] - across_corners).abs() < 1e-6,
         "across corners {} vs {}",
-        hi[0] - lo[0],
+        hi[1] - lo[1],
         across_corners
+    );
+    assert!(
+        (hi[0] - lo[0] - 10.0).abs() < 1e-6,
+        "across flats {} vs 10",
+        hi[0] - lo[0]
     );
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn m4_socket_cap_screw_serves_watertight() {
     let spec = ThreadSpec::parse("M4").expect("M4");
     let screw = SocketCapScrew::new(spec, 8.0)

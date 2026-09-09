@@ -329,8 +329,16 @@ fn point_in_solid_impl(
                     outside_votes += 1;
                 }
 
-                // Early exit: if we have a clear majority from 3+ rays, stop.
-                if inside_votes >= 2 || outside_votes >= 2 {
+                // Early exit on THREE agreeing rays (was two): a
+                // solver bias that loses one root the same way on
+                // every radial direction (line × helical-flank
+                // misses, PK-460/464) flips parity consistently for
+                // the first two similar directions, while later
+                // directions with different geometry (an axial ray up
+                // a bore void crosses no flank at all) vote honestly.
+                // Verdicts that were 2–0 keep their outcome at 3–0;
+                // only the biased splits change.
+                if inside_votes >= 3 || outside_votes >= 3 {
                     break;
                 }
             }

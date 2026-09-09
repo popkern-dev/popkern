@@ -18,6 +18,7 @@ pub(crate) mod graph_split;
 pub(crate) mod graph_split_node;
 pub(crate) mod graph_split_pcurve;
 pub(crate) mod graph_split_shared;
+pub(crate) mod graph_weld;
 pub(crate) mod manifold_check;
 pub(crate) mod radial;
 pub(crate) mod walk;
