@@ -6,7 +6,7 @@
 //! component search, per-node branch clustering, and the boundary
 //! shoelace σ calibration.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[path = "chart_branch_anchoring.rs"]
 mod anchoring;
@@ -14,9 +14,9 @@ mod anchoring;
 pub(crate) mod clustering;
 use anchoring::ref_comp_of;
 
-use clustering::{boundary_shoelace_sigma, cluster_branches, is_balanced};
+use clustering::boundary_shoelace_sigma;
 
-use super::chart_subdivision::{BranchPoint, FaceChartSubdivision, SubdivisionIssue};
+use super::chart_subdivision::{FaceChartSubdivision, SubdivisionIssue};
 use crate::merge::graph::IntersectionGraph;
 
 /// Periodic charts: consensus anchoring, seam border assignment with a
@@ -28,10 +28,26 @@ pub(super) fn anchor_periodic(
     ends: &dyn Fn(usize) -> (usize, usize),
 ) {
     let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
+    // Seam candidates are OPERAND edges whose two sides both live on
+    // this face (a periodic wall's seam). Trim-RESIDUE record pairs
+    // are also both-sides-on-one-face (single-face registration, the
+    // same seam-like shape) but are interior slits, not border
+    // copies: fed to the seam border assignment they get one side
+    // bumped a whole period (measured, PK-465: the angled tap's
+    // mouth-adjacent owner-A residue embedded at u 6.6-7.8 on a
+    // [0,6.28] wall strip, its branch clusters split 1-in/0-out, and
+    // the wall declined to the 3D-Newell fallback). Shared sources
+    // are excluded.
     let seam_hes: BTreeSet<usize> = hes
         .iter()
         .copied()
-        .filter(|&h| sub.embeddings[&h].seam_like)
+        .filter(|&h| {
+            sub.embeddings[&h].seam_like
+                && !matches!(
+                    graph.half_edges[h].source,
+                    crate::merge::graph::EdgeSource::Shared { .. }
+                )
+        })
         .collect();
     let seam_nodes: BTreeSet<usize> = seam_hes
         .iter()
@@ -290,140 +306,27 @@ pub(super) fn anchor_periodic(
     // node. Bounded search over their ±period bumps, first balanced
     // config wins (a full-period rim has no real freedom — the wrong
     // bump is never balanced).
-    if floating.len() > 4 {
-        sub.report
-            .issues
-            .push(SubdivisionIssue::SeamSearchExhausted);
-        return;
-    }
-    let n_configs = 1usize << floating.len();
-    sub.report.seam_search_used = n_configs > 1;
-
-    let mut chosen: Option<(BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>)> = None;
-    let mut first_result: Option<(BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>)> =
-        None;
-    for config in 0..n_configs {
-        let mut u_start: BTreeMap<usize, f64> = BTreeMap::new();
-        let mut u_end: BTreeMap<usize, f64> = BTreeMap::new();
-        for &h in &hes {
-            let emb = &sub.embeddings[&h];
-            // Cluster by the BODY-SIDE sample, not the exact
-            // endpoint: an endpoint landing exactly ON the chart
-            // border (u = 0 with the run's body at negative u — the
-            // exact-seeded junction class) clusters into the WRONG
-            // border's branch by its own u, splitting a record chain
-            // away from its seam-copy partners (measured under the
-            // exact-torus NURBS arm: the cylinder wall's y<0
-            // chain walked as a degenerate out-and-back region and
-            // the union declined). The sample one step inside the run
-            // carries the body's side; off-border endpoints cluster
-            // identically either way.
-            let n = emb.uv.len();
-            let s_idx = if n > 2 { 1 } else { 0 };
-            let e_idx = if n > 2 { n - 2 } else { n - 1 };
-            u_start.insert(h, emb.uv[s_idx].0);
-            u_end.insert(h, emb.uv[e_idx].0);
-        }
-        for (fi, &ci) in floating.iter().enumerate() {
-            if (config >> fi) & 1 == 1 {
-                for &h in &components[ci] {
-                    if let Some(u) = u_start.get_mut(&h) {
-                        *u += period;
-                    }
-                    if let Some(u) = u_end.get_mut(&h) {
-                        *u += period;
-                    }
-                }
-            }
-        }
-        let clustered = cluster_branches(
-            &hes,
-            ends,
-            &u_start,
-            &u_end,
-            period,
-            &sub.poles,
-            &wrap_nodes,
-        );
-        if first_result.is_none() {
-            first_result = Some(clustered.clone());
-        }
-        if is_balanced(&clustered.0, &clustered.1) {
-            // Persist the winning bumps so directions and diagnostics
-            // agree with the clustering.
-            for (fi, &ci) in floating.iter().enumerate() {
-                if (config >> fi) & 1 == 1 {
-                    for &h in &components[ci] {
-                        if let Some(e) = sub.embeddings.get_mut(&h) {
-                            e.shift_u(period);
-                        }
-                    }
-                }
-            }
-            chosen = Some(clustered);
-            break;
-        }
-    }
-    let (mut start_bp, mut end_bp) = match chosen.or(first_result) {
-        Some(r) => r,
-        None => return,
-    };
-
-    // When the component-level config search could not balance,
-    // border-endpoint entries at TRUE seam nodes still carry two-copy
-    // freedom the component bumps cannot express (a full-period rim
-    // chain is anchored, but its endpoint AT the seam node may
-    // register at either border). Node-local rebalance (PK-465).
-    if !is_balanced(&start_bp, &end_bp) {
-        clustering::rebalance_seam_border_entries(
-            &mut start_bp,
-            &mut end_bp,
-            &true_seam_nodes,
-            &seam_hes,
-            &|h, is_start| {
-                let emb = &sub.embeddings[&h];
-                if is_start {
-                    emb.uv[0].0
-                } else {
-                    emb.uv[emb.uv.len() - 1].0
-                }
-            },
-            period,
-        );
-    }
-
-    // I2: off-seam nodes must be single-branch.
-    let mut node_branches: HashMap<usize, BTreeSet<u32>> = HashMap::new();
-    for (&h, bp) in start_bp.iter().chain(end_bp.iter()) {
-        let _ = h;
-        node_branches.entry(bp.node).or_default().insert(bp.branch);
-    }
-    for (node, branches) in &node_branches {
-        // Wrap nodes cluster as one branch by construction; any
-        // remaining split there is the seam machinery's business,
-        // not an off-seam defect.
-        if branches.len() > 1 && !seam_nodes.contains(node) && !wrap_nodes.contains(node) {
-            sub.report
-                .issues
-                .push(SubdivisionIssue::BranchSplitOffSeam { node: *node });
-        }
-    }
-
-    if popkern_core::trace::trace_enabled("branch-pairing") {
-        let mut per_bp: BTreeMap<BranchPoint, Vec<String>> = BTreeMap::new();
-        for (&h, &bp) in &start_bp {
-            per_bp.entry(bp).or_default().push(format!("dep {h}"));
-        }
-        for (&h, &bp) in &end_bp {
-            per_bp.entry(bp).or_default().push(format!("arr {h}"));
-        }
-        for (bp, members) in &per_bp {
-            eprintln!("  [bp] n{} b{}: {:?}", bp.node, bp.branch, members);
-        }
-    }
-    for (&h, &bp) in &start_bp {
-        sub.departures.entry(bp).or_default().push(h);
-    }
-    sub.start_bp = start_bp;
-    sub.end_bp = end_bp;
+    //
+    // The search FACTORS: two floating components interact only
+    // through SHARED SEAM NODES (balance is a per-node property and a
+    // bump moves only its own component's entries), so the joint
+    // exponential search decomposes into independent per-group
+    // searches over seam-node-connected groups (measured: the angled
+    // tap's residue-carrying bore wall floats more components than
+    // the historical joint 2^4 budget while no connected group has
+    // more than a couple — the joint search exhausted and the whole
+    // wall fell to the 3D-Newell walker, stranding record sides,
+    // PK-465).
+    super::chart_branch_float::resolve_floating_and_cluster(
+        sub,
+        period,
+        ends,
+        &hes,
+        &components,
+        &floating,
+        &seam_nodes,
+        &true_seam_nodes,
+        &wrap_nodes,
+        &seam_hes,
+    );
 }

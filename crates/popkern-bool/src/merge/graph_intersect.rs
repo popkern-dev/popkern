@@ -24,6 +24,27 @@ pub(crate) fn insert_intersection_curves(
     records: &[IntersectionRecord],
     tolerance: f64,
 ) {
+    // Model scale for the point-contact guard (matches the
+    // post-assembly point-loop retirement's gate — tolerance*500
+    // capped by a fraction of the model diagonal, so coarse-tolerance
+    // fixtures cannot swallow real rims).
+    let point_gate = {
+        let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+        for n in &graph.nodes {
+            let p = n.position;
+            for (i, c) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[i] = lo[i].min(c);
+                hi[i] = hi[i].max(c);
+            }
+        }
+        let diag =
+            ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
+        if diag.is_finite() && diag > 0.0 {
+            (tolerance * 500.0).min(diag * 1.0e-4)
+        } else {
+            tolerance * 20.0
+        }
+    };
     for record in records {
         let curve_3d = &record.curve.curve_3d;
         let (t_start, t_end) = curve_3d.parameter_range();
@@ -57,6 +78,37 @@ pub(crate) fn insert_intersection_curves(
             Some(idx) => idx,
             None => graph.add_node(end_pt, NodeSource::Intersection),
         };
+
+        // POINT-CONTACT GUARD (PK-465): a record piece whose
+        // endpoints merged into ONE node and whose whole 3D extent
+        // stays at junction scale carries no boundary information —
+        // it is a zero-length loop at a junction. Registered anyway,
+        // its pair sits in the wedge fan as a zero-angle out-and-back
+        // and the rotational walk U-TURNS through it, fusing the two
+        // regions that meet at the junction (measured: a [0.95,0.95]
+        // clip sliver at the angled tap's mouth-crossing junction
+        // fused the coil flank's bore-void strip with its in-material
+        // region — one merged fragment, one verdict, and the served
+        // body kept the void strip as a ghost weave). The
+        // post-assembly point-loop retirement already removes the
+        // survivors; refusing them here keeps the walk sound.
+        if start_node == end_node {
+            let anchor = graph.nodes[start_node].position;
+            let extent = (0..=6)
+                .map(|k| {
+                    let t = t_start + (t_end - t_start) * k as f64 / 6.0;
+                    curve_3d.point_at(t).distance_to(&anchor)
+                })
+                .fold(0.0_f64, f64::max);
+            if extent <= point_gate {
+                if popkern_core::trace::trace_enabled("record-insert") {
+                    eprintln!(
+                        "  [record-insert] SKIP point-contact piece at n{start_node} (extent {extent:.3e})"
+                    );
+                }
+                continue;
+            }
+        }
 
         // Build the CurveOnEdge from the 3D intersection curve,
         // HEALING the curve ends onto the adopted nodes: when the

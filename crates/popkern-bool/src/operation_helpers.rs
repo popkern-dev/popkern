@@ -343,3 +343,57 @@ pub(super) fn verify_whole_body_containment(inner: &BRep, outer: &BRep) -> bool 
     }
     true
 }
+
+/// Pre-serve retirements and the empty-serve lie gate (PK-465), run
+/// after loop-chart normalization and before `post_check`.
+pub(super) fn pre_check_retire_and_empty_gate(
+    result: &mut BRep,
+    op: crate::error::BoolOperation,
+    original_a: &BRep,
+    original_b: &BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<(), crate::error::BoolError> {
+    // Weld-residue point-loop slivers retire BEFORE the serve gate:
+    // their stale analytic windows measure as loop/shell gaps
+    // exactly the weld distance wide (PK-465).
+    let point_loops =
+        crate::postprocess::point_loop_retire::retire_point_loop_pairs(result, tolerance);
+    if point_loops > 0 && popkern_core::trace::trace_enabled("boolean") {
+        eprintln!("[boolean] pre-check: {point_loops} weld point-loop sliver(s) retired");
+    }
+    let slit_faces = crate::postprocess::slit_retire::retire_pure_slit_faces(result);
+    if slit_faces > 0 && popkern_core::trace::trace_enabled("boolean") {
+        eprintln!("[boolean] pre-check: {slit_faces} pure-slit face(s) retired");
+    }
+    let slit_pairs = crate::postprocess::slit_retire::excise_same_face_slit_pairs(result);
+    if slit_pairs > 0 && popkern_core::trace::trace_enabled("boolean") {
+        eprintln!("[boolean] pre-check: {slit_pairs} same-face slit pair(s) excised");
+    }
+
+    // EMPTY-SERVE LIE GATE (PK-465): an empty subtraction result is
+    // legitimate ONLY when A is wholly inside B; an empty union
+    // never is. A garbage walk that classifies every fragment away
+    // otherwise SERVES an empty body (measured: the coarse 1e-2
+    // sphere−cube envelope pin walked the sphere chart into a fused
+    // mega-orbit and served volume 0.0 against truth 0.202).
+    if result.faces.is_empty() {
+        let legitimate = match op {
+            crate::error::BoolOperation::Subtraction => {
+                verify_whole_body_containment(original_a, original_b)
+            }
+            crate::error::BoolOperation::Intersection => true,
+            crate::error::BoolOperation::Union => false,
+        };
+        if !legitimate {
+            return Err(crate::error::BoolError::MergeFailed {
+                stage: "Merge".to_string(),
+                reason: "empty result from operands that are not in the containment \
+                         configuration an empty result requires; declining rather than \
+                         serving a vanished body"
+                    .to_string(),
+            });
+        }
+    }
+
+    Ok(())
+}

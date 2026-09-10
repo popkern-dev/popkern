@@ -12,6 +12,10 @@ use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 use super::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
 
+#[path = "graph_build_closed_side.rs"]
+mod graph_build_closed_side;
+use graph_build_closed_side::{ClosedSideContext, closed_he_runs_curve_forward};
+
 /// Insert all topology from a BRep operand into the graph.
 ///
 /// Returns `(vertex_map, half_edge_map)` mapping original handles to graph
@@ -40,6 +44,7 @@ pub(crate) fn insert_operand_topology(
     }
 
     // 2. Insert all edges as half-edge pairs.
+    let mut closed_side_ctx = ClosedSideContext::new(brep);
     for (eh, edge) in &brep.edges {
         let he_h = edge.half_edge;
         let he = &brep.half_edges[he_h];
@@ -60,8 +65,49 @@ pub(crate) fn insert_operand_topology(
             Operand::B => EdgeSource::OriginalB(eh),
         };
 
-        let pcurve_fwd = he.pcurve.clone();
-        let pcurve_twin = twin_he.pcurve.clone();
+        // CLOSED-EDGE SIDE FIDELITY: the chart embedding orients a
+        // run by the graph pair's curve window (fwd side = curve
+        // increasing-t), and its endpoint-node authority is void on
+        // a closed edge (both ends are one node) — so for closed
+        // edges the he_map side assignment IS the traversal-direction
+        // registration. Mapping the canonical half-edge to the
+        // forward side blindly registers its face on the wrong side
+        // whenever that face's loop actually traverses the stored
+        // curve backward. Measured on the angled tap's bore wall
+        // (PK-465): the bottom rim ran backward in the wall's chart,
+        // both rims wound the SAME way, the boundary shoelace read
+        // the mirror sign, σ flipped, and every wedge match on the
+        // wall mirrored into a spur-weave. The witness is pcurve-free
+        // (closed-edge pcurves are direction-untrustworthy — legacy
+        // producers store edge-aligned pcurves): at the rim midpoint,
+        // each face's material must lie LEFT of its traversal
+        // (flag-folded normal × tangent points toward that face's
+        // boundary centroid), and the two faces must vote opposite
+        // ways or there is no verdict and the historical mapping
+        // stands. SEAM edges (both half-edges on one face) are
+        // exempt: their sides are chart branches of ONE face, and
+        // swapping them scrambles the tuned pcurve-branch handling
+        // (measured: a cube−sphere seam deviated 0.11 from its
+        // face surface under a swap).
+        let is_seam = {
+            let face_of = |lh| brep.loops.get(lh).map(|l| l.face);
+            face_of(he.loop_) == face_of(twin_he.loop_)
+        };
+        let canonical_forward = if start_node == end_node && !is_seam {
+            let verdict = closed_he_runs_curve_forward(&mut closed_side_ctx, he_h);
+            if popkern_core::trace::trace_enabled("boolean") {
+                eprintln!("  [closed-side] {operand:?} edge {eh:?} canonical-forward {verdict:?}");
+            }
+            verdict.unwrap_or(true)
+        } else {
+            true
+        };
+
+        let (pcurve_fwd, pcurve_twin) = if canonical_forward {
+            (he.pcurve.clone(), twin_he.pcurve.clone())
+        } else {
+            (twin_he.pcurve.clone(), he.pcurve.clone())
+        };
 
         let (fwd_idx, twin_idx) = graph.add_half_edge_pair_with_pcurves(
             start_node,
@@ -72,8 +118,13 @@ pub(crate) fn insert_operand_topology(
             pcurve_twin,
         );
 
-        he_map.insert(he_h, fwd_idx);
-        he_map.insert(twin_h, twin_idx);
+        if canonical_forward {
+            he_map.insert(he_h, fwd_idx);
+            he_map.insert(twin_h, twin_idx);
+        } else {
+            he_map.insert(he_h, twin_idx);
+            he_map.insert(twin_h, fwd_idx);
+        }
     }
 
     // 3. Assign faces to half-edges by walking loops.

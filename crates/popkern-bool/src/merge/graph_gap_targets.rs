@@ -107,3 +107,52 @@ pub(super) fn push_synthetic_junction_targets(
     cands.sort_by(|a, b| a.0.total_cmp(&b.0));
     cands.truncate(8);
 }
+
+/// Dead-end tips, judged PER FACE — the same criterion as the walk's
+/// graze filter: a node whose incidence ON ONE FACE'S chart is a
+/// single shared record pair (no boundary continuation there)
+/// dead-ends that face even when the node carries records of other
+/// pairs (measured: the nut's runout-chain ends are two-record
+/// junction nodes globally, yet each face sees exactly one). Maps
+/// tip node -> its single record half-edge.
+pub(super) fn per_face_dead_end_tips(
+    graph: &IntersectionGraph,
+) -> std::collections::BTreeMap<usize, usize> {
+    let is_shared = |h: usize, graph: &IntersectionGraph| {
+        matches!(
+            graph.half_edges[h].source,
+            super::graph::EdgeSource::Shared { .. }
+        )
+    };
+
+    let mut per_face_tips: std::collections::BTreeMap<usize, usize> =
+        std::collections::BTreeMap::new();
+    let faces: Vec<_> = graph.face_edges.keys().cloned().collect();
+    for f in faces {
+        let hes = &graph.face_edges[&f];
+        let mut node_inc: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for &h in hes {
+            let a = graph.half_edges[h].origin;
+            let b = graph.half_edges[graph.half_edges[h].twin].origin;
+            node_inc.entry(a).or_default().push(h);
+            node_inc.entry(b).or_default().push(h);
+        }
+        for (n, inc) in node_inc {
+            let records: std::collections::BTreeSet<usize> = inc
+                .iter()
+                .filter(|&&h| is_shared(h, graph))
+                .map(|&h| h.min(graph.half_edges[h].twin))
+                .collect();
+            let has_boundary = inc.iter().any(|&h| !is_shared(h, graph));
+            if records.len() == 1 && !has_boundary {
+                let rh = *inc
+                    .iter()
+                    .find(|&&h| is_shared(h, graph))
+                    .unwrap_or(&inc[0]);
+                per_face_tips.entry(n).or_insert(rh);
+            }
+        }
+    }
+    per_face_tips
+}

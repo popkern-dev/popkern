@@ -249,3 +249,72 @@ pub(super) fn loop_outside_outer(
     // the demotion blocked the tunnel — χ' 0 → 2).
     inside_n == 0 && outside_n >= 3
 }
+/// Newell-cancellation ratio of a loop: |Σ tri-normals| / Σ |tri-normals|
+/// over the loop's sampled polyline fanned from its centroid. A planar
+/// loop measures ~1.0; a boundary that WINDS in 3D (a multi-turn coil
+/// strip, a closed wall) self-cancels toward 0 — the regime where the
+/// 3D-Newell hole election projects onto a garbage plane (measured,
+/// PK-465: the tap's crest band spans 4+ turns, its big fragment's
+/// Newell dot against a per-turn quad was noise, and the above-plate
+/// quads were misfiled as HOLES of the kept fragment — the served
+/// body kept them as a masked ghost weave). `1.0` when unmeasurable
+/// (defers to the tuned election).
+pub(crate) fn loop_newell_cancellation(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 {
+    let mut positions: Vec<popkern_core::geometry::Point3> = Vec::new();
+    for &he_idx in loop_hes {
+        let he = &graph.half_edges[he_idx];
+        let origin_pos = graph.nodes[he.origin].position;
+        let own = he.curve.is_some();
+        let curve = he
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+        if let Some(c) = curve {
+            use popkern_core::geometry::curve::CurveEval;
+            let (t0, t1) = (c.t_start, c.t_end);
+            // DENSE: the winding this measure exists to detect (a
+            // multi-turn helical boundary edge) aliases away at the
+            // election's 8-sample rate — 8 samples over a 3-turn
+            // helix read as a gentle arc.
+            let n_s = 64;
+            for i in 0..n_s {
+                let f = i as f64 / n_s as f64;
+                let t = if own {
+                    t0 + (t1 - t0) * f
+                } else {
+                    t1 - (t1 - t0) * f
+                };
+                positions.push(c.geometry.point_at(t));
+            }
+        } else {
+            positions.push(origin_pos);
+        }
+    }
+    let n = positions.len();
+    if n < 3 {
+        return 1.0;
+    }
+    let c = {
+        let (mut x, mut y, mut z) = (0.0, 0.0, 0.0);
+        for p in &positions {
+            x += p.x;
+            y += p.y;
+            z += p.z;
+        }
+        popkern_core::geometry::Point3::new(x / n as f64, y / n as f64, z / n as f64)
+    };
+    let mut total = Vec3::new(0.0, 0.0, 0.0);
+    let mut abs = 0.0;
+    for i in 0..n {
+        let a = positions[i] - c;
+        let b = positions[(i + 1) % n] - c;
+        let t = a.cross(&b);
+        total = total + t;
+        abs += t.length();
+    }
+    if abs <= 0.0 {
+        1.0
+    } else {
+        total.length() / abs
+    }
+}

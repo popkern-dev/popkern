@@ -52,7 +52,51 @@ pub(crate) fn cluster_branches(
         // A POLE node is one geometric point whose incident endpoints
         // carry their meridians' azimuths — never split it by u. A
         // WRAP node's copies are one azimuth mod the period — same.
-        let is_pole = poles.contains_key(&node) || wrap_nodes.contains(&node);
+        let mut is_pole = poles.contains_key(&node) || wrap_nodes.contains(&node);
+        // DATA-DRIVEN lattice junction: entries whose u values fold to
+        // ONE azimuth mod the period are period copies of a single
+        // junction even when the anchoring did not mark the node (a
+        // cross-registered record's reversed direction can anchor a
+        // whole period off through a different BFS path — measured on
+        // the angled tap's bore wall, where two such entries opened
+        // one-sided branches at four rim junctions and the wall fell
+        // to the 3D-Newell walker, PK-465). Folding is gated tightly:
+        // the residues must be exact period multiples within the
+        // anchoring lattice eps.
+        if !is_pole && entries.len() > 1 {
+            let eps = period * 5e-4;
+            let base = entries[0].0;
+            let on_lattice = |u: f64| {
+                let d = (u - base) / period;
+                (d - d.round()).abs() * period < eps
+            };
+            let one_azimuth = entries.iter().all(|&(u, _, _)| on_lattice(u));
+            // Fold ONLY the measured pathology: every off-base entry
+            // is the TWIN of an on-base entry at this node (a
+            // cross-registered record's reversed direction anchored a
+            // whole period off through a different BFS path). A node
+            // whose off-base entries belong to OTHER edges keeps its
+            // branches — folding those merged genuinely distinct
+            // junction copies (measured: the half-wiring fixture's
+            // subtraction picked up 5 self-twinned edges).
+            let strays_are_twins = entries.iter().all(|&(u, h, _)| {
+                let d = ((u - base) / period).round().abs();
+                if d < 0.5 {
+                    return true;
+                }
+                let tw = h ^ 1;
+                entries
+                    .iter()
+                    .any(|&(u2, h2, _)| h2 == tw && ((u2 - base) / period).round().abs() < 0.5)
+            });
+            let spread = entries
+                .iter()
+                .map(|&(u, _, _)| u)
+                .fold((f64::MAX, f64::MIN), |(lo, hi), u| (lo.min(u), hi.max(u)));
+            if one_azimuth && strays_are_twins && spread.1 - spread.0 > period * 0.5 {
+                is_pole = true;
+            }
+        }
         entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let mut branch = 0u32;
         let mut prev_u: Option<f64> = None;
@@ -248,6 +292,18 @@ pub(crate) fn balance_and_duplicates(sub: &mut FaceChartSubdivision, _u_period: 
             for j in (i + 1)..deps.len() {
                 let (a, b) = (deps[i], deps[j]);
                 if sub.end_bp.get(&a) != sub.end_bp.get(&b) {
+                    continue;
+                }
+                // A half-edge and its own twin are ONE edge, not
+                // duplicate records: a thin same-node hairpin (a
+                // sub-tolerance record stub whose both ends adopted
+                // one node) has both directions departing that node
+                // near-parallel, and I5 declared the whole chart
+                // unwalkable over it (measured: the angled tap's
+                // 0.0015-long floor×flank stub at the hole-bottom
+                // corner — PK-465).
+                if a ^ 1 == b {
+                    // Twins are consecutive pairs by construction.
                     continue;
                 }
                 if let (Some(da), Some(db)) = (

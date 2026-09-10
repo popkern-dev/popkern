@@ -271,25 +271,44 @@ pub(crate) fn intersect_surface_curve_general(
                     // curve sample nearest the sub-cell.
                     let t_plain = 0.5 * (cseg.t_range.0 + cseg.t_range.1);
                     let cell_diag = sub.min.distance_to(&sub.max).max(tolerance.linear());
-                    let t_mid = if curve.point_at(t_plain).distance_to(&cell_centre)
-                        <= 4.0 * cell_diag
-                    {
-                        t_plain
-                    } else {
-                        (0..=8)
-                            .map(|k| {
-                                cseg.t_range.0 + (cseg.t_range.1 - cseg.t_range.0) * k as f64 / 8.0
-                            })
-                            .min_by(|&a, &b| {
-                                let da = curve.point_at(a).distance_to(&cell_centre);
-                                let db = curve.point_at(b).distance_to(&cell_centre);
-                                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                            .unwrap_or(0.5 * (cseg.t_range.0 + cseg.t_range.1))
-                    };
+                    let t_nearest = (0..=8)
+                        .map(|k| {
+                            cseg.t_range.0 + (cseg.t_range.1 - cseg.t_range.0) * k as f64 / 8.0
+                        })
+                        .min_by(|&a, &b| {
+                            let da = curve.point_at(a).distance_to(&cell_centre);
+                            let db = curve.point_at(b).distance_to(&cell_centre);
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .unwrap_or(t_plain);
+                    let t_mid =
+                        if curve.point_at(t_plain).distance_to(&cell_centre) <= 4.0 * cell_diag {
+                            t_plain
+                        } else {
+                            t_nearest
+                        };
 
-                    let solved =
+                    let mut solved =
                         newton_surface_curve(curve, t_mid, surface, u_mid, v_mid, tolerance);
+                    // Seed rescue for a FAILED cell only: the tuned seed
+                    // keeps its basin (changing it flips fixtures —
+                    // PK-449), but a cell whose AABB overlaps the curve
+                    // and whose Newton diverged from the segment
+                    // t-midpoint deserves a second attempt from the
+                    // curve sample nearest the cell — the root, if any,
+                    // is IN the cell, so the near sample is the
+                    // better-informed seed (measured: the angled-tap
+                    // mouth rim crossing its thread flank at t 0.537 in
+                    // the t∈[0.5,0.75] Bezier segment — the midpoint
+                    // seed 2 arc-units away diverged on the shallow
+                    // crossing and the rim×flank junction vanished from
+                    // the 1D pierce inventory, stranding the groove-mouth
+                    // record chain, PK-465).
+                    if solved.is_none() && t_nearest != t_mid {
+                        solved = newton_surface_curve(
+                            curve, t_nearest, surface, u_mid, v_mid, tolerance,
+                        );
+                    }
                     if crate::trace::trace_enabled("scg-newton") {
                         eprintln!(
                             "  [scg-newton] seed u={u_mid:.4} v={v_mid:.4} t={t_mid:.3} -> {:?}",

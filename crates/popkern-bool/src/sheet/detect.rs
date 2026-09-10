@@ -84,6 +84,14 @@ pub fn is_sheet_body(brep: &BRep) -> bool {
             _ => false,
         };
         if !is_periodic {
+            if popkern_core::trace::trace_enabled("boolean") {
+                let p0 = brep.vertices.get(he.origin).map(|v| v.position);
+                let p1 = brep.vertices.get(twin.origin).map(|v| v.position);
+                eprintln!(
+                    "  [sheet] same-face edge on non-closed face {face_a:?}: {:?} -> {:?}",
+                    p0, p1
+                );
+            }
             return true;
         }
     }

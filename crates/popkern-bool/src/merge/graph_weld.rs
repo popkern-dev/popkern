@@ -4,6 +4,10 @@
 
 use super::graph::{EdgeSource, IntersectionGraph};
 
+#[path = "graph_weld_certify.rs"]
+mod graph_weld_certify;
+use graph_weld_certify::{on_carrier, on_extension};
+
 /// Weld DEAD-END shared-record endpoint nodes onto the boundary node
 /// they missed.
 ///
@@ -26,37 +30,6 @@ use super::graph::{EdgeSource, IntersectionGraph};
 /// A genuine interior graze has no such neighbour and keeps its
 /// honest drop; fully-wired junction clusters (the 5.6e-4 exact
 /// connectors of PK-441) are out of scope by the dead-end condition.
-/// FAR-TIER weld certificate: does `point` lie on `surface` within
-/// `gate`? A cold NURBS projection can succeed into the wrong basin
-/// of a multi-turn chart (the PK-463 class), so an off-carrier first
-/// answer retries through the knot-span-seeded multi-start.
-fn on_carrier(
-    surface: &popkern_core::geometry::surface::SurfaceGeometry,
-    point: &popkern_core::geometry::Point3,
-    gate: f64,
-) -> bool {
-    use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
-    if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, point)
-        && surface.point_at(u, v).distance_to(point) <= gate
-    {
-        return true;
-    }
-    if let SurfaceGeometry::Nurbs(nurbs) = surface
-        && let Some(seeds) = nurbs.projection_seeds()
-        && let Some((u, v)) = popkern_core::geometry::surface::closest_point_from_seeds(
-            nurbs,
-            point,
-            &seeds,
-            (false, false),
-            6,
-        )
-        && surface.point_at(u, v).distance_to(point) <= gate
-    {
-        return true;
-    }
-    false
-}
-
 pub(crate) fn weld_dead_end_shared_endpoints(
     graph: &mut IntersectionGraph,
     band: f64,
@@ -67,6 +40,28 @@ pub(crate) fn weld_dead_end_shared_endpoints(
     )>,
 ) {
     let n_nodes = graph.nodes.len();
+    // The band is tolerance-scaled by the caller (linear × 500) —
+    // meaningful at fine tolerances, MODEL-SIZED at coarse ones (a
+    // 1e-2-tolerance unit model got a 5.0 band; the dead-end welds
+    // swallowed its record network and the subtraction SERVED an
+    // empty body). Cap by the node cloud's diagonal.
+    let band = {
+        let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+        for node in &graph.nodes {
+            let p = node.position;
+            for (i, c) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[i] = lo[i].min(c);
+                hi[i] = hi[i].max(c);
+            }
+        }
+        let diag =
+            ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
+        if diag.is_finite() && diag > 0.0 {
+            band.min(diag * 1.0e-3)
+        } else {
+            band
+        }
+    };
     let mut incident: Vec<Vec<usize>> = vec![Vec::new(); n_nodes];
     for (i, he) in graph.half_edges.iter().enumerate() {
         incident[he.origin].push(i);
@@ -77,85 +72,6 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             crate::merge::graph::EdgeSource::Shared { .. }
         )
     };
-    // Beyond the tuned unconditional band, a VERIFIED annulus (up to
-    // 10× further): weld only when the candidate junction lies on the
-    // dead-end record curve's extension — perpendicular distance from
-    // the node to curve samples just past the endpoint. A shallow
-    // record × boundary crossing AMPLIFIES pcurve slop into the
-    // along-curve endpoint miss (measured, PK-464: the mouth-chamfer
-    // circle crossed the nut's crest-band helix boundary at slope
-    // 0.16, a sub-1e-3 boundary-pcurve wobble moved the clip window
-    // end 6.2e-4 from the true junction node, the ring segment
-    // dead-ended and the graze cascade unravelled the whole chamfer
-    // ring). The perpendicular gate keeps wrong-junction welds out:
-    // an off-curve node at the same spatial distance stays unwelded.
-    let on_extension = |n: usize, m_pos: &popkern_core::geometry::Point3| -> bool {
-        use popkern_core::geometry::curve::CurveEval as _;
-        // Tangent-ray tolerance: the fit-slop class displaces the
-        // endpoint mostly ALONG the curve; the perpendicular residual
-        // of the true junction from the endpoint tangent stays within
-        // curvature sag ((3.7e-2)²/2r ≈ 2.6e-4 on the nut's crest
-        // circle) plus lateral slop.
-        let perp_band = band;
-        for &h in &incident[n] {
-            let he = &graph.half_edges[h];
-            let Some(c) = he
-                .curve
-                .as_ref()
-                .or_else(|| graph.half_edges[he.twin].curve.as_ref())
-            else {
-                // No stored curve on either side: fall back to the
-                // CHORD tangent (twin origin -> this node). At weld
-                // scales the chord direction is the outward tangent
-                // to curvature sag (measured: the crest-arc piece
-                // arrived curveless after its splits and the weld
-                // silently skipped its only extension test).
-                let p_n = graph.nodes[n].position;
-                let q = graph.nodes[graph.half_edges[he.twin].origin].position;
-                let Some(outward) = (p_n - q).normalized() else {
-                    continue;
-                };
-                let to_m = *m_pos - p_n;
-                let along = to_m.dot(&outward);
-                let perp = (to_m - outward * along).length();
-                if along >= -perp_band && perp < perp_band {
-                    return true;
-                }
-                continue;
-            };
-            let span = c.t_end - c.t_start;
-            if !span.is_finite() || span.abs() < 1e-30 {
-                continue;
-            }
-            // Which curve end sits at `n`; outward tangent by an
-            // inside finite difference (a clamped NURBS does not
-            // extrapolate past its knots, so sampling beyond the end
-            // is not an option).
-            let p_n = graph.nodes[n].position;
-            let d_start = c.geometry.point_at(c.t_start).distance_to(&p_n);
-            let d_end = c.geometry.point_at(c.t_end).distance_to(&p_n);
-            let (t_at, t_in) = if d_start <= d_end {
-                (c.t_start, c.t_start + span * 1e-3)
-            } else {
-                (c.t_end, c.t_end - span * 1e-3)
-            };
-            let p_end = c.geometry.point_at(t_at);
-            let inward = c.geometry.point_at(t_in) - p_end;
-            let Some(outward) = (inward * -1.0).normalized() else {
-                continue;
-            };
-            let to_m = *m_pos - p_end;
-            let along = to_m.dot(&outward);
-            let perp = (to_m - outward * along).length();
-            if along < -perp_band {
-                continue; // candidate sits back along the curve, not past the end
-            }
-            if perp < perp_band {
-                return true;
-            }
-        }
-        false
-    };
     let mut welds: Vec<(usize, usize)> = Vec::new();
     for n in 0..n_nodes {
         if incident[n].is_empty() {
@@ -165,7 +81,26 @@ pub(crate) fn weld_dead_end_shared_endpoints(
         if !all_record {
             continue;
         }
+        // The incident-degree (lone-endpoint) tiering restriction was
+        // measured NOT load-bearing for the tap's chamfer (6 strands
+        // either way) while it blocked the far-tier haul the m6
+        // nut's mouth chamfer needs — the far tier keeps its own
+        // carrier+cone certificates as the acceptance bar.
+        let lone_endpoint = true;
+
         let p = graph.nodes[n].position;
+        // Carrier pair of this dead end's record, for the close tier.
+        let node_carriers = carriers.and_then(|(brep_a, brep_b, _)| {
+            incident[n].iter().find_map(|&h| {
+                if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[h].source {
+                    let sa = &brep_a.faces.get(face_a)?.surface.as_ref()?.geometry;
+                    let sb = &brep_b.faces.get(face_b)?.surface.as_ref()?.geometry;
+                    Some((sa, sb))
+                } else {
+                    None
+                }
+            })
+        });
         let mut best: Option<(f64, usize)> = None;
         for (m, inc) in incident.iter().enumerate() {
             if m == n || inc.is_empty() {
@@ -176,8 +111,46 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                 continue;
             }
             let d = graph.nodes[m].position.distance_to(&p);
-            let accept =
-                d < band || (d < band * 100.0 && on_extension(n, &graph.nodes[m].position));
+            // Never weld across an existing record connection: two
+            // junctions JOINED by a record piece are distinct by
+            // construction (the tuned exact-connector class — the
+            // m6 nut's mouth-chamfer chain carries real 1.5e-3
+            // connectors between junctions 1.0e-3 apart; welding
+            // their ends collapsed the connector into a self-loop,
+            // the stub cleanup retired it, and the chain gapped into
+            // a graze cascade). A weld target must be an UNCONNECTED
+            // duplicate of this node.
+            let connected = incident[n]
+                .iter()
+                .any(|&h| graph.half_edges[graph.half_edges[h].twin].origin == m);
+            if connected {
+                continue;
+            }
+            // CLOSE TIER (band..3×band): a record endpoint stopping a
+            // hair past the unconditional band next to an EXISTING
+            // junction is the same missed-junction class, but at that
+            // range the tangent-ray direction is noise (measured,
+            // PK-465: two mouth junctions 6.1e-4 and 7.3e-4 from
+            // their record ends on a 5e-4 band — unwelded, each
+            // rooted a graze cascade that unwalked a whole helix
+            // ring). Direction cannot certify there; lying on BOTH
+            // carrier surfaces of the record's face pair can.
+            let close_certified = || -> bool {
+                let Some((sa, sb)) = node_carriers else {
+                    return false;
+                };
+                let Some((_, _, lin)) = carriers else {
+                    return false;
+                };
+                let q = graph.nodes[m].position;
+                let gate = (d * 0.02).max(lin * 100.0);
+                on_carrier(sa, &q, gate) && on_carrier(sb, &q, gate)
+            };
+            let accept = d < band
+                || (d < band * 3.0 && close_certified())
+                || (lone_endpoint
+                    && d < band * 100.0
+                    && on_extension(graph, &incident, band, n, &graph.nodes[m].position));
             if accept && best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, m));
             }
@@ -198,6 +171,7 @@ pub(crate) fn weld_dead_end_shared_endpoints(
         // 20% of the record's own chord, and be UNAMBIGUOUS (second
         // candidate at least twice as far).
         if best.is_none()
+            && lone_endpoint
             && let Some((brep_a, brep_b, lin)) = carriers
         {
             use popkern_core::geometry::curve::CurveEval as _;
@@ -336,6 +310,21 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                 continue;
             }
             let d = graph.nodes[m].position.distance_to(&p);
+            // Never weld across an existing record connection: two
+            // junctions JOINED by a record piece are distinct by
+            // construction (the tuned exact-connector class — the
+            // m6 nut's mouth-chamfer chain carries real 1.5e-3
+            // connectors between junctions 1.0e-3 apart; welding
+            // their ends collapsed the connector into a self-loop,
+            // the stub cleanup retired it, and the chain gapped into
+            // a graze cascade). A weld target must be an UNCONNECTED
+            // duplicate of this node.
+            let connected = incident[n]
+                .iter()
+                .any(|&h| graph.half_edges[graph.half_edges[h].twin].origin == m);
+            if connected {
+                continue;
+            }
             let m_has_record = graph
                 .half_edges
                 .iter()
@@ -387,6 +376,7 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             break;
         }
     }
+    let mut max_weld_d = 0.0_f64;
     for (n, m) in welds {
         // Snap the welded record curves' end control points onto the
         // target node (the closed-record rotation weld's convention):
@@ -399,7 +389,23 @@ pub(crate) fn weld_dead_end_shared_endpoints(
         let old_pos = graph.nodes[n].position;
         let new_pos = graph.nodes[m].position;
         let d_weld = old_pos.distance_to(&new_pos);
-        let moved: Vec<usize> = graph.nodes[n].outgoing.clone();
+        max_weld_d = max_weld_d.max(d_weld);
+        // Move EVERY half-edge that originates at the welded node —
+        // scanned from the half-edge table, not the node's outgoing
+        // list: pieces minted by splits/bridges can carry an origin
+        // the outgoing bookkeeping never recorded, and a weld that
+        // trusts the list leaves them pointing at the emptied node,
+        // which then reads as a degree-1 dead end and roots a graze
+        // cascade that unwalks the whole chain (measured, PK-465:
+        // every welded mouth junction re-appeared as a cascade root
+        // and the coil flank lost its helix column).
+        let moved: Vec<usize> = graph
+            .half_edges
+            .iter()
+            .enumerate()
+            .filter(|(_, he)| he.origin == n)
+            .map(|(i, _)| i)
+            .collect();
         for &h in &moved {
             for hh in [h, graph.half_edges[h].twin] {
                 if let Some(c) = graph.half_edges[hh].curve.as_mut() {
@@ -466,4 +472,5 @@ pub(crate) fn weld_dead_end_shared_endpoints(
         }
         graph.nodes[n].outgoing.clear();
     }
+    graph_weld_certify::retire_self_loop_stubs(graph, max_weld_d, band);
 }

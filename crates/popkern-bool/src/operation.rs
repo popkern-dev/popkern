@@ -458,6 +458,8 @@ pub(crate) fn execute_boolean_full(
     }
     helpers_pcurve_coherence::normalize_output_loop_charts(&mut result);
 
+    helpers::pre_check_retire_and_empty_gate(&mut result, op, &original_a, &original_b, tolerance)?;
+
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
     // post-check (manifold, Euler, half-edge cycles, watertightness).
     // Surface any errors as a structured failure rather than silently

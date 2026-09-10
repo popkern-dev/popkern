@@ -6,10 +6,12 @@
 
 mod boundary_predicates;
 pub(crate) mod chart_boundary_substitute;
+pub(crate) mod chart_branch_float;
 pub(crate) mod chart_branches;
 pub(crate) mod chart_cell_fold;
 pub(crate) mod chart_duplicate_cover;
 pub(crate) mod chart_embedding;
+pub(crate) mod chart_graze_filter;
 pub(crate) mod chart_poles;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
@@ -220,7 +222,49 @@ pub(crate) fn walk_all_fragments_ext(
                                         .any(|(j, o2)| j != i && o2.contains(&tw))
                                 })
                         });
-                    if seam_spine || wrapping_wall || island_pair {
+                    // WOUND-BOUNDARY extension (PK-465): a face whose
+                    // largest orbit's Newell sum self-cancels (a
+                    // multi-turn coil strip — the tap's crest band
+                    // spans 4+ turns) degenerates the 3D-Newell
+                    // election exactly like a wrapping wall: winding
+                    // dots against its fragments are projection
+                    // noise, and the tap's above-plate per-turn quads
+                    // were misfiled as HOLES of the kept fragment.
+                    // Planar splitter faces measure ~1.0 and keep the
+                    // tuned election.
+                    // Only when some OTHER orbit shares no twin with
+                    // the largest: that orbit is an inner CANDIDATE
+                    // the Newell election would file by a winding dot
+                    // measured against the self-cancelling outer —
+                    // projection noise (the tap's per-turn crest-band
+                    // quads were misfiled as holes). An orbit sharing
+                    // twins with the largest is a face-split boundary
+                    // the tuned election handles without any winding
+                    // dot (the m6 nut's groove-wall chain pieces —
+                    // routing those to chart roles stranded its mouth
+                    // chamfer).
+                    let wound = {
+                        let largest = orbits.iter().enumerate().max_by_key(|(_, o)| o.len());
+                        match largest {
+                            Some((li, lo))
+                                if walk_loop_measures::loop_newell_cancellation(graph, lo)
+                                    < 0.3 =>
+                            {
+                                let largest_twins: std::collections::HashSet<usize> =
+                                    lo.iter().map(|&h| graph.half_edges[h].twin).collect();
+                                orbits.iter().enumerate().any(|(oi, o)| {
+                                    oi != li
+                                        && !o.is_empty()
+                                        && !o.iter().any(|h| largest_twins.contains(h))
+                                })
+                            }
+                            _ => false,
+                        }
+                    };
+                    if wound && popkern_core::trace::trace_enabled("boolean") {
+                        eprintln!("  [wound] {face_ref:?} routes to chart roles");
+                    }
+                    if seam_spine || wrapping_wall || island_pair || wound {
                         chart_roles = Some((
                             orbits
                                 .iter()
@@ -666,6 +710,61 @@ pub(crate) fn walk_all_fragments_ext(
             }
         }
 
+        // TWIN-PAIR ROLE SWEEP (PK-465): the pairwise twin_of/swap
+        // above resolves ONE partner per arriving loop, but a hole
+        // ring can share twins with SEVERAL earlier-filed loops (the
+        // tap's scalloped mouth ring shares record twins with every
+        // bite-lens piece AND the multi-arc exit pentagon). The swap
+        // consumed the first partner and the pentagon stayed filed
+        // as a second hole — the kept face then wired BOTH
+        // directions of its mouth arcs and the assembly minted
+        // dangling duplicates (5 masked ghost strands). A hole winds
+        // AGAINST its outer by definition; an inner winding WITH the
+        // outer that shares a twin with an against-winding inner is
+        // the piece side of that pair — re-file it as a separate
+        // region. Indecisive windings keep first-walked order (the
+        // tuned stance).
+        {
+            let dots: Vec<f64> = inner_loops_out
+                .iter()
+                .map(|lp| {
+                    let n = walk_geometry::loop_newell(graph, lp);
+                    let scale = n.length() * outer_newell.length();
+                    if scale > 0.0 {
+                        n.dot(&outer_newell) / scale
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+            let mut move_out: Vec<usize> = Vec::new();
+            for (i, lp) in inner_loops_out.iter().enumerate() {
+                if dots[i] <= 0.1 {
+                    continue;
+                }
+                let shares_with_hole = lp.iter().any(|&he_idx| {
+                    let tw = graph.half_edges[he_idx].twin;
+                    inner_loops_out
+                        .iter()
+                        .enumerate()
+                        .any(|(j, other)| j != i && dots[j] < -0.1 && other.contains(&tw))
+                });
+                if shares_with_hole {
+                    move_out.push(i);
+                }
+            }
+            for &i in move_out.iter().rev() {
+                let piece = inner_loops_out.remove(i);
+                if popkern_core::trace::trace_enabled("fragment-walk") {
+                    eprintln!(
+                        "    [elect] twin-pair sweep: inner {:?}{} re-filed as separate (winds with outer)",
+                        &piece[..piece.len().min(6)],
+                        if piece.len() > 6 { "…" } else { "" }
+                    );
+                }
+                separate_outers.push(piece);
+            }
+        }
         // the loop-dump-all trace topic: dump every fragment's loops regardless of
         // size (PK-107 forensics: comparing 11- vs 13-half-edge outer
         // loops between the 3D-Newell and chart walks).

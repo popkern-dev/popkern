@@ -293,6 +293,19 @@ pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
             brep.edges.len(),
             self_twins
         );
+        if self_twins > 0 && popkern_core::trace::trace_enabled("spur") {
+            for (heh, he) in &brep.half_edges {
+                if he.twin != heh {
+                    continue;
+                }
+                let face = brep.loops.get(he.loop_).map(|l| l.face);
+                let pos = brep.vertices.get(he.origin).map(|v| v.position);
+                eprintln!(
+                    "    [post] self-twin {heh:?} face {face:?} loop {:?} at {pos:?}",
+                    he.loop_
+                );
+            }
+        }
     }
 }
 
@@ -449,6 +462,23 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
         );
     }
     trace_face_census("post-exact-rims", result);
+
+    // Final slit/point-loop sweep (PK-465): the masking and rim
+    // passes above can leave same-face ghost structure (a discarded
+    // region's boundary whose other side was masked away) that the
+    // pre-check sweep could not see — it was not yet same-face then.
+    let late_point_loops =
+        crate::postprocess::point_loop_retire::retire_point_loop_pairs(result, tolerance);
+    let late_slit_faces = crate::postprocess::slit_retire::retire_pure_slit_faces(result);
+    let late_slit_pairs = crate::postprocess::slit_retire::excise_same_face_slit_pairs(result);
+    if (late_point_loops + late_slit_faces + late_slit_pairs) > 0
+        && popkern_core::trace::trace_enabled("boolean")
+    {
+        eprintln!(
+            "[boolean] post-processing: late sweep retired {late_point_loops} point-loop(s), {late_slit_faces} slit face(s), {late_slit_pairs} slit pair(s)"
+        );
+    }
+    trace_face_census("post-late-slit", result);
 
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than

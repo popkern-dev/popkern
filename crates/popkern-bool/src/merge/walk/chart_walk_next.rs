@@ -94,6 +94,39 @@ pub(crate) fn next_in_chart(
         }
     }
     let _ = twin;
+    // TWIN-SLOT ANGLE SNAP: an arrival's back direction and its own
+    // twin's departure direction are the same geometric ray, but they
+    // are measured from two independently built embeddings (each side
+    // of a single-face residue pair builds its own), and the
+    // endpoint-refined δ-samples can disagree below the acceptance
+    // cone — the ψ tie then breaks EITHER way. When the arrival
+    // sorts a hair before its twin's departure, the clockwise sweep
+    // pairs the arrival with its own twin and the chain U-turns
+    // (measured, PK-465: both residue pairs at one junction node of
+    // the angled tap's coil flank hairpinned, the plate-top ring
+    // never closed, and the flank's above-plate part classified with
+    // its in-material part — 55 masked ghost strands). Snap the
+    // arrival's angle onto the twin departure's angle whenever they
+    // are within the near-tie cone; the departure-first tie rule
+    // then guarantees the departure sweeps first and is only taken
+    // by its own arrival when the parenthesis structure demands a
+    // genuine U-turn.
+    let near = |a: f64, b: f64| -> bool {
+        let d = (a - b).abs();
+        d.min(std::f64::consts::TAU - d) < 0.02
+    };
+    for i in 0..slots.len() {
+        let (a_ang, is_dep, hh) = slots[i];
+        if is_dep {
+            continue;
+        }
+        let t = graph.half_edges[hh].twin;
+        if let Some(&(d_ang, _, _)) = slots.iter().find(|(_, d, h2)| *d && *h2 == t)
+            && near(a_ang, d_ang)
+        {
+            slots[i].0 = d_ang;
+        }
+    }
     // Clockwise = descending ψ. Deterministic ties: departures first,
     // then half-edge index.
     slots.sort_by(|a, b| {
@@ -172,11 +205,16 @@ pub(crate) fn next_in_chart(
         let d = (a - b).abs();
         d.min(std::f64::consts::TAU - d) < NEAR_TIE
     };
-    let twin_matched: Vec<(usize, usize)> = matched
+    let mut twin_matched: Vec<(usize, usize)> = matched
         .iter()
         .filter(|(a, d)| graph.half_edges[**a].twin == **d)
         .map(|(a, d)| (*a, *d))
         .collect();
+    // HashMap iteration order is not deterministic; the repair order
+    // decides which tied pair swaps first (measured: repeat runs of
+    // the determinism fixture differed in an edge window once the
+    // residue records enlarged the tie population — PK-465).
+    twin_matched.sort_unstable();
     for (a, d) in twin_matched {
         let (Some(a_ang), Some(d_ang)) = (angle_of(a, false), angle_of(d, true)) else {
             continue;

@@ -50,47 +50,7 @@ pub(crate) fn close_record_gaps(
     for (i, he) in graph.half_edges.iter().enumerate() {
         incident[he.origin].push(i);
     }
-    let is_shared = |h: usize, graph: &IntersectionGraph| {
-        matches!(graph.half_edges[h].source, EdgeSource::Shared { .. })
-    };
-    // Dead-end tips, judged PER FACE — the same criterion as the
-    // walk's graze filter: a node whose incidence ON ONE FACE'S chart
-    // is a single shared record pair (no boundary continuation there)
-    // dead-ends that face even when the node carries records of other
-    // pairs (measured: the nut's runout-chain ends are two-record
-    // junction nodes globally, yet each face sees exactly one).
-    let tip_map: std::collections::BTreeMap<usize, usize> = {
-        let mut per_face_tips: std::collections::BTreeMap<usize, usize> =
-            std::collections::BTreeMap::new();
-        let faces: Vec<_> = graph.face_edges.keys().cloned().collect();
-        for f in faces {
-            let hes = &graph.face_edges[&f];
-            let mut node_inc: std::collections::BTreeMap<usize, Vec<usize>> =
-                std::collections::BTreeMap::new();
-            for &h in hes {
-                let a = graph.half_edges[h].origin;
-                let b = graph.half_edges[graph.half_edges[h].twin].origin;
-                node_inc.entry(a).or_default().push(h);
-                node_inc.entry(b).or_default().push(h);
-            }
-            for (n, inc) in node_inc {
-                let records: std::collections::BTreeSet<usize> = inc
-                    .iter()
-                    .filter(|&&h| is_shared(h, graph))
-                    .map(|&h| h.min(graph.half_edges[h].twin))
-                    .collect();
-                let has_boundary = inc.iter().any(|&h| !is_shared(h, graph));
-                if records.len() == 1 && !has_boundary {
-                    let rh = *inc
-                        .iter()
-                        .find(|&&h| is_shared(h, graph))
-                        .unwrap_or(&inc[0]);
-                    per_face_tips.entry(n).or_insert(rh);
-                }
-            }
-        }
-        per_face_tips
-    };
+    let tip_map = super::graph_gap_targets::per_face_dead_end_tips(graph);
     let tips: Vec<usize> = tip_map.keys().copied().collect();
     let gap_trace = popkern_core::trace::trace_enabled("gap-close");
     if gap_trace {
@@ -356,8 +316,24 @@ pub(crate) fn close_record_gaps(
                 // proximity at the bridge ends is the normal meeting
                 // pattern and stays legal).
                 {
+                    // STUB EXEMPTION (PK-465): a bridge at weld scale
+                    // (gap <= lin*500, the dead-end weld band) is a
+                    // record's missing last step onto its junction —
+                    // its samples inevitably sit within coverage slop
+                    // of the very records it terminates, and the
+                    // retrace veto refused the 5.6e-4 connector that
+                    // joined the entry-chamfer cone chain to its
+                    // exact synthetic junction (the chain then
+                    // graze-cascaded and the merge stranded 6 sides).
+                    // Nothing that short can double-cover a real
+                    // opening; the projection and containment
+                    // certificates still apply.
+                    let stub_scale = gap <= lin * 500.0;
                     let mut covered = false;
                     'cover: for (hx, hedge) in graph.half_edges.iter().enumerate() {
+                        if stub_scale {
+                            break 'cover;
+                        }
                         if hx % 2 != 0 {
                             continue;
                         }

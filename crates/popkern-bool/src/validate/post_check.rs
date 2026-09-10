@@ -119,6 +119,52 @@ pub fn post_check(
     // boundary representation at all; anything failing them declines
     // as ValidationFailed instead of serving.
     if let Err(e) = result.validate_loop_closure() {
+        if popkern_core::trace::trace_enabled("boolean") {
+            // Gap-site dump: walk every loop and print curve-end vs
+            // next-vertex distances above tolerance scale.
+            use popkern_core::geometry::curve::CurveEval as _;
+            for (lh, l) in &result.loops {
+                let mut cursor = l.half_edge;
+                for _ in 0..result.half_edges.len().max(1) {
+                    let Some(he) = result.half_edges.get(cursor) else {
+                        break;
+                    };
+                    let Some(edge) = result.edges.get(he.edge) else {
+                        break;
+                    };
+                    if let (Some(c), Some(tw)) = (&edge.curve, result.half_edges.get(he.twin)) {
+                        let v0 = result.vertices[he.origin].position;
+                        let v1 = result.vertices[tw.origin].position;
+                        let p0 = c.geometry.point_at(c.t_start);
+                        let p1 = c.geometry.point_at(c.t_end);
+                        let d = (p0.distance_to(&v0) + p1.distance_to(&v1))
+                            .min(p0.distance_to(&v1) + p1.distance_to(&v0));
+                        if d > 1.0e-5 {
+                            eprintln!(
+                                "  [gap-site] loop {lh:?} he {cursor:?} edge {:?} d={d:.3e} curve ({:.6},{:.6},{:.6})->({:.6},{:.6},{:.6}) v ({:.6},{:.6},{:.6})/({:.6},{:.6},{:.6})",
+                                he.edge,
+                                p0.x,
+                                p0.y,
+                                p0.z,
+                                p1.x,
+                                p1.y,
+                                p1.z,
+                                v0.x,
+                                v0.y,
+                                v0.z,
+                                v1.x,
+                                v1.y,
+                                v1.z
+                            );
+                        }
+                    }
+                    cursor = he.next;
+                    if cursor == l.half_edge {
+                        break;
+                    }
+                }
+            }
+        }
         report.findings.push(PostCheckFinding {
             severity: Severity::Error,
             message: format!("Loop not geometrically closed: {e}"),

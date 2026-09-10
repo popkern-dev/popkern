@@ -239,6 +239,14 @@ pub(crate) fn build_embedding(
         ));
     }
 
+    if run.is_none() && popkern_core::trace::trace_enabled("chart-dump") {
+        let a = graph.nodes[graph.half_edges[raw].origin].position;
+        let b = graph.nodes[graph.half_edges[twin].origin].position;
+        eprintln!(
+            "    [embed-none] he {raw} src {:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+            graph.half_edges[raw].source, a.x, a.y, a.z, b.x, b.y, b.z
+        );
+    }
     let ((mut uv, mut refined_first, mut refined_last), source) = run?;
     // The resolved half-edge `h` runs opposite the registered `raw`
     // when the twin owned this face's pcurve/curve — reverse into

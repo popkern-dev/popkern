@@ -325,9 +325,21 @@ pub(crate) fn assemble_result(
                 // Both wired — create a new edge pair and update the map
                 // so subsequent fragments can use the twin.
                 if popkern_core::trace::trace_enabled("boolean") {
+                    let owner = |g: usize| {
+                        hmap.get(&g)
+                            .map(|&bh| {
+                                let lp = bld.brep().half_edges[bh].loop_;
+                                bld.brep().loops.get(lp).map(|l| l.face)
+                            })
+                            .map(|f| format!("{f:?}"))
+                            .unwrap_or_else(|| "unmapped".into())
+                    };
                     eprintln!(
-                        "  [assemble-dup] ghe {ghe} (twin {graph_twin}) for {:?} src {:?}",
-                        fragment.face, graph.half_edges[ghe].source
+                        "  [assemble-dup] ghe {ghe} (twin {graph_twin}) for {:?} src {:?} taken-by {} / {}",
+                        fragment.face,
+                        graph.half_edges[ghe].source,
+                        owner(ghe),
+                        owner(graph_twin)
                     );
                 }
                 let origin_node = graph.half_edges[ghe].origin;

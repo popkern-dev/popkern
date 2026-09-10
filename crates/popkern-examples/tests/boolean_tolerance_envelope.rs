@@ -246,9 +246,19 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
                     "sphere-cube at {lin:e} must serve, got decline: {e}"
                 );
                 let msg = format!("{e}");
+                // The coarse regime's decline reason evolved: the
+                // closure-diagnostic declines (loop gaps) were the
+                // historical shape; the empty-serve lie gate
+                // (PK-465) now catches the degradation EARLIER — the
+                // garbage walk classifies everything away and the
+                // boolean refuses the vanished body instead of
+                // serving volume 0.0. Both are structured declines.
                 assert!(
-                    msg.contains("not closed") || msg.contains("gap") || msg.contains("deviates"),
-                    "decline must carry closure diagnostics: {msg}"
+                    msg.contains("not closed")
+                        || msg.contains("gap")
+                        || msg.contains("deviates")
+                        || msg.contains("empty result"),
+                    "decline must carry structured diagnostics: {msg}"
                 );
             }
         }

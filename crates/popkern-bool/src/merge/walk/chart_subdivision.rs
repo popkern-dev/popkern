@@ -527,68 +527,7 @@ fn build_face_subdivision_inner(
         }
     }
 
-    // INTERIOR-GRAZE filter (design doc §5): a record pair whose
-    // endpoint node has NO other registered half-edge dead-ends
-    // strictly inside the face — both sides of the trace bound the
-    // same region there, and walking it weaves an out-and-back spur
-    // into a fragment loop (measured on the flush-gusset wall: the
-    // gusset's sloped-face trace ends mid-wall at a degree-1 node,
-    // and the chart outer loop carried the spur as its two extra
-    // half-edges vs the 3D-Newell walk, which filters grazes at
-    // candidate time). Iterated: removing one graze can expose a
-    // chain.
-    for _ in 0..8 {
-        let mut incident: std::collections::HashMap<usize, Vec<usize>> =
-            std::collections::HashMap::new();
-        for &h in sub.embeddings.keys() {
-            let (a, b) = ends(h);
-            incident.entry(a).or_default().push(h);
-            incident.entry(b).or_default().push(h);
-        }
-        let mut grazes: Vec<(usize, usize)> = Vec::new();
-        for &h in sub.embeddings.keys() {
-            let tw = graph.half_edges[h].twin;
-            if h > tw || !sub.embeddings.contains_key(&tw) {
-                continue;
-            }
-            if !matches!(
-                graph.half_edges[h].source,
-                crate::merge::graph::EdgeSource::Shared { .. }
-            ) {
-                continue;
-            }
-            let (a, b) = ends(h);
-            if a == b {
-                continue; // closed rings are legitimate cuts
-            }
-            let dead_end = |n: usize| -> bool {
-                incident
-                    .get(&n)
-                    .map(|v| v.iter().all(|&x| x == h || x == tw))
-                    .unwrap_or(true)
-            };
-            if dead_end(a) || dead_end(b) {
-                grazes.push((h, tw));
-            }
-        }
-        if grazes.is_empty() {
-            break;
-        }
-        for (h, tw) in grazes {
-            if popkern_core::trace::trace_enabled("chart-dump") {
-                let (a, b) = ends(h);
-                let pa = graph.nodes[a].position;
-                let pb = graph.nodes[b].position;
-                eprintln!(
-                    "    [chart] graze-drop he {h} tw {tw} n{a}({:.4},{:.4},{:.4})->n{b}({:.4},{:.4},{:.4})",
-                    pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
-                );
-            }
-            sub.embeddings.remove(&h);
-            sub.embeddings.remove(&tw);
-            sub.report.filtered.push(FilteredRecord::InteriorGraze(h));
-        }
-    }
+    super::chart_graze_filter::filter_hairpins_and_grazes(graph, &mut sub, tolerance, &ends);
 
     // Pole-adjacency guard: the azimuth rotation models poles as
     // clean fans of meridian endpoints. When a RECORD drop or a graze
