@@ -279,8 +279,14 @@ pub(crate) fn retrim_piece_to_junction(
         for k in 1..=3 {
             let t = added_lo + (added_hi - added_lo) * k as f64 / 4.0;
             let q = source.curve_3d.point_at(t);
-            let clearance = (tolerance.linear() * 1000.0)
-                .max(0.15 * q.distance_to(&j).min(q.distance_to(&this_p)));
+            // The graze deviation grows FROM the junction (zero
+            // there, sin(theta) x arc elsewhere) — the gate scales
+            // with distance-to-junction alone (measured on the
+            // tapped hole's crest circle: slope 0.065 at every
+            // sample; a min() with distance-to-old-end strangled
+            // the sample nearest the old end, whose deviation is
+            // largest by construction).
+            let clearance = (tolerance.linear() * 1000.0).max(0.15 * q.distance_to(&j));
             let mut best = f64::MAX;
             for c in &boundary_curves {
                 let Some(tc) = (&c.geometry as &dyn CurveEval).closest_point(&q) else {
@@ -288,6 +294,12 @@ pub(crate) fn retrim_piece_to_junction(
                 };
                 let tcc = tc.clamp(c.t_start.min(c.t_end), c.t_start.max(c.t_end));
                 best = best.min(c.geometry.point_at(tcc).distance_to(&q));
+            }
+            if far_trace {
+                eprintln!(
+                    "    [clip-far] extension sample ({:.4},{:.4},{:.4}) boundary d {best:.3e} clearance {clearance:.3e}",
+                    q.x, q.y, q.z
+                );
             }
             if best > clearance {
                 all_ride = false;
