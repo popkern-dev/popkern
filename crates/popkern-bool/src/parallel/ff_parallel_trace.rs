@@ -84,3 +84,33 @@ pub(super) fn trace_clip_output(
         p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, clipped.is_closed
     );
 }
+
+/// Debug-trace gates for the pair loop, read from the environment once
+/// per Stage 1 call instead of once per pair (`env::var_os` takes the
+/// process environment lock).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TraceFlags {
+    /// the `pair-scan` trace topic: candidate/surface dumps.
+    pub pair: bool,
+    /// the `clip` trace topic: clip input/output dumps.
+    pub clip: bool,
+}
+
+impl TraceFlags {
+    /// Read both trace gates from the environment.
+    pub(crate) fn from_env() -> Self {
+        Self {
+            pair: popkern_core::trace::trace_enabled("pair-scan"),
+            clip: popkern_core::trace::trace_enabled("clip"),
+        }
+    }
+
+    /// True if any trace stream is active. Tracing forces sequential
+    /// processing so interleaved thread output cannot garble the dump.
+    /// (Only consulted by the rayon dispatch arm — the sequential-only
+    /// build has no scheduling decision to make.)
+    #[cfg_attr(not(feature = "parallel"), allow(dead_code))]
+    pub(crate) fn any(&self) -> bool {
+        self.pair || self.clip
+    }
+}

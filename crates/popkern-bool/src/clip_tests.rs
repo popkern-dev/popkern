@@ -131,7 +131,7 @@ fn clip_curve_to_faces_curve_misses_face_b_returns_none() {
 
     // Curve goes through face_a [0,1] but not face_b [3,4].
     let curve = cos_line(Point3::new(0.5, 0.0, 0.0), Point3::new(0.5, 1.0, 0.0));
-    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
+    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "curve in face_a but not face_b should clip to nothing"
@@ -183,7 +183,7 @@ fn clip_line_to_face_diagonal_outside_polygon_hits_early_exit() {
     // not parallel to any edge. The right edge sets s_exit < 0 before
     // s_enter is updated, triggering line 117.
     let curve = cos_line(Point3::new(2.0, 0.0, 0.0), Point3::new(3.0, 1.0, 0.0));
-    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
+    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "diagonal curve outside polygon should clip to nothing"
@@ -233,7 +233,7 @@ fn clip_line_to_face_tangent_to_corner_hits_post_loop_check() {
     // [0,1]×[0,1] square. Cyrus-Beck clamps s_enter == s_exit == 1.0 (the
     // corner), so the post-loop check at line 122 returns None.
     let curve = cos_line(Point3::new(-1.0, -1.0, 0.0), Point3::new(0.0, 0.0, 0.0));
-    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
+    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "corner-tangent curve should clip to nothing"
@@ -285,7 +285,7 @@ fn clip_curve_to_faces_disjoint_ranges_returns_none() {
     // disjoint parameter ranges — [0,0.4] for face_a and [0.6,1.0] for face_b.
     // After intersecting: t_start=0.6 >= t_end=0.4 → line 301.
     let curve = cos_line(Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 0.5, 0.0));
-    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
+    let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "disjoint clipped ranges should clip to nothing"

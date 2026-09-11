@@ -189,6 +189,17 @@ pub(crate) fn insert_intersection_curves(
             face: record.face_b,
         };
 
+        // TRIM-RESIDUE records (PK-465) partition ONE face only:
+        // both sides carry the owner face (the seam-like shape), and
+        // the other face never sees the pair. See
+        // `IntersectionRecord::residue_owner_a`.
+        if let Some(owner_is_a) = record.residue_owner_a {
+            let owner = if owner_is_a { face_a_ref } else { face_b_ref };
+            graph.set_half_edge_face(fwd, owner);
+            graph.set_half_edge_face(twin, owner);
+            continue;
+        }
+
         // Assign primary face ownership for each half-edge.
         graph.set_half_edge_face(fwd, face_a_ref);
         graph.set_half_edge_face(twin, face_b_ref);
@@ -292,6 +303,7 @@ mod tests {
             is_closed: false,
         };
         IntersectionRecord {
+            residue_owner_a: None,
             face_a,
             face_b,
             curve: cos,

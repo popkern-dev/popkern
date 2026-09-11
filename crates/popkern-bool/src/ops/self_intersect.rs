@@ -122,7 +122,7 @@ pub fn find_self_intersections(
                 coincident_skipped += 1;
                 continue;
             };
-            for clipped in clip_curve_to_faces(body, face_a, body, face_b, &curve) {
+            for clipped in clip_curve_to_faces(body, face_a, body, face_b, &curve, None) {
                 if curve_length_estimate(&clipped) < min_curve_length {
                     continue;
                 }

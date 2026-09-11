@@ -92,8 +92,13 @@ pub(crate) fn far_junction(
                 if d <= tolerance.linear() || d > far_cap {
                     continue;
                 }
-                // The junction must lie ON the source curve.
-                let Some(t_star) = (&source.curve_3d as &dyn CurveEval).closest_point(point) else {
+                // The junction must lie ON the source curve. Dense
+                // projection — the trait `closest_point` clamps to
+                // the seam basin on closed sources (measured,
+                // PK-472: the mirrored mouth chamfer's crest circle
+                // junction projected to t=0 with dj=2.73 and the
+                // stop-short retrim never armed).
+                let Some(t_star) = project_onto_curve_dense(&source.curve_3d, point) else {
                     if far_trace {
                         eprintln!(
                             "    [clip-far] p ({:.4},{:.4},{:.4}) junction ({:.4},{:.4},{:.4}) d {d:.3e}: no curve projection",
@@ -222,28 +227,137 @@ pub(crate) fn retrim_piece_to_junction(
         t_other - t_this
     };
     let span_old = dir_old.abs();
-    if (t_star - t_other).abs() >= (t_this - t_other).abs()
-        || (n1 - n0).abs() < span_old * 0.05
+    let extending = (t_star - t_other).abs() >= (t_this - t_other).abs();
+    if (n1 - n0).abs() < span_old * 0.05
         || !(n1 - n0).is_finite()
         || (n1 - n0).signum() != dir_old.signum()
     {
         if far_trace {
             eprintln!(
-                "    [clip-far] retrim refused: window [{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}] degenerate/reversed/extending"
+                "    [clip-far] retrim refused: window [{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}] degenerate/reversed"
             );
         }
         return false;
+    }
+    // EXTENSION tier (PK-472): a graze crossing can also be
+    // mislocated SHORT of the true junction — the m6 nut's mirrored
+    // mouth chamfer's crest×cone circle stopped 3.7e-2 before the
+    // helix junction; the shortening-only rule refused, the far-tier
+    // weld hauled the NODE while the curve stayed short, and the
+    // 3.7e-2 curve-vs-node lie stranded the walk (5 sides).
+    // Extension INVENTS geometry, so the bar is strict: the exact
+    // junction already lies ON the source curve (caller-certified),
+    // and EVERY added-span sample must RIDE a face boundary within
+    // the graze slope gate — the added run is the mislocated
+    // boundary hug itself, never an in-face stretch (a genuine
+    // mid-face termination has no boundary alongside).
+    if extending && !source.is_closed {
+        // Extension is scoped to CLOSED-source records (the
+        // crest×cone tangent-circle class the stop-short was
+        // measured on) — unscoped, open-record extensions regressed
+        // the chamfered rod's thread cut (its cap records
+        // legitimately terminate alongside boundaries).
+        if far_trace {
+            eprintln!(
+                "    [clip-far] retrim refused: extension on open-source record ([{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}])"
+            );
+        }
+        return false;
+    }
+    if extending {
+        let added_lo = t_this.min(t_star);
+        let added_hi = t_this.max(t_star);
+        let boundary_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
+            .into_iter()
+            .flat_map(|(brep, face)| {
+                boundary_edges(brep, face)
+                    .into_iter()
+                    .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
+            })
+            .collect();
+        let mut all_ride = true;
+        for k in 1..=3 {
+            let t = added_lo + (added_hi - added_lo) * k as f64 / 4.0;
+            let q = source.curve_3d.point_at(t);
+            let clearance = (tolerance.linear() * 1000.0)
+                .max(0.15 * q.distance_to(&j).min(q.distance_to(&this_p)));
+            let mut best = f64::MAX;
+            for c in &boundary_curves {
+                let Some(tc) = (&c.geometry as &dyn CurveEval).closest_point(&q) else {
+                    continue;
+                };
+                let tcc = tc.clamp(c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+                best = best.min(c.geometry.point_at(tcc).distance_to(&q));
+            }
+            if best > clearance {
+                all_ride = false;
+                break;
+            }
+        }
+        if !all_ride {
+            if far_trace {
+                eprintln!(
+                    "    [clip-far] retrim refused: extension span leaves the boundary ([{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}])"
+                );
+            }
+            return false;
+        }
     }
     // The stretch being CUT must not read plainly in-face on both
     // charts — a shortening that removes genuinely-kept geometry is a
     // mis-identified junction, not an overshoot (measured: the
     // notched-cube saddle's fillet records shortened onto junctions
     // their curves pass through, and the subtraction went
-    // non-manifold).
+    // non-manifold). A sample RIDING a face boundary ABSTAINS: UV
+    // containment within boundary slop is a coin flip, and the
+    // retrim exists exactly to fix mislocated boundary runs
+    // (measured, PK-472: the m6 nut's crest×cone graze circle
+    // overshot its chain junction by 4.2e-2; every removed-span
+    // sample hugged the crest face's boundary helix, the coin flips
+    // read in-face, and the refused retrim left a backward-facing
+    // tip the gap closure could only mis-bridge). Distance to the
+    // faces' boundary edges in 3D is the reliability meter — the
+    // same instrument `intervals_clear_of_boundary` uses.
     {
+        let boundary_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
+            .into_iter()
+            .flat_map(|(brep, face)| {
+                boundary_edges(brep, face)
+                    .into_iter()
+                    .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
+            })
+            .collect();
+        // A graze mislocation's samples diverge from the boundary
+        // LINEARLY at slope sin(crossing angle) ≪ 1 (measured on the
+        // m6 nut's crest×cone circle: 6.2e-4 / 1.2e-3 / 1.9e-3 over
+        // a 4.2e-2 correction — slope 0.06, a 3.4° graze). The gate
+        // therefore scales with the sample's own distance from the
+        // junction: shallower than ~8.5° abstains, a transversal
+        // crossing's samples (slope ~1) keep full veto power.
+        let rides_boundary = |q: &Point3| -> bool {
+            let clearance = (tolerance.linear() * 1000.0).max(0.15 * q.distance_to(&j));
+            let mut best = f64::MAX;
+            for c in &boundary_curves {
+                let Some(t) = (&c.geometry as &dyn CurveEval).closest_point(q) else {
+                    continue;
+                };
+                let tc = t.clamp(c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+                best = best.min(c.geometry.point_at(tc).distance_to(q));
+            }
+            if far_trace {
+                eprintln!(
+                    "    [clip-far] removed-span sample ({:.4},{:.4},{:.4}) boundary d {best:.3e} clearance {clearance:.3e}",
+                    q.x, q.y, q.z
+                );
+            }
+            best < clearance
+        };
         let mut inside_votes = 0;
         for k in 1..=3 {
             let t = t_star + (t_this - t_star) * k as f64 / 4.0;
+            if rides_boundary(&source.curve_3d.point_at(t)) {
+                continue;
+            }
             let in_a = crate::split_inner_loop::point_inside_face_region_uv(
                 brep_a,
                 face_a,

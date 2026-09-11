@@ -57,7 +57,27 @@ pub(crate) fn graph_merge(
     );
 
     // Insert intersection curves as shared edges.
-    insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
+    let mut filtered_records = intersection_result.records.clone();
+    // COINCIDENT-INTERFACE containment (PK-465): trim residues are
+    // unproven on booleans that carry coplanar face overlaps — the
+    // tuned flush arbitration owns those interfaces, and residues
+    // riding them destabilized the flush-gusset family's walks
+    // (29.6 loop gap measured). Strip every residue there; the
+    // transversal fixtures the mechanism serves (the angled tap)
+    // carry no overlaps.
+    if !intersection_result.coincidence.face_overlaps.is_empty() {
+        filtered_records.retain(|r| r.residue_owner_a.is_none());
+    }
+    crate::intersect::drop_kept_flank_residues(
+        &mut filtered_records,
+        op,
+        original_a,
+        original_b,
+        &intersection_result.aabbs_a,
+        &intersection_result.aabbs_b,
+        tolerance,
+    );
+    insert_intersection_curves(&mut graph, &filtered_records, snap_tol);
 
     // Split record edges at pre-existing pierce nodes on
     // their interior (a record crossing a periodic face's seam passes

@@ -50,6 +50,22 @@ pub(crate) fn point_inside_face_uv(
     uv_point: Point3,
     tolerance: &Tolerance,
 ) -> bool {
+    point_inside_face_uv_with_density(brep, face, uv_point, tolerance, 8)
+}
+
+/// [`point_inside_face_uv`] with an explicit boundary sampling
+/// density. The default (8 per pcurve) is TUNED — hot-path
+/// classification depends on both its speed and its marginal
+/// verdicts. Callers that must resolve queries near a CURVED
+/// boundary within its chord sagitta (the zero-crossing record vote,
+/// PK-465) pass a refined density explicitly and scoped.
+pub(crate) fn point_inside_face_uv_with_density(
+    brep: &BRep,
+    face: FaceHandle,
+    uv_point: Point3,
+    tolerance: &Tolerance,
+    base_samples_per_edge: usize,
+) -> bool {
     let boundary = match face_uv_boundary(brep, face) {
         Some(b) => b,
         None => return false,
@@ -118,10 +134,17 @@ pub(crate) fn point_inside_face_uv(
             runs.push(run);
         }
     };
-    sample_contour(&boundary, 8, &mut polygon, &mut runs);
+    // The caller-supplied density serves ONLY the planar even-odd
+    // polygon: the periodic parity path below is tuned machinery
+    // whose seam-branch chaining interacts with sample placement
+    // (measured: density 64 flipped a sphere-chart containment that
+    // the tuned density answers correctly), so it keeps the
+    // historical density regardless.
     if periodicity.0.is_none() && periodicity.1.is_none() {
+        sample_contour(&boundary, base_samples_per_edge, &mut polygon, &mut runs);
         return ray_cast_contains(&polygon, uv_point.x, uv_point.y);
     }
+    sample_contour(&boundary, 8, &mut polygon, &mut runs);
     // On a U-PERIODIC chart, count parity along the AXIAL direction
     // using only REAL boundary segments: intersect each pcurve's own
     // sample runs with the vertical line u = u_q and count crossings
@@ -252,7 +275,19 @@ pub(crate) fn point_inside_face_region_uv(
     uv_point: Point3,
     tolerance: &Tolerance,
 ) -> bool {
-    if !point_inside_face_uv(brep, face, uv_point, tolerance) {
+    point_inside_face_region_uv_with_density(brep, face, uv_point, tolerance, 8)
+}
+
+/// [`point_inside_face_region_uv`] with an explicit outer-boundary
+/// sampling density (see [`point_inside_face_uv_with_density`]).
+pub(crate) fn point_inside_face_region_uv_with_density(
+    brep: &BRep,
+    face: FaceHandle,
+    uv_point: Point3,
+    tolerance: &Tolerance,
+    density: usize,
+) -> bool {
+    if !point_inside_face_uv_with_density(brep, face, uv_point, tolerance, density) {
         return false;
     }
     let mut inside = true;

@@ -139,10 +139,19 @@ impl BRep {
             // wrong chart region and misreport an on-surface
             // sample as deviating (measured 2.07e-5 on a boss
             // corner-adjacent edge whose true residual is below
-            // the band). Each sample accepts the best of the
-            // cold projection and a continuation seed from the
-            // previous sample's witness; a real defect has no
-            // nearby witness either way.
+            // the band). Each sample accepts the best of the cold
+            // projection, a continuation seed from the previous
+            // sample's witness, and a seed from THIS side's stored
+            // PCURVE — the authoritative uv chart of the edge on
+            // this face, immune to the wrong-basin clamp (measured,
+            // PK-472: a 5.8e-4 graze-junction edge on the m6 nut's
+            // mouth cone read 7.9e-5 deviating under cold +
+            // continuation while its true residual was 1.2e-8; the
+            // otherwise-valid boolean declined). The pcurve's own
+            // orientation relative to the edge curve is unknown
+            // here, so both fractions seed. A real defect has no
+            // nearby witness under any seed.
+            let pcurve = self.half_edges.get(side).and_then(|d| d.pcurve.as_ref());
             let mut prev_uv: Option<(f64, f64)> = None;
             for fraction in SAMPLE_FRACTIONS {
                 let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
@@ -156,9 +165,21 @@ impl BRep {
                         pv,
                     )
                 });
+                let pcurve_seeded = pcurve.iter().flat_map(|pc| {
+                    [fraction, 1.0 - fraction].into_iter().filter_map(|f| {
+                        let q = pc.point_at(pc.t_start + (pc.t_end - pc.t_start) * f);
+                        crate::geometry::uv_projection::project_point_to_uv_near(
+                            &surface.geometry,
+                            &point,
+                            q.x,
+                            q.y,
+                        )
+                    })
+                });
                 let best = [cold, seeded]
                     .into_iter()
                     .flatten()
+                    .chain(pcurve_seeded)
                     .map(|(u, v)| (point.distance_to(&surface.geometry.point_at(u, v)), (u, v)))
                     .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
                 let Some((deviation, uv)) = best else {
@@ -203,6 +224,32 @@ impl BRep {
                             if k == 16 {
                                 fine_dev = d;
                             }
+                        }
+                    }
+                    // Knot-seeded multi-start rescue (PK-472): on a
+                    // multi-turn NURBS chart the cold multisheet AND
+                    // continuation witnesses can BOTH converge into
+                    // an adjacent turn's basin (measured: a 5.8e-4
+                    // graze-junction stub on the m6 mouth chamfer
+                    // read 7.9e-5 deviating while the knot-span
+                    // seeds verify 1.2e-8) — the same rescue the
+                    // PK-463 closest-point campaign added to the
+                    // kernel's projection.
+                    if fine_dev > tolerance
+                        && let crate::geometry::surface::SurfaceGeometry::Nurbs(nurbs) =
+                            &surface.geometry
+                        && let Some(seeds) = nurbs.projection_seeds()
+                        && let Some((u, v)) = crate::geometry::surface::closest_point_from_seeds(
+                            nurbs,
+                            &point,
+                            &seeds,
+                            (false, false),
+                            6,
+                        )
+                    {
+                        let d = point.distance_to(&surface.geometry.point_at(u, v));
+                        if d < fine_dev {
+                            fine_dev = d;
                         }
                     }
                     if fine_dev > tolerance {

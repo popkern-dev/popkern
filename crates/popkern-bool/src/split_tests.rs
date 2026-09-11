@@ -114,6 +114,7 @@ fn split_with_synthetic_record() {
     };
 
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_handle,
         face_b: face_a_handle, // dummy — won't be used for B
         curve,
@@ -197,6 +198,7 @@ fn split_both_sides_succeeds() {
         is_closed: false,
     };
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: face_b_h,
         curve,
@@ -274,6 +276,7 @@ fn split_b_side_failure_returns_diagnostics() {
     // Use a non-existent face handle for face_a so A-side split is skipped.
     let dummy_face_a = popkern_core::topology::FaceHandle::default();
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: dummy_face_a, // not in brep_a → A-side skip
         face_b: face_b_h,
         curve,

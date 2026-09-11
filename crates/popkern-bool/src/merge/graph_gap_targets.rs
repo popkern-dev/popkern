@@ -139,13 +139,26 @@ pub(super) fn per_face_dead_end_tips(
             node_inc.entry(b).or_default().push(h);
         }
         for (n, inc) in node_inc {
+            // TRIM-RESIDUE pairs (PK-472) register BOTH sides to one
+            // face — their free end is a slit TIP by design, not a
+            // broken chain, and bridging from it minted a two-face
+            // edge whose far side no loop ever claimed (measured:
+            // the m6 nut's mouth chamfer bridged a crest-chain tip
+            // onto a crest×cone residue end and the merge declined
+            // with 2 lethal strands).
+            let is_residue = |h: usize| {
+                let tw = graph.half_edges[h].twin;
+                graph.half_edges[h].face.is_some()
+                    && graph.half_edges[h].face == graph.half_edges[tw].face
+            };
             let records: std::collections::BTreeSet<usize> = inc
                 .iter()
-                .filter(|&&h| is_shared(h, graph))
+                .filter(|&&h| is_shared(h, graph) && !is_residue(h))
                 .map(|&h| h.min(graph.half_edges[h].twin))
                 .collect();
             let has_boundary = inc.iter().any(|&h| !is_shared(h, graph));
-            if records.len() == 1 && !has_boundary {
+            let has_residue = inc.iter().any(|&h| is_shared(h, graph) && is_residue(h));
+            if records.len() == 1 && !has_boundary && !has_residue {
                 let rh = *inc
                     .iter()
                     .find(|&&h| is_shared(h, graph))

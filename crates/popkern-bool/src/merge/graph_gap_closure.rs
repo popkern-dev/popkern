@@ -120,8 +120,19 @@ pub(crate) fn close_record_gaps(
         // lens can hairpin); forward-cone candidates rank first, then
         // by distance — the pair-convergence, monotonicity, and
         // containment certificates gate every bridge.
+        // A node whose entire incidence is TRIM-RESIDUE pairs (both
+        // half-edge sides on one face, PK-472) is a slit tip, not a
+        // junction — bridging onto one minted a half-claimed lethal
+        // strand (the m6 nut's mouth chamfer).
+        let residue_only = |m: usize| {
+            incident[m].iter().all(|&h| {
+                let tw = graph.half_edges[h].twin;
+                graph.half_edges[h].face.is_some()
+                    && graph.half_edges[h].face == graph.half_edges[tw].face
+            })
+        };
         let mut ranked: Vec<(bool, f64, usize)> = (0..n_nodes)
-            .filter(|&m| m != n && m != other_end && !incident[m].is_empty())
+            .filter(|&m| m != n && m != other_end && !incident[m].is_empty() && !residue_only(m))
             .filter_map(|m| {
                 let q = graph.nodes[m].position;
                 let d = q.distance_to(&p);

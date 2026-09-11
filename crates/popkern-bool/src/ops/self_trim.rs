@@ -65,6 +65,7 @@ pub fn trim_self_intersections(
         .curves
         .iter()
         .map(|c| IntersectionRecord {
+            residue_owner_a: None,
             face_a: c.face_a,
             face_b: c.face_b,
             curve: c.curve.clone(),

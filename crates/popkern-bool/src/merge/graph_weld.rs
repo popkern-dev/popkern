@@ -6,6 +6,8 @@ use super::graph::{EdgeSource, IntersectionGraph};
 
 #[path = "graph_weld_certify.rs"]
 mod graph_weld_certify;
+#[path = "graph_weld_coalesce.rs"]
+mod graph_weld_coalesce;
 use graph_weld_certify::{on_carrier, on_extension};
 
 /// Weld DEAD-END shared-record endpoint nodes onto the boundary node
@@ -102,6 +104,12 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             })
         });
         let mut best: Option<(f64, usize)> = None;
+        // Boundary junction inside the close tier's reach — welded or
+        // not. A CONNECTED duplicate (a record split minted a
+        // sub-band stub between the record endpoint and its true
+        // junction) is refused by the guard below yet still means
+        // the junction EXISTS here; the far tier must then stay out.
+        let mut junction_in_close_reach = false;
         for (m, inc) in incident.iter().enumerate() {
             if m == n || inc.is_empty() {
                 continue;
@@ -111,6 +119,9 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                 continue;
             }
             let d = graph.nodes[m].position.distance_to(&p);
+            if d < band * 3.0 {
+                junction_in_close_reach = true;
+            }
             // Never weld across an existing record connection: two
             // junctions JOINED by a record piece are distinct by
             // construction (the tuned exact-connector class — the
@@ -119,10 +130,41 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             // their ends collapsed the connector into a self-loop,
             // the stub cleanup retired it, and the chain gapped into
             // a graze cascade). A weld target must be an UNCONNECTED
-            // duplicate of this node.
-            let connected = incident[n]
-                .iter()
-                .any(|&h| graph.half_edges[graph.half_edges[h].twin].origin == m);
+            // duplicate of this node — where "connected" means by a
+            // REAL connector: a joining half-edge whose own arc is
+            // sub-band is a duplicate-junction MICRO-STUB (two
+            // solves of one graze junction, split-minted between
+            // them — measured, PK-472: the m6 mouth corner's two
+            // edge×cone solves sat 6e-4 apart joined by a 6e-4
+            // stub; the blocked near weld re-routed to the far
+            // tier, which hauled the node 0.349 onto a residue
+            // dead end). Welding across a micro-stub collapses it
+            // into a self-loop the stub retirement removes.
+            let connector_gate = band * 2.0;
+            let connected = incident[n].iter().any(|&h| {
+                if graph.half_edges[graph.half_edges[h].twin].origin != m {
+                    return false;
+                }
+                let he = &graph.half_edges[h];
+                let arc = he
+                    .curve
+                    .as_ref()
+                    .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+                    .map(|c| {
+                        use popkern_core::geometry::curve::CurveEval as _;
+                        let mut len = 0.0;
+                        let mut prev = c.geometry.point_at(c.t_start);
+                        for k in 1..=8 {
+                            let t = c.t_start + (c.t_end - c.t_start) * k as f64 / 8.0;
+                            let q = c.geometry.point_at(t);
+                            len += prev.distance_to(&q);
+                            prev = q;
+                        }
+                        len
+                    })
+                    .unwrap_or(d);
+                arc >= connector_gate
+            });
             if connected {
                 continue;
             }
@@ -170,7 +212,19 @@ pub(crate) fn weld_dead_end_shared_endpoints(
         // forward cone of the record's endpoint tangent, be within
         // 20% of the record's own chord, and be UNAMBIGUOUS (second
         // candidate at least twice as far).
+        // The far tier is for junctions MISSED by the near-tangent
+        // amplification (0.04–0.15 measured) — a boundary junction
+        // already inside the close tier's reach means the junction is
+        // PRESENT here, and a near/close refusal (a connected
+        // duplicate: a record split minted a sub-band stub between
+        // this endpoint and its junction) must not escalate to a
+        // haul (measured, PK-472: the chamfered rod's bottom-rim
+        // junction duplicate at 8.9e-5 was far-tier hauled 0.349
+        // onto its residue's over-rim dead end, stretching the stub
+        // into an out-and-back boundary finger — 685 open mesh
+        // edges on a validate-clean body).
         if best.is_none()
+            && !junction_in_close_reach
             && lone_endpoint
             && let Some((brep_a, brep_b, lin)) = carriers
         {
@@ -282,100 +336,7 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             welds.push((n, m));
         }
     }
-    // SPLIT-JUNCTION COALESCING: a record endpoint landing fit-slop
-    // off its true boundary junction can also SPLIT the boundary edge
-    // at its own sloppy position — the graph then carries TWO
-    // junction nodes a sliver apart on one boundary edge, and on the
-    // OTHER face's chart (where the boundary edge does not exist)
-    // the ring gaps and the graze cascade unwalks it (measured,
-    // PK-464: the chamfered nut's crest arc minted a junction 7.1e-3
-    // from the flank's exact one). Weld the record-lighter node onto
-    // its DIRECTLY-ADJACENT junction sibling when the record's
-    // tangent ray points at it; the boundary sliver between them
-    // collapses to zero length for the degenerate cleanup.
-    for (n, inc_n) in incident.iter().enumerate().take(n_nodes) {
-        if inc_n.is_empty() {
-            continue;
-        }
-        let records_n: Vec<usize> = inc_n.iter().copied().filter(|&h| is_shared(h)).collect();
-        let boundary_n: Vec<usize> = inc_n.iter().copied().filter(|&h| !is_shared(h)).collect();
-        if records_n.len() != 1 || boundary_n.is_empty() {
-            continue;
-        }
-        let p = graph.nodes[n].position;
-        // Directly-adjacent nodes along boundary half-edges.
-        for &bh in &boundary_n {
-            let m = graph.half_edges[graph.half_edges[bh].twin].origin;
-            if m == n {
-                continue;
-            }
-            let d = graph.nodes[m].position.distance_to(&p);
-            // Never weld across an existing record connection: two
-            // junctions JOINED by a record piece are distinct by
-            // construction (the tuned exact-connector class — the
-            // m6 nut's mouth-chamfer chain carries real 1.5e-3
-            // connectors between junctions 1.0e-3 apart; welding
-            // their ends collapsed the connector into a self-loop,
-            // the stub cleanup retired it, and the chain gapped into
-            // a graze cascade). A weld target must be an UNCONNECTED
-            // duplicate of this node.
-            let connected = incident[n]
-                .iter()
-                .any(|&h| graph.half_edges[graph.half_edges[h].twin].origin == m);
-            if connected {
-                continue;
-            }
-            let m_has_record = graph
-                .half_edges
-                .iter()
-                .any(|hd| hd.origin == m && matches!(hd.source, EdgeSource::Shared { .. }));
-            // Verified by the RECORD's own tangent ray — the boundary
-            // hes trivially point along the boundary at any sibling.
-            let record_points_at_m = {
-                use popkern_core::geometry::curve::CurveEval as _;
-                let rh = records_n[0];
-                let he = &graph.half_edges[rh];
-                let q = graph.nodes[graph.half_edges[he.twin].origin].position;
-                let tangent_from = |outward: popkern_core::geometry::Vec3| {
-                    let to_m = graph.nodes[m].position - p;
-                    let along = to_m.dot(&outward);
-                    let perp = (to_m - outward * along).length();
-                    along >= -band && perp < band
-                };
-                match he
-                    .curve
-                    .as_ref()
-                    .or_else(|| graph.half_edges[he.twin].curve.as_ref())
-                {
-                    Some(c) => {
-                        let d_start = c.geometry.point_at(c.t_start).distance_to(&p);
-                        let d_end = c.geometry.point_at(c.t_end).distance_to(&p);
-                        let span = c.t_end - c.t_start;
-                        let (t_at, t_in) = if d_start <= d_end {
-                            (c.t_start, c.t_start + span * 1e-3)
-                        } else {
-                            (c.t_end, c.t_end - span * 1e-3)
-                        };
-                        let dvec = c.geometry.point_at(t_at) - c.geometry.point_at(t_in);
-                        dvec.normalized().map(tangent_from).unwrap_or(false)
-                    }
-                    None => (p - q).normalized().map(tangent_from).unwrap_or(false),
-                }
-            };
-            if d > band * 100.0 || !m_has_record || !record_points_at_m {
-                continue;
-            }
-            if popkern_core::trace::trace_enabled("boolean") {
-                let q = graph.nodes[m].position;
-                eprintln!(
-                    "  [weld-junction] node {n} ({:.6},{:.6},{:.6}) -> {m} ({:.6},{:.6},{:.6}) d={d:.2e}",
-                    p.x, p.y, p.z, q.x, q.y, q.z
-                );
-            }
-            welds.push((n, m));
-            break;
-        }
-    }
+    graph_weld_coalesce::split_junction_coalesce(graph, &incident, band, &mut welds);
     let mut max_weld_d = 0.0_f64;
     for (n, m) in welds {
         // Snap the welded record curves' end control points onto the

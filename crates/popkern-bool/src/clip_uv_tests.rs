@@ -69,7 +69,7 @@ fn clip_uv_space_circle_inside_both_faces_passes_through() {
 
     let curve = cos_circle(Point3::new(0.5, 0.5, 0.0), Point3::new(0.5, 0.5, 0.0), 0.1);
 
-    let mut result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve);
+    let mut result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve, None);
     assert_eq!(
         result.len(),
         1,
@@ -95,7 +95,7 @@ fn clip_uv_space_circle_outside_face_returns_none() {
         is_closed: false, // not closed, so 0 crossings => None
     };
 
-    let result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve);
+    let result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "non-closed curve outside both faces should clip to nothing"
@@ -117,7 +117,7 @@ fn clip_uv_space_non_closed_outside_returns_none() {
         is_closed: false,
     };
 
-    let result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve);
+    let result = super::clip_curve_to_faces(&cube_a, face_a, &cube_b, face_b, &curve, None);
     assert!(
         result.is_empty(),
         "non-closed curve outside both faces should clip to nothing"
@@ -159,7 +159,8 @@ fn clip_uv_space_no_pcurves_falls_back_to_unclipped() {
 
     let curve = cos_circle(Point3::new(0.5, 0.5, 0.0), Point3::new(0.5, 0.5, 0.0), 0.3);
 
-    let mut result = super::clip_curve_to_faces(&brep_a, mef_a.face, &brep_b, mef_b.face, &curve);
+    let mut result =
+        super::clip_curve_to_faces(&brep_a, mef_a.face, &brep_b, mef_b.face, &curve, None);
     assert_eq!(
         result.len(),
         1,

@@ -373,6 +373,11 @@ pub(crate) fn face_polygon_is_reflex(
     false
 }
 
+/// A trim residue emitted by the clip: owner side (`true` = face A),
+/// the single-face splitting curve, and per-end flags marking which
+/// ends abut a kept sibling's cut bound (PK-472).
+pub(crate) type TrimResidue = (bool, CurveOnSurface, (bool, bool));
+
 /// Clip an intersection curve to both face boundaries and produce the
 /// trimmed `CurveOnSurface` pieces — one per in-face span (a record
 /// can enter and leave a trimmed domain several times; every span is
@@ -384,10 +389,11 @@ pub(crate) fn clip_curve_to_faces(
     brep_b: &BRep,
     face_b: FaceHandle,
     curve: &CurveOnSurface,
+    residues: Option<&mut Vec<TrimResidue>>,
 ) -> Vec<CurveOnSurface> {
     // For non-linear curves, use UV-space clipping.
     if curve.curve_3d.degree != 1 {
-        return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
+        return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve, residues);
     }
 
     // The fast Cyrus–Beck line clipper works on the face's VERTEX
@@ -419,7 +425,7 @@ pub(crate) fn clip_curve_to_faces(
         || face_has_curved_boundary(brep_a, face_a)
         || face_has_curved_boundary(brep_b, face_b)
     {
-        return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
+        return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve, residues);
     }
 
     let (Some(range_a), Some(range_b)) = (

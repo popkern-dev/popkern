@@ -96,7 +96,7 @@ pub fn section(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Result<SectionResul
             };
             for triple in triples {
                 if let Some(cos) = edge_triple_to_curve_on_surface(&triple) {
-                    for clipped in clip_curve_to_faces(a, *face_a, b, *face_b, &cos) {
+                    for clipped in clip_curve_to_faces(a, *face_a, b, *face_b, &cos, None) {
                         curves.push(SectionCurve {
                             curve: clipped,
                             face_a: *face_a,

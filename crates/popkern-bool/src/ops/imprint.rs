@@ -113,13 +113,16 @@ pub fn imprint(
             };
             for triple in triples {
                 if let Some(curve) = edge_triple_to_curve_on_surface(&triple) {
-                    for clipped in clip_curve_to_faces(target, *face_t, tool, *face_tool, &curve) {
+                    for clipped in
+                        clip_curve_to_faces(target, *face_t, tool, *face_tool, &curve, None)
+                    {
                         curves.push(ImprintCurve {
                             curve: clipped.clone(),
                             target_face: *face_t,
                             tool_face: *face_tool,
                         });
                         records.push(IntersectionRecord {
+                            residue_owner_a: None,
                             face_a: *face_t,
                             face_b: *face_tool,
                             curve: clipped,

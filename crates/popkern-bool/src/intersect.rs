@@ -70,6 +70,135 @@ pub(crate) struct IntersectionRecord {
     pub start_boundary: EndpointBoundaryType,
     /// Boundary type at the end endpoint.
     pub end_boundary: EndpointBoundaryType,
+    /// TRIM-RESIDUE marker (PK-465): `Some(true)` = this piece lies
+    /// inside face A's trim but OUTSIDE face B's — it partitions face
+    /// A only (registered to A on both sides, like a seam) and never
+    /// becomes a two-face result edge. `Some(false)` = the mirror
+    /// (face B's residue). `None` = an ordinary shared record. The
+    /// residue is the other operand's SURFACE crossing beyond the
+    /// shared-edge window: without it, regions of one face that touch
+    /// only across that crossing walk as ONE connected fragment and
+    /// classify with one (necessarily wrong) verdict — measured on
+    /// the angled tap's flank, whose above-plate and in-material
+    /// parts merged around each z-plane record endpoint.
+    pub residue_owner_a: Option<bool>,
+}
+
+/// Drop trim-residue records whose flanking regions would be KEPT
+/// under `op` (PK-465). A residue's two flanks always classify
+/// identically (crossing the other operand's surface EXTENSION
+/// changes nothing); when that shared verdict keeps them, the
+/// residue is an informationless slit inside a kept region and must
+/// not partition the face (measured: a kept deck walked around such
+/// a slit and its assembled loop closed with a 1.2 gap). The verdict
+/// is measured at the residue midpoint against the other operand —
+/// a point on the surface extension BEYOND the other face's trim,
+/// so the ray verdict is not knife-edge.
+pub(crate) fn drop_kept_flank_residues(
+    records: &mut Vec<IntersectionRecord>,
+    op: crate::BoolOperation,
+    brep_a: &popkern_core::topology::BRep,
+    brep_b: &popkern_core::topology::BRep,
+    aabbs_a: &[(FaceHandle, Aabb)],
+    aabbs_b: &[(FaceHandle, Aabb)],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) {
+    use crate::error::PointClassification;
+    let trace = popkern_core::trace::trace_enabled("boolean");
+    records.retain(|r| {
+        let Some(owner_is_a) = r.residue_owner_a else {
+            return true;
+        };
+        use popkern_core::geometry::curve::CurveEval as _;
+        let (t0, t1) = r.curve.curve_3d.parameter_range();
+        let mid = r.curve.curve_3d.point_at(0.5 * (t0 + t1));
+        // EXPLICIT boundary proximity first: a residue riding the
+        // other operand's boundary is the flush class the OnBoundary
+        // arm below drops — but multi-ray parity ON a boundary point
+        // is a coin flip, and a flush residue voting Inside under a
+        // union was RETAINED (measured: the flush gusset's residues
+        // ride the arm's bottom edges; the retained slits dead-ended
+        // and the loop walk broke with a 29.6 gap). Distance to the
+        // other operand's faces is the honest instrument.
+        let (other_brep, other_aabbs) = if owner_is_a {
+            (brep_b, aabbs_b)
+        } else {
+            (brep_a, aabbs_a)
+        };
+        let boundary_gate = tolerance.linear() * 100.0;
+        let on_other_boundary = {
+            use popkern_core::geometry::surface::SurfaceEval as _;
+            other_aabbs.iter().any(|(fh, aabb)| {
+                let pad = boundary_gate;
+                let inside_box = mid.x >= aabb.min.x - pad
+                    && mid.x <= aabb.max.x + pad
+                    && mid.y >= aabb.min.y - pad
+                    && mid.y <= aabb.max.y + pad
+                    && mid.z >= aabb.min.z - pad
+                    && mid.z <= aabb.max.z + pad;
+                if !inside_box {
+                    return false;
+                }
+                let Some(sof) = other_brep.faces.get(*fh).and_then(|f| f.surface.as_ref()) else {
+                    return false;
+                };
+                let Some((u, v)) = sof.geometry.closest_point(&mid) else {
+                    return false;
+                };
+                sof.geometry.point_at(u, v).distance_to(&mid) < boundary_gate
+                    && crate::split_inner_loop::point_inside_face_region_uv(
+                        other_brep,
+                        *fh,
+                        popkern_core::geometry::Point3::new(u, v, 0.0),
+                        tolerance,
+                    )
+            })
+        };
+        if on_other_boundary {
+            if trace {
+                eprintln!(
+                    "  [residue-drop] flush residue at ({:.3},{:.3},{:.3}) removed (on other operand's boundary)",
+                    mid.x, mid.y, mid.z
+                );
+            }
+            return false;
+        }
+        let verdict = if owner_is_a {
+            crate::classify::point_in_solid(&mid, brep_b, aabbs_b, tolerance)
+        } else {
+            crate::classify::point_in_solid(&mid, brep_a, aabbs_a, tolerance)
+        };
+        let keeps = match verdict {
+            Ok(PointClassification::Inside) => match (op, owner_is_a) {
+                (crate::BoolOperation::Subtraction, true) => false,
+                (crate::BoolOperation::Subtraction, false) => true,
+                (crate::BoolOperation::Union, _) => false,
+                (crate::BoolOperation::Intersection, _) => true,
+            },
+            Ok(PointClassification::Outside) => match (op, owner_is_a) {
+                (crate::BoolOperation::Subtraction, true) => true,
+                (crate::BoolOperation::Subtraction, false) => false,
+                (crate::BoolOperation::Union, _) => true,
+                (crate::BoolOperation::Intersection, _) => false,
+            },
+            // Boundary / inconclusive: DROP the residue. A residue
+            // riding the other operand's boundary is the
+            // flush/coincident class, whose topology the boundary
+            // machinery already owns — doubling it as a slit
+            // self-twins the serve (measured: the half-wiring
+            // fixture's deck residue rode the cutter wall plane and
+            // its verdict came back OnBoundary). Load-bearing
+            // residues sit strictly off the other operand.
+            _ => true,
+        };
+        if keeps && trace {
+            eprintln!(
+                "  [residue-drop] kept-flank residue at ({:.3},{:.3},{:.3}) removed",
+                mid.x, mid.y, mid.z
+            );
+        }
+        !keeps
+    });
 }
 
 /// Complete result of Stage 1 intersection computation.

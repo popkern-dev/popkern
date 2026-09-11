@@ -61,6 +61,7 @@ fn curves_per_face_collects_multiple_indices() {
 
     let records = [
         crate::intersect::IntersectionRecord {
+            residue_owner_a: None,
             face_a,
             face_b: face_b1,
             curve: cos.clone(),
@@ -70,6 +71,7 @@ fn curves_per_face_collects_multiple_indices() {
             end_boundary: Default::default(),
         },
         crate::intersect::IntersectionRecord {
+            residue_owner_a: None,
             face_a,
             face_b: face_b2,
             curve: cos,
@@ -124,6 +126,7 @@ fn split_same_face_with_two_records_uses_first() {
     };
 
     let record1 = crate::intersect::IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
@@ -133,6 +136,7 @@ fn split_same_face_with_two_records_uses_first() {
         end_boundary: Default::default(),
     };
     let record2 = crate::intersect::IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve: dummy_curve,

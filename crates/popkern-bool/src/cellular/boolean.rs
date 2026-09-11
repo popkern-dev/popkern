@@ -90,6 +90,26 @@ pub(crate) fn cellular_graph_merge(
         .iter()
         .map(|r| rotate_closed_record_to_hits(r, &intersection_result.edge_face_hits, tolerance))
         .collect();
+    let mut rotated = rotated;
+    // COINCIDENT-INTERFACE containment (PK-465): trim residues are
+    // unproven on booleans that carry coplanar face overlaps — the
+    // tuned flush arbitration owns those interfaces, and residues
+    // riding them destabilized the flush-gusset family's walks
+    // (29.6 loop gap measured). Strip every residue there; the
+    // transversal fixtures the mechanism serves (the angled tap)
+    // carry no overlaps.
+    if !intersection_result.coincidence.face_overlaps.is_empty() {
+        rotated.retain(|r| r.residue_owner_a.is_none());
+    }
+    crate::intersect::drop_kept_flank_residues(
+        &mut rotated,
+        op,
+        original_a,
+        original_b,
+        &intersection_result.aabbs_a,
+        &intersection_result.aabbs_b,
+        tolerance,
+    );
     insert_intersection_curves(&mut graph, &rotated, snap_tol);
     let _ = &hit_nodes;
     // Split SHARED edges at record×record T-junctions: one record's

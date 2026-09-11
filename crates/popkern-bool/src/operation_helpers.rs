@@ -397,3 +397,102 @@ pub(super) fn pre_check_retire_and_empty_gate(
 
     Ok(())
 }
+
+/// Post-check with ONE junction-reconciliation retry (PK-472): a
+/// failing validate re-runs after the bounded geometry repairs in
+/// [`crate::postprocess::junction_reconcile`]; a first-time-green
+/// result is untouched (bit-identical serves), and a reconciliation
+/// that cannot reach the gates declines exactly as before.
+pub(super) fn validate_with_junction_reconcile_retry(
+    result: &mut popkern_core::topology::BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Vec<String> {
+    let collect_errors = |report: &crate::validate::post_check::PostCheckReport| -> Vec<String> {
+        report
+            .findings
+            .iter()
+            .filter(|f| {
+                matches!(
+                    f.severity,
+                    crate::error::Severity::Error | crate::error::Severity::Critical
+                )
+            })
+            .map(|f| f.message.clone())
+            .collect()
+    };
+    let pc_report = crate::validate::post_check::post_check(result, tolerance, false);
+    let pc_errors = collect_errors(&pc_report);
+    if pc_errors.is_empty() {
+        return pc_errors;
+    }
+    crate::postprocess::junction_reconcile::reconcile_junction_cluster_geometry(result, tolerance);
+    let retry = crate::validate::post_check::post_check(result, tolerance, false);
+    let retry_errors = collect_errors(&retry);
+    if popkern_core::trace::trace_enabled("boolean") {
+        eprintln!(
+            "[boolean] junction reconcile retry: {} -> {} validation error(s)",
+            pc_errors.len(),
+            retry_errors.len()
+        );
+    }
+    retry_errors
+}
+
+/// Boolean-trace dump of a validation-declined result: every loop's
+/// half-edge chain with positions, and every edge's curve endpoints
+/// against its vertex pair — the wiring detail post-check findings
+/// cannot show.
+pub(super) fn trace_invalid_result(result: &popkern_core::topology::BRep) {
+    if !popkern_core::trace::trace_enabled("boolean") {
+        return;
+    }
+    for (lh, l) in result.loops.iter() {
+        let mut chain = Vec::new();
+        let mut he = l.half_edge;
+        for _ in 0..result.half_edges.len() + 1 {
+            let Some(h) = result.half_edges.get(he) else {
+                break;
+            };
+            let p = result.vertices.get(h.origin).map(|v| v.position);
+            chain.push((he, h.edge, p));
+            he = h.next;
+            if he == l.half_edge {
+                break;
+            }
+        }
+        eprintln!("  [invalid-loop] {lh:?} {} hes:", chain.len());
+        for (heh, eh, p) in &chain {
+            if let Some(p) = p {
+                eprintln!(
+                    "    he {heh:?} edge {eh:?} origin ({:.4},{:.4},{:.4})",
+                    p.x, p.y, p.z
+                );
+            }
+        }
+    }
+    use popkern_core::geometry::curve::CurveEval as _;
+    for (eh, e) in result.edges.iter() {
+        let Some(c) = e.curve.as_ref() else { continue };
+        let p0 = c.geometry.point_at(c.t_start);
+        let p1 = c.geometry.point_at(c.t_end);
+        let he = result.half_edges.get(e.half_edge);
+        let v0 = he
+            .and_then(|h| result.vertices.get(h.origin))
+            .map(|v| v.position);
+        let v1 = he
+            .and_then(|h| result.half_edges.get(h.twin))
+            .and_then(|t| result.vertices.get(t.origin))
+            .map(|v| v.position);
+        eprintln!(
+            "  [invalid-edge] {eh:?} curve ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}) v0 {:?} v1 {:?}",
+            p0.x,
+            p0.y,
+            p0.z,
+            p1.x,
+            p1.y,
+            p1.z,
+            v0.map(|p| format!("({:.6},{:.6},{:.6})", p.x, p.y, p.z)),
+            v1.map(|p| format!("({:.6},{:.6},{:.6})", p.x, p.y, p.z)),
+        );
+    }
+}

@@ -46,6 +46,43 @@ pub(crate) fn refine_endpoints_onto_boundaries(
     source: &CurveOnSurface,
     tolerance: &Tolerance,
 ) {
+    refine_selected_endpoints_onto_boundaries(
+        brep_a,
+        face_a,
+        surf_a,
+        windows_a,
+        brep_b,
+        face_b,
+        surf_b,
+        windows_b,
+        piece,
+        source,
+        tolerance,
+        (true, true),
+    );
+}
+
+/// [`refine_endpoints_onto_boundaries`] restricted to selected ends —
+/// `(start, end)`. A trim-residue piece refines ONLY the end it
+/// shares with its kept sibling's cut bound (PK-472): its free end is
+/// a mid-face slit tip that legitimately stands OFF the boundaries,
+/// and the near-tier drag glued such tips onto junctions (measured:
+/// the m6 mouth chamfer re-stranded 4 sides).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refine_selected_endpoints_onto_boundaries(
+    brep_a: &BRep,
+    face_a: FaceHandle,
+    surf_a: &SurfaceGeometry,
+    windows_a: ((f64, f64), (f64, f64)),
+    brep_b: &BRep,
+    face_b: FaceHandle,
+    surf_b: &SurfaceGeometry,
+    windows_b: ((f64, f64), (f64, f64)),
+    piece: &mut CurveOnSurface,
+    source: &CurveOnSurface,
+    tolerance: &Tolerance,
+    ends: (bool, bool),
+) {
     // The record-fit slop class measures 2e-5..1.8e-4; the band stays
     // just above it. A generous band regressed cube corpora by
     // dragging record ends that legitimately terminate NEAR (not on)
@@ -60,6 +97,9 @@ pub(crate) fn refine_endpoints_onto_boundaries(
     // never the fit-slop class.
     let band = tolerance.linear() * 250.0;
     for end in [false, true] {
+        if !(if end { ends.1 } else { ends.0 }) {
+            continue;
+        }
         let p = endpoint(piece, end);
         // Outward unit tangent of the record at this endpoint: an
         // endpoint move ALONG it is a parameter re-trim of the same
@@ -348,7 +388,7 @@ pub(crate) fn clone_curve_geometry(g: &CurveGeometry) -> CurveGeometry {
 /// the curve-surface gate (PK-464). Interpolated samples stay on
 /// the fitted curve, so the correction is confined to the last
 /// segment, whose ends are both on-surface.
-fn set_endpoint_3d_uv(
+pub(crate) fn set_endpoint_3d_uv(
     piece: &mut CurveOnSurface,
     end: bool,
     r: Point3,

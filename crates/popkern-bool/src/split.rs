@@ -251,6 +251,13 @@ pub(crate) fn split_along_curves(
         std::collections::BTreeMap::new();
 
     for (idx, record) in records.iter().enumerate() {
+        // TRIM-RESIDUE records (PK-465) are graph-partition aids —
+        // they end mid-face at junction nodes and never imprint as
+        // BRep face splits (the splitter's boundary-vertex
+        // precondition rightly rejects them).
+        if record.residue_owner_a.is_some() {
+            continue;
+        }
         curves_a.entry(record.face_a).or_default().push((idx, true));
         curves_b
             .entry(record.face_b)
@@ -327,6 +334,9 @@ pub(crate) fn self_split_along_curves(
     let mut per_face: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
         std::collections::BTreeMap::new();
     for (idx, record) in records.iter().enumerate() {
+        if record.residue_owner_a.is_some() {
+            continue;
+        }
         per_face.entry(record.face_a).or_default().push((idx, true));
         per_face
             .entry(record.face_b)
@@ -359,6 +369,10 @@ mod tests;
 #[cfg(test)]
 #[path = "split_extra_tests.rs"]
 mod extra_tests;
+
+#[cfg(test)]
+#[path = "split_extra_overflow_tests.rs"]
+mod extra_overflow_tests;
 
 #[cfg(test)]
 #[path = "split_multicurve_tests.rs"]

@@ -23,8 +23,11 @@ use crate::clip::clip_curve_to_faces;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 
+#[path = "ff_parallel_residue.rs"]
+mod ff_parallel_residue;
 #[path = "ff_parallel_trace.rs"]
 mod ff_parallel_trace;
+pub(crate) use ff_parallel_trace::TraceFlags;
 use ff_parallel_trace::{trace_clip_input, trace_clip_output, trace_pair_surfaces};
 
 /// A face pair selected by BVH overlap filtering, awaiting intersection.
@@ -39,36 +42,6 @@ pub(crate) struct FacePairTask {
     /// SSI as march seeds (rescues narrow near-tangent lenses the
     /// interior seeding misses — PK-465).
     pub seeds: Vec<popkern_core::geometry::Point3>,
-}
-
-/// Debug-trace gates for the pair loop, read from the environment once
-/// per Stage 1 call instead of once per pair (`env::var_os` takes the
-/// process environment lock).
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TraceFlags {
-    /// the `pair-scan` trace topic: candidate/surface dumps.
-    pub pair: bool,
-    /// the `clip` trace topic: clip input/output dumps.
-    pub clip: bool,
-}
-
-impl TraceFlags {
-    /// Read both trace gates from the environment.
-    pub(crate) fn from_env() -> Self {
-        Self {
-            pair: popkern_core::trace::trace_enabled("pair-scan"),
-            clip: popkern_core::trace::trace_enabled("clip"),
-        }
-    }
-
-    /// True if any trace stream is active. Tracing forces sequential
-    /// processing so interleaved thread output cannot garble the dump.
-    /// (Only consulted by the rayon dispatch arm — the sequential-only
-    /// build has no scheduling decision to make.)
-    #[cfg_attr(not(feature = "parallel"), allow(dead_code))]
-    pub(crate) fn any(&self) -> bool {
-        self.pair || self.clip
-    }
 }
 
 /// A surface-surface intersection failure on one face pair.
@@ -305,7 +278,16 @@ fn clip_and_classify(
     for isect in &result.intersections {
         match isect {
             SurfaceSurfaceIntersection::Curve(curve) => {
-                let clipped_list = clip_curve_to_faces(a, face_a, b, face_b, curve);
+                let mut residues: Vec<crate::clip::TrimResidue> = Vec::new();
+                let clipped_list =
+                    clip_curve_to_faces(a, face_a, b, face_b, curve, Some(&mut residues));
+                ff_parallel_residue::push_residue_records(
+                    &mut records,
+                    residues,
+                    face_a,
+                    face_b,
+                    trace.clip,
+                );
                 if trace.clip {
                     trace_clip_input(
                         face_a,
@@ -457,6 +439,7 @@ fn clip_and_classify(
                     );
 
                     records.push(IntersectionRecord {
+                        residue_owner_a: None,
                         face_a,
                         face_b,
                         curve: clipped,

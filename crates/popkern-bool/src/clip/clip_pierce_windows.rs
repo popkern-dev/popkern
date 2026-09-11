@@ -33,22 +33,28 @@ use crate::clip_endpoint_refine::boundary_edges;
 /// Exact crossing parameters of `curve` with `face_x`'s trim
 /// boundary: every boundary edge of the face intersected with the
 /// OTHER face's surface, junctions projected onto the record and kept
-/// when they lie ON it. `None` when no junction lands on the record
-/// (the tuned machinery keeps full authority there).
+/// when they lie ON it. Each parameter carries its exact junction
+/// POINT (PK-472): a piece end clipped at the parameter alone
+/// evaluates on the record's FITTED curve and inherits its lateral
+/// slop (~6e-4 measured on the m6 nut's mouth corner — two records
+/// meeting at one junction minted nodes that far apart, and the
+/// assembled shell failed validation on the gap). `None` when no
+/// junction lands on the record (the tuned machinery keeps full
+/// authority there).
 pub(super) fn pierce_crossing_params(
     brep_x: &BRep,
     face_x: FaceHandle,
     other_brep: &BRep,
     other_face: FaceHandle,
     curve: &CurveOnSurface,
-) -> Option<Vec<f64>> {
+) -> Option<Vec<(f64, popkern_core::geometry::Point3)>> {
     let other_surf = &other_brep.faces.get(other_face)?.surface.as_ref()?.geometry;
     let ow = crate::intersect::bounded_parameter_range(other_brep, other_face, other_surf);
     let tolerance = &brep_x.tolerance;
     let fit_gate = tolerance.linear() * 2000.0;
     let (t_min, t_max) = curve.curve_3d.parameter_range();
     let span = (t_max - t_min).abs();
-    let mut ts: Vec<f64> = Vec::new();
+    let mut ts: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
     for eh in boundary_edges(brep_x, face_x) {
         let Some(edge) = brep_x.edges.get(eh) else {
             continue;
@@ -89,15 +95,15 @@ pub(super) fn pierce_crossing_params(
             {
                 continue;
             }
-            if !ts.iter().any(|&q| (q - t).abs() < span * 1e-6) {
-                ts.push(t);
+            if !ts.iter().any(|&(q, _)| (q - t).abs() < span * 1e-6) {
+                ts.push((t, *point));
             }
         }
     }
     if ts.is_empty() {
         return None;
     }
-    ts.sort_by(f64::total_cmp);
+    ts.sort_by(|a, b| a.0.total_cmp(&b.0));
     Some(ts)
 }
 

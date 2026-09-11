@@ -73,6 +73,7 @@ fn split_a_side_failure_returns_diagnostics() {
 
     let dummy_face_b = popkern_core::topology::FaceHandle::default();
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: dummy_face_b, // not in brep_b → B-side skip
         curve,
@@ -203,6 +204,7 @@ fn non_planar_face_is_skipped_during_split() {
 
     let faces_before = brep_a.faces.len();
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
@@ -259,6 +261,7 @@ fn point_on_segment_degenerate_edge_does_not_panic() {
         is_closed: false,
     };
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
@@ -316,6 +319,7 @@ fn split_a_face_failure_via_tight_tolerance_is_handled() {
     };
 
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: popkern_core::topology::FaceHandle::default(),
         curve,
@@ -426,6 +430,7 @@ fn planar_faces_without_pcurves_still_split() {
         is_closed: false,
     };
     let record = IntersectionRecord {
+        residue_owner_a: None,
         face_a: face_a_h,
         face_b: face_b_h,
         curve,
@@ -442,55 +447,4 @@ fn planar_faces_without_pcurves_still_split() {
 
     assert_eq!(result.a.faces.len(), a_before + 1, "A should gain a face");
     assert_eq!(result.b.faces.len(), b_before + 1, "B should gain a face");
-}
-
-/// Face with pcurves but where the UV curve doesn't cross the boundary
-/// should be skipped gracefully (0 crossings).
-#[test]
-fn uv_curve_outside_boundary_skips_face() {
-    use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-
-    let cube = BRep::unit_cube(tol()).expect("cube");
-    let face_h = cube.faces.keys().next().expect("has faces");
-
-    // Curve entirely outside the cube's UV domain: u,v in [10,11].
-    // Use 3D coords far off-plane so the planar fallback also rejects it.
-    let far_uv = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(10.0, 10.0, 0.0), Point3::new(11.0, 11.0, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-    let far_3d = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(10.0, 10.0, 5.0), Point3::new(11.0, 11.0, 5.0)],
-        weights: vec![1.0, 1.0],
-    };
-    let curve = CurveOnSurface {
-        curve_3d: far_3d,
-        curve_uv1: far_uv.clone(),
-        curve_uv2: far_uv,
-        is_closed: false,
-    };
-    let record = IntersectionRecord {
-        face_a: face_h,
-        face_b: popkern_core::topology::FaceHandle::default(),
-        curve,
-        is_tangent: false,
-        is_coincident: false,
-        start_boundary: Default::default(),
-        end_boundary: Default::default(),
-    };
-
-    let brep_b = BRep::new(tol());
-    let faces_before = cube.faces.len();
-    let result = split_along_curves(cube, brep_b, &[record], &tol())
-        .expect("should succeed, skipping the face");
-
-    assert_eq!(
-        result.a.faces.len(),
-        faces_before,
-        "face should not be split when UV curve is outside boundary"
-    );
 }

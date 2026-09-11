@@ -119,6 +119,30 @@ pub(crate) enum UvClipResult {
     Windows(Vec<(f64, f64)>),
 }
 
+/// Abstention band for boundary-riding containment samples: within
+/// this uv distance of the true boundary contour, a sample is not
+/// evidence for either side (record-fit slop puts genuinely
+/// boundary-running curves this far off the contour). Chart-relative
+/// — an absolute multiple of the model tolerance mis-scales across
+/// charts (measured: 100×linear read 1.0 on a sphere chart in
+/// radians and swallowed every sample of a mid-latitude ring).
+fn uv_boundary_band(brep: &BRep, curve_uv: &NurbsCurve) -> f64 {
+    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    );
+    for p in &curve_uv.control_points {
+        lo_u = lo_u.min(p.x);
+        hi_u = hi_u.max(p.x);
+        lo_v = lo_v.min(p.y);
+        hi_v = hi_v.max(p.y);
+    }
+    let extent = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2)).sqrt();
+    (extent * 1.0e-3).max(brep.tolerance.linear() * 10.0)
+}
+
 pub(super) fn uv_clip_one_face(
     brep: &BRep,
     face: FaceHandle,
@@ -187,19 +211,90 @@ pub(super) fn uv_clip_one_face(
             // REGION containment (hole-aware): a record wholly inside
             // a hole is off the face (the vent-slot class); a record
             // crossing a hole has crossings and never reaches here.
+            // BOUNDARY BAND + DENSE POLYGON (PK-465): the tuned
+            // 8-per-pcurve polygon carries a chord sagitta far wider
+            // than record-fit slop on a full-circle rim (0.2 uv on an
+            // M6 tap's floor), so a genuine record hugging the rim
+            // 0.05 inside voted Outside and the floor×base-wall
+            // record dropped whole, stranding the hole-bottom lens.
+            // Here the vote is rare (zero-crossing records only), so
+            // it can afford honesty: samples within record-fit slop
+            // of the TRUE boundary contour abstain (they are not
+            // evidence for either side — a boundary-running record's
+            // samples ALL abstain and the record drops, the PK-114
+            // stance: the boundary already carries that topology);
+            // the remaining samples vote against a boundary polygon
+            // refined well under the band.
+            let band = uv_boundary_band(brep, curve_uv);
+            let boundary_ring = crate::clip::face_uv_boundary(brep, face);
+            let boundary_d = |q: popkern_core::geometry::Point3| -> f64 {
+                let mut best = f64::INFINITY;
+                for (_, pc) in boundary_ring.iter().flatten() {
+                    let (a, b) = pc.parameter_range();
+                    if !(a.is_finite() && b.is_finite()) {
+                        continue;
+                    }
+                    for i in 0..=64 {
+                        let t = a + (b - a) * i as f64 / 64.0;
+                        let s = pc.point_at(t);
+                        let d = ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt();
+                        if d < best {
+                            best = d;
+                        }
+                    }
+                }
+                best
+            };
             let mut inside_votes = 0usize;
+            let mut counted = 0usize;
             for k in 1..=5 {
                 let t = t_min + (t_max - t_min) * k as f64 / 6.0;
-                if crate::split_inner_loop::point_inside_face_region_uv(
+                let q = curve_uv.point_at(t);
+                if boundary_d(q) < band {
+                    continue;
+                }
+                counted += 1;
+                if crate::split_inner_loop::point_inside_face_region_uv_with_density(
                     brep,
                     face,
-                    curve_uv.point_at(t),
+                    q,
                     &brep.tolerance,
+                    64,
                 ) {
                     inside_votes += 1;
                 }
             }
-            if inside_votes >= 3 {
+            if trace {
+                eprintln!(
+                    "    [uvclip-vote] {face:?} counted={counted} inside={inside_votes} band={band:.2e}"
+                );
+            }
+            if counted == 0 {
+                // Every sample rides the boundary band: the banded
+                // vote knows nothing — fall back to the tuned
+                // unbanded majority at the tuned density (declaring
+                // Outside here dropped every record of a coarse-
+                // tolerance sphere-cube subtraction, whose band floor
+                // spans the whole cap, and the serve lied 6x on
+                // volume — the tolerance-envelope pin).
+                let mut inside = 0usize;
+                for k in 1..=5 {
+                    let t = t_min + (t_max - t_min) * k as f64 / 6.0;
+                    if crate::split_inner_loop::point_inside_face_region_uv(
+                        brep,
+                        face,
+                        curve_uv.point_at(t),
+                        &brep.tolerance,
+                    ) {
+                        inside += 1;
+                    }
+                }
+                if inside >= 3 {
+                    UvClipResult::Windows(vec![(t_min, t_max)])
+                } else {
+                    UvClipResult::Outside
+                }
+            } else if 2 * inside_votes > counted {
                 UvClipResult::Windows(vec![(t_min, t_max)])
             } else {
                 UvClipResult::Outside
@@ -283,6 +378,88 @@ pub(super) fn uv_clip_one_face(
                 } else {
                     UvClipResult::Windows(ws)
                 };
+            }
+            // DEGENERATE-HULL rescue (PK-465): an OPEN record whose
+            // crossings all cluster at ONE parameter touched the
+            // boundary tangentially — through a junction, not across
+            // it — and the crossing hull collapses to a point,
+            // discarding the real in-face span on one side (measured:
+            // the angled tap's floor×flank record runs from a B-edge
+            // junction 0.03 inside the floor rim, exits tangentially
+            // THROUGH the rim junction, and its 2-crossing hull
+            // (0.076,0.076) kept a zero-length stub — the hole-bottom
+            // chain lost its closing link). Sides are decided like the
+            // 1-crossing arm, by endpoint containment — but with the
+            // boundary-banded dense verdict, since these endpoints hug
+            // the rim well inside the tuned polygon's sagitta. An
+            // endpoint that abstains (rides the boundary) leaves the
+            // tuned hull behavior untouched.
+            {
+                use popkern_core::geometry::curve::CurveEval;
+                let (t_min, t_max) = curve_uv.parameter_range();
+                let span = (t_max - t_min).max(1e-12);
+                if !is_closed && crossings.len() >= 2 {
+                    let t_first = crossings[0].t_curve;
+                    let t_last = crossings[crossings.len() - 1].t_curve;
+                    if (t_last - t_first).abs() < span * 1e-6 {
+                        let inset = span * 1e-3;
+                        let band = uv_boundary_band(brep, curve_uv);
+                        let boundary_ring = crate::clip::face_uv_boundary(brep, face);
+                        let banded_inside = |q: popkern_core::geometry::Point3| -> Option<bool> {
+                            let mut best = f64::INFINITY;
+                            for (_, pc) in boundary_ring.iter().flatten() {
+                                let (a, b) = pc.parameter_range();
+                                if !(a.is_finite() && b.is_finite()) {
+                                    continue;
+                                }
+                                for i in 0..=64 {
+                                    let t = a + (b - a) * i as f64 / 64.0;
+                                    let s = pc.point_at(t);
+                                    let d = ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt();
+                                    if d < best {
+                                        best = d;
+                                    }
+                                }
+                            }
+                            if best < band {
+                                return None;
+                            }
+                            Some(
+                                crate::split_inner_loop::point_inside_face_region_uv_with_density(
+                                    brep,
+                                    face,
+                                    q,
+                                    &brep.tolerance,
+                                    64,
+                                ),
+                            )
+                        };
+                        let start_in = banded_inside(curve_uv.point_at(t_min + inset));
+                        let end_in = banded_inside(curve_uv.point_at(t_max - inset));
+                        if trace {
+                            eprintln!(
+                                "    [uvclip-tangent] {face:?} t~{t_first:.3} start_in={start_in:?} end_in={end_in:?}"
+                            );
+                        }
+                        match (start_in, end_in) {
+                            (Some(true), Some(false)) => {
+                                return UvClipResult::Windows(vec![(t_min, t_first)]);
+                            }
+                            (Some(false), Some(true)) => {
+                                return UvClipResult::Windows(vec![(t_last, t_max)]);
+                            }
+                            (Some(true), Some(true)) => {
+                                return UvClipResult::Windows(vec![(t_min, t_max)]);
+                            }
+                            (Some(false), Some(false)) => {
+                                return UvClipResult::Outside;
+                            }
+                            // Abstaining endpoints: boundary-running —
+                            // keep the tuned hull behavior below.
+                            _ => {}
+                        }
+                    }
+                }
             }
             match uv_range_from_crossings(&crossings, curve_uv, is_closed) {
                 Some((t_enter, t_exit)) => {

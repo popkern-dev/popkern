@@ -72,6 +72,18 @@ pub(super) fn decline_on_lethal_strands(
             if !is_shared {
                 return false;
             }
+            // TRIM-RESIDUE pairs (PK-465) carry the SAME face on both
+            // sides — they partition one face and both of their sides
+            // classify identically, so a half left dangling there is
+            // a discarded-region boundary, never a missing region.
+            let same_face_residue = rev_map.get(&heh).is_some_and(|&g| {
+                let tw = graph.half_edges[g].twin;
+                graph.half_edges[g].face.is_some()
+                    && graph.half_edges[g].face == graph.half_edges[tw].face
+            });
+            if same_face_residue {
+                return false;
+            }
             let a = brep.vertices.get(he.origin).map(|v| v.position);
             let b = brep
                 .half_edges
@@ -176,9 +188,15 @@ pub(super) fn mask_dangling_halves(
                 let src = rev
                     .get(heh)
                     .map(|&g| format!("ghe {g} {:?}", graph.half_edges[g].source));
+                let survivor_face = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .map(|l| l.face);
+                let twin_ghe = rev.get(&he.twin);
                 if let (Some(a), Some(b)) = (a, b) {
                     eprintln!(
-                        "  [assemble-strand] {heh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) {src:?}",
+                        "  [assemble-strand] {heh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) {src:?} survivor-face {survivor_face:?} twin-ghe {twin_ghe:?}",
                         a.x, a.y, a.z, b.x, b.y, b.z
                     );
                 }
