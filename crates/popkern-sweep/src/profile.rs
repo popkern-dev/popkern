@@ -6,7 +6,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
+use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::error::SweepError;
 use crate::types::SweepProfile;
@@ -22,6 +22,12 @@ const PROFILE_SAMPLES: usize = 64;
 #[derive(Debug)]
 pub struct AnalyzedProfile {
     /// Smooth spans of the profile (split at tangent discontinuities).
+    /// Every span's knot domain is normalized to [0, 1]: the sweep
+    /// surface and topology stages evaluate span/surface corners at
+    /// exactly 0 and 1, and a span carrying its source domain (an
+    /// adopted rim arc's angles) put u = 0 mid-wire — ring vertices
+    /// landed 90° off every cap curve (PK-479). Sub-[0,1] split
+    /// domains only ever worked by clamped evaluation.
     pub spans: Vec<NurbsCurve>,
     /// Span count per wire, in `spans` order. A single-wire profile is
     /// one entry; a multi-wire profile lists the OUTER wire first and
@@ -48,7 +54,13 @@ pub fn analyze_profile(
     }
 }
 
-/// Analyze a face profile by extracting its boundary loops as polyline wires.
+/// Analyze a face profile by extracting its boundary loops as
+/// curve-faithful wire chains (PK-479): each loop half-edge adopts
+/// its edge's stored curve over its stored range, oriented to the
+/// traversal, so circular holes stay exact circles instead of
+/// degenerating to their single vertex. Edges without stored curves
+/// fall back to the vertex chord. The profile-plane winding logic
+/// projects onto XY (the wire contract shared with `analyze_wire`).
 fn analyze_face(
     brep: &BRep,
     face: FaceHandle,
@@ -59,72 +71,11 @@ fn analyze_face(
         .get(face)
         .ok_or_else(|| SweepError::InvalidProfile("face handle not found in BRep".into()))?;
 
-    let outer_curve = loop_to_polyline(brep, face_data.outer_loop)?;
-
-    if face_data.inner_loops.is_empty() {
-        analyze_wire(&outer_curve, tolerance)
-    } else {
-        let mut curves = vec![outer_curve];
-        for &inner_loop in &face_data.inner_loops {
-            curves.push(loop_to_polyline(brep, inner_loop)?);
-        }
-        analyze_multi_wire(&curves, tolerance)
+    let mut chains = vec![loop_to_wire_chain(brep, face_data.outer_loop)?];
+    for &inner_loop in &face_data.inner_loops {
+        chains.push(loop_to_wire_chain(brep, inner_loop)?);
     }
-}
-
-/// Walk a loop's half-edges and build a degree-1 polyline NurbsCurve through the vertex positions.
-///
-/// The curve is closed: the last vertex duplicates the first.
-fn loop_to_polyline(brep: &BRep, loop_handle: LoopHandle) -> Result<NurbsCurve, SweepError> {
-    let loop_data = brep
-        .loops
-        .get(loop_handle)
-        .ok_or_else(|| SweepError::InvalidProfile("loop handle not found in BRep".into()))?;
-
-    let start_he = loop_data.half_edge;
-    let mut positions: Vec<Point3> = Vec::new();
-    let mut current_he = start_he;
-
-    loop {
-        let he = brep.half_edges.get(current_he).ok_or_else(|| {
-            SweepError::InvalidProfile("half-edge handle not found in BRep".into())
-        })?;
-        let vertex = brep
-            .vertices
-            .get(he.origin)
-            .ok_or_else(|| SweepError::InvalidProfile("vertex handle not found in BRep".into()))?;
-        positions.push(vertex.position);
-        current_he = he.next;
-        if current_he == start_he {
-            break;
-        }
-    }
-
-    if positions.is_empty() {
-        return Err(SweepError::InvalidProfile("loop has no half-edges".into()));
-    }
-
-    // Close the polyline by repeating the first vertex.
-    positions.push(positions[0]);
-
-    let n = positions.len(); // number of control points
-    // Degree-1 polyline knots: clamped, uniform interior knots.
-    // knot count = n + degree + 1 = n + 2
-    let mut knots = Vec::with_capacity(n + 2);
-    knots.push(0.0);
-    for i in 0..n {
-        knots.push(i as f64 / (n - 1) as f64);
-    }
-    knots.push(1.0);
-
-    let weights = vec![1.0; n];
-
-    Ok(NurbsCurve {
-        degree: 1,
-        knots,
-        control_points: positions,
-        weights,
-    })
+    analyze_wire_chains(chains, tolerance)
 }
 
 /// Analyze a single wire profile.
@@ -154,7 +105,10 @@ fn analyze_wire(curve: &NurbsCurve, tolerance: &Tolerance) -> Result<AnalyzedPro
     } else {
         centered
     };
-    let spans = detect_and_split(&centered)?;
+    let spans: Vec<NurbsCurve> = detect_and_split(&centered)?
+        .into_iter()
+        .map(normalized_domain)
+        .collect();
 
     let wires = vec![spans.len()];
     Ok(AnalyzedProfile {
@@ -163,113 +117,6 @@ fn analyze_wire(curve: &NurbsCurve, tolerance: &Tolerance) -> Result<AnalyzedPro
         is_closed,
         centroid,
     })
-}
-
-/// Analyze multiple wires: the largest (by area) is the OUTER wire
-/// and is ordered first; the rest are inner (hole) wires.
-///
-/// Contract (PK-477): every wire must be closed — a mixed open/closed
-/// multi-wire has no solid or sheet interpretation and declines as
-/// `InvalidProfile`. Winding is normalized per role (outer CCW, inner
-/// CW in the profile plane) so `du×dv` faces out of the material on
-/// every side face, hole walls included. Each inner wire's centroid
-/// must lie inside the outer wire's polygon — a disjoint "inner" wire
-/// would sweep a second, cross-wired solid and declines instead.
-fn analyze_multi_wire(
-    curves: &[NurbsCurve],
-    tolerance: &Tolerance,
-) -> Result<AnalyzedProfile, SweepError> {
-    if curves.is_empty() {
-        return Err(SweepError::InvalidProfile("empty multi-wire".into()));
-    }
-    if curves.len() == 1 {
-        return analyze_wire(&curves[0], tolerance);
-    }
-
-    // The outer wire is the one with the largest absolute area.
-    let mut outer_idx = 0;
-    let mut best_area = 0.0_f64;
-    for (i, curve) in curves.iter().enumerate() {
-        let area = signed_area_2d(curve).abs();
-        if area > best_area {
-            best_area = area;
-            outer_idx = i;
-        }
-    }
-
-    let centroid = compute_centroid(&curves[outer_idx]);
-    let mut order: Vec<usize> = (0..curves.len()).collect();
-    order.retain(|&i| i != outer_idx);
-    order.insert(0, outer_idx);
-
-    // Outer polygon (centered frame) for the containment check.
-    let outer_centered = translate_curve(&curves[outer_idx], centroid);
-    let outer_poly: Vec<(f64, f64)> = {
-        let (t0, t1) = outer_centered.parameter_range();
-        (0..PROFILE_SAMPLES)
-            .map(|i| {
-                let t = t0 + (i as f64 / PROFILE_SAMPLES as f64) * (t1 - t0);
-                let p = outer_centered.point_at(t);
-                (p.x, p.y)
-            })
-            .collect()
-    };
-
-    let mut all_spans = Vec::new();
-    let mut wires = Vec::with_capacity(curves.len());
-    for (rank, &i) in order.iter().enumerate() {
-        let centered = translate_curve(&curves[i], centroid);
-        if !check_closed(&centered, tolerance) {
-            return Err(SweepError::InvalidProfile(format!(
-                "multi-wire profile: wire {i} is not closed (every wire \
-                 of a multi-wire profile must be a closed loop)"
-            )));
-        }
-        let is_outer = rank == 0;
-        if !is_outer {
-            let c = compute_centroid(&centered);
-            if !point_in_polygon(&outer_poly, (c.x, c.y)) {
-                return Err(SweepError::InvalidProfile(format!(
-                    "multi-wire profile: wire {i} lies outside the outer \
-                     wire (inner wires must be holes of the outer)"
-                )));
-            }
-        }
-        let area = signed_area_2d(&centered);
-        let wants_ccw = is_outer;
-        let centered = if (area < 0.0) == wants_ccw {
-            reversed_curve(&centered)
-        } else {
-            centered
-        };
-        let spans = detect_and_split(&centered)?;
-        wires.push(spans.len());
-        all_spans.extend(spans);
-    }
-
-    Ok(AnalyzedProfile {
-        spans: all_spans,
-        wires,
-        is_closed: true,
-        centroid,
-    })
-}
-
-/// Even-odd point-in-polygon over a sampled outer wire.
-fn point_in_polygon(poly: &[(f64, f64)], p: (f64, f64)) -> bool {
-    let mut inside = false;
-    let n = poly.len();
-    for i in 0..n {
-        let (x0, y0) = poly[i];
-        let (x1, y1) = poly[(i + 1) % n];
-        if (y0 > p.1) != (y1 > p.1) {
-            let x = x0 + (p.1 - y0) / (y1 - y0) * (x1 - x0);
-            if p.0 < x {
-                inside = !inside;
-            }
-        }
-    }
-    inside
 }
 
 /// Compute centroid as the average of sampled points along a curve.
@@ -484,3 +331,9 @@ fn signed_area_2d(curve: &NurbsCurve) -> f64 {
 #[cfg(test)]
 #[path = "profile_tests.rs"]
 mod tests;
+
+#[path = "profile_multi_wire.rs"]
+mod profile_multi_wire;
+use profile_multi_wire::{
+    analyze_multi_wire, analyze_wire_chains, loop_to_wire_chain, normalized_domain,
+};

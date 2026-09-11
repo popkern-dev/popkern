@@ -99,3 +99,44 @@ pub(crate) fn analytic_or_nurbs_curve(
         t_end,
     }
 }
+
+#[cfg(test)]
+mod recognition_phase_tests {
+    use popkern_core::geometry::curve::CurveEval;
+
+    /// PK-479 pin: circle recognition preserves the wire's start
+    /// phase for BOTH windings — the recognized curve evaluated at
+    /// its own t_start must land on the wire's start point (the
+    /// winding-derived normal changes the evaluator frame, and a
+    /// frame-inconsistent theta rotates every trim off its seam
+    /// vertex).
+    #[test]
+    fn circle_recognition_preserves_start_phase_both_windings() {
+        let circle = popkern_core::geometry::curve::CurveGeometry::Circle {
+            center: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+            normal: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let fwd = circle.to_nurbs();
+        let rev = {
+            let mut c = fwd.clone();
+            let (t0, t1) = c.parameter_range();
+            let mut knots: Vec<f64> = c.knots.iter().rev().map(|&k| t0 + t1 - k).collect();
+            knots.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+            c.knots = knots;
+            c.control_points.reverse();
+            c.weights.reverse();
+            c
+        };
+        for (name, wire) in [("fwd", fwd), ("rev", rev)] {
+            let (t0, _) = wire.parameter_range();
+            let s = wire.point_at(t0);
+            let rec = super::analytic_or_nurbs_curve(&wire);
+            let rs = rec.geometry.point_at(rec.t_start);
+            assert!(
+                rs.distance_to(&s) < 1e-9,
+                "{name}: recognized start {rs:?} != wire start {s:?}"
+            );
+        }
+    }
+}

@@ -357,3 +357,35 @@ fn multi_wire_helical_sweep_smoke() {
         .expect("multi-wire helical sweep");
     result.brep.validate().expect("valid helical tube");
 }
+
+/// PK-479 pin: an inner wire carrying its SOURCE parameter domain
+/// (a drilled rim adopted as an Arc over its angle range) sweeps to
+/// a valid solid — analysis normalizes every span onto [0, 1], the
+/// domain the surface/topology stages evaluate corners in. Pre-fix
+/// the ring vertices landed 90° off every cap curve and both caps
+/// gaped by the quarter chord (1.414 on r = 1).
+#[test]
+fn phase_shifted_circle_inner_wire_sweeps_valid() {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let arc = CurveGeometry::Arc {
+        center: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+        normal: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: -std::f64::consts::FRAC_PI_2,
+        end_angle: 3.0 * std::f64::consts::FRAC_PI_2,
+    };
+    let inner = arc.to_nurbs_in_range((
+        -std::f64::consts::FRAC_PI_2,
+        3.0 * std::f64::consts::FRAC_PI_2,
+    ));
+    let profile = SweepProfile::MultiWire(vec![square_wire(2.0), inner]);
+    let result = sweep(
+        &profile,
+        &z_path(3.0),
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("phase-shifted inner sweep");
+    result.brep.validate().expect("valid solid");
+}

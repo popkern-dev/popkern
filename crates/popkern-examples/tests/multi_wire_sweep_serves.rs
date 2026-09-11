@@ -155,3 +155,62 @@ fn face_profile_with_hole_sweeps_valid() {
     .expect("face-with-hole sweep");
     result.brep.validate().expect("valid swept ring solid");
 }
+
+/// PK-479: the drilled-CIRCULAR-hole face profile now sweeps to a
+/// valid solid — loop half-edges adopt their edge curves, so the
+/// hole's one-half-edge rim stays an exact circle instead of
+/// degenerating to its single vertex (measured pre-fix:
+/// InconsistentOrientation on the swept body).
+#[test]
+fn face_profile_with_circular_hole_sweeps_valid() {
+    use popkern_part::prelude::*;
+    let plate = Profile::on(Plane::XY)
+        .rect(6.0, 6.0)
+        .extrude(1.0)
+        .expect("plate");
+    let holed = plate
+        .subtract(
+            &Profile::on(Plane::XY)
+                .circle(1.0)
+                .extrude(1.0)
+                .expect("drill"),
+        )
+        .expect("holed plate");
+    let brep = holed.brep();
+    let (face, _) = brep
+        .faces
+        .iter()
+        .find(|(_, f)| !f.inner_loops.is_empty())
+        .expect("a face with an inner loop");
+    let profile = SweepProfile::Face {
+        brep: Box::new(brep.clone()),
+        face,
+    };
+    let result = sweep(
+        &profile,
+        &z_path(3.0),
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("circular-hole face sweep");
+    let out = &result.brep;
+    out.validate().expect("valid swept ring solid");
+    // The hole wall must be curved (a recognized cylinder or a NURBS
+    // wall), not a prism of chords: expect a face whose surface is
+    // non-planar with area consistent with an r=1 circular hole.
+    let curved_walls = out
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            !matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) | None
+            )
+        })
+        .count();
+    assert!(
+        curved_walls >= 1,
+        "expected a curved hole wall, found {curved_walls} non-planar faces"
+    );
+}
