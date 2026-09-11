@@ -144,3 +144,42 @@ fn plan_turns_quarter_integral_with_runout() {
     assert!((turns - 4.25).abs() < 1e-12, "rounds UP to quarter turns");
     assert!((turns * 4.0).fract().abs() < 1e-12);
 }
+
+/// PK-475 pin: both helical thread tools are folded-OUTWARD solids
+/// (flag-folded normals out of the material). The sweep normalizes
+/// closed-profile winding, so the tool is outward regardless of how
+/// the `thread_form` profile is authored. A folded-inward tool
+/// enters the boolean with every fragment walking shared edges
+/// reversed; the flush-crest shank wall's band cells then assemble
+/// wrong-twin seam ladders whose loops gape one pitch (the
+/// external_thread_on_existing_shank decline class). Winding-honesty
+/// audits cannot see this — a coherently inside-out solid is honest
+/// per face — so the material sense is pinned here directly.
+#[test]
+fn thread_tools_fold_outward() {
+    use popkern_core::validation::MaterialSense;
+    let spec = ThreadSpec::parse("M8x1").expect("M8x1");
+    let (z0, turns) = plan_turns(6.0, 10.0, spec.lead());
+    for (name, profile) in [
+        (
+            "external groove",
+            thread_form::external_groove(&spec).expect("groove profile"),
+        ),
+        (
+            "internal ridge",
+            thread_form::internal_ridge(&spec, 0.0).expect("ridge profile"),
+        ),
+    ] {
+        let tool = helical_tool(&spec, &profile, z0, turns, 0, name, Tolerance::default())
+            .expect("tool body");
+        let seed = tool.faces.iter().next().expect("tool has faces").0;
+        let sense = tool
+            .component_material_sense(seed)
+            .expect("material sense measurable");
+        assert_eq!(
+            sense,
+            MaterialSense::FoldedOutward,
+            "{name} tool is folded-inward (inside-out solid)"
+        );
+    }
+}

@@ -149,7 +149,6 @@ fn clearance_holes_with_countersink_and_counterbore_serve() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn external_thread_on_existing_shank_serves() {
     let spec = ThreadSpec::parse("M8x1").expect("M8 fine");
     let shank = Profile::on(Plane::XY)

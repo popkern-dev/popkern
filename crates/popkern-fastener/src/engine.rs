@@ -205,9 +205,32 @@ pub(crate) fn cut_thread(
             })?,
         });
     }
-    let Some(tool) = combined else {
+    let Some(mut tool) = combined else {
         return Ok(body.clone());
     };
+    // TEMPORARY CONTAINMENT (PK-475, follow-up PK-478): match the
+    // tool's material sense to the body it cuts. The merge mishandles
+    // MIXED-sense operand pairs on seam-laddered walls (one operand's
+    // walk traverses every shared edge in the other's direction; the
+    // crest-band loops then assemble wrong twins and gape or strand).
+    // Matched pairs are both proven: outward x outward serves the
+    // flush-crest shank thread, and inward x inward is the
+    // historically-green blend-chamfered corpus (blend rebuilds fold
+    // inward — a tip chamfer flips the whole shank). The
+    // commercial-grade replacement is a sense-aware merge (decline
+    // registry: folded-inward operand row; ledger PK-478).
+    let body_inward = body
+        .faces
+        .iter()
+        .next()
+        .and_then(|(fh, _)| body.component_material_sense(fh))
+        == Some(popkern_core::validation::MaterialSense::FoldedInward);
+    if body_inward {
+        tool.reverse_body_orientation();
+        if popkern_core::trace::trace_enabled("boolean") {
+            eprintln!("[fastener] {stage}: tool reversed to match folded-inward body");
+        }
+    }
     subtract(body, &tool, stage, tolerance)
 }
 

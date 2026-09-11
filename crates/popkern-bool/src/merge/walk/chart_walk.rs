@@ -303,15 +303,39 @@ pub(crate) fn assemble_chart_roles(
             continue;
         }
         // The hole's containing region: the SMALLEST positive region
-        // whose polygon contains the hole's first point. The twin
-        // region (the piece inside the hole) shares the hole's
+        // whose polygon contains a sample point of the hole loop. The
+        // twin region (the piece inside the hole) shares the hole's
         // half-edges as twins — its polygon runs THROUGH the sample
         // point and even-odd verdicts there are coin flips, so
         // twin-sharing candidates are excluded (the true container
         // never shares an edge with a hole component of another
-        // region's interior).
-        let Some(&p) = polys[i].first() else {
-            continue;
+        // region's interior). The sample is the midpoint of the
+        // hole's LONGEST segment, never a polyline vertex: a vertex
+        // is a junction shared by every cell meeting there, and
+        // even-odd through it is a coin flip against cells the twin
+        // exclusion cannot see (measured, PK-475: the hexagram lip
+        // socket's coplanar wall pairs mint residue chords that tile
+        // the removed star into hexagon + tip cells; the star-outline
+        // hole's first VERTEX lay on the hexagon cell's boundary, the
+        // hole attached to that doomed interior cell instead of the
+        // face, the kept plane fragment never received its star rim,
+        // and all 12 rim record sides stranded). An edge-interior
+        // point is shared only by the two sides of that edge — both
+        // twin-excluded.
+        let p = match polys[i]
+            .windows(2)
+            .max_by(|a, b| {
+                let la = (a[1].0 - a[0].0).powi(2) + (a[1].1 - a[0].1).powi(2);
+                let lb = (b[1].0 - b[0].0).powi(2) + (b[1].1 - b[0].1).powi(2);
+                la.partial_cmp(&lb).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|w| (0.5 * (w[0].0 + w[1].0), 0.5 * (w[0].1 + w[1].1)))
+        {
+            Some(p) => p,
+            None => match polys[i].first() {
+                Some(&p) => p,
+                None => continue,
+            },
         };
         let hole_twins: BTreeSet<usize> =
             loops[i].iter().map(|&h| graph.half_edges[h].twin).collect();

@@ -15,10 +15,17 @@
 //!   involution (applying it twice restores the original body).
 //! - Per half-edge: `next`/`prev` swap and the origin moves to the
 //!   old destination (the twin's origin). Twins remain opposite.
-//! - Pcurves keep their UV image (the trim is identical); their
-//!   parameterization direction is NOT rewritten, matching the
-//!   repo-wide "consumers verify direction by endpoints" contract on
-//!   [`HalfEdge::pcurve`](crate::topology::half_edge::HalfEdge).
+//! - Pcurves keep their UV image (the trim is identical) and are
+//!   REVERSED in place so their parameterization direction follows
+//!   the half-edge's new traversal. Endpoint-verifying consumers are
+//!   unaffected (endpoints swap with the traversal), but endpoint
+//!   verification is IMPOSSIBLE on closed curves — a reversed body
+//!   whose rim-circle pcurves still ran the old way fed the boolean
+//!   chart substrate embeddings that contradicted the graph
+//!   half-edge directions, the periodic seam balance search
+//!   exhausted, and both wall and cone fell to the mis-partitioning
+//!   3D-Newell fallback (measured, PK-475: the sense-normalized
+//!   tip-chamfered rod stranded 4 record sides).
 //! - Vertex `outgoing` pointers are re-anchored (the old outgoing
 //!   half-edge's origin moves away from the vertex; its twin's
 //!   moves onto it).
@@ -71,6 +78,25 @@ impl BRep {
             .collect();
         for (vh, outgoing) in new_outgoing {
             self.vertices[vh].outgoing = outgoing;
+        }
+
+        // 2b. Reverse every stored pcurve so its parameterization
+        //     direction follows the half-edge's new traversal. The UV
+        //     image (the trim) is unchanged; only the direction
+        //     flips. Without this, closed-curve pcurves (rim circles,
+        //     seam-adjacent charts) are undecidable by endpoint
+        //     matching and downstream chart embeddings contradict the
+        //     reversed half-edge directions.
+        let reversed_pcurves: Vec<(
+            crate::topology::HalfEdgeHandle,
+            crate::geometry::pcurve::Pcurve,
+        )> = self
+            .half_edges
+            .iter()
+            .filter_map(|(handle, he)| he.pcurve.as_ref().map(|p| (handle, p.reversed())))
+            .collect();
+        for (handle, pcurve) in reversed_pcurves {
+            self.half_edges[handle].pcurve = Some(pcurve);
         }
 
         // 3. Flip every stored orientation flag in step with the
