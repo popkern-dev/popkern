@@ -188,3 +188,22 @@ fn m6_nut_thread_serves_with_grown_volume() {
         "M6 nut",
     );
 }
+
+/// Off-pitch rod lengths (PK-474): a cap phase that lands mid-flank
+/// puts the blank-seam helix records on the tool's multi-turn NURBS
+/// flank where a cold multisheet projection reads a phantom ~pitch
+/// deviation — the surface-honesty gate dropped an on-surface seam
+/// record, the crest chart's seam ladder lost one link, and the
+/// graze filter cascaded 8 half-claimed strands. The piece's own
+/// pcurve is the chart-true witness.
+#[test]
+fn off_pitch_rod_lengths_serve_watertight() {
+    for len in [5.25, 5.1, 5.4, 6.75] {
+        let spec = ThreadSpec::parse("M6").expect("M6");
+        let rod = ThreadedRod::new(spec, len)
+            .tip_chamfer(false)
+            .build(Tolerance::default())
+            .unwrap_or_else(|e| panic!("rod {len}: {e:?}"));
+        assert_eq!(rod.open_edge_count().expect("mesh"), 0, "rod {len}");
+    }
+}

@@ -392,15 +392,35 @@ fn clip_and_classify(
                         };
                         let mut worst = 0.0_f64;
                         for k in 1..4 {
-                            let p = clipped.curve_3d.point_at(c0 + (c1 - c0) * k as f64 / 4.0);
-                            for s in [inp.surf_a, inp.surf_b] {
-                                let d =
+                            let t = c0 + (c1 - c0) * k as f64 / 4.0;
+                            let p = clipped.curve_3d.point_at(t);
+                            for (s, uv_curve) in [
+                                (inp.surf_a, &clipped.curve_uv1),
+                                (inp.surf_b, &clipped.curve_uv2),
+                            ] {
+                                let projected =
                                     popkern_core::geometry::uv_projection::project_point_to_uv_multisheet(
                                         s, &p,
                                     )
                                     .map(|(u, v)| s.point_at(u, v).distance_to(&p))
                                     .unwrap_or(0.0);
-                                worst = worst.max(d);
+                                // The piece's own PCURVE is the
+                                // chart-true witness (PK-474): on a
+                                // multi-turn helical NURBS the cold
+                                // multisheet projection converges
+                                // into the WRONG TURN and reads a
+                                // phantom ~pitch (measured 0.87 for
+                                // the quarter-pitch rod's on-surface
+                                // seam helix — the honest record was
+                                // dropped and the seam ladder lost
+                                // one link). A tangency BRIDGE stays
+                                // caught either way: its 3D curve
+                                // sits off the surface its own
+                                // pcurve evaluates onto (0.65
+                                // measured on the hex-corner cone).
+                                let q = uv_curve.point_at(t);
+                                let via_pcurve = s.point_at(q.x, q.y).distance_to(&p);
+                                worst = worst.max(projected.min(via_pcurve));
                             }
                         }
                         if worst > band {
