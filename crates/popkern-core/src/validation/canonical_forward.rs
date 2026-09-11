@@ -1,0 +1,340 @@
+//! Canonical-forward audit (PK-478 stage 1).
+//!
+//! PK-303 convention: an edge's CANONICAL half-edge (`edge.half_edge`)
+//! traverses the stored curve in increasing t. On OPEN edges the
+//! convention is enforced by endpoints; on CLOSED edges (rim circles,
+//! periodic analytic rings) nothing checked it, and producers have
+//! been measured violating it (the PK-465 bore wall; the fresh
+//! cylinder's top-rim F/F pcurve pair). The boolean's closed-edge
+//! side witness exists to paper over those lies; the PK-478 campaign
+//! retires it by making this invariant validated and producer-
+//! enforced, then registering blindly (see
+//! docs/architecture/pk478-sense-aware-merge.md).
+//!
+//! The audit recovers each half-edge's loop-traversal direction from
+//! its OWN pcurve trace mapped through its face's surface, compares
+//! twin claims (they must oppose on a manifold), and resolves an
+//! agreeing pair (one liar) by UV chain continuity with the loop's
+//! neighbouring pcurves. It measures; it does not repair.
+
+use crate::error::ValidationError;
+use crate::geometry::SurfaceEval;
+use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+
+/// Per-closed-edge verdict from [`BRep::audit_canonical_forward`].
+#[derive(Debug, Clone)]
+pub struct CanonicalForwardVerdict {
+    /// The audited closed edge.
+    pub edge: EdgeHandle,
+    /// The verdict.
+    pub state: CanonicalForwardState,
+}
+
+/// Audit outcome for one closed edge.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CanonicalForwardState {
+    /// Twin pcurve claims oppose and the canonical half runs the
+    /// stored curve forward.
+    Ok,
+    /// Twin pcurve claims oppose and the canonical half runs the
+    /// stored curve BACKWARD — the PK-303 convention is violated.
+    Violated,
+    /// Twin claims agree (one pcurve lies about its direction); the
+    /// chain-continuity tiebreak identified the liar and the trusted
+    /// side says the canonical convention holds.
+    OkByChain {
+        /// The half-edge whose pcurve direction is the liar.
+        lying_half_edge: HalfEdgeHandle,
+    },
+    /// Twin claims agree and the trusted side says the canonical
+    /// convention is violated.
+    ViolatedByChain {
+        /// The half-edge whose pcurve direction is the liar.
+        lying_half_edge: HalfEdgeHandle,
+    },
+    /// Not enough evidence: missing pcurves/curves/surfaces, both
+    /// sides chain-ambiguous, or degenerate sampling.
+    Indeterminate(&'static str),
+}
+
+impl BRep {
+    /// Audit the canonical-forward convention on every CLOSED,
+    /// non-seam edge. Seam edges (both half-edges on one face) keep
+    /// their chart-branch handling and are exempt, matching the
+    /// merge's closed-edge witness exemption.
+    pub fn audit_canonical_forward(&self) -> Vec<CanonicalForwardVerdict> {
+        let mut out = Vec::new();
+        for (eh, edge) in &self.edges {
+            let Some(he) = self.half_edges.get(edge.half_edge) else {
+                continue;
+            };
+            let Some(twin) = self.half_edges.get(he.twin) else {
+                continue;
+            };
+            if he.origin != twin.origin {
+                continue; // open edge: endpoint-enforced
+            }
+            let face_of = |lh| self.loops.get(lh).map(|l| l.face);
+            let (f_can, f_twin) = (face_of(he.loop_), face_of(twin.loop_));
+            if f_can.is_none() || f_twin.is_none() || f_can == f_twin {
+                continue; // dangling or seam
+            }
+            let state = self.closed_edge_state(edge.half_edge, he.twin);
+            out.push(CanonicalForwardVerdict { edge: eh, state });
+        }
+        out
+    }
+
+    /// Validation-style wrapper: one error per violated edge.
+    pub fn validate_canonical_forward_all(&self) -> Vec<ValidationError> {
+        self.audit_canonical_forward()
+            .into_iter()
+            .filter(|v| {
+                matches!(
+                    v.state,
+                    CanonicalForwardState::Violated | CanonicalForwardState::ViolatedByChain { .. }
+                )
+            })
+            .map(|v| ValidationError::CanonicalBackward { edge: v.edge })
+            .collect()
+    }
+
+    fn closed_edge_state(
+        &self,
+        canonical: HalfEdgeHandle,
+        twin: HalfEdgeHandle,
+    ) -> CanonicalForwardState {
+        use CanonicalForwardState as S;
+        let claim_can = self.pcurve_traversal_claim(canonical);
+        let claim_twin = self.pcurve_traversal_claim(twin);
+        match (claim_can, claim_twin) {
+            (Some(fc), Some(ft)) if fc != ft => {
+                if fc {
+                    S::Ok
+                } else {
+                    S::Violated
+                }
+            }
+            (Some(fc), Some(_ft)) => {
+                // Agreeing claims: one pcurve lies. Trust the side
+                // whose pcurve is UV-chain-continuous with its loop
+                // neighbours; a mis-directed pcurve has both its
+                // endpoints against the chain.
+                let cont_can = self.pcurve_chain_continuous(canonical);
+                let cont_twin = self.pcurve_chain_continuous(twin);
+                match (cont_can, cont_twin) {
+                    // One-sided evidence: a chain-backed side is
+                    // trusted when the other is unmeasurable (a
+                    // self-loop cap has no neighbours); a chain-
+                    // BROKEN side convicts itself the same way.
+                    (Some(true), None) | (None, Some(false)) => {
+                        if fc {
+                            S::OkByChain {
+                                lying_half_edge: twin,
+                            }
+                        } else {
+                            S::ViolatedByChain {
+                                lying_half_edge: twin,
+                            }
+                        }
+                    }
+                    (None, Some(true)) | (Some(false), None) => {
+                        if fc {
+                            S::ViolatedByChain {
+                                lying_half_edge: canonical,
+                            }
+                        } else {
+                            S::OkByChain {
+                                lying_half_edge: canonical,
+                            }
+                        }
+                    }
+                    (Some(true), Some(false)) => {
+                        if fc {
+                            S::OkByChain {
+                                lying_half_edge: twin,
+                            }
+                        } else {
+                            S::ViolatedByChain {
+                                lying_half_edge: twin,
+                            }
+                        }
+                    }
+                    (Some(false), Some(true)) => {
+                        // Canonical side lies; the twin's claim equals
+                        // fc here (agreeing pair), so the TRUE twin
+                        // direction is !fc and the true canonical
+                        // direction is fc's negation's opposite — the
+                        // trusted twin says the twin runs fc, hence
+                        // the canonical runs !fc.
+                        if fc {
+                            S::ViolatedByChain {
+                                lying_half_edge: canonical,
+                            }
+                        } else {
+                            S::OkByChain {
+                                lying_half_edge: canonical,
+                            }
+                        }
+                    }
+                    _ => S::Indeterminate("agreeing claims, chain tiebreak ambiguous"),
+                }
+            }
+            _ => S::Indeterminate("pcurve traversal unmeasurable"),
+        }
+    }
+
+    /// `Some(true)` when `heh`'s pcurve traces the stored edge curve
+    /// in increasing t (accounting for periodic wrap), `Some(false)`
+    /// for decreasing, `None` when unmeasurable.
+    fn pcurve_traversal_claim(&self, heh: HalfEdgeHandle) -> Option<bool> {
+        let he = self.half_edges.get(heh)?;
+        let pc = he.pcurve.as_ref()?;
+        let face = self.loops.get(he.loop_)?.face;
+        let sof = self.faces.get(face)?.surface.as_ref()?;
+        let curve = self.edges.get(he.edge)?.curve.as_ref()?;
+        let (t0, t1) = pc.parameter_range();
+        if !(t0.is_finite() && t1.is_finite()) || t1 <= t0 {
+            return None;
+        }
+        let tm = t0 + (t1 - t0) * 0.5;
+        let te = t0 + (t1 - t0) * 0.505;
+        let a = pc.point_at(tm);
+        let b = pc.point_at(te);
+        let p1 = sof.geometry.point_at(a.x, a.y);
+        let p2 = sof.geometry.point_at(b.x, b.y);
+        if (p2 - p1).length_squared() <= 0.0 {
+            return None;
+        }
+        let c1 =
+            crate::geometry::curve_inversion::invert_curve_at_point(curve, p1, &self.tolerance)
+                .ok()?;
+        let c2 =
+            crate::geometry::curve_inversion::invert_curve_at_point(curve, p2, &self.tolerance)
+                .ok()?;
+        let span = curve.t_end - curve.t_start;
+        if span.abs() <= 0.0 {
+            return None;
+        }
+        // Minimal-image signed difference (the curve is closed).
+        let mut d = c2 - c1;
+        d -= span * (d / span).round();
+        if d.abs() < 1e-12 * span.abs() {
+            return None;
+        }
+        Some(d > 0.0)
+    }
+
+    /// `Some(true)` when `heh`'s pcurve endpoints connect head-to-tail
+    /// with its loop neighbours' pcurve endpoints in UV; `Some(false)`
+    /// when both connections fail with the endpoints SWAPPED (the
+    /// mis-direction signature); `None` for self-loops, missing
+    /// neighbour pcurves, or mixed evidence.
+    fn pcurve_chain_continuous(&self, heh: HalfEdgeHandle) -> Option<bool> {
+        let he = self.half_edges.get(heh)?;
+        if he.next == heh {
+            return None; // self-loop: no neighbours
+        }
+        let pc = he.pcurve.as_ref()?;
+        let next_pc = self.half_edges.get(he.next)?.pcurve.as_ref()?;
+        let prev_pc = self.half_edges.get(he.prev)?.pcurve.as_ref()?;
+        let (t0, t1) = pc.parameter_range();
+        let start = pc.point_at(t0);
+        let end = pc.point_at(t1);
+        let (n0, _) = next_pc.parameter_range();
+        let next_start = next_pc.point_at(n0);
+        let (_, p1) = prev_pc.parameter_range();
+        let prev_end = prev_pc.point_at(p1);
+        // Periodic-aware UV distance: seam-adjacent pcurves on a
+        // periodic chart legitimately connect a full period apart
+        // (the aliased-seam conventions).
+        let (u_period, v_period) = self
+            .loops
+            .get(he.loop_)
+            .and_then(|l| self.faces.get(l.face))
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| s.geometry.periodicity())
+            .unwrap_or((None, None));
+        let fold = |mut delta: f64, period: Option<f64>| -> f64 {
+            if let Some(p) = period
+                && p > 0.0
+            {
+                delta -= p * (delta / p).round();
+            }
+            delta
+        };
+        let d_raw = |a: crate::geometry::Point3, b: crate::geometry::Point3| {
+            ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt()
+        };
+        let d_folded = |a: crate::geometry::Point3, b: crate::geometry::Point3| {
+            let du = fold(a.x - b.x, u_period);
+            let dv = fold(a.y - b.y, v_period);
+            (du * du + dv * dv).sqrt()
+        };
+        // Chart-scale epsilon from this trio of pcurves.
+        let scale = d_raw(start, end).max(d_raw(prev_end, next_start)).max(1e-9);
+        let eps = 1e-6 * (1.0 + scale);
+        let verdict =
+            |d: &dyn Fn(crate::geometry::Point3, crate::geometry::Point3) -> f64| -> (bool, bool) {
+                (
+                    d(end, next_start) < eps && d(start, prev_end) < eps,
+                    d(start, next_start) < eps && d(end, prev_end) < eps,
+                )
+            };
+        // Exact adjacency first — a mis-directed pcurve's endpoint
+        // swap often differs by exactly one period, and folding
+        // erases that evidence (measured: the chamfer tip rim's
+        // convicting swap vanished under an unconditional fold).
+        // Fold only when the exact test sees nothing, for the
+        // legitimate seam-adjacent period offsets.
+        match verdict(&d_raw) {
+            (true, false) => Some(true),
+            (false, true) => Some(false),
+            _ => match verdict(&d_folded) {
+                (true, false) => Some(true),
+                (false, true) => Some(false),
+                _ => None,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CanonicalForwardState;
+    use crate::tolerance::Tolerance;
+    use crate::topology::BRep;
+
+    /// The audit is reversal-STABLE on a constructor cylinder: the
+    /// same verdicts before and after `reverse_body_orientation`
+    /// (the convention is loop-covariant; reversal swaps canonical
+    /// bits and pcurve directions together). The bottom rim's
+    /// seam-adjacent endpoint ambiguity is a KNOWN indeterminate
+    /// class (all four junction points coincide modulo the period);
+    /// PK-478 stage 2 resolves it with cross-edge loop consistency.
+    #[test]
+    fn cylinder_audit_is_reversal_stable() {
+        let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).expect("cylinder");
+        let verdicts = cyl.audit_canonical_forward();
+        assert!(!verdicts.is_empty(), "cylinder has closed rim edges");
+        assert!(
+            verdicts
+                .iter()
+                .any(|v| matches!(v.state, CanonicalForwardState::Ok)),
+            "at least one rim resolves Ok: {verdicts:?}"
+        );
+        assert!(
+            !verdicts.iter().any(|v| matches!(
+                v.state,
+                CanonicalForwardState::Violated | CanonicalForwardState::ViolatedByChain { .. }
+            )),
+            "constructor cylinder must not violate canonical-forward: {verdicts:?}"
+        );
+        let mut reversed = cyl.clone();
+        reversed.reverse_body_orientation();
+        let rv = reversed.audit_canonical_forward();
+        let states: Vec<_> = verdicts.iter().map(|v| format!("{:?}", v.state)).collect();
+        let rstates: Vec<_> = rv.iter().map(|v| format!("{:?}", v.state)).collect();
+        assert_eq!(states, rstates, "verdicts must be reversal-stable");
+    }
+}

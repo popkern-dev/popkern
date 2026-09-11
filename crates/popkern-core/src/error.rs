@@ -83,6 +83,15 @@ pub enum ValidationError {
         gap: f64,
     },
 
+    /// A closed edge's canonical half-edge traverses the stored
+    /// curve backward (the PK-303 canonical-forward convention,
+    /// audited by `audit_canonical_forward` — PK-478).
+    #[error("Edge {edge:?}: canonical half-edge runs the stored curve backward")]
+    CanonicalBackward {
+        /// The violating closed edge.
+        edge: EdgeHandle,
+    },
+
     /// Edge curve deviates from adjacent surface.
     #[error("Edge {edge:?} deviates from surface by {max_deviation}")]
     CurveSurfaceDeviation {

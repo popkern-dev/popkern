@@ -96,4 +96,77 @@ mod tests {
             }
         }
     }
+    /// PK-478 stage-1 lie census: audit the canonical-forward
+    /// convention across the E1 populations + a drilled plate (the
+    /// PK-465 bore-wall class). Prints verdicts; promoted assertions
+    /// follow once the population is understood. Run by hand.
+    #[test]
+    #[ignore = "PK-478 stage-1 lie census — run by hand"]
+    fn canonical_forward_lie_census() {
+        let tol = Tolerance::default();
+        let spec = crate::spec::ThreadSpec::parse("M6").expect("M6");
+        let shank = extruded_shank(tol);
+        let mut reversed = shank.clone();
+        reversed.reverse_body_orientation();
+        let chamfered = crate::builders::tip_chamfer(&shank, &spec, 4.0, tol).expect("chamfer");
+        let plate = crate::engine::extrude_shape(
+            popkern_sketch::ProfileShape::Polygon {
+                points: vec![[-10.0, -10.0], [10.0, -10.0], [10.0, 10.0], [-10.0, 10.0]],
+            },
+            0.0,
+            8.0,
+            "probe",
+            tol,
+        )
+        .expect("plate");
+        let drill = crate::engine::extrude_shape(
+            popkern_sketch::ProfileShape::Circle { radius: 2.0 },
+            -1.0,
+            10.0,
+            "probe",
+            tol,
+        )
+        .expect("drill");
+        let bored = crate::engine::subtract(&plate, &drill, "probe", tol).expect("bored plate");
+        for (label, body) in [
+            ("outward-cylinder", &shank),
+            ("reversed-cylinder", &reversed),
+            ("inward-chamfered", &chamfered),
+            ("bored-plate", &bored),
+        ] {
+            eprintln!("[cf] === {label} ===");
+            for v in body.audit_canonical_forward() {
+                eprintln!("[cf] {label} {:?} {:?}", v.edge, v.state);
+            }
+        }
+    }
+
+    /// PK-478 stage-1 lie specimen (measured 2026-09-11): the blend
+    /// tip chamfer emits its tip rim with the canonical-forward
+    /// convention VIOLATED (the lying half-edge convicted by UV
+    /// chain continuity). This pin asserts the audit DETECTS the
+    /// producer lie; when PK-478 stage 2 fixes the blend producer,
+    /// flip this pin to assert no violations instead.
+    #[test]
+    fn audit_detects_blend_tip_rim_canonical_lie() {
+        use popkern_core::validation::CanonicalForwardState;
+        let tol = Tolerance::default();
+        let spec = crate::spec::ThreadSpec::parse("M6").expect("M6");
+        let shank = extruded_shank(tol);
+        let chamfered = crate::builders::tip_chamfer(&shank, &spec, 4.0, tol).expect("chamfer");
+        let violations = chamfered
+            .audit_canonical_forward()
+            .into_iter()
+            .filter(|v| {
+                matches!(
+                    v.state,
+                    CanonicalForwardState::Violated | CanonicalForwardState::ViolatedByChain { .. }
+                )
+            })
+            .count();
+        assert_eq!(
+            violations, 1,
+            "expected exactly the tip-rim producer lie (stage 2 flips this pin to 0)"
+        );
+    }
 }

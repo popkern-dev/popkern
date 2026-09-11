@@ -21,9 +21,11 @@ mod self_intersection_pair_gate;
 mod self_intersection_trim;
 mod self_intersection_twist;
 pub use self_intersection_trim::InteriorOverlapSample;
+mod canonical_forward;
 mod pcurve_presence;
 mod winding_honesty;
 
+pub use canonical_forward::{CanonicalForwardState, CanonicalForwardVerdict};
 pub use winding_honesty::FaceWindingHonesty;
 
 use crate::error::ValidationError;
