@@ -7,4 +7,5 @@ pub mod caps;
 pub mod revolution_canonical;
 pub mod revolution_faces;
 pub mod side_faces;
+pub(crate) mod side_faces_multi_wire;
 pub mod sweep_naming;

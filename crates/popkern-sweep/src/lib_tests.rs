@@ -224,3 +224,136 @@ impl SweepProfile {
         }
     }
 }
+
+/// PK-477: a genuine multi-wire closed sweep (outer + inner square)
+/// builds a valid genus-1 solid — per-wire rings, caps with inner
+/// loops. Before the per-wire builder the flattened ring
+/// cross-stitched the wires (measured: validate() failed with a
+/// 1.414 loop gap).
+#[test]
+fn multi_wire_square_tube_sweeps_valid() {
+    let sq = |h: f64| square_wire(h);
+    let path = z_path(5.0);
+    let profile = SweepProfile::MultiWire(vec![sq(2.0), sq(1.0)]);
+    let result = sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("multi-wire sweep");
+    let brep = &result.brep;
+    brep.validate().expect("valid tube solid");
+    // 4 outer walls + 4 inner walls + 2 caps.
+    assert_eq!(brep.faces.len(), 10, "tube face census");
+    // Genus-1: V - E + 2F - L == 0.
+    let chi = brep.vertices.len() as i64 - brep.edges.len() as i64 + 2 * brep.faces.len() as i64
+        - brep.loops.len() as i64;
+    assert_eq!(chi, 0, "tube is genus-1");
+}
+
+/// PK-477: multi-wire winding is normalized per role regardless of
+/// authored direction — a CW outer and CCW inner produce the same
+/// valid tube.
+#[test]
+fn multi_wire_winding_is_normalized() {
+    let mut outer = square_wire(2.0);
+    outer.control_points.reverse();
+    outer.weights.reverse();
+    let inner = square_wire(1.0);
+    let path = z_path(5.0);
+    let profile = SweepProfile::MultiWire(vec![outer, inner]);
+    let result = sweep(
+        &profile,
+        &path,
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    )
+    .expect("multi-wire sweep");
+    result.brep.validate().expect("valid tube solid");
+}
+
+/// PK-477: honest declines — an open wire in a multi-wire profile,
+/// and an "inner" wire lying outside the outer.
+#[test]
+fn multi_wire_invalid_profiles_decline() {
+    let path = z_path(5.0);
+    let open_wire = {
+        let mut w = square_wire(1.0);
+        w.control_points.pop();
+        w.weights.pop();
+        let n = w.control_points.len();
+        w.knots = std::iter::once(0.0)
+            .chain((0..n).map(|i| i as f64 / (n - 1) as f64))
+            .chain(std::iter::once(1.0))
+            .collect();
+        w
+    };
+    let r = sweep(
+        &SweepProfile::MultiWire(vec![square_wire(2.0), open_wire]),
+        &path,
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    );
+    assert!(r.is_err(), "open inner wire must decline");
+    let mut outside = square_wire(1.0);
+    for p in &mut outside.control_points {
+        p.x += 10.0;
+    }
+    let r = sweep(
+        &SweepProfile::MultiWire(vec![square_wire(2.0), outside]),
+        &path,
+        &SweepOptions::default(),
+        Tolerance::default(),
+        None,
+    );
+    assert!(r.is_err(), "disjoint inner wire must decline");
+}
+
+/// Degree-1 closed square wire of half-width `h` in the XY plane.
+fn square_wire(h: f64) -> NurbsCurve {
+    let pts = [[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]];
+    let n = pts.len();
+    let mut knots = vec![0.0];
+    for i in 0..n {
+        knots.push(i as f64 / (n - 1) as f64);
+    }
+    knots.push(1.0);
+    NurbsCurve {
+        degree: 1,
+        knots,
+        control_points: pts
+            .iter()
+            .map(|p| popkern_core::geometry::Point3::new(p[0], p[1], 0.0))
+            .collect(),
+        weights: vec![1.0; n],
+    }
+}
+
+/// PK-477: the multi-wire path composes with a helical path (frame
+/// machinery smoke — the per-wire rings are path-agnostic).
+#[test]
+fn multi_wire_helical_sweep_smoke() {
+    use crate::{FrameMethod, HelixPitch, HelixSpec, helical_sweep};
+    let profile = SweepProfile::MultiWire(vec![square_wire(0.5), square_wire(0.2)]);
+    let helix = HelixSpec {
+        axis_origin: popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+        axis_dir: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+        start_radius: 5.0,
+        end_radius: 5.0,
+        pitch: HelixPitch::Constant(3.0),
+        turns: 0.75,
+        start_angle: 0.0,
+        left_handed: false,
+    };
+    let options = SweepOptions {
+        frame: FrameMethod::Frenet,
+        ..SweepOptions::default()
+    };
+    let result = helical_sweep(&profile, &helix, &options, Tolerance::default(), None)
+        .expect("multi-wire helical sweep");
+    result.brep.validate().expect("valid helical tube");
+}

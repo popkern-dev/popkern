@@ -23,6 +23,13 @@ const PROFILE_SAMPLES: usize = 64;
 pub struct AnalyzedProfile {
     /// Smooth spans of the profile (split at tangent discontinuities).
     pub spans: Vec<NurbsCurve>,
+    /// Span count per wire, in `spans` order. A single-wire profile is
+    /// one entry; a multi-wire profile lists the OUTER wire first and
+    /// each inner (hole) wire after it. The topology builder wires one
+    /// side-face ring per wire and one cap per path end whose outer
+    /// loop is wire 0 and whose inner loops are the rest (PK-477 —
+    /// flattening all wires into one ring cross-stitched the walls).
+    pub wires: Vec<usize>,
     /// Whether the profile is closed.
     pub is_closed: bool,
     /// Centroid offset (profile was translated by -centroid).
@@ -149,14 +156,25 @@ fn analyze_wire(curve: &NurbsCurve, tolerance: &Tolerance) -> Result<AnalyzedPro
     };
     let spans = detect_and_split(&centered)?;
 
+    let wires = vec![spans.len()];
     Ok(AnalyzedProfile {
         spans,
+        wires,
         is_closed,
         centroid,
     })
 }
 
-/// Analyze multiple wires: use the largest (by area) as the outer profile.
+/// Analyze multiple wires: the largest (by area) is the OUTER wire
+/// and is ordered first; the rest are inner (hole) wires.
+///
+/// Contract (PK-477): every wire must be closed — a mixed open/closed
+/// multi-wire has no solid or sheet interpretation and declines as
+/// `InvalidProfile`. Winding is normalized per role (outer CCW, inner
+/// CW in the profile plane) so `du×dv` faces out of the material on
+/// every side face, hole walls included. Each inner wire's centroid
+/// must lie inside the outer wire's polygon — a disjoint "inner" wire
+/// would sweep a second, cross-wired solid and declines instead.
 fn analyze_multi_wire(
     curves: &[NurbsCurve],
     tolerance: &Tolerance,
@@ -164,37 +182,94 @@ fn analyze_multi_wire(
     if curves.is_empty() {
         return Err(SweepError::InvalidProfile("empty multi-wire".into()));
     }
+    if curves.len() == 1 {
+        return analyze_wire(&curves[0], tolerance);
+    }
 
-    // Find the curve with the largest absolute signed area (the outer wire).
-    let mut best_idx = 0;
+    // The outer wire is the one with the largest absolute area.
+    let mut outer_idx = 0;
     let mut best_area = 0.0_f64;
     for (i, curve) in curves.iter().enumerate() {
         let area = signed_area_2d(curve).abs();
         if area > best_area {
             best_area = area;
-            best_idx = i;
+            outer_idx = i;
         }
     }
 
-    let centroid = compute_centroid(&curves[best_idx]);
+    let centroid = compute_centroid(&curves[outer_idx]);
+    let mut order: Vec<usize> = (0..curves.len()).collect();
+    order.retain(|&i| i != outer_idx);
+    order.insert(0, outer_idx);
+
+    // Outer polygon (centered frame) for the containment check.
+    let outer_centered = translate_curve(&curves[outer_idx], centroid);
+    let outer_poly: Vec<(f64, f64)> = {
+        let (t0, t1) = outer_centered.parameter_range();
+        (0..PROFILE_SAMPLES)
+            .map(|i| {
+                let t = t0 + (i as f64 / PROFILE_SAMPLES as f64) * (t1 - t0);
+                let p = outer_centered.point_at(t);
+                (p.x, p.y)
+            })
+            .collect()
+    };
 
     let mut all_spans = Vec::new();
-    let mut any_open = false;
-
-    for curve in curves {
-        let centered = translate_curve(curve, centroid);
+    let mut wires = Vec::with_capacity(curves.len());
+    for (rank, &i) in order.iter().enumerate() {
+        let centered = translate_curve(&curves[i], centroid);
         if !check_closed(&centered, tolerance) {
-            any_open = true;
+            return Err(SweepError::InvalidProfile(format!(
+                "multi-wire profile: wire {i} is not closed (every wire \
+                 of a multi-wire profile must be a closed loop)"
+            )));
         }
+        let is_outer = rank == 0;
+        if !is_outer {
+            let c = compute_centroid(&centered);
+            if !point_in_polygon(&outer_poly, (c.x, c.y)) {
+                return Err(SweepError::InvalidProfile(format!(
+                    "multi-wire profile: wire {i} lies outside the outer \
+                     wire (inner wires must be holes of the outer)"
+                )));
+            }
+        }
+        let area = signed_area_2d(&centered);
+        let wants_ccw = is_outer;
+        let centered = if (area < 0.0) == wants_ccw {
+            reversed_curve(&centered)
+        } else {
+            centered
+        };
         let spans = detect_and_split(&centered)?;
+        wires.push(spans.len());
         all_spans.extend(spans);
     }
 
     Ok(AnalyzedProfile {
         spans: all_spans,
-        is_closed: !any_open,
+        wires,
+        is_closed: true,
         centroid,
     })
+}
+
+/// Even-odd point-in-polygon over a sampled outer wire.
+fn point_in_polygon(poly: &[(f64, f64)], p: (f64, f64)) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    for i in 0..n {
+        let (x0, y0) = poly[i];
+        let (x1, y1) = poly[(i + 1) % n];
+        if (y0 > p.1) != (y1 > p.1) {
+            let x = x0 + (p.1 - y0) / (y1 - y0) * (x1 - x0);
+            if p.0 < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
 }
 
 /// Compute centroid as the average of sampled points along a curve.

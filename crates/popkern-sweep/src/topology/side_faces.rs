@@ -348,7 +348,7 @@ fn build_open_profile_topology(
 /// Build a degree-1 NURBS line in UV parameter space.
 ///
 /// The pcurve is stored as a `NurbsCurve` with `Point3(u, v, 0.0)`.
-fn uv_line(u0: f64, v0: f64, u1: f64, v1: f64) -> NurbsCurve {
+pub(crate) fn uv_line(u0: f64, v0: f64, u1: f64, v1: f64) -> NurbsCurve {
     NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
@@ -358,7 +358,7 @@ fn uv_line(u0: f64, v0: f64, u1: f64, v1: f64) -> NurbsCurve {
 }
 
 /// Evaluate a surface corner point.
-fn eval_surface_corner(surface: &NurbsSurface, u: f64, v: f64) -> popkern_core::geometry::Point3 {
+pub(crate) fn eval_surface_corner(surface: &NurbsSurface, u: f64, v: f64) -> Point3 {
     use popkern_core::geometry::surface::SurfaceEval;
     surface.point_at(u, v)
 }
@@ -372,7 +372,7 @@ fn eval_surface_corner(surface: &NurbsSurface, u: f64, v: f64) -> popkern_core::
 /// and leading row with u knots) are formed and the one whose
 /// endpoints coincide with `(start, end)` wins. Grid-layout
 /// assumptions have drifted before; endpoints cannot lie.
-fn path_boundary_iso_curve(
+pub(crate) fn path_boundary_iso_curve(
     surface: &NurbsSurface,
     start: popkern_core::geometry::Point3,
     end: popkern_core::geometry::Point3,
@@ -439,7 +439,7 @@ fn path_boundary_iso_curve(
     None
 }
 
-fn attach_nurbs_curve_to_edge(
+pub(crate) fn attach_nurbs_curve_to_edge(
     builder: &mut BRepBuilder,
     edge: popkern_core::topology::EdgeHandle,
     curves: &[NurbsCurve],

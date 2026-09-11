@@ -90,8 +90,9 @@ pub(crate) fn sweep_impl(
     // 6. Build topology.
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let brep = topology::side_faces::build_sweep_topology(
+    let brep = topology::side_faces_multi_wire::build_sweep_topology_wired(
         &surface_result.surfaces,
+        &analyzed.wires,
         &surface_result.start_cap,
         &surface_result.end_cap,
         analyzed.is_closed,

@@ -61,6 +61,7 @@ fn line_span() -> NurbsCurve {
 fn sweep_circle_along_z_axis() {
     let profile = AnalyzedProfile {
         spans: vec![circle_span()],
+        wires: vec![1],
         is_closed: true,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };
@@ -87,6 +88,7 @@ fn sweep_circle_along_z_axis() {
 fn sweep_line_along_z_axis() {
     let profile = AnalyzedProfile {
         spans: vec![line_span()],
+        wires: vec![1],
         is_closed: false,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };
@@ -112,6 +114,7 @@ fn sweep_line_along_z_axis() {
 fn sweep_with_uniform_scale() {
     let profile = AnalyzedProfile {
         spans: vec![line_span()],
+        wires: vec![1],
         is_closed: false,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };
@@ -137,6 +140,7 @@ fn sweep_with_uniform_scale() {
 fn too_few_frames_returns_error() {
     let profile = AnalyzedProfile {
         spans: vec![line_span()],
+        wires: vec![1],
         is_closed: false,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };
@@ -158,6 +162,7 @@ fn too_few_frames_returns_error() {
 fn empty_profile_returns_error() {
     let profile = AnalyzedProfile {
         spans: vec![],
+        wires: vec![1],
         is_closed: false,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };
@@ -171,6 +176,7 @@ fn empty_profile_returns_error() {
 fn caps_are_generated() {
     let profile = AnalyzedProfile {
         spans: vec![circle_span()],
+        wires: vec![1],
         is_closed: true,
         centroid: Point3::new(0.0, 0.0, 0.0),
     };

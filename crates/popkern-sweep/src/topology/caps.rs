@@ -60,6 +60,44 @@ pub fn create_cap_face(
     Ok(face)
 }
 
+/// [`create_cap_face`] with inner (hole) loops — the multi-wire
+/// closed sweep's caps (PK-477). The outer wire's boundary defines
+/// the cap surface; each inner wire's cap-side half-edges wire an
+/// inner loop with its own curves and pcurves. Inner-loop winding is
+/// opposed to the outer by construction: `analyze_multi_wire`
+/// normalizes inner wire profiles CW where the outer is CCW, and the
+/// identical per-wire ring machinery then hands each cap chain the
+/// mirrored traversal.
+pub fn create_cap_face_with_inners(
+    builder: &mut BRepBuilder,
+    shell: ShellHandle,
+    outer_half_edges: &[HalfEdgeHandle],
+    outer_curves: &[NurbsCurve],
+    inners: &[(Vec<HalfEdgeHandle>, Vec<NurbsCurve>)],
+    is_start_cap: bool,
+) -> Result<FaceHandle, SweepError> {
+    let face = create_cap_face(builder, shell, outer_half_edges, outer_curves, is_start_cap)?;
+    for (wire_index, (half_edges, cap_curves)) in inners.iter().enumerate() {
+        if half_edges.is_empty() {
+            return Err(SweepError::Topology(format!(
+                "cap inner wire {wire_index} has no boundary edges"
+            )));
+        }
+        builder
+            .add_inner_loop(half_edges, face)
+            .map_err(|e| SweepError::Topology(format!("cap inner loop {wire_index}: {e}")))?;
+        for (he_handle, curve) in half_edges.iter().zip(cap_curves.iter()) {
+            let edge_handle = builder.brep().half_edges[*he_handle].edge;
+            builder.set_edge_curve(
+                edge_handle,
+                crate::surface::canonical::analytic_or_nurbs_curve(curve),
+            );
+        }
+        attach_cap_pcurves(builder, face, half_edges, cap_curves);
+    }
+    Ok(face)
+}
+
 /// Attach pcurves to cap face half-edges.
 ///
 /// For multi-edge caps, projects the edge curve endpoints into the

@@ -126,14 +126,18 @@ fn empty_wire_returns_error() {
 #[test]
 fn multi_wire_uses_largest_centroid() {
     let tol = Tolerance::default().with_linear(1e-3);
-    // Outer: large circle, Inner: small line segment
+    // Outer: large circle. Inner: small closed rectangle inside it
+    // (multi-wire profiles require every wire closed — PK-477; an
+    // open wire now declines, covered by
+    // multi_wire_invalid_profiles_decline).
     let outer = unit_circle();
-    let inner = line_segment();
+    let inner = rectangle_polyline();
     let profile = SweepProfile::MultiWire(vec![inner, outer]);
     let analyzed = analyze_profile(&profile, &tol).ok();
     assert!(analyzed.is_some());
     let analyzed = analyzed.unwrap(); // ok in tests
-    // Centroid should be near the circle's center, not the line's center.
+    // Outer wire ordered first; centroid near the circle's center.
+    assert_eq!(analyzed.wires.len(), 2);
     let c = analyzed.centroid;
     assert!(
         c.distance_to(&Point3::new(0.0, 0.0, 0.0)) < 0.2,

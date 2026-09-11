@@ -207,8 +207,10 @@ pub(crate) fn revolve_impl(
             ));
         }
     }
+    let wires = vec![spans.len()];
     let analyzed = crate::profile::AnalyzedProfile {
         spans,
+        wires,
         is_closed: analyzed.is_closed,
         centroid: analyzed.centroid,
     };
