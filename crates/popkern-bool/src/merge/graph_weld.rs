@@ -193,6 +193,19 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                 || (lone_endpoint
                     && d < band * 100.0
                     && on_extension(graph, &incident, band, n, &graph.nodes[m].position));
+            // The weld-near trace topic: every candidate inside the
+            // close tier's reach with its verdict inputs — the
+            // instrument that located the PK-472 duplicate-junction
+            // and micro-stub classes.
+            if popkern_core::trace::trace_enabled("weld-near") && d < band * 4.0 {
+                eprintln!(
+                    "  [weld-near?] n{n} ({:.6},{:.6},{:.6}) cand m{m} d={d:.2e} band={band:.2e} connected={connected} certified={} accept={accept}",
+                    p.x,
+                    p.y,
+                    p.z,
+                    close_certified(),
+                );
+            }
             if accept && best.is_none_or(|(bd, _)| d < bd) {
                 best = Some((d, m));
             }
