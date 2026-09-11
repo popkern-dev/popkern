@@ -345,30 +345,36 @@ pub fn register(engine: &mut Engine) {
         })
         .register_fn(
             "tapped_hole",
-            |sb: &mut ScriptBody, axis: popkern_script::AxisSpec, spec: Dynamic, depth: Dynamic| {
-                tapped_hole(sb, axis, spec, depth, &Dynamic::UNIT)
+            |sb: &mut ScriptBody,
+             axis: crate::profile_api::ScriptAxis,
+             spec: Dynamic,
+             depth: Dynamic| {
+                tapped_hole(sb, axis.spec(), spec, depth, &Dynamic::UNIT)
             },
         )
         .register_fn(
             "tapped_hole",
             |sb: &mut ScriptBody,
-             axis: popkern_script::AxisSpec,
+             axis: crate::profile_api::ScriptAxis,
              spec: Dynamic,
              depth: Dynamic,
-             o: Dynamic| { tapped_hole(sb, axis, spec, depth, &o) },
+             o: Dynamic| { tapped_hole(sb, axis.spec(), spec, depth, &o) },
         )
         .register_fn(
             "clearance_hole",
-            |sb: &mut ScriptBody, axis: popkern_script::AxisSpec, spec: Dynamic, depth: Dynamic| {
-                clearance_hole(sb, axis, spec, depth, &Dynamic::UNIT)
+            |sb: &mut ScriptBody,
+             axis: crate::profile_api::ScriptAxis,
+             spec: Dynamic,
+             depth: Dynamic| {
+                clearance_hole(sb, axis.spec(), spec, depth, &Dynamic::UNIT)
             },
         )
         .register_fn(
             "clearance_hole",
             |sb: &mut ScriptBody,
-             axis: popkern_script::AxisSpec,
+             axis: crate::profile_api::ScriptAxis,
              spec: Dynamic,
              depth: Dynamic,
-             o: Dynamic| { clearance_hole(sb, axis, spec, depth, &o) },
+             o: Dynamic| { clearance_hole(sb, axis.spec(), spec, depth, &o) },
         );
 }

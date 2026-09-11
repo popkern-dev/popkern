@@ -97,7 +97,6 @@ m
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap merge defects (fork in flight)"]
 fn bolt_nut_and_tapped_hole_serve() {
     run(r#"
 let m = model();

@@ -50,7 +50,6 @@ fn inside_mesh(mesh: &popkern_mesh::TriMesh, p: Point3) -> bool {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn tapped_through_hole_serves_and_rod_fits_with_clearance() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let plate = block(14.0, 14.0, 3.5);

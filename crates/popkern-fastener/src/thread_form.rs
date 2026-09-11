@@ -187,6 +187,20 @@ pub(crate) fn internal_ridge(
     })
 }
 
+/// MATING PHASE CONVENTION (PK-476): an internal thread's sweep
+/// start shifts DOWN by half a lead relative to the external
+/// convention, so an internal and an external thread of one spec,
+/// cut with coincident axis placements (or axial offsets of whole
+/// leads), MATE with the design clearance. Without it the phase was
+/// an accidental byproduct of start margins, and a nominal rod
+/// placed one lead into a tapped hole clashed crest-on-ridge
+/// (measured: 862 penetrating mesh vertices; the fit window sat at
+/// a half-lead offset). Shifting the START only widens the swept
+/// margin — turn planning ceils coverage.
+pub(crate) fn internal_phase_start(z_start: f64, spec: &ThreadSpec) -> f64 {
+    z_start - spec.lead() / 2.0
+}
+
 /// Bore radius of an internal thread: the minor radius grown by the
 /// fit clearance.
 pub(crate) fn internal_bore_radius(spec: &ThreadSpec, clearance: f64) -> f64 {

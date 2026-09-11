@@ -414,7 +414,7 @@ pub fn hex_nut(params: &NutParams, tolerance: Tolerance) -> Result<BRep, Fastene
         &body,
         &params.spec,
         &ridge,
-        0.0,
+        thread_form::internal_phase_start(0.0, &params.spec),
         m,
         None,
         None,

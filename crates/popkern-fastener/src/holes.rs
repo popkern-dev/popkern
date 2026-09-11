@@ -206,7 +206,7 @@ pub fn tapped_hole(
         &result,
         spec,
         &ridge,
-        -thread_headroom(spec),
+        thread_form::internal_phase_start(-thread_headroom(spec), spec),
         thread_end,
         None,
         Some(&placement),
