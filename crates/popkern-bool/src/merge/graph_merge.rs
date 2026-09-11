@@ -68,7 +68,7 @@ pub(crate) fn graph_merge(
     if !intersection_result.coincidence.face_overlaps.is_empty() {
         filtered_records.retain(|r| r.residue_owner_a.is_none());
     }
-    crate::intersect::drop_kept_flank_residues(
+    crate::intersect_residue_filter::drop_kept_flank_residues(
         &mut filtered_records,
         op,
         original_a,

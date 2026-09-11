@@ -101,7 +101,7 @@ pub(crate) fn cellular_graph_merge(
     if !intersection_result.coincidence.face_overlaps.is_empty() {
         rotated.retain(|r| r.residue_owner_a.is_none());
     }
-    crate::intersect::drop_kept_flank_residues(
+    crate::intersect_residue_filter::drop_kept_flank_residues(
         &mut rotated,
         op,
         original_a,

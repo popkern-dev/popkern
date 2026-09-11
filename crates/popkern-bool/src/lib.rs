@@ -50,6 +50,7 @@ pub mod instancing;
 pub(crate) mod intersect;
 pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_hierarchy;
+pub(crate) mod intersect_residue_filter;
 pub(crate) mod merge;
 pub mod merge_fallback;
 pub mod multi_body;

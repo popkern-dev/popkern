@@ -20,7 +20,9 @@ use super::clip_uv::{UvClipResult, clip_curve_to_crossings, clip_curve_wrapped, 
 
 #[path = "clip_window_sets.rs"]
 mod clip_window_sets;
-use clip_window_sets::{intersect_window_sets, record_is_transversal, subtract_window_sets};
+use clip_window_sets::{
+    intersect_window_sets, record_is_transversal, subtract_window_sets, trace_record_geometry,
+};
 
 /// Trim-residue emission gate (PK-465): residue records partition a
 /// face wherever the OTHER operand's surface crosses it beyond the
@@ -50,6 +52,20 @@ pub(crate) fn clip_curve_uv_space(
     // record is TRANSVERSAL — the two faces' surface normals disagree
     // along it. Flush/coincident boundary-running traces (parallel
     // normals) keep the tuned crossing-hull contract (PK-114).
+    // SCOPE (PK-472): pierce authority and residue emission serve
+    // the graze-junction classes of ANALYTIC/swept faces (a handful
+    // of boundary edges — tap, nut, rod mouths). A sketch-derived
+    // polygon face defeats both: the pierce inventory is
+    // O(boundary-edges × records) (the impeller's 406-point star ×
+    // its blade records turned a 40 ms subtraction into 935 s), and
+    // its residue swarm destabilized the star-cut walk (broken
+    // half-edge cycle, 1.4e-2 loop gap — a served baseline). Faces
+    // beyond the edge-count scope keep the tuned machinery
+    // byte-identical.
+    let in_pierce_scope = |brep: &BRep, face: FaceHandle| -> bool {
+        crate::clip_endpoint_refine::boundary_edges(brep, face).len() <= 64
+    };
+    let pierce_scope = in_pierce_scope(brep_a, face_a) && in_pierce_scope(brep_b, face_b);
     let open_windows_allowed =
         !curve.is_closed && record_is_transversal(brep_a, face_a, brep_b, face_b, curve);
     // Chart-cell route (PK-304): doubly-periodic faces take
@@ -137,6 +153,7 @@ pub(crate) fn clip_curve_uv_space(
         if let Some(res) = residues
             && EMIT_TRIM_RESIDUES
             && open_windows_allowed
+            && pierce_scope
             && outside_is_in_hole(matches!(clip_a, UvClipResult::Outside))
         {
             let (t_min, t_max) = curve.curve_3d.parameter_range();
@@ -219,7 +236,7 @@ pub(crate) fn clip_curve_uv_space(
     // interval containment votes sit inside boundary slop (measured:
     // the notched-cube saddle fixture's flush records got mangled
     // windows and the subtraction went non-manifold).
-    if open_windows_allowed && joint.iter().all(|w| w.1 <= t_max + 1e-12) {
+    if open_windows_allowed && pierce_scope && joint.iter().all(|w| w.1 <= t_max + 1e-12) {
         let span = (t_max - t_min).abs();
         let ts_a = super::clip_pierce_windows::pierce_crossing_params(
             brep_a, face_a, brep_b, face_b, curve,
@@ -362,6 +379,7 @@ pub(crate) fn clip_curve_uv_space(
     if let Some(res) = residues
         && EMIT_TRIM_RESIDUES
         && open_windows_allowed
+        && pierce_scope
         && joint.iter().all(|w| w.1 <= t_max + 1e-12)
     {
         let span_eps = (t_max - t_min).abs().max(1e-12) * 1e-6;
@@ -444,55 +462,4 @@ pub(crate) fn clip_curve_uv_space(
         out.push(piece);
     }
     out
-}
-
-/// the clip trace topic preamble: the record's 3D/UV extents and the B
-/// face's boundary bbox.
-fn trace_record_geometry(
-    brep_b: &BRep,
-    face_a: FaceHandle,
-    face_b: FaceHandle,
-    curve: &CurveOnSurface,
-) {
-    let (a3, b3) = curve.curve_3d.parameter_range();
-    let (a1, b1) = curve.curve_uv1.parameter_range();
-    let p3a = curve.curve_3d.point_at(a3);
-    let p3b = curve.curve_3d.point_at(b3);
-    let p1a = curve.curve_uv1.point_at(a1);
-    let p1b = curve.curve_uv1.point_at(b1);
-    let (a2, b2) = curve.curve_uv2.parameter_range();
-    let p2a = curve.curve_uv2.point_at(a2);
-    let p2b = curve.curve_uv2.point_at(b2);
-    eprintln!(
-        "    [uvspace] {face_a:?}x{face_b:?} 3d t[{a3:.1},{b3:.1}] ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1}) | uv1 t[{a1:.1},{b1:.1}] ({:.1},{:.1})->({:.1},{:.1}) | uv2 ({:.3},{:.1})->({:.3},{:.1})",
-        p3a.x,
-        p3a.y,
-        p3a.z,
-        p3b.x,
-        p3b.y,
-        p3b.z,
-        p1a.x,
-        p1a.y,
-        p1b.x,
-        p1b.y,
-        p2a.x,
-        p2a.y,
-        p2b.x,
-        p2b.y
-    );
-    let ring = crate::clip::face_uv_boundary(brep_b, face_b);
-    let mut lo = (f64::MAX, f64::MAX);
-    let mut hi = (f64::MIN, f64::MIN);
-    for (_, pc) in ring.iter().flatten() {
-        let (a, b) = pc.parameter_range();
-        for i in 0..4 {
-            let q = pc.point_at(a + (b - a) * i as f64 / 3.0);
-            lo = (lo.0.min(q.x), lo.1.min(q.y));
-            hi = (hi.0.max(q.x), hi.1.max(q.y));
-        }
-    }
-    eprintln!(
-        "    [uvspace] B-poly bbox ({:.3},{:.1})..({:.3},{:.1})",
-        lo.0, lo.1, hi.0, hi.1
-    );
 }

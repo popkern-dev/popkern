@@ -129,3 +129,54 @@ pub(super) fn subtract_window_sets(wa: &[(f64, f64)], wb: &[(f64, f64)]) -> Vec<
     }
     out
 }
+
+/// the clip trace topic preamble: the record's 3D/UV extents and the B
+/// face's boundary bbox.
+pub(super) fn trace_record_geometry(
+    brep_b: &BRep,
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+    curve: &CurveOnSurface,
+) {
+    let (a3, b3) = curve.curve_3d.parameter_range();
+    let (a1, b1) = curve.curve_uv1.parameter_range();
+    let p3a = curve.curve_3d.point_at(a3);
+    let p3b = curve.curve_3d.point_at(b3);
+    let p1a = curve.curve_uv1.point_at(a1);
+    let p1b = curve.curve_uv1.point_at(b1);
+    let (a2, b2) = curve.curve_uv2.parameter_range();
+    let p2a = curve.curve_uv2.point_at(a2);
+    let p2b = curve.curve_uv2.point_at(b2);
+    eprintln!(
+        "    [uvspace] {face_a:?}x{face_b:?} 3d t[{a3:.1},{b3:.1}] ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1}) | uv1 t[{a1:.1},{b1:.1}] ({:.1},{:.1})->({:.1},{:.1}) | uv2 ({:.3},{:.1})->({:.3},{:.1})",
+        p3a.x,
+        p3a.y,
+        p3a.z,
+        p3b.x,
+        p3b.y,
+        p3b.z,
+        p1a.x,
+        p1a.y,
+        p1b.x,
+        p1b.y,
+        p2a.x,
+        p2a.y,
+        p2b.x,
+        p2b.y
+    );
+    let ring = crate::clip::face_uv_boundary(brep_b, face_b);
+    let mut lo = (f64::MAX, f64::MAX);
+    let mut hi = (f64::MIN, f64::MIN);
+    for (_, pc) in ring.iter().flatten() {
+        let (a, b) = pc.parameter_range();
+        for i in 0..4 {
+            let q = pc.point_at(a + (b - a) * i as f64 / 3.0);
+            lo = (lo.0.min(q.x), lo.1.min(q.y));
+            hi = (hi.0.max(q.x), hi.1.max(q.y));
+        }
+    }
+    eprintln!(
+        "    [uvspace] B-poly bbox ({:.3},{:.1})..({:.3},{:.1})",
+        lo.0, lo.1, hi.0, hi.1
+    );
+}
