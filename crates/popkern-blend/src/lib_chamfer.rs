@@ -171,6 +171,8 @@ fn chamfer_edges_internal(
                             &tolerance,
                         );
                     }
+                    // PK-478 stage 2 (see fillet_pipeline exit).
+                    result.repair_canonical_forward();
                     return Ok(BlendResult {
                         brep: result,
                         edge_warnings: Vec::new(),
@@ -353,8 +355,11 @@ fn chamfer_edges_internal(
         ));
     }
 
+    let mut served = apply_result.brep;
+    // PK-478 stage 2 (see fillet_pipeline exit).
+    served.repair_canonical_forward();
     Ok(BlendResult {
-        brep: apply_result.brep,
+        brep: served,
         edge_warnings: apply_result.warnings,
         corner_patches: apply_result.corner_patches,
         repair_report: apply_result.repair_report,

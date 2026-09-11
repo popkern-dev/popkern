@@ -141,14 +141,13 @@ mod tests {
         }
     }
 
-    /// PK-478 stage-1 lie specimen (measured 2026-09-11): the blend
-    /// tip chamfer emits its tip rim with the canonical-forward
-    /// convention VIOLATED (the lying half-edge convicted by UV
-    /// chain continuity). This pin asserts the audit DETECTS the
-    /// producer lie; when PK-478 stage 2 fixes the blend producer,
-    /// flip this pin to assert no violations instead.
+    /// PK-478 stage 2: the blend's serving boundary repairs the
+    /// closed-rim canonical-forward lies (stage 1 measured the tip
+    /// rim ViolatedByChain: the cap-side pcurve wound against its
+    /// loop and the canonical bit pointed backward). Blend output
+    /// must now audit clean.
     #[test]
-    fn audit_detects_blend_tip_rim_canonical_lie() {
+    fn blend_tip_rim_audits_canonical_clean() {
         use popkern_core::validation::CanonicalForwardState;
         let tol = Tolerance::default();
         let spec = crate::spec::ThreadSpec::parse("M6").expect("M6");
@@ -165,8 +164,8 @@ mod tests {
             })
             .count();
         assert_eq!(
-            violations, 1,
-            "expected exactly the tip-rim producer lie (stage 2 flips this pin to 0)"
+            violations, 0,
+            "blend output must audit canonical-forward clean (stage 2 repair at the serving boundary)"
         );
     }
 }

@@ -486,6 +486,8 @@ pub(crate) fn fillet_edges_attempt(
     // body and stamp `served_mid_seam_normal` so gates pin the truth.
     let _ = crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
         refresh_served_mid_seam_diagnostics(&apply_result.brep, &mut apply_result.repair_report);
+    // PK-478 stage 2: repair closed-rim canonical lies at the exit.
+    apply_result.brep.repair_canonical_forward();
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: all_warnings,

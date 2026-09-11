@@ -85,6 +85,73 @@ impl BRep {
         out
     }
 
+    /// Repair every measurable canonical-forward violation in place
+    /// (PK-478 stage 2 — the explicit-repair arm of the invariant):
+    ///
+    /// - `Violated` (claims oppose, canonical backward): swap the
+    ///   edge's canonical half-edge to its twin. Restores the PK-303
+    ///   assumption every canonical consumer makes; trim geometry is
+    ///   untouched.
+    /// - `ViolatedByChain` (one pcurve lies): reverse the convicted
+    ///   pcurve so twin claims oppose, then make the forward-running
+    ///   side canonical. The UV image (the trim) is unchanged.
+    /// - `Ok`/`OkByChain`/`Indeterminate`: untouched — the repair
+    ///   never acts on ambiguity.
+    ///
+    /// Returns the number of edges repaired. Intended for PRODUCER
+    /// exits (the blend's closed-rim strips were the measured lying
+    /// population); running it on consumer inputs would mask
+    /// producer defects the audit exists to surface.
+    pub fn repair_canonical_forward(&mut self) -> usize {
+        let verdicts = self.audit_canonical_forward();
+        let mut repaired = 0;
+        let mut pcurve_reversed = false;
+        for v in verdicts {
+            match v.state {
+                CanonicalForwardState::Violated => {
+                    let canonical = self.edges[v.edge].half_edge;
+                    let twin = self.half_edges[canonical].twin;
+                    self.edges[v.edge].half_edge = twin;
+                    repaired += 1;
+                }
+                CanonicalForwardState::ViolatedByChain { lying_half_edge } => {
+                    if let Some(pc) = self
+                        .half_edges
+                        .get(lying_half_edge)
+                        .and_then(|h| h.pcurve.clone())
+                    {
+                        self.half_edges[lying_half_edge].pcurve = Some(pc.reversed());
+                        pcurve_reversed = true;
+                    }
+                    // After the pcurve repair the claims oppose; the
+                    // trusted (non-lying) side kept its claim. Make
+                    // whichever side now claims FORWARD canonical.
+                    let canonical = self.edges[v.edge].half_edge;
+                    let twin = self.half_edges[canonical].twin;
+                    let can_claim = self.pcurve_traversal_claim(canonical);
+                    match can_claim {
+                        Some(true) => {}
+                        Some(false) => self.edges[v.edge].half_edge = twin,
+                        None => continue,
+                    }
+                    repaired += 1;
+                }
+                _ => {}
+            }
+        }
+        // A reversed pcurve flips its loop's measured UV winding;
+        // the owning face's orientation flag was calibrated against
+        // the LIE and must follow the truth or the face serves
+        // winding-dishonest (measured: the bossed housing's shrunk
+        // cap after the fillet-rim repair). `reconcile` only touches
+        // measured-dishonest faces, so on a producer-fresh body this
+        // is scoped to exactly the repaired caps.
+        if pcurve_reversed {
+            self.reconcile_orientation_flags();
+        }
+        repaired
+    }
+
     /// Validation-style wrapper: one error per violated edge.
     pub fn validate_canonical_forward_all(&self) -> Vec<ValidationError> {
         self.audit_canonical_forward()
