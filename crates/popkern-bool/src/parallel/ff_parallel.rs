@@ -431,6 +431,11 @@ fn clip_and_classify(
                             }
                             continue;
                         }
+                        if trace.clip && worst > tolerance.linear() * 1000.0 {
+                            eprintln!(
+                                "  [clip-masked-phantom] A{face_a:?} x B{face_b:?}: interior {worst:.4} off a carrier (under the mixed-pair gate {band:.3})"
+                            );
+                        }
                     }
                     // NURBS carriers keep tuned behavior: the
                     // multisheet distance on a coiled wall can read a
