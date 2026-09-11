@@ -349,7 +349,7 @@ pub(crate) fn weld_dead_end_shared_endpoints(
             welds.push((n, m));
         }
     }
-    graph_weld_coalesce::split_junction_coalesce(graph, &incident, band, &mut welds);
+    graph_weld_coalesce::split_junction_coalesce(graph, &incident, band, carriers, &mut welds);
     let mut max_weld_d = 0.0_f64;
     for (n, m) in welds {
         // Snap the welded record curves' end control points onto the

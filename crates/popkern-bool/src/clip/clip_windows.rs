@@ -282,8 +282,19 @@ pub(crate) fn clip_curve_uv_space(
             // whole chart-widths from the boundary bbox — measured on
             // the bore-mouth family, where a correct tuned window was
             // emptied).
-            if cleared && !ts.is_empty() && !pw.is_empty() && differs {
+            // Pins arm whenever CERTIFIED junctions exist — matching
+            // stays EXACT (span x 1e-6), so only window bounds that
+            // came from the junction machinery ever pin. Two face
+            // pairs' chains solving one triple junction then land on
+            // the SAME exact point instead of two nodes a lateral
+            // slop apart (measured, PK-465: the angled tap's mouth
+            // minted 5.4e-4 record-record duplicates the weld tiers
+            // cannot own — 7 stranded sides). Slop-gated arming was
+            // measured harmful (re-strands) and stays out.
+            if cleared && !ts.is_empty() {
                 junction_points = junctions.clone();
+            }
+            if cleared && !ts.is_empty() && !pw.is_empty() && differs {
                 if trace {
                     let show = |ws: &[(f64, f64)]| {
                         ws.iter()
