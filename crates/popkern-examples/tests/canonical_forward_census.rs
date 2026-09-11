@@ -124,6 +124,104 @@ fn canonical_forward_producer_census() {
     eprintln!("[cf-census] TOTAL violated: {total_violated}");
 }
 
+/// Transient localization probe for the "pcurve traversal
+/// unmeasurable" indeterminate class (PK-478 stage 3 mechanism b):
+/// which ingredient is missing per side on the boolean-output and
+/// blend-output closed edges.
+#[test]
+#[ignore = "PK-478 stage-3 localization — run by hand"]
+fn unmeasurable_side_localization() {
+    let tilted = Profile::on(Plane::XY)
+        .rect(10.0, 10.0)
+        .extrude(4.0)
+        .expect("plate")
+        .subtract(
+            &Profile::on(Plane::XY)
+                .circle(1.5)
+                .extrude(9.0)
+                .expect("drill")
+                .rotate_x(0.4_f64)
+                .expect("tilt")
+                .translate(0.0, 0.0, -2.0)
+                .expect("place"),
+        )
+        .expect("tilted bore");
+    let chamfered = Profile::on(Plane::XY)
+        .circle(2.0)
+        .extrude(4.0)
+        .expect("puck")
+        .chamfer(0.4, |e| e.circular().at_height(4.0))
+        .expect("chamfered puck rim");
+    for (label, brep) in [
+        ("tilted-bored", tilted.brep()),
+        ("chamfered-puck", chamfered.brep()),
+    ] {
+        for v in brep.audit_canonical_forward() {
+            let CanonicalForwardState::Indeterminate(reason) = v.state else {
+                continue;
+            };
+            let edge = &brep.edges[v.edge];
+            let he = &brep.half_edges[edge.half_edge];
+            let tw = &brep.half_edges[he.twin];
+            let side = |h: &popkern_core::topology::HalfEdge| {
+                let face = brep.loops[h.loop_].face;
+                let surf = brep.faces[face]
+                    .surface
+                    .as_ref()
+                    .map(|s| format!("{:?}", std::mem::discriminant(&s.geometry)));
+                let pc = h.pcurve.as_ref().map(|p| {
+                    let (t0, t1) = p.parameter_range();
+                    format!("range ({t0:.3},{t1:.3})")
+                });
+                format!("face {face:?} surf {surf:?} pcurve {pc:?}")
+            };
+            eprintln!(
+                "[loc3] {label} {:?} ({reason}) curve {} | canonical: {} | twin: {}",
+                v.edge,
+                edge.curve.is_some(),
+                side(he),
+                side(tw)
+            );
+            // Step-replicate the traversal claim on each side.
+            for (tag, h) in [("canonical", he), ("twin", tw)] {
+                use popkern_core::geometry::SurfaceEval as _;
+                let Some(pc) = h.pcurve.as_ref() else {
+                    continue;
+                };
+                let face = brep.loops[h.loop_].face;
+                let Some(sof) = brep.faces[face].surface.as_ref() else {
+                    continue;
+                };
+                let Some(curve) = edge.curve.as_ref() else {
+                    continue;
+                };
+                let (t0, t1) = pc.parameter_range();
+                let tm = t0 + (t1 - t0) * 0.5;
+                let te = t0 + (t1 - t0) * 0.505;
+                let a = pc.point_at(tm);
+                let b = pc.point_at(te);
+                let p1 = sof.geometry.point_at(a.x, a.y);
+                let p2 = sof.geometry.point_at(b.x, b.y);
+                let step = (p2 - p1).length();
+                let inv1 = popkern_core::geometry::curve_inversion::invert_curve_at_point(
+                    curve,
+                    p1,
+                    &brep.tolerance,
+                );
+                let inv2 = popkern_core::geometry::curve_inversion::invert_curve_at_point(
+                    curve,
+                    p2,
+                    &brep.tolerance,
+                );
+                eprintln!(
+                    "[loc3]   {tag}: uv ({:.4},{:.4})->({:.4},{:.4}) step3d {step:.3e} inv {:?} {:?} curve-range ({:.3},{:.3})",
+                    a.x, a.y, b.x, b.y, inv1, inv2, curve.t_start, curve.t_end
+                );
+            }
+        }
+    }
+}
+
 /// Transient localization probe for the blend strip rim lie.
 #[test]
 #[ignore = "PK-478 stage-2 localization — run by hand"]

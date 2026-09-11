@@ -22,6 +22,7 @@ mod self_intersection_trim;
 mod self_intersection_twist;
 pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
+mod canonical_forward_arbitration;
 mod pcurve_presence;
 mod winding_honesty;
 

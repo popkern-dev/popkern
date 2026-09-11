@@ -21,6 +21,11 @@ use crate::error::ValidationError;
 use crate::geometry::SurfaceEval;
 use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};
 
+/// Indeterminate reason for an agreeing-claims pair neither the
+/// chain tiebreak nor (afterwards) the rim-pair arbitration could
+/// resolve; the arbitration pass keys on it.
+pub(super) const CHAIN_AMBIGUOUS: &str = "agreeing claims, chain tiebreak ambiguous";
+
 /// Per-closed-edge verdict from [`BRep::audit_canonical_forward`].
 #[derive(Debug, Clone)]
 pub struct CanonicalForwardVerdict {
@@ -82,6 +87,11 @@ impl BRep {
             let state = self.closed_edge_state(edge.half_edge, he.twin);
             out.push(CanonicalForwardVerdict { edge: eh, state });
         }
+        // Pass 2 (stage 3): seam-adjacent rim junctions defeat the
+        // chain tiebreak (all endpoints coincide mod period); the
+        // rim-pair loop invariant arbitrates them from a determinate
+        // sibling rim.
+        self.arbitrate_rim_pairs(&mut out);
         out
     }
 
@@ -186,66 +196,15 @@ impl BRep {
                 // Agreeing claims: one pcurve lies. Trust the side
                 // whose pcurve is UV-chain-continuous with its loop
                 // neighbours; a mis-directed pcurve has both its
-                // endpoints against the chain.
+                // endpoints against the chain. The shared one-liar
+                // decision matrix lives with the rim-pair
+                // arbitration, which reuses it in pass 2.
                 let cont_can = self.pcurve_chain_continuous(canonical);
                 let cont_twin = self.pcurve_chain_continuous(twin);
-                match (cont_can, cont_twin) {
-                    // One-sided evidence: a chain-backed side is
-                    // trusted when the other is unmeasurable (a
-                    // self-loop cap has no neighbours); a chain-
-                    // BROKEN side convicts itself the same way.
-                    (Some(true), None) | (None, Some(false)) => {
-                        if fc {
-                            S::OkByChain {
-                                lying_half_edge: twin,
-                            }
-                        } else {
-                            S::ViolatedByChain {
-                                lying_half_edge: twin,
-                            }
-                        }
-                    }
-                    (None, Some(true)) | (Some(false), None) => {
-                        if fc {
-                            S::ViolatedByChain {
-                                lying_half_edge: canonical,
-                            }
-                        } else {
-                            S::OkByChain {
-                                lying_half_edge: canonical,
-                            }
-                        }
-                    }
-                    (Some(true), Some(false)) => {
-                        if fc {
-                            S::OkByChain {
-                                lying_half_edge: twin,
-                            }
-                        } else {
-                            S::ViolatedByChain {
-                                lying_half_edge: twin,
-                            }
-                        }
-                    }
-                    (Some(false), Some(true)) => {
-                        // Canonical side lies; the twin's claim equals
-                        // fc here (agreeing pair), so the TRUE twin
-                        // direction is !fc and the true canonical
-                        // direction is fc's negation's opposite — the
-                        // trusted twin says the twin runs fc, hence
-                        // the canonical runs !fc.
-                        if fc {
-                            S::ViolatedByChain {
-                                lying_half_edge: canonical,
-                            }
-                        } else {
-                            S::OkByChain {
-                                lying_half_edge: canonical,
-                            }
-                        }
-                    }
-                    _ => S::Indeterminate("agreeing claims, chain tiebreak ambiguous"),
-                }
+                super::canonical_forward_arbitration::resolve_one_liar(
+                    fc, cont_can, cont_twin, canonical, twin,
+                )
+                .unwrap_or(S::Indeterminate(CHAIN_AMBIGUOUS))
             }
             _ => S::Indeterminate("pcurve traversal unmeasurable"),
         }
@@ -254,14 +213,19 @@ impl BRep {
     /// `Some(true)` when `heh`'s pcurve traces the stored edge curve
     /// in increasing t (accounting for periodic wrap), `Some(false)`
     /// for decreasing, `None` when unmeasurable.
-    fn pcurve_traversal_claim(&self, heh: HalfEdgeHandle) -> Option<bool> {
+    pub(super) fn pcurve_traversal_claim(&self, heh: HalfEdgeHandle) -> Option<bool> {
         let he = self.half_edges.get(heh)?;
         let pc = he.pcurve.as_ref()?;
         let face = self.loops.get(he.loop_)?.face;
         let sof = self.faces.get(face)?.surface.as_ref()?;
         let curve = self.edges.get(he.edge)?.curve.as_ref()?;
         let (t0, t1) = pc.parameter_range();
-        if !(t0.is_finite() && t1.is_finite()) || t1 <= t0 {
+        // A DECREASING range is a legal reversed representation
+        // (evaluation normalizes t into the span, traversal is
+        // t_start->t_end either way); only a degenerate span is
+        // unmeasurable. Measured: the blend caps author their rim
+        // pcurves with decreasing angle ranges.
+        if !(t0.is_finite() && t1.is_finite()) || t1 == t0 {
             return None;
         }
         let tm = t0 + (t1 - t0) * 0.5;
@@ -270,15 +234,29 @@ impl BRep {
         let b = pc.point_at(te);
         let p1 = sof.geometry.point_at(a.x, a.y);
         let p2 = sof.geometry.point_at(b.x, b.y);
-        if (p2 - p1).length_squared() <= 0.0 {
+        let step_len = (p2 - p1).length();
+        if step_len <= 0.0 {
             return None;
         }
-        let c1 =
-            crate::geometry::curve_inversion::invert_curve_at_point(curve, p1, &self.tolerance)
-                .ok()?;
-        let c2 =
-            crate::geometry::curve_inversion::invert_curve_at_point(curve, p2, &self.tolerance)
-                .ok()?;
+        // Exact inversion first; an SSI-approximated pcurve trace
+        // sits slightly off the stored curve (measured 1.6e-5 on the
+        // tilted bore rim, against the inversion's on-curve gate), so
+        // fall back to a projection accepted only when the deviation
+        // is small against the sampling step — direction ordering
+        // survives any deviation well under half a step.
+        let param_of = |p: crate::geometry::Point3| -> Option<f64> {
+            match crate::geometry::curve_inversion::invert_curve_at_point(curve, p, &self.tolerance)
+            {
+                Ok(t) => Some(t),
+                Err(_) => {
+                    let (t, dist) =
+                        crate::geometry::curve_nearest_param::nearest_param_on_curve(curve, &p);
+                    (dist <= 0.25 * step_len).then_some(t)
+                }
+            }
+        };
+        let c1 = param_of(p1)?;
+        let c2 = param_of(p2)?;
         let span = curve.t_end - curve.t_start;
         if span.abs() <= 0.0 {
             return None;
@@ -375,10 +353,12 @@ mod tests {
     /// The audit is reversal-STABLE on a constructor cylinder: the
     /// same verdicts before and after `reverse_body_orientation`
     /// (the convention is loop-covariant; reversal swaps canonical
-    /// bits and pcurve directions together). The bottom rim's
-    /// seam-adjacent endpoint ambiguity is a KNOWN indeterminate
-    /// class (all four junction points coincide modulo the period);
-    /// PK-478 stage 2 resolves it with cross-edge loop consistency.
+    /// bits and pcurve directions together). Since PK-478 stage 3,
+    /// the audit is also fully DETERMINATE here: the bottom rim's
+    /// seam-adjacent junction ambiguity (all endpoint candidates
+    /// coincide modulo the period) is resolved by full-period
+    /// rim-pair arbitration — the determinate top rim decides its
+    /// sibling through the wall loop's opposite-direction invariant.
     #[test]
     fn cylinder_audit_is_reversal_stable() {
         let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).expect("cylinder");
@@ -389,6 +369,12 @@ mod tests {
                 .iter()
                 .any(|v| matches!(v.state, CanonicalForwardState::Ok)),
             "at least one rim resolves Ok: {verdicts:?}"
+        );
+        assert!(
+            !verdicts
+                .iter()
+                .any(|v| matches!(v.state, CanonicalForwardState::Indeterminate(_))),
+            "stage-3 arbitration leaves no indeterminate rims: {verdicts:?}"
         );
         assert!(
             !verdicts.iter().any(|v| matches!(
