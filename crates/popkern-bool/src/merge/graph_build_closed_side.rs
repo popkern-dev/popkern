@@ -108,40 +108,15 @@ pub(super) fn closed_he_runs_curve_forward(
     let tm = 0.5 * (curve.t_start + curve.t_end);
     let p = curve.geometry.point_at(tm);
     let tangent = curve.geometry.derivative_at(tm, 1).normalized()?;
-    // Signed material-left cosine for the half-edge's face under the
-    // hypothesis that the face traverses the curve in +tangent
-    // direction; `None` when unmeasurable.
-    let mut vote = |heh: HalfEdgeHandle| -> Option<f64> {
-        use popkern_core::geometry::SurfaceEval as _;
-        let lh = ctx.brep.half_edges.get(heh)?.loop_;
-        let face = ctx.brep.loops.get(lh)?.face;
-        let fd = ctx.brep.faces.get(face)?;
-        let sof = fd.surface.as_ref()?;
-        let sign = ctx.outward_sign(face)?;
-        let (u, v) = sof.geometry.closest_point(&p)?;
-        let n = sof.geometry.normal_at(u, v).normalized()? * sign;
-        let left = n.cross(&tangent);
-        let c = loop_boundary_centroid(ctx.brep, lh)?;
-        let inner = fd.inner_loops.contains(&lh);
-        let d = if inner { p - c } else { c - p };
-        let scale = left.length() * d.length();
-        if scale <= 0.0 {
-            return None;
-        }
-        let cosine = left.dot(&d) / scale;
-        if popkern_core::trace::trace_enabled("closed-side") {
-            eprintln!(
-                "      [closed-side-face] {face:?} outward-sign {sign:+.0} inner {inner} cos {cosine:.3}"
-            );
-        }
-        if cosine.abs() < 0.1 {
-            None
-        } else {
-            Some(cosine)
-        }
-    };
-    let v_own = vote(he_h);
-    let v_twin = vote(he.twin);
+    let v_own = material_left_vote(ctx, he_h, &p, &tangent, SignBasis::RayParityOutward, true);
+    let v_twin = material_left_vote(
+        ctx,
+        he.twin,
+        &p,
+        &tangent,
+        SignBasis::RayParityOutward,
+        true,
+    );
     let _ = twin;
     // BOTH faces must vote, in opposition. A single vote is not
     // trusted: operands can carry non-manifold closed edges (the
@@ -281,4 +256,121 @@ fn loop_boundary_centroid(
         sy / n as f64,
         sz / n as f64,
     ))
+}
+
+/// Which normal-folding basis a material-left vote uses (PK-478 E1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SignBasis {
+    /// The shipping basis: ray-parity measured TRUE-outward normal
+    /// (geometry-only, invariant under body reversal).
+    RayParityOutward,
+    /// The stored orientation flag (the FLAG-FOLDED normal) —
+    /// covariant with body reversal on winding-honest faces.
+    OrientationFlag,
+}
+
+/// Signed material-left cosine for `heh`'s face under the hypothesis
+/// that the face traverses the curve in +`tangent` direction at `p`;
+/// `None` when unmeasurable. Extracted verbatim from the witness so
+/// the E1 census measures exactly what ships (`trace` gates the
+/// shipping-path trace line).
+pub(super) fn material_left_vote(
+    ctx: &mut ClosedSideContext,
+    heh: HalfEdgeHandle,
+    p: &popkern_core::geometry::Point3,
+    tangent: &popkern_core::geometry::Vec3,
+    basis: SignBasis,
+    trace: bool,
+) -> Option<f64> {
+    use popkern_core::geometry::SurfaceEval as _;
+    let lh = ctx.brep.half_edges.get(heh)?.loop_;
+    let face = ctx.brep.loops.get(lh)?.face;
+    let fd = ctx.brep.faces.get(face)?;
+    let sof = fd.surface.as_ref()?;
+    let sign = match basis {
+        SignBasis::RayParityOutward => ctx.outward_sign(face)?,
+        SignBasis::OrientationFlag => {
+            if sof.orientation {
+                1.0
+            } else {
+                -1.0
+            }
+        }
+    };
+    let (u, v) = sof.geometry.closest_point(p)?;
+    let n = sof.geometry.normal_at(u, v).normalized()? * sign;
+    let left = n.cross(tangent);
+    let c = loop_boundary_centroid(ctx.brep, lh)?;
+    let inner = fd.inner_loops.contains(&lh);
+    let d = if inner { *p - c } else { c - *p };
+    let scale = left.length() * d.length();
+    if scale <= 0.0 {
+        return None;
+    }
+    let cosine = left.dot(&d) / scale;
+    if trace && popkern_core::trace::trace_enabled("closed-side") {
+        eprintln!(
+            "      [closed-side-face] {face:?} outward-sign {sign:+.0} inner {inner} cos {cosine:.3}"
+        );
+    }
+    if cosine.abs() < 0.1 {
+        None
+    } else {
+        Some(cosine)
+    }
+}
+
+/// All candidate measurements for one closed edge (PK-478 E1).
+pub(super) struct CensusMeasurements {
+    pub(super) w1_own: Option<f64>,
+    pub(super) w1_twin: Option<f64>,
+    pub(super) w2_own: Option<f64>,
+    pub(super) w2_twin: Option<f64>,
+    pub(super) pc_own: Option<bool>,
+    pub(super) pc_twin: Option<bool>,
+}
+
+/// Measure W1/W2 votes and pcurve claims for the canonical half-edge
+/// of a closed edge and its twin. Diagnostic only.
+pub(super) fn census_probe(
+    ctx: &mut ClosedSideContext,
+    he_h: HalfEdgeHandle,
+) -> CensusMeasurements {
+    use popkern_core::geometry::curve::CurveEval;
+    let empty = CensusMeasurements {
+        w1_own: None,
+        w1_twin: None,
+        w2_own: None,
+        w2_twin: None,
+        pc_own: None,
+        pc_twin: None,
+    };
+    let brep = ctx.brep;
+    let Some(he) = brep.half_edges.get(he_h) else {
+        return empty;
+    };
+    let twin_h = he.twin;
+    let Some(curve) = brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) else {
+        return empty;
+    };
+    let tm = 0.5 * (curve.t_start + curve.t_end);
+    let p = curve.geometry.point_at(tm);
+    let Some(tangent) = curve.geometry.derivative_at(tm, 1).normalized() else {
+        return empty;
+    };
+    CensusMeasurements {
+        w1_own: material_left_vote(ctx, he_h, &p, &tangent, SignBasis::RayParityOutward, false),
+        w1_twin: material_left_vote(
+            ctx,
+            twin_h,
+            &p,
+            &tangent,
+            SignBasis::RayParityOutward,
+            false,
+        ),
+        w2_own: material_left_vote(ctx, he_h, &p, &tangent, SignBasis::OrientationFlag, false),
+        w2_twin: material_left_vote(ctx, twin_h, &p, &tangent, SignBasis::OrientationFlag, false),
+        pc_own: pcurve_claims_forward(brep, he_h),
+        pc_twin: pcurve_claims_forward(brep, twin_h),
+    }
 }

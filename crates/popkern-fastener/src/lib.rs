@@ -28,6 +28,7 @@
 //! [`BRep`]: popkern_core::topology::BRep
 
 pub mod builders;
+mod closed_side_census_probe;
 mod engine;
 pub mod holes;
 mod spec;

@@ -12,6 +12,8 @@ use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 use super::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
 
+#[path = "closed_side_census.rs"]
+pub(crate) mod closed_side_census;
 #[path = "graph_build_closed_side.rs"]
 mod graph_build_closed_side;
 use graph_build_closed_side::{ClosedSideContext, closed_he_runs_curve_forward};
