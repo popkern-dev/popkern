@@ -317,9 +317,25 @@ fn validate_all_on_double_rim_filleted_tube_is_not_slower_under_analytic_arms() 
     // Analytic first (cold caches); marching second — any content-keyed
     // validation memo warmed by the first pass only HELPS marching, so
     // the comparison is conservative.
-    let (analytic_verdicts, analytic_wall) = time_once(|| part.validate_all());
-    let (marching_verdicts, marching_wall) =
+    //
+    // LOAD-IMMUNE measurement (PK-489): a single-shot wall comparison
+    // of millisecond-scale passes flips under full-suite scheduler
+    // load (measured: 2 of 4 workspace runs on 2026-09-12 failed this
+    // gate while it passes unloaded in 0.038 s every time). Interleave
+    // the arms and keep each arm's MINIMUM over five runs — a load
+    // stall only ever inflates a sample, so minima converge to the
+    // true cost regardless of load.
+    let (analytic_verdicts, analytic_first) = time_once(|| part.validate_all());
+    let (marching_verdicts, marching_first) =
         with_marching_pinned(|| time_once(|| part.validate_all()));
+    let mut analytic_wall = analytic_first;
+    let mut marching_wall = marching_first;
+    for _ in 0..4 {
+        let (_, a) = time_once(|| part.validate_all());
+        let (_, m) = with_marching_pinned(|| time_once(|| part.validate_all()));
+        analytic_wall = analytic_wall.min(a);
+        marching_wall = marching_wall.min(m);
+    }
     eprintln!(
         "[pk279] validate_all double-rim tube ({} faces, {} tori): analytic {analytic_wall:?} \
          ({} verdicts), marching {marching_wall:?} ({} verdicts), ratio {:.1}×",
