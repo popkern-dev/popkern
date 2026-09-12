@@ -69,6 +69,38 @@ pub fn weld_parallel_self_twins(brep: &mut BRep, tolerance: &Tolerance) -> Paral
         brep.half_edges[ha].twin = hb;
         brep.half_edges[hb].twin = ha;
         brep.half_edges[hb].edge = edge_a;
+        // VERTEX UNIFICATION (PK-483): each masked rim kept its own
+        // endpoint vertices, so the freshly wired twins straddle
+        // duplicate vertices a junction-slop apart. Twins must share
+        // endpoint vertices — and at a tangency pinch (the grazing
+        // torus micro-lens) the unified vertex is what lets the
+        // touching faces read as topologically adjacent: without it
+        // validate_all flagged SelfIntersection on Boundary-only
+        // witnesses at the two lens tips. Re-origin every half-edge
+        // leaving the duplicate onto the partner's vertex; the
+        // transactional validation guard below still rolls the whole
+        // weld back if the rewire regresses structure.
+        {
+            let va0 = brep.half_edges[ha].origin;
+            let va1 = brep.half_edges[brep.half_edges[ha].next].origin;
+            let vb0 = brep.half_edges[hb].origin;
+            let vb1 = brep.half_edges[brep.half_edges[hb].next].origin;
+            for (kill, keep) in [(vb0, va1), (vb1, va0)] {
+                if kill == keep || !brep.vertices.contains_key(kill) {
+                    continue;
+                }
+                let leaving: Vec<HalfEdgeHandle> = brep
+                    .half_edges
+                    .iter()
+                    .filter(|(_, d)| d.origin == kill)
+                    .map(|(h, _)| h)
+                    .collect();
+                for h in leaving {
+                    brep.half_edges[h].origin = keep;
+                }
+                brep.vertices.remove(kill);
+            }
+        }
         if edge_b != edge_a && !brep.half_edges.iter().any(|(_, he)| he.edge == edge_b) {
             brep.edges.remove(edge_b);
         }
