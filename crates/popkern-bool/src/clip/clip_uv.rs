@@ -380,15 +380,27 @@ pub(super) fn uv_clip_one_face(
                 };
             }
             // DEGENERATE-HULL rescue (PK-465): an OPEN record whose
-            // crossings all cluster at ONE parameter touched the
-            // boundary tangentially — through a junction, not across
-            // it — and the crossing hull collapses to a point,
+            // crossings all cluster at ONE boundary junction touched
+            // the boundary tangentially — through the junction, not
+            // across it — and the crossing hull collapses to a point,
             // discarding the real in-face span on one side (measured:
             // the angled tap's floor×flank record runs from a B-edge
             // junction 0.03 inside the floor rim, exits tangentially
             // THROUGH the rim junction, and its 2-crossing hull
             // (0.076,0.076) kept a zero-length stub — the hole-bottom
-            // chain lost its closing link). Sides are decided like the
+            // chain lost its closing link). The cluster discriminator
+            // is GEOMETRIC — all crossings within the uv boundary
+            // band of one point — because within record-fit slop of
+            // the boundary two crossings are indistinguishable from
+            // one junction by the same standard the containment
+            // verdict below uses; a parametric epsilon (span×1e-6)
+            // was a knife edge (measured: an unrelated registration
+            // change moved this fixture's crossing pair from ~9e-7
+            // to ~1.1e-6 apart in t and the rescue silently stopped
+            // firing — the hole-bottom chain stranded again). A hull
+            // narrower than the band is sub-slop: deciding it by
+            // endpoint evidence is more honest than serving a
+            // point-window stub. Sides are decided like the
             // 1-crossing arm, by endpoint containment — but with the
             // boundary-banded dense verdict, since these endpoints hug
             // the rim well inside the tuned polygon's sagitta. An
@@ -401,9 +413,14 @@ pub(super) fn uv_clip_one_face(
                 if !is_closed && crossings.len() >= 2 {
                     let t_first = crossings[0].t_curve;
                     let t_last = crossings[crossings.len() - 1].t_curve;
-                    if (t_last - t_first).abs() < span * 1e-6 {
+                    let band = uv_boundary_band(brep, curve_uv);
+                    let q_first = curve_uv.point_at(t_first);
+                    let clustered = crossings.iter().all(|c| {
+                        let q = curve_uv.point_at(c.t_curve);
+                        ((q.x - q_first.x).powi(2) + (q.y - q_first.y).powi(2)).sqrt() < band
+                    });
+                    if (t_last - t_first).abs() < span * 1e-6 || clustered {
                         let inset = span * 1e-3;
-                        let band = uv_boundary_band(brep, curve_uv);
                         let boundary_ring = crate::clip::face_uv_boundary(brep, face);
                         let banded_inside = |q: popkern_core::geometry::Point3| -> Option<bool> {
                             let mut best = f64::INFINITY;
