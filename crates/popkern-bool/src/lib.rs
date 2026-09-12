@@ -62,6 +62,7 @@ pub mod merge_fallback;
 pub use merge::graph_build::closed_side_census::{ClosedSideCensusRow, closed_side_census};
 pub mod multi_body;
 pub(crate) mod operation;
+mod operation_postprocess_trace;
 pub mod ops;
 pub mod parallel;
 pub mod perturbation;

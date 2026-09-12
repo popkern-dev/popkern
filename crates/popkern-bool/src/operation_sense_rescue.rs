@@ -136,6 +136,18 @@ pub(crate) fn execute_boolean_full(
                         "  [exec] mixed-sense rescue REJECTED: {} torn edge(s), worst divergence {worst:.3e}; serving the primary decline",
                         tears.len()
                     );
+                    for t in &tears {
+                        eprintln!(
+                            "    [tear] edge {:?} faces ({:?},{:?}) divergence {:.3e} at ({:.4},{:.4},{:.4})",
+                            t.edge,
+                            t.face_a,
+                            t.face_b,
+                            t.max_divergence,
+                            t.location.x,
+                            t.location.y,
+                            t.location.z
+                        );
+                    }
                 }
                 Err(err)
             }

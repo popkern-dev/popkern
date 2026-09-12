@@ -47,6 +47,7 @@ pub(crate) fn assemble_result(
     brep_b: &BRep,
     tolerance: Tolerance,
 ) -> Result<BRep, BoolDiagnostics> {
+    super::graph::trace_uv_scramble("assemble", graph, brep_a, brep_b, &tolerance);
     let mut builder = BRepBuilder::new(tolerance);
 
     let solid = builder.add_solid();
@@ -232,12 +233,32 @@ pub(crate) fn assemble_result(
                 }
             }
 
-            // Wire pcurves from graph half-edges onto result half-edges.
-            if let Some(ref pcurve) = graph.half_edges[ghe_idx].pcurve {
-                builder.set_half_edge_pcurve(he_fwd, pcurve.clone());
-            }
-            if let Some(ref pcurve) = graph.half_edges[twin_ghe].pcurve {
-                builder.set_half_edge_pcurve(he_twin, pcurve.clone());
+            // Wire pcurves from graph half-edges onto result
+            // half-edges, oriented to each half-edge's traversal by
+            // sampled 3D comparison (see the direction-honest install
+            // note below — both graph sides store record-direction
+            // pcurves).
+            for (ghe_src, he_dst) in [(ghe_idx, he_fwd), (twin_ghe, he_twin)] {
+                let Some(ref pcurve) = graph.half_edges[ghe_src].pcurve else {
+                    continue;
+                };
+                let surface = graph.half_edges[ghe_src].face.as_ref().and_then(|fr| {
+                    let brep = match fr.operand {
+                        Operand::A => brep_a,
+                        Operand::B => brep_b,
+                    };
+                    brep.faces
+                        .get(fr.face)
+                        .and_then(|f| f.surface.as_ref())
+                        .map(|s| s.geometry.clone())
+                });
+                let pc = crate::cellular::assemble_edge_geometry::orient_pcurve_to_half_edge(
+                    builder.brep(),
+                    he_dst,
+                    pcurve.clone(),
+                    surface.as_ref(),
+                );
+                builder.set_half_edge_pcurve(he_dst, pc);
             }
         }
 
@@ -245,39 +266,16 @@ pub(crate) fn assemble_result(
         let face_h = builder.add_face(shell);
         let default_loop = popkern_core::topology::LoopHandle::default();
 
-        // For shared intersection edges, the pcurve on each graph
-        // half-edge corresponds to a specific face's UV space (forward →
-        // face A, twin → face B).  When a fragment uses the "wrong"
-        // direction (e.g. face A's inner loop walks the twin direction),
-        // the BRep half-edge would get face B's pcurve, which is in the
-        // wrong UV space.  This helper returns the correct pcurve for
-        // `ghe` given the fragment's `face_ref`: if the graph half-edge's
-        // face matches, use its pcurve; otherwise use the twin's pcurve
-        // (which belongs to the other face and hence the correct UV space).
-        let correct_pcurve_for_face = |ghe: usize,
-                                       face_ref: &super::graph::FaceRef|
-         -> Option<popkern_core::geometry::pcurve::Pcurve> {
-            let ghe_face = &graph.half_edges[ghe].face;
-            let twin = graph.half_edges[ghe].twin;
-            let twin_face = &graph.half_edges[twin].face;
-
-            // If this graph half-edge's face matches the fragment's
-            // face, its pcurve is in the correct UV space.
-            if ghe_face.as_ref() == Some(face_ref) {
-                return graph.half_edges[ghe].pcurve.clone();
-            }
-            // If the twin's face matches, the twin's pcurve is in the
-            // correct UV space but parameterized for the OPPOSITE walk
-            // direction — reverse it. Verbatim borrowing silently
-            // flipped closed rims (both rims of a boolean-rebuilt
-            // cylinder wall wound the same way; endpoint matching
-            // cannot catch direction on a closed curve).
-            if twin_face.as_ref() == Some(face_ref) {
-                return graph.half_edges[twin].pcurve.as_ref().map(|p| p.reversed());
-            }
-            // Neither matches (original edges, not shared) — use the
-            // graph half-edge's own pcurve as-is.
-            graph.half_edges[ghe].pcurve.clone()
+        // Pcurve selection + direction-honest install: see
+        // `assemble_pcurve` (PK-485).
+        let install_oriented = |bld: &mut BRepBuilder,
+                                he: HalfEdgeHandle,
+                                pc: popkern_core::geometry::pcurve::Pcurve,
+                                fr: &super::graph::FaceRef| {
+            super::assemble_pcurve::install_oriented(bld, he, pc, fr, brep_a, brep_b);
+        };
+        let correct_pcurve_for_face = |ghe: usize, face_ref: &super::graph::FaceRef| {
+            super::assemble_pcurve::correct_pcurve_for_face(graph, ghe, face_ref)
         };
 
         // Resolve graph half-edges to BRep half-edges for a loop.
@@ -305,7 +303,7 @@ pub(crate) fn assemble_result(
                 {
                     // Fix pcurve: ensure it matches this fragment's face.
                     if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
-                        bld.set_half_edge_pcurve(brep_he, pc);
+                        install_oriented(bld, brep_he, pc, &fragment.face);
                     }
                     handles.push(brep_he);
                     continue;
@@ -314,10 +312,16 @@ pub(crate) fn assemble_result(
                 if let Some(&alt) = hmap.get(&graph_twin)
                     && bld.brep().half_edges[alt].loop_ == default_loop
                 {
+                    if popkern_core::trace::trace_enabled("uv-scramble") {
+                        eprintln!(
+                            "  [uv-scramble] alt-install ghe {ghe} (twin {graph_twin}) for {:?}",
+                            fragment.face
+                        );
+                    }
                     // Fix pcurve: the alt half-edge may have the twin's
                     // pcurve which belongs to a different face's UV space.
                     if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
-                        bld.set_half_edge_pcurve(alt, pc);
+                        install_oriented(bld, alt, pc, &fragment.face);
                     }
                     handles.push(alt);
                     continue;
@@ -354,10 +358,14 @@ pub(crate) fn assemble_result(
                 // Wire correct pcurves: forward gets this fragment's face
                 // pcurve, twin gets the other face's pcurve.
                 if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
-                    bld.set_half_edge_pcurve(he_fwd, pc);
+                    install_oriented(bld, he_fwd, pc, &fragment.face);
                 }
                 if let Some(ref pcurve) = graph.half_edges[graph_twin].pcurve {
-                    bld.set_half_edge_pcurve(he_twin, pcurve.clone());
+                    if let Some(fr) = graph.half_edges[graph_twin].face {
+                        install_oriented(bld, he_twin, pcurve.clone(), &fr);
+                    } else {
+                        bld.set_half_edge_pcurve(he_twin, pcurve.clone());
+                    }
                 }
                 // Overwrite mappings so later fragments pick up the new
                 // twin instead of the already-wired originals.

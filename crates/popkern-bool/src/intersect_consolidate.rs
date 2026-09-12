@@ -397,6 +397,19 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
                         // same-class pairs keep the midpoint.
                         let a_res = records[ia].residue_owner_a.is_some();
                         let b_res = records[ib].residue_owner_a.is_some();
+                        if a_res != b_res && popkern_core::trace::trace_enabled("boolean") {
+                            eprintln!(
+                                "  [weld-kept] pair ({:?},{:?}) kept ({:.6},{:.6},{:.6}) residue ({:.6},{:.6},{:.6}) d {d:.3e}",
+                                (records[ia].face_a, records[ia].face_b),
+                                (records[ib].face_a, records[ib].face_b),
+                                if a_res { pb.x } else { pa.x },
+                                if a_res { pb.y } else { pa.y },
+                                if a_res { pb.z } else { pa.z },
+                                if a_res { pa.x } else { pb.x },
+                                if a_res { pa.y } else { pb.y },
+                                if a_res { pa.z } else { pb.z },
+                            );
+                        }
                         let weld = if a_res == b_res {
                             popkern_core::geometry::Point3::new(
                                 0.5 * (pa.x + pb.x),

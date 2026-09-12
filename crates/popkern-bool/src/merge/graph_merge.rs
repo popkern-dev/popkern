@@ -78,6 +78,7 @@ pub(crate) fn graph_merge(
         tolerance,
     );
     insert_intersection_curves(&mut graph, &filtered_records, snap_tol);
+    super::graph::trace_uv_scramble("insert", &graph, original_a, original_b, tolerance);
 
     // Split record edges at pre-existing pierce nodes on
     // their interior (a record crossing a periodic face's seam passes
@@ -89,6 +90,7 @@ pub(crate) fn graph_merge(
         snap_tol,
         Some((original_a, original_b, tolerance.linear())),
     );
+    super::graph::trace_uv_scramble("split-interior", &graph, original_a, original_b, tolerance);
 
     // Split ORIGINAL edges at shared-record endpoint
     // nodes. Phase 2 pierces edges named by edge-face hits, but its
@@ -106,6 +108,7 @@ pub(crate) fn graph_merge(
         snap_tol,
         Some((original_a, original_b, tolerance.linear())),
     );
+    super::graph::trace_uv_scramble("split-shared-1", &graph, original_a, original_b, tolerance);
     // Rescue record endpoints that missed their boundary junction by
     // the record-fit slop (see `weld_dead_end_shared_endpoints`).
     super::graph_weld::weld_dead_end_shared_endpoints(
@@ -113,6 +116,7 @@ pub(crate) fn graph_merge(
         tolerance.linear() * 500.0,
         Some((original_a, original_b, tolerance.linear())),
     );
+    super::graph::trace_uv_scramble("weld-dead-end", &graph, original_a, original_b, tolerance);
     // Bridge the short junction-to-junction gaps the SSI march cannot
     // trace (grazing tangency exhausts the constrained Newton) — see
     // `graph_gap_closure` (PK-465).
@@ -122,6 +126,7 @@ pub(crate) fn graph_merge(
         original_b,
         tolerance.linear(),
     );
+    super::graph::trace_uv_scramble("gap-closure", &graph, original_a, original_b, tolerance);
     // A bridge can terminate at a MINTED junction sitting mid-span on
     // a boundary edge — the node-driven split pass runs again so the
     // boundary gains its junction there.
@@ -130,6 +135,7 @@ pub(crate) fn graph_merge(
         snap_tol,
         Some((original_a, original_b, tolerance.linear())),
     );
+    super::graph::trace_uv_scramble("split-shared-2", &graph, original_a, original_b, tolerance);
     // Collinear-duplicate removal stays scoped to partial
     // coincident overlaps (its reason to exist).
     if intersection_result

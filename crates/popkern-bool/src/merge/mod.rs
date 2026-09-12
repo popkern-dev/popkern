@@ -5,6 +5,7 @@
 //! two split operands.
 
 pub(crate) mod assemble;
+mod assemble_pcurve;
 pub(crate) mod curve_split;
 pub(crate) mod fragment_classify;
 mod fragment_classify_overlap;

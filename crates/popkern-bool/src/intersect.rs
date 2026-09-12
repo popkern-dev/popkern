@@ -510,6 +510,37 @@ pub(crate) fn find_intersections_with_aabbs(
     // deduplicated fragments with welded junctions.
     consolidate_records(&mut records, tolerance);
 
+    if popkern_core::trace::trace_enabled("uv-scramble") {
+        use popkern_core::geometry::curve::CurveEval as _;
+        use popkern_core::geometry::surface::SurfaceEval as _;
+        for (i, r) in records.iter().enumerate() {
+            for (label, brep, fh, uv) in [
+                ("uv1", a, r.face_a, &r.curve.curve_uv1),
+                ("uv2", b, r.face_b, &r.curve.curve_uv2),
+            ] {
+                let Some(surf) = brep.faces.get(fh).and_then(|f| f.surface.as_ref()) else {
+                    continue;
+                };
+                let (c0, c1) = r.curve.curve_3d.parameter_range();
+                let (u0, u1) = uv.parameter_range();
+                let mut worst = 0.0_f64;
+                for k in 0..=8 {
+                    let f = k as f64 / 8.0;
+                    let p3 = r.curve.curve_3d.point_at(c0 + (c1 - c0) * f);
+                    let q = uv.point_at(u0 + (u1 - u0) * f);
+                    let ps = surf.geometry.point_at(q.x, q.y);
+                    worst = worst.max(ps.distance_to(&p3));
+                }
+                if worst > tolerance.linear() * 100.0 {
+                    eprintln!(
+                        "  [uv-scramble] rec {i} ({:?},{:?}) {label} images {worst:.3e} off its 3D curve",
+                        r.face_a, r.face_b
+                    );
+                }
+            }
+        }
+    }
+
     // Build the coincidence map from dedicated coincidence detection.
     let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);
     let coincidence =

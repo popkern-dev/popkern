@@ -181,24 +181,43 @@ pub(super) fn try_uv_split(
                 // path below instead: the rim becomes a hole ring
                 // whose tangency to the outer boundary stays
                 // geometric, not topological.
-                if !tolerance.points_coincident(&snapped_start, &snapped_end) {
-                    let snapped_3d = NurbsCurve {
-                        degree: 1,
-                        knots: vec![0.0, 0.0, 1.0, 1.0],
-                        control_points: vec![snapped_start, snapped_end],
-                        weights: vec![1.0, 1.0],
-                    };
-                    match brep.split_face(face_handle, &clipped_uv, &snapped_3d, tolerance) {
-                        Ok(result) => {
-                            fragments.origin.insert(result.face_a, face_handle);
-                            fragments.origin.insert(result.face_b, face_handle);
-                            for &edge in &result.new_edges {
-                                fragments.intersection_edges.insert(edge);
-                            }
-                            return Ok(true);
+                //
+                // The pinch is decided by ATTEMPTING the split, not by
+                // predicting it from endpoint positions: a loop can
+                // legitimately carry two DISTINCT vertices within
+                // tolerance of one position (the mixed-radius corner
+                // blend's sliver corners), and split_face's matcher
+                // assigns entry and exit to the two distinct handles —
+                // a position-coincidence pre-gate routed that REAL
+                // two-vertex split to the hole path and the Gregory
+                // corner boolean lost faces (PK-486). split_face's
+                // vertex-match declines are preconditions checked
+                // before any topology edit, so the attempt is
+                // transactional.
+                let snapped_3d = NurbsCurve {
+                    degree: 1,
+                    knots: vec![0.0, 0.0, 1.0, 1.0],
+                    control_points: vec![snapped_start, snapped_end],
+                    weights: vec![1.0, 1.0],
+                };
+                match brep.split_face(face_handle, &clipped_uv, &snapped_3d, tolerance) {
+                    Ok(result) => {
+                        fragments.origin.insert(result.face_a, face_handle);
+                        fragments.origin.insert(result.face_b, face_handle);
+                        for &edge in &result.new_edges {
+                            fragments.intersection_edges.insert(edge);
                         }
-                        Err(e) => return Err(split_err(face_handle, e.to_string(), records)),
+                        return Ok(true);
                     }
+                    Err(e)
+                        if tolerance.points_coincident(&snapped_start, &snapped_end)
+                            && e.to_string().contains("does not match any vertex") =>
+                    {
+                        // Genuine pinch: the matcher could not seat
+                        // both ends. Fall through to the inner-loop
+                        // path below.
+                    }
+                    Err(e) => return Err(split_err(face_handle, e.to_string(), records)),
                 }
                 if popkern_core::trace::trace_enabled("clip") {
                     let xs: Vec<String> = crossings

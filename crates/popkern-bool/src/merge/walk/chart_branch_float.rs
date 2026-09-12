@@ -119,11 +119,32 @@ pub(super) fn resolve_floating_and_cluster(
             .all(|(_, &(a, d))| a == d)
     };
 
+    let float_trace = popkern_core::trace::trace_enabled("branch-pairing");
+    let imbalance_of = |clustered: &(
+        BTreeMap<usize, BranchPoint>,
+        BTreeMap<usize, BranchPoint>,
+    )|
+     -> Vec<(BranchPoint, i64, i64)> {
+        let mut deg: BTreeMap<BranchPoint, (i64, i64)> = BTreeMap::new();
+        for bp in clustered.0.values() {
+            deg.entry(*bp).or_default().1 += 1;
+        }
+        for bp in clustered.1.values() {
+            deg.entry(*bp).or_default().0 += 1;
+        }
+        deg.into_iter()
+            .filter(|(_, (a, d))| a != d)
+            .map(|(bp, (a, d))| (bp, a, d))
+            .collect()
+    };
     let mut exhausted = false;
     let bumped: BTreeSet<usize> = {
         let mut bumped: BTreeSet<usize> = BTreeSet::new();
         for members in groups.values() {
             if members.len() > 12 {
+                if float_trace {
+                    eprintln!("  [float] exhausted: group of {} > 12", members.len());
+                }
                 exhausted = true;
                 break;
             }
@@ -155,25 +176,32 @@ pub(super) fn resolve_floating_and_cluster(
             // clustering on the coarse sphere−cube envelope pin and
             // SERVED an empty body (volume 0.0 vs 0.202).
             if !group_ok {
+                if float_trace {
+                    let imb = imbalance_of(&cluster_with(&bumped));
+                    eprintln!(
+                        "  [float] exhausted: no balanced config for group {members:?}; unbumped imbalance {imb:?}"
+                    );
+                }
                 exhausted = true;
                 break;
             }
         }
         bumped
     };
-    // The historical JOINT search accepted a config only when the
-    // SEARCH-TIME clustering balanced at EVERY node — group-local
-    // acceptance composed can differ (a baseline imbalance at a
-    // non-float node fails every joint config, and the joint search
-    // declined; the grouped composition sailed past it and the
-    // coarse sphere−cube envelope pin SERVED an empty body). Verify
-    // the composed config under the same bar.
-    if !exhausted {
-        let composed = cluster_with(&bumped);
-        if !is_balanced(&composed.0, &composed.1) {
-            exhausted = true;
-        }
-    }
+    // The composed config is NOT re-verified here: a residual
+    // imbalance after per-group success (or with no floating
+    // components at all) is the seam-border ENTRY class — border
+    // endpoints at true seam nodes carry two-copy freedom no
+    // component bump can express — and the node-local rebalance
+    // below owns it, with the same balance bar declining whatever it
+    // cannot close (measured, PK-485: a σ = −1 chamfered-puck wall
+    // carried zero floating components and every seam-node entry on
+    // one border — a pre-rebalance composed check declined the chart
+    // to the 3D-Newell walker, whose mega-loop double-claimed the
+    // slot chain's twin sides). The group-search failure above keeps
+    // its early decline: silently keeping an unbumped choice walked
+    // a balanced-looking garbage clustering on the coarse
+    // sphere−cube envelope pin and SERVED an empty body.
     if exhausted {
         sub.report
             .issues
@@ -243,6 +271,12 @@ pub(super) fn resolve_floating_and_cluster(
     // lie). When even the node-local rebalance cannot close it,
     // decline the chart honestly.
     if !pre_balanced && !is_balanced(&start_bp, &end_bp) {
+        if float_trace {
+            eprintln!(
+                "  [float] exhausted: imbalance survives the seam-border rebalance {:?}",
+                imbalance_of(&(start_bp.clone(), end_bp.clone()))
+            );
+        }
         sub.report
             .issues
             .push(SubdivisionIssue::SeamSearchExhausted);

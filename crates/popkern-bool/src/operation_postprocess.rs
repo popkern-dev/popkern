@@ -276,38 +276,7 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
     }
 }
 
-/// the boolean trace topic-gated face/edge census line for the post-processing
-/// stages — sliver removal silently deleted a cylinder wall once
-/// (PK-150); the per-stage census makes any face-count change in the
-/// post pipeline visible.
-pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
-    if popkern_core::trace::trace_enabled("boolean") {
-        let self_twins = brep
-            .half_edges
-            .iter()
-            .filter(|(heh, he)| he.twin == *heh)
-            .count();
-        eprintln!(
-            "  [post] {label}: {} faces {} edges {} self-twinned",
-            brep.faces.len(),
-            brep.edges.len(),
-            self_twins
-        );
-        if self_twins > 0 && popkern_core::trace::trace_enabled("spur") {
-            for (heh, he) in &brep.half_edges {
-                if he.twin != heh {
-                    continue;
-                }
-                let face = brep.loops.get(he.loop_).map(|l| l.face);
-                let pos = brep.vertices.get(he.origin).map(|v| v.position);
-                eprintln!(
-                    "    [post] self-twin {heh:?} face {face:?} loop {:?} at {pos:?}",
-                    he.loop_
-                );
-            }
-        }
-    }
-}
+pub(crate) use crate::operation_postprocess_trace::trace_face_census;
 
 /// Output post-processing pipeline shared by every boolean opcode:
 /// stranded-loop pruning, redundant-edge removal, sliver removal,

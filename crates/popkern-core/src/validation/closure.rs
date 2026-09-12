@@ -324,6 +324,53 @@ impl BRep {
                 }
             }
             if max_div > threshold {
+                if crate::trace::trace_enabled("tear") {
+                    eprintln!(
+                        "    [tear-detail] edge {edge_handle:?} curve ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                        curve_p_min.x,
+                        curve_p_min.y,
+                        curve_p_min.z,
+                        curve_p_max.x,
+                        curve_p_max.y,
+                        curve_p_max.z
+                    );
+                    for (label, fh, sf, pc, s0, s1, fwd) in [
+                        (
+                            "a",
+                            face_a,
+                            surf_a,
+                            pcurve_a,
+                            pa_min,
+                            pa_max,
+                            pcurve_a_forward,
+                        ),
+                        (
+                            "b",
+                            face_b,
+                            surf_b,
+                            pcurve_b,
+                            pb_min,
+                            pb_max,
+                            pcurve_b_forward,
+                        ),
+                    ] {
+                        let samples: Vec<String> = (0..5)
+                            .map(|k| {
+                                let t = s0 + (s1 - s0) * k as f64 / 4.0;
+                                let uv = pc.point_at(t);
+                                let p = sf.geometry.point_at(uv.x, uv.y);
+                                format!(
+                                    "({:.3},{:.3})->({:.2},{:.2},{:.2})",
+                                    uv.x, uv.y, p.x, p.y, p.z
+                                )
+                            })
+                            .collect();
+                        eprintln!(
+                            "      side {label} {fh:?} fwd={fwd} pcurve {}",
+                            samples.join(" ")
+                        );
+                    }
+                }
                 reports.push(NonManifoldEdgeReport {
                     edge: edge_handle,
                     face_a,

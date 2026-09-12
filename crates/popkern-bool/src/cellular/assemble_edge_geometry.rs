@@ -147,7 +147,7 @@ pub(super) fn pcurve_for_face(
 /// cube−cylinder direction-reversed, 0.6 stale on the PK-287 gate).
 /// A half-edge whose edge has no curve, or whose face surface is
 /// unavailable, keeps the pcurve as handed.
-pub(super) fn orient_pcurve_to_half_edge(
+pub(crate) fn orient_pcurve_to_half_edge(
     brep: &popkern_core::topology::BRep,
     he: popkern_core::topology::HalfEdgeHandle,
     pc: popkern_core::geometry::pcurve::Pcurve,
