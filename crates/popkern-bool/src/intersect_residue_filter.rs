@@ -254,6 +254,8 @@ pub(crate) fn drop_kept_flank_residues(
         !keeps
     });
 
+    dedupe_same_face_residues(records, tolerance);
+
     // RESIDUE-SWARM CAP — temporary containment (PK-472, follow-up
     // filed): a single owner face accumulating a SWARM of surviving
     // residues is the many-face-imprint shape (measured: the
@@ -302,3 +304,99 @@ pub(crate) fn drop_kept_flank_residues(
         }
     }
 }
+
+/// CROSS-PAIR residue dedupe (PK-487): different face pairs can each
+/// emit a residue of the SAME span onto the SAME owner face — every
+/// pair whose windows overlap the stretch subtracts the shared claim
+/// independently (measured on the rotated torus × torus union while
+/// its containment vote was inverted: one lens span survived as SIX
+/// residues across five pairs, four of them partitioning one A-flank;
+/// the duplicate single-face edges collided in the graph and the
+/// assembly stranded half-claimed sides). A residue partitions only
+/// its owner face, so one copy per owner face per span carries the
+/// whole partition; a duplicate whose start, mid and end all lie on a
+/// surviving same-owner-face residue's polyline (within the marching
+/// slop gate) and whose extent is not larger drops. Ties keep the
+/// earlier record — deterministic under the intersect stage's stable
+/// record order.
+fn dedupe_same_face_residues(
+    records: &mut Vec<IntersectionRecord>,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let trace = popkern_core::trace::trace_enabled("boolean");
+    let residue_idx: Vec<usize> = (0..records.len())
+        .filter(|&i| records[i].residue_owner_a.is_some())
+        .collect();
+    if residue_idx.len() < 2 {
+        return;
+    }
+    let owner_face = |r: &IntersectionRecord| -> (bool, FaceHandle) {
+        let a = r.residue_owner_a == Some(true);
+        (a, if a { r.face_a } else { r.face_b })
+    };
+    let sample = |r: &IntersectionRecord, f: f64| -> popkern_core::geometry::Point3 {
+        let c = &r.curve.curve_3d;
+        let (t0, t1) = c.parameter_range();
+        c.point_at(t0 + (t1 - t0) * f)
+    };
+    let extent = |r: &IntersectionRecord| -> f64 {
+        sample(r, 0.0)
+            .distance_to(&sample(r, 1.0))
+            .max(sample(r, 0.0).distance_to(&sample(r, 0.5)))
+    };
+    // The same endpoint-slop class the consolidation gates use:
+    // independent traces of one stretch land within the marching
+    // slop, far above linear tolerance and far below any span's
+    // extent.
+    let mut drop = vec![false; records.len()];
+    for (ai, &ia) in residue_idx.iter().enumerate() {
+        if drop[ia] {
+            continue;
+        }
+        let gate = (0.05 * extent(&records[ia])).max(tolerance.linear() * 10.0);
+        let poly: Vec<popkern_core::geometry::Point3> = (0..=16)
+            .map(|k| sample(&records[ia], k as f64 / 16.0))
+            .collect();
+        let on_poly = |p: &popkern_core::geometry::Point3| -> bool {
+            poly.windows(2).any(|w| {
+                let ab = w[1] - w[0];
+                let len2 = ab.dot(&ab);
+                let t = if len2 > 1e-300 {
+                    ((*p - w[0]).dot(&ab) / len2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (w[0] + ab * t).distance_to(p) < gate
+            })
+        };
+        for &ib in residue_idx.iter().skip(ai + 1) {
+            if drop[ib]
+                || owner_face(&records[ia]) != owner_face(&records[ib])
+                || extent(&records[ib]) > extent(&records[ia]) + gate
+            {
+                continue;
+            }
+            if on_poly(&sample(&records[ib], 0.0))
+                && on_poly(&sample(&records[ib], 0.5))
+                && on_poly(&sample(&records[ib], 1.0))
+            {
+                drop[ib] = true;
+                if trace {
+                    let m = sample(&records[ib], 0.5);
+                    eprintln!(
+                        "  [residue-drop] cross-pair duplicate at ({:.3},{:.3},{:.3}) removed \
+                         (same owner face, covered by pair ({:?},{:?}))",
+                        m.x, m.y, m.z, records[ia].face_a, records[ia].face_b
+                    );
+                }
+            }
+        }
+    }
+    let mut it = drop.into_iter();
+    records.retain(|_| !it.next().unwrap_or(false));
+}
+
+#[cfg(test)]
+#[path = "intersect_residue_filter_tests.rs"]
+mod tests;
