@@ -576,22 +576,34 @@ fn build_face_subdivision_inner(
         }
     }
 
+    // σ self-calibration source of truth (PK-480): the face's OWN
+    // stored trim ring's winding about its interior — the ring the
+    // containment parity tests read. The registered-run shoelace is
+    // the fallback proxy and the orientation flag the last resort
+    // (measured dishonest on extrude bottom caps — flag true, chart
+    // left-handed vs outward — which mirror-flipped every junction
+    // pick on the breached-bore cap face).
+    let ring_sigma = super::chart_branches::clustering::stored_ring_sigma(original_brep, face.face);
+    if popkern_core::trace::trace_enabled("boolean")
+        && let Some(rs) = ring_sigma
+    {
+        let proxy = boundary_shoelace_sigma(graph, &sub);
+        if proxy.is_some_and(|p| p != rs) {
+            eprintln!(
+                "  [sigma] {face:?}: stored-ring {rs:+.0} vs registered-run {:+.0}",
+                proxy.unwrap_or(0.0)
+            );
+        }
+    }
     match u_period {
         Some(period) => {
             if popkern_core::trace::trace_enabled("branch-pairing") {
                 eprintln!("  [bp-face] {face:?}");
             }
-            anchor_periodic(graph, &mut sub, period, &ends)
+            anchor_periodic(graph, &mut sub, period, &ends, ring_sigma)
         }
         None => {
-            // σ self-calibration: the operand face's stored boundary
-            // loops wind CCW about outward (winding census E1), so
-            // their chart shoelace sign IS the chart handedness. The
-            // stored orientation flag is only the fallback — measured
-            // dishonest on extrude bottom caps (flag true, chart
-            // left-handed vs outward), which mirror-flipped every
-            // junction pick on the breached-bore cap face.
-            if let Some(s) = boundary_shoelace_sigma(graph, &sub) {
+            if let Some(s) = ring_sigma.or_else(|| boundary_shoelace_sigma(graph, &sub)) {
                 sub.sigma = s;
             }
             super::chart_branches::clustering::cluster_single_branch(&mut sub, &ends);

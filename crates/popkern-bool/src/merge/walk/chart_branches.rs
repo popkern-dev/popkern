@@ -26,6 +26,7 @@ pub(super) fn anchor_periodic(
     sub: &mut FaceChartSubdivision,
     period: f64,
     ends: &dyn Fn(usize) -> (usize, usize),
+    ring_sigma: Option<f64>,
 ) {
     let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
     // Seam candidates are OPERAND edges whose two sides both live on
@@ -173,7 +174,9 @@ pub(super) fn anchor_periodic(
     // the chart and its shoelace sign is the true handedness. A
     // contradiction flips σ AND the seam borders (the dv-rule
     // mirrors with σ).
-    let shoelace = boundary_shoelace_sigma(graph, sub);
+    // The stored trim ring's winding outranks the registered-run sum
+    // (see `stored_ring_sigma`).
+    let shoelace = ring_sigma.or_else(|| boundary_shoelace_sigma(graph, sub));
     if seam_trace {
         eprintln!("  [seam] shoelace {shoelace:?} vs provisional sigma {sigma:+.0}");
     }

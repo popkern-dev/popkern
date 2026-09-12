@@ -477,6 +477,7 @@ pub(crate) fn walk_all_fragments_ext(
                 sigma,
                 u_period,
                 &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
+                &chart_walk::source_outer_edge_set(face_ref, brep_a, brep_b),
             )
         {
             let dump = popkern_core::trace::trace_enabled("loop-dump-all");

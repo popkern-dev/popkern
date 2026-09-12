@@ -168,13 +168,37 @@ pub(crate) fn source_inner_edge_set(
     brep_a: &popkern_core::topology::BRep,
     brep_b: &popkern_core::topology::BRep,
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
+    source_loop_edge_set(face_ref, brep_a, brep_b, false)
+}
+
+/// The edge set of the source face's OUTER loop (see
+/// [`source_inner_edge_set`] for the inner-loop dual).
+pub(crate) fn source_outer_edge_set(
+    face_ref: &super::super::graph::FaceRef,
+    brep_a: &popkern_core::topology::BRep,
+    brep_b: &popkern_core::topology::BRep,
+) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
+    source_loop_edge_set(face_ref, brep_a, brep_b, true)
+}
+
+fn source_loop_edge_set(
+    face_ref: &super::super::graph::FaceRef,
+    brep_a: &popkern_core::topology::BRep,
+    brep_b: &popkern_core::topology::BRep,
+    outer: bool,
+) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
     let source_brep = match face_ref.operand {
         super::super::graph::Operand::A => brep_a,
         super::super::graph::Operand::B => brep_b,
     };
     let mut edges = std::collections::BTreeSet::new();
     if let Some(face) = source_brep.faces.get(face_ref.face) {
-        for lh in face.inner_loops.iter().copied() {
+        let loops: Vec<_> = if outer {
+            vec![face.outer_loop]
+        } else {
+            face.inner_loops.clone()
+        };
+        for lh in loops {
             let Some(loop_data) = source_brep.loops.get(lh) else {
                 continue;
             };
@@ -202,6 +226,7 @@ pub(crate) fn assemble_chart_roles(
     sigma: f64,
     u_period: Option<f64>,
     source_inner_edges: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    source_outer_edges: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> Option<ChartRoleAssembly> {
     let mut areas: Vec<f64> = polys.iter().map(|p| sigma * polyline_shoelace(p)).collect();
     // A chart-WRAPPING orbit — net u displacement of one closure
@@ -285,6 +310,38 @@ pub(crate) fn assemble_chart_roles(
             }
         });
         if all_inner {
+            areas[i] = -areas[i];
+        }
+    }
+    // Dual provenance override (PK-480): an orbit carrying ANY of the
+    // source face's stored OUTER-loop pieces bounds material at the
+    // face's outermost trim — it is a region OUTER by construction
+    // and can never take the hole role, whatever its σ-folded sign
+    // reads (a hole ring is interior to its region; the outer trim
+    // cannot be). Measured on the angled tap's crest strip: the
+    // stored boundary winds heterogeneously (outer pieces plus a
+    // mouth window's pieces, rewired across the entry-cone circle
+    // cut), the kept band's ring read −0.647 against its discard-side
+    // sibling's +0.189, the band filed as the sliver's hole, both
+    // discarded together, and the circle record's strip side
+    // stranded (honest decline, one half-claimed side).
+    for (i, orbit) in loops.iter().enumerate() {
+        if areas[i] > 0.0 || orbit.is_empty() {
+            continue;
+        }
+        let any_outer = orbit.iter().any(|&h| {
+            use super::super::graph::EdgeSource;
+            match &graph.half_edges[h].source {
+                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                    source_outer_edges.contains(e)
+                }
+                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
+                    source_outer_edges.contains(original)
+                }
+                _ => false,
+            }
+        });
+        if any_outer {
             areas[i] = -areas[i];
         }
     }
