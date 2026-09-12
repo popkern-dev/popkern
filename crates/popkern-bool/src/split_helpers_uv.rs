@@ -169,23 +169,52 @@ pub(super) fn try_uv_split(
                 };
                 let snapped_start = snap_to_vertex(start_pt);
                 let snapped_end = snap_to_vertex(end_pt);
-                let snapped_3d = NurbsCurve {
-                    degree: 1,
-                    knots: vec![0.0, 0.0, 1.0, 1.0],
-                    control_points: vec![snapped_start, snapped_end],
-                    weights: vec![1.0, 1.0],
-                };
-                match brep.split_face(face_handle, &clipped_uv, &snapped_3d, tolerance) {
-                    Ok(result) => {
-                        fragments.origin.insert(result.face_a, face_handle);
-                        fragments.origin.insert(result.face_b, face_handle);
-                        for &edge in &result.new_edges {
-                            fragments.intersection_edges.insert(edge);
+                // PINCHED CUT (PK-482): both trim endpoints snap to
+                // ONE boundary vertex — a closed cut ring TANGENT to
+                // the face boundary (the grazing torus micro-lens at
+                // depth 5e-4: the lens rim touches the equator seam
+                // vertex). split_face's two-vertex mef cannot express
+                // it — the second endpoint's only match is the vertex
+                // the first already claimed, previously a guaranteed
+                // "does not match any vertex" precondition abort of
+                // the whole boolean. Route the ring to the inner-loop
+                // path below instead: the rim becomes a hole ring
+                // whose tangency to the outer boundary stays
+                // geometric, not topological.
+                if !tolerance.points_coincident(&snapped_start, &snapped_end) {
+                    let snapped_3d = NurbsCurve {
+                        degree: 1,
+                        knots: vec![0.0, 0.0, 1.0, 1.0],
+                        control_points: vec![snapped_start, snapped_end],
+                        weights: vec![1.0, 1.0],
+                    };
+                    match brep.split_face(face_handle, &clipped_uv, &snapped_3d, tolerance) {
+                        Ok(result) => {
+                            fragments.origin.insert(result.face_a, face_handle);
+                            fragments.origin.insert(result.face_b, face_handle);
+                            for &edge in &result.new_edges {
+                                fragments.intersection_edges.insert(edge);
+                            }
+                            return Ok(true);
                         }
-                        return Ok(true);
+                        Err(e) => return Err(split_err(face_handle, e.to_string(), records)),
                     }
-                    Err(e) => return Err(split_err(face_handle, e.to_string(), records)),
                 }
+                if popkern_core::trace::trace_enabled("clip") {
+                    let xs: Vec<String> = crossings
+                        .iter()
+                        .map(|c| {
+                            let p = curve_3d.point_at(c.t_curve);
+                            format!("t={:.4}@({:.4},{:.4},{:.4})", c.t_curve, p.x, p.y, p.z)
+                        })
+                        .collect();
+                    eprintln!(
+                        "  [split1] {face_handle:?} pinched cut (both ends on one vertex) — \
+                         routed to the inner-loop path; crossings: {}",
+                        xs.join(" ")
+                    );
+                }
+                // Fall through to the closed-curve handling below.
             }
             Ok(false) if is_closed => {
                 // Endpoints not on boundary but curve is closed — the UV
@@ -204,8 +233,15 @@ pub(super) fn try_uv_split(
     }
 
     // Sub-problem B: closed curve entirely inside face (0 real crossings).
-    // Also reached when crossings were spurious (closed curve that fell through above).
-    if is_closed {
+    // Also reached when crossings were spurious (closed curve that fell
+    // through above) and for PINCHED cuts (both ends on one boundary
+    // vertex — the 3D curve closes even when its record was authored
+    // open, so the geometric closure is the gate here).
+    let geometrically_closed = {
+        let (t0, t1) = curve_3d.parameter_range();
+        tolerance.points_coincident(&curve_3d.point_at(t0), &curve_3d.point_at(t1))
+    };
+    if is_closed || geometrically_closed {
         // Use the 3D midpoint projected to the face's UV space, rather than
         // evaluating the UV curve directly. For non-orthogonal UV axes, the
         // UV curve's midpoint may fall outside the face's UV polygon even when

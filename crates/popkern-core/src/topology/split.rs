@@ -411,15 +411,46 @@ impl BRep {
             he_exit = Some(exit);
         }
 
+        // Structured decline evidence: how far the endpoint actually
+        // sits from the loop (a reader can classify the miss — fit
+        // slop, amplified graze slide, or a genuinely absent vertex —
+        // without re-running under a debugger).
+        let nearest_miss = |target: &crate::geometry::Point3| -> f64 {
+            let mut best = f64::INFINITY;
+            let mut cursor = loop_start_he;
+            for _ in 0..self.half_edges.len() + 1 {
+                let Some(he_data) = self.half_edges.get(cursor) else {
+                    break;
+                };
+                if let Some(v) = self.vertices.get(he_data.origin) {
+                    best = best.min(v.position.distance_to(target));
+                }
+                cursor = he_data.next;
+                if cursor == loop_start_he {
+                    break;
+                }
+            }
+            best
+        };
         let he_entry = he_entry.ok_or_else(|| {
-            CoreError::PreconditionFailed(
-                "trim curve start point does not match any vertex on the face boundary".into(),
-            )
+            CoreError::PreconditionFailed(format!(
+                "trim curve start point ({:.6},{:.6},{:.6}) does not match any vertex on the \
+                 face boundary (nearest loop vertex {:.3e} away)",
+                curve_start.x,
+                curve_start.y,
+                curve_start.z,
+                nearest_miss(&curve_start)
+            ))
         })?;
         let he_exit = he_exit.ok_or_else(|| {
-            CoreError::PreconditionFailed(
-                "trim curve end point does not match any vertex on the face boundary".into(),
-            )
+            CoreError::PreconditionFailed(format!(
+                "trim curve end point ({:.6},{:.6},{:.6}) does not match any vertex on the \
+                 face boundary (nearest loop vertex {:.3e} away)",
+                curve_end.x,
+                curve_end.y,
+                curve_end.z,
+                nearest_miss(&curve_end)
+            ))
         })?;
 
         // Capture the original surface before mef (which doesn't copy it).
