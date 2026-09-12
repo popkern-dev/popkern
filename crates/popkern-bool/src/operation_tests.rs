@@ -72,7 +72,7 @@ fn disjoint_cubes_subtraction_returns_a() {
 #[test]
 fn contained_cube_union_returns_outer() {
     let a = BRep::unit_cube(tol()).expect("unit cube a");
-    let mut b = BRep::unit_cube(tol()).expect("unit cube b");
+    let b = BRep::unit_cube(tol()).expect("unit cube b");
     // Geometry-honest enlargement: vertex translation alone leaves the
     // stored surfaces stale (the classify hit-box gate rightly
     // rejects hits on a surface that no longer matches its face).
@@ -91,7 +91,7 @@ fn contained_cube_union_returns_outer() {
 #[test]
 fn contained_cube_intersection_returns_inner() {
     let a = BRep::unit_cube(tol()).expect("unit cube a");
-    let mut b = BRep::unit_cube(tol()).expect("unit cube b");
+    let b = BRep::unit_cube(tol()).expect("unit cube b");
     // Geometry-honest enlargement: vertex translation alone leaves the
     // stored surfaces stale (the classify hit-box gate rightly
     // rejects hits on a surface that no longer matches its face).
@@ -140,7 +140,7 @@ fn into_error_fallback_when_no_error_set() {
 fn contained_cube_subtraction_a_inside_b_is_empty() {
     // A is inside B → A − B = empty (A is entirely consumed).
     let a = BRep::unit_cube(tol()).expect("unit cube a");
-    let mut b = BRep::unit_cube(tol()).expect("unit cube b");
+    let b = BRep::unit_cube(tol()).expect("unit cube b");
     // Geometry-honest enlargement: vertex translation alone leaves the
     // stored surfaces stale (the classify hit-box gate rightly
     // rejects hits on a surface that no longer matches its face).
@@ -177,7 +177,7 @@ fn containment_subtraction_creates_hollow() {
 #[test]
 fn reverse_containment_union_returns_outer() {
     // B is inside A → union is just A.
-    let mut a = BRep::unit_cube(tol()).expect("unit cube a");
+    let a = BRep::unit_cube(tol()).expect("unit cube a");
     // Geometry-honest enlargement: vertex translation alone leaves the
     // stored surfaces stale (the classify hit-box gate rightly
     // rejects hits on a surface that no longer matches its face).
@@ -197,7 +197,7 @@ fn reverse_containment_union_returns_outer() {
 #[test]
 fn reverse_containment_intersection_returns_inner() {
     // B is inside A → intersection is B.
-    let mut a = BRep::unit_cube(tol()).expect("unit cube a");
+    let a = BRep::unit_cube(tol()).expect("unit cube a");
     // Geometry-honest enlargement: vertex translation alone leaves the
     // stored surfaces stale (the classify hit-box gate rightly
     // rejects hits on a surface that no longer matches its face).

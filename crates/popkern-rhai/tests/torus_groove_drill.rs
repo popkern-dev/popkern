@@ -66,7 +66,8 @@ fn census(script: &str) -> (f64, usize) {
         vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
             + a.z * (b.x * c.y - b.y * c.x);
     }
-    let mut uses: std::collections::HashMap<((i64, i64, i64), (i64, i64, i64)), i64> =
+    type QuantizedPoint = (i64, i64, i64);
+    let mut uses: std::collections::HashMap<(QuantizedPoint, QuantizedPoint), i64> =
         Default::default();
     let key = |p: popkern_core::geometry::Point3| {
         (
@@ -123,10 +124,10 @@ fn expected(drill_z: Option<f64>) -> f64 {
                     }
                 }
             }
-            if let Some(dz) = drill_z {
-                if y * y + (z - dz) * (z - dz) < 0.0004 {
-                    kept = 0.0_f64.max(kept - 2.0 * half.min(half));
-                }
+            if let Some(dz) = drill_z
+                && y * y + (z - dz) * (z - dz) < 0.0004
+            {
+                kept = 0.0_f64.max(kept - 2.0 * half.min(half));
             }
             vol += kept.max(0.0) * step * step;
         }

@@ -102,7 +102,8 @@ fn mesh_volume_and_open_edges(script: &str) -> (f64, Vec<(f64, f64, f64)>) {
         vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
             + a.z * (b.x * c.y - b.y * c.x);
     }
-    let mut edge_uses: std::collections::HashMap<((i64, i64, i64), (i64, i64, i64)), i64> =
+    type QuantizedPoint = (i64, i64, i64);
+    let mut edge_uses: std::collections::HashMap<(QuantizedPoint, QuantizedPoint), i64> =
         std::collections::HashMap::new();
     let key = |p: popkern_core::geometry::Point3| -> (i64, i64, i64) {
         let q = |x: f64| (x * 1.0e7).round() as i64;

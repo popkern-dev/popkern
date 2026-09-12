@@ -74,7 +74,6 @@ fn m4_socket_cap_screw_serves_watertight() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn m5_countersunk_screw_serves_watertight() {
     let spec = ThreadSpec::parse("M5").expect("M5");
     let screw = CountersunkScrew::new(spec, 10.0)
@@ -105,7 +104,6 @@ fn m6_nut_with_chamfers_serves_watertight() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn left_hand_two_start_bolt_serves() {
     let spec = ThreadSpec::parse("M8")
         .expect("M8")

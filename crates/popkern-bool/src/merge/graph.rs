@@ -226,6 +226,59 @@ impl IntersectionGraph {
     }
 }
 
+/// The `uv-scramble` trace topic: image-honesty sweep over the
+/// graph's shared-record pcurves — every registered pcurve, evaluated
+/// on its face's surface, must trace its own 3D curve (either
+/// direction). A pcurve imaging off its curve at feature scale is the
+/// mixed-branch / wrong-end class the mesher later tears on
+/// (PK-485). Call between graph-mutation stages with a stage label.
+pub(crate) fn trace_uv_scramble(
+    stage: &str,
+    graph: &IntersectionGraph,
+    brep_a: &popkern_core::topology::BRep,
+    brep_b: &popkern_core::topology::BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) {
+    if !popkern_core::trace::trace_enabled("uv-scramble") {
+        return;
+    }
+    use popkern_core::geometry::curve::CurveEval as _;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    for (i, he) in graph.half_edges.iter().enumerate() {
+        let (Some(c), Some(pc), Some(fr)) = (he.curve.as_ref(), he.pcurve.as_ref(), &he.face)
+        else {
+            continue;
+        };
+        let brep = match fr.operand {
+            Operand::A => brep_a,
+            Operand::B => brep_b,
+        };
+        let Some(surf) = brep.faces.get(fr.face).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        let (p0, p1) = pc.parameter_range();
+        let mut worst = 0.0_f64;
+        let mut rev = 0.0_f64;
+        for k in 0..=8 {
+            let f = k as f64 / 8.0;
+            let q = pc.point_at(p0 + (p1 - p0) * f);
+            let ps = surf.geometry.point_at(q.x, q.y);
+            let fwd3 = c.geometry.point_at(c.t_start + (c.t_end - c.t_start) * f);
+            let rev3 = c.geometry.point_at(c.t_end + (c.t_start - c.t_end) * f);
+            worst = worst.max(ps.distance_to(&fwd3));
+            rev = rev.max(ps.distance_to(&rev3));
+        }
+        if worst.min(rev) > tolerance.linear() * 100.0 {
+            let a = graph.nodes[he.origin].position;
+            let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+            eprintln!(
+                "  [uv-scramble] {stage}: graph he {i} {fr:?} src {:?} images {worst:.3e} fwd / {rev:.3e} rev ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                he.source, a.x, a.y, a.z, b.x, b.y, b.z
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,58 +351,5 @@ mod tests {
 
         assert_eq!(g.half_edges[fwd].face, Some(face_ref));
         assert_eq!(g.face_edges[&face_ref], vec![fwd]);
-    }
-}
-
-/// The `uv-scramble` trace topic: image-honesty sweep over the
-/// graph's shared-record pcurves — every registered pcurve, evaluated
-/// on its face's surface, must trace its own 3D curve (either
-/// direction). A pcurve imaging off its curve at feature scale is the
-/// mixed-branch / wrong-end class the mesher later tears on
-/// (PK-485). Call between graph-mutation stages with a stage label.
-pub(crate) fn trace_uv_scramble(
-    stage: &str,
-    graph: &IntersectionGraph,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) {
-    if !popkern_core::trace::trace_enabled("uv-scramble") {
-        return;
-    }
-    use popkern_core::geometry::curve::CurveEval as _;
-    use popkern_core::geometry::surface::SurfaceEval as _;
-    for (i, he) in graph.half_edges.iter().enumerate() {
-        let (Some(c), Some(pc), Some(fr)) = (he.curve.as_ref(), he.pcurve.as_ref(), &he.face)
-        else {
-            continue;
-        };
-        let brep = match fr.operand {
-            Operand::A => brep_a,
-            Operand::B => brep_b,
-        };
-        let Some(surf) = brep.faces.get(fr.face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        let (p0, p1) = pc.parameter_range();
-        let mut worst = 0.0_f64;
-        let mut rev = 0.0_f64;
-        for k in 0..=8 {
-            let f = k as f64 / 8.0;
-            let q = pc.point_at(p0 + (p1 - p0) * f);
-            let ps = surf.geometry.point_at(q.x, q.y);
-            let fwd3 = c.geometry.point_at(c.t_start + (c.t_end - c.t_start) * f);
-            let rev3 = c.geometry.point_at(c.t_end + (c.t_start - c.t_end) * f);
-            worst = worst.max(ps.distance_to(&fwd3));
-            rev = rev.max(ps.distance_to(&rev3));
-        }
-        if worst.min(rev) > tolerance.linear() * 100.0 {
-            let a = graph.nodes[he.origin].position;
-            let b = graph.nodes[graph.half_edges[he.twin].origin].position;
-            eprintln!(
-                "  [uv-scramble] {stage}: graph he {i} {fr:?} src {:?} images {worst:.3e} fwd / {rev:.3e} rev ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
-                he.source, a.x, a.y, a.z, b.x, b.y, b.z
-            );
-        }
     }
 }

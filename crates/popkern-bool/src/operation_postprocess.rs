@@ -366,6 +366,27 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     }
     trace_face_census("post-spur", result);
 
+    // Pinched-keyhole loop normalization (PK-468): an inner loop that
+    // shares a vertex with its face's outer loop is a keyhole the walk
+    // left split (the M5 countersunk tip cone carried its seam slit +
+    // tip rim as a pinch-touching inner loop; the period-window fold
+    // in boundary-first collapsed the slit to a zero-width spur and
+    // the face meshed empty — 159 open edges on a validator-clean
+    // serve). Splice such loops into the outer cycle at the pinch
+    // vertex; transactional per merge.
+    if result.validate().is_ok() {
+        let keyhole = crate::postprocess::keyhole_loop::merge_pinched_keyhole_loops(result);
+        if keyhole.merged + keyhole.declined > 0
+            && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
+        {
+            eprintln!(
+                "[boolean] post-processing: merged {} pinched keyhole loop(s) ({} declined)",
+                keyhole.merged, keyhole.declined
+            );
+        }
+    }
+    trace_face_census("post-keyhole", result);
+
     // Slit-seam dissolution (PK-295): a fragment of a periodic face
     // that no longer wraps the period can carry the original seam as
     // a chart-co-located slit, which pinches the UV ring and forces

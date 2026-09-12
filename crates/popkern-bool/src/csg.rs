@@ -106,7 +106,7 @@ mod tests {
         // Intersection = A (6 faces).
         let tol = Tolerance::default();
         let a = BRep::unit_cube(tol).unwrap();
-        let mut b = BRep::unit_cube(tol).unwrap();
+        let b = BRep::unit_cube(tol).unwrap();
         // Geometry-honest enlargement: vertex translation alone leaves the
         // stored surfaces stale (the classify hit-box gate rightly
         // rejects hits on a surface that no longer matches its face).
