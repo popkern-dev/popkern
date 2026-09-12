@@ -96,7 +96,6 @@ fn tapped_through_hole_serves_and_rod_fits_with_clearance() {
 }
 
 #[test]
-#[ignore = "blocked on the PK-460 walk-class campaign: stranded/loop-gap/LH/two-start merge defects (fork in flight)"]
 fn angled_tapped_hole_serves_watertight() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let plate = block(20.0, 20.0, 8.0);

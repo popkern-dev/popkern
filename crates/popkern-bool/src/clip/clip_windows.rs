@@ -44,6 +44,81 @@ pub(crate) fn clip_curve_uv_space(
     curve: &CurveOnSurface,
     residues: Option<&mut Vec<crate::clip::TrimResidue>>,
 ) -> Vec<CurveOnSurface> {
+    // NEGATIVE-BRANCH RETRY (PK-480): a record pcurve can sit whole
+    // periods from a face whose chart occupies a NEGATIVE branch (the
+    // angled tap's entry-cone face at u ∈ [−2π, 0]; the cone×top-face
+    // conic was authored at u ∈ [2π, 4π]). The tuned single-period
+    // normalization inside crossing detection FOLDS into [0, period)
+    // and provably cannot reach such a chart — and it is internal, so
+    // every containment vote, window verdict, and residue judged the
+    // raw branch anyway: the closed conic dropped whole and the
+    // served body kept a phantom flap above the entry face (21 open
+    // mesh edges). The retry is scoped to NOTHING-PRODUCED: the tuned
+    // pass runs first, byte-identical, and only a record it clipped
+    // away entirely (no pieces, no residues) is re-clipped with its
+    // pcurve translated onto the negative branch — a record that
+    // produced anything keeps its tuned output (the flush-gusset
+    // union has a negative-branch face whose producing records must
+    // not move).
+    let mut first_residues: Vec<crate::clip::TrimResidue> = Vec::new();
+    let out = clip_curve_uv_space_tuned(
+        brep_a,
+        face_a,
+        brep_b,
+        face_b,
+        curve,
+        Some(&mut first_residues),
+    );
+    let adopt = |chosen: Vec<crate::clip::TrimResidue>| {
+        if let Some(res) = residues {
+            res.extend(chosen);
+        }
+    };
+    if out.is_empty() && first_residues.is_empty() {
+        let a = align_negative_branch_side(brep_a, face_a, &curve.curve_uv1);
+        let b = align_negative_branch_side(brep_b, face_b, &curve.curve_uv2);
+        if a.is_some() || b.is_some() {
+            let mut adjusted = curve.clone();
+            if let Some(c) = a {
+                adjusted.curve_uv1 = c;
+            }
+            if let Some(c) = b {
+                adjusted.curve_uv2 = c;
+            }
+            if popkern_core::trace::trace_enabled("clip") {
+                eprintln!(
+                    "  [uvclip] {face_a:?}x{face_b:?}: negative-branch retry (tuned pass empty)"
+                );
+            }
+            let mut retry_residues: Vec<crate::clip::TrimResidue> = Vec::new();
+            let retry = clip_curve_uv_space_tuned(
+                brep_a,
+                face_a,
+                brep_b,
+                face_b,
+                &adjusted,
+                Some(&mut retry_residues),
+            );
+            if !retry.is_empty() || !retry_residues.is_empty() {
+                adopt(retry_residues);
+                return retry;
+            }
+        }
+    }
+    adopt(first_residues);
+    out
+}
+
+/// The tuned clip body — see [`clip_curve_uv_space`] for the
+/// negative-branch retry wrapper.
+fn clip_curve_uv_space_tuned(
+    brep_a: &BRep,
+    face_a: FaceHandle,
+    brep_b: &BRep,
+    face_b: FaceHandle,
+    curve: &CurveOnSurface,
+    residues: Option<&mut Vec<crate::clip::TrimResidue>>,
+) -> Vec<CurveOnSurface> {
     let trace = popkern_core::trace::trace_enabled("clip");
     if trace {
         trace_record_geometry(brep_b, face_a, face_b, curve);
@@ -473,4 +548,63 @@ pub(crate) fn clip_curve_uv_space(
         out.push(piece);
     }
     out
+}
+
+/// Whole-period translation aligning a record pcurve onto a face
+/// chart that lives on a NEGATIVE u-branch — `None` when the face is
+/// non-periodic, its boundary is centred at or above `−period/4`
+/// (principal-range charts keep the tuned machinery), or no
+/// whole-period shift is called for. See the alignment comment in
+/// [`clip_curve_uv_space`] (PK-480).
+fn align_negative_branch_side(
+    brep: &BRep,
+    face: FaceHandle,
+    pcurve: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::SurfaceEval as _;
+    let period = brep
+        .faces
+        .get(face)?
+        .surface
+        .as_ref()?
+        .geometry
+        .parameter_periodicity()
+        .0?;
+    if !(period.is_finite() && period > 0.0) {
+        return None;
+    }
+    let ring = crate::clip::face_uv_boundary(brep, face)?;
+    let (mut sum, mut n) = (0.0_f64, 0usize);
+    for (_, pc) in &ring {
+        let (a, b) = pc.parameter_range();
+        if !(a.is_finite() && b.is_finite()) {
+            continue;
+        }
+        for i in 0..=4 {
+            let q = pc.point_at(a + (b - a) * i as f64 / 4.0);
+            sum += q.x;
+            n += 1;
+        }
+    }
+    if n == 0 {
+        return None;
+    }
+    let boundary_center = sum / n as f64;
+    if boundary_center >= -period * 0.25 {
+        return None;
+    }
+    if pcurve.control_points.is_empty() {
+        return None;
+    }
+    let query_mean =
+        pcurve.control_points.iter().map(|p| p.x).sum::<f64>() / pcurve.control_points.len() as f64;
+    let k = ((boundary_center - query_mean) / period).round();
+    if k == 0.0 {
+        return None;
+    }
+    let mut translated = pcurve.clone();
+    for p in &mut translated.control_points {
+        p.x += k * period;
+    }
+    Some(translated)
 }
