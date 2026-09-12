@@ -574,7 +574,10 @@ fn align_negative_branch_side(
         return None;
     }
     let ring = crate::clip::face_uv_boundary(brep, face)?;
-    let (mut sum, mut n) = (0.0_f64, 0usize);
+    if pcurve.control_points.is_empty() {
+        return None;
+    }
+    let mut samples: Vec<(f64, f64)> = Vec::new();
     for (_, pc) in &ring {
         let (a, b) = pc.parameter_range();
         if !(a.is_finite() && b.is_finite()) {
@@ -582,18 +585,48 @@ fn align_negative_branch_side(
         }
         for i in 0..=4 {
             let q = pc.point_at(a + (b - a) * i as f64 / 4.0);
-            sum += q.x;
-            n += 1;
+            samples.push((q.x, q.y));
         }
     }
-    if n == 0 {
+    if samples.is_empty() {
         return None;
     }
-    let boundary_center = sum / n as f64;
-    if boundary_center >= -period * 0.25 {
-        return None;
-    }
-    if pcurve.control_points.is_empty() {
+    let global_center = samples.iter().map(|s| s.0).sum::<f64>() / samples.len() as f64;
+    let (u_lo, u_hi) = samples.iter().fold((f64::MAX, f64::MIN), |(lo, hi), s| {
+        (lo.min(s.0), hi.max(s.0))
+    });
+    let multi_turn = u_hi - u_lo > period * (1.0 + 1e-9);
+    // MULTI-WRAP bands (PK-481): the global mean lands mid-band
+    // regardless of which wrap the record crosses (the PK-464 trap).
+    // Use the boundary samples near the QUERY's v range — the wrap
+    // the record actually addresses — mirroring the internal
+    // normalize's multi-turn provision.
+    let boundary_center = if multi_turn {
+        let (vq_lo, vq_hi) = pcurve
+            .control_points
+            .iter()
+            .map(|p| p.y)
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
+                (lo.min(v), hi.max(v))
+            });
+        let pad = 0.5 * (vq_hi - vq_lo).max(period * 0.05);
+        let (sum, count) = samples
+            .iter()
+            .filter(|s| s.1 >= vq_lo - pad && s.1 <= vq_hi + pad)
+            .fold((0.0_f64, 0usize), |(s, n), q| (s + q.0, n + 1));
+        if count > 0 {
+            sum / count as f64
+        } else {
+            global_center
+        }
+    } else {
+        global_center
+    };
+    // Scope: negative-branch charts (the rem_euclid fold can never
+    // reach them) and multi-wrap bands (no single fold was ever
+    // right). Principal-range single-period charts stay with the
+    // tuned machinery.
+    if boundary_center >= -period * 0.25 && !multi_turn {
         return None;
     }
     let query_mean =
