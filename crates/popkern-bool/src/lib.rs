@@ -38,6 +38,7 @@ pub mod classify_winding;
 pub(crate) mod clip;
 mod clip_endpoint_far;
 mod clip_endpoint_refine;
+mod clip_triple_junction;
 pub mod coincidence;
 pub mod csg;
 mod entity_naming;

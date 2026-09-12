@@ -333,12 +333,48 @@ fn detect_edges_vs_faces(
                             }
                             continue;
                         }
+                        // TRIPLE-POINT REFINEMENT (PK-480): the hit
+                        // evaluated on the FITTED edge at the 1D
+                        // solve's parameter slides along a
+                        // near-tangent edge by fit-slop/sin(crossing
+                        // angle) (see `clip_triple_junction`); the
+                        // records meeting this junction end on the
+                        // refined three-surface point, and the edge
+                        // split must land on the SAME point or the
+                        // duplicate node dead-ends the partner chart.
+                        let raw_point = edge_curve.point_at(t);
+                        let point = crate::clip_triple_junction::refine_to_triple_point(
+                            edge_brep,
+                            edge_h,
+                            surface_on_face,
+                            raw_point,
+                            tolerance,
+                        );
+                        let (t_edge, uv) = if point == raw_point {
+                            (t, (u, v))
+                        } else {
+                            // Keep parameter and chart data consistent
+                            // with the refined position.
+                            let t_ref = (&edge_curve as &dyn CurveEval)
+                                .closest_point(&point)
+                                .map(|tt| tt.clamp(t_lo, t_hi))
+                                .unwrap_or(t);
+                            let uv_ref =
+                                popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                                    surface_on_face,
+                                    &point,
+                                    u,
+                                    v,
+                                )
+                                .unwrap_or((u, v));
+                            (t_ref, uv_ref)
+                        };
                         hits.push(EdgeFaceHit {
                             edge: edge_h,
                             face: *face_h,
-                            point: edge_curve.point_at(t),
-                            t_edge: t,
-                            uv: (u, v),
+                            point,
+                            t_edge,
+                            uv,
                             edge_of_a,
                         });
                     }

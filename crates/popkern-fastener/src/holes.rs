@@ -15,6 +15,7 @@ use popkern_sketch::ProfileShape;
 
 use crate::FastenerError;
 use crate::engine::{cut_thread, extrude_shape, revolved_tool, subtract};
+use crate::entry_ring::{entry_ring_profile, probe_entry};
 use crate::spec::ThreadSpec;
 use crate::standards::{self, ClearanceFit};
 use crate::thread_form::{self, external_groove, internal_bore_radius, internal_ridge};
@@ -194,6 +195,10 @@ pub fn tapped_hole(
         }
     };
     let placement = axis_placement(origin, direction, stage)?;
+    // Probe the entry face on the intact body: the bore and thread
+    // cuts don't move its plane, and the pre-cut hull keeps the ring
+    // lid conservative.
+    let entry = probe_entry(body, origin, direction, up);
     let bore = extrude_shape(
         ProfileShape::Circle { radius: r_bore },
         -up,
@@ -220,11 +225,8 @@ pub fn tapped_hole(
         // and a coincident cutter cylinder poisons classification.
         let r_in = r_bore - 2.0 * thread_form::embed_margin(spec);
         let eps = 0.25 * spec.pitch();
-        let ring = revolved_tool(
-            &[(r_in, -eps), (r_mouth + eps, -eps), (r_in, r_mouth - r_in)],
-            "tap entry chamfer",
-            tolerance,
-        )?;
+        let profile = entry_ring_profile(r_in, r_mouth, eps, &entry, stage)?;
+        let ring = revolved_tool(&profile, "tap entry chamfer", tolerance)?;
         result = subtract_placed(&result, &ring, &placement, stage, tolerance)?;
     }
     Ok(result)
@@ -262,6 +264,8 @@ pub fn clearance_hole(
         HoleDepth::Through => through_reach(body, origin, direction) + spec.major_diameter(),
     };
     let placement = axis_placement(origin, direction, stage)?;
+    // Probe the entry face on the intact body (see `tapped_hole`).
+    let entry = probe_entry(body, origin, direction, up);
     let bore = extrude_shape(
         ProfileShape::Circle {
             radius: hole_d / 2.0,
@@ -279,11 +283,8 @@ pub fn clearance_hole(
         // 90° cone from the head radius at the surface down to the
         // hole wall; hypotenuse on the line r + z = r_head.
         let r_in = r_hole - eps;
-        let ring = revolved_tool(
-            &[(r_in, -eps), (r_head + eps, -eps), (r_in, r_head - r_in)],
-            "countersink",
-            tolerance,
-        )?;
+        let profile = entry_ring_profile(r_in, r_head, eps, &entry, stage)?;
+        let ring = revolved_tool(&profile, "countersink", tolerance)?;
         result = subtract_placed(&result, &ring, &placement, stage, tolerance)?;
     } else if let Some(extra) = options.counterbore {
         let dims = standards::socket_head(spec.major_diameter());
@@ -299,15 +300,8 @@ pub fn clearance_hole(
     } else if options.entry_chamfer {
         let c = 0.1 * spec.major_diameter();
         let eps = 0.25 * spec.pitch();
-        let ring = revolved_tool(
-            &[
-                (r_hole - eps, -eps),
-                (r_hole + c + eps, -eps),
-                (r_hole - eps, c + 2.0 * eps),
-            ],
-            "hole entry chamfer",
-            tolerance,
-        )?;
+        let profile = entry_ring_profile(r_hole - eps, r_hole + c, eps, &entry, stage)?;
+        let ring = revolved_tool(&profile, "hole entry chamfer", tolerance)?;
         result = subtract_placed(&result, &ring, &placement, stage, tolerance)?;
     }
     Ok(result)

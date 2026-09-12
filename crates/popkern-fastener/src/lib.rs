@@ -29,7 +29,10 @@
 
 pub mod builders;
 mod closed_side_census_probe;
+#[cfg(test)]
+mod deep_plunge_probe;
 mod engine;
+mod entry_ring;
 pub mod holes;
 mod spec;
 pub mod standards;
@@ -135,5 +138,24 @@ pub enum FastenerError {
         stage: String,
         /// What went wrong.
         detail: String,
+    },
+    /// The entry face is too steep for a coaxial 45° entry cone: past
+    /// the bound the cone and the face approach tangency along the
+    /// uphill rim (a near-tangent surface-intersection class) and the
+    /// cut is no longer a lead-in chamfer. Disable the entry chamfer
+    /// or countersink, or reorient the axis.
+    #[error(
+        "fastener {stage}: entry face tilt {tilt_deg:.1}° exceeds the \
+         {limit_deg:.1}° bound for a coaxial 45° entry cone (cone and \
+         face go near-tangent along the uphill rim); disable the entry \
+         chamfer/countersink or reorient the axis"
+    )]
+    EntryTooSteep {
+        /// The fastener stage being built.
+        stage: String,
+        /// The measured entry-face tilt, degrees off perpendicular.
+        tilt_deg: f64,
+        /// The supported bound, degrees.
+        limit_deg: f64,
     },
 }

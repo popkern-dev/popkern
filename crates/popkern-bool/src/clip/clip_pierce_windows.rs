@@ -82,6 +82,13 @@ pub(super) fn pierce_crossing_params(
             else {
                 continue;
             };
+            // TRIPLE-POINT REFINEMENT (PK-480): the 1D solve's
+            // position slides along a near-tangent edge by
+            // fit-slop/sin(crossing angle); the three-surface Newton
+            // removes the amplification (see `clip_triple_junction`).
+            let point = &crate::clip_triple_junction::refine_to_triple_point(
+                brep_x, eh, other_surf, *point, tolerance,
+            );
             let Some(t) = project_onto_curve_dense(&curve.curve_3d, point) else {
                 continue;
             };

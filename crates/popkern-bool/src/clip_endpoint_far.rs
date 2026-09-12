@@ -88,6 +88,16 @@ pub(crate) fn far_junction(
                 let SurfaceCurveIntersection::Point { point, .. } = isect else {
                     continue;
                 };
+                // TRIPLE-POINT REFINEMENT (PK-480): remove the
+                // along-edge 1/sin(crossing angle) slide of the 1D
+                // solve (see `clip_triple_junction`).
+                let point = &crate::clip_triple_junction::refine_to_triple_point(
+                    brep,
+                    eh,
+                    other_surface,
+                    *point,
+                    tolerance,
+                );
                 let d = point.distance_to(p);
                 if d <= tolerance.linear() || d > far_cap {
                     continue;
@@ -252,17 +262,46 @@ pub(crate) fn retrim_piece_to_junction(
     // boundary hug itself, never an in-face stretch (a genuine
     // mid-face termination has no boundary alongside).
     if extending && !source.is_closed {
-        // Extension is scoped to CLOSED-source records (the
-        // crest×cone tangent-circle class the stop-short was
-        // measured on) — unscoped, open-record extensions regressed
-        // the chamfered rod's thread cut (its cap records
-        // legitimately terminate alongside boundaries).
-        if far_trace {
-            eprintln!(
-                "    [clip-far] retrim refused: extension on open-source record ([{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}])"
-            );
+        // Extension on an OPEN source is scoped to the stop-short
+        // MICRO class (PK-480): the junction must lie ON the source
+        // curve at machine precision (a genuine pass-through — the
+        // deep-plunged tap's cone×flank arcs stop 2.4e-3 short of
+        // their crest triple point with dj ≈ 4e-8, while a fit-slop
+        // coincidence reads 1e-4+), and the added arc stays under the
+        // near-tangent junction-slide cap. The chamfered rod's cap
+        // records that regressed the unscoped extension needed ~3e-1
+        // runs alongside boundaries and stay refused by the cap; the
+        // boundary-ride certificate below still applies to whatever
+        // passes.
+        let source_chord = {
+            let (s0, s1) = source.curve_3d.parameter_range();
+            source
+                .curve_3d
+                .point_at(s0)
+                .distance_to(&source.curve_3d.point_at(s1))
+                .max(
+                    source
+                        .curve_3d
+                        .point_at(s0)
+                        .distance_to(&source.curve_3d.point_at(0.5 * (s0 + s1))),
+                )
+        };
+        let dj = source.curve_3d.point_at(t_star).distance_to(&j);
+        let added = j.distance_to(&this_p);
+        // Both gates are bounded by the source's own scale so a
+        // coarse-tolerance corpus (multicurve cubes at linear = 1e-3)
+        // cannot blow them into unit-sized licenses.
+        let dj_gate = (tolerance.linear() * 100.0).min(source_chord * 1.0e-3);
+        let added_gate = (tolerance.linear() * 10_000.0).min(source_chord * 0.02);
+        if dj > dj_gate || added > added_gate {
+            if far_trace {
+                eprintln!(
+                    "    [clip-far] retrim refused: extension on open-source record \
+                     ([{n0:.4},{n1:.4}] vs [{t_other:.4},{t_this:.4}], dj {dj:.3e}, added {added:.3e})"
+                );
+            }
+            return false;
         }
-        return false;
     }
     if extending {
         let added_lo = t_this.min(t_star);

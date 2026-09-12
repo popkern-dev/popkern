@@ -383,11 +383,31 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
                     let pb = endpoint_of(&records[ib], b_end);
                     let d = pa.distance_to(&pb);
                     if d > tolerance.linear() && d < pair_gate {
-                        let weld = popkern_core::geometry::Point3::new(
-                            0.5 * (pa.x + pb.x),
-                            0.5 * (pa.y + pb.y),
-                            0.5 * (pa.z + pb.z),
-                        );
+                        // KEPT-END AUTHORITY (PK-480): a kept record's
+                        // ends are junction-refined at clip time (near
+                        // pin, far re-trim, triple-point junctions); a
+                        // trim residue's ends are deliberately RAW
+                        // (refining them re-strands the m6 mouth
+                        // chamfer). Averaging the two moved BOTH onto
+                        // a midpoint off the exact junction — the
+                        // deep-plunged tap's crest triple points
+                        // landed 1.1e-3 off, past the dead-end weld
+                        // band, and the cone chart stranded. A
+                        // kept×residue weld adopts the kept end;
+                        // same-class pairs keep the midpoint.
+                        let a_res = records[ia].residue_owner_a.is_some();
+                        let b_res = records[ib].residue_owner_a.is_some();
+                        let weld = if a_res == b_res {
+                            popkern_core::geometry::Point3::new(
+                                0.5 * (pa.x + pb.x),
+                                0.5 * (pa.y + pb.y),
+                                0.5 * (pa.z + pb.z),
+                            )
+                        } else if a_res {
+                            pb
+                        } else {
+                            pa
+                        };
                         set_endpoint(&mut records[ia], a_end, weld);
                         set_endpoint(&mut records[ib], b_end, weld);
                     }
