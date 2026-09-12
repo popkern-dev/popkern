@@ -81,6 +81,21 @@ pub(crate) fn point_inside_face_uv_with_density(
     if crate::clip::face_covers_full_chart(brep, face) {
         return true;
     }
+    // DOUBLY-periodic charts (torus) answer through the chart cell:
+    // containment there is a statement modulo the lattice in BOTH
+    // axes, and the u-parity path below folds only u — a cell whose
+    // v-rim pcurve is recorded on a wrapped v-branch INVERTS it
+    // (measured, PK-484: the rotated-torus cell v[4.712,6.283] with
+    // its upper rim on the v≈0 branch voted every genuinely-interior
+    // pierce sample outside and every sample of the neighbouring
+    // cell inside — the pierce override then replaced a correct
+    // tuned window with the neighbour's, the lost span survived only
+    // as unowned trim residues, and the union stranded 4 sides).
+    // Non-cell-resolvable rings (lattice-winding walls) keep the
+    // tuned paths below.
+    if let Some(cell) = crate::clip::chart_cell::face_chart_cell(brep, face, tolerance) {
+        return cell.contains(uv_point.x, uv_point.y);
+    }
     // SEAM-BRANCH chaining: on a periodic chart a seam edge carries
     // one pcurve shared by both of its uses, so the raw contour
     // jumps a full period mid-loop and even-odd containment reads

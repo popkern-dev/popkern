@@ -22,7 +22,9 @@ use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
-use crate::geometry::intersection::surface_surface_consumed::point_near_polylines;
+use crate::geometry::intersection::surface_surface_consumed::{
+    ConsumedTrace, point_near_polylines,
+};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 
@@ -130,7 +132,7 @@ pub fn intersect_surfaces_with_seeds(
 
 #[path = "surface_surface_trace.rs"]
 mod surface_surface_trace;
-use surface_surface_trace::trace_ssi;
+use surface_surface_trace::{trace_ssi, trace_ssi_seed};
 #[path = "surface_surface_fastpath.rs"]
 mod surface_surface_fastpath;
 
@@ -280,7 +282,7 @@ fn intersect_surfaces_inner(
     // point-proximity check re-marched the identical curve once per
     // such seed (measured: 18–20 copies of one cylinder×NURBS arc,
     // count varying with operand order).
-    let mut consumed: Vec<Vec<Point3>> = Vec::new();
+    let mut consumed: Vec<ConsumedTrace> = Vec::new();
     let consumed_radius = tolerance.linear() * 10.0;
 
     // Seed the queue with every transversal starting point — plus,
@@ -360,8 +362,10 @@ fn intersect_surfaces_inner(
 
             // Skip if already traced through this region.
             if point_near_polylines(&seed.point, &consumed, consumed_radius) {
+                trace_ssi_seed(true, &seed.point, demoted, consumed_radius, consumed.len());
                 continue;
             }
+            trace_ssi_seed(false, &seed.point, demoted, consumed_radius, consumed.len());
 
             let (samples, is_closed) = march(
                 surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance,
@@ -416,12 +420,21 @@ fn intersect_surfaces_inner(
                 // pair before the analytic arm covered that class, PK-390).
                 // Trimmed span only — see the scoping note on
                 // `full_trace` above.
-                consumed.push(samples.iter().map(|s| s.point).collect());
+                consumed.push(ConsumedTrace::open(
+                    samples.iter().map(|s| s.point).collect(),
+                ));
                 continue;
             }
 
             // Mark the traced polyline as consumed (full trace — see above).
-            consumed.push(full_trace);
+            // A closed trace consumes as a RING: the closure gap the
+            // step loop never walked is claimed at the gap's own
+            // radius (PK-484 — see `ConsumedTrace`).
+            if is_closed {
+                consumed.push(ConsumedTrace::closed(full_trace));
+            } else {
+                consumed.push(ConsumedTrace::open(full_trace));
+            }
 
             // 4. Segment at UV period jumps, weld marched closure, fit
             //    (PK-304) — mechanism and measured rationale in

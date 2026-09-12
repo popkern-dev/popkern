@@ -13,27 +13,9 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
 use crate::topology::*;
 
-/// Result of splitting a face along a trim curve.
-#[derive(Debug, Clone)]
-pub struct SplitFaceResult {
-    /// One side of the split (the original face).
-    pub face_a: FaceHandle,
-    /// The other side of the split (the new face from mef).
-    pub face_b: FaceHandle,
-    /// The newly created edges along the trim curve.
-    pub new_edges: Vec<EdgeHandle>,
-}
-
-/// Result of splitting an edge at a parameter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SplitEdgeResult {
-    /// The newly created vertex at the split point.
-    pub vertex: VertexHandle,
-    /// The original edge (start -> new vertex).
-    pub edge_a: EdgeHandle,
-    /// The new edge (new vertex -> end).
-    pub edge_b: EdgeHandle,
-}
+#[path = "split_results.rs"]
+mod split_results;
+pub use split_results::{SplitEdgeResult, SplitFaceResult};
 
 impl BRep {
     /// Split an edge at parameter `t` (0-1), inserting a new vertex.
@@ -336,47 +318,26 @@ impl BRep {
             }
         }
 
-        // If we found exit but not entry on first pass, or entry but not exit,
-        // do a second pass checking the other direction assignment. The curve
-        // endpoints may appear in either order around the loop.
+        // If we found exit but not entry on first pass, or entry but
+        // not exit, do a second pass checking the other direction
+        // assignment. The curve endpoints may appear in either order
+        // around the loop.
         if he_entry.is_some() && he_exit.is_none() {
-            // Try matching curve_end to remaining vertices
-            let mut cursor2 = loop_start_he;
-            let mut iters2 = 0;
-            loop {
-                let he_data = &self.half_edges[cursor2];
-                let vertex_pos = self.vertices[he_data.origin].position;
-                if cursor2 != he_entry.unwrap_or_default()
-                    && tolerance.points_coincident(&vertex_pos, &curve_end)
-                {
-                    he_exit = Some(cursor2);
-                    break;
-                }
-                cursor2 = he_data.next;
-                iters2 += 1;
-                if cursor2 == loop_start_he || iters2 >= max_iters {
-                    break;
-                }
-            }
+            he_exit = super::split_helpers::find_loop_vertex_coincident(
+                self,
+                loop_start_he,
+                he_entry,
+                &curve_end,
+                tolerance,
+            );
         } else if he_exit.is_some() && he_entry.is_none() {
-            // Try matching curve_start to remaining vertices
-            let mut cursor2 = loop_start_he;
-            let mut iters2 = 0;
-            loop {
-                let he_data = &self.half_edges[cursor2];
-                let vertex_pos = self.vertices[he_data.origin].position;
-                if cursor2 != he_exit.unwrap_or_default()
-                    && tolerance.points_coincident(&vertex_pos, &curve_start)
-                {
-                    he_entry = Some(cursor2);
-                    break;
-                }
-                cursor2 = he_data.next;
-                iters2 += 1;
-                if cursor2 == loop_start_he || iters2 >= max_iters {
-                    break;
-                }
-            }
+            he_entry = super::split_helpers::find_loop_vertex_coincident(
+                self,
+                loop_start_he,
+                he_exit,
+                &curve_start,
+                tolerance,
+            );
         }
 
         // NEAR-VERTEX rescue for endpoints the strict pass missed —

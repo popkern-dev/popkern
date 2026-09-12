@@ -41,6 +41,7 @@ mod clip_endpoint_refine;
 mod clip_triple_junction;
 pub mod coincidence;
 pub mod csg;
+mod curve_projection;
 mod entity_naming;
 mod entity_naming_edges;
 pub mod error;

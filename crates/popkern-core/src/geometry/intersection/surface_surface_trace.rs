@@ -56,3 +56,32 @@ pub(super) fn trace_ssi(
         Err(e) => eprintln!("  [ssi] {}x{} -> ERROR {e}", kind(surface1), kind(surface2)),
     }
 }
+
+/// The `ssi-seed` trace topic: one line per seed-queue decision in
+/// the marching driver — consumed (skipped) or marched. This is the
+/// lens that measured the closure-gap consumption hole (PK-484: a
+/// seed inside a closed trace's unwalked closure gap re-marched the
+/// identical torus lens loop).
+pub(super) fn trace_ssi_seed(
+    consumed_seed: bool,
+    point: &crate::geometry::Point3,
+    demoted: bool,
+    consumed_radius: f64,
+    consumed_n: usize,
+) {
+    if !crate::trace::trace_enabled("ssi-seed") {
+        return;
+    }
+    if consumed_seed {
+        eprintln!(
+            "  [ssi-seed] consumed seed ({:.6},{:.6},{:.6}) demoted={demoted}",
+            point.x, point.y, point.z
+        );
+    } else {
+        eprintln!(
+            "  [ssi-seed] marching seed ({:.6},{:.6},{:.6}) demoted={demoted} \
+             radius={consumed_radius:.2e} consumed_n={consumed_n}",
+            point.x, point.y, point.z
+        );
+    }
+}

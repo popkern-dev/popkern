@@ -144,6 +144,20 @@ pub(crate) fn next_in_chart(
             .map(|(a, d, hh)| format!("{}{}@{a:.3}", if *d { "dep" } else { "arr" }, hh))
             .collect();
         eprintln!("      [wedge] bp {bp_key:?} slots {}", names.join(" "));
+        for &(_, is_dep, hh) in &slots {
+            if let Some(em) = sub.embeddings.get(&hh) {
+                let n = em.uv.len();
+                eprintln!(
+                    "        [wedge-uv] {}{hh}: {} pts ({:.4},{:.4})..({:.4},{:.4})",
+                    if is_dep { "dep" } else { "arr" },
+                    n,
+                    em.uv[0].0,
+                    em.uv[0].1,
+                    em.uv[n - 1].0,
+                    em.uv[n - 1].1
+                );
+            }
+        }
     }
     let mut pending: Vec<usize> = Vec::new();
     let mut matched: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();

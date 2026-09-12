@@ -279,11 +279,6 @@ fn clip_curve_uv_space_tuned(
     }
 
     let (t_min, t_max) = curve.curve_3d.parameter_range();
-    // Exact junction points backing pierce-derived window bounds
-    // (PK-472): pieces clipped at those bounds get their ends PINNED
-    // to the junction, not left on the record's fitted curve with
-    // its lateral slop.
-    let mut junction_points: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
     // Residues are only meaningful for a side that produced REAL
     // windows: the NoPcurves full-range default is no trim knowledge,
     // and subtracting from it would fabricate chart-wide residues.
@@ -300,93 +295,17 @@ fn clip_curve_uv_space_tuned(
     let wb = windows_of(clip_b);
     let mut joint = intersect_window_sets(&wa, &wb, t_min, t_max, curve.is_closed);
 
-    // PIERCE AUTHORITY (see `clip_pierce_windows`): near-tangent
-    // boundary crossings defeat the pcurve crossing machinery — the
-    // exact edge×surface junction inventory re-derives the windows,
-    // and overrides the tuned result only where the two disagree.
-    // Scoped to OPEN records with no wrapped tuned window: the
+    // PIERCE AUTHORITY — mechanism and measured rationale in
+    // `clip_pierce_windows::apply_pierce_authority`. Scoped to
+    // transversal OPEN records with no wrapped tuned window: the
     // wrapped/closed bookkeeping keeps its tuned path.
-    // Transversal records only — a flush/coincident trace RUNS ALONG
-    // boundaries, its pierce inventory is everywhere on it, and the
-    // interval containment votes sit inside boundary slop (measured:
-    // the notched-cube saddle fixture's flush records got mangled
-    // windows and the subtraction went non-manifold).
+    let mut junction_points: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
     if open_windows_allowed && pierce_scope && joint.iter().all(|w| w.1 <= t_max + 1e-12) {
-        let span = (t_max - t_min).abs();
-        let ts_a = super::clip_pierce_windows::pierce_crossing_params(
-            brep_a, face_a, brep_b, face_b, curve,
+        let (j2, jp) = super::clip_pierce_windows::apply_pierce_authority(
+            brep_a, face_a, brep_b, face_b, curve, t_min, t_max, joint, trace,
         );
-        let ts_b = super::clip_pierce_windows::pierce_crossing_params(
-            brep_b, face_b, brep_a, face_a, curve,
-        );
-        if ts_a.is_some() || ts_b.is_some() {
-            let mut junctions = ts_a.unwrap_or_default();
-            junctions.extend(ts_b.unwrap_or_default());
-            junctions.sort_by(|a, b| a.0.total_cmp(&b.0));
-            junctions.dedup_by(|b, a| (b.0 - a.0).abs() < span * 1e-6);
-            let mut ts: Vec<f64> = junctions.iter().map(|&(t, _)| t).collect();
-            if popkern_core::trace::trace_enabled("clip-far") {
-                let (t0m, t1m) = curve.curve_3d.parameter_range();
-                let p0 = curve.curve_3d.point_at(t0m);
-                let p1 = curve.curve_3d.point_at(t1m);
-                eprintln!(
-                    "    [pierce-ts] record ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}): ts {:?}",
-                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, ts
-                );
-            }
-            let cleared = super::clip_pierce_windows::intervals_clear_of_boundary(
-                brep_a, face_a, brep_b, face_b, curve, &ts,
-            );
-            if !cleared {
-                ts.clear();
-            }
-            let pw = super::clip_pierce_windows::pierce_windows(
-                brep_a, face_a, brep_b, face_b, curve, &ts,
-            );
-            let close = |x: f64, y: f64| (x - y).abs() <= span * 1e-3;
-            let differs = pw.len() != joint.len()
-                || pw
-                    .iter()
-                    .zip(joint.iter())
-                    .any(|(x, y)| !close(x.0, y.0) || !close(x.1, y.1));
-            // A pierce result that deletes EVERYTHING is never
-            // trusted: the measured defect class needs windows
-            // inverted or split, not erased, and an all-outside
-            // verdict is the signature of a containment context the
-            // voter cannot read (extended-base pcurve branches sit
-            // whole chart-widths from the boundary bbox — measured on
-            // the bore-mouth family, where a correct tuned window was
-            // emptied).
-            // Pins arm whenever CERTIFIED junctions exist — matching
-            // stays EXACT (span x 1e-6), so only window bounds that
-            // came from the junction machinery ever pin. Two face
-            // pairs' chains solving one triple junction then land on
-            // the SAME exact point instead of two nodes a lateral
-            // slop apart (measured, PK-465: the angled tap's mouth
-            // minted 5.4e-4 record-record duplicates the weld tiers
-            // cannot own — 7 stranded sides). Slop-gated arming was
-            // measured harmful (re-strands) and stays out.
-            if cleared && !ts.is_empty() {
-                junction_points = junctions.clone();
-            }
-            if cleared && !ts.is_empty() && !pw.is_empty() && differs {
-                if trace {
-                    let show = |ws: &[(f64, f64)]| {
-                        ws.iter()
-                            .map(|(e, x)| format!("({e:.3},{x:.3})"))
-                            .collect::<Vec<_>>()
-                            .join(",")
-                    };
-                    eprintln!(
-                        "  [uvclip] pierce-authority override: tuned [{}] -> exact [{}] from {} crossing(s)",
-                        show(&joint),
-                        show(&pw),
-                        ts.len()
-                    );
-                }
-                joint = pw;
-            }
-        }
+        joint = j2;
+        junction_points = jp;
     }
     if trace && joint.len() > 1 {
         eprintln!(
@@ -550,94 +469,4 @@ fn clip_curve_uv_space_tuned(
     out
 }
 
-/// Whole-period translation aligning a record pcurve onto a face
-/// chart that lives on a NEGATIVE u-branch — `None` when the face is
-/// non-periodic, its boundary is centred at or above `−period/4`
-/// (principal-range charts keep the tuned machinery), or no
-/// whole-period shift is called for. See the alignment comment in
-/// [`clip_curve_uv_space`] (PK-480).
-fn align_negative_branch_side(
-    brep: &BRep,
-    face: FaceHandle,
-    pcurve: &NurbsCurve,
-) -> Option<NurbsCurve> {
-    use popkern_core::geometry::SurfaceEval as _;
-    let period = brep
-        .faces
-        .get(face)?
-        .surface
-        .as_ref()?
-        .geometry
-        .parameter_periodicity()
-        .0?;
-    if !(period.is_finite() && period > 0.0) {
-        return None;
-    }
-    let ring = crate::clip::face_uv_boundary(brep, face)?;
-    if pcurve.control_points.is_empty() {
-        return None;
-    }
-    let mut samples: Vec<(f64, f64)> = Vec::new();
-    for (_, pc) in &ring {
-        let (a, b) = pc.parameter_range();
-        if !(a.is_finite() && b.is_finite()) {
-            continue;
-        }
-        for i in 0..=4 {
-            let q = pc.point_at(a + (b - a) * i as f64 / 4.0);
-            samples.push((q.x, q.y));
-        }
-    }
-    if samples.is_empty() {
-        return None;
-    }
-    let global_center = samples.iter().map(|s| s.0).sum::<f64>() / samples.len() as f64;
-    let (u_lo, u_hi) = samples.iter().fold((f64::MAX, f64::MIN), |(lo, hi), s| {
-        (lo.min(s.0), hi.max(s.0))
-    });
-    let multi_turn = u_hi - u_lo > period * (1.0 + 1e-9);
-    // MULTI-WRAP bands (PK-481): the global mean lands mid-band
-    // regardless of which wrap the record crosses (the PK-464 trap).
-    // Use the boundary samples near the QUERY's v range — the wrap
-    // the record actually addresses — mirroring the internal
-    // normalize's multi-turn provision.
-    let boundary_center = if multi_turn {
-        let (vq_lo, vq_hi) = pcurve
-            .control_points
-            .iter()
-            .map(|p| p.y)
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), v| {
-                (lo.min(v), hi.max(v))
-            });
-        let pad = 0.5 * (vq_hi - vq_lo).max(period * 0.05);
-        let (sum, count) = samples
-            .iter()
-            .filter(|s| s.1 >= vq_lo - pad && s.1 <= vq_hi + pad)
-            .fold((0.0_f64, 0usize), |(s, n), q| (s + q.0, n + 1));
-        if count > 0 {
-            sum / count as f64
-        } else {
-            global_center
-        }
-    } else {
-        global_center
-    };
-    // Scope: negative-branch charts (the rem_euclid fold can never
-    // reach them) and multi-wrap bands (no single fold was ever
-    // right). Principal-range single-period charts stay with the
-    // tuned machinery.
-    if boundary_center >= -period * 0.25 && !multi_turn {
-        return None;
-    }
-    let query_mean =
-        pcurve.control_points.iter().map(|p| p.x).sum::<f64>() / pcurve.control_points.len() as f64;
-    let k = ((boundary_center - query_mean) / period).round();
-    if k == 0.0 {
-        return None;
-    }
-    let mut translated = pcurve.clone();
-    for p in &mut translated.control_points {
-        p.x += k * period;
-    }
-    Some(translated)
-}
+use super::clip_negative_branch::align_negative_branch_side;

@@ -5,6 +5,34 @@
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
 
+/// Walk `loop_start_he`'s loop and return the first half-edge (other
+/// than `skip`) whose origin vertex coincides with `target` under the
+/// tolerance — the second-pass endpoint matching of `split_face`,
+/// shared by both endpoint orders.
+pub(crate) fn find_loop_vertex_coincident(
+    brep: &crate::topology::BRep,
+    loop_start_he: crate::topology::HalfEdgeHandle,
+    skip: Option<crate::topology::HalfEdgeHandle>,
+    target: &crate::geometry::Point3,
+    tolerance: &crate::tolerance::Tolerance,
+) -> Option<crate::topology::HalfEdgeHandle> {
+    let max_iters = brep.half_edges.len() + 1;
+    let mut cursor = loop_start_he;
+    let mut iters = 0;
+    loop {
+        let he_data = &brep.half_edges[cursor];
+        let vertex_pos = brep.vertices[he_data.origin].position;
+        if Some(cursor) != skip && tolerance.points_coincident(&vertex_pos, target) {
+            return Some(cursor);
+        }
+        cursor = he_data.next;
+        iters += 1;
+        if cursor == loop_start_he || iters >= max_iters {
+            return None;
+        }
+    }
+}
+
 /// Split a pcurve at parameter `t` (in [0,1] of the edge).
 ///
 /// Returns `(left, right)` where `left` covers the first portion and

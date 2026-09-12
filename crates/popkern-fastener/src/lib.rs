@@ -30,7 +30,7 @@
 pub mod builders;
 mod closed_side_census_probe;
 #[cfg(test)]
-mod deep_plunge_probe;
+mod deep_plunge_probe_tests;
 mod engine;
 mod entry_ring;
 pub mod holes;

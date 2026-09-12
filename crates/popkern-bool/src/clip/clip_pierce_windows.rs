@@ -223,6 +223,8 @@ pub(super) fn pierce_windows(
     let inside = |t_lo: f64, t_hi: f64| -> bool {
         let mut votes = 0i32;
         let mut decisive = 0i32;
+        let mut a_yes = 0i32;
+        let mut b_yes = 0i32;
         for k in 1..=5 {
             let t = t_lo + (t_hi - t_lo) * k as f64 / 6.0;
             let in_a = crate::split_inner_loop::point_inside_face_region_uv(
@@ -238,9 +240,27 @@ pub(super) fn pierce_windows(
                 &brep_b.tolerance,
             );
             decisive += 1;
+            a_yes += i32::from(in_a);
+            b_yes += i32::from(in_b);
             if in_a && in_b {
                 votes += 1;
             }
+        }
+        if popkern_core::trace::trace_enabled("clip-far") {
+            let mid = curve.curve_3d.point_at(0.5 * (t_lo + t_hi));
+            let uv1 = curve.curve_uv1.point_at(0.5 * (t_lo + t_hi));
+            let uv2 = curve.curve_uv2.point_at(0.5 * (t_lo + t_hi));
+            eprintln!(
+                "    [pierce-vote] {face_a:?}x{face_b:?} t[{t_lo:.3},{t_hi:.3}] mid ({:.3},{:.3},{:.3}) uv1 ({:.3},{:.3}) uv2 ({:.3},{:.3}) a {a_yes}/5 b {b_yes}/5 -> {}",
+                mid.x,
+                mid.y,
+                mid.z,
+                uv1.x,
+                uv1.y,
+                uv2.x,
+                uv2.y,
+                votes * 2 > decisive
+            );
         }
         votes * 2 > decisive
     };
@@ -258,4 +278,111 @@ pub(super) fn pierce_windows(
         }
     }
     out
+}
+
+/// The PIERCE-AUTHORITY override applied to a tuned joint window set
+/// (extracted from `clip_windows.rs` under the 500-line budget):
+/// near-tangent boundary crossings defeat the pcurve crossing
+/// machinery — the exact edge×surface junction inventory re-derives
+/// the windows and overrides the tuned result only where the two
+/// disagree. Scoped by the caller to transversal OPEN records with no
+/// wrapped tuned window. Returns the (possibly overridden) joint
+/// windows and the certified junction points backing pierce-derived
+/// window bounds (PK-472: piece ends clipped at those bounds pin to
+/// the junction, not the fitted curve's lateral slop).
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+pub(super) fn apply_pierce_authority(
+    brep_a: &BRep,
+    face_a: FaceHandle,
+    brep_b: &BRep,
+    face_b: FaceHandle,
+    curve: &CurveOnSurface,
+    t_min: f64,
+    t_max: f64,
+    joint: Vec<(f64, f64)>,
+    trace: bool,
+) -> (Vec<(f64, f64)>, Vec<(f64, popkern_core::geometry::Point3)>) {
+    let mut joint = joint;
+    let mut junction_points: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
+    // PIERCE AUTHORITY (see `clip_pierce_windows`): near-tangent
+    // boundary crossings defeat the pcurve crossing machinery — the
+    // exact edge×surface junction inventory re-derives the windows,
+    // and overrides the tuned result only where the two disagree.
+    // Scoped to OPEN records with no wrapped tuned window: the
+    // wrapped/closed bookkeeping keeps its tuned path.
+    // Transversal records only — a flush/coincident trace RUNS ALONG
+    // boundaries, its pierce inventory is everywhere on it, and the
+    // interval containment votes sit inside boundary slop (measured:
+    // the notched-cube saddle fixture's flush records got mangled
+    // windows and the subtraction went non-manifold).
+    {
+        let span = (t_max - t_min).abs();
+        let ts_a = pierce_crossing_params(brep_a, face_a, brep_b, face_b, curve);
+        let ts_b = pierce_crossing_params(brep_b, face_b, brep_a, face_a, curve);
+        if ts_a.is_some() || ts_b.is_some() {
+            let mut junctions = ts_a.unwrap_or_default();
+            junctions.extend(ts_b.unwrap_or_default());
+            junctions.sort_by(|a, b| a.0.total_cmp(&b.0));
+            junctions.dedup_by(|b, a| (b.0 - a.0).abs() < span * 1e-6);
+            let mut ts: Vec<f64> = junctions.iter().map(|&(t, _)| t).collect();
+            if popkern_core::trace::trace_enabled("clip-far") {
+                let (t0m, t1m) = curve.curve_3d.parameter_range();
+                let p0 = curve.curve_3d.point_at(t0m);
+                let p1 = curve.curve_3d.point_at(t1m);
+                eprintln!(
+                    "    [pierce-ts] record ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}): ts {:?}",
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, ts
+                );
+            }
+            let cleared = intervals_clear_of_boundary(brep_a, face_a, brep_b, face_b, curve, &ts);
+            if !cleared {
+                ts.clear();
+            }
+            let pw = pierce_windows(brep_a, face_a, brep_b, face_b, curve, &ts);
+            let close = |x: f64, y: f64| (x - y).abs() <= span * 1e-3;
+            let differs = pw.len() != joint.len()
+                || pw
+                    .iter()
+                    .zip(joint.iter())
+                    .any(|(x, y)| !close(x.0, y.0) || !close(x.1, y.1));
+            // A pierce result that deletes EVERYTHING is never
+            // trusted: the measured defect class needs windows
+            // inverted or split, not erased, and an all-outside
+            // verdict is the signature of a containment context the
+            // voter cannot read (extended-base pcurve branches sit
+            // whole chart-widths from the boundary bbox — measured on
+            // the bore-mouth family, where a correct tuned window was
+            // emptied).
+            // Pins arm whenever CERTIFIED junctions exist — matching
+            // stays EXACT (span x 1e-6), so only window bounds that
+            // came from the junction machinery ever pin. Two face
+            // pairs' chains solving one triple junction then land on
+            // the SAME exact point instead of two nodes a lateral
+            // slop apart (measured, PK-465: the angled tap's mouth
+            // minted 5.4e-4 record-record duplicates the weld tiers
+            // cannot own — 7 stranded sides). Slop-gated arming was
+            // measured harmful (re-strands) and stays out.
+            if cleared && !ts.is_empty() {
+                junction_points = junctions.clone();
+            }
+            if cleared && !ts.is_empty() && !pw.is_empty() && differs {
+                if trace {
+                    let show = |ws: &[(f64, f64)]| {
+                        ws.iter()
+                            .map(|(e, x)| format!("({e:.3},{x:.3})"))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    };
+                    eprintln!(
+                        "  [uvclip] pierce-authority override: tuned [{}] -> exact [{}] from {} crossing(s)",
+                        show(&joint),
+                        show(&pw),
+                        ts.len()
+                    );
+                }
+                joint = pw;
+            }
+        }
+    }
+    (joint, junction_points)
 }

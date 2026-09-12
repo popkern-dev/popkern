@@ -405,6 +405,28 @@ pub(crate) fn set_endpoint_3d_uv(
             *cp = p;
         }
     };
+    // Branch-honest projection: `project_point_to_uv_near` ignores
+    // the hint on analytic surfaces and returns the CANONICAL period
+    // branch, while the piece's uv pcurve may legitimately live on an
+    // unwrapped branch (a seam-split segment of a closed torus lens
+    // loop carries v in [2π, 4π] on its second-lap stretch). Pinning
+    // a canonical-branch endpoint onto such a curve makes a
+    // mixed-branch pcurve whose first segment jumps a whole period —
+    // the chart walk's junction direction then points a period away
+    // and the wedge matching U-turns the chain, double-claiming the
+    // twin sides (measured, PK-484: the rotated torus × torus union's
+    // B-flank walked both sides of two lens-chain edges and the
+    // assembly stranded 4 record sides). Unwrap each projected
+    // coordinate onto the branch of the uv sample it replaces.
+    let unwrap_toward = |surf: &SurfaceGeometry, p: (f64, f64), near: (f64, f64)| -> (f64, f64) {
+        use popkern_core::geometry::surface::SurfaceEval as _;
+        let (pu, pv) = surf.parameter_periodicity();
+        let fold = |x: f64, anchor: f64, period: Option<f64>| match period {
+            Some(pp) if pp.is_finite() && pp > 0.0 => x + ((anchor - x) / pp).round() * pp,
+            _ => x,
+        };
+        (fold(p.0, near.0, pu), fold(p.1, near.1, pv))
+    };
     let move_d = endpoint(piece, end).distance_to(&r);
     if move_d > tolerance.linear() * 50.0 {
         let n = 17usize;
@@ -441,6 +463,7 @@ pub(crate) fn set_endpoint_3d_uv(
                 .collect();
             let near = uv_pts[idx];
             if let Some((nu, nv)) = project_point_to_uv_near(surf, &r, near.x, near.y) {
+                let (nu, nv) = unwrap_toward(surf, (nu, nv), (near.x, near.y));
                 uv_pts[idx] = Point3::new(nu, nv, 0.0);
                 if let Ok(fitted) =
                     popkern_core::geometry::fitting::fit_curve(&uv_pts, &uv_params, 3, n)
@@ -461,6 +484,7 @@ pub(crate) fn set_endpoint_3d_uv(
         let (t0, t1) = uv_curve.parameter_range();
         let cur = uv_curve.point_at(if end { t1 } else { t0 });
         if let Some((nu, nv)) = project_point_to_uv_near(surf, &r, cur.x, cur.y) {
+            let (nu, nv) = unwrap_toward(surf, (nu, nv), (cur.x, cur.y));
             set_cp(uv_curve, Point3::new(nu, nv, 0.0));
         }
     }
