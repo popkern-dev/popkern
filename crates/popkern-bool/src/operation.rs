@@ -71,6 +71,10 @@ fn check_cancel(cancel: Option<&CancellationToken>) -> Result<(), BoolError> {
 use self::helpers::{handle_empty_selection, verify_whole_body_containment};
 use self::no_intersection::handle_no_intersection;
 
+#[path = "operation_sense_rescue.rs"]
+mod sense_rescue;
+pub(crate) use sense_rescue::execute_boolean_full;
+
 /// Execute a boolean operation on two BRep solids.
 ///
 /// Runs the full five-stage pipeline: intersect, split, classify, select,
@@ -110,15 +114,11 @@ pub(crate) fn execute_boolean_with_metrics(
     execute_boolean_full(op, a, b, tolerance, metrics, None, None)
 }
 
-/// Execute a boolean with full pipeline knobs: telemetry, cancellation,
-/// and progress reporting.
-///
-/// Appends a [`PhaseMetric`] after each stage that runs to completion,
-/// polls `cancel` between stages, and notifies `progress` (if any)
-/// after each stage with a [`ProgressEvent`]. Returns
-/// [`BoolError::Cancelled`] as soon as a cancellation is observed;
-/// the input model is unchanged.
-pub(crate) fn execute_boolean_full(
+/// The staged boolean pipeline body (intersect → split → classify →
+/// select → merge → validate). Runs the operands exactly as given;
+/// the mixed-sense rescue orchestration lives in
+/// [`sense_rescue::execute_boolean_full`].
+pub(super) fn execute_boolean_pipeline(
     op: BoolOperation,
     a: BRep,
     b: BRep,

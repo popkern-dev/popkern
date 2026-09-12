@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_core::validation::CanonicalForwardState;
 
 use super::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
 
@@ -46,6 +47,20 @@ pub(crate) fn insert_operand_topology(
     }
 
     // 2. Insert all edges as half-edge pairs.
+    //
+    // PK-478 stage 4: the canonical-forward audit is the
+    // loop-COVARIANT authority on closed-edge traversal (verdicts
+    // are reversal-stable because reversal swaps canonical bits and
+    // pcurve directions together), so a determinate verdict
+    // registers blindly and the geometric vote witness — whose
+    // ray-parity votes are reversal-INVARIANT and therefore provably
+    // unable to register a reversed body loop-consistently — is
+    // scoped to the audit-indeterminate remainder only.
+    let canonical_audit: HashMap<popkern_core::topology::EdgeHandle, CanonicalForwardState> = brep
+        .audit_canonical_forward()
+        .into_iter()
+        .map(|v| (v.edge, v.state))
+        .collect();
     let mut closed_side_ctx = ClosedSideContext::new(brep);
     for (eh, edge) in &brep.edges {
         let he_h = edge.half_edge;
@@ -67,7 +82,10 @@ pub(crate) fn insert_operand_topology(
             Operand::B => EdgeSource::OriginalB(eh),
         };
 
-        // CLOSED-EDGE SIDE FIDELITY: the chart embedding orients a
+        // CLOSED-EDGE SIDE FIDELITY (audit-first since PK-478 stage
+        // 4 — the vote witness below now handles only the edges the
+        // canonical-forward audit cannot measure): the chart
+        // embedding orients a
         // run by the graph pair's curve window (fwd side = curve
         // increasing-t), and its endpoint-node authority is void on
         // a closed edge (both ends are one node) — so for closed
@@ -96,9 +114,34 @@ pub(crate) fn insert_operand_topology(
             face_of(he.loop_) == face_of(twin_he.loop_)
         };
         let canonical_forward = if start_node == end_node && !is_seam {
-            let verdict = closed_he_runs_curve_forward(&mut closed_side_ctx, he_h);
+            use CanonicalForwardState as S;
+            let (verdict, authority) = match canonical_audit.get(&eh) {
+                Some(S::Ok) | Some(S::OkByChain { .. }) => (Some(true), "audit"),
+                // A violated canonical bit forces a side SWAP only
+                // when the canonical side's own pcurve lies forward:
+                // there the chart embedding falls back to the pair's
+                // curve-window direction and the side mapping is the
+                // only direction authority (the PK-465 bore wall).
+                // With honest pcurves the embedding already runs the
+                // loop truth and the historical canonical→forward
+                // side identity is load-bearing convention — weld
+                // partners key on side identity (measured twice:
+                // swapping honest-pcurve rims broke the closed-rim
+                // shell trim welds, and audit-swapping every Violated
+                // edge broke the offset campaign gates).
+                Some(S::ViolatedByChain { lying_half_edge }) if *lying_half_edge == he_h => {
+                    (Some(false), "audit")
+                }
+                Some(S::Violated) | Some(S::ViolatedByChain { .. }) => (Some(true), "audit"),
+                _ => (
+                    closed_he_runs_curve_forward(&mut closed_side_ctx, he_h),
+                    "vote-witness",
+                ),
+            };
             if popkern_core::trace::trace_enabled("boolean") {
-                eprintln!("  [closed-side] {operand:?} edge {eh:?} canonical-forward {verdict:?}");
+                eprintln!(
+                    "  [closed-side] {operand:?} edge {eh:?} canonical-forward {verdict:?} ({authority})"
+                );
             }
             verdict.unwrap_or(true)
         } else {
