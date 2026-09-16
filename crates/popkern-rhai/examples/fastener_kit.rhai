@@ -19,7 +19,7 @@ let cap = m.bolt("M4", 10.0, #{ head: "socket", thread_length: 6.0, label: "cap_
 cap = cap.translate(-8.0, 6.0, 4.0);
 
 // A countersunk screw, flush plane up.
-let flat = m.bolt("M5", 12.0, #{ head: "countersunk", thread_length: 6.0, label: "flat_head" });
+let flat = m.bolt("M5", 12.0, #{ head: "countersunk", thread_length: 7.0, label: "flat_head" });
 flat = flat.translate(8.0, 6.0, 0.0);
 
 m.assert_watertight();

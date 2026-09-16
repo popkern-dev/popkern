@@ -232,9 +232,20 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
     // A pipe's only dependency is its path edge; inheriting that body
     // would REPLACE the path solid with the tube (PK-440). The tube is
     // a new body; the path body is referenced, not consumed.
+    //
+    // A fastener GENERATOR (bolt, rod, nut) is likewise its own body:
+    // it has no dependencies, and inheriting the current body REPLACED
+    // the previous fastener's BRep — the fastener-kit gallery script
+    // built four fasteners and served ONE (PK-460, measured: the
+    // whole-model STEP carried a single solid, and every thumbnail
+    // showed only the last screw). The hole features (TappedHole,
+    // ClearanceHole) stay body-inheriting — they cut INTO their host.
     matches!(
         feature,
-        Feature::Sketch { .. } | Feature::RawBody { .. } | Feature::Pipe { .. }
+        Feature::Sketch { .. }
+            | Feature::RawBody { .. }
+            | Feature::Pipe { .. }
+            | Feature::Fastener { .. }
     )
 }
 

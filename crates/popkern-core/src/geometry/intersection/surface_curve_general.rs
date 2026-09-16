@@ -211,6 +211,27 @@ pub(crate) fn intersect_surface_curve_general(
     for cseg in &curve_segments {
         for cell in &surface_cells {
             if !aabb_overlap(&cseg.min, &cseg.max, &cell.min, &cell.max, margin) {
+                if crate::trace::trace_enabled("scg-cull") {
+                    eprintln!(
+                        "  [scg-cull] u({:.4},{:.4}) v({:.4},{:.4}) box ({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2}) vs seg ({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
+                        cell.u_range.0,
+                        cell.u_range.1,
+                        cell.v_range.0,
+                        cell.v_range.1,
+                        cell.min.x,
+                        cell.min.y,
+                        cell.min.z,
+                        cell.max.x,
+                        cell.max.y,
+                        cell.max.z,
+                        cseg.min.x,
+                        cseg.min.y,
+                        cseg.min.z,
+                        cseg.max.x,
+                        cseg.max.y,
+                        cseg.max.z
+                    );
+                }
                 continue;
             }
             let mut u_edges = vec![cell.u_range.0];

@@ -98,7 +98,8 @@ impl BRep {
                 let gap = first.distance_to(&last_end);
                 if gap > self.tolerance.linear() {
                     if crate::trace::trace_enabled("closure") {
-                        eprintln!("  [closure] loop {loop_handle:?} gap {gap:.4}:");
+                        let face = self.loops[loop_handle].face;
+                        eprintln!("  [closure] loop {loop_handle:?} face {face:?} gap {gap:.4}:");
                         let start_he = self.loops[loop_handle].half_edge;
                         let mut he_h = start_he;
                         for _ in 0..24 {
@@ -113,8 +114,30 @@ impl BRep {
                                     p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, c.t_start, c.t_end
                                 )
                             });
+                            let twin_side = self
+                                .half_edges
+                                .get(he.twin)
+                                .map(|t| {
+                                    let tf = self
+                                        .loops
+                                        .get(t.loop_)
+                                        .map(|l| format!("{:?}", l.face))
+                                        .unwrap_or_else(|| "<dead-loop>".into());
+                                    let to = self
+                                        .vertices
+                                        .get(t.origin)
+                                        .map(|tv| {
+                                            format!(
+                                                "({:.3},{:.3},{:.3})",
+                                                tv.position.x, tv.position.y, tv.position.z
+                                            )
+                                        })
+                                        .unwrap_or_else(|| "<dead-vertex>".into());
+                                    format!("{:?} face {tf} origin {to}", he.twin)
+                                })
+                                .unwrap_or_else(|| "<dead-twin>".into());
                             eprintln!(
-                                "    he edge={:?} origin=({:.3},{:.3},{:.3}) span={span:?}",
+                                "    he {he_h:?} edge={:?} origin=({:.3},{:.3},{:.3}) span={span:?} twin {twin_side}",
                                 he.edge, v.x, v.y, v.z
                             );
                             he_h = he.next;

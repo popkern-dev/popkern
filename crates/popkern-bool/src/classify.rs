@@ -269,7 +269,7 @@ pub fn point_in_solid(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<PointClassification, BoolError> {
-    point_in_solid_impl(point, solid, face_aabbs, tolerance, false)
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, false).map(|(c, _)| c)
 }
 
 /// [`point_in_solid`] for FINAL bodies (boolean inputs/outputs, not
@@ -285,6 +285,23 @@ pub fn point_in_solid_final(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<PointClassification, BoolError> {
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, true).map(|(c, _)| c)
+}
+
+/// [`point_in_solid_final`] that also reports whether the ray vote was
+/// CONTESTED (conclusive rays on both sides). A contested verdict is
+/// the signature of a systematic per-ray miss — a radial ray from a
+/// thin multi-wrap helical shell's seam azimuth misses the shell on
+/// several directions while others count honestly (measured, PK-460:
+/// the M6 ×9-turn thread tool at (3, 0, 10.25) voted 3 outside / 2
+/// inside from strictly inside the tool). Callers with an independent
+/// second sample available should resample on a contested verdict.
+pub fn point_in_solid_final_with_confidence(
+    point: &Point3,
+    solid: &BRep,
+    face_aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &Tolerance,
+) -> Result<(PointClassification, bool), BoolError> {
     point_in_solid_impl(point, solid, face_aabbs, tolerance, true)
 }
 
@@ -294,7 +311,7 @@ fn point_in_solid_impl(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
     skip_hole_hits: bool,
-) -> Result<PointClassification, BoolError> {
+) -> Result<(PointClassification, bool), BoolError> {
     let mut inside_votes = 0u32;
     let mut outside_votes = 0u32;
 
@@ -349,14 +366,15 @@ fn point_in_solid_impl(
         }
     }
 
+    let contested = inside_votes > 0 && outside_votes > 0;
     if inside_votes > outside_votes {
-        Ok(PointClassification::Inside)
+        Ok((PointClassification::Inside, contested))
     } else if outside_votes > inside_votes {
-        Ok(PointClassification::Outside)
+        Ok((PointClassification::Outside, contested))
     } else {
         // Tied or no conclusive rays at all — treat as on-boundary.
         // This is a heuristic; a more robust approach would add more rays.
-        Ok(PointClassification::OnBoundary)
+        Ok((PointClassification::OnBoundary, contested))
     }
 }
 

@@ -13,7 +13,7 @@ use super::fragment_classify_overlap::classify_partial_overlap;
 use super::fragment_sample::{sample_point_for_fragment, sample_point_uv};
 use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
-use crate::classify::point_in_solid_final;
+use crate::classify::{point_in_solid_final, point_in_solid_final_with_confidence};
 use crate::classify_on_face::classify_on_face;
 use crate::coincidence::CoincidenceMap;
 use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
@@ -96,7 +96,7 @@ pub(crate) fn classify_and_select_fragments(
         // fragment was kept, and the subtraction served an interior
         // membrane). The cellular pipeline already classifies with the
         // final variant; the graph-merge fallback was the outlier.
-        let mut classification = match point_in_solid_final(
+        let (mut classification, contested) = match point_in_solid_final_with_confidence(
             &sample,
             other_brep,
             other_aabbs,
@@ -110,9 +110,40 @@ pub(crate) fn classify_and_select_fragments(
                         fragment.face, sample.x, sample.y, sample.z
                     );
                 }
-                PointClassification::Outside
+                (PointClassification::Outside, false)
             }
         };
+        // CONTESTED-VERDICT RESAMPLE: a split ray vote signals a
+        // systematic per-ray miss (PK-460: a thread tool's groove
+        // strip voted 3–2 Outside from strictly inside the tool).
+        // The interior-step sample is an independent witness far
+        // from the split edges; its verdict replaces the primary's
+        // only when IT is uncontested.
+        if contested {
+            let resample = super::fragment_sample_interior::interior_step_sample(
+                graph,
+                &fragment.outer_loop,
+                &fragment.face,
+                brep_a,
+                brep_b,
+            );
+            let reverdict = resample.as_ref().map(|p| {
+                point_in_solid_final_with_confidence(p, other_brep, other_aabbs, tolerance)
+            });
+            if popkern_core::trace::trace_enabled("boolean") {
+                eprintln!(
+                    "  [classify] {:?} contested {classification:?} at ({:.3},{:.3},{:.3}) resample {:?} -> {reverdict:?}",
+                    fragment.face,
+                    sample.x,
+                    sample.y,
+                    sample.z,
+                    resample.map(|p| (p.x, p.y, p.z)),
+                );
+            }
+            if let Some(Ok((reclass, false))) = reverdict {
+                classification = reclass;
+            }
+        }
         if popkern_core::trace::trace_enabled("boolean") {
             eprintln!(
                 "  [classify] {:?} sample ({:.3},{:.3},{:.3}) -> {classification:?}",

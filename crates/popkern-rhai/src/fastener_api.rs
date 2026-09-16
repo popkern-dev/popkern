@@ -91,10 +91,10 @@ fn thread_spec(value: &Dynamic, options: &Options) -> Result<ThreadSpecArg, Box<
              or a #{ major, pitch } map",
         ));
     };
-    if let Some(true) = options.with("left_hand", args::boolean)? {
+    if let Some(true) = options.with_if_allowed("left_hand", args::boolean)? {
         arg.left_handed = true;
     }
-    if let Some(starts) = options.with("starts", |a, v| {
+    if let Some(starts) = options.with_if_allowed("starts", |a, v| {
         v.as_int().map_err(|_| argument_error(a, "an integer"))
     })? {
         if !(1..=8).contains(&starts) {

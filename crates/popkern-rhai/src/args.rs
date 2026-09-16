@@ -352,4 +352,21 @@ impl Options {
     ) -> Result<Option<T>, Box<EvalAltResult>> {
         self.get(key).map(|v| parse(key, v)).transpose()
     }
+
+    /// [`Options::with`] for parsers shared across verbs whose allowed
+    /// lists differ (a thread spec reads `left_hand`/`starts`, which a
+    /// clearance hole's option list rightly omits — no thread is
+    /// modeled). A key this verb does not allow reads as absent:
+    /// `parse` already rejected it if the user passed it, so the
+    /// allowed list stays the single authority on the verb's surface.
+    pub fn with_if_allowed<T>(
+        &self,
+        key: &str,
+        parse: impl FnOnce(&str, &Dynamic) -> Result<T, Box<EvalAltResult>>,
+    ) -> Result<Option<T>, Box<EvalAltResult>> {
+        if !self.allowed.contains(&key) {
+            return Ok(None);
+        }
+        self.with(key, parse)
+    }
 }

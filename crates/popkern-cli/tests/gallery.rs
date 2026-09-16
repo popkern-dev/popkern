@@ -141,6 +141,25 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "computed involute teeth, internal ring gears, meshing-assembly phasing, \
          the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
     ),
+    (
+        "fastener_kit",
+        "Fastener kit",
+        "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk \
+         screw — real modeled ISO threads with heads, tip lead-ins, and runout \
+         from the nominal tables.",
+        9,
+        "bolt and nut generators, ISO thread designations, head styles, \
+         printed-fit clearance, multi-body layout",
+    ),
+    (
+        "angled_fitting",
+        "Angled fitting",
+        "A wedge bracket tapped normal to its inclined face, a countersunk \
+         clearance hole through the base, and the flat-head screw that fits it.",
+        6,
+        "tapped_hole and clearance_hole on arbitrary axes, axis_at placement, \
+         countersinks, thread fit classes",
+    ),
 ];
 
 fn root() -> PathBuf {

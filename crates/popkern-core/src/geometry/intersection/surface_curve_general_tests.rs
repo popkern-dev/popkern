@@ -203,3 +203,47 @@ fn invariant_curve_surface_match() {
         }
     }
 }
+
+// -----------------------------------------------------------------------
+// padded_cell AABB containment: the box must contain its patch even
+// when the radial extremum lies BETWEEN the centre and a corner
+// (PK-460 tl=8: a 74°-azimuth helical-band cell phased by the classify
+// window pad boxed x ≤ 2.95 while the patch bulged to 3.0625; the
+// exit crossing was AABB-culled before Newton ran and an inside-tool
+// sample classified Outside). A cylinder cell reproduces the blind
+// spot exactly: azimuth span [-15°, +58°] puts the x-extremum at
+// azimuth 0 — off-centre and outside the corner box.
+// -----------------------------------------------------------------------
+#[test]
+fn padded_cell_contains_off_center_bulge() {
+    let cylinder = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 3.0625,
+    };
+    let deg = std::f64::consts::PI / 180.0;
+    let u_range = (-15.0 * deg, 58.0 * deg);
+    let v_range = (0.0, 0.4);
+    let cell = super::surface_curve_grid::padded_cell(&cylinder, u_range, v_range);
+    for i in 0..=20 {
+        for j in 0..=20 {
+            let u = u_range.0 + (u_range.1 - u_range.0) * i as f64 / 20.0;
+            let v = v_range.0 + (v_range.1 - v_range.0) * j as f64 / 20.0;
+            let p = cylinder.point_at(u, v);
+            assert!(
+                p.x >= cell.min.x
+                    && p.x <= cell.max.x
+                    && p.y >= cell.min.y
+                    && p.y <= cell.max.y
+                    && p.z >= cell.min.z
+                    && p.z <= cell.max.z,
+                "patch point ({},{},{}) outside cell box {:?}..{:?} at uv ({u},{v})",
+                p.x,
+                p.y,
+                p.z,
+                (cell.min.x, cell.min.y, cell.min.z),
+                (cell.max.x, cell.max.y, cell.max.z),
+            );
+        }
+    }
+}

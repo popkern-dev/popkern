@@ -127,6 +127,22 @@
       "file": "planetary_gearbox.rhai",
       "thumbnail": "examples/planetary_gearbox.png",
       "title": "Planetary gearbox"
+    },
+    {
+      "blurb": "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk screw — real modeled ISO threads with heads, tip lead-ins, and runout from the nominal tables.",
+      "demonstrates": "bolt and nut generators, ISO thread designations, head styles, printed-fit clearance, multi-body layout",
+      "features": 9,
+      "file": "fastener_kit.rhai",
+      "thumbnail": "examples/fastener_kit.png",
+      "title": "Fastener kit"
+    },
+    {
+      "blurb": "A wedge bracket tapped normal to its inclined face, a countersunk clearance hole through the base, and the flat-head screw that fits it.",
+      "demonstrates": "tapped_hole and clearance_hole on arbitrary axes, axis_at placement, countersinks, thread fit classes",
+      "features": 6,
+      "file": "angled_fitting.rhai",
+      "thumbnail": "examples/angled_fitting.png",
+      "title": "Angled fitting"
     }
   ]
 }
