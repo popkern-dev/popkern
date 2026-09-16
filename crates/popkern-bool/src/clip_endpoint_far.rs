@@ -13,7 +13,7 @@ use popkern_core::geometry::uv_projection::project_point_to_uv_near;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::clip_endpoint_refine::{boundary_edges, clone_curve_geometry, endpoint};
+use super::clip_endpoint_refine::{clone_curve_geometry, endpoint, trim_boundary_edges};
 
 pub(crate) use crate::curve_projection::project_onto_curve_dense;
 
@@ -54,7 +54,7 @@ pub(crate) fn far_junction(
         (brep_a, face_a, surf_b, windows_b),
         (brep_b, face_b, surf_a, windows_a),
     ] {
-        for eh in boundary_edges(brep, face) {
+        for eh in trim_boundary_edges(brep, face) {
             let Some(edge) = brep.edges.get(eh) else {
                 continue;
             };
@@ -311,7 +311,7 @@ pub(crate) fn retrim_piece_to_junction(
         let boundary_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
             .into_iter()
             .flat_map(|(brep, face)| {
-                boundary_edges(brep, face)
+                trim_boundary_edges(brep, face)
                     .into_iter()
                     .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
             })
@@ -375,7 +375,7 @@ pub(crate) fn retrim_piece_to_junction(
         let boundary_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
             .into_iter()
             .flat_map(|(brep, face)| {
-                boundary_edges(brep, face)
+                trim_boundary_edges(brep, face)
                     .into_iter()
                     .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
             })

@@ -20,6 +20,9 @@ use popkern_core::geometry::uv_projection::{
 
 use crate::merge::graph::{FaceRef, IntersectionGraph};
 
+#[path = "chart_embedding_unfold.rs"]
+mod chart_embedding_unfold;
+
 /// Where a chart embedding's UV run came from (feeds the coverage
 /// census in the subdivision report).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +251,19 @@ pub(crate) fn build_embedding(
         );
     }
     let ((mut uv, mut refined_first, mut refined_last), source) = run?;
+    // Period-fold unfolding for pcurve-sourced runs — mechanism and
+    // measured rationale in `chart_embedding_unfold`.
+    if matches!(
+        source,
+        EmbeddingSource::OwnPcurve | EmbeddingSource::TwinPcurve
+    ) {
+        chart_embedding_unfold::unfold_pcurve_run(
+            surface,
+            &mut uv,
+            &mut refined_first,
+            &mut refined_last,
+        );
+    }
     // The resolved half-edge `h` runs opposite the registered `raw`
     // when the twin owned this face's pcurve/curve — reverse into
     // `raw`'s traversal direction (the fragment sampler's measured

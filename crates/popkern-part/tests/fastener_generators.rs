@@ -122,7 +122,6 @@ fn m6_nut_with_chamfers_serves_watertight() {
 }
 
 #[test]
-#[ignore = "PK-491: cellular goes non-manifold on the two-start runout/seam family under corrected surface-curve AABBs; graph-merge declines honestly (the pre-fix green rode under-covering AABBs whose lucky culls let cellular serve)"]
 fn left_hand_two_start_bolt_serves() {
     let spec = ThreadSpec::parse("M8")
         .expect("M8")

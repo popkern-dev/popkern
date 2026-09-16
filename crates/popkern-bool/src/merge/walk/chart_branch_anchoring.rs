@@ -200,6 +200,36 @@ pub(super) fn anchor_components(
             .map(|(n, _)| *n)
             .collect()
     };
+    if span > period * (1.0 + 1e-6) && popkern_core::trace::trace_enabled("branch-pairing") {
+        // Decline observability: which half-edges stretch the
+        // reference frame past one period (the frame the ChartOverwrap
+        // decline will cite). Printed before the lattice retry so both
+        // the tuned and retried frames are attributable.
+        if let Some(rc) = ref_comp_of(&components) {
+            for &h in &components[rc] {
+                let emb = &sub.embeddings[&h];
+                let (blo, bhi) = emb
+                    .uv
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, hh), &(u, _)| {
+                        (l.min(u), hh.max(u))
+                    });
+                let (s, e) = ends(h);
+                eprintln!(
+                    "  [branch] overwrap member he {h}: u [{blo:.4},{bhi:.4}] nodes ({s},{e}) uv-samples {:?}",
+                    sub.embeddings[&h]
+                        .uv
+                        .iter()
+                        .step_by((sub.embeddings[&h].uv.len() / 8).max(1))
+                        .map(|&(u, v)| (
+                            (u * 1000.0).round() / 1000.0,
+                            (v * 1000.0).round() / 1000.0
+                        ))
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+    }
     if span > period * (1.0 + 1e-6) && !lattice_nodes.is_empty() {
         {
             for (&h, &shift) in &applied {

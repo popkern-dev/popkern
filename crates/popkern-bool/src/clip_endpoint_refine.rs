@@ -219,66 +219,9 @@ fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::
 
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
-#[allow(clippy::too_many_arguments)]
-/// Every boundary edge handle of `face` — outer AND inner loops. The
-/// refinement's junction search must see hole rims too: a record
-/// exiting through a bore mouth crosses the top face's INNER loop
-/// (measured, PK-465 — the angled tap's exit records cross the mouth
-/// rim, which the outer-loop-only walk never visited).
-pub(crate) fn boundary_edges_outer(
-    brep: &BRep,
-    face: FaceHandle,
-) -> Vec<popkern_core::topology::EdgeHandle> {
-    let Some(face_data) = brep.faces.get(face) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    let Some(lp) = brep.loops.get(face_data.outer_loop) else {
-        return out;
-    };
-    let start = lp.half_edge;
-    let mut he = start;
-    for _ in 0..brep.half_edges.len().max(1) {
-        let Some(h) = brep.half_edges.get(he) else {
-            break;
-        };
-        out.push(h.edge);
-        he = h.next;
-        if he == start {
-            break;
-        }
-    }
-    out
-}
-
-pub(crate) fn boundary_edges(
-    brep: &BRep,
-    face: FaceHandle,
-) -> Vec<popkern_core::topology::EdgeHandle> {
-    let mut out = Vec::new();
-    let Some(face_data) = brep.faces.get(face) else {
-        return out;
-    };
-    let loops = std::iter::once(face_data.outer_loop).chain(face_data.inner_loops.iter().copied());
-    for lh in loops {
-        let Some(lp) = brep.loops.get(lh) else {
-            continue;
-        };
-        let start = lp.half_edge;
-        let mut he = start;
-        for _ in 0..brep.half_edges.len().max(1) {
-            let Some(h) = brep.half_edges.get(he) else {
-                break;
-            };
-            out.push(h.edge);
-            he = h.next;
-            if he == start {
-                break;
-            }
-        }
-    }
-    out
-}
+pub(crate) use crate::clip_boundary_edges::{
+    boundary_edges, boundary_edges_outer, trim_boundary_edges,
+};
 
 #[allow(clippy::too_many_arguments)]
 fn refine_against_face(

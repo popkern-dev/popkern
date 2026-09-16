@@ -28,7 +28,7 @@ use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::clip_endpoint_far::project_onto_curve_dense;
-use crate::clip_endpoint_refine::boundary_edges;
+use crate::clip_endpoint_refine::trim_boundary_edges;
 
 /// Exact crossing parameters of `curve` with `face_x`'s trim
 /// boundary: every boundary edge of the face intersected with the
@@ -55,7 +55,7 @@ pub(super) fn pierce_crossing_params(
     let (t_min, t_max) = curve.curve_3d.parameter_range();
     let span = (t_max - t_min).abs();
     let mut ts: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
-    for eh in boundary_edges(brep_x, face_x) {
+    for eh in trim_boundary_edges(brep_x, face_x) {
         let Some(edge) = brep_x.edges.get(eh) else {
             continue;
         };
@@ -140,7 +140,7 @@ pub(super) fn intervals_clear_of_boundary(
     let edge_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
         .into_iter()
         .flat_map(|(brep, face)| {
-            boundary_edges(brep, face)
+            trim_boundary_edges(brep, face)
                 .into_iter()
                 .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
         })
