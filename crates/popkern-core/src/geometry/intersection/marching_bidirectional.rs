@@ -92,6 +92,36 @@ pub(crate) fn march(
 /// "step-budget" means the trace was TRUNCATED mid-curve (every
 /// legitimate ending names itself); downstream honest-decline gates
 /// catch the missing span, but the cause is only visible here.
+/// Exhaustion observability (`march` topic): the failed march's
+/// seed frame — inter-surface angle and residual — separates
+/// tangency (sin ≈ 0) from off-surface seeds and Jacobian
+/// pathologies (PK-481 used it to prove 43k exhausted marches were
+/// basis-extension seeds: converged and transversal but off-chart).
+pub(super) fn trace_march_exhaustion(
+    surface1: &crate::geometry::surface::SurfaceGeometry,
+    surface2: &crate::geometry::surface::SurfaceGeometry,
+    seed: Option<&MarchSample>,
+) {
+    use crate::geometry::surface::SurfaceEval as _;
+    if crate::trace::trace_enabled("march")
+        && let Some(s) = seed
+    {
+        let n1 = surface1.normal_at(s.u1, s.v1);
+        let n2 = surface2.normal_at(s.u2, s.v2);
+        let sin = match (n1.normalized(), n2.normalized()) {
+            (Some(a), Some(b)) => a.cross(&b).length(),
+            _ => f64::NAN,
+        };
+        let gap = surface1
+            .point_at(s.u1, s.v1)
+            .distance_to(&surface2.point_at(s.u2, s.v2));
+        eprintln!(
+            "  [march-fail] seed uv1 ({:.4},{:.4}) uv2 ({:.4},{:.4}) sin {sin:.3e} s1-s2 gap {gap:.3e}",
+            s.u1, s.v1, s.u2, s.v2
+        );
+    }
+}
+
 pub(super) fn trace_march_termination(termination: &str, samples: &[MarchSample]) {
     if crate::trace::trace_enabled("march") {
         let last = &samples[samples.len() - 1].point;
