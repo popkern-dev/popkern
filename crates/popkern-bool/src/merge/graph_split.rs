@@ -682,10 +682,24 @@ pub(crate) fn split_shared_edges_at_nodes(
                         }
                     }
                     let t = 0.5 * (lo + hi);
-                    // Interior only — endpoint touches are already nodes.
-                    let interior = (t - t0).abs() > (t1 - t0).abs() * 1e-3
-                        && (t - t1).abs() > (t1 - t0).abs() * 1e-3;
-                    interior && eval.point_at(t).distance_to(&pos) < tolerance
+                    // Interior only — endpoint touches are already
+                    // nodes. POSITIONAL, not parametric: a record's
+                    // genuine crossing can sit arbitrarily close to
+                    // its end in parameter while being a distinct 3D
+                    // junction (measured, PK-491: the m5 tip-cone
+                    // groove wall crosses the cone seam 1.2e-3 rad
+                    // before its endpoint — relative parameter
+                    // 8.5e-4 — and the old 1e-3 parametric exclusion
+                    // vetoed the split; the seam-hit junction never
+                    // formed, the unsplit seam edge self-overlapped
+                    // the chart polygon, and the tessellator's
+                    // grid fallback tore the served tip band).
+                    let p_split = eval.point_at(t);
+                    let start_pos = graph.nodes[he.origin].position;
+                    let end_pos = graph.nodes[twin_origin].position;
+                    let interior = p_split.distance_to(&start_pos) > tolerance
+                        && p_split.distance_to(&end_pos) > tolerance;
+                    interior && p_split.distance_to(&pos) < tolerance
                 } else {
                     let p0 = graph.nodes[he.origin].position;
                     let p1 = graph.nodes[twin_origin].position;

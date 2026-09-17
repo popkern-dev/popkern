@@ -8,6 +8,44 @@ pub(super) fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usiz
     split_at_existing_node_with_pcurves(graph, he_idx, node, None)
 }
 
+/// Closest curve-window parameter to `pos`, or `None` when the
+/// minimizer sits ON the window boundary (relative slop 1e-9) — a
+/// split there would produce a zero-span half.
+fn curve_window_interior_split(
+    curve: &popkern_core::geometry::CurveOnEdge,
+    pos: &popkern_core::geometry::Point3,
+) -> Option<f64> {
+    let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
+    let (t0, t1) = (curve.t_start, curve.t_end);
+    let mut best = (f64::INFINITY, t0);
+    for k in 0..=128 {
+        let t = t0 + (t1 - t0) * k as f64 / 128.0;
+        let d = eval.point_at(t).distance_to(pos);
+        if d < best.0 {
+            best = (d, t);
+        }
+    }
+    let (mut lo, mut hi) = (
+        (best.1 - (t1 - t0) / 128.0).max(t0.min(t1)),
+        (best.1 + (t1 - t0) / 128.0).min(t0.max(t1)),
+    );
+    for _ in 0..40 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        if eval.point_at(m1).distance_to(pos) < eval.point_at(m2).distance_to(pos) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    let t_split = 0.5 * (lo + hi);
+    let span = (t1 - t0).abs().max(f64::MIN_POSITIVE);
+    if (t_split - t0).abs() < span * 1.0e-9 || (t_split - t1).abs() < span * 1.0e-9 {
+        return None;
+    }
+    Some(t_split)
+}
+
 /// [`split_at_existing_node`] that also CUTS both sides' pcurves at
 /// the node's image when the operand breps are supplied (PK-441 —
 /// see `graph_split_pcurve`); without them the pcurves drop, the
@@ -65,31 +103,26 @@ pub(super) fn split_at_existing_node_with_pcurves(
         .or_else(|| graph.half_edges[twin_idx].curve.clone());
     let (parent_curve_trimmed, new_half_curve) = match &pair_curve {
         Some(curve) => {
-            let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
-            let pos = graph.nodes[node].position;
+            // A closest point ON the window boundary would mint a
+            // zero-span half whose endpoints are nonetheless
+            // distinct nodes — geometry that lies (measured,
+            // PK-491: the groove tool's crest-flank edge split at
+            // the cone-seam crossing node 2.4e-3 from its own
+            // junction endpoint; the [0.90,0.90] stub read as a
+            // second curve through the node and derailed the flank
+            // walk's wedge fan). Refuse such a split.
+            let Some(t_split) = curve_window_interior_split(curve, &graph.nodes[node].position)
+            else {
+                if popkern_core::trace::trace_enabled("face-split") {
+                    let np = graph.nodes[node].position;
+                    eprintln!(
+                        "[nsplit] REFUSED window-boundary split of he {he_idx} at node ({:.4},{:.4},{:.4})",
+                        np.x, np.y, np.z
+                    );
+                }
+                return;
+            };
             let (t0, t1) = (curve.t_start, curve.t_end);
-            let mut best = (f64::INFINITY, t0);
-            for k in 0..=128 {
-                let t = t0 + (t1 - t0) * k as f64 / 128.0;
-                let d = eval.point_at(t).distance_to(&pos);
-                if d < best.0 {
-                    best = (d, t);
-                }
-            }
-            let (mut lo, mut hi) = (
-                (best.1 - (t1 - t0) / 128.0).max(t0.min(t1)),
-                (best.1 + (t1 - t0) / 128.0).min(t0.max(t1)),
-            );
-            for _ in 0..40 {
-                let m1 = lo + (hi - lo) / 3.0;
-                let m2 = hi - (hi - lo) / 3.0;
-                if eval.point_at(m1).distance_to(&pos) < eval.point_at(m2).distance_to(&pos) {
-                    hi = m2;
-                } else {
-                    lo = m1;
-                }
-            }
-            let t_split = 0.5 * (lo + hi);
             (
                 Some(popkern_core::geometry::CurveOnEdge {
                     geometry: curve.geometry.clone(),
