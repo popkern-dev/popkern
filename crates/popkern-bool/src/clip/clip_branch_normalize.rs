@@ -72,15 +72,76 @@ pub(super) fn normalize_query_branch(
                     (lo.min(v), hi.max(v))
                 });
             let pad = 0.5 * (vq_hi - vq_lo).max(period * 0.05);
-            let (sum, count) = boundary_nurbs
+            // SCORED STRIPE PICK: the control-point MEAN near the
+            // query's v is off by a whole period when the two long
+            // boundary helices pass that v at different unwound u
+            // and their control points are sparser than the pad
+            // (measured, PK-481: the chamfer cone's rim circle at
+            // v = 6.0 on the bore wall's 4.6-period unwound trim —
+            // the mean landed the query at u ∈ [−12.6, −6.3] while
+            // the band's v = 6.0 stripe sits at ≈ [−14.6, −12.9];
+            // every crossing and containment sample missed and the
+            // closed record dropped whole, stranding the chamfer
+            // chain). Sample each boundary pcurve finely and pick
+            // the stripe (integer shift) that actually CONTAINS
+            // boundary material at the query's v; the mean stays
+            // as the no-material fallback.
+            let mut samples: Vec<(f64, f64)> = Vec::new();
+            for (_, pc) in boundary_nurbs {
+                use popkern_core::geometry::curve::CurveEval as _;
+                let (t0, t1) = pc.parameter_range();
+                for i in 0..=16 {
+                    let t = t0 + (t1 - t0) * i as f64 / 16.0;
+                    let p = pc.point_at(t);
+                    samples.push((p.x, p.y));
+                }
+            }
+            let (q_lo, q_hi) = normalized
+                .control_points
                 .iter()
-                .flat_map(|(_, pc)| pc.control_points.iter())
-                .filter(|p| p.y >= vq_lo - pad && p.y <= vq_hi + pad)
-                .fold((0.0_f64, 0usize), |(s, n), p| (s + p.x, n + 1));
-            if count > 0 {
-                sum / count as f64
+                .map(|p| p.x)
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+                    (lo.min(u), hi.max(u))
+                });
+            let (b_lo, b_hi) = samples
+                .iter()
+                .map(|(u, _)| *u)
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+                    (lo.min(u), hi.max(u))
+                });
+            let k_min = ((b_lo - q_hi) / period).floor() as i64;
+            let k_max = ((b_hi - q_lo) / period).ceil() as i64;
+            let mut best: Option<(usize, f64)> = None;
+            for k in k_min..=k_max {
+                let (w_lo, w_hi) = (q_lo + k as f64 * period, q_hi + k as f64 * period);
+                let score = samples
+                    .iter()
+                    .filter(|(u, v)| {
+                        *u >= w_lo && *u <= w_hi && *v >= vq_lo - pad && *v <= vq_hi + pad
+                    })
+                    .count();
+                let center = 0.5 * (w_lo + w_hi);
+                let better = match best {
+                    None => score > 0,
+                    Some((bs, _)) => score > bs,
+                };
+                if better {
+                    best = Some((score, center));
+                }
+            }
+            if let Some((_, center)) = best {
+                center
             } else {
-                global_center
+                let (sum, count) = boundary_nurbs
+                    .iter()
+                    .flat_map(|(_, pc)| pc.control_points.iter())
+                    .filter(|p| p.y >= vq_lo - pad && p.y <= vq_hi + pad)
+                    .fold((0.0_f64, 0usize), |(s, n), p| (s + p.x, n + 1));
+                if count > 0 {
+                    sum / count as f64
+                } else {
+                    global_center
+                }
             }
         } else {
             global_center

@@ -21,7 +21,6 @@ use crate::spec::ThreadSpec;
 use crate::thread_form::{self, internal_bore_radius, internal_ridge};
 
 #[test]
-#[ignore = "blocked on PK-481: closed records vs multi-wrap helical band faces"]
 fn deep_plunge_chamfer_on_perpendicular_plate() {
     let tolerance = Tolerance::default();
     let spec = ThreadSpec::parse("M6").expect("M6");

@@ -119,6 +119,7 @@ pub(crate) fn find_starting_points(
     // outside them still traces the in-window stretch (both measured
     // on the served pyramid4 strip×cap pair).
     let mut raw_samples: Vec<MarchSample> = Vec::new();
+    let mut drift_printed = 0usize;
 
     if seed_trace_enabled() {
         eprintln!("  [seed] candidates {}", candidate_pairs.len());
@@ -150,6 +151,13 @@ pub(crate) fn find_starting_points(
         if let Some(sample) = march_project(
             surface1, u1_mid, v1_mid, surface2, u2_mid, v2_mid, &anchor_1, &dir_1, tolerance,
         ) {
+            if seed_trace_enabled() && drift_printed < 6 {
+                eprintln!(
+                    "    [seed-drift] mid uv1 ({u1_mid:.4},{v1_mid:.4}) uv2 ({u2_mid:.4},{v2_mid:.4}) -> uv1 ({:.4},{:.4}) uv2 ({:.4},{:.4})",
+                    sample.u1, sample.v1, sample.u2, sample.v2
+                );
+                drift_printed += 1;
+            }
             raw_samples.push(sample);
         }
         let anchor_2 = surface2.point_at(u2_mid, v2_mid);
@@ -163,7 +171,24 @@ pub(crate) fn find_starting_points(
 
     // Step 6: Deduplicate points within linear tolerance.
     if seed_trace_enabled() {
-        eprintln!("  [seed] raw samples {}", raw_samples.len());
+        let in_chart = raw_samples
+            .iter()
+            .filter(|s| {
+                let inside = |x: f64, r: (f64, f64)| {
+                    let (lo, hi) = (r.0.min(r.1), r.0.max(r.1));
+                    let pad = (hi - lo) * 1.0e-6;
+                    x >= lo - pad && x <= hi + pad
+                };
+                inside(s.u1, u1_range)
+                    && inside(s.v1, v1_range)
+                    && inside(s.u2, u2_range)
+                    && inside(s.v2, v2_range)
+            })
+            .count();
+        eprintln!(
+            "  [seed] raw samples {} ({in_chart} in-window)",
+            raw_samples.len()
+        );
     }
     let unique_samples = deduplicate(raw_samples, tolerance);
 

@@ -462,6 +462,28 @@ pub(crate) fn march_one_direction(
 
         if !succeeded {
             termination = "newton-exhausted";
+            // Exhaustion observability (`march` topic): the seed's
+            // local frame — inter-surface angle and residual —
+            // separates tangency (sin ≈ 0) from off-surface seeds
+            // and Jacobian pathologies (PK-481 used it to prove
+            // 43k exhausted marches were basis-extension seeds).
+            if crate::trace::trace_enabled("march")
+                && let Some(s) = samples.last()
+            {
+                let n1 = surface1.normal_at(s.u1, s.v1);
+                let n2 = surface2.normal_at(s.u2, s.v2);
+                let sin = match (n1.normalized(), n2.normalized()) {
+                    (Some(a), Some(b)) => a.cross(&b).length(),
+                    _ => f64::NAN,
+                };
+                let gap = surface1
+                    .point_at(s.u1, s.v1)
+                    .distance_to(&surface2.point_at(s.u2, s.v2));
+                eprintln!(
+                    "  [march-fail] seed uv1 ({:.4},{:.4}) uv2 ({:.4},{:.4}) sin {sin:.3e} s1-s2 gap {gap:.3e}",
+                    s.u1, s.v1, s.u2, s.v2
+                );
+            }
             break;
         }
     }
