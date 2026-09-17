@@ -711,8 +711,17 @@ pub(crate) fn split_shared_edges_at_nodes(
                     );
                 }
                 if on_curve {
-                    super::graph_split_node::split_at_existing_node(graph, i, node_idx);
-                    did_split = true;
+                    // A REFUSED split (window-boundary minimizer)
+                    // must not count as progress: at coarse
+                    // tolerance the same (node, piece) re-matches
+                    // every restart and the loop never terminates
+                    // (measured, PK-342 envelope at linear 1e-2:
+                    // two hours spinning here).
+                    did_split = super::graph_split_node::split_at_existing_node(graph, i, node_idx);
+                    if !did_split {
+                        i += 2;
+                        continue;
+                    }
                     break;
                 }
                 i += 2;

@@ -64,8 +64,11 @@ pub(crate) fn split_shared_edges_at_interior_nodes(
                     );
                 }
                 if on_edge {
-                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                    did_split = true;
+                    did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
+                    if !did_split {
+                        i += 2;
+                        continue;
+                    }
                     break;
                 }
                 i += 2;
@@ -209,8 +212,11 @@ pub(crate) fn split_shared_edges_at_interior_nodes(
                     None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
                 };
                 if on_edge {
-                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                    did_split = true;
+                    did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
+                    if !did_split {
+                        i += 2;
+                        continue;
+                    }
                     break 'outer;
                 }
                 i += 2;
@@ -266,16 +272,18 @@ pub(crate) fn split_edges_at_shared_nodes(
                     // classify_endpoint: a 180° arc was split at
                     // points on its chord, off-surface).
                     if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
-                        split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                        did_split = true;
-                        break;
+                        did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
+                        if did_split {
+                            break;
+                        }
                     }
                 } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
                     // Mirror case: the node sits ON the curve but
                     // off its chord.
-                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                    did_split = true;
-                    break;
+                    did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
+                    if did_split {
+                        break;
+                    }
                 }
                 i += 2;
             }
@@ -418,8 +426,11 @@ pub(crate) fn split_edges_at_shared_nodes(
                     None => point_on_curved_graph_edge(graph, i, &pos, loose).is_some(),
                 };
                 if on_edge {
-                    split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                    did_split = true;
+                    did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
+                    if !did_split {
+                        i += 2;
+                        continue;
+                    }
                     break 'outer;
                 }
                 i += 2;

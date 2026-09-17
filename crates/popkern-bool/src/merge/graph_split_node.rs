@@ -4,7 +4,17 @@
 
 use super::graph::{EdgeSource, GraphHalfEdge, IntersectionGraph};
 
-pub(super) fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
+/// Returns `true` when the edge was actually split — a refused
+/// split (window-boundary minimizer) MUST NOT count as progress in
+/// a caller's restart loop (measured, PK-491/PK-342: at linear 1e-2
+/// a node re-matched the same piece every restart while the guard
+/// refused the split; the tolerance-envelope sweep spun for two
+/// hours in `split_shared_edges_at_nodes`).
+pub(super) fn split_at_existing_node(
+    graph: &mut IntersectionGraph,
+    he_idx: usize,
+    node: usize,
+) -> bool {
     split_at_existing_node_with_pcurves(graph, he_idx, node, None)
 }
 
@@ -59,7 +69,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
         &popkern_core::topology::BRep,
         f64,
     )>,
-) {
+) -> bool {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
     if popkern_core::trace::trace_enabled("face-split") {
@@ -120,7 +130,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
                         np.x, np.y, np.z
                     );
                 }
-                return;
+                return false;
             };
             let (t0, t1) = (curve.t_start, curve.t_end);
             (
@@ -234,6 +244,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
             }
         }
     }
+    true
 }
 
 /// Split original edges at edge-face pierce hits, preserving pcurves,
