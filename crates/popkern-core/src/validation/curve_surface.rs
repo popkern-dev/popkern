@@ -254,8 +254,22 @@ impl BRep {
                     }
                     if fine_dev > tolerance {
                         if popkern_trace_check9() {
+                            let ends = {
+                                let p0 = curve.geometry.point_at(curve.t_start);
+                                let p1 = curve.geometry.point_at(curve.t_end);
+                                format!(
+                                    "({:.6},{:.6},{:.6})->({:.6},{:.6},{:.6}) chord {:.3e}",
+                                    p0.x,
+                                    p0.y,
+                                    p0.z,
+                                    p1.x,
+                                    p1.y,
+                                    p1.z,
+                                    p0.distance_to(&p1)
+                                )
+                            };
                             eprintln!(
-                                "[check9] side {side:?} face {face:?} ({}) t {t:.3} point ({:.6},{:.6},{:.6}) dev {fine_dev:.3e} trange ({:.3},{:.3})",
+                                "[check9] side {side:?} face {face:?} ({}) t {t:.3} point ({:.6},{:.6},{:.6}) dev {fine_dev:.3e} trange ({:.3},{:.3}) ends {ends}",
                                 surface.geometry.kind_name(),
                                 point.x,
                                 point.y,

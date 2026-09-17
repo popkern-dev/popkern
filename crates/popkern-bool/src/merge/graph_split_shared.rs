@@ -103,6 +103,51 @@ pub(crate) fn split_shared_edges_at_interior_nodes(
                 shared_ends.push((he.origin, *face_a, *face_b));
             }
         }
+        // (record face pair, boundary original) combinations already
+        // JOINED at some node: the chain has its junction with that
+        // boundary edge, and a SECOND loose split of the same pair
+        // fuses geometrically distinct points (measured, PK-491:
+        // the M5 12/5 groove-wall chain meets the tool's
+        // crest-flank corner at their true junction, while the
+        // chain's cone-seam crossing node 2.4e-3 away sat 3.3e-4
+        // off the corner curve — the loose split there wired the
+        // crest's boundary through an off-crest vertex and the
+        // transactional validate declined every assembly). A chain
+        // nowhere joined to the candidate edge keeps the PK-305
+        // completion.
+        let original_of = |src: &EdgeSource| match src {
+            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => Some((0u8, *e)),
+            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => Some((1u8, *e)),
+            _ => None,
+        };
+        let joined: std::collections::HashSet<(
+            popkern_core::topology::FaceHandle,
+            popkern_core::topology::FaceHandle,
+            u8,
+            popkern_core::topology::EdgeHandle,
+        )> = {
+            let mut set = std::collections::HashSet::new();
+            for node in &graph.nodes {
+                let mut pairs = Vec::new();
+                let mut origs = Vec::new();
+                for &h in &node.outgoing {
+                    match &graph.half_edges[h].source {
+                        EdgeSource::Shared { face_a, face_b } => pairs.push((*face_a, *face_b)),
+                        s => {
+                            if let Some(o) = original_of(s) {
+                                origs.push(o);
+                            }
+                        }
+                    }
+                }
+                for &(fa, fb) in &pairs {
+                    for &(op, e) in &origs {
+                        set.insert((fa, fb, op, e));
+                    }
+                }
+            }
+            set
+        };
         'outer: for &(node_idx, rec_fa, rec_fb) in &shared_ends {
             let pos = graph.nodes[node_idx].position;
             let mut i = 0;
@@ -121,6 +166,15 @@ pub(crate) fn split_shared_edges_at_interior_nodes(
                         .as_ref()
                         .is_some_and(|f| f.face == rec_fa || f.face == rec_fb);
                 if !edge_face_matches {
+                    i += 2;
+                    continue;
+                }
+                // Already joined elsewhere: skip (see `joined`).
+                let Some((cand_op, cand_orig)) = original_of(&he.source) else {
+                    i += 2;
+                    continue;
+                };
+                if joined.contains(&(rec_fa, rec_fb, cand_op, cand_orig)) {
                     i += 2;
                     continue;
                 }
@@ -258,6 +312,51 @@ pub(crate) fn split_edges_at_shared_nodes(
                 shared_ends.push((he.origin, *face_a, *face_b));
             }
         }
+        // (record face pair, boundary original) combinations already
+        // JOINED at some node: the chain has its junction with that
+        // boundary edge, and a SECOND loose split of the same pair
+        // fuses geometrically distinct points (measured, PK-491:
+        // the M5 12/5 groove-wall chain meets the tool's
+        // crest-flank corner at their true junction, while the
+        // chain's cone-seam crossing node 2.4e-3 away sat 3.3e-4
+        // off the corner curve — the loose split there wired the
+        // crest's boundary through an off-crest vertex and the
+        // transactional validate declined every assembly). A chain
+        // nowhere joined to the candidate edge keeps the PK-305
+        // completion.
+        let original_of = |src: &EdgeSource| match src {
+            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => Some((0u8, *e)),
+            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => Some((1u8, *e)),
+            _ => None,
+        };
+        let joined: std::collections::HashSet<(
+            popkern_core::topology::FaceHandle,
+            popkern_core::topology::FaceHandle,
+            u8,
+            popkern_core::topology::EdgeHandle,
+        )> = {
+            let mut set = std::collections::HashSet::new();
+            for node in &graph.nodes {
+                let mut pairs = Vec::new();
+                let mut origs = Vec::new();
+                for &h in &node.outgoing {
+                    match &graph.half_edges[h].source {
+                        EdgeSource::Shared { face_a, face_b } => pairs.push((*face_a, *face_b)),
+                        s => {
+                            if let Some(o) = original_of(s) {
+                                origs.push(o);
+                            }
+                        }
+                    }
+                }
+                for &(fa, fb) in &pairs {
+                    for &(op, e) in &origs {
+                        set.insert((fa, fb, op, e));
+                    }
+                }
+            }
+            set
+        };
         'outer: for &(node_idx, rec_fa, rec_fb) in &shared_ends {
             let pos = graph.nodes[node_idx].position;
             let mut i = 0;
@@ -276,6 +375,15 @@ pub(crate) fn split_edges_at_shared_nodes(
                         .as_ref()
                         .is_some_and(|f| f.face == rec_fa || f.face == rec_fb);
                 if !edge_face_matches {
+                    i += 2;
+                    continue;
+                }
+                // Already joined elsewhere: skip (see `joined`).
+                let Some((cand_op, cand_orig)) = original_of(&he.source) else {
+                    i += 2;
+                    continue;
+                };
+                if joined.contains(&(rec_fa, rec_fb, cand_op, cand_orig)) {
                     i += 2;
                     continue;
                 }

@@ -254,5 +254,108 @@ pub(crate) fn next_in_chart(
     if crate::trace_enabled_wedge() {
         eprintln!("      [wedge] h {h} -> {:?}", matched.get(&h));
     }
+    // STUB-CONTINUATION REPAIR (PK-491): an ε-length split piece of
+    // a curve that CONTINUES through this node (its long split
+    // sibling arrives here on the same underlying curve, abutting
+    // windows) has an angularly-degenerate wedge, and the
+    // parenthesis matching pairs its arrival with its own twin — a
+    // zero-width U-turn — while the sibling's arrival pairs onto a
+    // third edge. The U-turn loop is a phantom sliver; the side the
+    // stub should hand to its face's kept fragment dangles, and the
+    // assembly declines half-claimed (measured: the M5 countersunk
+    // 12/5 tip pinch, where the groove wall record crosses the cone
+    // seam 2.4e-3 before its junction — the flank chart's kept wall
+    // skipped the wall stub and W2's flank side stranded). The
+    // continuation is the DCEL truth: the sibling's arrival passes
+    // THROUGH onto the stub's departure, and the stub's arrival
+    // takes the departure the sibling held.
+    let chord = |he: usize| -> f64 {
+        let a = graph.nodes[graph.half_edges[he].origin].position;
+        let b = graph.nodes[graph.half_edges[graph.half_edges[he].twin].origin].position;
+        a.distance_to(&b)
+    };
+    let same_source = |x: usize, y: usize| -> bool {
+        use crate::merge::graph::EdgeSource as S;
+        match (&graph.half_edges[x].source, &graph.half_edges[y].source) {
+            (S::OriginalA(e1), S::OriginalA(e2)) | (S::OriginalB(e1), S::OriginalB(e2)) => e1 == e2,
+            (
+                S::Shared {
+                    face_a: a1,
+                    face_b: b1,
+                },
+                S::Shared {
+                    face_a: a2,
+                    face_b: b2,
+                },
+            ) => a1 == a2 && b1 == b2,
+            (S::SplitA { original: e1 }, S::SplitA { original: e2 })
+            | (S::SplitB { original: e1 }, S::SplitB { original: e2 }) => e1 == e2,
+            _ => false,
+        }
+    };
+    let windows_abut = |x: usize, y: usize| -> bool {
+        let win = |he: usize| {
+            graph.half_edges[he]
+                .curve
+                .as_ref()
+                .or_else(|| graph.half_edges[graph.half_edges[he].twin].curve.as_ref())
+                .map(|c| (c.t_start, c.t_end))
+        };
+        let (Some((a0, a1)), Some((b0, b1))) = (win(x), win(y)) else {
+            return false;
+        };
+        let eps = 1.0e-9 * (a0.abs() + a1.abs() + b0.abs() + b1.abs() + 1.0);
+        [(a0, b0), (a0, b1), (a1, b0), (a1, b1)]
+            .iter()
+            .any(|(p, q)| (p - q).abs() < eps)
+    };
+    let mut stub_uturns: Vec<(usize, usize)> = matched
+        .iter()
+        .filter(|(a, d)| graph.half_edges[**a].twin == **d)
+        .map(|(a, d)| (*a, *d))
+        .collect();
+    stub_uturns.sort_unstable();
+    for (a, d) in stub_uturns {
+        // Still a twin pairing? (an earlier iteration may have
+        // re-paired it.)
+        if matched.get(&a) != Some(&d) {
+            continue;
+        }
+        let stub_chord = chord(a);
+        if stub_chord <= 0.0 {
+            continue;
+        }
+        let Some(a_ang) = angle_of(a, false) else {
+            continue;
+        };
+        let sibling = matched
+            .iter()
+            .filter(|(a2, d2)| **a2 != a && **d2 != d)
+            .filter(|(a2, _)| same_source(a, **a2) && windows_abut(a, **a2))
+            .filter(|(a2, _)| chord(**a2) > 50.0 * stub_chord)
+            .filter(|(a2, _)| {
+                // Continuation: the sibling arrives from the
+                // opposite direction (its back is ~π from the
+                // stub's back).
+                angle_of(**a2, false).is_some_and(|x| {
+                    let dlt = (x - a_ang).abs();
+                    (dlt.min(std::f64::consts::TAU - dlt) - std::f64::consts::PI).abs() < 0.2
+                })
+            })
+            .map(|(a2, d2)| (*a2, *d2))
+            .min_by_key(|&(a2, _)| a2);
+        if let Some((a2, d2)) = sibling {
+            matched.insert(a2, d);
+            matched.insert(a, d2);
+            if crate::trace_enabled_wedge() {
+                eprintln!(
+                    "      [wedge] stub-continuation repair at {bp_key:?}: {a2}->{d} (pass-through), {a}->{d2}"
+                );
+            }
+        }
+    }
+    if crate::trace_enabled_wedge() {
+        eprintln!("      [wedge] h {h} (post-stub) -> {:?}", matched.get(&h));
+    }
     matched.get(&h).copied()
 }

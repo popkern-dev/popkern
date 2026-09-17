@@ -121,6 +121,39 @@ fn m6_nut_with_chamfers_serves_watertight() {
     );
 }
 
+/// PK-491 phase-luck pins: the 2026-09-16 sweep on the corrected-AABB
+/// tree measured M5 countersunk 12/5 serving with 103 OPEN MESH EDGES
+/// (a validator-clean mesh lie) and 11/6 declining on 21 strands —
+/// both members of the seam-conflict class the trim-boundary /
+/// embedding-unfold mechanisms retired. Pinned per the close-out
+/// acceptance so the class cannot silently reopen at these phases.
+#[test]
+fn m5_countersunk_pk491_phase_points_serve_watertight() {
+    let mut failures = Vec::new();
+    for (length, thread) in [(12.0, 5.0), (11.0, 6.0)] {
+        let spec = ThreadSpec::parse("M5").expect("M5");
+        let screw = CountersunkScrew::new(spec, length)
+            .thread_length(thread)
+            .build(Tolerance::default());
+        let screw = match screw {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!("{length}/{thread}: {e}"));
+                continue;
+            }
+        };
+        let open = screw.open_edge_count().expect("mesh");
+        eprintln!("[pk491-pin] M5 countersunk {length}/{thread}: {open} open edges");
+        if open != 0 {
+            failures.push(format!("{length}/{thread}: {open} open edges"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "M5 countersunk phase points: {failures:?}"
+    );
+}
+
 #[test]
 fn left_hand_two_start_bolt_serves() {
     let spec = ThreadSpec::parse("M8")
