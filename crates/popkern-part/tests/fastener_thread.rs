@@ -207,3 +207,40 @@ fn off_pitch_rod_lengths_serve_watertight() {
         assert_eq!(rod.open_edge_count().expect("mesh"), 0, "rod {len}");
     }
 }
+
+/// PK-461: the marched flank×shank intersection budgeted one cut to
+/// ~35 turns (200k sag-quality steps) — beyond it the trace
+/// truncated and the merge's strand gate declined honestly. The
+/// radial level-curve arm traces the exact helical records with no
+/// step budget, so a rod past the old bound serves with ISO volume.
+/// The serve frontier is currently contained at 40 tool turns
+/// (`MAX_SERVED_WRAPS`, PK-494 lifts it): this fixture's tool coil is
+/// 39 turns.
+#[test]
+fn long_rod_beyond_the_march_turn_budget_serves() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let rod = ThreadedRod::new(spec.clone(), 38.0)
+        .tip_chamfer(false)
+        .build(Tolerance::default())
+        .expect("38-turn rod");
+    serve_and_check_volume(&rod, expected_rod_volume(&spec, 38.0), "M6 38-turn rod");
+}
+
+/// PK-494 containment: a thread cut past the verified 40-wrap serve
+/// frontier declines instantly with a structured, actionable error —
+/// never a torn serve (measured: past the frontier both intersection
+/// paths can assemble a body whose mesh tears by thousands of open
+/// edges while the BRep validators stay green).
+#[test]
+fn beyond_frontier_thread_length_declines_structurally() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let err = ThreadedRod::new(spec, 45.0)
+        .tip_chamfer(false)
+        .build(Tolerance::default())
+        .expect_err("45-turn rod is past the verified serve frontier");
+    let text = format!("{err:?}");
+    assert!(
+        text.contains("PK-494"),
+        "decline must name the frontier task: {text}"
+    );
+}

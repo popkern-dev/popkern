@@ -149,13 +149,15 @@ pub(crate) fn union(
 /// surfaces are exact tangent-continuations of the groove walls the
 /// earlier run just cut, meeting at the shared cap station (a
 /// coincident/tangent boolean class beyond the flush planar caps the
-/// kernel has closed). The single cut is bounded instead by the SSI
-/// march budget (~35 turns for an M6 at the default tolerance); a
-/// thread beyond it truncates its intersection curves and the
-/// merge's strand gate declines honestly. The recorded follow-up is
-/// an analytic fast path for helical-sweep wall × coaxial cylinder
-/// pairs (the curves are exact helices), which removes both the
-/// budget and the march cost.
+/// kernel has closed). The flank×shank intersections are traced by
+/// the radial level-curve arm (PK-461,
+/// `popkern_core::geometry::intersection::radial_level_curve`),
+/// which has no step budget — the historical ~35-turn bound came
+/// from the marching solver's 200k-step budget. The serve frontier
+/// is currently the arm's 40-wrap containment (PK-494: the
+/// boolean/mesh substrate past 40 wraps): beyond it, and whenever
+/// the arm's structure gates decline a pair, marching runs, its
+/// budget truncates, and the merge's strand gate declines honestly.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cut_thread(
     body: &BRep,
@@ -171,6 +173,26 @@ pub(crate) fn cut_thread(
     let (mut z0, turns) = plan_turns(z_start, z_end, spec.lead());
     if let Some(floor) = tool_floor {
         z0 = z0.max(floor);
+    }
+    // Serve containment (PK-494): the boolean/mesh substrate is
+    // verified through 40-wrap thread serves; beyond it boundary-first
+    // meshing fails Delaunay coverage on the ultra-anisotropic wall
+    // charts and both intersection paths can assemble a torn serve —
+    // worse than a decline. Declining HERE (not in the kernel) keeps
+    // the failure structured and instant; the radial level-curve
+    // arm's own wrap containment is defense-in-depth for other
+    // callers. PK-494 lifts both with the anisotropy-aware mesh
+    // substrate.
+    const MAX_SERVED_TURNS: f64 = 40.5;
+    if turns > MAX_SERVED_TURNS {
+        return Err(FastenerError::Construction {
+            stage: stage.to_string(),
+            detail: format!(
+                "thread cut spans {turns} tool turns, past the verified {MAX_SERVED_TURNS}-turn \
+                 serve frontier (PK-494: multi-wrap boolean/mesh substrate) — split the thread \
+                 into shorter segments or reduce the threaded length"
+            ),
+        });
     }
     // ONE boolean for ALL starts: the starts' grooves are cut from a
     // single multi-shell tool (the disjoint groove coils
