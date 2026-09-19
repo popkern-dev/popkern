@@ -10,7 +10,7 @@ use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::{
     cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder, plane_sphere,
-    plane_torus, torus_coaxial,
+    plane_torus, radial_level_curve, torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -187,6 +187,19 @@ pub(super) fn try_analytic_pair(
         ) {
             return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
         }
+    }
+
+    // Radial level-curve arm: NURBS band × cylinder pairs whose
+    // distance-to-axis field crosses the cylinder radius as a
+    // transversal graph, scoped to multi-wrap traces (thread-groove
+    // flank × shank — PK-461). The marched path priced an M6 cut at
+    // 10–30 s and its 200k-step budget bounded one cut to ~35 turns.
+    // Every gate failure falls through to marching;
+    // POPKERN_ANALYTIC_HELICAL_SSI=0 pins marching for A/B.
+    if let Some(intersections) = radial_level_curve::try_radial_level_curve(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    ) {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
     }
 
     // Fast path: coincident surfaces → return CoincidentRegion immediately.

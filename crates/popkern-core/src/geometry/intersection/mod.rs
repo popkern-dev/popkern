@@ -28,6 +28,7 @@ pub(crate) mod plane_sphere;
 pub(crate) mod plane_torus;
 mod plane_torus_spiric;
 mod plane_torus_spiric_frame;
+pub(crate) mod radial_level_curve;
 mod rational_bezier;
 pub mod starting_points;
 pub mod surface_curve;
@@ -332,6 +333,9 @@ pub fn intersect_curves(
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+#[path = "radial_level_curve_tests.rs"]
+mod radial_level_curve_tests;
 #[cfg(test)]
 #[path = "surface_surface_crease_tests.rs"]
 mod surface_surface_crease_tests;
