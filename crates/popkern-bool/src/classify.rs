@@ -11,9 +11,7 @@ use popkern_core::{
     geometry::{
         Point3, Vec3,
         curve::CurveGeometry,
-        intersection::{
-            SurfaceCurveIntersection, surface_subdivision::Aabb,
-        },
+        intersection::{SurfaceCurveIntersection, surface_subdivision::Aabb},
         surface::{SurfaceEval, SurfaceGeometry},
     },
     tolerance::Tolerance,

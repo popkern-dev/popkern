@@ -16,6 +16,7 @@ parallel = ["dep:rayon"]
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 rayon = { workspace = true, optional = true }
+robust = "1.2.0"
 thiserror.workspace = true
 
 [dev-dependencies]

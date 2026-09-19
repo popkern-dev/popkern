@@ -79,25 +79,34 @@ pub(super) fn bowyer_watson(points: &[(f64, f64)]) -> Option<Vec<[usize; 3]>> {
 }
 
 fn in_circumcircle(p: (f64, f64), a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> bool {
-    // Standard incircle determinant with orientation normalization.
-    let orient = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
-    if orient.abs() < 1e-300 {
+    // EXACT adaptive predicates (Shewchuk, via the `robust` crate) —
+    // PK-494. The float determinant with a relative-epsilon guard
+    // degraded on multi-wrap wall charts: metric scaling puts the
+    // chart at ~776×0.43 with thousands of exactly-collinear
+    // chart-edge samples, the super-triangle multiplies coordinate
+    // magnitudes by 16×extent, and sliver circumcircle determinants
+    // fell inside the epsilon — cavity boundaries went non-manifold,
+    // consecutive crease-chain segments vanished from the
+    // triangulation, and the coverage gate sent every tool wall face
+    // to the uniform-grid fallback (the 41-tool-turn torn serve).
+    // Exactly-cocircular stays OUT of the circumcircle, now exactly:
+    // any triangulation of a cocircular set is equally Delaunay, and
+    // a hole ring sampled from an analytic circle must not cascade
+    // arbitrary re-triangulations.
+    let orient = robust::orient2d(
+        robust::Coord { x: a.0, y: a.1 },
+        robust::Coord { x: b.0, y: b.1 },
+        robust::Coord { x: c.0, y: c.1 },
+    );
+    if orient == 0.0 {
+        // Degenerate triangle: no circumcircle.
         return false;
     }
-    let (ax, ay) = (a.0 - p.0, a.1 - p.1);
-    let (bx, by) = (b.0 - p.0, b.1 - p.1);
-    let (cx, cy) = (c.0 - p.0, c.1 - p.1);
-    let t1 = (ax * ax + ay * ay) * (bx * cy - by * cx);
-    let t2 = (bx * bx + by * by) * (ax * cy - ay * cx);
-    let t3 = (cx * cx + cy * cy) * (ax * by - ay * bx);
-    let det = t1 - t2 + t3;
-    // Relative-epsilon guard: exactly-cocircular points (e.g. hole
-    // rings sampled from an analytic circle) give det = ±1e-17 float
-    // noise; strict comparison then cascades arbitrary
-    // re-triangulations that break boundary segments. Near-zero is
-    // OUT of the circumcircle — any triangulation of a cocircular
-    // set is equally Delaunay.
-    let scale = t1.abs() + t2.abs() + t3.abs();
-    let eps = scale * 1.0e-12;
-    if orient > 0.0 { det > eps } else { det < -eps }
+    let det = robust::incircle(
+        robust::Coord { x: a.0, y: a.1 },
+        robust::Coord { x: b.0, y: b.1 },
+        robust::Coord { x: c.0, y: c.1 },
+        robust::Coord { x: p.0, y: p.1 },
+    );
+    if orient > 0.0 { det > 0.0 } else { det < 0.0 }
 }
