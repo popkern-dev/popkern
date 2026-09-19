@@ -442,11 +442,11 @@ fn axial_window_clips_the_trace() {
 #[test]
 fn wrap_containment_declines_beyond_the_verified_serve_frontier() {
     let _guard = env_lock();
-    // 42 wraps is past the 40.5-wrap serve containment (PK-494): the
+    // 48 wraps is past the 46.5-wrap serve containment (PK-494): the
     // downstream boolean/mesh substrate is only verified through
-    // 40-wrap serves, and a decline to marching (budget truncation,
+    // 46-wrap serves, and a decline to marching (budget truncation,
     // strand-gate decline) is honest where a torn serve is not.
-    let wall = helical_band(2.0, 4.0, 42.0, 1.0);
+    let wall = helical_band(2.0, 4.0, 48.0, 1.0);
     let cyl = shank_cylinder(3.0);
     let tol = Tolerance::default();
     assert!(
@@ -456,7 +456,7 @@ fn wrap_containment_declines_beyond_the_verified_serve_frontier() {
             (0.0, 1.0),
             &cyl,
             (0.0, TAU),
-            (-1.0, 43.0),
+            (-1.0, 49.0),
             &tol,
         )
         .is_none(),

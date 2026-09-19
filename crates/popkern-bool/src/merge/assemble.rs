@@ -297,6 +297,43 @@ pub(crate) fn assemble_result(
                 };
                 let graph_twin = graph.half_edges[ghe].twin;
 
+                // PK-494 diagnostic probe (uv-scramble topic): claim
+                // ledger for Shared records near a query height set by
+                // POPKERN_CLAIM_TRACE_Z — prints every resolution of a
+                // matching graph half-edge with its slot state.
+                if popkern_core::trace::trace_enabled("uv-scramble")
+                    && let Some(zq) = std::env::var("POPKERN_CLAIM_TRACE_Z")
+                        .ok()
+                        .and_then(|v| v.parse::<f64>().ok())
+                {
+                    let o = graph.nodes[graph.half_edges[ghe].origin].position;
+                    let e = graph.nodes[graph.half_edges[graph_twin].origin].position;
+                    if (o.z - zq).abs() < 0.5 || (e.z - zq).abs() < 0.5 {
+                        let state = |g: usize| match hmap.get(&g) {
+                            None => "unmapped".to_string(),
+                            Some(&bh) => {
+                                if bld.brep().half_edges[bh].loop_ == default_loop {
+                                    "free".to_string()
+                                } else {
+                                    "taken".to_string()
+                                }
+                            }
+                        };
+                        eprintln!(
+                            "  [claim] ghe {ghe} src {:?} flip {flip} for {:?} span ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) slots self:{} twin:{}",
+                            graph.half_edges[ghe].source,
+                            fragment.face,
+                            o.x,
+                            o.y,
+                            o.z,
+                            e.x,
+                            e.y,
+                            e.z,
+                            state(ghe),
+                            state(graph_twin)
+                        );
+                    }
+                }
                 // Try primary mapping.
                 if let Some(&brep_he) = hmap.get(&ghe)
                     && bld.brep().half_edges[brep_he].loop_ == default_loop
@@ -313,9 +350,27 @@ pub(crate) fn assemble_result(
                     && bld.brep().half_edges[alt].loop_ == default_loop
                 {
                     if popkern_core::trace::trace_enabled("uv-scramble") {
+                        let owner = hmap
+                            .get(&ghe)
+                            .map(|&bh| {
+                                let lp = bld.brep().half_edges[bh].loop_;
+                                format!("{:?}", bld.brep().loops.get(lp).map(|l| l.face))
+                            })
+                            .unwrap_or_else(|| "unmapped".into());
+                        let (o, e) = (
+                            graph.nodes[graph.half_edges[ghe].origin].position,
+                            graph.nodes[graph.half_edges[graph_twin].origin].position,
+                        );
                         eprintln!(
-                            "  [uv-scramble] alt-install ghe {ghe} (twin {graph_twin}) for {:?}",
-                            fragment.face
+                            "  [uv-scramble] alt-install ghe {ghe} (twin {graph_twin}) src {:?} for {:?} primary-owner {owner} span ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                            graph.half_edges[ghe].source,
+                            fragment.face,
+                            o.x,
+                            o.y,
+                            o.z,
+                            e.x,
+                            e.y,
+                            e.z
                         );
                     }
                     // Fix pcurve: the alt half-edge may have the twin's

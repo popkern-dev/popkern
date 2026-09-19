@@ -234,10 +234,10 @@ fn long_rod_beyond_the_march_turn_budget_serves() {
 #[test]
 fn beyond_frontier_thread_length_declines_structurally() {
     let spec = ThreadSpec::parse("M6").expect("M6");
-    let err = ThreadedRod::new(spec, 45.0)
+    let err = ThreadedRod::new(spec, 50.0)
         .tip_chamfer(false)
         .build(Tolerance::default())
-        .expect_err("45-turn rod is past the verified serve frontier");
+        .expect_err("50-turn rod is past the verified serve frontier");
     let text = format!("{err:?}");
     assert!(
         text.contains("PK-494"),

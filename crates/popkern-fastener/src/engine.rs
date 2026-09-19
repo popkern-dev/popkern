@@ -175,15 +175,17 @@ pub(crate) fn cut_thread(
         z0 = z0.max(floor);
     }
     // Serve containment (PK-494): the boolean/mesh substrate is
-    // verified through 40-wrap thread serves; beyond it boundary-first
-    // meshing fails Delaunay coverage on the ultra-anisotropic wall
-    // charts and both intersection paths can assemble a torn serve —
-    // worse than a decline. Declining HERE (not in the kernel) keeps
-    // the failure structured and instant; the radial level-curve
-    // arm's own wrap containment is defense-in-depth for other
-    // callers. PK-494 lifts both with the anisotropy-aware mesh
-    // substrate.
-    const MAX_SERVED_TURNS: f64 = 40.5;
+    // verified through 46-tool-turn thread serves (per-turn probe
+    // ladder; PK-494 layers 1-2 moved the bound from 40). Beyond it
+    // the chart-corner triangle's inverted winding cascades into
+    // either an honest cellular decline or a graph-merge loop-gap —
+    // and historically past-frontier serves have TORN instead of
+    // declining, which is worse. Declining HERE keeps the failure
+    // structured and instant; the radial level-curve arm's own wrap
+    // containment is defense-in-depth for other callers. PK-494
+    // layer 3 (region-adjacency seam-side assignment in the walk)
+    // lifts this further.
+    const MAX_SERVED_TURNS: f64 = 46.5;
     // POPKERN_MULTIWRAP_SERVE_CONTAINMENT=0 lifts the gate for
     // PK-494's frontier probes (PK-239 kill-switch precedent;
     // per-call read) — never for production serves.
