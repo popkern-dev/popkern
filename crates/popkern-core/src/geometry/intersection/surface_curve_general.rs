@@ -160,6 +160,7 @@ fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f6
 ///
 /// Orchestrates: overlap detection, curve Bezier decomposition, surface
 /// bounding-box grid, AABB culling, Newton 3x3 polish, dedup, sort.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn intersect_surface_curve_general(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),
@@ -167,6 +168,7 @@ pub(crate) fn intersect_surface_curve_general(
     curve: &CurveGeometry,
     t_range: (f64, f64),
     tolerance: &Tolerance,
+    dense_grid: bool,
 ) -> Vec<SurfaceCurveIntersection> {
     // --- Step 1: overlap detection ---
     let mut results =
@@ -190,7 +192,7 @@ pub(crate) fn intersect_surface_curve_general(
         .collect();
 
     // --- Step 3: build surface bbox grid ---
-    let surface_cells = build_surface_grid(surface, u_range, v_range, GRID_N);
+    let surface_cells = build_surface_grid(surface, u_range, v_range, GRID_N, dense_grid);
 
     // --- Step 4: AABB culling + Newton polish ---
     let margin = tolerance.linear() * 10.0; // small margin for AABB overlap test

@@ -27,19 +27,17 @@ pub(super) struct SurfaceCell {
 /// double-grind's kept cap fragment was discarded — PK-441). Knot
 /// spans measure where the surface actually bends; the cap keeps the
 /// candidate set bounded.
-/// KNOWN LIMIT (PK-494): the 48-per-axis clamp starves multi-wrap
-/// coils past ~40 turns — at 41 tool turns (~980 v-spans) rays
-/// through the coil get ~1.2 cells per turn, Newton seeds land up to
-/// half a turn from the crossing, and classification rays miss wall
-/// crossings (even parity for interior points). A total-cell-budget
-/// version (48² spent on the denser axis) fixed that class but
-/// regressed the M5 seam-pinch serve (PK-491 fixture, phase 11/6:
-/// denser rays flipped a near-graze crossing verdict and cellular
-/// declined on a 1.3e-6 shell gap) — the classification substrate is
-/// sensitive to ray hit-set density, so the density lift belongs to
-/// PK-494's frontier work alongside the anisotropic-chart meshing.
-/// Until then the thread engine contains serves at 40 tool turns.
-pub(super) fn grid_density(surface: &SurfaceGeometry, base: usize) -> (usize, usize) {
+/// With `dense` (parity consumers — classification rays through
+/// multi-wrap coils, PK-494) the per-axis cap is budgeted on the
+/// TOTAL cell count (48²) spent on the denser knot axis: the flat
+/// 48-per-axis clamp starves >40-turn coils to ~1.2 cells per turn,
+/// Newton seeds land up to half a turn from the crossing, and rays
+/// miss wall crossings (even parity for interior points). Without
+/// `dense` (imprint/edge-hit discovery) the historical 48-per-axis
+/// clamp stands: the split stage's junction graph is calibrated to
+/// that hit set, and enumerating extra near-graze hits re-wired the
+/// M5 seam-pinch serve into a shell-gap decline (measured, PK-461).
+pub(super) fn grid_density(surface: &SurfaceGeometry, base: usize, dense: bool) -> (usize, usize) {
     match surface {
         SurfaceGeometry::Nurbs(s) => {
             let spans = |knots: &[f64]| {
@@ -49,10 +47,17 @@ pub(super) fn grid_density(surface: &SurfaceGeometry, base: usize) -> (usize, us
                     .count()
                     .max(1)
             };
-            let d = (
-                spans(&s.knots_u).clamp(base, 48),
-                spans(&s.knots_v).clamp(base, 48),
-            );
+            const CELL_BUDGET: usize = 48 * 48;
+            let (su, sv) = (spans(&s.knots_u), spans(&s.knots_v));
+            let (cap_u, cap_v) = if dense {
+                (
+                    (CELL_BUDGET / sv.clamp(1, 48)).max(48),
+                    (CELL_BUDGET / su.clamp(1, 48)).max(48),
+                )
+            } else {
+                (48, 48)
+            };
+            let d = (su.clamp(base, cap_u), sv.clamp(base, cap_v));
             if crate::trace::trace_enabled("ray-classify") {
                 eprintln!(
                     "  [scg-grid] nurbs spans u={} v={} -> grid {}x{}",
@@ -146,8 +151,9 @@ pub(super) fn build_surface_grid(
     u_range: (f64, f64),
     v_range: (f64, f64),
     base_n: usize,
+    dense: bool,
 ) -> Vec<SurfaceCell> {
-    let (nu, nv) = grid_density(surface, base_n);
+    let (nu, nv) = grid_density(surface, base_n, dense);
     let (u0, u1) = u_range;
     let (v0, v1) = v_range;
     let du = (u1 - u0) / nu as f64;
@@ -178,4 +184,65 @@ pub(super) fn interior_knots_in(knots: &[f64], a: f64, b: f64) -> Vec<f64> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod grid_density_budget_tests {
+    use super::grid_density;
+    use crate::geometry::surface::SurfaceGeometry;
+    use crate::geometry::{NurbsSurface, Point3};
+
+    fn coil_chart(num_v: usize) -> SurfaceGeometry {
+        let mut knots_v = vec![0.0];
+        for i in 0..num_v {
+            knots_v.push(i as f64 / (num_v - 1) as f64);
+        }
+        knots_v.push(1.0);
+        let mut control_points = Vec::new();
+        let mut weights = Vec::new();
+        for iu in 0..2 {
+            for iv in 0..num_v {
+                control_points.push(Point3::new(iu as f64, iv as f64, 0.0));
+                weights.push(1.0);
+            }
+        }
+        SurfaceGeometry::Nurbs(NurbsSurface {
+            degree_u: 1,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 1.0, 1.0],
+            knots_v,
+            control_points,
+            num_u: 2,
+            num_v,
+            weights,
+        })
+    }
+
+    /// PK-494: parity consumers (classification rays) get the total
+    /// cell budget spent on the dense axis — a 900-span coil against
+    /// 1 u-span keeps near-full v resolution, or rays through the
+    /// coil miss wall crossings (even parity for interior points at
+    /// 41 tool turns).
+    #[test]
+    fn dense_grid_spends_cell_budget_on_the_dense_axis() {
+        let surface = coil_chart(901);
+        let (du, dv) = grid_density(&surface, 8, true);
+        assert!(du >= 8);
+        assert!(
+            dv >= 768,
+            "dense v-axis crushed to {dv} cells for 900 spans"
+        );
+        assert!(du * dv <= 48 * 48 * 8, "cell budget unbounded: {du}x{dv}");
+    }
+
+    /// The tuned entry (imprint/edge-hit discovery) keeps the
+    /// historical 48-per-axis clamp byte-for-byte: the junction graph
+    /// is calibrated to that hit set (raising it re-wired the M5
+    /// seam-pinch serve into a shell-gap decline, PK-461).
+    #[test]
+    fn tuned_grid_keeps_the_calibrated_per_axis_clamp() {
+        let surface = coil_chart(901);
+        let (du, dv) = grid_density(&surface, 8, false);
+        assert_eq!((du, dv), (8, 48));
+    }
 }

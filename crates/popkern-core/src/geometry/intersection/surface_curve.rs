@@ -51,6 +51,39 @@ pub fn intersect_surface_curve(
     t_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Result<SurfaceCurveIntersectionResult, CoreError> {
+    intersect_surface_curve_inner(surface, u_range, v_range, curve, t_range, tolerance, false)
+}
+
+/// [`intersect_surface_curve`] with COMPLETE crossing enumeration on
+/// multi-wrap NURBS charts (PK-494): the general solver's AABB grid
+/// spends a total cell budget on the denser knot axis instead of the
+/// tuned 48-per-axis clamp. For parity consumers ONLY — point-in-solid
+/// classification rays, where a missed crossing on a >40-turn coil
+/// flips an in/out verdict. Imprint/edge-hit discovery must keep the
+/// tuned entry: the split stage's junction graph is calibrated to its
+/// hit set, and enumerating extra near-graze hits there re-wired the
+/// M5 seam-pinch serve into a shell-gap decline (measured, PK-461).
+pub fn intersect_surface_curve_dense(
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    curve: &CurveGeometry,
+    t_range: (f64, f64),
+    tolerance: &Tolerance,
+) -> Result<SurfaceCurveIntersectionResult, CoreError> {
+    intersect_surface_curve_inner(surface, u_range, v_range, curve, t_range, tolerance, true)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn intersect_surface_curve_inner(
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    curve: &CurveGeometry,
+    t_range: (f64, f64),
+    tolerance: &Tolerance,
+    dense_grid: bool,
+) -> Result<SurfaceCurveIntersectionResult, CoreError> {
     if t_range.0 >= t_range.1 {
         return Err(CoreError::PreconditionFailed(format!(
             "t_range invalid: {} >= {}",
@@ -145,7 +178,7 @@ pub fn intersect_surface_curve(
         ),
 
         _ => surface_curve_general::intersect_surface_curve_general(
-            surface, u_range, v_range, curve, t_range, tolerance,
+            surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
         ),
     };
 

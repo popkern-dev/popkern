@@ -12,7 +12,7 @@ use popkern_core::{
         Point3, Vec3,
         curve::CurveGeometry,
         intersection::{
-            SurfaceCurveIntersection, intersect_surface_curve, surface_subdivision::Aabb,
+            SurfaceCurveIntersection, surface_subdivision::Aabb,
         },
         surface::{SurfaceEval, SurfaceGeometry},
     },

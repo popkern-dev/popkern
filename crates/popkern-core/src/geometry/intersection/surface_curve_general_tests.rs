@@ -36,6 +36,7 @@ fn nurbs_line_piercing_plane() {
         &nurbs_line,
         (0.0, 1.0),
         &tol,
+        false,
     );
 
     let points: Vec<_> = results
@@ -89,6 +90,7 @@ fn circle_piercing_plane_two_points() {
         &circle,
         (0.0, std::f64::consts::TAU),
         &tol,
+        false,
     );
 
     let points: Vec<_> = results
@@ -143,6 +145,7 @@ fn non_intersecting_empty() {
         &nurbs_line,
         (0.0, 1.0),
         &tol,
+        false,
     );
 
     let points: Vec<_> = results
@@ -186,6 +189,7 @@ fn invariant_curve_surface_match() {
         &nurbs_line,
         (0.0, 1.0),
         &tol,
+        false,
     );
 
     for r in &results {

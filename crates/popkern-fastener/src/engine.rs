@@ -184,7 +184,13 @@ pub(crate) fn cut_thread(
     // callers. PK-494 lifts both with the anisotropy-aware mesh
     // substrate.
     const MAX_SERVED_TURNS: f64 = 40.5;
-    if turns > MAX_SERVED_TURNS {
+    // POPKERN_MULTIWRAP_SERVE_CONTAINMENT=0 lifts the gate for
+    // PK-494's frontier probes (PK-239 kill-switch precedent;
+    // per-call read) — never for production serves.
+    let containment_lifted = std::env::var_os("POPKERN_MULTIWRAP_SERVE_CONTAINMENT")
+        .map(|v| v == "0")
+        .unwrap_or(false);
+    if turns > MAX_SERVED_TURNS && !containment_lifted {
         return Err(FastenerError::Construction {
             stage: stage.to_string(),
             detail: format!(

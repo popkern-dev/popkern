@@ -82,7 +82,14 @@ pub(super) fn ray_crossing_count(
         } else {
             ((u_min, u_max), (v_min, v_max))
         };
-        let result = intersect_surface_curve(surface, qu, qv, &ray_curve, t_range, tolerance)
+        // Dense entry (PK-494): parity needs COMPLETE crossing
+        // enumeration on multi-wrap coils; the tuned entry's 48-cell
+        // clamp misses wall crossings past ~40 turns and flips in/out
+        // verdicts.
+        let result =
+            popkern_core::geometry::intersection::surface_curve::intersect_surface_curve_dense(
+                surface, qu, qv, &ray_curve, t_range, tolerance,
+            )
             .map_err(|_| ())?;
         if ray_trace {
             eprintln!(

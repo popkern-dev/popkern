@@ -342,7 +342,10 @@ fn trace_direction(
             trace_decline("sub-wrap scope", k, trace_wraps(t));
             return None;
         }
-        if trace_wraps(t) > MAX_SERVED_WRAPS {
+        let containment_lifted = std::env::var_os("POPKERN_MULTIWRAP_SERVE_CONTAINMENT")
+            .map(|v| v == "0")
+            .unwrap_or(false);
+        if trace_wraps(t) > MAX_SERVED_WRAPS && !containment_lifted {
             trace_decline("serve containment (PK-494)", k, trace_wraps(t));
             return None;
         }
