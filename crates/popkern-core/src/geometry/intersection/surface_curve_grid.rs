@@ -27,6 +27,18 @@ pub(super) struct SurfaceCell {
 /// double-grind's kept cap fragment was discarded — PK-441). Knot
 /// spans measure where the surface actually bends; the cap keeps the
 /// candidate set bounded.
+/// KNOWN LIMIT (PK-494): the 48-per-axis clamp starves multi-wrap
+/// coils past ~40 turns — at 41 tool turns (~980 v-spans) rays
+/// through the coil get ~1.2 cells per turn, Newton seeds land up to
+/// half a turn from the crossing, and classification rays miss wall
+/// crossings (even parity for interior points). A total-cell-budget
+/// version (48² spent on the denser axis) fixed that class but
+/// regressed the M5 seam-pinch serve (PK-491 fixture, phase 11/6:
+/// denser rays flipped a near-graze crossing verdict and cellular
+/// declined on a 1.3e-6 shell gap) — the classification substrate is
+/// sensitive to ray hit-set density, so the density lift belongs to
+/// PK-494's frontier work alongside the anisotropic-chart meshing.
+/// Until then the thread engine contains serves at 40 tool turns.
 pub(super) fn grid_density(surface: &SurfaceGeometry, base: usize) -> (usize, usize) {
     match surface {
         SurfaceGeometry::Nurbs(s) => {

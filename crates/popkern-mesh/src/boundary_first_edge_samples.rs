@@ -61,12 +61,32 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
         // worst-deviation intervals first keeps a capped refinement
         // uniform along the curve.
         let mut fractions = vec![0.0, 1.0];
-        let cap = 512usize;
+        // Budget and floor scale with the curve's knot-span count
+        // (PK-461): a flat 512-sample cap and 1e-3 minimum span
+        // under-sampled a 41-turn thread-tool crease edge to ~12
+        // samples per coil turn — its sparse ring segments failed the
+        // Delaunay coverage next to the per-wrap record chains, every
+        // tool wall face fell back to the uniform-grid path, and the
+        // served mesh tore along the whole coil (8235 open edges on a
+        // body whose topology was correct). Sixteen samples per span
+        // (64 per quarter-arc turn) holds sag quality; simple curves
+        // converge on chord height far below either bound.
+        let spans = match &curve.geometry {
+            popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc
+                .knots
+                .windows(2)
+                .filter(|w| w[1] > w[0] + 1e-12)
+                .count()
+                .max(1),
+            _ => 1,
+        };
+        let cap = (16usize * spans).clamp(512, 8192);
+        let min_span = (0.0625 / spans as f64).min(1e-3);
         loop {
             let mut split_at: Vec<(f64, usize)> = Vec::new();
             for i in 0..fractions.len() - 1 {
                 let (a, b) = (fractions[i], fractions[i + 1]);
-                if (b - a) <= 1e-3 {
+                if (b - a) <= min_span {
                     continue;
                 }
                 let (pa, pm, pb) = (at(a), at(0.5 * (a + b)), at(b));

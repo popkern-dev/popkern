@@ -35,34 +35,66 @@ pub struct NurbsSurface {
 impl NurbsSurface {
     /// Knot-span-midpoint + chart-border projection seeds for
     /// multi-sheet closest-point queries (PK-446): every span
-    /// midpoint pair (subsampled to 48/axis) plus the chart borders —
-    /// a border minimum (a rim point ON the v=1 line of a coiled
-    /// wall) is farther from every span MIDPOINT than from the
-    /// adjacent turn's surface, so midpoint-only ranking walked the
-    /// wrong sheet. Returns `None` for few-span charts (≤5 stations
-    /// per axis), where a generic multi-start already covers the
-    /// basin structure.
+    /// midpoint pair plus the chart borders — a border minimum (a rim
+    /// point ON the v=1 line of a coiled wall) is farther from every
+    /// span MIDPOINT than from the adjacent turn's surface, so
+    /// midpoint-only ranking walked the wrong sheet. Returns `None`
+    /// for few-span charts (≤5 stations per axis), where a generic
+    /// multi-start already covers the basin structure.
+    ///
+    /// Subsampling is budgeted on the TOTAL pair count (48² = 2304),
+    /// not per axis (PK-461): a 26-turn thread-tool wall has ~200
+    /// v-spans against 1–3 u-spans, and the old 48-per-axis cap
+    /// crushed the v-axis to half-turn seed gaps while using a
+    /// fraction of the pair budget. With half-turn gaps the coarse
+    /// distance ranking prefers the ADJACENT TURN's same-phase seed
+    /// (one pitch away) over the right turn's phase-offset seed (a
+    /// cross-coil chord), the Gauss–Newton refinement converges in
+    /// the wrong turn's basin, and every consumer of the projection
+    /// misreads an on-surface point as ~a pitch off the wall — the
+    /// curve-surface validator declined a fully valid 25-turn thread
+    /// serve on a phantom 0.747 deviation (the 24-vs-25-turn boundary
+    /// was seed-phase stride resonance, not geometry).
     pub fn projection_seeds(&self) -> Option<Vec<(f64, f64)>> {
-        let axis_seeds = |knots: &[f64]| -> Vec<f64> {
+        let axis_mids = |knots: &[f64]| -> (Vec<f64>, Option<(f64, f64)>) {
             let mut uniq: Vec<f64> = Vec::new();
             for &k in knots {
                 if uniq.last().is_none_or(|&last| k > last) {
                     uniq.push(k);
                 }
             }
-            let mut mids: Vec<f64> = uniq.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
-            if mids.len() > 48 {
-                let step = mids.len() as f64 / 48.0;
-                mids = (0..48).map(|i| mids[(i as f64 * step) as usize]).collect();
-            }
-            if let (Some(&lo), Some(&hi)) = (uniq.first(), uniq.last()) {
-                mids.insert(0, lo);
-                mids.push(hi);
-            }
-            mids
+            let mids: Vec<f64> = uniq.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
+            let ends = match (uniq.first(), uniq.last()) {
+                (Some(&lo), Some(&hi)) => Some((lo, hi)),
+                _ => None,
+            };
+            (mids, ends)
         };
-        let us = axis_seeds(&self.knots_u);
-        let vs = axis_seeds(&self.knots_v);
+        let subsample = |mids: Vec<f64>, cap: usize| -> Vec<f64> {
+            if mids.len() > cap {
+                let step = mids.len() as f64 / cap as f64;
+                (0..cap).map(|i| mids[(i as f64 * step) as usize]).collect()
+            } else {
+                mids
+            }
+        };
+        const PAIR_BUDGET: usize = 48 * 48;
+        let (mids_u, ends_u) = axis_mids(&self.knots_u);
+        let (mids_v, ends_v) = axis_mids(&self.knots_v);
+        // Give each axis at least the historical 48, then spend the
+        // remaining pair budget on the denser axis.
+        let cap_u = (PAIR_BUDGET / mids_v.len().clamp(1, 48)).max(48);
+        let cap_v = (PAIR_BUDGET / mids_u.len().clamp(1, 48)).max(48);
+        let mut us = subsample(mids_u, cap_u);
+        let mut vs = subsample(mids_v, cap_v);
+        if let Some((lo, hi)) = ends_u {
+            us.insert(0, lo);
+            us.push(hi);
+        }
+        if let Some((lo, hi)) = ends_v {
+            vs.insert(0, lo);
+            vs.push(hi);
+        }
         if us.len() <= 5 && vs.len() <= 5 {
             return None;
         }
@@ -244,6 +276,10 @@ impl SurfaceEval for NurbsSurface {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "projection_seeds_tests.rs"]
+mod projection_seeds_tests;
 #[cfg(test)]
 #[path = "transpose_tests.rs"]
 mod transpose_tests;
