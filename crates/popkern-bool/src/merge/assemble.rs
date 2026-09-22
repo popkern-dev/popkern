@@ -20,6 +20,9 @@ use super::fragment_classify::FragmentSelection;
 #[path = "assemble_loop_chain.rs"]
 mod loop_chain;
 use loop_chain::reorder_into_closed_chain;
+
+#[path = "assemble_claim_trace.rs"]
+mod assemble_claim_trace;
 #[path = "assemble_curve_adopt.rs"]
 mod curve_adopt;
 pub(crate) use curve_adopt::subrange_healed_curve;
@@ -297,43 +300,16 @@ pub(crate) fn assemble_result(
                 };
                 let graph_twin = graph.half_edges[ghe].twin;
 
-                // PK-494 diagnostic probe (uv-scramble topic): claim
-                // ledger for Shared records near a query height set by
-                // POPKERN_CLAIM_TRACE_Z — prints every resolution of a
-                // matching graph half-edge with its slot state.
-                if popkern_core::trace::trace_enabled("uv-scramble")
-                    && let Some(zq) = std::env::var("POPKERN_CLAIM_TRACE_Z")
-                        .ok()
-                        .and_then(|v| v.parse::<f64>().ok())
-                {
-                    let o = graph.nodes[graph.half_edges[ghe].origin].position;
-                    let e = graph.nodes[graph.half_edges[graph_twin].origin].position;
-                    if (o.z - zq).abs() < 0.5 || (e.z - zq).abs() < 0.5 {
-                        let state = |g: usize| match hmap.get(&g) {
-                            None => "unmapped".to_string(),
-                            Some(&bh) => {
-                                if bld.brep().half_edges[bh].loop_ == default_loop {
-                                    "free".to_string()
-                                } else {
-                                    "taken".to_string()
-                                }
-                            }
-                        };
-                        eprintln!(
-                            "  [claim] ghe {ghe} src {:?} flip {flip} for {:?} span ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) slots self:{} twin:{}",
-                            graph.half_edges[ghe].source,
-                            fragment.face,
-                            o.x,
-                            o.y,
-                            o.z,
-                            e.x,
-                            e.y,
-                            e.z,
-                            state(ghe),
-                            state(graph_twin)
-                        );
-                    }
-                }
+                assemble_claim_trace::trace_claim(
+                    graph,
+                    &fragment.face,
+                    ghe,
+                    graph_twin,
+                    flip,
+                    hmap,
+                    bld,
+                    default_loop,
+                );
                 // Try primary mapping.
                 if let Some(&brep_he) = hmap.get(&ghe)
                     && bld.brep().half_edges[brep_he].loop_ == default_loop
@@ -349,30 +325,14 @@ pub(crate) fn assemble_result(
                 if let Some(&alt) = hmap.get(&graph_twin)
                     && bld.brep().half_edges[alt].loop_ == default_loop
                 {
-                    if popkern_core::trace::trace_enabled("uv-scramble") {
-                        let owner = hmap
-                            .get(&ghe)
-                            .map(|&bh| {
-                                let lp = bld.brep().half_edges[bh].loop_;
-                                format!("{:?}", bld.brep().loops.get(lp).map(|l| l.face))
-                            })
-                            .unwrap_or_else(|| "unmapped".into());
-                        let (o, e) = (
-                            graph.nodes[graph.half_edges[ghe].origin].position,
-                            graph.nodes[graph.half_edges[graph_twin].origin].position,
-                        );
-                        eprintln!(
-                            "  [uv-scramble] alt-install ghe {ghe} (twin {graph_twin}) src {:?} for {:?} primary-owner {owner} span ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
-                            graph.half_edges[ghe].source,
-                            fragment.face,
-                            o.x,
-                            o.y,
-                            o.z,
-                            e.x,
-                            e.y,
-                            e.z
-                        );
-                    }
+                    assemble_claim_trace::trace_alt_install(
+                        graph,
+                        &fragment.face,
+                        ghe,
+                        graph_twin,
+                        hmap,
+                        bld,
+                    );
                     // Fix pcurve: the alt half-edge may have the twin's
                     // pcurve which belongs to a different face's UV space.
                     if let Some(pc) = correct_pcurve_for_face(ghe, &fragment.face) {
@@ -383,24 +343,14 @@ pub(crate) fn assemble_result(
                 }
                 // Both wired — create a new edge pair and update the map
                 // so subsequent fragments can use the twin.
-                if popkern_core::trace::trace_enabled("boolean") {
-                    let owner = |g: usize| {
-                        hmap.get(&g)
-                            .map(|&bh| {
-                                let lp = bld.brep().half_edges[bh].loop_;
-                                bld.brep().loops.get(lp).map(|l| l.face)
-                            })
-                            .map(|f| format!("{f:?}"))
-                            .unwrap_or_else(|| "unmapped".into())
-                    };
-                    eprintln!(
-                        "  [assemble-dup] ghe {ghe} (twin {graph_twin}) for {:?} src {:?} taken-by {} / {}",
-                        fragment.face,
-                        graph.half_edges[ghe].source,
-                        owner(ghe),
-                        owner(graph_twin)
-                    );
-                }
+                assemble_claim_trace::trace_dup_mint(
+                    graph,
+                    &fragment.face,
+                    ghe,
+                    graph_twin,
+                    hmap,
+                    bld,
+                );
                 let origin_node = graph.half_edges[ghe].origin;
                 let end_node = graph.half_edges[graph_twin].origin;
                 let Some(&vh_start) = nmap.get(&origin_node) else {

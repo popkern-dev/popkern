@@ -26,6 +26,9 @@ use crate::merge::walk::Fragment;
 /// 3. Create all vertices and edges upfront
 /// 4. Wire fragment loops using the pre-created edges
 /// 5. Attach surface geometry
+#[path = "assemble_material_audit.rs"]
+mod assemble_material_audit;
+
 pub(crate) fn cellular_assemble(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
@@ -225,6 +228,7 @@ pub(crate) fn cellular_assemble(
                 frag.outer_loop
             );
         }
+        assemble_material_audit::trace_material_sides(graph, frag, sel, brep_a, brep_b);
         let face_h = builder.add_face(shell);
 
         // This fragment's face surface — needed to orient installed

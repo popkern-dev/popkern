@@ -11,6 +11,9 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use super::fragment_classify_overlap::classify_partial_overlap;
 use super::fragment_sample::{sample_point_for_fragment, sample_point_uv};
+
+#[path = "fragment_classify_deferred.rs"]
+mod fragment_classify_deferred;
 use super::graph::{IntersectionGraph, Operand};
 use super::walk::Fragment;
 use crate::classify::{point_in_solid_final, point_in_solid_final_with_confidence};
@@ -18,6 +21,7 @@ use crate::classify_on_face::classify_on_face;
 use crate::coincidence::CoincidenceMap;
 use crate::error::{BoolError, BoolOperation, Classification, PointClassification};
 use crate::intersect::compute_face_aabbs;
+use fragment_classify_deferred::apply_deferred_on_overrides;
 
 /// Selection decision for a fragment.
 #[derive(Debug)]
@@ -195,6 +199,28 @@ pub(crate) fn classify_and_select_fragments(
             }
         }
 
+        // Record-side witness (PK-494 layer 3): a fragment bounded by
+        // a Shared record carries a LOCAL exact side-of-wall verdict
+        // against the other operand; ray parity misread exactly this
+        // at the thread coil's cut-open end (the void-backed corner
+        // sliver kept from a sample 0.08 inside the tool). A decisive,
+        // unanimous witness overrides a disagreeing ray verdict;
+        // agreement and abstention leave the tuned path byte-identical.
+        if let Some(witness) = crate::record_side_witness::record_side_witness(
+            graph, fragment, &sample, brep_a, brep_b, tolerance,
+        ) && witness != classification
+        {
+            if popkern_core::trace::trace_enabled("boolean")
+                || popkern_core::trace::trace_enabled("uv-scramble")
+            {
+                eprintln!(
+                    "  [record-side] {:?} ray {classification:?} -> witness {witness:?} at ({:.3},{:.3},{:.3})",
+                    fragment.face, sample.x, sample.y, sample.z
+                );
+            }
+            classification = witness;
+        }
+
         let selection = apply_selection_table(op, own_operand, classification);
 
         selections.push(selection);
@@ -218,85 +244,9 @@ pub(crate) fn classify_and_select_fragments(
     Ok(selections)
 }
 
-/// Walk fragments whose face is in an ambiguous-on pair and apply
-/// `disambiguate_with_neighbors` to refine the classification.
-fn apply_deferred_on_overrides(
-    fragments: &[Fragment],
-    selections: &mut [FragmentSelection],
-    brep_a: &BRep,
-    brep_b: &BRep,
-    op: BoolOperation,
-    coincidence: &CoincidenceMap,
-) {
-    use crate::classify_on_deferred::find_ambiguous_pairs;
-
-    let pairs = find_ambiguous_pairs(coincidence);
-    if pairs.is_empty() {
-        return;
-    }
-
-    // Build the map (face_handle, classification) for both operands by
-    // reading back the existing selections. The classification is
-    // synthesized from the FragmentSelection: keep=true → Inside,
-    // keep=false → Outside (for the disambiguator's vote logic).
-    let mut classes_a: Vec<(popkern_core::topology::FaceHandle, Classification)> = Vec::new();
-    let mut classes_b: Vec<(popkern_core::topology::FaceHandle, Classification)> = Vec::new();
-    for (frag, sel) in fragments.iter().zip(selections.iter()) {
-        let class = if sel.keep {
-            Classification::Inside
-        } else {
-            Classification::Outside
-        };
-        match frag.face.operand {
-            Operand::A => classes_a.push((frag.face.face, class)),
-            Operand::B => classes_b.push((frag.face.face, class)),
-        }
-    }
-
-    // For each ambiguous pair, query the disambiguator. The pair
-    // contains face_a (operand A) and face_b (operand B).
-    for pair in &pairs {
-        // Operand A side.
-        if let Some((_, original)) = classes_a.iter().find(|(f, _)| *f == pair.face_a) {
-            let suggested = crate::classify_on_deferred::disambiguate_with_neighbors(
-                pair.face_a,
-                *original,
-                brep_a,
-                &classes_a,
-            );
-            if suggested != *original {
-                let point_class = classification_to_point(suggested);
-                for (i, frag) in fragments.iter().enumerate() {
-                    if frag.face.operand == Operand::A && frag.face.face == pair.face_a {
-                        selections[i] = apply_selection_table(op, Operand::A, point_class);
-                    }
-                }
-            }
-        }
-
-        // Operand B side.
-        if let Some((_, original)) = classes_b.iter().find(|(f, _)| *f == pair.face_b) {
-            let suggested = crate::classify_on_deferred::disambiguate_with_neighbors(
-                pair.face_b,
-                *original,
-                brep_b,
-                &classes_b,
-            );
-            if suggested != *original {
-                let point_class = classification_to_point(suggested);
-                for (i, frag) in fragments.iter().enumerate() {
-                    if frag.face.operand == Operand::B && frag.face.face == pair.face_b {
-                        selections[i] = apply_selection_table(op, Operand::B, point_class);
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Convert a `Classification` (which may be ON-with-orientation) to
 /// a `PointClassification` (which has only Inside/Outside/OnBoundary).
-fn classification_to_point(c: Classification) -> PointClassification {
+pub(super) fn classification_to_point(c: Classification) -> PointClassification {
     match c {
         Classification::Inside => PointClassification::Inside,
         Classification::Outside => PointClassification::Outside,
@@ -336,7 +286,7 @@ fn on_face_to_selection(
 /// Prefers the midpoint of a non-shared (original or split) edge, which is
 /// guaranteed to lie well inside the fragment and away from the intersection
 /// curve.  Falls back to the loop centroid if every edge is shared.
-fn apply_selection_table(
+pub(super) fn apply_selection_table(
     op: BoolOperation,
     operand: Operand,
     class: PointClassification,

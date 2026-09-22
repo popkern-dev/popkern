@@ -56,6 +56,7 @@ pub(crate) mod intersect_hierarchy;
 pub(crate) mod intersect_residue_filter;
 pub(crate) mod merge;
 pub mod merge_fallback;
+pub(crate) mod record_side_witness;
 
 /// PK-478 E1 diagnostic export (see `merge::closed_side_census`):
 /// closed-edge witness census for the sense-aware-merge exploration.

@@ -829,6 +829,39 @@ fn classify_fragments_cellular(
                 None => robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance),
             }
         };
+        // Record-side witness (PK-494 layer 3): a fragment bounded by
+        // a Shared record has a LOCAL exact side-of-wall verdict
+        // against the other operand — ray parity misread exactly this
+        // at the thread coil's cut-open end (a void-backed corner
+        // sliver kept from a sample 0.08 inside the tool, which then
+        // triple-claimed its record and the serve declined). Scoped to
+        // plain In/Out verdicts: OnBoundary carries the coorientation
+        // semantics above and stays untouched. A decisive, unanimous
+        // witness overrides a disagreeing ray verdict; agreement and
+        // abstention leave the tuned path byte-identical.
+        let class = if matches!(
+            class,
+            PointClassification::Inside | PointClassification::Outside
+        ) {
+            match crate::record_side_witness::record_side_witness(
+                graph, fragment, &sample, brep_a, brep_b, tolerance,
+            ) {
+                Some(witness) if witness != class => {
+                    if popkern_core::trace::trace_enabled("cellular")
+                        || popkern_core::trace::trace_enabled("boolean")
+                    {
+                        eprintln!(
+                            "  [record-side] {:?} ray {class:?} -> witness {witness:?} at ({:.3},{:.3},{:.3})",
+                            fragment.face, sample.x, sample.y, sample.z
+                        );
+                    }
+                    witness
+                }
+                _ => class,
+            }
+        } else {
+            class
+        };
 
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side

@@ -3,9 +3,6 @@
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveGeometry;
-use crate::geometry::intersection::{
-    line_cone, line_cylinder, line_plane, line_sphere, line_torus, surface_curve_general,
-};
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
@@ -37,6 +34,9 @@ pub struct SurfaceCurveIntersectionResult {
     /// All intersections found, sorted by t.
     pub intersections: Vec<SurfaceCurveIntersection>,
 }
+
+#[path = "surface_curve_dispatch.rs"]
+mod surface_curve_dispatch;
 
 /// Intersect a surface with a curve within the given tolerance.
 ///
@@ -91,96 +91,9 @@ fn intersect_surface_curve_inner(
         )));
     }
 
-    let mut intersections = match (surface, curve) {
-        (
-            SurfaceGeometry::Plane {
-                origin,
-                normal,
-                u_axis,
-                v_axis,
-            },
-            CurveGeometry::Line {
-                origin: lo,
-                direction,
-            },
-        ) => line_plane::intersect_line_plane(
-            lo, direction, t_range, origin, normal, u_axis, v_axis, u_range, v_range, tolerance,
-        ),
-
-        (
-            SurfaceGeometry::Cylinder {
-                origin,
-                axis,
-                radius,
-            },
-            CurveGeometry::Line {
-                origin: lo,
-                direction,
-            },
-        ) => line_cylinder::intersect_line_cylinder(
-            lo, direction, t_range, origin, axis, *radius, u_range, v_range, tolerance,
-        ),
-
-        (
-            SurfaceGeometry::Cone {
-                apex,
-                axis,
-                half_angle,
-            },
-            CurveGeometry::Line {
-                origin: lo,
-                direction,
-            },
-        ) => line_cone::intersect_line_cone(
-            lo,
-            direction,
-            t_range,
-            apex,
-            axis,
-            *half_angle,
-            u_range,
-            v_range,
-            tolerance,
-        ),
-
-        (
-            SurfaceGeometry::Sphere { center, radius },
-            CurveGeometry::Line {
-                origin: lo,
-                direction,
-            },
-        ) => line_sphere::intersect_line_sphere(
-            lo, direction, t_range, center, *radius, u_range, v_range, tolerance,
-        ),
-
-        (
-            SurfaceGeometry::Torus {
-                center,
-                axis,
-                major_radius,
-                minor_radius,
-            },
-            CurveGeometry::Line {
-                origin: lo,
-                direction,
-            },
-        ) => line_torus::intersect_line_torus(
-            lo,
-            direction,
-            t_range,
-            center,
-            axis,
-            *major_radius,
-            *minor_radius,
-            u_range,
-            v_range,
-            tolerance,
-        ),
-
-        _ => surface_curve_general::intersect_surface_curve_general(
-            surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
-        ),
-    };
+    let mut intersections = surface_curve_dispatch::dispatch(
+        surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
+    );
 
     // Sort by t.
     intersections.sort_by(|a, b| {
