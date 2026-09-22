@@ -29,26 +29,48 @@
 //! 4. Votes from every qualifying record must agree, else abstain —
 //!    the ray verdict then stands.
 //!
-//! STATUS (PK-494 layer 3, exploration arm): DEFAULT OFF —
-//! `POPKERN_RECORD_SIDE_CLASSIFY=1` enables it for frontier work.
-//! The near-field validity model is not yet commercial-grade: the
-//! naive witness regressed the overlapping-cubes suite (side-of-wall
-//! is not side-of-solid beyond the wall's trimmed extent), and the
-//! first gating attempt (chord-relative distance + chart-window
-//! containment) shifted which records vote and produced
-//! unanimous-WRONG sets on 25 fixtures — chart-window tests are
-//! themselves unreliable on periodic charts. The design fork this
-//! arm needs: a validity model where a record votes only when the
-//! sample verifiably lies in the record's own near-field (distance
-//! bounded by local feature size, projection within the TRIMMED
-//! face, path from record to sample free of other records), plus
-//! defined multi-record voting semantics. Until then the ray path
-//! stands and this arm exists for measured experiments only.
+//! VALIDITY MODEL (v2): a record's side verdict equals the solid
+//! containment verdict exactly when two measurable conditions hold —
+//! (a) the sample's local projection q lands ON the other face's
+//! TRIMMED extent (its own chart window and spatial AABB, the same
+//! gates the ray classifier applies to accepted crossings: an
+//! off-trim projection is a basis-extension phantom, the naive
+//! witness's overlapping-cubes failure), and (b) the open segment
+//! sample→q crosses NO other-operand boundary strictly before q (an
+//! obstruction means another wall lies between the sample and this
+//! record's wall and the local side says nothing about containment —
+//! the far-field failure). Any ambiguity in either test abstains and
+//! the ray verdict stands: the witness only ever REPLACES a ray
+//! verdict with a locally-proven one.
+//!
+//! STATUS: exploration arm, DEFAULT OFF —
+//! `POPKERN_RECORD_SIDE_CLASSIFY=1` enables it for frontier work
+//! (PK-239 kill-switch precedent; per-call read).
+//!
+//! REMAINING DEFECT (measured, overlapping-cubes suite with the arm
+//! on): the validity conditions hold but the VERDICT SIGN is wrong on
+//! faces whose stored `orientation` flag lies about the outward
+//! normal — a documented kernel condition ("extrude caps lie in the
+//! flag, chamfer cones in the loop winding", see the cellular
+//! coorientation self-calibration). Worked cube example: fragment
+//! sample (0.75,1,1) inside B=[0.5,1.5]³, q=(0.5,1,1) on B's x-wall,
+//! honest N=(-1,0,0) gives dot<0 → Inside (correct); the stored flag
+//! yields Outside. NEXT MECHANISM: per-face outward-sign calibration
+//! — either the majority vote of (ray verdict × witness dot) across
+//! all fragments touching each face's records (self-consistent, no
+//! new probes; overrides only minority mismatches), or a shared
+//! honest-normal service (probe/mesh-calibrated once per face per
+//! boolean) that the cellular coorientation logic could also adopt.
+//! Enable by default only after the full corpus and the multiwrap
+//! probe ladder are green under it.
 
+use popkern_core::geometry::intersection::surface_curve::intersect_surface_curve_dense;
+use popkern_core::geometry::intersection::{SurfaceCurveIntersection, surface_subdivision::Aabb};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_core::topology::FaceHandle;
 
 use crate::error::PointClassification;
 use crate::merge::graph::{EdgeSource, IntersectionGraph, Operand};
@@ -69,6 +91,7 @@ pub(crate) fn record_side_witness(
     sample: &Point3,
     brep_a: &BRep,
     brep_b: &BRep,
+    other_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Option<PointClassification> {
     let enabled = std::env::var_os("POPKERN_RECORD_SIDE_CLASSIFY")
@@ -171,20 +194,12 @@ pub(crate) fn record_side_witness(
             continue;
         };
         let q = surface.geometry.point_at(qu, qv);
-        // NEAR-FIELD validity gates: side-of-wall equals side-of-solid
-        // only close to the record and on the wall's own trimmed
-        // extent — a cube fragment's face-scale sample sits behind the
-        // other face's PLANE while fully outside the CUBE (measured:
-        // the overlapping-cubes suite regressed under the ungated
-        // witness). Gate A: the sample's wall distance stays within a
-        // quarter of the record chord. Gate B: the projection lands
-        // inside the other face's own chart window.
-        if sample.distance_to(&q) > 0.25 * chord {
-            continue;
-        }
+        // Validity (a): q must land ON the other face's trimmed
+        // extent — its chart window (from the face's own boundary
+        // samples; native window, small pad) and its spatial AABB.
         {
             let positions = other_brep.face_outer_loop_sample_positions(other_face, 8);
-            if positions.is_empty() {
+            if positions.len() < 3 {
                 continue;
             }
             let ((wu0, wu1), (wv0, wv1)) =
@@ -192,10 +207,8 @@ pub(crate) fn record_side_witness(
                     &positions,
                     &surface.geometry,
                 );
-            let du = (wu1 - wu0).abs().max(1e-12);
-            let dv = (wv1 - wv0).abs().max(1e-12);
-            let pad_u = 0.05 * du;
-            let pad_v = 0.05 * dv;
+            let pad_u = 0.02 * (wu1 - wu0).abs().max(1e-9);
+            let pad_v = 0.02 * (wv1 - wv0).abs().max(1e-9);
             if qu < wu0.min(wu1) - pad_u
                 || qu > wu0.max(wu1) + pad_u
                 || qv < wv0.min(wv1) - pad_v
@@ -203,6 +216,31 @@ pub(crate) fn record_side_witness(
             {
                 continue;
             }
+            let m = tolerance.linear() * 10.0;
+            let (mut lo, mut hi) = (positions[0], positions[0]);
+            for p in &positions {
+                lo = Point3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+                hi = Point3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+            }
+            // Boundary samples bound the box up to curve sag; a
+            // conservative diagonal-relative margin covers it.
+            let diag = lo.distance_to(&hi);
+            let m2 = m + 0.05 * diag;
+            if q.x < lo.x - m2
+                || q.x > hi.x + m2
+                || q.y < lo.y - m2
+                || q.y > hi.y + m2
+                || q.z < lo.z - m2
+                || q.z > hi.z + m2
+            {
+                continue;
+            }
+        }
+        // Validity (b): the open segment sample→q must cross NO
+        // other-operand boundary strictly before q. Any hit, and any
+        // ambiguity, abstains.
+        if segment_is_obstructed(sample, &q, other_brep, other_aabbs, tolerance) {
+            continue;
         }
         let mut n = surface.geometry.normal_at(qu, qv);
         if !surface.orientation {
@@ -229,4 +267,97 @@ pub(crate) fn record_side_witness(
         }
     }
     verdict
+}
+
+/// True when the OPEN segment `s → q` crosses any face of `brep`
+/// strictly before `q` — or when any hit is too ambiguous to rule
+/// out (conservative: ambiguity counts as obstruction).
+fn segment_is_obstructed(
+    s: &Point3,
+    q: &Point3,
+    brep: &BRep,
+    aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &Tolerance,
+) -> bool {
+    let dir = Vec3::new(q.x - s.x, q.y - s.y, q.z - s.z);
+    let len = dir.length();
+    if len < tolerance.numerical_floor() {
+        return true;
+    }
+    let ray = popkern_core::geometry::curve::CurveGeometry::Line {
+        origin: *s,
+        direction: dir,
+    };
+    // Segment box, tolerance-inflated, for the face cull.
+    let m = tolerance.linear() * 10.0;
+    let seg_box = Aabb {
+        min: Point3::new(s.x.min(q.x) - m, s.y.min(q.y) - m, s.z.min(q.z) - m),
+        max: Point3::new(s.x.max(q.x) + m, s.y.max(q.y) + m, s.z.max(q.z) + m),
+    };
+    // Parameter bands: ignore hits at the very start (the sample can
+    // legitimately sit near its OWN operand geometry, not this brep,
+    // so the start band is pure tolerance) and hits that ARE q (the
+    // record's wall, by position, not by parameter).
+    let t_eps = (tolerance.linear() / len).min(0.4);
+    let q_gate = tolerance.linear() * 10.0;
+    for (fh, fbox) in aabbs {
+        if !fbox.overlaps(&seg_box, m) {
+            continue;
+        }
+        let Some(sof) = brep.faces.get(*fh).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
+        // Face chart window from its own boundary samples (native).
+        let positions = brep.face_outer_loop_sample_positions(*fh, 8);
+        if positions.len() < 3 {
+            return true; // unqueryable face in range — abstain
+        }
+        let (wu, wv) = {
+            let r = popkern_core::geometry::uv_projection::exact_bounded_parameter_range(
+                &positions,
+                &sof.geometry,
+            );
+            (r.0, r.1)
+        };
+        let pad_u = 0.05 * (wu.1 - wu.0).abs().max(1e-9);
+        let pad_v = 0.05 * (wv.1 - wv.0).abs().max(1e-9);
+        let window_u = (wu.0.min(wu.1) - pad_u, wu.0.max(wu.1) + pad_u);
+        let window_v = (wv.0.min(wv.1) - pad_v, wv.0.max(wv.1) + pad_v);
+        let Ok(result) = intersect_surface_curve_dense(
+            &sof.geometry,
+            window_u,
+            window_v,
+            &ray,
+            (0.0, 1.0),
+            tolerance,
+        ) else {
+            return true; // solver failure in range — abstain
+        };
+        for isect in &result.intersections {
+            match isect {
+                SurfaceCurveIntersection::Point { t, .. } => {
+                    if *t <= t_eps || *t >= 1.0 {
+                        continue;
+                    }
+                    let hp = Point3::new(s.x + dir.x * *t, s.y + dir.y * *t, s.z + dir.z * *t);
+                    if hp.distance_to(q) <= q_gate {
+                        continue; // the record's own wall
+                    }
+                    // In-box check keeps basis-extension phantoms out;
+                    // anything surviving is an obstruction.
+                    if hp.x >= fbox.min.x - m
+                        && hp.x <= fbox.max.x + m
+                        && hp.y >= fbox.min.y - m
+                        && hp.y <= fbox.max.y + m
+                        && hp.z >= fbox.min.z - m
+                        && hp.z <= fbox.max.z + m
+                    {
+                        return true;
+                    }
+                }
+                SurfaceCurveIntersection::Overlap { .. } => return true,
+            }
+        }
+    }
+    false
 }

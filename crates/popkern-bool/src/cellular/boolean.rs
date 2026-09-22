@@ -844,7 +844,13 @@ fn classify_fragments_cellular(
             PointClassification::Inside | PointClassification::Outside
         ) {
             match crate::record_side_witness::record_side_witness(
-                graph, fragment, &sample, brep_a, brep_b, tolerance,
+                graph,
+                fragment,
+                &sample,
+                brep_a,
+                brep_b,
+                other_aabbs,
+                tolerance,
             ) {
                 Some(witness) if witness != class => {
                     if popkern_core::trace::trace_enabled("cellular")

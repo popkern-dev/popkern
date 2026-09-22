@@ -207,7 +207,13 @@ pub(crate) fn classify_and_select_fragments(
         // unanimous witness overrides a disagreeing ray verdict;
         // agreement and abstention leave the tuned path byte-identical.
         if let Some(witness) = crate::record_side_witness::record_side_witness(
-            graph, fragment, &sample, brep_a, brep_b, tolerance,
+            graph,
+            fragment,
+            &sample,
+            brep_a,
+            brep_b,
+            other_aabbs,
+            tolerance,
         ) && witness != classification
         {
             if popkern_core::trace::trace_enabled("boolean")
