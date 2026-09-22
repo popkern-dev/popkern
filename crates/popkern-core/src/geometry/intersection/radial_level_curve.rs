@@ -56,17 +56,6 @@ const MAX_STATIONS: usize = 500_000;
 /// Minimum unwrapped chart excursion, in periods, for the arm to
 /// claim the pair (the multi-wrap scope).
 const MIN_WRAPS: f64 = 1.5;
-/// Serve containment (PK-494): the downstream boolean/mesh substrate
-/// is verified through 46-wrap serves (M6 rod corpus probed per turn
-/// count; layers 1-2 of PK-494 moved the bound from 40). Beyond it
-/// the assembly of the chart-corner region still fails by length
-/// luck, and historically past-frontier serves have TORN rather than
-/// declined. Declining here sends the pair to the marching solver,
-/// whose step budget truncates and the merge's strand gate declines —
-/// the pre-PK-461 behavior for that range. PK-494 layer 3 lifts this
-/// further.
-const MAX_SERVED_WRAPS: f64 = 46.5;
-
 /// Cylinder frame: unit axis with the same chart basis `point_at`
 /// uses, plus the raw axis for the `v = rel·axis/|axis|²` inversion.
 struct CylinderFrame {
@@ -340,13 +329,6 @@ fn trace_direction(
     for t in &traces {
         if trace_wraps(t) <= MIN_WRAPS {
             trace_decline("sub-wrap scope", k, trace_wraps(t));
-            return None;
-        }
-        let containment_lifted = std::env::var_os("POPKERN_MULTIWRAP_SERVE_CONTAINMENT")
-            .map(|v| v == "0")
-            .unwrap_or(false);
-        if trace_wraps(t) > MAX_SERVED_WRAPS && !containment_lifted {
-            trace_decline("serve containment (PK-494)", k, trace_wraps(t));
             return None;
         }
     }

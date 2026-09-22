@@ -327,6 +327,12 @@ fn classify_fragments_cellular(
 
     let mut selections = Vec::with_capacity(fragments.len());
 
+    let mut witness_pending: Vec<(
+        usize,
+        PointClassification,
+        Option<bool>,
+        Vec<crate::record_side_witness::RecordVote>,
+    )> = Vec::new();
     for fragment in fragments {
         // DEGENERATE loops (a lone non-closed half-edge, or a
         // he/twin bigon) enclose no area — boundary-graze residue.
@@ -829,21 +835,18 @@ fn classify_fragments_cellular(
                 None => robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance),
             }
         };
-        // Record-side witness (PK-494 layer 3): a fragment bounded by
-        // a Shared record has a LOCAL exact side-of-wall verdict
-        // against the other operand — ray parity misread exactly this
-        // at the thread coil's cut-open end (a void-backed corner
-        // sliver kept from a sample 0.08 inside the tool, which then
-        // triple-claimed its record and the serve declined). Scoped to
-        // plain In/Out verdicts: OnBoundary carries the coorientation
-        // semantics above and stays untouched. A decisive, unanimous
-        // witness overrides a disagreeing ray verdict; agreement and
-        // abstention leave the tuned path byte-identical.
-        let class = if matches!(
+        // Record-side witness votes (PK-494 layer 3): collected per
+        // fragment, applied post-loop after per-face outward-sign
+        // calibration (the stored orientation flags lie on some
+        // construction paths — the ray-verdict consensus recovers
+        // each face's honest sign; only minority mismatches under a
+        // clear majority get overridden). Scoped to plain In/Out:
+        // OnBoundary carries the coorientation semantics above.
+        if matches!(
             class,
             PointClassification::Inside | PointClassification::Outside
         ) {
-            match crate::record_side_witness::record_side_witness(
+            let votes = crate::record_side_witness::record_votes(
                 graph,
                 fragment,
                 &sample,
@@ -851,23 +854,11 @@ fn classify_fragments_cellular(
                 brep_b,
                 other_aabbs,
                 tolerance,
-            ) {
-                Some(witness) if witness != class => {
-                    if popkern_core::trace::trace_enabled("cellular")
-                        || popkern_core::trace::trace_enabled("boolean")
-                    {
-                        eprintln!(
-                            "  [record-side] {:?} ray {class:?} -> witness {witness:?} at ({:.3},{:.3},{:.3})",
-                            fragment.face, sample.x, sample.y, sample.z
-                        );
-                    }
-                    witness
-                }
-                _ => class,
+            );
+            if !votes.is_empty() {
+                witness_pending.push((selections.len(), class, cooriented, votes));
             }
-        } else {
-            class
-        };
+        }
 
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side
@@ -918,6 +909,78 @@ fn classify_fragments_cellular(
         };
 
         selections.push(FragmentSelection { keep, flip });
+    }
+
+    // Post-pass: calibrate per-face outward signs from the ray-verdict
+    // consensus and override minority mismatches (PK-494 layer 3).
+    if !witness_pending.is_empty() {
+        let all: Vec<(
+            PointClassification,
+            Vec<crate::record_side_witness::RecordVote>,
+        )> = witness_pending
+            .iter()
+            .map(|(_, c, _, v)| (*c, v.clone()))
+            .collect();
+        let signs = crate::record_side_witness::calibrate_face_signs(&all);
+        for (idx, class, cooriented, votes) in &witness_pending {
+            // OPERAND-A-ONLY overrides (see the collection comment):
+            // tool-side fragments carry walk phantom semantics that
+            // their ray verdicts encode deliberately (PK-428
+            // keyed-bore class — both measured regressions were
+            // B-side, and confidence does not discriminate: the
+            // keyed phantom was contested while the coil-end
+            // void-backed sliver reads confidently wrong at 50+
+            // turns). Workpiece-side fragments have no such
+            // semantics.
+            if fragments[*idx].face.operand != Operand::A {
+                continue;
+            }
+            let Some(witness) = crate::record_side_witness::calibrated_verdict(votes, &signs)
+            else {
+                continue;
+            };
+            if witness == *class {
+                continue;
+            }
+            let fragment = &fragments[*idx];
+            if popkern_core::trace::trace_enabled("cellular")
+                || popkern_core::trace::trace_enabled("boolean")
+            {
+                eprintln!(
+                    "  [record-side] {:?} ray {class:?} -> calibrated witness {witness:?}",
+                    fragment.face
+                );
+            }
+            let own_operand = fragment.face.operand;
+            let class = witness;
+            let cooriented = *cooriented;
+            let (keep, flip) = match op {
+                BoolOperation::Union => (
+                    class == PointClassification::Outside
+                        || (own_operand == Operand::A
+                            && class == PointClassification::OnBoundary
+                            && cooriented != Some(false)),
+                    false,
+                ),
+                BoolOperation::Intersection => (
+                    class == PointClassification::Inside
+                        || (own_operand == Operand::A
+                            && class == PointClassification::OnBoundary
+                            && cooriented != Some(false)),
+                    false,
+                ),
+                BoolOperation::Subtraction => match own_operand {
+                    Operand::A => (
+                        class == PointClassification::Outside
+                            || (class == PointClassification::OnBoundary
+                                && cooriented != Some(true)),
+                        false,
+                    ),
+                    Operand::B => (class == PointClassification::Inside, true),
+                },
+            };
+            selections[*idx] = FragmentSelection { keep, flip };
+        }
     }
 
     Ok(selections)

@@ -213,9 +213,8 @@ fn off_pitch_rod_lengths_serve_watertight() {
 /// truncated and the merge's strand gate declined honestly. The
 /// radial level-curve arm traces the exact helical records with no
 /// step budget, so a rod past the old bound serves with ISO volume.
-/// The serve frontier is currently contained at 40 tool turns
-/// (`MAX_SERVED_WRAPS`, PK-494 lifts it): this fixture's tool coil is
-/// 39 turns.
+/// This fixture's tool coil is 39 turns; the serve range is
+/// probe-verified through 81 tool turns (PK-494).
 #[test]
 fn long_rod_beyond_the_march_turn_budget_serves() {
     let spec = ThreadSpec::parse("M6").expect("M6");
@@ -226,21 +225,17 @@ fn long_rod_beyond_the_march_turn_budget_serves() {
     serve_and_check_volume(&rod, expected_rod_volume(&spec, 38.0), "M6 38-turn rod");
 }
 
-/// PK-494 containment: a thread cut past the verified 40-wrap serve
-/// frontier declines instantly with a structured, actionable error —
-/// never a torn serve (measured: past the frontier both intersection
-/// paths can assemble a body whose mesh tears by thousands of open
-/// edges while the BRep validators stay green).
+/// PK-494 acceptance: a 60-turn M6 rod serves watertight with ISO
+/// volume — the class the pre-PK-461 march budget could never reach
+/// and the interim 40/46-turn containments declined. The serve range
+/// is probe-verified through 81 tool turns; past it the merge's
+/// strand gate declines honestly (measured at 101 turns).
 #[test]
-fn beyond_frontier_thread_length_declines_structurally() {
+fn sixty_turn_rod_serves_with_iso_volume() {
     let spec = ThreadSpec::parse("M6").expect("M6");
-    let err = ThreadedRod::new(spec, 50.0)
+    let rod = ThreadedRod::new(spec.clone(), 60.0)
         .tip_chamfer(false)
         .build(Tolerance::default())
-        .expect_err("50-turn rod is past the verified serve frontier");
-    let text = format!("{err:?}");
-    assert!(
-        text.contains("PK-494"),
-        "decline must name the frontier task: {text}"
-    );
+        .expect("60-turn rod");
+    serve_and_check_volume(&rod, expected_rod_volume(&spec, 60.0), "M6 60-turn rod");
 }

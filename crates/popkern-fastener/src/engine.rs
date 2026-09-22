@@ -153,11 +153,12 @@ pub(crate) fn union(
 /// the radial level-curve arm (PK-461,
 /// `popkern_core::geometry::intersection::radial_level_curve`),
 /// which has no step budget — the historical ~35-turn bound came
-/// from the marching solver's 200k-step budget. The serve frontier
-/// is currently the arm's 40-wrap containment (PK-494: the
-/// boolean/mesh substrate past 40 wraps): beyond it, and whenever
-/// the arm's structure gates decline a pair, marching runs, its
-/// budget truncates, and the merge's strand gate declines honestly.
+/// from the marching solver's 200k-step budget. PK-494 removed the
+/// interim turn containment: serves are verified watertight through
+/// 81 tool turns (per-turn probe ladder with the record-side
+/// classification witness), and past the verified range the merge's
+/// strand gate declines honestly (measured at 101 turns: a
+/// structured half-claimed-records decline, never a torn serve).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cut_thread(
     body: &BRep,
@@ -173,34 +174,6 @@ pub(crate) fn cut_thread(
     let (mut z0, turns) = plan_turns(z_start, z_end, spec.lead());
     if let Some(floor) = tool_floor {
         z0 = z0.max(floor);
-    }
-    // Serve containment (PK-494): the boolean/mesh substrate is
-    // verified through 46-tool-turn thread serves (per-turn probe
-    // ladder; PK-494 layers 1-2 moved the bound from 40). Beyond it
-    // the chart-corner triangle's inverted winding cascades into
-    // either an honest cellular decline or a graph-merge loop-gap —
-    // and historically past-frontier serves have TORN instead of
-    // declining, which is worse. Declining HERE keeps the failure
-    // structured and instant; the radial level-curve arm's own wrap
-    // containment is defense-in-depth for other callers. PK-494
-    // layer 3 (region-adjacency seam-side assignment in the walk)
-    // lifts this further.
-    const MAX_SERVED_TURNS: f64 = 46.5;
-    // POPKERN_MULTIWRAP_SERVE_CONTAINMENT=0 lifts the gate for
-    // PK-494's frontier probes (PK-239 kill-switch precedent;
-    // per-call read) — never for production serves.
-    let containment_lifted = std::env::var_os("POPKERN_MULTIWRAP_SERVE_CONTAINMENT")
-        .map(|v| v == "0")
-        .unwrap_or(false);
-    if turns > MAX_SERVED_TURNS && !containment_lifted {
-        return Err(FastenerError::Construction {
-            stage: stage.to_string(),
-            detail: format!(
-                "thread cut spans {turns} tool turns, past the verified {MAX_SERVED_TURNS}-turn \
-                 serve frontier (PK-494: multi-wrap boolean/mesh substrate) — split the thread \
-                 into shorter segments or reduce the threaded length"
-            ),
-        });
     }
     // ONE boolean for ALL starts: the starts' grooves are cut from a
     // single multi-shell tool (the disjoint groove coils

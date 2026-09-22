@@ -1,16 +1,16 @@
 //! Multi-wrap serve frontier probe (PK-461 -> PK-494): measure where
 //! thread-cut serves break as tool turn count grows, with per-face
-//! open-edge attribution and served-topology dumps. This is the
-//! acceptance harness for lifting the radial level-curve arm's
-//! 40-wrap serve containment (`MAX_SERVED_WRAPS`, PK-494): run it at
-//! the lengths under repair and watch for torn serves (open_edges>0
-//! is WORSE than a decline).
+//! open-edge attribution and served-topology dumps. Run it at the
+//! lengths under repair and watch for torn serves (open_edges>0 is
+//! WORSE than a decline).
 //!
 //! Run by hand:
 //! `PK461_PROBE_LEN=<len> cargo test -p popkern-part --release --test multiwrap_serve_frontier_probe -- --ignored --nocapture`
 //!
-//! Frontier as of PK-461 close: M6 rods serve watertight through
-//! len 39 (40 tool turns); 41+ wraps decline at the arm containment.
+//! Frontier at PK-494 close: M6 rods serve watertight through len 80
+//! (81 tool turns) with the record-side classification witness; at
+//! len 100 the merge's strand gate declines honestly (a structured
+//! half-claimed-records decline — never a torn serve).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_part::fastener::{ThreadSpec, ThreadedRod};

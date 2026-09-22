@@ -57,6 +57,12 @@ pub(crate) fn classify_and_select_fragments(
 
     let mut selections = Vec::with_capacity(fragments.len());
 
+    let mut witness_pending: Vec<(
+        usize,
+        Operand,
+        PointClassification,
+        Vec<crate::record_side_witness::RecordVote>,
+    )> = Vec::new();
     for fragment in fragments {
         let own_operand = fragment.face.operand;
         let is_a = own_operand == Operand::A;
@@ -199,37 +205,68 @@ pub(crate) fn classify_and_select_fragments(
             }
         }
 
-        // Record-side witness (PK-494 layer 3): a fragment bounded by
-        // a Shared record carries a LOCAL exact side-of-wall verdict
-        // against the other operand; ray parity misread exactly this
-        // at the thread coil's cut-open end (the void-backed corner
-        // sliver kept from a sample 0.08 inside the tool). A decisive,
-        // unanimous witness overrides a disagreeing ray verdict;
-        // agreement and abstention leave the tuned path byte-identical.
-        if let Some(witness) = crate::record_side_witness::record_side_witness(
-            graph,
-            fragment,
-            &sample,
-            brep_a,
-            brep_b,
-            other_aabbs,
-            tolerance,
-        ) && witness != classification
+        // Record-side witness votes (PK-494 layer 3): collected per
+        // fragment, applied post-loop after per-face outward-sign
+        // calibration — see `record_side_witness.rs`.
         {
-            if popkern_core::trace::trace_enabled("boolean")
-                || popkern_core::trace::trace_enabled("uv-scramble")
-            {
-                eprintln!(
-                    "  [record-side] {:?} ray {classification:?} -> witness {witness:?} at ({:.3},{:.3},{:.3})",
-                    fragment.face, sample.x, sample.y, sample.z
-                );
+            let votes = crate::record_side_witness::record_votes(
+                graph,
+                fragment,
+                &sample,
+                brep_a,
+                brep_b,
+                other_aabbs,
+                tolerance,
+            );
+            if !votes.is_empty() {
+                witness_pending.push((selections.len(), own_operand, classification, votes));
             }
-            classification = witness;
         }
 
         let selection = apply_selection_table(op, own_operand, classification);
 
         selections.push(selection);
+    }
+
+    // Post-pass: calibrate per-face outward signs from the ray-verdict
+    // consensus and override minority mismatches (PK-494 layer 3).
+    if !witness_pending.is_empty() {
+        let all: Vec<(
+            PointClassification,
+            Vec<crate::record_side_witness::RecordVote>,
+        )> = witness_pending
+            .iter()
+            .map(|(_, _, c, v)| (*c, v.clone()))
+            .collect();
+        let signs = crate::record_side_witness::calibrate_face_signs(&all);
+        for (idx, operand, class, votes) in &witness_pending {
+            // OPERAND-A-ONLY overrides: tool-side fragments carry walk
+            // phantom semantics their ray verdicts encode deliberately
+            // (PK-428 keyed-bore class — both measured regressions were
+            // B-side, and confidence does not discriminate: the keyed
+            // phantom was contested while the coil-end void-backed
+            // sliver reads confidently wrong at 50+ turns). Workpiece
+            // fragments carry no such semantics — the unrestricted
+            // sweep regressed only B-side cases.
+            if *operand != Operand::A {
+                continue;
+            }
+            let Some(witness) = crate::record_side_witness::calibrated_verdict(votes, &signs)
+            else {
+                continue;
+            };
+            if witness == *class {
+                continue;
+            }
+            if popkern_core::trace::trace_enabled("boolean")
+                || popkern_core::trace::trace_enabled("uv-scramble")
+            {
+                eprintln!(
+                    "  [record-side] fragment #{idx} ray {class:?} -> calibrated witness {witness:?}"
+                );
+            }
+            selections[*idx] = apply_selection_table(op, *operand, witness);
+        }
     }
 
     // §6.4: deferred ON resolution auto-override pass.
