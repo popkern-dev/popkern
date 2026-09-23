@@ -239,3 +239,31 @@ fn sixty_turn_rod_serves_with_iso_volume() {
         .expect("60-turn rod");
     serve_and_check_volume(&rod, expected_rod_volume(&spec, 60.0), "M6 60-turn rod");
 }
+
+/// PK-495 acceptance: a 100-turn M6 rod serves watertight with ISO
+/// volume. This length sat past THREE sweep-construction fixed caps
+/// (the multi-wrap fixed-cap family): the 1024-frame skinning budget
+/// (starved to 10 frames/turn, wall ripple 6.8e-2), the 100-cell
+/// arc-length table (51-turn frame-placement beat, flank corner dips
+/// ≥ 0.031), and the 400-sample self-intersection grid (false fold
+/// verdicts from 150 turns). With the wall built clean, the radial
+/// level-curve arm's structure gates accept the flank×shank pairs
+/// again (they declined on the rippled wall — the groove records
+/// were never the marching solver's to truncate).
+///
+/// Nightly heavy tier (release: ~14 min on the dev reference
+/// machine; debug would dominate the per-push gate). The per-push
+/// guards for the same mechanisms are the cheap sweep-level pins
+/// (`hundred_turn_wall_ripple_stays_at_baseline`,
+/// `long_coil_sweep_is_not_a_false_fold`, the `frame_budget` unit
+/// tests) plus `sixty_turn_rod_serves_with_iso_volume` end-to-end.
+#[test]
+#[ignore = "nightly heavy tier — multi-wrap serve acceptance (PK-495), run in release"]
+fn hundred_turn_rod_serves_with_iso_volume() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let rod = ThreadedRod::new(spec.clone(), 100.0)
+        .tip_chamfer(false)
+        .build(Tolerance::default())
+        .expect("100-turn rod");
+    serve_and_check_volume(&rod, expected_rod_volume(&spec, 100.0), "M6 100-turn rod");
+}

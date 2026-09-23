@@ -277,6 +277,20 @@ fn trace_direction(
         return None;
     }
     if coarse.iter().any(|b| b.len() != k) {
+        if crate::trace::trace_enabled("radial-level") {
+            let counts: Vec<usize> = coarse.iter().map(|b| b.len()).collect();
+            eprintln!(
+                "  [radial-level] coarse mismatch detail: dir={} counts={counts:?} s_range=({:.4},{:.4}) r_range=({:.4},{:.4}) n_r={n_r}",
+                match dir {
+                    StationDir::AlongV => "along-v",
+                    StationDir::AlongU => "along-u",
+                },
+                s_range.0,
+                s_range.1,
+                r_range.0,
+                r_range.1
+            );
+        }
         trace_decline("coarse crossing-count mismatch", k, 0.0);
         return None;
     }

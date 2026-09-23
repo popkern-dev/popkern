@@ -242,6 +242,142 @@ fn invalid_specs_return_errors() {
 /// flanks of a thread-groove tool were minted as Planes and the
 /// boolean intersected phantom planes (PK-460). Span-resolving
 /// sampling (two samples per knot span) cannot alias.
+/// Build an M6-thread-tool-shaped helical sweep (square wire, radius
+/// 3, pitch 1, axis-referenced frames — the fastener engine's
+/// convention: outward radial authors as −x) and measure the radial
+/// ripple of each NURBS wall: sampled ρ = distance-to-axis, per-face
+/// min/max/mean. The outer and inner walls are ideal cylinders, so
+/// their (max − min) is exactly the skinning error of the swept wall
+/// at this turn count.
+fn wall_radial_ripple(turns: f64) -> Vec<(f64, f64)> {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    let result = build_square_tool_sweep(turns);
+    let mut rows = Vec::new();
+    for (_, f) in result.brep.faces.iter() {
+        let Some(s) = f.surface.as_ref() else {
+            continue;
+        };
+        let SurfaceGeometry::Nurbs(_) = &s.geometry else {
+            continue;
+        };
+        let (ur, vr) = s.geometry.parameter_range();
+        let nv = ((turns * 64.0) as usize).max(256);
+        let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+        for i in 0..=8 {
+            let u = ur.0 + (ur.1 - ur.0) * i as f64 / 8.0;
+            for j in 0..=nv {
+                let v = vr.0 + (vr.1 - vr.0) * j as f64 / nv as f64;
+                let p = s.geometry.point_at(u, v);
+                let rho = (p.x * p.x + p.y * p.y).sqrt();
+                lo = lo.min(rho);
+                hi = hi.max(rho);
+            }
+        }
+        rows.push((lo, hi));
+    }
+    rows
+}
+
+/// The square-wire helical tool the ripple metrics run on (fastener
+/// engine conventions: outward radial authors as −x, axis-referenced
+/// frames).
+fn build_square_tool_sweep(turns: f64) -> crate::types::SweepResult {
+    let profile_wire = popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(-3.1, -0.2, 0.0),
+            Point3::new(-2.9, -0.2, 0.0),
+            Point3::new(-2.9, 0.2, 0.0),
+            Point3::new(-3.1, 0.2, 0.0),
+            Point3::new(-3.1, -0.2, 0.0),
+        ],
+        weights: vec![1.0; 5],
+    };
+    let spec = HelixSpec {
+        axis_origin: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vec3::new(0.0, 0.0, 1.0),
+        start_radius: 3.0,
+        end_radius: 3.0,
+        pitch: HelixPitch::Constant(1.0),
+        turns,
+        start_angle: 0.0,
+        left_handed: false,
+    };
+    let axis = popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, turns)],
+        weights: vec![1.0, 1.0],
+    };
+    let options = crate::types::SweepOptions {
+        frame: crate::types::FrameMethod::Auxiliary(axis),
+        ..crate::types::SweepOptions::default()
+    };
+    crate::helical_sweep(
+        &crate::SweepProfile::Wire(profile_wire),
+        &spec,
+        &options,
+        popkern_core::tolerance::Tolerance::default(),
+        None,
+    )
+    .expect("helical sweep")
+}
+
+#[test]
+#[ignore = "PK-495 wall-ripple probe — run by hand with PK495_TURNS"]
+fn probe_wall_radial_ripple() {
+    let turns: f64 = std::env::var("PK495_TURNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20.0);
+    for (lo, hi) in wall_radial_ripple(turns) {
+        println!(
+            "PK495_RIPPLE turns={turns} rho=[{lo:.6},{hi:.6}] span={:.2e}",
+            hi - lo
+        );
+    }
+}
+
+/// PK-495 regression: a 100-turn tool wall's skinning ripple stays at
+/// the sub-40-turn baseline. Under the old absolute frame cap
+/// (`(6·spans).min(1024)`, bit at ~43 turns) plus the fixed 100-cell
+/// arc-length table (51-turn placement beat), the ideal-cylinder
+/// walls of this sweep rippled 6.8e-2 radially at 100 turns and the
+/// radial level-curve SSI arm declined the thread flank pairs
+/// (measured, this probe). Baseline at ≤40 turns is 2.4e-3; the
+/// bound leaves ~2× headroom without readmitting the defect (a
+/// starved wall is an order of magnitude past it).
+#[test]
+fn hundred_turn_wall_ripple_stays_at_baseline() {
+    let worst = wall_radial_ripple(100.0)
+        .iter()
+        .map(|(lo, hi)| {
+            // Ideal-cylinder walls only: their full span IS the
+            // skinning error. Flank-analog walls span the profile.
+            if hi - lo < 0.1 { hi - lo } else { 0.0 }
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(
+        worst < 5.0e-3,
+        "100-turn wall ripple {worst:.2e} regressed past the 2.4e-3 baseline"
+    );
+}
+
+/// PK-495 regression: a 150-turn helical sweep BUILDS — the
+/// self-intersection gate's span-tracking grid, once capped at 400
+/// samples, stepped 135° of smooth frame rotation per sample on this
+/// coil and declined it as a false fold (120 turns passed at 108° by
+/// luck). Suspicious steps now refine before convicting, so smooth
+/// rotation at any density cannot false-positive.
+#[test]
+fn long_coil_sweep_is_not_a_false_fold() {
+    // Build only — the ripple sampling is the expensive part and the
+    // ripple bound is pinned at 100 turns above.
+    let result = build_square_tool_sweep(150.0);
+    assert!(!result.brep.faces.is_empty(), "150-turn sweep is empty");
+}
+
 #[test]
 fn four_turn_helical_walls_are_not_recognized_as_planes() {
     use popkern_core::geometry::surface::SurfaceGeometry;

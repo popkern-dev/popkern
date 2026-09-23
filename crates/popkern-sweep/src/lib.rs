@@ -8,6 +8,7 @@ pub mod arc_length;
 pub mod boolean;
 pub mod error;
 pub mod frame;
+pub(crate) mod frame_budget;
 pub mod helix;
 pub mod interactive;
 pub mod pipe;
@@ -31,7 +32,9 @@ pub use types::*;
 
 // Re-exported for `lib_tests.rs` (historic unqualified uses).
 #[cfg(test)]
-pub(crate) use pipeline::{MIN_FRAMES, check_path_closed, compute_sample_count};
+pub(crate) use frame_budget::{MIN_FRAMES, compute_sample_count};
+#[cfg(test)]
+pub(crate) use pipeline::check_path_closed;
 
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::history::TrackingContext;

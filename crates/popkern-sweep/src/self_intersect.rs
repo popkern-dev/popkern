@@ -35,14 +35,26 @@ pub fn check_self_intersection(surface: &NurbsSurface, _tolerance: &Tolerance) -
         .windows(2)
         .filter(|w| w[1] > w[0] + 1e-12)
         .count();
-    let grid_v = GRID_SIZE.max(2 * v_spans).min(400);
+    // The span-tracking grid is cost-capped, so on a long coil a
+    // single coarse step can legitimately carry more than the fold
+    // threshold of SMOOTH frame rotation (a 150-turn thread tool at
+    // the historical 400-sample cap stepped 135° — a false
+    // SelfIntersection decline, PK-495). A flagged step is therefore
+    // refined before it convicts: smooth rotation halves with the
+    // interval, a genuine fold's normal flip does not. The cap keeps
+    // the un-aliased band: below it a coarse step stays under 240°
+    // (the dot test flags [120°, 240°]), so every fold-carrying step
+    // is flagged and handed to refinement — 2 per span holds that to
+    // ~1365 helix turns at the skinning density, far past any served
+    // class.
+    let grid_v = GRID_SIZE.max(2 * v_spans).min(2048);
 
     // For each u-sample, walk along v and check that adjacent normals
     // don't reverse. A reversal in the v-direction normal indicates the
     // surface folds back on itself along the sweep path.
     for iu in 0..=GRID_SIZE {
         let u = u_min + (iu as f64 / GRID_SIZE as f64) * (u_max - u_min);
-        let mut prev_normal: Option<popkern_core::geometry::Vec3> = None;
+        let mut prev: Option<(f64, popkern_core::geometry::Vec3)> = None;
 
         for iv in 0..=grid_v {
             let v = v_min + (iv as f64 / grid_v as f64) * (v_max - v_min);
@@ -53,22 +65,65 @@ pub fn check_self_intersection(surface: &NurbsSurface, _tolerance: &Tolerance) -
                 continue;
             }
 
-            if let Some(ref prev) = prev_normal {
-                let prev_len = prev.length();
-                if prev_len > 1e-20 {
-                    let dot = prev.dot(&normal);
-                    // Check if the normal has reversed (more than 120 degrees from previous).
-                    if dot < -len * prev_len * 0.5 {
-                        return Some(v);
-                    }
+            if let Some((prev_v, prev_n)) = prev {
+                let prev_len = prev_n.length();
+                // Reversal (more than 120° between adjacent normals)
+                // marks the step as suspicious; refinement decides
+                // whether it is a fold or accumulated smooth rotation.
+                if prev_len > 1e-20
+                    && prev_n.dot(&normal) < -len * prev_len * 0.5
+                    && fold_survives_refinement(surface, u, prev_v, v)
+                {
+                    return Some(v);
                 }
             }
 
-            prev_normal = Some(normal);
+            prev = Some((v, normal));
         }
     }
 
     None
+}
+
+/// Whether a normal reversal across `[v0, v1]` at `u` persists under
+/// interval bisection. Smooth frame rotation spreads evenly, so each
+/// half of a bisected interval carries about half the angle and the
+/// reversal dissolves within a few levels; a genuine fold is a
+/// normal FLIP at a point, and the half containing it keeps the
+/// reversal at every level. Depth 48 halvings put the interval at
+/// the f64 resolution floor of any practical knot domain — a
+/// reversal still alive there is a fold.
+fn fold_survives_refinement(surface: &NurbsSurface, u: f64, v0: f64, v1: f64) -> bool {
+    let (mut lo, mut hi) = (v0, v1);
+    for _ in 0..48 {
+        let mid = 0.5 * (lo + hi);
+        if mid <= lo || mid >= hi {
+            return true;
+        }
+        let n_lo = surface.normal_at(u, lo);
+        let n_mid = surface.normal_at(u, mid);
+        let n_hi = surface.normal_at(u, hi);
+        let reversed =
+            |a: &popkern_core::geometry::Vec3, b: &popkern_core::geometry::Vec3| -> bool {
+                let (la, lb) = (a.length(), b.length());
+                la > 1e-20 && lb > 1e-20 && a.dot(b) < -la * lb * 0.5
+            };
+        if n_mid.length() < 1e-20 {
+            // Degenerate normal mid-interval: cannot separate the
+            // halves — keep the conservative verdict.
+            return true;
+        }
+        if reversed(&n_lo, &n_mid) {
+            hi = mid;
+        } else if reversed(&n_mid, &n_hi) {
+            lo = mid;
+        } else {
+            // Neither half reverses: the coarse step's angle was
+            // accumulated smooth rotation, not a flip.
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -126,13 +181,11 @@ mod tests {
             weights: vec![1.0; 6],
         };
         let tol = Tolerance::default();
-        // This surface folds — the normal should reverse.
-        let result = check_self_intersection(&surface, &tol);
-        // We accept either detection or miss (heuristic), but log it.
-        // The fold is quite dramatic so it should be caught.
-        if let Some(v) = result {
-            assert!((0.0..=1.0).contains(&v));
-        }
+        // The fold is a genuine normal FLIP, so it must survive the
+        // refinement pass (PK-495) — a miss here would mean the
+        // refinement dissolves real folds, not just smooth rotation.
+        let v = check_self_intersection(&surface, &tol).expect("fold must be detected");
+        assert!((0.0..=1.0).contains(&v));
     }
 
     #[test]

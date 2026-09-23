@@ -86,6 +86,28 @@ jobs:
           cargo test --release -p popkern-examples \
             --test pns_toms_step_roundtrip -- --ignored --nocapture
 
+  multiwrap-serve:
+    # PK-495: the 100-turn M6 thread-cut acceptance — the length that
+    # sat past the sweep construction's fixed-cap family (frame
+    # budget, arc-length table, self-intersection grid). Measured
+    # 2026-09-23 on the dev reference machine: ~14 min release; the
+    # timeout is the performance budget for the tier (≈4× headroom
+    # for hosted runners).
+    name: Multi-wrap thread serve acceptance (release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 100-turn M6 rod serves watertight with ISO volume
+        run: |
+          cargo test --release -p popkern-part --test fastener_thread \
+            hundred_turn_rod_serves_with_iso_volume -- --ignored --nocapture
+
   coverage:
     # PK-270: moved off the per-push gate — tarpaulin's RUSTFLAGS
     # guarantee a cold instrumented rebuild of the whole workspace

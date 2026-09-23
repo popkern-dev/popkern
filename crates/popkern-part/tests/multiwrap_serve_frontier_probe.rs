@@ -7,10 +7,15 @@
 //! Run by hand:
 //! `PK461_PROBE_LEN=<len> cargo test -p popkern-part --release --test multiwrap_serve_frontier_probe -- --ignored --nocapture`
 //!
-//! Frontier at PK-494 close: M6 rods serve watertight through len 80
-//! (81 tool turns) with the record-side classification witness; at
-//! len 100 the merge's strand gate declines honestly (a structured
-//! half-claimed-records decline — never a torn serve).
+//! Frontier at PK-495 close: the ~101-turn wall (strand-gate decline
+//! from truncated marched flanks) was the sweep construction's own
+//! fixed caps rippling the tool wall until the radial level-curve
+//! arm's structure gates declined the flank pairs. With the wall
+//! built clean (turning-derived frame budget, span-resolving
+//! arc-length table, refining self-intersection gate) the arm serves
+//! the flanks at any turn count the sweep can build. Probed ladder
+//! at close: len 12..150 (through ~151.5 tool turns) all serve
+//! watertight; the next decline point is unlocated (PK-496).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_part::fastener::{ThreadSpec, ThreadedRod};

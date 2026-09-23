@@ -153,12 +153,16 @@ pub(crate) fn union(
 /// the radial level-curve arm (PK-461,
 /// `popkern_core::geometry::intersection::radial_level_curve`),
 /// which has no step budget — the historical ~35-turn bound came
-/// from the marching solver's 200k-step budget. PK-494 removed the
-/// interim turn containment: serves are verified watertight through
-/// 81 tool turns (per-turn probe ladder with the record-side
-/// classification witness), and past the verified range the merge's
-/// strand gate declines honestly (measured at 101 turns: a
-/// structured half-claimed-records decline, never a torn serve).
+/// from the marching solver's 200k-step budget, and the later
+/// ~101-turn wall was the sweep construction's own fixed caps
+/// starving the tool wall (PK-495: frame budget, arc-length table,
+/// self-intersection grid — the rippled wall declined the arm's
+/// structure gates and the flanks fell back to truncated marching).
+/// PK-494 removed the interim turn containment; serves are
+/// probe-verified watertight through 151 tool turns (per-turn
+/// ladder with the record-side classification witness), and past
+/// the verified range the boolean's gates decline honestly
+/// (structured declines, never a torn serve).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn cut_thread(
     body: &BRep,
