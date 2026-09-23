@@ -99,10 +99,11 @@ pub(crate) static SETBACK_TOPOLOGY_LAST: std::sync::Mutex<Option<String>> =
 pub(crate) struct SetbackTopologyOutcome {
     /// The merged blend face bounded by the n setback arcs.
     pub blend_face: FaceHandle,
-    /// The n setback-arc edges, fillet order.
+    /// The n setback-arc edges, in the extractor's angular-walk order
+    /// around the apex (arc k's `fillet_index` names its strip).
     pub arc_edges: Vec<EdgeHandle>,
-    /// The n corner vertices (trim intersections), fillet order
-    /// (corner k = between fillet k and fillet k+1).
+    /// The n corner vertices (trim intersections), angular-walk order
+    /// (corner k = between arc k and arc k+1 of that walk).
     pub corner_vertices: Vec<VertexHandle>,
     /// The 4n KP20 piece faces subdividing the blend region.
     pub cap_faces: Vec<FaceHandle>,
@@ -183,15 +184,25 @@ fn surgery_inner(
             n
         ));
     }
-    let mut arcs: Vec<&Kp20SetbackArc> = Vec::with_capacity(n);
-    for k in 0..n {
-        arcs.push(
-            extract
-                .setback_arcs
-                .iter()
-                .find(|a| a.fillet_index == k)
-                .ok_or_else(|| format!("no setback arc for fillet {k}"))?,
-        );
+    // The arcs stay in the extractor's angular-walk order: arc k's
+    // corner_next is arc k+1's corner_prev only in that order, and
+    // both the corner walk below (X2_k → c_k → X1_{k+1}) and the cap
+    // sector↔arc alignment in `build_cap_face_fan` lean on that
+    // adjacency. The raw `fillet_surfaces` index order is caller
+    // enumeration order, not adjacency (a boolean-carved pentagon
+    // apex arrives 0,1,2,4,3); re-sorting the arcs to index order —
+    // as this site once did — pairs non-adjacent strips and declines
+    // with "no shared lateral face". Per-fillet lookups go through
+    // `arcs[k].fillet_index` instead.
+    let arcs: Vec<&Kp20SetbackArc> = extract.setback_arcs.iter().collect();
+    let mut seen = vec![false; n];
+    for arc in &arcs {
+        let slot = seen
+            .get_mut(arc.fillet_index)
+            .ok_or_else(|| "setback arc fillet index out of range".to_string())?;
+        if std::mem::replace(slot, true) {
+            return Err(format!("duplicate arc for fillet {}", arc.fillet_index));
+        }
     }
 
     // WIP probe: where does the arc midpoint live relative to the
@@ -229,7 +240,7 @@ fn surgery_inner(
             // And the fillet face's u-extent: distance from arc mid to the fillet face's loop edges.
             let ff = setback_arc_binding::find_fillet_face(
                 brep,
-                &fillet_surfaces[k],
+                &fillet_surfaces[arcs[k].fillet_index],
                 &arcs[k].section_curve(),
                 vertex_position,
             )?;
@@ -279,7 +290,7 @@ fn surgery_inner(
         .map(|k| {
             setback_arc_binding::find_fillet_face(
                 brep,
-                &fillet_surfaces[k],
+                &fillet_surfaces[arcs[k].fillet_index],
                 &arcs[k].section_curve(),
                 vertex_position,
             )

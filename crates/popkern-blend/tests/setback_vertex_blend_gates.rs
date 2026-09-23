@@ -108,3 +108,81 @@ fn setback_commit_produces_valid_g2_vertex_blend() {
         brep.vertices.len()
     );
 }
+
+/// The setback surgery must not depend on the caller's spec order
+/// matching angular adjacency around the apex. The border extractor
+/// sorts the strips into its angular walk; the topology surgery once
+/// re-sorted the arcs back to raw fillet-index order before pairing
+/// corner k with k+1, so any enumeration that is not already the
+/// angular walk (every boolean-carved apex — a slab-carved pentagon
+/// measures 0,1,2,4,3) declined with "no shared lateral face" and
+/// fell to a mitre whose rim edges sat 1.87e-2 off their surfaces —
+/// an invalid body that only the part-layer `validate_all` caught.
+#[test]
+fn setback_commit_is_independent_of_spec_order() {
+    let tol = Tolerance::default();
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
+    let apex = pyramid
+        .vertices
+        .iter()
+        .max_by(|a, b| {
+            a.1.position
+                .z
+                .partial_cmp(&b.1.position.z)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(h, _)| h)
+        .expect("apex");
+    let apex_edges: Vec<_> = pyramid
+        .edges
+        .iter()
+        .filter_map(|(eh, _)| {
+            let he = pyramid.edges[eh].half_edge;
+            let origin = pyramid.half_edges[he].origin;
+            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            (origin == apex || twin_origin == apex).then_some(eh)
+        })
+        .collect();
+    // Every-other enumeration: no two consecutive specs are angular
+    // neighbours, the worst case for an index-order corner walk.
+    let specs: Vec<FilletSpec> = [0usize, 2, 4, 1, 3]
+        .iter()
+        .map(|&i| FilletSpec {
+            edge: apex_edges[i],
+            radius: FilletRadius::Constant(0.16),
+        })
+        .collect();
+    let options = FilletOptions {
+        continuity: ContinuityLevel::G2,
+        ..Default::default()
+    };
+    let result = fillet_edges(&pyramid, &specs, &options, tol, None).expect("pipeline");
+    if let Some(reason) = popkern_blend::construct_test_hooks::take_setback_topology_checkpoint() {
+        eprintln!("decline: {reason}");
+    }
+    let brep = &result.brep;
+    brep.validate().expect("blended BRep must validate");
+    assert_eq!(
+        result.corner_patches.len(),
+        20,
+        "spec order must not decline the setback cap"
+    );
+    let gregory_faces = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::SurfaceGeometry::Gregory(_))
+            )
+        })
+        .count();
+    assert_eq!(gregory_faces, 20, "expected 20 Gregory cap faces");
+    // The pre-fix mitre fallback escaped the fast validate(): its rim
+    // edges failed only the check-9 curve-surface sweep downstream.
+    let curve_surface_errors = brep.validate_curve_surface_all();
+    assert!(
+        curve_surface_errors.is_empty(),
+        "curve-surface consistency must hold: {curve_surface_errors:?}"
+    );
+}
