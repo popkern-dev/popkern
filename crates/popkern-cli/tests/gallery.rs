@@ -60,6 +60,15 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "fillet radius laws",
     ),
     (
+        "pyramid_apex",
+        "Pyramid apex",
+        "A pentagonal pyramid carved by five exact planes; its slant edges \
+         rounded, and the five rounds closed by the setback Gregory vertex cap.",
+        18,
+        "boolean carve with exact planes, chord-length edge selection, \
+         vertex blend cap",
+    ),
+    (
         "parametric_plate",
         "Parametric plate",
         "Parameters, an expression and a named configuration drive a plate and its rib.",

@@ -49,6 +49,14 @@
       "title": "Tapered fillet"
     },
     {
+      "blurb": "A pentagonal pyramid carved by five exact planes; its slant edges rounded, and the five rounds closed by the setback Gregory vertex cap.",
+      "demonstrates": "boolean carve with exact planes, chord-length edge selection, vertex blend cap",
+      "features": 18,
+      "file": "pyramid_apex.rhai",
+      "thumbnail": "examples/pyramid_apex.png",
+      "title": "Pyramid apex"
+    },
+    {
       "blurb": "Parameters, an expression and a named configuration drive a plate and its rib.",
       "demonstrates": "param, param_expr, p(), expr(), configurations",
       "features": 6,
