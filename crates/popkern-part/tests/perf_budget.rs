@@ -143,10 +143,6 @@ fn smooth_mesh_normalized_cage_within_budget() {
     );
 }
 
-/// The PnS mask tables are optional (ACM ToMS package, untracked —
-/// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
-/// runtime; on checkouts without the package they skip with a visible
-/// notice instead of failing.
 /// Multi-wrap thread-cut serve cost stays SUB-QUADRATIC in tool
 /// turns (PK-496). The cellular merge stage classified O(turns)
 /// wrap-band fragments with independent point-in-solid rays over
@@ -154,9 +150,9 @@ fn smooth_mesh_normalized_cage_within_budget() {
 /// (one audited seed ray per component) and the span-hull projection
 /// pre-gate landed. This gate is a RATIO, not an absolute budget:
 /// doubling the turn count may at most ~triple the build (measured
-/// clean 2026-09-23: boolean 26.8 s → 77.3 s, ratio 2.88; the
-/// residual superlinearity is the intersection stage's own ~N^1.8,
-/// measured and tracked separately). A quadratic regression measures
+/// clean 2026-09-23 after PK-511's pierce-inventory cache: boolean
+/// 18.6 s → 46.6 s, ratio 2.5; intersection stage is linear at
+/// 2.06×). A quadratic regression measures
 /// ≥ 3.9. Ratios stay meaningful under uniform CI contention, unlike
 /// wall-clock budgets.
 #[test]
@@ -182,10 +178,14 @@ fn thread_cut_serve_cost_stays_subquadratic() {
         ratio <= 3.5,
         "thread-cut cost curve regressed toward quadratic: \
          len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} > 3.5 \
-         (measured 2.9 at PK-496 close; quadratic ≥ 3.9)"
+         (measured 2.5 at PK-511 close; quadratic ≥ 3.9)"
     );
 }
 
+/// The PnS mask tables are optional (ACM ToMS package, untracked —
+/// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
+/// runtime; on checkouts without the package they skip with a visible
+/// notice instead of failing.
 fn toms_tables_or_skip() -> bool {
     if popkern_core::geometry::polyhedral_spline::toms_tables_available() {
         return true;

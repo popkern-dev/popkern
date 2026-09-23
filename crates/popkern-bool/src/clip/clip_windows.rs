@@ -43,6 +43,7 @@ pub(crate) fn clip_curve_uv_space(
     face_b: FaceHandle,
     curve: &CurveOnSurface,
     residues: Option<&mut Vec<crate::clip::TrimResidue>>,
+    cache: &mut super::clip_pierce_windows::PierceInventoryCache,
 ) -> Vec<CurveOnSurface> {
     // NEGATIVE-BRANCH RETRY (PK-480): a record pcurve can sit whole
     // periods from a face whose chart occupies a NEGATIVE branch (the
@@ -68,6 +69,7 @@ pub(crate) fn clip_curve_uv_space(
         face_b,
         curve,
         Some(&mut first_residues),
+        cache,
     );
     let adopt = |chosen: Vec<crate::clip::TrimResidue>| {
         if let Some(res) = residues {
@@ -98,6 +100,7 @@ pub(crate) fn clip_curve_uv_space(
                 face_b,
                 &adjusted,
                 Some(&mut retry_residues),
+                cache,
             );
             if !retry.is_empty() || !retry_residues.is_empty() {
                 adopt(retry_residues);
@@ -118,6 +121,7 @@ fn clip_curve_uv_space_tuned(
     face_b: FaceHandle,
     curve: &CurveOnSurface,
     residues: Option<&mut Vec<crate::clip::TrimResidue>>,
+    cache: &mut super::clip_pierce_windows::PierceInventoryCache,
 ) -> Vec<CurveOnSurface> {
     let trace = popkern_core::trace::trace_enabled("clip");
     if trace {
@@ -302,7 +306,7 @@ fn clip_curve_uv_space_tuned(
     let mut junction_points: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
     if open_windows_allowed && pierce_scope && joint.iter().all(|w| w.1 <= t_max + 1e-12) {
         let (j2, jp) = super::clip_pierce_windows::apply_pierce_authority(
-            brep_a, face_a, brep_b, face_b, curve, t_min, t_max, joint, trace,
+            brep_a, face_a, brep_b, face_b, curve, t_min, t_max, joint, trace, cache,
         );
         joint = j2;
         junction_points = jp;

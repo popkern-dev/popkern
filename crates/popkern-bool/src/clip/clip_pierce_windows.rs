@@ -47,14 +47,107 @@ pub(super) fn pierce_crossing_params(
     other_brep: &BRep,
     other_face: FaceHandle,
     curve: &CurveOnSurface,
+    cache: &mut PierceInventoryCache,
+    x_is_a: bool,
 ) -> Option<Vec<(f64, popkern_core::geometry::Point3)>> {
-    let other_surf = &other_brep.faces.get(other_face)?.surface.as_ref()?.geometry;
-    let ow = crate::intersect::bounded_parameter_range(other_brep, other_face, other_surf);
     let tolerance = &brep_x.tolerance;
     let fit_gate = tolerance.linear() * 2000.0;
     let (t_min, t_max) = curve.curve_3d.parameter_range();
     let span = (t_max - t_min).abs();
+    let points = cache.junction_points(brep_x, face_x, other_brep, other_face, x_is_a);
     let mut ts: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
+    for point in points {
+        let Some(t) = project_onto_curve_dense(&curve.curve_3d, &point) else {
+            continue;
+        };
+        if curve.curve_3d.point_at(t).distance_to(&point) > fit_gate {
+            continue;
+        }
+        // The curve ends are already junction-cut; a crossing at
+        // an end adds no interval boundary.
+        if !curve.is_closed && ((t - t_min).abs() < span * 1e-4 || (t_max - t).abs() < span * 1e-4)
+        {
+            continue;
+        }
+        if !ts.iter().any(|&(q, _)| (q - t).abs() < span * 1e-6) {
+            ts.push((t, point));
+        }
+    }
+    if ts.is_empty() {
+        return None;
+    }
+    ts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Some(ts)
+}
+
+/// Per-face-pair memo of the pierce junction inventory: for each
+/// (side, face_x, other_face), the refined edge×surface junction
+/// POINTS of `face_x`'s trim boundary against the other face's
+/// surface. The inventory is RECORD-INDEPENDENT, but the tuned clip
+/// recomputed it per record — a multi-wrap thread flank carries one
+/// record per wrap, so the same boundary-coil × shank intersections
+/// (each a dense solve over an O(turns)-span coil edge, plus
+/// triple-point refinement) were re-derived ~turns times per pair:
+/// the intersection stage's ~N^1.8 term (PK-511, stack-sampled:
+/// `pierce_crossing_params` → `intersect_surface_curve` under
+/// `clip_and_classify`). One cache lives per face-pair task; a memo
+/// of a deterministic function, so it cannot change any answer.
+#[derive(Default)]
+pub(crate) struct PierceInventoryCache {
+    points: std::collections::BTreeMap<
+        (bool, FaceHandle, FaceHandle),
+        Vec<popkern_core::geometry::Point3>,
+    >,
+}
+
+impl PierceInventoryCache {
+    /// The refined junction points of `face_x`'s boundary edges
+    /// against `other_face`'s surface (see the struct doc). Computed
+    /// once per (side, face pair); the per-record projection and
+    /// gating stay in [`pierce_crossing_params`].
+    fn junction_points(
+        &mut self,
+        brep_x: &BRep,
+        face_x: FaceHandle,
+        other_brep: &BRep,
+        other_face: FaceHandle,
+        x_is_a: bool,
+    ) -> Vec<popkern_core::geometry::Point3> {
+        if let Some(points) = self.points.get(&(x_is_a, face_x, other_face)) {
+            return points.clone();
+        }
+        let points = compute_junction_points(brep_x, face_x, other_brep, other_face);
+        self.points
+            .insert((x_is_a, face_x, other_face), points.clone());
+        points
+    }
+}
+
+/// The pair-level inventory body (formerly inline in
+/// [`pierce_crossing_params`], moved verbatim minus the per-record
+/// projection): every boundary edge of `face_x` intersected with
+/// `other_face`'s surface, each crossing refined to the exact triple
+/// point (PK-480 — the 1D solve's position slides along a
+/// near-tangent edge by fit-slop/sin(crossing angle); the
+/// three-surface Newton removes the amplification, see
+/// `clip_triple_junction`).
+fn compute_junction_points(
+    brep_x: &BRep,
+    face_x: FaceHandle,
+    other_brep: &BRep,
+    other_face: FaceHandle,
+) -> Vec<popkern_core::geometry::Point3> {
+    let mut points = Vec::new();
+    let Some(other_surface) = other_brep
+        .faces
+        .get(other_face)
+        .and_then(|f| f.surface.as_ref())
+    else {
+        return points;
+    };
+    let other_surf = &other_surface.geometry;
+    let ow = crate::intersect::bounded_parameter_range(other_brep, other_face, other_surf);
+    let tolerance = &brep_x.tolerance;
     for eh in trim_boundary_edges(brep_x, face_x) {
         let Some(edge) = brep_x.edges.get(eh) else {
             continue;
@@ -82,36 +175,12 @@ pub(super) fn pierce_crossing_params(
             else {
                 continue;
             };
-            // TRIPLE-POINT REFINEMENT (PK-480): the 1D solve's
-            // position slides along a near-tangent edge by
-            // fit-slop/sin(crossing angle); the three-surface Newton
-            // removes the amplification (see `clip_triple_junction`).
-            let point = &crate::clip_triple_junction::refine_to_triple_point(
+            points.push(crate::clip_triple_junction::refine_to_triple_point(
                 brep_x, eh, other_surf, *point, tolerance,
-            );
-            let Some(t) = project_onto_curve_dense(&curve.curve_3d, point) else {
-                continue;
-            };
-            if curve.curve_3d.point_at(t).distance_to(point) > fit_gate {
-                continue;
-            }
-            // The curve ends are already junction-cut; a crossing at
-            // an end adds no interval boundary.
-            if !curve.is_closed
-                && ((t - t_min).abs() < span * 1e-4 || (t_max - t).abs() < span * 1e-4)
-            {
-                continue;
-            }
-            if !ts.iter().any(|&(q, _)| (q - t).abs() < span * 1e-6) {
-                ts.push((t, *point));
-            }
+            ));
         }
     }
-    if ts.is_empty() {
-        return None;
-    }
-    ts.sort_by(|a, b| a.0.total_cmp(&b.0));
-    Some(ts)
+    points
 }
 
 /// Clearance certificate arming the pierce override: every interval
@@ -301,6 +370,7 @@ pub(super) fn apply_pierce_authority(
     t_max: f64,
     joint: Vec<(f64, f64)>,
     trace: bool,
+    cache: &mut PierceInventoryCache,
 ) -> (Vec<(f64, f64)>, Vec<(f64, popkern_core::geometry::Point3)>) {
     let mut joint = joint;
     let mut junction_points: Vec<(f64, popkern_core::geometry::Point3)> = Vec::new();
@@ -317,8 +387,8 @@ pub(super) fn apply_pierce_authority(
     // windows and the subtraction went non-manifold).
     {
         let span = (t_max - t_min).abs();
-        let ts_a = pierce_crossing_params(brep_a, face_a, brep_b, face_b, curve);
-        let ts_b = pierce_crossing_params(brep_b, face_b, brep_a, face_a, curve);
+        let ts_a = pierce_crossing_params(brep_a, face_a, brep_b, face_b, curve, cache, true);
+        let ts_b = pierce_crossing_params(brep_b, face_b, brep_a, face_a, curve, cache, false);
         if ts_a.is_some() || ts_b.is_some() {
             let mut junctions = ts_a.unwrap_or_default();
             junctions.extend(ts_b.unwrap_or_default());
