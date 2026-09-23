@@ -49,6 +49,8 @@ mod setback_bezier9;
 mod setback_boundary_tolerance;
 #[path = "setback_fan_seam_refresh.rs"]
 mod setback_fan_seam_refresh;
+#[path = "setback_rim_curvature.rs"]
+mod setback_rim_curvature;
 #[path = "setback_rim_jet.rs"]
 mod setback_rim_jet;
 pub(crate) use setback_bezier9::{bezier9_eval, bezier9_extract, bezier9_nearest};
@@ -65,22 +67,9 @@ mod setback_shared_net_unify;
 pub(crate) use boundary_ring::try_boundary_ring_carve;
 use setback_arc_crossings::arc_boundary_crossings;
 
-/// Env-gated (the fan-quality trace topic) pipeline-stage observability for
-/// committed cap fans: worst live-seam g0/g1 of the corner-patch
-/// faces. This tracer localized the pentagon5_blunt post-pipeline
-/// pcurve clobber to `corner_patch_support_completion` (PK-087).
-pub(crate) fn fan_quality_stage_probe(
-    label: &str,
-    brep: &BRep,
-    corner_patches: &[crate::types::CornerPatchInfo],
-) {
-    if !popkern_core::trace::trace_enabled("fan-quality") {
-        return;
-    }
-    let faces: Vec<FaceHandle> = corner_patches.iter().map(|cp| cp.face).collect();
-    let (g0, g1, g2) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &faces);
-    eprintln!("  [fan-quality] {label}: g0={g0:.3e} g1={g1:.3e} g2={g2:.3e}");
-}
+#[path = "setback_fan_probe.rs"]
+mod setback_fan_probe;
+pub(crate) use setback_fan_probe::fan_quality_stage_probe;
 
 pub(crate) fn setback_topology_commit_enabled() -> bool {
     if SETBACK_TOPOLOGY_COMMIT_SET.load(Ordering::Relaxed) {
@@ -1028,6 +1017,17 @@ fn build_cap_face_fan(
             .chain(lateral_planes.iter().cloned())
             .collect();
         setback_rim_jet::reconcile_rim_jets(
+            &mut patches,
+            &candidates,
+            fillet_surfaces.len(),
+            &border_loop,
+            rim_off_loop_allowance,
+        );
+        // Rim transverse-curvature reconciliation (PK-515): depth-2
+        // rows follow the strips' pointwise transverse curvature —
+        // see setback_rim_curvature for why the bi-6 shared corner
+        // block cannot carry it and the bi-9 rows can.
+        setback_rim_curvature::reconcile_rim_curvature(
             &mut patches,
             &candidates,
             fillet_surfaces.len(),
