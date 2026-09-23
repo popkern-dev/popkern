@@ -129,6 +129,30 @@
       "title": "Planetary gearbox"
     },
     {
+      "blurb": "The smallest real-thread part: an M10×1.5 stud from one verb — a coarse, short coil that serves in seconds, with the tip left square for speed.",
+      "demonstrates": "threaded_rod, ISO thread designations, tip_chamfer option",
+      "features": 1,
+      "file": "threaded_stud.rhai",
+      "thumbnail": "examples/threaded_stud.png",
+      "title": "Threaded stud"
+    },
+    {
+      "blurb": "A single short M6 hex bolt — head, plain shank and a real modeled ISO thread from one verb, sized to build fast.",
+      "demonstrates": "bolt generator, thread_length, tip_chamfer option",
+      "features": 1,
+      "file": "hex_bolt.rhai",
+      "thumbnail": "examples/hex_bolt.png",
+      "title": "Hex bolt"
+    },
+    {
+      "blurb": "A plate with a flush exact-cone clearance seat and the flat-head M5 screw that fits it — one quick thread coil in the whole build.",
+      "demonstrates": "clearance_hole with countersink, countersunk head bolts, axis_at placement",
+      "features": 5,
+      "file": "countersunk_joint.rhai",
+      "thumbnail": "examples/countersunk_joint.png",
+      "title": "Countersunk joint"
+    },
+    {
       "blurb": "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk screw — real modeled ISO threads with heads, tip lead-ins, and runout from the nominal tables.",
       "demonstrates": "bolt and nut generators, ISO thread designations, head styles, printed-fit clearance, multi-body layout",
       "features": 9,

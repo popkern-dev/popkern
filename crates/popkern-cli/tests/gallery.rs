@@ -142,6 +142,30 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
     ),
     (
+        "threaded_stud",
+        "Threaded stud",
+        "The smallest real-thread part: an M10×1.5 stud from one verb — a coarse, \
+         short coil that serves in seconds, with the tip left square for speed.",
+        1,
+        "threaded_rod, ISO thread designations, tip_chamfer option",
+    ),
+    (
+        "hex_bolt",
+        "Hex bolt",
+        "A single short M6 hex bolt — head, plain shank and a real modeled ISO \
+         thread from one verb, sized to build fast.",
+        1,
+        "bolt generator, thread_length, tip_chamfer option",
+    ),
+    (
+        "countersunk_joint",
+        "Countersunk joint",
+        "A plate with a flush exact-cone clearance seat and the flat-head M5 screw \
+         that fits it — one quick thread coil in the whole build.",
+        5,
+        "clearance_hole with countersink, countersunk head bolts, axis_at placement",
+    ),
+    (
         "fastener_kit",
         "Fastener kit",
         "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk \
