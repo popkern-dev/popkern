@@ -433,6 +433,48 @@ pub(crate) fn cellular_assemble(
                                     frag.face,
                                     used_by.get(&brep_he).cloned().unwrap_or_else(|| "?".into())
                                 );
+                                // Ring forensics (PK-512): the mint is
+                                // the lossy last resort — dump the
+                                // whole ring's claim pattern so a
+                                // mixed-sense chain (one segment
+                                // stitched in the opposite sense) is
+                                // visible directly.
+                                let mut row = String::new();
+                                for &o in &order {
+                                    let og = if extra_twin {
+                                        graph.half_edges[o].twin
+                                    } else {
+                                        o
+                                    };
+                                    let og = if flip { graph.half_edges[og].twin } else { og };
+                                    let ot = graph.half_edges[og].twin;
+                                    let ok = og.min(ot);
+                                    let status = match edge_he_map.get(&ok) {
+                                        Some(&(f, t)) => {
+                                            let bh = if og == ok { f } else { t };
+                                            if used_hes.contains(&bh) {
+                                                used_by
+                                                    .get(&bh)
+                                                    .cloned()
+                                                    .unwrap_or_else(|| "used".into())
+                                            } else {
+                                                "free".into()
+                                            }
+                                        }
+                                        None => "nomap".into(),
+                                    };
+                                    let src = match &graph.half_edges[og].source {
+                                        crate::merge::graph::EdgeSource::Shared { .. } => "S",
+                                        crate::merge::graph::EdgeSource::OriginalA(_)
+                                        | crate::merge::graph::EdgeSource::SplitA { .. } => "A",
+                                        _ => "B",
+                                    };
+                                    row.push_str(&format!("{og}{src}[{status}] "));
+                                }
+                                eprintln!(
+                                    "  [resolve-ring] {:?} flip={flip} rev={extra_twin}: {row}",
+                                    frag.face
+                                );
                             }
                         } else if popkern_core::trace::trace_enabled("boolean") {
                             eprintln!(

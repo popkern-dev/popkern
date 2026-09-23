@@ -56,84 +56,6 @@ fn selection_for(
     FragmentSelection { keep, flip }
 }
 
-/// DEGENERATE loops (a lone non-closed half-edge, or a he/twin
-/// bigon) enclose no area — boundary-graze residue. Keeping one
-/// produced a dangling face in the assembly.
-fn is_degenerate_fragment(
-    graph: &IntersectionGraph,
-    fragment: &Fragment,
-    tolerance: &Tolerance,
-) -> bool {
-    match fragment.outer_loop.len() {
-        1 => {
-            let he = &graph.half_edges[fragment.outer_loop[0]];
-            if he.origin != graph.half_edges[he.twin].origin {
-                true
-            } else {
-                // A lone SELF-LOOP is a real fragment boundary when
-                // it is a closed intersection curve (a circle cut
-                // through a face). A ZERO-EXTENT self-loop is a
-                // tangency-point record (a surface grazing another
-                // at one point) — keeping it assembled a point-face
-                // that broke the solid's Euler count. Cull by
-                // sampled curve extent against the tolerance.
-                let extent = he
-                    .curve
-                    .as_ref()
-                    .or_else(|| graph.half_edges[he.twin].curve.as_ref())
-                    .map(|c| {
-                        use popkern_core::geometry::curve::CurveEval;
-                        let origin = graph.nodes[he.origin].position;
-                        (1..8)
-                            .map(|i| {
-                                let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
-                                c.geometry.point_at(t).distance_to(&origin)
-                            })
-                            .fold(0.0, f64::max)
-                    })
-                    .unwrap_or(0.0);
-                extent < tolerance.linear() * 10.0
-            }
-        }
-        2 => {
-            let a = fragment.outer_loop[0];
-            if graph.half_edges[a].twin == fragment.outer_loop[1] {
-                // A he/twin bigon is graze residue only for RECORD
-                // pairs. A BOUNDARY pair walked as one loop is a
-                // periodic seam spine — the outer loop of a full
-                // periodic chart (a full sphere's two meridian
-                // copies bound the whole wall face, with the
-                // imprint loops as its holes).
-                matches!(
-                    graph.half_edges[a].source,
-                    crate::merge::graph::EdgeSource::Shared { .. }
-                )
-            } else {
-                // An OPEN two-half-edge walk with (sampled) zero
-                // area is residue of a seeded walk that swallowed
-                // a tangency self-loop and dead-ended — e.g. the
-                // unconsumed direction of a boundary-collinear
-                // corner record plus the zero-extent point-contact
-                // record at its far end. It can never assemble
-                // (measured: kept as OnBoundary, it became an
-                // unclosed 20 mm loop and the whole flush-arm
-                // chain fell to graph-merge). Real two-arc bigons
-                // (a split circle) have genuine sampled area and
-                // stay.
-                let start = graph.half_edges[fragment.outer_loop[0]].origin;
-                let last = fragment.outer_loop[1];
-                let end = graph.half_edges[graph.half_edges[last].twin].origin;
-                let open = start != end;
-                let area =
-                    crate::merge::walk::walk_geometry::loop_newell(graph, &fragment.outer_loop)
-                        .length();
-                open && area < (tolerance.linear() * 10.0).powi(2)
-            }
-        }
-        _ => false,
-    }
-}
-
 /// The opposite plain verdict (propagation flips across transversal
 /// records; only Inside/Outside ever propagate).
 fn flipped(class: PointClassification) -> PointClassification {
@@ -245,7 +167,7 @@ pub(super) fn classify_fragments_cellular(
     let n = fragments.len();
     let degenerate: Vec<bool> = fragments
         .iter()
-        .map(|f| is_degenerate_fragment(graph, f, tolerance))
+        .map(|f| super::fragment_sample_helpers::is_degenerate_fragment(graph, f, tolerance))
         .collect();
 
     // A-side verdict propagation plan (PK-496): audited components
@@ -285,7 +207,7 @@ pub(super) fn classify_fragments_cellular(
     // Pass 2: resolve components. A seed that is not plain In/Out, or
     // any audit ray disagreeing with its propagated expectation,
     // declines the component back to the per-fragment path.
-    let mut propagated = vec![false; n];
+    let mut component_audited = vec![false; n];
     if let Some(plan) = &plan {
         for comp in &plan.components {
             let seed_class = results[comp.seed].as_ref().map(|r| r.1);
@@ -301,6 +223,21 @@ pub(super) fn classify_fragments_cellular(
             if audits_ok {
                 let mut filled = 0usize;
                 for &(m, par) in &comp.members {
+                    // EVERY member of an accepted component is
+                    // component-audited: the seed and audit rays were
+                    // verified mutually consistent under flip parity,
+                    // and the rest derive from them. Marking them all
+                    // exempts them from the witness override
+                    // post-pass — overriding a seed while its
+                    // dependents keep seed-derived verdicts is
+                    // incoherent by construction, and under the
+                    // post-PK-496 SPARSE vote consensus exactly that
+                    // happened (PK-512, measured at len 110: two wall
+                    // seed/audit fragments flipped Outside->Inside by
+                    // a thin calibration, two wall pieces dropped,
+                    // their boundary records went half-claimed, and
+                    // the assembly declined non-manifold).
+                    component_audited[m] = true;
                     if deferred[m].is_some()
                         && results[m].is_none()
                         && let Some(seed) = seed_class
@@ -311,7 +248,6 @@ pub(super) fn classify_fragments_cellular(
                             &fragments[m].outer_loop,
                         );
                         results[m] = Some((sample, class, None));
-                        propagated[m] = true;
                         filled += 1;
                     }
                 }
@@ -382,13 +318,19 @@ pub(super) fn classify_fragments_cellular(
         // on some construction paths — the ray-verdict consensus
         // recovers each face's honest sign; only minority mismatches
         // under a clear majority get overridden). Scoped to plain
-        // In/Out. PROPAGATED fragments are excluded: their verdicts
-        // are structural (seed ray ⊕ flip parity, component-audited),
-        // not rays for the witness to check — and each vote's
-        // segment-obstruction gate prices a dense surface×segment
-        // scan over the multi-wrap walls, which re-created the
-        // quadratic merge cost propagation had just removed
-        // (measured: len-80 merge 91 s with votes on all fragments).
+        // In/Out. Members of ACCEPTED propagation components —
+        // seeds and audits included — are excluded: their verdicts
+        // are component-audited (seed and audit rays verified
+        // mutually consistent under flip parity; the rest derive
+        // from them), overriding one while its dependents keep
+        // seed-derived verdicts is incoherent by construction
+        // (PK-512: a thin calibration flipped two wall seed/audit
+        // fragments and the assembly declined non-manifold), and
+        // each vote's segment-obstruction gate prices a dense
+        // surface×segment scan over the multi-wrap walls, which
+        // re-created the quadratic merge cost propagation had just
+        // removed (measured: len-80 merge 91 s with votes on all
+        // fragments).
         // Feeding their vote copies into the sign-calibration
         // consensus would also multiply the seed's one ray verdict
         // by the component size.
@@ -401,7 +343,7 @@ pub(super) fn classify_fragments_cellular(
         // tool flanks (each multi-wrap flank fragment carries a vote
         // per wrap record, each vote a dense surface×segment scan).
         if own_operand == Operand::A
-            && !propagated[i]
+            && !component_audited[i]
             && matches!(
                 class,
                 PointClassification::Inside | PointClassification::Outside

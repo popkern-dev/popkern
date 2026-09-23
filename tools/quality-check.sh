@@ -42,8 +42,9 @@ if [[ "$mode" == "--perf" ]]; then
         cargo test --release -p popkern-blend \
         --test perf_budget --test cancellation_latency --test perf_acceptance \
         -- --nocapture
-    run_step "smooth-mesh perf budgets" \
-        cargo test --release -p popkern-part --test perf_budget -- --nocapture
+    run_step "smooth-mesh perf budgets + thread determinism gate" \
+        cargo test --release -p popkern-part \
+        --test perf_budget --test thread_determinism_gate -- --nocapture
     run_step "boolean perf budgets" \
         cargo test --release -p popkern-bool --test perf_budget -- --nocapture
     run_step "tessellation perf budgets" \

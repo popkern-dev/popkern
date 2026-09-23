@@ -5,7 +5,10 @@
 
 use popkern_core::topology::BRep;
 
+use popkern_core::tolerance::Tolerance;
+
 use crate::merge::graph::IntersectionGraph;
+use crate::merge::walk::Fragment;
 
 pub(super) fn point_near_any_edge(
     brep: &BRep,
@@ -140,4 +143,82 @@ pub(super) fn sample_fragment_point(
     }
     let n = loop_hes.len() as f64;
     popkern_core::geometry::Point3::new(sx / n, sy / n, sz / n)
+}
+
+/// DEGENERATE loops (a lone non-closed half-edge, or a he/twin
+/// bigon) enclose no area — boundary-graze residue. Keeping one
+/// produced a dangling face in the assembly.
+pub(super) fn is_degenerate_fragment(
+    graph: &IntersectionGraph,
+    fragment: &Fragment,
+    tolerance: &Tolerance,
+) -> bool {
+    match fragment.outer_loop.len() {
+        1 => {
+            let he = &graph.half_edges[fragment.outer_loop[0]];
+            if he.origin != graph.half_edges[he.twin].origin {
+                true
+            } else {
+                // A lone SELF-LOOP is a real fragment boundary when
+                // it is a closed intersection curve (a circle cut
+                // through a face). A ZERO-EXTENT self-loop is a
+                // tangency-point record (a surface grazing another
+                // at one point) — keeping it assembled a point-face
+                // that broke the solid's Euler count. Cull by
+                // sampled curve extent against the tolerance.
+                let extent = he
+                    .curve
+                    .as_ref()
+                    .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+                    .map(|c| {
+                        use popkern_core::geometry::curve::CurveEval;
+                        let origin = graph.nodes[he.origin].position;
+                        (1..8)
+                            .map(|i| {
+                                let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                                c.geometry.point_at(t).distance_to(&origin)
+                            })
+                            .fold(0.0, f64::max)
+                    })
+                    .unwrap_or(0.0);
+                extent < tolerance.linear() * 10.0
+            }
+        }
+        2 => {
+            let a = fragment.outer_loop[0];
+            if graph.half_edges[a].twin == fragment.outer_loop[1] {
+                // A he/twin bigon is graze residue only for RECORD
+                // pairs. A BOUNDARY pair walked as one loop is a
+                // periodic seam spine — the outer loop of a full
+                // periodic chart (a full sphere's two meridian
+                // copies bound the whole wall face, with the
+                // imprint loops as its holes).
+                matches!(
+                    graph.half_edges[a].source,
+                    crate::merge::graph::EdgeSource::Shared { .. }
+                )
+            } else {
+                // An OPEN two-half-edge walk with (sampled) zero
+                // area is residue of a seeded walk that swallowed
+                // a tangency self-loop and dead-ended — e.g. the
+                // unconsumed direction of a boundary-collinear
+                // corner record plus the zero-extent point-contact
+                // record at its far end. It can never assemble
+                // (measured: kept as OnBoundary, it became an
+                // unclosed 20 mm loop and the whole flush-arm
+                // chain fell to graph-merge). Real two-arc bigons
+                // (a split circle) have genuine sampled area and
+                // stay.
+                let start = graph.half_edges[fragment.outer_loop[0]].origin;
+                let last = fragment.outer_loop[1];
+                let end = graph.half_edges[graph.half_edges[last].twin].origin;
+                let open = start != end;
+                let area =
+                    crate::merge::walk::walk_geometry::loop_newell(graph, &fragment.outer_loop)
+                        .length();
+                open && area < (tolerance.linear() * 10.0).powi(2)
+            }
+        }
+        _ => false,
+    }
 }

@@ -111,8 +111,10 @@ jobs:
             --test perf_budget --test cancellation_latency --test perf_acceptance \
             -- --nocapture
 
-      - name: Smooth-mesh perf budgets
-        run: cargo test --release -p popkern-part --test perf_budget -- --nocapture
+      - name: Smooth-mesh perf budgets + thread determinism gate
+        run: |
+          cargo test --release -p popkern-part \
+            --test perf_budget --test thread_determinism_gate -- --nocapture
 
       - name: Boolean perf budgets
         run: cargo test --release -p popkern-bool --test perf_budget -- --nocapture

@@ -21,7 +21,7 @@
 //! precedent). Design: docs/decisions/
 //! pk496-cellular-fragment-verdict-propagation.md.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::topology::BRep;
@@ -100,9 +100,15 @@ pub(super) fn build_plan(
         })
         .collect();
 
-    // Half-edge -> eligible fragment map. A half-edge claimed by two
-    // eligible fragments would mean a walk defect; abort the plan.
-    let mut owner: HashMap<usize, usize> = HashMap::new();
+    // Half-edge -> eligible fragment map (ORDERED: the planner's
+    // iteration order decides seed and audit choice, which decides
+    // which fragments are ray-sampled and therefore which witness
+    // votes exist — a HashMap here made the whole boolean's
+    // serve/decline outcome vary run-to-run, PK-512 measured: the
+    // same len-110 cut declined non-manifold three times, then
+    // served). A half-edge claimed by two eligible fragments would
+    // mean a walk defect; abort the plan.
+    let mut owner: BTreeMap<usize, usize> = BTreeMap::new();
     for (i, f) in fragments.iter().enumerate() {
         if !eligible[i] {
             continue;
@@ -193,7 +199,7 @@ pub(super) fn build_plan(
         let seed = members
             .iter()
             .map(|&(m, _)| m)
-            .max_by_key(|&m| fragments[m].outer_loop.len())?;
+            .max_by_key(|&m| (fragments[m].outer_loop.len(), std::cmp::Reverse(m)))?;
         let mut by_depth: Vec<usize> = members
             .iter()
             .map(|&(m, _)| m)
