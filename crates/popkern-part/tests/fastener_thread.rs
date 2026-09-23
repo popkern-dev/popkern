@@ -258,7 +258,7 @@ fn sixty_turn_rod_serves_with_iso_volume() {
 /// `long_coil_sweep_is_not_a_false_fold`, the `frame_budget` unit
 /// tests) plus `sixty_turn_rod_serves_with_iso_volume` end-to-end.
 #[test]
-#[ignore = "nightly heavy tier — multi-wrap serve acceptance (PK-495), run in release"]
+#[ignore = "heavy: multi-wrap serve acceptance (PK-495) — nightly multiwrap-serve job, release"]
 fn hundred_turn_rod_serves_with_iso_volume() {
     let spec = ThreadSpec::parse("M6").expect("M6");
     let rod = ThreadedRod::new(spec.clone(), 100.0)

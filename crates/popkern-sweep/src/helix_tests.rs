@@ -325,7 +325,7 @@ fn build_square_tool_sweep(turns: f64) -> crate::types::SweepResult {
 }
 
 #[test]
-#[ignore = "PK-495 wall-ripple probe — run by hand with PK495_TURNS"]
+#[ignore = "heavy: PK-495 wall-ripple sweep probe — run by hand with PK495_TURNS; the 100-turn bound runs in the default gate"]
 fn probe_wall_radial_ripple() {
     let turns: f64 = std::env::var("PK495_TURNS")
         .ok()

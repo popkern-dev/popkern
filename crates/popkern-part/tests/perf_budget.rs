@@ -147,6 +147,45 @@ fn smooth_mesh_normalized_cage_within_budget() {
 /// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
 /// runtime; on checkouts without the package they skip with a visible
 /// notice instead of failing.
+/// Multi-wrap thread-cut serve cost stays SUB-QUADRATIC in tool
+/// turns (PK-496). The cellular merge stage classified O(turns)
+/// wrap-band fragments with independent point-in-solid rays over
+/// multi-wrap walls — N² — until A-side verdict propagation
+/// (one audited seed ray per component) and the span-hull projection
+/// pre-gate landed. This gate is a RATIO, not an absolute budget:
+/// doubling the turn count may at most ~triple the build (measured
+/// clean 2026-09-23: boolean 26.8 s → 77.3 s, ratio 2.88; the
+/// residual superlinearity is the intersection stage's own ~N^1.8,
+/// measured and tracked separately). A quadratic regression measures
+/// ≥ 3.9. Ratios stay meaningful under uniform CI contention, unlike
+/// wall-clock budgets.
+#[test]
+fn thread_cut_serve_cost_stays_subquadratic() {
+    use popkern_part::fastener::{ThreadSpec, ThreadedRod};
+    if debug_skip("thread-cut serve cost ratio (40 vs 80)") {
+        return;
+    }
+    let build = |len: f64| {
+        let t0 = Instant::now();
+        let spec = ThreadSpec::parse("M6").expect("M6");
+        let rod = ThreadedRod::new(spec, len)
+            .tip_chamfer(false)
+            .build(Tolerance::default())
+            .expect("rod");
+        assert_eq!(rod.open_edge_count().expect("mesh"), 0);
+        t0.elapsed()
+    };
+    let t40 = build(40.0);
+    let t80 = build(80.0);
+    let ratio = t80.as_secs_f64() / t40.as_secs_f64().max(1e-9);
+    assert!(
+        ratio <= 3.5,
+        "thread-cut cost curve regressed toward quadratic: \
+         len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} > 3.5 \
+         (measured 2.9 at PK-496 close; quadratic ≥ 3.9)"
+    );
+}
+
 fn toms_tables_or_skip() -> bool {
     if popkern_core::geometry::polyhedral_spline::toms_tables_available() {
         return true;

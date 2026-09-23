@@ -34,6 +34,8 @@ mod deep_plunge_probe_tests;
 mod engine;
 mod entry_ring;
 pub mod holes;
+#[cfg(test)]
+mod serve_cost_probe_tests;
 mod spec;
 pub mod standards;
 mod thread_form;

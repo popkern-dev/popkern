@@ -206,9 +206,15 @@ pub(crate) fn classify_and_select_fragments(
         }
 
         // Record-side witness votes (PK-494 layer 3): collected per
-        // fragment, applied post-loop after per-face outward-sign
-        // calibration — see `record_side_witness.rs`.
-        {
+        // OPERAND-A fragment, applied post-loop after per-face
+        // outward-sign calibration — see `record_side_witness.rs`.
+        // Collection matches the override scoping (A-only): a B-side
+        // fragment's votes reference operand-A faces, whose sign
+        // tallies no override ever consults — dead weight whose
+        // per-vote obstruction gates priced O(records²) on multi-wrap
+        // tool flanks (PK-496; each flank fragment carries a vote per
+        // wrap record, each vote a dense surface×segment scan).
+        if own_operand == Operand::A {
             let votes = crate::record_side_witness::record_votes(
                 graph,
                 fragment,
