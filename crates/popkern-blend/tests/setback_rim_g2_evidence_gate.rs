@@ -7,10 +7,13 @@
 //! This is the promoted PK-519 diagnostic probe. Baseline before the
 //! dual-jet corner substrate: the ten corner-adjacent rim quarters
 //! measured 0.9599 (the corner piece's shared cells could not carry
-//! two strips' cross fields); landed: 4.88e-2 worst. A regression in
-//! the substrate — promotion, claim routing, or the reconciles —
-//! reads here as a named seam over the bar, not as a gallery
-//! surprise.
+//! two strips' cross fields); the substrate landed 4.88e-2, and the
+//! PK-521 joint tilt solve (clamp-band bump removal) landed 6.7e-3
+//! with worst g1 4.6e-6 — so beyond the commercial classification
+//! the gate pins a 2.5e-2 MARGIN bar (~4x the measured worst; the
+//! PK-521 acceptance). A regression in the substrate — promotion,
+//! claim routing, or the reconciles — reads here as a named seam
+//! over a bar, not as a gallery surprise.
 
 use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
@@ -83,10 +86,14 @@ fn pentagon_flagship_g2_request_measures_g2_on_every_rim_quarter() {
     );
     // Per-seam listing so a regression names its seam.
     let gates = ContinuityGates::commercial();
+    // Margin bar (PK-521): half the commercial gate, ~4x the measured
+    // worst — a drift from 6.7e-3 toward the 5e-2 gate is caught
+    // while it is still a margin story, not a downgrade.
+    let margin_bar = 0.5 * gates.g2_curvature;
     for s in evidence.seams.iter().filter(|s| s.gated) {
         assert!(
-            s.worst_g2_residual <= gates.g2_curvature,
-            "rim/fan seam {:?} over the G2 bar: {:.3e} (g0 {:.3e}, g1 {:.3e})",
+            s.worst_g2_residual <= margin_bar,
+            "rim/fan seam {:?} over the margin bar {margin_bar:.1e}: {:.3e} (g0 {:.3e}, g1 {:.3e})",
             s.edge,
             s.worst_g2_residual,
             s.worst_g0_gap,
