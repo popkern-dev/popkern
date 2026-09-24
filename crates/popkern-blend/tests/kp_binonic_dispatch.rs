@@ -98,6 +98,7 @@ fn variants_at(brep: &BRep, faces: &[popkern_core::topology::FaceHandle]) -> Vec
                         GregoryPatch::RectangularTwoStripe(_) => "two_stripe",
                         GregoryPatch::RectangularBiNonic(_) => "binonic",
                         GregoryPatch::RectangularBiNonicDualTwist(_) => "binonic_dual_twist",
+                        GregoryPatch::RectangularBiNonicDualJet(_) => "binonic_dual_jet",
                         GregoryPatch::Triangular(_) => "triangular",
                     })
                 } else {

@@ -20,7 +20,6 @@
 //! bezier9 helpers).
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -284,9 +283,10 @@ pub(super) fn refresh_fan_seam_curves(brep: &mut BRep, cap_faces: &[FaceHandle])
         let Some(face) = brep.faces.get(loop_a.face) else {
             continue;
         };
-        let Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonic(bp))) =
-            face.surface.as_ref().map(|s| &s.geometry)
-        else {
+        let Some(grid) = face.surface.as_ref().and_then(|s| match &s.geometry {
+            SurfaceGeometry::Gregory(gp) => gp.binonic_grid(),
+            _ => None,
+        }) else {
             continue;
         };
         // Candidate rows: the four boundary rows of the bi-9 grid, in
@@ -294,10 +294,10 @@ pub(super) fn refresh_fan_seam_curves(brep: &mut BRep, cap_faces: &[FaceHandle])
         let mut best: Option<([Point3; 10], f64)> = None;
         for side in 0..4usize {
             let row: [Point3; 10] = core::array::from_fn(|k| match side {
-                0 => bp.grid[0][k],
-                1 => bp.grid[9][k],
-                2 => bp.grid[k][0],
-                _ => bp.grid[k][9],
+                0 => grid[0][k],
+                1 => grid[9][k],
+                2 => grid[k][0],
+                _ => grid[k][9],
             });
             for reversed in [false, true] {
                 let oriented: [Point3; 10] = if reversed {

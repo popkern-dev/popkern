@@ -2,10 +2,10 @@
 //! cells (PK-519).
 //!
 //! Identical to [`RectangularGregoryBiNonic`] except that, at each
-//! *activated* corner, the three interior cells that both boundary
-//! 2-jets read — corner-local `(1,2)`, `(2,1)`, `(2,2)` — are
-//! evaluation-time rational blends of per-boundary claim pairs with
-//! **squared** quadrant weights:
+//! *activated* corner, the four interior cells that both boundary
+//! 2-jets read — corner-local `(1,1)` (the twist), `(1,2)`, `(2,1)`,
+//! and `(2,2)` — are evaluation-time rational blends of per-boundary
+//! claim pairs with **squared** quadrant weights:
 //!
 //! ```text
 //! Q(u,v) = (wv²·P_u + wu²·P_v) / (wu² + wv²)
@@ -31,10 +31,11 @@
 //! transverse curvature against the 5e-2 gate — see
 //! `docs/decisions/2026-09-23-setback-corner-dual-jet-substrate.md`).
 //!
-//! The twist cell (corner-local `(1,1)`) stays a plain shared
-//! control: the corner twist is currently served through the shared
-//! jet reconcile, and its contribution to either boundary's d2 jet is
-//! compensated by the freed cells.
+//! The twist cell is dual as well: with a shared twist the two rim
+//! boundaries' cross-tangent DERIVATIVES along the rim (the
+//! geodesic-torsion / mixed-second-fundamental-form term) cannot both
+//! be served — measured as a 4.6e-2 diagonal-direction curvature jump
+//! on the flagship after the depth-2 cells alone were dualized.
 
 use crate::geometry::gregory::RectangularGregoryBiNonic;
 use crate::geometry::gregory::bernstein_binonic::{
@@ -50,6 +51,12 @@ use serde::{Deserialize, Serialize};
 /// pair convention.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct DualJetCorner {
+    /// Corner-local `(1,1)` — the twist cell, read by BOTH
+    /// boundaries' d1 (and d2) jets. Dual claims let each boundary
+    /// carry its own cross-tangent derivative along the rim (the
+    /// geodesic-torsion term the shared twist cannot serve for two
+    /// different strips).
+    pub cell_11: (Point3, Point3),
     /// Corner-local `(1,2)`: depth 1 from the u-constant boundary
     /// (its tangency band) and depth 2 from the v-constant boundary
     /// (its curvature row). `P_u` therefore carries the u-boundary's
@@ -67,8 +74,14 @@ impl DualJetCorner {
     /// Claim block whose pairs both take the given plain cell values
     /// — evaluation is bit-identical to the plain patch until a
     /// claim is written separately.
-    pub fn from_plain_cells(cell_12: Point3, cell_21: Point3, cell_22: Point3) -> Self {
+    pub fn from_plain_cells(
+        cell_11: Point3,
+        cell_12: Point3,
+        cell_21: Point3,
+        cell_22: Point3,
+    ) -> Self {
         Self {
+            cell_11: (cell_11, cell_11),
             cell_12: (cell_12, cell_12),
             cell_21: (cell_21, cell_21),
             cell_22: (cell_22, cell_22),
@@ -80,9 +93,9 @@ impl DualJetCorner {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RectangularGregoryBiNonicDualJet {
     /// 10×10 control-point grid, row-major (`grid[i][j]`, `i`
-    /// indexes `u`). At an activated corner the three corner-local
-    /// `(1,2)`/`(2,1)`/`(2,2)` entries are placeholders — evaluation
-    /// replaces them with the rational blend from
+    /// indexes `u`). At an activated corner the four corner-local
+    /// `(1,1)`/`(1,2)`/`(2,1)`/`(2,2)` entries are placeholders —
+    /// evaluation replaces them with the rational blend from
     /// [`corners`](Self::corners).
     pub grid: [[Point3; 10]; 10],
     /// Per-corner claim blocks, CCW from the parameter origin:
@@ -94,6 +107,8 @@ pub struct RectangularGregoryBiNonicDualJet {
 /// Which of a corner block's three cells a grid index addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DualJetCell {
+    /// Corner-local `(1,1)` — the twist cell.
+    Cell11,
     /// Corner-local `(1,2)`.
     Cell12,
     /// Corner-local `(2,1)`.
@@ -110,6 +125,10 @@ pub const DUAL_JET_CORNER_POSITIONS: [(usize, usize); 4] = [(0, 0), (0, 9), (9, 
 #[inline]
 pub fn dual_jet_cell_of(i: usize, j: usize) -> Option<(usize, DualJetCell)> {
     match (i, j) {
+        (1, 1) => Some((0, DualJetCell::Cell11)),
+        (1, 8) => Some((1, DualJetCell::Cell11)),
+        (8, 8) => Some((2, DualJetCell::Cell11)),
+        (8, 1) => Some((3, DualJetCell::Cell11)),
         (1, 2) => Some((0, DualJetCell::Cell12)),
         (2, 1) => Some((0, DualJetCell::Cell21)),
         (2, 2) => Some((0, DualJetCell::Cell22)),
@@ -131,6 +150,7 @@ pub fn dual_jet_cell_of(i: usize, j: usize) -> Option<(usize, DualJetCell)> {
 pub fn dual_jet_cell_position(corner: usize, cell: DualJetCell) -> (usize, usize) {
     let (ic, jc) = DUAL_JET_CORNER_POSITIONS[corner];
     let (a, b) = match cell {
+        DualJetCell::Cell11 => (1, 1),
         DualJetCell::Cell12 => (1, 2),
         DualJetCell::Cell21 => (2, 1),
         DualJetCell::Cell22 => (2, 2),
@@ -154,6 +174,7 @@ fn corner_weights(corner: usize, u: f64, v: f64) -> (f64, f64, f64, f64) {
 #[inline]
 fn claim_pair(block: &DualJetCorner, cell: DualJetCell) -> (Point3, Point3) {
     match cell {
+        DualJetCell::Cell11 => block.cell_11,
         DualJetCell::Cell12 => block.cell_12,
         DualJetCell::Cell21 => block.cell_21,
         DualJetCell::Cell22 => block.cell_22,
@@ -256,6 +277,7 @@ impl RectangularGregoryBiNonicDualJet {
             self.grid[i][j]
         };
         self.corners[corner] = Some(DualJetCorner::from_plain_cells(
+            cell(DualJetCell::Cell11),
             cell(DualJetCell::Cell12),
             cell(DualJetCell::Cell21),
             cell(DualJetCell::Cell22),

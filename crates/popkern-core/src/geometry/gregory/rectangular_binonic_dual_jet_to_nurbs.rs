@@ -121,6 +121,7 @@ impl RectangularGregoryBiNonicDualJet {
             };
             let (t_wv, t_wu) = (wv_squared(k), wu_squared(k));
             for (cell, pair) in [
+                (DualJetCell::Cell11, block.cell_11),
                 (DualJetCell::Cell12, block.cell_12),
                 (DualJetCell::Cell21, block.cell_21),
                 (DualJetCell::Cell22, block.cell_22),
@@ -157,16 +158,28 @@ impl RectangularGregoryBiNonicDualJet {
             }
         }
 
-        // ε-regularize the activated corners, where D vanishes.
+        // ε-regularize every vanishing-weight slot. The squared
+        // denominator vanishes QUADRATICALLY at an activated corner,
+        // so after elevation a whole corner-adjacent neighbourhood of
+        // Bernstein weight coefficients is exactly zero (measured:
+        // slots (n,n), (n,n−1), (n−1,n), (n−1,n−1) at one active
+        // corner) with matching zero numerators — a 0/0 slot, not a
+        // pole. Each such slot takes weight ε with its control point
+        // pinned to the analytic surface at the slot's Greville
+        // parameters, so the O(ε) perturbation stays on the surface.
         let epsilon = 1e-14;
-        for &k in &active {
-            let (ic, jc) = DUAL_JET_CORNER_POSITIONS[k];
-            let i_u = if ic == 0 { 0 } else { out_deg };
-            let i_v = if jc == 0 { 0 } else { out_deg };
-            let p = self.grid[ic][jc];
-            let idx = i_u * count + i_v;
-            weights[idx] = epsilon;
-            cps[idx] = Point3::new(epsilon * p.x, epsilon * p.y, epsilon * p.z);
+        let max_weight = weights.iter().fold(0.0_f64, |a, &w| a.max(w.abs()));
+        let zero_bar = 1e-12 * max_weight.max(f64::MIN_POSITIVE);
+        for i_u in 0..count {
+            for i_v in 0..count {
+                let idx = i_u * count + i_v;
+                if weights[idx].abs() > zero_bar {
+                    continue;
+                }
+                let p = self.point_at(i_u as f64 / out_deg as f64, i_v as f64 / out_deg as f64);
+                weights[idx] = epsilon;
+                cps[idx] = Point3::new(epsilon * p.x, epsilon * p.y, epsilon * p.z);
+            }
         }
 
         let control_points: Vec<Point3> = cps

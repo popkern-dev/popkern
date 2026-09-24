@@ -330,12 +330,13 @@ pub fn collect_patches(brep: &BRep, faces: &[FaceHandle]) -> Vec<GregoryPatch> {
     faces.iter().filter_map(|&f| patch_of(brep, f)).collect()
 }
 
-/// Assert every patch is the `RectangularBiNonic` variant —
-/// proving the K-P promotion fired on this fixture. Also requires
-/// at least one patch so an empty corner-patch list (dispatch
-/// didn't produce any Gregory geometry — a common failure mode
-/// on unsupported valences) is caught instead of passing the
-/// `for` loop vacuously.
+/// Assert every patch is a bi-nonic-family variant (plain, or the
+/// PK-519 dual-jet corner substrate — an upgrade of the plain piece,
+/// not a fallback) — proving the K-P promotion fired on this
+/// fixture. Also requires at least one patch so an empty
+/// corner-patch list (dispatch didn't produce any Gregory geometry —
+/// a common failure mode on unsupported valences) is caught instead
+/// of passing the `for` loop vacuously.
 pub fn assert_all_binonic(patches: &[GregoryPatch], fixture: &str) {
     assert!(
         !patches.is_empty(),
@@ -343,17 +344,23 @@ pub fn assert_all_binonic(patches: &[GregoryPatch], fixture: &str) {
     );
     for (i, p) in patches.iter().enumerate() {
         assert!(
-            matches!(p, GregoryPatch::RectangularBiNonic(_)),
-            "[{fixture}] patch {i}: expected binonic variant, got a lower-rung fallback"
+            matches!(
+                p,
+                GregoryPatch::RectangularBiNonic(_) | GregoryPatch::RectangularBiNonicDualJet(_)
+            ),
+            "[{fixture}] patch {i}: expected a binonic-family variant, got a lower-rung fallback"
         );
     }
 }
 
 pub fn all_binonic(patches: &[GregoryPatch]) -> bool {
     !patches.is_empty()
-        && patches
-            .iter()
-            .all(|patch| matches!(patch, GregoryPatch::RectangularBiNonic(_)))
+        && patches.iter().all(|patch| {
+            matches!(
+                patch,
+                GregoryPatch::RectangularBiNonic(_) | GregoryPatch::RectangularBiNonicDualJet(_)
+            )
+        })
 }
 
 /// Assert all three commercial gates (G0, G1, G2) pass on the

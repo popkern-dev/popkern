@@ -47,6 +47,8 @@ mod setback_arc_crossings;
 mod setback_bezier9;
 #[path = "setback_boundary_tolerance.rs"]
 mod setback_boundary_tolerance;
+#[path = "setback_corner_dual_jet.rs"]
+mod setback_corner_dual_jet;
 #[path = "setback_fan_seam_refresh.rs"]
 mod setback_fan_seam_refresh;
 #[path = "setback_rim_curvature.rs"]
@@ -1016,6 +1018,21 @@ fn build_cap_face_fan(
             .map(|f| f.surface.clone())
             .chain(lateral_planes.iter().cloned())
             .collect();
+        // Corner substrate promotion (PK-519): each fan piece with
+        // two rim sides meeting at a setback corner becomes a
+        // dual-jet patch there — per-side ownership of the contested
+        // twist and depth-2 cells (claims initialize bit-identically;
+        // the jet and curvature reconciles write them apart, each
+        // boundary's passes landing in its own claim slot).
+        let promoted = setback_corner_dual_jet::promote_dual_jet_corners(
+            &mut patches,
+            &candidates,
+            &border_loop,
+            rim_off_loop_allowance,
+        );
+        if popkern_core::trace::trace_enabled("setback") {
+            eprintln!("  [dual-jet] {promoted} corner pieces promoted");
+        }
         setback_rim_jet::reconcile_rim_jets(
             &mut patches,
             &candidates,
@@ -1074,11 +1091,10 @@ fn build_cap_face_fan(
             continue;
         }
         for (patch_idx, patch) in patches.iter().enumerate() {
-            let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(bp) = patch
-            else {
+            let Some(grid) = patch.binonic_grid() else {
                 continue;
             };
-            let grid_corners = [bp.grid[0][0], bp.grid[0][9], bp.grid[9][0], bp.grid[9][9]];
+            let grid_corners = [grid[0][0], grid[0][9], grid[9][0], grid[9][9]];
             let score = vertices
                 .iter()
                 .map(|v| {
@@ -1234,19 +1250,20 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
             // postcondition read the wrong-basin plateau as
             // g0 2.3e-2 / g1 1.0.
             if cap_internal
-                && let Some(popkern_core::geometry::SurfaceGeometry::Gregory(
-                    popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(bp),
-                )) = brep
+                && let Some(grid) = brep
                     .faces
                     .get(fh)
                     .and_then(|f| f.surface.as_ref())
-                    .map(|s| &s.geometry)
+                    .and_then(|s| match &s.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Gregory(gp) => gp.binonic_grid(),
+                        _ => None,
+                    })
             {
                 let corners = [
-                    ((0.0, 0.0), bp.grid[0][0]),
-                    ((0.0, 1.0), bp.grid[0][9]),
-                    ((1.0, 0.0), bp.grid[9][0]),
-                    ((1.0, 1.0), bp.grid[9][9]),
+                    ((0.0, 0.0), grid[0][0]),
+                    ((0.0, 1.0), grid[0][9]),
+                    ((1.0, 0.0), grid[9][0]),
+                    ((1.0, 1.0), grid[9][9]),
                 ];
                 let match_corner = |p: popkern_core::geometry::Point3| {
                     corners

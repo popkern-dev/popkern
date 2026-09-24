@@ -16,7 +16,6 @@ use super::*;
 /// Non-rim curves that end at a moved vertex have their nearest
 /// endpoint control point translated to match.
 pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
-    use popkern_core::geometry::gregory::GregoryPatch;
     // Collect (rim half-edge on cap side, row, ..) jobs first.
     struct RimJob {
         edge: EdgeHandle,
@@ -31,17 +30,21 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     }
     let mut jobs: Vec<RimJob> = Vec::new();
     for &fh in cap_faces {
-        let Some(popkern_core::geometry::SurfaceGeometry::Gregory(
-            GregoryPatch::RectangularBiNonic(patch),
-        )) = brep
+        // Boundary rows are plain cells on every bi-nonic-family
+        // piece (the dual-jet blend affects interior cells only), so
+        // the refit reads promoted corner pieces the same way.
+        let Some(grid) = brep
             .faces
             .get(fh)
             .and_then(|f| f.surface.as_ref())
-            .map(|s| &s.geometry)
+            .and_then(|s| match &s.geometry {
+                popkern_core::geometry::SurfaceGeometry::Gregory(gp) => gp.binonic_grid(),
+                _ => None,
+            })
         else {
             continue;
         };
-        let grid = patch.grid;
+        let grid = *grid;
         let rows: [[Point3; 10]; 4] = [
             core::array::from_fn(|j| grid[0][j]),
             core::array::from_fn(|j| grid[9][j]),

@@ -103,10 +103,10 @@ pub(super) fn reunify_shared_boundary_cps(
         let mut spread = 0.0_f64;
         let mut positions = Vec::with_capacity(members.len());
         for (&(pi, i, j), original) in members.iter().zip(originals) {
-            let GregoryPatch::RectangularBiNonic(bp) = &patches[pi] else {
+            let Some(grid) = patches[pi].binonic_grid() else {
                 continue;
             };
-            let p = bp.grid[i][j];
+            let p = grid[i][j];
             if p.distance_to(original) > 1e-12 {
                 moved_sum[0] += p.x;
                 moved_sum[1] += p.y;
@@ -130,8 +130,8 @@ pub(super) fn reunify_shared_boundary_cps(
             moved_sum[2] / moved_count as f64,
         );
         for &(pi, i, j) in members {
-            if let GregoryPatch::RectangularBiNonic(bp) = &mut patches[pi] {
-                bp.grid[i][j] = target;
+            if let Some(grid) = patches[pi].binonic_grid_mut() {
+                grid[i][j] = target;
             }
         }
     }

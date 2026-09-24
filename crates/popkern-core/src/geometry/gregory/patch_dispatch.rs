@@ -131,6 +131,34 @@ impl GregoryPatch {
         }
     }
 
+    /// The 10×10 bi-nonic control grid, for the bi-nonic family
+    /// (plain and dual-jet). `None` for every other variant.
+    ///
+    /// For a dual-jet patch the grid's activated-corner
+    /// `(1,2)`/`(2,1)`/`(2,2)`-class entries are placeholders that
+    /// evaluation replaces with the claim blend — passes that read
+    /// or move BOUNDARY rows/columns (always plain cells) may use
+    /// this accessor freely; interior writes near an activated
+    /// corner must go through the claim block instead.
+    pub fn binonic_grid(&self) -> Option<&[[Point3; 10]; 10]> {
+        match self {
+            GregoryPatch::RectangularBiNonic(r) => Some(&r.grid),
+            GregoryPatch::RectangularBiNonicDualJet(r) => Some(&r.grid),
+            _ => None,
+        }
+    }
+
+    /// Mutable access to the bi-nonic control grid — see
+    /// [`binonic_grid`](Self::binonic_grid) for the dual-jet
+    /// placeholder caveat.
+    pub fn binonic_grid_mut(&mut self) -> Option<&mut [[Point3; 10]; 10]> {
+        match self {
+            GregoryPatch::RectangularBiNonic(r) => Some(&mut r.grid),
+            GregoryPatch::RectangularBiNonicDualJet(r) => Some(&mut r.grid),
+            _ => None,
+        }
+    }
+
     /// §5.3 item #10 — detect self-intersection of the patch to
     /// within `tolerance`. A patch self-intersects when (a) its
     /// Jacobian `|∂u × ∂v|` changes sign on the domain (the

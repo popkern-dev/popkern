@@ -25,29 +25,16 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::bezier9_eval;
-use super::setback_rim_reconcile::distance_to_polylines;
+use super::setback_corner_dual_jet::{
+    RIM_NEAR, active_corner_at_end, add_claim_delta, coord_for, dual_end_cells, rim_sides,
+    row_for_side,
+};
 
 const M: usize = 33;
-const RIM_NEAR: f64 = 2.0e-3;
 const CORNER_CLUSTER: f64 = 1.0e-3;
 
-fn coord_for(side: usize, d: usize, k: usize) -> (usize, usize) {
-    match side {
-        0 => (d, k),
-        1 => (9 - d, k),
-        2 => (k, d),
-        _ => (k, 9 - d),
-    }
-}
-
 fn row_of(patches: &[GregoryPatch], patch: usize, side: usize, d: usize) -> Option<[Point3; 10]> {
-    let GregoryPatch::RectangularBiNonic(bp) = &patches[patch] else {
-        return None;
-    };
-    Some(core::array::from_fn(|k| {
-        let (i, j) = coord_for(side, d, k);
-        bp.grid[i][j]
-    }))
+    row_for_side(patches, patch, side, d)
 }
 
 fn bezier9_derive(row: &[Point3; 10], t: f64) -> Vec3 {
@@ -181,47 +168,6 @@ fn side_stations(
     Some(out)
 }
 
-/// Register rim sides exactly like the jet reconcile: near a support
-/// along the whole row AND on the setback border loop.
-fn rim_sides(
-    patches: &[GregoryPatch],
-    candidates: &[SurfaceGeometry],
-    border_loop: &[Vec<Point3>],
-    rim_off_loop_allowance: f64,
-) -> Vec<(usize, usize)> {
-    let mut sides: Vec<(usize, usize)> = Vec::new();
-    for (pi, p) in patches.iter().enumerate() {
-        let GregoryPatch::RectangularBiNonic(bp) = p else {
-            continue;
-        };
-        for side in 0..4 {
-            let row: [Point3; 10] = core::array::from_fn(|k| {
-                let (i, j) = coord_for(side, 0, k);
-                bp.grid[i][j]
-            });
-            let on_support = (0..=16).all(|i| {
-                let pt = bezier9_eval(&row, i as f64 / 16.0);
-                candidates.iter().any(|sfc| {
-                    project_point_to_uv(sfc, &pt)
-                        .map(|(u, v)| sfc.point_at(u, v).distance_to(&pt) < RIM_NEAR)
-                        .unwrap_or(false)
-                })
-            });
-            if !on_support {
-                continue;
-            }
-            let worst_off_loop = (0..=16)
-                .map(|i| distance_to_polylines(bezier9_eval(&row, i as f64 / 16.0), border_loop))
-                .fold(0.0_f64, f64::max);
-            if worst_off_loop > rim_off_loop_allowance.max(RIM_NEAR) {
-                continue;
-            }
-            sides.push((pi, side));
-        }
-    }
-    sides
-}
-
 /// Run the rim transverse-curvature reconciliation over the fan.
 pub(super) fn reconcile_rim_curvature(
     patches: &mut [GregoryPatch],
@@ -251,12 +197,38 @@ pub(super) fn reconcile_rim_curvature(
     // constant that best serves the clamp-region FIELD of both
     // incident sides - an endpoint-pinned constant left the measured
     // residual peaked at 0.68 exactly inside the clamp region.
+    // A side end is either clamped to a shared per-cluster constant
+    // (the fallback semantics) or, at an activated dual-jet corner,
+    // free through the side's OWN claims of the two cells nearest the
+    // corner (the end CP itself — the other rim's G0 curve CP — stays
+    // fixed). Dual ends never join a cluster: the whole point of the
+    // substrate is that the two incident sides' corrections are
+    // independent there.
     struct SideLayout {
         pi: usize,
         side: usize,
-        start_cluster: usize,
-        end_cluster: usize,
+        /// Shared-constant cluster per end, `None` at a dual end.
+        start_cluster: Option<usize>,
+        end_cluster: Option<usize>,
+        /// Activated dual-jet corner per end.
+        start_dual: Option<usize>,
+        end_dual: Option<usize>,
         interior_base: usize,
+        /// Unknown base for the dual-end claim deltas: two unknowns
+        /// per dual end (1-step cell then 2-step cell), start end
+        /// first when both are dual.
+        dual_base: usize,
+    }
+    impl SideLayout {
+        /// Unknown indices of a dual end's (1-step, 2-step) cells.
+        fn dual_indices(&self, end: bool) -> (usize, usize) {
+            let offset = if end && self.start_dual.is_some() {
+                2
+            } else {
+                0
+            };
+            (self.dual_base + offset, self.dual_base + offset + 1)
+        }
     }
     let mut centers: Vec<Point3> = Vec::new();
     let mut cluster_of = |p: Point3| -> usize {
@@ -273,19 +245,29 @@ pub(super) fn reconcile_rim_curvature(
         let Some(row0) = row_of(patches, *pi, *side, 0) else {
             continue;
         };
+        let start_dual = active_corner_at_end(patches, *pi, *side, false);
+        let end_dual = active_corner_at_end(patches, *pi, *side, true);
         layouts.push(SideLayout {
             pi: *pi,
             side: *side,
-            start_cluster: cluster_of(bezier9_eval(&row0, 0.0)),
-            end_cluster: cluster_of(bezier9_eval(&row0, 1.0)),
+            start_cluster: (start_dual.is_none()).then(|| cluster_of(bezier9_eval(&row0, 0.0))),
+            end_cluster: (end_dual.is_none()).then(|| cluster_of(bezier9_eval(&row0, 1.0))),
+            start_dual,
+            end_dual,
             interior_base: 0,
+            dual_base: 0,
         });
     }
     let n_clusters = centers.len();
-    for (i, layout) in layouts.iter_mut().enumerate() {
-        layout.interior_base = n_clusters + 4 * i;
+    let mut next_unknown = n_clusters;
+    for layout in layouts.iter_mut() {
+        layout.interior_base = next_unknown;
+        next_unknown += 4;
+        layout.dual_base = next_unknown;
+        next_unknown +=
+            2 * (layout.start_dual.is_some() as usize + layout.end_dual.is_some() as usize);
     }
-    let unknowns = n_clusters + 4 * layouts.len();
+    let unknowns = next_unknown;
     let bern9 = |k: usize, t: f64| -> f64 {
         const C: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
         C[k] * t.powi(k as i32) * (1.0 - t).powi((9 - k) as i32)
@@ -301,6 +283,9 @@ pub(super) fn reconcile_rim_curvature(
     let mut cluster_sides: Vec<Vec<Vec3>> = vec![Vec::new(); n_clusters];
     for (layout, ((_, _), stations)) in layouts.iter().zip(&fields) {
         for (cluster, end) in [(layout.start_cluster, false), (layout.end_cluster, true)] {
+            let Some(cluster) = cluster else {
+                continue;
+            };
             let mut acc = Vec3::zero();
             let mut mass = 0.0_f64;
             for station in stations {
@@ -333,15 +318,28 @@ pub(super) fn reconcile_rim_curvature(
     for (layout, ((_, _), stations)) in layouts.iter().zip(&fields) {
         for station in stations {
             let target = station.normal * (station.delta_n_bvv / 72.0);
-            // Row: clamp mass on the two corner unknowns + interior.
-            let mut entries: Vec<(usize, f64)> = Vec::with_capacity(6);
-            let start_mass: f64 = (0..=2).map(|k| bern9(k, station.t)).sum();
-            let end_mass: f64 = (7..=9).map(|k| bern9(k, station.t)).sum();
-            if !cluster_frozen[layout.start_cluster] {
-                entries.push((layout.start_cluster, start_mass));
+            // Row: per-end unknowns (dual claims, or clamp mass on a
+            // shared cluster constant) + the four interiors.
+            let mut entries: Vec<(usize, f64)> = Vec::with_capacity(8);
+            if layout.start_dual.is_some() {
+                let (idx1, idx2) = layout.dual_indices(false);
+                entries.push((idx1, bern9(1, station.t)));
+                entries.push((idx2, bern9(2, station.t)));
+            } else if let Some(cluster) = layout.start_cluster
+                && !cluster_frozen[cluster]
+            {
+                let start_mass: f64 = (0..=2).map(|k| bern9(k, station.t)).sum();
+                entries.push((cluster, start_mass));
             }
-            if !cluster_frozen[layout.end_cluster] {
-                entries.push((layout.end_cluster, end_mass));
+            if layout.end_dual.is_some() {
+                let (idx1, idx2) = layout.dual_indices(true);
+                entries.push((idx1, bern9(8, station.t)));
+                entries.push((idx2, bern9(7, station.t)));
+            } else if let Some(cluster) = layout.end_cluster
+                && !cluster_frozen[cluster]
+            {
+                let end_mass: f64 = (7..=9).map(|k| bern9(k, station.t)).sum();
+                entries.push((cluster, end_mass));
             }
             for k in 3..=6_usize {
                 entries.push((layout.interior_base + (k - 3), bern9(k, station.t)));
@@ -377,16 +375,30 @@ pub(super) fn reconcile_rim_curvature(
             }
         }
     }
+    // Per-end delta of the d2-row CP at position `k`, or `None` for
+    // a dual end's cells (those route through the side's own claims)
+    // and the fixed end CP at a dual corner.
+    let end_delta = |layout: &SideLayout, k: usize| -> Option<Vec3> {
+        match k {
+            0..=2 if layout.start_dual.is_some() => None,
+            0..=2 => match layout.start_cluster {
+                Some(c) if !cluster_frozen[c] => Some(solution[c]),
+                _ => Some(Vec3::zero()),
+            },
+            7..=9 if layout.end_dual.is_some() => None,
+            7..=9 => match layout.end_cluster {
+                Some(c) if !cluster_frozen[c] => Some(solution[c]),
+                _ => Some(Vec3::zero()),
+            },
+            _ => Some(solution[layout.interior_base + (k - 3)]),
+        }
+    };
     let mut writes: std::collections::BTreeMap<(usize, usize, usize), (Vec3, usize)> =
         std::collections::BTreeMap::new();
     for layout in &layouts {
         for k in 0..10_usize {
-            let delta = match k {
-                0..=2 if cluster_frozen[layout.start_cluster] => Vec3::zero(),
-                0..=2 => solution[layout.start_cluster],
-                7..=9 if cluster_frozen[layout.end_cluster] => Vec3::zero(),
-                7..=9 => solution[layout.end_cluster],
-                _ => solution[layout.interior_base + (k - 3)],
+            let Some(delta) = end_delta(layout, k) else {
+                continue;
             };
             let (i2, j2) = coord_for(layout.side, 2, k);
             if protected.contains(&(layout.pi, i2, j2)) {
@@ -400,31 +412,56 @@ pub(super) fn reconcile_rim_curvature(
         }
     }
     for ((pi, i2, j2), (sum, count)) in writes {
-        let GregoryPatch::RectangularBiNonic(bp) = &mut patches[pi] else {
+        let Some(grid) = patches[pi].binonic_grid_mut() else {
             continue;
         };
         let delta = sum * (1.0 / count.max(1) as f64);
-        let g = bp.grid[i2][j2];
-        bp.grid[i2][j2] = Point3::new(g.x + delta.x, g.y + delta.y, g.z + delta.z);
+        let g = grid[i2][j2];
+        grid[i2][j2] = Point3::new(g.x + delta.x, g.y + delta.y, g.z + delta.z);
+    }
+    // Dual-end claim writes: each side's correction lands in its OWN
+    // claims of the two cells nearest the corner — no shared
+    // constant, no doubly-claimed mean, no protection conflict (the
+    // other side's G0/G1 rows read their own claims and the plain
+    // grid, which these writes never touch).
+    let mut worst_claim_delta = 0.0_f64;
+    for layout in &layouts {
+        for (end, dual) in [(false, layout.start_dual), (true, layout.end_dual)] {
+            let Some(corner) = dual else {
+                continue;
+            };
+            let (idx1, idx2) = layout.dual_indices(end);
+            let cells = dual_end_cells(layout.side);
+            for (cell, idx) in cells.iter().zip([idx1, idx2]) {
+                add_claim_delta(
+                    patches,
+                    layout.pi,
+                    layout.side,
+                    corner,
+                    *cell,
+                    solution[idx],
+                );
+                worst_claim_delta = worst_claim_delta.max(solution[idx].length());
+            }
+        }
     }
     if popkern_core::trace::trace_enabled("setback") {
         for layout in &layouts {
             let d_max = (0..10_usize)
-                .map(|k| match k {
-                    0..=2 if cluster_frozen[layout.start_cluster] => 0.0,
-                    0..=2 => solution[layout.start_cluster].length(),
-                    7..=9 if cluster_frozen[layout.end_cluster] => 0.0,
-                    7..=9 => solution[layout.end_cluster].length(),
-                    _ => solution[layout.interior_base + (k - 3)].length(),
-                })
+                .filter_map(|k| end_delta(layout, k).map(|d| d.length()))
                 .fold(0.0_f64, f64::max);
+            let frozen_label = |cluster: Option<usize>, dual: Option<usize>| match (cluster, dual) {
+                (_, Some(c)) => format!("dual{c}"),
+                (Some(c), _) => format!("{}", cluster_frozen[c]),
+                _ => "-".to_string(),
+            };
             eprintln!(
                 "  [rim-curvature] applied patch {} side {} |delta|max {:.3e} frozen=({},{})",
                 layout.pi,
                 layout.side,
                 d_max,
-                cluster_frozen[layout.start_cluster],
-                cluster_frozen[layout.end_cluster]
+                frozen_label(layout.start_cluster, layout.start_dual),
+                frozen_label(layout.end_cluster, layout.end_dual)
             );
         }
         let worst = fields
@@ -432,10 +469,15 @@ pub(super) fn reconcile_rim_curvature(
             .flat_map(|(_, s)| s.iter())
             .map(|s| (s.delta_n_bvv / 72.0).abs())
             .fold(0.0_f64, f64::max);
+        let dual_ends: usize = layouts
+            .iter()
+            .map(|l| l.start_dual.is_some() as usize + l.end_dual.is_some() as usize)
+            .sum();
         eprintln!(
-            "  [rim-curvature] {} sides, {} corner clusters: worst |drow2| target {worst:.3e} applied (joint solve)",
+            "  [rim-curvature] {} sides, {} corner clusters, {} dual ends (worst claim delta {worst_claim_delta:.3e}): worst |drow2| target {worst:.3e} applied (joint solve)",
             layouts.len(),
-            n_clusters
+            n_clusters,
+            dual_ends
         );
     }
 }

@@ -29,6 +29,7 @@ fn perturbed_dual_jet(corner: usize) -> RectangularGregoryBiNonicDualJet {
     let block = patch.corners[corner].as_mut().unwrap();
     // Distinct claims per cell and per side.
     let bump = |p: Point3, d: f64| Point3::new(p.x + d, p.y - 0.5 * d, p.z + 2.0 * d);
+    block.cell_11 = (bump(block.cell_11.0, 0.008), bump(block.cell_11.1, -0.010));
     block.cell_12 = (bump(block.cell_12.0, 0.011), bump(block.cell_12.1, -0.007));
     block.cell_21 = (bump(block.cell_21.0, -0.009), bump(block.cell_21.1, 0.013));
     block.cell_22 = (bump(block.cell_22.0, 0.005), bump(block.cell_22.1, -0.012));
@@ -45,6 +46,7 @@ fn tensor_with_claims(
     let mut grid = patch.grid;
     let block = patch.corners[corner].unwrap();
     for (cell, pair) in [
+        (DualJetCell::Cell11, block.cell_11),
         (DualJetCell::Cell12, block.cell_12),
         (DualJetCell::Cell21, block.cell_21),
         (DualJetCell::Cell22, block.cell_22),
@@ -192,13 +194,22 @@ fn to_nurbs_exact_agrees_with_evaluation() {
         let nurbs = patch.to_nurbs_exact();
         assert_eq!(nurbs.degree_u, 11);
         assert_eq!(nurbs.degree_v, 11);
+        for (cp, w) in nurbs.control_points.iter().zip(nurbs.weights.iter()) {
+            assert!(
+                cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite() && w.is_finite(),
+                "corner {corner}: non-finite CP/weight in conversion"
+            );
+            assert!(*w > 0.0, "corner {corner}: non-positive weight {w}");
+        }
         let mut worst = 0.0_f64;
         for i in 0..=24 {
             for j in 0..=24 {
                 let (u, v) = (i as f64 / 24.0, j as f64 / 24.0);
                 let a = patch.point_at(u, v);
                 let b = nurbs.point_at(u, v);
-                worst = worst.max(a.distance_to(&b));
+                let d = a.distance_to(&b);
+                assert!(d.is_finite(), "corner {corner}: NaN eval at ({u}, {v})");
+                worst = worst.max(d);
             }
         }
         assert!(

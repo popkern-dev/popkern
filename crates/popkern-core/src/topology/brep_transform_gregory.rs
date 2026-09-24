@@ -117,6 +117,10 @@ pub(super) fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatc
             }
             let corners = r.corners.map(|corner| {
                 corner.map(|block| crate::geometry::gregory::DualJetCorner {
+                    cell_11: (
+                        t.apply_point(&block.cell_11.0),
+                        t.apply_point(&block.cell_11.1),
+                    ),
                     cell_12: (
                         t.apply_point(&block.cell_12.0),
                         t.apply_point(&block.cell_12.1),

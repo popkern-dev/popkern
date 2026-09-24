@@ -282,13 +282,20 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         if let Some(n_avg) = n_avg
             && let Some(t_perp) = n_avg.cross(&seam_dir).normalized()
         {
-            if let Some(jump) = kappa_jump(t_perp) {
+            let jump_perp = kappa_jump(t_perp);
+            let jump_diag = (seam_dir + t_perp).normalized().and_then(&kappa_jump);
+            if let Some(jump) = jump_perp {
                 out.g2_transverse = out.g2_transverse.max(jump);
             }
-            if let Some(diag) = (seam_dir + t_perp).normalized()
-                && let Some(jump) = kappa_jump(diag)
-            {
+            if let Some(jump) = jump_diag {
                 out.g2_transverse = out.g2_transverse.max(jump);
+            }
+            if popkern_core::trace::trace_enabled("seam-curvature") {
+                eprintln!(
+                    "  [seam-curvature] f={f:.3} perp={} diag={}",
+                    jump_perp.map_or("skip".into(), |j| format!("{j:.3e}")),
+                    jump_diag.map_or("skip".into(), |j| format!("{j:.3e}")),
+                );
             }
         }
     }

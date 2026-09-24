@@ -26,33 +26,31 @@
 //! moves by δ, row 2 by 2δ, keeping row2 − 2·row1 + row0 exact.
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::gregory::GregoryPatch;
+use popkern_core::geometry::gregory::{DualJetCell, GregoryPatch};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 
 use super::bezier9_eval;
-use super::setback_rim_reconcile::distance_to_polylines;
+use super::setback_corner_dual_jet::{
+    RIM_NEAR, active_corner_at_end, add_claim_delta, coord_for, dual_end_cells, rim_sides,
+    row_for_side, side_is_row,
+};
 
 const M: usize = 64;
-const RIM_NEAR: f64 = 2.0e-3;
-
-fn coord_for(side: usize, d: usize, k: usize) -> (usize, usize) {
-    match side {
-        0 => (d, k),
-        1 => (9 - d, k),
-        2 => (k, d),
-        _ => (k, 9 - d),
-    }
-}
 
 fn row_of(patches: &[GregoryPatch], patch: usize, side: usize, d: usize) -> Option<[Point3; 10]> {
-    let GregoryPatch::RectangularBiNonic(bp) = &patches[patch] else {
-        return None;
-    };
-    Some(core::array::from_fn(|k| {
-        let (i, j) = coord_for(side, d, k);
-        bp.grid[i][j]
-    }))
+    row_for_side(patches, patch, side, d)
+}
+
+/// The claim cells a side's depth-1 row addresses at a dual end,
+/// ordered by distance from the corner: the twist cell, then the
+/// cell holding this side's d1 band two steps out.
+fn dual_end_d1_cells(side: usize) -> [DualJetCell; 2] {
+    if side_is_row(side) {
+        [DualJetCell::Cell11, DualJetCell::Cell12]
+    } else {
+        [DualJetCell::Cell11, DualJetCell::Cell21]
+    }
 }
 
 /// Support normal at the landed point `p`: nearest candidate surface
@@ -99,36 +97,7 @@ pub(super) fn reconcile_rim_jets(
     let strips = &candidates[..strip_count.min(candidates.len())];
     // Rim-side registry (same gates as the G0 solve: near the
     // supports along the whole row + on the border loop).
-    let mut sides: Vec<(usize, usize)> = Vec::new();
-    for (pi, p) in patches.iter().enumerate() {
-        let GregoryPatch::RectangularBiNonic(bp) = p else {
-            continue;
-        };
-        for side in 0..4 {
-            let row: [Point3; 10] = core::array::from_fn(|k| {
-                let (i, j) = coord_for(side, 0, k);
-                bp.grid[i][j]
-            });
-            let on_support = (0..=16).all(|i| {
-                let pt = bezier9_eval(&row, i as f64 / 16.0);
-                candidates.iter().any(|sfc| {
-                    project_point_to_uv(sfc, &pt)
-                        .map(|(u, v)| sfc.point_at(u, v).distance_to(&pt) < RIM_NEAR)
-                        .unwrap_or(false)
-                })
-            });
-            if !on_support {
-                continue;
-            }
-            let worst_off_loop = (0..=16)
-                .map(|i| distance_to_polylines(bezier9_eval(&row, i as f64 / 16.0), border_loop))
-                .fold(0.0_f64, f64::max);
-            if worst_off_loop > rim_off_loop_allowance.max(RIM_NEAR) {
-                continue;
-            }
-            sides.push((pi, side));
-        }
-    }
+    let sides = rim_sides(patches, candidates, border_loop, rim_off_loop_allowance);
     if sides.is_empty() {
         return;
     }
@@ -166,6 +135,11 @@ pub(super) fn reconcile_rim_jets(
         };
     for &(pi, side) in &sides {
         for t in [0.0, 1.0] {
+            // A dual-jet corner end never joins the shared-average
+            // cluster: its correction is per-side through the claims.
+            if active_corner_at_end(patches, pi, side, t > 0.5).is_some() {
+                continue;
+            }
             if let Some((p0, d)) = endpoint_target(patches, pi, side, t) {
                 let i = cluster_of(&p0, &mut cluster_centers, &mut corner_acc);
                 let e = &mut corner_acc[i];
@@ -179,6 +153,7 @@ pub(super) fn reconcile_rim_jets(
             .iter()
             .enumerate()
             .filter(|(_, c)| c.distance_to(p) < CORNER_CLUSTER)
+            .filter(|(i, _)| corner_acc[*i].1 > 0)
             .map(|(i, _)| {
                 let (sum, n) = &corner_acc[i];
                 let n = *n as f64;
@@ -214,8 +189,26 @@ pub(super) fn reconcile_rim_jets(
         if !ok {
             continue;
         }
-        let d_start = corner_avg(&bezier9_eval(&row0, 0.0));
-        let d_end = corner_avg(&bezier9_eval(&row0, 1.0));
+        let start_dual = active_corner_at_end(patches, pi, side, false);
+        let end_dual = active_corner_at_end(patches, pi, side, true);
+        // At a dual end the side takes its OWN endpoint target (the
+        // shared average is exactly the compromise the dual claims
+        // exist to remove); elsewhere the shared cluster average.
+        let own = |t: f64| -> [f64; 3] {
+            endpoint_target(patches, pi, side, t)
+                .map(|(_, d)| [d.x, d.y, d.z])
+                .unwrap_or([0.0; 3])
+        };
+        let d_start = if start_dual.is_some() {
+            own(0.0)
+        } else {
+            corner_avg(&bezier9_eval(&row0, 0.0))
+        };
+        let d_end = if end_dual.is_some() {
+            own(1.0)
+        } else {
+            corner_avg(&bezier9_eval(&row0, 1.0))
+        };
         // LINEAR-in-k deltas between the shared corner values: zero
         // second difference along the row (twist-neutral), and the
         // 2δ depth application keeps the cross-second-difference
@@ -239,21 +232,46 @@ pub(super) fn reconcile_rim_jets(
                 d[c] = d_start[c] * (1.0 - f) + d_end[c] * f;
             }
         }
-        let GregoryPatch::RectangularBiNonic(bp) = &mut patches[pi] else {
-            continue;
-        };
         for (k, delta) in deltas.iter().enumerate() {
             // Row 1 carries the jet correction; row 2 moves by 2δ so
             // the cross-second-difference row2 − 2·row1 + row0 — the
             // piece's cross-curvature — is EXACTLY preserved (a
             // row-1-only move exploded octagon8_mixed's transverse
             // seam G2 to 1.78; with the invariant it is untouched).
+            //
+            // Dual-end routing: the end cell itself is the OTHER rim
+            // side's d0/d1 row — fixed (the shared-average write that
+            // used to land there was the compromise); one and two
+            // steps out, the d1/d2 corrections go into this side's
+            // own claims.
+            let dual = match k {
+                0..=2 => start_dual,
+                7..=9 => end_dual,
+                _ => None,
+            };
+            let dv = popkern_core::geometry::Vec3::new(delta[0], delta[1], delta[2]);
+            if let Some(corner) = dual {
+                let at_end_pos = if k <= 2 { k } else { 9 - k };
+                if at_end_pos == 0 {
+                    continue;
+                }
+                if at_end_pos <= 2 {
+                    let d1_cell = dual_end_d1_cells(side)[at_end_pos - 1];
+                    let d2_cell = dual_end_cells(side)[at_end_pos - 1];
+                    add_claim_delta(patches, pi, side, corner, d1_cell, dv);
+                    add_claim_delta(patches, pi, side, corner, d2_cell, dv * 2.0);
+                    continue;
+                }
+            }
             let (i1, j1) = coord_for(side, 1, k);
-            let g1 = bp.grid[i1][j1];
-            bp.grid[i1][j1] = Point3::new(g1.x + delta[0], g1.y + delta[1], g1.z + delta[2]);
             let (i2, j2) = coord_for(side, 2, k);
-            let g2 = bp.grid[i2][j2];
-            bp.grid[i2][j2] = Point3::new(
+            let Some(grid) = patches[pi].binonic_grid_mut() else {
+                continue;
+            };
+            let g1 = grid[i1][j1];
+            grid[i1][j1] = Point3::new(g1.x + delta[0], g1.y + delta[1], g1.z + delta[2]);
+            let g2 = grid[i2][j2];
+            grid[i2][j2] = Point3::new(
                 g2.x + 2.0 * delta[0],
                 g2.y + 2.0 * delta[1],
                 g2.z + 2.0 * delta[2],
