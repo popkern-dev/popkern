@@ -131,5 +131,14 @@ jobs:
         with:
           tool: cargo-tarpaulin
 
+      # --no-dead-code: tarpaulin's default -C link-dead-code forces
+      # const evaluation of generic helpers no caller instantiates, and
+      # faer 0.20's pulp 0.18 trips a transmute size assertion in one of
+      # them (reproduced locally: RUSTFLAGS="-C link-dead-code
+      # -Cinstrument-coverage" fails to compile pulp, and
+      # -Cinstrument-coverage alone builds; PK-535). The LLVM engine's
+      # source-based coverage still reports non-generic functions no
+      # test calls as uncovered; only never-instantiated generics drop
+      # out of the denominator.
       - name: Run coverage and enforce 100% threshold
-        run: cargo tarpaulin --all-features --workspace --fail-under 100
+        run: cargo tarpaulin --engine llvm --no-dead-code --all-features --workspace --fail-under 100
