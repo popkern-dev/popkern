@@ -22,8 +22,10 @@ use crate::{
 };
 
 /// One pipeline attempt with the given direct-apex promotion
-/// exclusions (empty on the first pass). The serving-boundary retry
-/// wrapper lives in [`crate::fillet_serving_retry`].
+/// exclusions (empty on the first pass). When the served-body gate
+/// declines, `gated_direct_apex_corners` names the corners the
+/// serving retry may re-run. The serving-boundary retry wrapper lives
+/// in [`crate::fillet_serving_retry`].
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fillet_edges_attempt(
     brep: &BRep,
@@ -34,6 +36,7 @@ pub(crate) fn fillet_edges_attempt(
     cancel: Option<&cancellation::CancellationToken>,
     reporter: &mut Option<&mut dyn progress::ProgressReporter>,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
+    gated_direct_apex_corners: &mut Vec<(VertexHandle, String)>,
 ) -> Result<BlendResult, BlendError> {
     macro_rules! emit {
         ($phase:expr, $start:expr, $count:expr) => {
@@ -446,13 +449,13 @@ pub(crate) fn fillet_edges_attempt(
         .push(tail_timing.diagnostic());
     // Transactional served-body gates: structural soundness, PK-516
     // corner resolution, PK-530 territory consistency.
-    if let Some(failure) = served_body_failure(brep, &apply_result, fallback_edge) {
-        return Err(BlendError::partial_failure(
-            specs.len(),
-            brep.clone(),
-            vec![failure],
-        ));
-    }
+    served_body_gate(
+        brep,
+        specs.len(),
+        &apply_result,
+        fallback_edge,
+        gated_direct_apex_corners,
+    )?;
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking.as_deref_mut() {
         assign_fillet_names(&mut apply_result.brep, ctx, pre_faces);
@@ -491,5 +494,5 @@ pub(crate) fn fillet_edges_attempt(
 #[path = "fillet_pipeline_postconditions.rs"]
 mod fillet_pipeline_postconditions;
 use fillet_pipeline_postconditions::{
-    attribute_pipeline_warnings, fallback_edge_for_specs, served_body_failure,
+    attribute_pipeline_warnings, fallback_edge_for_specs, served_body_gate,
 };

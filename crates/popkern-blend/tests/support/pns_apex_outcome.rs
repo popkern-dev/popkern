@@ -107,7 +107,20 @@ pub fn run_pyramid_apex_outcome_no_polar(n: usize, radii: &[f64]) -> ApexOutcome
     let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
         .expect("n_gonal_pyramid fixture must build");
     let vertex = pyramid_apex_vertex(&pyr, n);
-    run_corner_outcome_with(pyr, vertex, radii, false)
+    run_corner_outcome_with(pyr, vertex, radii, false, false)
+}
+
+/// The pyramid harness with the serving retry ON: what the pipeline
+/// serves a user, not the first-pass construction. Since PK-533 an
+/// apex whose first-pass body fails the served-body gate is served by
+/// the exclusion retry, so this is the instrument for a corner whose
+/// constructed complex is no longer a serve.
+pub fn run_pyramid_apex_outcome_served(n: usize, radii: &[f64]) -> ApexOutcome {
+    assert_eq!(radii.len(), n);
+    let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
+        .expect("n_gonal_pyramid fixture must build");
+    let vertex = pyramid_apex_vertex(&pyr, n);
+    run_corner_outcome_with(pyr, vertex, radii, true, true)
 }
 
 fn run_corner_outcome(
@@ -115,7 +128,7 @@ fn run_corner_outcome(
     vertex: popkern_core::topology::VertexHandle,
     radii: &[f64],
 ) -> ApexOutcome {
-    run_corner_outcome_with(brep, vertex, radii, true)
+    run_corner_outcome_with(brep, vertex, radii, true, false)
 }
 
 fn run_corner_outcome_with(
@@ -123,6 +136,7 @@ fn run_corner_outcome_with(
     vertex: popkern_core::topology::VertexHandle,
     radii: &[f64],
     kp_polar: bool,
+    serving_retry: bool,
 ) -> ApexOutcome {
     let edges = incident_edges(&brep, vertex);
     let specs: Vec<FilletSpec> = edges
@@ -142,8 +156,9 @@ fn run_corner_outcome_with(
         use_kp_binonic_gregory: true,
         use_kp_polar_gregory: kp_polar,
         // Cap-quality instrument: measure the constructed cap
-        // complex, not the PK-250 serving-retry re-route.
-        serving_self_intersection_retry: false,
+        // complex, not the PK-250 serving-retry re-route, unless the
+        // caller asks for the served body.
+        serving_self_intersection_retry: serving_retry,
         ..FilletOptions::default()
     };
     let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)

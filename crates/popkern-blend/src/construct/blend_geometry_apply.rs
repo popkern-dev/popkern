@@ -70,8 +70,11 @@ pub fn apply_blend_geometry(
             &mut result,
             edge_geometries,
             tolerance,
-            use_direct_apex_construction,
-            &promoted_apexes,
+            perpendicular_splits::DirectApexRouting {
+                global: use_direct_apex_construction,
+                promoted: &promoted_apexes,
+                excluded: excluded_direct_apex_vertices,
+            },
             &mut failures,
         )
     });

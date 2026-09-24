@@ -37,7 +37,8 @@ pub(crate) fn fillet_edges_internal(
     cancel: Option<&cancellation::CancellationToken>,
     mut reporter: Option<&mut dyn progress::ProgressReporter>,
 ) -> Result<BlendResult, BlendError> {
-    let mut first = fillet_edges_attempt(
+    let mut gated = Vec::new();
+    let first = fillet_edges_attempt(
         brep,
         specs,
         options,
@@ -46,7 +47,29 @@ pub(crate) fn fillet_edges_internal(
         cancel,
         &mut reporter,
         &std::collections::BTreeSet::new(),
-    )?;
+        &mut gated,
+    );
+    let mut first = match first {
+        Ok(first) => first,
+        // PK-533: a first pass the served-body gate declined still
+        // gets the exclusion re-run for its direct-apex corners. The
+        // gate fires inside the attempt, so without this the decline
+        // pre-empted the very re-run that serves those corners clean.
+        Err(error) if options.serving_self_intersection_retry && !gated.is_empty() => {
+            return retry_gated_decline(
+                brep,
+                specs,
+                options,
+                tolerance,
+                &mut tracking,
+                cancel,
+                &mut reporter,
+                error,
+                gated,
+            );
+        }
+        Err(error) => return Err(error),
+    };
     if !options.serving_self_intersection_retry {
         return Ok(first);
     }
@@ -131,6 +154,7 @@ pub(crate) fn fillet_edges_internal(
         cancel,
         &mut reporter,
         &excluded,
+        &mut Vec::new(),
     ) {
         Ok(mut retried) => {
             // PK-258 keep-better: adopt the retried body only when it is
@@ -197,6 +221,51 @@ pub(crate) fn fillet_edges_internal(
             Ok(retried)
         }
         Err(_) => Ok(first),
+    }
+}
+
+/// The exclusion re-run for a first pass the served-body gate
+/// declined (PK-533). The first pass has no serve to keep, so the
+/// re-run is adopted whenever it passes every gate itself, with each
+/// excluded corner recorded on the report under the gate's reason.
+/// Otherwise the first pass's typed decline stands.
+#[allow(clippy::too_many_arguments)]
+fn retry_gated_decline(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    options: &FilletOptions,
+    tolerance: Tolerance,
+    tracking: &mut Option<&mut TrackingContext>,
+    cancel: Option<&cancellation::CancellationToken>,
+    reporter: &mut Option<&mut dyn progress::ProgressReporter>,
+    first_decline: BlendError,
+    gated: Vec<(popkern_core::topology::VertexHandle, String)>,
+) -> Result<BlendResult, BlendError> {
+    let excluded = gated.iter().map(|(vertex, _)| *vertex).collect();
+    match fillet_edges_attempt(
+        brep,
+        specs,
+        options,
+        tolerance,
+        tracking,
+        cancel,
+        reporter,
+        &excluded,
+        &mut Vec::new(),
+    ) {
+        Ok(mut retried) => {
+            retried.repair_report.serving_self_intersection_retries = gated
+                .into_iter()
+                .map(
+                    |(vertex, detail)| crate::types::ServingSelfIntersectionRetry {
+                        vertex,
+                        detail: format!("{detail}; exclusion retry served"),
+                    },
+                )
+                .collect();
+            Ok(retried)
+        }
+        Err(_) => Err(first_decline),
     }
 }
 

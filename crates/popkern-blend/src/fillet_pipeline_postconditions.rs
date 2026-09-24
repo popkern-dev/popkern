@@ -3,11 +3,59 @@
 //! for [`super::fillet_edges_attempt`] (extracted for the 500-line
 //! structural file budget).
 
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
 use crate::construct::{ApplyBlendResult, EdgeGeometry};
-use crate::error::BlendFailure;
-use crate::types::FilletSpec;
+use crate::error::{BlendError, BlendFailure};
+use crate::types::{ApexConstructionRoute, FilletSpec};
+
+/// The transactional served-body gate of one pipeline attempt: the
+/// first [`served_body_failure`] as the attempt's decline. When it
+/// declines, `gated_direct_apex_corners` receives every corner the
+/// attempt sent through direct-apex, served or fallen back on its
+/// anchor convention, with the gate's reason. The serving retry
+/// re-runs exactly those corners through the vertex-blend dispatch
+/// (see [`crate::fillet_serving_retry`]).
+pub(super) fn served_body_gate(
+    source: &BRep,
+    spec_count: usize,
+    served: &ApplyBlendResult,
+    fallback_edge: EdgeHandle,
+    gated_direct_apex_corners: &mut Vec<(VertexHandle, String)>,
+) -> Result<(), BlendError> {
+    let Some(failure) = served_body_failure(source, served, fallback_edge) else {
+        return Ok(());
+    };
+    *gated_direct_apex_corners = served
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| match route.route {
+            ApexConstructionRoute::DirectApex => !route.built_faces.is_empty(),
+            ApexConstructionRoute::DirectApexFallbackToVertexBlend => true,
+            _ => false,
+        })
+        .map(|route| {
+            let fallback = route
+                .fallback_reason
+                .as_ref()
+                .map(|reason| format!(" (direct-apex fallback: {reason})"))
+                .unwrap_or_default();
+            (
+                route.vertex,
+                format!(
+                    "served-body gate declined the {:?} serve{fallback}: {:?}",
+                    route.route, failure.1
+                ),
+            )
+        })
+        .collect();
+    Err(BlendError::partial_failure(
+        spec_count,
+        source.clone(),
+        vec![failure],
+    ))
+}
 
 /// The edge failures are attributed to when no more specific edge is
 /// known: the first spec's edge, else the first computed geometry's.
@@ -47,7 +95,7 @@ pub(super) fn attribute_pipeline_warnings(
 /// structural defect (attributed to `fallback_edge`), else an
 /// unresolved corner whose territory fails check 9, else any
 /// inconsistency in the whole blend territory (PK-530).
-pub(super) fn served_body_failure(
+fn served_body_failure(
     source: &BRep,
     served: &ApplyBlendResult,
     fallback_edge: EdgeHandle,

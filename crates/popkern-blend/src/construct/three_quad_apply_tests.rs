@@ -1,17 +1,15 @@
 //! Integration tests for the three-quad apply pipeline:
-//! * R8 C6 regression guard — mixed-radius cube corner lands as a
-//!   manifold hex (6 HE, 6 distinct vertices, NURBS surface),
-//!   exercised via the flat-rho conic class since PK-226 (circular
-//!   mixed-radius corners serve the setback fan and never reach the
-//!   pre-three-quad hex merge).
+//! * R8 C6: the pre-three-quad merged hex is a retired serving route
+//!   (PK-533). Its chord-bounded boundary is off its faces by
+//!   construction, so forced past setback it declines typed.
 //! * The R8 C7 pin (fallback dispatch commit) moved to
 //!   tests/corner_fallback_dispatch.rs under the
 //!   SETBACK_DISABLE override seam; measuring there showed the
 //!   "three-quad poke" contract was vestigial — the committed
 //!   fallback is the direct-apex Coons partition (PK-192).
 
+use crate::fillet_edges;
 use crate::types::{FilletOptions, FilletRadius, FilletSpec};
-use crate::{CornerMethod, fillet_edges};
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -22,124 +20,50 @@ use test_helpers::{
     assert_logical_gregory_corner, gregory_corners_for_vertex, rectangular_gregory_corner_faces,
 };
 
+/// The pre-three-quad merged hex this R8 C6 guard once pinned is a
+/// retired serving route (PK-533). Its corner region is bounded by
+/// chords between the strips' trim anchors, and the strip ends it
+/// leaves sit on the original sharp edges. Its boundary edges are
+/// off their faces by construction: 12 edges, worst 5.5e-2, the same
+/// at 1fcf5219 before the territory gate existed. Setback serves this
+/// corner by default. Forced past setback, the route must decline
+/// typed rather than serve that body.
 #[test]
-fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
-    // Fixture: mixed-radius cube corner with 3 fillets. The R8 C6
-    // fix (per-face trim anchors + kev-for-bridge) must produce a
-    // 6-half-edge blend face with 6 distinct boundary vertices.
-    // Flat-rho conic profile: since PK-226 mixed-radius CIRCULAR
-    // corners serve the KP20 setback fan (cap fan topology, no hex),
-    // so the pre-three-quad hex machinery this test pins is reached via the
-    // flat-section class, which declines the setback commit
-    // analytically (rho 0.35 < the 0.4142 circular equivalent).
+fn r8_c6_forced_pre_three_quad_hex_declines_off_face_boundaries() {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
-    let incident_edges: Vec<_> = cube
+    let specs: Vec<FilletSpec> = cube
         .half_edges
         .values()
         .filter(|he| he.origin == vertex)
         .map(|he| he.edge)
-        .collect();
-    assert_eq!(incident_edges.len(), 3);
-
-    let radii = [0.08, 0.10, 0.12];
-    let specs: Vec<FilletSpec> = incident_edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&e, &r)| FilletSpec {
-            edge: e,
+        .zip([0.08, 0.10, 0.12])
+        .map(|(edge, r)| FilletSpec {
+            edge,
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let tol = Tolerance::default();
-    // R8 C6 guard predates three-quad dispatch — explicitly
-    // disable it here so we measure the MERGED (pre-poke) hex
-    // topology. With the R8 C9 default-on, we'd see 3 sub-quads
-    // instead.
+    assert_eq!(specs.len(), 3);
+    // Flat-rho conic: setback serves it by default (PK-518), so the
+    // pre-three-quad hex is reached only through the decline seam.
     let opts = FilletOptions {
         use_rational_gregory: false,
         profile: crate::types::BlendProfile::Conic { rho: 0.35 },
         ..FilletOptions::default()
     };
-    // PK-518: the flat-rho conic corner now serves the setback cap
-    // (measured self-intersection clean), so the pre-three-quad hex
-    // merge this guard pins is reached through the scoped decline seam.
-    // PK-533: that forced pre-three-quad hex serves check-9 failures
-    // (12 edges, worst 5.5e-2), so it is read under the suspended
-    // territory gate and the failure pinned until the route is exact.
     let result = crate::dispatch_overrides::with_setback_forced_to_decline(|| {
-        crate::dispatch_overrides::with_territory_gate_suspended(|| {
-            fillet_edges(&cube, &specs, &opts, tol, None)
-        })
-    })
-    .unwrap();
+        fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
+    });
+    let Err(crate::error::BlendError::PartialFailure { failures, .. }) = result else {
+        panic!("the chord-bounded hex must not serve");
+    };
     assert!(
-        result.brep.validate_all().iter().any(|e| matches!(
-            e,
-            popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
+        failures.iter().any(|(_, failure)| matches!(
+            failure,
+            crate::error::BlendFailure::InconsistentGeometry { reason, location: Some(_) }
+                if reason.contains("off their faces")
         )),
-        "PK-533 made the merged hex exact: drop the gate seam and this pin"
-    );
-
-    // Locate the corner patch for our target vertex.
-    let target_info = result
-        .corner_patches
-        .iter()
-        .find(|p| p.vertex == vertex)
-        .expect("target vertex should have a corner patch");
-    let hex_face = target_info.face;
-    assert_eq!(
-        target_info.method,
-        CornerMethod::Gregory,
-        "mixed-radius corner should route to Gregory (polar-NURBS) in R8 C6",
-    );
-
-    // Regression guard: the blend face must survive the post-insert
-    // pipeline. Before R8 C6 this face (a pinched pentagon) was
-    // getting absorbed by `sliver_absorb::find_redundant_edge_target`
-    // because `surface_fix` reassigned its NURBS to a Cylinder
-    // matching an adjacent fillet strip.
-    let brep = &result.brep;
-    assert!(
-        brep.faces.contains_key(hex_face),
-        "R8 C6 regression: corner blend face must not be absorbed by sliver_absorb"
-    );
-
-    // Walk the face's outer loop, collect vertex handles.
-    let loop_handle = brep.faces[hex_face].outer_loop;
-    let start_he = brep.loops[loop_handle].half_edge;
-    let mut count = 0usize;
-    let mut cursor = start_he;
-    let mut verts = Vec::new();
-    loop {
-        count += 1;
-        if count > 12 {
-            panic!("blend-face loop doesn't close (>12 half-edges)");
-        }
-        verts.push(brep.half_edges[cursor].origin);
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
-        }
-    }
-
-    assert_eq!(
-        count, 6,
-        "R8 C6: mixed-radius corner blend face must be a hexagon; \
-         got {count} half-edges, vertices {verts:?}"
-    );
-
-    // Distinctness: no vertex appears twice (no pinch). Before
-    // R8 C6 the pinched pentagon had one vertex visited twice.
-    let mut unique = verts.clone();
-    unique.sort();
-    unique.dedup();
-    assert_eq!(
-        unique.len(),
-        6,
-        "R8 C6: hex should have 6 distinct boundary vertices; \
-         got {} unique from {verts:?}",
-        unique.len()
+        "the decline must be the typed territory inconsistency, got {failures:?}"
     );
 }
 

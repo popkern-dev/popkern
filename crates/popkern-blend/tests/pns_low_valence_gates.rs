@@ -165,6 +165,10 @@ fn cube_corner_default_route_meets_bars() {
 /// This is the measurement the ticket requires before any dispatch
 /// change — and it is reported either way, win or falsification.
 ///
+/// Since PK-533 the n = 3 side measures the served body: the ladder's
+/// first-pass fan fails check 9 and is replaced by the retry's setback
+/// caps (worst internal seam 3.4e-2 deg, against the fan's creases).
+///
 /// Context for the final PK-192 decision: this synthetic win (PnS
 /// 0.0° across internal seams on a clean regular rim) is exactly why
 /// the route was worth probing, and it still holds. The dispatch
@@ -185,25 +189,17 @@ fn pns_cap_internal_seams_beat_the_shipped_fan() {
         (3_usize, vec![0.04, 0.06, 0.05]),
         (4, vec![0.04, 0.06, 0.05, 0.055]),
     ] {
-        // PK-533: the forced exact-boundary cap ladder's fan serves
-        // check-9 failures on these mixed-radius apexes (24 edges,
-        // worst 2.0e-2). It is read under the suspended territory gate
-        // to keep the comparison; the served lie is pinned until the
-        // route is exact.
-        let shipped = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
-            run_pyramid_apex_outcome(n, &radii)
-        });
-        let check9 = shipped.brep.validate_all().iter().any(|e| {
-            matches!(
+        // The comparison is against what the pipeline serves. At n = 3
+        // the ladder's first-pass fan fails check 9 (24 edges, worst
+        // 9.2e-2), so the served-body gate declines it and the
+        // exclusion retry serves the apex through setback (PK-533).
+        let shipped = pns_apex_outcome::run_pyramid_apex_outcome_served(n, &radii);
+        assert!(
+            !shipped.brep.validate_all().iter().any(|e| matches!(
                 e,
                 popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
-            )
-        });
-        // Measured: the n = 3 fan fails check 9, the n = 4 fan holds.
-        assert_eq!(
-            check9,
-            n == 3,
-            "n={n}: PK-533 pin moved (fan check-9 state changed): update the seam and this pin"
+            )),
+            "n={n}: the served apex must hold check 9"
         );
         assert!(
             shipped.metrics.seam_count > 0,
@@ -267,8 +263,8 @@ fn pns_cap_internal_seams_beat_the_shipped_fan() {
         }
 
         println!(
-            "[pk192-verdict] n={n} shipped_fan_worst={fan_worst_deg:.1} deg  \
-             pns_cap_worst={cap_worst_deg:.1} deg"
+            "[pk192-verdict] n={n} shipped_fan_worst={fan_worst_deg:.3e} deg  \
+             pns_cap_worst={cap_worst_deg:.3e} deg"
         );
         assert!(
             cap_worst_deg < fan_worst_deg,

@@ -50,9 +50,11 @@ pub struct BlendRepairReport {
     /// corners whose SERVED region measured a face-face
     /// self-intersection — or, since PK-260, whose direct-apex
     /// construction recorded a serving-shape decline (see
-    /// [`SERVING_SHAPE_DECLINE_PREFIX`]) — forcing a one-shot
-    /// pipeline re-run with the vertex excluded from direct-apex
-    /// promotion so the vertex-blend dispatch serves the corner instead.
+    /// [`SERVING_SHAPE_DECLINE_PREFIX`]), or, since PK-533, whose
+    /// first-pass body the served-body gate declined — forcing a
+    /// one-shot pipeline re-run with the vertex excluded from
+    /// direct-apex promotion so the vertex-blend dispatch serves the
+    /// corner instead.
     pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
     /// PK-251 serving-boundary footprint repairs: direct-apex corners
     /// whose served cap crossed a strip support and were repaired IN

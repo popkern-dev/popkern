@@ -87,9 +87,6 @@ fn midpoint(brep: &BRep, edge: EdgeHandle) -> Option<popkern_core::geometry::Poi
 /// The served blend territory's inconsistency, if any, as the
 /// transactional decline.
 pub(crate) fn territory_inconsistency(source: &BRep, served: &BRep) -> Option<BlendFailure> {
-    if crate::dispatch_overrides::territory_gate_suspended() {
-        return None;
-    }
     let edges = territory_edges(served, &territory_faces(source, served));
     let ceiling = served.max_imprecision;
     let over_ceiling: Vec<(EdgeHandle, f64)> = edges

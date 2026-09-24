@@ -21,15 +21,31 @@ pub(super) struct PerpendicularSplitState {
     pub(super) closed_fillet_protected: Vec<popkern_core::topology::FaceHandle>,
 }
 
+/// Which corners the dispatch routes direct-apex, as the anchor-split
+/// stage must see it: the global flag, the per-class promotions, and
+/// the serving-retry exclusions that override both.
+pub(super) struct DirectApexRouting<'a> {
+    /// `FilletOptions::use_direct_apex_construction`.
+    pub(super) global: bool,
+    /// Per-class promoted apexes (PK-127), exclusions already removed.
+    pub(super) promoted: &'a std::collections::BTreeSet<VertexHandle>,
+    /// Serving-retry exclusions (PK-250/PK-533).
+    pub(super) excluded: &'a std::collections::BTreeSet<VertexHandle>,
+}
+
 pub(super) fn run_perpendicular_splits(
     brep: &BRep,
     result: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
-    use_direct_apex_construction: bool,
-    promoted_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
+    routing: DirectApexRouting<'_>,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> PerpendicularSplitState {
+    let DirectApexRouting {
+        global: use_direct_apex_construction,
+        promoted: promoted_direct_apex_vertices,
+        excluded: excluded_direct_apex_vertices,
+    } = routing;
     // Faces the closed-rim surgery created or rebuilt — the strip
     // and its two SUPPORT faces. They must be protected from the
     // post-pipeline's sliver_absorb: its cap-sliver classifiers were
@@ -69,6 +85,7 @@ pub(super) fn run_perpendicular_splits(
         if !use_direct_apex_construction {
             targets.retain(|vertex, _| promoted_direct_apex_vertices.contains(vertex));
         }
+        targets.retain(|vertex, _| !excluded_direct_apex_vertices.contains(vertex));
         targets
     } else {
         std::collections::HashMap::new()
@@ -78,6 +95,23 @@ pub(super) fn run_perpendicular_splits(
     // edge (chain/vertex-blend territory).
     let blend_edges: std::collections::HashSet<EdgeHandle> =
         edge_geometries.iter().map(|eg| eg.analysis.edge).collect();
+    // Corners the dispatch routes direct-apex. A serving-retry
+    // exclusion (PK-250/PK-533) routes its corner through the
+    // vertex-blend dispatch, which needs vertex-blend anchors: without
+    // this the global flag kept direct-apex anchors on the excluded
+    // corner's edges and the re-run rebuilt the rejected body.
+    let corner_ends = crate::analysis::vertex_incidences(
+        edge_geometries
+            .iter()
+            .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
+    );
+    let routed_direct_corner = |vertex: &VertexHandle| {
+        corner_ends
+            .get(vertex)
+            .is_some_and(|edges| edges.len() >= 2)
+            && !excluded_direct_apex_vertices.contains(vertex)
+            && (use_direct_apex_construction || promoted_direct_apex_vertices.contains(vertex))
+    };
     // Per-original-edge descendants after the anchor-split stage, for the consumed-merge stage consumed-face lookup.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
@@ -172,9 +206,20 @@ pub(super) fn run_perpendicular_splits(
         // direct-apex anchor convention even when the global flag is
         // off (PK-127) — the partition plan consumes perp-walk
         // anchor positions, not trim crossings.
-        let direct_apex_anchor_edge = use_direct_apex_construction
-            || promoted_direct_apex_vertices.contains(&eg.analysis.vertex_start)
-            || promoted_direct_apex_vertices.contains(&eg.analysis.vertex_end);
+        // An edge at an excluded corner keeps the direct-apex
+        // convention only for a direct-routed corner at its other end.
+        let ends = [eg.analysis.vertex_start, eg.analysis.vertex_end];
+        let direct_apex_anchor_edge = if ends
+            .iter()
+            .any(|v| excluded_direct_apex_vertices.contains(v))
+        {
+            ends.iter().any(routed_direct_corner)
+        } else {
+            use_direct_apex_construction
+                || ends
+                    .iter()
+                    .any(|v| promoted_direct_apex_vertices.contains(v))
+        };
         let anchor_on_trim = matches!(
             eg.surface,
             SurfaceGeometry::Nurbs(_)

@@ -24,8 +24,8 @@ use popkern_core::topology::BRep;
 /// With the setback rung disabled and `use_rational_gregory` on, the
 /// mixed-radius cube corner commits the direct-apex partition: three
 /// Coons corner caps (n_sides = 3) through an accepted exact-boundary
-/// route, Euler-consistent against the polar baseline and passing
-/// structural validation.
+/// route, Euler-consistent against the source and holding check 9.
+/// With it off, the retired single-patch route declines typed.
 #[test]
 fn setback_disabled_corner_commits_direct_apex_coons_partition() {
     let _guard = popkern_blend::dispatch_overrides::SETBACK_DISABLE.set_guard(true);
@@ -50,32 +50,25 @@ fn setback_disabled_corner_commits_direct_apex_coons_partition() {
         })
         .collect();
 
-    // Baseline (dispatch explicitly off): single corner patch.
+    // Dispatch explicitly off: the pre-dispatch single-patch corner is
+    // a retired serving route (PK-533). Its chord-bounded boundary is
+    // off its faces by construction (12 edges, worst 5.0e-2; 0.12 at
+    // 1fcf5219, before the territory gate), so it declines typed.
     let baseline_opts = FilletOptions {
         use_rational_gregory: false,
         ..FilletOptions::default()
     };
-    // PK-533: with setback disabled and the rational-Gregory dispatch
-    // off, the pre-dispatch single-patch corner serves check-9 failures (12
-    // edges, worst 5.0e-2). The territory gate would decline it, so the
-    // baseline is read under the suspended gate and the failure pinned.
-    let baseline = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
-        fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None)
-    })
-    .unwrap();
+    let baseline = fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None);
+    let Err(popkern_blend::error::BlendError::PartialFailure { failures, .. }) = baseline else {
+        panic!("the chord-bounded single-patch corner must not serve");
+    };
     assert!(
-        baseline.brep.validate_all().iter().any(|e| matches!(
-            e,
-            popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
+        failures.iter().any(|(_, failure)| matches!(
+            failure,
+            popkern_blend::error::BlendFailure::InconsistentGeometry { .. }
         )),
-        "PK-533 made the single-patch corner exact: drop the gate seam and this pin"
+        "the decline must be the typed territory inconsistency, got {failures:?}"
     );
-    let baseline_corners = baseline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .count();
-    assert_eq!(baseline_corners, 1, "baseline: one corner patch per vertex");
 
     // Rational-Gregory dispatch on.
     let opts = FilletOptions {
@@ -119,15 +112,22 @@ fn setback_disabled_corner_commits_direct_apex_coons_partition() {
         "the exact-boundary route must be Accepted with 3 committed faces"
     );
 
-    // Euler consistency vs the polar baseline (the partition rewires
+    // Euler consistency vs the source cube (the partition rewires
     // apex topology, so raw counts differ; χ must not).
-    let dv = result.brep.vertices.len() as i64 - baseline.brep.vertices.len() as i64;
-    let de = result.brep.edges.len() as i64 - baseline.brep.edges.len() as i64;
-    let df = result.brep.faces.len() as i64 - baseline.brep.faces.len() as i64;
+    let dv = result.brep.vertices.len() as i64 - cube.vertices.len() as i64;
+    let de = result.brep.edges.len() as i64 - cube.edges.len() as i64;
+    let df = result.brep.faces.len() as i64 - cube.faces.len() as i64;
     assert_eq!(
         dv - de + df,
         0,
-        "fallback partition must be Euler-consistent vs baseline (dV={dv} dE={de} dF={df})"
+        "fallback partition must be Euler-consistent vs the source (dV={dv} dE={de} dF={df})"
+    );
+    assert!(
+        !result.brep.validate_all().iter().any(|e| matches!(
+            e,
+            popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
+        )),
+        "the served Coons partition must hold check 9"
     );
 
     result

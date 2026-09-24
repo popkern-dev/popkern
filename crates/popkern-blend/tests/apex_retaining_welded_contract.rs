@@ -33,8 +33,8 @@ use direct_apex_validate_helpers::{
 };
 use popkern_core::topology::LoopHandle;
 
-/// Check-9 failures on the served body, for the PK-533 pins.
-fn pinned_check9_failures(brep: &popkern_core::topology::BRep) -> usize {
+/// Check-9 failures on the served body.
+fn check9_failures(brep: &popkern_core::topology::BRep) -> usize {
     brep.validate_all()
         .iter()
         .filter(|e| {
@@ -46,37 +46,50 @@ fn pinned_check9_failures(brep: &popkern_core::topology::BRep) -> usize {
         .count()
 }
 
+/// The first-pass rejections the serving retry recorded, as text.
+fn retry_details(result: &popkern_blend::BlendResult) -> Vec<String> {
+    result
+        .repair_report
+        .serving_self_intersection_retries
+        .iter()
+        .map(|retry| retry.detail.clone())
+        .collect()
+}
+
 /// The welded trihedral base corner (pyramid3, uniform radii) declines
-/// the apex-retaining partition with the recorded class, serves the
-/// vertex-blend fallback, and the served body carries no null-loop half-edges
-/// and no structural validation errors.
+/// the apex-retaining partition with the recorded class. The
+/// vertex-blend fallback it then builds on direct-apex anchors is off
+/// its faces (21 edges, worst 1.06e-1), so the served-body gate
+/// rejects that first pass. The exclusion retry serves the corner on
+/// vertex-blend anchors (PK-533). The retry record keeps the welded
+/// decline class, and the served body is check-9 clean, has no
+/// null-loop half-edges, and is structurally sound.
 #[test]
 fn welded_n3_apex_retaining_declines_semantically() {
     let _g = popkern_blend::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
-    // PK-533: the forced apex-retaining route serves check-9 failures
-    // (21 edges, worst 1.06e-1); the territory gate would decline it,
-    // so the route contract is read under the suspended gate and the
-    // failure is pinned until the route is exact.
-    let result = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
-        build_under_direct_apex(true, &[0.10, 0.10, 0.10])
-    });
-    assert!(
-        pinned_check9_failures(&result.brep) > 0,
-        "PK-533 made this route exact: drop the gate seam and this pin"
+    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+    assert_eq!(
+        check9_failures(&result.brep),
+        0,
+        "the served body must hold check 9"
     );
 
-    let reasons = direct_apex_fallback_reasons(&result);
+    let details = retry_details(&result);
     assert_eq!(
-        reasons.len(),
+        details.len(),
         1,
-        "welded N=3 apex-retaining must fall back exactly once, got {reasons:?}"
+        "welded N=3 apex-retaining must be retried exactly once, got {details:?}"
     );
     assert!(
-        reasons[0].contains(
+        details[0].contains(
             "welded shared-corner repeated-apex partition declined on the apex-retaining contract"
-        ),
-        "decline must record the welded apex-retaining class, got: {}",
-        reasons[0]
+        ) && details[0].contains("off their faces"),
+        "the retry must record the welded apex-retaining class and the gate, got: {}",
+        details[0]
+    );
+    assert!(
+        direct_apex_fallback_reasons(&result).is_empty(),
+        "the retried corner never re-enters direct-apex"
     );
 
     let null_loop_half_edges = result
@@ -99,10 +112,14 @@ fn welded_n3_apex_retaining_declines_semantically() {
     );
 }
 
-/// Every apex-retaining class that served before the welded-N=3 decline
-/// landed keeps serving natively: welded N=4 reuses existing
-/// target-cylinder paths (Euler delta zero) and the bridged/mixed
-/// classes keep their balanced far-side complexes.
+/// The non-welded and N=4 apex-retaining classes once "kept serving"
+/// on that contract, but their served bodies were off their faces:
+/// up to 26 edges, worst 9.2e-1, with inverted support faces on the
+/// mixed pyramids. The served-body gate now rejects every such first
+/// pass. The exclusion retry serves each apex check-9 clean through
+/// the vertex-blend dispatch, and the retry is recorded (PK-533).
+/// The default V-free contract serves all three through direct-apex
+/// Coons without a retry.
 #[test]
 fn non_welded_and_n4_apex_retaining_classes_keep_serving() {
     let _g = popkern_blend::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
@@ -111,14 +128,21 @@ fn non_welded_and_n4_apex_retaining_classes_keep_serving() {
         ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07][..]),
         ("pyramid3_mixed", &[0.08, 0.10, 0.12][..]),
     ] {
-        // PK-533: see the welded case above (up to 24 edges, 9.2e-2).
-        let result = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
-            build_under_direct_apex(true, radii)
-        });
-        let reasons = direct_apex_fallback_reasons(&result);
+        let result = build_under_direct_apex(true, radii);
+        assert_eq!(
+            check9_failures(&result.brep),
+            0,
+            "{name}: the served body must hold check 9"
+        );
+        let details = retry_details(&result);
         assert!(
-            reasons.is_empty(),
-            "{name} must keep serving on the apex-retaining contract, fell back: {reasons:?}"
+            details.len() == 1 && details[0].contains("off their faces"),
+            "{name}: the apex-retaining first pass must be retried under the gate, got {details:?}"
+        );
+        assert_eq!(
+            breakdown(&result.brep.validate_all()).structural,
+            0,
+            "{name}: served body must be structurally sound"
         );
     }
 }
