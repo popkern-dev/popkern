@@ -55,7 +55,7 @@ pub(super) fn solve_mitre_point(
         if worst <= pos_tol * 1e-3 {
             break;
         }
-        let delta = solve3(jtj, [-jtf[0], -jtf[1], -jtf[2]])?;
+        let delta = super::super::surface_pair_march::solve3(jtj, [-jtf[0], -jtf[1], -jtf[2]])?;
         p = p + Vec3::new(delta[0], delta[1], delta[2]);
         if (p - start).length() > 4.0 * radius {
             return None;
@@ -65,30 +65,6 @@ pub(super) fn solve_mitre_point(
         .iter()
         .all(|cyl| radial(p, cyl).is_some_and(|(len, _)| (len - cyl.radius).abs() <= pos_tol));
     on_all.then_some(p)
-}
-
-/// Cramer's rule for a 3×3 system, `None` when it is singular (the
-/// strip axes do not pin a point).
-pub(super) fn solve3(a: [[f64; 3]; 3], b: [f64; 3]) -> Option<[f64; 3]> {
-    let det = |m: [[f64; 3]; 3]| {
-        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-    };
-    let d = det(a);
-    let scale = a.iter().flatten().fold(0.0_f64, |s, v| s.max(v.abs()));
-    if d.abs() <= 1e-12 * scale.powi(3).max(f64::MIN_POSITIVE) {
-        return None;
-    }
-    let mut x = [0.0; 3];
-    for (k, xk) in x.iter_mut().enumerate() {
-        let mut m = a;
-        for row in 0..3 {
-            m[row][k] = b[row];
-        }
-        *xk = det(m) / d;
-    }
-    Some(x)
 }
 
 /// Chart point of `p` on a cylinder strip, its angle unwrapped onto

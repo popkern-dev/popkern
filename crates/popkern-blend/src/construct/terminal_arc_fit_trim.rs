@@ -60,7 +60,13 @@ pub(super) fn repair_corner_swept(
                 twin_face(c.he_out)
             );
         }
-        return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap);
+        // The strip ends into a fan of faces (PK-530).
+        return super::terminal_fan_end::repair_fan_end(
+            brep,
+            c,
+            super::terminal_fan_end::FanStrip::Fitted(&strip_surface),
+            tolerance,
+        );
     }
     let cap = match brep
         .faces
@@ -181,7 +187,14 @@ pub(super) fn repair_corner_swept(
                     (*p - cap.origin).dot(&cap.normal).abs()
                 );
             }
-            return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap);
+            // The terminal iso leaves the cap: an oblique end, whose
+            // section is marched on the strip (PK-530).
+            return super::terminal_fan_end::repair_fan_end(
+                brep,
+                c,
+                super::terminal_fan_end::FanStrip::Fitted(&strip_surface),
+                tolerance,
+            );
         }
     }
 

@@ -6,9 +6,9 @@
 //! from `geometry_compute.rs` to keep that file under the 500-line
 //! structural cap; no BRep or topology interaction.
 
-use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::{Point3, Vec3};
 
 use crate::cap::{self, CapEndpoint, CapGeometry};
 use crate::center_curve::CenterCurveResult;
@@ -30,8 +30,8 @@ pub(crate) fn build_edge_caps(
     center_result: &CenterCurveResult,
     radius_at_start: f64,
     radius_at_end: f64,
-    vertex_start_pos: popkern_core::geometry::Point3,
-    _vertex_end_pos: popkern_core::geometry::Point3,
+    vertex_start_pos: Point3,
+    vertex_end_pos: Point3,
     trim_3d_1: &NurbsCurve,
     trim_3d_2: &NurbsCurve,
 ) -> (Option<CapGeometry>, Option<CapGeometry>) {
@@ -39,79 +39,76 @@ pub(crate) fn build_edge_caps(
         return (None, None);
     }
 
-    // Derive contact positions from the trim curve endpoints
-    // rather than from the center curve's footprint samples.
-    // Footprints can overshoot the edge because the center
-    // curve (from offset-surface intersection) extends beyond
-    // the face boundaries. Trim curves are bounded correctly.
-    let (t1_lo, t1_hi) = trim_3d_1.parameter_range();
-    let (t2_lo, t2_hi) = trim_3d_2.parameter_range();
-    let trim1_start = trim_3d_1.point_at(t1_lo);
-    let trim1_end = trim_3d_1.point_at(t1_hi);
-    let trim2_start = trim_3d_2.point_at(t2_lo);
-    let trim2_end = trim_3d_2.point_at(t2_hi);
-
-    // Trim curves may run in either direction relative to the
-    // edge's vertex_start → vertex_end order. Pick the trim
-    // endpoint closest to each vertex for each cap.
-    let (c1_start, c1_end) =
-        if trim1_start.distance_to(&vertex_start_pos) <= trim1_end.distance_to(&vertex_start_pos) {
-            (trim1_start, trim1_end)
-        } else {
-            (trim1_end, trim1_start)
-        };
-    let (c2_start, c2_end) =
-        if trim2_start.distance_to(&vertex_start_pos) <= trim2_end.distance_to(&vertex_start_pos) {
-            (trim2_start, trim2_end)
-        } else {
-            (trim2_end, trim2_start)
-        };
-
+    // Contacts and centre come from each curve's point at the
+    // vertex's station, not from the curve endpoints: trims and the
+    // centre curve may be extended past the edge (on an open shell
+    // they overshoot by a full unit at both ends, which put a free
+    // end's flat cap 1.0 off its own boundary, PK-530). The station
+    // is the curve's closest point to the vertex.
+    let at_vertex = |curve: &NurbsCurve, vertex: Point3| -> Point3 {
+        let t = curve.closest_point(&vertex).unwrap_or_else(|| {
+            let (lo, hi) = curve.parameter_range();
+            if curve.point_at(lo).distance_to(&vertex) <= curve.point_at(hi).distance_to(&vertex) {
+                lo
+            } else {
+                hi
+            }
+        });
+        curve.point_at(t)
+    };
     let start_cap = build_endpoint_cap(
         cap_kind,
         center_result,
-        c1_start,
-        c2_start,
+        at_vertex(trim_3d_1, vertex_start_pos),
+        at_vertex(trim_3d_2, vertex_start_pos),
         radius_at_start,
-        true,
+        (vertex_start_pos, vertex_end_pos),
     );
     let end_cap = build_endpoint_cap(
         cap_kind,
         center_result,
-        c1_end,
-        c2_end,
+        at_vertex(trim_3d_1, vertex_end_pos),
+        at_vertex(trim_3d_2, vertex_end_pos),
         radius_at_end,
-        false,
+        (vertex_end_pos, vertex_start_pos),
     );
     (start_cap, end_cap)
 }
 
 /// Build one endpoint's cap from the contact points and the center
-/// curve. `is_start = true` means the cap is at parameter `t = 0`
-/// (the spine's start); `false` means `t = 1` (the spine's end).
-/// The spine tangent is reversed at the start so both caps have an
-/// "outward" orientation pointing away from the blend interior.
+/// curve. `ends` is `(this endpoint's vertex, the other end's
+/// vertex)`: the centre is the centre curve's point at this vertex's
+/// station, and the outward spine tangent points away from the other
+/// end, whatever the curve's parameter direction.
 fn build_endpoint_cap(
     cap_kind: CapKind,
     center_result: &CenterCurveResult,
-    contact_1: popkern_core::geometry::Point3,
-    contact_2: popkern_core::geometry::Point3,
+    contact_1: Point3,
+    contact_2: Point3,
     radius: f64,
-    is_start: bool,
+    ends: (Point3, Point3),
 ) -> Option<CapGeometry> {
     let center_curve = &center_result.center_curve;
     let (t_lo, t_hi) = center_curve.parameter_range();
-    let t = if is_start { t_lo } else { t_hi };
+    let (vertex, other) = ends;
+    let t = center_curve.closest_point(&vertex).unwrap_or_else(|| {
+        if center_curve.point_at(t_lo).distance_to(&vertex)
+            <= center_curve.point_at(t_hi).distance_to(&vertex)
+        {
+            t_lo
+        } else {
+            t_hi
+        }
+    });
     let center = center_curve.point_at(t);
     let tangent = center_curve.derivative_at(t, 1);
     let normalized = tangent.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-    // Outward tangent: points away from the blend interior. At the
-    // spine start (`t = 0`) the natural tangent points into the
-    // blend, so we reverse; at `t = 1` it already points outward.
-    let spine_tangent_outward = if is_start {
-        normalized * -1.0
-    } else {
+    // Outward: away from the blend interior, i.e. from the other end
+    // toward this one.
+    let spine_tangent_outward = if normalized.dot(&(vertex - other)) >= 0.0 {
         normalized
+    } else {
+        normalized * -1.0
     };
 
     // Support normals: the rolling ball touches each support with

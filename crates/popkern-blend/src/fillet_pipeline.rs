@@ -444,9 +444,9 @@ pub(crate) fn fillet_edges_attempt(
         .repair_report
         .apex_diagnostics
         .push(tail_timing.diagnostic());
-    // Transactional served-body gates: structural soundness, then
-    // PK-516 corner resolution.
-    if let Some(failure) = served_body_failure(&apply_result, fallback_edge) {
+    // Transactional served-body gates: structural soundness, PK-516
+    // corner resolution, PK-530 territory consistency.
+    if let Some(failure) = served_body_failure(brep, &apply_result, fallback_edge) {
         return Err(BlendError::partial_failure(
             specs.len(),
             brep.clone(),

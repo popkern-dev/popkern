@@ -152,6 +152,14 @@ pub enum BlendFailureReason {
         /// Where it was detected.
         location: Option<[f64; 3]>,
     },
+    /// The served blend territory has an edge off its faces or an
+    /// over-ceiling band.
+    InconsistentGeometry {
+        /// Detail.
+        reason: String,
+        /// Where the worst edge is.
+        location: Option<[f64; 3]>,
+    },
 }
 
 /// Projection of `popkern_blend::remediation::Remediation`.
@@ -236,6 +244,12 @@ impl From<&BlendFailure> for BlendFailureReason {
             },
             BlendFailure::SelfIntersectingBlend { reason, location } => {
                 BlendFailureReason::SelfIntersectingBlend {
+                    reason: reason.clone(),
+                    location: point(location),
+                }
+            }
+            BlendFailure::InconsistentGeometry { reason, location } => {
+                BlendFailureReason::InconsistentGeometry {
                     reason: reason.clone(),
                     location: point(location),
                 }

@@ -399,6 +399,17 @@ impl BlendFailure {
                 ),
             )
             .with_parameter("radius"),
+            BlendFailure::InconsistentGeometry { reason, .. } => Remediation::new(
+                RemediationAction::Precheck,
+                format!(
+                    "The blend built geometry that is not a valid solid \
+                     ({reason}): an edge it created or trimmed leaves its \
+                     faces. The input was handed back unchanged. Try a \
+                     different radius or continuity, or fillet fewer edges \
+                     at once; the named edge locates the construction that \
+                     could not be settled exactly."
+                ),
+            ),
         }
     }
 }

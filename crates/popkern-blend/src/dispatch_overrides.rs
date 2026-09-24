@@ -146,3 +146,30 @@ pub fn with_setback_forced_to_decline<R>(f: impl FnOnce() -> R) -> R {
 pub(crate) fn setback_decline_forced() -> bool {
     SETBACK_DECLINE_FORCED.with(std::cell::Cell::get)
 }
+
+thread_local! {
+    static TERRITORY_GATE_SUSPENDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with the blend-territory consistency gate (PK-530)
+/// suspended on this thread, so a route-contract test can still reach
+/// the served body of a forced alternate corner route and assert its
+/// routing semantics. Every caller must also pin the body's measured
+/// check-9 failure count: the seam exists only while those routes are
+/// being made exact (PK-533). Thread-scoped like
+/// [`with_setback_forced_to_decline`]. Production never calls this.
+pub fn with_territory_gate_suspended<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            TERRITORY_GATE_SUSPENDED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(TERRITORY_GATE_SUSPENDED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_territory_gate_suspended`] is active on this thread.
+pub(crate) fn territory_gate_suspended() -> bool {
+    TERRITORY_GATE_SUSPENDED.with(std::cell::Cell::get)
+}

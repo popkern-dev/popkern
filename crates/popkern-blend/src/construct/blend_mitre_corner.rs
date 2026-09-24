@@ -45,10 +45,9 @@ use super::blend_seam_corner::strip_cylinder;
 use super::blend_seam_corner_geometry as geometry;
 use super::blend_seam_corner_repair::{commit_edge_authoring, neighbour_chart_point};
 use super::corner_resolution::{UnresolvedCorner, UnresolvedCornerCause};
+use super::surface_pair_march as marched;
 use super::terminal_arc_trim::StripCylinder;
 
-#[path = "blend_mitre_corner_marched.rs"]
-mod marched;
 #[path = "blend_mitre_corner_point.rs"]
 mod point;
 #[path = "blend_mitre_corner_surgery.rs"]
@@ -94,7 +93,7 @@ enum SeamGeometry {
     /// Equal-radius cylinders: the exact bisector-plane ellipse.
     Exact(geometry::SeamFrame),
     /// Any other strip pair: marched samples, crossing first.
-    Marched(marched::MarchedSeam),
+    Marched(marched::MarchedIntersection),
 }
 
 /// One seam solved before the star is built.
@@ -236,7 +235,7 @@ fn mitre_corner(
                 .fold(0.0_f64, f64::max)
                 .max(corner_reach(brep, corner));
             let surfaces: Vec<&SurfaceGeometry> = strips.iter().map(|(_, g)| g).collect();
-            marched::solve_general_mitre_point(&surfaces, corner_pos, 4.0 * reach, pos_tol)
+            marched::solve_common_point(&surfaces, corner_pos, 4.0 * reach, pos_tol)
                 .ok_or(Reason::NoCommonPoint)?
         }
     };
@@ -278,7 +277,7 @@ fn mitre_corner(
                 SeamGeometry::Exact(frame)
             }
             _ => SeamGeometry::Marched(
-                marched::march_mitre_seam(
+                marched::march_intersection(
                     &strips[a].1,
                     &strips[b].1,
                     x,
@@ -364,7 +363,9 @@ fn author_seam_edge(
             geometry::author_seam_curve(frame, p_start, p_end, stale_corner, tolerance)
         }
         // Samples run crossing → mitre; `he_out` runs mitre → crossing.
-        SeamGeometry::Marched(marched_seam) => marched::seam_curve(marched_seam, primary == he_out),
+        SeamGeometry::Marched(marched_seam) => {
+            marched::intersection_curve(marched_seam, primary == he_out)
+        }
     }
     .map_err(Reason::SeamUnresolved)?;
 
@@ -411,7 +412,7 @@ fn author_seam_edge(
                 )
             }
             SeamGeometry::Marched(marched_seam) => {
-                marched::seam_pcurve(&surface, marched_seam, !from_crossing, x_uv)
+                marched::intersection_pcurve(&surface, marched_seam, !from_crossing, x_uv)
             }
         }
         .map_err(Reason::SeamUnresolved)?;

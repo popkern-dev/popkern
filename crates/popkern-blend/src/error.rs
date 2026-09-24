@@ -251,6 +251,19 @@ pub enum BlendFailure {
         /// if available (typically the edge midpoint).
         location: Option<Point3>,
     },
+    /// The served blend territory is geometrically inconsistent: an
+    /// edge of a face the operation created or rewrote leaves its
+    /// faces beyond its own band (check 9), or declares a band above
+    /// the model's Precision ceiling. The construction produced
+    /// geometry that is structurally sound but not a valid solid, so
+    /// the operation declines instead of serving it (PK-530: strip
+    /// ends on oblique faces once served 8.4e-2 off).
+    InconsistentGeometry {
+        /// The measured violation: edge, deviation or band, count.
+        reason: String,
+        /// Midpoint of the worst edge, if available.
+        location: Option<Point3>,
+    },
 }
 
 impl BlendFailure {
@@ -271,6 +284,7 @@ impl BlendFailure {
             | BlendFailure::InvalidTopology { location, .. }
             | BlendFailure::ContactSolverFailed { location, .. }
             | BlendFailure::SelfIntersectingBlend { location, .. }
+            | BlendFailure::InconsistentGeometry { location, .. }
             | BlendFailure::AlreadyBlended { location }
             | BlendFailure::SeamEdge { location } => *location,
         }

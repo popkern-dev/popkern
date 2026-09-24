@@ -33,6 +33,19 @@ use direct_apex_validate_helpers::{
 };
 use popkern_core::topology::LoopHandle;
 
+/// Check-9 failures on the served body, for the PK-533 pins.
+fn pinned_check9_failures(brep: &popkern_core::topology::BRep) -> usize {
+    brep.validate_all()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
+            )
+        })
+        .count()
+}
+
 /// The welded trihedral base corner (pyramid3, uniform radii) declines
 /// the apex-retaining partition with the recorded class, serves the
 /// vertex-blend fallback, and the served body carries no null-loop half-edges
@@ -40,7 +53,17 @@ use popkern_core::topology::LoopHandle;
 #[test]
 fn welded_n3_apex_retaining_declines_semantically() {
     let _g = popkern_blend::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
-    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+    // PK-533: the forced apex-retaining route serves check-9 failures
+    // (21 edges, worst 1.06e-1); the territory gate would decline it,
+    // so the route contract is read under the suspended gate and the
+    // failure is pinned until the route is exact.
+    let result = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
+        build_under_direct_apex(true, &[0.10, 0.10, 0.10])
+    });
+    assert!(
+        pinned_check9_failures(&result.brep) > 0,
+        "PK-533 made this route exact: drop the gate seam and this pin"
+    );
 
     let reasons = direct_apex_fallback_reasons(&result);
     assert_eq!(
@@ -88,7 +111,10 @@ fn non_welded_and_n4_apex_retaining_classes_keep_serving() {
         ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07][..]),
         ("pyramid3_mixed", &[0.08, 0.10, 0.12][..]),
     ] {
-        let result = build_under_direct_apex(true, radii);
+        // PK-533: see the welded case above (up to 24 edges, 9.2e-2).
+        let result = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
+            build_under_direct_apex(true, radii)
+        });
         let reasons = direct_apex_fallback_reasons(&result);
         assert!(
             reasons.is_empty(),

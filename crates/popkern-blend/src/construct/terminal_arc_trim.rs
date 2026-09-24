@@ -229,9 +229,23 @@ fn repair_corner(
         let l = brep.loops.get(tw.loop_)?;
         Some(l.face)
     };
-    let cap_face = twin_face(c.he_in).ok_or(TerminalArcTrimDeclineReason::NoCommonPlanarCap)?;
+    let cap_face = match (twin_face(c.he_in), twin_face(c.he_out)) {
+        // Both stubs on the sheet boundary: a free end (PK-530).
+        (None, None) => {
+            return super::terminal_arc_oblique::repair_free_end(brep, c, &cyl, tolerance);
+        }
+        (Some(face), _) => face,
+        (None, Some(_)) => return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap),
+    };
     if twin_face(c.he_out) != Some(cap_face) {
-        return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap);
+        // The strip ends into a fan of faces (a slant edge running into
+        // a pyramid apex): one exact arc per fan face (PK-530).
+        return super::terminal_fan_end::repair_fan_end(
+            brep,
+            c,
+            super::terminal_fan_end::FanStrip::Cylinder(&cyl),
+            tolerance,
+        );
     }
     let plane = match brep
         .faces
@@ -243,10 +257,11 @@ fn repair_corner(
             origin,
             u_axis,
             v_axis,
-            ..
-        }) => (*origin, *u_axis, *v_axis),
+            normal,
+        }) => (*origin, *u_axis, *v_axis, *normal),
         _ => return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap),
     };
+    let (plane, plane_normal) = ((plane.0, plane.1, plane.2), plane.3);
     // The corner vertex must be used by exactly the two stub edges.
     if incident_edge_count(brep, c.corner) != 2 {
         return Err(TerminalArcTrimDeclineReason::VertexNotIsolated);
@@ -306,52 +321,69 @@ fn repair_corner(
             );
         }
     }
-    let (sa, sb) = (station_of(anchor_in), station_of(anchor_out));
-    if (sa - sb).abs() > pos_tol {
-        if trace {
-            eprintln!("[tat]   station mismatch {sa} vs {sb} (a {anchor_in:?} b {anchor_out:?})");
-        }
-        return Err(TerminalArcTrimDeclineReason::AnchorsOffSurface);
-    }
-    let station = 0.5 * (sa + sb);
-    let center = cyl.origin + cyl.axis * station;
-
-    // Settled corner: the arc point radially nearest the stale
-    // corner (the tangent-line intersection). This is exact for the
-    // convex chain-end configuration and never trusts the chart.
     let old_corner = brep
         .vertices
         .get(c.corner)
         .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
         .position;
-    let corner_radial = radial_of(old_corner);
-    if corner_radial.length() < cyl.radius * 1e-6 {
-        return Err(TerminalArcTrimDeclineReason::ArcBranchUnresolved);
-    }
-    let new_corner = center
-        + corner_radial
-            .normalized()
-            .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
-            * cyl.radius;
-    // Sanity: the settled corner stays near the stale one (the
-    // stale offset is (√2−1)·r for a 90° corner; the antipodal
-    // mis-pick would be ≈2.4·r away).
-    if (new_corner - old_corner).length() > cyl.radius {
-        return Err(TerminalArcTrimDeclineReason::ArcBranchUnresolved);
-    }
+    let (sa, sb) = (station_of(anchor_in), station_of(anchor_out));
+    // A cap not perpendicular to the axis cuts an ellipse, even when
+    // symmetry puts both feet at one station (a pyramid slant edge
+    // running out on the base: equal stations, cap pcurve 1.3e-2 off
+    // under the circular assumption).
+    let oblique_cap = plane_normal
+        .normalized()
+        .zip(cyl.axis.normalized())
+        .is_none_or(|(n, a)| n.cross(&a).length() > 1e-9);
+    let (new_corner, staged) = if oblique_cap || (sa - sb).abs() > pos_tol {
+        // Feet at different stations or an oblique cap: the section
+        // is an ellipse (PK-530).
+        super::terminal_arc_oblique::stage_oblique_end(
+            brep,
+            c,
+            &cyl,
+            [anchor_in, old_corner, anchor_out],
+            (plane, plane_normal),
+            tolerance,
+        )?
+    } else {
+        let station = 0.5 * (sa + sb);
+        let center = cyl.origin + cyl.axis * station;
 
-    // Compute every authored piece first; commit only when the whole
-    // corner resolves (transactional — a decline must not leave a
-    // half-repaired body).
-    let mut staged: Vec<super::terminal_arc_author::StagedStubArc> = Vec::with_capacity(2);
-    for (he_strip, start_pos, end_pos) in [
-        (c.he_in, anchor_in, new_corner),
-        (c.he_out, new_corner, anchor_out),
-    ] {
-        staged.push(super::terminal_arc_author::compute_stub_arc(
-            brep, he_strip, &cyl, center, start_pos, end_pos, plane, tolerance,
-        )?);
-    }
+        // Settled corner: the arc point radially nearest the stale
+        // corner (the tangent-line intersection). This is exact for
+        // the convex chain-end configuration and never trusts the
+        // chart.
+        let corner_radial = radial_of(old_corner);
+        if corner_radial.length() < cyl.radius * 1e-6 {
+            return Err(TerminalArcTrimDeclineReason::ArcBranchUnresolved);
+        }
+        let new_corner = center
+            + corner_radial
+                .normalized()
+                .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
+                * cyl.radius;
+        // Sanity: the settled corner stays near the stale one (the
+        // stale offset is (√2−1)·r for a 90° corner; the antipodal
+        // mis-pick would be ≈2.4·r away).
+        if (new_corner - old_corner).length() > cyl.radius {
+            return Err(TerminalArcTrimDeclineReason::ArcBranchUnresolved);
+        }
+
+        // Compute every authored piece first; commit only when the
+        // whole corner resolves (transactional — a decline must not
+        // leave a half-repaired body).
+        let mut staged: Vec<super::terminal_arc_author::StagedStubArc> = Vec::with_capacity(2);
+        for (he_strip, start_pos, end_pos) in [
+            (c.he_in, anchor_in, new_corner),
+            (c.he_out, new_corner, anchor_out),
+        ] {
+            staged.push(super::terminal_arc_author::compute_stub_arc(
+                brep, he_strip, &cyl, center, start_pos, end_pos, plane, tolerance,
+            )?);
+        }
+        (new_corner, staged)
+    };
     if let Some(v) = brep.vertices.get_mut(c.corner) {
         v.position = new_corner;
     }

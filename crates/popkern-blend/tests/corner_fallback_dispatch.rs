@@ -55,7 +55,21 @@ fn setback_disabled_corner_commits_direct_apex_coons_partition() {
         use_rational_gregory: false,
         ..FilletOptions::default()
     };
-    let baseline = fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None).unwrap();
+    // PK-533: with setback disabled and the rational-Gregory dispatch
+    // off, the pre-dispatch single-patch corner serves check-9 failures (12
+    // edges, worst 5.0e-2). The territory gate would decline it, so the
+    // baseline is read under the suspended gate and the failure pinned.
+    let baseline = popkern_blend::dispatch_overrides::with_territory_gate_suspended(|| {
+        fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None)
+    })
+    .unwrap();
+    assert!(
+        baseline.brep.validate_all().iter().any(|e| matches!(
+            e,
+            popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
+        )),
+        "PK-533 made the single-patch corner exact: drop the gate seam and this pin"
+    );
     let baseline_corners = baseline
         .corner_patches
         .iter()

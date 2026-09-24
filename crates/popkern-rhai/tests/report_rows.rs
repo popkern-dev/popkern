@@ -2,16 +2,23 @@
 //! facts — wall time in milliseconds and the blend's downgrade
 //! verdict — so a panel never has to re-derive them (and never shows
 //! a bare success mark for a blend whose measured continuity fell
-//! below the request). The fixture is a blend on a blend: the second
-//! G2 fillet lands at G0 today, which is exactly the row a user must
-//! see flagged.
+//! below the request). The fixture pairs a blend that meets its G2
+//! request (a cube's top edges) with one that serves a valid body but
+//! measures below it: every edge of a triangular prism at G2, whose
+//! corners land at G1.
+//!
+//! PK-530: the fixture was a blend on a blend, whose second G2 fillet
+//! served corner residue off its faces. The territory gate now
+//! declines that body (PK-534), so the downgrade row comes from a
+//! served, valid blend instead.
 
 use popkern_rhai::{ScriptHost, report_value};
 
-const BLEND_ON_BLEND: &str = r#"let m = model();
+const MET_AND_DOWNGRADED: &str = r#"let m = model();
 let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
-cube = cube.fillet(edges().at_height(1.0), 0.15, #{ continuity: "g2", label: "top" });
-cube.fillet(edges().straight().direction("z"), 0.1, #{ continuity: "g2", label: "verticals" });
+cube.fillet(edges().at_height(1.0), 0.15, #{ continuity: "g2", label: "top" });
+let prism = m.profile(xy()).polygon([[3.0, 0.0], [4.0, 0.0], [3.5, 0.8]]).sketch("prism").extrude(blind(1.0));
+prism.fillet(edges(), 0.08, #{ continuity: "g2", label: "rounds" });
 m
 "#;
 
@@ -19,14 +26,14 @@ m
 fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
     let mut host = ScriptHost::new();
     let outcome = host
-        .run(BLEND_ON_BLEND, "blend_on_blend.rhai")
+        .run(MET_AND_DOWNGRADED, "met_and_downgraded.rhai")
         .expect("served");
     let model = outcome.model.expect("model");
     let value = report_value(&model);
     assert_eq!(value["failures"], 0);
     assert_eq!(value["downgraded_blends"], 1, "{value}");
     let rows = value["features"].as_array().expect("rows");
-    assert_eq!(rows.len(), 4);
+    assert_eq!(rows.len(), 6, "two sketches, two extrudes, two fillets");
     for row in rows {
         assert!(
             row["elapsed_ms"].as_f64().is_some(),
@@ -37,13 +44,38 @@ fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
     assert_eq!(top["blend"]["downgraded"], false);
     assert_eq!(top["blend"]["continuity"]["requested"], "G2");
     assert_eq!(top["blend"]["continuity"]["achieved"], "G2");
-    let verticals = rows
+    let rounds = rows
         .iter()
-        .find(|r| r["label"] == "verticals")
-        .expect("verticals row");
-    assert_eq!(verticals["blend"]["downgraded"], true, "{verticals}");
-    assert_eq!(verticals["blend"]["continuity"]["requested"], "G2");
-    assert_ne!(verticals["blend"]["continuity"]["achieved"], "G2");
+        .find(|r| r["label"] == "rounds")
+        .expect("rounds row");
+    assert_eq!(rounds["blend"]["downgraded"], true, "{rounds}");
+    assert_eq!(rounds["blend"]["continuity"]["requested"], "G2");
+    assert_ne!(rounds["blend"]["continuity"]["achieved"], "G2");
     // The recorder agrees with the projection.
     assert_eq!(model.report().downgraded_blends().count(), 1);
+}
+
+/// PK-534 pin: a G2 fillet on the vertical edges of a cube whose top
+/// edges already carry a G2 fillet falls back Smooth -> Mitred at the
+/// blend-on-blend corners and once served residue off its faces
+/// (8 edges, worst 3.6e-2). The territory gate (PK-530) now declines
+/// it typed, as `InconsistentGeometry` in the failure payload.
+#[test]
+fn blend_on_blend_g2_residue_declines_typed() {
+    const BLEND_ON_BLEND: &str = r#"let m = model();
+let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
+cube = cube.fillet(edges().at_height(1.0), 0.15, #{ continuity: "g2", label: "top" });
+cube.fillet(edges().straight().direction("z"), 0.1, #{ continuity: "g2", label: "verticals" });
+m
+"#;
+    let mut host = ScriptHost::new();
+    let Err(error) = host.run(BLEND_ON_BLEND, "blend_on_blend.rhai") else {
+        panic!("PK-534 served the blend-on-blend corners: restore it as the report fixture");
+    };
+    assert_eq!(error.kind, "FeatureFailed");
+    assert!(
+        error.payload.to_string().contains("InconsistentGeometry"),
+        "typed territory decline: {}",
+        error.payload
+    );
 }

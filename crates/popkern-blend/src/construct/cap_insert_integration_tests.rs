@@ -45,70 +45,37 @@ fn boundary_adjacent_interior_edges(ob: &BRep) -> Vec<popkern_core::topology::Ed
     edges
 }
 
-fn pick_boundary_adjacent_interior_edge(ob: &BRep) -> popkern_core::topology::EdgeHandle {
-    boundary_adjacent_interior_edges(ob)
+/// The edges filleted by the open-box fixtures: the first `n`
+/// boundary-adjacent interior edges, at r = 0.1.
+fn open_box_specs(ob: &BRep, n: usize) -> Vec<FilletSpec> {
+    let edges = boundary_adjacent_interior_edges(ob);
+    assert!(edges.len() >= n, "open_box has {} such edges", edges.len());
+    edges
         .into_iter()
-        .next()
-        .expect("open_box has a boundary-adjacent interior edge")
+        .take(n)
+        .map(|edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect()
 }
 
-/// Fillet a single interior edge of `open_box` with a given
-/// `CapKind`, asserting the output validates end-to-end.
-fn fillet_open_box_with_cap(kind: CapKind) -> crate::BlendResult {
+fn fillet_open_box(n_edges: usize, kind: CapKind) -> Result<crate::BlendResult, crate::BlendError> {
     let ob = BRep::open_box(tol()).unwrap();
-    let edge = pick_boundary_adjacent_interior_edge(&ob);
-    let specs = vec![FilletSpec {
-        edge,
-        radius: FilletRadius::Constant(0.1),
-    }];
     let opts = FilletOptions {
         cap_kind: kind,
         ..FilletOptions::default()
     };
-    let faces_before = ob.faces.len();
-    let result = fillet_edges(&ob, &specs, &opts, tol(), None)
-        .unwrap_or_else(|e| panic!("fillet on open_box (kind={kind:?}) failed: {e:?}"));
-    assert!(
-        result.brep.faces.len() > faces_before,
-        "{kind:?} cap: face count should grow (before={}, after={})",
-        faces_before,
-        result.brep.faces.len()
-    );
-    result
-        .brep
-        .validate()
-        .unwrap_or_else(|e| panic!("open_box fillet with {kind:?} cap should validate: {e:?}"));
-    result
+    fillet_edges(&ob, &open_box_specs(&ob, n_edges), &opts, tol(), None)
 }
 
-/// `CapKind::Flat` on open_box: cap insertion fires at the free
-/// boundary endpoint, output validates, and at least one
-/// CapApplied warning carries `topology_inserted = true`.
-#[test]
-fn fillet_open_box_interior_edge_with_flat_cap() {
-    let result = fillet_open_box_with_cap(CapKind::Flat);
-    let any_inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::Flat,
-                ..
-            }
-        )
-    });
-    assert!(
-        any_inserted,
-        "§8.3 end-to-end: expected at least one Flat cap to be inserted on open_box"
-    );
-}
-
-/// Open cap on open_box: no insertion warnings, output validates.
-/// Confirms that the boundary-edge split path produces valid
-/// topology before cap insertion enters the picture.
+/// Open cap on open_box: the strip runs out at the sheet boundary and
+/// its free end settles onto the strip's section by the rim plane
+/// (PK-530). The rim edges split at the fillet's anchors keep their
+/// curves. The whole body holds check 9.
 #[test]
 fn fillet_open_box_interior_edge_with_open_cap_validates() {
-    let result = fillet_open_box_with_cap(CapKind::Open);
+    let result = fillet_open_box(1, CapKind::Open).expect("open-cap fillet serves");
     let cap_warns = result
         .edge_warnings
         .iter()
@@ -118,153 +85,52 @@ fn fillet_open_box_interior_edge_with_open_cap_validates() {
         cap_warns, 0,
         "Open cap must not emit CapApplied warnings on open_box"
     );
-}
-
-/// `CapKind::Rounded` on open_box: the inserted cap face carries
-/// a `Sphere` surface (matching §8.3's G1-with-blend spec).
-#[test]
-fn fillet_open_box_interior_edge_with_rounded_cap() {
-    let result = fillet_open_box_with_cap(CapKind::Rounded);
-    let inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::Rounded,
-                ..
-            }
-        )
-    });
-    assert!(inserted, "Rounded cap should be inserted on open_box");
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    let sphere_count = result
-        .brep
-        .faces
-        .values()
-        .filter(|f| {
-            f.surface
-                .as_ref()
-                .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Sphere { .. }))
-        })
-        .count();
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
     assert!(
-        sphere_count >= 1,
-        "at least one face should carry a Sphere surface (cap or vertex blend)"
+        result.brep.edges.values().all(|e| e.curve.is_some()),
+        "every edge carries a curve"
     );
 }
 
-/// `CapKind::TangentMatch` on open_box: the inserted cap face
-/// carries a `Nurbs` surface (bilinear with a spine-tangent bulge
-/// so the (0.5, 0.5) normal stays non-degenerate).
+/// Inserted caps on an open sheet (Flat, Rounded, TangentMatch) do
+/// not yet author their strip|cap edge. `insert_cap_face` splits the
+/// loop with an edge that has no curve, and check 9 had silently
+/// skipped it while `validate()` passed. The territory gate (PK-530)
+/// now declines them typed, with the input handed back. PK-532 builds
+/// the exact cap boundaries and flips these pins back to serving.
 #[test]
-fn fillet_open_box_interior_edge_with_tangent_match_cap() {
-    let result = fillet_open_box_with_cap(CapKind::TangentMatch);
-    let inserted = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CapApplied {
-                topology_inserted: true,
-                kind: CapKind::TangentMatch,
-                ..
-            }
-        )
-    });
-    assert!(inserted, "TangentMatch cap should be inserted on open_box");
-}
-
-// ---------------------------------------------------------------------------
-// Multi-edge open-shell integration
-// ---------------------------------------------------------------------------
-
-/// Fillet the first N boundary-adjacent interior edges of open_box
-/// in one batch call and assert the output validates.
-fn fillet_open_box_multi(n_edges: usize, kind: CapKind) -> crate::BlendResult {
+fn inserted_open_sheet_caps_decline_until_their_boundaries_are_exact() {
     let ob = BRep::open_box(tol()).unwrap();
-    let edges = boundary_adjacent_interior_edges(&ob);
-    assert!(
-        edges.len() >= n_edges,
-        "open_box has {} such edges",
-        edges.len()
-    );
-    let specs: Vec<_> = edges
-        .into_iter()
-        .take(n_edges)
-        .map(|edge| FilletSpec {
-            edge,
-            radius: FilletRadius::Constant(0.1),
-        })
-        .collect();
-    let opts = FilletOptions {
-        cap_kind: kind,
-        ..FilletOptions::default()
-    };
-    let result = fillet_edges(&ob, &specs, &opts, tol(), None)
-        .unwrap_or_else(|e| panic!("multi-edge fillet ({n_edges} edges) failed: {e:?}"));
-    result
-        .brep
-        .validate()
-        .unwrap_or_else(|e| panic!("multi-edge ({n_edges}, {kind:?}) validate: {e:?}"));
-    result
-}
-
-fn count_inserted(result: &crate::BlendResult) -> usize {
-    result
-        .edge_warnings
-        .iter()
-        .filter(|(_, w)| {
-            matches!(
-                w,
-                BlendWarning::CapApplied {
-                    topology_inserted: true,
-                    ..
-                }
-            )
-        })
-        .count()
-}
-
-/// Two boundary-adjacent interior edges filleted together: at
-/// least two caps insert, output validates.
-#[test]
-fn fillet_open_box_two_interior_edges_with_flat_caps() {
-    let result = fillet_open_box_multi(2, CapKind::Flat);
-    let inserted = count_inserted(&result);
-    assert!(
-        inserted >= 2,
-        "expected ≥2 inserted caps across 2 edges, got {inserted}"
-    );
-}
-
-/// Same two-edge configuration with Rounded caps — sphere faces
-/// appear in the output.
-#[test]
-fn fillet_open_box_two_interior_edges_with_rounded_caps() {
-    let result = fillet_open_box_multi(2, CapKind::Rounded);
-    use popkern_core::geometry::surface::SurfaceGeometry;
-    let sphere_faces = result
-        .brep
-        .faces
-        .values()
-        .filter(|f| {
-            f.surface
-                .as_ref()
-                .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Sphere { .. }))
-        })
-        .count();
-    assert!(sphere_faces >= 2, "got {sphere_faces} sphere faces");
-}
-
-/// All boundary-adjacent interior edges filleted together — the
-/// aggressive open-shell batch case where every boundary vertex
-/// is touched by two filleted edges.
-#[test]
-fn fillet_open_box_all_boundary_edges() {
-    let ob = BRep::open_box(tol()).unwrap();
-    let n = boundary_adjacent_interior_edges(&ob).len();
-    let result = fillet_open_box_multi(n, CapKind::Flat);
-    let inserted = count_inserted(&result);
-    assert!(
-        inserted >= 1,
-        "expected ≥1 inserted caps across {n} edges, got {inserted}"
-    );
+    let all = boundary_adjacent_interior_edges(&ob).len();
+    for (kind, n) in [
+        (CapKind::Flat, 1),
+        (CapKind::Rounded, 1),
+        (CapKind::TangentMatch, 1),
+        (CapKind::Flat, 2),
+        (CapKind::Rounded, 2),
+        (CapKind::Flat, all),
+    ] {
+        let Err(crate::BlendError::PartialFailure {
+            partial_result,
+            failures,
+            ..
+        }) = fillet_open_box(n, kind)
+        else {
+            panic!("{kind:?} x{n}: expected the typed territory decline");
+        };
+        assert_eq!(
+            partial_result.faces.len(),
+            ob.faces.len(),
+            "input handed back"
+        );
+        assert!(
+            failures.iter().any(|(_, f)| matches!(
+                f,
+                crate::BlendFailure::InconsistentGeometry { reason, .. }
+                    if reason.contains("without a curve")
+            )),
+            "{kind:?} x{n}: {failures:?}"
+        );
+    }
 }

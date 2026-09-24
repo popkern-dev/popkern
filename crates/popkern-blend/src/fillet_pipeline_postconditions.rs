@@ -45,8 +45,10 @@ pub(super) fn attribute_pipeline_warnings(
 
 /// The served body's first transactional-gate failure, if any: a hard
 /// structural defect (attributed to `fallback_edge`), else an
-/// unresolved corner whose territory fails check 9.
+/// unresolved corner whose territory fails check 9, else any
+/// inconsistency in the whole blend territory (PK-530).
 pub(super) fn served_body_failure(
+    source: &BRep,
     served: &ApplyBlendResult,
     fallback_edge: EdgeHandle,
 ) -> Option<(EdgeHandle, BlendFailure)> {
@@ -59,7 +61,10 @@ pub(super) fn served_body_failure(
             },
         ));
     }
-    corner_resolution_failure(served)
+    corner_resolution_failure(served).or_else(|| {
+        crate::construct::territory_consistency::territory_inconsistency(source, &served.brep)
+            .map(|failure| (fallback_edge, failure))
+    })
 }
 
 /// First hard structural defect on the served body, if any — the

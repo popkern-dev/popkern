@@ -91,9 +91,15 @@ impl BRep {
                 <= pos_a.distance_to(&curve.geometry.point_at(curve.t_end));
             let at = if aligned { t } else { 1.0 - t };
             let t_param = curve.t_start + at * (curve.t_end - curve.t_start);
-            let nurbs = curve
-                .geometry
-                .to_nurbs_in_range((curve.t_start, curve.t_end));
+            // Convert over the ASCENDING range: a curve authored
+            // against its half-edge stores a descending range (t_start
+            // > t_end), which produced a NURBS the split below
+            // rejected, leaving the new edge without a curve (PK-530:
+            // open-shell rim edges split by a fillet anchor).
+            let nurbs = curve.geometry.to_nurbs_in_range((
+                curve.t_start.min(curve.t_end),
+                curve.t_start.max(curve.t_end),
+            ));
             if let Ok((left, right)) = nurbs.split_at(t_param) {
                 // Route the two halves to the correct edges — see
                 // the matching block in `split_edge` for the

@@ -51,9 +51,10 @@ pub enum TerminalArcTrimDeclineReason {
     /// repositioning it would drag unrelated topology.
     VertexNotIsolated,
     /// The anchor vertices (the stubs' non-corner endpoints) are not
-    /// on the strip cylinder at a common axial station — the trusted
-    /// geometric inputs the repair is built from are themselves
-    /// unreliable, so nothing is authored.
+    /// on the strip cylinder's section by the end plane (a circle for
+    /// a perpendicular end, an ellipse for an oblique one, PK-530).
+    /// The trusted geometric inputs the repair is built from are then
+    /// themselves unreliable, so nothing is authored.
     AnchorsOffSurface,
     /// The arc sweep could not be branch-resolved against the strip
     /// pcurve midpoint witness within tolerance.
@@ -64,4 +65,9 @@ pub enum TerminalArcTrimDeclineReason {
     /// (`terminal_obstructed_end`) could not establish or commit its
     /// supported single-crossing configuration.
     ObstructedEnd,
+    /// The strip ends into a fan of planar faces (a slant edge running
+    /// into a pyramid apex), and the fan-end settlement could not
+    /// split the corner or re-author its arcs, or the settled body
+    /// failed validation. The body was restored (PK-530).
+    FanEndRejected,
 }
