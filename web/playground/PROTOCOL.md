@@ -53,7 +53,8 @@ envelope's `wall_budget` says `unavailable`.
                face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }]
   },
   buffers: [{ positions: Float32Array, normals: Float32Array,
-              indices: Uint32Array, face_ids: Uint32Array }]   // one per body, transferred
+              indices: Uint32Array, face_ids: Uint32Array,
+              gaussian: Float32Array, mean: Float32Array }]    // one per body, transferred
 }
 ```
 

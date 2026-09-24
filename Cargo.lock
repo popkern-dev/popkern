@@ -3484,6 +3484,7 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "popkern-core",
+ "popkern-measure",
  "popkern-mesh",
  "popkern-part",
  "popkern-rhai",
@@ -3585,6 +3586,7 @@ dependencies = [
  "log",
  "pollster",
  "popkern-core",
+ "popkern-measure",
  "popkern-mesh",
  "serde",
  "serde_json",

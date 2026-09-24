@@ -22,6 +22,7 @@ window = ["dep:winit", "dep:softbuffer"]
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true

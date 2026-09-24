@@ -147,6 +147,20 @@ impl Playground {
             .map(|b| b.face_ids.clone())
             .unwrap_or_default()
     }
+
+    /// Analytic per-vertex curvature of body `index`
+    /// (`Float32Array`): `kind` is `"gaussian"` or `"mean"`. Empty
+    /// for an unknown kind or missing body.
+    pub fn body_curvature(&self, index: usize, kind: &str) -> Vec<f32> {
+        self.bodies
+            .get(index)
+            .map(|b| match kind {
+                "gaussian" => b.gaussian.clone(),
+                "mean" => b.mean.clone(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    }
 }
 
 fn outcome_js(outcome: &popkern_rhai::Outcome) -> JsValue {

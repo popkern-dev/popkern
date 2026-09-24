@@ -44,9 +44,18 @@ export function createHandler(pkg, loadModule) {
         normals: playground.body_normals(i),
         indices: playground.body_indices(i),
         face_ids: playground.body_face_ids(i),
+        gaussian: playground.body_curvature(i, "gaussian"),
+        mean: playground.body_curvature(i, "mean"),
       };
       buffers.push(body);
-      transfer.push(body.positions.buffer, body.normals.buffer, body.indices.buffer, body.face_ids.buffer);
+      transfer.push(
+        body.positions.buffer,
+        body.normals.buffer,
+        body.indices.buffer,
+        body.face_ids.buffer,
+        body.gaussian.buffer,
+        body.mean.buffer,
+      );
     }
     return { reply: { id, ok: true, envelope, buffers }, transfer };
   }

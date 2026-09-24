@@ -53,6 +53,16 @@ pub fn body_mesh(
             .unwrap_or(u32::MAX);
         face_ids.push(face);
     }
+    // Analysis curvature fields (PK-520): analytic per-vertex values,
+    // computed once at mesh time so the viewer's mode switch is a
+    // buffer swap, not a recompute round-trip.
+    let field = |kind| {
+        popkern_measure::curvature_field(brep, &mesh, kind)
+            .map(|f| f.per_vertex.iter().map(|&v| v as f32).collect())
+            .unwrap_or_default()
+    };
+    let gaussian: Vec<f32> = field(popkern_measure::CurvatureKind::Gaussian);
+    let mean: Vec<f32> = field(popkern_measure::CurvatureKind::Mean);
     Ok(BodyMesh {
         id,
         label,
@@ -66,6 +76,8 @@ pub fn body_mesh(
         normals,
         indices,
         face_ids,
+        gaussian,
+        mean,
     })
 }
 

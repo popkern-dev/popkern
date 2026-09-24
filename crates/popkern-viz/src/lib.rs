@@ -22,6 +22,7 @@ pub mod picking;
 pub mod scene;
 #[cfg(feature = "window")]
 pub mod software_viewer;
+pub mod surface_analysis;
 
 // GPU-only
 #[cfg(feature = "gpu")]

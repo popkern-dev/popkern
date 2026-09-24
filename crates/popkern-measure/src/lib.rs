@@ -38,4 +38,8 @@ pub use body::{
 
 mod distance;
 
+/// Per-vertex surface-curvature fields over a tessellation (PK-520).
+mod surface_curvature;
+
 pub use distance::{TopoHandle, min_distance};
+pub use surface_curvature::{CurvatureField, CurvatureKind, curvature_at, curvature_field};

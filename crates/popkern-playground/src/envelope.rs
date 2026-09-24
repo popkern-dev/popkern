@@ -71,6 +71,12 @@ pub struct BodyMesh {
     /// Face table index per triangle.
     #[serde(skip)]
     pub face_ids: Vec<u32>,
+    /// Analytic Gaussian curvature per vertex (PK-520 analysis view).
+    #[serde(skip)]
+    pub gaussian: Vec<f32>,
+    /// Analytic mean curvature per vertex (PK-520 analysis view).
+    #[serde(skip)]
+    pub mean: Vec<f32>,
 }
 
 /// One declared parameter as the page's slider panel sees it.

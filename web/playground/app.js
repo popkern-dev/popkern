@@ -69,6 +69,9 @@ class Page {
     $("run").addEventListener("click", () => this.run());
     $("cancel").addEventListener("click", () => this.cancel("cancelled by the user"));
     $("fit").addEventListener("click", () => this.viewer.fitAgain());
+    $("view-mode").addEventListener("change", (e) => {
+      this.viewer.setMode(e.target.value);
+    });
     $("edges").addEventListener("change", (e) => {
       this.viewer.toggleEdges(e.target.checked);
       if (this.lastGood) this.viewer.show(this.lastGood.envelope.bodies, this.lastGood.buffers);

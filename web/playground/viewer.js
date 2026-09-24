@@ -95,10 +95,72 @@ class Orbit {
   }
 }
 
+// Reflection-line zebra: per-pixel stripes over the reflected view
+// direction — the class-A continuity inspection (a G1 defect kinks
+// the stripes across a seam; a G2 defect kinks their derivative).
+const ZEBRA_VERTEX = `
+  varying vec3 vWorldPos;
+  varying vec3 vWorldNormal;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vWorldPos = world.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+const ZEBRA_FRAGMENT = `
+  varying vec3 vWorldPos;
+  varying vec3 vWorldNormal;
+  uniform vec3 stripeAxis;
+  uniform float stripeCount;
+  void main() {
+    vec3 n = normalize(vWorldNormal);
+    vec3 view = normalize(vWorldPos - cameraPosition);
+    vec3 r = reflect(view, n);
+    float phase = (dot(r, stripeAxis) * 0.5 + 0.5) * stripeCount;
+    float f = fract(phase);
+    float aa = fwidth(phase);
+    float band = smoothstep(0.25 - aa, 0.25 + aa, f) - smoothstep(0.75 - aa, 0.75 + aa, f);
+    float shade = mix(0.09, 0.93, band);
+    gl_FragColor = vec4(vec3(shade), 1.0);
+  }
+`;
+
+// Diverging blue-white-red map over a symmetric range for curvature.
+function divergingColor(value, halfRange) {
+  const t = halfRange > 0 ? Math.max(-1, Math.min(1, value / halfRange)) : 0;
+  const white = [0.95, 0.95, 0.95];
+  const cold = [0.23, 0.30, 0.75];
+  const warm = [0.71, 0.02, 0.15];
+  const to = t < 0 ? cold : warm;
+  const f = Math.abs(t);
+  return [white[0] + (to[0] - white[0]) * f, white[1] + (to[1] - white[1]) * f, white[2] + (to[2] - white[2]) * f];
+}
+
+// Robust symmetric half-range: 1.25x the median NONZERO magnitude
+// across all bodies — flat regions would drag a percentile to zero
+// and degenerate spikes would inflate a max-based range; the nonzero
+// median saturates the curved features (mirrors popkern-viz).
+function robustHalfRange(buffers, key) {
+  const mags = [];
+  for (const b of buffers) {
+    const field = b[key];
+    if (!field) continue;
+    for (let i = 0; i < field.length; i++) {
+      const m = Math.abs(field[i]);
+      if (Number.isFinite(m) && m > 1e-12) mags.push(m);
+    }
+  }
+  if (!mags.length) return 0;
+  mags.sort((a, b) => a - b);
+  return 1.25 * mags[Math.floor(mags.length / 2)];
+}
+
 export class Viewer {
   constructor(canvas, onPick) {
     this.canvas = canvas;
     this.onPick = onPick;
+    this.mode = "shaded";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
@@ -134,32 +196,20 @@ export class Viewer {
 
   /** Replace the scene with the envelope's bodies and their buffers. */
   show(bodies, buffers) {
+    this.lastShown = { bodies, buffers };
     this.group.clear();
     this.bodies = [];
+    this.zebraMaterials = [];
     let union = null;
+    const halfRange = this.mode === "gaussian" || this.mode === "mean" ? robustHalfRange(buffers, this.mode) : 0;
     bodies.forEach((body, i) => {
       const b = buffers[i];
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", new THREE.BufferAttribute(b.positions, 3));
       geometry.setAttribute("normal", new THREE.BufferAttribute(b.normals, 3));
       geometry.setIndex(new THREE.BufferAttribute(b.indices, 1));
-      // Per-vertex colour from the face of the first triangle that uses it.
-      const colors = new Float32Array(b.positions.length);
-      const seen = new Uint8Array(b.positions.length / 3);
-      for (let t = 0; t < b.face_ids.length; t++) {
-        const color = faceColor(b.face_ids[t]);
-        for (let k = 0; k < 3; k++) {
-          const v = b.indices[t * 3 + k];
-          if (seen[v]) continue;
-          seen[v] = 1;
-          colors[v * 3] = color.r;
-          colors[v * 3 + 1] = color.g;
-          colors[v * 3 + 2] = color.b;
-        }
-      }
-      geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-      const material = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide });
-      const mesh = new THREE.Mesh(geometry, material);
+      geometry.setAttribute("color", this.vertexColors(b, halfRange));
+      const mesh = new THREE.Mesh(geometry, this.material());
       mesh.userData = { body, faceIds: b.face_ids, index: i };
       this.group.add(mesh);
       if (this.showEdges) {
@@ -177,8 +227,64 @@ export class Viewer {
     this.render();
   }
 
+  /** Per-vertex colour attribute for the current mode. */
+  vertexColors(b, halfRange) {
+    const colors = new Float32Array(b.positions.length);
+    if (this.mode === "gaussian" || this.mode === "mean") {
+      const field = b[this.mode] ?? new Float32Array(b.positions.length / 3);
+      for (let v = 0; v < field.length; v++) {
+        const [r, g, bl] = divergingColor(field[v], halfRange);
+        colors[v * 3] = r;
+        colors[v * 3 + 1] = g;
+        colors[v * 3 + 2] = bl;
+      }
+    } else {
+      // Face colour from the first triangle that uses each vertex.
+      const seen = new Uint8Array(b.positions.length / 3);
+      for (let t = 0; t < b.face_ids.length; t++) {
+        const color = faceColor(b.face_ids[t]);
+        for (let k = 0; k < 3; k++) {
+          const v = b.indices[t * 3 + k];
+          if (seen[v]) continue;
+          seen[v] = 1;
+          colors[v * 3] = color.r;
+          colors[v * 3 + 1] = color.g;
+          colors[v * 3 + 2] = color.b;
+        }
+      }
+    }
+    return new THREE.BufferAttribute(colors, 3);
+  }
+
+  material() {
+    if (this.mode === "zebra") {
+      const material = new THREE.ShaderMaterial({
+        vertexShader: ZEBRA_VERTEX,
+        fragmentShader: ZEBRA_FRAGMENT,
+        uniforms: {
+          stripeAxis: { value: new THREE.Vector3(1, 0, 0) },
+          stripeCount: { value: 14.0 },
+        },
+        side: THREE.DoubleSide,
+      });
+      this.zebraMaterials.push(material);
+      return material;
+    }
+    if (this.mode === "gaussian" || this.mode === "mean") {
+      return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+    }
+    return new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide });
+  }
+
+  /** Switch the surface view: shaded | zebra | gaussian | mean. */
+  setMode(mode) {
+    this.mode = mode;
+    if (this.lastShown) this.show(this.lastShown.bodies, this.lastShown.buffers);
+  }
+
   toggleEdges(on) {
     this.showEdges = on;
+    if (this.lastShown) this.show(this.lastShown.bodies, this.lastShown.buffers);
   }
 
   fitAgain() {
@@ -214,6 +320,14 @@ export class Viewer {
   }
 
   render() {
+    // Zebra stripes follow the camera's right axis so the family
+    // stays perpendicular to the view while orbiting.
+    if (this.zebraMaterials?.length) {
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      const right = forward.clone().cross(this.camera.up).normalize();
+      for (const m of this.zebraMaterials) m.uniforms.stripeAxis.value.copy(right);
+    }
     this.renderer.render(this.scene, this.camera);
   }
 }

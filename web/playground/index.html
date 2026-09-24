@@ -36,6 +36,12 @@
     </div>
     <div class="viewer-bar">
       <span id="pick" class="muted">click a face to see its stable name</span>
+      <label>view <select id="view-mode" aria-label="Surface view mode">
+        <option value="shaded">shaded</option>
+        <option value="zebra">zebra</option>
+        <option value="gaussian">gaussian curvature</option>
+        <option value="mean">mean curvature</option>
+      </select></label>
       <label><input id="edges" type="checkbox" checked> edges</label>
       <button id="fit" type="button">fit</button>
       <button id="show-code" type="button" title="The document as canonical Rhai">show as code</button>

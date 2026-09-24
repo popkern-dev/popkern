@@ -1,7 +1,16 @@
-//! PK-519 diagnostic probe: per-seam rim transverse-G2 residuals on
-//! the pentagon flagship (base 1.0, height 1.2, r 0.16, G2 request).
-//! Run with `cargo test -p popkern-blend --test probe_pk519_rim_quarters -- --ignored --nocapture`.
-//! Removed or promoted into a gate before PK-519 closes.
+//! Rim transverse-G2 evidence gate (PK-519): a `g2` fillet request on
+//! the pentagon flagship (base 1.0, height 1.2, r 0.16 — the widest
+//! serving radius class) must MEASURE G2 through the dressup evidence
+//! instrument: every gated rim seam under the 5e-2 curvature bar and
+//! `achieved == G2`, no seam left unmeasured.
+//!
+//! This is the promoted PK-519 diagnostic probe. Baseline before the
+//! dual-jet corner substrate: the ten corner-adjacent rim quarters
+//! measured 0.9599 (the corner piece's shared cells could not carry
+//! two strips' cross fields); landed: 4.88e-2 worst. A regression in
+//! the substrate — promotion, claim routing, or the reconciles —
+//! reads here as a named seam over the bar, not as a gallery
+//! surprise.
 
 use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
@@ -11,8 +20,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[test]
-#[ignore = "PK-519 diagnostic probe"]
-fn rim_quarter_residuals() {
+fn pentagon_flagship_g2_request_measures_g2_on_every_rim_quarter() {
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
@@ -64,9 +72,8 @@ fn rim_quarter_residuals() {
         100,
     );
     eprintln!(
-        "achieved={:?} requested={:?} worst_g0={:.3e} worst_g1={:.3e} worst_g2={:.3e} seams={} sharp={} unmeasured={}",
+        "achieved={:?} worst_g0={:.3e} worst_g1={:.3e} worst_g2={:.3e} seams={} sharp={} unmeasured={}",
         evidence.achieved,
-        evidence.requested,
         evidence.worst_g0_gap,
         evidence.worst_g1_normal,
         evidence.worst_g2_residual,
@@ -74,44 +81,24 @@ fn rim_quarter_residuals() {
         evidence.sharp_seams,
         evidence.unmeasured_seams
     );
-    let mut seams = evidence.seams.clone();
-    seams.sort_by(|a, b| {
-        b.worst_g2_residual
-            .partial_cmp(&a.worst_g2_residual)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    for s in seams.iter().take(30) {
-        // Surface kinds on both sides for classing (rim = Gregory|Nurbs).
-        let kinds = seam_kinds(brep, s.edge);
-        eprintln!(
-            "  seam {:?} kind={:?} gated={} kinds={} g0={:.3e} g1={:.3e} g2={:.3e} angle={:.2}",
+    // Per-seam listing so a regression names its seam.
+    let gates = ContinuityGates::commercial();
+    for s in evidence.seams.iter().filter(|s| s.gated) {
+        assert!(
+            s.worst_g2_residual <= gates.g2_curvature,
+            "rim/fan seam {:?} over the G2 bar: {:.3e} (g0 {:.3e}, g1 {:.3e})",
             s.edge,
-            s.kind,
-            s.gated,
-            kinds,
-            s.worst_g0_gap,
-            s.worst_g1_normal,
             s.worst_g2_residual,
-            s.worst_normal_angle_deg
+            s.worst_g0_gap,
+            s.worst_g1_normal
         );
     }
-}
-
-fn seam_kinds(brep: &BRep, edge: popkern_core::topology::EdgeHandle) -> String {
-    let e = &brep.edges[edge];
-    let he = e.half_edge;
-    let twin = brep.half_edges[he].twin;
-    let mut out = Vec::new();
-    for h in [he, twin] {
-        let face = brep.loops[brep.half_edges[h].loop_].face;
-        let kind = match brep.faces[face].surface.as_ref().map(|s| &s.geometry) {
-            Some(popkern_core::geometry::SurfaceGeometry::Gregory(_)) => "Gregory",
-            Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_)) => "Nurbs",
-            Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) => "Plane",
-            Some(_) => "Other",
-            None => "None",
-        };
-        out.push(kind);
-    }
-    out.join("|")
+    assert_eq!(evidence.unmeasured_seams, 0, "every seam must measure");
+    assert_eq!(
+        evidence.achieved,
+        ContinuityLevel::G2,
+        "a g2 request on the flagship must MEASURE G2 (worst g2 {:.3e})",
+        evidence.worst_g2_residual
+    );
+    assert!(!evidence.downgraded(), "no silent downgrade");
 }

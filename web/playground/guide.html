@@ -274,7 +274,12 @@ try {
 }
 m
 </code></pre>
-<h2>11. Budgets, size, speed</h2>
+<h2>11. Inspecting surface quality</h2>
+<ul>
+<li>The <strong>view</strong> selector in the viewer bar switches between *shaded*, *zebra*, and *gaussian / mean curvature*. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.</li>
+<li>The curvature views paint analytic per-vertex curvature through a diverging palette: blue negative, white zero, red positive, ranged at the median nonzero magnitude so one spike cannot wash the map out. A constant-radius fillet reads as a uniform band in mean curvature; a value step across a seam is a curvature discontinuity.</li>
+</ul>
+<h2>12. Budgets, size, speed</h2>
 <ul>
 <li>The playground runs a script under an operation budget and a wall clock budget (about 20 s); <code>popkern run --max-ops N --timeout S</code> does the same. A script that overruns is stopped with <code>BudgetExceeded</code>; the last good model stays on screen.</li>
 <li>G2 fillets with corners are the slow path today (seconds each, tens of seconds for a fully rounded cube); G1 rounds and chamfers are fast. Prefer G1 unless curvature continuity is the point.</li>
@@ -282,7 +287,7 @@ m
 <li>Cut-mode extrudes (<code>#{ mode: "cut" }</code>) need a sketch on a face of the target body (<code>on_face(...)</code>); from a base plane, record the cutter with <code>m.tool(...)</code> and <code>subtract</code> it.</li>
 <li>A single expression may nest to 64 levels at the top level and 32 inside a <code>fn</code> body (the same limit in every build — CLI, tests, and the wasm playground). Computed-geometry arithmetic rarely reaches it, but a deep chain like <code>a + b*c/d - f(g(x))</code> repeated in a point literal can; if you hit <code>Expression exceeds maximum complexity</code>, bind sub-results to <code>let</code> locals (<code>let ang = rot - half; [r*cos(ang), r*sin(ang)]</code>), which also reads better.</li>
 </ul>
-<h2>12. Cheat-sheet</h2>
+<h2>13. Cheat-sheet</h2>
 <pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
 m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
 PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)

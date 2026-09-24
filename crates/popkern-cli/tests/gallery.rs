@@ -63,7 +63,8 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "pyramid_apex",
         "Pyramid apex",
         "A pentagonal pyramid carved by five exact planes; its slant edges \
-         rounded, and the five rounds closed by the setback Gregory vertex cap.",
+         rounded with curvature continuity (g2), and the five rounds closed \
+         by the setback Gregory vertex cap with dual cross-jet corners.",
         18,
         "boolean carve with exact planes, chord-length edge selection, \
          vertex blend cap",

@@ -49,7 +49,7 @@
       "title": "Tapered fillet"
     },
     {
-      "blurb": "A pentagonal pyramid carved by five exact planes; its slant edges rounded, and the five rounds closed by the setback Gregory vertex cap.",
+      "blurb": "A pentagonal pyramid carved by five exact planes; its slant edges rounded with curvature continuity (g2), and the five rounds closed by the setback Gregory vertex cap with dual cross-jet corners.",
       "demonstrates": "boolean carve with exact planes, chord-length edge selection, vertex blend cap",
       "features": 18,
       "file": "pyramid_apex.rhai",

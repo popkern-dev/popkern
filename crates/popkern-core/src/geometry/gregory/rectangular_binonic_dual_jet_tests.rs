@@ -86,9 +86,8 @@ fn from_plain_is_bit_identical() {
 /// boundary's claims.
 #[test]
 fn boundary_jets_realize_own_claims() {
-    for corner in 0..4 {
+    for (corner, &(ic, jc)) in DUAL_JET_CORNER_POSITIONS.iter().enumerate() {
         let patch = perturbed_dual_jet(corner);
-        let (ic, jc) = DUAL_JET_CORNER_POSITIONS[corner];
         let u_fixed = if ic == 0 { 0.0 } else { 1.0 };
         let v_fixed = if jc == 0 { 0.0 } else { 1.0 };
         // u-constant boundary (u = u_fixed): claims .0.

@@ -384,7 +384,12 @@ try {
 m
 ```
 
-## 11. Budgets, size, speed
+## 11. Inspecting surface quality
+
+- The **view** selector in the viewer bar switches between *shaded*, *zebra*, and *gaussian / mean curvature*. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.
+- The curvature views paint analytic per-vertex curvature through a diverging palette: blue negative, white zero, red positive, ranged at the median nonzero magnitude so one spike cannot wash the map out. A constant-radius fillet reads as a uniform band in mean curvature; a value step across a seam is a curvature discontinuity.
+
+## 12. Budgets, size, speed
 
 - The playground runs a script under an operation budget and a wall
   clock budget (about 20 s); `popkern run --max-ops N --timeout S`
@@ -409,7 +414,7 @@ m
   bind sub-results to `let` locals (`let ang = rot - half; [r*cos(ang),
   r*sin(ang)]`), which also reads better.
 
-## 12. Cheat-sheet
+## 13. Cheat-sheet
 
 ```text
 model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
