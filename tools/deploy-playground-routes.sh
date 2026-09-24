@@ -58,9 +58,23 @@ if [[ ! -f web/playground/pkg/popkern_playground_bg.wasm ]]; then
   exit 1
 fi
 
+# Versioned deploy (2026-09-24): every build lands whole in an immutable
+# content-addressed directory v/<stamp>/, and the mutable surface is two
+# root entry pages that carry a <base> into it. A cache layer (browser
+# heuristic cache, tunnel edge) that holds one file but not its siblings
+# can therefore never pair JS glue with a wasm module from a different
+# build — that mix traps as `unreachable executed` at kernel init, which
+# is what an in-place deploy risks on every ship. A stale root page is
+# still coherent: it points at the previous version directory, which is
+# kept (last 3 builds survive pruning).
+STAMP=$(cat web/playground/pkg/popkern_playground_bg.wasm \
+            web/playground/pkg/popkern_playground.js | sha256sum | cut -c1-12)
+VDIR="$DEST/v/$STAMP"
+STAGE="$DEST/v/.stage-$STAMP"
+
 # tar pipe (the sandbox has no rsync) into a fresh tree, then swap it
 # in whole — a half-copied deploy is never what Caddy serves.
-STAGE="$DEST.deploying"
+mkdir -p "$DEST/v"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 tar -C web/playground \
@@ -70,11 +84,27 @@ tar -C web/playground \
   --exclude './pkg/*.d.ts' \
   --exclude './pkg/package.json' \
   -cf - . | tar -C "$STAGE" -xf -
-rm -rf "$DEST"
-mv "$STAGE" "$DEST"
+rm -rf "$VDIR"
+mv "$STAGE" "$VDIR"
 
-echo "deployed to $DEST"
-echo "served at   $URL/  (and at /routes/$ROUTE_NAME/ on the tunnel hostname)"
+# Root entry pages: the version's own pages with a <base> injected right
+# after <head>, so every relative URL — module imports, the worker, the
+# examples manifest, the wasm fetch — resolves inside the immutable tree.
+# Requires base-uri 'self' in the pages' CSP (index.html documents why).
+for page in index.html guide.html; do
+  awk -v tag="<base href=\"./v/$STAMP/\">" '{print} $0 == "<head>" {print tag}' \
+    "$VDIR/$page" > "$DEST/.$page.tmp"
+  mv "$DEST/.$page.tmp" "$DEST/$page"
+done
+
+# Clear root-level files from pre-versioned deploys (everything now lives
+# under v/), then keep only the last 3 version directories.
+find "$DEST" -mindepth 1 -maxdepth 1 ! -name v ! -name index.html ! -name guide.html \
+  -exec rm -rf {} +
+ls -dt "$DEST"/v/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
+
+echo "deployed $STAMP to $VDIR"
+echo "served at $URL/  (and at /routes/$ROUTE_NAME/ on the tunnel hostname)"
 
 # ---- Served-URL checks: reachable, typed, and self-contained ----
 check() { # path expected-type
@@ -87,24 +117,35 @@ check() { # path expected-type
   echo "  ok $1 ($type)"
 }
 check "" "text/html"
-check "pkg/popkern_playground_bg.wasm" "application/wasm"
-check "pkg/popkern_playground.js" "text/javascript"
-check "examples.json" "application/json"
-check "examples/boss_plate.rhai" ""
 check "guide.html" "text/html"
+check "v/$STAMP/pkg/popkern_playground_bg.wasm" "application/wasm"
+check "v/$STAMP/pkg/popkern_playground.js" "text/javascript"
+check "v/$STAMP/examples.json" "application/json"
+check "v/$STAMP/examples/boss_plate.rhai" ""
+check "v/$STAMP/guide.html" "text/html"
 
-# Deploys replace the tree in place, so the server must tell browsers to
-# revalidate. Without Cache-Control: no-cache, heuristic caching (10% of
-# Last-Modified age) showed a days-stale example manifest after a
-# redeploy (2026-09-06). The header lives in ~/Caddyfile's /routes/
-# handler; fail loudly if this sandbox's server lost it.
-if ! curl -sI "$URL/examples.json" | grep -qi '^cache-control: *no-cache'; then
-  echo "FAIL $URL/examples.json served without Cache-Control: no-cache —" >&2
-  echo "     browsers will cache the old manifest; add the header to the" >&2
+# The root entry pages must reference the version that was just deployed.
+for page in "" guide.html; do
+  if ! curl -s "$URL/$page" | grep -q "<base href=\"./v/$STAMP/\">"; then
+    echo "FAIL $URL/$page does not point at v/$STAMP" >&2
+    exit 1
+  fi
+done
+echo "  ok root pages point at v/$STAMP"
+
+# The root entry pages are the only mutable files, so the server must
+# tell browsers to revalidate them. Without Cache-Control: no-cache,
+# heuristic caching (10% of Last-Modified age) showed a days-stale
+# example manifest after a redeploy (2026-09-06). The header lives in
+# ~/Caddyfile's /routes/ handler; fail loudly if this sandbox's server
+# lost it. (Everything under v/ is immutable, so caching it is safe.)
+if ! curl -sI "$URL/" | grep -qi '^cache-control: *no-cache'; then
+  echo "FAIL $URL/ served without Cache-Control: no-cache —" >&2
+  echo "     browsers will cache a stale entry page; add the header to the" >&2
   echo "     static /routes/ handler in ~/Caddyfile and caddy reload" >&2
   exit 1
 fi
-echo "  ok examples.json (Cache-Control: no-cache)"
+echo "  ok root page (Cache-Control: no-cache)"
 
 if [[ $VERIFY == 1 ]]; then
   # The DevTools harness against the deployed copy: real kernel run,

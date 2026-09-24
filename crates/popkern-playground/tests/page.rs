@@ -359,7 +359,7 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
         "connect-src 'self'",
         "style-src 'self'",
         "object-src 'none'",
-        "base-uri 'none'",
+        "base-uri 'self'",
         "form-action 'none'",
     ] {
         assert!(csp.contains(directive), "CSP lacks `{directive}`: {csp}");
