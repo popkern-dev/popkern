@@ -52,6 +52,41 @@ fn best_of<F: FnMut()>(n: usize, mut op: F) -> Duration {
         .expect("at least one run")
 }
 
+/// Load-robust cost ratio `time(b) / time(a)`: the median over `n`
+/// back-to-back `(a, b)` pairs of their pair ratio, plus each side's
+/// best time for the report. Each pair sees the same machine state,
+/// and a preemption burst spoils only the pairs it lands on, which the
+/// median ignores while they stay a minority. Timing one side's
+/// samples after the other's let load changes skew the ratio
+/// (measured under a full-workspace nextest run: cube 4.9 ms then
+/// l_bracket 12.2 ms, ratio 2.50 against a 1.3 nominal), and a
+/// best-of-15 interleave still read 2.84 once with every core busy
+/// (PK-526).
+fn median_pair_ratio<A: FnMut(), B: FnMut()>(
+    n: usize,
+    mut op_a: A,
+    mut op_b: B,
+) -> (f64, Duration, Duration) {
+    op_a(); // warmup
+    op_b();
+    let (mut best_a, mut best_b) = (Duration::MAX, Duration::MAX);
+    let mut ratios: Vec<f64> = (0..n)
+        .map(|_| {
+            let start = Instant::now();
+            op_a();
+            let a = start.elapsed();
+            let start = Instant::now();
+            op_b();
+            let b = start.elapsed();
+            best_a = best_a.min(a);
+            best_b = best_b.min(b);
+            b.as_secs_f64() / a.as_secs_f64().max(f64::MIN_POSITIVE)
+        })
+        .collect();
+    ratios.sort_by(f64::total_cmp);
+    (ratios[ratios.len() / 2], best_a, best_b)
+}
+
 fn assert_budget(name: &str, measured: Duration, budget_ms: u64) {
     eprintln!(
         "[perf-budget] {name}: {:.1} ms (budget {budget_ms} ms)",
@@ -94,30 +129,43 @@ fn plane_dominant_thicken_within_2x_of_plane_only() {
     // Design §8: plane-dominant inputs stay within 2× of the pure
     // plane pipeline. Ratio gate (machine-speed independent): the
     // l_bracket adds concave joins and a bigger face count over the
-    // cube's pure plane ladder; measured ratio 1.3 (2026-08-27).
+    // cube's pure plane ladder; measured single-thread median pair
+    // ratio 1.62 idle, 1.32..1.81 with every core busy, and 3.23 with
+    // the l_bracket side's work doubled (2026-09-24, PK-526).
     if debug_skip("plane-dominant ratio") {
         return;
     }
     let cube = popkern_core::topology::BRep::unit_cube(tol()).expect("cube");
     let lb = l_bracket(tol()).expect("fixture builds");
-    let cube_ms = best_of(5, || {
-        let r = thicken(&cube, 0.02, &ShellOptions::default(), tol()).expect("serves");
-        // Minkowski-rounded outer skin: 6 planes each side, 12 arc
-        // strips, 8 octant corners.
-        assert_eq!(r.brep.faces.len(), 32, "wall body");
-    })
-    .as_secs_f64();
-    let lb_ms = best_of(5, || {
-        let r = thicken(&lb.brep, 0.02, &ShellOptions::default(), tol()).expect("serves");
-        assert!(r.brep.validate().is_ok());
-    })
-    .as_secs_f64();
-    let ratio = lb_ms / cube_ms;
+    // Both sides run in ONE dedicated single-thread pool: the gate
+    // bounds algorithmic cost, and thicken's rayon fan-out otherwise
+    // loses a different share of its speedup per fixture under machine
+    // load (measured ratio 1.28..2.70 with every core busy, PK-526).
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("single-thread pool");
+    let (ratio, cube_time, lb_time) = pool.install(|| {
+        median_pair_ratio(
+            21,
+            || {
+                let r = thicken(&cube, 0.02, &ShellOptions::default(), tol()).expect("serves");
+                // Minkowski-rounded outer skin: 6 planes each side, 12 arc
+                // strips, 8 octant corners.
+                assert_eq!(r.brep.faces.len(), 32, "wall body");
+            },
+            || {
+                let r = thicken(&lb.brep, 0.02, &ShellOptions::default(), tol()).expect("serves");
+                assert!(r.brep.validate().is_ok());
+            },
+        )
+    });
+    let (cube_ms, lb_ms) = (cube_time.as_secs_f64(), lb_time.as_secs_f64());
     eprintln!("[perf-budget] plane-dominant ratio: {ratio:.2} (l_bracket/cube thicken)");
     assert!(
         ratio <= 2.0,
         "plane-dominant thicken ratio {ratio:.2} exceeds the §8 2× target \
-         (l_bracket {:.2} ms vs cube {:.2} ms)",
+         (best l_bracket {:.2} ms vs cube {:.2} ms)",
         lb_ms * 1e3,
         cube_ms * 1e3
     );
