@@ -108,6 +108,33 @@ pub(super) fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatc
                 RectangularGregoryBiNonicDualTwist { grid, inner_cps },
             ))
         }
+        GregoryPatch::RectangularBiNonicDualJet(r) => {
+            let mut grid = r.grid;
+            for row in grid.iter_mut() {
+                for cell in row.iter_mut() {
+                    *cell = t.apply_point(cell);
+                }
+            }
+            let corners = r.corners.map(|corner| {
+                corner.map(|block| crate::geometry::gregory::DualJetCorner {
+                    cell_12: (
+                        t.apply_point(&block.cell_12.0),
+                        t.apply_point(&block.cell_12.1),
+                    ),
+                    cell_21: (
+                        t.apply_point(&block.cell_21.0),
+                        t.apply_point(&block.cell_21.1),
+                    ),
+                    cell_22: (
+                        t.apply_point(&block.cell_22.0),
+                        t.apply_point(&block.cell_22.1),
+                    ),
+                })
+            });
+            GregoryPatch::RectangularBiNonicDualJet(Box::new(
+                crate::geometry::gregory::RectangularGregoryBiNonicDualJet { grid, corners },
+            ))
+        }
         GregoryPatch::Triangular(tr) => {
             let boundary_cps = tr.boundary_cps.map(|p| t.apply_point(&p));
             let inner_cps = tr.inner_cps.map(|p| t.apply_point(&p));

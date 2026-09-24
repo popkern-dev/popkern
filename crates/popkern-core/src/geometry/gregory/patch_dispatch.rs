@@ -68,6 +68,12 @@ pub enum GregoryPatch {
     /// Bi-nonic with Chiyokura-Kimura dual-twist corners (see
     /// `docs/decisions/2026-06-11-kp20-binonic-dual-twist-corners.md`).
     RectangularBiNonicDualTwist(Box<RectangularGregoryBiNonicDualTwist>),
+    /// Bi-nonic with dual cross-jet rational corner cells — the G2
+    /// extension of dual-twist for patch corners whose two
+    /// boundaries carry incompatible cross-curvature fields (the
+    /// setback fan's corner pieces; see
+    /// `docs/decisions/2026-09-23-setback-corner-dual-jet-substrate.md`).
+    RectangularBiNonicDualJet(Box<RectangularGregoryBiNonicDualJet>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),
 }
@@ -88,6 +94,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularTwoStripe(r) => r.point_at(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.point_at(u, v),
             GregoryPatch::RectangularBiNonicDualTwist(r) => r.point_at(u, v),
+            GregoryPatch::RectangularBiNonicDualJet(r) => r.point_at(u, v),
             GregoryPatch::Triangular(t) => t.point_at_uv(u, v),
         }
     }
@@ -103,6 +110,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularTwoStripe(r) => r.partial_u(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.partial_u(u, v),
             GregoryPatch::RectangularBiNonicDualTwist(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularBiNonicDualJet(r) => r.partial_u(u, v),
             GregoryPatch::Triangular(t) => t.partial_u_uv(u, v),
         }
     }
@@ -118,6 +126,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularTwoStripe(r) => r.partial_v(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.partial_v(u, v),
             GregoryPatch::RectangularBiNonicDualTwist(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularBiNonicDualJet(r) => r.partial_v(u, v),
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }

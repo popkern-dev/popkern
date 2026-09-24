@@ -482,6 +482,7 @@ fn variant_name(p: &GregoryPatch) -> &'static str {
         GregoryPatch::RectangularTwoStripe(_) => "RectangularTwoStripe",
         GregoryPatch::RectangularBiNonic(_) => "RectangularBiNonic",
         GregoryPatch::RectangularBiNonicDualTwist(_) => "RectangularBiNonicDualTwist",
+        GregoryPatch::RectangularBiNonicDualJet(_) => "RectangularBiNonicDualJet",
         GregoryPatch::Triangular(_) => "Triangular",
     }
 }

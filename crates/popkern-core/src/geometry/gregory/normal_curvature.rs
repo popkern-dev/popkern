@@ -168,6 +168,11 @@ fn second_partials(
             r.second_partial_uv(u, v),
             r.second_partial_vv(u, v),
         )),
+        GregoryPatch::RectangularBiNonicDualJet(r) => Ok((
+            r.second_partial_uu(u, v),
+            r.second_partial_uv(u, v),
+            r.second_partial_vv(u, v),
+        )),
         GregoryPatch::RectangularTwoStripe(r) => Ok((
             r.second_partial_uu(u, v),
             r.second_partial_uv(u, v),

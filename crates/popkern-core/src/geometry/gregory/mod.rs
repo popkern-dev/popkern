@@ -169,6 +169,8 @@ mod pns_gram;
 mod pns_sigma;
 mod rectangular;
 mod rectangular_binonic;
+mod rectangular_binonic_dual_jet;
+mod rectangular_binonic_dual_jet_to_nurbs;
 mod rectangular_binonic_dual_twist;
 mod rectangular_binonic_to_nurbs;
 mod rectangular_biquintic_full;
@@ -357,6 +359,10 @@ pub use pns_central_quad::QuadMapJet;
 pub use pns_sigma::{SigmaCenterJet, SigmaJetError, sigma_center_jet, sigma_center_jet_default};
 pub use rectangular::RectangularGregory;
 pub use rectangular_binonic::RectangularGregoryBiNonic;
+pub use rectangular_binonic_dual_jet::{
+    DUAL_JET_CORNER_POSITIONS, DualJetCell, DualJetCorner, RectangularGregoryBiNonicDualJet,
+    dual_jet_cell_of, dual_jet_cell_position,
+};
 pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
 pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
 pub use rectangular_biseptic::RectangularGregoryBiseptic;

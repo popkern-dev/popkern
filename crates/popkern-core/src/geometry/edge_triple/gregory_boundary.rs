@@ -192,6 +192,12 @@ pub(crate) fn extract_gregory_boundary_curve(
             let cps = boundary_cps_10x10(&r.grid, boundary);
             Some(bezier_to_nurbs(&cps, 9))
         }
+        // Likewise: the dual-jet blend affects interior cells only —
+        // boundary rows/columns are plain controls.
+        GregoryPatch::RectangularBiNonicDualJet(r) => {
+            let cps = boundary_cps_10x10(&r.grid, boundary);
+            Some(bezier_to_nurbs(&cps, 9))
+        }
         GregoryPatch::Triangular(_) => None,
     }
 }
