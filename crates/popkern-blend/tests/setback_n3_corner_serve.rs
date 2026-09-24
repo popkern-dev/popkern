@@ -100,25 +100,29 @@ fn uniform_conic_cube_corner_serves_setback_fan_commercially() {
 }
 
 /// Flat conic sections (rho below the circular equivalent) at small
-/// radii interpenetrate at the corner once the strips extend to the
-/// setback arcs — the commit must decline (no-new-intersection gate)
-/// and the serve stays structurally clean on the vertex-blend path.
+/// radii were measured to interpenetrate at the corner once the strips
+/// extended to the setback arcs (PK-225: r = 0.1, rho = 0.35), and the
+/// flat-section class declined outright. That falsification aged
+/// with the substrate: re-measured 2026-09-24 (PK-518) the served
+/// setback body is self-intersection clean under `validate_all` AND
+/// the OpenCASCADE self-interference check (`BRepAlgoAPI_Check`).
+/// The class is now a TRIGGER for a measured corner-region
+/// self-intersection postcondition, not a verdict — this fixture pins
+/// that the flat-rho corner serves the setback fan clean.
 #[test]
-fn flat_rho_small_radius_corner_declines_setback_and_stays_clean() {
+fn flat_rho_small_radius_corner_serves_setback_only_when_measured_clean() {
     let result = cube_corner(BlendProfile::Conic { rho: 0.35 }, |_| {
         FilletRadius::Constant(0.1)
     });
     assert!(
-        result.corner_patches.iter().all(|cp| !cp.setback_cap),
-        "flat-rho small-radius corner must decline the setback commit"
+        result.corner_patches.iter().any(|cp| cp.setback_cap),
+        "the measured-clean flat-rho corner serves the setback fan"
     );
-    use popkern_core::error::ValidationError;
-    for error in result.brep.validate_all() {
-        assert!(
-            matches!(error, ValidationError::CurveSurfaceDeviation { .. }),
-            "declined corner must keep the vertex-blend serve's class, got {error:?}"
-        );
-    }
+    let errors = result.brep.validate_all();
+    assert!(
+        errors.is_empty(),
+        "the served flat-rho setback body must be fully valid, self-intersection included: {errors:?}"
+    );
 }
 
 /// Sphere-owned corners (uniform radii, analytic strips) keep the

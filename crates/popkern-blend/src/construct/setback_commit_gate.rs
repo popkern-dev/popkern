@@ -1,5 +1,16 @@
-//! Post-commit strip-conflict gate for N=3 setback vertex blends
-//! (PK-225).
+//! Post-commit strip-conflict TRIGGER for setback vertex blends
+//! (PK-225; demoted from verdict to trigger by PK-518).
+//!
+//! PK-518 re-measured the class on today's substrate: the rho = 0.35
+//! cube corner below now serves self-intersection clean
+//! (`validate_all` and OpenCASCADE `BRepAlgoAPI_Check`), and every G2
+//! strip — flatter than circular by construction (rho 0.4351 vs
+//! 0.4443 on the r = 0.16 triangular-pyramid apex) — serves clean
+//! too. The analytic class below therefore no longer declines on its
+//! own: when it fires, the surgery measures the committed corner
+//! region for self-intersection and declines only on a real one
+//! (`setback_vertex_topology`, strip-conflict postcondition). The
+//! history below records why the class was first a verdict.
 //!
 //! The N=3 setback extends the fillet strips to the setback arcs, and
 //! FLAT conic sections at small radii genuinely interpenetrate near
@@ -30,10 +41,55 @@
 //! no profile metadata needed, circular strips sit exactly on the
 //! boundary and pass.
 
+use popkern_core::geometry::gregory::{Kp20PaperCapReport, Kp20PaperGuideBorder};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 
 use crate::fillet_surface::FilletSurfaceResult;
+
+/// Paper-cap acceptance before any setback topology commits: the
+/// assembly's C0, G1 and border residuals must close at 1e-6 of the
+/// cap scale, floored at ten times the INPUT corner mismatch (skew
+/// adjacent trims — octagon8_mixed: no exact trim intersection,
+/// corners are closest-approach midpoints — bound how far any
+/// derivation can close; measured g2 2.1e-7 against a 4.0e-8
+/// pure-scale gate), and regularity must stay positive.
+///
+/// The paper's G2 rows are a construction residual, not the
+/// commercial G2 instrument (PK-518): at the regular valence n = 4 on
+/// real borders they stay open (g2 5.5e-4 against this gate) while
+/// the committed fan's LIVE seams measure inside the 5e-2 commercial
+/// G2 gate. G2 is therefore decided downstream by the fan-seam
+/// postcondition, alongside the fold and regularity gates.
+pub(in crate::construct) fn paper_cap_acceptance(
+    border: &Kp20PaperGuideBorder,
+    report: &Kp20PaperCapReport,
+    star: Point3,
+) -> Result<(), String> {
+    let scale = border
+        .sectors
+        .iter()
+        .flat_map(|sector| sector.iter())
+        .flat_map(|piece| piece.rows.iter().flatten())
+        .map(|cp| cp.distance_to(&star))
+        .fold(0.0_f64, f64::max);
+    let gate = (1.0e-6 * scale.max(f64::MIN_POSITIVE)).max(10.0 * report.input_corner_mismatch);
+    if report.max_g1_residual <= gate
+        && report.max_c0_residual <= gate
+        && report.max_border_residual <= gate
+        && report.min_regularity > 0.0
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "cap gates open: g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} min_reg={:.3e} gate={gate:.3e}",
+        report.max_g1_residual,
+        report.max_g2_residual,
+        report.max_c0_residual,
+        report.max_border_residual,
+        report.min_regularity,
+    ))
+}
 
 /// Decline reason when any strip's section is flatter than its
 /// circular equivalent (the interpenetration class), else `None`.

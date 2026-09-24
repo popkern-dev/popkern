@@ -548,13 +548,25 @@ fn surgery_inner(
     }
     // Strip-conflict postcondition (PK-225): the setback extends the
     // strips to the arcs, and flat conic sections at small radii
-    // genuinely interpenetrate near the shared contact corner. The
-    // committed arcs are the strips' new corner-side boundaries —
-    // a mid-arc contact with a NEIGHBOUR strip means the kept
-    // domains overlap (see setback_commit_gate module docs for the
-    // falsified alternatives).
-    if let Some(conflict) = super::setback_commit_gate::flat_section_class(fillet_surfaces) {
-        return Err(format!("strip-conflict postcondition failed: {conflict}"));
+    // genuinely interpenetrate near the shared contact corner (see
+    // setback_commit_gate module docs). The flat-section class is a
+    // TRIGGER, not the verdict (PK-518): every G2 strip is a little
+    // flatter than circular by construction (measured rho 0.4351 vs
+    // 0.4443 at the r = 0.16 triangular-pyramid apex) and serves
+    // self-intersection-clean, while the conic rho = 0.35 cube
+    // corner interpenetrates. When the class fires, the committed
+    // corner region is measured for self-intersection and only a
+    // real intersection declines.
+    if let Some(conflict) = super::setback_commit_gate::flat_section_class(fillet_surfaces)
+        && let Err(intersection) = crate::apex_construction::exact_boundary_cap::
+            cap_quality_postcondition::validate_candidate_region_self_intersection(
+                brep,
+                &cap_faces,
+            )
+    {
+        return Err(format!(
+            "strip-conflict postcondition failed: {conflict}; measured: {intersection}"
+        ));
     }
     // A G2 REQUEST additionally gates the seam's normal-curvature
     // residual (PK-122): a blunt apex (18° half-angle, pentagon5_blunt)
@@ -627,41 +639,7 @@ fn build_cap_face_fan(
         }
     };
     let star = crate::construct::setback_cap_presolve::kp20_cap_star(&border, vertex_position);
-    // Acceptance gate: the paper residuals must close at the relative
-    // tolerance (the same criterion as the stage-1 candidate) before
-    // any topology is committed. The floor is the INPUT corner
-    // mismatch: skew adjacent trims (octagon8_mixed: no exact trim
-    // intersection exists, corners are closest-approach midpoints)
-    // bound how far any derivation can close, so demanding better
-    // than the input rejects an assembly that is exact up to its
-    // input (measured: g2 2.1e-7 against a 4.0e-8 pure-scale gate).
-    // Fold, regularity, and the live-seam commercial gates still
-    // protect the committed quality downstream.
-    {
-        let scale = border
-            .sectors
-            .iter()
-            .flat_map(|sector| sector.iter())
-            .flat_map(|piece| piece.rows.iter().flatten())
-            .map(|cp| cp.distance_to(&star))
-            .fold(0.0_f64, f64::max);
-        let gate = (1.0e-6 * scale.max(f64::MIN_POSITIVE)).max(10.0 * report.input_corner_mismatch);
-        if report.max_g1_residual > gate
-            || report.max_g2_residual > gate
-            || report.max_c0_residual > gate
-            || report.max_border_residual > gate
-            || report.min_regularity <= 0.0
-        {
-            return Err(format!(
-                "cap gates open: g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} min_reg={:.3e} gate={gate:.3e}",
-                report.max_g1_residual,
-                report.max_g2_residual,
-                report.max_c0_residual,
-                report.max_border_residual,
-                report.min_regularity,
-            ));
-        }
-    }
+    super::setback_commit_gate::paper_cap_acceptance(&border, &report, star)?;
     let sectors = &report.sectors;
     if sectors.len() != n {
         return Err(format!("cap has {} sectors for {n} arcs", sectors.len()));

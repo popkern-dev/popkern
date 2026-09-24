@@ -29,6 +29,7 @@ pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
 mod end_runoff;
+mod end_runoff_curve;
 mod end_runoff_report;
 mod exact_boundary_cap_trim_fit;
 mod exact_boundary_cap_trim_restore;

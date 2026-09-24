@@ -115,10 +115,13 @@ fn solved_paper_tau_is_feasible_fold_free_and_near_the_printed_table() {
             "n={n}: sampled Jacobian margin too small: {:e}",
             report.min_jacobian,
         );
+        let jet_delta = report
+            .jet_delta
+            .expect("tabulated valences carry the printed-table cross-check");
         assert!(
-            report.jet_delta[0] < 1.0e-10,
+            jet_delta[0] < 1.0e-10,
             "n={n}: tau(o) must be the origin: {:e}",
-            report.jet_delta[0],
+            jet_delta[0],
         );
         // These orders carry the eq (21) reformulation GAUGE (the
         // jet_delta measure compares raw charts without the domain
@@ -127,9 +130,8 @@ fn solved_paper_tau_is_feasible_fold_free_and_near_the_printed_table() {
         // (kp20_paper_tau_eq21_fit.rs, PK-134). Bounds here are
         // regression levels for the raw-chart deviation only.
         assert!(
-            report.jet_delta[2] < 0.5 && report.jet_delta[3] < 1.5,
-            "n={n}: cubic-expansion deviation from the printed table grew: {:?}",
-            report.jet_delta,
+            jet_delta[2] < 0.5 && jet_delta[3] < 1.5,
+            "n={n}: cubic-expansion deviation from the printed table grew: {jet_delta:?}",
         );
     }
 }

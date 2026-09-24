@@ -1,10 +1,10 @@
 // A pentagonal pyramid carved from a blank by five exact tilted
 // planes — no pyramid primitive needed. Its five slant edges get
-// constant rounds, and where the five rounds meet at the apex the
-// kernel builds the setback Gregory vertex cap (twenty patch faces)
-// in place of the sharp point. Requesting g2 here measures honestly
-// as a downgrade today: the cap interior is curvature-continuous but
-// the strip-to-cap rim rows are an open frontier (PK-515).
+// curvature-continuous (g2) rounds, and where the five rounds meet at
+// the apex the kernel builds the setback Gregory vertex cap (twenty
+// patch faces, dual cross-jet corners) in place of the sharp point.
+// Try `sides = 3` or `4`: the triangular and square apexes serve the
+// same g2 setback cap.
 let m = model();
 
 let pi = 3.141592653589793;
@@ -38,7 +38,7 @@ for i in 0..sides {
 let slant = sqrt(base_r * base_r + height * height);
 pyramid.fillet(
     edges().straight().chord_length_between(slant - 0.05, slant + 0.05),
-    0.16, #{ continuity: "g1", label: "apex_rounds" });
+    0.16, #{ continuity: "g2", label: "apex_rounds" });
 
 m.assert_watertight();
 m

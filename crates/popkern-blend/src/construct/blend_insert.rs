@@ -113,7 +113,7 @@ pub(crate) fn insert_vertex_blend(
     // module docs — PK-225: N = 3 for corners the sphere does not own,
     // PK-226: variable/mixed radii). Unsuitable geometry declines
     // transactionally with the reason recorded. Test seams:
-    // dispatch_overrides::SETBACK_DISABLE / SETBACK_FORCE_DECLINE.
+    // dispatch_overrides::SETBACK_DISABLE / with_setback_forced_to_decline.
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let setback_min_n = setback_min_n_for(
         edge_indices,

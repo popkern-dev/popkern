@@ -102,13 +102,6 @@ pub static OUTER_FILLET_G1: DispatchOverride = DispatchOverride::new();
 /// (production default: setback serves eligible apexes).
 pub static SETBACK_DISABLE: DispatchOverride = DispatchOverride::new();
 
-/// Setback surgery forced decline: `Some(true)` makes an ATTEMPTED
-/// setback surgery decline transactionally (before any topology is
-/// touched) so tests can pin the post-decline ladder — the
-/// boundary-ring rung and the corner-resolution gate — on fixtures
-/// the setback cap otherwise serves (production default: off).
-pub static SETBACK_FORCE_DECLINE: DispatchOverride = DispatchOverride::new();
-
 /// Cylinder off-surface-vertex topology repair: `Some(true)` runs the
 /// repair everywhere, `Some(false)` disables it even for apex
 /// boundary contexts (production default: apex-boundary contexts
@@ -125,3 +118,31 @@ pub static TOPO_REPAIR_DIFF: DispatchOverride = DispatchOverride::new();
 /// (production default: the walker whenever a cone, cylinder or torus
 /// support or a G2 request calls for it).
 pub static WALKER_DISABLE: DispatchOverride = DispatchOverride::new();
+
+thread_local! {
+    static SETBACK_DECLINE_FORCED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with every ATTEMPTED setback surgery on this thread
+/// declining transactionally before touching topology, so a test can
+/// pin the post-decline ladder (the boundary-ring rung, the fallback
+/// dispatch, the corner-resolution gate) on corners the setback cap
+/// otherwise serves. Thread-scoped, unlike the global slots above:
+/// the vertex phase runs on the calling thread, so the seam cannot
+/// leak into tests running concurrently in the same process.
+/// Production never calls this.
+pub fn with_setback_forced_to_decline<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SETBACK_DECLINE_FORCED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(SETBACK_DECLINE_FORCED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_setback_forced_to_decline`] is active on this thread.
+pub(crate) fn setback_decline_forced() -> bool {
+    SETBACK_DECLINE_FORCED.with(std::cell::Cell::get)
+}

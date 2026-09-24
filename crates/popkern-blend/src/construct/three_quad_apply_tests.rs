@@ -61,7 +61,13 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
         profile: crate::types::BlendProfile::Conic { rho: 0.35 },
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&cube, &specs, &opts, tol, None).unwrap();
+    // PK-518: the flat-rho conic corner now serves the setback cap
+    // (measured self-intersection clean), so the pre-three-quad hex
+    // merge this guard pins is reached through the scoped decline seam.
+    let result = crate::dispatch_overrides::with_setback_forced_to_decline(|| {
+        fillet_edges(&cube, &specs, &opts, tol, None)
+    })
+    .unwrap();
 
     // Locate the corner patch for our target vertex.
     let target_info = result

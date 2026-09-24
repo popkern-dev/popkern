@@ -59,7 +59,7 @@ fn report_line(label: &str, report: &Kp20PaperCapReport) {
 /// and every cap-level gate must close at solver tolerance.
 #[test]
 fn characteristic_cap_closes_all_gates() {
-    for n in [3, 5, 6, 7, 8, 9, 10] {
+    for n in [3, 4, 5, 6, 7, 8, 9, 10] {
         let report = assemble_kp20_paper_cap(&characteristic_border(n), Point3::new(0.0, 0.0, 0.0))
             .expect("assemble");
         report_line("characteristic", &report);
@@ -77,7 +77,7 @@ fn characteristic_cap_closes_all_gates() {
 /// the paper's whole claim — regardless of the guide's ~0.14 misfit.
 #[test]
 fn production_cap_closes_g2_gates() {
-    for n in [5, 6, 7, 9, 10] {
+    for n in [4, 5, 6, 7, 9, 10] {
         let report = assemble_kp20_paper_cap(&production_border(n), Point3::new(0.0, 0.0, 0.0))
             .expect("assemble");
         report_line("production", &report);
@@ -284,4 +284,60 @@ fn characteristic_border_corner_overlap_mismatch_is_half_the_rim_leg() {
             "n={n}: corner mismatch {mismatch:e} vs rim leg {rim_leg:e}"
         );
     }
+}
+
+/// PK-518: the regular valence n = 4 (outside the paper's tabulated
+/// n = 3, 5..=10). Two mechanisms make it a first-class cap:
+/// (1) the τ solve carries explicit cross-sector C0 rows — at c = 0
+/// the G rows no longer imply them and the sampled cap broke C0
+/// across sectors by 1.3e-2; (2) the guide's KKT system is singular
+/// at n = 4, and the null space is now selected by the fairing
+/// functional instead of the absolute ridge (the characteristic cap
+/// needed a 2.7 strip movement to repair the ridge's wild guide).
+#[test]
+fn regular_valence_characteristic_cap_is_sector_consistent_and_fair() {
+    use crate::geometry::gregory::Kp20PieceId;
+    let n = 4;
+    let border = characteristic_border(n);
+    let guide = crate::geometry::gregory::kp20_paper_guide::solve_kp20_paper_guide_with_fairing(
+        &border,
+        Point3::new(0.0, 0.0, 0.0),
+        0.0,
+    )
+    .expect("guide");
+    let tau = solve_kp20_paper_tau(n).expect("tau");
+    let alpha = core::f64::consts::TAU / n as f64;
+    let sample = |s: usize| {
+        let rot = [(s as f64 * alpha).cos(), (s as f64 * alpha).sin()];
+        let mut sector = tau.tau;
+        for piece in Kp20PieceId::all() {
+            let patch = sector.piece_mut(piece);
+            for i in 0..7 {
+                for j in 0..7 {
+                    let cp = patch.cps[i][j];
+                    patch.cps[i][j] = Point3::new(
+                        cp.x * rot[0] - cp.y * rot[1],
+                        cp.x * rot[1] + cp.y * rot[0],
+                        0.0,
+                    );
+                }
+            }
+        }
+        kp20_sample_paper_cap_sector(n, s, &guide.sectors[s], &sector)
+    };
+    let (s0, s1) = (sample(0), sample(1));
+    let worst_c0 = (0..7)
+        .map(|i| {
+            s0.piece(Kp20PieceId::NearOriginLeft).cps[i][0]
+                .distance_to(&s1.piece(Kp20PieceId::NearOriginLeft).cps[0][i])
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(worst_c0 < 1.0e-10, "sampled cross-sector C0 {worst_c0:e}");
+    let report = assemble_kp20_paper_cap(&border, Point3::new(0.0, 0.0, 0.0)).expect("assemble");
+    report_line("characteristic regular", &report);
+    assert!(
+        report.max_strip_movement < 1.0e-2,
+        "the fair guide needs no strip repair: {:e}",
+        report.max_strip_movement
+    );
 }

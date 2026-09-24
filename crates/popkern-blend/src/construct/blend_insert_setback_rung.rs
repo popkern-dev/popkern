@@ -41,7 +41,7 @@ pub(super) fn try_setback_rung(
         // its patches overlap by construction, see PK-097).
         let gate_seam_g2 = requested_continuity == ContinuityLevel::G2;
         let mut fan_downgraded_to_g1 = false;
-        let mut surgery = if crate::dispatch_overrides::SETBACK_FORCE_DECLINE.get() == Some(true) {
+        let mut surgery = if crate::dispatch_overrides::setback_decline_forced() {
             Err("forced decline (dispatch override)".to_string())
         } else {
             crate::construct::setback_vertex_topology::try_setback_boundary_surgery(

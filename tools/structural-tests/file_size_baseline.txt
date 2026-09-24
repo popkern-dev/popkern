@@ -42,7 +42,7 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part1
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part2.rs 4232
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part3.rs 4145
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part4.rs 2344
-crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 689
+crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 684
 crates/popkern-core/src/geometry/uv_projection.rs 506
 crates/popkern-core/src/topology/pcurve_recompute.rs 654
 crates/popkern-examples/src/dice_set.rs 1186
@@ -52,10 +52,9 @@ crates/popkern-examples/src/laptop_stand_api.rs 1070
 crates/popkern-blend/src/chamfer_curve.rs 711
 crates/popkern-blend/src/construct/blend_insert.rs 604
 crates/popkern-blend/src/construct/closed_fillet.rs 572
-crates/popkern-blend/src/construct/end_runoff.rs 578
 crates/popkern-blend/src/construct/kp20_paper_border_extract.rs 971
 crates/popkern-blend/src/construct/pns_setback_candidate.rs 509
-crates/popkern-blend/src/construct/setback_vertex_topology.rs 1825
+crates/popkern-blend/src/construct/setback_vertex_topology.rs 1803
 crates/popkern-blend/src/g2_cross_section.rs 597
 crates/popkern-blend/src/g2_cross_section_tests.rs 540
 crates/popkern-blend/tests/support/kp_gate_shared_trims.rs 501

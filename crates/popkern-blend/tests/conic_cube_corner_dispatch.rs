@@ -84,8 +84,13 @@ fn exact_boundary_details(
 /// the dispatch — pinned in setback_n3_corner_serve.rs.)
 #[test]
 fn conic_cube_corner_dispatch_is_measured_not_starved() {
-    let result = cube_corner_result(BlendProfile::Conic { rho: 0.35 }, |_| {
-        FilletRadius::Constant(0.1)
+    // PK-518: the flat-rho conic corner now serves the setback cap
+    // (measured self-intersection clean); the rational dispatch this
+    // test pins is reached through the scoped setback-decline seam.
+    let result = popkern_blend::dispatch_overrides::with_setback_forced_to_decline(|| {
+        cube_corner_result(BlendProfile::Conic { rho: 0.35 }, |_| {
+            FilletRadius::Constant(0.1)
+        })
     });
 
     let starved = exact_boundary_details(&result).any(|(stage, detail)| {

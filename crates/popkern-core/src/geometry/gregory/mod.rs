@@ -133,6 +133,7 @@ mod kp20_paper_cap_measure;
 mod kp20_paper_cap_sample;
 mod kp20_paper_cap_strip;
 mod kp20_paper_guide;
+mod kp20_paper_guide_fairing;
 mod kp20_paper_tau;
 mod kp20_paper_tau_measure;
 mod kp_boundary_consistency;

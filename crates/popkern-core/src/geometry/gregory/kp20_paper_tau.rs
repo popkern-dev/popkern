@@ -83,8 +83,10 @@ pub struct Kp20PaperTauReport {
     pub min_jacobian: f64,
     /// Worst per-order deviation of the solved cubic jet at `o` from
     /// the printed eq (21)/(22) table (orders 0..=3, sector-scale
-    /// parameters).
-    pub jet_delta: [f64; 4],
+    /// parameters). `None` at a valence the paper does not tabulate
+    /// (n = 4, the regular valence): the τ solve itself is
+    /// valence-generic, only this cross-check needs the table.
+    pub jet_delta: Option<[f64; 4]>,
 }
 
 /// Solve the KP20 paper τ for one valence from the derived
@@ -93,7 +95,10 @@ pub struct Kp20PaperTauReport {
 pub fn solve_kp20_paper_tau(n: usize) -> Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError> {
     let solved = solve_kp20_paper_tau_raw(n)?;
     let orientation = kp20_paper_tau_orientation_summary(&solved.tau_macro_patch);
-    let jet_delta = kp20_paper_tau_jet_delta(n, &solved.tau_macro_patch)?;
+    let jet_delta = match super::kp20_bi6_math::kappa_for_valence(n) {
+        Some(_) => Some(kp20_paper_tau_jet_delta(n, &solved.tau_macro_patch)?),
+        None => None,
+    };
     Ok(Kp20PaperTauReport {
         n,
         tau: solved.tau_macro_patch,
@@ -392,6 +397,25 @@ fn kp20_paper_tau_rotational_g1_g2_rows(n: usize) -> Vec<Kp20PlanarTauScalarLine
 
     add_pair(P1, P1, kp20_b_coeffs_near_o(c));
     add_pair(P2, P4, kp20_b_coeffs_near_m(c));
+    // Cross-sector C0 along the separating curve: the previous
+    // sector's (i, 0) row, rotated by R^{-1}, is the current sector's
+    // (0, i) row (near o: P1 ↔ P1; near m: P2 ↔ P4). At n >= 5 the
+    // G rows above and the border pins imply it (measured 8e-13); at
+    // the regular valence n = 4 (c = 0, b(u) ≡ 0) they do not, and
+    // the solve left the spoke edge 6.6e-3 off its spoke — every
+    // sampled cap then broke C0 across sectors by 1.3e-2 (PK-518).
+    for (prev_piece, curr_piece) in [(P1, P1), (P2, P4)] {
+        for i in 0..7_usize {
+            for axis in 0..2_usize {
+                let (wx, wy) = if axis == 0 { (rc, -rs) } else { (rs, rc) };
+                rows.push(Kp20PlanarTauScalarLinearConstraint::homogeneous(vec![
+                    (scalar(prev_piece, i, 0, 0), wx),
+                    (scalar(prev_piece, i, 0, 1), wy),
+                    (scalar(curr_piece, 0, i, axis), -1.0),
+                ]));
+            }
+        }
+    }
     rows
 }
 

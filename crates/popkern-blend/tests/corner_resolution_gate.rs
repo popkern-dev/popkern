@@ -2,11 +2,9 @@
 //! cap sense (PK-517), pinned on the pentagonal-pyramid apex.
 //!
 //! The setback vertex blend serves this apex in production, so the
-//! fallback ladder behind it is reached here through the
-//! `SETBACK_FORCE_DECLINE` dispatch override — the stand-in for "any
-//! future setback decline". This binary holds only tests that want
-//! the override set, so it is set once for the whole process (a
-//! per-test guard would unset it under a still-running sibling).
+//! fallback ladder behind it is reached here through the thread-scoped
+//! `with_setback_forced_to_decline` test seam — the stand-in for "any
+//! future setback decline".
 
 use popkern_blend::error::{BlendError, BlendFailure};
 use popkern_blend::{
@@ -36,7 +34,6 @@ fn pentagon_apex() -> (BRep, VertexHandle, Vec<EdgeHandle>) {
 }
 
 fn apex_fillet(vertex_mode: VertexMode) -> (BRep, VertexHandle, Result<(), BlendError>) {
-    popkern_blend::dispatch_overrides::SETBACK_FORCE_DECLINE.set(Some(true));
     let (pyramid, apex, edges) = pentagon_apex();
     let specs: Vec<FilletSpec> = edges
         .iter()
@@ -50,7 +47,9 @@ fn apex_fillet(vertex_mode: VertexMode) -> (BRep, VertexHandle, Result<(), Blend
         vertex_mode,
         ..Default::default()
     };
-    let result = fillet_edges(&pyramid, &specs, &options, Tolerance::default(), None).map(|_| ());
+    let result = popkern_blend::dispatch_overrides::with_setback_forced_to_decline(|| {
+        fillet_edges(&pyramid, &specs, &options, Tolerance::default(), None).map(|_| ())
+    });
     (pyramid, apex, result)
 }
 

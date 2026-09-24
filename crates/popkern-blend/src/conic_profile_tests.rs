@@ -274,16 +274,20 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let corner_result = crate::fillet_edges(&brep, &specs, &conic_options(0.35), tol, None)
-        .expect("conic corner fillets must build");
+    // PK-518: the flat-rho gate is now a trigger for a measured
+    // self-intersection check, and this corner serves the setback cap
+    // clean; the ring carve pinned below is reached through the scoped
+    // setback-decline seam (the ring rung needs an attempted decline).
+    let corner_result = crate::dispatch_overrides::with_setback_forced_to_decline(|| {
+        crate::fillet_edges(&brep, &specs, &conic_options(0.35), tol, None)
+    })
+    .expect("conic corner fillets must build");
     assert!(
         corner_result.brep.boundary_edges.is_empty(),
         "conic corner must serve without dead sides"
     );
-    // Corner quality (PK-239): the corner declines the setback rung
-    // by the RECORDED flat-rho gate (rho 0.3501 < circular 0.4142 —
-    // PK-226's deliberate analytic gate), which now makes it
-    // eligible for the boundary-driven ring carve: pushed stations
+    // Corner quality (PK-239): a declined setback rung makes the
+    // corner eligible for the boundary-driven ring carve: pushed stations
     // clear the mitre complex, the exact interior-iso section arcs
     // land on the conic strips by identity, and the carve replaces
     // the mitred chords (whose measured class ceiling was 7.35e-2

@@ -24,7 +24,7 @@
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, Point3, SurfaceGeometry, Vec3};
+use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 /// One applied runoff, for diagnostics.
@@ -258,8 +258,6 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
         .ok_or("strip lost surface")?;
     let p_prev = brep.vertices[cand.anchor_prev].position;
     let p_next = brep.vertices[cand.anchor_next].position;
-    let signed =
-        |p: Point3| (p - cand.plane_origin).dot(&cand.plane_normal) / cand.plane_normal.length();
 
     // Runoff curve: march across the sweep between the two anchors,
     // finding the plane crossing per station by bisection in the
@@ -299,117 +297,19 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
             (ub - ua).abs()
         );
     }
-    const N: usize = 33;
-    let mut pts: Vec<Point3> = Vec::with_capacity(N);
-    // Analytic cylinders: the runoff curve (cylinder ∩ end plane) is
-    // graph-like over the ANGLE, not the axial coordinate — at a
-    // symmetric corner both anchors share the same axial value and
-    // an axial march degenerates to a straight chord (PK-097:
-    // visibly flat base corners). March u between the anchor angles
-    // and solve the plane equation for v in closed form.
-    let cylinder_ellipse = if let SurfaceGeometry::Cylinder { axis, .. } = &surface {
-        let n = cand.plane_normal;
-        let denom = axis.dot(&n);
-        if denom.abs() > 1.0e-9 {
-            for i in 0..N {
-                let f = i as f64 / (N - 1) as f64;
-                let u = ua + (ub - ua) * f;
-                let ring = surface.point_at(u, 0.0);
-                let v = (cand.plane_origin - ring).dot(&n) / denom;
-                pts.push(ring + *axis * v);
-            }
-            pts[0] = p_prev;
-            pts[N - 1] = p_next;
-            true
-        } else {
-            false
-        }
-    } else {
-        false
+    // PK-518: a cubic interpolant of exact crossings, refined until
+    // its measured deviation is within a tenth of the linear
+    // tolerance (see `end_runoff_curve`).
+    let crossing = super::end_runoff_curve::RunoffCrossing {
+        surface: &surface,
+        plane_origin: cand.plane_origin,
+        plane_normal: cand.plane_normal,
+        anchors: ((ua, va), (ub, vb)),
+        parameter_box: ((bu0, bu1), (bv0, bv1)),
     };
-    if !cylinder_ellipse {
-        // Station parameter = the one along which the anchors are
-        // genuinely separated (box-normalized). The curve is
-        // graph-like over that parameter; the other one is bisected
-        // per station. Marching the degenerate parameter collapses
-        // the curve to the anchor chord at mirror-symmetric corners
-        // (PK-097 on cylinders; charts with the opposite
-        // orientation would hit it on sweeps — PK-098 hardening).
-        let du_n = ((ua - ub) / (bu1 - bu0).max(1.0e-12)).abs();
-        let dv_n = ((va - vb) / (bv1 - bv0).max(1.0e-12)).abs();
-        let march_v = dv_n >= du_n;
-        let (sa, sb, (b0, b1), (ca, cb)) = if march_v {
-            (va, vb, (bu0, bu1), (ua, ub))
-        } else {
-            (ua, ub, (bv0, bv1), (va, vb))
-        };
-        let eval = |station: f64, cross: f64| -> Point3 {
-            if march_v {
-                surface.point_at(cross, station)
-            } else {
-                surface.point_at(station, cross)
-            }
-        };
-        for i in 0..N {
-            let f = i as f64 / (N - 1) as f64;
-            let station = sa + (sb - sa) * f;
-            // Bracket the crossing in the cross parameter: from the
-            // strip's mid-surface (material side) toward the
-            // overshooting border.
-            let mid_box = 0.5 * (b0 + b1);
-            let border = if (ca + cb) * 0.5 > mid_box { b1 } else { b0 };
-            let (mut lo, mut hi) = (mid_box, border);
-            let d_lo = signed(eval(station, lo));
-            let d_hi = signed(eval(station, hi));
-            if d_lo.abs() < 1.0e-12 {
-                pts.push(eval(station, lo));
-                continue;
-            }
-            if d_lo.signum() == d_hi.signum() {
-                // No crossing at this station (ends exactly on the
-                // plane): take the border point projected to the
-                // plane.
-                let p = eval(station, hi);
-                let d = signed(p);
-                let n = cand.plane_normal;
-                let n2 = n.dot(&n);
-                pts.push(Point3::new(
-                    p.x - n.x * d / n2.sqrt(),
-                    p.y - n.y * d / n2.sqrt(),
-                    p.z - n.z * d / n2.sqrt(),
-                ));
-                continue;
-            }
-            for _ in 0..60 {
-                let mid = 0.5 * (lo + hi);
-                let dm = signed(eval(station, mid));
-                if dm.signum() == d_lo.signum() {
-                    lo = mid;
-                } else {
-                    hi = mid;
-                }
-            }
-            pts.push(eval(station, 0.5 * (lo + hi)));
-        }
-    }
-    // Endpoints snapped to the topology vertices.
-    pts[0] = p_prev;
-    let last = pts.len() - 1;
-    pts[last] = p_next;
-
-    // Degree-1 interpolating NURBS through the runoff points.
-    let mut knots = Vec::with_capacity(N + 2);
-    knots.push(0.0);
-    for i in 0..N {
-        knots.push(i as f64 / (N - 1) as f64);
-    }
-    knots.push(1.0);
-    let runoff = NurbsCurve {
-        degree: 1,
-        knots,
-        control_points: pts,
-        weights: vec![1.0; N],
-    };
+    let linear = brep.tolerance.linear();
+    let (runoff, deviation) =
+        super::end_runoff_curve::build_runoff_curve(&crossing, p_prev, p_next, 0.1 * linear)?;
 
     // Surgery: mef anchor_prev → anchor_next across the strip face.
     let (he_a, he_b) =
@@ -423,6 +323,11 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
             t_start: 0.0,
             t_end: 1.0,
         });
+        // A residual the density cap could not bring under the linear
+        // tolerance is recorded, never hidden.
+        if deviation > linear {
+            edge.tolerance = Some(deviation);
+        }
     }
     // The sliver = whichever face contains the corner vertex. Its
     // loop must be exactly the triangle [runoff edge, corner edge,
