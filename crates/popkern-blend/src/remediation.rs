@@ -313,11 +313,10 @@ impl BlendFailure {
                     RemediationAction::Precheck,
                     format!(
                         "The mitred corner could not be built ({reason}). A \
-                         mitre needs equal-radius cylinder fillets whose \
-                         strips share a point near the corner. Give every \
-                         fillet at this vertex the same radius, or split the \
-                         operation so fewer edges meet at the vertex in one \
-                         fillet (round them in sequence)."
+                         mitre needs a point shared by every fillet strip \
+                         near the corner, which irregular corners of four \
+                         or more fillets lack. Split the operation so fewer \
+                         edges meet at the vertex in one fillet (round them in sequence)."
                     ),
                 )
             }
@@ -326,8 +325,8 @@ impl BlendFailure {
                 format!(
                     "No corner blend could be built at this vertex \
                      ({reason}). Request `VertexMode::Mitred` to trim \
-                     equal-radius fillets to their mutual intersections \
-                     (PK-522), split the operation so fewer edges meet at \
+                     the fillets to their mutual intersections \
+                     (PK-522, PK-528), split the operation so fewer edges meet at \
                      the vertex in one fillet (round them in sequence), or \
                      reduce the radii."
                 ),

@@ -69,7 +69,7 @@ pub(super) fn solve_mitre_point(
 
 /// Cramer's rule for a 3×3 system, `None` when it is singular (the
 /// strip axes do not pin a point).
-fn solve3(a: [[f64; 3]; 3], b: [f64; 3]) -> Option<[f64; 3]> {
+pub(super) fn solve3(a: [[f64; 3]; 3], b: [f64; 3]) -> Option<[f64; 3]> {
     let det = |m: [[f64; 3]; 3]| {
         m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
             - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])

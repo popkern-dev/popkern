@@ -143,16 +143,29 @@ fn smooth_fallback_declines_instead_of_serving_an_off_surface_mitre() {
     );
 }
 
-/// PK-516 + PK-522: an explicit mitre request at this G2 apex keeps
-/// its off-surface residue. The mitre-corner settlement trims only
-/// circular-cylinder strips, and curvature-continuous G2 strips are
-/// not cylinders. The request declines with both causes named.
+/// PK-516 → PK-528: an explicit mitre request at this G2 apex once
+/// served its off-surface residue (PK-516 declined it), and its
+/// curvature-continuous strips then declined the analytic mitre
+/// (PK-522). The marched mitre now trims the five strips to their
+/// mutual intersections at the apex's mitre point.
 #[test]
-fn requested_mitre_declines_when_its_corner_residue_is_off_surface() {
-    let (input, apex, result) = apex_fillet(VertexMode::Mitred);
-    let reason = corner_decline(&input, apex, result);
-    assert!(
-        reason.contains("mitred corner requested; mitre declined: a strip is not a cylinder"),
-        "the decline names the cause: {reason}"
-    );
+fn requested_mitre_serves_the_g2_apex() {
+    let (pyramid, _, edges) = pentagon_apex();
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.16),
+        })
+        .collect();
+    let options = FilletOptions {
+        continuity: ContinuityLevel::G2,
+        vertex_mode: VertexMode::Mitred,
+        ..Default::default()
+    };
+    let result = fillet_edges(&pyramid, &specs, &options, Tolerance::default(), None)
+        .expect("the G2 apex mitres");
+    assert_eq!(result.repair_report.mitre_corner.corners_built, 1);
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
 }

@@ -216,14 +216,15 @@ fn vertex_blend_failed_routes_to_splitting_the_operation() {
 fn declined_mitre_does_not_route_back_to_the_mitre() {
     let failure = BlendFailure::VertexBlendFailed {
         vertex: popkern_core::topology::VertexHandle::default(),
-        reason: "mitred corner requested; mitre declined: strip radii differ".to_string(),
+        reason: "mitred corner requested; mitre declined: no point lies on every strip".to_string(),
         location: None,
     };
     let hint = failure.remediation_hint();
     assert_eq!(hint.action, RemediationAction::Precheck);
     assert!(
-        hint.rationale.contains("same radius") && !hint.rationale.contains("VertexMode::Mitred"),
-        "a declined mitre names the radius precondition: {}",
+        hint.rationale.contains("shared by every fillet strip")
+            && !hint.rationale.contains("VertexMode::Mitred"),
+        "a declined mitre names the common-point precondition: {}",
         hint.rationale
     );
 }

@@ -6,9 +6,10 @@
 //! corner-resolution gate (PK-516) declined it. The mitre-corner
 //! settlement now trims every adjacent strip pair to its exact
 //! bisector-ellipse intersection, with all seams meeting at the
-//! strips' common mitre point. Where no such point exists (mismatched
-//! radii, an irregular corner of four or more strips) the corner
-//! declines with a typed reason.
+//! strips' common mitre point. Where no such point exists (an
+//! irregular corner of four or more strips) the corner declines with
+//! a typed reason. Mixed-radius and non-cylindrical strips take the
+//! marched path (`mitre_corner_marched.rs`, PK-528).
 
 use popkern_blend::{
     BlendError, BlendFailure, FilletOptions, FilletRadius, FilletSpec, VertexMode,
@@ -293,23 +294,6 @@ fn irregular_valence_four_apex_declines_without_a_mitre_point() {
     assert!(
         reason.contains("mitre declined: no point lies on every strip"),
         "typed no-common-point decline: {reason}"
-    );
-}
-
-#[test]
-fn mismatched_radii_mitre_declines_typed() {
-    let (cube, edges) = cube_at_origin_corner();
-    let result = popkern_blend::fillet_edges(
-        &cube,
-        &specs(&edges, &[0.05, 0.08, 0.05]),
-        &mitred(),
-        Tolerance::default(),
-        None,
-    );
-    let reason = declined_corner_reason(&cube, result);
-    assert!(
-        reason.contains("mitre declined: strip radii differ"),
-        "typed mismatched-radii decline: {reason}"
     );
 }
 
