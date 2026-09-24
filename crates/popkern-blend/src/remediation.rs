@@ -308,16 +308,28 @@ impl BlendFailure {
                     .with_parameter("linear")
                 }
             }
+            BlendFailure::VertexBlendFailed { reason, .. } if reason.contains("mitre declined") => {
+                Remediation::new(
+                    RemediationAction::Precheck,
+                    format!(
+                        "The mitred corner could not be built ({reason}). A \
+                         mitre needs equal-radius cylinder fillets whose \
+                         strips share a point near the corner. Give every \
+                         fillet at this vertex the same radius, or split the \
+                         operation so fewer edges meet at the vertex in one \
+                         fillet (round them in sequence)."
+                    ),
+                )
+            }
             BlendFailure::VertexBlendFailed { reason, .. } => Remediation::new(
                 RemediationAction::Precheck,
                 format!(
                     "No corner blend could be built at this vertex \
-                     ({reason}). Split the operation so fewer edges \
-                     meet at the vertex in one fillet (round them in \
-                     sequence), or reduce the radii. `VertexMode::Mitred` \
-                     builds no corner geometry either: its bare corner \
-                     is the same off-surface residue and declines the \
-                     same way (PK-516)."
+                     ({reason}). Request `VertexMode::Mitred` to trim \
+                     equal-radius fillets to their mutual intersections \
+                     (PK-522), split the operation so fewer edges meet at \
+                     the vertex in one fillet (round them in sequence), or \
+                     reduce the radii."
                 ),
             ),
             BlendFailure::IntersectionFailed { reason, .. } => Remediation::new(

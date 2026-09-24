@@ -143,15 +143,16 @@ fn smooth_fallback_declines_instead_of_serving_an_off_surface_mitre() {
     );
 }
 
-/// PK-516: an explicit mitre request builds no corner blend at all;
-/// the trim-pipeline residue it would serve is off-surface, so the
-/// request declines with the cause named.
+/// PK-516 + PK-522: an explicit mitre request at this G2 apex keeps
+/// its off-surface residue. The mitre-corner settlement trims only
+/// circular-cylinder strips, and curvature-continuous G2 strips are
+/// not cylinders. The request declines with both causes named.
 #[test]
 fn requested_mitre_declines_when_its_corner_residue_is_off_surface() {
     let (input, apex, result) = apex_fillet(VertexMode::Mitred);
     let reason = corner_decline(&input, apex, result);
     assert!(
-        reason.contains("mitred corner requested"),
+        reason.contains("mitred corner requested; mitre declined: a strip is not a cylinder"),
         "the decline names the cause: {reason}"
     );
 }

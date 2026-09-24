@@ -381,29 +381,15 @@ fn fillet_three_edges_at_cube_corner_mitred() {
         ..FilletOptions::default()
     };
 
-    // PK-516: the mitred mode builds no corner geometry; the bare
-    // cube corner it once served was structurally sound but its
-    // corner edges sat off their strips (check 9 — never asserted
-    // here). The corner-resolution gate now declines it, typed at
-    // the corner vertex, with the input handed back untouched.
-    let result = popkern_blend::fillet_edges(&brep, &specs, &opts, tol, None);
-    let Err(popkern_blend::error::BlendError::PartialFailure {
-        partial_result,
-        failures,
-        ..
-    }) = result
-    else {
-        panic!("a bare mitred corner must decline, got Ok");
-    };
-    assert_eq!(partial_result.faces.len(), brep.faces.len());
-    assert!(
-        failures.iter().any(|(_, f)| matches!(
-            f,
-            popkern_blend::BlendFailure::VertexBlendFailed { vertex: v, reason, .. }
-                if *v == vertex && reason.contains("mitred corner requested")
-        )),
-        "expected the typed corner decline at the cube corner: {failures:?}"
-    );
+    // PK-522: the mitre trims the three strips to their mutual
+    // bisector-ellipse intersections, meeting at the tricylinder
+    // vertex (PK-516 had declined the bare residue). Check 9 is the
+    // gate the residue failed.
+    let result = popkern_blend::fillet_edges(&brep, &specs, &opts, tol, None)
+        .expect("mitred cube corner serves");
+    assert_eq!(result.repair_report.mitre_corner.corners_built, 1);
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
 }
 
 #[test]

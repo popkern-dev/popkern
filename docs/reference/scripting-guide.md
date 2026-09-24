@@ -220,8 +220,7 @@ let m = model();
 let prism = m.profile(xy()).polygon([[0.0, 0.0], [1.0, 0.0], [0.5, 0.8]]).sketch("tri").extrude(blind(1.0));
 m.label_face("top", faces().facing("z").at_height(1.0));
 m.label_edge("front_top", edges().straight().at_height(1.0).direction("x").chord_length_between(0.9, 1.1));
-// The front edge at the base, plus the labelled front edge on top.
-prism.fillet(edges().straight().at_height(0.0).direction("x").or(edges().labeled("front_top")), 0.08, #{ label: "rounds" });
+prism.fillet(edges().straight().direction("z").or(edges().labeled("front_top")), 0.08, #{ label: "rounds" });
 prism.chamfer(edges().circular().at_height(9.0).allow_empty(), 0.02, #{ label: "no_rims" });   // a no-op, recorded as such
 print(m.labels().len());
 m

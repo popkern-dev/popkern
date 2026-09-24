@@ -78,6 +78,9 @@ pub struct UnresolvedCorner {
     pub faces: Vec<FaceHandle>,
     /// Why no corner blend was built.
     pub cause: UnresolvedCornerCause,
+    /// Why the mitre-corner settlement declined it, when it tried
+    /// (PK-522).
+    pub mitre_decline: Option<crate::types::MitreCornerDeclineReason>,
 }
 
 /// Record an unresolved corner: snapshot the face star of `vertex`
@@ -108,6 +111,7 @@ pub(crate) fn record_unresolved_corner(
         edge,
         faces,
         cause,
+        mitre_decline: None,
     })
 }
 
@@ -208,9 +212,14 @@ pub(crate) struct CornerResolutionViolation {
 impl CornerResolutionViolation {
     /// Human-readable decline reason for `VertexBlendFailed`.
     pub(crate) fn reason(&self) -> String {
+        let mitre = self
+            .corner
+            .mitre_decline
+            .map(|reason| format!("; mitre declined: {reason}"))
+            .unwrap_or_default();
         format!(
-            "corner left without a corner blend ({}) and its territory fails curve-surface \
-             consistency: {} edge(s) off their faces, worst {:?} at {:.3e}",
+            "corner left without a corner blend ({}{mitre}) and its territory fails \
+             curve-surface consistency: {} edge(s) off their faces, worst {:?} at {:.3e}",
             self.corner.cause, self.failing_edges, self.worst_edge, self.worst_deviation
         )
     }

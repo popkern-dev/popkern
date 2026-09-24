@@ -196,9 +196,8 @@ fn intersection_failed_routes_to_increase_tolerance() {
 
 #[test]
 fn vertex_blend_failed_routes_to_splitting_the_operation() {
-    // PK-516: a mitre is not an alternative — it builds no corner
-    // geometry and its bare corner declines the same way — so the
-    // hint must not send callers there.
+    // PK-522: a smooth-corner decline points at the mitre (which now
+    // trims the strips to their mutual intersections) and the split.
     let failure = BlendFailure::VertexBlendFailed {
         vertex: popkern_core::topology::VertexHandle::default(),
         reason: "degenerate".to_string(),
@@ -207,8 +206,24 @@ fn vertex_blend_failed_routes_to_splitting_the_operation() {
     let hint = failure.remediation_hint();
     assert_eq!(hint.action, RemediationAction::Precheck);
     assert!(
-        hint.rationale.contains("in sequence") && hint.rationale.contains("declines the"),
-        "rationale should name the split and rule out the mitre: {}",
+        hint.rationale.contains("in sequence") && hint.rationale.contains("VertexMode::Mitred"),
+        "rationale should name the split and the mitre: {}",
+        hint.rationale
+    );
+}
+
+#[test]
+fn declined_mitre_does_not_route_back_to_the_mitre() {
+    let failure = BlendFailure::VertexBlendFailed {
+        vertex: popkern_core::topology::VertexHandle::default(),
+        reason: "mitred corner requested; mitre declined: strip radii differ".to_string(),
+        location: None,
+    };
+    let hint = failure.remediation_hint();
+    assert_eq!(hint.action, RemediationAction::Precheck);
+    assert!(
+        hint.rationale.contains("same radius") && !hint.rationale.contains("VertexMode::Mitred"),
+        "a declined mitre names the radius precondition: {}",
         hint.rationale
     );
 }

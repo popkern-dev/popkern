@@ -160,13 +160,22 @@ pub(super) fn author_seam_curve(
         psi_s = -psi_s;
         sweep = -sweep;
     }
-    let mid = frame.center
-        + frame.major_dir * (frame.semi_major * (psi_s + 0.5 * sweep).cos())
-        + minor * (frame.radius * (psi_s + 0.5 * sweep).sin());
-    // Branch witness: the short seam arc passes the stale corner
-    // region; the complementary arc swings to the far side of both
-    // strips (≈ 2·semi_major away).
-    if (mid - stale_corner).length() > frame.semi_major {
+    let at = |psi: f64| {
+        frame.center
+            + frame.major_dir * (frame.semi_major * psi.cos())
+            + minor * (frame.radius * psi.sin())
+    };
+    // Branch witness: the seam is the arc through the stale corner's
+    // side of the ellipse, so the short arc's midpoint must be nearer
+    // the stale corner than the complementary arc's (its antipode on
+    // the ellipse). An absolute bound (midpoint within semi_major of
+    // the corner) held only near right-angled corners: at an acute
+    // pyramid base corner the true arc's midpoint sits 1.09·semi_major
+    // away (PK-522).
+    let mid_angle = psi_s + 0.5 * sweep;
+    if (at(mid_angle) - stale_corner).length()
+        >= (at(mid_angle + std::f64::consts::PI) - stale_corner).length()
+    {
         return Err(Reason::SweepUnresolved);
     }
     let arc = CurveOnEdge {

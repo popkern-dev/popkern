@@ -76,3 +76,70 @@ pub enum BlendSeamCornerDeclineReason {
     /// from the pre-corner snapshot.
     ValidationFailed,
 }
+
+/// Structured outcome of the mitre-corner settlement pass (PK-522):
+/// corners of three or more equal-radius strips closed by trimming
+/// every adjacent strip pair to its exact mutual intersection, all
+/// seams meeting at the strips' common mitre point.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MitreCornerReport {
+    /// Corners closed with exact strip×strip seams meeting at one
+    /// vertex (support-plane flaps retired).
+    pub corners_built: usize,
+    /// Unresolved corners the pass declined, with the reason. A
+    /// decline restores the corner's pre-pass state; the
+    /// corner-resolution gate then decides whether the operation
+    /// serves.
+    pub declines: Vec<MitreCornerDecline>,
+}
+
+/// One declined mitre corner.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MitreCornerDecline {
+    /// The corner vertex.
+    pub corner: VertexHandle,
+    /// Why the mitre was not built.
+    pub reason: MitreCornerDeclineReason,
+}
+
+/// Structural reasons an unresolved corner is not mitred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MitreCornerDeclineReason {
+    /// The corner is not a star of support-plane flaps, each bounded
+    /// by two strips meeting at one rail crossing (the residue the
+    /// face-trim pipeline leaves at an unblended corner).
+    UnrecognizedResidue,
+    /// A strip at the corner is not a cylinder. Swept and rational
+    /// strips have no analytic common point.
+    NonCylindricalStrip,
+    /// The strips carry different radii. Their axes then miss one
+    /// another and no point lies on every strip.
+    MismatchedRadii,
+    /// No point near the corner lies on every strip (for example an
+    /// irregular corner of four or more strips): there is no mitre
+    /// point for the seams to meet at.
+    NoCommonPoint,
+    /// A strip-pair seam from its rail crossing to the mitre point
+    /// could not be authored exactly.
+    SeamUnresolved(BlendSeamCornerDeclineReason),
+    /// An Euler operator rejected the flap surgery; the corner was
+    /// restored.
+    EulerRejected,
+    /// The mitred body failed a seam or validation postcondition;
+    /// the corner was restored.
+    ValidationFailed,
+}
+
+impl std::fmt::Display for MitreCornerDeclineReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnrecognizedResidue => write!(f, "corner residue is not a flap star"),
+            Self::NonCylindricalStrip => write!(f, "a strip is not a cylinder"),
+            Self::MismatchedRadii => write!(f, "strip radii differ"),
+            Self::NoCommonPoint => write!(f, "no point lies on every strip"),
+            Self::SeamUnresolved(reason) => write!(f, "strip-pair seam unresolved ({reason:?})"),
+            Self::EulerRejected => write!(f, "flap surgery rejected"),
+            Self::ValidationFailed => write!(f, "mitred corner failed its postconditions"),
+        }
+    }
+}

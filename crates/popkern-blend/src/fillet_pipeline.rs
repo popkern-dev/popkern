@@ -372,6 +372,11 @@ pub(crate) fn fillet_edges_attempt(
             &mut apply_result.brep,
             &tolerance,
         );
+    apply_result.repair_report.mitre_corner = construct::blend_mitre_corner::settle_mitre_corners(
+        &mut apply_result.brep,
+        &mut apply_result.unresolved_corners,
+        &tolerance,
+    );
     // PK-141 settle: AFTER corner settlements, region bodies only.
     if apply_result.repair_report.region_resolved_trims > 0 {
         let _ = construct::stale_vertex_settle::settle_stale_strip_vertices(

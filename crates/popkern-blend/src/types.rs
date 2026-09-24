@@ -42,9 +42,7 @@ pub use types_repair::{
     build_blend_repair_action_artifact, support_seam_decline_reason_label,
     support_seam_rollback_reason_label,
 };
-pub use types_repair_blend_seam::{
-    BlendSeamCornerDecline, BlendSeamCornerDeclineReason, BlendSeamCornerReport,
-};
+pub use types_repair_blend_seam::*;
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 pub use types_repair_terminal_arc::{
     TerminalArcTrimDecline, TerminalArcTrimDeclineReason, TerminalArcTrimReport,

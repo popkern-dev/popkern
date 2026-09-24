@@ -357,8 +357,19 @@ fn walk_corner_tangle(
     })
 }
 
-/// Route the candidate to the analytic equal-radius path or the
-/// marching mismatched-radius path.
+/// Route the candidate by its closure topology, not by the radii.
+///
+/// The analytic bisector-ellipse path needs BOTH anchors on both
+/// strips, which holds only for equal radii meeting symmetrically.
+/// When the near anchor sits on one strip only, the corner closes
+/// through a stub on the shared support face, and the stub-closing
+/// march applies whatever the radii. Two things produce that
+/// topology: a radius mismatch, and an oblique equal-radius corner.
+/// In the oblique case the strips' terminal circles on the shared
+/// support plane differ (measured on the guide prism, 58° dihedral:
+/// near anchor 1.0e-2 off the bisector plane, 1.4e-2 from the exact
+/// seam end), so the bisector path declined it `BranchUnresolved`
+/// (PK-522).
 fn dispatch_repair(
     brep: &mut BRep,
     c: &PairCornerCandidate,
@@ -370,7 +381,13 @@ fn dispatch_repair(
     ) {
         (Some(cyl_n), Some(cyl_p)) => {
             let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-            if (cyl_n.radius - cyl_p.radius).abs() <= pos_tol.max(cyl_n.radius * 1e-9) {
+            let equal_radii =
+                (cyl_n.radius - cyl_p.radius).abs() <= pos_tol.max(cyl_n.radius * 1e-9);
+            let near_on_both = brep.vertices.get(c.anchor_near).is_some_and(|v| {
+                off_cylinder(v.position, &cyl_n) <= pos_tol
+                    && off_cylinder(v.position, &cyl_p) <= pos_tol
+            });
+            if equal_radii && near_on_both {
                 super::blend_seam_corner_repair::repair_pair_corner_equal(brep, c, tolerance)
             } else {
                 super::blend_seam_corner_march::repair_pair_corner_mixed(brep, c, tolerance)

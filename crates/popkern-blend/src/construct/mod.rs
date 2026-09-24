@@ -4,6 +4,7 @@ mod apply_types;
 pub use apply_types::{ApplyBlendError, ApplyBlendResult, EdgeGeometry, apply_cancel_poll};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
+pub(crate) mod blend_mitre_corner;
 pub(crate) mod blend_seam_corner;
 mod blend_seam_corner_geometry;
 mod blend_seam_corner_march;
