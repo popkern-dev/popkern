@@ -93,10 +93,10 @@ fn fillet_open_box_interior_edge_with_open_cap_validates() {
     );
 }
 
-/// Inserted caps on an open sheet author exact boundaries (PK-532).
-/// The strip | cap edge is the strip's end section. A flat cap keeps
-/// its rim as lines in its plane. A rounded cap's rim becomes two
-/// meridians meeting at the outward pole. Single, two-edge and
+/// Inserted caps on an open sheet author exact boundaries (PK-532,
+/// PK-536). The strip | cap edge is the strip's end section. A flat
+/// cap keeps its rim as lines in its plane. Rounded and tangent-match
+/// rims become two meridians meeting at the outward pole. Single, two-edge and
 /// all-boundary-edge fillets serve `validate_all` clean with every
 /// cap inserted. Before, the strip | cap edge had no curve and check 9
 /// silently skipped it.
@@ -112,6 +112,9 @@ fn inserted_open_sheet_caps_serve_exact_boundaries() {
         (CapKind::Rounded, 1),
         (CapKind::Rounded, 2),
         (CapKind::Rounded, all),
+        (CapKind::TangentMatch, 1),
+        (CapKind::TangentMatch, 2),
+        (CapKind::TangentMatch, all),
     ] {
         let result =
             fillet_open_box(n, kind).unwrap_or_else(|e| panic!("{kind:?} x{n}: must serve: {e}"));
@@ -147,25 +150,73 @@ fn inserted_open_sheet_caps_serve_exact_boundaries() {
     }
 }
 
-/// A tangent-match cap's bilinear patch cannot contain the strip's end
-/// section. The insertion declines with its reason, as a fallback the
-/// report classifies, and the end is served open on its exact rim
-/// section.
+/// The tangent-match cap on the served open box (PK-536): along the
+/// strip | cap section it shares the cylinder strip's tangent plane
+/// (G1), and its normal curvature across the section matches the
+/// strip's straight ruling (G2, the §7 relative bar 1e-2).
 #[test]
-fn tangent_match_cap_declines_insertion_and_serves_the_open_end() {
-    let result = fillet_open_box(1, CapKind::TangentMatch).expect("serves open");
-    let errors = result.brep.validate_all();
-    assert!(errors.is_empty(), "validate_all: {errors:?}");
+fn tangent_match_cap_is_curvature_continuous_across_the_section() {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    use popkern_core::geometry::{CurveEval, Vec3};
+    let result = fillet_open_box(1, CapKind::TangentMatch).expect("serves");
+    let brep = &result.brep;
+    let face_surface = |f| brep.faces.get(f).and_then(|x| x.surface.as_ref());
+    let (cap, cylinder, section) = brep
+        .edges
+        .values()
+        .find_map(|e| {
+            let he = brep.half_edges.get(e.half_edge)?;
+            let faces = [
+                brep.loops.get(he.loop_)?.face,
+                brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face,
+            ];
+            let (mut cap, mut cyl) = (None, None);
+            for f in faces {
+                match &face_surface(f)?.geometry {
+                    SurfaceGeometry::Nurbs(n) => cap = Some(n.clone()),
+                    SurfaceGeometry::Cylinder {
+                        origin,
+                        axis,
+                        radius,
+                    } => cyl = Some((*origin, *axis, *radius)),
+                    _ => {}
+                }
+            }
+            Some((cap?, cyl?, e.curve.clone()?))
+        })
+        .expect("a strip | cap section edge");
+    let (origin, axis, r) = cylinder;
+    let axis = axis.normalized().expect("axis");
+    let (mut worst_g1, mut worst_g2) = (0.0_f64, 0.0_f64);
+    for k in 0..=16 {
+        let t = section.t_start + (section.t_end - section.t_start) * k as f64 / 16.0;
+        let p = section.geometry.point_at(t);
+        let d = p - origin;
+        let radial = (d - axis * d.dot(&axis)).normalized().expect("off axis");
+        let (u, _) = popkern_core::geometry::uv_projection::project_point_to_uv(
+            &SurfaceGeometry::Nurbs(cap.clone()),
+            &p,
+        )
+        .expect("projects onto the cap");
+        let n = cap.normal_at(u, 0.0).normalized().expect("regular");
+        worst_g1 = worst_g1.max(n.cross(&radial).length());
+        // Normal curvature along the meridian (v) against the ruling's 0.
+        let h = 1e-4;
+        let (s0, s1, s2) = (
+            cap.point_at(u, 0.0),
+            cap.point_at(u, h),
+            cap.point_at(u, 2.0 * h),
+        );
+        let d1: Vec3 = s1 - s0;
+        let kappa = ((s2 - s1) - d1).dot(&n) / d1.dot(&d1);
+        worst_g2 = worst_g2.max(kappa.abs() * r);
+    }
     assert!(
-        result.edge_warnings.iter().any(|(_, w)| matches!(
-            w,
-            BlendWarning::CapInsertionDeclined {
-                kind: CapKind::TangentMatch,
-                reason,
-                ..
-            } if reason.contains("end section")
-        )),
-        "typed insertion decline: {:?}",
-        result.edge_warnings
+        worst_g1 < 1e-9,
+        "G1 across the section: |n x n| {worst_g1:.3e}"
+    );
+    assert!(
+        worst_g2 < 1e-2,
+        "G2 across the section: relative dk {worst_g2:.3e}"
     );
 }

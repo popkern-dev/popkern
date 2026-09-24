@@ -13,7 +13,7 @@
 //! `mef` between the two contacts, gives the corner side the cap
 //! surface, and `cap_insert_boundary` authors the exact boundary.
 //! Flat and Rounded caps insert. A cap that cannot be made exact
-//! (TangentMatch's bilinear patch, a rim outside a flat cap's plane)
+//! (a rim outside a flat cap's plane, a degenerate cap surface)
 //! is rolled back, reported as `CapInsertionDeclined`, and the end is
 //! served open (PK-532).
 //!
@@ -199,12 +199,6 @@ fn insert_cap_face(
     let Some(surface) = &cap.surface else {
         return Ok(false);
     };
-    if cap.kind == crate::types::CapKind::TangentMatch {
-        // Its bilinear patch has a straight contact-to-contact
-        // boundary: it cannot contain the strip's end section arc
-        // (PK-532).
-        return Err("the tangent-match patch cannot contain the strip's end section".into());
-    }
 
     // Find the two vertices adjacent to `vertex` on a face with
     // a surface (the fillet/torus face). These are the trim

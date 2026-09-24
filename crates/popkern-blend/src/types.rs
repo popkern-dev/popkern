@@ -255,10 +255,9 @@ pub struct FilletOptions {
     ///   to the blend's local minor radius, centred at the
     ///   rolling-ball centre-curve endpoint. G1 with the blend
     ///   surface (same radius of curvature at the join).
-    /// - [`CapKind::TangentMatch`] — a NURBS cap whose boundary
-    ///   tangents match both support-face tangents at the blend
-    ///   endpoint contact points. G1 with the supports and the
-    ///   blend. Most expensive, highest quality.
+    /// - [`CapKind::TangentMatch`] — a NURBS cap of revolution
+    ///   that continues the strip's ruling with zero curvature
+    ///   (Class-A: no curvature jump across the section).
     /// - [`CapKind::UserDefined`] — [BEYOND] the caller provides
     ///   the cap surface. Not yet implemented.
     ///
@@ -485,10 +484,10 @@ pub enum CapKind {
     /// endpoint. G1 with the blend surface (matching radii of
     /// curvature at the join).
     Rounded,
-    /// NURBS cap surface whose boundary tangents match both
-    /// support-face tangents at the blend endpoint contact points.
-    /// G1 with the supports and the blend. The most expensive
-    /// cap kind and the highest quality for Class-A surfacing.
+    /// NURBS cap of revolution about the end tangent, its meridian
+    /// continuing the strip's ruling with zero curvature to a flat
+    /// pole: G2 with straight constant-radius strips, G1 with the
+    /// supports. See [`crate::cap::build_tangent_match_cap`].
     TangentMatch,
     /// [BEYOND] The caller supplies the cap surface via a callback
     /// or resource handle. Placeholder — not yet implemented;

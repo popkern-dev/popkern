@@ -11,7 +11,7 @@
 //! | [`CapKind::Open`] | — (no cap) | — | none |
 //! | [`CapKind::Flat`] | G0 | G0 | `Plane` |
 //! | [`CapKind::Rounded`] | G1 | G0 | `Sphere` |
-//! | [`CapKind::TangentMatch`] | G1 | G1 | `Nurbs` (degree-3 bi-cubic) |
+//! | [`CapKind::TangentMatch`] | G2 on cylinder strips, G1 otherwise | G1 at the contacts | `Nurbs` (revolved quartic) |
 //! | [`CapKind::UserDefined`] | caller's choice | caller's choice | caller |
 //!
 //! This module ships the **geometry constructors** — pure functions
@@ -198,83 +198,33 @@ pub fn build_rounded_cap(endpoint: &CapEndpoint) -> CapGeometry {
     }
 }
 
-/// Build a degree-(1,1) tensor-product NURBS cap whose boundary
-/// tangents match both support-face tangents at the contact points.
+/// Build the tangent-match cap: a surface of revolution about the end
+/// tangent line through the ball centre, whose quartic meridian
+/// leaves the end section along the strip's ruling with zero
+/// curvature and closes flat at a pole r beyond the station (see
+/// [`tangent_match`] for the construction and continuity argument).
 ///
-/// **Simplified shipping cut (this commit).** The first-cut
-/// implementation produces a bilinear patch with corners at the
-/// two contact points and two interior control points placed along
-/// each support face normal at distance `r`. This is enough to
-/// satisfy §8.3's "cap tangent to both support faces at the
-/// boundary" requirement in the common case; a true degree-3×3
-/// cross-section interpolation for Class-A work is tracked as a
-/// follow-up extension. The patch is always a valid NURBS surface
-/// and will stitch into the BRep topology cleanly.
+/// Its boundary with the strip is the section arc, the same great
+/// circle the Rounded sphere shares with the strip. A degenerate
+/// endpoint yields no surface, and the cap is then not inserted.
 pub fn build_tangent_match_cap(endpoint: &CapEndpoint) -> CapGeometry {
-    use popkern_core::geometry::nurbs_surface::NurbsSurface as CoreNurbsSurface;
-
-    // Control points: 2×2 grid stored row-major (u varies within
-    // each row). Corner CPs are the two contact points; the "far"
-    // corners are each pushed along the opposite support face's
-    // inward normal by `r`, with a small asymmetric bulge along the
-    // spine tangent to keep the surface non-degenerate.
-    //
-    // Without the bulge, the bilinear patch degenerates at (u=0.5,
-    // v=0.5) whenever (c2 − c1) is parallel to (inward_2 −
-    // inward_1) — which happens every time the two support faces
-    // meet at 90°, i.e. the typical cube-corner case. The normal
-    // goes to zero and `validate()` rejects the face.
-    //
-    // `spine_tangent_outward` is perpendicular to both support
-    // normals by rolling-ball geometry (the spine runs along the
-    // edge, ⊥ both support face normals at the contact points), so
-    // adding ±bulge * spine_tangent to P01 / P10 preserves the
-    // existing G1-with-support tangent-plane intent and only
-    // breaks the degenerate symmetry.
-    let r = endpoint.radius;
-    let c1 = endpoint.contact_1;
-    let c2 = endpoint.contact_2;
-    let inward_1 = endpoint.normal_1 * -r;
-    let inward_2 = endpoint.normal_2 * -r;
-    let bulge = endpoint.spine_tangent_outward * (r * 0.5);
-
-    //          v=0                      v=1
-    //  u=0:  [  c1  ,           c1 + inward_2 + bulge ]
-    //  u=1:  [ c2 + inward_1 - bulge ,   c2           ]
-    let control_points = vec![c1, c1 + inward_2 + bulge, c2 + inward_1 - bulge, c2];
-    let weights = vec![1.0, 1.0, 1.0, 1.0];
-    // Degree 1 in both directions — each row of CPs is a segment.
-    let knots_u = vec![0.0, 0.0, 1.0, 1.0];
-    let knots_v = vec![0.0, 0.0, 1.0, 1.0];
-
-    let nurbs = CoreNurbsSurface {
-        degree_u: 1,
-        degree_v: 1,
-        knots_u,
-        knots_v,
-        control_points,
-        num_u: 2,
-        num_v: 2,
-        weights,
-    };
-
-    let surface = SurfaceGeometry::Nurbs(nurbs);
-
-    // Boundary: walk the `c1 → c2` diagonal, approximating the
-    // cap edge by 8 samples along the midpoint path.
-    let boundary_points = sample_midpoint_path(&c1, &c2, &endpoint.center, 8);
-
     CapGeometry {
         kind: CapKind::TangentMatch,
-        surface: Some(surface),
-        boundary_points,
+        surface: tangent_match::tangent_match_surface(endpoint).map(SurfaceGeometry::Nurbs),
+        boundary_points: sample_spherical_arc(
+            &endpoint.contact_1,
+            &endpoint.contact_2,
+            &endpoint.center,
+            endpoint.radius,
+            8,
+        ),
         spine_tangent_outward: endpoint.spine_tangent_outward,
     }
 }
 
-/// Resample the boundary polyline of a rounded cap at a different
-/// density. Only meaningful for [`CapKind::Rounded`]; returns the
-/// input unchanged for other kinds.
+/// Resample the boundary polyline of a rounded or tangent-match cap
+/// (its section arc) at a different density. Flat caps return the
+/// contacts and their midpoint; the rest return the contacts.
 pub fn resample_cap_boundary(
     kind: CapKind,
     endpoint: &CapEndpoint,
@@ -282,17 +232,11 @@ pub fn resample_cap_boundary(
 ) -> Vec<Point3> {
     let n = n_samples.max(2);
     match kind {
-        CapKind::Rounded => sample_spherical_arc(
+        CapKind::Rounded | CapKind::TangentMatch => sample_spherical_arc(
             &endpoint.contact_1,
             &endpoint.contact_2,
             &endpoint.center,
             endpoint.radius,
-            n,
-        ),
-        CapKind::TangentMatch => sample_midpoint_path(
-            &endpoint.contact_1,
-            &endpoint.contact_2,
-            &endpoint.center,
             n,
         ),
         CapKind::Flat | CapKind::Open | CapKind::UserDefined => {
@@ -361,28 +305,8 @@ fn sample_spherical_arc(a: &Point3, b: &Point3, center: &Point3, r: f64, n: usiz
     out
 }
 
-/// Sample `n` points on a midpoint-curved path from `a` to `b`
-/// that passes through the midpoint of each chord and then bulges
-/// toward `center` at the midpoint. Used for tangent-match cap
-/// boundaries where no specific surface geometry defines the arc.
-fn sample_midpoint_path(a: &Point3, b: &Point3, center: &Point3, n: usize) -> Vec<Point3> {
-    let n = n.max(2);
-    let mut out = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = (i as f64) / ((n - 1) as f64);
-        // Quadratic Bezier with control point at the centre.
-        let mt = 1.0 - t;
-        let one = mt * mt;
-        let two = 2.0 * mt * t;
-        let three = t * t;
-        out.push(Point3::new(
-            one * a.x + two * center.x + three * b.x,
-            one * a.y + two * center.y + three * b.y,
-            one * a.z + two * center.z + three * b.z,
-        ));
-    }
-    out
-}
+#[path = "cap_tangent_match.rs"]
+pub(crate) mod tangent_match;
 
 #[cfg(test)]
 #[path = "cap_tests.rs"]

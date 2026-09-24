@@ -139,6 +139,8 @@ fn tangent_match_cap_produces_nurbs_surface() {
     ));
 }
 
+/// The tangent-match cap's section row runs between the contacts: its
+/// corner control points are the two contacts.
 #[test]
 fn tangent_match_cap_corner_cps_are_contact_points() {
     let ep = cube_corner_endpoint(0.1);
@@ -147,17 +149,17 @@ fn tangent_match_cap_corner_cps_are_contact_points() {
         SurfaceGeometry::Nurbs(n) => n,
         _ => panic!("expected Nurbs"),
     };
-    // The 2×2 grid corners (flat indexing: i_u * num_v + i_v).
-    // cp(0, 0) == contact_1, cp(1, 1) == contact_2.
-    let cp_00 = nurbs.control_points[0];
-    let cp_11 = nurbs.control_points[nurbs.num_v + 1];
-    let tol = 1e-12;
-    assert!((cp_00.x - ep.contact_1.x).abs() < tol);
-    assert!((cp_00.y - ep.contact_1.y).abs() < tol);
-    assert!((cp_00.z - ep.contact_1.z).abs() < tol);
-    assert!((cp_11.x - ep.contact_2.x).abs() < tol);
-    assert!((cp_11.y - ep.contact_2.y).abs() < tol);
-    assert!((cp_11.z - ep.contact_2.z).abs() < tol);
+    // Flat indexing: i_u * num_v + i_v; the section row is i_v = 0.
+    let ends = [
+        nurbs.control_points[0],
+        nurbs.control_points[(nurbs.num_u - 1) * nurbs.num_v],
+    ];
+    for contact in [ep.contact_1, ep.contact_2] {
+        assert!(
+            ends.iter().any(|p| (*p - contact).length() < 1e-12),
+            "contact {contact:?} is not a section-row corner of {ends:?}"
+        );
+    }
 }
 
 #[test]
@@ -196,6 +198,13 @@ fn resample_cap_boundary_respects_kind() {
 
     let tangent = resample_cap_boundary(CapKind::TangentMatch, &ep, 20);
     assert_eq!(tangent.len(), 20);
+    // The tangent-match cap meets the strip on the same section arc.
+    for (p, q) in tangent
+        .iter()
+        .zip(&resample_cap_boundary(CapKind::Rounded, &ep, 20))
+    {
+        assert!((*p - *q).length() < 1e-12);
+    }
 }
 
 #[test]

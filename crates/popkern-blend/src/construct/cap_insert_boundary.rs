@@ -24,9 +24,9 @@
 //!   pcurves.
 //! - **Rounded:** the quarter ball's rim is two meridians, from each
 //!   contact to the outward pole, so the corner moves to the pole.
-//! - **TangentMatch:** its bilinear patch has a straight contact-to-
-//!   contact boundary and cannot contain the section arc, so it
-//!   declines.
+//! - **TangentMatch:** the cap of revolution (PK-536) closes at the
+//!   same pole. Its rim is the surface's own meridian iso-curves
+//!   u = 0 and u = 1, with exact linear pcurves.
 //!
 //! **Fallback.** A decline hands the reason back. The caller restores
 //! the pre-`mef` body and reports `CapInsertionDeclined`, and the end
@@ -217,6 +217,19 @@ pub(super) fn author_cap_boundary(
                 meridian(brep, stub, cap_face, &cap_surface, *center, contact, pole)?;
             }
         }
+        (CapKind::TangentMatch, SurfaceGeometry::Nurbs(surface)) => {
+            let pole = surface
+                .control_points
+                .get(surface.num_v - 1)
+                .copied()
+                .ok_or("tangent-match cap has no pole")?;
+            if let Some(v) = brep.vertices.get_mut(corner) {
+                v.position = pole;
+            }
+            for (stub, contact) in [(s1, from), (s2, to)] {
+                iso_meridian(brep, stub, cap_face, surface, contact, pos_tol)?;
+            }
+        }
         (kind, _) => return Err(format!("{kind:?} caps have no exact rim construction")),
     }
     for he in [cap_half_edge, s1, s2] {
@@ -321,6 +334,58 @@ fn meridian(
     };
     let pcurve = projected_pcurve(sphere, &curve, primary != stub)?;
     commit(brep, edge, curve, &[(cap_face, stub, pcurve)]);
+    Ok(())
+}
+
+/// A tangent-match cap's rim stub: the meridian iso-curve starting at
+/// `contact` (u = 0 or u = 1), with its exact linear pcurve.
+fn iso_meridian(
+    brep: &mut BRep,
+    stub: HalfEdgeHandle,
+    cap_face: FaceHandle,
+    surface: &popkern_core::geometry::nurbs_surface::NurbsSurface,
+    contact: Point3,
+    pos_tol: f64,
+) -> Result<(), String> {
+    let row = [false, true]
+        .into_iter()
+        .find(|at_end| {
+            let m = crate::cap::tangent_match::meridian(surface, *at_end);
+            m.control_points
+                .first()
+                .is_some_and(|p| (*p - contact).length() <= pos_tol)
+        })
+        .ok_or("no meridian starts at the contact")?;
+    let u = if row { 1.0 } else { 0.0 };
+    let mut curve = crate::cap::tangent_match::meridian(surface, row);
+    let edge = brep.half_edges[stub].edge;
+    let primary = brep.edges.get(edge).ok_or("edge missing")?.half_edge;
+    let stub_from_contact = brep
+        .vertices
+        .get(brep.half_edges[stub].origin)
+        .is_some_and(|v| (v.position - contact).length() <= pos_tol);
+    // The curve follows the primary half-edge, the pcurve the stub.
+    // The quartic's knots are symmetric, so reversing is reversing
+    // its control points.
+    if (primary == stub) != stub_from_contact {
+        curve.control_points.reverse();
+    }
+    let (a, b) = if stub_from_contact {
+        ((u, 0.0), (u, 1.0))
+    } else {
+        ((u, 1.0), (u, 0.0))
+    };
+    let on_edge = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(curve),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    commit(
+        brep,
+        edge,
+        on_edge,
+        &[(cap_face, stub, Pcurve::linear(a, b, 0.0, 1.0))],
+    );
     Ok(())
 }
 
