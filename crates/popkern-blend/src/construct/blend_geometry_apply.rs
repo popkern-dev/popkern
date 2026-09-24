@@ -38,6 +38,7 @@ pub fn apply_blend_geometry(
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
     let mut repair_report = crate::types::BlendRepairReport::default();
+    let mut unresolved_corners: Vec<corner_resolution::UnresolvedCorner> = Vec::new();
     // Per-vertex (boundary, sub_faces) for the post-sliver_absorb wire pass.
     type BoundaryFaceJobs = Vec<(crate::blend::BlendBoundary, Vec<FaceHandle>)>;
     let mut late_wire_jobs: BoundaryFaceJobs = Vec::new();
@@ -117,6 +118,12 @@ pub fn apply_blend_geometry(
     // deterministic insertion order across runs. The closure reports whether
     // a cancel poll fired (early return happens outside the timing wrapper).
     let (blend_cancelled, ms) = pipeline_timing::timed(|| {
+        if *vertex_mode == VertexMode::Mitred {
+            unresolved_corners.extend(corner_resolution::requested_mitre_corners(
+                &result,
+                edge_geometries,
+            ));
+        }
         if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
             // Closed edges count ONCE at their closure vertex — a
             // closure vertex is not a corner and must not enter the
@@ -278,6 +285,15 @@ pub fn apply_blend_geometry(
                         );
                     }
 
+                    // PK-516: the star the corner owned before the vertex
+                    // blend touched it — the territory the exit gate
+                    // measures if no corner blend is built here.
+                    let corner_star = corner_resolution::record_unresolved_corner(
+                        &result,
+                        *vertex,
+                        edge_geometries[edge_indices[0]].analysis.edge,
+                        corner_resolution::UnresolvedCornerCause::AllOrNothingRollback(Vec::new()),
+                    );
                     match blend_insert::insert_vertex_blend(
                         &mut result,
                         *vertex,
@@ -296,6 +312,15 @@ pub fn apply_blend_geometry(
                         cap_presolve.get(vertex),
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
+                            if infos.is_empty() {
+                                let verdicts =
+                                    corner_resolution::route_decline_verdicts(&diagnostics);
+                                unresolved_corners.extend(corner_star.map(|mut corner| {
+                                    corner.cause = corner_resolution::UnresolvedCornerCause::
+                                        AllOrNothingRollback(verdicts);
+                                    corner
+                                }));
+                            }
                             repair_report.apex_diagnostics.extend(diagnostics);
                             route_decision::record_vertex_blend_serve_on_route(
                                 &result,
@@ -332,6 +357,13 @@ pub fn apply_blend_geometry(
                         }
                         Err(err) => {
                             trace_mitred(*vertex, &err);
+                            unresolved_corners.extend(corner_star.map(|mut corner| {
+                                corner.cause =
+                                    corner_resolution::UnresolvedCornerCause::SmoothBlendDeclined(
+                                        err.clone(),
+                                    );
+                                corner
+                            }));
                             let edge_idx = edge_indices[0];
                             if edge_idx < edge_geometries.len() {
                                 warnings.push((
@@ -403,5 +435,6 @@ pub fn apply_blend_geometry(
         warnings,
         corner_patches,
         repair_report,
+        unresolved_corners,
     })
 }

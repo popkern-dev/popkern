@@ -412,22 +412,14 @@ pub(crate) fn fillet_edges_attempt(
         apply_result.brep.half_edges.len()
     );
     // Merge overlap warnings with topology warnings, plus §13.1 pre-pass warnings.
-    let mut all_warnings = apply_result.warnings;
-    let fallback_edge = specs
-        .first()
-        .map(|s| s.edge)
-        .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
-        .unwrap_or_default();
-    for warn in overlap_warnings {
-        all_warnings.push((fallback_edge, warn));
-    }
-    for warn in prepass_warnings {
-        let edge_h = match &warn {
-            BlendWarning::CollapsedEdgeSkipped { edge, .. } => *edge,
-            _ => fallback_edge,
-        };
-        all_warnings.push((edge_h, warn));
-    }
+    let mut all_warnings = std::mem::take(&mut apply_result.warnings);
+    let fallback_edge = fallback_edge_for_specs(specs, &edge_geometries);
+    attribute_pipeline_warnings(
+        &mut all_warnings,
+        fallback_edge,
+        overlap_warnings,
+        prepass_warnings,
+    );
     continuity::emit_downgrade_warnings(&edge_geometries, options, &mut all_warnings);
     continuity::emit_corner_downgrade_warnings(
         &apply_result.corner_patches,
@@ -447,17 +439,13 @@ pub(crate) fn fillet_edges_attempt(
         .repair_report
         .apex_diagnostics
         .push(tail_timing.diagnostic());
-    if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
+    // Transactional served-body gates: structural soundness, then
+    // PK-516 corner resolution.
+    if let Some(failure) = served_body_failure(&apply_result, fallback_edge) {
         return Err(BlendError::partial_failure(
             specs.len(),
             brep.clone(),
-            vec![(
-                fallback_edge,
-                BlendFailure::InvalidTopology {
-                    reason,
-                    location: None,
-                },
-            )],
+            vec![failure],
         ));
     }
     // Assign stable names when tracking is active.
@@ -497,4 +485,6 @@ pub(crate) fn fillet_edges_attempt(
 }
 #[path = "fillet_pipeline_postconditions.rs"]
 mod fillet_pipeline_postconditions;
-use fillet_pipeline_postconditions::{fallback_edge_for_specs, first_structural_validation_error};
+use fillet_pipeline_postconditions::{
+    attribute_pipeline_warnings, fallback_edge_for_specs, served_body_failure,
+};

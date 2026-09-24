@@ -309,14 +309,15 @@ impl BlendFailure {
                 }
             }
             BlendFailure::VertexBlendFailed { reason, .. } => Remediation::new(
-                RemediationAction::UseAlternativeMode,
+                RemediationAction::Precheck,
                 format!(
-                    "The vertex blend solver could not converge \
-                     ({reason}). Retry with `VertexMode::Mitred` — the \
-                     mitred variant is more robust at the cost of \
-                     losing G1 continuity at the vertex. If the \
-                     mitred mode also fails, this vertex configuration \
-                     is likely beyond the current engine's capability."
+                    "No corner blend could be built at this vertex \
+                     ({reason}). Split the operation so fewer edges \
+                     meet at the vertex in one fillet (round them in \
+                     sequence), or reduce the radii. `VertexMode::Mitred` \
+                     builds no corner geometry either: its bare corner \
+                     is the same off-surface residue and declines the \
+                     same way (PK-516)."
                 ),
             ),
             BlendFailure::IntersectionFailed { reason, .. } => Remediation::new(

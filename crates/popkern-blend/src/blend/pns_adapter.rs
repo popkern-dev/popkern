@@ -12,11 +12,21 @@
 //!   and solves for the middle BB-coef so the Bézier interpolates
 //!   those three points.
 //! - **Derivative row** (3 CPs): the first transversal derivative
-//!   of the supporting surface at the boundary — points INTO the
-//!   surrounding surface (away from the cap), tangent to the
-//!   surface, perpendicular to the boundary curve. Computed from
-//!   the surface's partials `∂_u`, `∂_v` at the CP's closest-point
-//!   UV, combined with the curve tangent.
+//!   `∂_v b(u, 0)` of the tensor border, where `v` increases INTO
+//!   the cap: tangent to the supporting surface, perpendicular to
+//!   the boundary curve, pointing across the boundary toward the
+//!   cap interior (the direction the surrounding surface continues
+//!   into the hole). Computed from the surface's partials `∂_u`,
+//!   `∂_v` at the CP's closest-point UV, combined with the curve
+//!   tangent. The cap consumes this row two ways, both of which
+//!   need the inward sense: `b ∘ β` composes the cap's first
+//!   interior row as `b·∂_u b + a·∂_v b` with `a(u) > 0`, and the
+//!   pole (eq 5) is a convex combination of `pos + deriv/2` — the
+//!   net's inner ring. An outward row (the pre-PK-517 convention)
+//!   folds the cap's first row back over the fillet and drags the
+//!   pole below the rim on every convex corner (measured on the
+//!   carved-pentagon boundary ring: pole z 0.9528 under a rim at
+//!   0.9603; inward: 0.9995, above the rim's arc crowns at 0.9762).
 //!
 //! # Two entry points
 //!
@@ -279,10 +289,12 @@ fn pair_to_strip_surface_aware(
             vertex.y - sample_pt.y,
             vertex.z - sample_pt.z,
         );
+        // Inward (toward the cap): the cap interior lies on the
+        // vertex side of every boundary segment of a corner blend.
         let sign = if unit_perp.dot(&to_vertex) > 0.0 {
-            -1.0
-        } else {
             1.0
+        } else {
+            -1.0
         };
         deriv[i] = Point3::new(
             sign * unit_perp.x * mag,

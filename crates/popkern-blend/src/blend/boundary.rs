@@ -11,7 +11,9 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-use super::boundary_hex::{build_face_edge_bridge_between, reorient_arcs_for_hex_closure};
+use super::boundary_hex::{
+    build_face_edge_bridge_between, faces_at_vertex_set, reorient_arcs_for_hex_closure,
+};
 use super::boundary_ring_stations::apply_ring_station_pushback;
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -167,6 +169,11 @@ pub struct BlendBoundaryOptions {
     /// with a setback margin, so all junctions land on real rails
     /// and all bridges cross real face regions.
     pub ring_station_pushback: bool,
+    /// PK-517: put the ring into the face-loop sense of the blend
+    /// face the boundary-ring carve builds from it (sense read from
+    /// the solid, see `boundary_ring_sense`). Set by the convex ring
+    /// rung; saddle rings keep their walk sense (measured serving).
+    pub ring_sense_from_solid: bool,
 }
 
 /// Compute the blend boundary at a vertex where multiple fillets meet.
@@ -304,6 +311,17 @@ pub fn compute_blend_boundary_with_options(
             &face_supports,
             tolerance.linear().max(1e-6),
         );
+        let reorder = if options.ring_sense_from_solid {
+            super::boundary_ring_sense::orient_pushed_ring(
+                brep,
+                &faces_at_vertex,
+                vertex_pos,
+                reorder,
+                tolerance.linear().max(1e-6) * 10.0,
+            )
+        } else {
+            reorder
+        };
         if let Some((order, flip, arc_by_k)) = reorder {
             // `arc_by_k[k]` is the arc to emit at position `k`,
             // already re-oriented; `flip[k]` records whether we
@@ -392,25 +410,6 @@ pub fn compute_blend_boundary_with_options(
         hex_boundary_cps_deg9: Vec::new(),
         fillet_end_arcs: Vec::new(),
     })
-}
-
-/// Collect the set of face handles incident to `vertex` by walking
-/// all half-edges originating from it.
-fn faces_at_vertex_set(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
-    let mut seen: Vec<FaceHandle> = Vec::new();
-    for he in brep.half_edges.values() {
-        if he.origin != vertex {
-            continue;
-        }
-        let Some(loop_data) = brep.loops.get(he.loop_) else {
-            continue;
-        };
-        let face = loop_data.face;
-        if !seen.contains(&face) {
-            seen.push(face);
-        }
-    }
-    seen
 }
 
 /// Extract the end curve of a fillet surface closest to a vertex.

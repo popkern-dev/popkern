@@ -41,15 +41,19 @@ pub(super) fn try_setback_rung(
         // its patches overlap by construction, see PK-097).
         let gate_seam_g2 = requested_continuity == ContinuityLevel::G2;
         let mut fan_downgraded_to_g1 = false;
-        let mut surgery = crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
-            brep,
-            &commit_snapshot,
-            vertex,
-            fillet_surfaces_pre,
-            tolerance,
-            gate_seam_g2,
-            cap_presolve,
-        );
+        let mut surgery = if crate::dispatch_overrides::SETBACK_FORCE_DECLINE.get() == Some(true) {
+            Err("forced decline (dispatch override)".to_string())
+        } else {
+            crate::construct::setback_vertex_topology::try_setback_boundary_surgery(
+                brep,
+                &commit_snapshot,
+                vertex,
+                fillet_surfaces_pre,
+                tolerance,
+                gate_seam_g2,
+                cap_presolve,
+            )
+        };
         // A fan that fails ONLY the seam-G2 postcondition still beats
         // every fallback by orders of magnitude (measured on the
         // rim+verticals box class: the declined fan's seams sat at

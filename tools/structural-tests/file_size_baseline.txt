@@ -50,7 +50,7 @@ crates/popkern-examples/src/flagship_boss_plate.rs 849
 crates/popkern-examples/src/kp15_bi6_cap_variants_compare.rs 825
 crates/popkern-examples/src/laptop_stand_api.rs 1070
 crates/popkern-blend/src/chamfer_curve.rs 711
-crates/popkern-blend/src/construct/blend_insert.rs 605
+crates/popkern-blend/src/construct/blend_insert.rs 604
 crates/popkern-blend/src/construct/closed_fillet.rs 572
 crates/popkern-blend/src/construct/end_runoff.rs 578
 crates/popkern-blend/src/construct/kp20_paper_border_extract.rs 971

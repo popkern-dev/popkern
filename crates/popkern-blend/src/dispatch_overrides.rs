@@ -102,6 +102,13 @@ pub static OUTER_FILLET_G1: DispatchOverride = DispatchOverride::new();
 /// (production default: setback serves eligible apexes).
 pub static SETBACK_DISABLE: DispatchOverride = DispatchOverride::new();
 
+/// Setback surgery forced decline: `Some(true)` makes an ATTEMPTED
+/// setback surgery decline transactionally (before any topology is
+/// touched) so tests can pin the post-decline ladder — the
+/// boundary-ring rung and the corner-resolution gate — on fixtures
+/// the setback cap otherwise serves (production default: off).
+pub static SETBACK_FORCE_DECLINE: DispatchOverride = DispatchOverride::new();
+
 /// Cylinder off-surface-vertex topology repair: `Some(true)` runs the
 /// repair everywhere, `Some(false)` disables it even for apex
 /// boundary contexts (production default: apex-boundary contexts

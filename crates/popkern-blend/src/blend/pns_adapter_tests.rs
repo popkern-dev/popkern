@@ -225,6 +225,86 @@ fn surface_aware_derivs_are_perpendicular_to_curve_tangents() {
 }
 
 #[test]
+fn surface_aware_derivs_point_into_the_cap_like_the_placeholder() {
+    // PK-517: the derivative row is ∂_v b(u, 0) with v increasing
+    // INTO the cap — `b ∘ β` builds the cap's first interior row
+    // from it (a(u) > 0) and the eq-5 pole averages pos + deriv/2,
+    // the net's inner ring. The pre-PK-517 surface-aware adapter
+    // pointed it outward, which put every convex cap's pole below
+    // its rim. Planar supports (z = 0) around a ring centred on the
+    // vertex's footprint: every surface-aware row must point toward
+    // the ring centre, agree with the placeholder row's sense, and
+    // the eq-5 pole must land strictly inside the ring.
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::gregory::pole_from_boundary;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::BRep;
+
+    let n_fillets = 4;
+    let radius = 1.5;
+    let mut bb = synth_blend_boundary(n_fillets, radius);
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let dummy_curve = line_curve(pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0));
+    let fillets: Vec<crate::fillet_surface::FilletSurfaceResult> = (0..2 * n_fillets)
+        .map(|_| crate::fillet_surface::FilletSurfaceResult {
+            surface: plane.clone(),
+            trim_curve_1: dummy_curve.clone(),
+            trim_curve_2: dummy_curve.clone(),
+            continuity_downgrade: None,
+        })
+        .collect();
+    for (k, seg) in bb.segments.iter_mut().enumerate() {
+        let curve = match seg {
+            BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => {
+                curve.clone()
+            }
+        };
+        *seg = BoundarySegment::FilletEnd {
+            fillet_index: k,
+            curve,
+        };
+    }
+    let brep = BRep::new(Tolerance::default());
+    let surface_ring =
+        super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep)
+            .expect("planar supports resolve");
+    let placeholder_ring = blend_boundary_to_pns_ring(&bb).expect("placeholder ring");
+    for (k, (strip, placeholder)) in surface_ring
+        .sectors
+        .iter()
+        .zip(&placeholder_ring.sectors)
+        .enumerate()
+    {
+        for i in 0..3 {
+            let d = strip.deriv[i];
+            let to_centre = (-strip.pos[i].x, -strip.pos[i].y);
+            assert!(
+                d.x * to_centre.0 + d.y * to_centre.1 > 0.0,
+                "sector {k} deriv[{i}] must point into the cap: {d:?} at {:?}",
+                strip.pos[i]
+            );
+            let p = placeholder.deriv[i];
+            assert!(
+                d.x * p.x + d.y * p.y + d.z * p.z > 0.0,
+                "sector {k} deriv[{i}] must share the placeholder row's sense"
+            );
+        }
+    }
+    let pole = pole_from_boundary(&surface_ring);
+    let inradius = radius * (std::f64::consts::PI / (2 * n_fillets) as f64).cos();
+    assert!(
+        (pole.x * pole.x + pole.y * pole.y).sqrt() < inradius,
+        "eq-5 pole must land inside the ring, got {pole:?}"
+    );
+}
+
+#[test]
 fn blend_boundary_to_ring_feeds_pns_cap_assembly() {
     // End-to-end: adapter output + pole_from_boundary + assembly.
     use popkern_core::geometry::gregory::{

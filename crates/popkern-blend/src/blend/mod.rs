@@ -7,6 +7,7 @@
 
 pub mod boundary;
 pub(crate) mod boundary_hex;
+pub(crate) mod boundary_ring_sense;
 mod boundary_ring_stations;
 pub(crate) mod boundary_sampling;
 #[cfg(test)]

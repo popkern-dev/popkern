@@ -17,7 +17,7 @@
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
-use popkern_core::topology::FaceHandle;
+use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::boundary::BoundarySegment;
 #[path = "boundary_hex_ordering.rs"]
@@ -104,6 +104,12 @@ pub(super) fn reorient_arcs_for_hex_closure(
     }
 
     successor_walk_ordering(fillet_arcs, fillet_endpoints, face_supports, tol_linear)
+}
+
+/// Reverse an arc's parameter direction (exact: control points,
+/// weights, and reflected knots).
+pub(crate) fn reverse_arc(curve: &NurbsCurve) -> NurbsCurve {
+    boundary_hex_ordering::reverse_nurbs_curve(curve)
 }
 
 /// Exact chart-boundary iso between two surface points (PK-189).
@@ -359,4 +365,23 @@ pub(super) fn build_face_edge_bridge_between(
         BoundarySegment::FaceEdge { face, curve },
         Some(surface_kind_name(surface)),
     ))
+}
+
+/// Collect the set of face handles incident to `vertex` by walking
+/// all half-edges originating from it.
+pub(super) fn faces_at_vertex_set(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
+    let mut seen: Vec<FaceHandle> = Vec::new();
+    for he in brep.half_edges.values() {
+        if he.origin != vertex {
+            continue;
+        }
+        let Some(loop_data) = brep.loops.get(he.loop_) else {
+            continue;
+        };
+        let face = loop_data.face;
+        if !seen.contains(&face) {
+            seen.push(face);
+        }
+    }
+    seen
 }

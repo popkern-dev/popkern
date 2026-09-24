@@ -381,20 +381,28 @@ fn fillet_three_edges_at_cube_corner_mitred() {
         ..FilletOptions::default()
     };
 
+    // PK-516: the mitred mode builds no corner geometry; the bare
+    // cube corner it once served was structurally sound but its
+    // corner edges sat off their strips (check 9 — never asserted
+    // here). The corner-resolution gate now declines it, typed at
+    // the corner vertex, with the input handed back untouched.
     let result = popkern_blend::fillet_edges(&brep, &specs, &opts, tol, None);
-    let blend = result.unwrap();
-
-    assert_euler_poincare(&blend.brep, "3-edge mitred fillet");
-    assert_structurally_valid(&blend.brep, "3-edge mitred fillet");
-
-    // Mitred mode should produce no vertex-mode warnings.
-    let has_fallback = blend
-        .edge_warnings
-        .iter()
-        .any(|(_, w)| matches!(w, popkern_blend::BlendWarning::VertexModeFallback { .. }));
+    let Err(popkern_blend::error::BlendError::PartialFailure {
+        partial_result,
+        failures,
+        ..
+    }) = result
+    else {
+        panic!("a bare mitred corner must decline, got Ok");
+    };
+    assert_eq!(partial_result.faces.len(), brep.faces.len());
     assert!(
-        !has_fallback,
-        "mitred mode should not produce VertexModeFallback warnings"
+        failures.iter().any(|(_, f)| matches!(
+            f,
+            popkern_blend::BlendFailure::VertexBlendFailed { vertex: v, reason, .. }
+                if *v == vertex && reason.contains("mitred corner requested")
+        )),
+        "expected the typed corner decline at the cube corner: {failures:?}"
     );
 }
 

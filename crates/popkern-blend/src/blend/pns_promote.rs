@@ -197,11 +197,18 @@ pub fn insert_pns_cap_into_blend_face(
     // anything consumes it, then materialize the rim from it — at the
     // low valences the committed loop is a scaffold of stale Lines
     // whose curves and vertices only the serving route rebuilds.
-    let aligned = if (3..=4).contains(&expected_n) {
-        align_boundary_to_loop(brep, blend_face, boundary)
-    } else {
-        None
-    };
+    //
+    // Every valence aligns (PK-517): the n >= 5 route once kept a
+    // positional zip, which only holds when the loop's stored
+    // half-edge and rotational sense happen to match the ring's
+    // segment 0 and walk sense. A boundary-ring face built from a
+    // pushed ring arrives in any rotation, and the zip then shipped
+    // every sector onto the wrong sub-face (measured on the carved
+    // pentagon ring: cap_curve_gap 2.8e-1). Alignment declines
+    // (`None`, nothing consumed) unless the loop carries exactly the
+    // 2N ring segments, so faces outside that contract keep the
+    // positional path.
+    let aligned = align_boundary_to_loop(brep, blend_face, boundary);
     if let Some(aligned) = aligned.as_ref() {
         materialize_pns_rim_from_boundary(brep, blend_face, aligned);
     }
@@ -222,11 +229,11 @@ pub fn insert_pns_cap_into_blend_face(
         });
     }
 
-    // Assign each sub-face its patch. On the aligned low-valence path
-    // the correspondence is verified by measurement (the sector pairing
+    // Assign each sub-face its patch. On the aligned path the
+    // correspondence is verified by measurement (the sector pairing
     // has been observed rotated; the true patch reads ~1e-3 against the
-    // face's rim, every other patch at sector scale ~5e-2); the n >= 5
-    // route keeps its long-standing positional zip untouched.
+    // face's rim, every other patch at sector scale ~5e-2); a face the
+    // alignment declined keeps the positional zip.
     if aligned.is_some() {
         let assignment = measure_sub_face_patch_assignment(brep, &poke.sub_faces, &surfaces);
         for (face_idx, surface_idx) in assignment.into_iter().enumerate() {
@@ -253,7 +260,7 @@ pub fn insert_pns_cap_into_blend_face(
     // 2026-07-26, it lands interior preimages (cap_uv (0.512, 0.639)
     // for a rim sample) and turns a 5e-3 surface into a 4.4e-2 pcurve
     // reading — so the cap edge geometry is authored from the chart.
-    // The n >= 5 route keeps its long-standing projection recompute.
+    // A face the alignment declined keeps the projection recompute.
     if aligned.is_some() {
         author_pns_cap_edge_geometry(brep, &poke.sub_faces, poke.central_vertex);
     } else {

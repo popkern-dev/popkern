@@ -154,4 +154,7 @@ pub struct ApplyBlendResult {
     pub corner_patches: Vec<crate::types::CornerPatchInfo>,
     /// Structured diagnostics for repair and hardening actions.
     pub repair_report: crate::types::BlendRepairReport,
+    /// PK-516: corners served without a corner blend, with the
+    /// territory the pipeline-exit corner-resolution gate measures.
+    pub unresolved_corners: Vec<super::corner_resolution::UnresolvedCorner>,
 }

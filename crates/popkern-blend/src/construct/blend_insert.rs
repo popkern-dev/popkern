@@ -109,13 +109,11 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
-    // Setback boundary surgery rung (history and root fixes in the
-    // setback_vertex_topology module docs — PK-225 made N = 3
-    // setback production for corners the sphere does not own,
-    // PK-226 extended it to variable/mixed radii). Unsuitable
-    // geometry declines transactionally with the reason recorded.
-    // dispatch_overrides::SETBACK_DISABLE = diagnostic force-off so tests can
-    // pin the vertex-blend fallback dispatch (corner_fallback_dispatch.rs).
+    // Setback boundary surgery rung (history in the setback_vertex_topology
+    // module docs — PK-225: N = 3 for corners the sphere does not own,
+    // PK-226: variable/mixed radii). Unsuitable geometry declines
+    // transactionally with the reason recorded. Test seams:
+    // dispatch_overrides::SETBACK_DISABLE / SETBACK_FORCE_DECLINE.
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let setback_min_n = setback_min_n_for(
         edge_indices,
@@ -165,6 +163,7 @@ pub(crate) fn insert_vertex_blend(
         // without the rail-crossing station pushback (convex ring
         // corners get their pushed boundary inside the ring rung).
         ring_station_pushback: matches!(classification, VertexBlendClassification::OppositeSide),
+        ring_sense_from_solid: false,
     };
     let rational_gregory_compatible = matches!(
         classification,

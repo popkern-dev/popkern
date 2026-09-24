@@ -23,6 +23,7 @@ pub(crate) mod corner_arc_boundaries;
 pub(crate) mod corner_cap_geometry;
 mod corner_chord_settle;
 pub(crate) mod corner_patch_support_completion;
+pub mod corner_resolution;
 mod corner_wall_carve;
 pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;

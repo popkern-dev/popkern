@@ -93,6 +93,32 @@ impl BRep {
         errors
     }
 
+    /// Check 9 over a chosen edge set (collect-all form).
+    ///
+    /// Same measurement and error shape as
+    /// [`BRep::validate_curve_surface_all`], restricted to `edges`
+    /// (handles no longer in the BRep are skipped). For postcondition
+    /// gates that own a known territory — a blend corner's face star —
+    /// and must not pay, or be failed by, a whole-body sweep.
+    pub fn validate_curve_surface_edges(
+        &self,
+        edges: &[crate::topology::EdgeHandle],
+    ) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+        for &edge_handle in edges {
+            let Some(edge) = self.edges.get(edge_handle) else {
+                continue;
+            };
+            if let Some(deviation) = self.curve_surface_edge_violation(edge, false) {
+                errors.push(ValidationError::CurveSurfaceDeviation {
+                    edge: edge_handle,
+                    max_deviation: deviation,
+                });
+            }
+        }
+        errors
+    }
+
     /// Measure one edge against both adjacent face surfaces.
     ///
     /// Returns `Some(worst_over_band_deviation)` when any sample
