@@ -328,22 +328,34 @@ fn meridian(
 /// parameter fractions, unwrapped onto each predecessor's period
 /// branch, and interpolated. `reversed` builds it against the
 /// curve's direction (for the half-edge opposite the primary one).
-fn projected_pcurve(
+pub(super) fn projected_pcurve(
     surface: &SurfaceGeometry,
     curve: &CurveOnEdge,
     reversed: bool,
 ) -> Result<Pcurve, String> {
+    projected_pcurve_sampled(surface, curve, reversed, PCURVE_SAMPLES)
+}
+
+/// [`projected_pcurve`] with an explicit sample count, for callers
+/// that densify until their deviation gate holds.
+pub(super) fn projected_pcurve_sampled(
+    surface: &SurfaceGeometry,
+    curve: &CurveOnEdge,
+    reversed: bool,
+    samples: usize,
+) -> Result<Pcurve, String> {
     use popkern_core::geometry::SurfaceEval;
+    let samples = samples.max(2);
     let (period_u, period_v) = surface.parameter_periodicity();
     let unwrap = |value: f64, near: f64, period: Option<f64>| match period {
         Some(t) if t > 0.0 => value - ((value - near) / t).round() * t,
         _ => value,
     };
-    let mut uv: Vec<(f64, f64)> = Vec::with_capacity(PCURVE_SAMPLES);
-    let mut params: Vec<f64> = Vec::with_capacity(PCURVE_SAMPLES);
+    let mut uv: Vec<(f64, f64)> = Vec::with_capacity(samples);
+    let mut params: Vec<f64> = Vec::with_capacity(samples);
     let mut hint: Option<(f64, f64)> = None;
-    for k in 0..PCURVE_SAMPLES {
-        let f = k as f64 / (PCURVE_SAMPLES - 1) as f64;
+    for k in 0..samples {
+        let f = k as f64 / (samples - 1) as f64;
         let f_curve = if reversed { 1.0 - f } else { f };
         let p = curve
             .geometry

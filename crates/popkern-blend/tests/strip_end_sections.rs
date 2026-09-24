@@ -141,3 +141,74 @@ fn g2_base_strips_at_acute_dihedrals_decline_typed() {
         );
     }
 }
+
+/// Blend on blend (PK-534): after a cube's top edges are rounded, a
+/// fillet on each vertical edge ends against the two top strips, which
+/// meet along their PK-152 seam. That is a fan end with curved faces
+/// and a curved fan edge. It once served the stale L, (√2 − 1)·r =
+/// 4.1e-2 off. It now settles on marched strip ∩ strip arcs, with the
+/// seam trimmed at its crossing, for G1 verticals on a G1 or G2 top.
+#[test]
+fn blend_on_blend_vertical_ends_settle_against_the_top_strips() {
+    let tol = Tolerance::default();
+    let cube = BRep::unit_cube(tol).expect("cube");
+    let top: Vec<FilletSpec> = cube
+        .edges
+        .iter()
+        .filter(|(_, e)| {
+            let he = &cube.half_edges[e.half_edge];
+            cube.vertices[he.origin].position.z > 0.99
+                && cube.vertices[cube.half_edges[he.twin].origin].position.z > 0.99
+        })
+        .map(|(edge, _)| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.15),
+        })
+        .collect();
+    for top_continuity in [ContinuityLevel::G1, ContinuityLevel::G2] {
+        let rounded = fillet_edges(
+            &cube,
+            &top,
+            &FilletOptions {
+                continuity: top_continuity,
+                ..FilletOptions::default()
+            },
+            tol,
+            None,
+        )
+        .expect("top edges round")
+        .brep;
+        let verticals: Vec<EdgeHandle> = rounded
+            .edges
+            .iter()
+            .filter(|(_, e)| {
+                e.curve.as_ref().is_some_and(|c| {
+                    use popkern_core::geometry::CurveEval;
+                    let (a, b) = (c.geometry.point_at(c.t_start), c.geometry.point_at(c.t_end));
+                    (a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9 && (a.z - b.z).abs() > 0.5
+                })
+            })
+            .map(|(h, _)| h)
+            .collect();
+        assert_eq!(verticals.len(), 4);
+        let specs: Vec<FilletSpec> = verticals
+            .iter()
+            .map(|&edge| FilletSpec {
+                edge,
+                radius: FilletRadius::Constant(0.1),
+            })
+            .collect();
+        let result = fillet_edges(&rounded, &specs, &FilletOptions::default(), tol, None);
+        let result =
+            result.unwrap_or_else(|e| panic!("{top_continuity:?} top: verticals serve: {e}"));
+        assert_eq!(
+            result.repair_report.terminal_arc_trim.repaired_corners, 4,
+            "{top_continuity:?} top: every vertical's top end settles"
+        );
+        let errors = result.brep.validate_all();
+        assert!(
+            errors.is_empty(),
+            "{top_continuity:?} top: validate_all: {errors:?}"
+        );
+    }
+}

@@ -55,11 +55,14 @@ fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
     assert_eq!(model.report().downgraded_blends().count(), 1);
 }
 
-/// PK-534 pin: a G2 fillet on the vertical edges of a cube whose top
-/// edges already carry a G2 fillet falls back Smooth -> Mitred at the
-/// blend-on-blend corners and once served residue off its faces
-/// (8 edges, worst 3.6e-2). The territory gate (PK-530) now declines
-/// it typed, as `InconsistentGeometry` in the failure payload.
+/// PK-531 pin: a G2 fillet on the vertical edges of a cube whose top
+/// edges already carry a G2 fillet once served residue off its faces
+/// (8 edges, worst 3.6e-2). G1 verticals on a G1 or G2 top now serve
+/// (PK-534). G2 verticals are fitted strips whose surface stops at the
+/// edge's end station, short of the crossing with the top strips' seam,
+/// so their ends cannot settle until fitted strips extend (PK-531). The
+/// territory gate declines them typed, as `InconsistentGeometry` in the
+/// failure payload.
 #[test]
 fn blend_on_blend_g2_residue_declines_typed() {
     const BLEND_ON_BLEND: &str = r#"let m = model();
@@ -70,7 +73,7 @@ m
 "#;
     let mut host = ScriptHost::new();
     let Err(error) = host.run(BLEND_ON_BLEND, "blend_on_blend.rhai") else {
-        panic!("PK-534 served the blend-on-blend corners: restore it as the report fixture");
+        panic!("PK-531 served the G2 blend-on-blend corners: restore it as the report fixture");
     };
     assert_eq!(error.kind, "FeatureFailed");
     assert!(

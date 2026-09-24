@@ -1,34 +1,42 @@
-//! PK-530: a cylinder strip's end running into a FAN of planar faces.
+//! A strip's end running into a FAN of faces (PK-530, PK-534).
 //!
-//! A single fillet on a pyramid's slant edge ends at the apex, where
-//! the strip meets not one planar cap but every face around the apex
-//! that is not one of its supports. The chain-end settlement needs a
-//! single cap, so it declined (`NoCommonPlanarCap`), and the pipeline
-//! served the stale L through the apex (square pyramid, r = 0.05:
-//! 1.3e-2 off the strip).
+//! Two fixtures reach this:
+//! - A single fillet on a pyramid's slant edge ends at the apex, where
+//!   it meets not one planar cap but every face around the apex that
+//!   is not one of its supports.
+//! - A fillet on a cube's vertical edge, after its top edges are
+//!   rounded (blend on blend), ends against the two top-fillet strips,
+//!   which already meet along their PK-152 seam.
 //!
-//! **Exact end.** Name the faces at the corner, from the in-stub's
-//! cap to the out-stub's, `F_0 … F_m`, and the fan edges between
-//! them `f_1 … f_m` (plane ∩ plane lines through the corner). The
-//! strip's end is the chain of cylinder ∩ `F_j` ellipse arcs:
+//! The chain-end settlement needs a single cap, so it declined
+//! (`NoCommonPlanarCap`), and the pipeline served the stale L through
+//! the corner: 1.3e-2 off at the pyramid, (√2 − 1)·r = 4.1e-2 at the
+//! cube.
+//!
+//! **Exact end.** Name the faces at the corner, from the in-stub's cap
+//! to the out-stub's, `F_0 … F_m`, and the fan edges between them
+//! `f_1 … f_m`. The strip's end is the chain of strip ∩ `F_j` arcs:
 //! `foot_a → q_1` on `F_0`, then `q_j → q_(j+1)` on `F_j`, then
-//! `q_m → foot_b` on `F_m`. Here `q_j` is the point nearest the corner
-//! where the cylinder crosses `f_j`'s line.
+//! `q_m → foot_b` on `F_m`. Here `q_j` is where the strip crosses
+//! `f_j`, nearest the corner. The arcs are built one of two ways:
+//! - exact ellipses for a cylinder strip against planes;
+//! - marched otherwise, for fitted strips, curved fan faces, and
+//!   curved fan edges (`surface_pair_march`).
 //!
 //! **Topology.** For m = 1 the corner vertex just moves to q_1. For
 //! m ≥ 2 the corner splits (`split_vertex`, the general MEV): each
 //! split moves the fan sector past `f_j` to a new vertex at
 //! `q_(j+1)`, and its connector edge lands between the strip and
-//! `F_j`, which is exactly the new end arc. Each fan edge stays on its
-//! line, shortened to its `q_j`.
+//! `F_j`, which is exactly the new end arc. Each fan edge keeps its
+//! curve, trimmed to start at its `q_j` (`edges`).
 //!
 //! **Fallback.** The whole end is transactional. It is solved and
 //! gated, and any decline restores the body. **Tolerance:** the
-//! caller's blend tolerance.
+//! caller's blend tolerance. A fitted fan edge keeps its own recorded
+//! band.
 
-use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{CurveOnEdge, Point3, Vec3};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
@@ -37,6 +45,8 @@ use crate::types::TerminalArcTrimDeclineReason as Reason;
 use super::terminal_arc_oblique::{ObliqueSection, compute_oblique_stub_arc, unwrap_near};
 use super::terminal_arc_trim::{CornerCandidate, StripCylinder};
 
+#[path = "terminal_fan_end_edges.rs"]
+mod edges;
 #[path = "terminal_fan_end_fitted.rs"]
 mod fitted;
 
@@ -156,12 +166,32 @@ fn settle(
     if faces[m] != cap_last {
         return Err(Reason::NoCommonPlanarCap);
     }
-    let planes: Vec<Plane> = faces
+    let surfaces: Vec<SurfaceGeometry> = faces
         .iter()
-        .map(|f| plane_of(brep, *f).ok_or(Reason::NoCommonPlanarCap))
+        .map(|f| {
+            brep.faces
+                .get(*f)
+                .and_then(|x| x.surface.as_ref())
+                .map(|x| x.geometry.clone())
+                .ok_or(Reason::NoCommonPlanarCap)
+        })
         .collect::<Result<_, _>>()?;
+    // The exact path: a cylinder strip against planar faces only.
+    let planes: Option<Vec<Plane>> = faces.iter().map(|f| plane_of(brep, *f)).collect();
+    let exact = match (strip, &planes) {
+        (FanStrip::Cylinder(cyl), Some(planes)) => Some((*cyl, planes)),
+        _ => None,
+    };
+    let strip_geometry = match strip {
+        FanStrip::Cylinder(cyl) => SurfaceGeometry::Cylinder {
+            origin: cyl.origin,
+            axis: cyl.axis,
+            radius: cyl.radius,
+        },
+        FanStrip::Fitted(geom) => (*geom).clone(),
+    };
 
-    // Crossings q_j of the strip with each fan edge's line.
+    // Crossings q_j of the strip with each fan edge, from the corner.
     let corner_pos = brep
         .vertices
         .get(c.corner)
@@ -169,21 +199,14 @@ fn settle(
         .position;
     let mut crossings: Vec<Point3> = Vec::with_capacity(m);
     for &f in &fan {
-        let far = brep
-            .half_edges
-            .get(
-                brep.half_edges
-                    .get(f)
-                    .ok_or(Reason::NoCommonPlanarCap)?
-                    .twin,
-            )
-            .and_then(|tw| brep.vertices.get(tw.origin))
-            .ok_or(Reason::NoCommonPlanarCap)?
-            .position;
-        let q = match strip {
-            FanStrip::Cylinder(cyl) => line_cylinder_crossing(cyl, corner_pos, far),
-            FanStrip::Fitted(geom) => fitted::line_surface_crossing(geom, corner_pos, far, pos_tol),
-        }
+        let q = edges::fan_edge_crossing(
+            brep,
+            f,
+            corner_pos,
+            exact.map(|e| e.0),
+            &strip_geometry,
+            pos_tol,
+        )
         .ok_or(Reason::ArcBranchUnresolved)?;
         crossings.push(q);
     }
@@ -207,12 +230,16 @@ fn settle(
     chain.extend(&crossings);
     chain.push(foot_b);
     // Solve every arc before touching topology.
-    let arcs = match strip {
-        FanStrip::Cylinder(cyl) => FanArcs::Exact(exact_arcs(cyl, &planes, &chain, pos_tol)?),
-        FanStrip::Fitted(geom) => {
+    let arcs = match exact {
+        Some((cyl, planes)) => FanArcs::Exact(exact_arcs(cyl, planes, &chain, pos_tol)?),
+        None => {
             let recorded = fitted::recorded_band(brep, c, pos_tol);
             FanArcs::Marched(fitted::march_arcs(
-                geom, &planes, &chain, pos_tol, recorded,
+                &strip_geometry,
+                &surfaces,
+                &chain,
+                pos_tol,
+                recorded,
             )?)
         }
     };
@@ -265,37 +292,43 @@ fn settle(
         {
             return Err(Reason::FanEndRejected);
         }
-        let (o, u, v, _) = planes[j];
-        let (stub, band) = match &arcs {
-            FanArcs::Exact((sections, angles)) => (
-                compute_oblique_stub_arc(
+        let (stub, band) = match (&arcs, &planes) {
+            (FanArcs::Exact((sections, angles)), Some(planes)) => {
+                let (o, u, v, _) = planes[j];
+                (
+                    compute_oblique_stub_arc(
+                        brep,
+                        he,
+                        &sections[j],
+                        angles[j],
+                        angles[j + 1],
+                        (o, u, v),
+                        tolerance,
+                    )?,
+                    None,
+                )
+            }
+            (FanArcs::Marched(arcs), _) => {
+                let staged = fitted::stage_marched_arc(
                     brep,
                     he,
-                    &sections[j],
-                    angles[j],
-                    angles[j + 1],
-                    (o, u, v),
-                    tolerance,
-                )?,
-                None,
-            ),
-            FanArcs::Marched(arcs) => {
-                let FanStrip::Fitted(geom) = strip else {
-                    return Err(Reason::FanEndRejected);
-                };
-                let staged =
-                    fitted::stage_marched_arc(brep, he, geom, &planes[j], &arcs[j], j == 0)?;
+                    &strip_geometry,
+                    &surfaces[j],
+                    &arcs[j],
+                    j == 0,
+                )?;
                 (staged, Some(arcs[j].band))
             }
+            _ => return Err(Reason::FanEndRejected),
         };
         staged.push((stub, band));
     }
     for (stub, band) in staged {
         commit_stub(brep, c.strip_face, stub, band, pos_tol)?;
     }
-    // Fan edges: the same lines, shortened to their crossings.
+    // Fan edges: the same curves, shortened to their crossings.
     for (j, &f) in fan.iter().enumerate() {
-        reauthor_fan_line(brep, f, crossings[j], (faces[j], faces[j + 1]), tolerance)?;
+        edges::reauthor_fan_edge(brep, f, crossings[j], (faces[j], faces[j + 1]), tolerance)?;
     }
     brep.validate().map_err(|_| Reason::FanEndRejected)?;
     Ok(())
@@ -377,74 +410,4 @@ fn exact_arcs(
     }
 
     Ok((sections, angles))
-}
-
-/// The point nearest `from` along the segment to `to` where the line
-/// meets the cylinder.
-fn line_cylinder_crossing(cyl: &StripCylinder, from: Point3, to: Point3) -> Option<Point3> {
-    let axis = cyl.axis.normalized()?;
-    let d = to - from;
-    let w = from - cyl.origin;
-    let d_perp = d - axis * d.dot(&axis);
-    let w_perp = w - axis * w.dot(&axis);
-    let a = d_perp.dot(&d_perp);
-    let b = 2.0 * d_perp.dot(&w_perp);
-    let cc = w_perp.dot(&w_perp) - cyl.radius * cyl.radius;
-    let disc = b * b - 4.0 * a * cc;
-    if a < 1e-18 || disc < 0.0 {
-        return None;
-    }
-    let sq = disc.sqrt();
-    let mut roots = [(-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)];
-    roots.sort_by(f64::total_cmp);
-    let t = roots.into_iter().find(|t| *t > 1e-12 && *t < 1.0 - 1e-12)?;
-    Some(from + d * t)
-}
-
-/// Re-author a fan edge (outgoing half-edge `f`, now starting at its
-/// crossing) as its line segment with plane pcurves on both flanks.
-fn reauthor_fan_line(
-    brep: &mut BRep,
-    f: HalfEdgeHandle,
-    start: Point3,
-    flanks: (FaceHandle, FaceHandle),
-    tolerance: &Tolerance,
-) -> Result<(), Reason> {
-    let he = brep.half_edges.get(f).ok_or(Reason::FanEndRejected)?;
-    let (edge, twin) = (he.edge, he.twin);
-    let end = brep
-        .half_edges
-        .get(twin)
-        .and_then(|tw| brep.vertices.get(tw.origin))
-        .ok_or(Reason::FanEndRejected)?
-        .position;
-    let primary = brep
-        .edges
-        .get(edge)
-        .ok_or(Reason::FanEndRejected)?
-        .half_edge;
-    let (p0, p1) = if primary == f {
-        (start, end)
-    } else {
-        (end, start)
-    };
-    let line =
-        CurveOnEdge::line_segment(p0, p1, tolerance.linear()).ok_or(Reason::FanEndRejected)?;
-    if let Some(e) = brep.edges.get_mut(edge) {
-        e.curve = Some(line);
-    }
-    for (h, from, to) in [(f, start, end), (twin, end, start)] {
-        let face = face_of(brep, h).ok_or(Reason::FanEndRejected)?;
-        if face != flanks.0 && face != flanks.1 {
-            return Err(Reason::FanEndRejected);
-        }
-        let (o, u, v, _) = plane_of(brep, face).ok_or(Reason::NoCommonPlanarCap)?;
-        let uv = |p: Point3| ((p - o).dot(&u), (p - o).dot(&v));
-        let pcurve = Pcurve::linear(uv(from), uv(to), 0.0, 1.0);
-        if let Some(hh) = brep.half_edges.get_mut(h) {
-            hh.pcurve = Some(pcurve.clone());
-        }
-        brep.set_face_use_pcurve(face, h, pcurve);
-    }
-    Ok(())
 }

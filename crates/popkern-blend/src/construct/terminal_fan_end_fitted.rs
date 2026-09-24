@@ -10,24 +10,19 @@
 //! strip meets its rails only within its fit accuracy, so the arcs
 //! inherit the band recorded at the feet and declare it.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{Point3, SurfaceEval};
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
 use crate::types::TerminalArcTrimDeclineReason as Reason;
 
 use super::super::blend_seam_corner_repair::neighbour_chart_point;
-use super::super::blend_seam_corner_swept::{project_seeded, surface_distance};
 use super::super::surface_pair_march::{
     MarchedIntersection, intersection_curve, intersection_pcurve, march_intersection,
 };
 use super::super::terminal_arc_author::StagedStubArc;
 use super::super::terminal_arc_trim::CornerCandidate;
 use super::Plane;
-
-/// Bracketing samples along a fan edge, and bisection steps.
-const BRACKET_SAMPLES: usize = 64;
-const BISECTIONS: usize = 60;
 
 fn plane_geometry(plane: &Plane) -> SurfaceGeometry {
     SurfaceGeometry::Plane {
@@ -36,51 +31,6 @@ fn plane_geometry(plane: &Plane) -> SurfaceGeometry {
         v_axis: plane.2,
         normal: plane.3,
     }
-}
-
-/// Signed distance from `p` to the strip, with the foot distance.
-fn signed_distance(geom: &SurfaceGeometry, p: Point3) -> Option<(f64, f64)> {
-    let (u, v) = project_seeded(geom, &p, None)?;
-    let foot = geom.point_at(u, v);
-    let n = geom.normal_at(u, v).normalized()?;
-    Some(((p - foot).dot(&n), (p - foot).length()))
-}
-
-/// The first point from `from` toward `to` where the segment crosses
-/// the strip, when it touches the strip there within `pos_tol`.
-pub(super) fn line_surface_crossing(
-    geom: &SurfaceGeometry,
-    from: Point3,
-    to: Point3,
-    pos_tol: f64,
-) -> Option<Point3> {
-    let at = |t: f64| from + (to - from) * t;
-    let mut prev_t = 0.0;
-    let mut prev = signed_distance(geom, at(0.0))?.0;
-    for k in 1..=BRACKET_SAMPLES {
-        let t = k as f64 / BRACKET_SAMPLES as f64;
-        let Some((f, _)) = signed_distance(geom, at(t)) else {
-            continue;
-        };
-        if prev * f <= 0.0 {
-            let (mut lo, mut hi, mut f_lo) = (prev_t, t, prev);
-            for _ in 0..BISECTIONS {
-                let mid = 0.5 * (lo + hi);
-                let (f_mid, _) = signed_distance(geom, at(mid))?;
-                if f_lo * f_mid <= 0.0 {
-                    hi = mid;
-                } else {
-                    lo = mid;
-                    f_lo = f_mid;
-                }
-            }
-            let q = at(0.5 * (lo + hi));
-            return (surface_distance(geom, &q, None) <= pos_tol).then_some(q);
-        }
-        prev_t = t;
-        prev = f;
-    }
-    None
 }
 
 /// The band recorded at the fan end: the strip face's and the feet's
@@ -102,28 +52,21 @@ pub(super) fn recorded_band(brep: &BRep, c: &CornerCandidate, pos_tol: f64) -> f
     face.into_iter().chain(edges).fold(pos_tol, f64::max)
 }
 
-/// March every arc of the chain: arc `j` on plane `j`, from `chain[j]`
-/// to `chain[j + 1]`.
+/// March every arc of the chain: arc `j` on face surface `j`, from
+/// `chain[j]` to `chain[j + 1]`.
 pub(super) fn march_arcs(
     geom: &SurfaceGeometry,
-    planes: &[Plane],
+    surfaces: &[SurfaceGeometry],
     chain: &[Point3],
     pos_tol: f64,
     recorded: f64,
 ) -> Result<Vec<MarchedIntersection>, Reason> {
-    planes
+    surfaces
         .iter()
         .enumerate()
-        .map(|(j, plane)| {
-            march_intersection(
-                geom,
-                &plane_geometry(plane),
-                chain[j],
-                chain[j + 1],
-                pos_tol,
-                recorded,
-            )
-            .map_err(|_| Reason::ArcBranchUnresolved)
+        .map(|(j, surface)| {
+            march_intersection(geom, surface, chain[j], chain[j + 1], pos_tol, recorded)
+                .map_err(|_| Reason::ArcBranchUnresolved)
         })
         .collect()
 }
@@ -135,7 +78,7 @@ pub(super) fn stage_marched_arc(
     brep: &BRep,
     he: HalfEdgeHandle,
     geom: &SurfaceGeometry,
-    plane: &Plane,
+    cap_surface: &SurfaceGeometry,
     arc: &MarchedIntersection,
     first: bool,
 ) -> Result<StagedStubArc, Reason> {
@@ -155,8 +98,8 @@ pub(super) fn stage_marched_arc(
     };
     let strip_pcurve =
         intersection_pcurve(geom, arc, false, seed).map_err(|_| Reason::FanEndRejected)?;
-    let cap_pcurve = intersection_pcurve(&plane_geometry(plane), arc, true, None)
-        .map_err(|_| Reason::FanEndRejected)?;
+    let cap_pcurve =
+        intersection_pcurve(cap_surface, arc, true, None).map_err(|_| Reason::FanEndRejected)?;
     Ok(StagedStubArc {
         edge,
         curve,
@@ -234,9 +177,10 @@ pub(super) fn settle_single_cap(
         .copied()
         .min_by(|a, b| a.distance_to(&stale).total_cmp(&b.distance_to(&stale)))
         .ok_or(Reason::ArcBranchUnresolved)?;
+    let cap_surface = plane_geometry(&plane);
     let arcs = march_arcs(
         geom,
-        &[plane, plane],
+        &[cap_surface.clone(), cap_surface.clone()],
         &[foot_a, settled, foot_b],
         pos_tol,
         recorded,
@@ -246,11 +190,11 @@ pub(super) fn settle_single_cap(
     }
     let staged = [
         (
-            stage_marched_arc(brep, c.he_in, geom, &plane, &arcs[0], true)?,
+            stage_marched_arc(brep, c.he_in, geom, &cap_surface, &arcs[0], true)?,
             arcs[0].band,
         ),
         (
-            stage_marched_arc(brep, c.he_out, geom, &plane, &arcs[1], false)?,
+            stage_marched_arc(brep, c.he_out, geom, &cap_surface, &arcs[1], false)?,
             arcs[1].band,
         ),
     ];
