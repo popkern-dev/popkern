@@ -169,10 +169,12 @@ pub struct BlendBoundaryOptions {
     /// with a setback margin, so all junctions land on real rails
     /// and all bridges cross real face regions.
     pub ring_station_pushback: bool,
-    /// PK-517: put the ring into the face-loop sense of the blend
-    /// face the boundary-ring carve builds from it (sense read from
-    /// the solid, see `boundary_ring_sense`). Set by the convex ring
-    /// rung; saddle rings keep their walk sense (measured serving).
+    /// PK-517: put the ring into the outward sense the cap builders
+    /// need (`boundary_ring_sense`); set by the convex ring rung.
+    /// Saddles keep the walk sense by margin, not rule (PK-523): their
+    /// N-quad cap near-folds in BOTH senses (in-patch normal cos -0.965
+    /// walk, -0.993 loop) and only the walk sense clears the -0.98
+    /// reversal gate. Unifying waits on a fold-free saddle cap (PK-527).
     pub ring_sense_from_solid: bool,
 }
 
