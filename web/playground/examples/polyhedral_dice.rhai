@@ -151,7 +151,10 @@ for face in d6_faces {
         k += 1;
     }
 }
-d6 = d6.translate(-0.1, -0.42, h6, #{ label: "d6_place" });
+// Placed with a measured >= 0.1 gap to its neighbours (the earlier
+// (-0.1, -0.42) spot overlapped the d4 and d8 by 1.8e-4 of volume —
+// caught by the OCC oracle's per-body self-interference check).
+d6 = d6.translate(-0.15, -0.8, h6, #{ label: "d6_place" });
 
 m.assert_watertight();
 m

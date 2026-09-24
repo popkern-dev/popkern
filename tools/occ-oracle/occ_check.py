@@ -6,7 +6,7 @@ The FreeCAD-equivalent acceptance gate for popkern STEP exports
 STEP-consumer conventions; this oracle surfaces them).
 
 Usage:
-    <ocp-venv>/bin/python tools/occ-oracle/occ_check.py FILE.step [FILE2.step ...]
+    <ocp-venv>/bin/python tools/occ-oracle/occ_check.py [--self-interference] FILE.step [FILE2.step ...]
     # venv recreate: python3 -m venv ~/venvs/ocp && ~/venvs/ocp/bin/pip install cadquery-ocp
 
 Output: one JSON object per file on stdout with:
@@ -16,6 +16,11 @@ Output: one JSON object per file on stdout with:
     overall_valid        BRepCheck_Analyzer on the whole shape
     face_failures        per-face BRepCheck failure names + surface kind + area
     free_bound_wires     closed/open free-bound wire counts after meshing
+    self_interference    (with --self-interference) BRepAlgoAPI_Check
+                         self-interference + small-edge verdict and fault
+                         statuses — the boolean pre-check a consumer runs
+                         before any operation; it catches import-side
+                         tolerance inflation that BRepCheck accepts (PK-524)
 Exit code 0 iff every file passes: valid, no reader checks, 0 open free bounds.
 """
 
@@ -23,7 +28,7 @@ import json
 import sys
 
 
-def check_file(path):
+def check_file(path, self_interference=False):
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Surface
     from OCP.BRepCheck import BRepCheck_Analyzer, BRepCheck_ListOfStatus
@@ -35,7 +40,7 @@ def check_file(path):
     from OCP.Interface import Interface_CheckIterator
     from OCP.STEPControl import STEPControl_Reader
     from OCP.ShapeAnalysis import ShapeAnalysis_FreeBounds
-    from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_WIRE
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID, TopAbs_WIRE
     from OCP.TopExp import TopExp_Explorer
     from OCP.TopoDS import TopoDS
 
@@ -149,11 +154,35 @@ def check_file(path):
         "open": count_wires(opened),
     }
 
+    si_ok = True
+    if self_interference:
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Check
+
+        # Per SOLID: the check's self-interference semantics are per
+        # shape, and a multi-body compound would report contact
+        # between separate bodies (a layout fact, not a defect).
+        solids = []
+        solid_exp = TopExp_Explorer(shape, TopAbs_SOLID)
+        while solid_exp.More():
+            solids.append(solid_exp.Current())
+            solid_exp.Next()
+        faults = set()
+        for body in solids or [shape]:
+            check = BRepAlgoAPI_Check(body, True, True)
+            si_ok = si_ok and check.IsValid()
+            faults |= {str(res.GetCheckStatus()) for res in check.Result()}
+        report["self_interference"] = {
+            "valid": si_ok,
+            "bodies": len(solids) or 1,
+            "faults": sorted(faults),
+        }
+
     passed = (
         report["overall_valid"]
         and not check_messages
         and report["free_bound_wires"]["open"] == 0
         and report["free_bound_wires"]["closed"] == 0
+        and si_ok
     )
     report["passed"] = passed
     return report, passed
@@ -163,10 +192,15 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2
+    self_interference = "--self-interference" in sys.argv[1:]
+    paths = [a for a in sys.argv[1:] if a != "--self-interference"]
+    if not paths:
+        print(__doc__, file=sys.stderr)
+        return 2
     all_passed = True
-    for path in sys.argv[1:]:
+    for path in paths:
         try:
-            report, passed = check_file(path)
+            report, passed = check_file(path, self_interference)
         except Exception as exc:  # report per-file, keep sweeping
             report, passed = {"file": path, "fatal": repr(exc)}, False
         all_passed = all_passed and passed

@@ -55,6 +55,7 @@ pub enum StepSchema {
 /// represented in STEP format.
 pub fn export_step(doc: &StepDocument, options: &StepExportOptions) -> Result<Vec<u8>, IoError> {
     let mut ctx = ExportContext::new();
+    ctx.surface_conditioning_tolerance = 0.1 * doc.units.context.uncertainty;
 
     // Stage 1–2: Export geometry and topology from each BRep solid
     let mut shape_item_ids: Vec<Vec<EntityId>> = Vec::new();
@@ -112,6 +113,11 @@ pub(crate) struct ExportContext {
     pub(crate) direction_cache: HashMap<PointKey, EntityId>,
     /// Cached ID of the shared 2-D parametric representation context.
     pub(crate) param_repr_context_id: Option<EntityId>,
+    /// Accuracy a written surface must keep when its exact form is
+    /// replaced by a better-conditioned one (a tenth of the
+    /// representation's length uncertainty; see
+    /// `export_surface_conditioning`).
+    pub(crate) surface_conditioning_tolerance: f64,
 }
 
 /// Key for deduplicating points/directions by exact float bits.
@@ -151,6 +157,8 @@ impl ExportContext {
             point_cache: HashMap::new(),
             direction_cache: HashMap::new(),
             param_repr_context_id: None,
+            surface_conditioning_tolerance: 0.1
+                * super::document::RepresentationContext::default().uncertainty,
         }
     }
 

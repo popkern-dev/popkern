@@ -231,13 +231,17 @@ impl ExportContext {
                 )
             }
             SurfaceGeometry::Nurbs(nurbs) => self.export_nurbs_surface(nurbs),
-            // STEP AP203/242 has no direct Gregory entity. Convert
-            // to a NURBS fit (via `to_nurbs()`) and export as
-            // B_SPLINE_SURFACE. Loses the rational-inner-CP exact
-            // form but preserves the geometry to tessellation
-            // fidelity — the standard interchange strategy.
+            // STEP AP203/242 has no direct Gregory entity: the exact
+            // rational conversion (`to_nurbs()`) is written as a
+            // B_SPLINE_SURFACE unless it is too ill-conditioned for
+            // consumers, in which case a measured non-rational fit
+            // over the same (u, v) chart replaces it
+            // (`export_surface_conditioning`, PK-524).
             SurfaceGeometry::Gregory(_) => {
-                let nurbs = surface.geometry.to_nurbs();
+                let nurbs = super::export_surface_conditioning::conditioned_gregory_nurbs(
+                    &surface.geometry,
+                    self.surface_conditioning_tolerance,
+                );
                 self.export_nurbs_surface(&nurbs)
             }
             // A polyhedral-net spline patch IS a bi-quartic Bezier

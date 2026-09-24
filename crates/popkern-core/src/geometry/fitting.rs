@@ -1,7 +1,9 @@
 //! Least-squares B-spline curve fitting.
 
 pub(crate) mod numerics;
+mod surface_interpolation;
 use numerics::{basis_function, solve_linear_system};
+pub use surface_interpolation::interpolate_surface_grid;
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
