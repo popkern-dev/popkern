@@ -986,7 +986,7 @@
       "name": "fillet",
       "section": "5",
       "mark": "stable",
-      "signature": "fillet(edges, radius, continuity?, cap?, profile?, interference?, law?)",
+      "signature": "fillet(edges, radius, continuity?, cap?, profile?, interference?, law?, corner?)",
       "parameters": [
         {
           "name": "edges",
@@ -1014,6 +1014,10 @@
         },
         {
           "name": "law",
+          "optional": true
+        },
+        {
+          "name": "corner",
           "optional": true
         }
       ]

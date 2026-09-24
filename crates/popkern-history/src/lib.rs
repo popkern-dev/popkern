@@ -90,8 +90,8 @@ pub use feature::{
     OperationMode, RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
 };
 pub use feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
-    FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
+    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerModeDesc,
+    FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
 pub use feature_snapshot::SnapshotOrigin;
 pub use format::{format_expression, format_expression_with_unit};

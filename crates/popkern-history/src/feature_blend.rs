@@ -42,6 +42,31 @@ pub struct FilletRecipeDesc {
     /// Resolution policy for non-completable strip interference.
     #[serde(default)]
     pub interference: InterferencePolicyKind,
+    /// How corners where several filleted edges meet are closed.
+    #[serde(default)]
+    pub corner: CornerModeDesc,
+}
+
+/// How a fillet closes corners where several filleted edges meet
+/// (mirrors [`popkern_blend::VertexMode`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CornerModeDesc {
+    /// A smooth corner blend (default).
+    #[default]
+    Smooth,
+    /// A mitre: every adjacent strip pair trimmed to its mutual
+    /// intersection, all seams meeting at one point (PK-522, PK-528).
+    Mitre,
+}
+
+impl CornerModeDesc {
+    /// The kernel vertex mode this descriptor requests.
+    pub fn to_kernel(self) -> popkern_blend::VertexMode {
+        match self {
+            CornerModeDesc::Smooth => popkern_blend::VertexMode::Smooth,
+            CornerModeDesc::Mitre => popkern_blend::VertexMode::Mitred,
+        }
+    }
 }
 
 /// Radius law along a filleted edge (mirrors
@@ -202,8 +227,8 @@ impl InterferencePolicyKind {
 
 impl FilletRecipeDesc {
     /// Kernel fillet options for this recipe: the kernel defaults with
-    /// the recipe's continuity, cap, profile, and interference policy
-    /// applied. The engineering toggles that `FilletOptions` also
+    /// the recipe's continuity, cap, profile, interference policy and
+    /// corner mode applied. The engineering toggles that `FilletOptions` also
     /// carries (Gregory variants, soft supports, apex construction)
     /// are not document state and keep their defaults.
     pub fn to_kernel_options(&self) -> popkern_blend::FilletOptions {
@@ -212,6 +237,7 @@ impl FilletRecipeDesc {
             cap_kind: self.cap.to_kernel(),
             profile: self.profile.to_kernel(),
             interference_policy: self.interference.to_kernel(),
+            vertex_mode: self.corner.to_kernel(),
             ..popkern_blend::FilletOptions::default()
         }
     }

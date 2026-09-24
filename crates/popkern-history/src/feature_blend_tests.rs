@@ -30,6 +30,7 @@ fn full_recipe(end: ParameterId) -> FilletRecipeDesc {
         cap: CapKindDesc::Rounded,
         profile: BlendProfileKind::Conic { rho: 0.4 },
         interference: InterferencePolicyKind::ServeNonInterfering,
+        corner: CornerModeDesc::Mitre,
     }
 }
 
@@ -201,6 +202,7 @@ fn default_recipe_matches_kernel_defaults() {
     assert_eq!(opts.cap_kind, kernel.cap_kind);
     assert_eq!(opts.profile, kernel.profile);
     assert_eq!(opts.interference_policy, kernel.interference_policy);
+    assert_eq!(opts.vertex_mode, kernel.vertex_mode);
     assert_eq!(opts.propagate_tangent, kernel.propagate_tangent);
     assert_eq!(opts.use_rational_gregory, kernel.use_rational_gregory);
 }
@@ -219,6 +221,11 @@ fn recipe_knobs_reach_kernel_options() {
     assert_eq!(
         opts.interference_policy,
         popkern_blend::InterferencePolicy::ServeNonInterfering
+    );
+    assert_eq!(opts.vertex_mode, popkern_blend::VertexMode::Mitred);
+    assert_eq!(
+        CornerModeDesc::Smooth.to_kernel(),
+        popkern_blend::VertexMode::Smooth
     );
     assert_eq!(CapKindDesc::Flat.to_kernel(), popkern_blend::CapKind::Flat);
     assert_eq!(

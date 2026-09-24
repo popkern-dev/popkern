@@ -8,8 +8,8 @@ use popkern_history::feature::{
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, FilletRadiusLaw,
-    FilletRecipeDesc, InterferencePolicyKind,
+    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerModeDesc,
+    FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind,
 };
 use popkern_history::feature_sketch::SketchPayload;
 use popkern_history::feature_transform::RigidMotionDesc;
@@ -74,6 +74,9 @@ fn fillet_options(
     }
     if recipe.interference == InterferencePolicyKind::ServeNonInterfering {
         pairs.push(("interference", quoted("serve_non_interfering")));
+    }
+    if recipe.corner == CornerModeDesc::Mitre {
+        pairs.push(("corner", quoted("mitre")));
     }
     match &recipe.radius_law {
         FilletRadiusLaw::Constant => {}

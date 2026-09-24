@@ -127,7 +127,7 @@ least `label`.
 | `extrude(end)` | `end`: `blind(d)`, `through_all()`, `up_to_surface(faces()...)`, `offset_from_surface(faces()..., d)`, `mid_plane(half_d)` | `label`, `mode` (`"new_body"` default, `"boss"`, `"cut"`) | `boss`/`cut` fold the new body into the body the sketch sits on (`on_face` sketches); a base-plane sketch is its own body — combine it with `union`/`subtract`. |
 | `revolve(axis, end)` | `axis`: `axis_at([o], [d])` or `axis(edges()...)`; `end`: `blind(angle_deg)`, `full_circle()`, `mid_plane(half_angle)` | `label` | Revolved spans become exact planes, cylinders, cones and tori. |
 | `union(tool)`, `subtract(tool)`, `intersect(tool)` | a body from `m.tool(...)` | `label` | The tool body is consumed; rebinding (`plate = plate.union(boss)`) keeps the live body. |
-| `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. |
+| `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`), `corner` (`"smooth"`, `"mitre"`: trim every strip pair at a corner to its mutual intersection) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. A mitre with no point shared by every strip is a `FeatureFailed` naming the mitre's reason. |
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
@@ -424,7 +424,7 @@ END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_pla
 AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
 body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
 body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
-body.fillet(E, r, #{label, continuity, cap, profile, interference, law})
+body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})

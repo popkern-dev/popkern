@@ -3,7 +3,9 @@
 //! spec-§10 `ArgumentError` raised before any kernel work runs.
 
 use popkern_history::feature::{JoinStyleKind, OperationMode, ShellDirectionKind, TrimPolicyKind};
-use popkern_history::feature_blend::{CapKindDesc, ContinuityKind, InterferencePolicyKind};
+use popkern_history::feature_blend::{
+    CapKindDesc, ContinuityKind, CornerModeDesc, InterferencePolicyKind,
+};
 use popkern_history::unit::Unit;
 use popkern_part::{Dir, SurfaceKind};
 use popkern_script::Scalar;
@@ -172,6 +174,18 @@ pub fn cap(argument: &str, value: &Dynamic) -> Result<CapKindDesc, Box<EvalAltRe
             ("flat", CapKindDesc::Flat),
             ("rounded", CapKindDesc::Rounded),
             ("tangent_match", CapKindDesc::TangentMatch),
+        ],
+    )
+}
+
+/// `smooth | mitre`.
+pub fn corner(argument: &str, value: &Dynamic) -> Result<CornerModeDesc, Box<EvalAltResult>> {
+    spelling(
+        argument,
+        value,
+        &[
+            ("smooth", CornerModeDesc::Smooth),
+            ("mitre", CornerModeDesc::Mitre),
         ],
     )
 }

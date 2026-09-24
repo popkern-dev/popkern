@@ -257,6 +257,7 @@ pub const RHAI_BINDINGS: &[Binding] = &[
             "profile",
             "interference",
             "law",
+            "corner",
         ],
         &[],
     ),

@@ -34,6 +34,7 @@ pub const FILLET_OPTIONS: &[&str] = &[
     "profile",
     "interference",
     "law",
+    "corner",
 ];
 
 /// Options a `chamfer` call accepts.
@@ -112,6 +113,9 @@ pub fn fillet_options(
     }
     if let Some(i) = options.with("interference", args::interference)? {
         recipe.interference = i;
+    }
+    if let Some(c) = options.with("corner", args::corner)? {
+        recipe.corner = c;
     }
     let law = options
         .with("law", radius_law)?

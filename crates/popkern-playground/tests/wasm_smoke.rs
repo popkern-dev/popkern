@@ -304,10 +304,8 @@ fn same_hash(reported: &Value, hash: u64) -> bool {
 
 fn read_f32(path: &Path) -> Vec<f32> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-        .collect()
+    let (words, _) = bytes.as_chunks::<4>();
+    words.iter().map(|w| f32::from_le_bytes(*w)).collect()
 }
 
 fn max_deviation(a: &[f32], b: &[f32]) -> f64 {
