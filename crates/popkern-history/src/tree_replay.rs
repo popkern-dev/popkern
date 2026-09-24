@@ -52,10 +52,13 @@ impl FeatureTree {
         for (body_id, brep) in body_breps {
             self.body_manager.set_brep(*body_id, brep.clone());
         }
-        self.current_brep = body_breps
-            .get(&BodyId(0))
-            .cloned()
-            .or_else(|| body_breps.values().next().cloned());
+        // Fallback: the lowest surviving id — never hash order (PK-525).
+        self.current_brep = body_breps.get(&BodyId(0)).cloned().or_else(|| {
+            body_breps
+                .iter()
+                .min_by_key(|(id, _)| id.0)
+                .map(|(_, brep)| brep.clone())
+        });
     }
 
     /// Execute features `from..to` using per-body BRep maps, caching results

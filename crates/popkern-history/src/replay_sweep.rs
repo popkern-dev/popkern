@@ -37,7 +37,7 @@ pub(super) fn execute_sweep(
     // across the other bodies — referenced, not consumed.
     let path_curve = if let Ok(e) = resolve_edge(path_edge, brep) {
         extract_edge_curve(brep, e)?
-    } else if let Some(curve) = body_breps.values().find_map(|b| {
+    } else if let Some(curve) = bodies_in_id_order(body_breps).find_map(|b| {
         resolve_edge(path_edge, b)
             .ok()
             .map(|e| extract_edge_curve(b, e))
@@ -170,7 +170,7 @@ pub(super) fn execute_pipe(
     let r = resolve_param(param_table, radius)?;
     let path_curve = if let Ok(e) = resolve_edge(path_edge, brep) {
         extract_edge_curve(brep, e)?
-    } else if let Some(curve) = body_breps.values().find_map(|b| {
+    } else if let Some(curve) = bodies_in_id_order(body_breps).find_map(|b| {
         resolve_edge(path_edge, b)
             .ok()
             .map(|e| extract_edge_curve(b, e))
@@ -264,4 +264,14 @@ pub(super) fn execute_helical_sweep(
     let evidence = FeatureEvidence::sweep(&result.warnings);
     *brep = result.brep;
     Ok(ExecuteSideEffects::reported(evidence))
+}
+
+/// Body BReps in ascending id order: a first-match lookup across bodies
+/// must not depend on hash iteration order (PK-525).
+fn bodies_in_id_order(
+    body_breps: &std::collections::HashMap<crate::node::BodyId, popkern_core::topology::BRep>,
+) -> impl Iterator<Item = &popkern_core::topology::BRep> {
+    let mut ids: Vec<&crate::node::BodyId> = body_breps.keys().collect();
+    ids.sort_by_key(|id| id.0);
+    ids.into_iter().filter_map(move |id| body_breps.get(id))
 }

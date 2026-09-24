@@ -71,11 +71,11 @@ pub(crate) fn detect_host_body(
     features: &SlotMap<FeatureId, FeatureNode>,
     body_breps: &HashMap<BodyId, BRep>,
 ) -> Option<BodyId> {
-    detect_host_body_among(
-        feature_id,
-        features,
-        body_breps.iter().map(|(b, brep)| (*b, brep)),
-    )
+    // Ascending id: the first body resolving the face wins, so the
+    // scan order must not be hash order (PK-525).
+    let mut bodies: Vec<(BodyId, &BRep)> = body_breps.iter().map(|(b, brep)| (*b, brep)).collect();
+    bodies.sort_by_key(|(b, _)| b.0);
+    detect_host_body_among(feature_id, features, bodies)
 }
 
 /// The body whose BRep resolves an on-face sketch plane's face — the

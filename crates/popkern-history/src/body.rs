@@ -70,7 +70,14 @@ impl BodyManager {
 
     /// Return all known body ids.
     pub fn bodies(&self) -> Vec<BodyId> {
-        self.bodies.keys().copied().collect()
+        // Ascending id = creation order, and deterministic: the map is
+        // a HashMap, and its iteration order once leaked into every
+        // multi-body consumer — the whole-model STEP and thumbnail
+        // concatenated bodies in a per-process random order, and
+        // auto-merge host detection scanned candidates in it (PK-525).
+        let mut ids: Vec<BodyId> = self.bodies.keys().copied().collect();
+        ids.sort_unstable_by_key(|id| id.0);
+        ids
     }
 
     /// Return the features assigned to a body, in insertion order.
