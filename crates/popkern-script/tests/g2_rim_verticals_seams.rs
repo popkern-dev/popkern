@@ -99,8 +99,12 @@ fn rim_verticals_g2_measures_achieved_g2_on_every_gated_seam() {
             "{w}x{d}x{h} r={r}: worst gated curvature jump {:.3e} (the off-surface-march class was 1.4)",
             c.worst_g2_residual,
         );
+        // Contact solves converge to a 1e-6 residual by contract. The
+        // worst gap measured 5e-11 before PK-531 and 1.02e-9 after, once
+        // the G2 walk started past the edge's end station. The pin stays
+        // five orders of magnitude under the 4.2e-4 defect class.
         assert!(
-            c.worst_g0_gap < 1e-9,
+            c.worst_g0_gap < 1e-8,
             "{w}x{d}x{h} r={r}: worst seam gap {:.3e} (the cubic-sagitta class was 4.2e-4)",
             c.worst_g0_gap
         );

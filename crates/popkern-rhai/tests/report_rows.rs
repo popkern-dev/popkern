@@ -55,16 +55,14 @@ fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
     assert_eq!(model.report().downgraded_blends().count(), 1);
 }
 
-/// PK-531 pin: a G2 fillet on the vertical edges of a cube whose top
-/// edges already carry a G2 fillet once served residue off its faces
-/// (8 edges, worst 3.6e-2). G1 verticals on a G1 or G2 top now serve
-/// (PK-534). G2 verticals are fitted strips whose surface stops at the
-/// edge's end station, short of the crossing with the top strips' seam,
-/// so their ends cannot settle until fitted strips extend (PK-531). The
-/// territory gate declines them typed, as `InconsistentGeometry` in the
-/// failure payload.
+/// Blend on blend at G2: a G2 fillet on the vertical edges of a cube
+/// whose top edges already carry a G2 fillet. It once served residue
+/// off its faces (8 edges, worst 3.6e-2). The vertical strips' ends now
+/// settle against the top strips (PK-534), and the fitted G2 verticals
+/// reach past their end stations to do so (PK-531). The body serves
+/// with every edge on its faces.
 #[test]
-fn blend_on_blend_g2_residue_declines_typed() {
+fn blend_on_blend_g2_serves_consistent() {
     const BLEND_ON_BLEND: &str = r#"let m = model();
 let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
 cube = cube.fillet(edges().at_height(1.0), 0.15, #{ continuity: "g2", label: "top" });
@@ -72,13 +70,10 @@ cube.fillet(edges().straight().direction("z"), 0.1, #{ continuity: "g2", label: 
 m
 "#;
     let mut host = ScriptHost::new();
-    let Err(error) = host.run(BLEND_ON_BLEND, "blend_on_blend.rhai") else {
-        panic!("PK-531 served the G2 blend-on-blend corners: restore it as the report fixture");
-    };
-    assert_eq!(error.kind, "FeatureFailed");
-    assert!(
-        error.payload.to_string().contains("InconsistentGeometry"),
-        "typed territory decline: {}",
-        error.payload
-    );
+    let outcome = host
+        .run(BLEND_ON_BLEND, "blend_on_blend.rhai")
+        .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
+    let mut model = outcome.model.expect("model");
+    let errors = model.to_part().expect("part").brep().validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
 }

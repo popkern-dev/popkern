@@ -29,6 +29,39 @@ pub struct FilletSurfaceResult {
     pub continuity_downgrade: Option<String>,
 }
 
+/// The points the strip's boundary rows pass through, which the trims
+/// must follow. The G1 sweeps start their sections at the clipped
+/// centre-curve footprints. The G2 sweep (and its exact revolution)
+/// starts them at the walker's contact solutions, a different
+/// construction: footprint trims left a G2 pentagonal-pyramid base
+/// strip's rail 1.25e-2 off (PK-531). The G2 sweep ran exactly when G2
+/// was requested, the walker supplied contacts, and no downgrade was
+/// recorded.
+pub(crate) fn strip_row_points<'a>(
+    center_result: &'a CenterCurveResult,
+    fillet_result: &FilletSurfaceResult,
+    wants_g2: bool,
+) -> (
+    std::borrow::Cow<'a, [Point3]>,
+    std::borrow::Cow<'a, [Point3]>,
+) {
+    use std::borrow::Cow;
+    match center_result
+        .contact_solutions
+        .as_deref()
+        .filter(|s| wants_g2 && s.len() >= 2 && fillet_result.continuity_downgrade.is_none())
+    {
+        Some(solutions) => (
+            Cow::Owned(solutions.iter().map(|c| c.contact0).collect()),
+            Cow::Owned(solutions.iter().map(|c| c.contact1).collect()),
+        ),
+        None => (
+            Cow::Borrowed(center_result.footprint_1.as_slice()),
+            Cow::Borrowed(center_result.footprint_2.as_slice()),
+        ),
+    }
+}
+
 /// Build the fillet surface from center-curve data and the two adjacent surfaces.
 ///
 /// Attempts an analytic construction for the plane-plane case, falling back
@@ -101,11 +134,19 @@ pub fn build_fillet_surface(
         // are the rails, where the cubic loft below left them by
         // 2.6e-4 (PK-389). Certified per station; `None` keeps the
         // loft.
+        // The strip's boundary rows are the contact solutions
+        // themselves (each G2 section starts and ends at them), so the
+        // trims are fitted through the same points. The clipped
+        // centre-curve footprints are a different construction and
+        // left the base rail of a G2 pentagonal-pyramid strip 1.25e-2
+        // off the strip (3.9e-2 check 9, PK-531).
+        let contacts_0: Vec<_> = solutions.iter().map(|s| s.contact0).collect();
+        let contacts_1: Vec<_> = solutions.iter().map(|s| s.contact1).collect();
         if let Some(nurbs) = crate::g2_revolution::g2_revolution_from_contact_solutions(
             solutions, surface1, surface2,
         ) {
-            let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
-            let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+            let trim_1 = crate::center_curve::fit_nurbs_through_points(&contacts_0)?;
+            let trim_2 = crate::center_curve::fit_nurbs_through_points(&contacts_1)?;
             return Ok(FilletSurfaceResult {
                 surface: SurfaceGeometry::Nurbs(nurbs),
                 trim_curve_1: trim_1,
@@ -121,10 +162,8 @@ pub fn build_fillet_surface(
         // blend — PK-091).
         match g2_sweep_from_contact_solutions(solutions, surface1, surface2) {
             Ok(nurbs) => {
-                let trim_1 =
-                    crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
-                let trim_2 =
-                    crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+                let trim_1 = crate::center_curve::fit_nurbs_through_points(&contacts_0)?;
+                let trim_2 = crate::center_curve::fit_nurbs_through_points(&contacts_1)?;
                 return Ok(FilletSurfaceResult {
                     surface: SurfaceGeometry::Nurbs(nurbs),
                     trim_curve_1: trim_1,

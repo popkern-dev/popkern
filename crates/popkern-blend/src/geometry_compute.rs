@@ -231,16 +231,14 @@ pub(crate) fn compute_fillet_geometry(
         }
     }
 
-    let trim_curves = trim::compute_trim_curves(
-        &analysis.surface_1,
-        &center_result.footprint_1,
-        &analysis.surface_2,
-        &center_result.footprint_2,
-    )
-    .map_err(|e| BlendFailure::IntersectionFailed {
-        reason: e,
-        location: Some(edge_midpoint),
-    })?;
+    let (rows_1, rows_2) =
+        fillet_surface::strip_row_points(&center_result, &fillet_result, wants_g2);
+    let trim_curves =
+        trim::compute_trim_curves(&analysis.surface_1, &rows_1, &analysis.surface_2, &rows_2)
+            .map_err(|e| BlendFailure::IntersectionFailed {
+                reason: e,
+                location: Some(edge_midpoint),
+            })?;
 
     // §18 telemetry: when the walker produced the center curve,
     // `center_result.contact_solutions` carries one

@@ -16,8 +16,7 @@
 //!   (`InconsistentGeometry`), with the input handed back.
 
 use popkern_blend::{
-    BlendError, BlendFailure, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
+    BlendError, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -92,53 +91,21 @@ fn single_edge_cylinder_strips_end_exactly_on_oblique_caps_and_apex_fans() {
 }
 
 /// Fitted G2 strips settle their oblique and fan ends on marched
-/// sections: slant edges at every valence, and base edges where the
-/// strip meets its rails (dihedral ≥ 59.5°).
+/// sections, slant and base edges alike at every valence. Base edges
+/// at dihedrals of 56° or less (N = 5, 6) once had their strip stop at
+/// the edge's end stations, short of the oblique end face, with the
+/// rail extrapolated 1.26e-2 off. They are the PK-531 class, now
+/// served by extending the walk past each end.
 #[test]
 fn single_edge_g2_strips_end_on_marched_sections() {
     for n in 3..=6 {
         let b = pyramid(n);
-        assert_serves_clean(
-            &format!("slant n={n}"),
-            fillet(&b, pick(&b, true), 0.07, ContinuityLevel::G2),
-        );
-    }
-    for n in [3, 4] {
-        let b = pyramid(n);
-        assert_serves_clean(
-            &format!("base n={n}"),
-            fillet(&b, pick(&b, false), 0.07, ContinuityLevel::G2),
-        );
-    }
-}
-
-/// PK-531 pin: a G2 strip on a pentagonal or hexagonal pyramid's base
-/// edge (dihedral ≤ 56°) disagrees with its own base rail (2.8e-2 to
-/// 7.8e-2 along its length). It once served that body `Ok`, and the
-/// territory gate now declines it typed, with the input handed back.
-#[test]
-fn g2_base_strips_at_acute_dihedrals_decline_typed() {
-    for n in [5, 6] {
-        let b = pyramid(n);
-        let Err(BlendError::PartialFailure {
-            partial_result,
-            failures,
-            ..
-        }) = fillet(&b, pick(&b, false), 0.07, ContinuityLevel::G2)
-        else {
-            panic!("n={n}: PK-531 serves this now — flip the pin to a serve");
-        };
-        assert_eq!(
-            partial_result.faces.len(),
-            b.faces.len(),
-            "input handed back"
-        );
-        assert!(
-            failures
-                .iter()
-                .any(|(_, f)| matches!(f, BlendFailure::InconsistentGeometry { .. })),
-            "n={n}: typed territory decline: {failures:?}"
-        );
+        for slant in [true, false] {
+            assert_serves_clean(
+                &format!("n={n} slant={slant}"),
+                fillet(&b, pick(&b, slant), 0.07, ContinuityLevel::G2),
+            );
+        }
     }
 }
 

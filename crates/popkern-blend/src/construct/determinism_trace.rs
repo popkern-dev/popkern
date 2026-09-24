@@ -142,6 +142,24 @@ pub(crate) fn pre_apply_trace(brep: &BRep, edge_geometries: &[crate::construct::
 
 /// Stage-boundary fingerprint print (POPKERN_TRACE=determinism).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
+    if std::env::var("PK531_WATCH").is_ok() {
+        let targets = [
+            (0.8935211557340824, -0.07736140869204894),
+            (0.9264249281536544, -0.10126739868667767),
+        ];
+        let near: Vec<String> = brep
+            .vertices
+            .iter()
+            .filter(|(_, v)| {
+                v.position.z.abs() < 1e-6
+                    && targets
+                        .iter()
+                        .any(|(x, y)| (v.position.x - x).hypot(v.position.y - y) < 5e-2)
+            })
+            .map(|(h, v)| format!("{h:?}({:.4},{:.4})", v.position.x, v.position.y))
+            .collect();
+        eprintln!("[watch] {label}: {near:?}");
+    }
     // POPKERN_TRACE=pcurve-fidelity: the worst same-fraction pcurve
     // deviation over the body's ANALYTIC-support faces at every stage,
     // so a stage that rewrites an edge range without re-trimming its

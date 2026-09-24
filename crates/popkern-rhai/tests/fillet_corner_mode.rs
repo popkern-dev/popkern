@@ -71,24 +71,25 @@ fn an_unknown_corner_mode_is_a_typed_argument_error() {
     );
 }
 
-/// A mitre the kernel cannot build (G2 strips on a hexagonal prism:
-/// crossings off the fitted strips, PK-531) fails the feature with the
-/// mitre's typed reason in the payload.
+/// G2 strips mitre too: a hexagonal prism with every edge at G2 and
+/// `corner: "mitre"` serves consistent. It declined before PK-531
+/// (fitted strips stopped short of their oblique crossings). Typed
+/// mitre declines (no common point, residue) are pinned at the kernel
+/// level (`popkern-blend` `tests/mitre_corner.rs`) and reach scripts
+/// through the same `FeatureFailed` payload as every blend failure.
 #[test]
-fn a_declined_mitre_surfaces_its_typed_reason() {
+fn g2_hexagonal_prism_mitres() {
     let script = r#"let m = model();
 let hex = m.profile(xy()).polygon([[1.0, 0.0], [0.5, 0.866], [-0.5, 0.866], [-1.0, 0.0], [-0.5, -0.866], [0.5, -0.866]]).sketch("hex").extrude(blind(1.0));
 hex.fillet(edges(), 0.07, #{ corner: "mitre", continuity: "g2", label: "rounds" });
 m
 "#;
     let mut host = ScriptHost::new();
-    let Err(error) = host.run(script, "hex_g2_mitre.rhai") else {
-        panic!("PK-531 serves the G2 hexagonal mitre now: pick another declining fixture");
-    };
-    assert_eq!(error.kind, "FeatureFailed");
-    assert!(
-        error.payload.to_string().contains("mitre declined"),
-        "typed mitre decline in the payload: {}",
-        error.payload
-    );
+    let mut model = host
+        .run(script, "hex_g2_mitre.rhai")
+        .unwrap_or_else(|e| panic!("{e}\n{}", e.payload))
+        .model
+        .expect("model");
+    let errors = model.to_part().expect("part").brep().validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
 }

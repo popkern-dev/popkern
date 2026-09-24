@@ -36,6 +36,7 @@ pub(crate) fn compute_center_via_walker(
     v2_range: (f64, f64),
     tolerance: &Tolerance,
     edge_midpoint: Point3,
+    extend_ends: bool,
 ) -> Result<center_curve::CenterCurveResult, BlendFailure> {
     let edge = brep
         .edges
@@ -171,6 +172,66 @@ pub(crate) fn compute_center_via_walker(
         let t_range = if de < ds { (te, ts) } else { (ts, te) };
         (seed, t_range)
     };
+    // PK-531: a fitted (G2) strip must reach past the edge's end
+    // stations. An oblique end face leans past the station, and a
+    // blend-on-blend end meets the neighbour strips above it. A strip
+    // swept only over the edge's own range stops short: the end
+    // section lay beyond the strip (2.5e-2 off its clamped border),
+    // and the rail extrapolated from the sampled trims landed 1.26e-2
+    // off. Straight edges between planar supports extend the walk by
+    // up to 4 r past each end (at most half the edge) over padded
+    // plane ranges. The face's own loop still bounds the strip.
+    let extension = extend_ends
+        .then(|| {
+            let radius = match radius {
+                FilletRadius::Constant(r) => *r,
+                _ => return None,
+            };
+            let is_line = matches!(
+                curve_on_edge.geometry,
+                popkern_core::geometry::CurveGeometry::Line { .. }
+            );
+            let planar = matches!(
+                (&analysis.surface_1, &analysis.surface_2),
+                (
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. },
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. },
+                )
+            );
+            use popkern_core::geometry::curve::CurveEval;
+            let length = (curve_on_edge.geometry.point_at(curve_on_edge.t_end)
+                - curve_on_edge.geometry.point_at(curve_on_edge.t_start))
+            .length();
+            let reach = (4.0 * radius).min(0.5 * length);
+            (is_line && planar && length > 0.0)
+                .then(|| (reach / length, 2.0 * reach + 4.0 * radius))
+        })
+        .flatten();
+    // The walk's station count scales with the extended span, so the
+    // section density over the edge itself is unchanged: the fixed 20
+    // stations spread over 1.8x the span measured a 20x larger seam gap
+    // on the rim+verticals box (5e-11 -> 1.02e-9).
+    const EDGE_STATIONS: f64 = 20.0;
+    let (spine_t_range, uv_pad, stations) = match extension {
+        Some((fraction, pad)) => {
+            // Plane charts are metric, so the pad is a length: the
+            // extension twice over plus the contact offset.
+            let delta = fraction * (spine_t_range.1 - spine_t_range.0);
+            (
+                (spine_t_range.0 - delta, spine_t_range.1 + delta),
+                pad,
+                (EDGE_STATIONS * (1.0 + 2.0 * fraction)).ceil() as usize,
+            )
+        }
+        None => (spine_t_range, 0.0, EDGE_STATIONS as usize),
+    };
+    let widen = |r: (f64, f64)| (r.0 - uv_pad, r.1 + uv_pad);
+    let (u1_range, v1_range, u2_range, v2_range) = (
+        widen(u1_range),
+        widen(v1_range),
+        widen(u2_range),
+        widen(v2_range),
+    );
 
     center_curve::walker_based_center_curve(
         &analysis.surface_1,
@@ -187,6 +248,7 @@ pub(crate) fn compute_center_via_walker(
         analysis.orientation_2 == analysis.shell_outward,
         analysis.convexity,
         initial_seed,
+        stations,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,
@@ -225,6 +287,7 @@ pub(crate) fn compute_center_with_fallback(
             v2_range,
             tolerance,
             edge_midpoint,
+            wants_g2,
         );
         // Walker-failure fallback boundary: the offset-
         // intersect path is EXACT for plane×cylinder pairs (offset

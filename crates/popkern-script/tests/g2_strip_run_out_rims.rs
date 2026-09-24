@@ -85,9 +85,14 @@ fn run_out_rims_lie_on_both_surfaces_and_rails_carry_no_gap() {
                 }
             }
         }
+        // Four vertical strips, each ending on the base in ONE exact
+        // section edge: the G2 strip reaches past the edge's end
+        // station (PK-531), so the face trim cuts the section directly
+        // instead of leaving two half-section rims split at a settled
+        // corner vertex.
         assert_eq!(
-            rims, 8,
-            "box {w}x{d}x{h}: four strips × two half-section rims"
+            rims, 4,
+            "box {w}x{d}x{h}: four strips × one exact end section"
         );
         // The r-proportional rail artifact (0.64–0.73·r) is gone: no
         // seam carries a gap within an order of magnitude of it (the

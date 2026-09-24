@@ -35,16 +35,20 @@ fn g2_single_edge_fillet(radius: f64) -> popkern_blend::BlendResult {
     .expect("G2 single-edge fillet")
 }
 
-/// Both chain-end corners settle with no declines across the radius
-/// range, and the body passes the full validator (check 9 included).
+/// The ends close exactly with no declines across the radius range,
+/// and the body passes the full validator (check 9 included). Since
+/// PK-531 the G2 strip reaches past the edge's end stations, so the
+/// face trim cuts the exact end section directly: no stale corner is
+/// left for the iso settle, which remains the settlement for fitted
+/// strips that still end at their stations.
 #[test]
 fn g2_single_edge_fillet_settles_both_corners_and_validates_all() {
     for radius in [0.05, 0.1, 0.3, 0.5] {
         let result = g2_single_edge_fillet(radius);
         let report = &result.repair_report.terminal_arc_trim;
         assert_eq!(
-            report.repaired_corners, 2,
-            "r={radius}: both G2 chain-end corners must settle (got {report:?})"
+            report.repaired_corners, 0,
+            "r={radius}: the extended strip leaves no stale corner (got {report:?})"
         );
         assert!(
             report.declines.is_empty(),

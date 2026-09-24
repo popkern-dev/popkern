@@ -42,6 +42,7 @@ pub fn walker_based_center_curve(
     orientation_2: bool,
     convexity: crate::analysis::Convexity,
     pcurve_seed: Option<((f64, f64), (f64, f64))>,
+    n_samples: usize,
 ) -> Result<CenterCurveResult, String> {
     // Ball side depends on the edge class (PK-091): inscribed in the
     // material for convex edges, in the void for concave. The old
@@ -88,7 +89,12 @@ pub fn walker_based_center_curve(
     // as a safety net for periodic surfaces. LM damping helps
     // convergence from pcurve-derived starts that are on the
     // face boundary rather than at the exact contact point.
-    let mut walk_opts = WalkOptions::default();
+    let mut walk_opts = WalkOptions {
+        mode: crate::walker::WalkMode::Fixed {
+            n_samples: n_samples.max(2),
+        },
+        ..WalkOptions::default()
+    };
     let has_curved_support = !matches!(surface1, SurfaceGeometry::Plane { .. })
         || !matches!(surface2, SurfaceGeometry::Plane { .. });
     if pcurve_seed.is_some() || has_curved_support {
