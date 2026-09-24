@@ -93,44 +93,79 @@ fn fillet_open_box_interior_edge_with_open_cap_validates() {
     );
 }
 
-/// Inserted caps on an open sheet (Flat, Rounded, TangentMatch) do
-/// not yet author their strip|cap edge. `insert_cap_face` splits the
-/// loop with an edge that has no curve, and check 9 had silently
-/// skipped it while `validate()` passed. The territory gate (PK-530)
-/// now declines them typed, with the input handed back. PK-532 builds
-/// the exact cap boundaries and flips these pins back to serving.
+/// Inserted caps on an open sheet author exact boundaries (PK-532).
+/// The strip | cap edge is the strip's end section. A flat cap keeps
+/// its rim as lines in its plane. A rounded cap's rim becomes two
+/// meridians meeting at the outward pole. Single, two-edge and
+/// all-boundary-edge fillets serve `validate_all` clean with every
+/// cap inserted. Before, the strip | cap edge had no curve and check 9
+/// silently skipped it.
 #[test]
-fn inserted_open_sheet_caps_decline_until_their_boundaries_are_exact() {
+fn inserted_open_sheet_caps_serve_exact_boundaries() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
     let ob = BRep::open_box(tol()).unwrap();
     let all = boundary_adjacent_interior_edges(&ob).len();
     for (kind, n) in [
         (CapKind::Flat, 1),
-        (CapKind::Rounded, 1),
-        (CapKind::TangentMatch, 1),
         (CapKind::Flat, 2),
-        (CapKind::Rounded, 2),
         (CapKind::Flat, all),
+        (CapKind::Rounded, 1),
+        (CapKind::Rounded, 2),
+        (CapKind::Rounded, all),
     ] {
-        let Err(crate::BlendError::PartialFailure {
-            partial_result,
-            failures,
-            ..
-        }) = fillet_open_box(n, kind)
-        else {
-            panic!("{kind:?} x{n}: expected the typed territory decline");
-        };
-        assert_eq!(
-            partial_result.faces.len(),
-            ob.faces.len(),
-            "input handed back"
-        );
-        assert!(
-            failures.iter().any(|(_, f)| matches!(
-                f,
-                crate::BlendFailure::InconsistentGeometry { reason, .. }
-                    if reason.contains("without a curve")
-            )),
-            "{kind:?} x{n}: {failures:?}"
-        );
+        let result =
+            fillet_open_box(n, kind).unwrap_or_else(|e| panic!("{kind:?} x{n}: must serve: {e}"));
+        let errors = result.brep.validate_all();
+        assert!(errors.is_empty(), "{kind:?} x{n}: validate_all: {errors:?}");
+        let inserted = result
+            .edge_warnings
+            .iter()
+            .filter(|(_, w)| {
+                matches!(
+                    w,
+                    BlendWarning::CapApplied {
+                        topology_inserted: true,
+                        ..
+                    }
+                )
+            })
+            .count();
+        assert_eq!(inserted, n, "{kind:?} x{n}: every free end capped");
+        if kind == CapKind::Rounded {
+            let spheres = result
+                .brep
+                .faces
+                .values()
+                .filter(|f| {
+                    f.surface
+                        .as_ref()
+                        .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Sphere { .. }))
+                })
+                .count();
+            assert_eq!(spheres, n, "{kind:?} x{n}: one quarter-ball per cap");
+        }
     }
+}
+
+/// A tangent-match cap's bilinear patch cannot contain the strip's end
+/// section. The insertion declines with its reason, as a fallback the
+/// report classifies, and the end is served open on its exact rim
+/// section.
+#[test]
+fn tangent_match_cap_declines_insertion_and_serves_the_open_end() {
+    let result = fillet_open_box(1, CapKind::TangentMatch).expect("serves open");
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "validate_all: {errors:?}");
+    assert!(
+        result.edge_warnings.iter().any(|(_, w)| matches!(
+            w,
+            BlendWarning::CapInsertionDeclined {
+                kind: CapKind::TangentMatch,
+                reason,
+                ..
+            } if reason.contains("end section")
+        )),
+        "typed insertion decline: {:?}",
+        result.edge_warnings
+    );
 }

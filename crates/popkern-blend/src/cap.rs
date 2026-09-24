@@ -96,6 +96,10 @@ pub struct CapGeometry {
     /// `contact_1` to `contact_2`. At least 2 points (the two
     /// contact endpoints).
     pub boundary_points: Vec<Point3>,
+    /// Unit spine tangent at the endpoint, pointing away from the
+    /// blend interior: the normal of the strip's end section, which
+    /// the inserted cap's boundary with the strip follows (PK-532).
+    pub spine_tangent_outward: Vec3,
 }
 
 /// Dispatch to the cap constructor matching the requested kind.
@@ -109,6 +113,7 @@ pub fn build_cap(kind: CapKind, endpoint: &CapEndpoint) -> Option<CapGeometry> {
             kind,
             surface: None,
             boundary_points: vec![endpoint.contact_1, endpoint.contact_2],
+            spine_tangent_outward: endpoint.spine_tangent_outward,
         }),
         CapKind::Flat => Some(build_flat_cap(endpoint)),
         CapKind::Rounded => Some(build_rounded_cap(endpoint)),
@@ -155,6 +160,7 @@ pub fn build_flat_cap(endpoint: &CapEndpoint) -> CapGeometry {
         kind: CapKind::Flat,
         surface: Some(plane),
         boundary_points: vec![endpoint.contact_1, midpoint, endpoint.contact_2],
+        spine_tangent_outward: endpoint.spine_tangent_outward,
     }
 }
 
@@ -188,6 +194,7 @@ pub fn build_rounded_cap(endpoint: &CapEndpoint) -> CapGeometry {
         kind: CapKind::Rounded,
         surface: Some(sphere),
         boundary_points,
+        spine_tangent_outward: endpoint.spine_tangent_outward,
     }
 }
 
@@ -261,6 +268,7 @@ pub fn build_tangent_match_cap(endpoint: &CapEndpoint) -> CapGeometry {
         kind: CapKind::TangentMatch,
         surface: Some(surface),
         boundary_points,
+        spine_tangent_outward: endpoint.spine_tangent_outward,
     }
 }
 

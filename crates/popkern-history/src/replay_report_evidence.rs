@@ -203,13 +203,12 @@ pub(super) fn classify_blend_warning(
         | BlendWarning::PolarKpToSphereFit { .. }
         | BlendWarning::PolarKpToPolarNurbs { .. }
         | BlendWarning::PolarKpToMitredPlane { .. }
-        | BlendWarning::DirectApexFellBackToVertexBlend { .. } => {
-            evidence.fallbacks.push(FallbackRecord {
-                source,
-                mechanism: format!("{edge:?}: {}", variant_name(warning)),
-                reason: format!("{warning:?}"),
-            })
-        }
+        | BlendWarning::DirectApexFellBackToVertexBlend { .. }
+        | BlendWarning::CapInsertionDeclined { .. } => evidence.fallbacks.push(FallbackRecord {
+            source,
+            mechanism: format!("{edge:?}: {}", variant_name(warning)),
+            reason: format!("{warning:?}"),
+        }),
         _ => evidence.warnings.push(KernelWarning {
             source,
             message: format!("{edge:?}: {warning:?}"),

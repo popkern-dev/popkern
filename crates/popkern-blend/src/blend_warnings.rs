@@ -131,6 +131,21 @@ pub enum BlendWarning {
         /// adjacent face and no insertion was needed.
         topology_inserted: bool,
     },
+    /// A requested cap could not be inserted exactly at a free
+    /// (open-sheet) fillet end, so the end is served open, settled
+    /// on the strip's rim section (PK-532). `reason` names why: for
+    /// example, the rim does not lie in a flat cap's plane, or the
+    /// tangent-match patch cannot contain the strip's end section.
+    CapInsertionDeclined {
+        /// The filleted edge the cap would terminate.
+        edge: EdgeHandle,
+        /// `true` at the spine's start endpoint.
+        at_start: bool,
+        /// The cap kind the caller requested.
+        kind: crate::types::CapKind,
+        /// Why the cap was not inserted.
+        reason: String,
+    },
     /// §7 continuity fallback: the caller requested a higher
     /// continuity level than the engine was able to deliver for
     /// this edge. The output is still a valid fillet — it just

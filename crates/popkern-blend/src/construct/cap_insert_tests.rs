@@ -204,10 +204,12 @@ fn user_defined_cap_kind_emits_no_cap_applied_warnings() {
 // Direct topology surgery unit tests
 // ---------------------------------------------------------------------------
 
-/// `insert_cap_face` on a sheet_quad creates one new face + one
-/// new diagonal edge; the new face carries the cap's plane.
+/// `insert_cap_face` on a bare sheet_quad corner (no fillet strip to
+/// end) cannot author an exact cap boundary: the split is rolled back
+/// and the reason handed back (PK-532). It once inserted a face whose
+/// new edge had no curve.
 #[test]
-fn insert_cap_face_creates_new_face_on_sheet_quad() {
+fn insert_cap_face_rolls_back_when_the_boundary_cannot_be_exact() {
     use popkern_core::geometry::surface::SurfaceGeometry;
     let mut sheet = BRep::sheet_quad(0.0, 1.0, 0.0, 1.0, 0.0, tol()).unwrap();
     let v0 = sheet
@@ -228,17 +230,17 @@ fn insert_cap_face_creates_new_face_on_sheet_quad() {
             popkern_core::geometry::Point3::new(1.0, 0.0, 0.0),
             popkern_core::geometry::Point3::new(0.0, 1.0, 0.0),
         ],
+        spine_tangent_outward: popkern_core::geometry::Vec3::new(-1.0, -1.0, 0.0),
     };
     let faces_before = sheet.faces.len();
     let edges_before = sheet.edges.len();
-    assert!(super::insert_cap_face(&mut sheet, v0, &cap));
-    assert_eq!(sheet.faces.len(), faces_before + 1);
-    assert_eq!(sheet.edges.len(), edges_before + 1);
-    assert!(sheet.faces.values().any(|f| {
-        f.surface
-            .as_ref()
-            .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Plane { .. }))
-    }));
+    let outcome = super::insert_cap_face(&mut sheet, v0, &cap, &tol());
+    assert!(
+        outcome.is_err(),
+        "no exact boundary on a bare quad: {outcome:?}"
+    );
+    assert_eq!(sheet.faces.len(), faces_before, "rolled back");
+    assert_eq!(sheet.edges.len(), edges_before, "rolled back");
 }
 
 /// `insert_cap_face` returns false when no surrounding face has
@@ -259,9 +261,13 @@ fn insert_cap_face_returns_false_when_all_faces_surfaceless() {
             v_axis: popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0),
         }),
         boundary_points: vec![],
+        spine_tangent_outward: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
     };
     let faces_before = sheet.faces.len();
-    assert!(!super::insert_cap_face(&mut sheet, v0, &cap));
+    assert_eq!(
+        super::insert_cap_face(&mut sheet, v0, &cap, &tol()),
+        Ok(false)
+    );
     assert_eq!(sheet.faces.len(), faces_before);
 }
 

@@ -166,7 +166,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
 
     determinism_trace("post_sliver_absorb", result);
     fanq("post_sliver_absorb", result, corner_patches);
-    cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
+    cap_insert::insert_caps(result, brep, edge_geometries, warnings, tolerance); // §8.3 caps
     determinism_trace("post_cap_insert", result);
     if popkern_core::trace::trace_enabled("corner-carve")
         && let Err(e) = result.validate_loop_closure()

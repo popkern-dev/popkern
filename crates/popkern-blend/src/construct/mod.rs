@@ -16,6 +16,7 @@ pub(crate) mod blend_topo_curved;
 mod boundary_support_frames;
 mod bridge_warnings;
 pub(crate) mod cap_insert;
+mod cap_insert_boundary;
 pub(crate) mod cap_outer_acceptance;
 pub(crate) mod closed_fillet;
 pub(crate) mod closed_fillet_rail_pcurve;

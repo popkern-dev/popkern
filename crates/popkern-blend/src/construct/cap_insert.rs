@@ -9,17 +9,20 @@
 //! cap is implicit; on free endpoints the cap surface is a
 //! candidate for topology insertion as a new face.
 //!
-//! Today the insertion path is a stub (no open-shell tests exist
-//! yet because popkern has no sheet-body constructor), but the
-//! detection + warning pipeline is fully wired so callers can
-//! observe the §8.3 semantics end-to-end on existing solid
-//! configurations and so tests can pin the expected behaviour.
+//! On a free end, `insert_cap_face` splits the strip's end off with
+//! `mef` between the two contacts, gives the corner side the cap
+//! surface, and `cap_insert_boundary` authors the exact boundary.
+//! Flat and Rounded caps insert. A cap that cannot be made exact
+//! (TangentMatch's bilinear patch, a rim outside a flat cap's plane)
+//! is rolled back, reported as `CapInsertionDeclined`, and the end is
+//! served open (PK-532).
 //!
 //! Emits [`BlendWarning::CapApplied`] once per `(edge, endpoint)`
 //! pair whenever `cap_kind != Open`, with `topology_inserted` set
 //! to reflect the chosen path.
 
 use popkern_core::geometry::surface::SurfaceOnFace;
+use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 use crate::construct::EdgeGeometry;
@@ -29,10 +32,9 @@ use crate::error::BlendWarning;
 ///
 /// Walks every edge in `edge_geometries`; for each with a non-None
 /// `start_cap` or `end_cap`, decides "closed" vs "free", and emits
-/// the corresponding warning. Currently no topology mutation
-/// occurs on either path — closed-body cap semantics are already
-/// correct via the adjacent face, and open-shell insertion is a
-/// tracked follow-up gated on sheet-body constructor support.
+/// the corresponding warning. Closed ends are capped by their
+/// adjacent face already; free ends get the cap inserted with an
+/// exact boundary, or a `CapInsertionDeclined` fallback.
 ///
 /// This is the final §8.3 pipeline hook and should be called after
 /// the consumed-merge stage (face merging), vertex-blend handling, and surface-fix
@@ -42,6 +44,7 @@ pub(crate) fn insert_caps(
     original_brep: &BRep,
     edge_geometries: &[EdgeGeometry],
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
+    tolerance: &Tolerance,
 ) {
     for eg in edge_geometries {
         process_endpoint(
@@ -50,6 +53,7 @@ pub(crate) fn insert_caps(
             eg,
             /* at_start = */ true,
             warnings,
+            tolerance,
         );
         process_endpoint(
             brep,
@@ -57,6 +61,7 @@ pub(crate) fn insert_caps(
             eg,
             /* at_start = */ false,
             warnings,
+            tolerance,
         );
     }
 }
@@ -67,6 +72,7 @@ fn process_endpoint(
     eg: &EdgeGeometry,
     at_start: bool,
     warnings: &mut Vec<(popkern_core::topology::EdgeHandle, BlendWarning)>,
+    tolerance: &Tolerance,
 ) {
     let cap = if at_start {
         eg.start_cap.as_ref()
@@ -107,7 +113,21 @@ fn process_endpoint(
     let topology_inserted = if closed {
         false
     } else {
-        insert_cap_face(brep, vertex, cap)
+        match insert_cap_face(brep, vertex, cap, tolerance) {
+            Ok(inserted) => inserted,
+            Err(reason) => {
+                warnings.push((
+                    eg.analysis.edge,
+                    BlendWarning::CapInsertionDeclined {
+                        edge: eg.analysis.edge,
+                        at_start,
+                        kind: cap.kind,
+                        reason,
+                    },
+                ));
+                false
+            }
+        }
     };
 
     warnings.push((
@@ -170,10 +190,21 @@ fn endpoint_is_closed(
 /// common face is found, the function returns `false` without
 /// modifying topology — the warning will report
 /// `topology_inserted = false`.
-fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapGeometry) -> bool {
+fn insert_cap_face(
+    brep: &mut BRep,
+    vertex: VertexHandle,
+    cap: &crate::cap::CapGeometry,
+    tolerance: &Tolerance,
+) -> Result<bool, String> {
     let Some(surface) = &cap.surface else {
-        return false;
+        return Ok(false);
     };
+    if cap.kind == crate::types::CapKind::TangentMatch {
+        // Its bilinear patch has a straight contact-to-contact
+        // boundary: it cannot contain the strip's end section arc
+        // (PK-532).
+        return Err("the tangent-match patch cannot contain the strip's end section".into());
+    }
 
     // Find the two vertices adjacent to `vertex` on a face with
     // a surface (the fillet/torus face). These are the trim
@@ -212,28 +243,61 @@ fn insert_cap_face(brep: &mut BRep, vertex: VertexHandle, cap: &crate::cap::CapG
         .collect();
     candidates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     if candidates.len() < 2 {
-        return false;
+        return Ok(false);
     }
     let v1 = candidates[0].0;
     let v2 = candidates[1].0;
     if v1 == v2 {
-        return false;
+        return Ok(false);
     }
 
     let Some((he1, he2)) = find_common_loop_pair(brep, v1, v2) else {
-        return false;
+        return Ok(false);
     };
 
+    let snapshot = brep.clone();
     let Ok(mef_r) = brep.mef(he1, he2) else {
-        return false;
+        return Ok(false);
     };
-
-    brep.faces[mef_r.face].surface = Some(SurfaceOnFace {
+    // The cap is the side holding the original corner (the rim L);
+    // the other side keeps the strip surface both inherited.
+    let corner_side = |b: &BRep, he: HalfEdgeHandle| -> bool {
+        let Some(start) = b.half_edges.get(he) else {
+            return false;
+        };
+        let mut cursor = start.next;
+        for _ in 0..b.half_edges.len() {
+            if cursor == he {
+                return false;
+            }
+            match b.half_edges.get(cursor) {
+                Some(h) if h.origin == vertex => return true,
+                Some(h) => cursor = h.next,
+                None => return false,
+            }
+        }
+        false
+    };
+    let cap_half_edge = if corner_side(brep, mef_r.half_edge) {
+        mef_r.half_edge
+    } else if corner_side(brep, mef_r.half_edge_twin) {
+        mef_r.half_edge_twin
+    } else {
+        *brep = snapshot;
+        return Err("neither side of the cap split holds the corner".into());
+    };
+    let cap_face = brep.loops[brep.half_edges[cap_half_edge].loop_].face;
+    brep.faces[cap_face].surface = Some(SurfaceOnFace {
         geometry: surface.clone(),
         orientation: true,
     });
-
-    true
+    if let Err(reason) =
+        super::cap_insert_boundary::author_cap_boundary(brep, cap_half_edge, vertex, cap, tolerance)
+    {
+        *brep = snapshot;
+        return Err(reason);
+    }
+    Ok(true)
 }
 
 /// Find a pair of half-edges in the same face loop with origins
