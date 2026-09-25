@@ -55,7 +55,7 @@ fn rung_facts(result: &popkern_blend::BlendResult) -> Vec<String> {
 fn worst_ring_g1(result: &popkern_blend::BlendResult) -> f64 {
     let faces = cap_faces_from_result(result);
     let patches: Vec<GregoryPatch> = collect_patches(&result.brep, &faces);
-    helpers::measure_ring(&patches, helpers::N_SAMPLES).worst_g1_coplanarity
+    helpers::measure_ring(&patches, helpers::N_SAMPLES).worst_g1_normal
 }
 
 #[test]

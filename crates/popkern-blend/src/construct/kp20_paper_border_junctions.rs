@@ -46,22 +46,38 @@ use crate::fillet_surface::FilletSurfaceResult;
 
 /// Order through which a bridge runs straight along each rail at its
 /// feet. Its degree-2k Bézier has k + 1 control points on each rail's
-/// line, so derivatives 1..k at each foot lie along the rail. The KP20
-/// rim rows are degree 6, so at k = 6 the corner-side rim piece sees a
-/// straight rail through its full degree, exactly like the strip's
-/// ruling across the corner.
-///
-/// Measured on the notched-cube saddle (worst live cap-cap g1,
-/// constant / variable radius), by degree:
-///
-/// | degree | 4 | 6 | 8 | 10 | 12 | 14 | 16 |
-/// |---|---|---|---|---|---|---|---|
-/// | constant | 3.9e-2 | 1.9e-2 | 1.0e-2 | 7.5e-8 | 8.2e-8 | 7.9e-8 | 7.6e-8 |
-/// | variable | 4.7e-2 | 2.3e-2 | 1.3e-2 | 7.2e-3 | 4.2e-3 | 2.6e-3 | 1.6e-3 |
-///
-/// The constant case plateaus at exact from degree 10, and the variable
-/// case keeps falling with no cliff.
+/// line, so derivatives 1..k at each foot lie along the rail. That is
+/// the corner compatibility a strip's straight ruling needs: a quartic
+/// (k = 2) left the corner sectors creased at 3.9e-2. The KP20 rim
+/// rows are degree 6, and k = 6 matches them.
 const RAIL_FLAT_ORDER: usize = 6;
+
+/// Fraction of each rail leg (foot to v) that the bridge's rail control
+/// points span. The last leg into v is the remaining (1 − span): a
+/// longer leg spreads the turn at the bridge's middle, the fan's spoke
+/// point m.
+///
+/// Measured on the notched-cube saddles at k = 6, as the worst live
+/// G1 sine, cap-cap / cap-boundary (PK-498; the `1 − cos θ` boundary
+/// metric had hidden the boundary term):
+///
+/// | span | constant | variable |
+/// |---|---|---|
+/// | 0.7 | 1.2e-2 / 8.1e-3 | 1.4e-2 / 9.9e-3 |
+/// | 0.8 | 8.6e-3 / 6.7e-3 | 1.0e-2 / 8.2e-3 |
+/// | 0.85 | 7.1e-3 / 6.0e-3 | 8.5e-3 / 7.4e-3 |
+/// | 0.9 | 5.7e-3 / 5.3e-3 | 6.9e-3 / 6.5e-3 |
+/// | 0.95 | 7.6e-8 / 1.3e-1 | 5.5e-3 / 5.6e-3 |
+/// | 1.0 | 8.2e-8 / 1.2e-1 | 4.2e-3 / 4.8e-3 |
+///
+/// Near a uniform span the constant saddle flips into a regime whose
+/// cap-cap seams are exact but whose cap boundary creases 7° at a rim
+/// piece corner by the spoke point. Assembly gates, corner turns and
+/// section fits are unchanged across the flip, so its mechanism is
+/// unexplained. 0.85 keeps a 0.1 margin from it. The fan commit
+/// postcondition also gates the cap boundary, so a flip declines to
+/// the ring rung instead of serving the crease.
+const RAIL_FLAT_SPAN: f64 = 0.85;
 
 /// `sin` of the apex-angle margin from 180° (5°) below which a face
 /// corner counts as flat and takes a bridge.
@@ -254,7 +270,13 @@ pub(super) fn bridge_between(
     // Control points: RAIL_FLAT_ORDER + 1 of them along each rail,
     // meeting at the shoulder.
     let k = RAIL_FLAT_ORDER;
-    let along = |p: Point3, i: usize| p + (shoulder - p) * (i as f64 / k as f64);
+    let along = |p: Point3, i: usize| {
+        if i == k {
+            shoulder
+        } else {
+            p + (shoulder - p) * (RAIL_FLAT_SPAN * i as f64 / k as f64)
+        }
+    };
     let control_points: Vec<Point3> = (0..=k)
         .map(|i| along(start, i))
         .chain((0..k).rev().map(|i| along(end, i)))

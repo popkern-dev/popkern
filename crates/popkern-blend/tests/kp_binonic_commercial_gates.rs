@@ -85,10 +85,12 @@ mod kp_cube_fixture;
 #[path = "support/kp_production_route.rs"]
 mod kp_production_route;
 use helpers::{
-    N_SAMPLES, assert_all_binonic, assert_commercial_gates, cap_faces_from_result, collect_patches,
-    incident_edges, measure_ring,
+    N_SAMPLES, assert_all_binonic, cap_faces_from_result, collect_patches, incident_edges,
+    measure_ring,
 };
 use kp_cube_fixture::{fillet_cube_result, try_fillet_cube_result};
+#[path = "support/seam_perturbation.rs"]
+mod seam_perturbation;
 use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
 
 /// Route-selection precondition (PK-182): a binonic continuity
@@ -201,10 +203,26 @@ fn kp_binonic_dispatch_reaches_measurable_ring_on_cube_extreme() {
     );
 }
 
+/// The flagged bi-nonic ring on cube_extreme is NOT commercial
+/// (PK-498, PK-539). It passed while the ring measured G1 as
+/// cross-tangent coplanarity and G2 along the seam only. The honest
+/// measures, cross-checked against the pcurve-true live-seam metric,
+/// read spoke G1 6.0e-2 and transverse G2 1.97 on every seam
+/// (mid-seam). G0 stays exact. G1/G2 are regression pins on the
+/// measured values until PK-539.
 #[test]
-fn binonic_passes_commercial_gates_on_cube_extreme() {
+fn binonic_cube_extreme_ring_measures_its_spoke_continuity_honestly() {
     let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
-    assert_commercial_gates("cube_extreme", &m);
+    println!(
+        "binonic cube_extreme: g0={:.3e} g1={:.3e} g2={:.3e} per seam {:?}",
+        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual, m.per_seam
+    );
+    assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must stay exact");
+    assert!(m.worst_g1_normal <= 0.1, "G1 regressed past the PK-539 pin");
+    assert!(
+        m.worst_g2_residual <= 2.0,
+        "G2 regressed past the PK-539 pin"
+    );
 }
 
 // pyramid4_mixed: no binonic gate. PK-099's orientation-honest
@@ -352,5 +370,80 @@ fn cube_extreme_ships_binonic_no_warning() {
         relaxed_warnings.is_empty(),
         "expected no CornerContinuityRelaxed warnings, got {}",
         relaxed_warnings.len()
+    );
+}
+
+/// PK-498 positive fixture for the ring gate's negative controls: a
+/// synthetic 3-patch bi-nonic ring cut from one paraboloid is exact to
+/// all orders across its seams. Every gate passes, at near machine
+/// precision.
+#[test]
+fn the_synthetic_paraboloid_ring_passes_every_ring_gate() {
+    let patches = seam_perturbation::paraboloid_ring(3);
+    let m = measure_ring(&patches, N_SAMPLES);
+    println!(
+        "paraboloid ring: g0={:.3e} g1={:.3e} g2={:.3e}",
+        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+    );
+    assert!(m.worst_g0_gap < 1e-12, "{:.3e}", m.worst_g0_gap);
+    assert!(m.worst_g1_normal < 1e-9, "{:.3e}", m.worst_g1_normal);
+    assert!(m.worst_g2_residual < 1e-6, "{:.3e}", m.worst_g2_residual);
+}
+
+/// PK-498 curvature-only negative control for the bi-nonic ring gate.
+/// On the exact paraboloid ring, row 2 of patch 0's u = 1 side (ring
+/// seam 0) moves along the normal. That keeps the seam's position and
+/// normal exact (self-checked) and jumps its transverse curvature. The
+/// ring gate must fail G2 on that seam while passing G0 and G1. Before
+/// PK-498 the ring's G2 was along-seam only, blind here by Meusnier (it
+/// read 1.0e-12 under this perturbation).
+#[test]
+fn a_curvature_only_ring_perturbation_fails_the_binonic_g2_gate() {
+    use seam_perturbation::{PatchSide, paraboloid_ring, perturb_side_row, side_change, side_leg};
+    let mut patches = paraboloid_ring(3);
+    let before = patches[0].clone();
+    let leg = side_leg(&before, PatchSide::U1).expect("bi-nonic side");
+    perturb_side_row(&mut patches[0], PatchSide::U1, 2, 0.5 * leg).expect("perturb row 2");
+    let (position, normal) = side_change(&before, &patches[0], PatchSide::U1);
+    assert!(
+        position < 1e-12 && normal < 1e-12,
+        "G0/G1 kept: {position:.3e} {normal:.3e}"
+    );
+    let m = measure_ring(&patches, N_SAMPLES);
+    println!("ring curvature-only control: per seam {:?}", m.per_seam);
+    assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must pass");
+    assert!(m.worst_g1_normal < 1e-9, "G1 must pass");
+    assert!(
+        m.per_seam[0].1 > 10.0 * helpers::G2_GATE,
+        "the ring G2 gate must see a transverse curvature jump: {:.3e}",
+        m.per_seam[0].1
+    );
+}
+
+/// PK-498 normal-only negative control for the bi-nonic ring gate: row
+/// 1 of the same side moves, so the seam keeps its position
+/// (self-checked) and its normal tilts. The ring G1 gate must fail.
+/// Before PK-498 its cross-tangent coplanarity measure passed a 53°
+/// crease.
+#[test]
+fn a_normal_only_ring_perturbation_fails_the_binonic_g1_gate() {
+    use seam_perturbation::{PatchSide, paraboloid_ring, perturb_side_row, side_change, side_leg};
+    let mut patches = paraboloid_ring(3);
+    let before = patches[0].clone();
+    let leg = side_leg(&before, PatchSide::U1).expect("bi-nonic side");
+    perturb_side_row(&mut patches[0], PatchSide::U1, 1, 0.2 * leg).expect("perturb row 1");
+    let (position, normal) = side_change(&before, &patches[0], PatchSide::U1);
+    assert!(position < 1e-12, "G0 kept: {position:.3e}");
+    assert!(
+        normal > helpers::G1_GATE,
+        "the normal really turned: {normal:.3e}"
+    );
+    let m = measure_ring(&patches, N_SAMPLES);
+    println!("ring normal-only control: per seam {:?}", m.per_seam);
+    assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must pass");
+    assert!(
+        m.per_seam[0].0 > helpers::G1_GATE,
+        "G1 must fail: {:.3e}",
+        m.per_seam[0].0
     );
 }

@@ -312,3 +312,7 @@ fn classify(
 #[cfg(test)]
 #[path = "blend_continuity_evidence_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "blend_continuity_negative_controls_tests.rs"]
+mod negative_controls;

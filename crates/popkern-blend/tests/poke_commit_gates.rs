@@ -134,7 +134,7 @@ fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
     eprintln!(
         "[poke-commit] uniform pyramid apex (default direct-apex serve): \
          cap_outer g0={:.3e} g1={:.3e} edges={}",
-        metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
+        metrics.worst_g0_gap, metrics.worst_g1_normal, metrics.edges_measured
     );
     assert!(metrics.edges_measured >= 4);
     assert!(
@@ -144,10 +144,10 @@ fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity < 5.0e-2,
+        metrics.worst_g1_normal < 5.0e-2,
         "uniform pyramid serving cap left the commercial G1 bar \
          (measured 4.270e-8): {:.3e}",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }
 
@@ -205,7 +205,7 @@ fn uniform_pyramid_apex_subpatch_family_flag_keeps_poke_commit_reachable() {
     eprintln!(
         "[poke-commit] uniform pyramid apex (two-stripe carve-out, vertex-blend 4-quad): \
          cap_outer g0={:.3e} g1={:.3e} edges={}",
-        metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
+        metrics.worst_g0_gap, metrics.worst_g1_normal, metrics.edges_measured
     );
     assert!(metrics.edges_measured >= 4);
     assert!(
@@ -215,10 +215,10 @@ fn uniform_pyramid_apex_subpatch_family_flag_keeps_poke_commit_reachable() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity < 1.4,
+        metrics.worst_g1_normal < 1.4,
         "carve-out poke commit collapsed past its measured G1 class \
          (measured 9.820e-1): {:.3e}",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }
 
@@ -317,7 +317,7 @@ fn mixed_pyramid_apex_serves_exact_boundary_over_apex_bridge_poke() {
     eprintln!(
         "[poke-commit] mixed pyramid apex (serving caps): \
          cap_outer g0={:.3e} g1={:.3e} edges={}",
-        metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
+        metrics.worst_g0_gap, metrics.worst_g1_normal, metrics.edges_measured
     );
     assert!(metrics.edges_measured >= 4);
     // Measured 2026-08-02: g0 = 4.387e-8, g1 = 5.677e-6 — pinned at
@@ -328,8 +328,8 @@ fn mixed_pyramid_apex_serves_exact_boundary_over_apex_bridge_poke() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity < 5.0e-2,
+        metrics.worst_g1_normal < 5.0e-2,
         "exact-boundary serving cap left the commercial G1 bar: {:.3e}",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }

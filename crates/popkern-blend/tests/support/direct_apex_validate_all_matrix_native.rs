@@ -88,9 +88,9 @@ fn cube_mixed_exact_boundary_cap_outer_passes_commercial_gate() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g1_normal <= 5.0e-2,
         "cube_mixed cap_outer_g1 {:.3e} exceeds 5.0e-2",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }
 
@@ -107,10 +107,10 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     assert!(
-        metrics.worst_g0_gap <= 5.0e-3 && metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g0_gap <= 5.0e-3 && metrics.worst_g1_normal <= 5.0e-2,
         "cube_extreme exact-boundary cap_outer must pass after support-face subdivision; got g0={:.3e}, g1={:.3e}",
         metrics.worst_g0_gap,
-        metrics.worst_g1_coplanarity,
+        metrics.worst_g1_normal,
     );
 
     // PK-230: the native serve is crossing-free under the material-
@@ -334,9 +334,9 @@ fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g1_normal <= 5.0e-2,
         "{fixture} exact-boundary cap_outer_g1 {:.3e} exceeds 5.0e-2",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(

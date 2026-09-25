@@ -15,6 +15,8 @@ use kp_gate_helpers as helpers;
 
 #[path = "support/kp_polar_fixtures.rs"]
 mod fixtures;
+#[path = "support/seam_perturbation.rs"]
+mod seam_perturbation;
 
 use fixtures::{fillet_n_gonal_pyramid_result, fillet_n_gonal_pyramid_result_with_continuity};
 use helpers::{
@@ -388,4 +390,83 @@ fn blunt_g2_fans_are_zebra_continuous_across_seams() {
              across a seam — not Class-A continuous"
         );
     }
+}
+
+/// The pentagon5_uniform setback fan, with its cap faces: the positive
+/// fixture the negative controls perturb.
+fn pentagon5_uniform_fan() -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+    let pyr = BRep::n_gonal_pyramid(5, 1.0, 0.8, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, 5).expect("apex");
+    let edges = incident_edges(&pyr, vertex);
+    fillet_corner_full(&pyr, &edges, &[0.05; 5], true, true)
+}
+
+/// PK-498 curvature-only negative control. Row 2 of one cap piece's
+/// side on a live cap-cap seam moves along the normal, which keeps the
+/// seam's position and normal exact (self-checked) and jumps the
+/// transverse curvature. The live-seam G0/G1 gates and the along-seam
+/// G2 residual must still pass: the latter is blind here by Meusnier.
+/// The transverse G2 gate must fail. The fixture passes every gate
+/// unperturbed (`polar_passes_commercial_gates_on_pentagon5_uniform`).
+#[test]
+fn a_curvature_only_cap_perturbation_fails_the_transverse_g2_gate() {
+    use seam_perturbation::{
+        cap_cap_seam, patch_of_face, perturb_side_row, side_change, side_leg, with_patch,
+    };
+    let (brep, faces) = pentagon5_uniform_fan();
+    let (_, face, side) = cap_cap_seam(&brep, &faces).expect("a live cap-cap seam");
+    let before = patch_of_face(&brep, face).expect("cap patch");
+    let mut after = before.clone();
+    let leg = side_leg(&before, side).expect("bi-nonic side");
+    perturb_side_row(&mut after, side, 2, 0.5 * leg).expect("perturb row 2");
+    let (position, normal) = side_change(&before, &after, side);
+    assert!(
+        position < 1e-12 && normal < 1e-12,
+        "G0/G1 kept: {position:.3e} {normal:.3e}"
+    );
+    let m = measure_live_cap_seams(&with_patch(&brep, face, after), &faces, N_SAMPLES);
+    println!(
+        "curvature-only control: g0={:.3e} g1={:.3e} g2={:.3e} g2t={:.3e}",
+        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual, m.worst_g2_transverse
+    );
+    assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must pass");
+    assert!(m.worst_g1_normal < helpers::G1_GATE, "G1 must pass");
+    assert!(
+        m.worst_g2_residual < helpers::G2_GATE,
+        "along-seam G2 is Meusnier-blind"
+    );
+    assert!(
+        m.worst_g2_transverse > 10.0 * helpers::G2_GATE,
+        "the transverse gate must see the jump: {:.3e}",
+        m.worst_g2_transverse
+    );
+}
+
+/// PK-498 normal-only negative control: row 1 moves, the seam keeps its
+/// position (self-checked) and its normal tilts. The G1 gate must fail
+/// while G0 passes.
+#[test]
+fn a_normal_only_cap_perturbation_fails_the_g1_gate() {
+    use seam_perturbation::{
+        cap_cap_seam, patch_of_face, perturb_side_row, side_change, side_leg, with_patch,
+    };
+    let (brep, faces) = pentagon5_uniform_fan();
+    let (_, face, side) = cap_cap_seam(&brep, &faces).expect("a live cap-cap seam");
+    let before = patch_of_face(&brep, face).expect("cap patch");
+    let mut after = before.clone();
+    let leg = side_leg(&before, side).expect("bi-nonic side");
+    perturb_side_row(&mut after, side, 1, 0.5 * leg).expect("perturb row 1");
+    let (position, normal) = side_change(&before, &after, side);
+    assert!(position < 1e-12, "G0 kept: {position:.3e}");
+    assert!(
+        normal > helpers::G1_GATE,
+        "the normal really turned: {normal:.3e}"
+    );
+    let m = measure_live_cap_seams(&with_patch(&brep, face, after), &faces, N_SAMPLES);
+    println!(
+        "normal-only control: g0={:.3e} g1={:.3e}",
+        m.worst_g0_gap, m.worst_g1_normal
+    );
+    assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must pass");
+    assert!(m.worst_g1_normal > helpers::G1_GATE, "G1 must fail");
 }

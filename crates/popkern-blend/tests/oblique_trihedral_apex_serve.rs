@@ -108,9 +108,9 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g1_normal <= 5.0e-2,
         "cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 
     // PK-220: the cap's INTERNAL seams meet the same 5e-2 G1 bar on

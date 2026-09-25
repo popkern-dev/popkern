@@ -15,7 +15,7 @@ fn direct_apex_pyramid3_uniform_cap_outer_commercial_gate() {
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
         "[direct-apex validation cap_outer] pyramid3_uniform (welded native): g0={:.3e} g1={:.3e} edges={}",
-        cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
+        cap_outer.worst_g0_gap, cap_outer.worst_g1_normal, cap_outer.edges_measured,
     );
     assert!(
         cap_outer.edges_measured >= 3,
@@ -27,9 +27,9 @@ fn direct_apex_pyramid3_uniform_cap_outer_commercial_gate() {
         cap_outer.worst_g0_gap,
     );
     assert!(
-        cap_outer.worst_g1_coplanarity <= 5.0e-2,
+        cap_outer.worst_g1_normal <= 5.0e-2,
         "pyramid3_uniform cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-        cap_outer.worst_g1_coplanarity,
+        cap_outer.worst_g1_normal,
     );
 }
 
@@ -131,7 +131,7 @@ fn direct_apex_nearly_uniform_band_serves_welded_native() {
         let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
         eprintln!(
             "[direct-apex validation cap_outer] {name} (nearly-uniform welded): g0={:.3e} g1={:.3e} edges={}",
-            cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
+            cap_outer.worst_g0_gap, cap_outer.worst_g1_normal, cap_outer.edges_measured,
         );
         assert!(
             cap_outer.edges_measured >= 4,
@@ -143,9 +143,9 @@ fn direct_apex_nearly_uniform_band_serves_welded_native() {
             cap_outer.worst_g0_gap,
         );
         assert!(
-            cap_outer.worst_g1_coplanarity <= 5.0e-2,
+            cap_outer.worst_g1_normal <= 5.0e-2,
             "{name} cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-            cap_outer.worst_g1_coplanarity,
+            cap_outer.worst_g1_normal,
         );
     }
 }

@@ -33,6 +33,10 @@ pub use kp_gate_shared_trims::measure_shared_gregory_trims_with_sources;
 mod kp_gate_curvature;
 #[allow(unused_imports)]
 pub use kp_gate_curvature::normal_curvature_along;
+#[path = "support/kp_gate_ring.rs"]
+mod kp_gate_ring;
+#[allow(unused_imports)]
+pub use kp_gate_ring::{RingMetrics, measure_ring};
 #[path = "support/kp_gate_live_seam.rs"]
 mod kp_gate_live_seam;
 #[allow(unused_imports)]
@@ -220,109 +224,6 @@ fn dot(a: Vec3, b: Vec3) -> f64 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-pub struct RingMetrics {
-    pub worst_g0_gap: f64,
-    pub worst_g1_coplanarity: f64,
-    pub worst_g2_residual: f64,
-}
-
-/// Sample the ring on `t ∈ [0.05, 0.95]` at `n_samples` points.
-/// Endpoint margins exclude the Gregory corner-singularity
-/// transition zones — not a bi-9 construction concern.
-pub fn measure_ring(patches: &[GregoryPatch], n_samples: usize) -> RingMetrics {
-    let n = patches.len();
-    let mut worst_g0 = 0.0_f64;
-    let mut worst_g1 = 0.0_f64;
-    let mut worst_g2 = 0.0_f64;
-    let ts: Vec<f64> = (0..n_samples)
-        .map(|k| 0.05 + 0.90 * (k as f64) / ((n_samples - 1) as f64))
-        .collect();
-    for k in 0..n {
-        let a = &patches[k];
-        let b = &patches[(k + 1) % n];
-        for &t in &ts {
-            let t_b = 1.0 - t;
-
-            let pa = a.point_at(1.0, t);
-            let pb = b.point_at(t_b, 0.0);
-            let gap =
-                ((pa.x - pb.x).powi(2) + (pa.y - pb.y).powi(2) + (pa.z - pb.z).powi(2)).sqrt();
-            if gap > worst_g0 {
-                worst_g0 = gap;
-            }
-
-            let xtan_a = a.partial_u(1.0, t);
-            let xtan_b = b.partial_v(t_b, 0.0);
-            let t_spoke = a.partial_v(1.0, t);
-            let numer = dot(xtan_a.cross(&xtan_b), t_spoke).abs();
-            let denom = vec_norm(xtan_a) * vec_norm(xtan_b) * vec_norm(t_spoke);
-            if denom > 1e-300 {
-                let coplan = numer / denom;
-                if coplan > worst_g1 {
-                    worst_g1 = coplan;
-                }
-            }
-
-            let Some(t_unit) = t_spoke.normalized() else {
-                continue;
-            };
-            let Some(ka) = normal_curvature_along(a, 1.0, t, t_unit) else {
-                continue;
-            };
-            let Some(kb) = normal_curvature_along(b, t_b, 0.0, t_unit) else {
-                continue;
-            };
-            // Fold the two charts' natural normals to a consistent
-            // side before comparing II: a chart-handedness reversal
-            // flips the SIGN of the measured normal curvature while
-            // the geometry stays curvature-continuous (measured on
-            // the PK-240 balanced rings: kb = -ka to 2-3 digits with
-            // |dk| under 4e-2, while the unfolded comparison read
-            // 1.2e0 — the same unfolded-normal artifact class as
-            // PK-244's flags). Chart-reversal bands themselves are
-            // recorded separately; this metric measures GEOMETRY.
-            let na = a.partial_u(1.0, t).cross(&a.partial_v(1.0, t));
-            let nb = b.partial_u(t_b, 0.0).cross(&b.partial_v(t_b, 0.0));
-            // Conditioning guard: II is unreadable through a chart
-            // whose basis is near-collinear (measured on the PK-240
-            // balanced rings: the worst "G2" sample sat at a 0.0-deg
-            // basis angle with healthy factor magnitudes — the
-            // absolute det floor cannot catch it). Skip, don't clamp.
-            let sin_a = vec_norm(na)
-                / (vec_norm(a.partial_u(1.0, t)) * vec_norm(a.partial_v(1.0, t))).max(1e-300);
-            let sin_b = vec_norm(nb)
-                / (vec_norm(b.partial_u(t_b, 0.0)) * vec_norm(b.partial_v(t_b, 0.0))).max(1e-300);
-            if sin_a < 5.0e-2 || sin_b < 5.0e-2 {
-                continue;
-            }
-            let denom = vec_norm(na) * vec_norm(nb);
-            if denom < 1e-300 {
-                continue;
-            }
-            let cos = dot(na, nb) / denom;
-            // Convergence guard: near a chart-degeneracy crossing the
-            // natural normal spins through zero and II reads noise —
-            // the G1 gate (coplanarity, orientation-free) separately
-            // covers plane agreement, so a low |cos| here can only be
-            // chart noise, never geometry. Skip, don't clamp.
-            if cos.abs() < 0.9 {
-                continue;
-            }
-            let kb = if cos < 0.0 { -kb } else { kb };
-            let kmax = ka.abs().max(kb.abs());
-            let resid = (ka - kb).abs() / (1.0 + kmax);
-            if resid > worst_g2 {
-                worst_g2 = resid;
-            }
-        }
-    }
-    RingMetrics {
-        worst_g0_gap: worst_g0,
-        worst_g1_coplanarity: worst_g1,
-        worst_g2_residual: worst_g2,
-    }
-}
-
 /// Collect Gregory sub-patches from the corner faces of a filleted
 /// BRep. Panics if any face lacks a Gregory surface — every fixture
 /// in the matrix is known to produce Gregory corners.
@@ -368,7 +269,7 @@ pub fn all_binonic(patches: &[GregoryPatch]) -> bool {
 pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {
     println!(
         "binonic {fixture}: g0={:.3e} g1={:.3e} g2={:.3e}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.worst_g2_residual
+        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
     );
     assert!(
         m.worst_g0_gap < G0_GATE,
@@ -377,9 +278,9 @@ pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {
         G0_GATE
     );
     assert!(
-        m.worst_g1_coplanarity < G1_GATE,
-        "[{fixture}] binonic G1 coplanarity {:.3e} exceeds {:.1e} gate (commercial)",
-        m.worst_g1_coplanarity,
+        m.worst_g1_normal < G1_GATE,
+        "[{fixture}] binonic G1 normal {:.3e} exceeds {:.1e} gate (commercial)",
+        m.worst_g1_normal,
         G1_GATE
     );
     assert!(
@@ -452,11 +353,11 @@ pub fn assert_commercial_gates_live(fixture: &str, m: &LiveSeamMetrics) {
 pub fn assert_no_regression(fixture: &str, mt: &RingMetrics, mb: &RingMetrics) {
     println!(
         "two_stripe {fixture}: g0={:.3e} g1={:.3e} g2={:.3e}",
-        mt.worst_g0_gap, mt.worst_g1_coplanarity, mt.worst_g2_residual
+        mt.worst_g0_gap, mt.worst_g1_normal, mt.worst_g2_residual
     );
     println!(
         "binonic    {fixture}: g0={:.3e} g1={:.3e} g2={:.3e}",
-        mb.worst_g0_gap, mb.worst_g1_coplanarity, mb.worst_g2_residual
+        mb.worst_g0_gap, mb.worst_g1_normal, mb.worst_g2_residual
     );
     assert!(
         mb.worst_g0_gap <= 2.0 * mt.worst_g0_gap.max(1e-12),
@@ -465,10 +366,10 @@ pub fn assert_no_regression(fixture: &str, mt: &RingMetrics, mb: &RingMetrics) {
         mt.worst_g0_gap
     );
     assert!(
-        mb.worst_g1_coplanarity <= 2.0 * mt.worst_g1_coplanarity.max(1e-8),
+        mb.worst_g1_normal <= 2.0 * mt.worst_g1_normal.max(1e-8),
         "[{fixture}] binonic G1 regression: {:.3e} vs {:.3e}",
-        mb.worst_g1_coplanarity,
-        mt.worst_g1_coplanarity
+        mb.worst_g1_normal,
+        mt.worst_g1_normal
     );
     assert!(
         mb.worst_g2_residual <= 2.0 * mt.worst_g2_residual.max(1e-8),

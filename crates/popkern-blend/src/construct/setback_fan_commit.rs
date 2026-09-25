@@ -60,6 +60,19 @@ pub(super) fn commit_cap_fan(
              g1={seam_g1:.3e} (gate 5e-2)"
         ));
     }
+    // The cap's boundary with the strips and supports is designed G1
+    // too, and the cap-cap measure above never sees it. A saddle bridge
+    // regime whose cap-cap seams were exact creased 7° at the cap
+    // boundary and served (PK-498): gate the rim's normal angle as well.
+    let rim_g1 = worst_cap_boundary_g1(brep, &cap_faces);
+    if popkern_core::trace::trace_enabled("setback") {
+        eprintln!("  [rim-postcondition] g1={rim_g1:.3e}");
+    }
+    if rim_g1 > 5.0e-2 {
+        return Err(format!(
+            "fan rim postcondition failed: cap-boundary g1={rim_g1:.3e} (gate 5e-2)"
+        ));
+    }
     // Fold postcondition: the fast structural validate() the commit
     // runs excludes self-intersection, so a fan whose pieces FOLD
     // would serve and only die later at the Part serving gate
@@ -141,4 +154,30 @@ pub(super) fn commit_cap_fan(
     setback_boundary_tolerance::record_boundary_tolerances(brep, &cap_faces);
 
     Ok(cap_faces)
+}
+
+/// Samples per rim edge for [`worst_cap_boundary_g1`].
+const RIM_SAMPLES: usize = 33;
+
+/// Worst sine of the normal angle across the cap's boundary: every edge
+/// between a cap piece and a non-cap face, sampled pcurve-true on both
+/// sides. An edge that cannot be measured counts as a full crease, so
+/// it can never pass silently.
+fn worst_cap_boundary_g1(brep: &BRep, cap_faces: &[FaceHandle]) -> f64 {
+    use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
+    let caps: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    let mut worst = 0.0_f64;
+    for (_, edge) in brep.edges.iter() {
+        let Some(adjacency) = edge_seam_faces(brep, edge) else {
+            continue;
+        };
+        if caps.contains(&adjacency.face_a) == caps.contains(&adjacency.face_b) {
+            continue;
+        }
+        worst = worst.max(match resolve_edge_seam(brep, edge, &adjacency) {
+            Some(seam) => measure_edge_seam(&seam, RIM_SAMPLES).g1,
+            None => 1.0,
+        });
+    }
+    worst
 }

@@ -13,9 +13,9 @@ fn direct_apex_5_cap_outer_pyramid4_mixed_g1_limitation() {
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let m = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     assert!(
-        m.worst_g0_gap <= 5.0e-3 && m.worst_g1_coplanarity <= 5.0e-2,
+        m.worst_g0_gap <= 5.0e-3 && m.worst_g1_normal <= 5.0e-2,
         "pyramid4_mixed cap_outer g0={:.3e} g1={:.3e} vs gates 5e-3/5e-2",
         m.worst_g0_gap,
-        m.worst_g1_coplanarity,
+        m.worst_g1_normal,
     );
 }

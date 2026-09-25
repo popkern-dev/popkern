@@ -15,7 +15,7 @@
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 
-use helpers::{G1_GATE, N_SAMPLES};
+use helpers::N_SAMPLES;
 use popkern_blend::types::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_blend::{BlendResult, fillet_edges};
 use popkern_core::geometry::Point3;
@@ -69,14 +69,16 @@ fn fillet_saddle(corner: Point3, radii: [FilletRadius; 3]) -> (BlendResult, Vert
     (result, vertex)
 }
 
-/// Cap-cap bar for the saddle fan (PK-538): a fifth of the commercial
-/// G1 gate. The rail-flat bridge measures 8e-8 (constant radius) and
-/// 4.2e-3 (variable radius); the ring N-quad measured 1.0.
-const CAP_CAP_G1: f64 = 1.0e-2;
+/// G1 bar for the saddle fan's seams, as the sine of the normal angle
+/// (PK-538, PK-498): a fifth of the commercial gate. The rail-flat
+/// bridge measures, cap-cap / cap-boundary: 7.1e-3 / 6.0e-3 (constant
+/// radius) and 8.5e-3 / 7.4e-3 (variable radius). The ring N-quad
+/// measured 1.0.
+const SEAM_G1: f64 = 1.0e-2;
 
 /// Serve evidence: the setback fan (4 sectors x 4 pieces), a clean
-/// `validate_all`, cap-cap seams under [`CAP_CAP_G1`], and cap-strip
-/// and cap-support seams under the commercial G1 gate.
+/// `validate_all`, and cap-cap and cap-boundary (strip and support)
+/// seams under [`SEAM_G1`].
 fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) {
     let setback = result
         .corner_patches
@@ -95,7 +97,7 @@ fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) 
         seams.worst_g0_gap
     );
     assert!(
-        seams.worst_g1_normal < CAP_CAP_G1,
+        seams.worst_g1_normal < SEAM_G1,
         "{name}: cap-cap g1 {:.3e}",
         seams.worst_g1_normal
     );
@@ -107,9 +109,9 @@ fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) 
         outer.worst_g0_gap
     );
     assert!(
-        outer.worst_g1_coplanarity < G1_GATE,
+        outer.worst_g1_normal < SEAM_G1,
         "{name}: cap-outer g1 {:.3e}",
-        outer.worst_g1_coplanarity
+        outer.worst_g1_normal
     );
 }
 

@@ -93,9 +93,9 @@ fn uniform_conic_cube_corner_serves_setback_fan_commercially() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g1_normal <= 5.0e-2,
         "cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }
 
@@ -206,9 +206,9 @@ fn variable_radius_corner_serves_setback_fan_commercially() {
             metrics.worst_g0_gap
         );
         assert!(
-            metrics.worst_g1_coplanarity <= 5.0e-2,
+            metrics.worst_g1_normal <= 5.0e-2,
             "variable {profile:?} cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-            metrics.worst_g1_coplanarity
+            metrics.worst_g1_normal
         );
     }
 }

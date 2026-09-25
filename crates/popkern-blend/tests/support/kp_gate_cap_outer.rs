@@ -4,7 +4,7 @@
 
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::{dot, vec_norm};
+use super::vec_norm;
 
 /// Worst-case continuity at the *outer* boundary of the corner-cap
 /// ring, where each cap sub-face meets the cylinder fillet roll
@@ -12,8 +12,9 @@ use super::{dot, vec_norm};
 pub struct CapOuterMetrics {
     /// Max 3-D gap `||cyl(cyl_pc(t)) - greg(greg_pc(t))||`.
     pub worst_g0_gap: f64,
-    /// Max unit-normal parallelism deficit at edge samples.
-    pub worst_g1_coplanarity: f64,
+    /// Max sin of the angle between the two sides' normals at edge
+    /// samples (the live-seam G1 measure; PK-498).
+    pub worst_g1_normal: f64,
     /// Number of cap-vs-non-cap edges measured.
     pub edges_measured: usize,
 }
@@ -168,7 +169,11 @@ pub fn measure_cap_outer_boundary(
             let nn_a = vec_norm(n_a);
             let nn_b = vec_norm(n_b);
             if nn_a > 1e-300 && nn_b > 1e-300 {
-                let deficit = 1.0 - (dot(n_a, n_b) / (nn_a * nn_b)).abs();
+                // sin of the normal angle, orientation-free: the same G1
+                // measure as the live-seam metric. The former
+                // `1 − |cos θ|` is ~θ²/2 and passed an 18° crease at the
+                // 5e-2 gate (PK-498).
+                let deficit = n_a.cross(&n_b).length() / (nn_a * nn_b);
                 if deficit > worst_g1 {
                     worst_g1 = deficit;
                     if popkern_core::trace::trace_enabled("cap-outer-measure") {
@@ -211,7 +216,7 @@ pub fn measure_cap_outer_boundary(
 
     CapOuterMetrics {
         worst_g0_gap: worst_g0,
-        worst_g1_coplanarity: worst_g1,
+        worst_g1_normal: worst_g1,
         edges_measured,
     }
 }

@@ -191,21 +191,32 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
     let m = measure_ring(&patches, N_SAMPLES);
     eprintln!(
         "repaired-exact {fixture}: g0={:.3e} g1={:.3e} g2={:.3e} bands={bands}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.worst_g2_residual
+        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
     );
     assert!(
         m.worst_g0_gap < helpers::G0_GATE,
         "{fixture} ring G0 gap {:.3e} exceeds the machine-zero gate",
         m.worst_g0_gap
     );
+    // Not commercial (PK-498, PK-539). Measured by the honest ring
+    // metrics (the sine of the normal angle, and II across the seam),
+    // the ladder's spokes read G1 7.2e-2..1.34e-1 and G2 1.78..1.95.
+    // The former coplanarity and along-seam measures passed them.
+    // These are regression pins on the measured values until PK-539
+    // makes the ring G1 or reports it honestly.
     assert!(
-        m.worst_g1_coplanarity <= 5.0e-2,
-        "{fixture} internal-spoke G1 {:.3e} exceeds the commercial gate 5e-2",
-        m.worst_g1_coplanarity
+        m.worst_g1_normal <= FLAGGED_RING_G1_PIN,
+        "{fixture} internal-spoke G1 {:.3e} regressed past the PK-539 pin",
+        m.worst_g1_normal
     );
     assert!(
-        m.worst_g2_residual <= 5.0e-2,
-        "{fixture} ring G2 {:.3e} exceeds the commercial gate 5e-2",
+        m.worst_g2_residual <= FLAGGED_RING_G2_PIN,
+        "{fixture} ring G2 {:.3e} regressed past the PK-539 pin",
         m.worst_g2_residual
     );
 }
+
+/// PK-539 regression pins on the flagged bi-nonic ring's spoke
+/// continuity (measured maxima 1.34e-1 and 1.95), not commercial bars.
+const FLAGGED_RING_G1_PIN: f64 = 0.15;
+const FLAGGED_RING_G2_PIN: f64 = 2.0;

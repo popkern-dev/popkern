@@ -193,9 +193,9 @@ fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
         metrics.worst_g0_gap
     );
     assert!(
-        metrics.worst_g1_coplanarity <= 5.0e-2,
+        metrics.worst_g1_normal <= 5.0e-2,
         "cube_extreme cap_outer_g1 {:.3e} exceeds 5.0e-2",
-        metrics.worst_g1_coplanarity
+        metrics.worst_g1_normal
     );
 }
 
@@ -238,7 +238,7 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
         let m = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
         eprintln!(
             "[direct-apex validation cap_outer] {}: g0={:.3e} g1={:.3e} edges={}",
-            case.name, m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured,
+            case.name, m.worst_g0_gap, m.worst_g1_normal, m.edges_measured,
         );
         assert!(
             m.edges_measured >= 1,
@@ -252,10 +252,10 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
             m.worst_g0_gap,
         );
         assert!(
-            m.worst_g1_coplanarity <= 5.0e-2,
+            m.worst_g1_normal <= 5.0e-2,
             "[{}] cap_outer_g1 {:.3e} exceeds 5.0e-2 commercial gate under DirectApex",
             case.name,
-            m.worst_g1_coplanarity,
+            m.worst_g1_normal,
         );
     }
 }
@@ -344,7 +344,7 @@ fn direct_apex_pyramid4_uniform_cap_outer_commercial_gate() {
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
         "[direct-apex validation cap_outer] pyramid4_uniform (welded native): g0={:.3e} g1={:.3e} edges={}",
-        cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
+        cap_outer.worst_g0_gap, cap_outer.worst_g1_normal, cap_outer.edges_measured,
     );
     assert!(
         cap_outer.edges_measured >= 1,
@@ -356,9 +356,9 @@ fn direct_apex_pyramid4_uniform_cap_outer_commercial_gate() {
         cap_outer.worst_g0_gap,
     );
     assert!(
-        cap_outer.worst_g1_coplanarity <= 5.0e-2,
+        cap_outer.worst_g1_normal <= 5.0e-2,
         "pyramid4_uniform cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
-        cap_outer.worst_g1_coplanarity,
+        cap_outer.worst_g1_normal,
     );
 }
 

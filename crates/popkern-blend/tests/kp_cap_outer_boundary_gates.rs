@@ -46,10 +46,12 @@ use helpers::{
 
 /// Mixed-radius setback cap↔strip bars (PK-401): the rim seams are the
 /// cap's own border rows (g0 machine zero) and the cap is G1 to the
-/// strips through cross-sectional corners (measured 1.0e-6 / 3.4e-6
-/// on pyramid5_mixed / hexagon6_variable; 30× headroom).
+/// strips through cross-sectional corners. G1 is the sine of the
+/// normal angle (PK-498; the bar was once calibrated in the weaker
+/// `1 − cos θ`), measured 8.9e-5 / 1.25e-4 on pyramid5_mixed /
+/// hexagon6_variable: 8× headroom.
 const MIXED_G0_BAR: f64 = 1.0e-9;
-const MIXED_G1_BAR: f64 = 1.0e-4;
+const MIXED_G1_BAR: f64 = 1.0e-3;
 
 fn run_cube(radii: &[f64]) -> helpers::CapOuterMetrics {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
@@ -82,13 +84,13 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
     let m = run_cube(&[0.10, 0.10, 0.10]);
     println!(
         "cap_outer cube_uniform: g0={:.3e} g1={:.3e} edges={}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+        m.worst_g0_gap, m.worst_g1_normal, m.edges_measured
     );
     assert!(m.edges_measured >= 1);
     assert!(
-        m.worst_g1_coplanarity < helpers::G1_GATE,
+        m.worst_g1_normal < helpers::G1_GATE,
         "cube_uniform G1 {:.3e} exceeds {:.1e} commercial gate",
-        m.worst_g1_coplanarity,
+        m.worst_g1_normal,
         helpers::G1_GATE,
     );
     // PK-181: ported from the retired Stage-4.7e matrix
@@ -116,29 +118,29 @@ fn flag_gated_kp_stack_class_is_pinned() {
     let m = run_cube(&[0.08, 0.10, 0.12]);
     println!(
         "flag-stack cube_mixed: g0={:.3e} g1={:.3e}",
-        m.worst_g0_gap, m.worst_g1_coplanarity
+        m.worst_g0_gap, m.worst_g1_normal
     );
     assert!(
         m.worst_g0_gap < 5.0e-3,
         "cube_mixed left its measured class"
     );
-    assert!(m.worst_g1_coplanarity < 5.0e-2);
+    assert!(m.worst_g1_normal < 5.0e-2);
 
     let m = run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
     println!(
         "flag-stack pyramid4_mixed: g0={:.3e} g1={:.3e}",
-        m.worst_g0_gap, m.worst_g1_coplanarity
+        m.worst_g0_gap, m.worst_g1_normal
     );
     assert!(
         m.worst_g0_gap < 5.0e-3,
         "pyramid4_mixed left its measured class"
     );
-    assert!(m.worst_g1_coplanarity < 5.0e-2);
+    assert!(m.worst_g1_normal < 5.0e-2);
 
     let m = run_cube(&[0.02, 0.10, 0.20]);
     println!(
         "flag-stack cube_extreme: g0={:.3e} g1={:.3e} (documented broken; native default route serves this fixture)",
-        m.worst_g0_gap, m.worst_g1_coplanarity
+        m.worst_g0_gap, m.worst_g1_normal
     );
     assert!(m.worst_g0_gap.is_finite() && m.worst_g0_gap < 2.0);
 }
@@ -183,14 +185,15 @@ fn run_n_pyramid_cap_outer_result(
 /// setback boundary surgery now commits the KP20 cap fan on the
 /// fillet setback border. Measured at re-pin: g0 = 3.6e-8,
 /// g1 = 1.5e-3 across 20 cap/support edges; with cross-sectional rim
-/// ends (PK-401) g0 = 4.0e-12, g1 = 1.0e-6 — gated at the
+/// ends (PK-401) g0 = 4.0e-12, g1 = 1.0e-6 (1 − cos θ; the sine measure
+/// reads 8.9e-5) — gated at the
 /// mixed-radius class bars `MIXED_G0_BAR` / `MIXED_G1_BAR`.
 #[test]
 fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     println!(
         "cap_outer pyramid5_mixed: g0={:.3e} g1={:.3e} edges={}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+        m.worst_g0_gap, m.worst_g1_normal, m.edges_measured
     );
     assert_eq!(
         m.edges_measured, 20,
@@ -202,9 +205,9 @@ fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
         m.worst_g0_gap
     );
     assert!(
-        m.worst_g1_coplanarity <= MIXED_G1_BAR,
+        m.worst_g1_normal <= MIXED_G1_BAR,
         "cap_outer_g1 {:.3e} exceeds the {MIXED_G1_BAR:.0e} mixed-radius bar",
-        m.worst_g1_coplanarity
+        m.worst_g1_normal
     );
     let apex_patches = result
         .corner_patches
@@ -249,7 +252,7 @@ fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
     println!(
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
-        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+        m.worst_g0_gap, m.worst_g1_normal, m.edges_measured
     );
     assert_eq!(
         m.edges_measured, 24,
@@ -261,9 +264,9 @@ fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
         m.worst_g0_gap
     );
     assert!(
-        m.worst_g1_coplanarity <= MIXED_G1_BAR,
+        m.worst_g1_normal <= MIXED_G1_BAR,
         "cap_outer_g1 {:.3e} exceeds the {MIXED_G1_BAR:.0e} mixed-radius bar",
-        m.worst_g1_coplanarity
+        m.worst_g1_normal
     );
     let apex_patches = result
         .corner_patches
