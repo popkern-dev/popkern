@@ -133,26 +133,38 @@ fn binonic_passes_or_declines_commercially_on_cube_mixed() {
     assert_cube_mixed_exact_boundary_route(&result);
 }
 
-/// PK-539: cube_extreme (1:10) has no fold-free G1 ring in the K-P
-/// optimizer family. Measured with the orientation-aware spoke normal
-/// sine, the guide candidate folds (reversal bands) and the
-/// orientation repair's output folds across a spoke; the ring that
-/// used to serve here read G1 through the coplanarity metric while
-/// creasing 4°..7.7°. The promotion declines with its reason
-/// recorded, the corner serves the pre-promotion ring, and every
-/// corner patch claims exactly the level its measured spoke sine
-/// supports (G0 here: 0.29).
+/// PK-544/PK-547: cube_extreme (1:10) serves the exact-injection ring
+/// at commercial G1.
+///
+/// PK-539 found the exact candidate folded across a spoke (sine 1.0),
+/// and the promotion declined to a G0 ring (0.29). The exact-boundary
+/// spoke-row solve now minimizes the oriented spoke normal chord, never
+/// adds a fold, holds a chart-lean barrier, and stays clear of proven
+/// crossings. Its candidate passes the promotion gates directly, a
+/// repair remaining the fallback. The served ring certifies G1 on every
+/// cap seam over the whole edge and claims the G1 it measures.
 #[test]
-fn cube_extreme_binonic_promotion_declines_and_claims_the_measured_level() {
+fn cube_extreme_binonic_promotion_serves_an_honest_exact_ring() {
     let result = fillet_cube_result(&[0.02, 0.10, 0.20], true);
-    let declined = result.repair_report.apex_diagnostics.iter().any(|d| {
+    let served = result.repair_report.apex_diagnostics.iter().any(|d| {
         matches!(
             d,
             popkern_blend::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp_binonic.promotion.declined"
+                if cap.code == "kp_binonic.promotion.boundary_candidates"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("provenance=exact") && detail.contains("accepted(")
+                    })
         )
     });
-    assert!(declined, "cube_extreme must record the promotion decline");
+    assert!(
+        served,
+        "cube_extreme must serve the repaired exact candidate"
+    );
+    let errors = result.brep.validate_all();
+    assert!(
+        errors.is_empty(),
+        "cube_extreme must validate clean: {errors:?}"
+    );
     let faces = cap_faces_from_result(&result);
     let patches = collect_patches(&result.brep, &faces);
     assert_eq!(
@@ -163,13 +175,15 @@ fn cube_extreme_binonic_promotion_declines_and_claims_the_measured_level() {
     let m = measure_ring(&patches, N_SAMPLES);
     assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must stay exact");
     assert!(
-        m.worst_g1_normal > helpers::G1_GATE,
-        "the served fallback ring is below commercial G1 (measured 0.29)"
+        m.worst_g1_normal <= helpers::G1_GATE,
+        "spoke G1 {:.3e} over the commercial bar",
+        m.worst_g1_normal
     );
+    helpers::assert_cap_seams_certify_g1(&result.brep, &faces, "cube_extreme");
     for patch in &result.corner_patches {
         assert_eq!(
             patch.achieved_continuity,
-            popkern_blend::ContinuityLevel::G0,
+            popkern_blend::ContinuityLevel::G1,
             "the claim must match the measurement"
         );
     }
@@ -264,7 +278,7 @@ fn exact_boundary_route_matches_with_binonic_flag_on_cube_mixed() {
 // variant (not a lower rung) is what ships.
 
 #[test]
-fn cube_extreme_reports_its_measured_downgrade() {
+fn cube_extreme_claims_its_measured_g1_without_downgrade() {
     use popkern_blend::error::BlendWarning;
     use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
     use popkern_core::tolerance::Tolerance;
@@ -292,28 +306,22 @@ fn cube_extreme_reports_its_measured_downgrade() {
     };
     let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
 
-    // PK-539: the promotion declines (no fold-free G1 ring) and the
-    // corner's measured G0 surfaces as a downgrade warning, never a
-    // silent G1 claim.
-    let downgraded = result.edge_warnings.iter().any(|(_, w)| {
-        matches!(
-            w,
-            BlendWarning::CornerContinuityDowngraded {
-                requested: popkern_blend::ContinuityLevel::G1,
-                achieved: popkern_blend::ContinuityLevel::G0,
-                ..
-            }
-        )
-    });
+    // PK-544: the repaired exact ring serves at commercial G1, so the
+    // corner claims G1 from its measurement and no downgrade is
+    // reported (PK-539 declined here and reported G1 -> G0).
+    let downgraded = result
+        .edge_warnings
+        .iter()
+        .any(|(_, w)| matches!(w, BlendWarning::CornerContinuityDowngraded { .. }));
     assert!(
-        downgraded,
-        "cube_extreme must report its measured G1 -> G0 downgrade: {:?}",
+        !downgraded,
+        "cube_extreme serves its requested G1: {:?}",
         result.edge_warnings
     );
     for patch in &result.corner_patches {
         assert_eq!(
             patch.achieved_continuity,
-            popkern_blend::ContinuityLevel::G0
+            popkern_blend::ContinuityLevel::G1
         );
     }
 }

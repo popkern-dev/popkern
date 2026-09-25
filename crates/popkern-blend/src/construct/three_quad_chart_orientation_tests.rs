@@ -1,6 +1,7 @@
 //! Unit tests for the chart-orientation repair (PK-249).
 
 use super::*;
+use popkern_core::geometry::Point3;
 
 /// A domed 3-patch ring in the three-quad layout: patch k's quad has
 /// corners `V_{k-1}` at (0,0), the hex mid-vertex `M_k` at (0,1), the
@@ -218,21 +219,40 @@ fn interior_relocation_is_rejected_not_accepted() {
     }
 }
 
-/// PK-539: a fold across a spoke is not repairable by an interior
-/// re-chart (the spoke is a shared curve), and the repair must decline
-/// it — the coplanarity gate read the folded result as G1 and the
-/// repair "succeeded" with the fold intact.
+/// PK-539 made a fold across a spoke visible: the coplanarity gate
+/// read it as G1, and the repair "succeeded" with the fold intact.
+/// PK-544 repairs it. The fold lives in the cross-tangent rows next to
+/// the spoke, which are interior rows, not in the shared spoke curve.
+/// The spoke-clearing unfold and the oriented-chord polish return a
+/// G1 ring with no fold against the reference senses. The fold counter
+/// sees the injected fold (negative control).
 #[test]
-fn a_fold_across_a_spoke_is_declined_not_passed() {
+fn a_fold_across_a_spoke_is_repaired_to_an_honest_g1_ring() {
     let as_gregory = |ring: Vec<RectangularGregoryBiNonic>| -> Vec<GregoryPatch> {
         ring.into_iter()
             .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
             .collect()
     };
     let spoke_sine = super::super::three_quad_kp_promote::worst_ring_normal_sine;
+    let reference_senses = |ring: &[RectangularGregoryBiNonic]| {
+        let references: Vec<_> = ring
+            .iter()
+            .map(|p| {
+                let n = p.partial_u(0.5, 0.5).cross(&p.partial_v(0.5, 0.5));
+                (n * (1.0 / n.length()), n.length())
+            })
+            .collect();
+        crate::construct::kp_spoke_normal_sine::spoke_senses(&references)
+    };
+    let healthy = healthy_ring();
+    let senses = reference_senses(&healthy);
     assert!(
-        spoke_sine(&as_gregory(healthy_ring())) < 1e-9,
+        spoke_sine(&as_gregory(healthy.clone())) < 1e-9,
         "the dome ring is G1"
+    );
+    assert_eq!(
+        crate::construct::kp_spoke_normal_sine::spoke_fold_count(&healthy, &senses),
+        0
     );
     let folded = spoke_folded_ring();
     assert_eq!(
@@ -240,10 +260,21 @@ fn a_fold_across_a_spoke_is_declined_not_passed() {
         1.0,
         "the fold reads as one"
     );
-    let result = repair_chart_orientation(&folded, None);
     assert!(
-        matches!(result, Err(ref reason) if reason.starts_with("g1(")),
-        "a spoke fold must be declined on G1, got {:?}",
-        result.map(|o| o.post_g1)
+        crate::construct::kp_spoke_normal_sine::spoke_fold_count(&folded, &senses) > 0,
+        "the fold counter sees the injected fold"
+    );
+    let outcome = repair_chart_orientation(&folded, None)
+        .unwrap_or_else(|reason| panic!("the interior fold is repairable: {reason}"));
+    assert_eq!(
+        crate::construct::kp_spoke_normal_sine::spoke_fold_count(&outcome.ring, &senses),
+        0,
+        "no fold survives the repair"
+    );
+    let measured = spoke_sine(&as_gregory(outcome.ring.clone()));
+    assert!(measured <= 5.0e-2, "repaired spoke sine {measured:.3e}");
+    assert!(
+        (measured - outcome.post_g1).abs() < 1e-12,
+        "the claim is the measurement"
     );
 }

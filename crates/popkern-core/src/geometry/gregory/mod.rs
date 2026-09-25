@@ -372,7 +372,8 @@ pub use rectangular_biseptic::RectangularGregoryBiseptic;
 pub use rectangular_deg5::RectangularGregoryDeg5;
 pub use rectangular_gregory_two_stripe::RectangularGregoryTwoStripe;
 pub use ring_pair_crossing::{
-    BinonicRingCrossing, RingPairRelation, binonic_ring_crossing,
+    BinonicRingCrossing, BoundedRingCrossing, RingPairRelation, binonic_ring_crossing,
+    binonic_ring_crossing_bounded, binonic_ring_crossing_witness,
     binonic_ring_feasible_start_crossing,
 };
 pub use self_intersection::GregorySelfIntersectionReport;

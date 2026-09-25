@@ -39,6 +39,7 @@ use super::kp_exact_boundary_binonic_optimizer::{
     optimize_exact_boundary_binonic, ring_crossing_decline_label,
 };
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
+use super::kp_spoke_normal_sine::{ring_chord_residual, ring_spoke_senses};
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, KpGuidePatchBiNonic,
     RectangularGregoryBiNonic, build_binonic_ring_from_binonic_guides,
@@ -128,10 +129,17 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             outer_rung_outcome: rung("declined:initial_ring_self_intersects"),
         });
     }
+    // PK-544: chord candidates compete on the honest chord metric,
+    // heuristic ones like for like with the phase-2 triple-product sum.
     if input.hex_boundaries.is_some()
         && outer_fillets.is_none()
         && let Some(direct) = optimize_exact_boundary_binonic(&initial)
-        && direct.final_residual < bq_result.final_residual
+        && direct.final_residual
+            < if direct.heuristic {
+                bq_result.final_residual
+            } else {
+                ring_chord_residual(&bq_result.binonic, &ring_spoke_senses(&initial))
+            }
     {
         return Some(KpBiNonicOptimizerResult {
             binonic: direct.binonic,

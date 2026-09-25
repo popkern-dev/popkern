@@ -61,44 +61,86 @@ fn retry_details(result: &popkern_blend::BlendResult) -> Vec<String> {
 /// vertex-blend fallback on direct-apex anchors is off its faces (21
 /// edges, worst 1.06e-1), so the served-body gate rejects that first
 /// pass, and the exclusion retry re-routes the corner to vertex-blend
-/// anchors (PK-533). PK-539: that retry used to serve a bi-nonic ring
-/// the coplanarity gate passed while its cap seams certify at normal
-/// sines 0.25..0.87 (both candidates fold across the spokes). Gated
-/// honestly, the promotion declines, the pre-promotion rung is off its
-/// faces too (the same with the K-P flag off), and the corner declines
-/// transactionally, naming the curve-surface class, with the partial
-/// result structurally sound and free of null-loop half-edges.
-/// Follow-up: PK-545 (a valid serve for this corner).
+/// anchors (PK-533).
+///
+/// PK-539 found that the retry's bi-nonic ring folded across its
+/// spokes (cap seams certified at normal sines 0.25..0.87) and declined
+/// it. PK-545 serves it honestly. The exact-boundary spoke-row solve
+/// now minimizes the oriented spoke normal chord and never adds a fold
+/// across a spoke (PK-544), so its ring passes the promotion gates
+/// directly. The retry serves check-9 clean, and every corner patch's
+/// claim is backed by the whole-edge certificates of its cap seams.
 #[test]
-fn welded_n3_apex_retaining_declines_semantically() {
+fn welded_n3_apex_retaining_retry_serves_an_honest_ring() {
     let _g = popkern_blend::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
-    let Err(popkern_blend::BlendError::PartialFailure {
-        failed,
-        partial_result,
-        failures,
-        ..
-    }) = try_build_under_direct_apex_with_pyramid_height(true, &[0.10, 0.10, 0.10], 0.8)
-    else {
-        panic!("the welded N=3 corner must decline transactionally (PK-539)");
-    };
-    assert_eq!(failed, 1, "one corner declines");
-    assert!(
-        format!("{failures:?}").contains("off their faces"),
-        "the decline names the curve-surface class: {failures:?}"
+    let result = try_build_under_direct_apex_with_pyramid_height(true, &[0.10, 0.10, 0.10], 0.8)
+        .unwrap_or_else(|e| panic!("the welded N=3 corner must serve (PK-545): {e:?}"));
+    assert_eq!(
+        check9_failures(&result.brep),
+        0,
+        "the served body holds check 9"
     );
-    let null_loop_half_edges = partial_result
+    let details = retry_details(&result);
+    assert!(
+        details.len() == 1 && details[0].contains("off their faces"),
+        "the apex-retaining first pass is retried under the gate, got {details:?}"
+    );
+    let null_loop_half_edges = result
+        .brep
         .half_edges
         .iter()
         .filter(|(_, data)| {
-            data.loop_ == LoopHandle::default() || !partial_result.loops.contains_key(data.loop_)
+            data.loop_ == LoopHandle::default() || !result.brep.loops.contains_key(data.loop_)
         })
         .count();
     assert_eq!(null_loop_half_edges, 0, "no null-loop half-edges minted");
     assert_eq!(
-        breakdown(&partial_result.validate_all()).structural,
+        breakdown(&result.brep.validate_all()).structural,
         0,
-        "the partial result stays structurally sound"
+        "the served body is structurally sound"
     );
+    assert_claims_are_certified(&result);
+}
+
+/// Every corner patch claiming G1 has cap-to-cap seams whose whole-edge
+/// certificates bound the normal sine under the commercial 5e-2 gate.
+/// A G0 claim needs a certified G1 failure on at least one of them.
+fn assert_claims_are_certified(result: &popkern_blend::BlendResult) {
+    use popkern_core::topology::edge_seam_certificate::{certify_edge_seam, seam_certify_options};
+    let brep = &result.brep;
+    let options = seam_certify_options(brep);
+    let cap_faces: std::collections::BTreeSet<_> =
+        result.corner_patches.iter().map(|p| p.face).collect();
+    for patch in &result.corner_patches {
+        let mut sines = Vec::new();
+        for (edge, data) in brep.edges.iter() {
+            let he = &brep.half_edges[data.half_edge];
+            let (fa, fb) = (
+                brep.loops[he.loop_].face,
+                brep.loops[brep.half_edges[he.twin].loop_].face,
+            );
+            if fa == fb || !(fa == patch.face || fb == patch.face) {
+                continue;
+            }
+            if !(cap_faces.contains(&fa) && cap_faces.contains(&fb)) {
+                continue;
+            }
+            let cert = certify_edge_seam(brep, edge, &options);
+            sines.push((edge, cert.g1_upper, cert.lower[1], cert.bounds_cover_seam()));
+        }
+        match patch.achieved_continuity {
+            popkern_blend::ContinuityLevel::G0 => assert!(
+                sines.iter().any(|&(_, _, lower, _)| lower > 5.0e-2),
+                "a G0 claim needs a certified G1 failure: {sines:?}"
+            ),
+            _ => assert!(
+                sines
+                    .iter()
+                    .all(|&(_, upper, _, covers)| covers && upper <= 5.0e-2),
+                "a G1 claim needs certified cap seams: {sines:?}"
+            ),
+        }
+    }
 }
 
 /// The non-welded and N=4 apex-retaining classes once "kept serving"

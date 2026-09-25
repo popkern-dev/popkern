@@ -183,3 +183,72 @@ fn translated_opposite_patch_is_flagged_as_apex_only_crossing() {
         crossing.diagnostic_label()
     );
 }
+
+/// PK-547: the cheap witness agrees with the full gate on every fixture
+/// here. It stays silent on clean rings and within-sector bulges, and
+/// proves both crossing classes at a refined intersection point beyond
+/// the exemption depth.
+#[test]
+fn the_crossing_witness_agrees_with_the_gate() {
+    for n in [3usize, 4, 5] {
+        assert!(binonic_ring_crossing_witness(&pyramid_ring(n), 1.0e-6).is_none());
+    }
+    for depth in [1.0e-4, 0.05] {
+        let mut ring = pyramid_ring(4);
+        bump_near_spoke_row(&mut ring, depth);
+        assert!(binonic_ring_crossing_witness(&ring, 1.0e-6).is_none());
+    }
+    let mut neighbour = pyramid_ring(4);
+    translate(&mut neighbour[0], 0.0, 0.4, 0.0);
+    let mut opposite = pyramid_ring(4);
+    translate(&mut opposite[2], 1.4, -1.4, 0.0);
+    for (ring, pair, relation) in [
+        (neighbour, (0, 1), RingPairRelation::SpokeNeighbors),
+        (opposite, (0, 2), RingPairRelation::ApexOnly),
+    ] {
+        let witness = binonic_ring_crossing_witness(&ring, 1.0e-6)
+            .unwrap_or_else(|| panic!("the {relation:?} crossing has a witness"));
+        assert_eq!((witness.patch_a, witness.patch_b), pair);
+        assert_eq!(witness.relation, relation);
+        assert!(witness.separation > witness.exemption_band);
+        // The witness point lies on both patches.
+        let (a, b) = (&ring[pair.0], &ring[pair.1]);
+        let on_a = a.point_at(witness.uv_a.0, witness.uv_a.1);
+        let on_b = b.point_at(witness.uv_b.0, witness.uv_b.1);
+        assert!(
+            (on_a - on_b).length() <= 1.0e-6,
+            "{}",
+            witness.diagnostic_label()
+        );
+        assert!((on_a - witness.point).length() <= 1.0e-12);
+    }
+}
+
+/// PK-547: the bounded verdict agrees with the full gate on clean rings
+/// (spoke-neighbour contact certifies, apex-only contact settles through
+/// the solver), never clears a crossing, and reports an uncertifiable
+/// spoke-neighbour pair as undecided without the solver.
+#[test]
+fn the_bounded_verdict_clears_clean_rings_and_never_a_crossing() {
+    for n in [3usize, 4, 5] {
+        let verdict = binonic_ring_crossing_bounded(&pyramid_ring(n), 1.0e-6);
+        assert!(
+            matches!(verdict, BoundedRingCrossing::Clean),
+            "n={n}: {verdict:?}"
+        );
+    }
+    let mut neighbour = pyramid_ring(4);
+    translate(&mut neighbour[0], 0.0, 0.4, 0.0);
+    let verdict = binonic_ring_crossing_bounded(&neighbour, 1.0e-6);
+    assert!(
+        matches!(verdict, BoundedRingCrossing::Undecided { pair: (0, 1) }),
+        "{verdict:?}"
+    );
+    let mut opposite = pyramid_ring(4);
+    translate(&mut opposite[2], 1.4, -1.4, 0.0);
+    let verdict = binonic_ring_crossing_bounded(&opposite, 1.0e-6);
+    assert!(
+        !matches!(verdict, BoundedRingCrossing::Clean),
+        "{verdict:?}"
+    );
+}

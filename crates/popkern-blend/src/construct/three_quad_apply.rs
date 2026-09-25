@@ -44,9 +44,6 @@ use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
 pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_normal_sine};
 
-/// Commercial spoke G1 bar (normal-angle sine) a committed ring must
-/// measure within to claim G1.
-const RING_G1_BAR: f64 = 5.0e-2;
 use three_quad_reproject::reproject_loop_pcurves_onto_gregory;
 use three_quad_seam_pcurves::author_boundary_owned_seam_pcurves;
 use three_quad_sphere_cap::sphere_cap_boundary_degeneracy_in_boundary_order;
@@ -58,7 +55,7 @@ use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
+use crate::types::{CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
 /// Apply a three-quad decomposition to an existing hexagonal blend
@@ -336,14 +333,9 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         sphere_cap_boundary_preflight,
     );
 
-    // PK-539: the achieved level is measured, not asserted — the
-    // committed ring's worst spoke normal sine against the commercial
-    // G1 bar (a ring was claiming G1 at a true 1.3e-1).
-    let achieved_continuity = if worst_ring_normal_sine(&decomp.sub_patches) <= RING_G1_BAR {
-        ContinuityLevel::G1
-    } else {
-        ContinuityLevel::G0
-    };
+    // PK-539/PK-544: the achieved level is measured over whole spokes,
+    // end zones included, never asserted.
+    let achieved_continuity = three_quad_kp_promote::measured_ring_continuity(&decomp.sub_patches);
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
     // The sphere-cap rung is an upgrade, not a cliff: if a planned seam
@@ -468,22 +460,14 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
         break;
     }
-    // PK-240: a balanced fan curves the interior spokes; PK-249: the
-    // chart-orientation repair moves the shared spoke rows on ANY
-    // fan. Either way the committed sides bow off the poke's
-    // straight-Line placeholder seams (measured 5.3e-3 at 1:20 under
-    // the repair), so re-derive each interior seam's edge triple
-    // from the committed binonic sides. Fans that neither balanced
-    // nor repaired keep their placeholder seams untouched.
-    let chart_repair_engaged = diagnostics.iter().any(|diagnostic| {
-        let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(f) = diagnostic else {
-            return false;
-        };
-        let detail = f.detail_code.as_deref().unwrap_or("");
-        (f.stage == "kp_binonic.promotion.boundary_candidates" && detail.contains("repaired"))
-            || (f.stage == "kp_binonic.chart_orientation" && detail.contains("outcome=repaired"))
-    });
-    if (decomp.balanced_spokes.is_some() || chart_repair_engaged) && !sphere_cap_rung {
+    // The committed sides own the interior seams: a balanced fan curves
+    // the spokes (PK-240), the chart repair moves the shared spoke rows
+    // (PK-249), and the spoke end frames move every promoted ring's end
+    // legs (PK-547). Each bows off the poke's straight-Line placeholder
+    // (5.5e-3 at 1:10), so every interior seam's edge triple is
+    // re-derived exactly from the committed bi-nonic sides. The pass
+    // leaves seams of non-bi-nonic caps unchanged.
+    if !sphere_cap_rung {
         let _ = super::three_quad_spoke_seam_curves::
             author_interior_spoke_seam_curves_from_committed_caps(brep, &sub_faces);
     }

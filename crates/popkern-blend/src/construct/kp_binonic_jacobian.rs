@@ -52,21 +52,29 @@ pub(crate) fn analytic_ring_jacobian(
     m: &[Vec<f64>],
     d_guide: usize,
 ) -> Vec<Vec<f64>> {
-    analytic_ring_jacobian_with(ring, m, d_guide, coplanarity_gradient)
+    analytic_ring_jacobian_with(
+        ring,
+        m,
+        d_guide,
+        &crate::construct::kp_spoke_normal_sine::window_spoke_parameters(),
+        |_, u, v, w| coplanarity_gradient(u, v, w),
+    )
 }
 
 /// [`analytic_ring_jacobian`] for any per-sample spoke residual
 /// `f(u, v, w)` (cross tangents `u`, `v`, spoke tangent `w`), given its
-/// gradient `(∂f/∂u, ∂f/∂v, ∂f/∂w)` (`None`: the residual's
-/// ill-conditioned zero, an all-zero row).
+/// gradient `(∂f/∂u, ∂f/∂v, ∂f/∂w)` at spoke index `spoke` (`None`:
+/// the residual's ill-conditioned zero, an all-zero row), one row per
+/// spoke and spoke parameter in `samples`.
 pub(crate) fn analytic_ring_jacobian_with(
     ring: &[RectangularGregoryBiNonic],
     m: &[Vec<f64>],
     d_guide: usize,
-    gradient: impl Fn(Vec3, Vec3, Vec3) -> Option<(Vec3, Vec3, Vec3)>,
+    samples: &[f64],
+    gradient: impl Fn(usize, Vec3, Vec3, Vec3) -> Option<(Vec3, Vec3, Vec3)>,
 ) -> Vec<Vec<f64>> {
     let n = ring.len();
-    let total_samples = n * 50;
+    let total_samples = n * samples.len();
     let mut jac = vec![vec![0.0; d_guide]; total_samples];
 
     for spoke in 0..n {
@@ -75,8 +83,7 @@ pub(crate) fn analytic_ring_jacobian_with(
         let a = &ring[a_idx];
         let b = &ring[b_idx];
 
-        for s in 0..50 {
-            let t = 0.05 + 0.90 * (s as f64) / 49.0;
+        for (s, &t) in samples.iter().enumerate() {
             let t_b = 1.0 - t;
 
             // Bernstein bases at this sample — constants the
@@ -90,8 +97,8 @@ pub(crate) fn analytic_ring_jacobian_with(
             let v = b.partial_v(t_b, 0.0);
             let w = a.partial_v(1.0, t);
 
-            let row = spoke * 50 + s;
-            let Some((df_du, df_dv, df_dw)) = gradient(u, v, w) else {
+            let row = spoke * samples.len() + s;
+            let Some((df_du, df_dv, df_dw)) = gradient(spoke, u, v, w) else {
                 continue; // matches the residual's ill-conditioned zero
             };
 

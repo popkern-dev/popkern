@@ -8,19 +8,24 @@ use popkern_core::geometry::gregory::GregoryPatch;
 /// Worst-case G1 across the full ring's shared spokes — the sine of
 /// the angle between the two patches' normals (PK-539; see
 /// [`crate::construct::kp_spoke_normal_sine`] for why the normalized
-/// triple product it replaces was blind) — using 50 uniform samples
-/// on `t ∈ [0.05, 0.95]` per spoke. The endpoint margin matches the
-/// commercial-gate test's convention (avoids the rational-Gregory
-/// corner-singularity finite-angle transition zone).
+/// triple product it replaces was blind) — over the whole spoke, end
+/// zones included
+/// ([`crate::construct::kp_spoke_normal_sine::whole_spoke_parameters`],
+/// PK-547). The former
+/// `[0.05, 0.95]` window was justified by the rational-Gregory corner
+/// transition, but the promoted rings are polynomial bi-nonics, and the
+/// window hid a 5%-long crease at the rim end of the served
+/// extreme-ladder rings.
 pub(crate) fn worst_ring_normal_sine(patches: &[GregoryPatch]) -> f64 {
     let n = patches.len();
+    let parameters = crate::construct::kp_spoke_normal_sine::whole_spoke_parameters();
     let mut worst = 0.0_f64;
     for k in 0..n {
         let a = &patches[k];
         let b = &patches[(k + 1) % n];
-        let samples: Vec<_> = (0..50)
-            .map(|sample| {
-                let t = 0.05 + 0.90 * (sample as f64) / 49.0;
+        let samples: Vec<_> = parameters
+            .iter()
+            .map(|&t| {
                 (
                     a.partial_u(1.0, t),
                     b.partial_v(1.0 - t, 0.0),
@@ -55,4 +60,17 @@ pub(crate) fn worst_ring_g0_gap(patches: &[GregoryPatch]) -> f64 {
         }
     }
     worst
+}
+
+/// The continuity a committed ring may claim: G1 when its
+/// [`worst_ring_normal_sine`] (whole spokes, end zones included) is
+/// within the commercial bar, else G0 (PK-539 measured claims,
+/// extended to the ends under PK-544/PK-547).
+pub(crate) fn measured_ring_continuity(patches: &[GregoryPatch]) -> crate::ContinuityLevel {
+    if worst_ring_normal_sine(patches) <= crate::construct::kp_spoke_normal_sine::RING_SPOKE_G1_GATE
+    {
+        crate::ContinuityLevel::G1
+    } else {
+        crate::ContinuityLevel::G0
+    }
 }

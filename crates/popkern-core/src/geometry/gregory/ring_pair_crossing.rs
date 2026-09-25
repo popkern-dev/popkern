@@ -81,13 +81,20 @@ use super::RectangularGregoryBiNonic;
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::intersection::intersect_surfaces;
-use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
 use ring_pair_crossing_certificate::{distance_to_spoke, pair_certified_clean};
 
+#[path = "ring_pair_crossing_bounded.rs"]
+mod ring_pair_crossing_bounded;
 #[path = "ring_pair_crossing_certificate.rs"]
 mod ring_pair_crossing_certificate;
+#[path = "ring_pair_crossing_setup.rs"]
+mod ring_pair_crossing_setup;
+#[path = "ring_pair_crossing_witness.rs"]
+mod ring_pair_crossing_witness;
+pub use ring_pair_crossing_bounded::{BoundedRingCrossing, binonic_ring_crossing_bounded};
+use ring_pair_crossing_setup::{PairSetup, pair_setup, patch_aabbs, spoke_polylines};
 
 /// How two patches of a bi-nonic cap ring relate topologically.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +216,22 @@ pub fn binonic_ring_feasible_start_crossing(
     ring_crossing_scan(ring, tolerance, true)
 }
 
+/// A cheap, sound-positive crossing witness (PK-547): a crossing of the
+/// ring proven at a refined intersection point beyond the pair's
+/// exemption depth, found from a coarse tessellation in milliseconds.
+/// A crossing the full gate needs the surface-surface solver for (27 s
+/// on the pyramid3_uniform welded-retry ring) is found here in
+/// milliseconds. `Some` is a crossing the full gate also declines.
+/// `None` proves nothing, and [`binonic_ring_crossing`] stays the
+/// acceptance authority. Optimizers use it as a per-step feasibility
+/// screen.
+pub fn binonic_ring_crossing_witness(
+    ring: &[RectangularGregoryBiNonic],
+    tolerance: f64,
+) -> Option<BinonicRingCrossing> {
+    ring_pair_crossing_witness::ring_crossing_witness(ring, tolerance)
+}
+
 fn ring_crossing_scan(
     ring: &[RectangularGregoryBiNonic],
     tolerance: f64,
@@ -220,33 +243,14 @@ fn ring_crossing_scan(
     }
     let band = EXEMPTION_BAND_FACTOR * tolerance;
 
-    // Tensor-product Bézier control grids have the convex-hull property,
-    // so the grid AABB bounds the surface exactly.
-    let aabbs: Vec<Option<Aabb>> = ring
-        .iter()
-        .map(|patch| {
-            let points: Vec<Point3> = patch.grid.iter().flatten().copied().collect();
-            Aabb::from_points(&points)
-        })
-        .collect();
+    let aabbs = patch_aabbs(ring);
 
     let nurbs: Vec<SurfaceGeometry> = ring
         .iter()
         .map(|patch| SurfaceGeometry::Nurbs(patch.to_nurbs_exact()))
         .collect();
 
-    // Spoke k polyline: patch k's u = 1 boundary iso, sampled once.
-    let spokes: Vec<Vec<Point3>> = ring
-        .iter()
-        .map(|patch| {
-            (0..SPOKE_POLYLINE_SAMPLES)
-                .map(|s| {
-                    let t = s as f64 / (SPOKE_POLYLINE_SAMPLES - 1) as f64;
-                    patch.point_at(1.0, t)
-                })
-                .collect()
-        })
-        .collect();
+    let spokes = spoke_polylines(ring);
 
     let ssi_tol = Tolerance::default().with_linear(tolerance.max(1e-6));
 
@@ -257,54 +261,13 @@ fn ring_crossing_scan(
             {
                 continue;
             }
-            // Shared spokes between a and b, both ring directions mod n
-            // (spoke `k` glues patch `k`'s UOne side to patch
-            // `(k+1) % n`'s VZero side).
-            let mut shared_spokes: Vec<SharedSpoke> = Vec::with_capacity(2);
-            if (a + 1) % n == b {
-                shared_spokes.push(SharedSpoke {
-                    polyline: &spokes[a],
-                    patch: &ring[a],
-                });
-            }
-            if (b + 1) % n == a {
-                shared_spokes.push(SharedSpoke {
-                    polyline: &spokes[b],
-                    patch: &ring[b],
-                });
-            }
-            let relation = if shared_spokes.is_empty() {
-                RingPairRelation::ApexOnly
-            } else {
-                RingPairRelation::SpokeNeighbors
-            };
-            let apex = ring[a].point_at(1.0, 0.0);
-            // Rail-hover depth cap, scale-relative to the pair's joint
-            // extent (see MACRO_DEPTH_FACTOR).
-            let macro_depth = match (&aabbs[a], &aabbs[b]) {
-                (Some(bb_a), Some(bb_b)) => {
-                    let joint = Aabb {
-                        min: Point3::new(
-                            bb_a.min.x.min(bb_b.min.x),
-                            bb_a.min.y.min(bb_b.min.y),
-                            bb_a.min.z.min(bb_b.min.z),
-                        ),
-                        max: Point3::new(
-                            bb_a.max.x.max(bb_b.max.x),
-                            bb_a.max.y.max(bb_b.max.y),
-                            bb_a.max.z.max(bb_b.max.z),
-                        ),
-                    };
-                    MACRO_DEPTH_FACTOR * joint.diagonal()
-                }
-                _ => band,
-            };
-
-            let exempt_depth = if macro_only || relation == RingPairRelation::SpokeNeighbors {
-                macro_depth.max(band)
-            } else {
-                band
-            };
+            let PairSetup {
+                relation,
+                shared_spokes,
+                apex,
+                macro_depth,
+                exempt_depth,
+            } = pair_setup(ring, &aabbs, &spokes, (a, b), band, macro_only);
             // Fast path: prove the pair clean by subdivision before
             // paying for the surface-surface solver (see module docs).
             if pair_certified_clean(
@@ -338,7 +301,7 @@ fn ring_crossing_scan(
 }
 
 /// One shared spoke of a ring-consecutive pair.
-struct SharedSpoke<'r> {
+pub(super) struct SharedSpoke<'r> {
     /// Precomputed samples of the spoke owner's `u = 1` boundary iso.
     polyline: &'r [Point3],
     /// The patch whose `u = 1` side is this spoke (for refinement).

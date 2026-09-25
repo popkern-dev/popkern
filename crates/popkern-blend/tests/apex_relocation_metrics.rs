@@ -140,8 +140,6 @@ fn uniform_fixtures_apex_rebuild_clean() {
         // rings (measured on-surface deviation ≤ 3.8e-14), so every
         // fixture serves validate_all with zero geometric errors.
         max_other_geometric: usize,
-        /// PK-539: the fixture declines transactionally (see below).
-        declines: bool,
     }
     let cases: &[Case] = &[
         Case {
@@ -149,62 +147,26 @@ fn uniform_fixtures_apex_rebuild_clean() {
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: false,
             max_other_geometric: 0,
-            declines: false,
         },
         Case {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
             max_other_geometric: 0,
-            declines: true,
         },
         Case {
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
             max_other_geometric: 0,
-            declines: false,
         },
     ];
     for case in cases {
         let built = build_with_apex_rebuild(case.is_pyramid, case.radii);
-        if case.declines {
-            // PK-539: pyramid3_uniform's base corner served only as a
-            // bi-nonic ring whose cap seams certify at normal sines
-            // 0.25..0.87 (the coplanarity gate passed it; both of its
-            // candidates fold across the spokes). Gated honestly the
-            // promotion declines, the pre-promotion rung's trims come
-            // out off their faces (1.06e-1, the PK-236 class; the
-            // same with the K-P flag off), and the corner declines
-            // transactionally. Follow-up: PK-545.
-            match built {
-                Err(popkern_blend::BlendError::PartialFailure {
-                    failed,
-                    partial_result,
-                    failures,
-                    ..
-                }) => {
-                    assert_eq!(failed, 1, "{}: one corner declines", case.name);
-                    assert!(
-                        format!("{failures:?}").contains("off their faces"),
-                        "{}: the decline names the curve-surface class: {failures:?}",
-                        case.name
-                    );
-                    assert_eq!(
-                        breakdown(&partial_result.validate_all()).structural,
-                        0,
-                        "{}: the partial result stays structurally sound",
-                        case.name
-                    );
-                }
-                other => panic!(
-                    "{}: expected the transactional decline, got {:?}",
-                    case.name,
-                    other.map(|_| ())
-                ),
-            }
-            continue;
-        }
+        // PK-545: pyramid3_uniform's base corner, which PK-539 declined
+        // (its ring folded across the spokes), serves a K-P ring whose
+        // cap seams certify G1 over the whole edge
+        // (`apex_retaining_welded_contract` pins the certificates).
         let brep = built
             .unwrap_or_else(|e| panic!("{}: must serve, got {e:?}", case.name))
             .brep;

@@ -109,6 +109,12 @@ pub(super) struct SeamPolishEval {
     pub base: Vec<RectangularGregoryBiNonic>,
     /// Per patch: fixed initial mid-face unit normal + its magnitude.
     pub references: Vec<(Vec3, f64)>,
+    /// Per spoke: the relative chart orientation it must keep
+    /// (`spoke_senses`, PK-544).
+    pub senses: Vec<bool>,
+    /// Spoke folds at the polish's start: an accepted step never has
+    /// more (none, from a spoke-clean start).
+    pub max_spoke_folds: usize,
     pub x0: Vec<f64>,
     pub outer_fillets: Option<Vec<SurfaceGeometry>>,
     pub char_len: f64,
@@ -146,7 +152,9 @@ impl SeamPolishEval {
 impl LmEval for SeamPolishEval {
     fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
         let ring = self.build(x);
-        let mut r = coplanarity_residuals(&ring);
+        let mut r = spoke_chord_residuals(&ring, &self.senses);
+        r.extend(spoke_lean_residuals(&ring, LeanSide::A));
+        r.extend(spoke_lean_residuals(&ring, LeanSide::B));
         // Folded curvature agreement across the spokes — the polish
         // must optimize what the G2 gate measures, or it sacrifices
         // curvature for coplanarity (unreadable samples contribute
@@ -176,6 +184,14 @@ impl LmEval for SeamPolishEval {
     fn fold_safe(&mut self, x: &[f64]) -> bool {
         let ring = self.build(x);
         if binonic_reversal_band_count(&ring) + interior_opposed_count(&ring) > 0 {
+            return false;
+        }
+        // Never a new fold across a spoke (PK-544): the oriented chord
+        // pushes folded samples toward G1, and acceptance keeps it from
+        // trading one spoke's fold for another's.
+        if crate::construct::kp_spoke_normal_sine::spoke_fold_count(&ring, &self.senses)
+            > self.max_spoke_folds
+        {
             return false;
         }
         // Cheap orientation re-check against the fixed references
@@ -216,12 +232,39 @@ impl LmEval for SeamPolishEval {
         let m = self.selector_m.as_ref()?;
         let ring = self.build(x);
 
-        let mut jac = analytic_ring_jacobian_with(
+        let senses = &self.senses;
+        let parameters = crate::construct::kp_spoke_normal_sine::whole_spoke_parameters();
+        let mut jac = analytic_ring_jacobian_with(&ring, m, d, &parameters, |spoke, u, v, w| {
+            crate::construct::kp_spoke_normal_sine::spoke_normal_chord_gradient(
+                u,
+                v,
+                w,
+                senses.get(spoke).copied().unwrap_or(true),
+            )
+        });
+        // Lean barrier rows (PK-547): side a's cross tangent `u`, then
+        // side b's `v`, each against the spoke tangent `w`.
+        let zero = Vec3::new(0.0, 0.0, 0.0);
+        jac.extend(analytic_ring_jacobian_with(
             &ring,
             m,
             d,
-            crate::construct::kp_spoke_normal_sine::spoke_normal_sine_gradient,
-        );
+            &parameters,
+            |_, u, _, w| {
+                crate::construct::kp_spoke_normal_sine::lean_penalty_gradient(u, w)
+                    .map(|(du, dw)| (du, zero, dw))
+            },
+        ));
+        jac.extend(analytic_ring_jacobian_with(
+            &ring,
+            m,
+            d,
+            &parameters,
+            |_, _, v, w| {
+                crate::construct::kp_spoke_normal_sine::lean_penalty_gradient(v, w)
+                    .map(|(dv, dw)| (zero, dv, dw))
+            },
+        ));
 
         // Folded-G2 block: stack-linear forward FD at the same eps
         // the full-FD driver used (LmConfig.fd_eps mirrors this
@@ -265,7 +308,7 @@ mod three_quad_chart_orientation_polish_fd_tests;
 
 fn seam_row_selector_m(n: usize) -> Vec<Vec<f64>> {
     let cells = seam_row_cells();
-    let d = n * cells.len() * 3 + n * 8 * 3;
+    let d = n * cells.len() * 3 + n * SPOKE_INTERIOR.clone().count() * 3;
     let mut m = vec![vec![0.0_f64; d]; n * 300];
     let mut k = 0;
     for p in 0..n {
@@ -277,7 +320,7 @@ fn seam_row_selector_m(n: usize) -> Vec<Vec<f64>> {
         }
     }
     for p in 0..n {
-        for j in 1..=8 {
+        for j in SPOKE_INTERIOR {
             for axis in 0..3 {
                 m[ring_idx(p, 9, j, axis)][k] = 1.0;
                 m[ring_idx((p + 1) % n, 9 - j, 0, axis)][k] = 1.0;
@@ -288,24 +331,56 @@ fn seam_row_selector_m(n: usize) -> Vec<Vec<f64>> {
     m
 }
 
-/// Per-sample spoke normal sine (PK-539: the honest G1 the promotion
-/// and the repair gate measure; the polish runs inside the fold-safe
-/// region, where the orientation-free sine is exact), matching the promotion metric's
-/// sampling so the no-regression pressure measures the same field.
-fn coplanarity_residuals(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
+/// Per-sample oriented spoke normal chord (PK-544), over the whole
+/// spoke (PK-547). The chord is `2 sin(θ/2)` against each spoke's
+/// sense: it tracks the gated sine (`≈ θ`) at small angles and, unlike
+/// the orientation-free sine (PK-539), keeps rising through a fold. A
+/// polish minimizing it cannot converge into a fold across a spoke.
+fn spoke_chord_residuals(ring: &[RectangularGregoryBiNonic], senses: &[bool]) -> Vec<f64> {
     let n = ring.len();
-    let mut out = Vec::with_capacity(n * 50);
+    let parameters = crate::construct::kp_spoke_normal_sine::whole_spoke_parameters();
+    let mut out = Vec::with_capacity(n * parameters.len());
     for k in 0..n {
         let a = &ring[k];
         let b = &ring[(k + 1) % n];
-        for sample in 0..50 {
-            let t = 0.05 + 0.90 * (sample as f64) / 49.0;
+        let sense = senses.get(k).copied().unwrap_or(true);
+        for &t in &parameters {
             let t_b = 1.0 - t;
-            let xtan_a = a.partial_u(1.0, t);
-            let xtan_b = b.partial_v(t_b, 0.0);
-            let t_spoke = a.partial_v(1.0, t);
-            out.push(crate::construct::kp_spoke_normal_sine::spoke_normal_sine(
-                xtan_a, xtan_b, t_spoke,
+            out.push(crate::construct::kp_spoke_normal_sine::spoke_normal_chord(
+                a.partial_u(1.0, t),
+                b.partial_v(t_b, 0.0),
+                a.partial_v(1.0, t),
+                sense,
+            ));
+        }
+    }
+    out
+}
+
+/// Which side's cross tangent a lean row measures.
+#[derive(Clone, Copy)]
+enum LeanSide {
+    A,
+    B,
+}
+
+/// Per-sample chart-lean barrier on one side's cross tangent (PK-547),
+/// over the whole spoke, so its rows line up with
+/// `analytic_ring_jacobian_with`.
+fn spoke_lean_residuals(ring: &[RectangularGregoryBiNonic], side: LeanSide) -> Vec<f64> {
+    let n = ring.len();
+    let parameters = crate::construct::kp_spoke_normal_sine::whole_spoke_parameters();
+    let mut out = Vec::with_capacity(n * parameters.len());
+    for k in 0..n {
+        let (a, b) = (&ring[k], &ring[(k + 1) % n]);
+        for &t in &parameters {
+            let w = a.partial_v(1.0, t);
+            let cross = match side {
+                LeanSide::A => a.partial_u(1.0, t),
+                LeanSide::B => b.partial_v(1.0 - t, 0.0),
+            };
+            out.push(crate::construct::kp_spoke_normal_sine::lean_penalty(
+                cross, w,
             ));
         }
     }
@@ -345,9 +420,19 @@ pub(super) fn seam_row_cells() -> Vec<(usize, usize)> {
     cells
 }
 
+/// The spoke control points the polish may move: the interior ones
+/// past each end leg. The end legs (`j = 1` at the center, `j = 8` at
+/// the outer corner) carry the tangent planes the ring shares there
+/// (PK-547, `kp_spoke_end_frames`). The polish samples only the
+/// promotion window, so a free end leg drifted off its plane and
+/// creased the spoke end (cube_extreme 1:100: whole-edge sine 0.19 at
+/// the rim end).
+pub(super) const SPOKE_INTERIOR: std::ops::RangeInclusive<usize> = 2..=7;
+
 /// Pack the polish DoF: the per-patch seam-adjacent interior rows
 /// PLUS one shared block per spoke — the spoke curve's interior CPs
-/// (`grid[9][j]` of patch k ≡ `grid[9−j][0]` of patch k+1). The
+/// ([`SPOKE_INTERIOR`], `grid[9][j]` of patch k ≡ `grid[9−j][0]` of
+/// patch k+1). The
 /// spoke interior is decomposition-authored free geometry (its
 /// endpoints at C and the hex vertex stay fixed), and it is exactly
 /// where a flat overfold must OPEN: with the spoke frozen, unfolding
@@ -355,7 +440,9 @@ pub(super) fn seam_row_cells() -> Vec<(usize, usize)> {
 /// to both patches keeps ring G0 exact by construction.
 pub(super) fn pack_seam_rows(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
     let cells = seam_row_cells();
-    let mut x = Vec::with_capacity((ring.len() * cells.len() + ring.len() * 8) * 3);
+    let mut x = Vec::with_capacity(
+        (ring.len() * cells.len() + ring.len() * SPOKE_INTERIOR.clone().count()) * 3,
+    );
     for patch in ring {
         for &(i, j) in &cells {
             x.push(patch.grid[i][j].x);
@@ -364,7 +451,7 @@ pub(super) fn pack_seam_rows(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
         }
     }
     for patch in ring {
-        for j in 1..=8 {
+        for j in SPOKE_INTERIOR {
             x.push(patch.grid[9][j].x);
             x.push(patch.grid[9][j].y);
             x.push(patch.grid[9][j].z);
@@ -384,7 +471,7 @@ pub(super) fn unpack_seam_rows(x: &[f64], ring: &mut [RectangularGregoryBiNonic]
         }
     }
     for k in 0..n {
-        for j in 1..=8 {
+        for j in SPOKE_INTERIOR {
             let p = Point3::new(x[idx], x[idx + 1], x[idx + 2]);
             idx += 3;
             ring[k].grid[9][j] = p;

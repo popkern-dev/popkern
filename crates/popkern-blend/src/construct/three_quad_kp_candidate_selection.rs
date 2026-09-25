@@ -68,9 +68,15 @@ pub(super) fn select_boundary_candidate(
                 // orientation defect — attempt the transactional
                 // unfold before rejecting the exact candidate; the
                 // repaired ring must then pass the full gate chain
-                // like any other exact candidate.
+                // like any other exact candidate. PK-544: a G1 failure
+                // can be a fold across a spoke, which the repair now
+                // clears; a plain crease declines there as
+                // `already_clean` at no cost.
                 let (candidate, repair_tag) = match promotion_gate_failure(&candidate, pre_worst) {
-                    Some(failure) if failure.starts_with("self_intersection") => {
+                    Some(failure)
+                        if failure.starts_with("self_intersection")
+                            || failure.starts_with("g1(") =>
+                    {
                         match super::super::three_quad_chart_orientation::repair_chart_orientation(
                             &candidate,
                             Some(gate_fillets),

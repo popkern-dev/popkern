@@ -58,9 +58,12 @@ fn eval_fixture(with_fillets: bool) -> SeamPolishEval {
         })
         .collect();
     let x0 = pack_seam_rows(&base);
+    let senses = vec![true; base.len()];
     SeamPolishEval {
         x0,
         references,
+        senses,
+        max_spoke_folds: 0,
         outer_fillets: with_fillets.then(|| {
             (0..base.len())
                 .map(|_| SurfaceGeometry::Cylinder {
@@ -133,7 +136,10 @@ fn polish_mixed_jacobian_matches_fd_per_block() {
     let analytic = eval.jacobian(&x).expect("mixed jacobian evaluates");
     let fd = fd_jacobian(&mut eval, &x, 1e-6);
     assert_eq!(analytic.len(), fd.len(), "row count must match residual");
-    assert_eq!(analytic.len(), 50 * n + 25 * n + 25 * n + d);
+    // Chord Sn, lean barrier 2 × Sn over the whole-spoke parameters
+    // (PK-547), folded G2 25n, outer fillet 25n, tether d.
+    let sn = n * crate::construct::kp_spoke_normal_sine::whole_spoke_parameters().len();
+    assert_eq!(analytic.len(), 3 * sn + 25 * n + 25 * n + d);
 
     // Non-vacuity: the folded-G2 block must have live samples at
     // the evaluation point.
@@ -158,21 +164,26 @@ fn polish_mixed_jacobian_matches_fd_per_block() {
         n * 25
     );
 
-    let w_coplanarity = worst_scaled(&analytic, &fd, 0..50 * n);
+    let w_coplanarity = worst_scaled(&analytic, &fd, 0..sn);
     assert!(
         w_coplanarity <= 1e-5,
         "coplanarity block deviates: {w_coplanarity:.3e}"
     );
+    // The lean rows are inactive on this upright dome fixture (the
+    // active gradient is FD-checked in `kp_spoke_normal_sine`); both
+    // Jacobians must agree that they are.
+    let w_lean = worst_scaled(&analytic, &fd, sn..3 * sn);
+    assert!(w_lean <= 1e-5, "lean block deviates: {w_lean:.3e}");
     // The G2 block is forward-FD inside the mixed Jacobian vs the
     // central FD here — agreement bounded by the scheme difference.
-    let w_g2 = worst_scaled(&analytic, &fd, 50 * n..75 * n);
+    let w_g2 = worst_scaled(&analytic, &fd, 3 * sn..3 * sn + 25 * n);
     assert!(w_g2 <= 5e-4, "folded-G2 block deviates: {w_g2:.3e}");
-    let w_outer = worst_scaled(&analytic, &fd, 75 * n..100 * n);
+    let w_outer = worst_scaled(&analytic, &fd, 3 * sn + 25 * n..3 * sn + 50 * n);
     assert!(
         w_outer <= 1e-5,
         "outer-fillet block deviates: {w_outer:.3e}"
     );
-    let w_tether = worst_scaled(&analytic, &fd, 100 * n..100 * n + d);
+    let w_tether = worst_scaled(&analytic, &fd, 3 * sn + 50 * n..3 * sn + 50 * n + d);
     assert!(w_tether <= 1e-9, "tether block deviates: {w_tether:.3e}");
 }
 
@@ -185,12 +196,13 @@ fn polish_mixed_jacobian_matches_fd_without_fillets() {
     let analytic = eval.jacobian(&x).expect("mixed jacobian evaluates");
     let fd = fd_jacobian(&mut eval, &x, 1e-6);
     assert_eq!(analytic.len(), fd.len());
-    assert_eq!(analytic.len(), 50 * n + 25 * n + d);
-    let w_coplanarity = worst_scaled(&analytic, &fd, 0..50 * n);
+    let sn = n * crate::construct::kp_spoke_normal_sine::whole_spoke_parameters().len();
+    assert_eq!(analytic.len(), 3 * sn + 25 * n + d);
+    let w_coplanarity = worst_scaled(&analytic, &fd, 0..sn);
     assert!(
         w_coplanarity <= 1e-5,
         "coplanarity block deviates: {w_coplanarity:.3e}"
     );
-    let w_g2 = worst_scaled(&analytic, &fd, 50 * n..75 * n);
+    let w_g2 = worst_scaled(&analytic, &fd, 3 * sn..3 * sn + 25 * n);
     assert!(w_g2 <= 5e-4, "folded-G2 block deviates: {w_g2:.3e}");
 }

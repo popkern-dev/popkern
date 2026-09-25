@@ -14,7 +14,9 @@ mod three_quad_kp_promote_declines;
 #[path = "three_quad_kp_ring_metrics.rs"]
 mod three_quad_kp_ring_metrics;
 use three_quad_kp_promote_declines::{declined, declined_with_selection};
-pub(crate) use three_quad_kp_ring_metrics::{worst_ring_g0_gap, worst_ring_normal_sine};
+pub(crate) use three_quad_kp_ring_metrics::{
+    measured_ring_continuity, worst_ring_g0_gap, worst_ring_normal_sine,
+};
 
 /// Promote sub-patches from `RectangularTwoStripe` to
 /// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
@@ -281,7 +283,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
 
 const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
 const RING_G0_GATE: f64 = 1.0e-10;
-const RING_G1_GATE: f64 = 5.0e-2;
+const RING_G1_GATE: f64 = super::super::kp_spoke_normal_sine::RING_SPOKE_G1_GATE;
 
 /// Optimizer ladder for one candidate. The second tuple slot is the
 /// PK-275 outer-fillet rung outcome (populated only when the rung is
@@ -395,6 +397,14 @@ pub(crate) fn extract_direct_boundary_input(
         let tps_c = TangentPlane::from_normal(n_c)?;
         central_vertex_tps.push(tps_c);
     }
+
+    crate::construct::kp_spoke_end_frames::align_spoke_end_frames(
+        spokes,
+        hex_boundaries,
+        &mut spoke_data,
+        &mut outer_corners,
+        &mut central_vertex_tps,
+    );
 
     // When the caller provides
     // hex_boundaries (deg-9 Bernstein CPs of the substituted

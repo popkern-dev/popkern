@@ -1,9 +1,13 @@
 //! Direct exact-boundary K-P binonic spoke-row optimizer.
 
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
+use super::kp_spoke_normal_sine::{
+    RING_SPOKE_G1_GATE, lean_penalty, ring_chord_residual, ring_spoke_senses, spoke_fold_count,
+    spoke_normal_chord, whole_spoke_parameters, worst_oriented_ring_sine,
+};
 use popkern_core::geometry::gregory::{
-    GregoryPatch, RectangularGregoryBiNonic, binonic_ring_crossing,
-    binonic_ring_feasible_start_crossing,
+    BoundedRingCrossing, GregoryPatch, RectangularGregoryBiNonic, binonic_ring_crossing_bounded,
+    binonic_ring_crossing_witness, binonic_ring_feasible_start_crossing,
 };
 
 /// Linear tolerance of the PK-283 ring-level crossing gates — the same
@@ -13,7 +17,31 @@ pub(in crate::construct) const RING_CROSSING_TOLERANCE: f64 = 1.0e-6;
 
 pub(super) struct ExactBoundaryBinonicResult {
     pub binonic: Vec<RectangularGregoryBiNonic>,
+    /// The candidate's residual on the metric it competes by: the
+    /// honest [`ring_chord_residual`] for a chord candidate; the triple
+    /// product sum for a heuristic one, which is compared like for
+    /// like with the phase-2 figure and is honestly gated only after
+    /// the repair.
     pub final_residual: f64,
+    /// True for the triple-product heuristic's candidate.
+    pub heuristic: bool,
+}
+
+/// The spoke-row L-M's objective (PK-544).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpokeObjective {
+    /// The oriented spoke normal chord: honest in the normal angle over
+    /// the whole half-turn, invariant to chart skew. A step never adds
+    /// a fold across a spoke.
+    OrientedChord,
+    /// The normalized triple product `sine · sin∠(w,u) · sin∠(w,v)`, a
+    /// search heuristic only. It rewards skew and reads folds as G1, so
+    /// its output reaches the promotion through the chart-orientation
+    /// repair and the honest gates. It runs only when the chord
+    /// candidate cannot pass the ring G1 gate: on pyramid4_uniform the
+    /// chord solve stalls at a creased ring, while the heuristic's
+    /// folded ring repairs to G1.
+    TripleProductHeuristic,
 }
 
 pub(super) fn optimize_exact_boundary_binonic(
@@ -22,12 +50,30 @@ pub(super) fn optimize_exact_boundary_binonic(
     if initial.is_empty() || !feasible_start(initial) {
         return None;
     }
-    let baseline = measure_ring_residual(initial);
+    let senses = ring_spoke_senses(initial);
+    [
+        SpokeObjective::OrientedChord,
+        SpokeObjective::TripleProductHeuristic,
+    ]
+    .into_iter()
+    .find_map(|objective| optimize_spoke_rows(initial, &senses, objective))
+}
+
+fn optimize_spoke_rows(
+    initial: &[RectangularGregoryBiNonic],
+    senses: &[bool],
+    objective: SpokeObjective,
+) -> Option<ExactBoundaryBinonicResult> {
+    let eval = DirectSpokeRowEval {
+        base: initial.to_vec(),
+        senses: senses.to_vec(),
+        max_spoke_folds: spoke_fold_count(initial, senses),
+        objective,
+    };
+    let baseline = eval.objective_sum(initial);
     let x0 = pack_spoke_rows(initial);
     let result = run_lm(
-        DirectSpokeRowEval {
-            base: initial.to_vec(),
-        },
+        eval,
         x0,
         &LmConfig {
             fd_eps: 1e-4,
@@ -44,17 +90,40 @@ pub(super) fn optimize_exact_boundary_binonic(
     }
     let mut binonic = initial.to_vec();
     unpack_spoke_rows(&result.x, &mut binonic);
-    if !acceptable_ring(&binonic) {
+    // A fold-free chord candidate over the G1 gate is a crease the
+    // repair cannot help: decline it before the ring-crossing verdict.
+    if objective == SpokeObjective::OrientedChord
+        && worst_oriented_ring_sine(&binonic, senses) > RING_SPOKE_G1_GATE
+    {
         return None;
     }
+    // A proven crossing declines at witness cost; the bounded verdict
+    // then settles the rest without a spoke-neighbour surface solve.
+    if binonic_ring_crossing_witness(&binonic, RING_CROSSING_TOLERANCE).is_some()
+        || !acceptable_ring(&binonic)
+    {
+        return None;
+    }
+    let heuristic = objective == SpokeObjective::TripleProductHeuristic;
+    let final_residual = if heuristic {
+        result.final_residual
+    } else {
+        ring_chord_residual(&binonic, senses)
+    };
     Some(ExactBoundaryBinonicResult {
         binonic,
-        final_residual: result.final_residual,
+        final_residual,
+        heuristic,
     })
 }
 
 struct DirectSpokeRowEval {
     base: Vec<RectangularGregoryBiNonic>,
+    /// Per spoke: the relative chart orientation it must keep.
+    senses: Vec<bool>,
+    /// Spoke folds at the start: an accepted chord step never has more.
+    max_spoke_folds: usize,
+    objective: SpokeObjective,
 }
 
 impl DirectSpokeRowEval {
@@ -63,15 +132,33 @@ impl DirectSpokeRowEval {
         unpack_spoke_rows(x, &mut ring);
         ring
     }
+
+    fn residual_of(&self, ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
+        match self.objective {
+            SpokeObjective::OrientedChord => chord_residual_vector(ring, &self.senses),
+            SpokeObjective::TripleProductHeuristic => triple_product_residual_vector(ring),
+        }
+    }
+
+    fn objective_sum(&self, ring: &[RectangularGregoryBiNonic]) -> f64 {
+        self.residual_of(ring).iter().map(|v| v * v).sum()
+    }
 }
 
 impl LmEval for DirectSpokeRowEval {
     fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
-        Some(residual_vector(&self.build_ring(x)))
+        Some(self.residual_of(&self.build_ring(x)))
     }
 
     fn fold_safe(&mut self, x: &[f64]) -> bool {
-        !any_self_intersects(&self.build_ring(x))
+        let ring = self.build_ring(x);
+        if self.objective == SpokeObjective::OrientedChord
+            && (spoke_fold_count(&ring, &self.senses) > self.max_spoke_folds
+                || binonic_ring_crossing_witness(&ring, RING_CROSSING_TOLERANCE).is_some())
+        {
+            return false;
+        }
+        !any_self_intersects(&ring)
     }
 
     // PK-275 measured decision: this eval deliberately KEEPS the FD
@@ -151,21 +238,29 @@ fn feasible_start(binonic: &[RectangularGregoryBiNonic]) -> bool {
     true
 }
 
-/// Accept feasibility: per-patch fold gate plus the full ring-level
-/// crossing semantics (PK-283 — a class the per-patch fold gates and
-/// the per-step `fold_safe` cannot see). Run once per acceptance, not
-/// per LM step.
+/// Accept feasibility: per-patch fold gate plus the ring-level crossing
+/// verdict (PK-283 — a class the per-patch fold gates cannot see;
+/// bounded under PK-547). Run once per acceptance.
 fn acceptable_ring(binonic: &[RectangularGregoryBiNonic]) -> bool {
     !any_self_intersects(binonic) && ring_crossing_decline_label(binonic).is_none()
 }
 
-/// PK-283 accept-gate shared arm: the full ring-crossing scan, with the
-/// codebase-standard the `kp-cap` trace topic decline trace. Returns the
-/// crossing's diagnostic label so optimizer callers can record it as a
-/// structured rung outcome.
+/// PK-283 accept-gate shared arm for the optimizers: the bounded
+/// ring-crossing verdict (PK-547), with the `kp-cap` decline trace.
+/// A spoke-neighbour pair the separation certificate cannot clear is
+/// declined as undecided rather than settled by a surface-surface solve
+/// that took up to 223 s. The optimizers hold fallback candidates, and
+/// the promotion's full gate stays the acceptance authority. Returns the
+/// decline label so optimizer callers can record it as a structured
+/// rung outcome.
 pub(super) fn ring_crossing_decline_label(binonic: &[RectangularGregoryBiNonic]) -> Option<String> {
-    let crossing = binonic_ring_crossing(binonic, RING_CROSSING_TOLERANCE)?;
-    let label = crossing.diagnostic_label();
+    let label = match binonic_ring_crossing_bounded(binonic, RING_CROSSING_TOLERANCE) {
+        BoundedRingCrossing::Clean => return None,
+        BoundedRingCrossing::Crossing(crossing) => crossing.diagnostic_label(),
+        BoundedRingCrossing::Undecided { pair } => {
+            format!("ring_crossing_undecided pair=({},{})", pair.0, pair.1)
+        }
+    };
     if popkern_core::trace::trace_enabled("kp-cap") {
         eprintln!("[kp-ring-gate] accept decline: {label}");
     }
@@ -179,7 +274,33 @@ fn any_self_intersects(binonic: &[RectangularGregoryBiNonic]) -> bool {
     })
 }
 
-fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
+/// Per-sample oriented spoke normal chord (PK-544), followed by the
+/// chart-lean barrier of both sides' cross tangents, over the whole
+/// spoke (PK-547).
+fn chord_residual_vector(patches: &[RectangularGregoryBiNonic], senses: &[bool]) -> Vec<f64> {
+    let n = patches.len();
+    let parameters = whole_spoke_parameters();
+    let mut out = Vec::with_capacity(n * 3 * parameters.len());
+    for k in 0..n {
+        let a = &patches[k];
+        let b = &patches[(k + 1) % n];
+        let sense = senses.get(k).copied().unwrap_or(true);
+        for &t in &parameters {
+            let (u, v, w) = (
+                a.partial_u(1.0, t),
+                b.partial_v(1.0 - t, 0.0),
+                a.partial_v(1.0, t),
+            );
+            out.push(spoke_normal_chord(u, v, w, sense));
+            out.push(lean_penalty(u, w));
+            out.push(lean_penalty(v, w));
+        }
+    }
+    out
+}
+
+/// Per-sample normalized triple product (the search heuristic).
+fn triple_product_residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
     let n = patches.len();
     let mut out = Vec::with_capacity(n * 50);
     for k in 0..n {
@@ -187,24 +308,17 @@ fn residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<f64> {
         let b = &patches[(k + 1) % n];
         for sample in 0..50 {
             let t = 0.05 + 0.90 * (sample as f64) / 49.0;
-            let t_b = 1.0 - t;
-            let xtan_a = a.partial_u(1.0, t);
-            let xtan_b = b.partial_v(t_b, 0.0);
-            let t_spoke = a.partial_v(1.0, t);
-            let cross = xtan_a.cross(&xtan_b);
-            let numer = (cross.x * t_spoke.x + cross.y * t_spoke.y + cross.z * t_spoke.z).abs();
-            let na = (xtan_a.x * xtan_a.x + xtan_a.y * xtan_a.y + xtan_a.z * xtan_a.z).sqrt();
-            let nb = (xtan_b.x * xtan_b.x + xtan_b.y * xtan_b.y + xtan_b.z * xtan_b.z).sqrt();
-            let ns = (t_spoke.x * t_spoke.x + t_spoke.y * t_spoke.y + t_spoke.z * t_spoke.z).sqrt();
-            let denom = na * nb * ns;
+            let (u, v, w) = (
+                a.partial_u(1.0, t),
+                b.partial_v(1.0 - t, 0.0),
+                a.partial_v(1.0, t),
+            );
+            let denom = u.length() * v.length() * w.length();
+            let numer = u.cross(&v).dot(&w).abs();
             out.push(if denom > 1.0e-300 { numer / denom } else { 0.0 });
         }
     }
     out
-}
-
-fn measure_ring_residual(patches: &[RectangularGregoryBiNonic]) -> f64 {
-    residual_vector(patches).iter().map(|v| v * v).sum()
 }
 
 #[cfg(test)]

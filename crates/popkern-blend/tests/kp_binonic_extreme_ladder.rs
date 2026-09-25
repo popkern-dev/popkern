@@ -18,14 +18,24 @@
 //!
 //! PK-539 re-measured the ladder with the orientation-aware spoke
 //! normal sine (the promotion's coplanarity metric had passed 7°
-//! creases, and the optimizer had reduced it by leaning cross
-//! tangents onto the spokes). Honestly measured, 1:40, 1:50 and 1:100
-//! serve chart-honest rings at commercial G1 (spoke sine 3.9e-2,
-//! 4.0e-2, 4.7e-2); 1:20 and 1:30 (like 1:10) have no fold-free G1
-//! candidate in this optimizer family (the orientation repair's output
-//! folds across a spoke), so their promotion declines, the corner
-//! serves the pre-promotion ring and claims only its measured level
-//! (G0; spoke sine 0.95..1.0). The honest objective is PK-544.
+//! creases, and the optimizer had reduced it by leaning cross tangents
+//! onto the spokes). 1:20 and 1:30 then declined, because the
+//! orientation repair's sine-driven polish converged into folds across
+//! the spokes.
+//!
+//! PK-544 serves every rung:
+//! - spoke folds are measured against the patches' reference
+//!   orientation;
+//! - the repair clears them;
+//! - the polish minimizes the oriented chord, which is monotone through
+//!   a fold.
+//!
+//! PK-547 made the served rings G1 over the whole spoke. The promotion
+//! window `[0.05, 0.95]` had hidden a certified 0.33 crease at the rim
+//! end, where the spoke's end leg left the rim tangent plane. The end
+//! legs are now built in the rim and center tangent planes and held
+//! there, and every ring measure samples the end zones. Each rung's cap
+//! seams certify G1 over the whole edge.
 //!
 //! Split from `kp_binonic_commercial_gates.rs` for the 500-line
 //! structural cap.
@@ -43,13 +53,13 @@ use helpers::{
 use kp_cube_fixture::fillet_cube_result;
 
 #[test]
-fn cube_extreme_20_declines_the_promotion_and_claims_the_measured_level() {
-    assert_extreme_cube_ring_declines(&[0.01, 0.10, 0.20], "cube_extreme_20");
+fn cube_extreme_20_serves_a_commercial_g1_ring() {
+    assert_extreme_cube_ring_serve(&[0.01, 0.10, 0.20], "cube_extreme_20");
 }
 
 #[test]
-fn cube_extreme_30_declines_the_promotion_and_claims_the_measured_level() {
-    assert_extreme_cube_ring_declines(&[0.0067, 0.10, 0.20], "cube_extreme_30");
+fn cube_extreme_30_serves_a_commercial_g1_ring() {
+    assert_extreme_cube_ring_serve(&[0.0067, 0.10, 0.20], "cube_extreme_30");
 }
 
 #[test]
@@ -122,9 +132,9 @@ fn promotion_facts(result: &popkern_blend::BlendResult) -> Vec<(String, String)>
         .collect()
 }
 
-/// PK-539 ladder contract, serving rungs. The ring served for extreme
-/// radius asymmetry is the exact-injection candidate through the
-/// orientation repair, chart-honest (zero reversal bands), validates
+/// Ladder contract (PK-539/544/547). The ring served for extreme radius
+/// asymmetry is the exact-injection candidate through the orientation
+/// repair; every cap seam certifies G1 over the whole edge; chart-honest (zero reversal bands), validates
 /// clean, and meets ring G0 at the machine-zero gate and spoke G1 at
 /// the commercial 5e-2 bar as the orientation-aware normal-angle sine
 /// measures it (the former coplanarity metric read 7e-2..1.3e-1
@@ -177,6 +187,7 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
         bands, 0,
         "{fixture} committed patches must be chart-honest (PK-249)"
     );
+    helpers::assert_cap_seams_certify_g1(&result.brep, &faces, fixture);
     let m = measure_ring(&patches, N_SAMPLES);
     eprintln!(
         "served {fixture}: g0={:.3e} g1={:.3e} g2={:.3e}",
@@ -202,45 +213,6 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
             patch.achieved_continuity,
             popkern_blend::ContinuityLevel::G1,
             "{fixture} claims the measured G1"
-        );
-    }
-}
-
-/// PK-539 ladder contract, declining rungs. No candidate of the
-/// optimizer family is both fold-free and G1 here: the guide
-/// candidate folds (reversal bands), the orientation repair's output
-/// measures a spoke fold (orientation-aware sine 1.0). The promotion
-/// declines with the reason recorded, the corner serves the
-/// pre-promotion ring, and the corner claims only the level measured
-/// on what it committed (G0). The model validates clean.
-fn assert_extreme_cube_ring_declines(radii: &[f64], fixture: &str) {
-    let result = fillet_cube_result(radii, true);
-    let declined = result.repair_report.apex_diagnostics.iter().any(|d| {
-        matches!(
-            d,
-            popkern_blend::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp_binonic.promotion.declined"
-        )
-    });
-    assert!(
-        declined,
-        "{fixture} must record the promotion decline; facts: {:?}",
-        promotion_facts(&result)
-    );
-    let errors = result.brep.validate_all();
-    assert!(
-        errors.is_empty(),
-        "{fixture} must validate clean, got {errors:?}"
-    );
-    assert!(
-        !result.corner_patches.is_empty(),
-        "{fixture} serves a corner"
-    );
-    for patch in &result.corner_patches {
-        assert_eq!(
-            patch.achieved_continuity,
-            popkern_blend::ContinuityLevel::G0,
-            "{fixture} claims only the measured level"
         );
     }
 }

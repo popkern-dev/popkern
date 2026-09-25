@@ -28,7 +28,7 @@ use popkern_core::geometry::gregory::{
 use super::three_quad_chart_orientation_metrics::{
     G2SampleStack, g2_residual_from_stack, g2_sample_stack,
 };
-use super::three_quad_chart_orientation_polish::seam_row_cells;
+use super::three_quad_chart_orientation_polish::{SPOKE_INTERIOR, seam_row_cells};
 
 /// One control-point write a packed parameter column performs.
 struct CpWrite {
@@ -44,7 +44,7 @@ struct CpWrite {
 /// `grid[9−j][0]` of patch `k+1`.
 fn column_cp_writes(n: usize) -> Vec<Vec<CpWrite>> {
     let cells = seam_row_cells();
-    let mut cols = Vec::with_capacity(n * cells.len() * 3 + n * 8 * 3);
+    let mut cols = Vec::with_capacity(n * cells.len() * 3 + n * SPOKE_INTERIOR.clone().count() * 3);
     for p in 0..n {
         for &(i, j) in &cells {
             for axis in 0..3 {
@@ -58,7 +58,7 @@ fn column_cp_writes(n: usize) -> Vec<Vec<CpWrite>> {
         }
     }
     for p in 0..n {
-        for j in 1..=8 {
+        for j in SPOKE_INTERIOR {
             for axis in 0..3 {
                 cols.push(vec![
                     CpWrite {

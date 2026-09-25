@@ -121,6 +121,7 @@ mod kp_polar_deep_fill;
 mod kp_polar_deep_trace;
 mod kp_polar_lm_optimizer;
 mod kp_polar_weighted_f5;
+mod kp_spoke_end_frames;
 mod kp_spoke_normal_sine;
 mod kp_twist_optimizer;
 pub(crate) mod merge;

@@ -390,3 +390,31 @@ pub fn assert_no_regression(fixture: &str, mt: &RingMetrics, mb: &RingMetrics) {
         mt.worst_g2_residual
     );
 }
+
+/// PK-547: every seam between two of `caps` certifies G1 over the whole
+/// edge, ends included: the certificate's bounds cover the seam and its
+/// normal-sine upper bound is within the commercial gate. The sampled
+/// ring gates once hid a certified 0.33 crease in the last 5% of a
+/// spoke.
+pub fn assert_cap_seams_certify_g1(brep: &BRep, caps: &[FaceHandle], fixture: &str) {
+    use popkern_core::topology::edge_seam_certificate::{certify_edge_seam, seam_certify_options};
+    let options = seam_certify_options(brep);
+    let mut seams = 0usize;
+    for (edge, data) in brep.edges.iter() {
+        let he = &brep.half_edges[data.half_edge];
+        let (fa, fb) = (
+            brep.loops[he.loop_].face,
+            brep.loops[brep.half_edges[he.twin].loop_].face,
+        );
+        if fa == fb || !(caps.contains(&fa) && caps.contains(&fb)) {
+            continue;
+        }
+        seams += 1;
+        let cert = certify_edge_seam(brep, edge, &options);
+        assert!(
+            cert.bounds_cover_seam() && cert.g1_upper <= G1_GATE,
+            "{fixture}: cap seam {edge:?} is not certified G1 over the whole edge: {cert:?}"
+        );
+    }
+    assert!(seams > 0, "{fixture}: no cap-to-cap seams to certify");
+}

@@ -24,12 +24,10 @@
 //!
 //! Design: `docs/architecture/chart-orientation-honest-binonic-rings.md`.
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
 use popkern_core::geometry::surface::SurfaceGeometry;
 
-use super::super::kp_lm_solver::{LmConfig, run_lm};
-use super::three_quad_kp_promote::{worst_ring_g0_gap, worst_ring_normal_sine};
+use super::three_quad_kp_promote::worst_ring_normal_sine;
 
 #[path = "three_quad_chart_orientation_g2_jacobian.rs"]
 mod three_quad_chart_orientation_g2_jacobian;
@@ -37,12 +35,14 @@ mod three_quad_chart_orientation_g2_jacobian;
 mod three_quad_chart_orientation_metrics;
 #[path = "three_quad_chart_orientation_polish.rs"]
 mod three_quad_chart_orientation_polish;
+use crate::construct::kp_spoke_normal_sine::{spoke_fold_count, spoke_senses};
 use three_quad_chart_orientation_metrics::{
-    any_self_intersects, characteristic_length, worst_outer_fillet_sin, worst_ring_folded_g2,
+    any_self_intersects, characteristic_length, worst_outer_fillet_sin,
 };
-use three_quad_chart_orientation_polish::{
-    SeamPolishEval, boundary_tfi_ring, opposed_proximity_weights, pack_seam_rows, unpack_seam_rows,
-};
+use three_quad_chart_orientation_polish::{boundary_tfi_ring, opposed_proximity_weights};
+#[path = "three_quad_chart_orientation_stages.rs"]
+mod three_quad_chart_orientation_stages;
+use three_quad_chart_orientation_stages::RepairContext;
 
 /// Count chart handedness-reversal bands over candidate patches:
 /// contiguous runs of boundary-band samples whose natural normal
@@ -177,9 +177,6 @@ pub(in crate::construct) fn repair_chart_orientation(
     let pre_bands = binonic_reversal_band_count(ring);
     let pre_interior = interior_opposed_count(ring);
     let pre_folded = any_self_intersects(ring, 1.0e-6);
-    if pre_bands == 0 && pre_interior == 0 && !pre_folded {
-        return Err("already_clean".to_string());
-    }
     let char_len = characteristic_length(ring);
     let mut references = Vec::with_capacity(n);
     for binonic in ring {
@@ -193,6 +190,15 @@ pub(in crate::construct) fn repair_chart_orientation(
             return Err("degenerate_reference_normal".to_string());
         }
         references.push((reference * (1.0 / len), len));
+    }
+    // Folds across a spoke are violations like in-patch reversals
+    // (PK-544). The orientation-free spoke sine reads a 180° fold as
+    // G1, so the sense each spoke must keep comes from the patches'
+    // reference normals.
+    let senses = spoke_senses(&references);
+    let pre_spoke_folds = spoke_fold_count(ring, &senses);
+    if pre_bands == 0 && pre_interior == 0 && pre_spoke_folds == 0 && !pre_folded {
+        return Err("already_clean".to_string());
     }
 
     let ring_gp: Vec<GregoryPatch> = ring
@@ -212,194 +218,57 @@ pub(in crate::construct) fn repair_chart_orientation(
     // fold and the decline records where — the structural-argument
     // measurement.
     let anchor = boundary_tfi_ring(ring);
-    let violations = |candidate: &[RectangularGregoryBiNonic]| {
+    let in_patch = |candidate: &[RectangularGregoryBiNonic]| {
         binonic_reversal_band_count(candidate) + interior_opposed_count(candidate)
     };
+    if in_patch(&anchor) > 0 {
+        return Err(format!(
+            "boundary_tfi_still_opposed(at={})",
+            describe_opposed_regions(&anchor)
+        ));
+    }
+    if spoke_fold_count(&anchor, &senses) > 0 {
+        return Err("boundary_tfi_spoke_fold".to_string());
+    }
     // Locality: the violations live in narrow bands, and a uniform
     // pull toward the TFI anchor destroys ring-wide coplanarity
     // (measured 7.6e-4 → 7e-1 at 1:20). Weight each CP's pull by
     // its Greville point's proximity to the opposed samples, so
     // clean patches and clean regions stay put.
     let weights = opposed_proximity_weights(ring, &references);
-    let blend_to = |lambda: f64, weights: &[[[f64; 10]; 10]]| {
-        let mut candidate = ring.to_vec();
-        for ((patch, tfi), weight) in candidate.iter_mut().zip(anchor.iter()).zip(weights.iter()) {
-            #[allow(clippy::needless_range_loop)]
-            for i in 1..=8 {
-                for j in 1..=8 {
-                    let pull = lambda * weight[i][j];
-                    if pull <= 0.0 {
-                        continue;
-                    }
-                    let a = patch.grid[i][j];
-                    let b = tfi.grid[i][j];
-                    patch.grid[i][j] = Point3::new(
-                        a.x + pull * (b.x - a.x),
-                        a.y + pull * (b.y - a.y),
-                        a.z + pull * (b.z - a.z),
-                    );
-                }
-            }
-        }
-        candidate
+    let context = RepairContext {
+        ring,
+        anchor: &anchor,
+        weights: &weights,
+        references: &references,
+        senses: &senses,
+        outer_fillets,
+        pre_outer,
+        char_len,
     };
-    if violations(&anchor) > 0 {
-        return Err(format!(
-            "boundary_tfi_still_opposed(at={})",
-            describe_opposed_regions(&anchor)
-        ));
-    }
-    // Minimal clearing blend: coarse ladder + bisection, first over
-    // the localized weight field, then (only if locality cannot
-    // clear) over the uniform pull.
-    let uniform = [[1.0_f64; 10]; 10];
-    let uniform_weights = vec![uniform; ring.len()];
-    let mut chosen: Option<(f64, &Vec<[[f64; 10]; 10]>)> = None;
-    for field in [&weights, &uniform_weights] {
-        let mut lo = 0.0_f64;
-        let mut hi = f64::NAN;
-        for step in 1..=10 {
-            let lambda = step as f64 / 10.0;
-            if violations(&blend_to(lambda, field)) == 0 {
-                hi = lambda;
-                lo = lambda - 0.1;
-                break;
-            }
-        }
-        if hi.is_nan() {
-            continue;
-        }
-        for _ in 0..5 {
-            let mid = 0.5 * (lo + hi);
-            if violations(&blend_to(mid, field)) == 0 {
-                hi = mid;
-            } else {
-                lo = mid;
-            }
-        }
-        chosen = Some((hi, field));
-        break;
-    }
-    let Some((lambda_min, field)) = chosen else {
-        return Err(format!(
-            "blend_cannot_clear(at={})",
-            describe_opposed_regions(&blend_to(1.0, &uniform_weights))
-        ));
+    // Two unfold strategies, each polished and gated in full (PK-544).
+    // The minimal unfold clears only in-patch reversals and leaves
+    // spoke folds to the polish's oriented objective. The pull toward
+    // the anchor costs continuity, so the smallest pull serves best
+    // (cube_extreme 1:40 spoke sine 3.9e-2, against 4.7e-2 after a
+    // spoke-clearing pull). The spoke-clearing unfold also clears
+    // spoke folds, and runs when the minimal one declines.
+    let minimal = context
+        .unfold(&|c| in_patch(c))
+        .and_then(|u| context.polish_and_gate(u));
+    let outcome = match minimal {
+        Ok(outcome) => outcome,
+        Err(minimal_reason) => context
+            .unfold(&|c| in_patch(c) + spoke_fold_count(c, &senses))
+            .and_then(|u| context.polish_and_gate(u))
+            .map_err(|reason| format!("minimal[{minimal_reason}];spoke_clearing[{reason}]"))?,
     };
-    // Start the polish with headroom past the minimal clearing
-    // blend: at the feasibility boundary every descent step bumps
-    // into the fold_safe rejection and the damping schedule stalls.
-    let lambda = (1.25 * lambda_min).min(1.0);
-    let unfolded = blend_to(lambda, field);
-
-    // ── Stage 2: G1 polish inside the clean region ───────────
-    // The blend costs spoke coplanarity and outer tangency; recover
-    // them with an L-M over the near-seam rows AND the shared spoke
-    // rows, whose step acceptance REQUIRES staying violation-free —
-    // feasible start, feasibility maintained, so the polish can
-    // never trade the orientation back for continuity. Restarted
-    // while it keeps improving (the fold_safe rejections stall the
-    // damping schedule well before the basin floor).
-    let mut repaired = unfolded.clone();
-    let mut x = pack_seam_rows(&unfolded);
-    let mut previous_g1 = f64::INFINITY;
-    for _round in 0..3 {
-        let eval = SeamPolishEval {
-            base: unfolded.clone(),
-            references: references.clone(),
-            // Tether to the ORIGINAL rows: the pre-repair candidate
-            // had the good continuity, so pulling back toward it
-            // (inside the fold_safe feasible region) is exactly the
-            // recovery pressure the polish needs.
-            x0: pack_seam_rows(ring),
-            outer_fillets: outer_fillets.map(|f| f.to_vec()),
-            char_len,
-            selector_m: None,
-        };
-        let lm = run_lm(
-            eval,
-            x,
-            &LmConfig {
-                fd_eps: 1e-6 * char_len.max(1e-6),
-                lambda_init: 1e-3,
-                lambda_max: 1e9,
-                max_iter: 40,
-                target_residual: 1e-12,
-                require_feasible_start: true,
-            },
-            "chart-orientation-polish",
-        );
-        x = lm.x;
-        let mut candidate = unfolded.clone();
-        unpack_seam_rows(&x, &mut candidate);
-        // The solver's accepted iterates are all fold-safe, but
-        // assert the invariant rather than assume it.
-        if violations(&candidate) > 0 {
-            break;
-        }
-        repaired = candidate;
-        let candidate_gp: Vec<GregoryPatch> = repaired
-            .iter()
-            .cloned()
-            .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
-            .collect();
-        let g1 = worst_ring_normal_sine(&candidate_gp);
-        if g1 <= 5.0e-2 || g1 >= 0.95 * previous_g1 {
-            break;
-        }
-        previous_g1 = g1;
-    }
-
-    // ── Transactional gates ─────────────────────────────────
-    let post_bands = binonic_reversal_band_count(&repaired);
-    let post_interior = interior_opposed_count(&repaired);
-    if post_bands > 0 || post_interior > 0 {
-        return Err(format!(
-            "orientation_residual(bands={post_bands},interior={post_interior},at={})",
-            describe_opposed_regions(&repaired)
-        ));
-    }
-    if any_self_intersects(&repaired, 1.0e-7) {
-        return Err("fold_margin".to_string());
-    }
-    let repaired_gp: Vec<GregoryPatch> = repaired
-        .iter()
-        .cloned()
-        .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
-        .collect();
-    let post_g0 = worst_ring_g0_gap(&repaired_gp);
-    if post_g0 > 1.0e-10 {
-        return Err(format!("g0({post_g0:.3e})"));
-    }
-    // The acceptance contract is the commercial gate itself: a
-    // repaired candidate must still pass 5e-2, and the recorded
-    // pre/post pair keeps the quality trade attributable. A
-    // relative no-regression clause is deliberately absent — any
-    // orientation repair of a 1e-3-class ring costs some
-    // coplanarity, and the pre-repair number is not reachable
-    // inside the clean region.
-    let post_g1 = worst_ring_normal_sine(&repaired_gp);
-    if post_g1 > 5.0e-2 {
-        return Err(format!("g1({post_g1:.3e})"));
-    }
-    let post_g2 = worst_ring_folded_g2(&repaired);
-    if post_g2 > 5.0e-2 {
-        return Err(format!("g2({post_g2:.3e})"));
-    }
-    if let (Some(fillets), Some(pre)) = (outer_fillets, pre_outer) {
-        let post_outer = worst_outer_fillet_sin(&repaired, fillets);
-        if post_outer > (1.2 * pre).max(5.0e-3) {
-            return Err(format!(
-                "outer_g1_regression(pre={pre:.3e},post={post_outer:.3e})"
-            ));
-        }
-    }
     Ok(ChartRepairOutcome {
-        ring: repaired,
+        ring: outcome.ring,
         pre_bands,
         pre_g1,
-        post_g1,
-        post_g2,
+        post_g1: outcome.post_g1,
+        post_g2: outcome.post_g2,
     })
 }
 
