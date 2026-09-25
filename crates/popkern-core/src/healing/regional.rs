@@ -57,7 +57,10 @@ pub struct RegionalAnalysis {
     pub min_area_element: f64,
     /// First and second order derivative bounds, or `None` if not computed.
     pub derivative_bounds: Option<DerivativeBounds>,
-    /// Guaranteed curvature bounds via interval arithmetic, or `None` if not computed.
+    /// Rigorous curvature enclosures (certified interval arithmetic, see
+    /// [`crate::healing::interval_curvature`]), or `None` if not
+    /// computed. They are the whole line when a cell cannot be enclosed
+    /// (`degenerate_cells > 0`).
     pub guaranteed_curvature_bounds: Option<GuaranteedCurvatureBounds>,
 }
 
@@ -253,7 +256,7 @@ pub fn derivative_bounds(
 /// Runs [`curvature_bounds`], [`detect_planarity`], and [`detect_degeneracy`]
 /// over the same parameter region and returns a combined [`RegionalAnalysis`].
 pub fn analyze_region(
-    surface: &dyn SurfaceEval,
+    surface: &crate::geometry::surface::SurfaceGeometry,
     u_range: (f64, f64),
     v_range: (f64, f64),
     planarity_tolerance: f64,
