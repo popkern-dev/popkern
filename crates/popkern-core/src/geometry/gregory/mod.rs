@@ -171,6 +171,7 @@ mod pns_sigma;
 mod rectangular;
 mod rectangular_binonic;
 mod rectangular_binonic_dual_jet;
+mod rectangular_binonic_dual_jet_boundary;
 mod rectangular_binonic_dual_jet_to_nurbs;
 mod rectangular_binonic_dual_twist;
 mod rectangular_binonic_to_nurbs;
@@ -364,6 +365,7 @@ pub use rectangular_binonic_dual_jet::{
     DUAL_JET_CORNER_POSITIONS, DualJetCell, DualJetCorner, RectangularGregoryBiNonicDualJet,
     dual_jet_cell_of, dual_jet_cell_position,
 };
+pub use rectangular_binonic_dual_jet_boundary::PatchBoundary;
 pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
 pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
 pub use rectangular_biseptic::RectangularGregoryBiseptic;

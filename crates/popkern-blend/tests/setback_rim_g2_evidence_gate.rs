@@ -11,7 +11,9 @@
 //! PK-521 joint tilt solve (clamp-band bump removal) landed 6.7e-3
 //! with worst g1 4.6e-6 — so beyond the commercial classification
 //! the gate pins a 2.5e-2 MARGIN bar (~4x the measured worst; the
-//! PK-521 acceptance). A regression in the substrate — promotion,
+//! PK-521 acceptance). Since PK-541 every gated seam is also certified
+//! over the whole edge, and its certified G2 bound is under the gate. A
+//! regression in the substrate — promotion,
 //! claim routing, or the reconciles — reads here as a named seam
 //! over a bar, not as a gallery surprise.
 
@@ -101,6 +103,21 @@ fn pentagon_flagship_g2_request_measures_g2_on_every_rim_quarter() {
         );
     }
     assert_eq!(evidence.unmeasured_seams, 0, "every seam must measure");
+    // PK-541: every gated seam, the dual-jet corner pieces included, is
+    // decided by its whole-edge certificate. None falls back to samples.
+    assert_eq!(
+        (evidence.certified_seams, evidence.uncertified_seams),
+        (evidence.seams.iter().filter(|s| s.gated).count(), 0),
+        "every gated seam certified"
+    );
+    for s in evidence.seams.iter().filter(|s| s.gated) {
+        let upper = s.certificate.as_ref().map_or(f64::INFINITY, |c| c.g2_upper);
+        assert!(
+            upper <= gates.g2_curvature,
+            "seam {:?}: certified g2 upper {upper:.3e} over the gate",
+            s.edge
+        );
+    }
     assert_eq!(
         evidence.achieved,
         ContinuityLevel::G2,

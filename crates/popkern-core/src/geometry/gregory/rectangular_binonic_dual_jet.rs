@@ -198,9 +198,13 @@ fn claim_pair(block: &DualJetCorner, cell: DualJetCell) -> (Point3, Point3) {
 /// Every derivative carries `Δ`, so equal claims short-circuit to
 /// the plain cell (bit-identical to the un-promoted patch). At the
 /// corner (`D` below the guard) the value takes the pair midpoint
-/// and derivatives are zero — every blended cell's Bernstein factor
-/// vanishes at least quadratically there, so the convention cannot
-/// affect any surface jet up to second order.
+/// and derivatives are zero. Every blended cell's Bernstein factor
+/// vanishes at least quadratically there, so the position and first
+/// partials are unaffected. The twist `S_uv` reads the `(1,1)` cell
+/// through `B₁′(0)² = 81`, however, so at the corner point it takes
+/// the midpoint claim. The true twist is direction-dependent there:
+/// its limit is `P_u` along the u-constant boundary and `P_v` along
+/// the v-constant one (see `boundary_surrogate`).
 struct BlendJet {
     q: Point3,
     du: Vec3,

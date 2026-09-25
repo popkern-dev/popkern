@@ -150,13 +150,15 @@ struct PartBaseline {
     expected_downgrades: usize,
     /// Gated seams whose PK-499 certificate decides every gate.
     min_certified_seams: usize,
-    /// Gated seams left to the sampled fallback (measured 2026-09-25:
-    /// pentagon cap seams at blended dual-jet corners, PK-541). The
+    /// Gated seams left to the sampled fallback: none. The
     /// closed boss/bushing ring rails decide every gate since PK-542
     /// (phase-shifted correspondence, merged affine polyline pcurves,
     /// fraction continuation when witnesses coincide). Seams
     /// into a sphere's chart pole certify chart-free since PK-543
     /// (mixed_corner_block 7 -> 9, pentagon_tower 20 -> 40 certified).
+    /// Seams on a dual-jet corner piece's boundary certify through its
+    /// polynomial boundary surrogate since PK-541 (pentagon_tower
+    /// 40 -> 60).
     max_uncertified_seams: usize,
 }
 
@@ -247,8 +249,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 2.0e-3,
         g1_cap: 1.0e-1,
         expected_downgrades: 1,
-        min_certified_seams: 40,
-        max_uncertified_seams: 20,
+        min_certified_seams: 60,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         name: "double_boss_plate",

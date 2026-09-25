@@ -13,6 +13,7 @@
 #![allow(clippy::needless_range_loop)] // Faà di Bruno sums pair power tables by index (`Δu^i Δv^j`).
 
 use super::CertifyDecline;
+use super::boundary_surrogate::boundary_surrogate_surface;
 use super::interval::Iv;
 use super::interval_vec::IvVec3;
 use super::pcurve_jet::{PCURVE_JET_TERMS, PcurveJetSource};
@@ -151,8 +152,11 @@ impl SeamSideSource {
         pcurve: &Pcurve,
         reversed: bool,
     ) -> Result<Self, CertifyDecline> {
+        // A dual-jet patch certifies along its boundaries through the
+        // polynomial surrogate sharing its boundary 2-jet (PK-541).
+        let surrogate = boundary_surrogate_surface(surface, pcurve);
         Ok(Self {
-            surface: SurfaceJetSource::new(surface)?,
+            surface: SurfaceJetSource::new(surrogate.as_ref().unwrap_or(surface))?,
             pcurve: PcurveJetSource::new(pcurve)?,
             t_range: (pcurve.t_start, pcurve.t_end),
             reversed,
