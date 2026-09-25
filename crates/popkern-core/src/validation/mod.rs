@@ -160,6 +160,34 @@ impl BRep {
                 });
             }
         }
+        // Vertex-anchored counterpart (PK-509). A vertex that no
+        // half-edge leaves is unreachable topology. It breaks
+        // V − E + 2F − L = 2(S − G) by one, which the genus-aware
+        // Euler check tolerates as an odd artifact (2G = −1), so an
+        // orphan vertex used to pass `validate_all`. The only
+        // legitimate isolated vertex is the vertex of an empty (MVFS)
+        // loop, one per loop without half-edges.
+        let origins: std::collections::HashSet<_> =
+            self.half_edges.values().map(|he| he.origin).collect();
+        let isolated: Vec<_> = self
+            .vertices
+            .keys()
+            .filter(|v| !origins.contains(v))
+            .collect();
+        let empty_loops = self
+            .loops
+            .values()
+            .filter(|l| !self.half_edges.contains_key(l.half_edge))
+            .count();
+        if isolated.len() > empty_loops {
+            return Err(ValidationError::DanglingReference {
+                what: format!(
+                    "{} vertex(es) no half-edge leaves (first {:?}) against {empty_loops} empty loop(s)",
+                    isolated.len(),
+                    isolated[0]
+                ),
+            });
+        }
         Ok(())
     }
 
@@ -240,6 +268,9 @@ impl BRep {
     }
 }
 
+#[cfg(test)]
+#[path = "negative_controls_tests.rs"]
+mod negative_controls_tests;
 #[cfg(test)]
 #[path = "mod_tests.rs"]
 mod tests;
