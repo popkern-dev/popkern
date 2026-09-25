@@ -114,19 +114,37 @@ fn contact_tangent_at(
 /// Compute the apex blend boundary using the existing
 /// `compute_blend_boundary` infrastructure.  Translates the
 /// returned `Result<BlendBoundary, String>` into our typed error.
+///
+/// PK-549: the boundary takes the ring push-back stations. Each
+/// fillet's end section sits past its in-strip rail crossings with its
+/// neighbours, plus a setback margin: the rolling-ball contact side.
+/// The near-vertex default station is degenerate here. On an
+/// orthogonal corner its arc lies in the neighbouring face's plane, and
+/// the plan only served because a sampled search happened to land
+/// inside the strip. A fillet with no in-strip crossing keeps the
+/// default station.
 pub(crate) fn compute_apex_boundary(
     brep: &BRep,
     apex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<BlendBoundary, ApexPlanError> {
-    use crate::blend::boundary::compute_blend_boundary;
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    compute_blend_boundary(apex, &local_indices, fillet_surfaces, brep, tolerance).map_err(|e| {
-        ApexPlanError::InvalidInput {
-            field: "boundary",
-            value: format!("compute_blend_boundary failed at apex {apex:?}: {e}"),
-        }
+    let options = crate::blend::BlendBoundaryOptions {
+        ring_station_pushback: true,
+        ..crate::blend::BlendBoundaryOptions::default()
+    };
+    crate::blend::compute_blend_boundary_with_options(
+        apex,
+        &local_indices,
+        fillet_surfaces,
+        brep,
+        tolerance,
+        options,
+    )
+    .map_err(|e| ApexPlanError::InvalidInput {
+        field: "boundary",
+        value: format!("compute_blend_boundary failed at apex {apex:?}: {e}"),
     })
 }
 

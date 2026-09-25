@@ -188,10 +188,12 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
     };
     let radius = 0.05;
     let mut surfaces = build_fillet_surfaces(&pyramid, &edges, radius);
-    // Force one fillet to be Plane (unsupported) — strict pass
-    // fails; the lenient pass skips it AND loses its two ring
-    // neighbours to the corrupted boundary brackets, leaving 3
-    // successful fillets → Setback rung succeeds at its minimum.
+    // Force one fillet to be Plane (unsupported): the strict pass
+    // fails, and the lenient pass skips it. With the push-back contact
+    // stations (PK-549) its two ring neighbours keep honest boundary
+    // brackets, so 5 of the 6 fillets survive into the Setback cap.
+    // With the sampled near-vertex stations the neighbours' brackets
+    // were corrupted too, and only 3 survived.
     force_unsupported_kind(&mut surfaces, 1);
     let specs: Vec<FilletSpec> = edges
         .iter()
@@ -202,7 +204,7 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
         .collect();
 
     let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Setback rung should succeed with 3 surviving fillets of 6");
+        .expect("Setback rung should succeed with 5 surviving fillets of 6");
 
     assert_eq!(plan.apex_vertex, apex);
     assert!(
@@ -223,13 +225,11 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
             .contains("Direct rung failed"),
         "fallback_reason should mention Direct's failure",
     );
-    // Setback keeps only the 3 surviving fillets in the cap (the
-    // forced fillet plus its two boundary-corrupted neighbours are
-    // omitted — see the doc comment).
+    // Setback omits only the unsupported fillet.
     assert_eq!(
         plan.n_fillets(),
-        3,
-        "Setback must omit the unsupported fillet and its two affected neighbours",
+        5,
+        "Setback must omit exactly the unsupported fillet",
     );
 }
 

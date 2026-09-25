@@ -435,8 +435,21 @@ fn extract_fillet_end_near_vertex(
     // selection picked whichever pair was "less far" and would
     // land on the far-overshoot plane, producing boundary arcs
     // geometrically disconnected from the vertex.
-    let p1 = closest_point_on_nurbs_curve(&fillet.trim_curve_1, vertex_pos, 64);
-    let p2 = closest_point_on_nurbs_curve(&fillet.trim_curve_2, vertex_pos, 64);
+    //
+    // PK-549: the station is exact and independent of the rail's
+    // parameter direction. A 64-sample search used to leave it 5e-3 to
+    // 2.5e-2 off, differently for rails stored in opposite directions,
+    // so symmetric corners got asymmetric boundaries. On an orthogonal
+    // corner the exact station puts the arc in the neighbouring face's
+    // plane. Consumers that need a strip-crossing end therefore take
+    // the push-back contact stations (the direct-apex plan, the ring
+    // rung).
+    let exact = |c: &NurbsCurve| {
+        c.point_at(super::boundary_hex::closest_param_on_nurbs_curve(
+            c, vertex_pos, 64,
+        ))
+    };
+    let (p1, p2) = (exact(&fillet.trim_curve_1), exact(&fillet.trim_curve_2));
 
     // Project both points onto the fillet surface so we can trace
     // an ARC ALONG THE SURFACE between them (the geometrically
@@ -469,30 +482,4 @@ fn extract_fillet_end_near_vertex(
         return Ok(exact);
     }
     super::boundary_hex::fit_hermite_cubic_arc_on_surface(&fillet.surface, u1, v1, u2, v2, du)
-}
-
-/// Find the closest point on `curve` to `target` by sampling at
-/// `n_samples + 1` uniform parameter values and picking the
-/// minimum-distance sample. Chord-length-accurate to about
-/// `curve_length / n_samples`; for our N=3-corner fixtures with
-/// `n_samples = 64`, accuracy is sub-millimetre on unit-scale
-/// models — well under the rolling-ball radius.
-///
-/// Could be improved with Newton polishing on the best sample,
-/// but the extra precision hasn't been needed in practice.
-fn closest_point_on_nurbs_curve(curve: &NurbsCurve, target: &Point3, n_samples: usize) -> Point3 {
-    let (t0, t1) = curve.parameter_range();
-    let mut best_d = f64::INFINITY;
-    let mut best_p = curve.point_at(t0);
-    let samples = n_samples.max(1);
-    for i in 0..=samples {
-        let t = t0 + (t1 - t0) * (i as f64) / (samples as f64);
-        let p = curve.point_at(t);
-        let d = p.distance_to(target);
-        if d < best_d {
-            best_d = d;
-            best_p = p;
-        }
-    }
-    best_p
 }

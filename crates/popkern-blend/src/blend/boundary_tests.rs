@@ -99,10 +99,12 @@ fn blend_boundary_invalid_fillet_index() {
     assert!(result.is_err(), "should fail with out-of-range index");
 }
 
-/// PK-548: the closest-to-vertex station is the exact foot of the
-/// perpendicular, independent of the rail's direction, its extension
-/// past the vertex, and the sample count. The quantized search it
-/// replaces put a reversed rail's station 0.0066 off its neighbours'.
+/// PK-548/PK-549: the closest-to-vertex station (the ring push-back's
+/// and the default fillet-end station) is the exact foot of the
+/// perpendicular. It is independent of the rail's direction, its
+/// extension past the vertex, and the sample count. The quantized
+/// search it replaces put a reversed rail's station 0.0066 off its
+/// neighbours'.
 #[test]
 fn the_closest_station_is_exact_and_direction_independent() {
     use popkern_core::geometry::NurbsCurve;
