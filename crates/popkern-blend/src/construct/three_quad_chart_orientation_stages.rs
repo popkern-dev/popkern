@@ -16,7 +16,7 @@ use super::three_quad_chart_orientation_metrics::{
 use super::three_quad_chart_orientation_polish::{
     SeamPolishEval, pack_seam_rows, unpack_seam_rows,
 };
-use super::{binonic_reversal_band_count, describe_opposed_regions, interior_opposed_count};
+use super::{binonic_margin_band_count, describe_opposed_regions, interior_opposed_count};
 use crate::construct::kp_spoke_normal_sine::spoke_fold_count;
 
 /// Per-patch pull weights toward the anchor, one per control point.
@@ -164,7 +164,7 @@ impl RepairContext<'_> {
             unpack_seam_rows(&x, &mut candidate);
             // The solver's accepted iterates are all fold-safe, but
             // assert the invariant rather than assume it.
-            if binonic_reversal_band_count(&candidate) + interior_opposed_count(&candidate) > 0 {
+            if binonic_margin_band_count(&candidate) + interior_opposed_count(&candidate) > 0 {
                 break;
             }
             repaired = candidate;
@@ -183,7 +183,7 @@ impl RepairContext<'_> {
     /// repaired ring, plus zero spoke folds against the reference
     /// senses.
     fn gate(&self, repaired: Vec<RectangularGregoryBiNonic>) -> Result<GatedRepair, String> {
-        let post_bands = binonic_reversal_band_count(&repaired);
+        let post_bands = binonic_margin_band_count(&repaired);
         let post_interior = interior_opposed_count(&repaired);
         if post_bands > 0 || post_interior > 0 {
             return Err(format!(

@@ -180,24 +180,15 @@ fn closest_pair_params(ca: &NurbsCurve, cb: &NurbsCurve) -> Option<(f64, f64, f6
     best.0.is_finite().then_some(best)
 }
 
-/// Arclength from the trim's closest-to-vertex station to `t_x`,
+/// Arclength from the trim's closest-to-vertex station (polished,
+/// shared with every station caller, PK-548) to `t_x`,
 /// but only when `t_x` lies on the STRIP-INTERIOR side of that
 /// station (toward the trim's domain midpoint — trims run the swept
 /// edge's length plus overshoot, so the midpoint side is the strip).
 /// Out-of-strip crossings return `None`.
 fn in_strip_arclength(curve: &NurbsCurve, t_x: f64, vertex_pos: &Point3) -> Option<f64> {
     let (t0, t1) = curve.parameter_range();
-    const S: usize = 128;
-    let mut t_v = t0;
-    let mut best = f64::INFINITY;
-    for i in 0..=S {
-        let t = t0 + (t1 - t0) * i as f64 / S as f64;
-        let d = curve.point_at(t).distance_to(vertex_pos);
-        if d < best {
-            best = d;
-            t_v = t;
-        }
-    }
+    let t_v = super::boundary_hex::closest_param_on_nurbs_curve(curve, vertex_pos, 128);
     let t_mid = 0.5 * (t0 + t1);
     let interior_sign = (t_mid - t_v).signum();
     if ((t_x - t_v) * interior_sign) <= 0.0 {
@@ -216,16 +207,7 @@ fn point_at_arclength_from_vertex(
 ) -> Option<Point3> {
     let (t0, t1) = curve.parameter_range();
     const S: usize = 512;
-    let mut t_v = t0;
-    let mut best = f64::INFINITY;
-    for i in 0..=S {
-        let t = t0 + (t1 - t0) * i as f64 / S as f64;
-        let d = curve.point_at(t).distance_to(vertex_pos);
-        if d < best {
-            best = d;
-            t_v = t;
-        }
-    }
+    let t_v = super::boundary_hex::closest_param_on_nurbs_curve(curve, vertex_pos, 128);
     let t_mid = 0.5 * (t0 + t1);
     let t_end = if t_mid >= t_v { t1.max(t0) } else { t1.min(t0) };
     let mut acc = 0.0;

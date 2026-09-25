@@ -98,3 +98,38 @@ fn blend_boundary_invalid_fillet_index() {
     let result = compute_blend_boundary(vertex, &[99], &[], &brep, &tol);
     assert!(result.is_err(), "should fail with out-of-range index");
 }
+
+/// PK-548: the closest-to-vertex station is the exact foot of the
+/// perpendicular, independent of the rail's direction, its extension
+/// past the vertex, and the sample count. The quantized search it
+/// replaces put a reversed rail's station 0.0066 off its neighbours'.
+#[test]
+fn the_closest_station_is_exact_and_direction_independent() {
+    use popkern_core::geometry::NurbsCurve;
+    let line = |a: Point3, b: Point3| NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![a, b],
+        weights: vec![1.0, 1.0],
+    };
+    let vertex = Point3::new(0.0, 0.0, 0.8);
+    // A rail parallel to the edge, offset, overshooting the vertex
+    // differently in each direction.
+    let (a, b) = (
+        Point3::new(-0.848, 0.03, 1.4573),
+        Point3::new(1.848, 0.03, -0.6997),
+    );
+    let direction = b - a;
+    let foot_t = (vertex - a).dot(&direction) / direction.length_squared();
+    let foot = a + direction * foot_t;
+    for samples in [16usize, 64, 128, 512] {
+        for rail in [line(a, b), line(b, a)] {
+            let t = super::boundary_hex::closest_param_on_nurbs_curve(&rail, &vertex, samples);
+            let p = popkern_core::geometry::curve::CurveEval::point_at(&rail, t);
+            assert!(
+                p.distance_to(&foot) < 1e-12,
+                "samples {samples}: {p:?} vs {foot:?}"
+            );
+        }
+    }
+}

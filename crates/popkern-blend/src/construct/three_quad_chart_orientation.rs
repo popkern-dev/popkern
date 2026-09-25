@@ -35,7 +35,7 @@ mod three_quad_chart_orientation_g2_jacobian;
 mod three_quad_chart_orientation_metrics;
 #[path = "three_quad_chart_orientation_polish.rs"]
 mod three_quad_chart_orientation_polish;
-use crate::construct::kp_spoke_normal_sine::{spoke_fold_count, spoke_senses};
+use crate::construct::kp_spoke_normal_sine::{RING_SPOKE_G1_GATE, spoke_fold_count, spoke_senses};
 use three_quad_chart_orientation_metrics::{
     any_self_intersects, characteristic_length, worst_outer_fillet_sin,
 };
@@ -51,7 +51,7 @@ pub(in crate::construct) fn chart_reversal_band_count(patches: &[GregoryPatch]) 
     patches
         .iter()
         .map(|patch| match patch {
-            GregoryPatch::RectangularBiNonic(binonic) => patch_band_count(binonic),
+            GregoryPatch::RectangularBiNonic(binonic) => patch_band_count(binonic, 0.0),
             _ => 0,
         })
         .sum()
@@ -61,10 +61,26 @@ pub(in crate::construct) fn chart_reversal_band_count(patches: &[GregoryPatch]) 
 pub(in crate::construct) fn binonic_reversal_band_count(
     ring: &[RectangularGregoryBiNonic],
 ) -> usize {
-    ring.iter().map(patch_band_count).sum()
+    ring.iter().map(|p| patch_band_count(p, 0.0)).sum()
 }
 
-fn patch_band_count(binonic: &RectangularGregoryBiNonic) -> usize {
+/// Relative chart Jacobian (against the mid-face reference) below which
+/// a band-rail sample counts as reversed for the repair and the chord
+/// solve (PK-548). Healthy served charts measure 1e-2 to 1e-1 there.
+/// The rings committed by a bare sign test sat at 2e-7 to 3e-4 next to
+/// nearly straight boundary corners, and a downstream perturbation of
+/// 1e-10 flipped one into a band (cube_extreme 1:20).
+pub(in crate::construct) const CHART_RAIL_MARGIN: f64 = 1.0e-3;
+
+/// Band count with the [`CHART_RAIL_MARGIN`]: a ring the repair and the
+/// chord solve commit is orientation-clean with margin, not by a hair.
+pub(in crate::construct) fn binonic_margin_band_count(ring: &[RectangularGregoryBiNonic]) -> usize {
+    ring.iter()
+        .map(|p| patch_band_count(p, CHART_RAIL_MARGIN))
+        .sum()
+}
+
+fn patch_band_count(binonic: &RectangularGregoryBiNonic, margin: f64) -> usize {
     let normal = |u: f64, v: f64| binonic.partial_u(u, v).cross(&binonic.partial_v(u, v));
     let reference = normal(0.5, 0.5);
     let mut bands = 0usize;
@@ -78,7 +94,7 @@ fn patch_band_count(binonic: &RectangularGregoryBiNonic) -> usize {
                 2 => (t, 0.02),
                 _ => (t, 0.98),
             };
-            let opposed = normal(u, v).dot(&reference) < 0.0;
+            let opposed = normal(u, v).dot(&reference) < margin * reference.length_squared();
             if opposed && !previous_opposed {
                 bands += 1;
             }
@@ -174,7 +190,7 @@ pub(in crate::construct) fn repair_chart_orientation(
     if n == 0 {
         return Err("empty_ring".to_string());
     }
-    let pre_bands = binonic_reversal_band_count(ring);
+    let pre_bands = binonic_margin_band_count(ring);
     let pre_interior = interior_opposed_count(ring);
     let pre_folded = any_self_intersects(ring, 1.0e-6);
     let char_len = characteristic_length(ring);
@@ -197,10 +213,6 @@ pub(in crate::construct) fn repair_chart_orientation(
     // reference normals.
     let senses = spoke_senses(&references);
     let pre_spoke_folds = spoke_fold_count(ring, &senses);
-    if pre_bands == 0 && pre_interior == 0 && pre_spoke_folds == 0 && !pre_folded {
-        return Err("already_clean".to_string());
-    }
-
     let ring_gp: Vec<GregoryPatch> = ring
         .iter()
         .cloned()
@@ -208,6 +220,36 @@ pub(in crate::construct) fn repair_chart_orientation(
         .collect();
     let pre_g1 = worst_ring_normal_sine(&ring_gp);
     let pre_outer = outer_fillets.map(|f| worst_outer_fillet_sin(ring, f));
+    if pre_bands == 0 && pre_interior == 0 && pre_spoke_folds == 0 && !pre_folded {
+        if pre_g1 <= RING_SPOKE_G1_GATE {
+            return Err("already_clean".to_string());
+        }
+        // An orientation-clean ring that fails G1 (PK-548) needs no
+        // unfold: polish it in place under the same gates. The polish
+        // moves the spoke interiors, which the spoke-row optimizers
+        // hold fixed.
+        let no_weights = Vec::new();
+        let context = RepairContext {
+            ring,
+            anchor: ring,
+            weights: &no_weights,
+            references: &references,
+            senses: &senses,
+            outer_fillets,
+            pre_outer,
+            char_len,
+        };
+        let outcome = context
+            .polish_and_gate(ring.to_vec())
+            .map_err(|reason| format!("clean_polish[{reason}]"))?;
+        return Ok(ChartRepairOutcome {
+            ring: outcome.ring,
+            pre_bands,
+            pre_g1,
+            post_g1: outcome.post_g1,
+            post_g2: outcome.post_g2,
+        });
+    }
 
     // ── Stage 1: constructive unfold ─────────────────────────
     // The transfinite Coons fill of the four (healthy, fixed)
@@ -219,7 +261,7 @@ pub(in crate::construct) fn repair_chart_orientation(
     // measurement.
     let anchor = boundary_tfi_ring(ring);
     let in_patch = |candidate: &[RectangularGregoryBiNonic]| {
-        binonic_reversal_band_count(candidate) + interior_opposed_count(candidate)
+        binonic_margin_band_count(candidate) + interior_opposed_count(candidate)
     };
     if in_patch(&anchor) > 0 {
         return Err(format!(

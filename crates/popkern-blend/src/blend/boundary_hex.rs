@@ -385,3 +385,95 @@ pub(super) fn faces_at_vertex_set(brep: &BRep, vertex: VertexHandle) -> Vec<Face
     }
     seen
 }
+
+/// Golden-section iterations of the closest-point polish: the bracket
+/// shrinks by 0.618 per step, so 80 steps reach roundoff from any
+/// sample bracket.
+const CLOSEST_POINT_POLISH_ITERATIONS: usize = 80;
+
+/// The parameter of the closest point on `curve` to `target` (PK-548).
+/// It takes the best of `n_samples + 1` uniform samples, narrows it by
+/// golden-section search over the two sample intervals around it, and
+/// finishes with Newton on the stationarity condition, to roundoff.
+///
+/// The ring station push-back measures arclength from this station on
+/// every rail. Unpolished, each station was quantized to its own sample
+/// spacing: 128 or 512 samples over trims about 3 units long. On the
+/// pyramid4 apex, the one rail stored the other way round landed its
+/// pushed station 0.0066 off its three symmetric neighbours'. That made
+/// the blend boundary concave at a ring corner (186°), where no quad
+/// chart is regular.
+///
+/// The default end arcs (`extract_fillet_end_near_vertex`) keep their
+/// coarse search on purpose. On an orthogonal corner the exact closest
+/// station puts the arc in the neighbouring face's plane, a degenerate
+/// configuration the sampled station stays clear of. The push-back adds
+/// a clearance margin, so only it takes the exact station.
+///
+/// The polish assumes the distance is unimodal within the bracket, which
+/// holds for rails that pass the vertex once at sample spacing.
+pub(crate) fn closest_param_on_nurbs_curve(
+    curve: &NurbsCurve,
+    target: &Point3,
+    n_samples: usize,
+) -> f64 {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = curve.parameter_range();
+    let samples = n_samples.max(1);
+    let at = |i: usize| t0 + (t1 - t0) * (i as f64) / (samples as f64);
+    let mut best = (f64::INFINITY, 0usize);
+    for i in 0..=samples {
+        let d = curve.point_at(at(i)).distance_to(target);
+        if d < best.0 {
+            best = (d, i);
+        }
+    }
+    let i = best.1;
+    let (mut lo, mut hi) = (at(i.saturating_sub(1)), at((i + 1).min(samples)));
+    let (bracket_lo, bracket_hi) = (lo.min(hi), lo.max(hi));
+    let distance = |t: f64| curve.point_at(t).distance_to(target);
+    let ratio = 0.5 * (5.0_f64.sqrt() - 1.0);
+    let (mut a, mut b) = (hi - ratio * (hi - lo), lo + ratio * (hi - lo));
+    let (mut fa, mut fb) = (distance(a), distance(b));
+    for _ in 0..CLOSEST_POINT_POLISH_ITERATIONS {
+        if fa <= fb {
+            hi = b;
+            (b, fb) = (a, fa);
+            a = hi - ratio * (hi - lo);
+            fa = distance(a);
+        } else {
+            lo = a;
+            (a, fa) = (b, fb);
+            b = lo + ratio * (hi - lo);
+            fb = distance(b);
+        }
+    }
+    // The distance is flat at its minimum, so the golden section stops
+    // near √ε. Newton on the stationarity condition
+    // `g(t) = (C(t) − P)·C′(t) = 0` finishes to roundoff, clamped to the
+    // sample bracket.
+    let mut t = 0.5 * (lo + hi);
+    for _ in 0..NEWTON_POLISH_ITERATIONS {
+        let (p, d1, d2) = (
+            curve.point_at(t),
+            curve.derivative_at(t, 1),
+            curve.derivative_at(t, 2),
+        );
+        let offset = p - *target;
+        let g = offset.dot(&d1);
+        let dg = d1.dot(&d1) + offset.dot(&d2);
+        if dg.is_nan() || dg <= 0.0 {
+            break;
+        }
+        let next = (t - g / dg).clamp(bracket_lo, bracket_hi);
+        if (next - t).abs() <= f64::EPSILON * (1.0 + t.abs()) {
+            t = next;
+            break;
+        }
+        t = next;
+    }
+    if distance(t) <= best.0 { t } else { at(i) }
+}
+
+/// Newton iterations finishing the closest-point polish.
+const NEWTON_POLISH_ITERATIONS: usize = 8;

@@ -68,6 +68,7 @@ fn optimize_spoke_rows(
         base: initial.to_vec(),
         senses: senses.to_vec(),
         max_spoke_folds: spoke_fold_count(initial, senses),
+        max_bands: reversal_bands(initial),
         objective,
     };
     let baseline = eval.objective_sum(initial);
@@ -90,12 +91,20 @@ fn optimize_spoke_rows(
     }
     let mut binonic = initial.to_vec();
     unpack_spoke_rows(&result.x, &mut binonic);
-    // A fold-free chord candidate over the G1 gate is a crease the
-    // repair cannot help: decline it before the ring-crossing verdict.
+    // A chord candidate over the G1 gate, or still carrying in-patch
+    // reversal bands, goes through the chart repair (PK-548): unfold and
+    // polish, or the in-place polish of a clean ring. The polish moves
+    // the spoke interiors this solve holds fixed. If the repair fails
+    // too, the heuristic objective runs next.
     if objective == SpokeObjective::OrientedChord
-        && worst_oriented_ring_sine(&binonic, senses) > RING_SPOKE_G1_GATE
+        && (worst_oriented_ring_sine(&binonic, senses) > RING_SPOKE_G1_GATE
+            || reversal_bands(&binonic) > 0)
     {
-        return None;
+        binonic = super::three_quad_apply::three_quad_chart_orientation::repair_chart_orientation(
+            &binonic, None,
+        )
+        .ok()?
+        .ring;
     }
     // A proven crossing declines at witness cost; the bounded verdict
     // then settles the rest without a spoke-neighbour surface solve.
@@ -123,6 +132,9 @@ struct DirectSpokeRowEval {
     senses: Vec<bool>,
     /// Spoke folds at the start: an accepted chord step never has more.
     max_spoke_folds: usize,
+    /// In-patch chart reversal bands at the start: an accepted chord step
+    /// never has more (PK-548; the promotion declines banded rings).
+    max_bands: usize,
     objective: SpokeObjective,
 }
 
@@ -154,6 +166,7 @@ impl LmEval for DirectSpokeRowEval {
         let ring = self.build_ring(x);
         if self.objective == SpokeObjective::OrientedChord
             && (spoke_fold_count(&ring, &self.senses) > self.max_spoke_folds
+                || reversal_bands(&ring) > self.max_bands
                 || binonic_ring_crossing_witness(&ring, RING_CROSSING_TOLERANCE).is_some())
         {
             return false;
@@ -280,7 +293,7 @@ fn any_self_intersects(binonic: &[RectangularGregoryBiNonic]) -> bool {
 fn chord_residual_vector(patches: &[RectangularGregoryBiNonic], senses: &[bool]) -> Vec<f64> {
     let n = patches.len();
     let parameters = whole_spoke_parameters();
-    let mut out = Vec::with_capacity(n * 3 * parameters.len());
+    let mut out = Vec::with_capacity(n * (3 + 2 * HOVER_OFFSETS.len()) * parameters.len());
     for k in 0..n {
         let a = &patches[k];
         let b = &patches[(k + 1) % n];
@@ -294,9 +307,55 @@ fn chord_residual_vector(patches: &[RectangularGregoryBiNonic], senses: &[bool])
             out.push(spoke_normal_chord(u, v, w, sense));
             out.push(lean_penalty(u, w));
             out.push(lean_penalty(v, w));
+            out.extend(hover_side_penalties(a, b, t, u, v, w));
         }
     }
     out
+}
+
+/// Cross-spoke parameter offsets the hover side condition samples.
+const HOVER_OFFSETS: [f64; 3] = [0.03, 0.08, 0.16];
+
+/// Hover side condition (PK-548). Near a shared spoke, each sheet's
+/// points stay on its own side of the spoke's in-plane normal:
+/// `(P_b(δ) − S(t)) · into_a ≤ 0`, and symmetrically for a. For a G1
+/// ring this holds to first order (`into_a = −into_b`), so a violation
+/// is a sheet bending back across the spoke, the local form of a
+/// spoke-neighbour crossing. The objective otherwise sees only the
+/// spoke, and on pyramid4_uniform the chord solve ran into such a
+/// crossing 1.25e-3 off the spoke, just past the exemption band. Each
+/// penalty is the normalized depth into the other side, 0 when on the
+/// own side.
+fn hover_side_penalties(
+    a: &RectangularGregoryBiNonic,
+    b: &RectangularGregoryBiNonic,
+    t: f64,
+    u: popkern_core::geometry::Vec3,
+    v: popkern_core::geometry::Vec3,
+    w: popkern_core::geometry::Vec3,
+) -> impl Iterator<Item = f64> {
+    let spoke_point = a.point_at(1.0, t);
+    let in_plane = |x: popkern_core::geometry::Vec3| {
+        let w_unit = w.normalized()?;
+        (x - w_unit * x.dot(&w_unit)).normalized()
+    };
+    // `u` runs toward the spoke from inside a; `v` runs into b.
+    let (into_a, into_b) = (in_plane(u * -1.0), in_plane(v));
+    let depth = move |p: popkern_core::geometry::Point3,
+                      into: Option<popkern_core::geometry::Vec3>| {
+        let offset = p - spoke_point;
+        match into {
+            Some(into) if offset.length() > 0.0 => (offset.dot(&into) / offset.length()).max(0.0),
+            _ => 0.0,
+        }
+    };
+    let (a, b) = (a.clone(), b.clone());
+    HOVER_OFFSETS.into_iter().flat_map(move |delta| {
+        [
+            depth(b.point_at(1.0 - t, delta), into_a),
+            depth(a.point_at(1.0 - delta, t), into_b),
+        ]
+    })
 }
 
 /// Per-sample normalized triple product (the search heuristic).
@@ -324,3 +383,9 @@ fn triple_product_residual_vector(patches: &[RectangularGregoryBiNonic]) -> Vec<
 #[cfg(test)]
 #[path = "kp_exact_boundary_ring_gate_tests.rs"]
 mod kp_exact_boundary_ring_gate_tests;
+
+/// In-patch chart reversal bands of a ring, with the repair's chart
+/// margin (`CHART_RAIL_MARGIN`).
+fn reversal_bands(ring: &[RectangularGregoryBiNonic]) -> usize {
+    super::three_quad_apply::three_quad_chart_orientation::binonic_margin_band_count(ring)
+}

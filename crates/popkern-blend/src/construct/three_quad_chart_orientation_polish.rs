@@ -14,7 +14,7 @@ use super::super::super::kp_lm_solver::LmEval;
 use super::three_quad_chart_orientation_metrics::{
     any_self_intersects, g2_residual_at, outer_fillet_sin,
 };
-use super::{binonic_reversal_band_count, interior_opposed_count};
+use super::{binonic_margin_band_count, interior_opposed_count};
 
 const TETHER_WEIGHT: f64 = 3e-2;
 
@@ -183,7 +183,7 @@ impl LmEval for SeamPolishEval {
     /// only INSIDE the repaired region.
     fn fold_safe(&mut self, x: &[f64]) -> bool {
         let ring = self.build(x);
-        if binonic_reversal_band_count(&ring) + interior_opposed_count(&ring) > 0 {
+        if binonic_margin_band_count(&ring) + interior_opposed_count(&ring) > 0 {
             return false;
         }
         // Never a new fold across a spoke (PK-544): the oriented chord

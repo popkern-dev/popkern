@@ -216,3 +216,35 @@ fn uniform_fixtures_apex_rebuild_clean() {
         );
     }
 }
+
+/// PK-548: the uniform pyramid apex (N = 4, r 0.05) and base corner
+/// (N = 3, r 0.10) serve K-P rings that certify G1 on every cap seam
+/// over the whole edge, and every corner patch claims G1.
+///
+/// The pyramid4 apex used to fall back to its guide ring. One apex edge
+/// is stored base-to-apex, so its strip's ring station, found by a
+/// quantized closest-point search, landed 0.0066 off its three
+/// neighbours'. That made the ring boundary concave at a hex corner,
+/// where no quad chart is regular. With polished stations the strips
+/// end symmetrically, and the chord candidate repairs to G1 (measured
+/// 2.3e-4 to 5.3e-4 on its cap seams).
+#[test]
+fn uniform_pyramid_corners_serve_whole_edge_certified_g1_rings() {
+    for (fixture, radii) in [
+        ("pyramid4_uniform", &[0.05; 4][..]),
+        ("pyramid3_uniform", &[0.10; 3][..]),
+    ] {
+        let result = build_with_apex_rebuild(true, radii)
+            .unwrap_or_else(|e| panic!("{fixture}: must serve, got {e:?}"));
+        let caps: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+        assert_eq!(caps.len(), radii.len(), "{fixture}: one cap patch per side");
+        helpers::assert_cap_seams_certify_g1(&result.brep, &caps, fixture);
+        for patch in &result.corner_patches {
+            assert_eq!(
+                patch.achieved_continuity,
+                popkern_blend::ContinuityLevel::G1,
+                "{fixture}: the claim is the measured G1"
+            );
+        }
+    }
+}
