@@ -7,14 +7,12 @@
 use popkern_core::geometry::gregory::eval_sextic_row;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 
-use super::section_path::SectionPath;
 use super::{
     ChiPieceCalibration, CornerJet, Kp20SetbackArc, OrientedSegment, kp20_paper_border_corners,
     rim_corner_jet,
 };
-use crate::fillet_surface::FilletSurfaceResult;
 
 /// A GAPPED corner — the corner point lies off both strips by more
 /// than this fraction of the rim leg (1.6e-3 against a 1e-2 leg on
@@ -56,15 +54,14 @@ pub(super) struct CornerClassification {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn classify_corners(
     arcs: &[Kp20SetbackArc],
-    fillet_surfaces: &[FilletSurfaceResult],
-    paths: &[SectionPath],
+    side_surfaces: &[&SurfaceGeometry],
     shims: &[OrientedSegment],
     calibration: &[ChiPieceCalibration; 2],
     vertex_position: Point3,
     trace: bool,
 ) -> CornerClassification {
     let n = arcs.len();
-    let surface_of = |k: usize| &fillet_surfaces[paths[k].fillet_index].surface;
+    let surface_of = |k: usize| side_surfaces[k];
     let station_normal = |k: usize, row0: &[Point3; 7], t: f64| -> Vec3 {
         let p = eval_sextic_row(row0, t);
         let surface = surface_of(k);

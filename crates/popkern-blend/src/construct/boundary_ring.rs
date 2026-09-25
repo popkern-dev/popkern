@@ -92,50 +92,113 @@ pub(crate) fn try_boundary_ring_carve(
         }
     }
 
+    let sides: Vec<RingSide<'_>> = boundary
+        .segments
+        .iter()
+        .map(|seg| match seg {
+            BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => RingSide::Arc {
+                fillet_index: *fillet_index,
+                curve,
+            },
+            BoundarySegment::FaceEdge { curve, .. } => RingSide::Bridge { curve },
+        })
+        .collect();
     let snapshot = brep.clone();
-    match carve_ring(
+    let carved = carve_ring_sides(
         brep,
         vertex,
         vertex_position,
-        boundary,
+        &sides,
         fillet_surfaces,
         tolerance,
-    ) {
-        Ok(face) => Ok(face),
-        Err(reason) => {
-            *brep = snapshot;
-            Err(reason)
-        }
+    )
+    .and_then(|ring| {
+        super::boundary_ring_geom::normalize_alternating_ring(brep, &ring, n)?;
+        Ok(ring.blend_face)
+    });
+    if carved.is_err() {
+        *brep = snapshot;
     }
+    carved
+}
+
+/// One side of a carved ring.
+pub(crate) enum RingSide<'a> {
+    /// A strip-end arc, carved across its strip face.
+    Arc {
+        /// Index into the fillet surfaces.
+        fillet_index: usize,
+        /// The exact arc.
+        curve: &'a NurbsCurve,
+    },
+    /// A bridge, carved across the support face its junctions share.
+    Bridge {
+        /// The exact bridge curve.
+        curve: &'a NurbsCurve,
+    },
+}
+
+/// A carved ring: the merged blend face and each side's edge, in side
+/// order.
+pub(crate) struct CarvedRing {
+    /// The merged blend face bounded by the ring.
+    pub blend_face: FaceHandle,
+    /// Per side, its ring edge.
+    pub side_edges: Vec<EdgeHandle>,
+    /// Per side, whether it is an arc.
+    pub side_is_arc: Vec<bool>,
+}
+
+/// Carve a ring given as sides in cyclic order and merge its interior
+/// into one blend face. Consecutive arcs meet at a shared junction
+/// with no bridge between them: the saddle setback's corner junctions
+/// (PK-527). The blend face's ring has one edge per side. On error
+/// the caller restores its snapshot.
+pub(crate) fn carve_ring_sides(
+    brep: &mut BRep,
+    vertex: VertexHandle,
+    vertex_position: Point3,
+    sides: &[RingSide<'_>],
+    fillet_surfaces: &[FilletSurfaceResult],
+    tolerance: &Tolerance,
+) -> Result<CarvedRing, String> {
+    carve_ring(
+        brep,
+        vertex,
+        vertex_position,
+        sides,
+        fillet_surfaces,
+        tolerance,
+    )
 }
 
 fn carve_ring(
     brep: &mut BRep,
     vertex: VertexHandle,
     vertex_position: Point3,
-    boundary: &crate::blend::boundary::BlendBoundary,
+    sides: &[RingSide<'_>],
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-) -> Result<FaceHandle, String> {
-    use crate::blend::boundary::BoundarySegment;
-
-    let n = fillet_surfaces.len();
+) -> Result<CarvedRing, String> {
+    let side_count = sides.len();
     let trace = popkern_core::trace::trace_enabled("corner-carve");
 
     // ---- arcs: one exact strip-end curve per fillet -----------------
-    let mut arc_vertices: Vec<[VertexHandle; 2]> = Vec::with_capacity(n);
-    let mut strip_faces: Vec<FaceHandle> = Vec::with_capacity(n);
-    let mut arc_edge_by_k: Vec<EdgeHandle> = Vec::with_capacity(n);
-    let mut bridge_edge_by_k: Vec<EdgeHandle> = Vec::with_capacity(n);
+    let mut arc_vertices: Vec<Option<[VertexHandle; 2]>> = vec![None; side_count];
+    let mut strip_faces: Vec<FaceHandle> = Vec::with_capacity(side_count);
+    let mut side_edges: Vec<Option<EdgeHandle>> = vec![None; side_count];
     let mut ring_edges: std::collections::BTreeSet<EdgeHandle> = Default::default();
     let mut slivers: Vec<FaceHandle> = Vec::new();
-    for k in 0..n {
-        let BoundarySegment::FilletEnd {
+    for (k, side) in sides.iter().enumerate() {
+        let RingSide::Arc {
             fillet_index,
             curve,
-        } = &boundary.segments[2 * k]
+        } = side
         else {
-            return Err("alternation check missed a non-arc even segment".into());
+            continue;
         };
         let fillet = fillet_surfaces
             .get(*fillet_index)
@@ -239,8 +302,8 @@ fn carve_ring(
             }
         }
         ring_edges.insert(mef.edge);
-        arc_edge_by_k.push(mef.edge);
-        arc_vertices.push([v_start, v_end]);
+        side_edges[k] = Some(mef.edge);
+        arc_vertices[k] = Some([v_start, v_end]);
         strip_faces.push(strip_face);
         if trace {
             eprintln!(
@@ -251,15 +314,28 @@ fn carve_ring(
         }
     }
 
-    // ---- bridges: one support-face curve per junction ---------------
-    // Bridge 2k+1 connects arc k's END to arc (k+1)'s START (the
-    // boundary builder emits the ring in cyclic order).
-    for k in 0..n {
-        let BoundarySegment::FaceEdge { face, curve } = &boundary.segments[2 * k + 1] else {
-            return Err("alternation check missed a non-bridge odd segment".into());
+    // ---- junctions: bridges, or arcs meeting at a shared vertex ------
+    // A bridge connects the previous arc's END to the next arc's START
+    // (the ring is in cyclic order). Consecutive arcs share their
+    // junction vertex (the saddle setback's corners).
+    let arc_end = |i: usize, end: usize| -> Result<VertexHandle, String> {
+        arc_vertices[i]
+            .map(|v| v[end])
+            .ok_or_else(|| format!("side {i} is not an arc next to a junction"))
+    };
+    for k in 0..side_count {
+        let next = (k + 1) % side_count;
+        if matches!(sides[k], RingSide::Arc { .. }) && matches!(sides[next], RingSide::Arc { .. }) {
+            if arc_end(k, 1)? != arc_end(next, 0)? {
+                return Err(format!("arcs {k} and {next} do not meet at their junction"));
+            }
+            continue;
+        }
+        let RingSide::Bridge { curve } = sides[k] else {
+            continue;
         };
-        let v_a = arc_vertices[k][1];
-        let v_b = arc_vertices[(k + 1) % n][0];
+        let v_a = arc_end((k + side_count - 1) % side_count, 1)?;
+        let v_b = arc_end(next, 0)?;
         if v_a == v_b {
             // Degenerate bridge: the ring closes through the shared
             // junction. The blend face then has fewer than 2n edges
@@ -272,7 +348,6 @@ fn carve_ring(
         // mitre-wedge piece), and chord kefs move junction ownership.
         // Select topologically: the non-strip face carrying BOTH
         // junction vertices whose surface contains the bridge.
-        let _ = face;
         let support = select_bridge_support(brep, v_a, v_b, &strip_faces, curve)
             .map_err(|e| format!("bridge {k}: {e}"))?;
         let (t0, t1) = curve.parameter_range();
@@ -316,7 +391,7 @@ fn carve_ring(
         let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
         slivers.push(if d_new < d_old { mef.face } else { support });
         ring_edges.insert(mef.edge);
-        bridge_edge_by_k.push(mef.edge);
+        side_edges[k] = Some(mef.edge);
         if trace {
             eprintln!(
                 "  [boundary-ring] bridge {k} support {support:?} \
@@ -332,10 +407,9 @@ fn carve_ring(
 
     // ---- postconditions ----------------------------------------------
     let ring_len = face_loop_half_edges(brep, blend_face)?.len();
-    if ring_len != 2 * n {
+    if ring_len != side_count {
         return Err(format!(
-            "blend face ring has {ring_len} edges, expected {}",
-            2 * n
+            "blend face ring has {ring_len} edges, expected {side_count}"
         ));
     }
     let worst = worst_ring_on_surface_deviation(brep, &ring_edges, blend_face)?;
@@ -344,54 +418,6 @@ fn carve_ring(
             "ring edge sits {worst:.3e} off an adjacent surface (band {RING_ON_SURFACE_BAND:.0e})"
         ));
     }
-
-    // Loop-start normalization: the poke groups consecutive loop
-    // edge pairs [loop_hes[2m], loop_hes[2m+1]] into sub-faces, and
-    // the decomposition's sub-patch k interpolates {arc_k, bridge_k}
-    // — so every pair must be a MATCHED set for some k, or no
-    // sub-face contains both boundary edges of any patch and every
-    // face↔patch assignment ships a crease. The merge leaves the
-    // loop pointer arbitrary, and the loop's traversal direction is
-    // topology-determined: FORWARD traversal (boundary cyclic order)
-    // pairs correctly from any arc; REVERSED traversal pairs
-    // [arc_j, bridge_{j-1}] from an arc start (measured on the conic
-    // cube corner: each ring bridge fits a NEIGHBORING sub-patch at
-    // 1.5e-13 while its own face's patch misses by up to 9.1e-2) but
-    // pairs correctly from a bridge start ([bridge_j, arc_j] spans
-    // the same patch-k region walked the other way). Scan the loop
-    // for a start whose 2n pairs all match; decline if none exists
-    // (a genuinely non-alternating ring).
-    {
-        let face_data = brep
-            .faces
-            .get(blend_face)
-            .ok_or_else(|| "blend face vanished after merge".to_string())?;
-        let outer = face_data.outer_loop;
-        let hes = face_loop_half_edges(brep, blend_face)?;
-        let pair_index = |edge: EdgeHandle| -> Option<(bool, usize)> {
-            if let Some(k) = arc_edge_by_k.iter().position(|&e| e == edge) {
-                return Some((true, k));
-            }
-            bridge_edge_by_k
-                .iter()
-                .position(|&e| e == edge)
-                .map(|k| (false, k))
-        };
-        let pairs_matched = |start: usize| -> bool {
-            (0..n).all(|m| {
-                let a = pair_index(brep.half_edges[hes[(start + 2 * m) % hes.len()]].edge);
-                let b = pair_index(brep.half_edges[hes[(start + 2 * m + 1) % hes.len()]].edge);
-                matches!((a, b), (Some((ka_arc, ka)), Some((kb_arc, kb)))
-                    if ka == kb && ka_arc != kb_arc)
-            })
-        };
-        let start = (0..hes.len())
-            .find(|&s| pairs_matched(s))
-            .ok_or_else(|| "no loop start pairs every {arc_k, bridge_k} set".to_string())?;
-        if let Some(loop_data) = brep.loops.get_mut(outer) {
-            loop_data.half_edge = hes[start];
-        }
-    }
     if trace {
         eprintln!(
             "  [boundary-ring] blend face {blend_face:?} ring {ring_len} edges, \
@@ -399,5 +425,16 @@ fn carve_ring(
         );
     }
     let _ = tolerance;
-    Ok(blend_face)
+    let side_edges: Vec<EdgeHandle> = side_edges
+        .into_iter()
+        .collect::<Option<_>>()
+        .ok_or("a ring side was not carved")?;
+    Ok(CarvedRing {
+        blend_face,
+        side_is_arc: sides
+            .iter()
+            .map(|side| matches!(side, RingSide::Arc { .. }))
+            .collect(),
+        side_edges,
+    })
 }

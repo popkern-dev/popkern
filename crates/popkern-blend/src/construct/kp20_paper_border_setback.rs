@@ -6,6 +6,9 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
 use popkern_core::geometry::{Point3, Vec3};
 
+use super::junctions::{
+    SetbackJunctionPolicy, SideKind, SidePath, bridge_cross_curvatures, setback_sides, unwrap_onto,
+};
 use super::section_path::SectionPath;
 use super::{
     CornerJet, CrossFieldSamples, Kp20PaperBorderExtractReport, Kp20SetbackArc, OrientedSegment,
@@ -28,6 +31,23 @@ use crate::fillet_surface::FilletSurfaceResult;
 pub fn kp20_paper_border_from_fillet_setback(
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
+) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
+    kp20_paper_border_from_fillet_setback_with(
+        fillet_surfaces,
+        vertex_position,
+        SetbackJunctionPolicy::CornersOnly,
+    )
+}
+
+/// [`kp20_paper_border_from_fillet_setback`] under a junction policy.
+/// With [`SetbackJunctionPolicy::BridgeReflexFaces`], each reflex face
+/// corner of a saddle takes a bridge side on its support (PK-527, see
+/// `junctions`). The ring then has one side per strip plus one per
+/// bridge, and a bridge side's arc carries its `bridge`.
+pub fn kp20_paper_border_from_fillet_setback_with(
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+    policy: SetbackJunctionPolicy,
 ) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -84,6 +104,10 @@ pub fn kp20_paper_border_from_fillet_setback(
     let corners =
         kp20_paper_border_corners::setback_corners(fillet_surfaces, &order, vertex_position);
     let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
+    // The boundary's sides: one per strip, plus a bridge per reflex
+    // face corner under the bridging policy (PK-527).
+    let sides = setback_sides(fillet_surfaces, &order, &corners, vertex_position, policy)?;
+    let n = sides.len();
 
     // Corners cut exactly at the trim intersection. (A fractional
     // pullback along both arcs onto the shared tangent plane — the
@@ -97,16 +121,31 @@ pub fn kp20_paper_border_from_fillet_setback(
     // apex angle.
     let section_trace = popkern_core::trace::trace_enabled("setback");
     let mut section_axis_fallbacks = 0_usize;
-    let mut paths: Vec<SectionPath> = Vec::with_capacity(n);
-    for k in 0..n {
-        let fillet = &fillet_surfaces[order[k]];
-        let c_prev = corners[(k + n - 1) % n].1;
-        let c_next = corners[k].1;
-        let uv_prev = project_point_to_uv(&fillet.surface, &c_prev)
+    let mut paths: Vec<SidePath> = Vec::with_capacity(n);
+    for (k, side) in sides.iter().enumerate() {
+        let SideKind::Strip { fillet_index } = side.kind else {
+            if let SideKind::Bridge(bridge) = &side.kind {
+                paths.push(SidePath::Bridge(bridge.clone()));
+            }
+            continue;
+        };
+        let fillet = &fillet_surfaces[fillet_index];
+        let uv_prev = project_point_to_uv(&fillet.surface, &side.start)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let uv_next = project_point_to_uv(&fillet.surface, &c_next)
+        let uv_next = project_point_to_uv(&fillet.surface, &side.end)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let path = SectionPath::resolve(fillet, order[k], (uv_prev, c_prev), (uv_next, c_next));
+        // A strip spans under a half turn, so its arc is the short way
+        // round on a periodic chart: unwrap the end onto the start's
+        // branch (the raw projections straddled the cylinder seam on
+        // the saddle's convex strips, and the path ran 270° through
+        // material, PK-527).
+        let uv_next = unwrap_onto(&fillet.surface, uv_prev, uv_next);
+        let path = SectionPath::resolve(
+            fillet,
+            fillet_index,
+            (uv_prev, side.start),
+            (uv_next, side.end),
+        );
         if path.axial.is_none() {
             section_axis_fallbacks += 1;
         }
@@ -117,13 +156,11 @@ pub fn kp20_paper_border_from_fillet_setback(
                 path.axial_displacement()
             );
         }
-        paths.push(path);
+        paths.push(SidePath::Strip(path));
     }
     let eval_span = |k: usize, t: f64| -> Point3 {
         let (u, v) = paths[k].uv(t);
-        fillet_surfaces[paths[k].fillet_index]
-            .surface
-            .point_at(u, v)
+        paths[k].surface(fillet_surfaces).point_at(u, v)
     };
     // Pass 2: corners = midpoints of adjacent cut ends (they flank
     // the shared face symmetrically, so the midpoint sits essentially
@@ -217,8 +254,17 @@ pub fn kp20_paper_border_from_fillet_setback(
                 )
             }
         };
+        // A bridge side names the strip it leaves (its predecessor).
+        let fillet_index = paths[k]
+            .fillet_index()
+            .or_else(|| paths[(k + n - 1) % n].fillet_index())
+            .ok_or_else(|| "a bridge side follows another bridge".to_string())?;
         setback_arcs.push(Kp20SetbackArc {
-            fillet_index: paths[k].fillet_index,
+            fillet_index,
+            bridge: match &paths[k] {
+                SidePath::Bridge(bridge) => Some((**bridge).clone()),
+                SidePath::Strip(_) => None,
+            },
             cubic: full_arc,
             section_halves: [first_half, second_half],
             corner_prev: c_start,
@@ -240,14 +286,22 @@ pub fn kp20_paper_border_from_fillet_setback(
     // the ring is C² across every m and both pieces at every c carry
     // one corner block by construction.
     let shims: Vec<OrientedSegment> = (0..n)
-        .map(|k| {
-            let fillet = &fillet_surfaces[paths[k].fillet_index];
-            OrientedSegment {
-                curve: fillet.trim_curve_1.clone(),
-                surface: fillet.surface.clone(),
-                is_fillet_end: true,
-                reversed: false,
+        .map(|k| match &paths[k] {
+            SidePath::Strip(path) => {
+                let fillet = &fillet_surfaces[path.fillet_index];
+                OrientedSegment {
+                    curve: fillet.trim_curve_1.clone(),
+                    surface: fillet.surface.clone(),
+                    is_fillet_end: true,
+                    reversed: false,
+                }
             }
+            SidePath::Bridge(bridge) => OrientedSegment {
+                curve: bridge.curve.clone(),
+                surface: bridge.plane.clone(),
+                is_fillet_end: false,
+                reversed: false,
+            },
         })
         .collect();
     // Corner classification (see `corner_jets`): per corner c_k the
@@ -255,10 +309,11 @@ pub fn kp20_paper_border_from_fillet_setback(
     // c_k, `.1` arc k+1's first half), or `None` at a gapped or reflex
     // corner (χ̃-calibrated ends, no shared block), plus the cap
     // boundary's turn at every corner.
+    let side_surfaces: Vec<&popkern_core::geometry::SurfaceGeometry> =
+        paths.iter().map(|p| p.surface(fillet_surfaces)).collect();
     let classified = corner_jets::classify_corners(
         &setback_arcs,
-        fillet_surfaces,
-        &paths,
+        &side_surfaces,
         &shims,
         &calibration,
         vertex_position,
@@ -307,6 +362,8 @@ pub fn kp20_paper_border_from_fillet_setback(
             shims[k].march_cross_field(&second_half, [m_vector, end], &mut first_order_marches);
         samples.push([s0, s1]);
     }
+    // Bridges take the strips' section curvature at their feet (PK-527).
+    bridge_cross_curvatures(&paths, &setback_arcs, &shims, &mut samples);
     // Ring-wide fit of every cross row with the shared junction data
     // as unknowns (PK-400, see `ring_fit`): the spoke junctions and
     // corner blocks are single unknowns, so the C²-at-m and shared-
@@ -315,7 +372,7 @@ pub fn kp20_paper_border_from_fillet_setback(
     // Tangency stations per half (see `ring_fit::tangency_stations`).
     let tangency_stations = |k: usize, half: usize, row0: &[Point3; 7], s: &CrossFieldSamples| {
         ring_fit::tangency_stations(
-            &fillet_surfaces[paths[k].fillet_index].surface,
+            paths[k].surface(fillet_surfaces),
             &|span_t| paths[k].uv(span_t),
             half,
             row0,
@@ -382,10 +439,10 @@ pub fn kp20_paper_border_from_fillet_setback(
         let [(f0, f0c), (f1, f1c)] = &fitted[k];
         let piece_a = rows_from_cross_fields(&first_half, f0, f0c);
         let piece_b = rows_from_cross_fields(&second_half, f1, f1c);
-        sectors.push((paths[k].fillet_index, piece_a, piece_b));
+        sectors.push((piece_a, piece_b));
     }
     type PiecePair = ([[Point3; 7]; 3], [[Point3; 7]; 3]);
-    let pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
+    let pieces: Vec<PiecePair> = sectors;
     let mut grouped = Vec::with_capacity(n);
     for s in 0..n {
         let piece_a = pieces[s].1; // [m_s → c_s]

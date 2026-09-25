@@ -292,3 +292,64 @@ pub(super) fn select_bridge_support(
         None => Err("no common non-strip face carries both junction vertices".to_string()),
     }
 }
+
+/// Loop-start normalization of an alternating `2n` ring (arc k is
+/// side 2k, bridge k side 2k+1) for the three-quad poke. The poke
+/// groups consecutive loop edge pairs [loop_hes[2m], loop_hes[2m+1]]
+/// into sub-faces, and the decomposition's sub-patch k interpolates
+/// {arc_k, bridge_k}. So every pair must be a MATCHED set for some k,
+/// or no sub-face contains both boundary edges of any patch and every
+/// face↔patch assignment ships a crease.
+///
+/// The merge leaves the loop pointer arbitrary, and the loop's
+/// traversal direction is topology-determined:
+/// - FORWARD traversal (boundary cyclic order) pairs correctly from
+///   any arc.
+/// - REVERSED traversal pairs [arc_j, bridge_{j-1}] from an arc start
+///   (measured on the conic cube corner: each ring bridge fits a
+///   NEIGHBORING sub-patch at 1.5e-13 while its own face's patch
+///   misses by up to 9.1e-2). It pairs correctly from a bridge start:
+///   [bridge_j, arc_j] spans the same patch-k region walked the other
+///   way.
+///
+/// Scan the loop for a start whose 2n pairs all match, and decline if
+/// none exists (a genuinely non-alternating ring).
+pub(super) fn normalize_alternating_ring(
+    brep: &mut BRep,
+    ring: &super::boundary_ring::CarvedRing,
+    n: usize,
+) -> Result<(), String> {
+    let blend_face = ring.blend_face;
+    let face_data = brep
+        .faces
+        .get(blend_face)
+        .ok_or_else(|| "blend face vanished after merge".to_string())?;
+    let outer = face_data.outer_loop;
+    let hes = face_loop_half_edges(brep, blend_face)?;
+    if hes.len() != 2 * n {
+        return Err(format!(
+            "blend face ring has {} edges, expected {}",
+            hes.len(),
+            2 * n
+        ));
+    }
+    let pair_index = |edge: EdgeHandle| -> Option<(bool, usize)> {
+        let side = ring.side_edges.iter().position(|&e| e == edge)?;
+        Some((ring.side_is_arc[side], side / 2))
+    };
+    let pairs_matched = |start: usize| -> bool {
+        (0..n).all(|m| {
+            let a = pair_index(brep.half_edges[hes[(start + 2 * m) % hes.len()]].edge);
+            let b = pair_index(brep.half_edges[hes[(start + 2 * m + 1) % hes.len()]].edge);
+            matches!((a, b), (Some((ka_arc, ka)), Some((kb_arc, kb)))
+                if ka == kb && ka_arc != kb_arc)
+        })
+    };
+    let start = (0..hes.len())
+        .find(|&s| pairs_matched(s))
+        .ok_or_else(|| "no loop start pairs every {arc_k, bridge_k} set".to_string())?;
+    if let Some(loop_data) = brep.loops.get_mut(outer) {
+        loop_data.half_edge = hes[start];
+    }
+    Ok(())
+}

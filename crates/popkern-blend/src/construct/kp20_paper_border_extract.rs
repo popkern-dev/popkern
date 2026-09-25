@@ -47,8 +47,11 @@ mod section_fit;
 mod section_path;
 #[path = "kp20_paper_border_setback.rs"]
 mod setback;
+pub use junctions::{BridgeGeometry, SetbackJunctionPolicy};
 use popkern_core::geometry::gregory::elevate_cubic_row_to_sextic;
-pub use setback::kp20_paper_border_from_fillet_setback;
+pub use setback::{
+    kp20_paper_border_from_fillet_setback, kp20_paper_border_from_fillet_setback_with,
+};
 
 /// Extraction evidence for diagnostics and gating.
 #[derive(Debug, Clone)]
@@ -120,6 +123,8 @@ pub struct Kp20PaperBorderExtractReport {
     pub ring_fit_fallback: bool,
 }
 
+#[path = "kp20_paper_border_junctions.rs"]
+mod junctions;
 #[path = "kp20_paper_border_corners.rs"]
 mod kp20_paper_border_corners;
 
@@ -144,6 +149,10 @@ pub struct Kp20SetbackArc {
     /// `[m → corner_next]` (degree 6, C² at `m`) that the border rows
     /// carry (PK-398).
     pub section_halves: [[Point3; 7]; 2],
+    /// The bridge on a reflex support face when this side is one
+    /// (PK-527); `None` on a strip side. A bridge side's
+    /// `fillet_index` names the strip it leaves.
+    pub bridge: Option<BridgeGeometry>,
     /// Shared corner with the previous fillet (trim intersection).
     pub corner_prev: Point3,
     /// Shared corner with the next fillet.

@@ -105,9 +105,11 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
     );
 }
 
-/// §5.3 item #5 / PK-231 — the `OppositeSide` saddle vertex SERVES:
-/// exactly 3 Gregory sub-patches, no Mitred fallback, no direct-apex
-/// capture, structurally clean.
+/// §5.3 item #5 / PK-231 — the `OppositeSide` saddle vertex's
+/// boundary-ring fallback SERVES: exactly 3 Gregory sub-patches, no
+/// Mitred fallback, no direct-apex capture, structurally clean. Since
+/// PK-527 the saddle setback serves the corner first; this pins the
+/// fallback under the setback-decline seam.
 ///
 /// This pin was an either-way pin ("3 sub-patches OR ≤ 1 fallback")
 /// from its landing until PK-231, and the escape hatch absorbed a
@@ -173,7 +175,13 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
         use_rational_gregory: true,
         ..FilletOptions::default()
     };
-    let result = crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None).expect(
+    // PK-527: the saddle setback serves this corner by default
+    // (`tests/saddle_setback.rs`). The ring rung remains its fallback,
+    // and is pinned here under the setback-decline seam.
+    let result = crate::dispatch_overrides::with_setback_forced_to_decline(|| {
+        crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
+    })
+    .expect(
         "saddle fillet pipeline must complete (PK-231: the consumed-merge stage carve restored)",
     );
 

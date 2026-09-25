@@ -33,7 +33,7 @@ use popkern_core::topology::{BRep, VertexHandle};
 use crate::construct::EdgeGeometry;
 use crate::construct::blend_topo::build_fillet_surface_list;
 use crate::construct::kp20_paper_border_extract::{
-    Kp20PaperBorderExtractReport, kp20_paper_border_from_fillet_setback,
+    Kp20PaperBorderExtractReport, SetbackJunctionPolicy, kp20_paper_border_from_fillet_setback_with,
 };
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -98,6 +98,27 @@ pub(crate) fn kp20_cap_star(border: &Kp20PaperGuideBorder, vertex_position: Poin
     )
 }
 
+/// The setback surgery's border: reflex face corners of a saddle take
+/// bridge sides (PK-527). A convex corner has none and is the
+/// corners-only border bit for bit. Shared by the presolve and both
+/// surgery sites, so a presolve match stays bitwise.
+pub(crate) fn setback_surgery_border(
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+) -> Result<
+    (
+        popkern_core::geometry::gregory::Kp20PaperGuideBorder,
+        Kp20PaperBorderExtractReport,
+    ),
+    String,
+> {
+    kp20_paper_border_from_fillet_setback_with(
+        fillet_surfaces,
+        vertex_position,
+        SetbackJunctionPolicy::BridgeReflexFaces,
+    )
+}
+
 /// The full pure solve for one corner: border extraction plus the
 /// §4.4 cap assembly. Error strings match the inline call sites
 /// exactly (`surgery_inner` propagates the extractor error raw; the
@@ -106,8 +127,7 @@ pub(crate) fn solve_setback_cap(
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
 ) -> Result<SetbackCapSolve, String> {
-    let (border, extract) =
-        kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?;
+    let (border, extract) = setback_surgery_border(fillet_surfaces, vertex_position)?;
     let star = kp20_cap_star(&border, vertex_position);
     let assembly = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
         &border,

@@ -43,8 +43,12 @@ fn variable_radius_saddle_serves_boundary_ring() {
         use_rational_gregory: true,
         ..FilletOptions::default()
     };
-    let result = crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
-        .expect("variable-radius saddle fillet pipeline must complete");
+    // PK-527: the saddle setback serves this corner by default; the
+    // ring carve's recut classes are pinned on its fallback here.
+    let result = crate::dispatch_overrides::with_setback_forced_to_decline(|| {
+        crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
+    })
+    .expect("variable-radius saddle fillet pipeline must complete");
     let facts: Vec<String> = result
         .repair_report
         .apex_diagnostics

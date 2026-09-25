@@ -268,7 +268,7 @@ fn strips_normal_disagreement(
 /// normal). Collinear sample sets are trivially coplanar. Curved
 /// shared faces fail the residual test and fall back to
 /// min-distance selection.
-fn pair_is_coplanar(ca: &NurbsCurve, cb: &NurbsCurve) -> bool {
+pub(super) fn pair_is_coplanar(ca: &NurbsCurve, cb: &NurbsCurve) -> bool {
     const SAMPLES: usize = 8;
     let mut points: Vec<Point3> = Vec::with_capacity(2 * (SAMPLES + 1));
     for c in [ca, cb] {
