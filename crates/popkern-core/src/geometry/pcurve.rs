@@ -434,19 +434,33 @@ impl Pcurve {
                 weights: vec![1.0, 1.0],
             },
             PcurveGeometry::Elliptical { .. } => {
-                // Sample-and-fit fallback for STEP export when an
-                // analytic ellipse pcurve has to be serialised as
-                // NURBS. A degree-2 rational arc is ~ulp-exact for
-                // sweeps under π/2; for full circles, a 9-CP
-                // standard rational construction. For the general
-                // case we use a degree-3 LSQ fit over 17 samples
-                // (residual < 1e-12 over a half-circle).
+                // Coarse co-parameterized cubic interpolant through 17
+                // samples: ~(5/384)·h⁴·r off the arc (measured 7e-6 on
+                // an r = 3 quarter arc, 6e-3 on an r = 20 full circle).
+                // Export uses `to_nurbs_within` instead (PK-550).
                 pcurve_nurbs_export::sampled_to_nurbs_approx(self)
             }
             PcurveGeometry::Sinusoidal { .. } => pcurve_nurbs_export::sampled_to_nurbs_approx(self),
             PcurveGeometry::CylinderArcViaRationalQuad { .. } => {
                 pcurve_nurbs_export::cylinder_arc_via_rational_quad_to_nurbs(self)
             }
+        }
+    }
+
+    /// Convert to a `NurbsCurve` that stays within `uv_tolerance` of
+    /// this pcurve at equal parameters, so it remains co-parameterized
+    /// with the edge curve (STEP export, PK-550). NURBS, linear and
+    /// rational-quad cylinder-arc pcurves convert exactly (deviation
+    /// 0); elliptical and sinusoidal pcurves are fitted adaptively and
+    /// measured against the analytic source. Returns the curve and its
+    /// measured deviation, which exceeds `uv_tolerance` only when the
+    /// fit's span cap was reached.
+    pub fn to_nurbs_within(&self, uv_tolerance: f64) -> (NurbsCurve, f64) {
+        match &self.geometry {
+            PcurveGeometry::Elliptical { .. } | PcurveGeometry::Sinusoidal { .. } => {
+                pcurve_nurbs_export::analytic_to_nurbs_within(self, uv_tolerance)
+            }
+            _ => (self.to_nurbs(), 0.0),
         }
     }
 

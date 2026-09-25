@@ -411,9 +411,10 @@ impl ExportContext {
             he_handle,
             &surface.surface.geometry,
         )?;
-        // STEP doesn't have a native analytic-pcurve type — convert
-        // any analytic Pcurve variant (Linear, etc.) to its NURBS
-        // form via Pcurve::to_nurbs() before export. NURBS variants
+        // STEP has no analytic-pcurve type for most of popkern's
+        // variants — convert to NURBS, exact where possible and
+        // otherwise co-parameterized within a fraction of the model
+        // tolerance (export_pcurve_nurbs, PK-550). NURBS variants
         // are zero-cost. Then, in order: co-parameterize with the
         // edge's basis curve (popkern pcurves run in HALF-EDGE
         // direction; STEP associated pcurves share the 3D curve's
@@ -421,7 +422,11 @@ impl ExportContext {
         // chains this use into ITS face's UV loop contour, and map
         // popkern's chart convention to the written surface's STEP
         // parameterization (sphere latitude, `pcurve_to_step_chart`).
-        let mut nurbs = pcurve.to_nurbs();
+        let mut nurbs = super::export_pcurve::export_pcurve_nurbs(
+            &pcurve,
+            &surface.surface.geometry,
+            brep.tolerance.linear(),
+        );
         if super::export_periodic_branches::pcurve_opposes_edge_curve(
             brep,
             he_handle,

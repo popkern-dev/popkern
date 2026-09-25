@@ -248,33 +248,33 @@ fn fixtures() -> Vec<Fixture> {
 }
 
 /// Recorded level drops per fixture on the popkern leg; `[]` = every
-/// seam keeps its certified level. Every class is filed:
-/// conic/sinusoid pcurve export (`G0->Open`, `G0|G1->Unbounded`) is
-/// PK-550, Gregory cap export (`G2->G1`) is PK-551. Update a row only
-/// with the measured delta.
+/// seam keeps its certified level. The remaining class is filed:
+/// Gregory cap export (`G2->G1`) is PK-551. (PK-550 retired the
+/// conic/sinusoid pcurve class: 13 `G0->Open` and 31 `G0|G1->Unbounded`
+/// drops.) Update a row only with the measured delta.
 const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
-    ("mounting_bracket", &[("G0->Open", 4), ("G0->Unbounded", 2)]),
+    ("mounting_bracket", &[]),
     ("ribbed_plate", &[]),
-    ("bossed_housing", &[("G1->Unbounded", 2)]),
-    ("turned_bushing", &[("G1->Unbounded", 4)]),
+    ("bossed_housing", &[]),
+    ("turned_bushing", &[]),
     ("pocketed_tray", &[]),
     ("slotted_block", &[]),
-    ("countersunk_plate", &[("G0->Unbounded", 2)]),
-    ("oblique_countersunk_plate", &[("G0->Unbounded", 1)]),
+    ("countersunk_plate", &[]),
+    ("oblique_countersunk_plate", &[]),
     ("drafted_cup", &[]),
-    ("cross_drilled_boss", &[("G0->Unbounded", 2)]),
-    ("coaxial_bushing", &[("G0->Unbounded", 4)]),
+    ("cross_drilled_boss", &[]),
+    ("coaxial_bushing", &[]),
     ("tilted_hole_plate", &[]),
-    ("offset_bracket", &[("G0->Open", 6)]),
-    ("rim_chamfered_disc", &[("G0->Unbounded", 2)]),
+    ("offset_bracket", &[]),
+    ("rim_chamfered_disc", &[]),
     ("star_socket_plate", &[]),
-    ("mixed_corner_block", &[("G0->Open", 3)]),
-    ("chamfered_peg", &[("G0->Unbounded", 2)]),
+    ("mixed_corner_block", &[]),
+    ("chamfered_peg", &[]),
     ("skewed_dress_bar", &[]),
-    ("counterbored_plate", &[("G0->Unbounded", 4)]),
+    ("counterbored_plate", &[]),
     ("angled_rib_plate", &[]),
-    ("double_boss_plate", &[("G1->Unbounded", 4)]),
-    ("notched_flange", &[("G0->Unbounded", 1)]),
+    ("double_boss_plate", &[]),
+    ("notched_flange", &[]),
     ("pentagon_tower", &[]),
     ("kp_pyramid_apex", &[("G2->G1", 10)]),
     ("kp_cube_corner", &[("G2->G1", 6)]),

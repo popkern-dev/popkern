@@ -209,7 +209,11 @@ fn export_local_face_use_edge(
     let curve_3d_id = export.export_curve(&curve);
     let step_nurbs = crate::step::export_geometry::pcurve_to_step_chart(
         &surface.surface.geometry,
-        pcurve.to_nurbs(),
+        crate::step::export_pcurve::export_pcurve_nurbs(
+            &pcurve,
+            &surface.surface.geometry,
+            brep.tolerance.linear(),
+        ),
     );
     let pcurve_id = export.export_pcurve(&step_nurbs, surface.id);
     let surface_curve_id = export.export_surface_curve(curve_3d_id, &[pcurve_id]);

@@ -5,6 +5,8 @@
 //! OpenCASCADE-based viewers (f3d, FreeCAD) to properly trim faces.
 
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 use crate::step::export::{ExportContext, enum_, list, ref_, str_param};
 use crate::step::parser::types::{EntityId, Parameter};
@@ -111,6 +113,50 @@ impl ExportContext {
                 enum_("PCURVE_S1"),
             ],
         )
+    }
+}
+
+/// Fraction of the model's linear tolerance an exported analytic
+/// pcurve may deviate from its source, in model space: the written
+/// trim must be indistinguishable from the kernel's at the model's
+/// own accuracy (PK-550: the former fixed 17-sample cubic opened real
+/// seam gaps of 7e-6 to 1.2e-2 on re-import).
+const ANALYTIC_PCURVE_EXPORT_FRACTION: f64 = 1e-3;
+/// Pcurve samples used to estimate the surface's uv metric scale.
+const METRIC_SCALE_SAMPLES: usize = 9;
+
+/// The NURBS pcurve written for `pcurve` on `surface`: exact for NURBS
+/// and linear forms; analytic arcs and sinusoids are fitted
+/// co-parameterized to within `ANALYTIC_PCURVE_EXPORT_FRACTION` of
+/// `linear_tolerance`, converted to uv through the surface's metric
+/// scale along the pcurve (1 on a unit-axis plane, the radius for a
+/// cylinder's angular u).
+pub(crate) fn export_pcurve_nurbs(
+    pcurve: &Pcurve,
+    surface: &SurfaceGeometry,
+    linear_tolerance: f64,
+) -> NurbsCurve {
+    let uv_tolerance =
+        ANALYTIC_PCURVE_EXPORT_FRACTION * linear_tolerance / uv_metric_scale(pcurve, surface);
+    pcurve.to_nurbs_within(uv_tolerance).0
+}
+
+/// Largest `|S_u|` or `|S_v|` along the pcurve: a uv displacement `d`
+/// moves the surface point by at most about `scale · d`. Falls back to
+/// 1 for a degenerate or non-finite metric.
+fn uv_metric_scale(pcurve: &Pcurve, surface: &SurfaceGeometry) -> f64 {
+    let mut scale = 0.0_f64;
+    for k in 0..METRIC_SCALE_SAMPLES {
+        let s = k as f64 / (METRIC_SCALE_SAMPLES - 1) as f64;
+        let uv = pcurve.point_at(pcurve.t_start + s * (pcurve.t_end - pcurve.t_start));
+        let su = surface.partial_u(uv.x, uv.y).length();
+        let sv = surface.partial_v(uv.x, uv.y).length();
+        scale = scale.max(su).max(sv);
+    }
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
     }
 }
 

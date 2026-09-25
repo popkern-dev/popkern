@@ -28,6 +28,86 @@ pub(super) fn sampled_to_nurbs_approx(pcurve: &Pcurve) -> NurbsCurve {
     sampled_to_nurbs_with_points(pcurve, sampled_points(pcurve, 17))
 }
 
+/// Degree of the co-parameterized interpolant for analytic pcurves.
+/// Uniform-node interpolation error falls as `h^(degree+1)`: a degree-5
+/// fit of a radius-20 full circle reaches 1e-9 at 64 spans, where the
+/// cubic 16-span fit was 6e-3 (PK-506 measurement).
+const ANALYTIC_EXPORT_DEGREE: usize = 5;
+/// Starting span count; halving the span improves a degree-5 fit 64x.
+const ANALYTIC_EXPORT_INITIAL_SPANS: usize = 8;
+/// Span cap: the dense interpolation solve is cubic in the node count,
+/// and 256 spans settle any sweep of a smooth analytic trace far below
+/// the tolerance floor.
+const ANALYTIC_EXPORT_MAX_SPANS: usize = 256;
+/// Error probes per span when measuring a fit against its source.
+const ERROR_PROBES_PER_SPAN: usize = 4;
+
+/// A NURBS form of an analytic pcurve that keeps its parameterization
+/// (so it stays co-parameterized with the edge curve) and is measured
+/// against the analytic source: degree-5 interpolation at uniform
+/// nodes, with the span count doubled until the largest deviation at
+/// interior probes is within `uv_tolerance` or the span cap is reached.
+/// Returns the fit and its measured deviation (the best fit found when
+/// the tolerance is out of reach).
+pub(super) fn analytic_to_nurbs_within(pcurve: &Pcurve, uv_tolerance: f64) -> (NurbsCurve, f64) {
+    let ascending = if pcurve.t_start > pcurve.t_end {
+        Pcurve {
+            geometry: pcurve.geometry.clone(),
+            t_start: pcurve.t_end,
+            t_end: pcurve.t_start,
+        }
+    } else {
+        pcurve.clone()
+    };
+    let mut best: Option<(NurbsCurve, f64)> = None;
+    let mut spans = ANALYTIC_EXPORT_INITIAL_SPANS;
+    loop {
+        let points = sampled_points(&ascending, spans + 1);
+        let params = uniform_params(&ascending, spans + 1);
+        let Ok(fit) =
+            crate::geometry::fitting::interpolate_curve(&points, &params, ANALYTIC_EXPORT_DEGREE)
+        else {
+            break;
+        };
+        let deviation = max_deviation(&fit, &ascending, spans);
+        if best.as_ref().is_none_or(|(_, d)| deviation < *d) {
+            best = Some((fit, deviation));
+        }
+        if deviation <= uv_tolerance || spans >= ANALYTIC_EXPORT_MAX_SPANS {
+            break;
+        }
+        spans *= 2;
+    }
+    best.unwrap_or_else(|| {
+        let fallback = sampled_to_nurbs_approx(&ascending);
+        let deviation = max_deviation(&fallback, &ascending, 16);
+        (fallback, deviation)
+    })
+}
+
+fn uniform_params(pcurve: &Pcurve, samples: usize) -> Vec<f64> {
+    (0..samples)
+        .map(|i| {
+            let s = i as f64 / (samples as f64 - 1.0);
+            pcurve.t_start + s * (pcurve.t_end - pcurve.t_start)
+        })
+        .collect()
+}
+
+/// Largest uv distance between `fit` and `source` at the same
+/// parameter, probed inside each of `spans` uniform spans.
+fn max_deviation(fit: &NurbsCurve, source: &Pcurve, spans: usize) -> f64 {
+    use crate::geometry::curve::CurveEval;
+    let probes = spans * ERROR_PROBES_PER_SPAN;
+    let mut worst = 0.0_f64;
+    for k in 0..probes {
+        let s = (k as f64 + 0.5) / probes as f64;
+        let t = source.t_start + s * (source.t_end - source.t_start);
+        worst = worst.max(fit.point_at(t).distance_to(&source.point_at(t)));
+    }
+    worst
+}
+
 pub(super) fn cylinder_arc_via_rational_quad_to_nurbs(pcurve: &Pcurve) -> NurbsCurve {
     let start = pcurve.point_at(pcurve.t_start);
     let mut end = pcurve.point_at(pcurve.t_end);
@@ -107,3 +187,7 @@ fn unwrap_u_relative_to(reference_u: f64, u: &mut f64) {
         *u += TAU;
     }
 }
+
+#[cfg(test)]
+#[path = "pcurve_nurbs_export_tests.rs"]
+mod tests;
