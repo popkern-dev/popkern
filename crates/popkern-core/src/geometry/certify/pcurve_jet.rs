@@ -1,30 +1,40 @@
-//! Pcurve jet enclosures: `(u, v)(t)` and its first two derivatives
-//! over a parameter interval, per pcurve kind, replicating the
-//! kernel's evaluator (`Pcurve::point_at`).
+//! Pcurve jet enclosures: `(u, v)(t)` and its derivatives up to
+//! order [`PCURVE_JET_TERMS`]` − 1` over a parameter interval, per
+//! pcurve kind, replicating the kernel's evaluator
+//! (`Pcurve::point_at`).
 
-use super::CertifyDecline;
 use super::bernstein::{self, Coef};
 use super::interval::Iv;
 use super::interval_vec::IvVec2;
+use super::taylor::{SEAM_TAYLOR_ORDER, Taylor};
+use super::{CertifyDecline, UnsupportedGeometry};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
 use std::ops::Div;
 
-/// Enclosures of a pcurve's value and first two derivatives with
-/// respect to its own parameter over an interval.
+/// Derivative count a pcurve jet carries: the seam position series
+/// runs one order past the Taylor order (its derivative is the seam
+/// tangent series).
+pub const PCURVE_JET_TERMS: usize = SEAM_TAYLOR_ORDER + 2;
+
+/// Enclosures of a pcurve's value and derivatives `d[k] = dᵏ(u, v)/dtᵏ`
+/// with respect to its own parameter over an interval.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PcurveJet {
-    /// `(u, v)`.
-    pub value: IvVec2,
-    /// `d(u, v)/dt`.
-    pub d1: IvVec2,
-    /// `d²(u, v)/dt²`.
-    pub d2: IvVec2,
+    /// Derivatives, `d[0]` the value.
+    pub d: [IvVec2; PCURVE_JET_TERMS],
 }
 
 impl PcurveJet {
     fn is_finite(&self) -> bool {
-        self.value.is_finite() && self.d1.is_finite() && self.d2.is_finite()
+        self.d.iter().all(|x| x.is_finite())
+    }
+
+    /// Component-wise hull.
+    pub fn hull(&self, o: &PcurveJet) -> PcurveJet {
+        PcurveJet {
+            d: std::array::from_fn(|k| self.d[k].hull(o.d[k])),
+        }
     }
 }
 
@@ -118,7 +128,7 @@ impl PcurveJetSource {
                 // atan2 reduces to atan only while cos α > 0.
                 if (theta_b - theta_a).abs() >= std::f64::consts::PI {
                     return Err(CertifyDecline::UnsupportedPcurve(
-                        "rational-quad arc with |θb − θa| ≥ π",
+                        UnsupportedGeometry::RationalQuadArcHalfTurn,
                     ));
                 }
                 Kind::ArcViaRationalQuad {
@@ -154,18 +164,75 @@ impl PcurveJetSource {
         ((t - pt(self.t_range.0)).div(span), pt(1.0).div(span))
     }
 
+    /// Enclosure over any parameter interval, hulled across the NURBS
+    /// knots it contains; the flag says whether it straddled one.
+    pub fn jet_piecewise(&self, t: Iv) -> Result<(PcurveJet, bool), CertifyDecline> {
+        let mut cuts = vec![t.lo];
+        cuts.extend(self.breaks().into_iter().filter(|&k| k > t.lo && k < t.hi));
+        cuts.push(t.hi);
+        let mut out: Option<PcurveJet> = None;
+        for w in cuts.windows(2) {
+            let jet = self.jet(Iv::new(w[0], w[1]))?;
+            out = Some(match out {
+                Some(acc) => acc.hull(&jet),
+                None => jet,
+            });
+        }
+        out.map(|jet| (jet, cuts.len() > 2))
+            .ok_or(CertifyDecline::MalformedNurbs)
+    }
+
+    /// NURBS knot spans meeting `t` (`None`: a single smooth branch,
+    /// for the analytic kinds).
+    pub fn spans_touching(&self, t: Iv) -> Vec<Option<usize>> {
+        match &self.kind {
+            Kind::Nurbs {
+                degree,
+                knots,
+                homogeneous,
+            } => nurbs_spans_touching(*degree, knots, homogeneous.len(), t)
+                .into_iter()
+                .map(Some)
+                .collect(),
+            _ => vec![None],
+        }
+    }
+
+    /// Jet over `t` of one NURBS span's (extended) polynomial, or of
+    /// the analytic pcurve.
+    pub fn jet_in(&self, t: Iv, span: Option<usize>) -> Result<PcurveJet, CertifyDecline> {
+        match (&self.kind, span) {
+            (
+                Kind::Nurbs {
+                    degree,
+                    knots,
+                    homogeneous,
+                },
+                Some(span),
+            ) => {
+                let jet = PcurveJet {
+                    d: nurbs_jet_in_span(*degree, knots, homogeneous, t, span)?,
+                };
+                if jet.is_finite() {
+                    Ok(jet)
+                } else {
+                    Err(CertifyDecline::NonFinite)
+                }
+            }
+            _ => self.jet(t),
+        }
+    }
+
     /// Enclosure of the jet over the parameter interval `t`.
     pub fn jet(&self, t: Iv) -> Result<PcurveJet, CertifyDecline> {
         let zero = IvVec2::new(pt(0.0), pt(0.0));
-        let jet = match &self.kind {
+        let mut d = [zero; PCURVE_JET_TERMS];
+        match &self.kind {
             Kind::Linear { start, end } => {
                 let (s, ds) = self.normalised(t);
                 let delta = IvVec2::new(pt(end.0) - pt(start.0), pt(end.1) - pt(start.1));
-                PcurveJet {
-                    value: IvVec2::new(pt(start.0), pt(start.1)) + delta.scale(s),
-                    d1: delta.scale(ds),
-                    d2: zero,
-                }
+                d[0] = IvVec2::new(pt(start.0), pt(start.1)) + delta.scale(s);
+                d[1] = delta.scale(ds);
             }
             Kind::Elliptical {
                 center,
@@ -180,17 +247,17 @@ impl PcurveJetSource {
                 let (ca, sa) = (alpha.cos(), alpha.sin());
                 let (cr, sr) = (pt(*rotation).cos(), pt(*rotation).sin());
                 let (ru, rv) = (pt(radii.0), pt(radii.1));
-                // Local (ru cos α, rv sin α) and its α-derivatives.
-                let local = [
-                    (ru * ca, rv * sa),
-                    (-(ru * sa), rv * ca),
-                    (-(ru * ca), -(rv * sa)),
-                ];
-                let rotate = |(lu, lv): (Iv, Iv)| IvVec2::new(lu * cr - lv * sr, lu * sr + lv * cr);
-                PcurveJet {
-                    value: IvVec2::new(pt(center.0), pt(center.1)) + rotate(local[0]),
-                    d1: rotate(local[1]).scale(da),
-                    d2: rotate(local[2]).scale(da.sqr()),
+                let mut rate = pt(1.0);
+                for (k, slot) in d.iter_mut().enumerate() {
+                    // dᵏ/dαᵏ of (ru cos α, rv sin α), rotated.
+                    let (lu, lv) = (ru * cos_deriv(k, ca, sa), rv * sin_deriv(k, ca, sa));
+                    let rotated = IvVec2::new(lu * cr - lv * sr, lu * sr + lv * cr);
+                    *slot = if k == 0 {
+                        IvVec2::new(pt(center.0), pt(center.1)) + rotated
+                    } else {
+                        rotated.scale(rate)
+                    };
+                    rate = rate * da;
                 }
             }
             Kind::Sinusoidal {
@@ -201,22 +268,31 @@ impl PcurveJetSource {
             } => {
                 let (c, s) = (t.cos(), t.sin());
                 let (kc, ks) = (pt(*v_cos), pt(*v_sin));
-                PcurveJet {
-                    value: IvVec2::new(pt(*u_offset) + t, pt(*v_const) + kc * c + ks * s),
-                    d1: IvVec2::new(pt(1.0), ks * c - kc * s),
-                    d2: IvVec2::new(pt(0.0), -(kc * c) - ks * s),
+                for (k, slot) in d.iter_mut().enumerate() {
+                    let v = kc * cos_deriv(k, c, s) + ks * sin_deriv(k, c, s);
+                    let u = match k {
+                        0 => pt(*u_offset) + t,
+                        1 => pt(1.0),
+                        _ => pt(0.0),
+                    };
+                    *slot = if k == 0 {
+                        IvVec2::new(u, pt(*v_const) + v)
+                    } else {
+                        IvVec2::new(u, v)
+                    };
                 }
             }
             Kind::ArcViaRationalQuad { theta, v_const } => {
                 let (s, ds) = self.normalised(t);
-                arc_via_rational_quad(*theta, *v_const, s, ds)
+                d = arc_via_rational_quad(*theta, *v_const, s, ds);
             }
             Kind::Nurbs {
                 degree,
                 knots,
                 homogeneous,
-            } => nurbs_jet(*degree, knots, homogeneous, t)?,
-        };
+            } => d = nurbs_jet(*degree, knots, homogeneous, t)?,
+        }
+        let jet = PcurveJet { d };
         if jet.is_finite() {
             Ok(jet)
         } else {
@@ -225,35 +301,65 @@ impl PcurveJetSource {
     }
 }
 
+/// `dᵏ/dxᵏ cos x` from enclosures of `cos x`, `sin x`.
+fn cos_deriv(k: usize, c: Iv, s: Iv) -> Iv {
+    match k % 4 {
+        0 => c,
+        1 => -s,
+        2 => -c,
+        _ => s,
+    }
+}
+
+/// `dᵏ/dxᵏ sin x`.
+fn sin_deriv(k: usize, c: Iv, s: Iv) -> Iv {
+    match k % 4 {
+        0 => s,
+        1 => c,
+        2 => -s,
+        _ => -c,
+    }
+}
+
 /// `θ(s) = θm + atan(y/x)` with `y = sin α (2s − 1)`,
 /// `x = cos α (1 − 2s(1−s)) + 2s(1−s)` (positive for |α| < π/2, so
-/// atan2 is atan); derivatives by the quotient rule on `N/D`,
-/// `N = x y′ − y x′`, `D = x² + y²`.
-fn arc_via_rational_quad(theta: (f64, f64), v_const: f64, s: Iv, ds: Iv) -> PcurveJet {
+/// atan2 is atan), expanded as a Taylor series about `s` (exact
+/// polynomials `x`, `y`, then Taylor division and atan).
+fn arc_via_rational_quad(
+    theta: (f64, f64),
+    v_const: f64,
+    s: Iv,
+    ds: Iv,
+) -> [IvVec2; PCURVE_JET_TERMS] {
     let alpha = (pt(theta.1) - pt(theta.0)).scale(0.5);
     let theta_m = (pt(theta.0) + pt(theta.1)).scale(0.5);
     let (sa, ca) = (alpha.sin(), alpha.cos());
-    let d = (s * (pt(1.0) - s)).scale(2.0);
-    let dd = (pt(1.0) - s.scale(2.0)).scale(2.0);
-    let ddd = pt(-4.0);
     let one_minus_c = pt(1.0) - ca;
-    let y = sa * (s.scale(2.0) - pt(1.0));
-    let y1 = sa.scale(2.0);
-    let x = ca + one_minus_c * d;
-    let x1 = one_minus_c * dd;
-    let x2 = one_minus_c * ddd;
-    let n = x * y1 - y * x1;
-    let n1 = -(y * x2);
-    let den = x.sqr() + y.sqr();
-    let den1 = (x * x1 + y * y1).scale(2.0);
-    let dtheta = n.div(den);
-    let d2theta = (n1 * den - n * den1).div(den.sqr());
-    let value = theta_m + y.div(x).atan();
-    PcurveJet {
-        value: IvVec2::new(value, pt(v_const)),
-        d1: IvVec2::new(dtheta * ds, pt(0.0)),
-        d2: IvVec2::new(d2theta * ds.sqr(), pt(0.0)),
+    // x(s+δ) = x + x′δ + ½x″δ², y(s+δ) = y + y′δ.
+    let d = (s * (pt(1.0) - s)).scale(2.0);
+    let mut x = [pt(0.0); PCURVE_JET_TERMS];
+    x[0] = ca + one_minus_c * d;
+    x[1] = one_minus_c * (pt(1.0) - s.scale(2.0)).scale(2.0);
+    x[2] = one_minus_c.scale(-2.0);
+    let mut y = [pt(0.0); PCURVE_JET_TERMS];
+    y[0] = sa * (s.scale(2.0) - pt(1.0));
+    y[1] = sa.scale(2.0);
+    let angle = (Taylor::new(y) / Taylor::new(x)).atan();
+    let mut out = [IvVec2::new(pt(0.0), pt(0.0)); PCURVE_JET_TERMS];
+    let (mut factorial, mut rate) = (1.0, pt(1.0));
+    for (k, slot) in out.iter_mut().enumerate() {
+        if k > 0 {
+            factorial *= k as f64;
+        }
+        let dk = angle.c[k].scale(factorial) * rate;
+        *slot = if k == 0 {
+            IvVec2::new(theta_m + angle.c[0], pt(v_const))
+        } else {
+            IvVec2::new(dk, pt(0.0))
+        };
+        rate = rate * ds;
     }
+    out
 }
 
 fn nurbs_kind(curve: &NurbsCurve) -> Result<Kind, CertifyDecline> {
@@ -281,7 +387,7 @@ fn nurbs_jet(
     knots: &[f64],
     homogeneous: &[Coef<3>],
     t: Iv,
-) -> Result<PcurveJet, CertifyDecline> {
+) -> Result<[IvVec2; PCURVE_JET_TERMS], CertifyDecline> {
     let n = homogeneous.len();
     let spans: Vec<usize> = (degree..n).filter(|&k| knots[k] < knots[k + 1]).collect();
     let last = *spans.last().ok_or(CertifyDecline::MalformedNurbs)?;
@@ -298,33 +404,64 @@ fn nurbs_jet(
     } else {
         return Err(CertifyDecline::SpanStraddle);
     };
+    nurbs_jet_in_span(degree, knots, homogeneous, t, span)
+}
+
+/// The NURBS pcurve's knot spans whose closed intervals meet `t`.
+fn nurbs_spans_touching(degree: usize, knots: &[f64], n: usize, t: Iv) -> Vec<usize> {
+    let spans: Vec<usize> = (degree..n).filter(|&k| knots[k] < knots[k + 1]).collect();
+    let (first, last) = (spans.first().copied(), spans.last().copied());
+    spans
+        .iter()
+        .copied()
+        .filter(|&k| {
+            (t.hi >= knots[k] || Some(k) == first) && (t.lo <= knots[k + 1] || Some(k) == last)
+        })
+        .collect()
+}
+
+/// Jet of span `span`'s polynomial over `t`, extended beyond the span
+/// where `t` leaves it.
+fn nurbs_jet_in_span(
+    degree: usize,
+    knots: &[f64],
+    homogeneous: &[Coef<3>],
+    t: Iv,
+    span: usize,
+) -> Result<[IvVec2; PCURVE_JET_TERMS], CertifyDecline> {
     let ctrl = &homogeneous[span - degree..=span];
-    let base = bernstein::bspline_span_to_bernstein(degree, knots, span, ctrl);
     let width = pt(knots[span + 1]) - pt(knots[span]);
-    let first = bernstein::derivative_net(&base, width);
-    let second = bernstein::derivative_net(&first, width);
     let (lo, hi) = (
         bernstein::local_param(t.lo, knots[span], knots[span + 1]),
         bernstein::local_param(t.hi, knots[span], knots[span + 1]),
     );
-    let enclose = |net: &[Coef<3>]| -> Coef<3> {
+    // Homogeneous derivative hulls h[k] = dᵏ(wu, wv, w)/dtᵏ.
+    let mut net = bernstein::bspline_span_to_bernstein(degree, knots, span, ctrl);
+    let mut h = [[pt(0.0); 3]; PCURVE_JET_TERMS];
+    for slot in h.iter_mut() {
         if net.is_empty() {
-            [pt(0.0); 3]
-        } else {
-            bernstein::hull(&bernstein::restrict(net, lo, hi))
+            break;
         }
-    };
-    let (h0, h1, h2) = (enclose(&base), enclose(&first), enclose(&second));
-    let w = h0[2];
+        *slot = bernstein::hull(&bernstein::restrict(&net, lo, hi));
+        net = bernstein::derivative_net(&net, width);
+    }
+    let w = h[0][2];
     if w.contains_zero() {
         return Err(CertifyDecline::DenominatorContainsZero);
     }
-    let c0 = [h0[0].div(w), h0[1].div(w)];
-    let c1 = [0, 1].map(|k| (h1[k] - h1[2] * c0[k]).div(w));
-    let c2 = [0, 1].map(|k| (h2[k] - (h1[2] * c1[k]).scale(2.0) - h2[2] * c0[k]).div(w));
-    Ok(PcurveJet {
-        value: IvVec2::new(c0[0], c0[1]),
-        d1: IvVec2::new(c1[0], c1[1]),
-        d2: IvVec2::new(c2[0], c2[1]),
-    })
+    // Leibniz: C⁽ᵏ⁾ = (A⁽ᵏ⁾ − Σ_{j≥1} C(k,j) w⁽ʲ⁾ C⁽ᵏ⁻ʲ⁾) / w.
+    let binom = |n: usize, k: usize| -> f64 {
+        (0..k).fold(1.0, |acc, m| acc * (n - m) as f64 / (m + 1) as f64)
+    };
+    let mut c = [[pt(0.0); 2]; PCURVE_JET_TERMS];
+    for k in 0..PCURVE_JET_TERMS {
+        for axis in 0..2 {
+            let mut acc = h[k][axis];
+            for j in 1..=k {
+                acc = acc - (h[j][2] * c[k - j][axis]).scale(binom(k, j));
+            }
+            c[k][axis] = acc.div(w);
+        }
+    }
+    Ok(c.map(|[u, v]| IvVec2::new(u, v)))
 }

@@ -4,6 +4,7 @@
 pub mod analysis;
 pub mod apex_construction;
 pub mod blend;
+pub mod blend_continuity_certification;
 pub mod blend_continuity_evidence;
 pub mod blend_diagnostics;
 pub(crate) mod blend_warnings;

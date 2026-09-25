@@ -47,6 +47,9 @@
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 use serde::{Deserialize, Serialize};
 
+use popkern_core::geometry::certify::SeamCertificate;
+
+use crate::blend_continuity_certification::{certify_seam_for_evidence, evidence_certify_options};
 use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 use crate::types::ContinuityLevel;
 
@@ -139,6 +142,64 @@ pub struct SeamContinuityRecord {
     /// (Meusnier), which is why a rolling-ball rail reads ~0 along
     /// the seam while genuinely jumping `1/r` transversely.
     pub worst_g2_residual: f64,
+    /// Certified bounds over the whole seam (PK-499), for gated seams;
+    /// `None` for intended-sharp seams, which are G0-gated only. When
+    /// certified, its upper bounds replace the sampled maxima in the
+    /// classification.
+    #[serde(default)]
+    pub certificate: Option<SeamCertificate>,
+}
+
+impl SeamContinuityRecord {
+    /// The certificate, when its upper bounds hold over the whole seam
+    /// ([`SeamCertificate::bounds_cover_seam`]).
+    pub fn certified(&self) -> Option<&SeamCertificate> {
+        self.certificate.as_ref().filter(|c| c.bounds_cover_seam())
+    }
+
+    /// Per quantity (gap, sine, curvature): the certified decision
+    /// against its gate, `Some(value)` when decided — the upper bound
+    /// when it passes (`upper ≤ gate`), the certified lower bound when
+    /// it fails (`lower > gate`) — and `None` when the certificate
+    /// does not cover the seam or its bounds straddle the gate.
+    fn certified_decisions(&self, gates: &ContinuityGates) -> [Option<f64>; 3] {
+        let Some(c) = self.certified() else {
+            return [None; 3];
+        };
+        let g0_gate = gates.g0_gap.max(self.recorded_tolerance.unwrap_or(0.0));
+        let decide = |upper: f64, lower: f64, gate: f64| {
+            if upper <= gate {
+                Some(upper)
+            } else if lower > gate {
+                Some(lower)
+            } else {
+                None
+            }
+        };
+        [
+            decide(c.g0_upper, c.lower[0], g0_gate),
+            decide(c.g1_upper, c.lower[1], gates.g1_normal),
+            decide(c.g2_upper, c.lower[2], gates.g2_curvature),
+        ]
+    }
+
+    /// Whether the certificate decides every gate for this seam.
+    pub fn certificate_decides(&self, gates: &ContinuityGates) -> bool {
+        self.certified_decisions(gates).iter().all(Option::is_some)
+    }
+
+    /// `(g0, g1, g2)` the classification uses: each certified decision
+    /// where the certificate makes one, the sampled maximum otherwise
+    /// (the recorded fallback). The gap always keeps the sampled
+    /// distance to the edge curve too (the trim contract).
+    pub fn classified_residuals(&self, gates: &ContinuityGates) -> (f64, f64, f64) {
+        let [g0, g1, g2] = self.certified_decisions(gates);
+        (
+            self.worst_g0_gap.max(g0.unwrap_or(0.0)),
+            g1.unwrap_or(self.worst_g1_normal),
+            g2.unwrap_or(self.worst_g2_residual),
+        )
+    }
 }
 
 /// The measured continuity record for one blend operation.
@@ -174,6 +235,19 @@ pub struct BlendContinuityEvidence {
     pub worst_g1_normal: f64,
     /// Worst curvature jump across GATED seams.
     pub worst_g2_residual: f64,
+    /// Gated seams whose certificate decides every gate (bounds over
+    /// the whole edge, each quantity certified passing or failing).
+    #[serde(default)]
+    pub certified_seams: usize,
+    /// Gated seams classified (at least partly) from sampled maxima
+    /// because their certificate does not decide every gate (the
+    /// recorded fallback boundary).
+    #[serde(default)]
+    pub uncertified_seams: usize,
+    /// The level the certified bounds alone support: `Some` only when
+    /// every gated seam certified.
+    #[serde(default)]
+    pub certified_achieved: Option<ContinuityLevel>,
 }
 
 impl BlendContinuityEvidence {
@@ -204,6 +278,7 @@ pub fn measure_blend_continuity_evidence(
     samples_per_seam: usize,
 ) -> BlendContinuityEvidence {
     let set: std::collections::BTreeSet<FaceHandle> = blend_faces.iter().copied().collect();
+    let certify = evidence_certify_options(brep, gates);
     let mut seams = Vec::new();
     let mut unmeasured = 0usize;
     for (edge_handle, edge) in brep.edges.iter() {
@@ -225,16 +300,19 @@ pub fn measure_blend_continuity_evidence(
             continue;
         };
         let worst = measure_edge_seam(&seam, samples_per_seam);
+        let gated = worst.angle_deg <= gates.smooth_intent_max_angle_deg;
+        let certificate = gated.then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
         seams.push(SeamContinuityRecord {
             edge: edge_handle,
             kind,
             samples: worst.samples,
-            gated: worst.angle_deg <= gates.smooth_intent_max_angle_deg,
+            gated,
             recorded_tolerance: edge.tolerance,
             worst_g0_gap: worst.g0,
             worst_g1_normal: worst.g1,
             worst_normal_angle_deg: worst.angle_deg,
             worst_g2_residual: worst.g2.max(worst.g2_transverse),
+            certificate,
         });
     }
 
@@ -253,6 +331,9 @@ pub fn measure_blend_continuity_evidence(
     let worst_g1_normal = gated().map(|s| s.worst_g1_normal).fold(0.0, f64::max);
     let worst_g2_residual = gated().map(|s| s.worst_g2_residual).fold(0.0, f64::max);
     let achieved = classify(&seams, unmeasured, gates);
+    let certified_seams = gated().filter(|s| s.certificate_decides(gates)).count();
+    let uncertified_seams = gated().count() - certified_seams;
+    let certified_achieved = (uncertified_seams == 0).then_some(achieved);
 
     BlendContinuityEvidence {
         requested,
@@ -266,6 +347,9 @@ pub fn measure_blend_continuity_evidence(
         worst_g0_gap,
         worst_g1_normal,
         worst_g2_residual,
+        certified_seams,
+        uncertified_seams,
+        certified_achieved,
     }
 }
 
@@ -286,20 +370,21 @@ fn classify(
     // contract as the serving curve-surface validation): an accepted,
     // recorded boundary inexactness is not a positional failure. The
     // widening is counted in `tolerance_widened_seams`.
-    if seams
-        .iter()
-        .any(|s| s.worst_g0_gap > gates.g0_gap.max(s.recorded_tolerance.unwrap_or(0.0)))
-    {
+    if seams.iter().any(|s| {
+        s.classified_residuals(gates).0 > gates.g0_gap.max(s.recorded_tolerance.unwrap_or(0.0))
+    }) {
         return ContinuityLevel::G0;
     }
     let gated: Vec<_> = seams.iter().filter(|s| s.gated).collect();
     if gated.is_empty() {
         return ContinuityLevel::G0;
     }
-    let g1_ok = gated.iter().all(|s| s.worst_g1_normal <= gates.g1_normal);
+    let g1_ok = gated
+        .iter()
+        .all(|s| s.classified_residuals(gates).1 <= gates.g1_normal);
     let g2_ok = gated
         .iter()
-        .all(|s| s.worst_g2_residual <= gates.g2_curvature);
+        .all(|s| s.classified_residuals(gates).2 <= gates.g2_curvature);
     if g1_ok && g2_ok {
         ContinuityLevel::G2
     } else if g1_ok {

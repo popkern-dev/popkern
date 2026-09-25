@@ -74,6 +74,10 @@ struct PartEvidence {
     worst_g0: f64,
     worst_g1: f64,
     worst_g2: f64,
+    /// Gated seams whose certificate decides every gate (PK-499).
+    certified_seams: usize,
+    /// Gated seams classified by the sampled fallback.
+    uncertified_seams: usize,
 }
 
 fn run_corpus_continuity() -> Vec<PartContinuity> {
@@ -102,6 +106,8 @@ fn run_corpus_continuity() -> Vec<PartContinuity> {
                         ev.worst_g0 = ev.worst_g0.max(continuity.worst_g0_gap);
                         ev.worst_g1 = ev.worst_g1.max(continuity.worst_g1_normal);
                         ev.worst_g2 = ev.worst_g2.max(continuity.worst_g2_residual);
+                        ev.certified_seams += continuity.certified_seams;
+                        ev.uncertified_seams += continuity.uncertified_seams;
                     }
                     Ok(ev)
                 }
@@ -142,6 +148,15 @@ struct PartBaseline {
     g0_cap: f64,
     g1_cap: f64,
     expected_downgrades: usize,
+    /// Gated seams whose PK-499 certificate decides every gate.
+    min_certified_seams: usize,
+    /// Gated seams left to the sampled fallback (measured 2026-09-25:
+    /// closed boss/bushing ring rails whose projected gap bound sits
+    /// at 1.3e-5..3.9e-5 against the 1e-5 G0 gate within the evidence
+    /// budget, their G1/G2 certified; mixed-corner seams ending at a
+    /// chart pole; pentagon cap seams at blended dual-jet corners and
+    /// strips degenerating along the seam).
+    max_uncertified_seams: usize,
 }
 
 const BASELINE: &[PartBaseline] = &[
@@ -152,6 +167,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-8,
         expected_downgrades: 0,
+        min_certified_seams: 16,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         name: "bossed_housing",
@@ -160,6 +177,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
+        min_certified_seams: 1,
+        max_uncertified_seams: 3,
     },
     PartBaseline {
         name: "turned_bushing",
@@ -168,6 +187,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 2.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
+        min_certified_seams: 2,
+        max_uncertified_seams: 6,
     },
     PartBaseline {
         // PK-211 closed: the strip-end ruling pcurves were fit
@@ -182,6 +203,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
+        min_certified_seams: 8,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         // Genuinely G1 since PK-338 (measured g0 1.1e-11, g1 6.6e-10,
@@ -195,6 +218,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-8,
         expected_downgrades: 0,
+        min_certified_seams: 7,
+        max_uncertified_seams: 2,
     },
     PartBaseline {
         // BLUNT (18°-half-angle) apex under a G2 request through the
@@ -221,6 +246,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 2.0e-3,
         g1_cap: 1.0e-1,
         expected_downgrades: 1,
+        min_certified_seams: 20,
+        max_uncertified_seams: 40,
     },
     PartBaseline {
         name: "double_boss_plate",
@@ -229,6 +256,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
+        min_certified_seams: 2,
+        max_uncertified_seams: 6,
     },
 ];
 
@@ -243,7 +272,7 @@ fn corpus_continuity_evidence_holds_baseline() {
             Ok(ev) => {
                 eprintln!(
                     "[continuity] {}: ops={} achieved={:?} downgrades={} gated={} sharp={} \
-                     unmeasured={} g0={:.3e} g1={:.3e} g2={:.3e}",
+                     unmeasured={} g0={:.3e} g1={:.3e} g2={:.3e} certified={} uncertified={}",
                     r.name,
                     ev.fillet_reports,
                     ev.min_achieved,
@@ -254,6 +283,8 @@ fn corpus_continuity_evidence_holds_baseline() {
                     ev.worst_g0,
                     ev.worst_g1,
                     ev.worst_g2,
+                    ev.certified_seams,
+                    ev.uncertified_seams,
                 );
             }
             Err(e) => {
@@ -302,6 +333,18 @@ fn corpus_continuity_evidence_holds_baseline() {
             "[{name}] worst G1 residual regressed: {:.3e} > cap {:.1e}",
             ev.worst_g1,
             b.g1_cap
+        );
+        assert!(
+            ev.certified_seams >= b.min_certified_seams,
+            "[{name}] certified-seam census dropped: {} < baseline {}",
+            ev.certified_seams,
+            b.min_certified_seams
+        );
+        assert!(
+            ev.uncertified_seams <= b.max_uncertified_seams,
+            "[{name}] sampled-fallback seams grew: {} > baseline {}",
+            ev.uncertified_seams,
+            b.max_uncertified_seams
         );
         assert_eq!(
             ev.unmeasured_seams, 0,

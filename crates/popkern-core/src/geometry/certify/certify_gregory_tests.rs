@@ -97,3 +97,26 @@ fn rational_gregory_forms_enclose_the_patch_and_decline_at_blended_corners() {
         );
     }
 }
+
+/// A pcurve on a patch edge (`u = 0` exactly) yields a subnormal-width
+/// box straddling 0. Restricting to it by the `alpha/beta` ratio
+/// divided by a subnormal interval and put zero in a polynomial's
+/// unit weight hull (measured on pentagon_tower cap seams); the
+/// narrow-box path must enclose it tightly instead.
+#[test]
+fn a_patch_edge_subnormal_box_encloses_tightly() {
+    let surface = binonic();
+    let mut source = SurfaceJetSource::new(&surface).unwrap_or_else(|e| panic!("{e}"));
+    let edge = Iv::new(-1.5e-323, 1.5e-323);
+    let near_half = Iv::new(0.5f64.next_down().next_down(), 0.5f64.next_up().next_up());
+    for (u, v) in [(edge, near_half), (near_half, edge), (edge, edge)] {
+        let jet = source
+            .jet(u, v)
+            .unwrap_or_else(|e| panic!("patch-edge box declined: {e}"));
+        let p = jet.partial(0, 0);
+        assert!(
+            p.x.width() < 1e-13 && p.y.width() < 1e-13 && p.z.width() < 1e-13,
+            "{p:?}"
+        );
+    }
+}

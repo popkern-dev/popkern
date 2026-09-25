@@ -107,7 +107,7 @@ fn comb(frame: (Vec3, Vec3), a: Iv, b: Iv) -> IvVec3 {
 }
 
 impl AnalyticJetSource {
-    /// Enclosure of every partial up to order 3 over the box.
+    /// Enclosure of every partial up to order 6 over the box.
     pub fn jet(&self, u: Iv, v: Iv) -> SurfaceJet {
         let mut jet = SurfaceJet::zero();
         let (cu, su) = (u.cos(), u.sin());

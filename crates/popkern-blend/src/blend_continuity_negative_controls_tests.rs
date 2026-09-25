@@ -140,6 +140,23 @@ fn the_g2_rim_fixture_reads_g2() {
     let (face, surface) = strip(&result);
     let evidence = evidence_with(&result, face, surface);
     assert_eq!(evidence.achieved, ContinuityLevel::G2, "{evidence:?}");
+    // The claim is certified over every gated seam, not only sampled.
+    assert_eq!(
+        evidence.certified_achieved,
+        Some(ContinuityLevel::G2),
+        "{evidence:?}"
+    );
+}
+
+/// The worst certified lower bound (a value attained on the seam) of
+/// quantity `k` (0 gap, 1 sine, 2 curvature) across gated seams.
+fn certified_witness(evidence: &crate::BlendContinuityEvidence, k: usize) -> f64 {
+    evidence
+        .seams
+        .iter()
+        .filter_map(|s| s.certificate.as_ref())
+        .map(|c| c.lower[k])
+        .fold(0.0, f64::max)
 }
 
 /// Curvature only: row 2 moves, so the rail keeps its position and
@@ -170,6 +187,11 @@ fn a_curvature_only_perturbation_fails_g2_and_passes_g1() {
         evidence.worst_g2_residual > 10.0 * evidence.gates.g2_curvature,
         "the jump reads far past the gate: {evidence:?}"
     );
+    // Certified failure: a curvature jump past the gate is attained.
+    assert!(
+        certified_witness(&evidence, 2) > evidence.gates.g2_curvature,
+        "{evidence:?}"
+    );
 }
 
 /// Normal only: row 1 moves by a small tilt (about 10°), so the rail
@@ -190,6 +212,11 @@ fn a_normal_only_perturbation_fails_g1() {
         "{evidence:?}"
     );
     assert_eq!(evidence.sharp_seams, 0, "still gated: {evidence:?}");
+    // Certified failure: a normal turn past the gate is attained.
+    assert!(
+        certified_witness(&evidence, 1) > evidence.gates.g1_normal,
+        "{evidence:?}"
+    );
 }
 
 /// A tilt past the 30° smooth-intent bound reclassifies the rail as an
@@ -208,4 +235,39 @@ fn a_tilt_past_the_intent_bound_is_caught_by_the_sharp_seam_census() {
         after.sharp_seams > before.sharp_seams,
         "a rail collapsing into 'sharp' must show in the census: {after:?}"
     );
+}
+
+/// PK-499 exploration E2 acceptance: the G2 cylinder rim's rails pair
+/// a rational-arc strip parameter with an angle (fraction
+/// correspondence fails by ~1e-3), and must certify under projected
+/// correspondence at the tight default targets: G1 below 1e-6 and G2
+/// below 1e-3 over the whole seam.
+#[test]
+fn the_g2_rim_rails_certify_under_projected_correspondence() {
+    use popkern_core::geometry::certify::SeamCorrespondence;
+    use popkern_core::topology::edge_seam_certificate::{certify_edge_seam, seam_certify_options};
+    let result = g2_rim();
+    let (face, _) = strip(&result);
+    let brep = &result.brep;
+    let options = seam_certify_options(brep);
+    let mut rails = 0;
+    for (edge, data) in brep.edges.iter() {
+        let he = &brep.half_edges[data.half_edge];
+        let faces = [
+            brep.loops[he.loop_].face,
+            brep.loops[brep.half_edges[he.twin].loop_].face,
+        ];
+        if !faces.contains(&face) || faces[0] == faces[1] {
+            continue;
+        }
+        let cert = certify_edge_seam(brep, edge, &options);
+        if cert.lower[1] > 0.5 {
+            continue; // the strip's designed end crease
+        }
+        rails += 1;
+        assert!(cert.is_certified(), "{cert:?}");
+        assert_eq!(cert.correspondence, SeamCorrespondence::Projected);
+        assert!(cert.g1_upper < 1e-6 && cert.g2_upper < 1e-3, "{cert:?}");
+    }
+    assert_eq!(rails, 2, "the strip has two rails");
 }

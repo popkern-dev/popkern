@@ -107,6 +107,27 @@ fn a_cube_edge_fillet_reads_g1_and_honestly_refuses_g2() {
         evidence.worst_g2_residual
     );
 
+    // Certified: every rail's G1 holds over the whole edge, and the
+    // certified curvature jump brackets 1/r.
+    assert_eq!(
+        evidence.certified_achieved,
+        Some(ContinuityLevel::G1),
+        "{evidence:?}"
+    );
+    let rail_jumps: Vec<(f64, f64)> = evidence
+        .seams
+        .iter()
+        .filter_map(|s| s.certified())
+        .filter(|c| c.lower[2] > 1.0)
+        .map(|c| (c.lower[2], c.g2_upper))
+        .collect();
+    assert!(!rail_jumps.is_empty(), "{evidence:?}");
+    for (lower, upper) in rail_jumps {
+        assert!(
+            lower <= 5.0 && upper >= 5.0 && upper - lower < 0.1,
+            "certified rail jump [{lower}, {upper}] must bracket 1/r = 5"
+        );
+    }
     let g2_request =
         measure_blend_continuity_evidence(&brep, &new_faces, ContinuityLevel::G2, &gates, 17);
     assert!(

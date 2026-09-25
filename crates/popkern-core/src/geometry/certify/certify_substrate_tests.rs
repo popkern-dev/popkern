@@ -2,6 +2,7 @@
 //! the enclosures, and point enclosures agree with the kernel's own
 //! evaluators (formula correctness).
 
+use super::pcurve_jet::PCURVE_JET_TERMS;
 use super::*;
 use crate::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
 use crate::geometry::nurbs_curve::NurbsCurve;
@@ -61,14 +62,35 @@ fn interval_arithmetic_encloses_random_point_operations() {
 }
 
 #[test]
-fn dual_arithmetic_carries_the_derivative() {
-    // q(s) = s² / (1 + s) at s = 0.5: q' = (2s(1+s) − s²)/(1+s)².
-    let s = IvDual::new(Iv::point(0.5), Iv::point(1.0));
-    let q = s.sqr().div(IvDual::constant(Iv::point(1.0)) + s);
-    let exact = (2.0 * 0.5 * 1.5 - 0.25) / 2.25;
-    assert!(q.d.contains(exact) || (q.d.mid() - exact).abs() < 1e-15);
-    let r = (s.sqr() + IvDual::constant(Iv::point(1.0))).sqrt();
-    assert!((r.d.mid() - 0.5 / 1.25_f64.sqrt()).abs() < 1e-15);
+fn taylor_arithmetic_matches_closed_form_series() {
+    // Series about s = 0.5 of the identity: 0.5 + δ.
+    let mut c = [Iv::point(0.0); 5];
+    c[0] = Iv::point(0.5);
+    c[1] = Iv::point(1.0);
+    let s = Taylor::new(c);
+    let one = Taylor::<5>::constant(Iv::point(1.0));
+    // 1/(1 + s): coefficients (−1)^k / 1.5^{k+1}.
+    let q = one / (one + s);
+    for k in 0..5 {
+        let exact = (-1.0_f64).powi(k as i32) / 1.5_f64.powi(k as i32 + 1);
+        assert!((q.c[k].mid() - exact).abs() < 1e-15, "1/(1+s) c{k}");
+    }
+    // √(1 + s): binomial series coefficients C(1/2, k) · 1.5^{1/2 − k}.
+    let r = (one + s).sqrt();
+    let mut binom = 1.0;
+    for k in 0..5 {
+        let exact = binom * 1.5_f64.powf(0.5 - k as f64);
+        assert!((r.c[k].mid() - exact).abs() < 1e-14, "sqrt c{k}");
+        binom *= (0.5 - k as f64) / (k as f64 + 1.0);
+    }
+    // atan(s): derivatives of atan at 0.5 via 1/(1 + s²) integrated.
+    let a = s.atan();
+    assert!((a.c[0].mid() - 0.5_f64.atan()).abs() < 1e-15);
+    assert!((a.c[1].mid() - 1.0 / 1.25).abs() < 1e-15);
+    assert!((a.c[2].mid() - (-0.5 / 1.25_f64.powi(2))).abs() < 1e-15);
+    // Composition: exp-free check (1 + Δ)² composed.
+    let square = (one + s).sqr();
+    assert!((square.c[0].mid() - 2.25).abs() < 1e-15 && (square.c[2].mid() - 1.0).abs() < 1e-15);
 }
 
 fn rational_nurbs() -> NurbsSurface {
@@ -400,19 +422,39 @@ fn pcurve_jets_match_the_kernel_and_contain_dense_samples() {
             let d = (at(t + h1) - at(t - h1)) * (1.0 / (2.0 * h1));
             let dd = ((at(t + h2) - at(t)) + (at(t - h2) - at(t))) * (1.0 / (h2 * h2));
             assert!(
-                (jet.value.u.mid() - p.x).abs() < 1e-12 && (jet.value.v.mid() - p.y).abs() < 1e-12
+                (jet.d[0].u.mid() - p.x).abs() < 1e-12 && (jet.d[0].v.mid() - p.y).abs() < 1e-12
             );
             assert!(
-                (jet.d1.u.mid() - d.x).abs() < 1e-8 && (jet.d1.v.mid() - d.y).abs() < 1e-8,
+                (jet.d[1].u.mid() - d.x).abs() < 1e-8 && (jet.d[1].v.mid() - d.y).abs() < 1e-8,
                 "{:?} d1 {:?} vs {d:?}",
                 pcurve.geometry,
-                jet.d1
+                jet.d[1]
             );
             assert!(
-                (jet.d2.u.mid() - dd.x).abs() < 1e-5 && (jet.d2.v.mid() - dd.y).abs() < 1e-5,
+                (jet.d[2].u.mid() - dd.x).abs() < 1e-5 && (jet.d[2].v.mid() - dd.y).abs() < 1e-5,
                 "d2 {:?} vs {dd:?}",
-                jet.d2
+                jet.d[2]
             );
+            // Each higher derivative against differences of the jet's
+            // own previous one.
+            for k in 3..PCURVE_JET_TERMS {
+                let prev_at = |t: f64| {
+                    source
+                        .jet(Iv::point(t))
+                        .map(|j| (j.d[k - 1].u.mid(), j.d[k - 1].v.mid()))
+                };
+                if let (Ok(p), Ok(m)) = (prev_at(t + h1), prev_at(t - h1)) {
+                    let (fu, fv) = ((p.0 - m.0) / (2.0 * h1), (p.1 - m.1) / (2.0 * h1));
+                    let scale = 1.0 + fu.abs().max(fv.abs());
+                    assert!(
+                        (jet.d[k].u.mid() - fu).abs() < 1e-5 * scale
+                            && (jet.d[k].v.mid() - fv).abs() < 1e-5 * scale,
+                        "{:?} d{k} {:?} vs ({fu}, {fv})",
+                        pcurve.geometry,
+                        jet.d[k]
+                    );
+                }
+            }
         }
         for trial in 0..20 {
             let width = [0.2, 1e-3][trial % 2] * (t1 - t0);
@@ -423,13 +465,25 @@ fn pcurve_jets_match_the_kernel_and_contain_dense_samples() {
                 let t = a + (b - a) * k as f64 / 24.0;
                 let p = pcurve.point_at(t);
                 let slack = 1e-13;
+                let value = boxed.d[0];
                 assert!(
-                    boxed.value.u.lo - slack <= p.x && p.x <= boxed.value.u.hi + slack,
+                    value.u.lo - slack <= p.x && p.x <= value.u.hi + slack,
                     "pcurve box [{a}, {b}] misses t = {t}"
                 );
-                assert!(boxed.value.v.lo - slack <= p.y && p.y <= boxed.value.v.hi + slack);
+                assert!(value.v.lo - slack <= p.y && p.y <= value.v.hi + slack);
                 let inner = source.jet(Iv::point(t)).unwrap_or_else(|e| panic!("{e}"));
-                for (o, i) in [(boxed.d1, inner.d1), (boxed.d2, inner.d2)] {
+                // Derivatives past the continuity order are one-sided
+                // exactly at a (C²) knot.
+                let on_break = breaks.contains(&t);
+                for k in 1..PCURVE_JET_TERMS {
+                    let (o, i) = (
+                        boxed.d[k],
+                        if on_break && k >= 3 {
+                            boxed.d[k]
+                        } else {
+                            inner.d[k]
+                        },
+                    );
                     assert!(o.u.lo <= i.u.hi && i.u.lo <= o.u.hi);
                     assert!(o.v.lo <= i.v.hi && i.v.lo <= o.v.hi);
                 }

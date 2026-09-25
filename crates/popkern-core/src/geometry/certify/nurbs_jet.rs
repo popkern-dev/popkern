@@ -18,7 +18,10 @@ use std::ops::Div;
 
 type Net = Vec<Vec<Coef<4>>>;
 
-/// Bernstein nets of every homogeneous partial up to order 3 on one
+/// Most knot-span pieces one straddling box may be cut into.
+const MAX_KNOT_PIECES: usize = 64;
+
+/// Bernstein nets of every homogeneous partial up to order 6 on one
 /// knot span.
 #[derive(Debug, Clone)]
 struct SpanNets {
@@ -97,10 +100,83 @@ impl NurbsJetSource {
         )
     }
 
-    /// Enclosure of every partial up to order 3 over the box.
+    /// Enclosure of every partial up to order 6 over a box that may
+    /// straddle knots: the box is cut at every interior knot it
+    /// contains and the per-span enclosures are hulled. Returns
+    /// whether a cut happened — across a knot the partials above the
+    /// continuity order are two-valued, so a consumer must not apply
+    /// a mean-value form over a straddled box.
+    pub fn jet_piecewise(&mut self, u: Iv, v: Iv) -> Result<(SurfaceJet, bool), CertifyDecline> {
+        let (bu, bv) = self.breaks();
+        let pieces = |x: Iv, breaks: &[f64]| -> Vec<Iv> {
+            let mut cuts: Vec<f64> = vec![x.lo];
+            cuts.extend(breaks.iter().copied().filter(|&k| k > x.lo && k < x.hi));
+            cuts.push(x.hi);
+            cuts.windows(2).map(|w| Iv::new(w[0], w[1])).collect()
+        };
+        let (pu, pv) = (pieces(u, &bu), pieces(v, &bv));
+        if pu.len() * pv.len() > MAX_KNOT_PIECES {
+            return Err(CertifyDecline::SpanStraddle);
+        }
+        let mut out: Option<SurfaceJet> = None;
+        for &x in &pu {
+            for &y in &pv {
+                let jet = self.jet(x, y)?;
+                out = Some(match out {
+                    Some(acc) => acc.hull(&jet),
+                    None => jet,
+                });
+            }
+        }
+        let straddled = pu.len() * pv.len() > 1;
+        out.map(|jet| (jet, straddled))
+            .ok_or(CertifyDecline::MalformedNurbs)
+    }
+
+    /// Enclosure of every partial up to order 6 over the box.
     pub fn jet(&mut self, u: Iv, v: Iv) -> Result<SurfaceJet, CertifyDecline> {
         let su = span_of(&self.knots_u, self.degree.0, self.num.0, u)?;
         let sv = span_of(&self.knots_v, self.degree.1, self.num.1, v)?;
+        self.jet_in_span(u, v, (su, sv))
+    }
+
+    /// Knot spans `(u, v)` whose closed parameter intervals meet the
+    /// box (the first/last span also covers extrapolation beyond the
+    /// domain).
+    pub fn spans_touching(&self, u: Iv, v: Iv) -> Result<Vec<(usize, usize)>, CertifyDecline> {
+        if !u.is_finite() || !v.is_finite() {
+            return Err(CertifyDecline::NonFinite);
+        }
+        let touching = |knots: &[f64], degree: usize, num: usize, x: Iv| -> Vec<usize> {
+            let spans: Vec<usize> = (degree..num).filter(|&k| knots[k] < knots[k + 1]).collect();
+            let (first, last) = (spans.first().copied(), spans.last().copied());
+            spans
+                .iter()
+                .copied()
+                .filter(|&k| {
+                    let lo_ok = x.hi >= knots[k] || Some(k) == first;
+                    let hi_ok = x.lo <= knots[k + 1] || Some(k) == last;
+                    lo_ok && hi_ok
+                })
+                .collect()
+        };
+        let su = touching(&self.knots_u, self.degree.0, self.num.0, u);
+        let sv = touching(&self.knots_v, self.degree.1, self.num.1, v);
+        Ok(su
+            .iter()
+            .flat_map(|&a| sv.iter().map(move |&b| (a, b)))
+            .collect())
+    }
+
+    /// Enclosure over the box of the polynomial of span `(su, sv)`,
+    /// extended beyond that span where the box leaves it: a smooth
+    /// function that equals the surface wherever the span applies.
+    pub fn jet_in_span(
+        &mut self,
+        u: Iv,
+        v: Iv,
+        (su, sv): (usize, usize),
+    ) -> Result<SurfaceJet, CertifyDecline> {
         if !self.cache.contains_key(&(su, sv)) {
             let nets = self.span_nets(su, sv);
             self.cache.insert((su, sv), nets);
@@ -247,12 +323,7 @@ pub(super) fn rational_quotient(homogeneous: &[Coef<4>]) -> Result<SurfaceJet, C
         return Err(CertifyDecline::DenominatorContainsZero);
     }
     let binom = |n: usize, k: usize| -> f64 {
-        [
-            [1.0, 0.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0, 0.0],
-            [1.0, 2.0, 1.0, 0.0],
-            [1.0, 3.0, 3.0, 1.0],
-        ][n][k]
+        (0..k).fold(1.0, |acc, m| acc * (n - m) as f64 / (m + 1) as f64)
     };
     let mut jet = SurfaceJet::entire();
     for &(k, l) in JET_ORDERS.iter() {

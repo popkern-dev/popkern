@@ -119,26 +119,40 @@ pub fn de_casteljau_point<const D: usize>(net: &[Coef<D>], t: Iv) -> Coef<D> {
     work[0]
 }
 
-/// Bernstein net of the polynomial restricted to the local interval
-/// `[alpha, beta]` (endpoints given as enclosures). When the two
-/// enclosures are identical the restriction is a point, and a single
-/// coefficient (the point value) is returned.
+/// Local-parameter width below which a box is enclosed by one
+/// interval de Casteljau evaluation instead of a restricted net: the
+/// interval extension already encloses the range, tightly for such a
+/// box, and re-parameterizing a near-point box is ill-conditioned.
+const POINT_BOX_WIDTH: f64 = 1e-9;
+
+/// Enclosure net of the polynomial over the local interval
+/// `[alpha, beta]` (endpoints given as enclosures), whose hull
+/// encloses its range there.
+///
+/// - A near-point box returns the single interval de Casteljau value
+///   over `alpha ∪ beta`.
+/// - Otherwise the net is split at one end and re-split at the other
+///   end's ratio, choosing the order whose ratio denominator
+///   (`beta` or `1 − alpha`) is at least ½ — the other order divides
+///   by a possibly tiny interval (measured: a pcurve on the `u = 0`
+///   patch edge gave `alpha/beta ∈ [−2, −0.5]` and a weight hull
+///   containing zero).
 pub fn restrict<const D: usize>(net: &[Coef<D>], alpha: Iv, beta: Iv) -> Vec<Coef<D>> {
-    if alpha == beta || net.len() == 1 {
+    if net.len() == 1 || beta.hi - alpha.lo <= POINT_BOX_WIDTH {
         return vec![de_casteljau_point(net, alpha.hull(beta))];
     }
-    // [0, 1] → [0, β] (left part), then [0, β] → [α/β, 1] (right).
-    let (left, _) = de_casteljau_split(net, beta);
-    let ratio = alpha.div(beta);
-    if !ratio.is_finite() {
-        // β can reach 0 only when α does too; restrict the other way.
+    let one = Iv::point(1.0);
+    if beta.lo >= 1.0 - alpha.hi {
+        // [0, 1] → [0, β] (left part), then [0, β] → [α/β, 1] (right).
+        let (left, _) = de_casteljau_split(net, beta);
+        let (_, inner) = de_casteljau_split(&left, alpha / beta);
+        inner
+    } else {
+        // [0, 1] → [α, 1] (right part), then → [0, (β−α)/(1−α)] (left).
         let (_, right) = de_casteljau_split(net, alpha);
-        let ratio = (beta - alpha).div(Iv::point(1.0) - alpha);
-        let (inner, _) = de_casteljau_split(&right, ratio);
-        return inner;
+        let (inner, _) = de_casteljau_split(&right, (beta - alpha) / (one - alpha));
+        inner
     }
-    let (_, inner) = de_casteljau_split(&left, ratio);
-    inner
 }
 
 /// Component-wise hull of every coefficient.
