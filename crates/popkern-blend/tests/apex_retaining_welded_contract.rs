@@ -29,7 +29,7 @@ mod direct_apex_validate_helpers;
 mod helpers;
 
 use direct_apex_validate_helpers::{
-    breakdown, build_under_direct_apex, direct_apex_fallback_reasons,
+    breakdown, build_under_direct_apex, try_build_under_direct_apex_with_pyramid_height,
 };
 use popkern_core::topology::LoopHandle;
 
@@ -56,59 +56,48 @@ fn retry_details(result: &popkern_blend::BlendResult) -> Vec<String> {
         .collect()
 }
 
-/// The welded trihedral base corner (pyramid3, uniform radii) declines
-/// the apex-retaining partition with the recorded class. The
-/// vertex-blend fallback it then builds on direct-apex anchors is off
-/// its faces (21 edges, worst 1.06e-1), so the served-body gate
-/// rejects that first pass. The exclusion retry serves the corner on
-/// vertex-blend anchors (PK-533). The retry record keeps the welded
-/// decline class, and the served body is check-9 clean, has no
-/// null-loop half-edges, and is structurally sound.
+/// The welded N=3 apex-retaining partition declines semantically on
+/// its contract (no null-loop half-edges, no debt records). Its
+/// vertex-blend fallback on direct-apex anchors is off its faces (21
+/// edges, worst 1.06e-1), so the served-body gate rejects that first
+/// pass, and the exclusion retry re-routes the corner to vertex-blend
+/// anchors (PK-533). PK-539: that retry used to serve a bi-nonic ring
+/// the coplanarity gate passed while its cap seams certify at normal
+/// sines 0.25..0.87 (both candidates fold across the spokes). Gated
+/// honestly, the promotion declines, the pre-promotion rung is off its
+/// faces too (the same with the K-P flag off), and the corner declines
+/// transactionally, naming the curve-surface class, with the partial
+/// result structurally sound and free of null-loop half-edges.
+/// Follow-up: PK-545 (a valid serve for this corner).
 #[test]
 fn welded_n3_apex_retaining_declines_semantically() {
     let _g = popkern_blend::dispatch_overrides::V_FREE_REPEATED_APEX.set_guard(false);
-    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
-    assert_eq!(
-        check9_failures(&result.brep),
-        0,
-        "the served body must hold check 9"
-    );
-
-    let details = retry_details(&result);
-    assert_eq!(
-        details.len(),
-        1,
-        "welded N=3 apex-retaining must be retried exactly once, got {details:?}"
-    );
+    let Err(popkern_blend::BlendError::PartialFailure {
+        failed,
+        partial_result,
+        failures,
+        ..
+    }) = try_build_under_direct_apex_with_pyramid_height(true, &[0.10, 0.10, 0.10], 0.8)
+    else {
+        panic!("the welded N=3 corner must decline transactionally (PK-539)");
+    };
+    assert_eq!(failed, 1, "one corner declines");
     assert!(
-        details[0].contains(
-            "welded shared-corner repeated-apex partition declined on the apex-retaining contract"
-        ) && details[0].contains("off their faces"),
-        "the retry must record the welded apex-retaining class and the gate, got: {}",
-        details[0]
+        format!("{failures:?}").contains("off their faces"),
+        "the decline names the curve-surface class: {failures:?}"
     );
-    assert!(
-        direct_apex_fallback_reasons(&result).is_empty(),
-        "the retried corner never re-enters direct-apex"
-    );
-
-    let null_loop_half_edges = result
-        .brep
+    let null_loop_half_edges = partial_result
         .half_edges
         .iter()
         .filter(|(_, data)| {
-            data.loop_ == LoopHandle::default() || !result.brep.loops.contains_key(data.loop_)
+            data.loop_ == LoopHandle::default() || !partial_result.loops.contains_key(data.loop_)
         })
         .count();
+    assert_eq!(null_loop_half_edges, 0, "no null-loop half-edges minted");
     assert_eq!(
-        null_loop_half_edges, 0,
-        "served body must not carry null-loop or dangling-loop half-edges"
-    );
-
-    let metrics = breakdown(&result.brep.validate_all());
-    assert_eq!(
-        metrics.structural, 0,
-        "served body must be structurally sound after the welded apex-retaining decline"
+        breakdown(&partial_result.validate_all()).structural,
+        0,
+        "the partial result stays structurally sound"
     );
 }
 

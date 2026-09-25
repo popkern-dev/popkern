@@ -15,7 +15,7 @@ use popkern_core::geometry::gregory::{
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
-use super::three_quad_apply::worst_ring_coplanarity;
+use super::three_quad_apply::worst_ring_normal_sine;
 
 pub(super) enum DeepFillOutcome {
     Accepted(Vec<GregoryPatch>),
@@ -68,7 +68,7 @@ fn try_single_boundary_owned_deep_fill(
     {
         return DeepFillOutcome::Rejected("deep_fill_self_intersection");
     }
-    if worst_ring_coplanarity(&patches) > commercial_gate {
+    if worst_ring_normal_sine(&patches) > commercial_gate {
         return DeepFillOutcome::Rejected("deep_fill_g1_exceeded");
     }
     DeepFillOutcome::Accepted(patches)

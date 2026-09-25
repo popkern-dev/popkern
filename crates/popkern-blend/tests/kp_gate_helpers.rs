@@ -132,6 +132,22 @@ pub fn fillet_corner_full(
     use_kp_polar: bool,
 ) -> (BRep, Vec<FaceHandle>) {
     assert_eq!(edges.len(), radii.len());
+    // Candidate-quality instrument: measure the constructed candidate
+    // itself, not the PK-250 serving-retry re-route.
+    let result = try_fillet_corner_full(brep, edges, radii, use_kp_binonic, use_kp_polar).unwrap();
+    let faces = cap_faces_from_result(&result);
+    (result.brep, faces)
+}
+
+/// [`fillet_corner_full`]'s operation, returning the kernel's result
+/// (a transactional decline included) instead of unwrapping it.
+pub fn try_fillet_corner_full(
+    brep: &BRep,
+    edges: &[EdgeHandle],
+    radii: &[f64],
+    use_kp_binonic: bool,
+    use_kp_polar: bool,
+) -> Result<BlendResult, popkern_blend::BlendError> {
     let specs: Vec<FilletSpec> = edges
         .iter()
         .zip(radii.iter())
@@ -148,14 +164,10 @@ pub fn fillet_corner_full(
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: use_kp_binonic,
         use_kp_polar_gregory: use_kp_polar,
-        // Candidate-quality instrument: measure the constructed
-        // candidate itself, not the PK-250 serving-retry re-route.
         serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces = cap_faces_from_result(&result);
-    (result.brep, faces)
+    fillet_edges(brep, &specs, &opts, Tolerance::default(), None)
 }
 
 /// Cap faces in construction-report order (corner patches, then

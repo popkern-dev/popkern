@@ -160,21 +160,20 @@ fn flag_on_produces_binonic_or_falls_back_cleanly() {
 
 /// Sanity: with flag on, at least one CI-tractable fixture must
 /// actually produce binonic sub-patches — otherwise the dispatch
-/// is unreachable and the flag has no coverage.
+/// is unreachable and the flag has no coverage. PK-539: cube_extreme
+/// 1:10 no longer serves one (its only candidates fold across the
+/// spokes; honestly gated, the promotion declines), so the coverage
+/// fixture is the 1:50 corner, which serves a chart-honest G1 ring.
 #[test]
 fn flag_on_lands_binonic_on_at_least_one_fixture() {
-    let result = corner_cube_with_flag([0.02, 0.10, 0.20], true);
+    let result = corner_cube_with_flag([0.004, 0.10, 0.20], true);
     let faces = corner_patch_faces(&result);
     let variants = variants_at(&result.brep, &faces);
-    if variants.is_empty() {
-        assert_exact_boundary_cap_route(&result, "cube_extreme flag-on");
-        return;
-    }
     let any_binonic = variants.iter().any(|v| v == "binonic");
     assert!(
         any_binonic,
-        "flag-on path never produced a binonic variant on cube_extreme \
-         (radii [0.02, 0.10, 0.20]) — dispatch wiring or K-P build is broken. \
+        "flag-on path never produced a binonic variant on the 1:50 cube corner \
+         (radii [0.004, 0.10, 0.20]) — dispatch wiring or K-P build is broken. \
          variants seen: {variants:?}"
     );
 }

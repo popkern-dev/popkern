@@ -42,7 +42,11 @@ use three_quad_apply_helpers::{
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
-pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_coplanarity};
+pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_normal_sine};
+
+/// Commercial spoke G1 bar (normal-angle sine) a committed ring must
+/// measure within to claim G1.
+const RING_G1_BAR: f64 = 5.0e-2;
 use three_quad_reproject::reproject_loop_pcurves_onto_gregory;
 use three_quad_seam_pcurves::author_boundary_owned_seam_pcurves;
 use three_quad_sphere_cap::sphere_cap_boundary_degeneracy_in_boundary_order;
@@ -332,6 +336,14 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         sphere_cap_boundary_preflight,
     );
 
+    // PK-539: the achieved level is measured, not asserted — the
+    // committed ring's worst spoke normal sine against the commercial
+    // G1 bar (a ring was claiming G1 at a true 1.3e-1).
+    let achieved_continuity = if worst_ring_normal_sine(&decomp.sub_patches) <= RING_G1_BAR {
+        ContinuityLevel::G1
+    } else {
+        ContinuityLevel::G0
+    };
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
     // The sphere-cap rung is an upgrade, not a cliff: if a planned seam
@@ -438,7 +450,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 vertex,
                 n_sides,
                 method: CornerMethod::Gregory,
-                achieved_continuity: ContinuityLevel::G1,
+                achieved_continuity,
                 classification,
                 face: *sub_face,
                 bridge_fallbacks: boundary.bridge_fallbacks.clone(),

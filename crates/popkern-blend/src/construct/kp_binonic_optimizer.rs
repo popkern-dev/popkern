@@ -30,7 +30,8 @@
 mod kp_binonic_jacobian;
 use kp_binonic_jacobian::outer_fillet_jacobian;
 pub(super) use kp_binonic_jacobian::{
-    analytic_ring_jacobian, flatten_ring, outer_fillet_jacobian_sampled, ring_idx,
+    analytic_ring_jacobian, analytic_ring_jacobian_with, flatten_ring,
+    outer_fillet_jacobian_sampled, ring_idx,
 };
 
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;

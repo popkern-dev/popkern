@@ -75,7 +75,6 @@
 use popkern_blend::{
     BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
 };
-use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[path = "kp_gate_helpers.rs"]
@@ -84,44 +83,11 @@ mod helpers;
 mod kp_cube_fixture;
 #[path = "support/kp_production_route.rs"]
 mod kp_production_route;
-use helpers::{
-    N_SAMPLES, assert_all_binonic, cap_faces_from_result, collect_patches, incident_edges,
-    measure_ring,
-};
+use helpers::{N_SAMPLES, cap_faces_from_result, collect_patches, incident_edges, measure_ring};
 use kp_cube_fixture::{fillet_cube_result, try_fillet_cube_result};
 #[path = "support/seam_perturbation.rs"]
 mod seam_perturbation;
 use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
-
-/// Route-selection precondition (PK-182): a binonic continuity
-/// gate is only meaningful if the K-P promotion actually served —
-/// verifies the committed patches are the binonic variant with at
-/// least one present (`assert_all_binonic`).
-fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
-    let result = fillet_cube_result(radii, true);
-    // The K-P binonic ring is a promotion inside the vertex-blend
-    // `insert_vertex_blend` path, so the recorded apex route for
-    // these fixtures is `VertexBlend` — same record as fixtures where
-    // the ring never fires. The discriminating dispatch evidence
-    // is the committed corner patches themselves: a route record
-    // must exist, and every committed patch must be the
-    // `RectangularBiNonic` variant with at least one present
-    // (`assert_all_binonic`), so the gate can never measure a ring
-    // that did not ship.
-    let route =
-        result.repair_report.apex_routes.first().unwrap_or_else(|| {
-            panic!("[{fixture}] dispatch must record an apex construction route")
-        });
-    assert!(
-        route.fallback_reason.is_none(),
-        "[{fixture}] binonic gate precondition failed: apex route recorded a fallback: {:?}",
-        route.fallback_reason
-    );
-    let faces = cap_faces_from_result(&result);
-    let patches = collect_patches(&result.brep, &faces);
-    assert_all_binonic(&patches, fixture);
-    measure_ring(&patches, N_SAMPLES)
-}
 
 fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
     result
@@ -167,62 +133,46 @@ fn binonic_passes_or_declines_commercially_on_cube_mixed() {
     assert_cube_mixed_exact_boundary_route(&result);
 }
 
+/// PK-539: cube_extreme (1:10) has no fold-free G1 ring in the K-P
+/// optimizer family. Measured with the orientation-aware spoke normal
+/// sine, the guide candidate folds (reversal bands) and the
+/// orientation repair's output folds across a spoke; the ring that
+/// used to serve here read G1 through the coplanarity metric while
+/// creasing 4°..7.7°. The promotion declines with its reason
+/// recorded, the corner serves the pre-promotion ring, and every
+/// corner patch claims exactly the level its measured spoke sine
+/// supports (G0 here: 0.29).
 #[test]
-fn kp_binonic_dispatch_reaches_measurable_ring_on_cube_extreme() {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let edges = incident_edges(&cube, vertex);
+fn cube_extreme_binonic_promotion_declines_and_claims_the_measured_level() {
     let result = fillet_cube_result(&[0.02, 0.10, 0.20], true);
-    let faces = result
-        .corner_patches
-        .iter()
-        .map(|patch| patch.face)
-        .collect::<Vec<_>>();
+    let declined = result.repair_report.apex_diagnostics.iter().any(|d| {
+        matches!(
+            d,
+            popkern_blend::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp_binonic.promotion.declined"
+        )
+    });
+    assert!(declined, "cube_extreme must record the promotion decline");
+    let faces = cap_faces_from_result(&result);
     let patches = collect_patches(&result.brep, &faces);
-    assert_eq!(edges.len(), 3);
     assert_eq!(
         patches.len(),
         3,
-        "cube_extreme should reach a measurable K-P/Gregory ring"
+        "cube_extreme serves a measurable 3-patch ring"
     );
-    assert_all_binonic(&patches, "cube_extreme");
-    assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .all(|diagnostic| {
-                !matches!(
-                    diagnostic,
-                    popkern_blend::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                        if cap.stage == "kp_binonic.promotion"
-                            && cap.code == "kp_binonic.promotion.outer_boundary_residual_exceeded"
-                )
-            }),
-        "cube_extreme should no longer demote K-P/binonic on outer-boundary residual"
-    );
-}
-
-/// The flagged bi-nonic ring on cube_extreme is NOT commercial
-/// (PK-498, PK-539). It passed while the ring measured G1 as
-/// cross-tangent coplanarity and G2 along the seam only. The honest
-/// measures, cross-checked against the pcurve-true live-seam metric,
-/// read spoke G1 6.0e-2 and transverse G2 1.97 on every seam
-/// (mid-seam). G0 stays exact. G1/G2 are regression pins on the
-/// measured values until PK-539.
-#[test]
-fn binonic_cube_extreme_ring_measures_its_spoke_continuity_honestly() {
-    let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
-    println!(
-        "binonic cube_extreme: g0={:.3e} g1={:.3e} g2={:.3e} per seam {:?}",
-        m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual, m.per_seam
-    );
+    let m = measure_ring(&patches, N_SAMPLES);
     assert!(m.worst_g0_gap < helpers::G0_GATE, "G0 must stay exact");
-    assert!(m.worst_g1_normal <= 0.1, "G1 regressed past the PK-539 pin");
     assert!(
-        m.worst_g2_residual <= 2.0,
-        "G2 regressed past the PK-539 pin"
+        m.worst_g1_normal > helpers::G1_GATE,
+        "the served fallback ring is below commercial G1 (measured 0.29)"
     );
+    for patch in &result.corner_patches {
+        assert_eq!(
+            patch.achieved_continuity,
+            popkern_blend::ContinuityLevel::G0,
+            "the claim must match the measurement"
+        );
+    }
 }
 
 // pyramid4_mixed: no binonic gate. PK-099's orientation-honest
@@ -314,7 +264,7 @@ fn exact_boundary_route_matches_with_binonic_flag_on_cube_mixed() {
 // variant (not a lower rung) is what ships.
 
 #[test]
-fn cube_extreme_ships_binonic_no_warning() {
+fn cube_extreme_reports_its_measured_downgrade() {
     use popkern_blend::error::BlendWarning;
     use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
     use popkern_core::tolerance::Tolerance;
@@ -342,35 +292,30 @@ fn cube_extreme_ships_binonic_no_warning() {
     };
     let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
 
-    // (1) Binonic shipped, not two-stripe.
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
-    let patches = collect_patches(&result.brep, &faces);
+    // PK-539: the promotion declines (no fold-free G1 ring) and the
+    // corner's measured G0 surfaces as a downgrade warning, never a
+    // silent G1 claim.
+    let downgraded = result.edge_warnings.iter().any(|(_, w)| {
+        matches!(
+            w,
+            BlendWarning::CornerContinuityDowngraded {
+                requested: popkern_blend::ContinuityLevel::G1,
+                achieved: popkern_blend::ContinuityLevel::G0,
+                ..
+            }
+        )
+    });
     assert!(
-        !patches.is_empty(),
-        "cube_extreme should expose measurable binonic patches"
+        downgraded,
+        "cube_extreme must report its measured G1 -> G0 downgrade: {:?}",
+        result.edge_warnings
     );
-    for p in &patches {
-        assert!(
-            matches!(
-                p,
-                popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(_)
-            ),
-            "cube_extreme should ship binonic variant, got {p:?}"
+    for patch in &result.corner_patches {
+        assert_eq!(
+            patch.achieved_continuity,
+            popkern_blend::ContinuityLevel::G0
         );
     }
-
-    // (2) No CornerContinuityRelaxed warning once binonic shipping
-    // is restored.
-    let relaxed_warnings: Vec<_> = result
-        .edge_warnings
-        .iter()
-        .filter(|(_, w)| matches!(w, BlendWarning::CornerContinuityRelaxed { .. }))
-        .collect();
-    assert!(
-        relaxed_warnings.is_empty(),
-        "expected no CornerContinuityRelaxed warnings, got {}",
-        relaxed_warnings.len()
-    );
 }
 
 /// PK-498 positive fixture for the ring gate's negative controls: a

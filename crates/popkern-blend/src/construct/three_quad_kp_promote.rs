@@ -9,9 +9,12 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
 #[path = "three_quad_kp_candidate_selection.rs"]
 mod three_quad_kp_candidate_selection;
+#[path = "three_quad_kp_promote_declines.rs"]
+mod three_quad_kp_promote_declines;
 #[path = "three_quad_kp_ring_metrics.rs"]
 mod three_quad_kp_ring_metrics;
-pub(crate) use three_quad_kp_ring_metrics::{worst_ring_coplanarity, worst_ring_g0_gap};
+use three_quad_kp_promote_declines::{declined, declined_with_selection};
+pub(crate) use three_quad_kp_ring_metrics::{worst_ring_g0_gap, worst_ring_normal_sine};
 
 /// Promote sub-patches from `RectangularTwoStripe` to
 /// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
@@ -90,7 +93,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             None
         };
 
-    let pre_worst = worst_ring_coplanarity(sub_patches);
+    let pre_worst = worst_ring_normal_sine(sub_patches);
     let mut optimization_input = input.clone();
     optimization_input.hex_boundaries = None;
     let (guide_binonic, guide_rung_outcome) = match optimize_kp_binonic_candidate(
@@ -200,7 +203,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // catastrophically worse than the predecessor rung. Threshold
     // 1.2× absorbs floating-point wobble while catching real
     // regressions.
-    let post_worst = worst_ring_coplanarity(&binonic_gp);
+    let post_worst = worst_ring_normal_sine(&binonic_gp);
     if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
         return declined_with_selection(
             "quality_regression",
@@ -239,6 +242,30 @@ pub(super) fn promote_decomp_to_kp_binonic(
         post_worst,
     );
 
+    // PK-539: commit only a chart-honest ring. A reversal band is a
+    // boundary run whose normal opposes the patch's mid-face normal —
+    // a fold. Before the spoke gate measured the true normal sine, the
+    // orientation repair's creased output passed as G1 and cleared the
+    // bands; measured honestly it is refused (cube_extreme ladder
+    // 20..40: repaired spoke sine 0.44..0.93), and serving the banded
+    // candidate would ship a folded cap.
+    let residual_bands = super::three_quad_chart_orientation::binonic_reversal_band_count(&binonic);
+    if residual_bands > 0 {
+        return declined_with_selection(
+            "chart_reversal",
+            n,
+            Some(format!(
+                "bands={residual_bands}; candidate={candidate_provenance}"
+            )),
+            Some(residual_bands as f64),
+            Some(0.0),
+            selection_fact
+                .into_iter()
+                .chain(chart_fact)
+                .chain(rung_facts)
+                .collect(),
+        );
+    }
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
@@ -274,51 +301,6 @@ fn optimize_kp_binonic_candidate(
         .or_else(|| {
             optimize_c_twists_and_build_binonic(input, options).map(|result| (result.binonic, None))
         })
-}
-
-fn declined(
-    reason_code: &'static str,
-    n_sides: usize,
-    detail: Option<String>,
-    residual: Option<f64>,
-    tolerance: Option<f64>,
-) -> KpBinonicPromotionReport {
-    declined_with_selection(
-        reason_code,
-        n_sides,
-        detail,
-        residual,
-        tolerance,
-        Vec::new(),
-    )
-}
-
-/// Decline report carrying the boundary-candidates selection fact
-/// (and any PK-275 outer-fillet rung facts) alongside the decline
-/// itself, so a declined promotion still records which candidate
-/// paths were tried and why each fell short (PK-249 observability).
-fn declined_with_selection(
-    reason_code: &'static str,
-    n_sides: usize,
-    detail: Option<String>,
-    residual: Option<f64>,
-    tolerance: Option<f64>,
-    selection_fact: Vec<crate::types::ApexConstructionDiagnostic>,
-) -> KpBinonicPromotionReport {
-    let mut diagnostics = vec![
-        crate::construct::three_quad_kp_diagnostics::promotion_declined(
-            reason_code,
-            n_sides,
-            detail,
-            residual,
-            tolerance,
-        ),
-    ];
-    diagnostics.extend(selection_fact);
-    KpBinonicPromotionReport {
-        relaxed_coplanarity: None,
-        diagnostics,
-    }
 }
 
 /// Build a [`DirectBoundaryInput`] from the biseptic-promoted

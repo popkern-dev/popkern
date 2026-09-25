@@ -16,7 +16,7 @@ use popkern_core::geometry::gregory::{
 
 use super::{
     PROMOTED_BOUNDARY_RESIDUAL_GATE, RING_G0_GATE, RING_G1_GATE, optimize_kp_binonic_candidate,
-    worst_ring_coplanarity, worst_ring_g0_gap,
+    worst_ring_g0_gap, worst_ring_normal_sine,
 };
 
 /// The candidate the promotion will gate and commit, with its
@@ -243,7 +243,7 @@ fn promotion_gate_failure(
     if g0 > RING_G0_GATE {
         return Some(format!("g0({g0:.3e})"));
     }
-    let post_worst = worst_ring_coplanarity(&binonic_gp);
+    let post_worst = worst_ring_normal_sine(&binonic_gp);
     if post_worst > RING_G1_GATE {
         return Some(format!("g1({post_worst:.3e})"));
     }

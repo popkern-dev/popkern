@@ -40,7 +40,7 @@ use crate::geometry::{Point3, Vec3};
 /// patches that the existing `self_intersects_with_tolerance(1e-6)`
 /// gate accepts on pyramid4_mixed (4 binonic ship). cube_mixed
 /// remains rejected by the quality regression guard
-/// (`worst_ring_coplanarity` ratio > 1.2× pre-rung); Stage 3b will
+/// (`worst_ring_normal_sine` ratio > 1.2× pre-rung); Stage 3b will
 /// address that.
 pub(super) fn fill_interior_cps_via_coons(patch: &mut RectangularGregoryBiNonic) {
     for i in 3..=6 {

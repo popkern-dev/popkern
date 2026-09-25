@@ -3,7 +3,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{GregoryPatch, HexBoundaryData, RectangularGregoryBiNonic};
 
-use super::three_quad_kp_promote::{worst_ring_coplanarity, worst_ring_g0_gap};
+use super::three_quad_kp_promote::{worst_ring_g0_gap, worst_ring_normal_sine};
 
 #[derive(Clone, Copy)]
 enum RelockMode {
@@ -284,7 +284,7 @@ fn score_candidate(
     if g0 > RING_G0_GATE {
         return None;
     }
-    let post_worst = worst_ring_coplanarity(&candidate_gp);
+    let post_worst = worst_ring_normal_sine(&candidate_gp);
     if post_worst > RING_G1_GATE {
         return None;
     }

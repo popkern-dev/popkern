@@ -47,7 +47,7 @@ use super::kp_polar_bi6_diagnostics::{self, trace_polar};
 use super::kp_polar_deep_fill::{DeepFillOutcome, try_boundary_owned_deep_fill};
 use super::kp_polar_lm_optimizer::try_polar_lm_with_report;
 use super::kp_polar_weighted_f5::try_weighted_f5_profiles;
-use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
+use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_normal_sine};
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
 
@@ -223,7 +223,7 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     // F_κ ladder below. See `kp_polar_bi6_shared_net_primary` docs.
     match try_kp15_shared_net_cap(&polar, boundary_target, fillet_surfaces) {
         SharedNetOutcome::Committed(new_patches) => {
-            let worst_coplanarity = worst_ring_coplanarity(&new_patches);
+            let worst_coplanarity = worst_ring_normal_sine(&new_patches);
             new_patches
                 .into_iter()
                 .enumerate()
@@ -416,7 +416,7 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         return PolarPromoteOutcome::Rejected { diagnostics };
     };
 
-    let worst_coplanarity = worst_ring_coplanarity(&new_patches);
+    let worst_coplanarity = worst_ring_normal_sine(&new_patches);
 
     for (idx, gp) in new_patches.into_iter().enumerate() {
         sub_patches[idx] = gp;

@@ -61,6 +61,17 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
     radii: &[f64],
     pyramid_height: f64,
 ) -> BlendResult {
+    try_build_under_direct_apex_with_pyramid_height(is_pyramid, radii, pyramid_height)
+        .expect("fillet_edges succeeds under DirectApex")
+}
+
+/// [`build_under_direct_apex_with_pyramid_height`] returning the
+/// kernel's result, a transactional decline included.
+pub(crate) fn try_build_under_direct_apex_with_pyramid_height(
+    is_pyramid: bool,
+    radii: &[f64],
+    pyramid_height: f64,
+) -> Result<BlendResult, popkern_blend::BlendError> {
     let _g = popkern_blend::dispatch_overrides::SPHERE_FIT_BOUNDARY.set_guard(true);
     let tol = Tolerance::default();
     let brep = if is_pyramid {
@@ -101,7 +112,6 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
         ..FilletOptions::default()
     };
     fillet_edges(&brep, &specs, &options, tol, None)
-        .expect("fillet_edges succeeds under DirectApex")
 }
 
 pub(crate) fn count_direct_apex_fallbacks(result: &BlendResult) -> usize {

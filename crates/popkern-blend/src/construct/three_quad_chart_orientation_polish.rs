@@ -8,7 +8,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::super::super::kp_binonic_optimizer::{
-    analytic_ring_jacobian, outer_fillet_jacobian_sampled, ring_idx,
+    analytic_ring_jacobian_with, outer_fillet_jacobian_sampled, ring_idx,
 };
 use super::super::super::kp_lm_solver::LmEval;
 use super::three_quad_chart_orientation_metrics::{
@@ -197,7 +197,7 @@ impl LmEval for SeamPolishEval {
     /// — per column per iteration (measured D = 504, 40 iterations,
     /// twice per repair on the extreme ladder). Per block:
     ///
-    /// - coplanarity rows: analytic, shared ring Jacobian chained
+    /// - spoke-sine rows: analytic, shared ring Jacobian chained
     ///   through the constant seam-row selector;
     /// - folded-G2 rows: per-column FD of ONLY this block — the
     ///   rebuild is a CP overwrite and the samples are projection-
@@ -216,7 +216,12 @@ impl LmEval for SeamPolishEval {
         let m = self.selector_m.as_ref()?;
         let ring = self.build(x);
 
-        let mut jac = analytic_ring_jacobian(&ring, m, d);
+        let mut jac = analytic_ring_jacobian_with(
+            &ring,
+            m,
+            d,
+            crate::construct::kp_spoke_normal_sine::spoke_normal_sine_gradient,
+        );
 
         // Folded-G2 block: stack-linear forward FD at the same eps
         // the full-FD driver used (LmConfig.fd_eps mirrors this
@@ -283,7 +288,9 @@ fn seam_row_selector_m(n: usize) -> Vec<Vec<f64>> {
     m
 }
 
-/// Per-sample spoke coplanarity, matching the promotion metric's
+/// Per-sample spoke normal sine (PK-539: the honest G1 the promotion
+/// and the repair gate measure; the polish runs inside the fold-safe
+/// region, where the orientation-free sine is exact), matching the promotion metric's
 /// sampling so the no-regression pressure measures the same field.
 fn coplanarity_residuals(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
     let n = ring.len();
@@ -297,9 +304,9 @@ fn coplanarity_residuals(ring: &[RectangularGregoryBiNonic]) -> Vec<f64> {
             let xtan_a = a.partial_u(1.0, t);
             let xtan_b = b.partial_v(t_b, 0.0);
             let t_spoke = a.partial_v(1.0, t);
-            let numer = xtan_a.cross(&xtan_b).dot(&t_spoke).abs();
-            let denom = xtan_a.length() * xtan_b.length() * t_spoke.length();
-            out.push(if denom > 1e-300 { numer / denom } else { 0.0 });
+            out.push(crate::construct::kp_spoke_normal_sine::spoke_normal_sine(
+                xtan_a, xtan_b, t_spoke,
+            ));
         }
     }
     out

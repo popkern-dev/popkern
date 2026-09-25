@@ -52,6 +52,19 @@ pub(crate) fn analytic_ring_jacobian(
     m: &[Vec<f64>],
     d_guide: usize,
 ) -> Vec<Vec<f64>> {
+    analytic_ring_jacobian_with(ring, m, d_guide, coplanarity_gradient)
+}
+
+/// [`analytic_ring_jacobian`] for any per-sample spoke residual
+/// `f(u, v, w)` (cross tangents `u`, `v`, spoke tangent `w`), given its
+/// gradient `(∂f/∂u, ∂f/∂v, ∂f/∂w)` (`None`: the residual's
+/// ill-conditioned zero, an all-zero row).
+pub(crate) fn analytic_ring_jacobian_with(
+    ring: &[RectangularGregoryBiNonic],
+    m: &[Vec<f64>],
+    d_guide: usize,
+    gradient: impl Fn(Vec3, Vec3, Vec3) -> Option<(Vec3, Vec3, Vec3)>,
+) -> Vec<Vec<f64>> {
     let n = ring.len();
     let total_samples = n * 50;
     let mut jac = vec![vec![0.0; d_guide]; total_samples];
@@ -77,40 +90,10 @@ pub(crate) fn analytic_ring_jacobian(
             let v = b.partial_v(t_b, 0.0);
             let w = a.partial_v(1.0, t);
 
-            let cross_uv = u.cross(&v);
-            let triple = cross_uv.x * w.x + cross_uv.y * w.y + cross_uv.z * w.z;
-            let sign_t = if triple >= 0.0 { 1.0 } else { -1.0 };
-
-            let nu_sq = u.x * u.x + u.y * u.y + u.z * u.z;
-            let nv_sq = v.x * v.x + v.y * v.y + v.z * v.z;
-            let nw_sq = w.x * w.x + w.y * w.y + w.z * w.z;
-            let denom = nu_sq.sqrt() * nv_sq.sqrt() * nw_sq.sqrt();
-
             let row = spoke * 50 + s;
-            if denom < 1e-300 {
-                continue; // matches residual_vector's ill-conditioned zero
-            }
-
-            let f_val = triple.abs() / denom;
-
-            // ∂f/∂u = sign_t · (v × w) / denom − f · u / |u|²  (similarly for v, w)
-            let v_cross_w = v.cross(&w);
-            let w_cross_u = w.cross(&u);
-            let df_du = Vec3::new(
-                sign_t * v_cross_w.x / denom - f_val * u.x / nu_sq,
-                sign_t * v_cross_w.y / denom - f_val * u.y / nu_sq,
-                sign_t * v_cross_w.z / denom - f_val * u.z / nu_sq,
-            );
-            let df_dv = Vec3::new(
-                sign_t * w_cross_u.x / denom - f_val * v.x / nv_sq,
-                sign_t * w_cross_u.y / denom - f_val * v.y / nv_sq,
-                sign_t * w_cross_u.z / denom - f_val * v.z / nv_sq,
-            );
-            let df_dw = Vec3::new(
-                sign_t * cross_uv.x / denom - f_val * w.x / nw_sq,
-                sign_t * cross_uv.y / denom - f_val * w.y / nw_sq,
-                sign_t * cross_uv.z / denom - f_val * w.z / nw_sq,
-            );
+            let Some((df_du, df_dv, df_dw)) = gradient(u, v, w) else {
+                continue; // matches the residual's ill-conditioned zero
+            };
 
             // Row via chain rule.
             // ∂u_α/∂g_k = 9 · Σ_j B_j(t) · (M[a,9,j,α; k] − M[a,8,j,α; k])
@@ -380,4 +363,45 @@ pub(crate) fn outer_fillet_jacobian_sampled(
     }
 
     jac
+}
+
+/// Gradient of the normalized triple product `|(u×v)·w| / (|u||v||w|)`
+/// — the ring optimizers' search objective (see
+/// [`crate::construct::kp_spoke_normal_sine`] for why it is not a G1
+/// gate).
+fn coplanarity_gradient(u: Vec3, v: Vec3, w: Vec3) -> Option<(Vec3, Vec3, Vec3)> {
+    let cross_uv = u.cross(&v);
+    let triple = cross_uv.x * w.x + cross_uv.y * w.y + cross_uv.z * w.z;
+    let sign_t = if triple >= 0.0 { 1.0 } else { -1.0 };
+
+    let nu_sq = u.x * u.x + u.y * u.y + u.z * u.z;
+    let nv_sq = v.x * v.x + v.y * v.y + v.z * v.z;
+    let nw_sq = w.x * w.x + w.y * w.y + w.z * w.z;
+    let denom = nu_sq.sqrt() * nv_sq.sqrt() * nw_sq.sqrt();
+
+    if denom < 1e-300 {
+        return None; // matches residual_vector's ill-conditioned zero
+    }
+
+    let f_val = triple.abs() / denom;
+
+    // ∂f/∂u = sign_t · (v × w) / denom − f · u / |u|²  (similarly for v, w)
+    let v_cross_w = v.cross(&w);
+    let w_cross_u = w.cross(&u);
+    let df_du = Vec3::new(
+        sign_t * v_cross_w.x / denom - f_val * u.x / nu_sq,
+        sign_t * v_cross_w.y / denom - f_val * u.y / nu_sq,
+        sign_t * v_cross_w.z / denom - f_val * u.z / nu_sq,
+    );
+    let df_dv = Vec3::new(
+        sign_t * w_cross_u.x / denom - f_val * v.x / nv_sq,
+        sign_t * w_cross_u.y / denom - f_val * v.y / nv_sq,
+        sign_t * w_cross_u.z / denom - f_val * v.z / nv_sq,
+    );
+    let df_dw = Vec3::new(
+        sign_t * cross_uv.x / denom - f_val * w.x / nw_sq,
+        sign_t * cross_uv.y / denom - f_val * w.y / nw_sq,
+        sign_t * cross_uv.z / denom - f_val * w.z / nw_sq,
+    );
+    Some((df_du, df_dv, df_dw))
 }

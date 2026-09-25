@@ -39,31 +39,31 @@ use popkern_core::topology::BRep;
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-use helpers::{fillet_corner, incident_edges, pick_vertex_with_valence};
+use helpers::{incident_edges, pick_vertex_with_valence, try_fillet_corner_full};
 
 /// Wrap a fixture build under the apex-relocation flag set.  Returns the
 /// post-fillet BRep and the cap face handles.
 fn build_with_apex_rebuild(
     is_pyramid: bool,
     radii: &[f64],
-) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+) -> Result<popkern_blend::BlendResult, popkern_blend::BlendError> {
     // The apex-relocation passes (wide wire tolerance, face lift,
     // vertex relocation) are unconditional since #207 cleanup.
     // The sphere-fit override remains opt-in (production
     // divergence on variable-radius corners).
     let _g1 = popkern_blend::dispatch_overrides::SPHERE_FIT_BOUNDARY.set_guard(true);
 
-    if is_pyramid {
+    let (brep, vertex) = if is_pyramid {
         let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();
         let vertex = pick_vertex_with_valence(&pyr, radii.len()).unwrap();
-        let edges = incident_edges(&pyr, vertex);
-        fillet_corner(&pyr, &edges, radii, true)
+        (pyr, vertex)
     } else {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();
         let vertex = cube.vertices.keys().next().unwrap();
-        let edges = incident_edges(&cube, vertex);
-        fillet_corner(&cube, &edges, radii, true)
-    }
+        (cube, vertex)
+    };
+    let edges = incident_edges(&brep, vertex);
+    try_fillet_corner_full(&brep, &edges, radii, true, false)
 }
 
 /// Decomposition of `validate_all` errors into apex-relocation concern
@@ -140,6 +140,8 @@ fn uniform_fixtures_apex_rebuild_clean() {
         // rings (measured on-surface deviation ≤ 3.8e-14), so every
         // fixture serves validate_all with zero geometric errors.
         max_other_geometric: usize,
+        /// PK-539: the fixture declines transactionally (see below).
+        declines: bool,
     }
     let cases: &[Case] = &[
         Case {
@@ -147,22 +149,65 @@ fn uniform_fixtures_apex_rebuild_clean() {
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: false,
             max_other_geometric: 0,
+            declines: false,
         },
         Case {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
             max_other_geometric: 0,
+            declines: true,
         },
         Case {
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
             max_other_geometric: 0,
+            declines: false,
         },
     ];
     for case in cases {
-        let (brep, _faces) = build_with_apex_rebuild(case.is_pyramid, case.radii);
+        let built = build_with_apex_rebuild(case.is_pyramid, case.radii);
+        if case.declines {
+            // PK-539: pyramid3_uniform's base corner served only as a
+            // bi-nonic ring whose cap seams certify at normal sines
+            // 0.25..0.87 (the coplanarity gate passed it; both of its
+            // candidates fold across the spokes). Gated honestly the
+            // promotion declines, the pre-promotion rung's trims come
+            // out off their faces (1.06e-1, the PK-236 class; the
+            // same with the K-P flag off), and the corner declines
+            // transactionally. Follow-up: PK-545.
+            match built {
+                Err(popkern_blend::BlendError::PartialFailure {
+                    failed,
+                    partial_result,
+                    failures,
+                    ..
+                }) => {
+                    assert_eq!(failed, 1, "{}: one corner declines", case.name);
+                    assert!(
+                        format!("{failures:?}").contains("off their faces"),
+                        "{}: the decline names the curve-surface class: {failures:?}",
+                        case.name
+                    );
+                    assert_eq!(
+                        breakdown(&partial_result.validate_all()).structural,
+                        0,
+                        "{}: the partial result stays structurally sound",
+                        case.name
+                    );
+                }
+                other => panic!(
+                    "{}: expected the transactional decline, got {:?}",
+                    case.name,
+                    other.map(|_| ())
+                ),
+            }
+            continue;
+        }
+        let brep = built
+            .unwrap_or_else(|e| panic!("{}: must serve, got {e:?}", case.name))
+            .brep;
         let errors = brep.validate_all();
         let m = breakdown(&errors);
         eprintln!(

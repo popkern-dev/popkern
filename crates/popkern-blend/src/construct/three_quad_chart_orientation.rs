@@ -29,7 +29,7 @@ use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::super::kp_lm_solver::{LmConfig, run_lm};
-use super::three_quad_kp_promote::{worst_ring_coplanarity, worst_ring_g0_gap};
+use super::three_quad_kp_promote::{worst_ring_g0_gap, worst_ring_normal_sine};
 
 #[path = "three_quad_chart_orientation_g2_jacobian.rs"]
 mod three_quad_chart_orientation_g2_jacobian;
@@ -200,7 +200,7 @@ pub(in crate::construct) fn repair_chart_orientation(
         .cloned()
         .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
         .collect();
-    let pre_g1 = worst_ring_coplanarity(&ring_gp);
+    let pre_g1 = worst_ring_normal_sine(&ring_gp);
     let pre_outer = outer_fillets.map(|f| worst_outer_fillet_sin(ring, f));
 
     // ── Stage 1: constructive unfold ─────────────────────────
@@ -343,7 +343,7 @@ pub(in crate::construct) fn repair_chart_orientation(
             .cloned()
             .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
             .collect();
-        let g1 = worst_ring_coplanarity(&candidate_gp);
+        let g1 = worst_ring_normal_sine(&candidate_gp);
         if g1 <= 5.0e-2 || g1 >= 0.95 * previous_g1 {
             break;
         }
@@ -378,7 +378,7 @@ pub(in crate::construct) fn repair_chart_orientation(
     // orientation repair of a 1e-3-class ring costs some
     // coplanarity, and the pre-repair number is not reachable
     // inside the clean region.
-    let post_g1 = worst_ring_coplanarity(&repaired_gp);
+    let post_g1 = worst_ring_normal_sine(&repaired_gp);
     if post_g1 > 5.0e-2 {
         return Err(format!("g1({post_g1:.3e})"));
     }

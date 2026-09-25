@@ -2,43 +2,51 @@
 
 use super::*;
 
-/// A gently domed 3-patch ring in the three-quad layout: patch k's
-/// quad has corners `V_{k-1}` at (0,0), the hex mid-vertex `M_k` at
-/// (0,1), the ring center `C` at (1,0), and `V_k` at (1,1) — so the
-/// `u=1` row is spoke k (C→V_k) and the `v=0` column is spoke k−1
-/// reversed (V_{k-1}→C), matching the ring builder's conventions.
-/// Grids are bilinear over the quad with a mild dome so charts are
-/// healthy by construction. Adjacent patches share the spoke
-/// boundary rows exactly (both bilinear maps interpolate the same
-/// spoke segment), like any built ring.
+/// A domed 3-patch ring in the three-quad layout: patch k's quad has
+/// corners `V_{k-1}` at (0,0), the hex mid-vertex `M_k` at (0,1), the
+/// ring center `C` at (1,0), and `V_k` at (1,1) — so the `u=1` row is
+/// spoke k (C→V_k) and the `v=0` column is spoke k−1 reversed
+/// (V_{k-1}→C), matching the ring builder's conventions.
+///
+/// Every patch is the SAME smooth surface — the dome
+/// `z = 0.25 (1 − x² − y²)` over its bilinear quad — so every spoke is
+/// exactly G1 (PK-539: the former fixture was bilinear quads under
+/// a linear dome, which crease at every spoke; the coplanarity metric
+/// read those creases as G1). The lifted map has degree (2, 2), so the
+/// degree-9 grid interpolating it at 10 × 10 Chebyshev nodes
+/// reproduces it exactly.
 fn healthy_ring() -> Vec<RectangularGregoryBiNonic> {
     let rim = |angle_deg: f64| {
         let a = angle_deg.to_radians();
-        Point3::new(a.cos(), a.sin(), 0.0)
+        (a.cos(), a.sin())
     };
-    let c = Point3::new(0.0, 0.0, 0.25);
+    let nodes: Vec<f64> = (0..10)
+        .map(|a| 0.5 - 0.5 * ((2 * a + 1) as f64 * std::f64::consts::PI / 20.0).cos())
+        .collect();
+    let inverse = collocation_inverse(&nodes);
     let mut ring = Vec::new();
     for k in 0..3 {
         let v_prev = rim(120.0 * (k as f64) - 120.0);
         let m = rim(120.0 * (k as f64) - 60.0);
         let v = rim(120.0 * (k as f64));
+        let surface = |u: f64, s: f64| {
+            let x = (1.0 - u) * (1.0 - s) * v_prev.0 + (1.0 - u) * s * m.0 + u * s * v.0;
+            let y = (1.0 - u) * (1.0 - s) * v_prev.1 + (1.0 - u) * s * m.1 + u * s * v.1;
+            Point3::new(x, y, 0.25 * (1.0 - x * x - y * y))
+        };
         let mut grid = [[Point3::new(0.0, 0.0, 0.0); 10]; 10];
         for (i, row) in grid.iter_mut().enumerate() {
-            let u = (i as f64) / 9.0;
-            for (j, cell) in row.iter_mut().enumerate() {
-                let vpar = (j as f64) / 9.0;
-                let x = (1.0 - u) * (1.0 - vpar) * v_prev.x
-                    + (1.0 - u) * vpar * m.x
-                    + u * (1.0 - vpar) * c.x
-                    + u * vpar * v.x;
-                let y = (1.0 - u) * (1.0 - vpar) * v_prev.y
-                    + (1.0 - u) * vpar * m.y
-                    + u * (1.0 - vpar) * c.y
-                    + u * vpar * v.y;
-                let z = (1.0 - u) * (1.0 - vpar) * v_prev.z
-                    + (1.0 - u) * vpar * m.z
-                    + u * (1.0 - vpar) * c.z
-                    + u * vpar * v.z;
+            for (jj, cell) in row.iter_mut().enumerate() {
+                let (mut x, mut y, mut z) = (0.0, 0.0, 0.0);
+                for (a, &na) in nodes.iter().enumerate() {
+                    for (b, &nb) in nodes.iter().enumerate() {
+                        let weight = inverse[i][a] * inverse[jj][b];
+                        let p = surface(na, nb);
+                        x += weight * p.x;
+                        y += weight * p.y;
+                        z += weight * p.z;
+                    }
+                }
                 *cell = Point3::new(x, y, z);
             }
         }
@@ -47,15 +55,71 @@ fn healthy_ring() -> Vec<RectangularGregoryBiNonic> {
     ring
 }
 
-/// Fold one interior row past its rail so the natural normal
-/// reverses in a band along the `u = 1` side.
+/// Inverse of the degree-9 Bernstein collocation matrix at `nodes`
+/// (`inv[i][a]`: control point i from node value a), by Gauss–Jordan
+/// with partial pivoting.
+fn collocation_inverse(nodes: &[f64]) -> [[f64; 10]; 10] {
+    let binomial =
+        |k: usize| -> f64 { (0..k).fold(1.0, |acc, m| acc * (9 - m) as f64 / (m + 1) as f64) };
+    let mut m = [[0.0_f64; 20]; 10];
+    for (a, &t) in nodes.iter().enumerate() {
+        for (i, entry) in m[a].iter_mut().take(10).enumerate() {
+            *entry = binomial(i) * t.powi(i as i32) * (1.0 - t).powi(9 - i as i32);
+        }
+        m[a][10 + a] = 1.0;
+    }
+    for col in 0..10 {
+        let pivot = (col..10)
+            .max_by(|&x, &y| m[x][col].abs().total_cmp(&m[y][col].abs()))
+            .unwrap_or(col);
+        m.swap(col, pivot);
+        let scale = m[col][col];
+        for entry in m[col].iter_mut() {
+            *entry /= scale;
+        }
+        let pivot_row = m[col];
+        for (row, r) in m.iter_mut().enumerate() {
+            if row != col {
+                let factor = r[col];
+                for (x, p) in r.iter_mut().zip(pivot_row.iter()) {
+                    *x -= factor * p;
+                }
+            }
+        }
+    }
+    let mut inv = [[0.0_f64; 10]; 10];
+    for (row, source) in inv.iter_mut().zip(m.iter()) {
+        row.copy_from_slice(&source[10..20]);
+    }
+    inv
+}
+
+/// Fold one interior row past its rail on the OUTER side (`u = 0`,
+/// the rim V_{k-1}→M_k) so the natural normal reverses in a band there,
+/// away from the spokes.
 fn banded_ring() -> Vec<RectangularGregoryBiNonic> {
+    let mut ring = healthy_ring();
+    for j in 3..=6 {
+        let boundary = ring[1].grid[0][j];
+        let inner = ring[1].grid[1][j];
+        // Reflect row 1 across the boundary row — the chart's
+        // u-tangent reverses locally while the boundary stays put.
+        ring[1].grid[1][j] = Point3::new(
+            2.0 * boundary.x - inner.x,
+            2.0 * boundary.y - inner.y,
+            2.0 * boundary.z - inner.z,
+        );
+    }
+    ring
+}
+
+/// The same fold on the SPOKE side (`u = 1`): patch 1 folds back
+/// across its shared spoke with patch 2.
+fn spoke_folded_ring() -> Vec<RectangularGregoryBiNonic> {
     let mut ring = healthy_ring();
     for j in 3..=6 {
         let boundary = ring[1].grid[9][j];
         let inner = ring[1].grid[8][j];
-        // Reflect row 8 across the boundary row — the chart's
-        // u-tangent reverses locally while the boundary stays put.
         ring[1].grid[8][j] = Point3::new(
             2.0 * boundary.x - inner.x,
             2.0 * boundary.y - inner.y,
@@ -152,4 +216,34 @@ fn interior_relocation_is_rejected_not_accepted() {
             assert!(!reason.is_empty());
         }
     }
+}
+
+/// PK-539: a fold across a spoke is not repairable by an interior
+/// re-chart (the spoke is a shared curve), and the repair must decline
+/// it — the coplanarity gate read the folded result as G1 and the
+/// repair "succeeded" with the fold intact.
+#[test]
+fn a_fold_across_a_spoke_is_declined_not_passed() {
+    let as_gregory = |ring: Vec<RectangularGregoryBiNonic>| -> Vec<GregoryPatch> {
+        ring.into_iter()
+            .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
+            .collect()
+    };
+    let spoke_sine = super::super::three_quad_kp_promote::worst_ring_normal_sine;
+    assert!(
+        spoke_sine(&as_gregory(healthy_ring())) < 1e-9,
+        "the dome ring is G1"
+    );
+    let folded = spoke_folded_ring();
+    assert_eq!(
+        spoke_sine(&as_gregory(folded.clone())),
+        1.0,
+        "the fold reads as one"
+    );
+    let result = repair_chart_orientation(&folded, None);
+    assert!(
+        matches!(result, Err(ref reason) if reason.starts_with("g1(")),
+        "a spoke fold must be declined on G1, got {:?}",
+        result.map(|o| o.post_g1)
+    );
 }
