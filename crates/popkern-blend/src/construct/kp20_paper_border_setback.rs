@@ -6,10 +6,10 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
 use popkern_core::geometry::{Point3, Vec3};
 
-use super::junctions::{
+use super::section_path::SectionPath;
+use super::sides::{
     SetbackJunctionPolicy, SideKind, SidePath, bridge_cross_curvatures, setback_sides, unwrap_onto,
 };
-use super::section_path::SectionPath;
 use super::{
     CornerJet, CrossFieldSamples, Kp20PaperBorderExtractReport, Kp20SetbackArc, OrientedSegment,
     chi_march_calibration, corner_jets, corner_pins, elevate_cubic_row_to_sextic,

@@ -2,7 +2,7 @@
 //! `docs/architecture/saddle-corner-setback.md`).
 //!
 //! A saddle's bridged setback border is a ring of strip arcs meeting
-//! at the convex faces' rail crossings, plus a bridge conic on each
+//! at the convex faces' rail crossings, plus a rail-flat bridge on each
 //! reflex face. The pre-carve leaves a mitre complex at a saddle: rim
 //! chords to the sharp edges, and rails replaced by off-surface
 //! chords. The setback surgery's crossing carve assumes clean strip
@@ -11,7 +11,7 @@
 //! rail-spur recut where a chord replaced the rail. So the hybrid ring
 //! is carved there, side by side:
 //! - strips carry their exact section rims;
-//! - bridges carry their conics;
+//! - bridges carry their rail-flat curves;
 //! - consecutive strips share their corner vertex.
 //!
 //! The cap fan then commits on the merged blend face exactly as on a

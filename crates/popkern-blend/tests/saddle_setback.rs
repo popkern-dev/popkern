@@ -4,7 +4,7 @@
 //! notch that is x = 1, where the two convex strips' rails diverge.
 //! The setback border there is hybrid:
 //! - strip arcs meet at the convex faces' rail crossings;
-//! - a quartic bridge on the reflex face continues both rails;
+//! - a rail-flat bridge on the reflex face continues both rails;
 //! - the ring carve lays that border over the pre-carve's mitre
 //!   complex.
 //!
@@ -69,11 +69,14 @@ fn fillet_saddle(corner: Point3, radii: [FilletRadius; 3]) -> (BlendResult, Vert
     (result, vertex)
 }
 
+/// Cap-cap bar for the saddle fan (PK-538): a fifth of the commercial
+/// G1 gate. The rail-flat bridge measures 8e-8 (constant radius) and
+/// 4.2e-3 (variable radius); the ring N-quad measured 1.0.
+const CAP_CAP_G1: f64 = 1.0e-2;
+
 /// Serve evidence: the setback fan (4 sectors x 4 pieces), a clean
-/// `validate_all`, and live seams under the commercial G1 gate.
-/// - Cap-cap: measured 3.9e-2 constant and 4.7e-2 variable; the ring
-///   N-quad was at 1.0.
-/// - Cap-strip and cap-support: g0 2e-10 and 6e-7, g1 8e-4 and 1.2e-3.
+/// `validate_all`, cap-cap seams under [`CAP_CAP_G1`], and cap-strip
+/// and cap-support seams under the commercial G1 gate.
 fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) {
     let setback = result
         .corner_patches
@@ -92,7 +95,7 @@ fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) 
         seams.worst_g0_gap
     );
     assert!(
-        seams.worst_g1_normal < G1_GATE,
+        seams.worst_g1_normal < CAP_CAP_G1,
         "{name}: cap-cap g1 {:.3e}",
         seams.worst_g1_normal
     );

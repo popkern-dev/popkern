@@ -110,7 +110,8 @@ fn the_bridge_continues_both_rails_on_the_reflex_face() {
         let d2 = bridge.curve.derivative_at(t, 2);
         let tangent = d1.normalized().expect("tangent");
         assert!(tangent.dot(&along) > 1.0 - 1e-12, "t={t}: {tangent:?}");
-        // Curvature |d1 x d2| / |d1|^3 (the ellipse quarter's was 5.5).
+        // Curvature |d1 x d2| / |d1|^3 (the ellipse quarter's was 5.5):
+        // the bridge follows the rail straight at its feet.
         let kappa = d1.cross(&d2).length() / d1.length().powi(3);
         assert!(kappa < 1e-4, "t={t}: end curvature {kappa:.3e}");
     }

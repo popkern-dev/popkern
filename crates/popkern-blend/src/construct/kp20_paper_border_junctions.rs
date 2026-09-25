@@ -8,7 +8,7 @@
 //! - **Reflex face corner** (a saddle): the rails diverge. Their
 //!   virtual crossing lies behind the vertex, where a setback arc runs
 //!   on a strip buried in material. The boundary instead gets a
-//!   **bridge** on F, a conic from strip a's rail to strip b's rail.
+//!   **bridge** on F, a curve from strip a's rail to strip b's rail.
 //!
 //! The classifier reads each rail's frame at its vertex end: the
 //! direction `d` leaving the vertex, and the offset `m` from the edge
@@ -21,19 +21,20 @@
 //! strip's other corner: the foot on the rail, whose normal plane holds
 //! that corner. The strip's arc is then a pure cross-section.
 //!
-//! The bridge is a quartic that leaves p_a along rail a and arrives
-//! at p_b along rail b, both with zero curvature. Its middle control
-//! point is v, the crossing of the rails' tangent lines, and the
-//! control points either side of v are halfway along each rail.
+//! The bridge leaves p_a along rail a and arrives at p_b along rail b.
+//! It is a Bézier whose control points run along each rail's line to
+//! v, the crossing of the rails' tangent lines, so it follows each
+//! rail through [`RAIL_FLAT_ORDER`] derivatives before turning near v.
 //!
 //! A cap corner needs compatible data from both sides. Each piece's
 //! rim curvature must equal the other piece's cross-curvature.
 //! - The strip's cross direction runs along its straight ruling, so
-//!   the bridge must leave with zero curvature: an ellipse quarter
-//!   (curvature 5.5 at the notch) kept one corner crease.
+//!   the bridge must leave straight. An ellipse quarter (curvature 5.5
+//!   at the notch) left a 0.118 crease. A quartic, straight through
+//!   second order, left 3.9e-2. The rail-flat bridge leaves 8e-8.
 //! - The strip's rim, its section, curves at 1/r, and the plane's own
 //!   cross-curvature is 0. So the bridge's cross-curvature takes each
-//!   strip's section curvature at its feet ([`bridge_cross_curvatures`]).
+//!   strip's section curvature at its feet (`sides::bridge_cross_curvatures`).
 //!   The cap stays G1 to the plane along the bridge, but not G2: G2 is
 //!   unattainable at a reflex saddle's bridge feet.
 
@@ -42,6 +43,25 @@ use popkern_core::geometry::{NurbsCurve, Point3, SurfaceGeometry, Vec3};
 
 use super::kp20_paper_border_corners::pair_is_coplanar;
 use crate::fillet_surface::FilletSurfaceResult;
+
+/// Order through which a bridge runs straight along each rail at its
+/// feet. Its degree-2k Bézier has k + 1 control points on each rail's
+/// line, so derivatives 1..k at each foot lie along the rail. The KP20
+/// rim rows are degree 6, so at k = 6 the corner-side rim piece sees a
+/// straight rail through its full degree, exactly like the strip's
+/// ruling across the corner.
+///
+/// Measured on the notched-cube saddle (worst live cap-cap g1,
+/// constant / variable radius), by degree:
+///
+/// | degree | 4 | 6 | 8 | 10 | 12 | 14 | 16 |
+/// |---|---|---|---|---|---|---|---|
+/// | constant | 3.9e-2 | 1.9e-2 | 1.0e-2 | 7.5e-8 | 8.2e-8 | 7.9e-8 | 7.6e-8 |
+/// | variable | 4.7e-2 | 2.3e-2 | 1.3e-2 | 7.2e-3 | 4.2e-3 | 2.6e-3 | 1.6e-3 |
+///
+/// The constant case plateaus at exact from degree 10, and the variable
+/// case keeps falling with no cliff.
+const RAIL_FLAT_ORDER: usize = 6;
 
 /// `sin` of the apex-angle margin from 180° (5°) below which a face
 /// corner counts as flat and takes a bridge.
@@ -170,10 +190,11 @@ pub struct BridgeGeometry {
     pub start: Point3,
     /// Where it meets strip b's rail.
     pub end: Point3,
-    /// The bridge, `start` → `end`: the quartic with control points
-    /// start, ½(start + v), v, ½(end + v), end. Collinear triples at
-    /// both ends leave each rail along it with zero curvature,
-    /// matching the strips' straight rulings at the corner.
+    /// The bridge, `start` → `end`: a degree-12 Bézier with seven
+    /// control points on each rail's line, meeting at the rails'
+    /// crossing v (see [`RAIL_FLAT_ORDER`]). It runs along each rail
+    /// through six derivatives, matching the strips' straight rulings
+    /// at the corner.
     pub curve: NurbsCurve,
     /// The support plane the bridge lies in, spanned by the rails.
     pub plane: SurfaceGeometry,
@@ -230,15 +251,25 @@ pub(super) fn bridge_between(
     let u_axis = (shoulder - start)
         .normalized()
         .ok_or("degenerate bridge leg")?;
-    let half = |p: Point3| p + (shoulder - p) * 0.5;
+    // Control points: RAIL_FLAT_ORDER + 1 of them along each rail,
+    // meeting at the shoulder.
+    let k = RAIL_FLAT_ORDER;
+    let along = |p: Point3, i: usize| p + (shoulder - p) * (i as f64 / k as f64);
+    let control_points: Vec<Point3> = (0..=k)
+        .map(|i| along(start, i))
+        .chain((0..k).rev().map(|i| along(end, i)))
+        .collect();
     Ok(BridgeGeometry {
         start,
         end,
         curve: NurbsCurve {
-            degree: 4,
-            knots: vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-            control_points: vec![start, half(start), shoulder, half(end), end],
-            weights: vec![1.0; 5],
+            degree: 2 * k,
+            knots: vec![0.0; 2 * k + 1]
+                .into_iter()
+                .chain(vec![1.0; 2 * k + 1])
+                .collect(),
+            weights: vec![1.0; control_points.len()],
+            control_points,
         },
         plane: SurfaceGeometry::Plane {
             origin: start,
@@ -252,241 +283,3 @@ pub(super) fn bridge_between(
 #[cfg(test)]
 #[path = "kp20_paper_border_junctions_tests.rs"]
 mod tests;
-
-/// Which junctions a setback border may take.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SetbackJunctionPolicy {
-    /// Every junction is a corner (the convex setback; reflex rails
-    /// then meet at a gapped corner).
-    CornersOnly,
-    /// Reflex face corners take a bridge side (the saddle setback).
-    BridgeReflexFaces,
-}
-
-/// One side of the setback boundary.
-#[derive(Debug, Clone)]
-pub(super) enum SideKind {
-    /// A strip's section path.
-    Strip {
-        /// Index into the fillet surfaces.
-        fillet_index: usize,
-    },
-    /// A bridge on a reflex support face.
-    Bridge(Box<BridgeGeometry>),
-}
-
-/// One side of the setback boundary, between two junction points.
-#[derive(Debug, Clone)]
-pub(super) struct SetbackSide {
-    pub kind: SideKind,
-    pub start: Point3,
-    pub end: Point3,
-}
-
-/// The setback boundary's sides in angular order. Strip `order[k]`
-/// runs from junction k−1 to junction k. A bridge junction inserts a
-/// bridge side between its two strips, and each strip then ends at the
-/// bridge's foot on its rail. `corners[k]` is junction k's rail
-/// crossing, used at corner junctions and as the anchoring station of
-/// a bridge.
-pub(super) fn setback_sides(
-    fillet_surfaces: &[FilletSurfaceResult],
-    order: &[usize],
-    corners: &[(f64, Point3)],
-    vertex: Point3,
-    policy: SetbackJunctionPolicy,
-) -> Result<Vec<SetbackSide>, String> {
-    let n = order.len();
-    let kinds: Vec<JunctionKind> = match policy {
-        SetbackJunctionPolicy::CornersOnly => vec![JunctionKind::Corner; n],
-        SetbackJunctionPolicy::BridgeReflexFaces => (0..n)
-            .map(|k| {
-                classify_junction(
-                    &fillet_surfaces[order[k]],
-                    &fillet_surfaces[order[(k + 1) % n]],
-                    vertex,
-                )
-                // An unclassifiable junction keeps the corner.
-                .unwrap_or(JunctionKind::Corner)
-            })
-            .collect(),
-    };
-    let bridges: Vec<Option<BridgeGeometry>> = (0..n)
-        .map(|k| {
-            if kinds[k] != JunctionKind::Bridge {
-                return Ok(None);
-            }
-            let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
-            if kinds[prev] == JunctionKind::Bridge || kinds[next] == JunctionKind::Bridge {
-                return Err("a strip between two reflex faces has no anchoring corner".to_string());
-            }
-            bridge_between(
-                &fillet_surfaces[order[k]],
-                &fillet_surfaces[order[next]],
-                corners[prev].1,
-                corners[next].1,
-                vertex,
-            )
-            .map(Some)
-        })
-        .collect::<Result<_, _>>()?;
-    let mut sides = Vec::with_capacity(n + bridges.iter().flatten().count());
-    for k in 0..n {
-        let prev = (k + n - 1) % n;
-        let start = match &bridges[prev] {
-            Some(bridge) => bridge.end,
-            None => corners[prev].1,
-        };
-        let end = match &bridges[k] {
-            Some(bridge) => bridge.start,
-            None => corners[k].1,
-        };
-        sides.push(SetbackSide {
-            kind: SideKind::Strip {
-                fillet_index: order[k],
-            },
-            start,
-            end,
-        });
-        if let Some(bridge) = &bridges[k] {
-            sides.push(SetbackSide {
-                kind: SideKind::Bridge(Box::new(bridge.clone())),
-                start: bridge.start,
-                end: bridge.end,
-            });
-        }
-    }
-    Ok(sides)
-}
-
-/// A side's path on its own surface.
-#[derive(Debug, Clone)]
-pub(super) enum SidePath {
-    /// A strip's section path.
-    Strip(super::section_path::SectionPath),
-    /// A bridge quartic on its support plane.
-    Bridge(Box<BridgeGeometry>),
-}
-
-impl SidePath {
-    /// uv at path parameter `t ∈ [0, 1]` on [`Self::surface`].
-    pub(super) fn uv(&self, t: f64) -> (f64, f64) {
-        match self {
-            Self::Strip(path) => path.uv(t),
-            Self::Bridge(bridge) => plane_uv(&bridge.plane, bridge.curve.point_at(t)),
-        }
-    }
-
-    /// The surface the side lies on.
-    pub(super) fn surface<'a>(
-        &'a self,
-        fillet_surfaces: &'a [FilletSurfaceResult],
-    ) -> &'a SurfaceGeometry {
-        match self {
-            Self::Strip(path) => &fillet_surfaces[path.fillet_index].surface,
-            Self::Bridge(bridge) => &bridge.plane,
-        }
-    }
-
-    /// The strip the side runs on; `None` for a bridge.
-    pub(super) fn fillet_index(&self) -> Option<usize> {
-        match self {
-            Self::Strip(path) => Some(path.fillet_index),
-            Self::Bridge(_) => None,
-        }
-    }
-}
-
-fn plane_uv(plane: &SurfaceGeometry, p: Point3) -> (f64, f64) {
-    match plane {
-        SurfaceGeometry::Plane {
-            origin,
-            u_axis,
-            v_axis,
-            ..
-        } => ((p - *origin).dot(u_axis), (p - *origin).dot(v_axis)),
-        _ => (0.0, 0.0),
-    }
-}
-
-/// `uv` moved onto the periodic branch nearest `anchor` in each
-/// periodic direction of `surface`. A strip spans under a half turn,
-/// so its arc is the short way round. The raw corner projections
-/// straddled the cylinder seam on the saddle's convex strips, and the
-/// path ran 270° through material.
-pub(super) fn unwrap_onto(
-    surface: &SurfaceGeometry,
-    anchor: (f64, f64),
-    uv: (f64, f64),
-) -> (f64, f64) {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let (period_u, period_v) = surface.parameter_periodicity();
-    let near = |value: f64, anchor: f64, period: Option<f64>| match period {
-        Some(t) if t > 0.0 => value - ((value - anchor) / t).round() * t,
-        _ => value,
-    };
-    (
-        near(uv.0, anchor.0, period_u),
-        near(uv.1, anchor.1, period_v),
-    )
-}
-
-/// Give each bridge side's cross-curvature samples the neighbouring
-/// strips' section curvature at its feet, blended along the bridge by
-/// the same smootherstep the march uses. The plane's own
-/// cross-curvature is 0, and without this the corner blocks are
-/// incompatible. The normal part follows the march convention
-/// `n·d2 = 1.2·κ·|jet|²`, and the in-plane part (row shaping) is kept.
-pub(super) fn bridge_cross_curvatures(
-    paths: &[SidePath],
-    arcs: &[super::Kp20SetbackArc],
-    shims: &[super::OrientedSegment],
-    samples: &mut [[super::CrossFieldSamples; 2]],
-) {
-    let n = paths.len();
-    for k in 0..n {
-        if matches!(paths[k], SidePath::Bridge(_)) {
-            let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
-            bridge_side_cross_curvatures(
-                &shims[k],
-                [&shims[prev], &shims[next]],
-                [arcs[k].corner_prev, arcs[k].corner_next],
-                &mut samples[k],
-            );
-        }
-    }
-}
-
-/// [`bridge_cross_curvatures`] for one bridge side.
-fn bridge_side_cross_curvatures(
-    bridge: &super::OrientedSegment,
-    strips: [&super::OrientedSegment; 2],
-    feet: [Point3; 2],
-    samples: &mut [super::CrossFieldSamples; 2],
-) {
-    let Some(normal) = bridge.surface_normal(feet[0]).and_then(|n| n.normalized()) else {
-        return;
-    };
-    let end_jet = |half: usize| -> Option<Vec3> {
-        let jets = &samples[half].jets;
-        if half == 0 { jets.first() } else { jets.last() }.map(|(_, jet)| *jet)
-    };
-    let kappa = |end: usize| -> f64 {
-        end_jet(end)
-            .and_then(|jet| strips[end].normal_curvature(feet[end], jet * -1.0, normal))
-            .unwrap_or(0.0)
-    };
-    let (kappa_start, kappa_end) = (kappa(0), kappa(1));
-    for (half, piece) in samples.iter_mut().enumerate() {
-        for (i, (t, sample)) in piece.curvatures.iter_mut().enumerate() {
-            let Some(&(_, jet)) = piece.jets.get(i) else {
-                continue;
-            };
-            let s = 0.5 * (half as f64 + *t);
-            let w = s * s * s * (10.0 + s * (-15.0 + 6.0 * s));
-            let k = kappa_start * (1.0 - w) + kappa_end * w;
-            let in_plane = *sample - normal * sample.dot(&normal);
-            *sample = in_plane + normal * (1.2 * k * jet.dot(&jet));
-        }
-    }
-}

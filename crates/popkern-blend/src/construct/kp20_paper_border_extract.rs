@@ -47,11 +47,12 @@ mod section_fit;
 mod section_path;
 #[path = "kp20_paper_border_setback.rs"]
 mod setback;
-pub use junctions::{BridgeGeometry, SetbackJunctionPolicy};
+pub use junctions::BridgeGeometry;
 use popkern_core::geometry::gregory::elevate_cubic_row_to_sextic;
 pub use setback::{
     kp20_paper_border_from_fillet_setback, kp20_paper_border_from_fillet_setback_with,
 };
+pub use sides::SetbackJunctionPolicy;
 
 /// Extraction evidence for diagnostics and gating.
 #[derive(Debug, Clone)]
@@ -127,6 +128,8 @@ pub struct Kp20PaperBorderExtractReport {
 mod junctions;
 #[path = "kp20_paper_border_corners.rs"]
 mod kp20_paper_border_corners;
+#[path = "kp20_paper_border_sides.rs"]
+mod sides;
 
 /// One fillet's setback arc, exported for BRep topology insertion:
 /// the arc is the fillet face's new apex-side boundary, running from
