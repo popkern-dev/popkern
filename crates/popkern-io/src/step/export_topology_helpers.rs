@@ -82,6 +82,31 @@ pub(super) fn edge_curve_surface_trim_disagreement(
     sampled_surface_trim_disagreement(brep, edge, curve, SURFACE_TRIM_EDGE_CURVE_SYNTHESIS_SAMPLES)
 }
 
+/// Largest distance from a surface-trim sample to the edge curve as a
+/// point set (closest point, any parameter): independent of how the
+/// curve and its trims are parameterized.
+pub(super) fn edge_curve_surface_trim_geometric_gap(
+    brep: &BRep,
+    edge: EdgeHandle,
+    curve: &CurveOnEdge,
+) -> Option<f64> {
+    let mut max_gap = 0.0_f64;
+    for half_edge in surface_trim_sources(brep, edge) {
+        let points = sample_surface_trim_in_edge_direction(
+            brep,
+            edge,
+            half_edge,
+            SURFACE_TRIM_EDGE_CURVE_SYNTHESIS_SAMPLES,
+            f64::INFINITY,
+        )?;
+        for point in points {
+            let t = curve.geometry.closest_point(&point)?;
+            max_gap = max_gap.max(curve.geometry.point_at(t).distance_to(&point));
+        }
+    }
+    Some(max_gap)
+}
+
 pub(super) fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHandle> {
     analyze_brep_degenerate_edges(
         brep,
@@ -139,15 +164,31 @@ fn sampled_surface_trim_disagreement(
     curve: &CurveOnEdge,
     samples: usize,
 ) -> Option<f64> {
+    // The trims are sampled in the edge's vertex direction; an edge
+    // curve may be stored opposite its edge (the exporter reverses
+    // such pcurves via `pcurve_opposes_edge_curve`). Compare in both
+    // traversal directions and keep the agreeing one, or an exact arc
+    // stored opposite its edge reads a chord-sized false disagreement
+    // and is replaced by a sampled polyline (PK-554: r·√2 = 2.12 on
+    // pocketed_tray's fillet-end arc).
     let mut max_gap = 0.0_f64;
     for half_edge in surface_trim_sources(brep, edge) {
         let surface_points =
             sample_surface_trim_in_edge_direction(brep, edge, half_edge, samples, f64::INFINITY)?;
-        for (index, surface_point) in surface_points.iter().enumerate() {
-            let fraction = index as f64 / (surface_points.len().saturating_sub(1).max(1)) as f64;
-            let curve_t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
-            max_gap = max_gap.max(curve.geometry.point_at(curve_t).distance_to(surface_point));
-        }
+        let last = surface_points.len().saturating_sub(1).max(1) as f64;
+        let gap_in = |reversed: bool| {
+            surface_points
+                .iter()
+                .enumerate()
+                .map(|(index, surface_point)| {
+                    let fraction = index as f64 / last;
+                    let fraction = if reversed { 1.0 - fraction } else { fraction };
+                    let curve_t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
+                    curve.geometry.point_at(curve_t).distance_to(surface_point)
+                })
+                .fold(0.0_f64, f64::max)
+        };
+        max_gap = max_gap.max(gap_in(false).min(gap_in(true)));
     }
     Some(max_gap)
 }
@@ -375,3 +416,7 @@ pub(super) fn synthesize_plane(brep: &BRep, lh: LoopHandle) -> Result<SurfaceOnF
         orientation: true,
     })
 }
+
+#[cfg(test)]
+#[path = "export_curve_orientation_tests.rs"]
+mod curve_orientation_tests;

@@ -1,4 +1,4 @@
-//! SameParameter rebuild of foreign pcurves on import (PK-552).
+//! SameParameter rebuild of pcurves (PK-552 import, PK-554 export).
 //!
 //! popkern pcurves run co-parameterized with their edge curve: at a
 //! given fraction of the edge, the pcurve's surface image and the edge

@@ -17,7 +17,8 @@ use crate::step::export_pcurve_synthesis::step_export_pcurve_association_toleran
 use crate::step::export_topology_face_edges::pre_export_face_use_edges;
 use crate::step::export_topology_face_uses::EdgeFaceUse;
 use crate::step::export_topology_helpers::{
-    collapsed_trim_missing_curve_edges, edge_curve_surface_trim_disagreement, edge_end_vertex,
+    collapsed_trim_missing_curve_edges, edge_curve_surface_trim_disagreement,
+    edge_curve_surface_trim_geometric_gap, edge_end_vertex,
     synthesize_missing_edge_curve_from_surface_trims, synthesize_plane,
 };
 use crate::step::parser::types::EntityId;
@@ -98,7 +99,14 @@ impl ExportContext {
                                 step_export_pcurve_association_tolerance(brep)
                             );
                         }
-                        gap.is_some_and(|g| g > step_export_pcurve_association_tolerance(brep))
+                        // Replace the stored curve only when it is off its
+                        // trims as a point set; a curve merely parameterized
+                        // differently is kept exact and its pcurves are
+                        // rebuilt on it (PK-554).
+                        let tolerance = step_export_pcurve_association_tolerance(brep);
+                        gap.is_some_and(|g| g > tolerance)
+                            && edge_curve_surface_trim_geometric_gap(brep, eh, curve)
+                                .is_none_or(|g| g > tolerance)
                     })
                     .unwrap_or(curve);
                 self.export_curve(export_curve)
@@ -418,23 +426,18 @@ impl ExportContext {
         // are zero-cost. Then, in order: co-parameterize with the
         // edge's basis curve (popkern pcurves run in HALF-EDGE
         // direction; STEP associated pcurves share the 3D curve's
-        // parameterization), apply the periodic branch shift that
+        // parameterization — a pcurve parameterized differently from
+        // an exact curve is rebuilt on the curve's parameter, PK-554),
+        // apply the periodic branch shift that
         // chains this use into ITS face's UV loop contour, and map
         // popkern's chart convention to the written surface's STEP
         // parameterization (sphere latitude, `pcurve_to_step_chart`).
-        let mut nurbs = super::export_pcurve::export_pcurve_nurbs(
-            &pcurve,
-            &surface.surface.geometry,
-            brep.tolerance.linear(),
-        );
-        if super::export_periodic_branches::pcurve_opposes_edge_curve(
+        let mut nurbs = super::export_pcurve_same_parameter::export_pcurve_on_edge_curve(
             brep,
             he_handle,
-            &surface.surface.geometry,
+            &surface.surface,
             &pcurve,
-        ) {
-            super::export_periodic_branches::reverse_pcurve_nurbs(&mut nurbs);
-        }
+        );
         if let Some(&(du, dv)) = branch_shifts.shifts.get(&(face_handle, he_handle)) {
             for p in &mut nurbs.control_points {
                 p.x += du;
