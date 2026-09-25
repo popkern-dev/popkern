@@ -42,6 +42,28 @@ fn direction_parse() {
 }
 
 #[test]
+fn parametric_2d_points_and_directions_embed_at_z_zero() {
+    // A pcurve's DEFINITIONAL_REPRESENTATION is a 2-D context; writers
+    // such as OpenCASCADE emit two-coordinate points and directions.
+    let point = CartesianPoint::from_params(&[
+        p_str(""),
+        Parameter::List(vec![p_real(17.0), p_real(-30.0)]),
+    ])
+    .unwrap();
+    assert_eq!(point.coords, [17.0, -30.0, 0.0]);
+    let direction =
+        Direction::from_params(&[p_str(""), Parameter::List(vec![p_real(0.0), p_real(-1.0)])])
+            .unwrap();
+    assert_eq!(direction.ratios, [0.0, -1.0, 0.0]);
+    // Outside ISO 10303-42's 1..3 coordinates, or a one-ratio
+    // direction, is malformed.
+    let four = Parameter::List(vec![p_real(1.0); 4]);
+    assert!(CartesianPoint::from_params(&[p_str(""), four.clone()]).is_err());
+    assert!(CartesianPoint::from_params(&[p_str(""), Parameter::List(vec![])]).is_err());
+    assert!(Direction::from_params(&[p_str(""), Parameter::List(vec![p_real(1.0)])]).is_err());
+}
+
+#[test]
 fn axis2_placement_3d_parse() {
     let params = vec![p_str(""), p_ref(10), p_ref(11), Parameter::Omitted];
     let a = Axis2Placement3d::from_params(&params).unwrap();

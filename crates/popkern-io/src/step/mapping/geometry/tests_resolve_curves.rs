@@ -187,10 +187,11 @@ fn resolve_surface_curve_bad_params_returns_none() {
 
 #[test]
 fn resolve_point_bad_params_returns_none() {
+    // Four coordinates exceed ISO 10303-42's LIST [1:3].
     let g = graph(vec![ent(
         1,
         "CARTESIAN_POINT",
-        vec![s(""), l(vec![r(1.0), r(2.0)])],
+        vec![s(""), l(vec![r(1.0), r(2.0), r(3.0), r(4.0)])],
     )]);
     let mut c = GeometryCache::new(&g);
     let mut log = DiagnosticLog::new();
@@ -198,12 +199,22 @@ fn resolve_point_bad_params_returns_none() {
 }
 
 #[test]
-fn resolve_direction_bad_params_returns_none() {
+fn resolve_point_2d_embeds_at_z_zero() {
     let g = graph(vec![ent(
         1,
-        "DIRECTION",
-        vec![s(""), l(vec![r(1.0), r(0.0)])],
+        "CARTESIAN_POINT",
+        vec![s(""), l(vec![r(1.0), r(2.0)])],
     )]);
+    let mut c = GeometryCache::new(&g);
+    let mut log = DiagnosticLog::new();
+    let p = c.resolve_point(1, &mut log).expect("2-D point resolves");
+    assert_eq!((p.x, p.y, p.z), (1.0, 2.0, 0.0));
+}
+
+#[test]
+fn resolve_direction_bad_params_returns_none() {
+    // One ratio cannot be a direction in a 2-D or 3-D context.
+    let g = graph(vec![ent(1, "DIRECTION", vec![s(""), l(vec![r(1.0)])])]);
     let mut c = GeometryCache::new(&g);
     let mut log = DiagnosticLog::new();
     assert!(c.resolve_direction(1, &mut log).is_none());

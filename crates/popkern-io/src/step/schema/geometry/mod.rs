@@ -13,11 +13,19 @@ use super::{
 use crate::step::parser::types::{EntityId, Parameter};
 
 /// CARTESIAN_POINT — a point defined by (x, y, z) coordinates.
+///
+/// ISO 10303-42 gives a point one to three coordinates, as many as its
+/// representation context's dimension. A pcurve's
+/// `DEFINITIONAL_REPRESENTATION` is a 2-D parametric context, and
+/// writers such as OpenCASCADE emit its points with two coordinates.
+/// Missing trailing coordinates read as 0, which embeds a 2-D point in
+/// the z = 0 plane that popkern pcurves use.
 #[derive(Debug, Clone)]
 pub struct CartesianPoint {
     /// Label name.
     pub name: String,
-    /// Coordinates `[x, y, z]`.
+    /// Coordinates `[x, y, z]` (trailing coordinates a lower-dimension
+    /// point omits are 0).
     pub coords: [f64; 3],
 }
 
@@ -28,21 +36,18 @@ impl CartesianPoint {
     pub fn from_params(params: &[Parameter]) -> Result<Self, MappingError> {
         let name = as_string(param_at(params, 0, Self::TYPE)?, Self::TYPE)?;
         let list = as_real_list(param_at(params, 1, Self::TYPE)?, Self::TYPE)?;
-        if list.len() < 3 {
-            return Err(MappingError {
-                entity_type: Self::TYPE.to_string(),
-                entity_id: None,
-                message: format!("expected 3 coordinates, got {}", list.len()),
-            });
-        }
         Ok(Self {
             name,
-            coords: [list[0], list[1], list[2]],
+            coords: padded(&list, 1, Self::TYPE, "coordinates")?,
         })
     }
 }
 
 /// DIRECTION — a unit direction vector.
+///
+/// Two ratios in a 2-D parametric context (a pcurve's line direction),
+/// three in model space; a missing `dz` reads as 0 (see
+/// [`CartesianPoint`]).
 #[derive(Debug, Clone)]
 pub struct Direction {
     /// Label name.
@@ -58,18 +63,26 @@ impl Direction {
     pub fn from_params(params: &[Parameter]) -> Result<Self, MappingError> {
         let name = as_string(param_at(params, 0, Self::TYPE)?, Self::TYPE)?;
         let list = as_real_list(param_at(params, 1, Self::TYPE)?, Self::TYPE)?;
-        if list.len() < 3 {
-            return Err(MappingError {
-                entity_type: Self::TYPE.to_string(),
-                entity_id: None,
-                message: format!("expected 3 ratios, got {}", list.len()),
-            });
-        }
         Ok(Self {
             name,
-            ratios: [list[0], list[1], list[2]],
+            ratios: padded(&list, 2, Self::TYPE, "ratios")?,
         })
     }
+}
+
+/// A 1-to-3 component list as `[x, y, z]`, trailing components 0;
+/// fewer than `min` or more than 3 components is malformed.
+fn padded(list: &[f64], min: usize, entity: &str, what: &str) -> Result<[f64; 3], MappingError> {
+    if list.len() < min || list.len() > 3 {
+        return Err(MappingError {
+            entity_type: entity.to_string(),
+            entity_id: None,
+            message: format!("expected {min} to 3 {what}, got {}", list.len()),
+        });
+    }
+    let mut out = [0.0; 3];
+    out[..list.len()].copy_from_slice(list);
+    Ok(out)
 }
 
 /// VECTOR — an oriented magnitude.

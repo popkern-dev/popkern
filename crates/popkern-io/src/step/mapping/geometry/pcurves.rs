@@ -2,6 +2,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
+use popkern_core::geometry::surface::SurfaceEval;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
@@ -30,10 +31,15 @@ impl GeometryCache<'_> {
     /// STEP permits multiple associated pcurves. Import callers that know the
     /// owning half-edge should evaluate all returned candidates against the
     /// recovered edge endpoints rather than accepting the first match.
+    ///
+    /// A pcurve whose basis surface is a different entity from
+    /// `surface_id` is accepted when the two surfaces agree along it
+    /// within `linear_tolerance` (see [`Self::basis_agrees_along`]).
     pub(crate) fn resolve_surface_curve_pcurves(
         &mut self,
         curve_id: EntityId,
         surface_id: EntityId,
+        linear_tolerance: f64,
         log: &mut DiagnosticLog,
     ) -> Vec<ResolvedStepPcurve> {
         let Some(entity) = self.graph.get(curve_id) else {
@@ -55,55 +61,115 @@ impl GeometryCache<'_> {
             return Vec::new();
         };
 
-        associated_geometry
-            .into_iter()
-            .filter_map(|pcurve_id| self.resolve_pcurve_on_surface(pcurve_id, surface_id, log))
-            .collect()
+        let mut resolved = Vec::new();
+        let mut nearest_foreign: Option<(f64, EntityId)> = None;
+        for pcurve_id in associated_geometry {
+            match self.resolve_pcurve_on_surface(pcurve_id, surface_id, linear_tolerance, log) {
+                Ok(pcurve) => resolved.push(pcurve),
+                Err(Some(gap)) if nearest_foreign.is_none_or(|(g, _)| gap < g) => {
+                    nearest_foreign = Some((gap, pcurve_id));
+                }
+                Err(_) => {}
+            }
+        }
+        // A surface curve carries one pcurve per adjacent face, so a
+        // foreign-basis pcurve that disagrees is normally the other
+        // face's. Only when none fits this face is it a defect.
+        if resolved.is_empty()
+            && let Some((gap, pcurve_id)) = nearest_foreign
+        {
+            log.warn(
+                Phase::MapGeometry,
+                Some(pcurve_id),
+                format!(
+                    "no PCURVE of #{curve_id} fits face surface #{surface_id}: nearest \
+                     foreign-basis pcurve disagrees by {gap:.3e} > {linear_tolerance:.3e}"
+                ),
+            );
+        }
+        resolved
     }
 
     fn resolve_pcurve_on_surface(
         &mut self,
         pcurve_id: EntityId,
         surface_id: EntityId,
+        linear_tolerance: f64,
         log: &mut DiagnosticLog,
-    ) -> Option<ResolvedStepPcurve> {
-        let entity = self.graph.get(pcurve_id)?;
+    ) -> Result<ResolvedStepPcurve, Option<f64>> {
+        let entity = self.graph.get(pcurve_id).ok_or(None)?;
         if entity.type_name != "PCURVE" {
-            return None;
+            return Err(None);
         }
         let pcurve = StepPcurve::from_params(&entity.params)
             .map_err(|e| log.error(Phase::MapGeometry, Some(pcurve_id), format!("{e}")))
-            .ok()?;
-        if pcurve.basis_surface != surface_id {
-            return None;
-        }
-        let curve_2d_id = self.definitional_representation_curve(pcurve.reference_curve, log)?;
-        let curve = self.resolve_curve(curve_2d_id, log)?;
+            .map_err(|()| None)?;
+        let basis_surface = pcurve.basis_surface;
+        let curve_2d_id = self
+            .definitional_representation_curve(pcurve.reference_curve, log)
+            .ok_or(None)?;
+        let curve = self.resolve_curve(curve_2d_id, log).ok_or(None)?;
         let pcurve = match curve.geometry {
-            CurveGeometry::Nurbs(nurbs) => Some(Pcurve::from_nurbs(nurbs)),
-            CurveGeometry::Line { origin, direction } => Some(Pcurve::linear(
+            CurveGeometry::Nurbs(nurbs) => Pcurve::from_nurbs(nurbs),
+            CurveGeometry::Line { origin, direction } => Pcurve::linear(
                 (origin.x, origin.y),
                 (origin.x + direction.x, origin.y + direction.y),
                 curve.t_start,
                 curve.t_end,
-            )),
+            ),
             other => {
                 log.warn(
                     Phase::MapGeometry,
                     Some(curve_2d_id),
                     format!("unsupported pcurve basis geometry: {other:?}"),
                 );
-                None
+                return Err(None);
             }
-        }?;
+        };
+        // The pcurve's coordinates live in its basis surface's chart.
         let transform = self
-            .surface_chart_transform(surface_id, log)
+            .surface_chart_transform(basis_surface, log)
             .unwrap_or_default();
-        Some(ResolvedStepPcurve {
+        let pcurve = apply_chart_transform(pcurve, transform);
+        if basis_surface != surface_id {
+            let gap = self
+                .basis_gap_along(&pcurve, (basis_surface, surface_id), log)
+                .ok_or(None)?;
+            if gap > linear_tolerance {
+                return Err(Some(gap));
+            }
+        }
+        Ok(ResolvedStepPcurve {
             pcurve_id,
             reference_curve_id: curve_2d_id,
-            pcurve: apply_chart_transform(pcurve, transform),
+            pcurve,
         })
+    }
+
+    /// How far a pcurve authored on its own copy of a surface (a
+    /// separate basis-surface entity, as OpenCASCADE writes every
+    /// PCURVE) is from being valid on the face surface: the largest
+    /// distance between the two surfaces, resolved into popkern charts,
+    /// at the pcurve's uv samples. This is agreement in the
+    /// parameterization the pcurve relies on, not merely as point sets.
+    /// `None` when either surface does not resolve.
+    fn basis_gap_along(
+        &mut self,
+        pcurve: &Pcurve,
+        (basis_surface, face_surface): (EntityId, EntityId),
+        log: &mut DiagnosticLog,
+    ) -> Option<f64> {
+        let basis = self.resolve_surface(basis_surface, true, log)?;
+        let face = self.resolve_surface(face_surface, true, log)?;
+        let mut gap = 0.0_f64;
+        for k in 0..=BASIS_AGREEMENT_SAMPLES {
+            let s = k as f64 / BASIS_AGREEMENT_SAMPLES as f64;
+            let uv = pcurve.point_at(pcurve.t_start + s * (pcurve.t_end - pcurve.t_start));
+            let a = basis.geometry.point_at(uv.x, uv.y);
+            let b = face.geometry.point_at(uv.x, uv.y);
+            gap = gap.max(a.distance_to(&b));
+        }
+        Some(gap)
     }
 
     fn definitional_representation_curve(
@@ -170,6 +236,10 @@ impl GeometryCache<'_> {
         })
     }
 }
+
+/// Uniform pcurve samples (plus one) compared between a pcurve's own
+/// basis surface and the face surface.
+const BASIS_AGREEMENT_SAMPLES: usize = 32;
 
 /// STEP→popkern pcurve coordinate transform for one basis surface.
 #[derive(Debug, Clone, Copy, Default)]
@@ -261,6 +331,66 @@ mod tests {
     use crate::step::parser::graph::EntityGraph;
     use crate::step::serializer::serialize_part21;
 
+    /// A face plane (#10), an identical copy (#11) and a copy shifted
+    /// by 1 along its normal (#12). Surface curve #40's pcurve lives on
+    /// the copy, #41's on the shifted plane (OpenCASCADE writes each
+    /// PCURVE on its own basis-surface entity).
+    const FOREIGN_BASIS_STEP: &str = "ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('','',(''),(''),'','','');
+FILE_SCHEMA(('AUTOMOTIVE_DESIGN'));
+ENDSEC;
+DATA;
+#1=CARTESIAN_POINT('',(0.,0.,0.));
+#2=DIRECTION('',(0.,0.,1.));
+#3=DIRECTION('',(1.,0.,0.));
+#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);
+#5=CARTESIAN_POINT('',(0.,0.,1.));
+#6=AXIS2_PLACEMENT_3D('',#5,#2,#3);
+#10=PLANE('',#4);
+#11=PLANE('',#4);
+#12=PLANE('',#6);
+#20=CARTESIAN_POINT('',(0.,0.));
+#21=CARTESIAN_POINT('',(1.,0.));
+#22=B_SPLINE_CURVE_WITH_KNOTS('',1,(#20,#21),.UNSPECIFIED.,.F.,.F.,(2,2),(0.,1.),.UNSPECIFIED.);
+#23=(GEOMETRIC_REPRESENTATION_CONTEXT(2) PARAMETRIC_REPRESENTATION_CONTEXT() REPRESENTATION_CONTEXT('2D SPACE',''));
+#24=DEFINITIONAL_REPRESENTATION('',(#22),#23);
+#25=PCURVE('',#11,#24);
+#26=PCURVE('',#12,#24);
+#30=VECTOR('',#3,1.);
+#31=LINE('',#1,#30);
+#40=SURFACE_CURVE('',#31,(#25),.PCURVE_S1.);
+#41=SURFACE_CURVE('',#31,(#26),.PCURVE_S1.);
+ENDSEC;
+END-ISO-10303-21;
+";
+
+    #[test]
+    fn a_pcurve_on_an_agreeing_copy_of_the_face_surface_resolves() {
+        let parsed = parse_step_file(FOREIGN_BASIS_STEP.as_bytes()).expect("parses");
+        let mut log = DiagnosticLog::new();
+        let graph = EntityGraph::build(parsed.entities, &mut log);
+        let mut geometry = GeometryCache::new(&graph);
+
+        let on_copy = geometry.resolve_surface_curve_pcurves(40, 10, 1e-6, &mut log);
+        assert_eq!(on_copy.len(), 1, "the copy agrees with the face plane");
+        assert_eq!(on_copy[0].pcurve_id, 25);
+        let uv = on_copy[0].pcurve.point_at(on_copy[0].pcurve.t_end);
+        assert!((uv.x - 1.0).abs() < 1e-12 && uv.y.abs() < 1e-12, "{uv:?}");
+        assert!(log.is_empty(), "{:?}", log.entries());
+
+        // Negative control: the shifted plane disagrees by 1 along the
+        // pcurve, so no pcurve of #41 fits the face; declined, reported.
+        let on_shifted = geometry.resolve_surface_curve_pcurves(41, 10, 1e-6, &mut log);
+        assert!(on_shifted.is_empty());
+        let warning = log
+            .warnings()
+            .find(|w| w.message.contains("no PCURVE of #41 fits face surface #10"))
+            .unwrap_or_else(|| panic!("decline reported: {:?}", log.entries()));
+        assert!(warning.message.contains("1.000e0"), "{}", warning.message);
+    }
+
     #[test]
     fn serialized_rational_pcurve_roundtrip_preserves_weights() {
         let mut export = ExportContext::new();
@@ -295,8 +425,8 @@ mod tests {
         let mut geometry = GeometryCache::new(&graph);
 
         let resolved = geometry
-            .resolve_pcurve_on_surface(pcurve_id, surface_id, &mut log)
-            .expect("pcurve should resolve on its exported surface");
+            .resolve_pcurve_on_surface(pcurve_id, surface_id, 1e-6, &mut log)
+            .unwrap_or_else(|gap| panic!("pcurve should resolve on its exported surface: {gap:?}"));
 
         assert_eq!(resolved.pcurve_id, pcurve_id);
         assert_ne!(resolved.reference_curve_id, resolved.pcurve_id);

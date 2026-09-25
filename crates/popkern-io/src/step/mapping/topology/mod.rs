@@ -269,6 +269,7 @@ fn build_brep_from_faces(
                     let pcurves = geo.resolve_surface_curve_pcurves(
                         edge_curve.edge_geometry,
                         face_info.surface_id,
+                        tolerance.linear(),
                         log,
                     );
                     if let Some(oriented) = select_orient_pcurve_to_half_edge(
