@@ -20,5 +20,6 @@ pub mod healing;
 pub mod import;
 pub mod mapping;
 pub mod parser;
+mod same_parameter;
 pub mod schema;
 pub mod serializer;

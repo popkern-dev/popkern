@@ -6,6 +6,7 @@
 //! Face data collection is in the [`face_collector`] submodule.
 
 mod face_collector;
+mod half_edge_use;
 mod import_fidelity_diagnostics;
 mod open_shell;
 mod pcurve_orientation;
@@ -19,7 +20,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::brep::BRep;
-use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
@@ -29,7 +30,9 @@ use crate::step::schema::topology::{
     ClosedShell, EdgeCurve, ManifoldSolidBrep, OpenShell, ShellBasedSurfaceModel, VertexPoint,
 };
 
+use crate::step::same_parameter::SameParameterTally;
 use face_collector::collect_face_data;
+use half_edge_use::choose_step_half_edge_use;
 use import_fidelity_diagnostics::{
     StepHalfEdgeImportProvenance, StepTopologyImportProvenance,
     report_step_import_boundary_incidence_diagnostics, report_step_import_fidelity_diagnostics,
@@ -170,6 +173,7 @@ fn build_brep_from_faces(
     let mut edge_map: HashMap<EntityId, (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
         HashMap::new();
     let mut provenance = StepTopologyImportProvenance::default();
+    let mut same_parameter = SameParameterTally::default();
 
     let face_data = collect_face_data(graph, faces, log)?;
     let incidence_policy = if is_open_shell {
@@ -281,6 +285,9 @@ fn build_brep_from_faces(
                         tolerance,
                         log,
                     ) {
+                        if oriented.same_parameter_rebuilt {
+                            same_parameter.record(oriented.sampled_gap);
+                        }
                         builder.brep_mut().half_edges[he].pcurve = Some(oriented.pcurve);
                         provenance.half_edges.insert(
                             he,
@@ -346,38 +353,9 @@ fn build_brep_from_faces(
     if incidence_policy.downgraded_closed_shell {
         report_step_import_boundary_incidence_diagnostics(&brep, &provenance, log);
     }
+    same_parameter.report(log);
     report_step_import_fidelity_diagnostics(&brep, &provenance, tolerance, log);
     Some(brep)
-}
-
-fn choose_step_half_edge_use(
-    brep: &BRep,
-    he_fwd: HalfEdgeHandle,
-    he_rev: HalfEdgeHandle,
-    oriented_forward: bool,
-    edge_curve_id: EntityId,
-    log: &mut DiagnosticLog,
-) -> (HalfEdgeHandle, bool) {
-    let preferred = if oriented_forward { he_fwd } else { he_rev };
-    let alternate = if oriented_forward { he_rev } else { he_fwd };
-    if !half_edge_is_wired(brep, preferred) {
-        return (preferred, preferred == he_fwd);
-    }
-    if !half_edge_is_wired(brep, alternate) {
-        log.warn(
-            Phase::MapTopology,
-            Some(edge_curve_id),
-            "STEP oriented edge preferred an already wired half-edge; using available twin to preserve one face-use per half-edge",
-        );
-        return (alternate, alternate == he_fwd);
-    }
-    (preferred, preferred == he_fwd)
-}
-
-fn half_edge_is_wired(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
-    brep.half_edges
-        .get(half_edge)
-        .is_some_and(|data| data.loop_ != LoopHandle::default())
 }
 
 fn recover_edge_curve_trim(

@@ -8,12 +8,17 @@ use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::ResolvedStepPcurve;
 use crate::step::parser::types::EntityId;
 
+use crate::step::same_parameter::same_parameter_repair;
+
 #[derive(Debug, Clone)]
 pub(super) struct SelectedStepPcurve {
     pub pcurve: Pcurve,
     pub pcurve_id: EntityId,
     pub reference_curve_id: EntityId,
     pub sampled_gap: f64,
+    /// True when the file's pcurve failed the same-fraction check and
+    /// was rebuilt on the edge's parameterization (PK-552).
+    pub same_parameter_rebuilt: bool,
 }
 
 pub(super) fn select_orient_pcurve_to_half_edge(
@@ -26,7 +31,7 @@ pub(super) fn select_orient_pcurve_to_half_edge(
     log: &mut DiagnosticLog,
 ) -> Option<SelectedStepPcurve> {
     let mut best: Option<(ResolvedStepPcurve, Pcurve, f64)> = None;
-    for resolved in pcurves {
+    for resolved in &pcurves {
         let candidate = align_pcurve_candidate(
             resolved.pcurve.clone(),
             curve,
@@ -36,11 +41,28 @@ pub(super) fn select_orient_pcurve_to_half_edge(
         );
         match &best {
             Some((_, _, best_score)) if candidate.1 >= *best_score => {}
-            _ => best = Some((resolved, candidate.0, candidate.1)),
+            _ => best = Some((resolved.clone(), candidate.0, candidate.1)),
         }
     }
 
     let (resolved, pcurve, accepted_score) = best?;
+    if accepted_score > tolerance.linear()
+        && let Some((rebuilt, repair)) = pcurves
+            .iter()
+            .filter_map(|r| {
+                same_parameter_repair(&r.pcurve, curve, surface, edge_forward, tolerance.linear())
+                    .map(|repair| (r, repair))
+            })
+            .min_by(|a, b| a.1.max_gap.total_cmp(&b.1.max_gap))
+    {
+        return Some(SelectedStepPcurve {
+            pcurve: repair.pcurve,
+            pcurve_id: rebuilt.pcurve_id,
+            reference_curve_id: rebuilt.reference_curve_id,
+            sampled_gap: repair.max_gap,
+            same_parameter_rebuilt: true,
+        });
+    }
     if accepted_score > tolerance.linear() {
         log.warn(
             Phase::MapTopology,
@@ -56,6 +78,7 @@ pub(super) fn select_orient_pcurve_to_half_edge(
         pcurve_id: resolved.pcurve_id,
         reference_curve_id: resolved.reference_curve_id,
         sampled_gap: accepted_score,
+        same_parameter_rebuilt: false,
     })
 }
 

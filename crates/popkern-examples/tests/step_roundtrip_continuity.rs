@@ -282,9 +282,11 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
 ];
 
 /// Total recorded drops on the OCC leg (OpenCASCADE rewrite, then
-/// popkern-io import); the classes are the popkern leg's plus the
-/// foreign-pcurve import gaps filed as PK-552.
-const OCC_BASELINE_DROPS: usize = 76;
+/// popkern-io import): the popkern leg's 16 Gregory cap drops (PK-551)
+/// plus 5 seams whose exported 3D curve is a 17-sample polyline that
+/// OpenCASCADE re-derives its pcurves from (PK-554). PK-552's
+/// SameParameter repair retired the 55 foreign-pcurve drops.
+const OCC_BASELINE_DROPS: usize = 21;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()

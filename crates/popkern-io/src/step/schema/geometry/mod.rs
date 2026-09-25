@@ -160,6 +160,32 @@ impl Axis2Placement3d {
     }
 }
 
+/// AXIS2_PLACEMENT_2D — a 2-D coordinate system (a pcurve's conic
+/// placement in a parametric context): location and x direction; the y
+/// direction is the x direction turned a quarter turn counterclockwise.
+#[derive(Debug, Clone)]
+pub struct Axis2Placement2d {
+    /// Label name.
+    pub name: String,
+    /// Reference to the location `CARTESIAN_POINT`.
+    pub location: EntityId,
+    /// Optional reference to the x-axis `DIRECTION`.
+    pub ref_direction: Option<EntityId>,
+}
+
+impl Axis2Placement2d {
+    const TYPE: &str = "AXIS2_PLACEMENT_2D";
+
+    /// Parse from raw STEP parameters.
+    pub fn from_params(params: &[Parameter]) -> Result<Self, MappingError> {
+        Ok(Self {
+            name: as_string(param_at(params, 0, Self::TYPE)?, Self::TYPE)?,
+            location: as_entity_ref(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
+            ref_direction: as_optional_ref(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
+        })
+    }
+}
+
 /// LINE — an infinite line through a point along a direction.
 #[derive(Debug, Clone)]
 pub struct StepLine {

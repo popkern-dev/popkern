@@ -26,8 +26,8 @@ use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
 use crate::step::schema::geometry::{
-    Axis2Placement3d, BSplineCurveWithKnots, CartesianPoint, Direction, StepCircle, StepLine,
-    StepVector, SurfaceCurve,
+    Axis2Placement2d, Axis2Placement3d, BSplineCurveWithKnots, CartesianPoint, Direction,
+    StepCircle, StepLine, StepVector, SurfaceCurve,
 };
 
 /// Lazy-resolving cache for STEP geometry entities.
@@ -202,6 +202,23 @@ impl<'a> GeometryCache<'a> {
         log: &mut DiagnosticLog,
     ) -> Option<(Point3, Vec3, Vec3)> {
         let entity = self.graph.get(id)?;
+        if entity.type_name == "AXIS2_PLACEMENT_2D" {
+            // A 2-D placement (a pcurve conic's frame) is the z = 0
+            // plane's frame: z is +Z, x the given ref direction.
+            let a2p = match Axis2Placement2d::from_params(&entity.params) {
+                Ok(a) => a,
+                Err(e) => {
+                    log.error(Phase::MapGeometry, Some(id), format!("{e}"));
+                    return None;
+                }
+            };
+            let origin = self.resolve_point(a2p.location, log)?;
+            let x_axis = match a2p.ref_direction {
+                Some(ref_id) => self.resolve_direction(ref_id, log)?,
+                None => Vec3::new(1.0, 0.0, 0.0),
+            };
+            return Some((origin, Vec3::new(0.0, 0.0, 1.0), x_axis));
+        }
         let a2p = match Axis2Placement3d::from_params(&entity.params) {
             Ok(a) => a,
             Err(e) => {
