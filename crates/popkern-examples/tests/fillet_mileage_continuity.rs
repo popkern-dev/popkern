@@ -151,11 +151,12 @@ struct PartBaseline {
     /// Gated seams whose PK-499 certificate decides every gate.
     min_certified_seams: usize,
     /// Gated seams left to the sampled fallback (measured 2026-09-25:
-    /// closed boss/bushing ring rails whose projected gap bound sits
-    /// at 1.3e-5..3.9e-5 against the 1e-5 G0 gate within the evidence
-    /// budget, their G1/G2 certified; mixed-corner seams ending at a
-    /// chart pole; pentagon cap seams at blended dual-jet corners and
-    /// strips degenerating along the seam).
+    /// pentagon cap seams at blended dual-jet corners, PK-541). The
+    /// closed boss/bushing ring rails decide every gate since PK-542
+    /// (phase-shifted correspondence, merged affine polyline pcurves,
+    /// fraction continuation when witnesses coincide). Seams
+    /// into a sphere's chart pole certify chart-free since PK-543
+    /// (mixed_corner_block 7 -> 9, pentagon_tower 20 -> 40 certified).
     max_uncertified_seams: usize,
 }
 
@@ -177,8 +178,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
-        min_certified_seams: 1,
-        max_uncertified_seams: 3,
+        min_certified_seams: 4,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         name: "turned_bushing",
@@ -187,8 +188,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 2.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
-        min_certified_seams: 2,
-        max_uncertified_seams: 6,
+        min_certified_seams: 8,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         // PK-211 closed: the strip-end ruling pcurves were fit
@@ -218,8 +219,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-8,
         expected_downgrades: 0,
-        min_certified_seams: 7,
-        max_uncertified_seams: 2,
+        min_certified_seams: 9,
+        max_uncertified_seams: 0,
     },
     PartBaseline {
         // BLUNT (18°-half-angle) apex under a G2 request through the
@@ -246,8 +247,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 2.0e-3,
         g1_cap: 1.0e-1,
         expected_downgrades: 1,
-        min_certified_seams: 20,
-        max_uncertified_seams: 40,
+        min_certified_seams: 40,
+        max_uncertified_seams: 20,
     },
     PartBaseline {
         name: "double_boss_plate",
@@ -256,8 +257,8 @@ const BASELINE: &[PartBaseline] = &[
         g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
         expected_downgrades: 0,
-        min_certified_seams: 2,
-        max_uncertified_seams: 6,
+        min_certified_seams: 8,
+        max_uncertified_seams: 0,
     },
 ];
 

@@ -14,6 +14,7 @@
 
 use super::CertifyDecline;
 use super::interval::Iv;
+use super::interval_vec::IvVec3;
 use super::pcurve_jet::{PCURVE_JET_TERMS, PcurveJetSource};
 use super::surface_jet::{SurfaceJet, SurfaceJetSource};
 use super::taylor::{SEAM_TERMS, Taylor, TaylorVec3};
@@ -53,6 +54,21 @@ pub struct SideState {
     pub svv: SeriesVec,
     /// Seam tangent `dP/ds`.
     pub tangent: SeriesVec,
+    /// Chart-free geometry of an umbilic (sphere) side, when known:
+    /// its normal and second fundamental form are then taken from the
+    /// sphere itself, so a chart pole (where `S_u × S_v` vanishes)
+    /// costs nothing (PK-543).
+    pub umbilic: Option<Umbilic>,
+}
+
+/// A sphere side's intrinsic data: center and radius (exact floats as
+/// intervals).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Umbilic {
+    /// Center.
+    pub center: IvVec3,
+    /// Radius.
+    pub radius: Iv,
 }
 
 impl SideState {
@@ -66,6 +82,7 @@ impl SideState {
             suv: self.suv.hull(o.suv),
             svv: self.svv.hull(o.svv),
             tangent: self.tangent.hull(o.tangent),
+            umbilic: self.umbilic,
         }
     }
 
@@ -80,6 +97,7 @@ impl SideState {
             suv: self.suv.compose(delta),
             svv: self.svv.compose(delta),
             tangent: self.tangent.compose(delta),
+            umbilic: self.umbilic,
         }
     }
 }
@@ -141,6 +159,15 @@ impl SeamSideSource {
         })
     }
 
+    /// Attach the surface's chart-free data (a sphere) to a state.
+    fn with_umbilic(&self, mut state: SideState) -> SideState {
+        state.umbilic = self.surface.sphere().map(|(center, radius)| Umbilic {
+            center: IvVec3::from_point(center),
+            radius: Iv::point(radius),
+        });
+        state
+    }
+
     /// Seam fractions of the pcurve's interior knots.
     pub fn fraction_breaks(&self) -> Vec<f64> {
         let (t0, t1) = self.t_range;
@@ -175,7 +202,10 @@ impl SeamSideSource {
         let (pc, pc_straddle) = self.pcurve.jet_piecewise(t)?;
         let (du, dv) = increments(&pc, dt);
         let (jet, surface_straddle) = self.surface.jet_piecewise(pc.d[0].u, pc.d[0].v)?;
-        Ok((assemble(&jet, du, dv), pc_straddle || surface_straddle))
+        Ok((
+            self.with_umbilic(assemble(&jet, du, dv)),
+            pc_straddle || surface_straddle,
+        ))
     }
 
     /// One state per smooth branch the s-interval meets: each pairs a
@@ -195,7 +225,8 @@ impl SeamSideSource {
             let (du, dv) = increments(&pc, dt);
             for surface in self.surface.spans_touching(pc.d[0].u, pc.d[0].v)? {
                 let jet = self.surface.jet_in(pc.d[0].u, pc.d[0].v, surface)?;
-                out.push((SeamBranch { pcurve, surface }, assemble(&jet, du, dv)));
+                let state = self.with_umbilic(assemble(&jet, du, dv));
+                out.push((SeamBranch { pcurve, surface }, state));
             }
         }
         Ok(out)
@@ -207,7 +238,7 @@ impl SeamSideSource {
         let pc = self.pcurve.jet_in(t, branch.pcurve)?;
         let (du, dv) = increments(&pc, dt);
         let jet = self.surface.jet_in(pc.d[0].u, pc.d[0].v, branch.surface)?;
-        Ok(assemble(&jet, du, dv))
+        Ok(self.with_umbilic(assemble(&jet, du, dv)))
     }
 }
 
@@ -264,6 +295,7 @@ fn assemble(jet: &SurfaceJet, du: [Iv; PCURVE_JET_TERMS], dv: [Iv; PCURVE_JET_TE
         suv: at(1, 1),
         svv: at(0, 2),
         tangent: position.derivative_series().truncate(),
+        umbilic: None,
     }
 }
 
@@ -289,10 +321,42 @@ fn components(v: SeriesVec) -> [Series; 3] {
     [v.x, v.y, v.z]
 }
 
+/// The unit normal of a side oriented like its chart normal `S_u ×
+/// S_v`, and the Jacobian magnitude reported for it. An umbilic side
+/// uses `(C − P)/R`: the kernel's sphere chart normal points inward.
+fn side_normal(side: &SideState) -> (SeriesVec, Iv) {
+    match side.umbilic {
+        Some(u) => {
+            let inv_r = Series::constant(Iv::point(1.0) / u.radius);
+            (
+                (SeriesVec::constant(u.center) - side.p).scale(inv_r),
+                u.radius,
+            )
+        }
+        None => {
+            let n = side.su.cross(side.sv);
+            let len = n.norm();
+            (
+                n.scale(Series::constant(Iv::point(1.0)).div(len)),
+                len.value(),
+            )
+        }
+    }
+}
+
 /// The shape operator in a given tangent direction pair, by least
 /// squares chart coordinates `w = (JᵀJ)⁻¹Jᵀe` and `II(e, e′) =
 /// wᵀ H w′`, `H` the Hessian dotted with the unit normal.
 fn second_form(side: &SideState, unit_normal: SeriesVec, e: SeriesVec, f: SeriesVec) -> Series {
+    if let Some(u) = side.umbilic {
+        // Umbilic: II(e, f) = ±(e_t · f_t)/R on the tangent-plane
+        // projections; with the inward normal of the chart the sign
+        // is +, and a flipped normal flips it.
+        let project = |d: SeriesVec| d - unit_normal.scale(d.dot(unit_normal));
+        let inward = (SeriesVec::constant(u.center) - side.p).dot(unit_normal);
+        let sign = inward.div(Series::constant(u.radius));
+        return project(e).dot(project(f)).div(Series::constant(u.radius)) * sign;
+    }
     let (su, sv) = (side.su, side.sv);
     let (ee, ff, gg) = (su.dot(su), su.dot(sv), sv.dot(sv));
     let det = ee * gg - ff * ff;
@@ -313,12 +377,9 @@ fn second_form(side: &SideState, unit_normal: SeriesVec, e: SeriesVec, f: Series
 /// `flip_b` negates side b's normal into side a's hemisphere (chosen
 /// once per seam interval from its midpoint).
 pub fn seam_quantities(a: &SideState, b: &SideState, flip_b: bool) -> SeamQuantities {
-    let n_a = a.su.cross(a.sv);
-    let n_b = b.su.cross(b.sv);
-    let (len_a, len_b) = (n_a.norm(), n_b.norm());
+    let ((unit_a, len_a), (normal_b, len_b)) = (side_normal(a), side_normal(b));
     let sign = Series::constant(Iv::point(if flip_b { -1.0 } else { 1.0 }));
-    let unit_a = n_a.scale(Series::constant(Iv::point(1.0)).div(len_a));
-    let unit_b = n_b.scale(sign.div(len_b));
+    let unit_b = normal_b.scale(sign);
     let e1 = a
         .tangent
         .scale(Series::constant(Iv::point(1.0)).div(a.tangent.norm()));
@@ -335,7 +396,7 @@ pub fn seam_quantities(a: &SideState, b: &SideState, flip_b: bool) -> SeamQuanti
         gap: components(a.p - b.p),
         normal_cross: components(unit_a.cross(unit_b)),
         curvature: [ii_a[0] - ii_b[0], ii_a[1] - ii_b[1], ii_a[2] - ii_b[2]],
-        jacobian: [len_a.value(), len_b.value()],
-        normal_dot: n_a.dot(n_b).value(),
+        jacobian: [len_a, len_b],
+        normal_dot: unit_a.dot(normal_b).value(),
     }
 }

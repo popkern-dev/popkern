@@ -28,9 +28,9 @@ fn side(surface: &SurfaceGeometry, pcurve: &Pcurve) -> SeamSideSource {
     SeamSideSource::new(surface, pcurve, false).unwrap_or_else(|e| panic!("{e}"))
 }
 
-fn assert_projected_rail(cert: &SeamCertificate) {
+fn assert_projected_rail(cert: &SeamCertificate, correspondence: SeamCorrespondence) {
     assert!(cert.is_certified(), "{cert:?}");
-    assert_eq!(cert.correspondence, SeamCorrespondence::Projected);
+    assert_eq!(cert.correspondence, correspondence);
     let options = SeamCertifyOptions::for_model(R, 1e-6);
     assert!(
         cert.g0_upper <= options.correspondence_tolerance,
@@ -50,7 +50,7 @@ fn assert_projected_rail(cert: &SeamCertificate) {
 }
 
 #[test]
-fn a_phase_shifted_closed_rail_certifies_under_projection() {
+fn a_phase_shifted_closed_rail_certifies_under_its_phase_shift() {
     let cylinder = SurfaceGeometry::Cylinder {
         origin: Point3::new(0.0, 0.0, 0.0),
         axis: Vec3::new(0.0, 0.0, 1.0),
@@ -61,7 +61,7 @@ fn a_phase_shifted_closed_rail_certifies_under_projection() {
     let mut a = side(&s, &equator(1.1));
     let mut b = side(&c, &rim);
     let cert = certify_seam(&mut a, &mut b, &SeamCertifyOptions::for_model(R, 1e-6));
-    assert_projected_rail(&cert);
+    assert_projected_rail(&cert, SeamCorrespondence::PhaseShifted);
     // E2 cost gate: a full-circle rail under the order-4 Taylor forms.
     assert!(cert.intervals <= 2048, "{} intervals", cert.intervals);
 }
@@ -111,7 +111,7 @@ fn a_rational_arc_rail_against_an_angle_rail_certifies_under_projection() {
     let mut b = side(&c, &rim);
     let options = SeamCertifyOptions::for_model(R, 1e-6);
     let cert = certify_seam(&mut a, &mut b, &options);
-    assert_projected_rail(&cert);
+    assert_projected_rail(&cert, SeamCorrespondence::Projected);
     // E2 cost gate: a full-circle rail under the order-4 Taylor forms.
     assert!(cert.intervals <= 2048, "{} intervals", cert.intervals);
 }
@@ -137,5 +137,41 @@ fn a_rail_that_misses_its_partner_certifies_the_miss() {
     assert!(
         !cert.is_certified(),
         "a 1e-4 miss certified as a seam: {cert:?}"
+    );
+}
+
+/// PK-543: a seam running into a sphere's chart pole. The meridian
+/// `u = 0` from the equator to the north pole (`v → 0`, where
+/// `S_u × S_v` vanishes) against a cylinder of radius `R` about the y
+/// axis, tangent to the sphere along that great circle. The sphere
+/// side is evaluated chart-free (normal `(C − P)/R`, umbilic second
+/// form), so the pole costs nothing: G0/G1 at roundoff, the transverse
+/// curvature jump exactly `1/R`, nothing uncertified.
+#[test]
+fn a_seam_into_a_sphere_pole_certifies_chart_free() {
+    let cylinder = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 1.0, 0.0),
+        radius: R,
+    };
+    let meridian = Pcurve::linear((0.0, FRAC_PI_2), (0.0, 0.0), 0.0, 1.0);
+    // Cylinder frame: perp1 = x, perp2 = y × x = −z, so the great
+    // circle point R(sin v, 0, cos v) sits at angle θ = v − π/2.
+    let rail = Pcurve::linear((0.0, 0.0), (-FRAC_PI_2, 0.0), 0.0, 1.0);
+    let (s, c) = (sphere(), cylinder);
+    let mut a = side(&s, &meridian);
+    let mut b = side(&c, &rail);
+    let options = SeamCertifyOptions::for_model(R, 1e-6);
+    let cert = certify_seam(&mut a, &mut b, &options);
+    assert!(cert.is_certified(), "{cert:?}");
+    assert_eq!(cert.uncertified_length, 0.0);
+    assert!(
+        cert.g0_upper <= options.targets.gap && cert.g1_upper < 1e-6,
+        "{cert:?}"
+    );
+    let slack = options.targets.curvature + options.targets.relative / R;
+    assert!(
+        cert.g2_upper >= 1.0 / R && cert.g2_upper <= 1.0 / R + 2.0 * slack,
+        "{cert:?}"
     );
 }

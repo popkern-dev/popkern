@@ -205,6 +205,17 @@ impl SurfaceJetSource {
         })
     }
 
+    /// Center and radius when the surface is a sphere (its normal and
+    /// shape operator are then known without a chart).
+    pub fn sphere(&self) -> Option<(crate::geometry::Point3, f64)> {
+        match self {
+            SurfaceJetSource::Analytic(AnalyticJetSource::Sphere { center, radius }) => {
+                Some((*center, *radius))
+            }
+            _ => None,
+        }
+    }
+
     /// Interior parameter breaks (knots) in u and v; empty for the
     /// analytic kinds.
     pub fn breaks(&self) -> (Vec<f64>, Vec<f64>) {

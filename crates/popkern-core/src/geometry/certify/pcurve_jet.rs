@@ -6,6 +6,7 @@
 use super::bernstein::{self, Coef};
 use super::interval::Iv;
 use super::interval_vec::IvVec2;
+use super::pcurve_affine::AffinePolyline;
 use super::taylor::{SEAM_TAYLOR_ORDER, Taylor};
 use super::{CertifyDecline, UnsupportedGeometry};
 use crate::geometry::nurbs_curve::NurbsCurve;
@@ -47,6 +48,8 @@ pub struct PcurveJetSource {
 
 #[derive(Debug, Clone)]
 enum Kind {
+    /// A degree-1 pcurve that is one affine map up to roundoff.
+    Affine(AffinePolyline),
     Linear {
         start: (f64, f64),
         end: (f64, f64),
@@ -291,6 +294,7 @@ impl PcurveJetSource {
                 knots,
                 homogeneous,
             } => d = nurbs_jet(*degree, knots, homogeneous, t)?,
+            Kind::Affine(affine) => d = affine.jet(t),
         }
         let jet = PcurveJet { d };
         if jet.is_finite() {
@@ -363,6 +367,9 @@ fn arc_via_rational_quad(
 }
 
 fn nurbs_kind(curve: &NurbsCurve) -> Result<Kind, CertifyDecline> {
+    if let Some(affine) = AffinePolyline::of(curve) {
+        return Ok(Kind::Affine(affine));
+    }
     let n = curve.control_points.len();
     if curve.weights.len() != n || curve.knots.len() != n + curve.degree + 1 || n == 0 {
         return Err(CertifyDecline::MalformedNurbs);

@@ -184,6 +184,73 @@ impl ProjectedSide {
             .sum()
     }
 
+    /// Whether side b's seam closes (its images at σ = 0 and 1
+    /// coincide within the closure tolerance).
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    /// Float estimate of a phase-shifted correspondence
+    /// `σ(s) = φ + d·s (mod 1)`, `d = ±1`, from the foot points of side
+    /// a's seam at eight fractions — `None` unless side b is closed and
+    /// the foot points are affine in `s` to `1e-6`. Both sides of a
+    /// closed rail parameterized by angle, starting at different
+    /// phases, have exactly this correspondence (PK-542).
+    pub fn phase_estimate(&mut self, a: &mut SeamSideSource) -> Option<(f64, f64)> {
+        if !self.closed {
+            return None;
+        }
+        const SAMPLES: usize = 8;
+        let mut sigmas = Vec::with_capacity(SAMPLES + 1);
+        for k in 0..=SAMPLES {
+            let (state, _) = a.state(Iv::point(k as f64 / SAMPLES as f64)).ok()?;
+            let (p, t) = (state.p.value().mid(), state.tangent.value().mid());
+            let sigma = self.guess([p.x, p.y, p.z], [t.x, t.y, t.z]);
+            sigmas.push(sigma - sigma.floor());
+        }
+        let wrap = |x: f64| x - x.round();
+        let steps: Vec<f64> = sigmas.windows(2).map(|w| wrap(w[1] - w[0])).collect();
+        let total: f64 = steps.iter().sum();
+        let dir = if total >= 0.0 { 1.0 } else { -1.0 };
+        let expected = dir / SAMPLES as f64;
+        if (total - dir).abs() > 1e-6 || steps.iter().any(|d| (d - expected).abs() > 1e-6) {
+            return None;
+        }
+        Some((sigmas[0], dir))
+    }
+
+    /// Side b corresponded to side a by the fixed phase shift
+    /// `σ(s) = phase + dir·s` over the s-interval `s` (midpoint `m`):
+    /// per smooth branch meeting `σ(s)`, its state composed with the
+    /// linear series `Δσ = dir·δ`, and the true state at `σ(m)` as the
+    /// witness. The correspondence is certified by the gap bound
+    /// itself, as fraction correspondence is.
+    pub fn shifted_states(
+        &mut self,
+        s: Iv,
+        m: f64,
+        phase: f64,
+        dir: f64,
+    ) -> Result<ProjectedStates, ProjectionFailure> {
+        let map = |x: Iv| Iv::point(phase) + Iv::point(dir) * x;
+        let (sigma, sigma_m) = (map(s), map(Iv::point(m)));
+        let mut delta = Series::constant(Iv::point(0.0));
+        delta.c[1] = Iv::point(dir);
+        let mut out = ProjectedStates {
+            pieces: Vec::new(),
+            witnesses: Vec::new(),
+        };
+        for (branch, b_over) in self.branches(sigma)? {
+            let b_m = self.branch_state(branch, sigma_m)?;
+            out.pieces.push((b_over.compose(delta), b_m.compose(delta)));
+        }
+        let wrapped = sigma_m - Iv::point(sigma_m.mid().floor());
+        if let Ok((truth, _)) = self.source.state(wrapped) {
+            out.witnesses.push(truth);
+        }
+        Ok(out)
+    }
+
     /// Side b corresponded to one smooth branch of side a (`a` over
     /// the s-interval `s`, `a_at_m` at its midpoint `m`).
     pub fn states_along(

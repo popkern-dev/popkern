@@ -14,6 +14,16 @@ pub(super) enum SideB<'x> {
     Fraction(&'x mut SeamSideSource),
     /// Compared at certified foot points.
     Projected(&'x mut ProjectedSide),
+    /// Compared at the fixed phase-shifted fraction
+    /// `σ = phase + dir·s (mod 1)` of a closed side b.
+    Shifted {
+        /// Side b.
+        side: &'x mut ProjectedSide,
+        /// `σ(0)`.
+        phase: f64,
+        /// `dσ/ds`, ±1.
+        dir: f64,
+    },
 }
 
 /// Most smooth branch pairs one interval is enclosed through before
@@ -71,7 +81,7 @@ pub(super) fn interval_bounds(
             }
             vec![seam_quantities(&a_m, &b_m, flip)]
         }
-        SideB::Projected(projected) => {
+        SideB::Projected(_) | SideB::Shifted { .. } => {
             let failure = |f: ProjectionFailure| match f {
                 ProjectionFailure::Side(e) => InconclusiveReason::Side(1, e),
                 ProjectionFailure::NotContracting => InconclusiveReason::Correspondence,
@@ -81,9 +91,15 @@ pub(super) fn interval_bounds(
             let mut flip = None;
             for (key_a, a_t) in &branches_a {
                 let a_mk = a.state_in(point, *key_a).map_err(side(0))?;
-                let states = projected
-                    .states_along(a_t, whole, &a_mk, m)
-                    .map_err(failure)?;
+                let states = match &mut *b {
+                    SideB::Shifted { side, phase, dir } => side
+                        .shifted_states(whole, m, *phase, *dir)
+                        .map_err(failure)?,
+                    SideB::Projected(projected) => projected
+                        .states_along(a_t, whole, &a_mk, m)
+                        .map_err(failure)?,
+                    SideB::Fraction(_) => return Err(InconclusiveReason::Correspondence),
+                };
                 for (b_t, b_m) in &states.pieces {
                     let flip = *flip.get_or_insert_with(|| {
                         seam_quantities(&a_mk, b_m, false).normal_dot.mid() < 0.0

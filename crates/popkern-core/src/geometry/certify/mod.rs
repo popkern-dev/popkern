@@ -14,6 +14,7 @@ pub mod bernstein;
 pub mod interval;
 pub mod interval_vec;
 pub mod nurbs_jet;
+mod pcurve_affine;
 pub mod pcurve_jet;
 pub mod seam;
 mod seam_interval;

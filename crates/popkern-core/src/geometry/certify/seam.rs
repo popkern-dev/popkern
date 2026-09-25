@@ -100,6 +100,10 @@ pub enum SeamCorrespondence {
     /// seam point on side b's seam curve (Krawczyk; see
     /// [`super::seam_projection`]).
     Projected,
+    /// Side b (closed) is compared at the phase-shifted fraction
+    /// `σ = φ ± s (mod 1)`; like fraction correspondence, certified
+    /// by the gap bound (PK-542).
+    PhaseShifted,
 }
 
 /// Why a certificate is not a full certification.
@@ -233,18 +237,23 @@ pub fn certify_seam(
     options: &SeamCertifyOptions,
 ) -> SeamCertificate {
     // Fraction correspondence is a short probe (an eighth of the
-    // budget, at least 32 intervals): exact co-parameterized seams
-    // certify in ≤ 30 (PK-499 E1), while sides co-parameterized only
+    // budget, at least 64 intervals): exact co-parameterized seams
+    // certify in ≤ 60 (PK-499 E1, PK-542), while sides co-parameterized only
     // up to a small real mismatch would spend the budget resolving a
     // parameterization difference that is not a geometric gap —
     // projection measures the geometric gap and settles quickly
     // (measured: boss-plate ring rails spent 250 of 256 evidence
     // intervals in fraction mode before projection certified them).
     let fraction_options = SeamCertifyOptions {
-        budget: (options.budget / 8).max(32),
+        budget: (options.budget / 8).max(64).min(options.budget),
         ..*options
     };
     let fraction = certify_with(a, &mut SideB::Fraction(b), &fraction_options);
+    // Certified first, then bounds that cover the seam, then the
+    // tighter gap (the better correspondence: a probe stopped by its
+    // short budget otherwise shadows a refined alternative); a
+    // certified fraction mismatch leaves only the other modes.
+    let rank = |c: &SeamCertificate| (c.is_certified(), c.bounds_cover_seam());
     let loose_gap = fraction.g0_upper > options.correspondence_tolerance;
     let failed_correspondence = matches!(
         fraction.status,
@@ -256,16 +265,22 @@ pub fn certify_seam(
     if fraction.is_certified() {
         return fraction;
     }
-    if !(loose_gap || failed_correspondence) {
-        // The sides do correspond at equal fractions; only the probe's
-        // short budget stopped refinement. Finish in fraction mode.
-        let probe_ran_out = matches!(
-            fraction.status,
-            CertificateStatus::Inconclusive {
-                reason: InconclusiveReason::Budget,
-                ..
-            }
-        );
+    let probe_ran_out = matches!(
+        fraction.status,
+        CertificateStatus::Inconclusive {
+            reason: InconclusiveReason::Budget,
+            ..
+        }
+    );
+    // The sides correspond at equal fractions when the gap bound is
+    // already within tolerance, or when the probe merely ran out of
+    // budget while every midpoint witness shows the sides coinciding
+    // (a certified gap witness under a tenth of the tolerance): finish
+    // in fraction mode. A genuine mismatch (a phase shift, a
+    // rational-arc parameter) has witnesses above tolerance.
+    let witnesses_coincide =
+        probe_ran_out && fraction.lower[0] <= 0.1 * options.correspondence_tolerance;
+    if !failed_correspondence && (!loose_gap || witnesses_coincide) {
         return if probe_ran_out && options.budget > fraction_options.budget {
             certify_with(a, &mut SideB::Fraction(b), options)
         } else {
@@ -276,8 +291,40 @@ pub fn certify_seam(
     else {
         return fraction;
     };
+    // A closed rail parameterized by angle on both sides differs only
+    // by a phase (and direction): certify that affine correspondence
+    // directly, at fraction-mode cost, before full projection
+    // (measured: the corpus boss rings needed 339 projected intervals
+    // for the G0 decision).
+    let mut spent = fraction.intervals;
+    let mut best = fraction;
+    if let Some((phase, dir)) = projected_side.phase_estimate(a) {
+        let shifted_options = SeamCertifyOptions {
+            budget: options.budget.saturating_sub(spent).max(16) / 2,
+            ..*options
+        };
+        let mut shifted = certify_with(
+            a,
+            &mut SideB::Shifted {
+                side: &mut projected_side,
+                phase,
+                dir,
+            },
+            &shifted_options,
+        );
+        shifted.correspondence = SeamCorrespondence::PhaseShifted;
+        spent += shifted.intervals;
+        shifted.intervals = spent;
+        if shifted.is_certified() {
+            return shifted;
+        }
+        if rank(&shifted) >= rank(&best) && shifted.g0_upper < best.g0_upper {
+            best = shifted;
+        }
+    }
+    let fraction = best;
     let projected_options = SeamCertifyOptions {
-        budget: options.budget.saturating_sub(fraction.intervals).max(16),
+        budget: options.budget.saturating_sub(spent).max(16),
         ..*options
     };
     let mut projected = certify_with(
@@ -286,12 +333,7 @@ pub fn certify_seam(
         &projected_options,
     );
     projected.correspondence = SeamCorrespondence::Projected;
-    projected.intervals += fraction.intervals;
-    // Certified first, then bounds that cover the seam, then the
-    // tighter gap (the better correspondence: a fraction probe stopped
-    // by its short budget otherwise shadows a refined projection); a
-    // certified fraction mismatch leaves only the projected one.
-    let rank = |c: &SeamCertificate| (c.is_certified(), c.bounds_cover_seam());
+    projected.intervals += spent;
     let better = rank(&projected) > rank(&fraction)
         || (rank(&projected) == rank(&fraction) && projected.g0_upper < fraction.g0_upper);
     if failed_correspondence || better {
