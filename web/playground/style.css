@@ -12,6 +12,7 @@
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, sans-serif; }
 body { display: flex; flex-direction: column; }
 .muted { color: var(--muted); }
@@ -47,7 +48,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-vi
 .param-name { grid-area: name; }
 .param input[type="range"] { grid-area: slider; width: 100%; }
 .param input[type="number"] { grid-area: value; width: 100%; padding: 0.15rem 0.3rem; }
-.editor { position: relative; flex: 1; display: grid; grid-template-columns: 3rem 1fr; font-family: var(--mono); font-size: 13px; line-height: 1.45; min-height: 0; }
+.editor { position: relative; flex: 1; display: grid; grid-template-columns: 3rem 1fr; grid-template-rows: minmax(0, 1fr); overflow: hidden; font-family: var(--mono); font-size: 13px; line-height: 1.45; min-height: 0; }
 .editor-gutter { overflow: hidden; text-align: right; padding: 0.6rem 0.5rem 0.6rem 0; color: var(--muted); background: var(--panel); border-right: 1px solid var(--line); white-space: pre; user-select: none; }
 .editor-mirror, .editor-input { grid-column: 2; grid-row: 1; margin: 0; padding: 0.6rem 0.8rem; white-space: pre; overflow: auto; font: inherit; line-height: inherit; tab-size: 4; }
 .editor-mirror { color: var(--text); pointer-events: none; }

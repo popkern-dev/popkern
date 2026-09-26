@@ -67,14 +67,15 @@ fi
 # is what an in-place deploy risks on every ship. A stale root page is
 # still coherent: it points at the previous version directory, which is
 # kept (last 3 builds survive pruning).
-STAMP=$(cat web/playground/pkg/popkern_playground_bg.wasm \
-            web/playground/pkg/popkern_playground.js | sha256sum | cut -c1-12)
-VDIR="$DEST/v/$STAMP"
-STAGE="$DEST/v/.stage-$STAMP"
+#
+# The stamp hashes every staged file (path and content), not only the
+# wasm: a CSS/JS/HTML-only change must land in a new directory too, or
+# the "immutable" tree would change under an unchanged name.
 
 # tar pipe (the sandbox has no rsync) into a fresh tree, then swap it
 # in whole — a half-copied deploy is never what Caddy serves.
 mkdir -p "$DEST/v"
+STAGE="$DEST/v/.stage-$$"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 tar -C web/playground \
@@ -84,6 +85,9 @@ tar -C web/playground \
   --exclude './pkg/*.d.ts' \
   --exclude './pkg/package.json' \
   -cf - . | tar -C "$STAGE" -xf -
+STAMP=$( (cd "$STAGE" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) \
+          | sha256sum | cut -c1-12)
+VDIR="$DEST/v/$STAMP"
 rm -rf "$VDIR"
 mv "$STAGE" "$VDIR"
 

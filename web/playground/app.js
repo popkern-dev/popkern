@@ -203,7 +203,7 @@ class Page {
           ? `downgraded: ${continuity.achieved} measured, ${continuity.requested} requested`
           : `${outcome} · ${continuity.achieved} measured`;
       }
-      row.innerHTML = `<td>${label}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Ok" || outcome === "ok" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
+      row.innerHTML = `<td>${label}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
       if (Array.isArray(f.warnings) && f.warnings.length) {
         const warn = document.createElement("tr");
         warn.className = "row-warn";
