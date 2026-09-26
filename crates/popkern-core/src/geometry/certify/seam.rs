@@ -15,7 +15,7 @@
 use super::CertifyDecline;
 use super::seam_interval::SideB;
 use super::seam_projection::ProjectedSide;
-use super::seam_refine::certify_with;
+use super::seam_refine::{FractionMemo, certify_with};
 use super::seam_state::SeamSideSource;
 
 /// Refinement targets: an interval is settled once each upper bound
@@ -248,7 +248,13 @@ pub fn certify_seam(
         budget: (options.budget / 8).max(64).min(options.budget),
         ..*options
     };
-    let fraction = certify_with(a, &mut SideB::Fraction(b), &fraction_options);
+    let mut memo = FractionMemo::new();
+    let fraction = certify_with(
+        a,
+        &mut SideB::Fraction(b),
+        &fraction_options,
+        Some(&mut memo),
+    );
     // Certified first, then bounds that cover the seam, then the
     // tighter gap (the better correspondence: a probe stopped by its
     // short budget otherwise shadows a refined alternative); a
@@ -282,7 +288,7 @@ pub fn certify_seam(
         probe_ran_out && fraction.lower[0] <= 0.1 * options.correspondence_tolerance;
     if !failed_correspondence && (!loose_gap || witnesses_coincide) {
         return if probe_ran_out && options.budget > fraction_options.budget {
-            certify_with(a, &mut SideB::Fraction(b), options)
+            certify_with(a, &mut SideB::Fraction(b), options, Some(&mut memo))
         } else {
             fraction
         };
@@ -311,6 +317,7 @@ pub fn certify_seam(
                 dir,
             },
             &shifted_options,
+            None,
         );
         shifted.correspondence = SeamCorrespondence::PhaseShifted;
         spent += shifted.intervals;
@@ -331,6 +338,7 @@ pub fn certify_seam(
         a,
         &mut SideB::Projected(&mut projected_side),
         &projected_options,
+        None,
     );
     projected.correspondence = SeamCorrespondence::Projected;
     projected.intervals += spent;

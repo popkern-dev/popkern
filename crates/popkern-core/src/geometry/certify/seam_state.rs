@@ -36,6 +36,12 @@ pub struct SeamSideSource {
     pcurve: PcurveJetSource,
     t_range: (f64, f64),
     reversed: bool,
+    /// The last [`Self::state`] result whose s-set met exactly one
+    /// smooth branch: [`Self::state_in`] on that branch and s-set is
+    /// the same computation (the same span polynomials, assembled the
+    /// same way), so it is answered from here. The refinement asks
+    /// for both at every interval midpoint (PK-562).
+    last_single_branch: Option<((u64, u64), SeamBranch, SideState)>,
 }
 
 /// A side's seam state over an s-set, as series in `s`.
@@ -160,6 +166,7 @@ impl SeamSideSource {
             pcurve: PcurveJetSource::new(pcurve)?,
             t_range: (pcurve.t_start, pcurve.t_end),
             reversed,
+            last_single_branch: None,
         })
     }
 
@@ -206,10 +213,20 @@ impl SeamSideSource {
         let (pc, pc_straddle) = self.pcurve.jet_piecewise(t)?;
         let (du, dv) = increments(&pc, dt);
         let (jet, surface_straddle) = self.surface.jet_piecewise(pc.d[0].u, pc.d[0].v)?;
-        Ok((
-            self.with_umbilic(assemble(&jet, du, dv)),
-            pc_straddle || surface_straddle,
-        ))
+        let state = self.with_umbilic(assemble(&jet, du, dv));
+        let straddled = pc_straddle || surface_straddle;
+        // Unstraddled and meeting exactly one span on each side: the
+        // piecewise jets above were that branch's span jets.
+        self.last_single_branch = None;
+        if !straddled
+            && let [pcurve] = self.pcurve.spans_touching(t)[..]
+            && let Ok(spans) = self.surface.spans_touching(pc.d[0].u, pc.d[0].v)
+            && let [surface] = spans[..]
+        {
+            let branch = SeamBranch { pcurve, surface };
+            self.last_single_branch = Some(((s.lo.to_bits(), s.hi.to_bits()), branch, state));
+        }
+        Ok((state, straddled))
     }
 
     /// One state per smooth branch the s-interval meets: each pairs a
@@ -238,6 +255,12 @@ impl SeamSideSource {
 
     /// State over `s` of one branch (see [`Self::state_branches`]).
     pub fn state_in(&mut self, s: Iv, branch: SeamBranch) -> Result<SideState, CertifyDecline> {
+        if let Some((key, known, state)) = self.last_single_branch
+            && key == (s.lo.to_bits(), s.hi.to_bits())
+            && known == branch
+        {
+            return Ok(state);
+        }
         let (t, dt) = self.pcurve_parameter(s);
         let pc = self.pcurve.jet_in(t, branch.pcurve)?;
         let (du, dv) = increments(&pc, dt);

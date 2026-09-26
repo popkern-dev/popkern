@@ -32,6 +32,7 @@ const MAX_BRANCH_PAIRS: usize = 16;
 
 /// Bounds of one interval for (gap, sine, curvature): upper bounds
 /// over the interval and certified lower witnesses at its midpoint.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct IntervalBounds {
     pub(super) upper: [f64; 3],
     pub(super) lower: [f64; 3],

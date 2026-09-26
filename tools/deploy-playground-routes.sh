@@ -90,6 +90,11 @@ STAMP=$( (cd "$STAGE" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sh
 VDIR="$DEST/v/$STAMP"
 rm -rf "$VDIR"
 mv "$STAGE" "$VDIR"
+# tar restores the source tree's mtimes, so the new version directory
+# would look as old as web/playground/ and the newest-3 pruning below
+# could delete the very version the root pages are about to point at
+# (it did, 2026-09-26: the root page served a 404 wasm). Stamp it now.
+touch "$VDIR"
 
 # Root entry pages: the version's own pages with a <base> injected right
 # after <head>, so every relative URL — module imports, the worker, the

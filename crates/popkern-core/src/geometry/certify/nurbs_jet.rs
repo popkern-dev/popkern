@@ -18,6 +18,9 @@ use std::ops::Div;
 
 type Net = Vec<Vec<Coef<4>>>;
 
+#[path = "span_box.rs"]
+mod span_box;
+
 /// Most knot-span pieces one straddling box may be cut into.
 const MAX_KNOT_PIECES: usize = 64;
 
@@ -43,6 +46,8 @@ pub struct NurbsJetSource {
     /// `i_u · num_v + i_v`.
     homogeneous: Vec<Coef<4>>,
     cache: HashMap<(usize, usize), SpanNets>,
+    /// Box enclosure buffers and iso-line caches (see [`span_box`]).
+    boxes: span_box::SpanBoxEncloser,
 }
 
 impl NurbsJetSource {
@@ -88,6 +93,7 @@ impl NurbsJetSource {
             num: (surface.num_u, surface.num_v),
             homogeneous,
             cache: HashMap::new(),
+            boxes: span_box::SpanBoxEncloser::default(),
         })
     }
 
@@ -193,25 +199,7 @@ impl NurbsJetSource {
             bernstein::local_param(v.lo, span.v.0, span.v.1),
             bernstein::local_param(v.hi, span.v.0, span.v.1),
         );
-        let homogeneous: Vec<Coef<4>> = span
-            .nets
-            .iter()
-            .map(|net| {
-                if net.is_empty() || net[0].is_empty() {
-                    return [Iv::point(0.0); 4];
-                }
-                let across_u: Vec<Vec<Coef<4>>> = transpose(net)
-                    .iter()
-                    .map(|column| bernstein::restrict(column, au, bu))
-                    .collect();
-                let rows = transpose(&across_u);
-                let restricted: Vec<Coef<4>> = rows
-                    .iter()
-                    .flat_map(|row| bernstein::restrict(row, av, bv))
-                    .collect();
-                bernstein::hull(&restricted)
-            })
-            .collect();
+        let homogeneous = self.boxes.enclose((su, sv), &span.nets, (au, bu), (av, bv));
         rational_quotient(&homogeneous)
     }
 

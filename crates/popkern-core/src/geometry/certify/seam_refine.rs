@@ -4,6 +4,17 @@
 use super::seam::{CertificateStatus, InconclusiveReason, SeamCertificate, SeamCertifyOptions};
 use super::seam_interval::{IntervalBounds, SideB, interval_bounds};
 use super::seam_state::SeamSideSource;
+use std::collections::HashMap;
+
+/// Enclosures already computed for one seam under fraction
+/// correspondence, keyed by the s-interval's exact endpoints. Under
+/// fraction correspondence an interval's bounds depend only on its
+/// endpoints (the sources cache span nets, nothing else), so a later
+/// pass over the same seam — the full-budget run after a short probe
+/// ran out — reuses them bit for bit instead of re-evaluating
+/// (measured: 27-34% of all evidence certification work on the G2
+/// pyramid and boss-plate corpus was such re-evaluation, PK-562).
+pub(super) type FractionMemo = HashMap<(u64, u64), Result<IntervalBounds, InconclusiveReason>>;
 
 /// Consecutive non-improving bisection generations after which an
 /// interval settles at its bound (see the stall rule in
@@ -26,11 +37,15 @@ fn severity(reason: InconclusiveReason) -> u8 {
 }
 
 /// [`super::seam::certify_seam`] under one correspondence mode.
+/// `memo` (fraction correspondence only) reuses and records interval
+/// enclosures across passes over the same seam.
 pub(super) fn certify_with(
     a: &mut SeamSideSource,
     b: &mut SideB<'_>,
     options: &SeamCertifyOptions,
+    mut memo: Option<&mut FractionMemo>,
 ) -> SeamCertificate {
+    debug_assert!(memo.is_none() || matches!(b, SideB::Fraction(_)));
     // Projection starts finer: a Krawczyk step over a quarter of a
     // turning rail never contracts (measured on the boss-plate rings).
     let initial = if matches!(b, SideB::Projected(_)) {
@@ -80,7 +95,18 @@ pub(super) fn certify_with(
                 break;
             }
             evaluated += 1;
-            match interval_bounds(a, b, lo, hi) {
+            let key = (lo.to_bits(), hi.to_bits());
+            let result = match memo.as_deref_mut().and_then(|m| m.get(&key)) {
+                Some(known) => *known,
+                None => {
+                    let fresh = interval_bounds(a, b, lo, hi);
+                    if let Some(m) = memo.as_deref_mut() {
+                        m.insert(key, fresh);
+                    }
+                    fresh
+                }
+            };
+            match result {
                 Ok(bounds) => {
                     for (held, witness) in lower.iter_mut().zip(bounds.lower) {
                         *held = held.max(witness);

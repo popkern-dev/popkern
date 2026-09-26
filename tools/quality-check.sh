@@ -45,6 +45,8 @@ if [[ "$mode" == "--perf" ]]; then
     run_step "smooth-mesh perf budgets + thread determinism gate" \
         cargo test --release -p popkern-part \
         --test perf_budget --test thread_determinism_gate -- --nocapture
+    run_step "seam certification perf budget (PK-562)" \
+        cargo test --release -p popkern-core --test certify_perf_budget -- --nocapture
     run_step "boolean perf budgets" \
         cargo test --release -p popkern-bool --test perf_budget -- --nocapture
     run_step "tessellation perf budgets" \

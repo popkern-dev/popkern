@@ -17,12 +17,81 @@ use std::ops::Div;
 pub type Coef<const D: usize> = [Iv; D];
 
 fn lerp<const D: usize>(a: &Coef<D>, b: &Coef<D>, t: Iv) -> Coef<D> {
-    let one_minus = Iv::point(1.0) - t;
+    lerp_weighted(a, b, t, Iv::point(1.0) - t)
+}
+
+/// `(1 − t)·a + t·b` with `one_minus = 1 − t` precomputed.
+fn lerp_weighted<const D: usize>(a: &Coef<D>, b: &Coef<D>, t: Iv, one_minus: Iv) -> Coef<D> {
     let mut out = *a;
     for k in 0..D {
         out[k] = one_minus * a[k] + t * b[k];
     }
     out
+}
+
+/// One de Casteljau pass of `net` at `t` in place, keeping one side:
+/// `out` receives the left sub-net (`keep_left`) or the right one,
+/// coefficient for coefficient as [`de_casteljau_split`] builds it.
+fn de_casteljau_side<const D: usize>(
+    net: &[Coef<D>],
+    t: Iv,
+    keep_left: bool,
+    work: &mut Vec<Coef<D>>,
+    out: &mut Vec<Coef<D>>,
+) {
+    let n = net.len();
+    let one_minus = Iv::point(1.0) - t;
+    work.clear();
+    work.extend_from_slice(net);
+    out.clear();
+    out.push(if keep_left { work[0] } else { work[n - 1] });
+    for level in 1..n {
+        for i in 0..n - level {
+            work[i] = lerp_weighted(&work[i], &work[i + 1], t, one_minus);
+        }
+        out.push(if keep_left {
+            work[0]
+        } else {
+            work[n - 1 - level]
+        });
+    }
+    if !keep_left {
+        out.reverse();
+    }
+}
+
+/// Scratch buffers for [`restrict_into`], reused across calls so the
+/// per-interval restriction of every partial net allocates nothing.
+#[derive(Debug, Clone, Default)]
+pub struct RestrictScratch<const D: usize> {
+    work: Vec<Coef<D>>,
+    half: Vec<Coef<D>>,
+}
+
+/// [`restrict`] into `out` (cleared first) using `scratch`: the same
+/// arithmetic, operation for operation, without allocating.
+pub fn restrict_into<const D: usize>(
+    net: &[Coef<D>],
+    alpha: Iv,
+    beta: Iv,
+    scratch: &mut RestrictScratch<D>,
+    out: &mut Vec<Coef<D>>,
+) {
+    if net.len() == 1 || beta.hi - alpha.lo <= POINT_BOX_WIDTH {
+        let point = de_casteljau_point_with(net, alpha.hull(beta), &mut scratch.work);
+        out.clear();
+        out.push(point);
+        return;
+    }
+    let one = Iv::point(1.0);
+    let RestrictScratch { work, half } = scratch;
+    if beta.lo >= 1.0 - alpha.hi {
+        de_casteljau_side(net, beta, true, work, half);
+        de_casteljau_side(half, alpha / beta, false, work, out);
+    } else {
+        de_casteljau_side(net, alpha, false, work, half);
+        de_casteljau_side(half, (beta - alpha) / (one - alpha), true, work, out);
+    }
 }
 
 /// Blossom of the B-spline segment on knot span `span` (so
@@ -109,11 +178,22 @@ fn de_casteljau_split<const D: usize>(net: &[Coef<D>], t: Iv) -> (Vec<Coef<D>>, 
 
 /// Enclosure of the net's polynomial at local parameter `t`.
 pub fn de_casteljau_point<const D: usize>(net: &[Coef<D>], t: Iv) -> Coef<D> {
-    let mut work = net.to_vec();
+    de_casteljau_point_with(net, t, &mut Vec::new())
+}
+
+/// [`de_casteljau_point`] reusing `work`.
+fn de_casteljau_point_with<const D: usize>(
+    net: &[Coef<D>],
+    t: Iv,
+    work: &mut Vec<Coef<D>>,
+) -> Coef<D> {
+    let one_minus = Iv::point(1.0) - t;
+    work.clear();
+    work.extend_from_slice(net);
     let n = work.len();
     for level in 1..n {
         for i in 0..n - level {
-            work[i] = lerp(&work[i], &work[i + 1], t);
+            work[i] = lerp_weighted(&work[i], &work[i + 1], t, one_minus);
         }
     }
     work[0]
@@ -123,7 +203,7 @@ pub fn de_casteljau_point<const D: usize>(net: &[Coef<D>], t: Iv) -> Coef<D> {
 /// interval de Casteljau evaluation instead of a restricted net: the
 /// interval extension already encloses the range, tightly for such a
 /// box, and re-parameterizing a near-point box is ill-conditioned.
-const POINT_BOX_WIDTH: f64 = 1e-9;
+pub(super) const POINT_BOX_WIDTH: f64 = 1e-9;
 
 /// Enclosure net of the polynomial over the local interval
 /// `[alpha, beta]` (endpoints given as enclosures), whose hull
