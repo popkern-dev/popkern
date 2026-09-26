@@ -76,7 +76,15 @@ pub(crate) fn same_parameter_repair(
     loop {
         let nodes = track.follow(e0, e1, spans, &edge_point)?;
         let repair = fit_nodes(&nodes, e0, e1, surface, &edge_point)?;
-        let done = repair.max_gap <= FIT_TARGET_FRACTION * tolerance || spans >= MAX_SPANS;
+        // Stop at the target, at the span cap, or at the first doubling
+        // that fails to halve the gap: the source pcurve's own
+        // geometric gap is a floor no span count moves (PK-555: a
+        // 4.9e-7 floor drove export rebuilds to 256 spans).
+        let converging = best
+            .as_ref()
+            .is_none_or(|b| repair.max_gap < 0.5 * b.max_gap);
+        let done =
+            repair.max_gap <= FIT_TARGET_FRACTION * tolerance || spans >= MAX_SPANS || !converging;
         if best.as_ref().is_none_or(|b| repair.max_gap < b.max_gap) {
             best = Some(repair);
         }

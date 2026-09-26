@@ -16,9 +16,25 @@ import json
 import sys
 
 
+def faithful_writer_settings():
+    """The rewrite measures OCC's READER: the writer must carry the read
+    geometry back unchanged. OCC's defaults run the ToSTEP shape-
+    processing sequence at 'Average' write precision (1e-3), which
+    re-projects pcurves at OCC's default 23 samples (measured: 2.6e-3
+    trims on a tilted cylinder that OCC had read at 1e-7)."""
+    from OCP.Interface import Interface_Static
+    from OCP.STEPControl import STEPControl_Controller
+
+    STEPControl_Controller.Init_s()
+    Interface_Static.SetCVal_s("write.step.sequence", "")
+    Interface_Static.SetCVal_s("write.precision.mode", "Least")
+
+
 def rewrite(src, dst):
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Reader, STEPControl_Writer
+
+    faithful_writer_settings()
 
     reader = STEPControl_Reader()
     status = reader.ReadFile(src)

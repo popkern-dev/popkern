@@ -41,18 +41,74 @@ pub(super) fn export_pcurve_on_edge_curve(
         &surface.geometry,
         pcurve,
     );
-    if let Some(rebuilt) = rebuilt_on_curve(brep, half_edge, surface, pcurve, opposes) {
-        return rebuilt;
-    }
-    let mut nurbs = super::export_pcurve::export_pcurve_nurbs(
-        pcurve,
-        &surface.geometry,
-        brep.tolerance.linear(),
-    );
-    if opposes {
-        super::export_periodic_branches::reverse_pcurve_nurbs(&mut nurbs);
+    let mut nurbs = match rebuilt_on_curve(brep, half_edge, surface, pcurve, opposes) {
+        Some(rebuilt) => rebuilt,
+        None => {
+            let mut nurbs = super::export_pcurve::export_pcurve_nurbs(
+                pcurve,
+                &surface.geometry,
+                brep.tolerance.linear(),
+            );
+            if opposes {
+                super::export_periodic_branches::reverse_pcurve_nurbs(&mut nurbs);
+            }
+            nurbs
+        }
+    };
+    let curve = brep
+        .half_edges
+        .get(half_edge)
+        .and_then(|h| brep.edges.get(h.edge))
+        .and_then(|e| e.curve.as_ref());
+    if let Some(range) = curve.and_then(written_parameter_range) {
+        remap_knots(&mut nurbs, range);
     }
     nurbs
+}
+
+/// The parameter range the exporter's 3D curve runs over in the STEP
+/// file for this edge (PK-557): a STEP pcurve shares its surface
+/// curve's parameter VALUES, not only its fractions, or readers that
+/// check SameParameter (OpenCASCADE) re-approximate the pcurve at their
+/// own tolerance (measured: 2.6e-3 off on tilted_hole_plate's cylinder
+/// trims). LINE and B-spline curves are written in the edge's own
+/// parameter; a CIRCLE's is the angle from the written placement's x
+/// axis, which differs from popkern's circle frame by a constant.
+/// `None` for curves written in another parameterization (conics as
+/// rational B-splines) and for curves stored against their parameter
+/// direction: those pcurves keep their own knot domain.
+fn written_parameter_range(curve: &CurveOnEdge) -> Option<(f64, f64)> {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let (t0, t1) = (curve.t_start, curve.t_end);
+    if t1 <= t0 {
+        return None;
+    }
+    match &curve.geometry {
+        CurveGeometry::Line { .. } | CurveGeometry::Nurbs(_) => Some((t0, t1)),
+        CurveGeometry::Circle { center, normal, .. }
+        | CurveGeometry::Arc { center, normal, .. } => {
+            let x = super::export_nurbs::compute_perpendicular(normal);
+            let y = normal.normalized()?.cross(&x);
+            let d = curve.geometry.point_at(t0) - *center;
+            let s0 = d.dot(&y).atan2(d.dot(&x)).rem_euclid(std::f64::consts::TAU);
+            Some((s0, s0 + (t1 - t0)))
+        }
+        _ => None,
+    }
+}
+
+/// Affinely map `nurbs`'s knot vector onto `[s0, s1]` (shape unchanged).
+fn remap_knots(nurbs: &mut NurbsCurve, (s0, s1): (f64, f64)) {
+    let (Some(&k0), Some(&k1)) = (nurbs.knots.first(), nurbs.knots.last()) else {
+        return;
+    };
+    let span = k1 - k0;
+    if span.is_nan() || span <= 0.0 {
+        return;
+    }
+    for k in &mut nurbs.knots {
+        *k = s0 + (*k - k0) / span * (s1 - s0);
+    }
 }
 
 /// The pcurve rebuilt on the edge curve's parameter, when it is not
@@ -107,3 +163,7 @@ fn co_parameter_gap(
         })
         .fold(0.0_f64, f64::max)
 }
+
+#[cfg(test)]
+#[path = "export_pcurve_same_parameter_tests.rs"]
+mod tests;

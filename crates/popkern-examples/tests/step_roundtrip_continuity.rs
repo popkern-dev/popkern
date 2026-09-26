@@ -248,10 +248,13 @@ fn fixtures() -> Vec<Fixture> {
 }
 
 /// Recorded level drops per fixture on the popkern leg; `[]` = every
-/// seam keeps its certified level. The remaining class is filed:
-/// Gregory cap export (`G2->G1`) is PK-551. (PK-550 retired the
-/// conic/sinusoid pcurve class: 13 `G0->Open` and 31 `G0|G1->Unbounded`
-/// drops.) Update a row only with the measured delta.
+/// seam keeps its certified level. The remaining class is filed: the
+/// pentagonal pyramid cap's corner-cell near-base point (PK-556), which
+/// no conditioned export fit of a writable size (<= 65 x 65) resolves
+/// within the pyramid's G2 margin. Retired: PK-550 the conic/sinusoid
+/// pcurve class (13 `G0->Open`, 31 `G0|G1->Unbounded`), PK-551 the
+/// position-only Gregory fit (cube corner 6 `G2->G1`). Update a row
+/// only with the measured delta.
 const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
     ("mounting_bracket", &[]),
     ("ribbed_plate", &[]),
@@ -277,17 +280,19 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
     ("notched_flange", &[]),
     ("pentagon_tower", &[]),
     ("kp_pyramid_apex", &[("G2->G1", 10)]),
-    ("kp_cube_corner", &[("G2->G1", 6)]),
+    ("kp_cube_corner", &[]),
     ("kp_notched_saddle", &[]),
 ];
 
-/// Total recorded drops on the OCC leg (OpenCASCADE rewrite, then
-/// popkern-io import): the popkern leg's 16 Gregory cap drops (PK-551)
-/// plus tilted_hole_plate's drill-exit seam, already `Open` natively
-/// (certified gap 7.7e-6..1.27e-5 against the 1e-5 gate, PK-555), which
-/// OpenCASCADE's rewrite takes to `Unbounded`. PK-552 retired 55
-/// foreign-pcurve drops and PK-554 the 4 exported-polyline drops.
-const OCC_BASELINE_DROPS: usize = 17;
+/// Total recorded drops on the OCC leg (OpenCASCADE reads the export
+/// and writes it back with shape processing off; popkern-io imports
+/// that): the pyramid cap's 10 corner-layer seams (PK-556), and
+/// tilted_hole_plate's drill-exit seam — `Open` natively (the fixed
+/// 23-sample recompute pcurve, PK-555) and re-projected by
+/// OpenCASCADE's reader (PK-558). Retired: PK-552 the 55
+/// foreign-pcurve drops, PK-554 the 4 exported-polyline drops, PK-551
+/// the position-only Gregory fits.
+const OCC_BASELINE_DROPS: usize = 11;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()
