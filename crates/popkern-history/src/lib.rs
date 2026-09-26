@@ -26,6 +26,7 @@ pub mod config;
 pub mod config_api;
 pub(crate) mod config_eval;
 pub mod csv;
+pub mod deferred_certification;
 pub mod delete;
 mod document;
 pub mod error;
@@ -185,6 +186,9 @@ pub struct FeatureTree {
     /// Not serialized — rebuilt from features on replay after loading.
     #[serde(skip)]
     pub(crate) body_manager: BodyManager,
+    /// Session-local deferred seam certification (never serialized).
+    #[serde(skip)]
+    pub(crate) deferred: deferred_certification::DeferredCertification,
     /// Index from [`OperationId`] to [`FeatureId`] for O(1) dependency lookup.
     ///
     /// Not serialized — rebuilt from features on load via
@@ -238,6 +242,7 @@ impl FeatureTree {
             merged_into: HashMap::new(),
             cache: BRepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
+            deferred: Default::default(),
             op_index: HashMap::new(),
             undo_log: Vec::new(),
             undo_cursor: 0,

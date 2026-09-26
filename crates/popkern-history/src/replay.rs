@@ -12,8 +12,10 @@ use crate::error::ReplayError;
 use crate::feature::Feature;
 use crate::node::BodyId;
 use crate::parameter::ParameterTable;
-use crate::replay_report::{FeatureEvidence, face_census};
+use crate::replay_report::FeatureEvidence;
 
+#[path = "replay_blend.rs"]
+mod replay_blend;
 #[path = "replay_fastener.rs"]
 mod replay_fastener;
 #[path = "replay_fns.rs"]
@@ -21,13 +23,11 @@ pub(crate) mod replay_fns;
 #[path = "replay_sweep.rs"]
 mod replay_sweep;
 use replay_fns::{
-    chamfer_specs, execute_extrude, execute_sketch, fillet_specs, resolve_param, to_bool_operation,
-    to_shell_direction, to_shell_options,
+    execute_extrude, execute_sketch, resolve_param, to_bool_operation, to_shell_direction,
+    to_shell_options,
 };
 
-use crate::resolve::{
-    resolve_axis, resolve_edges, resolve_face, resolve_faces, resolve_revolve_angle,
-};
+use crate::resolve::{resolve_axis, resolve_face, resolve_faces, resolve_revolve_angle};
 
 /// Side effects produced by a successful feature execution.
 ///
@@ -58,6 +58,7 @@ pub(crate) fn execute_feature(
     param_table: &ParameterTable,
     exact_profiles: &crate::replay_exact_extrude::ExactProfileSet,
     merge_host: Option<BodyId>,
+    certification: popkern_blend::ContinuityCertification,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let exact_profile = exact_profiles.primary.as_ref();
     match feature {
@@ -142,51 +143,30 @@ pub(crate) fn execute_feature(
             edges,
             radius,
             recipe,
-        } => {
-            let edge_handles = resolve_edges(edges, brep)?;
-            let edges_requested = edge_handles.len();
-            let specs = fillet_specs(edge_handles, *radius, recipe, param_table)?;
-            let options = recipe.to_kernel_options();
-            let pre_faces = face_census(brep);
-            let result =
-                popkern_blend::fillet_edges(brep, &specs, &options, *tolerance, Some(tracking))
-                    .map_err(|e| ReplayError::FeatureFailed {
-                        label: "fillet".into(),
-                        error: crate::failure::FeatureFailure::blend(&e, Some(brep)).into(),
-                    })?;
-            let evidence = FeatureEvidence::blend(
-                &result,
-                &pre_faces,
-                edges_requested,
-                Some(options.continuity),
-            );
-            *brep = result.brep;
-            Ok(ExecuteSideEffects::reported(evidence))
-        }
+        } => replay_blend::execute_fillet(
+            brep,
+            edges,
+            *radius,
+            recipe,
+            tracking,
+            tolerance,
+            param_table,
+            certification,
+        ),
         Feature::Chamfer {
             edges,
             distance,
             kind,
-        } => {
-            let edge_handles = resolve_edges(edges, brep)?;
-            let edges_requested = edge_handles.len();
-            let specs = chamfer_specs(brep, edge_handles, *distance, kind, param_table)?;
-            let pre_faces = face_census(brep);
-            let result = popkern_blend::chamfer_edges(
-                brep,
-                &specs,
-                &popkern_blend::ChamferOptions::default(),
-                *tolerance,
-                Some(tracking),
-            )
-            .map_err(|e| ReplayError::FeatureFailed {
-                label: "chamfer".into(),
-                error: crate::failure::FeatureFailure::blend(&e, Some(brep)).into(),
-            })?;
-            let evidence = FeatureEvidence::blend(&result, &pre_faces, edges_requested, None);
-            *brep = result.brep;
-            Ok(ExecuteSideEffects::reported(evidence))
-        }
+        } => replay_blend::execute_chamfer(
+            brep,
+            edges,
+            *distance,
+            kind,
+            tracking,
+            tolerance,
+            param_table,
+            certification,
+        ),
         Feature::Boolean {
             operation,
             tool_body,

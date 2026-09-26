@@ -13,6 +13,7 @@ use serde_json::Value;
 
 use crate::engine::build_engine;
 use crate::model_api::ScriptModel;
+use popkern_history::deferred_certification::ContinuityCertification;
 
 /// Limits a host places on a script run.
 #[derive(Debug, Clone, Copy, Default)]
@@ -23,6 +24,11 @@ pub struct HostOptions {
     /// Wall-clock budget; checked at every Rhai progress tick and
     /// honoured only where a monotonic clock exists (`Stopwatch`).
     pub timeout: Option<Duration>,
+    /// When models the script creates certify their blend seams:
+    /// inline (default) or deferred for the host to certify after it
+    /// has shown the part (see
+    /// [`popkern_history::deferred_certification`]).
+    pub continuity_certification: ContinuityCertification,
 }
 
 /// What a finished run produced.
@@ -168,6 +174,7 @@ impl ScriptHost {
         if let Some(max) = options.max_operations {
             engine.set_max_operations(max);
         }
+        crate::model_api::register_constructors(&mut engine, options.continuity_certification);
         ScriptHost {
             engine,
             printed,

@@ -77,6 +77,9 @@ pub(crate) fn replay_seed_chain(
             param_table,
             &exact_profiles,
             host,
+            // The seed chain's evidence is discarded (only the geometry
+            // is patterned), so certifying its seams is unread work.
+            popkern_blend::ContinuityCertification::Deferred,
         )?;
     }
     Ok(brep)

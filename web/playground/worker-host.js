@@ -103,6 +103,11 @@ export class WorkerHost {
     return this.request({ type: "set_param", name, value });
   }
 
+  /** Certify deferred blend seams for about `sliceMs` (see PROTOCOL.md). */
+  certify(sliceMs) {
+    return this.request({ type: "certify", slice_ms: sliceMs });
+  }
+
   toRhai() {
     return this.request({ type: "to_rhai" });
   }

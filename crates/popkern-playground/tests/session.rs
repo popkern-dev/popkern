@@ -137,6 +137,7 @@ fn budgets_stop_runaway_scripts_with_the_budget_named() {
     let ops = RunOptions {
         max_operations: Some(200_000),
         timeout_ms: None,
+        ..RunOptions::default()
     }
     .host();
     let mut session = Session::new(ops);
@@ -155,6 +156,7 @@ fn budgets_stop_runaway_scripts_with_the_budget_named() {
     let wall = RunOptions {
         max_operations: None,
         timeout_ms: Some(300.0),
+        ..RunOptions::default()
     }
     .host();
     assert_eq!(wall.timeout, Some(Duration::from_millis(300)));
@@ -186,6 +188,7 @@ loop { m.profile(xy_at(i * 1.0)).rect(1.0, 1.0).sketch("s" + i).extrude(blind(0.
     let bad = RunOptions {
         max_operations: None,
         timeout_ms: Some(f64::NAN),
+        ..RunOptions::default()
     }
     .host();
     assert_eq!(bad.timeout, None);

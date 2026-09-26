@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 
 use popkern_core::geometry::certify::SeamCertificate;
 
+pub use crate::blend_continuity_certification::ContinuityCertification;
 use crate::blend_continuity_certification::{certify_seam_for_evidence, evidence_certify_options};
 use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 use crate::types::ContinuityLevel;
@@ -148,6 +149,13 @@ pub struct SeamContinuityRecord {
     /// classification.
     #[serde(default)]
     pub certificate: Option<SeamCertificate>,
+    /// Whether this gated seam's certification was deferred by the
+    /// caller ([`ContinuityCertification::Deferred`]): it carries no
+    /// certificate yet, is classified from its sampled maxima, and is
+    /// counted in [`BlendContinuityEvidence::deferred_seams`] until
+    /// [`BlendContinuityEvidence::certify_next_deferred`] runs on it.
+    #[serde(default)]
+    pub certification_deferred: bool,
 }
 
 impl SeamContinuityRecord {
@@ -241,11 +249,17 @@ pub struct BlendContinuityEvidence {
     pub certified_seams: usize,
     /// Gated seams classified (at least partly) from sampled maxima
     /// because their certificate does not decide every gate (the
-    /// recorded fallback boundary).
+    /// recorded fallback boundary). Deferred seams are not counted
+    /// here: they have not been certified yet.
     #[serde(default)]
     pub uncertified_seams: usize,
+    /// Gated seams whose certification the caller deferred (see
+    /// [`ContinuityCertification::Deferred`]); classified from sampled
+    /// maxima until certified.
+    #[serde(default)]
+    pub deferred_seams: usize,
     /// The level the certified bounds alone support: `Some` only when
-    /// every gated seam certified.
+    /// every gated seam certified (none deferred, none undecided).
     #[serde(default)]
     pub certified_achieved: Option<ContinuityLevel>,
 }
@@ -269,7 +283,8 @@ impl BlendContinuityEvidence {
 /// distinct faces), samples both sides through their own pcurves, and
 /// classifies the worst residuals against `gates`.
 /// `samples_per_seam` is the sampling density (33 is a reasonable
-/// gate default; the apex fixtures use 100).
+/// gate default; the apex fixtures use 100). Every gated seam is
+/// certified inline ([`ContinuityCertification::Inline`]).
 pub fn measure_blend_continuity_evidence(
     brep: &BRep,
     blend_faces: &[FaceHandle],
@@ -277,8 +292,32 @@ pub fn measure_blend_continuity_evidence(
     gates: &ContinuityGates,
     samples_per_seam: usize,
 ) -> BlendContinuityEvidence {
+    measure_blend_continuity_evidence_with(
+        brep,
+        blend_faces,
+        requested,
+        gates,
+        samples_per_seam,
+        ContinuityCertification::Inline,
+    )
+}
+
+/// [`measure_blend_continuity_evidence`] with an explicit
+/// certification policy. Under [`ContinuityCertification::Deferred`]
+/// the sampled measurement is complete and every gated seam is marked
+/// deferred; certify them later against the same `brep` with
+/// [`BlendContinuityEvidence::certify_next_deferred`].
+pub fn measure_blend_continuity_evidence_with(
+    brep: &BRep,
+    blend_faces: &[FaceHandle],
+    requested: ContinuityLevel,
+    gates: &ContinuityGates,
+    samples_per_seam: usize,
+    certification: ContinuityCertification,
+) -> BlendContinuityEvidence {
     let set: std::collections::BTreeSet<FaceHandle> = blend_faces.iter().copied().collect();
     let certify = evidence_certify_options(brep, gates);
+    let inline = certification == ContinuityCertification::Inline;
     let mut seams = Vec::new();
     let mut unmeasured = 0usize;
     for (edge_handle, edge) in brep.edges.iter() {
@@ -301,7 +340,8 @@ pub fn measure_blend_continuity_evidence(
         };
         let worst = measure_edge_seam(&seam, samples_per_seam);
         let gated = worst.angle_deg <= gates.smooth_intent_max_angle_deg;
-        let certificate = gated.then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
+        let certificate =
+            (gated && inline).then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
         seams.push(SeamContinuityRecord {
             edge: edge_handle,
             kind,
@@ -313,43 +353,66 @@ pub fn measure_blend_continuity_evidence(
             worst_normal_angle_deg: worst.angle_deg,
             worst_g2_residual: worst.g2.max(worst.g2_transverse),
             certificate,
+            certification_deferred: gated && !inline,
         });
     }
-
-    let sharp_seams = seams.iter().filter(|s| !s.gated).count();
-    let tolerance_widened_seams = seams
-        .iter()
-        .filter(|s| {
-            s.recorded_tolerance
-                .map(|t| t > gates.g0_gap)
-                .unwrap_or(false)
-                && s.worst_g0_gap > gates.g0_gap
-        })
-        .count();
-    let worst_g0_gap = seams.iter().map(|s| s.worst_g0_gap).fold(0.0, f64::max);
-    let gated = || seams.iter().filter(|s| s.gated);
-    let worst_g1_normal = gated().map(|s| s.worst_g1_normal).fold(0.0, f64::max);
-    let worst_g2_residual = gated().map(|s| s.worst_g2_residual).fold(0.0, f64::max);
-    let achieved = classify(&seams, unmeasured, gates);
-    let certified_seams = gated().filter(|s| s.certificate_decides(gates)).count();
-    let uncertified_seams = gated().count() - certified_seams;
-    let certified_achieved = (uncertified_seams == 0).then_some(achieved);
-
-    BlendContinuityEvidence {
+    let mut evidence = BlendContinuityEvidence {
         requested,
-        achieved,
+        achieved: ContinuityLevel::G0,
         gates: *gates,
         blend_faces: set.len(),
         seams,
         unmeasured_seams: unmeasured,
-        sharp_seams,
-        tolerance_widened_seams,
-        worst_g0_gap,
-        worst_g1_normal,
-        worst_g2_residual,
-        certified_seams,
-        uncertified_seams,
-        certified_achieved,
+        sharp_seams: 0,
+        tolerance_widened_seams: 0,
+        worst_g0_gap: 0.0,
+        worst_g1_normal: 0.0,
+        worst_g2_residual: 0.0,
+        certified_seams: 0,
+        uncertified_seams: 0,
+        deferred_seams: 0,
+        certified_achieved: None,
+    };
+    evidence.summarize();
+    evidence
+}
+
+impl BlendContinuityEvidence {
+    /// Recompute every summary field from the per-seam records — the
+    /// one classification both the inline measurement and deferred
+    /// certification go through.
+    pub(crate) fn summarize(&mut self) {
+        let (seams, gates) = (&self.seams, &self.gates);
+        let sharp_seams = seams.iter().filter(|s| !s.gated).count();
+        let tolerance_widened_seams = seams
+            .iter()
+            .filter(|s| {
+                s.recorded_tolerance
+                    .map(|t| t > gates.g0_gap)
+                    .unwrap_or(false)
+                    && s.worst_g0_gap > gates.g0_gap
+            })
+            .count();
+        let worst_g0_gap = seams.iter().map(|s| s.worst_g0_gap).fold(0.0, f64::max);
+        let gated = || seams.iter().filter(|s| s.gated);
+        let worst_g1_normal = gated().map(|s| s.worst_g1_normal).fold(0.0, f64::max);
+        let worst_g2_residual = gated().map(|s| s.worst_g2_residual).fold(0.0, f64::max);
+        let achieved = classify(seams, self.unmeasured_seams, gates);
+        let certified_seams = gated().filter(|s| s.certificate_decides(gates)).count();
+        let deferred_seams = gated().filter(|s| s.certification_deferred).count();
+        let uncertified_seams = gated().count() - certified_seams - deferred_seams;
+        let certified_achieved =
+            (uncertified_seams == 0 && deferred_seams == 0).then_some(achieved);
+        self.sharp_seams = sharp_seams;
+        self.tolerance_widened_seams = tolerance_widened_seams;
+        self.worst_g0_gap = worst_g0_gap;
+        self.worst_g1_normal = worst_g1_normal;
+        self.worst_g2_residual = worst_g2_residual;
+        self.achieved = achieved;
+        self.certified_seams = certified_seams;
+        self.uncertified_seams = uncertified_seams;
+        self.deferred_seams = deferred_seams;
+        self.certified_achieved = certified_achieved;
     }
 }
 

@@ -25,4 +25,5 @@ pub mod bindings;
 
 pub use envelope::{BodyMesh, Envelope, WallBudget};
 pub use popkern_rhai::{HostOptions, Outcome};
-pub use session::{RunOptions, Session};
+pub use popkern_script::ContinuityCertification;
+pub use session::{CertifyStep, RunOptions, Session};

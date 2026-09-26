@@ -36,7 +36,59 @@ use popkern_core::geometry::certify::{CertifyTargets, SeamCertificate, SeamCerti
 use popkern_core::topology::edge_seam_certificate::{certify_edge_seam, seam_certify_options};
 use popkern_core::topology::{BRep, EdgeHandle};
 
-use crate::blend_continuity_evidence::ContinuityGates;
+use serde::{Deserialize, Serialize};
+
+use crate::blend_continuity_evidence::{BlendContinuityEvidence, ContinuityGates};
+
+/// When a blend's gated seams are certified.
+///
+/// Construction never depends on the certificate: it only upgrades a
+/// sampled classification to a rigorous one (or overturns it). A host
+/// that must show the part first (the browser playground) defers
+/// certification and runs it afterwards, seam by seam, against the
+/// same BRep; batch callers (the CLI, tests, the part API) certify
+/// inline.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContinuityCertification {
+    /// Certify every gated seam while measuring (the default).
+    #[default]
+    Inline,
+    /// Record sampled evidence now and mark gated seams deferred; see
+    /// [`BlendContinuityEvidence::certify_next_deferred`].
+    Deferred,
+}
+
+/// One deferred seam certified by
+/// [`BlendContinuityEvidence::certify_next_deferred`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeferredSeamCertified {
+    /// The seam edge (valid on the BRep the evidence was measured on).
+    pub edge: EdgeHandle,
+    /// Deferred seams still left on the record.
+    pub remaining: usize,
+}
+
+impl BlendContinuityEvidence {
+    /// Certify the first deferred seam against `brep` — the BRep this
+    /// evidence was measured on (its edge handles index that BRep) —
+    /// and re-classify the record. `None` when nothing is deferred.
+    ///
+    /// Running this until it returns `None` yields exactly the record
+    /// [`crate::measure_blend_continuity_evidence`] builds inline:
+    /// same options, same certificates, same classification.
+    pub fn certify_next_deferred(&mut self, brep: &BRep) -> Option<DeferredSeamCertified> {
+        let options = evidence_certify_options(brep, &self.gates);
+        let seam = self.seams.iter_mut().find(|s| s.certification_deferred)?;
+        seam.certificate = Some(certify_seam_for_evidence(brep, seam.edge, &options));
+        seam.certification_deferred = false;
+        let edge = seam.edge;
+        self.summarize();
+        Some(DeferredSeamCertified {
+            edge,
+            remaining: self.deferred_seams,
+        })
+    }
+}
 
 /// Per-seam interval budget for evidence certification. The corpus
 /// median certifies in 4 intervals (PK-499 E1); a projected rail (the

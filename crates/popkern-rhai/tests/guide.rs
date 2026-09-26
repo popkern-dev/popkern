@@ -188,6 +188,7 @@ fn every_code_block_in_the_guide_runs_as_the_prose_says() {
         let mut host = ScriptHost::with_options(HostOptions {
             max_operations: Some(50_000_000),
             timeout: None,
+            ..HostOptions::default()
         });
         let result = host.run(&body, &format!("guide:{line}"));
         match (result, raises) {

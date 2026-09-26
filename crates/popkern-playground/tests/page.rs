@@ -221,13 +221,39 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
         "remediation shown: {}",
         out["decline"]["overlay_text"]
     );
-    // Blend rows state measured continuity; a downgrade is flagged.
+    // Blend rows state measured continuity and how it was measured
+    // (sampled while certification is pending, certified, or measured
+    // where a certificate could not decide); a downgrade is flagged.
     assert!(
-        out["report_rows_text"].as_array().is_some_and(|rows| rows
+        out["report_rows_text"]
+            .as_array()
+            .is_some_and(|rows| rows.iter().any(|r| r.as_str().is_some_and(|t| [
+                "G1 sampled",
+                "G1 certified",
+                "G1 measured"
+            ]
             .iter()
-            .any(|r| r.as_str().is_some_and(|t| t.contains("G1 measured")))),
+            .any(|how| t.contains(how))))),
         "{}",
         out["report_rows_text"]
+    );
+    // PK-561: the served fillet certifies after render and its row
+    // upgrades to the certified claim.
+    assert!(
+        out["status_after_certify"]
+            .as_str()
+            .is_some_and(|s| s.contains("continuity certified")),
+        "{}",
+        out["status_after_certify"]
+    );
+    assert!(
+        out["certified_rows_text"]
+            .as_array()
+            .is_some_and(|rows| rows
+                .iter()
+                .any(|r| r.as_str().is_some_and(|t| t.contains("G1 certified")))),
+        "{}",
+        out["certified_rows_text"]
     );
     assert_eq!(out["downgraded_row"]["css"], "cell-warn");
     assert!(

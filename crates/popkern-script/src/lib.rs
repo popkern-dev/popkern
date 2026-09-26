@@ -48,6 +48,9 @@ pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
 pub use params::ConfigInfo;
 pub use plane::Plane;
+pub use popkern_history::deferred_certification::{
+    ContinuityCertification, DeferredCertificationError, DeferredSeamProgress,
+};
 pub use popkern_history::{
     BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,
     RemediationRecord,

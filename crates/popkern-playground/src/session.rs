@@ -5,9 +5,10 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
-use popkern_core::time::monotonic_clock_available;
+use popkern_core::time::{Stopwatch, monotonic_clock_available};
 use popkern_rhai::outcome::{first_failure, from_run_error, from_script_error, report_value};
 use popkern_rhai::{HostOptions, Outcome, ScriptHost};
+use popkern_script::ContinuityCertification;
 use popkern_script::Model;
 
 use crate::envelope::{BodyMesh, Envelope, ParamRow, WallBudget};
@@ -22,6 +23,10 @@ pub struct RunOptions {
     /// Wall-clock budget in milliseconds (`null` = none).
     #[serde(default)]
     pub timeout_ms: Option<f64>,
+    /// `"Inline"` (default) or `"Deferred"`: whether fillets certify
+    /// their seams during the run or later through [`Session::certify`].
+    #[serde(default)]
+    pub continuity_certification: ContinuityCertification,
 }
 
 impl RunOptions {
@@ -33,6 +38,7 @@ impl RunOptions {
                 .timeout_ms
                 .filter(|ms| ms.is_finite() && *ms >= 0.0)
                 .map(|ms| Duration::from_secs_f64(ms / 1000.0)),
+            continuity_certification: self.continuity_certification,
         }
     }
 }
@@ -116,6 +122,40 @@ impl Session {
                 self.describe(outcome, Vec::new(), None)
             }
             Ok(()) => self.describe(Outcome::Served, Vec::new(), None),
+        }
+    }
+
+    /// Certify deferred blend seams of the retained model for about
+    /// `slice` (at least one seam; exactly one where no clock exists),
+    /// upgrading its report in place. The step carries the report once
+    /// nothing is left, so the page swaps it in whole.
+    pub fn certify(&mut self, slice: Duration) -> CertifyStep {
+        let Some(model) = self.model.as_mut() else {
+            return CertifyStep::failed(no_model());
+        };
+        let clock = Stopwatch::start();
+        let mut certified = 0;
+        loop {
+            match model.certify_next_deferred_seam() {
+                Ok(Some(_)) => certified += 1,
+                Ok(None) => break,
+                Err(error) => {
+                    return CertifyStep::failed(Outcome::GateFailure {
+                        step: "certify".into(),
+                        detail: error.to_string(),
+                    });
+                }
+            }
+            if clock.elapsed().is_none_or(|spent| spent >= slice) {
+                break;
+            }
+        }
+        let remaining = model.deferred_seam_count();
+        CertifyStep {
+            certified,
+            remaining,
+            report: (remaining == 0).then(|| report_value(model)),
+            failure: None,
         }
     }
 
@@ -203,6 +243,30 @@ impl Session {
             features: model.features().len(),
             params: params(model),
             bodies,
+        }
+    }
+}
+
+/// One [`Session::certify`] slice.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CertifyStep {
+    /// Seams certified in this slice.
+    pub certified: usize,
+    /// Deferred seams still left.
+    pub remaining: usize,
+    /// The upgraded report, once `remaining` is zero.
+    pub report: Option<serde_json::Value>,
+    /// Why certification stopped, when it could not continue.
+    pub failure: Option<Outcome>,
+}
+
+impl CertifyStep {
+    fn failed(outcome: Outcome) -> CertifyStep {
+        CertifyStep {
+            certified: 0,
+            remaining: 0,
+            report: None,
+            failure: Some(outcome),
         }
     }
 }

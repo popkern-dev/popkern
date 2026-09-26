@@ -35,6 +35,7 @@ fn evidence_record(requested: ContinuityLevel, achieved: ContinuityLevel) -> Ble
             tolerance_widened_seams: 0,
             certified_seams: 0,
             uncertified_seams: 0,
+            deferred_seams: 0,
             certified_achieved: None,
             worst_g0_gap: 0.0,
             worst_g1_normal: 0.0,

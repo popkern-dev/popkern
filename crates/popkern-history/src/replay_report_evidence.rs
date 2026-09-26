@@ -50,12 +50,14 @@ impl FeatureEvidence {
     /// Evidence for a served blend: the kernel's per-edge warnings
     /// classified, and — for a fillet — the continuity measured over
     /// the faces the blend created (`pre_faces` is the face census
-    /// before the blend).
+    /// before the blend). `certification` says whether gated seams are
+    /// certified now or deferred (see [`crate::deferred_certification`]).
     pub fn blend(
         result: &BlendResult,
         pre_faces: &BTreeSet<FaceHandle>,
         edges_requested: usize,
         requested: Option<ContinuityLevel>,
+        certification: popkern_blend::ContinuityCertification,
     ) -> Self {
         let mut evidence = Self::empty();
         for (edge, warning) in &result.edge_warnings {
@@ -68,12 +70,13 @@ impl FeatureEvidence {
                 .keys()
                 .filter(|f| !pre_faces.contains(f))
                 .collect();
-            popkern_blend::measure_blend_continuity_evidence(
+            popkern_blend::measure_blend_continuity_evidence_with(
                 &result.brep,
                 &new_faces,
                 level,
                 &popkern_blend::ContinuityGates::commercial(),
                 EVIDENCE_SAMPLES_PER_SEAM,
+                certification,
             )
         });
         evidence.blend = Some(BlendEvidenceRecord {

@@ -5,6 +5,7 @@ use std::cell::{RefCell, RefMut};
 use std::rc::Rc;
 
 use popkern_core::tolerance::Tolerance;
+use popkern_history::deferred_certification::ContinuityCertification;
 use popkern_history::unit::Unit;
 use popkern_script::{EdgeSelector, FaceSelector, Model, Plane};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, NativeCallContext};
@@ -50,7 +51,10 @@ impl ScriptModel {
 
 const MODEL_OPTIONS: &[&str] = &["unit", "tolerance"];
 
-fn new_model(options: &Dynamic) -> Result<ScriptModel, Box<EvalAltResult>> {
+fn new_model(
+    options: &Dynamic,
+    certification: ContinuityCertification,
+) -> Result<ScriptModel, Box<EvalAltResult>> {
     let options = Options::parse("model", options, MODEL_OPTIONS)?;
     let mut model = match options.with("tolerance", args::float)? {
         Some(t) if t > 0.0 => Model::with_tolerance(Tolerance::default().with_linear(t)),
@@ -65,11 +69,30 @@ fn new_model(options: &Dynamic) -> Result<ScriptModel, Box<EvalAltResult>> {
     if let Some(unit) = options.with("unit", args::unit)? {
         model = model.unit(unit);
     }
+    model.set_continuity_certification(certification);
     Ok(ScriptModel::new(model))
 }
 
-fn open(path: &str) -> Result<ScriptModel, Box<EvalAltResult>> {
-    Ok(ScriptModel::new(Model::open(path).script()?))
+fn open(
+    path: &str,
+    certification: ContinuityCertification,
+) -> Result<ScriptModel, Box<EvalAltResult>> {
+    let mut model = Model::open(path).script()?;
+    model.set_continuity_certification(certification);
+    Ok(ScriptModel::new(model))
+}
+
+/// (Re-)register `model()`, `model(options)` and `open(path)` so every
+/// model a script creates or opens certifies its blend seams under
+/// `certification`. Registering again replaces the previous
+/// constructors (same names and arities).
+pub fn register_constructors(engine: &mut Engine, certification: ContinuityCertification) {
+    engine
+        .register_fn("model", move || new_model(&Dynamic::UNIT, certification))
+        .register_fn("model", move |options: Dynamic| {
+            new_model(&options, certification)
+        })
+        .register_fn("open", move |path: &str| open(path, certification));
 }
 
 fn tool(
@@ -145,13 +168,13 @@ fn loft(
     Ok(ScriptBody::new(m.clone(), body))
 }
 
-/// Register the model value and its global constructors.
+/// Register the model value and its global constructors (models
+/// certify inline; a host re-registers the constructors with its own
+/// policy through [`register_constructors`]).
 pub fn register(engine: &mut Engine) {
+    register_constructors(engine, ContinuityCertification::Inline);
     engine
         .register_type_with_name::<ScriptModel>("Model")
-        .register_fn("model", || new_model(&Dynamic::UNIT))
-        .register_fn("model", |options: Dynamic| new_model(&options))
-        .register_fn("open", open)
         .register_fn("save", |m: &mut ScriptModel, path: &str| {
             m.borrow_mut().save(path).script()
         })

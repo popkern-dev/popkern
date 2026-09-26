@@ -88,6 +88,21 @@ impl Playground {
         json
     }
 
+    /// Certify deferred blend seams for about `slice_ms` (at least one
+    /// seam); the step as JSON: `{certified, remaining, report,
+    /// failure}` with `report` set once `remaining` is zero. Body
+    /// buffers are untouched — certification never changes geometry.
+    pub fn certify(&mut self, slice_ms: f64) -> String {
+        let slice = if slice_ms.is_finite() && slice_ms > 0.0 {
+            std::time::Duration::from_secs_f64(slice_ms / 1000.0)
+        } else {
+            std::time::Duration::ZERO
+        };
+        serde_json::to_value(self.session.certify(slice))
+            .unwrap_or(serde_json::Value::Null)
+            .to_string()
+    }
+
     /// The document as canonical Rhai, or the outcome JSON as the error.
     pub fn to_rhai(&mut self) -> Result<String, JsValue> {
         self.session

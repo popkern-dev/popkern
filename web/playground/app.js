@@ -6,7 +6,12 @@ import { Editor } from "./editor.js";
 import { Viewer } from "./viewer.js";
 import { WorkerHost } from "./worker-host.js";
 
-const BUDGET = { max_operations: 20_000_000, timeout_ms: 20_000 };
+// Fillets serve on sampled continuity evidence; the page certifies
+// their seams afterwards in short slices (PROTOCOL.md, "Deferred
+// continuity certification"), so a G2 part is on screen long before
+// its continuity is proven.
+const BUDGET = { max_operations: 20_000_000, timeout_ms: 20_000, continuity_certification: "Deferred" };
+const CERTIFY_SLICE_MS = 250;
 const IDLE_RUN_MS = 900;
 const CANCEL_GRACE_MS = 4_000;
 const DRAFT_KEY = "popkern-playground-draft";
@@ -51,6 +56,9 @@ class Page {
     this.cancelTimer = null;
     this.lastGood = null;
     this.running = false;
+    // Bumped by anything that replaces the report (run, parameter
+    // edit, stop): a certify loop from an older generation stops.
+    this.certifyGeneration = 0;
     this.wire();
     this.editor.value = storage((s) => s.getItem(DRAFT_KEY)) || DEFAULT_SCRIPT;
     this.loadExamples();
@@ -113,6 +121,7 @@ class Page {
     }
     this.running = true;
     this.rerun = false;
+    this.certifyGeneration += 1;
     $("run").disabled = true;
     this.status("building…");
     this.cancelTimer = setTimeout(() => this.cancel(`no answer within ${(BUDGET.timeout_ms + CANCEL_GRACE_MS) / 1000}s: the worker was stopped`), BUDGET.timeout_ms + CANCEL_GRACE_MS);
@@ -127,6 +136,7 @@ class Page {
 
   async cancel(reason) {
     clearTimeout(this.cancelTimer);
+    this.certifyGeneration += 1;
     this.status("stopping the worker…", true);
     await this.host.cancel(reason);
     this.running = false;
@@ -154,7 +164,9 @@ class Page {
       const ms = envelope.elapsed_ms == null ? "" : ` in ${envelope.elapsed_ms.toFixed(0)} ms`;
       const open = envelope.bodies.reduce((n, b) => n + b.open_edges, 0);
       const first = this.firstRenderMs == null ? ` — first render ${(this.firstRenderMs = performance.now()).toFixed(0)} ms after page start` : "";
-      this.status(`served: ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${ms}${open ? `, ${open} open mesh edges` : ", watertight"}${first}`);
+      this.servedText = `served: ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${ms}${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
+      this.status(this.servedText);
+      this.certify(envelope);
     } else {
       this.showOutcome(envelope);
     }
@@ -183,6 +195,33 @@ class Page {
     this.status(`${outcome.outcome.replace("_", " ")}: ${outcome.kind ?? outcome.step}${this.lastGood ? " (showing the last good model)" : ""}`, true);
   }
 
+  /** Certify the served model's deferred seams slice by slice, then
+   *  swap in the upgraded report. Abandoned when a newer run,
+   *  parameter edit or stop bumps the generation. */
+  async certify(envelope) {
+    const total = deferredSeams(envelope.report);
+    if (!total) return;
+    const generation = ++this.certifyGeneration;
+    const started = performance.now();
+    let remaining = total;
+    while (remaining > 0) {
+      this.status(`${this.servedText} — certifying continuity: ${total - remaining}/${total} seams`);
+      const reply = await this.host.certify(CERTIFY_SLICE_MS);
+      if (generation !== this.certifyGeneration) return;
+      const step = reply.ok ? reply.step : { failure: reply.outcome };
+      if (step.failure) {
+        this.status(`${this.servedText} — continuity certification stopped: ${step.failure.detail ?? step.failure.kind ?? "failed"}`, true);
+        return;
+      }
+      remaining = step.remaining;
+      if (step.report) {
+        envelope.report = step.report;
+        this.renderReport(envelope);
+      }
+    }
+    this.status(`${this.servedText} — continuity certified (${total} seams, ${((performance.now() - started) / 1000).toFixed(1)} s)`);
+  }
+
   renderReport(envelope) {
     const table = $("report");
     table.innerHTML = "";
@@ -198,10 +237,13 @@ class Page {
       let verdict = outcome;
       if (continuity && continuity.requested) {
         // A blend row always states what was measured against what
-        // was asked — a downgrade is never a bare success mark.
+        // was asked — a downgrade is never a bare success mark — and
+        // how: certified over every seam, or from samples (pending
+        // certification, or where a certificate could not decide).
+        const how = continuity.deferred_seams > 0 ? "sampled, certifying…" : continuity.certified_achieved ? "certified" : "measured";
         verdict = downgraded
-          ? `downgraded: ${continuity.achieved} measured, ${continuity.requested} requested`
-          : `${outcome} · ${continuity.achieved} measured`;
+          ? `downgraded: ${continuity.achieved} ${how}, ${continuity.requested} requested`
+          : `${outcome} · ${continuity.achieved} ${how}`;
       }
       row.innerHTML = `<td>${label}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
       if (Array.isArray(f.warnings) && f.warnings.length) {
@@ -249,6 +291,7 @@ class Page {
   async setParam(name, value) {
     if (this.running) return { ok: false, outcome: { outcome: "gate_failure", step: "busy", detail: "a run is in progress" } };
     this.running = true;
+    this.certifyGeneration += 1;
     this.status(`replaying with ${name} = ${value}…`);
     const reply = await this.host.setParam(name, value);
     this.running = false;
@@ -318,6 +361,11 @@ class Page {
     this.viewer.fitted = false;
     this.run();
   }
+}
+
+/** Deferred seams across a report's blend rows. */
+function deferredSeams(report) {
+  return (report?.features ?? []).reduce((n, f) => n + (f.blend?.continuity?.deferred_seams ?? 0), 0);
 }
 
 window.addEventListener("error", (event) => {

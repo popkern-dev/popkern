@@ -111,6 +111,9 @@ impl FeatureTree {
 
         for i in from..to {
             let id = self.timeline[i];
+            // This execution's evidence replaces the feature's report
+            // row, so its kept deferred-certification BRep goes too.
+            self.forget_deferred_body(id);
             let node = &self.features[id];
             let label = node.label.clone();
             let operation = node.feature.operation_label();
@@ -334,6 +337,7 @@ impl FeatureTree {
                 &self.parameter_table,
                 &exact_profiles,
                 merge_host,
+                self.deferred.policy,
             );
 
             match exec_result {
@@ -352,6 +356,7 @@ impl FeatureTree {
                     );
                     self.features[id].last_result = Some(FeatureResult::Success { history });
                     self.cache.store(self.active_config, id, brep.clone(), i);
+                    self.keep_deferred_body(id, &evidence, &brep);
                     measure_cache.invalidate();
 
                     // Put the BRep back before auto-merge so detect_host_body can

@@ -187,6 +187,16 @@ try {
   out.overlay_hidden = await evaluate(`getComputedStyle(document.getElementById("overlay")).display === "none"`);
   out.webgl = await evaluate(`!!document.getElementById("viewer").getContext("webgl2") || !!document.getElementById("viewer").getContext("webgl")`);
   out.bodies_on_screen = await evaluate(`window.playground.viewer.bodies.length`);
+  // Deferred continuity certification (PK-561): the page certifies the
+  // served fillet's seams after render and swaps in the certified rows.
+  const certifyStarted = Date.now();
+  out.status_after_certify = await waitFor(
+    `(() => { const s = document.getElementById("status").textContent; return /continuity (certified|certification stopped)/.test(s) ? s : null; })()`,
+    120000,
+    "continuity certification",
+  );
+  out.certify_wall_ms = Date.now() - certifyStarted;
+  out.certified_rows_text = await evaluate(`[...document.querySelectorAll("#report tr")].map((r) => r.textContent.trim()).slice(0, 8)`);
 
   // Face pick: click the centre of the canvas.
   const box = await evaluate(`(() => { const r = document.getElementById("viewer").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);

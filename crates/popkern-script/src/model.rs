@@ -5,6 +5,9 @@ use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_history::FeatureTree;
+use popkern_history::deferred_certification::{
+    ContinuityCertification, DeferredCertificationError, DeferredSeamProgress,
+};
 use popkern_history::node::{BodyId, FeatureId};
 use popkern_history::replay_report::{FeatureReport, ReplayReport};
 use popkern_history::unit::Unit;
@@ -140,6 +143,26 @@ impl Model {
     /// fast path's freshness bit (see `record::record_feature`).
     pub(crate) fn note_full_replay(&mut self) {
         self.geometry_current = self.tree.rollback_position().is_none();
+    }
+
+    /// When blend seams are certified during replay (see
+    /// [`popkern_history::deferred_certification`]). Set before
+    /// recording: every replay after it follows the new policy.
+    pub fn set_continuity_certification(&mut self, policy: ContinuityCertification) {
+        self.tree.set_continuity_certification(policy);
+    }
+
+    /// Deferred seams left in the last report.
+    pub fn deferred_seam_count(&self) -> usize {
+        self.tree.deferred_seam_count()
+    }
+
+    /// Certify the next deferred seam, upgrading the last report in
+    /// place; `Ok(None)` when none are left.
+    pub fn certify_next_deferred_seam(
+        &mut self,
+    ) -> Result<Option<DeferredSeamProgress>, DeferredCertificationError> {
+        self.tree.certify_next_deferred_seam()
     }
 
     /// The last replay report.

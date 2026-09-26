@@ -30,6 +30,7 @@ fn host(cli: &Cli) -> ScriptHost {
     ScriptHost::with_options(HostOptions {
         max_operations: cli.max_ops,
         timeout: cli.timeout,
+        ..HostOptions::default()
     })
 }
 

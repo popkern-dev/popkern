@@ -18,9 +18,10 @@ its budgets, and a hostile script must not be able to wedge the page.
 
 | type | fields | reply |
 |---|---|---|
-| `init` | `options: { max_operations: number \| null, timeout_ms: number \| null }` | `{ ok, protocol_version, clock_available }` |
+| `init` | `options: { max_operations: number \| null, timeout_ms: number \| null, continuity_certification?: "Inline" \| "Deferred" }` | `{ ok, protocol_version, clock_available }` |
 | `run` | `source: string`, `name: string` | envelope reply |
 | `set_param` | `name: string`, `value: number` | envelope reply |
+| `certify` | `slice_ms: number` | `{ ok: true, step: { certified, remaining, report: ReplayReport \| null, failure: outcome \| null } }` |
 | `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
 | `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
 | `export_pkn` | — | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
@@ -31,6 +32,23 @@ the host clock (`performance.now`) and creates the session under the
 budgets. `clock_available` is `false` only where the worker has no
 `performance` object — then the wall-clock budget cannot fire and the
 envelope's `wall_budget` says `unavailable`.
+
+## Deferred continuity certification
+
+Certifying a fillet's seams (interval bounds over each whole seam) can
+cost far more than building the fillet. With `continuity_certification:
+"Deferred"` in `init`, runs and parameter edits serve on the sampled
+continuity evidence: each blend row's `blend.continuity` carries
+`deferred_seams > 0` and `certified_achieved: null` (no certified claim
+yet). The page then sends `certify` requests; each certifies seams for
+about `slice_ms` (at least one) and answers how many are `remaining`.
+When `remaining` reaches 0 the step carries the upgraded `report` (same
+shape as the envelope's); certification never changes geometry, so no
+buffers are sent. A newer `run`/`set_param` replaces the report and its
+deferred seams, so a page abandons a certify loop simply by not sending
+the next slice. `failure` is set (and `remaining` is 0) when
+certification could not continue. Without the option the default is
+`"Inline"`: every run certifies before it answers, as before.
 
 ## Envelope reply
 

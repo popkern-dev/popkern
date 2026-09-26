@@ -119,9 +119,11 @@ pub mod walker;
 pub(crate) mod walker_adaptive;
 pub(crate) mod walker_station;
 pub mod zebra;
+pub use blend_continuity_certification::DeferredSeamCertified;
 pub use blend_continuity_evidence::{
-    BlendContinuityEvidence, BlendSeamKind, ContinuityGates, SeamContinuityRecord,
-    measure_blend_continuity_evidence,
+    BlendContinuityEvidence, BlendSeamKind, ContinuityCertification, ContinuityGates,
+    SeamContinuityRecord, measure_blend_continuity_evidence,
+    measure_blend_continuity_evidence_with,
 };
 pub use cancellation::CancellationToken;
 pub use chamfer_2d::{chamfer_corner_2d, chamfer_corner_2d_by_angle, chamfer_corners_2d};

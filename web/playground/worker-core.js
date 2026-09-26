@@ -95,6 +95,8 @@ export function createHandler(pkg, loadModule) {
           return envelopeReply(id, playground.run(String(message.source ?? ""), String(message.name ?? "script.rhai")));
         case "set_param":
           return envelopeReply(id, playground.set_param(String(message.name), Number(message.value)));
+        case "certify":
+          return { reply: { id, ok: true, step: JSON.parse(playground.certify(Number(message.slice_ms ?? 0))) }, transfer: [] };
         case "to_rhai":
           try {
             return { reply: { id, ok: true, code: playground.to_rhai() }, transfer: [] };
