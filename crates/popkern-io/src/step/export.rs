@@ -3,6 +3,25 @@
 //! The main entry points are [`export_step`] (to bytes) and [`export_step_file`]
 //! (to a filesystem path). Both take a [`StepDocument`] and produce valid
 //! Part 21 output.
+//!
+//! # Interchange continuity contract
+//!
+//! Analytic surfaces and curves are written exactly; B-spline and
+//! NURBS geometry is written as-is; pcurves are written co-parameterized
+//! with their 3D edge curve (SameParameter). The one approximation is
+//! the Gregory patch, which STEP cannot carry: by default
+//! ([`GregoryExportForm::Conditioned`]) a Gregory patch whose exact
+//! rational form is too ill-conditioned for consumers is written as a
+//! measured non-rational fit. Under that default the written model
+//! holds position within the conditioning tolerance, G1 within the
+//! commercial gate across every seam, and G2 within the gate across
+//! every seam except in a measured neighbourhood of the setback
+//! corners of KP caps whose fit misses the boundary-curvature bar
+//! (decision record
+//! `docs/decisions/2026-09-26-interchange-continuity-at-setback-corners.md`;
+//! pinned in the `step_roundtrip_continuity` audit).
+//! [`GregoryExportForm::Exact`] trades consumer robustness for exact
+//! continuity (see its docs).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -23,6 +42,49 @@ pub struct StepExportOptions {
     pub line_width: usize,
     /// Preserve original entity IDs from import (default true).
     pub preserve_entity_ids: bool,
+    /// How Gregory patches are written (default
+    /// [`GregoryExportForm::Conditioned`]). See the interchange
+    /// continuity contract on [`GregoryExportForm`].
+    pub gregory_form: GregoryExportForm,
+}
+
+/// How a Gregory patch is written as a `B_SPLINE_SURFACE`.
+///
+/// **Interchange continuity contract** (decision record
+/// `docs/decisions/2026-09-26-interchange-continuity-at-setback-corners.md`).
+/// Under the default [`GregoryExportForm::Conditioned`] form, the
+/// written model holds:
+/// - position within the conditioning tolerance (a tenth of the
+///   representation's length uncertainty);
+/// - G1 within the commercial gate across every seam;
+/// - G2 within the gate across every seam, except in a measured
+///   neighbourhood (~5e-3 of the patch chart) of the setback corners
+///   of KP caps whose 65 x 65 conditioned fit misses the boundary
+///   curvature bar (the pentagonal-pyramid and notched-saddle caps).
+///
+/// [`GregoryExportForm::Exact`] writes the exact rational conversion
+/// instead: continuity survives exactly, at the price of a
+/// near-base-point weight block (1e-14 against ~1) that some consumers
+/// evaluate poorly (see the variant docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GregoryExportForm {
+    /// Well-conditioned patches are written exactly; ill-conditioned
+    /// ones (weight spread below 1e-8) as a measured non-rational
+    /// bi-quintic fit over the same `(u, v)` chart, capped at 65 x 65
+    /// control points.
+    #[default]
+    Conditioned,
+    /// Every patch is written as its exact rational conversion, however
+    /// spread its weights, so the file carries the kernel's exact form
+    /// (it round-trips through popkern's importer to 1e-12) and its
+    /// continuity. Measured on the KP caps (pyramid apex, cube corner,
+    /// notched saddle; `step_roundtrip_continuity`): OpenCASCADE reads
+    /// every file as a valid closed shape, but its boolean
+    /// self-interference pre-check faults the cube-corner and saddle
+    /// caps (`SelfIntersect`, `TooSmallEdge`) at the 1e-14-weight
+    /// corners. Use this only for consumers that evaluate
+    /// near-base-point rational surfaces robustly.
+    Exact,
 }
 
 impl Default for StepExportOptions {
@@ -31,6 +93,7 @@ impl Default for StepExportOptions {
             schema: StepSchema::Ap214,
             line_width: 80,
             preserve_entity_ids: true,
+            gregory_form: GregoryExportForm::Conditioned,
         }
     }
 }
@@ -56,6 +119,7 @@ pub enum StepSchema {
 pub fn export_step(doc: &StepDocument, options: &StepExportOptions) -> Result<Vec<u8>, IoError> {
     let mut ctx = ExportContext::new();
     ctx.surface_conditioning_tolerance = 0.1 * doc.units.context.uncertainty;
+    ctx.gregory_form = options.gregory_form;
 
     // Stage 1–2: Export geometry and topology from each BRep solid
     let mut shape_item_ids: Vec<Vec<EntityId>> = Vec::new();
@@ -118,6 +182,8 @@ pub(crate) struct ExportContext {
     /// representation's length uncertainty; see
     /// `export_surface_conditioning`).
     pub(crate) surface_conditioning_tolerance: f64,
+    /// How Gregory patches are written (from [`StepExportOptions`]).
+    pub(crate) gregory_form: GregoryExportForm,
 }
 
 /// Key for deduplicating points/directions by exact float bits.
@@ -159,6 +225,7 @@ impl ExportContext {
             param_repr_context_id: None,
             surface_conditioning_tolerance: 0.1
                 * super::document::RepresentationContext::default().uncertainty,
+            gregory_form: GregoryExportForm::Conditioned,
         }
     }
 

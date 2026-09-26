@@ -236,12 +236,18 @@ impl ExportContext {
             // B_SPLINE_SURFACE unless it is too ill-conditioned for
             // consumers, in which case a measured non-rational fit
             // over the same (u, v) chart replaces it
-            // (`export_surface_conditioning`, PK-524).
+            // (`export_surface_conditioning`, PK-524), unless the
+            // caller opted into the exact form.
             SurfaceGeometry::Gregory(_) => {
-                let nurbs = super::export_surface_conditioning::conditioned_gregory_nurbs(
-                    &surface.geometry,
-                    self.surface_conditioning_tolerance,
-                );
+                let nurbs = match self.gregory_form {
+                    super::export::GregoryExportForm::Exact => surface.geometry.to_nurbs(),
+                    super::export::GregoryExportForm::Conditioned => {
+                        super::export_surface_conditioning::conditioned_gregory_nurbs(
+                            &surface.geometry,
+                            self.surface_conditioning_tolerance,
+                        )
+                    }
+                };
                 self.export_nurbs_surface(&nurbs)
             }
             // A polyhedral-net spline patch IS a bi-quartic Bezier

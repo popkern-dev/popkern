@@ -22,12 +22,16 @@ use std::collections::BTreeMap;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::certify::SeamCertifyOptions;
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::edge_seam_certificate::certify_edge_seam;
 use popkern_core::topology::{BRep, EdgeHandle};
 use popkern_part::prelude::*;
 
+#[path = "step_roundtrip_continuity_support/exact_export.rs"]
+mod exact_export;
 #[path = "step_roundtrip_continuity_support/kp_caps.rs"]
 mod kp_caps;
+use exact_export::{carries_net, occ_oracle, sampled_seam};
 #[path = "fillet_mileage_corpus_support/parts.rs"]
 mod parts;
 use parts::*;
@@ -139,7 +143,7 @@ fn audit_leg(native: &[(EdgeKey, Level)], imported: &[BRep]) -> Drops {
     drops
 }
 
-fn export(brep: &BRep, path: &std::path::Path) {
+fn export(brep: &BRep, path: &std::path::Path, options: &popkern_io::StepExportOptions) {
     let name = path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
@@ -161,7 +165,7 @@ fn export(brep: &BRep, path: &std::path::Path) {
         units: popkern_io::UnitContext::default(),
         opaque_bag: popkern_io::OpaqueBag::default(),
     };
-    popkern_io::export_step_file(&doc, path, &popkern_io::StepExportOptions::default())
+    popkern_io::export_step_file(&doc, path, options)
         .unwrap_or_else(|e| panic!("export {}: {e:?}", path.display()));
 }
 
@@ -248,10 +252,15 @@ fn fixtures() -> Vec<Fixture> {
 }
 
 /// Recorded level drops per fixture on the popkern leg; `[]` = every
-/// seam keeps its certified level. The remaining class is filed: the
-/// pentagonal pyramid cap's corner-cell near-base point (PK-556), which
-/// no conditioned export fit of a writable size (<= 65 x 65) resolves
-/// within the pyramid's G2 margin. Retired: PK-550 the conic/sinusoid
+/// seam keeps its certified level. The remaining row is ACCEPTED under
+/// the STEP interchange continuity contract
+/// (`docs/decisions/2026-09-26-interchange-continuity-at-setback-corners.md`,
+/// PK-556): the pentagonal pyramid cap's corner-cell near-base point
+/// is not resolved by any conditioned export fit of a writable size
+/// (<= 65 x 65) within the pyramid's G2 margin, so G2 degrades to G1
+/// in a measured neighbourhood of its setback corners. The exact
+/// opt-in (`GregoryExportForm::Exact`) keeps it; see
+/// `exact_gregory_export_keeps_cap_continuity`. Retired: PK-550 the conic/sinusoid
 /// pcurve class (13 `G0->Open`, 31 `G0|G1->Unbounded`), PK-551 the
 /// position-only Gregory fit (cube corner 6 `G2->G1`). Update a row
 /// only with the measured delta.
@@ -309,7 +318,7 @@ fn certified_seam_continuity_survives_the_step_round_trip() {
         assert_eq!(name, pinned, "baseline rows follow the fixture order");
         let body = build().unwrap_or_else(|e| panic!("{name}: fixture declined: {e}"));
         let path = dir.join(format!("{name}.step"));
-        export(&body, &path);
+        export(&body, &path, &popkern_io::StepExportOptions::default());
         bodies.push((name, native_levels(&body), path));
     }
     let mut measured = Vec::new();
@@ -348,4 +357,99 @@ fn certified_seam_continuity_survives_the_step_round_trip() {
         occ_drops, OCC_BASELINE_DROPS,
         "OCC-leg drops moved off the baseline"
     );
+}
+
+/// PK-556 opt-in: `GregoryExportForm::Exact` writes every KP cap patch
+/// as its exact rational conversion.
+///
+/// Gates, per cap:
+/// - representation identity: every Gregory patch's exact net
+///   (`to_nurbs()`) comes back through popkern's importer within
+///   1e-12 — the file carries the kernel's exact form, so the native
+///   certified levels are the file's;
+/// - no seam's certified level drops, except to `Unbounded` (nothing
+///   proved): the interval certifier cannot enclose the exact form's
+///   ε-regularized corner block (weights 1e-14 against ~1; the
+///   Jacobian enclosure reaches zero) — natively the same seams
+///   certify through the patch's polynomial boundary surrogate
+///   (PK-541), which an imported NURBS does not carry. Each such seam
+///   match its native sampled continuity (finite-difference G1 sine
+///   and G2 residual within 1 % of the gate of native — the sampler's
+///   own noise is ~3e-7 — and within the gates when native is G2);
+/// - OpenCASCADE's oracle reads the file as a valid closed shape. Its
+///   boolean self-interference pre-check is NOT part of this contract:
+///   measured 2026-09-26 it faults the cube-corner and saddle exact
+///   files (`SelfIntersect`, `TooSmallEdge`; the pyramid passes), as
+///   PK-524 found, which is why the conditioned form stays the default
+///   (`docs/decisions/2026-09-26-interchange-continuity-at-setback-corners.md`).
+#[test]
+fn exact_gregory_export_keeps_cap_continuity() {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("step_roundtrip_exact");
+    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+    let options = popkern_io::StepExportOptions {
+        gregory_form: popkern_io::GregoryExportForm::Exact,
+        ..Default::default()
+    };
+    let gates = ContinuityGates::commercial();
+    let caps: [Fixture; 3] = [
+        ("kp_pyramid_apex", kp_caps::pyramid_apex),
+        ("kp_cube_corner", kp_caps::cube_corner),
+        ("kp_notched_saddle", kp_caps::notched_saddle),
+    ];
+    for (name, build) in caps {
+        let body = build().unwrap_or_else(|e| panic!("{name}: fixture declined: {e}"));
+        let path = dir.join(format!("{name}.step"));
+        export(&body, &path, &options);
+        let imported = import(&path).unwrap_or_else(|e| panic!("{name}: import: {e}"));
+        for surface in body.faces.values().filter_map(|f| f.surface.as_ref()) {
+            if let SurfaceGeometry::Gregory(_) = surface.geometry {
+                let exact = surface.geometry.to_nurbs();
+                assert!(
+                    carries_net(&imported, &exact, 1e-12),
+                    "{name}: an exact Gregory net did not round-trip"
+                );
+            }
+        }
+        let mut unbounded = 0;
+        for edge in body.edges.keys() {
+            let Some(key) = edge_key(&body, edge) else {
+                continue;
+            };
+            let before = certify(&body, edge, &gates);
+            let matched = imported
+                .iter()
+                .find_map(|b| matched_edge(&key, b, gates.g0_gap).map(|e| (b, e)));
+            let Some((ib, ie)) = matched else {
+                panic!("{name}: {edge:?} unmatched after the exact round trip");
+            };
+            let after = certify(ib, ie, &gates);
+            if after >= before {
+                continue;
+            }
+            assert_eq!(
+                after,
+                Level::Unbounded,
+                "{name}: {edge:?} {before:?}->{after:?}"
+            );
+            unbounded += 1;
+            let native = sampled_seam(&body, edge);
+            let file = sampled_seam(ib, ie);
+            let (Some((g1n, g2n)), Some((g1f, g2f))) = (native, file) else {
+                panic!("{name}: {edge:?} seam not measurable: {native:?} / {file:?}");
+            };
+            assert!(
+                (g1f - g1n).abs() <= 1e-2 * gates.g1_normal
+                    && (g2f - g2n).abs() <= 1e-2 * gates.g2_curvature,
+                "{name}: {edge:?} sampled continuity moved: native ({g1n:e}, {g2n:e}) file ({g1f:e}, {g2f:e})"
+            );
+            if before == Level::G2 {
+                assert!(g1f <= gates.g1_normal && g2f <= gates.g2_curvature);
+            }
+        }
+        eprintln!("[pk556] {name} exact: {unbounded} seams uncertifiable on the rational form");
+        if let Some(passed) = occ_oracle(&path) {
+            eprintln!("[pk556] {name} exact OCC oracle passed={passed}");
+            assert!(passed, "{name}: OCC oracle rejects the exact export");
+        }
+    }
 }
