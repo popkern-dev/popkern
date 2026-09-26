@@ -17,11 +17,38 @@ class Orbit {
     this.target = new THREE.Vector3();
     this.spherical = new THREE.Spherical(5, Math.PI / 3, Math.PI / 4);
     this.dragging = null;
+    // Active pointers by id: one drives orbit (or pan with the right
+    // button / shift), two drive pinch-zoom plus two-finger pan.
+    this.pointers = new Map();
+    this.pinch = null;
+    // Path length of the current gesture, so a drag does not also pick.
+    this.travel = 0;
     element.addEventListener("pointerdown", (e) => {
-      this.dragging = { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey };
+      if (this.pointers.size === 0) this.travel = 0;
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       element.setPointerCapture(e.pointerId);
+      if (this.pointers.size === 2) {
+        this.dragging = null;
+        this.pinch = this.pinchState();
+      } else if (this.pointers.size === 1) {
+        this.dragging = { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey };
+      }
     });
     element.addEventListener("pointermove", (e) => {
+      const p = this.pointers.get(e.pointerId);
+      if (!p) return;
+      this.travel += Math.hypot(e.clientX - p.x, e.clientY - p.y);
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (this.pinch) {
+        const next = this.pinchState();
+        if (!next) return;
+        if (next.distance > 0 && this.pinch.distance > 0) this.spherical.radius *= this.pinch.distance / next.distance;
+        this.pan(next.x - this.pinch.x, next.y - this.pinch.y);
+        this.pinch = next;
+        this.update();
+        return;
+      }
       if (!this.dragging) return;
       const dx = e.clientX - this.dragging.x;
       const dy = e.clientY - this.dragging.y;
@@ -35,7 +62,14 @@ class Orbit {
       }
       this.update();
     });
-    const release = () => (this.dragging = null);
+    const release = (e) => {
+      this.pointers.delete(e.pointerId);
+      this.pinch = this.pointers.size >= 2 ? this.pinchState() : null;
+      // Lifting one finger of a pinch hands orbit to the other from
+      // where it now is, so the model does not jump.
+      const rest = this.pointers.size === 1 ? [...this.pointers.values()][0] : null;
+      this.dragging = rest ? { x: rest.x, y: rest.y, button: 0, shift: false } : null;
+    };
     element.addEventListener("pointerup", release);
     element.addEventListener("pointercancel", release);
     element.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -60,6 +94,18 @@ class Orbit {
       e.preventDefault();
       this.update();
     });
+  }
+
+  /** Midpoint and separation of the first two active pointers. */
+  pinchState() {
+    const [a, b] = [...this.pointers.values()];
+    if (!a || !b) return null;
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) };
+  }
+
+  /** Whether the last gesture moved far enough to count as a drag. */
+  wasDrag() {
+    return this.travel > 6;
   }
 
   pan(dx, dy) {
@@ -178,9 +224,14 @@ export class Viewer {
     this.raycaster = new THREE.Raycaster();
     this.orbit = new Orbit(this.camera, canvas, () => this.render());
     canvas.tabIndex = 0;
-    canvas.addEventListener("click", (e) => this.pick(e));
+    canvas.addEventListener("click", (e) => {
+      if (!this.orbit.wasDrag()) this.pick(e);
+    });
     this.resize();
-    window.addEventListener("resize", () => this.resize());
+    // The container, not the window, sets the canvas size: the narrow
+    // layout resizes it on rotation and when mobile toolbars collapse.
+    if (typeof ResizeObserver === "function") new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+    else window.addEventListener("resize", () => this.resize());
     this.orbit.update();
   }
 

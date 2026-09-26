@@ -29,7 +29,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-vi
 .pane { min-height: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
 .pane-side { padding: 0 1rem 1rem; overflow: auto; }
 .viewer-wrap { position: relative; flex: 1; min-height: 16rem; }
-.viewer-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.viewer-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .viewer-bar { display: flex; gap: 0.5rem; align-items: center; padding: 0.4rem 0.6rem; border-top: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .viewer-bar span { flex: 1; font-family: var(--mono); font-size: 0.85em; }
 .overlay { position: absolute; left: 0.75rem; right: 0.75rem; bottom: 0.75rem; background: rgba(40, 20, 24, 0.94); border: 1px solid var(--bad); border-radius: 6px; padding: 0.6rem 0.8rem; max-height: 45%; overflow: auto; }
@@ -63,6 +63,31 @@ button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-vi
 .dialog-head { display: flex; justify-content: space-between; padding: 0.6rem 0.9rem; border-bottom: 1px solid var(--line); }
 .dialog pre { margin: 0; padding: 0.9rem; overflow: auto; font-family: var(--mono); font-size: 0.85em; }
 .foot { padding: 0.5rem 1rem; border-top: 1px solid var(--line); font-size: 0.8em; }
-@media (max-width: 64rem) { .layout { grid-template-columns: 1fr; grid-auto-rows: minmax(18rem, auto); } .pane { border-right: 0; border-bottom: 1px solid var(--line); } }
+/* Narrow screens: the page scrolls instead of squeezing three panes
+   into one viewport height. The model comes first and keeps a fixed
+   share of the screen; the editor and report follow. */
+@media (max-width: 64rem) {
+  html, body { height: auto; min-height: 100%; }
+  .bar { gap: 0.5rem 0.75rem; padding: 0.5rem 0.75rem; }
+  .bar-actions { flex-wrap: wrap; }
+  .status { flex-basis: 100%; min-width: 0; }
+  .layout { display: flex; flex-direction: column; }
+  .pane { border-right: 0; border-bottom: 1px solid var(--line); }
+  .pane-viewer { order: -1; }
+  .viewer-wrap { flex: none; height: 60vh; height: 60svh; min-height: 16rem; max-height: 40rem; }
+  .viewer-bar span { flex-basis: 100%; }
+  .pane-editor { height: 45vh; height: 45svh; min-height: 14rem; }
+  .pane-side { overflow: visible; padding: 0 0.75rem 1rem; }
+  .dialog { padding: 0.75rem; }
+  .dialog-box { max-height: 90vh; max-height: 90svh; }
+  .dialog-head { flex-wrap: wrap; gap: 0.5rem; }
+}
+/* Touch: finger-sized targets, and 16px editor text so mobile Safari
+   does not zoom the page when the script gains focus. */
+@media (pointer: coarse) {
+  button, select { min-height: 2.5rem; }
+  input[type="checkbox"] { width: 1.25rem; height: 1.25rem; }
+  .editor { font-size: 16px; }
+}
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 [hidden] { display: none !important; }
