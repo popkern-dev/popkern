@@ -94,7 +94,7 @@ pub(crate) fn sample_loop_with_samples(
                         uv_points.push((q.x, q.y));
                     }
                 } else {
-                    adaptive_sample_pcurve(pcurve, chord_height, &mut uv_points);
+                    adaptive_sample_pcurve(pcurve, surface, chord_height, &mut uv_points);
                 }
                 // Evaluate surface at each new UV point to get 3D positions.
                 for uv in &uv_points[prev_len..] {
@@ -141,17 +141,26 @@ pub(crate) fn sample_loop_with_samples(
     (uv_points, points_3d, all_have_pcurves)
 }
 
-/// Adaptively sample a pcurve (NURBS curve in UV space) using chord-height
-/// subdivision.
+/// Adaptively sample a pcurve using chord-height subdivision in both
+/// its uv chart and its 3D image on `surface`.
 ///
-/// Pushes the start point, then recursively subdivides spans where the
-/// perpendicular chord-height error exceeds `chord_height`, up to a maximum
-/// recursion depth of 6. Finally pushes the end point.
+/// Pushes the start point, then recursively subdivides spans whose uv
+/// chord-height error, or whose surface image's 3D sag, exceeds
+/// `chord_height`, up to [`MAX_TRIM_SUBDIVISION_DEPTH`]. Finally pushes
+/// the end point.
 ///
-/// Chord-height error is the perpendicular distance from the curve midpoint
-/// to the chord line: `|cross(p1-p0, p_mid-p0)| / |p1-p0|`.
+/// The 3D criterion is what the trim clip needs: vertices created where
+/// the trim cuts grid triangles take their 3D position by linear
+/// interpolation along the trim polyline, so the polyline's 3D chords
+/// must follow the surface (PK-560: a helical thread flank's trim is a
+/// straight uv line over several turns; sampled by uv straightness it
+/// got two points, and the 3D chord between them cut across the hole —
+/// clip vertices landed on the hole axis, 2.57 off the flank). The span
+/// is probed at its quarter points as well as its midpoint: after an
+/// even number of helix turns the midpoint alone lies back on the chord.
 pub(crate) fn adaptive_sample_pcurve(
     pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &SurfaceGeometry,
     chord_height: f64,
     output: &mut Vec<(f64, f64)>,
 ) {
@@ -159,22 +168,29 @@ pub(crate) fn adaptive_sample_pcurve(
     let p_start = pcurve.point_at(t_start);
     output.push((p_start.x, p_start.y));
 
-    subdivide_pcurve(pcurve, t_start, t_end, chord_height, 0, output);
+    subdivide_pcurve(pcurve, surface, t_start, t_end, chord_height, 0, output);
 
     let p_end = pcurve.point_at(t_end);
     output.push((p_end.x, p_end.y));
 }
 
+/// Deepest trim subdivision (4096 spans per pcurve).
+const MAX_TRIM_SUBDIVISION_DEPTH: usize = 12;
+
+/// Depth to which the historical uv chord-height criterion applies.
+const UV_SUBDIVISION_DEPTH: usize = 6;
+
 /// Recursive subdivision helper for [`adaptive_sample_pcurve`].
 fn subdivide_pcurve(
     pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &SurfaceGeometry,
     t0: f64,
     t1: f64,
     chord_height: f64,
     depth: usize,
     output: &mut Vec<(f64, f64)>,
 ) {
-    if depth >= 6 {
+    if depth >= MAX_TRIM_SUBDIVISION_DEPTH {
         return;
     }
 
@@ -183,27 +199,43 @@ fn subdivide_pcurve(
     let p1 = pcurve.point_at(t1);
     let p_mid = pcurve.point_at(t_mid);
 
-    // Chord-height error: perpendicular distance from p_mid to the line p0-p1.
-    // error = |cross(p1-p0, p_mid-p0)| / |p1-p0|
-    let dx_chord = p1.x - p0.x;
-    let dy_chord = p1.y - p0.y;
-    let chord_len = (dx_chord * dx_chord + dy_chord * dy_chord).sqrt();
-
-    let error = if chord_len > 1e-30 {
+    // uv chord-height error of the midpoint.
+    let uv_error = if depth < UV_SUBDIVISION_DEPTH {
+        let dx_chord = p1.x - p0.x;
+        let dy_chord = p1.y - p0.y;
+        let chord_len = (dx_chord * dx_chord + dy_chord * dy_chord).sqrt();
         let dx_mid = p_mid.x - p0.x;
         let dy_mid = p_mid.y - p0.y;
-        // 2D cross product magnitude (z component of 3D cross).
-        (dx_chord * dy_mid - dy_chord * dx_mid).abs() / chord_len
+        if chord_len > 1e-30 {
+            (dx_chord * dy_mid - dy_chord * dx_mid).abs() / chord_len
+        } else {
+            (dx_mid * dx_mid + dy_mid * dy_mid).sqrt()
+        }
     } else {
-        // Degenerate chord (zero length): use distance from midpoint to p0.
-        let dx = p_mid.x - p0.x;
-        let dy = p_mid.y - p0.y;
-        (dx * dx + dy * dy).sqrt()
+        0.0
     };
 
-    if error > chord_height {
-        subdivide_pcurve(pcurve, t0, t_mid, chord_height, depth + 1, output);
+    // 3D sag of the surface image at the quarter and mid points.
+    let image = |t: f64| {
+        let q = pcurve.point_at(t);
+        surface.point_at(q.x, q.y)
+    };
+    let (s0, s1) = (image(t0), image(t1));
+    let sag = [0.25, 0.5, 0.75]
+        .iter()
+        .map(|&f| {
+            let on_chord = Point3::new(
+                s0.x + f * (s1.x - s0.x),
+                s0.y + f * (s1.y - s0.y),
+                s0.z + f * (s1.z - s0.z),
+            );
+            image(t0 + f * (t1 - t0)).distance_to(&on_chord)
+        })
+        .fold(0.0_f64, f64::max);
+
+    if uv_error > chord_height || sag > chord_height {
+        subdivide_pcurve(pcurve, surface, t0, t_mid, chord_height, depth + 1, output);
         output.push((p_mid.x, p_mid.y));
-        subdivide_pcurve(pcurve, t_mid, t1, chord_height, depth + 1, output);
+        subdivide_pcurve(pcurve, surface, t_mid, t1, chord_height, depth + 1, output);
     }
 }
