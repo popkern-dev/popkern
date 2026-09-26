@@ -361,39 +361,37 @@ impl BRep {
                     // anchored walks race and the smaller measured
                     // deviation wins — see pcurve_projection_walk),
                     // unwrap seam crossings, then INTERPOLATE (not fit).
-                    let uv_points = super::pcurve_projection_walk::anchored_uv_samples(
+                    // Samples at curve fractions, interpolated piecewise
+                    // between the edge curve's parametric breakpoints and
+                    // refined until the image follows the edge
+                    // (pcurve_projection_fit, PK-555).
+                    let sample = |fractions: &[f64]| {
+                        super::pcurve_projection_walk::anchored_uv_samples(
+                            &surface,
+                            curve_on_edge,
+                            (t_lo, t_hi),
+                            he_origin_pos,
+                            he_dest_pos,
+                            ((u_s, v_s), (u_e, v_e)),
+                            fractions,
+                        )
+                    };
+                    let fitted = super::pcurve_projection_fit::measured_projection_interpolant(
                         &surface,
                         curve_on_edge,
                         (t_lo, t_hi),
-                        he_origin_pos,
-                        he_dest_pos,
-                        ((u_s, v_s), (u_e, v_e)),
-                        23, // OCCT default sample count
+                        self.tolerance.linear(),
+                        &sample,
                     );
-
-                    if uv_points.len() >= 4 {
-                        // Interpolation (not approximation): curve
-                        // passes through every sample point exactly.
-                        // Use degree 3 with n_cp = n_samples. With
-                        // continuation-based projection (no branch
-                        // jumping), the points are smooth enough that
-                        // interpolation doesn't oscillate.
-                        let params: Vec<f64> = (0..uv_points.len())
-                            .map(|i| i as f64 / (uv_points.len() - 1).max(1) as f64)
-                            .collect();
-                        let degree = 3.min(uv_points.len() - 1);
-                        let n_cp = uv_points.len(); // interpolation
-                        match crate::geometry::fitting::fit_curve(&uv_points, &params, degree, n_cp)
-                        {
-                            Ok(fitted) => fitted,
-                            Err(_) => NurbsCurve {
-                                degree: 1,
-                                knots: vec![0.0, 0.0, 1.0, 1.0],
-                                control_points: vec![uv_points[0], uv_points[uv_points.len() - 1]],
-                                weights: vec![1.0, 1.0],
-                            },
-                        }
-                    } else if uv_points.len() >= 2 {
+                    if let Some(fitted) = fitted {
+                        fitted
+                    } else if let uv_points =
+                        sample(&super::pcurve_projection_fit::segment_fractions(
+                            &[],
+                            &[super::pcurve_projection_fit::PROJECTION_SAMPLES - 1],
+                        ))
+                        && uv_points.len() >= 2
+                    {
                         NurbsCurve {
                             degree: 1,
                             knots: vec![0.0, 0.0, 1.0, 1.0],

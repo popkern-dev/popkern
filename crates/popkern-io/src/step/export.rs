@@ -173,6 +173,9 @@ pub(crate) struct ExportContext {
     next_id: EntityId,
     /// Cache of already-exported points, keyed by exact float bits.
     pub(crate) point_cache: HashMap<PointKey, EntityId>,
+    /// Cache of already-exported 2-D (parameter-space) points, keyed by
+    /// exact float bits of `(u, v)`.
+    pub(crate) point_2d_cache: HashMap<(u64, u64), EntityId>,
     /// Cache of already-exported directions, keyed by exact float bits.
     pub(crate) direction_cache: HashMap<PointKey, EntityId>,
     /// Cached ID of the shared 2-D parametric representation context.
@@ -221,6 +224,7 @@ impl ExportContext {
             entities: Vec::new(),
             next_id: 1,
             point_cache: HashMap::new(),
+            point_2d_cache: HashMap::new(),
             direction_cache: HashMap::new(),
             param_repr_context_id: None,
             surface_conditioning_tolerance: 0.1

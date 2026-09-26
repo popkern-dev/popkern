@@ -3,6 +3,10 @@
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
 
+/// Relative uv precision of a reversal that must go through a NURBS
+/// fit (a representation change, not a geometric tolerance).
+const REVERSAL_PRECISION: f64 = 1e-12;
+
 impl Pcurve {
     /// Return the same UV locus traversed in the opposite direction over this
     /// pcurve's parameter range.
@@ -37,8 +41,14 @@ impl Pcurve {
                 v_const: *v_const,
             },
             PcurveGeometry::Nurbs(curve) => PcurveGeometry::Nurbs(reverse_nurbs_curve(curve)),
+            // `u = u_offset + t` has no reversed Sinusoidal form, so the
+            // reversal is written as a NURBS fitted at representation
+            // precision (PK-553: the coarse 17-sample cubic baked up to
+            // 3e-4 of the amplitude into every reversed tilted-cut trim).
             PcurveGeometry::Sinusoidal { .. } => {
-                PcurveGeometry::Nurbs(reverse_nurbs_curve(&self.to_nurbs()))
+                let extent = self.uv_extent();
+                let (fit, _) = self.to_nurbs_within(REVERSAL_PRECISION * extent.max(1.0));
+                PcurveGeometry::Nurbs(reverse_nurbs_curve(&fit))
             }
         };
         Self {
@@ -46,6 +56,17 @@ impl Pcurve {
             t_start: self.t_start,
             t_end: self.t_end,
         }
+    }
+
+    /// Largest uv distance of the trace from its start (17 samples).
+    fn uv_extent(&self) -> f64 {
+        let start = self.point_at(self.t_start);
+        (1..=16)
+            .map(|k| {
+                let t = self.t_start + (self.t_end - self.t_start) * k as f64 / 16.0;
+                self.point_at(t).distance_to(&start)
+            })
+            .fold(0.0_f64, f64::max)
     }
 
     /// Rigid UV translation of the whole pcurve (used to move a

@@ -14,7 +14,6 @@ crates/popkern-bool/src/merge/graph_split.rs 807
 crates/popkern-bool/src/merge/walk/chart_subdivision.rs 753
 crates/popkern-bool/src/merge/walk/mod.rs 972
 crates/popkern-bool/src/merge/walk/walk_geometry.rs 541
-crates/popkern-bool/src/operation.rs 594
 crates/popkern-bool/src/split.rs 631
 crates/popkern-core/src/geometry/gregory/kp15_bi6_cap_f5_solve.rs 615
 crates/popkern-core/src/geometry/gregory/kp15_bi6_local_constraint.rs 2570

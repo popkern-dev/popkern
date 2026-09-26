@@ -172,9 +172,13 @@ impl BRep {
             }
 
             // Materialise the pcurve as NURBS for endpoint surgery;
-            // analytic variants (Linear) round-trip through `to_nurbs`
-            // so the same code path serves both.
-            let mut fixed = pcurve.to_nurbs();
+            // analytic variants round-trip through a conversion held
+            // to a thousandth of the linear tolerance in model space
+            // (PK-553: the coarse `to_nurbs` cubic baked up to 1.3e-2
+            // of trim error into the stored pcurve).
+            let mut fixed = pcurve
+                .to_nurbs_on_surface(&surface, 1e-3 * self.tolerance.linear())
+                .0;
             let n_cp = fixed.control_points.len();
 
             if fixed.degree == 1 && n_cp == 2 {

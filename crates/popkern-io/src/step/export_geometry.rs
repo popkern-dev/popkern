@@ -61,6 +61,26 @@ impl ExportContext {
         id
     }
 
+    /// Export a 2-D parameter-space point `(p.x, p.y)` (a pcurve control
+    /// point; `p.z` is ignored), deduplicating by exact float bits.
+    /// Pcurves live in a two-dimensional parametric representation
+    /// context, so their points must be two-dimensional: OpenCASCADE
+    /// drops a pcurve whose control points carry three coordinates and
+    /// re-projects the edge onto the surface at its own 23-sample
+    /// accuracy (PK-558, measured 2.8e-3 on a tilted drill wall).
+    pub(crate) fn export_point_2d(&mut self, p: &Point3) -> EntityId {
+        let key = (p.x.to_bits(), p.y.to_bits());
+        if let Some(&id) = self.point_2d_cache.get(&key) {
+            return id;
+        }
+        let id = self.emit(
+            "CARTESIAN_POINT",
+            vec![str_param(""), list(vec![real(p.x), real(p.y)])],
+        );
+        self.point_2d_cache.insert(key, id);
+        id
+    }
+
     /// Export a 3D direction vector, deduplicating by exact float bits.
     pub(crate) fn export_direction(&mut self, v: &Vec3) -> EntityId {
         let key = PointKey::from_vec(v);

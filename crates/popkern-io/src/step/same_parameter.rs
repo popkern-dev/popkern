@@ -43,6 +43,9 @@ const INITIAL_SPANS: usize = 16;
 const MAX_SPANS: usize = 256;
 /// Degree of the rebuilt pcurve.
 const FIT_DEGREE: usize = 3;
+/// uv gap allowed where two rebuilt pieces meet: both interpolate the
+/// same breakpoint node, so they share it to round-off.
+const JOIN_TOLERANCE: f64 = 1e-9;
 /// Fraction of the tolerance the rebuilt pcurve aims for, leaving
 /// the rest of the tolerance to the file's own geometric gap.
 const FIT_TARGET_FRACTION: f64 = 0.1;
@@ -71,11 +74,21 @@ pub(crate) fn same_parameter_repair(
         (curve.t_end, curve.t_start)
     };
     let edge_point = |t: f64| curve.geometry.point_at(t);
+    // Segment bounds in edge direction: the rebuilt pcurve is fitted
+    // piecewise between the edge curve's parametric breakpoints.
+    let mut bounds = vec![e0];
+    let mut interior = parametric_breakpoints(curve);
+    if e0 > e1 {
+        interior.reverse();
+    }
+    bounds.extend(interior);
+    bounds.push(e1);
     let mut spans = INITIAL_SPANS;
     let mut best: Option<SameParameterRepair> = None;
     loop {
-        let nodes = track.follow(e0, e1, spans, &edge_point)?;
-        let repair = fit_nodes(&nodes, e0, e1, surface, &edge_point)?;
+        let ts = segment_samples(&bounds, spans);
+        let nodes = track.follow(&ts, &edge_point)?;
+        let repair = fit_segments(&nodes, &bounds, spans, surface, &edge_point)?;
         // Stop at the target, at the span cap, or at the first doubling
         // that fails to halve the gap: the source pcurve's own
         // geometric gap is a floor no span count moves (PK-555: a
@@ -93,6 +106,89 @@ pub(crate) fn same_parameter_repair(
         }
         spans *= 2;
     }
+}
+
+/// The edge curve's interior parametric breakpoints, ascending: knots of
+/// a NURBS edge curve inside its trimmed range whose multiplicity
+/// reaches its degree, where the curve is only C0 in its parameter
+/// (PK-558: a tilted drill rim written as two rational quadratic arcs
+/// joined by a double knot). A same-parameter pcurve inherits that
+/// kink; a single smooth interpolant across it converges only
+/// linearly, and the plateau stop then accepted a rebuild 9e-4 off the
+/// rim at the knot, which OpenCASCADE measured as the edge's
+/// same-parameter deviation.
+fn parametric_breakpoints(curve: &CurveOnEdge) -> Vec<f64> {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let CurveGeometry::Nurbs(nurbs) = &curve.geometry else {
+        return Vec::new();
+    };
+    let (lo, hi) = (
+        curve.t_start.min(curve.t_end),
+        curve.t_start.max(curve.t_end),
+    );
+    let margin = 1e-9 * (hi - lo);
+    let mut breaks: Vec<f64> = Vec::new();
+    let mut k = 0;
+    while k < nurbs.knots.len() {
+        let knot = nurbs.knots[k];
+        let multiplicity = nurbs.knots[k..].iter().take_while(|&&x| x == knot).count();
+        if multiplicity >= nurbs.degree && knot > lo + margin && knot < hi - margin {
+            breaks.push(knot);
+        }
+        k += multiplicity;
+    }
+    breaks
+}
+
+/// Edge parameters of the track nodes: `spans` uniform steps in each
+/// segment between consecutive `bounds`, bounds shared once.
+fn segment_samples(bounds: &[f64], spans: usize) -> Vec<f64> {
+    let mut ts = vec![bounds[0]];
+    for pair in bounds.windows(2) {
+        ts.extend((1..=spans).map(|i| pair[0] + (pair[1] - pair[0]) * i as f64 / spans as f64));
+    }
+    ts
+}
+
+/// Fit each segment's nodes (`spans + 1` per segment, the breakpoint
+/// node shared) and join the pieces into one pcurve, C0 at the
+/// breakpoints; the gap is the worst segment's.
+fn fit_segments(
+    nodes: &[TrackNode],
+    bounds: &[f64],
+    spans: usize,
+    surface: &SurfaceOnFace,
+    edge_point: &dyn Fn(f64) -> Point3,
+) -> Option<SameParameterRepair> {
+    let (e0, e1) = (bounds[0], bounds[bounds.len() - 1]);
+    let mut pieces = Vec::with_capacity(bounds.len() - 1);
+    let mut max_gap = 0.0_f64;
+    for (i, pair) in bounds.windows(2).enumerate() {
+        let slice = nodes.get(i * spans..=(i + 1) * spans)?;
+        let piece = fit_nodes(slice, pair[0], pair[1], surface, edge_point)?;
+        max_gap = max_gap.max(piece.max_gap);
+        let PcurveGeometry::Nurbs(fit) = piece.pcurve.geometry else {
+            return None;
+        };
+        pieces.push(fit);
+    }
+    // Pieces run in ascending edge parameter.
+    if e0 > e1 {
+        pieces.reverse();
+    }
+    let mut pieces = pieces.into_iter();
+    let mut joined = pieces.next()?;
+    for piece in pieces {
+        joined = joined.concatenate_clamped(&piece, JOIN_TOLERANCE).ok()?;
+    }
+    Some(SameParameterRepair {
+        pcurve: Pcurve {
+            geometry: PcurveGeometry::Nurbs(joined),
+            t_start: e0,
+            t_end: e1,
+        },
+        max_gap,
+    })
 }
 
 /// Counts the repairs made while importing one body, for one summary
@@ -234,22 +330,15 @@ impl<'a> PcurveTrack<'a> {
         }
     }
 
-    /// Project `spans + 1` edge samples onto the image in order.
+    /// Project the edge samples at `ts` onto the image in order.
     /// Declines when a sample is off the image or the projection
     /// reverses direction.
-    fn follow(
-        &self,
-        e0: f64,
-        e1: f64,
-        spans: usize,
-        edge_point: &dyn Fn(f64) -> Point3,
-    ) -> Option<Vec<TrackNode>> {
+    fn follow(&self, ts: &[f64], edge_point: &dyn Fn(f64) -> Point3) -> Option<Vec<TrackNode>> {
         let fixed_window = WINDOW_FRACTION * (self.s1 - self.s0);
-        let mut nodes: Vec<TrackNode> = Vec::with_capacity(spans + 1);
+        let mut nodes: Vec<TrackNode> = Vec::with_capacity(ts.len());
         let mut previous: Option<(f64, Point3)> = None;
         let mut direction = 0.0_f64;
-        for i in 0..=spans {
-            let t = e0 + (e1 - e0) * i as f64 / spans as f64;
+        for &t in ts {
             let target = edge_point(t);
             let (s, gap) = match previous {
                 Some((p, last_target)) => {

@@ -6,6 +6,46 @@ use crate::geometry::Point3;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::Pcurve;
 
+/// Pcurve samples used to estimate a surface's uv metric scale.
+const METRIC_SCALE_SAMPLES: usize = 9;
+
+impl Pcurve {
+    /// [`Pcurve::to_nurbs_within`] with the tolerance given in MODEL
+    /// space: `linear_tolerance` is converted to uv through `surface`'s
+    /// metric scale along this pcurve (1 on a unit-axis plane, the
+    /// radius for a cylinder's angular u), so the converted trim's
+    /// image stays within about `linear_tolerance` of this pcurve's at
+    /// equal parameters. Returns the curve and its measured uv
+    /// deviation.
+    pub fn to_nurbs_on_surface(
+        &self,
+        surface: &crate::geometry::SurfaceGeometry,
+        linear_tolerance: f64,
+    ) -> (NurbsCurve, f64) {
+        self.to_nurbs_within(linear_tolerance / uv_metric_scale(self, surface))
+    }
+}
+
+/// Largest `|S_u|` or `|S_v|` along `pcurve`: a uv displacement `d`
+/// moves the surface point by at most about `scale · d`. Falls back to
+/// 1 for a degenerate or non-finite metric.
+fn uv_metric_scale(pcurve: &Pcurve, surface: &crate::geometry::SurfaceGeometry) -> f64 {
+    use crate::geometry::surface::SurfaceEval as _;
+    let mut scale = 0.0_f64;
+    for k in 0..METRIC_SCALE_SAMPLES {
+        let s = k as f64 / (METRIC_SCALE_SAMPLES - 1) as f64;
+        let uv = pcurve.point_at(pcurve.t_start + s * (pcurve.t_end - pcurve.t_start));
+        let su = surface.partial_u(uv.x, uv.y).length();
+        let sv = surface.partial_v(uv.x, uv.y).length();
+        scale = scale.max(su).max(sv);
+    }
+    if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    }
+}
+
 pub(super) fn sampled_to_nurbs_approx(pcurve: &Pcurve) -> NurbsCurve {
     // `interpolate_curve` requires ascending parameters; a pcurve
     // trimmed against a descending domain (t_start > t_end) is

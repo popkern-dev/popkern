@@ -325,8 +325,9 @@ pub(super) fn plane_box_gate(
 /// "hit" the crest cylinder inside a groove span, read odd parity,
 /// and the mouth-chamfer tool's void cylinder was kept (5 duplicate
 /// self-twinned edges). The face's own uv boundary is the trim
-/// truth: fold the hit by whole periods onto the boundary branch
-/// nearest its v, then even-odd test against the sampled boundary.
+/// truth: even-odd test every whole-period branch of the hit that the
+/// sampled boundary's u extent reaches (analytic charts), or the hit
+/// itself (aperiodic NURBS charts, at any piece count).
 ///
 /// Returns `Some(true)` on-face, `Some(false)` off-face, `None` when
 /// the face is not a multi-turn band (caller keeps tuned behavior).
@@ -365,10 +366,13 @@ pub(super) fn multi_turn_band_hit(
     // carries 14+). A plain or drilled closed wall also gets a
     // full-period window from its seam-only vertices, but its outer
     // loop stays small — and its tuned coarse gates must stay
-    // untouched. NURBS bands (thread groove walls, whose chart runs
-    // half a lead past the body) apply from 4 pieces: their trims
-    // are the only truth the ray has.
-    let min_pieces = if period.is_some() { 8 } else { 4 };
+    // untouched. NURBS charts (thread groove walls, whose chart runs
+    // half a lead past the body) are aperiodic, and their uv trim is
+    // the only truth the ray has at ANY piece count (PK-555: a 3-piece
+    // corner patch of a helical flank — trim v in [0.964, 1] — was
+    // exempt, took a hit at v = 0.77 on its surface extension, and a
+    // bore-void point read Inside).
+    let min_pieces = if period.is_some() { 8 } else { 1 };
     if outer.len() < min_pieces {
         return None;
     }
@@ -393,33 +397,47 @@ pub(super) fn multi_turn_band_hit(
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
             (lo.min(q.0), hi.max(q.0))
         });
-    // Fold the hit u onto the polygon's branch (stored pcurves are
-    // branch-folded to the principal period, so the whole boundary
-    // shares one strip). NURBS band charts are aperiodic: no fold.
-    let center = 0.5 * (u_lo + u_hi);
-    let uq = match period {
-        Some(p) => u + ((center - u) / p).round() * p,
-        None => u,
+    // Every whole-period branch of the hit the boundary's u extent
+    // reaches (PK-555): a helical band's trim unrolls SEVERAL periods,
+    // so the hit's point lies on the face in whichever branch falls
+    // inside the polygon — folding onto the single branch nearest the
+    // polygon's centre read the tapped wall's crest band as missed
+    // (odd parity, void kept) as soon as its rim pcurve moved the
+    // centre by a period. NURBS band charts are aperiodic: no fold.
+    let branches: Vec<f64> = match period {
+        Some(p) => {
+            let k_lo = ((u_lo - u) / p).floor() as i64;
+            let k_hi = ((u_hi - u) / p).ceil() as i64;
+            (k_lo..=k_hi).map(|k| u + k as f64 * p).collect()
+        }
+        None => vec![u],
     };
-    let _ = center;
     // Even-odd along the +u ray at height v; the MULTI-BAND signature
     // is >= 3 crossings at this v (a helical band's turns tile the
     // strip; a plain wall or drilled boss crosses at most twice, and
     // those keep the tuned coarse gates untouched).
-    let mut inside = false;
-    let mut crossings = 0usize;
     let n = polygon.len();
+    let mut crossings = 0usize;
+    let mut inside_at = vec![false; branches.len()];
     for i in 0..n {
         let (x0, y0) = polygon[i];
         let (x1, y1) = polygon[(i + 1) % n];
         if (y0 > v) != (y1 > v) {
             crossings += 1;
             let x_cross = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
-            if x_cross > uq {
-                inside = !inside;
+            for (inside, &uq) in inside_at.iter_mut().zip(&branches) {
+                if x_cross > uq {
+                    *inside = !*inside;
+                }
             }
         }
     }
+    let inside = inside_at.iter().any(|&b| b);
+    let uq = branches
+        .iter()
+        .zip(&inside_at)
+        .find(|(_, b)| **b)
+        .map_or(u, |(&uq, _)| uq);
     if popkern_core::trace::trace_enabled("ray-classify") {
         eprintln!(
             "  [band-gate] {face_handle:?} uv=({u:.3},{v:.3}) uq={uq:.3} crossings={crossings} inside={inside}"

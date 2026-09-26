@@ -62,6 +62,7 @@ mod loop_chart_continuity;
 mod pcurve_loop_winding_repair;
 mod pcurve_period_branch;
 /// Pcurve recomputation for BRep faces.
+mod pcurve_projection_fit;
 mod pcurve_projection_walk;
 mod pcurve_recompute;
 mod pcurve_recompute_analytic;

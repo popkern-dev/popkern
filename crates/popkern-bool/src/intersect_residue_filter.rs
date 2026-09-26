@@ -29,6 +29,18 @@ pub(crate) fn drop_kept_flank_residues(
 ) {
     use crate::error::PointClassification;
     let trace = popkern_core::trace::trace_enabled("boolean");
+    // One verdict per residue holds only between the other operand's
+    // boundary crossings: cut residues where it changes first (PK-553).
+    crate::intersect_residue_split::split_residues_at_verdict_changes(
+        records,
+        &crate::intersect_residue_split::OtherOperand {
+            brep_a,
+            brep_b,
+            aabbs_a,
+            aabbs_b,
+        },
+        tolerance,
+    );
     // Chord samples + bounding boxes of every ORDINARY record, for
     // the cross-record redundancy gate below.
     let ordinary: Vec<(
@@ -169,34 +181,13 @@ pub(crate) fn drop_kept_flank_residues(
                 return false;
             }
         }
-        let on_other_boundary = {
-            use popkern_core::geometry::surface::SurfaceEval as _;
-            other_aabbs.iter().any(|(fh, aabb)| {
-                let pad = boundary_gate;
-                let inside_box = mid.x >= aabb.min.x - pad
-                    && mid.x <= aabb.max.x + pad
-                    && mid.y >= aabb.min.y - pad
-                    && mid.y <= aabb.max.y + pad
-                    && mid.z >= aabb.min.z - pad
-                    && mid.z <= aabb.max.z + pad;
-                if !inside_box {
-                    return false;
-                }
-                let Some(sof) = other_brep.faces.get(*fh).and_then(|f| f.surface.as_ref()) else {
-                    return false;
-                };
-                let Some((u, v)) = sof.geometry.closest_point(&mid) else {
-                    return false;
-                };
-                sof.geometry.point_at(u, v).distance_to(&mid) < boundary_gate
-                    && crate::split_inner_loop::point_inside_face_region_uv(
-                        other_brep,
-                        *fh,
-                        popkern_core::geometry::Point3::new(u, v, 0.0),
-                        tolerance,
-                    )
-            })
-        };
+        let on_other_boundary = crate::intersect_residue_split::on_operand_boundary(
+            &mid,
+            other_brep,
+            other_aabbs,
+            boundary_gate,
+            tolerance,
+        );
         if on_other_boundary {
             if trace {
                 eprintln!(

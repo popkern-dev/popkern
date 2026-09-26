@@ -6,7 +6,7 @@
 
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 
 use crate::step::export::{ExportContext, enum_, list, ref_, str_param};
 use crate::step::parser::types::{EntityId, Parameter};
@@ -47,14 +47,14 @@ impl ExportContext {
     /// Export a pcurve NURBS as a PCURVE entity on the given surface.
     ///
     /// Emits:
-    /// 1. A 2-D B_SPLINE_CURVE_WITH_KNOTS (control points have z = 0)
+    /// 1. A 2-D B_SPLINE_CURVE_WITH_KNOTS (two-coordinate control points)
     /// 2. A DEFINITIONAL_REPRESENTATION wrapping the 2-D curve
     /// 3. A PCURVE referencing the surface and definitional representation
     pub(crate) fn export_pcurve(&mut self, pcurve: &NurbsCurve, surface_id: EntityId) -> EntityId {
-        // The pcurve NURBS uses Point3(u, v, 0) convention — export as-is
-        // since STEP AP203/214 uses 3-D CARTESIAN_POINT for pcurve control
-        // points (z coordinate is 0).
-        let curve_2d_id = self.export_nurbs_curve(pcurve);
+        // The pcurve NURBS uses the Point3(u, v, 0) convention; its
+        // control points are written as 2-D points in the parametric
+        // context (see `export_point_2d`).
+        let curve_2d_id = self.export_nurbs_curve_2d(pcurve);
 
         // Parametric representation context (shared, emitted once)
         let ctx_id = self.ensure_param_repr_context();
@@ -122,48 +122,58 @@ impl ExportContext {
 /// own accuracy (PK-550: the former fixed 17-sample cubic opened real
 /// seam gaps of 7e-6 to 1.2e-2 on re-import).
 const ANALYTIC_PCURVE_EXPORT_FRACTION: f64 = 1e-3;
-/// Pcurve samples used to estimate the surface's uv metric scale.
-const METRIC_SCALE_SAMPLES: usize = 9;
-
 /// The NURBS pcurve written for `pcurve` on `surface`: exact for NURBS
 /// and linear forms; analytic arcs and sinusoids are fitted
 /// co-parameterized to within `ANALYTIC_PCURVE_EXPORT_FRACTION` of
-/// `linear_tolerance`, converted to uv through the surface's metric
-/// scale along the pcurve (1 on a unit-axis plane, the radius for a
-/// cylinder's angular u).
+/// `linear_tolerance` in model space
+/// ([`Pcurve::to_nurbs_on_surface`]).
 pub(crate) fn export_pcurve_nurbs(
     pcurve: &Pcurve,
     surface: &SurfaceGeometry,
     linear_tolerance: f64,
 ) -> NurbsCurve {
-    let uv_tolerance =
-        ANALYTIC_PCURVE_EXPORT_FRACTION * linear_tolerance / uv_metric_scale(pcurve, surface);
-    pcurve.to_nurbs_within(uv_tolerance).0
-}
-
-/// Largest `|S_u|` or `|S_v|` along the pcurve: a uv displacement `d`
-/// moves the surface point by at most about `scale · d`. Falls back to
-/// 1 for a degenerate or non-finite metric.
-fn uv_metric_scale(pcurve: &Pcurve, surface: &SurfaceGeometry) -> f64 {
-    let mut scale = 0.0_f64;
-    for k in 0..METRIC_SCALE_SAMPLES {
-        let s = k as f64 / (METRIC_SCALE_SAMPLES - 1) as f64;
-        let uv = pcurve.point_at(pcurve.t_start + s * (pcurve.t_end - pcurve.t_start));
-        let su = surface.partial_u(uv.x, uv.y).length();
-        let sv = surface.partial_v(uv.x, uv.y).length();
-        scale = scale.max(su).max(sv);
-    }
-    if scale.is_finite() && scale > 0.0 {
-        scale
-    } else {
-        1.0
-    }
+    pcurve
+        .to_nurbs_on_surface(surface, ANALYTIC_PCURVE_EXPORT_FRACTION * linear_tolerance)
+        .0
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use popkern_core::geometry::Point3;
+
+    #[test]
+    fn pcurve_control_points_are_two_dimensional() {
+        // PK-558: 3-D points in a 2-D parametric context made
+        // OpenCASCADE discard every popkern pcurve and re-project.
+        let mut ctx = ExportContext::new();
+        let surface_id = ctx.emit("PLANE", vec![str_param(""), ref_(1)]);
+        let pcurve = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 2.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        ctx.export_pcurve(&pcurve, surface_id);
+        let curve = ctx
+            .entities
+            .iter()
+            .find(|e| e.type_name == "B_SPLINE_CURVE_WITH_KNOTS")
+            .expect("2-D curve");
+        let Parameter::List(points) = &curve.params[2] else {
+            panic!("control point list");
+        };
+        for point in points {
+            let Parameter::EntityRef(id) = point else {
+                panic!("control point reference");
+            };
+            let entity = ctx.entities.iter().find(|e| e.id == *id).expect("point");
+            let Parameter::List(coords) = &entity.params[1] else {
+                panic!("coordinates");
+            };
+            assert_eq!(coords.len(), 2, "pcurve point {entity:?}");
+        }
+    }
 
     #[test]
     fn export_pcurve_creates_three_entities() {

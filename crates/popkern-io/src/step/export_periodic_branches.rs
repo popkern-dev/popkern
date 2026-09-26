@@ -28,6 +28,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 use crate::step::export_pcurve_synthesis::synthesize_export_half_edge_pcurve_on_surface;
 use crate::step::export_topology::ExportedFaceSurface;
 
+use super::export_periodic_chain::ChainUse;
+
 /// Per-face-use pcurve shift in (u, v), each a whole multiple of the
 /// respective period.
 pub(super) type BranchShifts = HashMap<(FaceHandle, HalfEdgeHandle), (f64, f64)>;
@@ -36,10 +38,9 @@ pub(super) type BranchShifts = HashMap<(FaceHandle, HalfEdgeHandle), (f64, f64)>
 /// (true = the walk traverses the pcurve from t_start to t_end).
 pub(super) type ChainDirections = HashMap<(FaceHandle, HalfEdgeHandle), bool>;
 
-/// One candidate loop-chain assignment, in loop-walk order: the UV
-/// branch shift `(du, dv)` applied to each use and whether the use is
-/// traversed forward (t_start → t_end).
-type ChainAssignment = Vec<((f64, f64), bool)>;
+/// A partial below this fraction of the other marks a pole (a
+/// collapsed chart point: a sphere's poles, `|S_u| = r cos v`).
+const POLE_RATIO: f64 = 1e-7;
 
 /// Result of the periodic loop normalization pre-pass.
 #[derive(Default)]
@@ -249,20 +250,8 @@ fn normalize_loop(
     }
 
     // Collect the loop's uses with their pcurve UV endpoints.
-    struct Use {
-        half_edge: HalfEdgeHandle,
-        // Both pcurve endpoints (walk direction resolved during
-        // chaining — closed rims are direction-ambiguous from
-        // geometry alone).
-        end_a: (f64, f64),
-        end_b: (f64, f64),
-        // end_a is the walk start when known from 3D (open edges).
-        a_is_start: Option<bool>,
-        // Sampled UV polyline in pcurve parameter order (for the
-        // winding sign of candidate assignments).
-        samples: Vec<(f64, f64)>,
-    }
-    let mut uses: Vec<Use> = Vec::new();
+    let mut uses: Vec<ChainUse> = Vec::new();
+    let mut half_edges: Vec<HalfEdgeHandle> = Vec::new();
     let mut cursor_he = start_he;
     for _ in 0..brep.half_edges.len() + 1 {
         let Some(he) = brep.half_edges.get(cursor_he) else {
@@ -305,8 +294,9 @@ fn normalize_loop(
                 (uv.x, uv.y)
             })
             .collect();
-        uses.push(Use {
-            half_edge: cursor_he,
+        half_edges.push(cursor_he);
+        uses.push(ChainUse {
+            edge: he.edge,
             end_a: (uv0.x, uv0.y),
             end_b: (uv1.x, uv1.y),
             a_is_start,
@@ -323,117 +313,16 @@ fn normalize_loop(
         return;
     }
 
-    let shift_for = |from: (f64, f64), to: (f64, f64)| -> (f64, f64) {
-        let du = periods
-            .0
-            .map(|p| ((to.0 - from.0) / p).round() * p)
-            .unwrap_or(0.0);
-        let dv = periods
-            .1
-            .map(|p| ((to.1 - from.1) / p).round() * p)
-            .unwrap_or(0.0);
-        (du, dv)
+    // A junction on a collapsed chart point (a pole) leaves the
+    // coordinate whose partial vanishes free.
+    let pole_at = |uv: (f64, f64)| -> (bool, bool) {
+        let su = geometry.partial_u(uv.0, uv.1).length();
+        let sv = geometry.partial_v(uv.0, uv.1).length();
+        (su <= POLE_RATIO * sv, sv <= POLE_RATIO * su)
     };
-    let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
-
-    // Ambiguous (closed) uses get both direction candidates; open
-    // uses are pinned by 3D. Enumerate assignments, keep the one
-    // whose chain closes exactly.
-    let ambiguous: Vec<usize> = uses
-        .iter()
-        .enumerate()
-        .filter(|(_, u)| u.a_is_start.is_none())
-        .map(|(i, _)| i)
-        .collect();
-    let combos = 1usize << ambiguous.len().min(12);
-    // score = (chain error, flips from stored, winding mismatch) —
-    // lexicographic. Closure first. Then FEWEST reversals of the
-    // stored per-use pcurve directions: when the stored directions
-    // themselves chain into an exactly-closed contour they ARE the
-    // manifold traversal (the face-use pcurve contract), and an
-    // annulus's two-fold symmetry must NOT be re-decided by chart
-    // winding — a valid torus band exports with its outer contour
-    // wound clockwise (orientation-true boss round-over, measured:
-    // the assumed CCW-iff-face-sense convention flipped the top
-    // rim's chain direction, the shared rim's EDGE_CURVE flag came
-    // out .T. instead of .F., and OCC rejected the torus face with
-    // SelfIntersectingWire + UnorientableShape on every corpus
-    // curved-seam part). Winding stays as the LAST tiebreak for
-    // loops whose stored directions do not close on their own.
-    let mut best: Option<(f64, u32, bool, ChainAssignment)> = None;
-    for mask in 0..combos {
-        let forward_of = |idx: usize| -> bool {
-            match uses[idx].a_is_start {
-                Some(fwd) => fwd,
-                None => {
-                    let pos = ambiguous.iter().position(|&k| k == idx).unwrap_or(0);
-                    mask & (1 << pos) == 0
-                }
-            }
-        };
-        let (s0, e0) = if forward_of(0) {
-            (uses[0].end_a, uses[0].end_b)
-        } else {
-            (uses[0].end_b, uses[0].end_a)
-        };
-        let mut cursor = e0;
-        let mut assignment: Vec<((f64, f64), bool)> = vec![((0.0, 0.0), forward_of(0))];
-        let mut drift = 0.0_f64;
-        for (idx, use_) in uses.iter().enumerate().skip(1) {
-            let fwd = forward_of(idx);
-            let (start, end) = if fwd {
-                (use_.end_a, use_.end_b)
-            } else {
-                (use_.end_b, use_.end_a)
-            };
-            let (du, dv) = shift_for(start, cursor);
-            drift = drift.max(dist((start.0 + du, start.1 + dv), cursor));
-            assignment.push(((du, dv), fwd));
-            cursor = (end.0 + du, end.1 + dv);
-        }
-        let closure = dist(cursor, s0);
-        let score = closure.max(drift);
-        // Shoelace over the traversed contour.
-        let mut area2 = 0.0_f64;
-        let mut prev: Option<(f64, f64)> = None;
-        let mut first: Option<(f64, f64)> = None;
-        for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
-            let mut pts = use_.samples.clone();
-            if !*fwd {
-                pts.reverse();
-            }
-            for p in pts {
-                let q = (p.0 + du, p.1 + dv);
-                if let Some(pr) = prev {
-                    area2 += pr.0 * q.1 - q.0 * pr.1;
-                }
-                if first.is_none() {
-                    first = Some(q);
-                }
-                prev = Some(q);
-            }
-        }
-        if let (Some(pr), Some(f0)) = (prev, first) {
-            area2 += pr.0 * f0.1 - f0.0 * pr.1;
-        }
-        let winding_ok = (area2 > 0.0) == want_ccw;
-        let flips = (mask as u32).count_ones();
-        let better = match &best {
-            None => true,
-            Some((b_score, b_flips, b_wind, _)) => {
-                (score, flips, !winding_ok) < (*b_score, *b_flips, !*b_wind)
-            }
-        };
-        if better {
-            best = Some((score, flips, winding_ok, assignment));
-        }
-        // The zero-flip assignment is unbeatable once it closes
-        // exactly (flips outranks winding).
-        if score < 1e-9 && mask == 0 {
-            break;
-        }
-    }
-    let Some((score, _flips, _winding_ok, assignment)) = best else {
+    let Some((score, _violations, _flips, _winding_ok, assignment)) =
+        super::export_periodic_chain::best_assignment(&uses, periods, want_ccw, &pole_at)
+    else {
         return;
     };
     if popkern_core::trace::trace_enabled("step-io") {
@@ -443,11 +332,11 @@ fn normalize_loop(
             uses.len()
         );
     }
-    for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
+    for (&half_edge, ((du, dv), fwd)) in half_edges.iter().zip(assignment.iter()) {
         if *du != 0.0 || *dv != 0.0 {
-            shifts.insert((face, use_.half_edge), (*du, *dv));
+            shifts.insert((face, half_edge), (*du, *dv));
         }
-        directions.insert((face, use_.half_edge), *fwd);
+        directions.insert((face, half_edge), *fwd);
     }
     if score > 1e-6 && popkern_core::trace::trace_enabled("step-io") {
         eprintln!(
@@ -456,7 +345,9 @@ fn normalize_loop(
         // Re-walk the winning assignment and print per-use spans +
         // chain gaps so the defective pcurve is identifiable.
         let mut cursor: Option<(f64, f64)> = None;
-        for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
+        for ((use_, half_edge), ((du, dv), fwd)) in
+            uses.iter().zip(&half_edges).zip(assignment.iter())
+        {
             let (start, end) = if *fwd {
                 (use_.end_a, use_.end_b)
             } else {
@@ -467,7 +358,7 @@ fn normalize_loop(
             let gap = cursor.map(|c| ((s.0 - c.0).powi(2) + (s.1 - c.1).powi(2)).sqrt());
             eprintln!(
                 "      [chain] he {:?} fwd={fwd} ({:.3},{:.3})->({:.3},{:.3}) gap {gap:?}",
-                use_.half_edge, s.0, s.1, e.0, e.1
+                half_edge, s.0, s.1, e.0, e.1
             );
             cursor = Some(e);
         }

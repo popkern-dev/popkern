@@ -295,13 +295,15 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
 
 /// Total recorded drops on the OCC leg (OpenCASCADE reads the export
 /// and writes it back with shape processing off; popkern-io imports
-/// that): the pyramid cap's 10 corner-layer seams (PK-556), and
-/// tilted_hole_plate's drill-exit seam — `Open` natively (the fixed
-/// 23-sample recompute pcurve, PK-555) and re-projected by
-/// OpenCASCADE's reader (PK-558). Retired: PK-552 the 55
+/// that): the pyramid cap's 10 corner-layer seams, accepted under the
+/// interchange continuity contract (PK-556). Retired: PK-552 the 55
 /// foreign-pcurve drops, PK-554 the 4 exported-polyline drops, PK-551
-/// the position-only Gregory fits.
-const OCC_BASELINE_DROPS: usize = 11;
+/// the position-only Gregory fits, PK-555/PK-558 tilted_hole_plate's
+/// drill-exit seam (popkern wrote pcurve control points as 3-D points,
+/// so OpenCASCADE discarded every popkern pcurve and re-projected; the
+/// same-parameter rebuild and the native recompute interpolated across
+/// the rim's parametric C0 knots).
+const OCC_BASELINE_DROPS: usize = 10;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()

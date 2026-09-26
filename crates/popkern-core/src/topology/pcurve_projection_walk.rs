@@ -26,8 +26,9 @@ use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
-/// Sample `curve_on_edge` over `[t_lo, t_hi]` (endpoints pinned to the
-/// half-edge's vertex positions) and project each sample into
+/// Sample `curve_on_edge` at the curve `fractions` of `[t_lo, t_hi]`
+/// (ascending from 0 to 1; the end samples pinned to the half-edge's
+/// vertex positions) and project each sample into
 /// `surface` UV space with anchored continuation and seam unwrapping.
 /// Runs an endpoint-anchored and a midpoint-anchored walk and returns
 /// the UV points (z = 0, curve order) of whichever walk's surface
@@ -40,12 +41,14 @@ pub(super) fn anchored_uv_samples(
     origin_pos: Point3,
     dest_pos: Point3,
     endpoint_uv_seeds: ((f64, f64), (f64, f64)),
-    n_samples: usize,
+    fractions: &[f64],
 ) -> Vec<Point3> {
-    let n_samples = n_samples.max(3);
+    let n_samples = fractions.len();
+    if n_samples < 3 {
+        return Vec::new();
+    }
     let mut points_3d = Vec::with_capacity(n_samples);
-    for i in 0..n_samples {
-        let frac = i as f64 / (n_samples - 1) as f64;
+    for (i, &frac) in fractions.iter().enumerate() {
         let t = t_lo + (t_hi - t_lo) * frac;
         let p = if i == 0 {
             origin_pos
@@ -57,8 +60,14 @@ pub(super) fn anchored_uv_samples(
         points_3d.push(p);
     }
 
-    let start_walk = anchored_walk(surface, &points_3d, endpoint_uv_seeds, 0);
-    let mid_walk = anchored_walk(surface, &points_3d, endpoint_uv_seeds, n_samples / 2);
+    let start_walk = anchored_walk(surface, &points_3d, fractions, endpoint_uv_seeds, 0);
+    let mid_walk = anchored_walk(
+        surface,
+        &points_3d,
+        fractions,
+        endpoint_uv_seeds,
+        n_samples / 2,
+    );
     let start_deviation = walk_deviation(surface, &points_3d, &start_walk);
     let mid_deviation = walk_deviation(surface, &points_3d, &mid_walk);
     let winner = if mid_deviation < start_deviation {
@@ -81,13 +90,14 @@ pub(super) fn anchored_uv_samples(
 fn anchored_walk(
     surface: &SurfaceGeometry,
     points_3d: &[Point3],
+    fractions: &[f64],
     endpoint_uv_seeds: ((f64, f64), (f64, f64)),
     anchor_index: usize,
 ) -> Vec<Option<(f64, f64)>> {
     let n_samples = points_3d.len();
     let ((u_s, v_s), (u_e, v_e)) = endpoint_uv_seeds;
     let seed_at = |i: usize| {
-        let frac = i as f64 / (n_samples - 1) as f64;
+        let frac = fractions[i];
         (u_s + (u_e - u_s) * frac, v_s + (v_e - v_s) * frac)
     };
 

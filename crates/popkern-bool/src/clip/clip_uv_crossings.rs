@@ -14,6 +14,10 @@ use super::clip_seam_shift::{is_near_seam, shift_curve_u};
 use super::clip_uv::{TWO_PI, UvCrossing};
 use super::face_uv_boundary;
 
+/// Fraction of the linear tolerance an analytic boundary pcurve's
+/// NURBS form may deviate from it, in model space.
+const BOUNDARY_CONVERSION_FRACTION: f64 = 1e-3;
+
 pub(crate) fn find_uv_crossings(
     brep: &BRep,
     face: FaceHandle,
@@ -49,8 +53,27 @@ pub(crate) fn find_uv_crossings(
             .iter()
             .any(|p| p.x > std::f64::consts::PI)
     };
-    let boundary_nurbs: Vec<(popkern_core::topology::HalfEdgeHandle, NurbsCurve)> =
-        boundary.iter().map(|(h, pc)| (*h, pc.to_nurbs())).collect();
+    // Boundary pcurves converted within BOUNDARY_CONVERSION_FRACTION of
+    // the linear tolerance in model space (PK-553): the former coarse
+    // 17-sample cubic displaced analytic trims by up to 1.3e-2 on
+    // corpus conic trims, so crossings landed off the boundary edges
+    // the split graph must meet.
+    let face_surface = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry);
+    let linear = BOUNDARY_CONVERSION_FRACTION * tolerance.linear();
+    let boundary_nurbs: Vec<(popkern_core::topology::HalfEdgeHandle, NurbsCurve)> = boundary
+        .iter()
+        .map(|(h, pc)| {
+            let nurbs = match face_surface {
+                Some(surface) => pc.to_nurbs_on_surface(surface, linear).0,
+                None => pc.to_nurbs(),
+            };
+            (*h, nurbs)
+        })
+        .collect();
     // The seam-shift dance is ONLY meaningful on periodic surfaces:
     // its "near seam" / "in periodic range" tests are raw u-value
     // thresholds (π/4, π) and fire spuriously on PLANAR faces whose

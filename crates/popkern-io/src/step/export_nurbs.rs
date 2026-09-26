@@ -15,7 +15,23 @@ impl ExportContext {
             .iter()
             .map(|p| ref_(self.export_point(p)))
             .collect();
+        self.export_nurbs_curve_on(nurbs, ctrl_pts)
+    }
 
+    /// Export a parameter-space NURBS curve (a pcurve, control points
+    /// `(u, v, 0)`) with two-dimensional control points.
+    pub(crate) fn export_nurbs_curve_2d(&mut self, nurbs: &NurbsCurve) -> EntityId {
+        let ctrl_pts: Vec<Parameter> = nurbs
+            .control_points
+            .iter()
+            .map(|p| ref_(self.export_point_2d(p)))
+            .collect();
+        self.export_nurbs_curve_on(nurbs, ctrl_pts)
+    }
+
+    /// The B-spline curve entity of `nurbs` over already-exported
+    /// control points.
+    fn export_nurbs_curve_on(&mut self, nurbs: &NurbsCurve, ctrl_pts: Vec<Parameter>) -> EntityId {
         let (knot_values, knot_multiplicities) = compress_knots(&nurbs.knots);
 
         let knot_vals: Vec<Parameter> = knot_values.iter().map(|&k| real(k)).collect();

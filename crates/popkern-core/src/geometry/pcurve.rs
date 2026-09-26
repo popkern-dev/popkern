@@ -437,7 +437,11 @@ impl Pcurve {
                 // Coarse co-parameterized cubic interpolant through 17
                 // samples: ~(5/384)·h⁴·r off the arc (measured 7e-6 on
                 // an r = 3 quarter arc, 6e-3 on an r = 20 full circle).
-                // Export uses `to_nurbs_within` instead (PK-550).
+                // Consumers whose decisions or stored geometry depend
+                // on the trim's accuracy (STEP export, the boolean
+                // clip's boundary crossings, endpoint surgery) use
+                // `to_nurbs_on_surface` with an explicit model-space
+                // tolerance instead (PK-550, PK-553).
                 pcurve_nurbs_export::sampled_to_nurbs_approx(self)
             }
             PcurveGeometry::Sinusoidal { .. } => pcurve_nurbs_export::sampled_to_nurbs_approx(self),

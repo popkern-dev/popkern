@@ -15,8 +15,10 @@ pub(crate) mod no_intersection;
 mod containment;
 #[path = "operation_postprocess.rs"]
 mod postprocess;
+#[path = "operation_serve.rs"]
+mod serve;
 
-use postprocess::{log_post_processing_diagnostics, log_validation_issues, run_output_postprocess};
+use postprocess::log_validation_issues;
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
@@ -24,7 +26,6 @@ use crate::cancellation::CancellationToken;
 use crate::classify::classify_fragments;
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation, PhaseMetric, Stage};
 use crate::intersect::find_intersections;
-use crate::merge::graph_merge::graph_merge;
 use crate::progress::{ProgressEvent, ProgressReporter};
 use crate::select::{Operand, select_faces};
 use crate::split::split_along_curves;
@@ -354,157 +355,15 @@ pub(super) fn execute_boolean_pipeline(
         }
     }
 
-    // Stage 5: Cellular graph merge — order-independent fragment selection.
-    // Falls back to standard graph-merge if cellular fails or produces
-    // invalid topology. Every fallback firing is recorded structurally
-    // and said once on stderr (`merge_fallback`) — the cellular error
-    // was previously discarded with `.ok()` on all builds, and a whole
-    // campaign's worth of pcurve archaeology traced a defect to
-    // graph-merge before discovering graph-merge was even running.
-    let t_merge = popkern_core::time::Stopwatch::start();
-    // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
-    // kill-switch (PK-239 precedent).
-    let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
-    let cellular_result = if cellular_enabled {
-        match crate::cellular::boolean::cellular_graph_merge(
-            &original_a,
-            &original_b,
-            &intersection_result,
-            op,
-            tolerance,
-        ) {
-            Ok(r) => match r.validate() {
-                // Pcurve completeness is part of the acceptance
-                // (PK-463): the cellular assembly leaves record-use
-                // pcurves to the recompute, and a recompute skip
-                // (projection failure) is silent — the served body
-                // meshed torn on the chamfered rod while graph-merge
-                // served it watertight. Attempt the fill HERE and
-                // decline to graph-merge when any face still misses
-                // one; the accepted result's later shared recompute
-                // is then a no-op.
-                Ok(()) => {
-                    let mut r = r;
-                    let _ = r.recompute_pcurves_where_missing();
-                    match first_missing_pcurve_face(&r) {
-                        None => Some(r),
-                        Some(fh) => {
-                            crate::merge_fallback::record_merge_fallback(
-                                op,
-                                crate::merge_fallback::MergeFallbackReason::CellularInvalid(
-                                    format!("face {fh:?} pcurve-incomplete after recompute"),
-                                ),
-                            );
-                            None
-                        }
-                    }
-                }
-                Err(e) => {
-                    helpers_pcurve_coherence::trace_cellular_nonmanifold(&r);
-                    crate::merge_fallback::record_merge_fallback(
-                        op,
-                        crate::merge_fallback::MergeFallbackReason::CellularInvalid(e.to_string()),
-                    );
-                    None
-                }
-            },
-            Err(diag) => {
-                crate::merge_fallback::record_merge_fallback(
-                    op,
-                    crate::merge_fallback::MergeFallbackReason::CellularError(
-                        diag.into_error().to_string(),
-                    ),
-                );
-                None
-            }
-        }
-    } else {
-        crate::merge_fallback::record_merge_fallback(
-            op,
-            crate::merge_fallback::MergeFallbackReason::CellularDisabled,
-        );
-        None
-    };
-    let result = match cellular_result {
-        Some(r) => r,
-        None => graph_merge(
-            &original_a,
-            &original_b,
-            &intersection_result,
-            op,
-            tolerance,
-        )
-        .map_err(|diag| diag.into_error())?,
-    };
-    let elapsed_merge = t_merge.elapsed();
-    let count_merge = result.faces.len();
-    metrics.push(PhaseMetric {
-        stage: Stage::Merge,
-        duration: elapsed_merge,
-        entity_count: count_merge,
-    });
-    report_phase(&mut progress, Stage::Merge, 4, elapsed_merge, count_merge);
-
-    // Recompute pcurves so that the tessellation pipeline can build
-    // accurate trim loops. Boolean merge may leave seam edges and
-    // original-operand edges without pcurves — only faces with a gap
-    // in their pcurve inventory are recomputed (PK-274): a face the
-    // merge carried over intact keeps its authoritative pcurves.
-    let mut result = result;
-    if let Err(e) = result.recompute_pcurves_where_missing()
-        && popkern_core::trace::trace_enabled("boolean")
-    {
-        eprintln!("[boolean] pcurve recompute declined: {e}");
-    }
-    helpers_pcurve_coherence::normalize_output_loop_charts(&mut result);
-
-    helpers::pre_check_retire_and_empty_gate(&mut result, op, &original_a, &original_b, tolerance)?;
-
-    // §12.5 / §7.3: gated post-validation. Run the boolean-specific
-    // post-check (manifold, Euler, half-edge cycles, watertightness).
-    // Surface any errors as a structured failure rather than silently
-    // returning a corrupted result. The merge-phase cut-behavior fix
-    // (commit history) made this consistently green; if a future
-    // change regresses, fail loudly.
-    let t_validate = popkern_core::time::Stopwatch::start();
-    let pc_errors: Vec<String> =
-        helpers::validate_with_junction_reconcile_retry(&mut result, tolerance);
-    let elapsed_validate = t_validate.elapsed();
-    let count_validate = result.faces.len();
-    metrics.push(PhaseMetric {
-        stage: Stage::Validation,
-        duration: elapsed_validate,
-        entity_count: count_validate,
-    });
-    report_phase(
+    serve::select_and_serve(
+        &original_a,
+        &original_b,
+        &intersection_result,
+        op,
+        tolerance,
+        metrics,
         &mut progress,
-        Stage::Validation,
-        5,
-        elapsed_validate,
-        count_validate,
-    );
-    if !pc_errors.is_empty() {
-        helpers::trace_invalid_result(&result);
-        return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
-    }
-
-    run_output_postprocess(&mut result, tolerance);
-    postprocess::decline_on_unrepairable_stubs(&mut result, tolerance)?;
-
-    // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
-    // mechanics and rationale in `operation_pcurve_coherence.rs`.
-    helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
-
-    // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
-    // after run_output_postprocess deliberately (PK-272): the earlier
-    // placement fired before reconcile_orientation_flags and reported
-    // transient winding findings that the served result doesn't have.
-    log_validation_issues(&result, op);
-
-    // Post-processing diagnostics: sliver detection and watertightness.
-    log_post_processing_diagnostics(&result, tolerance);
-
-    Ok(result)
+    )
 }
 
 impl BoolDiagnostics {

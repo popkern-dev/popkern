@@ -54,6 +54,7 @@ pub(crate) mod intersect;
 pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_hierarchy;
 pub(crate) mod intersect_residue_filter;
+pub(crate) mod intersect_residue_split;
 pub(crate) mod merge;
 pub mod merge_fallback;
 pub(crate) mod record_side_witness;

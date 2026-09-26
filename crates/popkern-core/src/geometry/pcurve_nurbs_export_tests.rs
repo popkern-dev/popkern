@@ -102,3 +102,43 @@ fn exact_forms_convert_without_deviation() {
     assert_eq!(deviation, 0.0);
     assert!(dense_deviation(&fit, &line) < 1e-14);
 }
+
+#[test]
+fn a_model_space_tolerance_converts_through_the_surface_metric() {
+    // PK-553: on a radius-20 cylinder a uv error `d` in u moves the
+    // trim by 20·d, so the conversion must work in model space.
+    let cylinder = crate::geometry::SurfaceGeometry::Cylinder {
+        origin: crate::geometry::Point3::new(0.0, 0.0, 0.0),
+        axis: crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+        radius: 20.0,
+    };
+    let pcurve = Pcurve::sinusoidal(0.4, 12.0, 5.0, -3.0, 0.0, TAU);
+    let linear = 1e-9;
+    let (fit, _) = pcurve.to_nurbs_on_surface(&cylinder, linear);
+    use crate::geometry::surface::SurfaceEval as _;
+    let worst = (0..=4001)
+        .map(|k| {
+            let t = TAU * k as f64 / 4001.0;
+            let (a, b) = (fit.point_at(t), pcurve.point_at(t));
+            cylinder
+                .point_at(a.x, a.y)
+                .distance_to(&cylinder.point_at(b.x, b.y))
+        })
+        .fold(0.0, f64::max);
+    assert!(worst <= 2.0 * linear, "model-space deviation {worst:e}");
+}
+
+#[test]
+fn a_reversed_sinusoid_keeps_its_trace_to_representation_precision() {
+    // PK-553: the reversal has no Sinusoidal form and used to bake the
+    // coarse 17-sample cubic (3e-4 of the amplitude) into the trim.
+    let pcurve = Pcurve::sinusoidal(0.4, 12.0, 5.0, -3.0, 0.0, TAU);
+    let reversed = pcurve.reversed();
+    let worst = (0..=4001)
+        .map(|k| {
+            let t = TAU * k as f64 / 4001.0;
+            reversed.point_at(t).distance_to(&pcurve.point_at(TAU - t))
+        })
+        .fold(0.0, f64::max);
+    assert!(worst <= 1e-9, "reversal deviation {worst:e}");
+}

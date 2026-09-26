@@ -176,3 +176,56 @@ fn a_unit_segment_line_pcurve_is_extended_along_a_long_edge() {
         assert!(same_fraction_gap(&repair.pcurve, &edge, forward) <= 2.0 * TOL);
     }
 }
+
+/// A quadratic edge with a double interior knot at 0.5 (parametrically
+/// C0, like a conic rim written as rational quadratic arcs).
+fn kinked_nurbs() -> NurbsCurve {
+    NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 2.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(2.2, -3.0, 0.0),
+            Point3::new(5.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0; 5],
+    }
+}
+
+#[test]
+fn a_rebuild_across_a_parametric_kink_is_fitted_piecewise() {
+    // PK-558: one smooth interpolant across the edge's C0 knot
+    // converged only linearly, and the plateau stop accepted it 9e-4
+    // off a tilted drill's rim.
+    let edge = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(kinked_nurbs()),
+        t_start: 0.1,
+        t_end: 0.9,
+    };
+    let candidate = Pcurve::from_nurbs(kinked_nurbs());
+    for forward in [true, false] {
+        let repair = same_parameter_repair(&candidate, &edge, &xy_plane(), forward, TOL)
+            .unwrap_or_else(|| panic!("forward={forward}: repair declined"));
+        assert!(
+            repair.max_gap <= 0.1 * TOL,
+            "forward={forward}: {}",
+            repair.max_gap
+        );
+        let dense = same_fraction_gap(&repair.pcurve, &edge, forward);
+        assert!(dense <= TOL, "forward={forward}: dense {dense:e}");
+        let PcurveGeometry::Nurbs(fit) = &repair.pcurve.geometry else {
+            panic!("rebuilt pcurve is NURBS");
+        };
+        let at_kink = fit
+            .knots
+            .iter()
+            .filter(|&&k| (k - 0.5).abs() < 1e-12)
+            .count();
+        assert_eq!(
+            at_kink, fit.degree,
+            "forward={forward}: C0 join at the kink"
+        );
+    }
+}
