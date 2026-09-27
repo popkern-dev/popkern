@@ -183,3 +183,66 @@ fn thread_tools_fold_outward() {
         );
     }
 }
+
+/// A closed-rim chamfer keeps its supports' orientation: chamfering
+/// the tip of an outward shank (union of a head and a circle extrude
+/// — the union no longer inverts the shank) must leave the wall, the
+/// shrunk tip cap and the new cone all facing OUT of the solid. The
+/// closed-rim surgery used to take the contact circles' axis sign
+/// from the trim fit, wind the support loops backwards, and the
+/// serving flag reconcile turned wall-adjacent faces inside-out (the
+/// thread cut then went non-manifold on the M6 bolt).
+#[test]
+fn tip_chamfer_of_an_outward_shank_faces_out() {
+    use popkern_core::geometry::SurfaceEval as _;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let tol = Tolerance::default();
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let head = crate::engine::extrude_shape(
+        popkern_sketch::ProfileShape::Circle { radius: 5.0 },
+        -4.0,
+        4.0,
+        "head",
+        tol,
+    )
+    .expect("head");
+    let shank = crate::engine::extrude_shape(
+        popkern_sketch::ProfileShape::Circle { radius: 3.0 },
+        -2.0,
+        10.0,
+        "shank",
+        tol,
+    )
+    .expect("shank");
+    let body = crate::engine::union(&head, &shank, "head ∪ shank", tol).expect("union");
+    let chamfered = crate::builders::tip_chamfer(&body, &spec, 8.0, tol).expect("chamfer");
+    assert!(chamfered.dishonest_winding_faces().is_empty());
+    let mut checked = 0;
+    for (fh, face) in chamfered.faces.iter() {
+        let sof = face.surface.as_ref().expect("surface");
+        let sign = if sof.orientation { 1.0 } else { -1.0 };
+        // Radial / axial outwardness for the shank-side faces (z > 0).
+        let (u, v) = match &sof.geometry {
+            SurfaceGeometry::Cylinder { radius, .. } if (*radius - 3.0).abs() < 1e-9 => (0.4, 4.0),
+            SurfaceGeometry::Cone { .. } => {
+                let p = chamfered.face_outer_loop_positions(fh)[0];
+                sof.geometry.closest_point(&p).expect("cone uv")
+            }
+            SurfaceGeometry::Plane { origin, .. } if (origin.z - 8.0).abs() < 1e-9 => (0.0, 0.0),
+            _ => continue,
+        };
+        let p = sof.geometry.point_at(u, v);
+        let n = sof.geometry.normal_at(u, v) * sign;
+        let outward = match &sof.geometry {
+            SurfaceGeometry::Plane { .. } => n.z > 0.5,
+            _ => n.x * p.x + n.y * p.y > 0.0,
+        };
+        assert!(
+            outward,
+            "{fh:?} ({}) faces into the shank",
+            sof.geometry.kind_name()
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 3, "wall, tip cap and cone checked");
+}

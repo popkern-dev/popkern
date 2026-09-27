@@ -20,6 +20,8 @@ use popkern_core::geometry::uv_projection::{
 
 use crate::merge::graph::{FaceRef, IntersectionGraph};
 
+#[path = "chart_embedding_closed.rs"]
+mod chart_embedding_closed;
 #[path = "chart_embedding_unfold.rs"]
 mod chart_embedding_unfold;
 
@@ -289,6 +291,20 @@ pub(crate) fn build_embedding(
     let as_is = first3.distance_to(&p_start) + last3.distance_to(&p_end);
     let flipped = first3.distance_to(&p_end) + last3.distance_to(&p_start);
     if flipped < as_is {
+        uv.reverse();
+        std::mem::swap(&mut refined_first, &mut refined_last);
+    }
+    // A closed record ring meets one node at both ends, so the node
+    // test above cannot orient it; the curve holder's traversal
+    // convention does (see `chart_embedding_closed`).
+    if let Some(c) = curve
+        && chart_embedding_closed::closed_run_against_curve(graph, raw, c, surface, &uv)
+    {
+        if popkern_core::trace::trace_enabled("boolean") {
+            eprintln!(
+                "  [embed] closed record he {raw} (resolved {h}, {source:?}, own-curve {curve_is_own}) on {face:?}: run reversed onto its curve direction"
+            );
+        }
         uv.reverse();
         std::mem::swap(&mut refined_first, &mut refined_last);
     }

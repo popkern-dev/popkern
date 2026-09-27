@@ -255,17 +255,26 @@ pub(crate) fn apply_closed_fillet(
         (
             &eg.trim_3d_1,
             &eg.trim_3d_2,
-            &eg.trim_circle_1,
-            &eg.trim_circle_2,
+            eg.trim_circle_1,
+            eg.trim_circle_2,
         )
     } else {
         (
             &eg.trim_3d_2,
             &eg.trim_3d_1,
-            &eg.trim_circle_2,
-            &eg.trim_circle_1,
+            eg.trim_circle_2,
+            eg.trim_circle_1,
         )
     };
+    // Each support's new canonical half-edge replaces that support's
+    // rim half-edge: orient the circle to walk the way it did.
+    let (old_seam_he, old_fresh_he) = if seam_a.is_some() {
+        (he_a_h, he_b_h)
+    } else {
+        (he_b_h, he_a_h)
+    };
+    let circle_seam = &closed_fillet_seam::orient_circle_to_rim(brep, old_seam_he, circle_seam);
+    let circle_fresh = &closed_fillet_seam::orient_circle_to_rim(brep, old_fresh_he, circle_fresh);
     let trim_curve_on_edge = |trim: &popkern_core::geometry::NurbsCurve,
                               circle: &Option<(Point3, popkern_core::geometry::Vec3, f64)>,
                               start_at: Point3|

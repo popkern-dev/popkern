@@ -1,4 +1,5 @@
-//! Negative-branch / multi-wrap chart alignment for record pcurves
+//! Off-principal-branch (negative, overflowing, multi-wrap) chart
+//! alignment for record pcurves
 //! (split from `clip_windows.rs` under the 500-line structural
 //! budget; measured rationale lives with the code — PK-480/PK-481).
 
@@ -6,12 +7,13 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Whole-period translation aligning a record pcurve onto a face
-/// chart that lives on a NEGATIVE u-branch — `None` when the face is
-/// non-periodic, its boundary is centred at or above `−period/4`
-/// (principal-range charts keep the tuned machinery), or no
-/// whole-period shift is called for. See the alignment comment in
+/// chart the principal-cell fold cannot reach — a NEGATIVE u-branch,
+/// a single-period chart overflowing past `period`, or a multi-wrap
+/// band. `None` when the face is non-periodic, its chart sits inside
+/// the principal range (tuned machinery), or no whole-period shift
+/// is called for. See the alignment comment in
 /// [`clip_curve_uv_space`] (PK-480).
-pub(super) fn align_negative_branch_side(
+pub(super) fn align_off_principal_branch_side(
     brep: &BRep,
     face: FaceHandle,
     pcurve: &NurbsCurve,
@@ -77,11 +79,16 @@ pub(super) fn align_negative_branch_side(
     } else {
         global_center
     };
-    // Scope: negative-branch charts (the rem_euclid fold can never
-    // reach them) and multi-wrap bands (no single fold was ever
-    // right). Principal-range single-period charts stay with the
-    // tuned machinery.
-    if boundary_center >= -period * 0.25 && !multi_turn {
+    // Scope: charts the rem_euclid fold can never reach — NEGATIVE
+    // branches, and single-period charts that OVERFLOW the principal
+    // cell past `period` (a closed-rim chamfer cone charted on
+    // [π/2, 5π/2]: a rim-riding thread-flank record at u ∈ [0, 0.54]
+    // folded onto itself, missed every crossing, and dropped whole —
+    // the M4 socket cap screw opened 4217 mesh edges, PK-564) — plus
+    // multi-wrap bands (no single fold was ever right). Charts inside
+    // the principal range stay with the tuned machinery.
+    let overflows_period = u_hi > period * (1.0 + 1.0e-6);
+    if boundary_center >= -period * 0.25 && !multi_turn && !overflows_period {
         return None;
     }
     let query_mean =

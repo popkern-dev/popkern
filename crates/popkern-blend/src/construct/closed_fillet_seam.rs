@@ -322,3 +322,65 @@ pub(super) fn author_strip_seam_curve(
         t_end: 1.0,
     })
 }
+
+/// Orient a contact circle's axis so its angle parameterization runs
+/// the way the replaced rim half-edge `old_he` walked its support
+/// face.
+///
+/// The new contact-circle edge's canonical half-edge sits on the
+/// support face in place of `old_he` (the rim shrinks onto a coaxial
+/// circle; the loop keeps its direction), and it traverses the Arc in
+/// increasing angle about the stored axis. The axis the trim fit
+/// hands over has an arbitrary sign, so without this the support loop
+/// could wind backwards; the serving-boundary flag reconcile then
+/// "honestly" flipped the face — the chamfered shank tip and its wall
+/// served inside-out whenever the input rim was outward (measured on
+/// the M6 bolt tip once the head ∪ shank union stopped inverting the
+/// shank). The direction authority is the old half-edge's own pcurve
+/// trace on its face (what the canonical-forward audit reads); with
+/// no pcurve the axis is kept.
+pub(super) fn orient_circle_to_rim(
+    brep: &BRep,
+    old_he: HalfEdgeHandle,
+    circle: Option<(Point3, Vec3, f64)>,
+) -> Option<(Point3, Vec3, f64)> {
+    let (center, normal, radius) = circle?;
+    let Some(axis) = half_edge_winding_axis(brep, old_he) else {
+        return circle;
+    };
+    if axis.dot(&normal) < 0.0 {
+        Some((center, normal * -1.0, radius))
+    } else {
+        circle
+    }
+}
+
+/// Newell axis of a closed half-edge's traversal, from its pcurve
+/// mapped through its face's surface (right-hand rule: the loop runs
+/// counter-clockwise about the returned axis). `None` without a
+/// pcurve or surface, or when the trace is degenerate.
+fn half_edge_winding_axis(brep: &BRep, he: HalfEdgeHandle) -> Option<Vec3> {
+    use popkern_core::geometry::SurfaceEval as _;
+    const SAMPLES: usize = 16;
+    let h = brep.half_edges.get(he)?;
+    let pc = h.pcurve.as_ref()?;
+    let face = brep.loops.get(h.loop_)?.face;
+    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    let (t0, t1) = pc.parameter_range();
+    let pts: Vec<Point3> = (0..SAMPLES)
+        .map(|k| {
+            let uv = pc.point_at(t0 + (t1 - t0) * k as f64 / SAMPLES as f64);
+            surface.point_at(uv.x, uv.y)
+        })
+        .collect();
+    let mut n = Vec3::new(0.0, 0.0, 0.0);
+    for (i, a) in pts.iter().enumerate() {
+        let b = pts[(i + 1) % SAMPLES];
+        n = n + Vec3::new(
+            (a.y - b.y) * (a.z + b.z),
+            (a.z - b.z) * (a.x + b.x),
+            (a.x - b.x) * (a.y + b.y),
+        );
+    }
+    n.normalized()
+}

@@ -45,10 +45,11 @@ pub(crate) fn clip_curve_uv_space(
     residues: Option<&mut Vec<crate::clip::TrimResidue>>,
     cache: &mut super::clip_pierce_windows::PierceInventoryCache,
 ) -> Vec<CurveOnSurface> {
-    // NEGATIVE-BRANCH RETRY (PK-480): a record pcurve can sit whole
-    // periods from a face whose chart occupies a NEGATIVE branch (the
-    // angled tap's entry-cone face at u ∈ [−2π, 0]; the cone×top-face
-    // conic was authored at u ∈ [2π, 4π]). The tuned single-period
+    // OFF-PRINCIPAL-BRANCH RETRY (PK-480, PK-564): a record pcurve can
+    // sit whole periods from a face whose chart occupies a NEGATIVE
+    // branch (the angled tap's entry-cone face at u ∈ [−2π, 0]; the
+    // cone×top-face conic was authored at u ∈ [2π, 4π]) or OVERFLOWS
+    // the principal cell (a chamfer cone charted on [π/2, 5π/2]). The tuned single-period
     // normalization inside crossing detection FOLDS into [0, period)
     // and provably cannot reach such a chart — and it is internal, so
     // every containment vote, window verdict, and residue judged the
@@ -57,7 +58,7 @@ pub(crate) fn clip_curve_uv_space(
     // mesh edges). The retry is scoped to NOTHING-PRODUCED: the tuned
     // pass runs first, byte-identical, and only a record it clipped
     // away entirely (no pieces, no residues) is re-clipped with its
-    // pcurve translated onto the negative branch — a record that
+    // pcurve translated onto the face's branch — a record that
     // produced anything keeps its tuned output (the flush-gusset
     // union has a negative-branch face whose producing records must
     // not move).
@@ -77,8 +78,8 @@ pub(crate) fn clip_curve_uv_space(
         }
     };
     if out.is_empty() && first_residues.is_empty() {
-        let a = align_negative_branch_side(brep_a, face_a, &curve.curve_uv1);
-        let b = align_negative_branch_side(brep_b, face_b, &curve.curve_uv2);
+        let a = align_off_principal_branch_side(brep_a, face_a, &curve.curve_uv1);
+        let b = align_off_principal_branch_side(brep_b, face_b, &curve.curve_uv2);
         if a.is_some() || b.is_some() {
             let mut adjusted = curve.clone();
             if let Some(c) = a {
@@ -89,7 +90,7 @@ pub(crate) fn clip_curve_uv_space(
             }
             if popkern_core::trace::trace_enabled("clip") {
                 eprintln!(
-                    "  [uvclip] {face_a:?}x{face_b:?}: negative-branch retry (tuned pass empty)"
+                    "  [uvclip] {face_a:?}x{face_b:?}: off-principal-branch retry (tuned pass empty)"
                 );
             }
             let mut retry_residues: Vec<crate::clip::TrimResidue> = Vec::new();
@@ -113,7 +114,7 @@ pub(crate) fn clip_curve_uv_space(
 }
 
 /// The tuned clip body — see [`clip_curve_uv_space`] for the
-/// negative-branch retry wrapper.
+/// off-principal-branch retry wrapper.
 fn clip_curve_uv_space_tuned(
     brep_a: &BRep,
     face_a: FaceHandle,
@@ -473,4 +474,4 @@ fn clip_curve_uv_space_tuned(
     out
 }
 
-use super::clip_negative_branch::align_negative_branch_side;
+use super::clip_negative_branch::align_off_principal_branch_side;

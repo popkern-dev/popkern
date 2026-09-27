@@ -269,9 +269,16 @@ pub(crate) fn assemble_chart_roles(
             .collect(),
         _ => vec![false; polys.len()],
     };
+    // Zero counts too: a wrapping orbit that retraces a coincident
+    // rim (a record ring lying ON the face's own boundary circle —
+    // stacked coaxial unions) encloses exactly zero area, and a
+    // `< 0` test left it to the sign of ±0 — which followed the
+    // face's σ, so the same coincident rim was a discarded separate
+    // region on an inward-folded operand and a bogus inner loop on an
+    // outward one (measured: the grooved cylinder's core wall).
     for (i, a) in areas.iter_mut().enumerate() {
-        if wrapping[i] && *a < 0.0 {
-            *a = -*a;
+        if wrapping[i] && *a <= 0.0 {
+            *a = a.abs().max(f64::MIN_POSITIVE);
         }
     }
     if popkern_core::trace::trace_enabled("boolean") {

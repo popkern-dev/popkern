@@ -166,3 +166,20 @@ fn left_hand_two_start_bolt_serves() {
         .expect("LH two-start bolt");
     assert_eq!(bolt.open_edge_count().expect("mesh"), 0, "watertight");
 }
+
+/// The fastener-kit socket cap (M4 × 10, 6 mm of thread): its tip
+/// chamfer cone charts on the off-principal branch [π/2, 5π/2]. The
+/// principal-cell fold cannot reach it, so the rim-riding flank ×
+/// cone record dropped whole, the thread-flank face was
+/// graze-filtered unsplit, and the body opened 4217 mesh edges; the
+/// clip's nothing-produced retry now translates such records onto the
+/// face's branch (PK-564).
+#[test]
+fn m4_socket_cap_with_short_thread_serves_watertight() {
+    let spec = ThreadSpec::parse("M4").expect("M4");
+    let screw = SocketCapScrew::new(spec, 10.0)
+        .thread_length(6.0)
+        .build(Tolerance::default())
+        .expect("socket cap screw");
+    assert_eq!(screw.open_edge_count().expect("mesh"), 0, "watertight");
+}

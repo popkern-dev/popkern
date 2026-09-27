@@ -1,19 +1,22 @@
 //! PK-478 acceptance: a MIXED material-sense operand pair — a
-//! blend-rebuilt (majority folded-inward) body cut by a fresh
-//! (folded-outward) tool — serves watertight with the correct
-//! volume. Blend rebuilds fold bodies inward (a single tip chamfer
-//! flips a whole shank, measured), so every blend-then-boolean chain
-//! is such a pair; before the sense-aware entry normalization the
-//! merge wrong-twinned seam-laddered wall loops on exactly this
-//! class (the PK-475 seam-ladder gap and the falsified repair
-//! routes). Validator-clean alone is NOT accepted here: the measured
+//! folded-inward body cut by a fresh (folded-outward) tool — serves
+//! watertight with the correct volume. Blend rebuilds used to fold
+//! bodies inward (a single tip chamfer flipped a whole shank — the
+//! closed-rim surgery's contact-circle axis sign, fixed in PK-564),
+//! so every blend-then-boolean chain was such a pair; inward-folded
+//! operands still arrive from other producers (primitive shells,
+//! imports), so the pair is now built explicitly by mirroring the
+//! chamfered body's material side. Before the sense-aware entry
+//! normalization the merge wrong-twinned seam-laddered wall loops on
+//! exactly this class (the PK-475 seam-ladder gap and the falsified
+//! repair routes). Validator-clean alone is NOT accepted here: the measured
 //! failure modes include validator-clean volume lies, so the mesh
 //! census + exact volume oracle are the gate.
 
 use popkern_core::validation::MaterialSense;
 use popkern_part::prelude::*;
 
-/// Chamfered puck (folded-inward after the blend rebuild) minus a
+/// Chamfered puck (mirrored to fold inward) minus a
 /// through-slot prism (folded-outward fresh extrusion) that PIERCES
 /// the periodic wall on both sides — the wall's fragment loops then
 /// mix shared (SSI) edges with operand-own edges, the class the
@@ -49,10 +52,20 @@ fn chamfered_body_cut_by_fresh_tool_serves_with_exact_volume() {
             .next()
             .and_then(|(fh, _)| b.component_material_sense(fh))
     };
+    // The chamfer serves outward (PK-564); mirror it for the pair.
+    assert_eq!(
+        sense_of(chamfered.brep()),
+        Some(MaterialSense::FoldedOutward),
+        "the chamfer keeps its body folded outward"
+    );
+    let mut mirrored = chamfered.brep().clone();
+    mirrored.reverse_body_orientation();
+    let chamfered = Part::from_brep(mirrored, chamfered.tolerance(), "mirrored chamfered puck")
+        .expect("mirrored puck validates");
     assert_eq!(
         sense_of(chamfered.brep()),
         Some(MaterialSense::FoldedInward),
-        "blend output folds inward — the fixture premise"
+        "mirrored operand folds inward — the fixture premise"
     );
     assert_eq!(
         sense_of(tool.brep()),

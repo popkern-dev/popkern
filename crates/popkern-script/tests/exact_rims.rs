@@ -185,3 +185,110 @@ fn a_bore_rim_hosts_a_g2_fillet_on_its_exact_arc() {
         Some(Continuity::G2)
     );
 }
+
+/// The union rim's fillet rolls in the VOID: it adds the concave
+/// root's material and its G1 surface is the torus OUTSIDE the boss
+/// (major radius boss + r). Until the closed-ring embedding fix the
+/// boolean shipped the boss wall and top cap inside-out (flag and
+/// winding inverted together — winding-honest, still wrong), the
+/// rolling ball took the boss interior, and both G1 and G2 carved a
+/// groove into the boss (volume fell by ~0.006 instead of rising by
+/// ~0.0032; the G1 torus sat at major 0.27 with the rim's trims on
+/// the true edges, which rendered as a scalloped ring).
+#[test]
+fn a_union_rim_fillet_adds_material_on_the_void_side() {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    let (boss_r, r) = (0.35, 0.08);
+    // Concave-corner fillet: cross-section r²(1 − π/4) swept around
+    // its centroid radius (Pappus); centroid offset r(10 − 3π)/(12 − 3π).
+    let section = r * r * (1.0 - std::f64::consts::FRAC_PI_4);
+    let rho =
+        boss_r + r * (10.0 - 3.0 * std::f64::consts::PI) / (12.0 - 3.0 * std::f64::consts::PI);
+    let expected_gain = section * std::f64::consts::TAU * rho;
+    for continuity in [ContinuityKind::G1, ContinuityKind::G2] {
+        let mut m = Model::new();
+        let plate = m
+            .profile(Plane::XY)
+            .rect(2.4, 1.6)
+            .sketch("plate_sketch")
+            .expect("sketch")
+            .extrude(&mut m, End::Blind(0.4.into()))
+            .expect("extrude");
+        let boss = m
+            .tool(|m| {
+                m.profile(Plane::xy_at(0.2))
+                    .circle(boss_r)
+                    .sketch("boss_sketch")?
+                    .extrude(m, End::Blind(0.8.into()))
+            })
+            .expect("boss");
+        let plate = plate.union(&mut m, boss).expect("union");
+        let united = m.brep_of(plate).expect("brep");
+        // Every face of the union faces out of the solid: the boss
+        // wall's flag-folded normal points away from its axis, and
+        // every planar face points away from the body's interior.
+        for (fh, face) in united.faces.iter() {
+            let sof = face.surface.as_ref().expect("surface");
+            let sign = if sof.orientation { 1.0 } else { -1.0 };
+            match &sof.geometry {
+                SurfaceGeometry::Cylinder { .. } => {
+                    let p = sof.geometry.point_at(0.3, 0.5);
+                    let n = sof.geometry.normal_at(0.3, 0.5) * sign;
+                    assert!(
+                        n.x * p.x + n.y * p.y > 0.0,
+                        "{continuity:?}: boss wall {fh:?} faces into the boss"
+                    );
+                }
+                SurfaceGeometry::Plane { origin, normal, .. } => {
+                    let n = *normal * sign;
+                    let inward_probe = *origin - n * 1.0e-3;
+                    // The body occupies |x| ≤ 1.2, |y| ≤ 0.8, 0 ≤ z ≤ 1.0.
+                    let inside = inward_probe.x.abs() <= 1.2
+                        && inward_probe.y.abs() <= 0.8
+                        && (0.0..=1.0).contains(&inward_probe.z);
+                    assert!(inside, "{continuity:?}: plane {fh:?} faces into the solid");
+                }
+                _ => {}
+            }
+        }
+        let tol = popkern_core::tolerance::Tolerance::default();
+        let before = popkern_measure::body_volume(&united, &tol).expect("volume");
+        m.label_edge("junction", &edges().circular().at_height(0.4))
+            .expect("junction rim");
+        let plate = plate
+            .fillet_continuity(&mut m, edges().labeled("junction"), r, continuity, "round")
+            .expect("fillet");
+        let brep = m.brep_of(plate).expect("brep");
+        let after = popkern_measure::body_volume(&brep, &tol).expect("volume");
+        let gain = after - before;
+        // G1 is the circular section (volumes are tessellation-
+        // measured, hence the band). A G2 blend with the same contact
+        // setback hugs the corner closer than the arc (measured 79 %
+        // of the circular fill), so it is bounded by the arc instead.
+        let (lo, hi) = match continuity {
+            ContinuityKind::G1 => (0.85 * expected_gain, 1.15 * expected_gain),
+            _ => (0.5 * expected_gain, 1.02 * expected_gain),
+        };
+        assert!(
+            (lo..hi).contains(&gain),
+            "{continuity:?}: the root fillet must ADD material in [{lo:.5}, {hi:.5}]; \
+             measured {gain:.5} ({before:.5} -> {after:.5})"
+        );
+        if continuity == ContinuityKind::G1 {
+            let majors: Vec<f64> = brep
+                .faces
+                .values()
+                .filter_map(|f| match f.surface.as_ref().map(|s| &s.geometry) {
+                    Some(SurfaceGeometry::Torus { major_radius, .. }) => Some(*major_radius),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(majors.len(), 1, "one root torus: {majors:?}");
+            assert!(
+                (majors[0] - (boss_r + r)).abs() < 1e-9,
+                "the G1 root torus sits outside the boss: major {}",
+                majors[0]
+            );
+        }
+    }
+}

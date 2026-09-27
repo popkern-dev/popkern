@@ -188,24 +188,54 @@ pub(super) fn fragment_interior_sample(
         }
         let mut best: Option<(f64, f64)> = None;
         let n = xs.len();
-        for i in 0..n {
-            let a = xs[i];
-            let b = if i + 1 < n { xs[i + 1] } else { xs[0] + p };
-            let mid = 0.5 * (a + b);
-            let inside_inner = inner_folded
-                .iter()
-                .any(|xs| xs.iter().filter(|&&x| x < mid).count() % 2 == 1);
-            let side = material_side(mid);
-            if popkern_core::trace::trace_enabled("face-selection") {
-                eprintln!(
-                    "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} inner={inside_inner} side={side:?}"
-                );
-            }
-            if !inside_inner && side == Some(true) {
-                let width = b - a;
-                if best.map(|(bw, _)| width > bw).unwrap_or(true) {
-                    best = Some((width, mid));
+        // (width, mid, inside_inner, side) per fold arc.
+        let arcs: Vec<(f64, f64, bool, Option<bool>)> = (0..n)
+            .map(|i| {
+                let a = xs[i];
+                let b = if i + 1 < n { xs[i + 1] } else { xs[0] + p };
+                let mid = 0.5 * (a + b);
+                let inside_inner = inner_folded
+                    .iter()
+                    .any(|xs| xs.iter().filter(|&&x| x < mid).count() % 2 == 1);
+                let side = material_side(mid);
+                if popkern_core::trace::trace_enabled("face-selection") {
+                    eprintln!(
+                        "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} inner={inside_inner} side={side:?}"
+                    );
                 }
+                (b - a, mid, inside_inner, side)
+            })
+            .collect();
+        // Every crossing — outer or inner boundary — toggles material,
+        // so on an even crossing count the arcs ALTERNATE: material is
+        // one parity class. The nearest-boundary side test is a local
+        // vote that can misread an arc whose nearest boundary sample
+        // belongs to a far strand (measured: a two-start thread's
+        // runout band read T,T,T,F across four alternating arcs, the
+        // widest "material" arc sat in a cut window, the kept shank
+        // band classified Inside the tool and the body opened 665
+        // mesh edges). Decide the class by majority over all arcs;
+        // per-arc votes remain the rule when the count is odd
+        // (tangential crossings merged by the dedup) or tied.
+        let material_class = if n >= 2 && n.is_multiple_of(2) {
+            let votes = |class: usize| {
+                arcs.iter()
+                    .enumerate()
+                    .filter(|(i, arc)| arc.3 == Some(i % 2 == class))
+                    .count()
+            };
+            let (even, odd) = (votes(0), votes(1));
+            (even != odd).then_some(if even > odd { 0 } else { 1 })
+        } else {
+            None
+        };
+        for (i, &(width, mid, inside_inner, side)) in arcs.iter().enumerate() {
+            let material = match material_class {
+                Some(class) => i % 2 == class,
+                None => side == Some(true),
+            };
+            if !inside_inner && material && best.map(|(bw, _)| width > bw).unwrap_or(true) {
+                best = Some((width, mid));
             }
         }
         let (_, mid_u) = best?;

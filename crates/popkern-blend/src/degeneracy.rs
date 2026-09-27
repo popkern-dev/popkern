@@ -274,11 +274,12 @@ fn check_edge_tangent_cusp(
 
 /// §13.1(2): zero-area polygonal outer loop on either support face.
 ///
-/// Computes the magnitude of the sum of edge cross products around
-/// the outer loop. For a planar polygon this is exactly twice the
-/// polygonal area; for a non-planar loop it's a weighted measure
-/// that still scales with the loop's overall extent. A loop whose
-/// 3D cross-product sum is below `tolerance.linear()²` is degenerate
+/// Sums the fan-triangle areas of the sampled outer loop (triangle
+/// magnitudes, not the signed vector sum — see the body). For a
+/// convex planar polygon this is exactly its area; for any other
+/// loop it is a measure that scales with the loop's extent and
+/// vanishes only when the boundary collapses onto a line or a point.
+/// A loop measuring below `tolerance.linear()²` is degenerate
 /// regardless of planarity.
 ///
 /// Inner loops are not considered — a face's "degenerate or not"
@@ -333,18 +334,24 @@ fn check_zero_area_support(
         if positions.len() < 3 {
             return Err(DegeneracyKind::ZeroAreaSupport { side, area: 0.0 });
         }
-        // Shoelace in 3D via sum of cross products from a reference
-        // vertex. Uses positions[0] as the anchor; for each triangle
-        // (p0, p_i, p_{i+1}) add the signed cross product.
+        // Fan triangulation from positions[0], summing triangle
+        // MAGNITUDES. The signed vector sum is the wrong measure for
+        // curved supports: a correctly oriented cylinder wall is a
+        // closed band whose two rim rings run opposite ways, so its
+        // vector area cancels to ~0 however large the wall is — the
+        // detector only passed walls while closed rims were misread
+        // as running the same way (the endpoint test above cannot
+        // orient a self-loop), and fired on an honest boss wall once
+        // the boolean stopped inverting it. The magnitude sum is zero
+        // exactly when the sampled boundary collapses onto a line or
+        // a point — the degeneracy this check exists for.
         let p0 = positions[0];
-        let mut total = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+        let mut area = 0.0;
         for i in 1..positions.len() - 1 {
             let v1 = positions[i] - p0;
             let v2 = positions[i + 1] - p0;
-            total = total + v1.cross(&v2);
+            area += v1.cross(&v2).length() * 0.5;
         }
-        // |total| / 2 is the (vector-sum) polygonal area.
-        let area = total.length() * 0.5;
         if area < tol_sq {
             return Err(DegeneracyKind::ZeroAreaSupport { side, area });
         }
