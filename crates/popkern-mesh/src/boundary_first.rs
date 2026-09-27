@@ -302,11 +302,10 @@ pub(crate) fn tessellate_face_boundary_first(
         v0 = v0.min(v);
         v1 = v1.max(v);
     }
-    let n = options.min_subdivisions.max(1);
     // Refine like the uniform-grid path would for curved surfaces: sample
     // the surface diagonal and bump density if it deviates from the
-    // chord more than chord_height.
-    let mut n = n;
+    // chord more than chord_height (then the angular facet bound).
+    let mut n = options.min_subdivisions.max(1);
     {
         let p00 = surface.point_at(u0, v0);
         let p11 = surface.point_at(u1, v1);
@@ -320,6 +319,7 @@ pub(crate) fn tessellate_face_boundary_first(
         while (dev / (n as f64 * n as f64)) > options.chord_height && n < options.max_subdivisions {
             n *= 2;
         }
+        n = crate::facet_angle::densify_lattice(surface, ((u0, u1), (v0, v1)), n, options);
     }
     // Per-direction station counts for NURBS charts — the diagonal
     // probe above reads a coiled chart by phase luck (n=4 ribbon,

@@ -97,6 +97,7 @@ fn bilinear_point(p00: Point3, p10: Point3, p01: Point3, p11: Point3, u: f64, v:
 ///
 /// # Returns
 /// A `Vec<UvCell>` of all leaf cells covering the parameter domain.
+#[cfg(test)]
 pub(crate) fn adaptive_subdivide(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),
@@ -104,6 +105,28 @@ pub(crate) fn adaptive_subdivide(
     min_subdivisions: usize,
     max_subdivisions: usize,
     chord_tolerance: f64,
+) -> Vec<UvCell> {
+    adaptive_subdivide_bounded(
+        surface,
+        u_range,
+        v_range,
+        (min_subdivisions, max_subdivisions),
+        chord_tolerance,
+        None,
+    )
+}
+
+/// [`adaptive_subdivide`] with an optional angular facet bound: a
+/// cell also refines while the surface normal spreads more than
+/// `max_normal_spread` radians across it (see
+/// [`crate::facet_angle::normal_spread`]), within the same depth cap.
+pub(crate) fn adaptive_subdivide_bounded(
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    (min_subdivisions, max_subdivisions): (usize, usize),
+    chord_tolerance: f64,
+    max_normal_spread: Option<f64>,
 ) -> Vec<UvCell> {
     // Compute max refinement depth: how many times we can double min_subdivisions
     // before reaching max_subdivisions.
@@ -147,7 +170,14 @@ pub(crate) fn adaptive_subdivide(
 
     while let Some((cell, depth)) = queue.pop() {
         let ch = chord_height(surface, &cell);
-        if ch <= chord_tolerance || depth >= max_depth {
+        let flat_enough = max_normal_spread.is_none_or(|m| {
+            crate::facet_angle::normal_spread(
+                surface,
+                (cell.u_min, cell.u_max),
+                (cell.v_min, cell.v_max),
+            ) <= m
+        });
+        if (ch <= chord_tolerance && flat_enough) || depth >= max_depth {
             leaves.push(cell);
         } else {
             // Subdivide into 4 children.

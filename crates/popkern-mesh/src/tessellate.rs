@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use popkern_core::geometry::{SurfaceEval, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::adaptive::adaptive_subdivide;
+use crate::adaptive::adaptive_subdivide_bounded;
 
 #[path = "tessellate_diagnostics.rs"]
 mod tessellate_diagnostics;
@@ -197,13 +197,26 @@ pub(crate) fn tessellate_face_with_samples(
     }
 
     let max_subdivisions = crate::adaptive::effective_max_subdivisions(surface, options);
-    let cells = adaptive_subdivide(
+    // The uniform grid is chord-only for FALLBACK faces (ones the
+    // boundary-first builder declined): driving their quadtree by
+    // normal spread pushed a 50-turn thread flank to the depth cap
+    // everywhere (measured threaded_stud: 4162 -> 468305 triangles,
+    // 2870 open edges once the projection-sewn trims met the finer
+    // grid). SEAM-SPINE faces (full-periodic charts — a whole ball)
+    // are this path's designed home and are never sewn, so the
+    // angular facet bound applies to them.
+    let angular = if outer_loop_is_seam_spine(brep, face_handle) {
+        options.angular_bound()
+    } else {
+        None
+    };
+    let cells = adaptive_subdivide_bounded(
         surface,
         u_range,
         v_range,
-        options.min_subdivisions,
-        max_subdivisions,
+        (options.min_subdivisions, max_subdivisions),
         options.chord_height,
+        angular,
     );
 
     // Deduplicate vertices by UV coordinate using bit-exact keys.
@@ -608,7 +621,7 @@ pub(crate) fn tessellate_brep(
     // boundary vertices (PK-095 closure).
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let mut edge_samples = crate::boundary_first::sample_all_edges(brep, options.chord_height);
+    let mut edge_samples = crate::boundary_first::sample_all_edges(brep, options);
     tracker.finish_stage("tessellate.edge_samples", t0, edge_samples.len());
     // Encroachment refinement (Ruppert-style): a face whose Delaunay
     // coverage fails because boundary points crowd a ring segment

@@ -8,7 +8,9 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::TessellationOptions;
 
 /// Interior-lattice station counts per chart direction, refined until
-/// the worst iso-line chord sagitta meets `chord_height`.
+/// the worst iso-line chord sagitta meets `chord_height` and (with an
+/// angular facet bound) the worst iso-line tangent turn meets
+/// `max_facet_angle`.
 ///
 /// The single chart-diagonal probe that sizes the square grid reads a
 /// COILED chart by phase luck: on a 6.5-turn helical tube wall the
@@ -30,6 +32,7 @@ pub(super) fn directional_stations(
     let (u0, u1) = u_span;
     let (v0, v1) = v_span;
     let cap = 512usize;
+    let max_turn = options.angular_bound();
     let refine = |dir_u: bool| -> usize {
         let mut n = options.min_subdivisions.max(2);
         loop {
@@ -52,6 +55,12 @@ pub(super) fn directional_stations(
                         0.5 * (prev.z + next.z),
                     );
                     worst = worst.max(mid.distance_to(&chord_mid));
+                    if let Some(max_turn) = max_turn {
+                        // Iso-line tangent turn in chord-height units
+                        // so one threshold decides both criteria.
+                        let turn = crate::facet_angle::curve_turn(prev, mid, next);
+                        worst = worst.max(options.chord_height * turn / max_turn);
+                    }
                     prev = next;
                 }
             }

@@ -90,7 +90,7 @@ impl VizServer {
     /// Replaces any previously loaded model and resets the selection.
     /// The camera is fitted to the bounding box of the resulting mesh.
     pub fn load_brep(&mut self, brep: BRep) -> Result<(), VizError> {
-        let options = popkern_mesh::TessellationOptions::default();
+        let options = popkern_mesh::TessellationOptions::display();
         let mesh =
             popkern_mesh::tessellate(&brep, &options).map_err(|e| VizError::Load(e.to_string()))?;
 

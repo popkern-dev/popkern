@@ -1,7 +1,7 @@
 //! PK-412: the examples gallery cannot rot. One table drives three
 //! things — the native gate on every script (served, no failures, no
-//! downgraded blends, watertight mesh, STEP through the OCC oracle
-//! when present), the manifest the playground page reads
+//! downgraded blends, watertight display mesh within the angular facet
+//! bound, STEP through the OCC oracle when present), the manifest the playground page reads
 //! (`web/playground/examples.json` + the script copies beside it),
 //! and the thumbnails. `POPKERN_UPDATE_GALLERY=1` regenerates the
 //! manifest, copies and thumbnails; without it the test fails on any
@@ -196,6 +196,39 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     ),
 ];
 
+/// f32 buffer rounding on unit normals: ~1e-7 rad per component.
+const FACET_SPREAD_SLACK: f64 = 1.0e-4;
+
+/// Worst per-triangle vertex-normal spread (radians) over the page's
+/// display buffers: the angular facet bound the viewer relies on for
+/// smooth shading and straight zebra stripes. Pole vertices count —
+/// a flipped pole normal reads as a ~180° spread.
+fn worst_facet_spread(normals: &[f32], indices: &[u32]) -> f64 {
+    let normal = |i: u32| {
+        let k = 3 * i as usize;
+        [
+            f64::from(normals[k]),
+            f64::from(normals[k + 1]),
+            f64::from(normals[k + 2]),
+        ]
+    };
+    let angle = |a: [f64; 3], b: [f64; 3]| {
+        let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let la = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+        let lb = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+        (dot / (la * lb)).clamp(-1.0, 1.0).acos()
+    };
+    indices
+        .chunks(3)
+        .map(|t| {
+            let n = [normal(t[0]), normal(t[1]), normal(t[2])];
+            angle(n[0], n[1])
+                .max(angle(n[1], n[2]))
+                .max(angle(n[2], n[0]))
+        })
+        .fold(0.0, f64::max)
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -260,6 +293,13 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
         assert!(!envelope.bodies.is_empty(), "[{stem}] a body on screen");
         for body in &envelope.bodies {
             assert_eq!(body.open_edges, 0, "[{stem}] watertight mesh");
+            let worst = worst_facet_spread(&body.normals, &body.indices);
+            assert!(
+                worst <= popkern_mesh::DISPLAY_MAX_FACET_ANGLE + FACET_SPREAD_SLACK,
+                "[{stem}] display mesh facet spread {:.2}° over the {:.1}° bound",
+                worst.to_degrees(),
+                popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees()
+            );
         }
         // The command: STEP + thumbnail, oracle on the STEP.
         let step = tmp(&format!("{stem}.step"));

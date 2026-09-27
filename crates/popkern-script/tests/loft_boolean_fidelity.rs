@@ -205,6 +205,7 @@ fn assert_meshes_watertight_and_faithful(
         chord_height: 5.0e-4,
         min_subdivisions: 4,
         max_subdivisions: 512,
+        ..Default::default()
     };
     let mesh = popkern_mesh::tessellate(brep, &options).expect("mesh");
     let mut vol6 = 0.0;

@@ -61,7 +61,9 @@ pub fn render_surface_analysis(
     }
 }
 
-/// Tessellate and render an analysis view straight to a PNG.
+/// Tessellate (display quality — see
+/// [`popkern_mesh::TessellationOptions::display`]) and render an
+/// analysis view straight to a PNG.
 pub fn render_surface_analysis_to_png(
     brep: &BRep,
     camera: &Camera,
@@ -70,7 +72,7 @@ pub fn render_surface_analysis_to_png(
     mode: SurfaceAnalysisMode,
     output_path: &Path,
 ) -> Result<(), VizError> {
-    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::display())
         .map_err(|e| VizError::SoftwareRender(format!("tessellation failed: {e}")))?;
     let pixels = render_surface_analysis(brep, &mesh, camera, width, height, mode)?;
     crate::headless::write_png(output_path, width, height, &pixels)
@@ -197,6 +199,7 @@ fn render_zebra(
     fb.clear([38, 38, 38, 255]);
     for tri in &mesh.triangles {
         let mut sv = [[0.0f32; 3]; 3]; // screen x, y, depth
+        let mut inv_w = [0.0f32; 3];
         let mut world = [glam::Vec3::ZERO; 3];
         let mut normals = [glam::Vec3::ZERO; 3];
         let mut behind = false;
@@ -218,6 +221,7 @@ fn render_zebra(
                 (1.0 - (ndc.y * 0.5 + 0.5)) * h,
                 ndc.z,
             ];
+            inv_w[k] = 1.0 / clip.w;
             world[k] = p;
             normals[k] =
                 glam::Vec3::new(mv.normal.x as f32, mv.normal.y as f32, mv.normal.z as f32);
@@ -225,18 +229,36 @@ fn render_zebra(
         if behind {
             continue;
         }
-        rasterize_zebra_triangle(&mut fb, &sv, &world, &normals, eye, right, stripes);
+        let attributes = ZebraAttributes {
+            inv_w,
+            world,
+            normals,
+        };
+        rasterize_zebra_triangle(&mut fb, &sv, &attributes, eye, right, stripes);
     }
     fb.to_rgba()
 }
 
+/// Per-vertex attributes of one zebra triangle: reciprocal clip w
+/// (for perspective-correct interpolation), world position, normal.
+struct ZebraAttributes {
+    inv_w: [f32; 3],
+    world: [glam::Vec3; 3],
+    normals: [glam::Vec3; 3],
+}
+
 /// Rasterize one triangle with per-pixel normal interpolation and
 /// reflection-line banding.
+///
+/// World position and normal interpolate PERSPECTIVE-CORRECTLY
+/// (screen barycentrics weighted by 1/w, as GPU varyings do): affine
+/// screen-space interpolation bends the reflected view vector along
+/// every long triangle's diagonal, drawing chevron kinks across flat
+/// faces — a false G1 signal in the very view meant to detect G1.
 fn rasterize_zebra_triangle(
     fb: &mut Framebuffer,
     sv: &[[f32; 3]; 3],
-    world: &[glam::Vec3; 3],
-    normals: &[glam::Vec3; 3],
+    attributes: &ZebraAttributes,
     eye: glam::Vec3,
     stripe_axis: glam::Vec3,
     stripes: f32,
@@ -286,8 +308,19 @@ fn rasterize_zebra_triangle(
             if depth >= fb.depth[idx] {
                 continue;
             }
-            let n = (normals[0] * b0 + normals[1] * b1 + normals[2] * b2).normalize_or_zero();
-            let p = world[0] * b0 + world[1] * b1 + world[2] * b2;
+            let ZebraAttributes {
+                inv_w,
+                world,
+                normals,
+            } = attributes;
+            let (q0, q1, q2) = (b0 * inv_w[0], b1 * inv_w[1], b2 * inv_w[2]);
+            let q = q0 + q1 + q2;
+            if q.abs() < 1e-30 {
+                continue;
+            }
+            let (c0, c1, c2) = (q0 / q, q1 / q, q2 / q);
+            let n = (normals[0] * c0 + normals[1] * c1 + normals[2] * c2).normalize_or_zero();
+            let p = world[0] * c0 + world[1] * c1 + world[2] * c2;
             let view = (p - eye).normalize_or_zero();
             let r = view - n * (2.0 * view.dot(n));
             // Band on the reflected direction's component along the

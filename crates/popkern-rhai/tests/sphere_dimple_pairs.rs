@@ -92,6 +92,7 @@ fn mesh_volume_and_open_edges(script: &str) -> (f64, Vec<(f64, f64, f64)>) {
         chord_height: 5.0e-4,
         min_subdivisions: 4,
         max_subdivisions: 512,
+        ..Default::default()
     };
     let mesh = popkern_mesh::tessellate(brep, &options).expect("mesh");
     let mut vol6 = 0.0;

@@ -1,7 +1,9 @@
-//! BRep → GPU-shaped buffers: the default-quality tessellation every
-//! gate uses, flattened to `f32` positions/normals, `u32` indices and a
-//! per-triangle face id, plus the welded open-edge census (the same
-//! measure `Part::open_edge_count` reports).
+//! BRep → GPU-shaped buffers: the display-quality tessellation
+//! ([`TessellationOptions::display`] — the gate chord height plus an
+//! angular facet bound, so small blends read smoothly in shaded and
+//! zebra views), flattened to `f32` positions/normals, `u32` indices
+//! and a per-triangle face id, plus the welded open-edge census (the
+//! same measure `Part::open_edge_count` reports).
 
 use std::collections::HashMap;
 
@@ -19,7 +21,7 @@ pub fn body_mesh(
     label: Option<String>,
     label_face: impl Fn(FaceHandle) -> Option<String>,
 ) -> Result<BodyMesh, MeshError> {
-    let mesh = popkern_mesh::tessellate(brep, &TessellationOptions::default())?;
+    let mesh = popkern_mesh::tessellate(brep, &TessellationOptions::display())?;
     let mut face_index: HashMap<FaceHandle, u32> = HashMap::new();
     let mut face_labels = Vec::with_capacity(brep.faces.len());
     for (handle, _) in brep.faces.iter() {

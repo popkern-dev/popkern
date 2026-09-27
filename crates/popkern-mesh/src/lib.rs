@@ -6,12 +6,14 @@
 //! and export to common mesh formats (STL, OBJ, glTF).
 
 mod adaptive;
+mod angular_refine;
 mod boundary_first;
 mod boundary_sew;
 mod crack_zipper;
 mod error;
 mod export;
 mod face_pass;
+mod facet_angle;
 mod mesh;
 pub mod offset_oracle;
 pub mod point_query;
@@ -20,6 +22,7 @@ mod trim;
 mod trim_canonical;
 mod trim_clip;
 mod trim_sampling;
+mod vertex_normal;
 mod winding_side;
 
 pub use error::MeshError;
@@ -45,6 +48,20 @@ pub struct TessellationOptions {
     ///
     /// Default: `64`.
     pub max_subdivisions: usize,
+    /// Maximum angle (radians) the surface normal / curve tangent may
+    /// turn across one facet — the angular deflection bound that
+    /// complements the absolute `chord_height`.
+    ///
+    /// Chord height alone lets small-radius features (fillets, rounds,
+    /// thin bosses) facet coarsely: a 0.04-radius round meets a 0.005
+    /// chord tolerance with 45° facets, and reflection-line (zebra)
+    /// or shaded views then show interpolated-normal wobble the true
+    /// surface does not have. Values `>= π` disable the bound (the
+    /// facet count is then governed by chord height alone).
+    ///
+    /// Default: `π` (off — the analysis-gate meshes stay chord-only).
+    /// [`TessellationOptions::display`] turns it on.
+    pub max_facet_angle: f64,
 }
 
 impl Default for TessellationOptions {
@@ -53,9 +70,36 @@ impl Default for TessellationOptions {
             chord_height: 0.005,
             min_subdivisions: 4,
             max_subdivisions: 64,
+            max_facet_angle: std::f64::consts::PI,
         }
     }
 }
+
+impl TessellationOptions {
+    /// Display-quality preset for viewers and surface analysis
+    /// (shaded, zebra, curvature): the default chord height plus a
+    /// 12° angular facet bound, so small-radius blends mesh with the
+    /// same normal fidelity as large ones.
+    pub fn display() -> Self {
+        Self {
+            max_facet_angle: DISPLAY_MAX_FACET_ANGLE,
+            ..Self::default()
+        }
+    }
+
+    /// Whether the angular facet bound constrains anything (finite,
+    /// positive, below π).
+    pub(crate) fn angular_bound(&self) -> Option<f64> {
+        (self.max_facet_angle > 0.0 && self.max_facet_angle < std::f64::consts::PI)
+            .then_some(self.max_facet_angle)
+    }
+}
+
+/// The angular facet bound of [`TessellationOptions::display`]: 12°.
+/// Reflection lines sampled at this density stay visually straight on
+/// G2 blends at the playground's 16-stripe zebra frequency while a
+/// quarter-round costs 8 facets.
+pub const DISPLAY_MAX_FACET_ANGLE: f64 = 12.0 * std::f64::consts::PI / 180.0;
 
 /// Tessellate every face of `brep` into a combined [`TriMesh`].
 ///

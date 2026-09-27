@@ -48,8 +48,8 @@ pub fn render_to_png_gpu(
 ) -> Result<(), VizError> {
     let (device, queue) = create_headless_device()?;
 
-    // Tessellate the model
-    let options = popkern_mesh::TessellationOptions::default();
+    // Tessellate the model at display quality (angular facet bound).
+    let options = popkern_mesh::TessellationOptions::display();
     let mesh =
         popkern_mesh::tessellate(brep, &options).map_err(|e| VizError::Render(e.to_string()))?;
 
@@ -241,7 +241,7 @@ pub fn render_to_png_software(
     output_path: &Path,
     show_wireframe: bool,
 ) -> Result<(), VizError> {
-    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::display())
         .map_err(|e| VizError::SoftwareRender(format!("tessellation failed: {e}")))?;
     let pixels = crate::cpu_render::render(brep, &mesh, camera, width, height, show_wireframe);
     write_png(output_path, width, height, &pixels)

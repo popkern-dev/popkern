@@ -102,6 +102,16 @@ pub(crate) fn tessellate_face_pass(
             options,
             &mut sink,
         ) {
+            let mut fm = fm;
+            if let Some(sof) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry);
+                // Angular facet bound: boundary-first meshes only (the
+                // uniform-grid fallback below stays chord-only — see
+                // `tessellate_face_with_samples`).
+                if let Some(max_angle) = options.angular_bound() {
+                    crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
+                }
+            }
             return FacePassOutcome::BoundaryFirst(fm);
         }
         if trace {
@@ -119,14 +129,21 @@ pub(crate) fn tessellate_face_pass(
                 .unwrap_or("None");
             eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
         }
+        let mut mesh = crate::tessellate::tessellate_face_with_samples(
+            brep,
+            face_handle,
+            options,
+            Some(edge_samples),
+        );
+        if let (Ok(fm), Some(sof)) = (
+            mesh.as_mut(),
+            brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()),
+        ) {
+            crate::vertex_normal::repair_singular_normals(fm, &sof.geometry);
+        }
         FacePassOutcome::UniformGrid {
             seam_spine: crate::tessellate::outer_loop_is_seam_spine(brep, face_handle),
-            mesh: crate::tessellate::tessellate_face_with_samples(
-                brep,
-                face_handle,
-                options,
-                Some(edge_samples),
-            ),
+            mesh,
         }
     };
     dispatch(faces, trace, per_face)

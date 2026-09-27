@@ -25,6 +25,7 @@ fn tessellate_empty_brep_custom_options_produces_empty_mesh() {
         chord_height: 0.0001,
         min_subdivisions: 8,
         max_subdivisions: 128,
+        ..Default::default()
     };
     let mesh = tessellate(&brep, &opts).unwrap();
     assert!(mesh.triangles.is_empty());
@@ -42,6 +43,7 @@ fn flat_planar_face_min_subdivisions_1_produces_2_triangles() {
         chord_height: 0.005,
         min_subdivisions: 1,
         max_subdivisions: 64,
+        ..Default::default()
     };
     let mesh = tessellate(&cube, &opts).unwrap();
     // Boundary-first: planar faces stay minimal (no interior points
@@ -63,6 +65,7 @@ fn planar_face_never_refines_adaptively() {
         chord_height: 1e-12, // absurdly tight
         min_subdivisions: 2,
         max_subdivisions: 64,
+        ..Default::default()
     };
     let mesh = tessellate(&cube, &tight).unwrap();
     // 6 faces * 4 quads * 2 triangles = 48 triangles.
@@ -78,6 +81,7 @@ fn very_loose_tolerance_produces_minimal_triangles() {
         chord_height: 100.0, // absurdly loose
         min_subdivisions: 1,
         max_subdivisions: 64,
+        ..Default::default()
     };
     let mesh = tessellate(&sphere, &opts).unwrap();
     // With min_subdivisions=1 and huge tolerance, should produce exactly
@@ -101,6 +105,7 @@ fn very_tight_tolerance_produces_many_triangles() {
         chord_height: 0.0001,
         min_subdivisions: 4,
         max_subdivisions: 64,
+        ..Default::default()
     };
     let mesh = tessellate(&sphere, &tight).unwrap();
     // Should have significantly more triangles than default.
@@ -120,6 +125,7 @@ fn min_subdivisions_equals_max_no_panic() {
         chord_height: 0.005,
         min_subdivisions: 8,
         max_subdivisions: 8,
+        ..Default::default()
     };
     let mesh = tessellate(&cube, &opts).unwrap();
     assert!(!mesh.triangles.is_empty());
@@ -134,6 +140,7 @@ fn min_subdivisions_greater_than_max_still_works() {
         chord_height: 0.005,
         min_subdivisions: 16,
         max_subdivisions: 4,
+        ..Default::default()
     };
     let mesh = tessellate(&cube, &opts).unwrap();
     assert!(!mesh.triangles.is_empty());

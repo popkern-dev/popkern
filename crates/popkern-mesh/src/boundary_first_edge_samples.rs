@@ -23,8 +23,20 @@ pub(crate) struct EdgeSamples {
 }
 
 /// Sample every edge with a finite curve window once, adaptively by
-/// 3D chord height.
-pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHandle, EdgeSamples> {
+/// 3D chord height and (when the options carry one) the angular facet
+/// bound: an interval also splits while the incident faces' normals
+/// turn more than `max_facet_angle` across it
+/// ([`crate::facet_angle::EdgeNormalProbe`]; the curve's own tangent
+/// turn only when no face pcurve exists), so a small-radius arc
+/// samples as densely in ANGLE as a large one. Both incident faces
+/// consume these samples, so the bound reaches every face's boundary
+/// by construction.
+pub(crate) fn sample_all_edges(
+    brep: &BRep,
+    options: &crate::TessellationOptions,
+) -> HashMap<EdgeHandle, EdgeSamples> {
+    let chord_height = options.chord_height;
+    let max_turn = options.angular_bound();
     let mut map = HashMap::new();
     for (eh, edge) in brep.edges.iter() {
         let Some(curve) = edge.curve.as_ref() else {
@@ -52,6 +64,20 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
             continue;
         }
         let eval: &dyn CurveEval = &curve.geometry;
+        let normal_probe = max_turn.map(|_| crate::facet_angle::EdgeNormalProbe::new(brep, edge));
+        // Turn across curve fractions (first, interior…, last): the
+        // incident faces' normal turn, else the curve's tangent turn.
+        let turn_over = |fr: &[f64], pts: &[Point3]| -> f64 {
+            normal_probe
+                .as_ref()
+                .and_then(|p| p.turn(fr))
+                .unwrap_or_else(|| {
+                    let n = pts.len();
+                    (1..n - 1)
+                        .map(|k| crate::facet_angle::curve_turn(pts[0], pts[k], pts[n - 1]))
+                        .fold(0.0, f64::max)
+                })
+        };
         let at = |f: f64| eval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f);
         // Adaptive subdivision by chord height — BREADTH-FIRST under
         // the budget. The old left-to-right scan refined depth-first,
@@ -69,6 +95,7 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
             curve.t_start,
             curve.t_end,
             chord_height,
+            max_turn.map(|m| (m, &turn_over as &boundary_first_edge_seed::TurnOver<'_>)),
             &at,
             &mut fractions,
         );
@@ -107,8 +134,17 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
                     0.5 * (pa.z + pb.z),
                 );
                 let dev = pm.distance_to(&chord_mid);
+                // Angular excess is ranked in chord-height units so
+                // the budget truncation below keeps comparing like
+                // with like when both criteria fire.
+                let turn_excess = max_turn
+                    .map(|m| turn_over(&[a, 0.5 * (a + b), b], &[pa, pm, pb]) / m)
+                    .filter(|&r| r > 1.0)
+                    .map(|r| r * chord_height);
                 if dev > chord_height {
                     split_at.push((dev, i));
+                } else if let Some(rank) = turn_excess {
+                    split_at.push((rank, i));
                 }
             }
             if split_at.is_empty() || fractions.len() >= cap {

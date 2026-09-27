@@ -19,6 +19,7 @@ fn subdivided_cube_face(brep: &BRep) -> crate::mesh::FaceMesh {
         chord_height: 1.0e-3,
         min_subdivisions: 8,
         max_subdivisions: 8,
+        ..Default::default()
     };
     crate::tessellate_face(brep, face, &options).expect("face mesh")
 }

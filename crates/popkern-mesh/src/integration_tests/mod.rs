@@ -358,9 +358,9 @@ fn max_subdivisions_equal_to_min_no_refinement() {
     // When max_subdivisions == min_subdivisions, no refinement can happen.
     let sphere = BRep::sphere(1.0, Tolerance::default()).unwrap();
     let opts = TessellationOptions {
-        min_subdivisions: 4,
-        max_subdivisions: 4,
-        chord_height: 0.001, // very tight, but cap prevents refinement
+        max_subdivisions: 4, // == the default min: the cap prevents refinement
+        chord_height: 0.001, // very tight
+        ..Default::default()
     };
     let mesh = tessellate(&sphere, &opts).unwrap();
     // 4x4 = 16 quads per face, 2 triangles each = 32 triangles (sphere has 1 face)
@@ -453,14 +453,9 @@ fn prism_mesh_wedge_volume_is_exact_and_deterministic() {
         Tolerance::default(),
     )
     .expect("rectangular prism");
-    let opts = TessellationOptions {
-        chord_height: 0.001,
-        min_subdivisions: 8,
-        max_subdivisions: 128,
-    };
     let mut volumes = Vec::new();
     for _ in 0..3 {
-        let mesh = tessellate(&prism, &opts).expect("prism tessellation");
+        let mesh = tessellate(&prism, &fine_options()).expect("prism tessellation");
         volumes.push(mesh_wedge_volume(&mesh));
     }
     for v in &volumes {
@@ -483,12 +478,7 @@ fn cylinder_mesh_wedge_volume_is_outward_and_closed() {
     // and one cap stayed inside-out (wedge volume exactly ⅔ of 2πr²h,
     // PK-101). Pinned within chord error of the true volume.
     let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).expect("cylinder");
-    let opts = TessellationOptions {
-        chord_height: 0.001,
-        min_subdivisions: 8,
-        max_subdivisions: 128,
-    };
-    let mesh = tessellate(&cyl, &opts).expect("cylinder tessellation");
+    let mesh = tessellate(&cyl, &fine_options()).expect("cylinder tessellation");
     let vol = mesh_wedge_volume(&mesh);
     let expected = 2.0 * std::f64::consts::PI;
     assert!(
@@ -497,6 +487,16 @@ fn cylinder_mesh_wedge_volume_is_outward_and_closed() {
     );
 }
 // ── Trim regression diagnostics ──────────────────────────────────────
+
+/// Fine chord-only options shared by the volume and gap pins.
+fn fine_options() -> TessellationOptions {
+    TessellationOptions {
+        chord_height: 0.001,
+        min_subdivisions: 8,
+        max_subdivisions: 128,
+        ..Default::default()
+    }
+}
 
 #[path = "diagnostic_trim_tests.rs"]
 mod diagnostic_trim;

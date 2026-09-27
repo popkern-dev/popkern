@@ -7,15 +7,23 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveGeometry;
 
+/// Turn measure across ordered interval samples `(fractions, points)`
+/// (first and last are the interval ends), in radians.
+pub(super) type TurnOver<'a> = dyn Fn(&[f64], &[Point3]) -> f64 + 'a;
+
 /// Seed `fractions` at every distinct interior knot (budgeted), then
 /// coarsen alias-proof: merge seeded intervals back while every
 /// DISCARDED seed point stays within `chord_height` of the merged
-/// chord.
+/// chord and (with an angular bound `(max, turn_over)`) the turn
+/// measured over the merged interval's seeds stays within `max`.
+/// `turn_over(fractions, points)` measures the turn across its
+/// ordered samples (first and last are the interval ends).
 pub(super) fn knot_seed_and_coarsen(
     geometry: &CurveGeometry,
     t_start: f64,
     t_end: f64,
     chord_height: f64,
+    max_turn: Option<(f64, &TurnOver<'_>)>,
     at: &dyn Fn(f64) -> Point3,
     fractions: &mut Vec<f64>,
 ) {
@@ -84,8 +92,11 @@ pub(super) fn knot_seed_and_coarsen(
                 let mut end = j;
                 while end + 1 < fractions.len() {
                     let candidate = end + 1;
-                    let ok =
-                        (s_idx + 1..candidate).all(|k| dev(s_idx, candidate, k) <= chord_height);
+                    let ok = (s_idx + 1..candidate)
+                        .all(|k| dev(s_idx, candidate, k) <= chord_height)
+                        && max_turn.is_none_or(|(m, turn_over)| {
+                            turn_over(&fractions[s_idx..=candidate], &pts[s_idx..=candidate]) <= m
+                        });
                     if ok {
                         end = candidate;
                     } else {

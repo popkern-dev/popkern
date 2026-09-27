@@ -70,53 +70,92 @@ pub(super) fn try_tessellate(
         return None;
     }
 
-    // Chart bbox and metric scale (mm per parameter unit in each
-    // direction, sampled at the chart centre) — corner detection and
-    // constancy tests must run in metric space, not raw UV, because
-    // the chart mixes units (radians × millimetres on a cylinder).
-    let (mut u0, mut u1, mut v0, mut v1) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for &(u, v) in &ring.uv {
-        u0 = u0.min(u);
-        u1 = u1.max(u);
-        v0 = v0.min(v);
-        v1 = v1.max(v);
-    }
-    let (su, sv) = {
-        let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
-        let p = surface.point_at(um, vm);
-        let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
-        let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
-        let du = surface.point_at(um + eps_u, vm).distance_to(&p) / eps_u;
-        let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
-        (du.max(1e-9), dv.max(1e-9))
+    // Ruling axis: the chart direction along which the surface is
+    // straight. Strips ruled along v (cylinder-like charts) keep the
+    // chart as-is; strips ruled along u (a blend whose chart runs u
+    // along the spine and v across the section — variable-radius
+    // rounds) are TRANSPOSED so the rest of this builder always sees
+    // the ruling as its second coordinate. Before the transpose,
+    // u-ruled strips declined into Delaunay, whose isotropic clearance
+    // band (sized by the strip's long direction) evacuated the whole
+    // interior: a tapered round meshed as 12 rail-to-rail triangles
+    // with 90° of normal turn each and 7x the chord tolerance.
+    let bbox = |pts: &[(f64, f64)]| {
+        pts.iter().fold(
+            (
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            ),
+            |(a0, a1, b0, b1), &(a, b)| (a0.min(a), a1.max(a), b0.min(b), b1.max(b)),
+        )
     };
-    let diag = (su * (u1 - u0)).hypot(sv * (v1 - v0)).max(1e-12);
-
-    // Ruled along v: the v-midline must sit on the chord within the
-    // chord tolerance (same test as the caller's ruled path).
-    {
-        let u_mid = 0.5 * (u0 + u1);
-        let pa = surface.point_at(u_mid, v0);
-        let pb = surface.point_at(u_mid, v1);
-        let pm = surface.point_at(u_mid, 0.5 * (v0 + v1));
+    let straight_along = |swap: bool| -> bool {
+        let (u0, u1, v0, v1) = bbox(&ring.uv);
+        let at = |a: f64, b: f64| {
+            if swap {
+                surface.point_at(b, a)
+            } else {
+                surface.point_at(a, b)
+            }
+        };
+        let (a0, a1, b0, b1) = if swap {
+            (v0, v1, u0, u1)
+        } else {
+            (u0, u1, v0, v1)
+        };
+        let a_mid = 0.5 * (a0 + a1);
+        let pa = at(a_mid, b0);
+        let pb = at(a_mid, b1);
+        let pm = at(a_mid, 0.5 * (b0 + b1));
         let chord_mid = Point3::new(
             0.5 * (pa.x + pb.x),
             0.5 * (pa.y + pb.y),
             0.5 * (pa.z + pb.z),
         );
-        if pm.distance_to(&chord_mid) > options.chord_height {
-            return None; // doubly curved — not this path's class
+        pm.distance_to(&chord_mid) <= options.chord_height
+    };
+    let swap = if straight_along(false) {
+        false
+    } else if straight_along(true) {
+        true
+    } else {
+        return None; // doubly curved — not this path's class
+    };
+    // Chart coordinates (a, b): b runs along the ruling.
+    let chart: Vec<(f64, f64)> = ring
+        .uv
+        .iter()
+        .map(|&(u, v)| if swap { (v, u) } else { (u, v) })
+        .collect();
+    let eval = |a: f64, b: f64| {
+        if swap {
+            surface.point_at(b, a)
+        } else {
+            surface.point_at(a, b)
         }
-    }
+    };
+
+    // Chart bbox and metric scale (mm per parameter unit in each
+    // direction, sampled at the chart centre) — corner detection and
+    // constancy tests must run in metric space, not raw UV, because
+    // the chart mixes units (radians × millimetres on a cylinder).
+    let (u0, u1, v0, v1) = bbox(&chart);
+    let (su, sv) = {
+        let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        let p = eval(um, vm);
+        let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
+        let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
+        let du = eval(um + eps_u, vm).distance_to(&p) / eps_u;
+        let dv = eval(um, vm + eps_v).distance_to(&p) / eps_v;
+        (du.max(1e-9), dv.max(1e-9))
+    };
+    let diag = (su * (u1 - u0)).hypot(sv * (v1 - v0)).max(1e-12);
 
     // Corner detection on the metric polyline: a corner is a turn
     // sharper than 45°. A clean rectangle has exactly four.
-    let m: Vec<(f64, f64)> = ring.uv.iter().map(|&(u, v)| (u * su, v * sv)).collect();
+    let m: Vec<(f64, f64)> = chart.iter().map(|&(u, v)| (u * su, v * sv)).collect();
     let mut corners: Vec<usize> = Vec::new();
     for i in 0..n {
         let a = m[(i + n - 1) % n];
@@ -184,9 +223,9 @@ pub(super) fn try_tessellate(
         let mut idx = chain.ring_indices.clone();
         let coord = |i: usize| {
             if chain.u_const {
-                ring.uv[i].1
+                chart[i].1
             } else {
-                ring.uv[i].0
+                chart[i].0
             }
         };
         let ascending = coord(*idx.last()?) >= coord(idx[0]);
@@ -207,39 +246,36 @@ pub(super) fn try_tessellate(
             crosses.push(idx);
         }
     }
-    rails.sort_by(|a, b| ring.uv[a[0]].0.total_cmp(&ring.uv[b[0]].0));
-    crosses.sort_by(|a, b| ring.uv[a[0]].1.total_cmp(&ring.uv[b[0]].1));
+    rails.sort_by(|a, b| chart[a[0]].0.total_cmp(&chart[b[0]].0));
+    crosses.sort_by(|a, b| chart[a[0]].1.total_cmp(&chart[b[0]].1));
     let (rail_l, rail_r) = (&rails[0], &rails[1]);
     let (cross_a, cross_b) = (&crosses[0], &crosses[1]);
-    if su * (ring.uv[rail_r[0]].0 - ring.uv[rail_l[0]].0) <= eps_const
-        || sv * (ring.uv[cross_b[0]].1 - ring.uv[cross_a[0]].1) <= eps_const
+    if su * (chart[rail_r[0]].0 - chart[rail_l[0]].0) <= eps_const
+        || sv * (chart[cross_b[0]].1 - chart[cross_a[0]].1) <= eps_const
     {
         trace("degenerate rectangle extent");
         return None;
     }
 
-    // Station matching: the tensor grid pairs cross-chain station i
-    // on both ends and rail station j on both sides. The chains must
-    // agree station-for-station within half the smallest gap, or the
-    // columns/rows would shear.
-    let nu = cross_a.len();
+    // Station matching. Rails pair station-for-station (the rows of
+    // the lattice); cross chains pair station-for-station when they
+    // align (the exact tensor lattice), and otherwise ZIP against a
+    // union-station lattice — a variable-radius round samples its two
+    // end sections at different densities (the chord tolerance meets
+    // a 0.18 arc with more samples than a 0.04 one), which declined
+    // the whole strip into Delaunay before.
     let nv = rail_l.len();
-    if cross_b.len() != nu || rail_r.len() != nv {
-        trace("station counts differ between opposite chains");
+    if rail_r.len() != nv {
+        trace("station counts differ between the rails");
         return None;
     }
     let min_gap = |idx: &[usize], pick_u: bool, scale: f64| -> f64 {
         idx.windows(2)
             .map(|w| {
-                let a = if pick_u {
-                    ring.uv[w[0]].0
+                let (a, b) = if pick_u {
+                    (chart[w[0]].0, chart[w[1]].0)
                 } else {
-                    ring.uv[w[0]].1
-                };
-                let b = if pick_u {
-                    ring.uv[w[1]].0
-                } else {
-                    ring.uv[w[1]].1
+                    (chart[w[0]].1, chart[w[1]].1)
                 };
                 scale * (b - a)
             })
@@ -247,60 +283,123 @@ pub(super) fn try_tessellate(
     };
     let gap_u = min_gap(cross_a, true, su).min(min_gap(cross_b, true, su));
     let gap_v = min_gap(rail_l, false, sv).min(min_gap(rail_r, false, sv));
-    for i in 0..nu {
-        if su * (ring.uv[cross_a[i]].0 - ring.uv[cross_b[i]].0).abs() > 0.5 * gap_u {
-            trace("cross-chain stations misaligned");
-            return None;
-        }
-    }
     for j in 0..nv {
-        if sv * (ring.uv[rail_l[j]].1 - ring.uv[rail_r[j]].1).abs() > 0.5 * gap_v {
+        if sv * (chart[rail_l[j]].1 - chart[rail_r[j]].1).abs() > 0.5 * gap_v {
             trace("rail stations misaligned");
             return None;
         }
     }
+    let aligned = cross_a.len() == cross_b.len()
+        && (0..cross_a.len())
+            .all(|i| su * (chart[cross_a[i]].0 - chart[cross_b[i]].0).abs() <= 0.5 * gap_u);
+    if !aligned && !swap {
+        // Chart-ruled-along-v strips with misaligned end chains keep
+        // the Delaunay path: its encroachment rounds equalize the
+        // SHARED rim samples (a drafted cone's two circles), which the
+        // zip cannot — zipping them left the coarser rim coarse
+        // (measured: default cone volume 1.2% low where Delaunay reads
+        // 0.8%). Interpolated equalization requests from here diverged
+        // (hole-rim strips: 12 → 84 split spans per round, 28–62 open
+        // edges). The zip below serves only TRANSPOSED strips, whose
+        // Delaunay alternative evacuates the interior outright.
+        trace("end chains misaligned on a v-ruled chart");
+        return None;
+    }
 
     // Assemble: ring points verbatim first (canonical positions →
     // watertight with the neighbours), then the interior lattice.
-    let mut uv_pts: Vec<(f64, f64)> = ring.uv.clone();
+    let mut uv_pts: Vec<(f64, f64)> = chart.clone();
     let mut pos_pts: Vec<Option<Point3>> = ring.pos.iter().copied().map(Some).collect();
     let interior_base = uv_pts.len();
-    for i in 1..nu.saturating_sub(1) {
-        let u = 0.5 * (ring.uv[cross_a[i]].0 + ring.uv[cross_b[i]].0);
-        for j in 1..nv.saturating_sub(1) {
-            let v = 0.5 * (ring.uv[rail_l[j]].1 + ring.uv[rail_r[j]].1);
-            uv_pts.push((u, v));
-            pos_pts.push(None);
+    let mut triangles: Vec<[usize; 3]>;
+    let nu;
+    if aligned {
+        nu = cross_a.len();
+        for i in 1..nu.saturating_sub(1) {
+            let u = 0.5 * (chart[cross_a[i]].0 + chart[cross_b[i]].0);
+            for j in 1..nv.saturating_sub(1) {
+                let v = 0.5 * (chart[rail_l[j]].1 + chart[rail_r[j]].1);
+                uv_pts.push((u, v));
+                pos_pts.push(None);
+            }
+        }
+        let vertex_at = |i: usize, j: usize| -> usize {
+            if j == 0 {
+                cross_a[i]
+            } else if j == nv - 1 {
+                cross_b[i]
+            } else if i == 0 {
+                rail_l[j]
+            } else if i == nu - 1 {
+                rail_r[j]
+            } else {
+                interior_base + (i - 1) * (nv - 2) + (j - 1)
+            }
+        };
+        triangles = Vec::with_capacity(2 * (nu - 1) * (nv - 1));
+        for i in 0..nu - 1 {
+            for j in 0..nv - 1 {
+                let (p00, p10, p11, p01) = (
+                    vertex_at(i, j),
+                    vertex_at(i + 1, j),
+                    vertex_at(i + 1, j + 1),
+                    vertex_at(i, j + 1),
+                );
+                triangles.push([p00, p10, p11]);
+                triangles.push([p00, p11, p01]);
+            }
+        }
+    } else {
+        // Union stations: every interior cross-chain station of either
+        // end, near-coincident pairs (within half the smallest gap)
+        // merged to their mean so no interior column shears a sliver.
+        let mut stations: Vec<f64> = cross_a[1..cross_a.len() - 1]
+            .iter()
+            .chain(cross_b[1..cross_b.len() - 1].iter())
+            .map(|&k| chart[k].0)
+            .collect();
+        stations.sort_by(f64::total_cmp);
+        let mut merged: Vec<(f64, usize)> = Vec::with_capacity(stations.len());
+        for s_a in stations {
+            match merged.last_mut() {
+                Some((mean, count)) if su * (s_a - *mean / *count as f64) <= 0.5 * gap_u => {
+                    *mean += s_a;
+                    *count += 1;
+                }
+                _ => merged.push((s_a, 1)),
+            }
+        }
+        let stations: Vec<f64> = merged.iter().map(|&(m, c)| m / c as f64).collect();
+        // Rows along the ruling: the two end chains verbatim, interior
+        // rows on the union stations between their rail vertices.
+        let mut rows: Vec<Vec<usize>> = Vec::with_capacity(nv);
+        rows.push(cross_a.clone());
+        for j in 1..nv - 1 {
+            let v = 0.5 * (chart[rail_l[j]].1 + chart[rail_r[j]].1);
+            let mut row = vec![rail_l[j]];
+            for &u in &stations {
+                row.push(uv_pts.len());
+                uv_pts.push((u, v));
+                pos_pts.push(None);
+            }
+            row.push(rail_r[j]);
+            rows.push(row);
+        }
+        rows.push(cross_b.clone());
+        nu = stations.len() + 2;
+        triangles = Vec::new();
+        for pair in rows.windows(2) {
+            zip_rows(&pair[0], &pair[1], &uv_pts, &mut triangles);
         }
     }
-    let vertex_at = |i: usize, j: usize| -> usize {
-        if j == 0 {
-            cross_a[i]
-        } else if j == nv - 1 {
-            cross_b[i]
-        } else if i == 0 {
-            rail_l[j]
-        } else if i == nu - 1 {
-            rail_r[j]
-        } else {
-            interior_base + (i - 1) * (nv - 2) + (j - 1)
-        }
-    };
-    let mut triangles: Vec<[usize; 3]> = Vec::with_capacity(2 * (nu - 1) * (nv - 1));
-    for i in 0..nu - 1 {
-        for j in 0..nv - 1 {
-            let (p00, p10, p11, p01) = (
-                vertex_at(i, j),
-                vertex_at(i + 1, j),
-                vertex_at(i + 1, j + 1),
-                vertex_at(i, j + 1),
-            );
-            triangles.push([p00, p10, p11]);
-            triangles.push([p00, p11, p01]);
+    // Back to the surface chart (undo the transpose), then enforce
+    // positive UV winding (the quads are built ascending in both
+    // axes, but the surface chart may run either handedness).
+    if swap {
+        for p in &mut uv_pts {
+            *p = (p.1, p.0);
         }
     }
-    // Enforce positive UV winding (the quads are built ascending in
-    // both axes, but the surface chart may run either handedness).
     for t in &mut triangles {
         let (a, b, c) = (uv_pts[t[0]], uv_pts[t[1]], uv_pts[t[2]]);
         let signed = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
@@ -347,4 +446,28 @@ pub(super) fn try_tessellate(
         vertices,
         triangles,
     })
+}
+
+/// Triangulate the band between two lattice rows (vertex indices
+/// ascending in the cross coordinate `a`, sharing their first and
+/// last `a` at the rails): advance along whichever row's next station
+/// comes first, so every triangle spans one station gap of one row.
+fn zip_rows(lo: &[usize], hi: &[usize], chart: &[(f64, f64)], triangles: &mut Vec<[usize; 3]>) {
+    let (mut i, mut k) = (0usize, 0usize);
+    while i + 1 < lo.len() || k + 1 < hi.len() {
+        let advance_lo = if k + 1 >= hi.len() {
+            true
+        } else if i + 1 >= lo.len() {
+            false
+        } else {
+            chart[lo[i + 1]].0 <= chart[hi[k + 1]].0
+        };
+        if advance_lo {
+            triangles.push([lo[i], lo[i + 1], hi[k]]);
+            i += 1;
+        } else {
+            triangles.push([lo[i], hi[k + 1], hi[k]]);
+            k += 1;
+        }
+    }
 }

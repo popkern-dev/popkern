@@ -20,7 +20,7 @@ use popkern_core::geometry::{Point3, Transform3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::{TessellationOptions, tessellate};
+use crate::tessellate;
 
 const MODEL_LINEAR: f64 = 1.0e-2;
 const ORACLE_VOLUME: f64 = 2.14679;
@@ -35,21 +35,13 @@ fn cube_union_sphere() -> BRep {
     popkern_bool::union(cube, sphere, t, None).expect("union (kernel-exact per OCC)")
 }
 
-fn fine_options() -> TessellationOptions {
-    TessellationOptions {
-        chord_height: 0.001,
-        min_subdivisions: 8,
-        max_subdivisions: 128,
-    }
-}
-
 #[test]
 fn sphere_union_wall_face_meshes_full_chart() {
     // The regression this gates: the seam-spine outer loop collapsed
     // the wall face's parameter range to a sliver (u ∈ [0, 0.05] of a
     // 2π chart) and the mesh carried 0.06 of the sphere's 8.04 area.
     let out = cube_union_sphere();
-    let mesh = tessellate(&out, &fine_options()).expect("tessellate");
+    let mesh = tessellate(&out, &super::fine_options()).expect("tessellate");
     let wall = mesh
         .face_meshes
         .iter()
@@ -72,7 +64,7 @@ fn sphere_union_wall_face_meshes_full_chart() {
 #[test]
 fn sphere_union_mesh_volume_matches_oracle() {
     let out = cube_union_sphere();
-    let mesh = tessellate(&out, &fine_options()).expect("tessellate");
+    let mesh = tessellate(&out, &super::fine_options()).expect("tessellate");
     let volume: f64 = mesh
         .triangles
         .iter()
@@ -95,7 +87,7 @@ fn sphere_union_mesh_volume_matches_oracle() {
 #[test]
 fn sphere_union_mesh_is_geometrically_closed_at_model_tolerance() {
     let out = cube_union_sphere();
-    let mesh = tessellate(&out, &fine_options()).expect("tessellate");
+    let mesh = tessellate(&out, &super::fine_options()).expect("tessellate");
 
     // Per-face boundary segments: triangle edges used exactly once
     // after position welding within the face.

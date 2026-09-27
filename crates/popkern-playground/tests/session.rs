@@ -48,10 +48,11 @@ fn boss_plate_serves_with_one_watertight_body_identical_to_the_native_mesh() {
             .all(|&f| (f as usize) < body.face_count)
     );
     assert!(body.bounds[0][2] < body.bounds[1][2]);
-    // The same document tessellated through the recorder directly.
+    // The same document tessellated through the recorder directly, at
+    // the display quality the page receives.
     let model = session.model_mut().expect("model");
     let brep = model.to_brep().expect("brep");
-    let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::default())
+    let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::display())
         .expect("mesh");
     assert_eq!(mesh.triangles.len(), body.triangle_count);
     assert_eq!(welded_open_edges(&mesh), 0);

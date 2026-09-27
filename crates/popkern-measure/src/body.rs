@@ -59,6 +59,7 @@ fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, MeasureError> {
         chord_height: 0.001,
         min_subdivisions: 8,
         max_subdivisions: 128,
+        ..Default::default()
     };
     popkern_mesh::tessellate(brep, &opts)
         .map_err(|e| MeasureError::TessellationFailed(e.to_string()))
@@ -216,6 +217,7 @@ fn tessellated_face_divergence_contribution(
         chord_height: 0.001,
         min_subdivisions: 8,
         max_subdivisions: 128,
+        ..Default::default()
     };
     let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
         .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;

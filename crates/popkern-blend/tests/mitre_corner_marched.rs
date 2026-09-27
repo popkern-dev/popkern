@@ -91,6 +91,7 @@ fn flux_volume(brep: &BRep) -> f64 {
         chord_height: 1e-6,
         min_subdivisions: 8,
         max_subdivisions: 1024,
+        ..Default::default()
     };
     let mut volume = 0.0;
     for face in brep.faces.keys() {
