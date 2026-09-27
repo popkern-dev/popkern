@@ -20,6 +20,13 @@ usage: popkern run <script.rhai> [options]
   --width <px>         render width (default 800)
   --height <px>        render height (default 600)
   --no-edges           render without edge lines
+  --zebra[=mesh|surface]
+                       render --png as reflection-line zebra stripes, from
+                       the display mesh's normals (mesh, the default) or the
+                       surfaces' own (surface), and report how far the two
+                       disagree
+  --stripes <n>        zebra stripe count (default 16)
+  --facet-angle <deg>  zebra mesh facet bound (default 12, the display bound)
 
 exit codes: 0 served, 2 script error, 3 kernel decline, 4 gate or export failure";
 
@@ -63,6 +70,12 @@ pub struct Cli {
     pub height: u32,
     /// Draw edges in the render.
     pub edges: bool,
+    /// Render the PNG as a zebra view in this normal source.
+    pub zebra: Option<popkern_viz::zebra::ZebraNormals>,
+    /// Zebra stripe count.
+    pub stripes: u32,
+    /// Zebra mesh angular facet bound (degrees).
+    pub facet_angle_deg: f64,
 }
 
 impl Default for Cli {
@@ -82,6 +95,9 @@ impl Default for Cli {
             width: 800,
             height: 600,
             edges: true,
+            zebra: None,
+            stripes: 16,
+            facet_angle_deg: popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees(),
         }
     }
 }
@@ -142,6 +158,10 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
             }
             "--width" => cli.width = number(arg, value(arg, &mut iter)?)?,
             "--height" => cli.height = number(arg, value(arg, &mut iter)?)?,
+            "--zebra" | "--zebra=mesh" => cli.zebra = Some(popkern_viz::zebra::ZebraNormals::Mesh),
+            "--zebra=surface" => cli.zebra = Some(popkern_viz::zebra::ZebraNormals::Surface),
+            "--stripes" => cli.stripes = number(arg, value(arg, &mut iter)?)?,
+            "--facet-angle" => cli.facet_angle_deg = number(arg, value(arg, &mut iter)?)?,
             other if other.starts_with("--") => {
                 return Err(UsageError(format!("unknown option '{other}'")));
             }

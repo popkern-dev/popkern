@@ -28,6 +28,7 @@ mod winding_side;
 pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;
+pub use vertex_normal::limit_normal as surface_limit_normal;
 
 use popkern_core::topology::BRep;
 use std::io::Write;

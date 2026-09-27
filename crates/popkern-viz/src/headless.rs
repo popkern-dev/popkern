@@ -291,14 +291,9 @@ fn create_headless_device() -> Result<(wgpu::Device, wgpu::Queue), VizError> {
     Ok((device, queue))
 }
 
-/// Encode RGBA pixels as a PNG and write to disk.
-#[allow(dead_code)] // used by software renderer (added in a later task)
-pub(crate) fn write_png(
-    path: &Path,
-    width: u32,
-    height: u32,
-    pixels: &[u8],
-) -> Result<(), VizError> {
+/// Encode RGBA pixels (`width * height * 4`) as a PNG and write to
+/// disk.
+pub fn write_png(path: &Path, width: u32, height: u32, pixels: &[u8]) -> Result<(), VizError> {
     let img = image::RgbaImage::from_raw(width, height, pixels.to_vec())
         .ok_or_else(|| VizError::Render("pixel buffer size mismatch".into()))?;
     img.save(path)

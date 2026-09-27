@@ -58,7 +58,7 @@ fn unit(n: Vec3) -> Option<Vec3> {
 /// the chart stays singular, step toward the range interior along the
 /// coordinate whose partial collapsed. `None` when no nearby regular
 /// point exists.
-pub(crate) fn limit_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
+pub fn limit_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
     let (per_u, per_v) = surface.parameter_periodicity();
     let clamp = |x: f64, lo: f64, hi: f64, periodic: bool| {

@@ -16,6 +16,8 @@ popkern-script = { path = "../popkern-script" }
 popkern-rhai = { path = "../popkern-rhai" }
 # CPU software renderer only: no GPU or window stack behind the CLI.
 popkern-viz = { path = "../popkern-viz", default-features = false }
+# Zebra renders pick their analysis mesh's facet bound.
+popkern-mesh = { path = "../popkern-mesh" }
 glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,5 +27,3 @@ thiserror = { workspace = true }
 # Host parity gate: the browser engine and the command share one class
 # partition (crates/popkern-cli/tests/playground_parity.rs).
 popkern-playground = { path = "../popkern-playground" }
-# Probe/forensics over rendered meshes in tests.
-popkern-mesh = { path = "../popkern-mesh" }

@@ -23,6 +23,7 @@ pub mod scene;
 #[cfg(feature = "window")]
 pub mod software_viewer;
 pub mod surface_analysis;
+pub mod zebra;
 
 // GPU-only
 #[cfg(feature = "gpu")]

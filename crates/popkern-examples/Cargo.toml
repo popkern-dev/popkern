@@ -48,6 +48,10 @@ name = "surface_analysis_showcase"
 path = "src/surface_analysis_showcase.rs"
 
 [[bin]]
+name = "zebra_attribution"
+path = "src/zebra_attribution_showcase.rs"
+
+[[bin]]
 name = "kp20_paper_cap_showcase"
 path = "src/kp20_paper_cap_showcase.rs"
 

@@ -29,6 +29,9 @@ pub struct RunSummary {
     pub features: usize,
     /// Files written.
     pub outputs: Vec<PathBuf>,
+    /// Zebra render disagreement, when `--zebra` rendered the PNG.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zebra: Option<crate::render::ZebraSummary>,
 }
 
 impl RunSummary {
@@ -41,6 +44,7 @@ impl RunSummary {
             report: None,
             features: 0,
             outputs: Vec::new(),
+            zebra: None,
         }
     }
 
@@ -115,6 +119,22 @@ pub fn text(summary: &RunSummary) -> String {
     }
     for path in &summary.outputs {
         out.push_str(&format!("wrote {}\n", path.display()));
+    }
+    if let Some(z) = &summary.zebra {
+        out.push_str(&format!(
+            "zebra ({} normals, {} stripes, {}° facets): mesh vs surface normal max {:.3}° mean {:.4}° p99 {:.3}° over {} px ({} ray hits); worst {} at {:?}; {} px change band\n",
+            z.normals,
+            z.stripes,
+            z.facet_angle_deg,
+            z.max_angle_deg,
+            z.mean_angle_deg,
+            z.p99_angle_deg,
+            z.evaluated_pixels,
+            z.ray_hit_pixels,
+            z.worst_surface.unwrap_or("?"),
+            z.worst_pixel.unwrap_or([0, 0]),
+            z.band_mismatch_pixels,
+        ));
     }
     out
 }

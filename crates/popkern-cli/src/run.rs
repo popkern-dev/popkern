@@ -119,9 +119,22 @@ pub fn execute(cli: &Cli) -> RunSummary {
             summary.outputs.push(path.clone());
         }
         if let Some(path) = &cli.png {
-            if let Err(e) =
-                crate::render::render_png(part.brep(), path, cli.width, cli.height, cli.edges)
-            {
+            let rendered = match cli.zebra {
+                Some(normals) => crate::render::render_zebra_png(
+                    part.brep(),
+                    path,
+                    cli.width,
+                    cli.height,
+                    cli.stripes,
+                    normals,
+                    cli.facet_angle_deg,
+                )
+                .map(|z| summary.zebra = Some(z)),
+                None => {
+                    crate::render::render_png(part.brep(), path, cli.width, cli.height, cli.edges)
+                }
+            };
+            if let Err(e) = rendered {
                 summary.outcome = Outcome::GateFailure {
                     step: "png".into(),
                     detail: e,

@@ -46,7 +46,10 @@ fn sphere_zebra_has_both_bands_and_curvature_is_uniform_red() {
         &camera,
         160,
         120,
-        SurfaceAnalysisMode::Zebra { stripe_count: 8 },
+        SurfaceAnalysisMode::Zebra {
+            stripe_count: 8,
+            normals: ZebraNormals::Mesh,
+        },
     )
     .expect("zebra");
     let (mut dark, mut light) = (0usize, 0usize);

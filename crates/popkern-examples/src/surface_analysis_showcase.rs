@@ -139,7 +139,10 @@ fn main() {
     for (name, mode) in [
         (
             "surface_analysis_zebra.png",
-            SurfaceAnalysisMode::Zebra { stripe_count: 14 },
+            SurfaceAnalysisMode::Zebra {
+                stripe_count: 14,
+                normals: popkern_viz::zebra::ZebraNormals::Mesh,
+            },
         ),
         (
             "surface_analysis_gaussian.png",
