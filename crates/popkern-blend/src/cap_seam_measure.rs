@@ -7,12 +7,11 @@
 //! measurement semantics and their rationale live on the items.
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
-use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
-use crate::cap_seam_continuity::SEAM_END_MARGIN;
+use crate::cap_seam_side::{SeamSide, SurfaceJetCache, seam_side};
 
 /// The two distinct faces adjacent to an edge, resolved defensively
 /// (a mid-pipeline BRep can carry stale handles; a measurement must
@@ -59,10 +58,11 @@ pub(crate) fn resolve_edge_seam<'a>(
     brep: &'a BRep,
     edge: &'a popkern_core::topology::Edge,
     adjacency: &EdgeSeamFaces,
+    jets: &'a SurfaceJetCache,
 ) -> Option<EdgeSeam<'a>> {
     let curve = edge.curve.as_ref()?;
-    let side_a = seam_side(brep, adjacency.half_edge, curve)?;
-    let side_b = seam_side(brep, adjacency.twin, curve)?;
+    let side_a = seam_side(brep, adjacency.half_edge, curve, jets)?;
+    let side_b = seam_side(brep, adjacency.twin, curve, jets)?;
     Some(EdgeSeam {
         side_a,
         side_b,
@@ -101,14 +101,141 @@ pub(crate) struct SeamWorst {
     /// means the seam contributed positional evidence only — G1/G2
     /// were not measured and must not be read as passing.
     pub(crate) samples: usize,
+    /// Samples with normals on both sides whose transverse or
+    /// diagonal curvature reading was skipped (a singular chart point:
+    /// the first fundamental form degenerates). Counted, never
+    /// silently dropped (PK-579).
+    pub(crate) skipped_curvature: usize,
 }
 
 /// Dense reference-sampling resolution along a seam, for
 /// nearest-point trim scoring and side-B localization.
 const SEAM_REFERENCE_SAMPLES: usize = 64;
 
-/// Sample one seam at `samples_per_seam` fractions (inset by
-/// [`SEAM_END_MARGIN`], degenerate charts skipped — see module docs).
+/// Worst readings over [`sample_edge_seam`]'s samples: the evidence
+/// instrument's per-seam summary.
+pub(crate) fn measure_edge_seam(
+    seam: &EdgeSeam<'_>,
+    samples_per_seam: usize,
+    end_margin: f64,
+) -> SeamWorst {
+    let mut out = SeamWorst {
+        g0: 0.0,
+        g1: 0.0,
+        g1_fraction: None,
+        angle_deg: 0.0,
+        g2: 0.0,
+        g2_transverse: 0.0,
+        samples: 0,
+        skipped_curvature: 0,
+    };
+    for r in sample_edge_seam(seam, samples_per_seam, end_margin) {
+        out.g0 = out.g0.max(r.g0);
+        let Some(g1) = r.g1 else { continue };
+        out.samples += 1;
+        if g1 > out.g1 {
+            out.g1 = g1;
+            out.g1_fraction = Some(r.fraction);
+        }
+        out.angle_deg = out.angle_deg.max(r.angle_deg);
+        if let Some(j) = r.jump_along {
+            out.g2 = out.g2.max(j.abs());
+        }
+        if r.jump_perp.is_none() || r.jump_diag.is_none() {
+            out.skipped_curvature += 1;
+        }
+        for j in [r.jump_perp, r.jump_diag].into_iter().flatten() {
+            out.g2_transverse = out.g2_transverse.max(j.abs());
+        }
+        // The largest normal-curvature jump over EVERY tangent
+        // direction: along, transverse and one diagonal determine the
+        // 2×2 jump form, and its spectral norm is the honest G2
+        // residual. The three sampled directions alone under-read a
+        // jump that peaks on the other diagonal (pentagon5_variable
+        // cap-cap: 3.1e-2 sampled vs 7.0e-2 form, certified >= 5.0e-2).
+        if let (Some(a), Some(c), Some(d)) = (r.jump_along, r.jump_perp, r.jump_diag) {
+            let (form, _) = crate::seam_profile::second_form_jump(a, c, d);
+            out.g2_transverse = out.g2_transverse.max(form);
+        }
+    }
+    out
+}
+
+/// Coarse reference candidates refined per nearest-point query.
+const NEAREST_CANDIDATES: usize = 2;
+
+/// Fraction in `[0, 1]` of the point nearest `p` on a curve sampled at
+/// `reference` (evenly spaced fractions) whose exact distance is
+/// `dist(g)`: golden-section refinement in the bracketing window of
+/// each of the [`NEAREST_CANDIDATES`] nearest reference samples, the
+/// best refined result kept.
+///
+/// One candidate is not enough on a CLOSED curve: near the closure the
+/// first and last reference samples are equidistant, the tie keeps the
+/// first, and a point just before the end was refined at the START,
+/// reading the chord to the start as a gap (measured: 1.7e-2 on the
+/// exact boss-plate rim circle once samples reached within 1% of its
+/// closure, PK-579).
+fn nearest_fraction(reference: &[Point3], dist: impl Fn(f64) -> f64, p: &Point3) -> f64 {
+    let last = reference.len().saturating_sub(1).max(1);
+    let mut order: Vec<usize> = (0..reference.len()).collect();
+    order.sort_by(|&x, &y| {
+        p.distance_to(&reference[x])
+            .total_cmp(&p.distance_to(&reference[y]))
+    });
+    let window = 1.0 / last as f64;
+    let mut best = (f64::INFINITY, 0.5);
+    for &i in order.iter().take(NEAREST_CANDIDATES) {
+        let coarse = i as f64 / last as f64;
+        let (mut lo, mut hi) = (
+            (coarse - window).clamp(0.0, 1.0),
+            (coarse + window).clamp(0.0, 1.0),
+        );
+        for _ in 0..48 {
+            let m1 = lo + (hi - lo) * 0.382;
+            let m2 = lo + (hi - lo) * 0.618;
+            if dist(m1) < dist(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let g = 0.5 * (lo + hi);
+        let d = dist(g);
+        if d < best.0 {
+            best = (d, g);
+        }
+    }
+    best.1
+}
+
+/// One sample of a seam: where it is, its positional and normal
+/// readings, and the SIGNED normal-curvature jumps `κ_a − κ_b` along,
+/// across (transverse) and diagonally (`along + transverse`, unit)
+/// in the shared tangent plane.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SeamSampleReading {
+    /// Fraction along the seam (curve direction).
+    pub(crate) fraction: f64,
+    /// Side A's point.
+    pub(crate) point: Point3,
+    /// Worse side's distance to the edge curve.
+    pub(crate) g0: f64,
+    /// `|n_a × n_b|`, when both sides give a normal.
+    pub(crate) g1: Option<f64>,
+    /// Normal angle in degrees (0 without normals).
+    pub(crate) angle_deg: f64,
+    /// Signed along-seam curvature jump.
+    pub(crate) jump_along: Option<f64>,
+    /// Signed transverse curvature jump.
+    pub(crate) jump_perp: Option<f64>,
+    /// Signed diagonal curvature jump.
+    pub(crate) jump_diag: Option<f64>,
+}
+
+/// Sample one seam at `samples_per_seam` fractions inset by
+/// `end_margin` at each end; degenerate charts skipped — see module
+/// docs.
 ///
 /// **Position-matched, not fraction-matched.** Side A is walked by
 /// pcurve fraction; side B is located per sample by nearest-point
@@ -120,18 +247,14 @@ const SEAM_REFERENCE_SAMPLES: usize = 64;
 /// housing. G0 is scored as each side's distance to the shared edge
 /// curve (the trim contract validation and tessellation consume),
 /// which is phase-independent.
-pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) -> SeamWorst {
-    let mut out = SeamWorst {
-        g0: 0.0,
-        g1: 0.0,
-        g1_fraction: None,
-        angle_deg: 0.0,
-        g2: 0.0,
-        g2_transverse: 0.0,
-        samples: 0,
-    };
+pub(crate) fn sample_edge_seam(
+    seam: &EdgeSeam<'_>,
+    samples_per_seam: usize,
+    end_margin: f64,
+) -> Vec<SeamSampleReading> {
+    let mut readings = Vec::with_capacity(samples_per_seam);
     if samples_per_seam < 2 {
-        return out;
+        return readings;
     }
     let curve = seam.curve;
     // Dense curve reference for trim scoring.
@@ -146,36 +269,14 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         (&curve.geometry as &dyn CurveEval)
             .point_at(curve.t_start + g * (curve.t_end - curve.t_start))
     };
-    // True nearest-point distance: coarse nearest reference sample,
-    // then golden-section refinement (the coarse grid alone leaves
-    // ~half a segment of false gap — measured 6.3e-3 on an exact
-    // cube seam against the 1e-5 G0 gate).
+    // True nearest-point distance: golden-section refinement around
+    // the best coarse reference samples (the coarse grid alone leaves
+    // ~half a segment of false gap — measured 6.3e-3 on an exact cube
+    // seam against the 1e-5 G0 gate). See [`nearest_fraction`] for why
+    // more than one coarse candidate is refined.
     let dist_to_curve = |p: &Point3| -> f64 {
-        let coarse = reference
-            .iter()
-            .enumerate()
-            .min_by(|x, y| {
-                p.distance_to(x.1)
-                    .partial_cmp(&p.distance_to(y.1))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(i, _)| i as f64 / SEAM_REFERENCE_SAMPLES as f64)
-            .unwrap_or(0.5);
-        let window = 1.0 / SEAM_REFERENCE_SAMPLES as f64;
-        let (mut lo, mut hi) = (
-            (coarse - window).clamp(0.0, 1.0),
-            (coarse + window).clamp(0.0, 1.0),
-        );
-        for _ in 0..48 {
-            let m1 = lo + (hi - lo) * 0.382;
-            let m2 = lo + (hi - lo) * 0.618;
-            if p.distance_to(&curve_at(m1)) < p.distance_to(&curve_at(m2)) {
-                hi = m2;
-            } else {
-                lo = m1;
-            }
-        }
-        p.distance_to(&curve_at(0.5 * (lo + hi)))
+        let g = nearest_fraction(&reference, |g| p.distance_to(&curve_at(g)), p);
+        p.distance_to(&curve_at(g))
     };
     // Coarse side-B image cache for the nearest-point search.
     let b_images: Vec<(f64, Point3)> = (0..=SEAM_REFERENCE_SAMPLES)
@@ -186,37 +287,16 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         .collect();
 
     for k in 0..samples_per_seam {
-        let f = SEAM_END_MARGIN
-            + (1.0 - 2.0 * SEAM_END_MARGIN) * k as f64 / (samples_per_seam - 1) as f64;
+        let f = end_margin + (1.0 - 2.0 * end_margin) * k as f64 / (samples_per_seam - 1) as f64;
         let (uv_a, p_a) = seam.side_a.eval_fraction(f);
-        // Locate side B at the same 3D position: coarse nearest,
-        // then golden-section refinement in the bracketing window.
-        let coarse = b_images
-            .iter()
-            .min_by(|x, y| {
-                p_a.distance_to(&x.1)
-                    .partial_cmp(&p_a.distance_to(&y.1))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .map(|(g, _)| *g)
-            .unwrap_or(f);
-        let window = 1.0 / SEAM_REFERENCE_SAMPLES as f64;
-        let (mut lo, mut hi) = (
-            (coarse - window).clamp(0.0, 1.0),
-            (coarse + window).clamp(0.0, 1.0),
+        // Locate side B at the same 3D position (coarse candidates,
+        // then golden-section refinement — see [`nearest_fraction`]).
+        let b_points: Vec<Point3> = b_images.iter().map(|(_, q)| *q).collect();
+        let g = nearest_fraction(
+            &b_points,
+            |g| p_a.distance_to(&seam.side_b.eval_fraction(g).1),
+            &p_a,
         );
-        for _ in 0..48 {
-            let m1 = lo + (hi - lo) * 0.382;
-            let m2 = lo + (hi - lo) * 0.618;
-            if p_a.distance_to(&seam.side_b.eval_fraction(m1).1)
-                < p_a.distance_to(&seam.side_b.eval_fraction(m2).1)
-            {
-                hi = m2;
-            } else {
-                lo = m1;
-            }
-        }
-        let g = 0.5 * (lo + hi);
         let (uv_b, p_b) = seam.side_b.eval_fraction(g);
 
         // G0: each side against the shared curve (trim contract).
@@ -240,19 +320,24 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
                 reference[SEAM_REFERENCE_SAMPLES].z
             );
         }
-        out.g0 = out.g0.max(d_a.max(d_b));
+        let mut reading = SeamSampleReading {
+            fraction: f,
+            point: p_a,
+            g0: d_a.max(d_b),
+            g1: None,
+            angle_deg: 0.0,
+            jump_along: None,
+            jump_perp: None,
+            jump_diag: None,
+        };
 
         let (Some(n_a), Some(n_b)) = (seam.side_a.normal(uv_a), seam.side_b.normal(uv_b)) else {
+            readings.push(reading);
             continue;
         };
-        out.samples += 1;
-        let g1 = n_a.cross(&n_b).length();
-        if g1 > out.g1 {
-            out.g1 = g1;
-            out.g1_fraction = Some(f);
-        }
+        reading.g1 = Some(n_a.cross(&n_b).length());
         let cos = n_a.dot(&n_b).abs().clamp(0.0, 1.0);
-        out.angle_deg = out.angle_deg.max(cos.acos().to_degrees());
+        reading.angle_deg = cos.acos().to_degrees();
 
         // Seam direction from side A's own image (no curve-parameter
         // correspondence needed).
@@ -260,6 +345,7 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         let p_fwd = seam.side_a.eval_fraction((f + df).min(1.0)).1;
         let p_bwd = seam.side_a.eval_fraction((f - df).max(0.0)).1;
         let Some(seam_dir) = (p_fwd - p_bwd).normalized() else {
+            readings.push(reading);
             continue;
         };
         // Chart orientations are arbitrary: flip side B's normal into
@@ -271,11 +357,9 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
             let k_b = seam
                 .side_b
                 .normal_curvature_signed(uv_b, dir, n_b_aligned)?;
-            Some((k_a - k_b).abs())
+            Some(k_a - k_b)
         };
-        if let Some(jump) = kappa_jump(seam_dir) {
-            out.g2 = out.g2.max(jump);
-        }
+        reading.jump_along = kappa_jump(seam_dir);
         // Transverse + diagonal directions carry the actual
         // curvature-continuity content — see the SeamWorst docs.
         let n_avg = ((n_a + n_b_aligned) * 0.5).normalized();
@@ -284,122 +368,17 @@ pub(crate) fn measure_edge_seam(seam: &EdgeSeam<'_>, samples_per_seam: usize) ->
         {
             let jump_perp = kappa_jump(t_perp);
             let jump_diag = (seam_dir + t_perp).normalized().and_then(&kappa_jump);
-            if let Some(jump) = jump_perp {
-                out.g2_transverse = out.g2_transverse.max(jump);
-            }
-            if let Some(jump) = jump_diag {
-                out.g2_transverse = out.g2_transverse.max(jump);
-            }
+            reading.jump_perp = jump_perp;
+            reading.jump_diag = jump_diag;
             if popkern_core::trace::trace_enabled("seam-curvature") {
                 eprintln!(
                     "  [seam-curvature] f={f:.3} perp={} diag={}",
-                    jump_perp.map_or("skip".into(), |j| format!("{j:.3e}")),
-                    jump_diag.map_or("skip".into(), |j| format!("{j:.3e}")),
+                    jump_perp.map_or("skip".into(), |j| format!("{:.3e}", j.abs())),
+                    jump_diag.map_or("skip".into(), |j| format!("{:.3e}", j.abs())),
                 );
             }
         }
+        readings.push(reading);
     }
-    out
-}
-
-pub(crate) struct SeamSide<'a> {
-    surface: &'a SurfaceGeometry,
-    pcurve: &'a Pcurve,
-    /// Pcurve runs opposite to the edge curve (twin half-edges trace
-    /// the loop direction, not the curve direction) — resolved once
-    /// per side by matching pcurve-endpoint surface images to the
-    /// curve endpoints.
-    reversed: bool,
-}
-
-fn seam_side<'a>(brep: &'a BRep, he: HalfEdgeHandle, curve: &CurveOnEdge) -> Option<SeamSide<'a>> {
-    let he_data = brep.half_edges.get(he)?;
-    let pcurve = he_data.pcurve.as_ref()?;
-    let face = brep.loops.get(he_data.loop_)?.face;
-    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
-    let curve_start = (&curve.geometry as &dyn CurveEval).point_at(curve.t_start);
-    let uv0 = pcurve.point_at(pcurve.t_start);
-    let uv1 = pcurve.point_at(pcurve.t_end);
-    let s0 = surface.point_at(uv0.x, uv0.y);
-    let s1 = surface.point_at(uv1.x, uv1.y);
-    let reversed = s1.distance_to(&curve_start) < s0.distance_to(&curve_start);
-    Some(SeamSide {
-        surface,
-        pcurve,
-        reversed,
-    })
-}
-
-impl SeamSide<'_> {
-    /// Evaluate at fraction `f` of the seam in CURVE direction.
-    pub(crate) fn eval_fraction(&self, f: f64) -> ((f64, f64), Point3) {
-        let g = if self.reversed { 1.0 - f } else { f };
-        let uv = self
-            .pcurve
-            .point_at(self.pcurve.t_start + g * (self.pcurve.t_end - self.pcurve.t_start));
-        ((uv.x, uv.y), self.surface.point_at(uv.x, uv.y))
-    }
-
-    /// Finite-difference unit normal, or `None` where the chart is
-    /// too degenerate to trust (see module docs).
-    pub(crate) fn normal(&self, uv: (f64, f64)) -> Option<Vec3> {
-        let h = 1e-6;
-        let du = self.surface.point_at(uv.0 + h, uv.1) - self.surface.point_at(uv.0 - h, uv.1);
-        let dv = self.surface.point_at(uv.0, uv.1 + h) - self.surface.point_at(uv.0, uv.1 - h);
-        let (lu, lv) = (du.length(), dv.length());
-        if lu.min(lv) < 1e-3 * lu.max(lv) {
-            return None;
-        }
-        du.cross(&dv).normalized()
-    }
-
-    /// Normal curvature along `dir`, signed against the caller's
-    /// `normal` (hemisphere-aligned across a seam so signed
-    /// curvatures compare — a chart-orientation flip must not read a
-    /// perfect seam as a `2κ` jump), with a two-step convergence
-    /// guard: near a degenerate polar chart the FD truncation error
-    /// scales quadratically with the step (measured 1.7 → 0.16 →
-    /// 1.9e-3 across steps 1e-3/1e-4/1e-5 on the same pentagon fan
-    /// seam), so a single-step estimate reads chart noise as a
-    /// curvature crease. Samples whose two-step estimates disagree
-    /// are skipped; agreeing ones are Richardson-extrapolated.
-    fn normal_curvature_signed(&self, uv: (f64, f64), dir: Vec3, normal: Vec3) -> Option<f64> {
-        let k_h = self.normal_curvature_at_step(uv, dir, normal, 1e-4)?;
-        let k_h2 = self.normal_curvature_at_step(uv, dir, normal, 5e-5)?;
-        if (k_h - k_h2).abs() > 0.1 * (1.0 + k_h2.abs()) {
-            return None;
-        }
-        Some((4.0 * k_h2 - k_h) / 3.0)
-    }
-
-    fn normal_curvature_at_step(
-        &self,
-        uv: (f64, f64),
-        dir: Vec3,
-        normal: Vec3,
-        step: f64,
-    ) -> Option<f64> {
-        let h = 1e-6;
-        let du = self.surface.point_at(uv.0 + h, uv.1) - self.surface.point_at(uv.0 - h, uv.1);
-        let dv = self.surface.point_at(uv.0, uv.1 + h) - self.surface.point_at(uv.0, uv.1 - h);
-        let su = du * (0.5 / h);
-        let sv = dv * (0.5 / h);
-        let (e, f_, g) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
-        let (r1, r2) = (dir.dot(&su), dir.dot(&sv));
-        let det = e * g - f_ * f_;
-        if det.abs() < 1e-30 {
-            return None;
-        }
-        let a = (r1 * g - r2 * f_) / det;
-        let b = (r2 * e - r1 * f_) / det;
-        let p0 = self.surface.point_at(uv.0, uv.1);
-        let p1 = self.surface.point_at(uv.0 + a * step, uv.1 + b * step);
-        let p2 = self.surface.point_at(uv.0 - a * step, uv.1 - b * step);
-        let second = (p1 - p0) + (p2 - p0);
-        let first_len = (p1 - p2).length() * 0.5;
-        if first_len < 1e-30 {
-            return None;
-        }
-        Some(second.dot(&normal) / (first_len * first_len))
-    }
+    readings
 }

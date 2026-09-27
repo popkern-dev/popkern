@@ -54,6 +54,8 @@ mod setback_arc_crossings;
 mod setback_bezier9;
 #[path = "setback_boundary_tolerance.rs"]
 mod setback_boundary_tolerance;
+#[path = "setback_cluster_field.rs"]
+mod setback_cluster_field;
 #[path = "setback_corner_dual_jet.rs"]
 mod setback_corner_dual_jet;
 #[path = "setback_fan_seam_refresh.rs"]
@@ -64,6 +66,8 @@ mod setback_fan_trace_probes;
 mod setback_rim_curvature;
 #[path = "setback_rim_jet.rs"]
 mod setback_rim_jet;
+#[path = "setback_rim_stations.rs"]
+mod setback_rim_stations;
 pub(crate) use setback_bezier9::{bezier9_eval, bezier9_extract, bezier9_nearest};
 #[path = "boundary_ring.rs"]
 mod boundary_ring;
@@ -75,6 +79,8 @@ mod boundary_ring_recut;
 mod setback_rim_reconcile;
 #[path = "setback_shared_net_unify.rs"]
 mod setback_shared_net_unify;
+#[path = "setback_trim_pcurve.rs"]
+mod setback_trim_pcurve;
 pub(crate) use boundary_ring::try_boundary_ring_carve;
 use setback_arc_crossings::arc_boundary_crossings;
 
@@ -797,6 +803,27 @@ fn build_cap_face_fan(
             .map(|f| f.surface.clone())
             .chain(lateral_planes.iter().cloned())
             .collect();
+        // Rim end tangents into the support tangent planes (PK-576):
+        // the G0 landing translates each end's clamp band, so the
+        // border's end tangent survives it — see
+        // setback_rim_stations::align_rim_end_tangents.
+        {
+            let sides = setback_corner_dual_jet::rim_sides(
+                &patches,
+                &candidates,
+                &border_loop,
+                rim_off_loop_allowance,
+            );
+            let removed = setback_rim_stations::align_rim_end_tangents(
+                &mut patches,
+                &candidates,
+                fillet_surfaces.len(),
+                &sides,
+            );
+            if popkern_core::trace::trace_enabled("setback") {
+                eprintln!("  [rim-end] worst end-tangent tilt removed {removed:.3e}");
+            }
+        }
         // Corner substrate promotion (PK-519): each fan piece with
         // two rim sides meeting at a setback corner becomes a
         // dual-jet patch there — per-side ownership of the contested
@@ -951,10 +978,11 @@ fn build_cap_face_fan(
 }
 
 /// Author pcurves for the setback vertex-blend topology (see the
-/// call site). Plane faces are reprojected wholesale; cap piece and
-/// sweep half-edges missing a pcurve get endpoint-projected Linear
-/// pcurves (exact for iso-line piece boundaries and the straight-uv
-/// setback arcs).
+/// call site). Plane faces are reprojected wholesale; sweep and
+/// cap-internal half-edges get point-inverted trim pcurves (cubic
+/// interpolants with a polyline fallback — see `setback_trim_pcurve`);
+/// anything else missing a pcurve gets an endpoint-projected Linear
+/// pcurve (exact for iso-line piece boundaries).
 fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
     use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
     use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -1102,46 +1130,25 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                 let forward = ceval.point_at(curve.t_start).distance_to(&origin)
                     <= ceval.point_at(curve.t_end).distance_to(&origin);
                 const N: usize = 33;
-                let mut cps = Vec::with_capacity(N);
-                let mut samples3d = Vec::with_capacity(N);
-                let mut ok = true;
-                for i in 0..N {
-                    let f = i as f64 / (N - 1) as f64;
-                    let f = if forward { f } else { 1.0 - f };
-                    let t = curve.t_start + (curve.t_end - curve.t_start) * f;
-                    let p3 = ceval.point_at(t);
-                    match project_point_to_uv(&surface, &p3) {
-                        Some((u, v)) => {
-                            cps.push(popkern_core::geometry::Point3::new(u, v, 0.0));
-                            samples3d.push(p3);
-                        }
-                        None => {
-                            ok = false;
-                            break;
-                        }
-                    }
-                }
-                if !ok {
+                let samples3d: Vec<popkern_core::geometry::Point3> = (0..N)
+                    .map(|i| {
+                        let f = i as f64 / (N - 1) as f64;
+                        let f = if forward { f } else { 1.0 - f };
+                        ceval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f)
+                    })
+                    .collect();
+                let Some(mut cps) = setback_trim_pcurve::project_trim_samples(&surface, &samples3d)
+                else {
                     continue;
-                }
+                };
                 setback_arc_binding::repair_diverged_projections(&mut cps, &samples3d, &surface);
-                let mut knots = Vec::with_capacity(N + 2);
-                knots.push(0.0);
-                for i in 0..N {
-                    knots.push(i as f64 / (N - 1) as f64);
-                }
-                knots.push(1.0);
+                let curve_at = |f: f64| {
+                    let f = if forward { f } else { 1.0 - f };
+                    ceval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f)
+                };
+                let pcurve = setback_trim_pcurve::sweep_trim_pcurve(cps, &surface, curve_at);
                 if let Some(he_mut) = brep.half_edges.get_mut(he) {
-                    he_mut.pcurve = Some(Pcurve {
-                        geometry: PcurveGeometry::Nurbs(NurbsCurve {
-                            degree: 1,
-                            knots,
-                            control_points: cps,
-                            weights: vec![1.0; N],
-                        }),
-                        t_start: 0.0,
-                        t_end: 1.0,
-                    });
+                    he_mut.pcurve = Some(pcurve);
                 }
                 continue;
             }

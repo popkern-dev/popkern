@@ -31,10 +31,15 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::bezier9_eval;
+use super::dense_spd_solve::VecLsq;
+use super::setback_cluster_field::{
+    CLUSTER_FIELD_UNKNOWNS, ClusterFields, fan_side, spoke_dual_end,
+};
 use super::setback_corner_dual_jet::{
     RIM_NEAR, active_corner_at_end, add_claim_delta, coord_for, dual_end_cells, rim_sides,
     row_for_side, side_is_row,
 };
+use super::setback_rim_stations::side_support;
 
 const M: usize = 64;
 
@@ -81,6 +86,20 @@ fn support_normal(
     du.cross(&dv).normalized()
 }
 
+/// The target surfaces for one rim side: its whole-row support when
+/// one candidate carries the entire row, else every strip (per-point
+/// nearest).
+pub(super) fn side_targets<'a>(
+    candidates: &'a [SurfaceGeometry],
+    strips: &'a [SurfaceGeometry],
+    row0: &[Point3; 10],
+) -> &'a [SurfaceGeometry] {
+    match side_support(candidates, strips.len(), row0) {
+        Some(i) => std::slice::from_ref(&candidates[i]),
+        None => strips,
+    }
+}
+
 /// Run the rim cross-jet reconciliation over the committed fan.
 pub(super) fn reconcile_rim_jets(
     patches: &mut [GregoryPatch],
@@ -89,11 +108,16 @@ pub(super) fn reconcile_rim_jets(
     border_loop: &[Vec<Point3>],
     rim_off_loop_allowance: f64,
 ) {
-    // The tangency targets come from the STRIPS only (the first
-    // `strip_count` candidates): the setback arcs lie on the strips,
-    // and near the pulled-back corners the LATERAL PLANES can sit
-    // nearer in space — mixing their normals into the corner targets
-    // pollutes the jet field with the wrong plane.
+    // Tangency targets: each side's WHOLE-ROW support (the candidate
+    // carrying the entire row — `side_targets`), else per point from
+    // the STRIPS (the first `strip_count` candidates). Per-point
+    // nearest-candidate lookup is wrong both ways: near the pulled-back
+    // corners a LATERAL PLANE can sit nearer a strip-borne rim in
+    // space, and a saddle's bridge rim lies ON its reflex support plane
+    // while a strip is within the rim band at every sample. Targeting
+    // the bridge against the strip tilted the saddle's rims and spokes
+    // to 4e-3..1e-2 (PK-576; whole-row attribution: spokes 1e-11,
+    // cap-support 1e-10).
     let strips = &candidates[..strip_count.min(candidates.len())];
     // Rim-side registry (same gates as the G0 solve: near the
     // supports along the whole row + on the border loop).
@@ -171,12 +195,16 @@ pub(super) fn reconcile_rim_jets(
         // The measured field: at each station, the depth-1 delta that
         // projects the cross-jet into the support tangent plane. A
         // side whose measurement declines anywhere is skipped whole.
+        // Targets from the side's whole-row support (a bridge side
+        // on the reflex plane takes the plane), else per-point from
+        // the nearest strip.
+        let targets = side_targets(candidates, strips, &row0);
         let mut field: Vec<[f64; 3]> = Vec::with_capacity(M);
         let mut ok = true;
         for &t in &ts {
             let p0 = bezier9_eval(&row0, t);
             let p1 = bezier9_eval(&row1, t);
-            let Some(n) = support_normal(strips, &p0) else {
+            let Some(n) = support_normal(targets, &p0) else {
                 ok = false;
                 break;
             };
@@ -193,8 +221,10 @@ pub(super) fn reconcile_rim_jets(
             pi,
             side,
             field,
-            start_cluster: (start_dual.is_none()).then(|| cluster_of(bezier9_eval(&row0, 0.0))),
-            end_cluster: (end_dual.is_none()).then(|| cluster_of(bezier9_eval(&row0, 1.0))),
+            start_cluster: (start_dual.is_none() || spoke_dual_end(&sides, pi, side, false))
+                .then(|| cluster_of(bezier9_eval(&row0, 0.0))),
+            end_cluster: (end_dual.is_none() || spoke_dual_end(&sides, pi, side, true))
+                .then(|| cluster_of(bezier9_eval(&row0, 1.0))),
             start_dual,
             end_dual,
             interior_base: 0,
@@ -205,7 +235,33 @@ pub(super) fn reconcile_rim_jets(
         return;
     }
     let n_clusters = centers.len();
-    let mut next_unknown = n_clusters;
+    // Affine cluster fields (PK-575, `setback_cluster_field`), as in
+    // the curvature pass: each band cell moves by the field at ITS OWN
+    // position (row 1 by δ(x₁), row 2 by 2·δ(x₂)), which keeps every
+    // linear seam relation exact.
+    let mut fields_at = ClusterFields::new(centers);
+    for js in &jet_sides {
+        let (Some(r1), Some(r2)) = (
+            row_of(patches, js.pi, js.side, 1),
+            row_of(patches, js.pi, js.side, 2),
+        ) else {
+            continue;
+        };
+        for (cluster, ks, t) in [
+            (js.start_cluster, 0..=2usize, 0.0),
+            (js.end_cluster, 7..=9usize, 1.0),
+        ] {
+            if let Some(c) = cluster {
+                fields_at.include_side(c, js.pi, js.side, t > 0.5);
+                for k in ks {
+                    fields_at.include(c, r1[k]);
+                    fields_at.include(c, r2[k]);
+                }
+            }
+        }
+    }
+    fields_at.classify(patches);
+    let mut next_unknown = CLUSTER_FIELD_UNKNOWNS * n_clusters;
     for js in jet_sides.iter_mut() {
         js.interior_base = next_unknown;
         next_unknown += 4;
@@ -217,9 +273,11 @@ pub(super) fn reconcile_rim_jets(
         const C: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
         C[k] * t.powi(k as i32) * (1.0 - t).powi((9 - k) as i32)
     };
-    let mut ata = vec![vec![0.0_f64; unknowns]; unknowns];
-    let mut atb = vec![[0.0_f64; 3]; unknowns];
+    let mut lsq = VecLsq::new(unknowns);
     for js in &jet_sides {
+        let Some(row1_of) = row_of(patches, js.pi, js.side, 1) else {
+            continue;
+        };
         for (m, target) in js.field.iter().enumerate() {
             let t = ts[m];
             let mut entries: Vec<(usize, f64)> = Vec::with_capacity(10);
@@ -227,83 +285,110 @@ pub(super) fn reconcile_rim_jets(
                 let (idx1, idx2) = js.dual_indices(false);
                 entries.push((idx1, bern9(1, t)));
                 entries.push((idx2, bern9(2, t)));
-            } else if let Some(cluster) = js.start_cluster {
-                let mass: f64 = (0..=2).map(|k| bern9(k, t)).sum();
-                entries.push((cluster, mass));
+            }
+            if let Some(cluster) = js.start_cluster {
+                for (k, &x1) in row1_of.iter().enumerate().take(3) {
+                    let q = fields_at.coords(cluster, x1);
+                    for (i, x) in q.iter().enumerate() {
+                        entries.push((CLUSTER_FIELD_UNKNOWNS * cluster + i, bern9(k, t) * x));
+                    }
+                }
             }
             if js.end_dual.is_some() {
                 let (idx1, idx2) = js.dual_indices(true);
                 entries.push((idx1, bern9(8, t)));
                 entries.push((idx2, bern9(7, t)));
-            } else if let Some(cluster) = js.end_cluster {
-                let mass: f64 = (7..=9).map(|k| bern9(k, t)).sum();
-                entries.push((cluster, mass));
+            }
+            if let Some(cluster) = js.end_cluster {
+                for (k, &x1) in row1_of.iter().enumerate().take(9 + 1).skip(7) {
+                    let q = fields_at.coords(cluster, x1);
+                    for (i, x) in q.iter().enumerate() {
+                        entries.push((CLUSTER_FIELD_UNKNOWNS * cluster + i, bern9(k, t) * x));
+                    }
+                }
             }
             for q in 0..4usize {
                 entries.push((js.interior_base + q, bern9(3 + q, t)));
             }
-            for &(i, wi) in &entries {
-                for &(j, wj) in &entries {
-                    ata[i][j] += wi * wj;
-                }
-                for c in 0..3 {
-                    atb[i][c] += wi * target[c];
-                }
-            }
+            lsq.add_vec_row(&entries, Vec3::new(target[0], target[1], target[2]));
         }
     }
-    let Some(solution) = super::dense_spd_solve::solve_dense_spd(&mut ata, &atb) else {
+    let Some(solution) = lsq.solve() else {
         return;
     };
     for js in &jet_sides {
         let JetSide { pi, side, .. } = *js;
+        let (Some(row1_pre), Some(row2_pre)) =
+            (row_of(patches, pi, side, 1), row_of(patches, pi, side, 2))
+        else {
+            continue;
+        };
         for k in 0..10usize {
             let dual = match k {
                 0..=2 => js.start_dual,
                 7..=9 => js.end_dual,
                 _ => None,
             };
-            let delta = match k {
-                0..=2 => match (js.start_dual, js.start_cluster) {
-                    (Some(_), _) => {
-                        let (idx1, idx2) = js.dual_indices(false);
-                        match k {
-                            0 => Vec3::zero(),
-                            1 => solution[idx1],
-                            _ => solution[idx2],
-                        }
-                    }
-                    (_, Some(cluster)) => solution[cluster],
-                    _ => Vec3::zero(),
-                },
-                7..=9 => match (js.end_dual, js.end_cluster) {
-                    (Some(_), _) => {
-                        let (idx1, idx2) = js.dual_indices(true);
-                        match k {
-                            9 => Vec3::zero(),
-                            8 => solution[idx1],
-                            _ => solution[idx2],
-                        }
-                    }
-                    (_, Some(cluster)) => solution[cluster],
-                    _ => Vec3::zero(),
-                },
-                _ => solution[js.interior_base + (k - 3)],
+            let cluster_here = match k {
+                0..=2 => js.start_cluster,
+                7..=9 => js.end_cluster,
+                _ => None,
             };
-            // Dual-end routing: the end cell itself is the OTHER rim
-            // side's d0/d1 row — fixed; one and two steps out, the
-            // d1/d2 corrections go into this side's own claims.
+            // The cluster field at each row's own cell (a spoke
+            // cluster's field is a translation).
+            let field1 = cluster_here.map(|c| fields_at.delta(&solution, c, row1_pre[k]));
+            let field2 = cluster_here.map(|c| fields_at.delta(&solution, c, row2_pre[k]) * 2.0);
+            // Dual-end routing: the end cell itself is the OTHER
+            // boundary's d0/d1 row. At a setback corner it stays fixed;
+            // at a spoke junction it moves with the junction's shared
+            // translation. One and two steps out, the side's own d1/d2
+            // corrections go into its own claims, and the shared
+            // translation moves BOTH claim slots (the spoke keeps its
+            // cross vectors).
             if let Some(corner) = dual {
                 let at_end_pos = if k <= 2 { k } else { 9 - k };
+                let shared1 = field1.unwrap_or(Vec3::zero());
+                let shared2 = field2.unwrap_or(Vec3::zero());
                 if at_end_pos == 0 {
+                    if cluster_here.is_some() {
+                        let (i1, j1) = coord_for(side, 1, k);
+                        let (i2, j2) = coord_for(side, 2, k);
+                        if let Some(grid) = patches[pi].binonic_grid_mut() {
+                            let g1 = grid[i1][j1];
+                            grid[i1][j1] =
+                                Point3::new(g1.x + shared1.x, g1.y + shared1.y, g1.z + shared1.z);
+                            let g2 = grid[i2][j2];
+                            grid[i2][j2] =
+                                Point3::new(g2.x + shared2.x, g2.y + shared2.y, g2.z + shared2.z);
+                        }
+                    }
                     continue;
                 }
+                let (idx1, idx2) = js.dual_indices(k >= 7);
+                let own = if at_end_pos == 1 {
+                    solution[idx1]
+                } else {
+                    solution[idx2]
+                };
                 let d1_cell = dual_end_d1_cells(side)[at_end_pos - 1];
                 let d2_cell = dual_end_cells(side)[at_end_pos - 1];
-                add_claim_delta(patches, pi, side, corner, d1_cell, delta);
-                add_claim_delta(patches, pi, side, corner, d2_cell, delta * 2.0);
+                add_claim_delta(patches, pi, side, corner, d1_cell, own + shared1);
+                add_claim_delta(patches, pi, side, corner, d2_cell, own * 2.0 + shared2);
+                if cluster_here.is_some() {
+                    let other = fan_side(side, k >= 7);
+                    add_claim_delta(patches, pi, other, corner, d1_cell, shared1);
+                    add_claim_delta(patches, pi, other, corner, d2_cell, shared2);
+                }
                 continue;
             }
+            let delta = match field1 {
+                Some(f) => f,
+                None => solution[js.interior_base + (k - 3)],
+            };
+            // Row 2 under an affine cluster field: displaced by the
+            // field at its OWN position (2·δ(x₂)), so seam relations
+            // along row 2 stay exact.
+            let delta2 = field2.unwrap_or(delta * 2.0);
             // Row 1 carries the jet correction; row 2 moves by 2δ so
             // the cross-second-difference row2 − 2·row1 + row0 — the
             // piece's cross-curvature — is EXACTLY preserved (a
@@ -317,11 +402,7 @@ pub(super) fn reconcile_rim_jets(
             let g1 = grid[i1][j1];
             grid[i1][j1] = Point3::new(g1.x + delta.x, g1.y + delta.y, g1.z + delta.z);
             let g2 = grid[i2][j2];
-            grid[i2][j2] = Point3::new(
-                g2.x + 2.0 * delta.x,
-                g2.y + 2.0 * delta.y,
-                g2.z + 2.0 * delta.z,
-            );
+            grid[i2][j2] = Point3::new(g2.x + delta2.x, g2.y + delta2.y, g2.z + delta2.z);
         }
         if popkern_core::trace::trace_enabled("setback") {
             // Residual attribution: the worst remaining tilt after
@@ -334,7 +415,7 @@ pub(super) fn reconcile_rim_jets(
                 for &t in &ts {
                     let p0 = bezier9_eval(&row0, t);
                     let p1 = bezier9_eval(&row1, t);
-                    if let Some(n) = support_normal(strips, &p0) {
+                    if let Some(n) = support_normal(side_targets(candidates, strips, &row0), &p0) {
                         let j = p1 - p0;
                         let tilt = j.dot(&n).abs() / j.length().max(1e-15);
                         if tilt > post {

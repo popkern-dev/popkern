@@ -3,12 +3,13 @@
 //!
 //! The sampled gates bound these seams at 5e-2. The certifier bounds
 //! them over the whole edge:
-//! - plain bi-nonic cap↔cap seams: G1 below 1e-6, G2 below 1e-3
-//!   (measured 3.4e-7 and 4.0e-4);
-//! - cylinder strip↔cap seams: G1 below 1e-5 (measured 3.2e-6), and a
-//!   certified transverse curvature jump of ~0.52 — the G1 fan's real
-//!   cap↔strip G2 residual, now a certified number rather than a
-//!   sample;
+//! - plain bi-nonic cap↔cap seams: G1 below 2e-5, G2 below 5e-3
+//!   (subdivision seams 3.4e-7 / 4.0e-4; the five spokes 1.2e-5 /
+//!   3.1e-3 since PK-575, see PK-582);
+//! - cylinder strip↔cap seams: G1 below 1e-5 (measured 7e-7), and a
+//!   certified transverse curvature jump of 0.093 (0.52 before PK-575).
+//!   This is the G1 fan's real cap↔strip G2 residual, a certified number
+//!   rather than a sample;
 //! - dual-jet corner pieces (PK-541), certified through the patch's
 //!   polynomial boundary surrogate:
 //!   - corner-piece↔cap spokes: G1 below 1e-6 and G2 below 1e-3;
@@ -37,11 +38,37 @@ enum Side {
     Other,
 }
 
+/// A cap face's ROLE: the setback corner piece is the one whose
+/// boundary meets TWO strips (its rim sides meet at the setback corner).
+/// Every other piece is a plain cap piece, whatever its patch variant.
+/// Since PK-575 the pieces at spoke junctions are dual-jet patches too.
 fn side_of(brep: &BRep, face: FaceHandle) -> Side {
+    let is_strip = |f: FaceHandle| {
+        matches!(
+            brep.faces[f].surface.as_ref().map(|s| &s.geometry),
+            Some(SurfaceGeometry::Cylinder { .. })
+        )
+    };
     match brep.faces[face].surface.as_ref().map(|s| &s.geometry) {
-        Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonic(_))) => Side::PlainCap,
-        Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonicDualJet(_))) => {
-            Side::DualJetCap
+        Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonic(_)))
+        | Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonicDualJet(_))) => {
+            let strips = brep
+                .edges
+                .values()
+                .filter(|e| {
+                    let he = &brep.half_edges[e.half_edge];
+                    let (fa, fb) = (
+                        brep.loops[he.loop_].face,
+                        brep.loops[brep.half_edges[he.twin].loop_].face,
+                    );
+                    (fa == face && is_strip(fb)) || (fb == face && is_strip(fa))
+                })
+                .count();
+            if strips >= 2 {
+                Side::DualJetCap
+            } else {
+                Side::PlainCap
+            }
         }
         Some(SurfaceGeometry::Cylinder { .. }) => Side::Strip,
         _ => Side::Other,
@@ -71,8 +98,15 @@ fn pentagon5_fan_seams_certify_over_the_whole_edge() {
             [Side::PlainCap, Side::PlainCap] => {
                 cap_cap += 1;
                 assert!(cert.is_certified(), "cap-cap {edge:?}: {cert:?}");
+                // The five SPOKE seams carry the rim's junction
+                // correction since PK-575 (the rim's transverse
+                // curvature at a spoke junction is the spoke curve's own
+                // normal curvature): certified g1 1.2e-5, g2 3.1e-3,
+                // against 3.4e-7 / 4.0e-4 before. The re-reconcile of
+                // the spoke's cross rows is PK-582. Subdivision seams
+                // stay at the old class.
                 assert!(
-                    cert.g1_upper < 1e-6 && cert.g2_upper < 1e-3,
+                    cert.g1_upper < 2e-5 && cert.g2_upper < 5e-3,
                     "cap-cap {edge:?}: {cert:?}"
                 );
             }
@@ -81,9 +115,10 @@ fn pentagon5_fan_seams_certify_over_the_whole_edge() {
                 assert!(cert.is_certified(), "strip-cap {edge:?}: {cert:?}");
                 assert!(cert.g1_upper < 1e-5, "strip-cap {edge:?}: {cert:?}");
                 // The G1 fan's real cap↔strip curvature jump, certified
-                // from both sides.
+                // from both sides. The rim reconciles' cluster fields
+                // brought it from ~0.52 to 0.093 (PK-575).
                 assert!(
-                    cert.lower[2] > 0.4 && cert.g2_upper < 0.6,
+                    cert.lower[2] > 0.05 && cert.g2_upper < 0.15,
                     "strip-cap {edge:?}: {cert:?}"
                 );
             }

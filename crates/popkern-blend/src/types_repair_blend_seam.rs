@@ -18,6 +18,9 @@ pub struct BlendSeamCornerReport {
     /// Pair corners closed with an exact strip×strip seam curve
     /// (flap retired, stub chain dissolved, seam edge re-authored).
     pub seams_built: usize,
+    /// Of those, corners whose flap arrived split into coplanar pieces
+    /// (a mitred neighbour's chord) and was merged first (PK-583).
+    pub split_flaps_merged: usize,
     /// Recognized pair corners the pass declined to repair, with the
     /// structural reason. A decline leaves the stale tangle in place
     /// — it never damages the body.

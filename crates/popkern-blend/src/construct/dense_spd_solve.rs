@@ -49,3 +49,38 @@ pub(super) fn solve_dense_spd(ata: &mut [Vec<f64>], atb: &[[f64; 3]]) -> Option<
     }
     Some(x)
 }
+
+/// Normal equations over `Vec3` unknowns whose rows act per component
+/// (one scalar weight per unknown, a `Vec3` target), as the setback
+/// rim reconciles assemble them.
+pub(super) struct VecLsq {
+    ata: Vec<Vec<f64>>,
+    atb: Vec<[f64; 3]>,
+}
+
+impl VecLsq {
+    /// A system over `n` `Vec3` unknowns.
+    pub(super) fn new(n: usize) -> Self {
+        VecLsq {
+            ata: vec![vec![0.0; n]; n],
+            atb: vec![[0.0; 3]; n],
+        }
+    }
+
+    /// One row `Σ w·u_i ≈ target` (repeated indices accumulate).
+    pub(super) fn add_vec_row(&mut self, entries: &[(usize, f64)], target: Vec3) {
+        for &(i, wi) in entries {
+            for &(j, wj) in entries {
+                self.ata[i][j] += wi * wj;
+            }
+            self.atb[i][0] += wi * target.x;
+            self.atb[i][1] += wi * target.y;
+            self.atb[i][2] += wi * target.z;
+        }
+    }
+
+    /// Solve; `None` on a non-SPD system.
+    pub(super) fn solve(mut self) -> Option<Vec<Vec3>> {
+        solve_dense_spd(&mut self.ata, &self.atb)
+    }
+}

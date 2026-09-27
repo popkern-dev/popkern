@@ -242,6 +242,82 @@ pub(super) fn promote_dual_jet_corners(
             );
         }
     }
+    promoted + promote_spoke_junctions(patches, candidates, border_loop, rim_off_loop_allowance)
+}
+
+/// Promote the SPOKE junctions (PK-575): where a rim side of one fan
+/// piece ends against a rim side of another piece across a fan seam
+/// that is not parametric (a spoke between sectors, not a subdivision
+/// seam), activate that corner in both pieces. The rim reconciles then
+/// correct each rim side through its OWN corner claims, and the spoke
+/// boundary keeps its own. The rim's corrections cannot reach the
+/// spoke's continuity, by the same squared-weight identities that
+/// separate two rims at a setback corner.
+///
+/// Measured before this: any shared displacement at a spoke junction
+/// had to trade the rim against the spoke. An affine field put
+/// hexagon6_variable's spoke G2 at 1.0e-1 against the 5e-2 gate. A
+/// first-order spoke guard held the spoke but left pentagon5_variable's
+/// rim at 7.6. No weight satisfied both.
+fn promote_spoke_junctions(
+    patches: &mut [GregoryPatch],
+    candidates: &[SurfaceGeometry],
+    border_loop: &[Vec<Point3>],
+    rim_off_loop_allowance: f64,
+) -> usize {
+    use super::setback_cluster_field::{PARAMETRIC_SEAM_DEFECT, seam_c1_defect};
+    const JUNCTION: f64 = 1.0e-3;
+    let sides = rim_sides(patches, candidates, border_loop, rim_off_loop_allowance);
+    let mut ends: Vec<(Point3, (usize, usize, bool))> = Vec::new();
+    for &(pi, side) in &sides {
+        let Some(row0) = row_for_side(patches, pi, side, 0) else {
+            continue;
+        };
+        for at_k9 in [false, true] {
+            if active_corner_at_end(patches, pi, side, at_k9).is_none() {
+                ends.push((if at_k9 { row0[9] } else { row0[0] }, (pi, side, at_k9)));
+            }
+        }
+    }
+    let mut activations: Vec<(usize, usize)> = Vec::new();
+    for (i, (pa, a)) in ends.iter().enumerate() {
+        let partners: Vec<&(usize, usize, bool)> = ends
+            .iter()
+            .enumerate()
+            .filter(|&(j, (pb, b))| j != i && b.0 != a.0 && pa.distance_to(pb) < JUNCTION)
+            .map(|(_, (_, b))| b)
+            .collect();
+        let [b] = partners.as_slice() else {
+            continue;
+        };
+        if seam_c1_defect(patches, *a, **b).is_some_and(|d| d >= PARAMETRIC_SEAM_DEFECT) {
+            activations.push((a.0, corner_for_side_end(a.1, a.2)));
+        }
+    }
+    activations.sort_unstable();
+    activations.dedup();
+    let mut promoted = 0usize;
+    for (pi, corner) in activations {
+        let dual = match &mut patches[pi] {
+            GregoryPatch::RectangularBiNonicDualJet(dual) => dual,
+            GregoryPatch::RectangularBiNonic(plain) => {
+                let dual = RectangularGregoryBiNonicDualJet::from_plain(plain);
+                patches[pi] = GregoryPatch::RectangularBiNonicDualJet(Box::new(dual));
+                promoted += 1;
+                match &mut patches[pi] {
+                    GregoryPatch::RectangularBiNonicDualJet(dual) => dual,
+                    _ => continue,
+                }
+            }
+            _ => continue,
+        };
+        if dual.corners[corner].is_none() {
+            dual.activate_corner(corner);
+            if popkern_core::trace::trace_enabled("setback") {
+                eprintln!("  [dual-jet] spoke junction: patch {pi} corner {corner} activated");
+            }
+        }
+    }
     promoted
 }
 

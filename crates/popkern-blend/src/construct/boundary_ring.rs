@@ -258,6 +258,32 @@ fn carve_ring(
             .mef(he_start, he_end)
             .map_err(|e| format!("mef arc {k} across strip: {e}"))?;
         write_ring_curve(brep, mef.edge, curve, v_start, v_end);
+        // The arc's strip piece: the arc-split product that is NOT the
+        // corner sliver. In the recut class the sliver is the product
+        // the off-surface chord borders, identified BEFORE the chord
+        // kef. Which handle survives that kef is Euler bookkeeping:
+        // on the step's x=0 saddle the strip's own handle survived and
+        // was given the support plane's surface, so recording
+        // `strip_face` registered the SUPPORT as a strip and the bridge
+        // found no non-strip support face (PK-583; the mirror saddle at
+        // x=1 kept the support's handle and served).
+        let mut arc_strip = strip_face;
+        if let Some(&chord) = pending_chord_kefs.first()
+            && let Some(he) = brep.edges.get(chord).map(|e| e.half_edge)
+        {
+            let f_a = brep.loops[brep.half_edges[he].loop_].face;
+            let f_b = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+            let sliver = if f_a == strip_face || f_a == mef.face {
+                f_a
+            } else {
+                f_b
+            };
+            arc_strip = if sliver == strip_face {
+                mef.face
+            } else {
+                strip_face
+            };
+        }
         if pending_chord_kefs.is_empty() {
             let d_old = face_centroid(brep, strip_face)?.distance_to(&vertex_position);
             let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
@@ -304,10 +330,10 @@ fn carve_ring(
         ring_edges.insert(mef.edge);
         side_edges[k] = Some(mef.edge);
         arc_vertices[k] = Some([v_start, v_end]);
-        strip_faces.push(strip_face);
+        strip_faces.push(arc_strip);
         if trace {
             eprintln!(
-                "  [boundary-ring] arc {k} strip {strip_face:?} \
+                "  [boundary-ring] arc {k} strip {arc_strip:?} \
                  ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
                 p_start.x, p_start.y, p_start.z, p_end.x, p_end.y, p_end.z
             );

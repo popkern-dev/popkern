@@ -164,6 +164,7 @@ const RIM_SAMPLES: usize = 33;
 /// sides. An edge that cannot be measured counts as a full crease, so
 /// it can never pass silently.
 fn worst_cap_boundary_g1(brep: &BRep, cap_faces: &[FaceHandle]) -> f64 {
+    let jets = crate::cap_seam_side::SurfaceJetCache::default();
     use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
     let caps: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
     let mut worst = 0.0_f64;
@@ -174,8 +175,15 @@ fn worst_cap_boundary_g1(brep: &BRep, cap_faces: &[FaceHandle]) -> f64 {
         if caps.contains(&adjacency.face_a) == caps.contains(&adjacency.face_b) {
             continue;
         }
-        worst = worst.max(match resolve_edge_seam(brep, edge, &adjacency) {
-            Some(seam) => measure_edge_seam(&seam, RIM_SAMPLES).g1,
+        worst = worst.max(match resolve_edge_seam(brep, edge, &adjacency, &jets) {
+            Some(seam) => {
+                measure_edge_seam(
+                    &seam,
+                    RIM_SAMPLES,
+                    crate::cap_seam_continuity::SEAM_END_MARGIN,
+                )
+                .g1
+            }
             None => 1.0,
         });
     }

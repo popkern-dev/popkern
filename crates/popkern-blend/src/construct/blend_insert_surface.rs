@@ -47,6 +47,7 @@ pub(crate) fn setback_min_n_for(
     edge_indices: &[usize],
     edge_geometries: &[crate::construct::EdgeGeometry],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    classification: crate::vertex_classifier::VertexBlendClassification,
     tolerance: &Tolerance,
 ) -> usize {
     if crate::dispatch_overrides::SETBACK_DISABLE.get() == Some(true) {
@@ -54,6 +55,7 @@ pub(crate) fn setback_min_n_for(
     } else if !sphere_owns_corner(
         corner_radii_uniform(edge_indices, edge_geometries, tolerance),
         fillet_surfaces,
+        classification,
     ) {
         3
     } else {
@@ -102,12 +104,21 @@ pub(super) fn corner_radii_uniform(
 /// so the N=3 N-form dispatch skips its attempt there outright — the
 /// attempted-then-declined sector complex cost a 12x allocation
 /// regression on the 12-edge cube (§18 profile).
+///
+/// Only a SAME-SIDE corner (all convex or all concave) is a ball's: at
+/// a saddle the ball cannot sit on one side of every support. The
+/// screen once ignored convexity, so an equal-radius saddle (the step
+/// with two saddles, PK-583) never reached the saddle setback at a G1
+/// request and served 0.43 creases from the rungs below it.
 pub(super) fn sphere_owns_corner(
     radii_uniform: bool,
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    classification: crate::vertex_classifier::VertexBlendClassification,
 ) -> bool {
+    use crate::vertex_classifier::VertexBlendClassification as VC;
     use popkern_core::geometry::surface::SurfaceGeometry;
     radii_uniform
+        && matches!(classification, VC::SameSideConvex | VC::SameSideConcave)
         && fillet_surfaces.iter().all(|fs| {
             matches!(
                 fs.surface,

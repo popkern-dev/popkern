@@ -159,6 +159,7 @@ pub(crate) fn presolve_setback_caps(
     brep: &BRep,
     vertex_edges: &BTreeMap<VertexHandle, Vec<usize>>,
     edge_geometries: &[EdgeGeometry],
+    classifications: &BTreeMap<VertexHandle, crate::vertex_classifier::VertexBlendClassification>,
     tolerance: &Tolerance,
     cancelled: bool,
 ) -> SetbackCapPresolve {
@@ -170,10 +171,17 @@ pub(crate) fn presolve_setback_caps(
         .filter_map(|(vertex, edge_indices)| {
             let position = brep.vertices.get(*vertex).map(|v| v.position)?;
             let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
+            // The serial dispatch classifies against the same
+            // pre-modification body, so the two filters agree.
+            let classification = classifications
+                .get(vertex)
+                .copied()
+                .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
             let min_n = crate::construct::blend_insert::setback_min_n_for(
                 edge_indices,
                 edge_geometries,
                 &fillet_surfaces,
+                classification,
                 tolerance,
             );
             (edge_indices.len() >= min_n && fillet_surfaces.len() >= 3).then_some((

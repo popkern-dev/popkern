@@ -29,6 +29,12 @@ pub struct BlendRepairReport {
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
     /// Structured apex construction diagnostics and declined repair candidates.
     pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
+    /// PK-575: per setback-cap boundary corner, whether the two faces
+    /// the cap turns between there agree to first and second order
+    /// (an incompatible corner bounds the cap's continuity from the
+    /// input side; it is reported here, never absorbed into a rim
+    /// tolerance).
+    pub setback_corners: Vec<crate::setback_corner_compatibility::SetbackCornerCompatibility>,
     /// PK-148 terminal-arc-trim settlement at open fillet chain ends.
     pub terminal_arc_trim: super::TerminalArcTrimReport,
     /// PK-152 blend×blend corner-seam settlement at adjacent-fillet

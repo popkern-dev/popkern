@@ -296,7 +296,12 @@ impl SurfaceJetSource {
 /// declined: the dual-twist containment conversion is a midpoint
 /// approximation, and the triangular conversion uses a different
 /// parameter mapping from the patch's evaluator.
-fn gregory_exact_form(patch: &GregoryPatch) -> Result<NurbsSurface, CertifyDecline> {
+///
+/// Public for point-exact derivative evaluation (e.g. seam sampling
+/// through [`NurbsSurface::point_and_two_partials`]), which needs the
+/// same exact form the certifier encloses at a small fraction of an
+/// interval jet's cost.
+pub fn gregory_exact_form(patch: &GregoryPatch) -> Result<NurbsSurface, CertifyDecline> {
     Ok(match patch {
         GregoryPatch::Rectangular(r) => r.to_nurbs_exact(),
         GregoryPatch::RectangularDeg5(r) => r.to_nurbs_exact(),

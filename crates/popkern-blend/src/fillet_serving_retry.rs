@@ -28,7 +28,7 @@ use crate::{cancellation, progress};
 /// retry keeps the first result — never serve worse than the
 /// measured first pass. Default ON since the PK-245 arming campaign
 /// (per-fixture triage of the pre-existing debt, 2026-08-07).
-pub(crate) fn fillet_edges_internal(
+fn fillet_edges_serving(
     brep: &BRep,
     specs: &[FilletSpec],
     options: &FilletOptions,
@@ -405,6 +405,38 @@ fn served_direct_apex_self_intersections(
                 .map(|detail| (route.vertex, detail))
         })
         .collect()
+}
+
+/// [`fillet_edges_serving`] plus the result's setback-corner
+/// compatibility record (PK-575): for every committed setback cap, how
+/// well the two neighbours its boundary turns between agree at each
+/// corner, against the commercial gates.
+pub(crate) fn fillet_edges_internal(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    options: &FilletOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: Option<&cancellation::CancellationToken>,
+    reporter: Option<&mut dyn progress::ProgressReporter>,
+) -> Result<BlendResult, BlendError> {
+    let mut result =
+        fillet_edges_serving(brep, specs, options, tolerance, tracking, cancel, reporter)?;
+    let caps: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.setback_cap)
+        .map(|p| p.face)
+        .collect();
+    if !caps.is_empty() {
+        result.repair_report.setback_corners =
+            crate::setback_corner_compatibility::setback_corner_compatibility(
+                &result.brep,
+                &caps,
+                &crate::blend_continuity_evidence::ContinuityGates::commercial(),
+            );
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -12,6 +12,7 @@ pub mod cancellation;
 pub mod cap;
 pub mod cap_seam_continuity;
 pub(crate) mod cap_seam_measure;
+pub(crate) mod cap_seam_side;
 pub mod center_curve;
 pub mod center_curve_helpers;
 pub(crate) mod center_curve_projection;
@@ -89,7 +90,9 @@ pub mod quality;
 pub mod reflection_line;
 pub mod remediation;
 pub mod residual_scaffolding;
+pub mod seam_profile;
 pub mod sensitivity;
+pub mod setback_corner_compatibility;
 pub mod stale_cap;
 pub(crate) mod station_geometry;
 #[cfg(test)]

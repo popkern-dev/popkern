@@ -11,8 +11,12 @@
 //! PK-521 joint tilt solve (clamp-band bump removal) landed 6.7e-3
 //! with worst g1 4.6e-6 — so beyond the commercial classification
 //! the gate pins a 2.5e-2 MARGIN bar (~4x the measured worst; the
-//! PK-521 acceptance). Since PK-541 every gated seam is also certified
-//! over the whole edge, and its certified G2 bound is under the gate. A
+//! PK-521 acceptance). PK-579 made the instrument honest (exact jets,
+//! seam ends sampled): the same construction read 1.33e-2. PK-575's
+//! affine corner-cluster fields brought every gated seam to <= 2.24e-4
+//! (rim seams 4.8e-5), and the bar is ratcheted to 1.25x that. Since
+//! PK-541 every gated seam is also certified over the whole edge, and
+//! its certified G2 bound is under the gate. A
 //! regression in the substrate — promotion,
 //! claim routing, or the reconciles — reads here as a named seam
 //! over a bar, not as a gallery surprise.
@@ -88,10 +92,9 @@ fn pentagon_flagship_g2_request_measures_g2_on_every_rim_quarter() {
     );
     // Per-seam listing so a regression names its seam.
     let gates = ContinuityGates::commercial();
-    // Margin bar (PK-521): half the commercial gate, ~4x the measured
-    // worst — a drift from 6.7e-3 toward the 5e-2 gate is caught
-    // while it is still a margin story, not a downgrade.
-    let margin_bar = 0.5 * gates.g2_curvature;
+    // Margin bar (PK-575 ratchet): 1.25x the measured worst gated seam
+    // (2.24e-4, a fan-internal cap-cap seam; rims read 4.8e-5).
+    let margin_bar = 1.25 * 2.242e-4;
     for s in evidence.seams.iter().filter(|s| s.gated) {
         assert!(
             s.worst_g2_residual <= margin_bar,

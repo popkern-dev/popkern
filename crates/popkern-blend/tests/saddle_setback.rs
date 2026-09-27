@@ -69,17 +69,30 @@ fn fillet_saddle(corner: Point3, radii: [FilletRadius; 3]) -> (BlendResult, Vert
     (result, vertex)
 }
 
-/// G1 bar for the saddle fan's seams, as the sine of the normal angle
-/// (PK-538, PK-498): a fifth of the commercial gate. The rail-flat
-/// bridge measures, cap-cap / cap-boundary: 7.1e-3 / 6.0e-3 (constant
-/// radius) and 8.5e-3 / 7.4e-3 (variable radius). The ring N-quad
-/// measured 1.0.
-const SEAM_G1: f64 = 1.0e-2;
+/// G1 bars for the saddle fan, as the sine of the normal angle
+/// (PK-538, PK-498), per seam class (PK-576).
+///
+/// Cap-cap (the fan's spokes and sector seams): this instrument's
+/// finite-difference normals read 8e-8 constant / 1.4e-7 variable; the
+/// exact-jet seam profile reads ~1e-11 on every spoke in both radius
+/// modes. Cap-outer (strip and reflex-support rims): 3.1e-6 constant,
+/// 1.17e-5 variable. Before PK-576 every class sat at 4e-3..1e-2,
+/// because the rim reconciles targeted the bridge rim (which lies ON
+/// the reflex plane) against the nearest strip. The ring N-quad this
+/// fan replaced measured 1.0.
+const CAP_CAP_G1: f64 = 1.0e-6;
+/// Cap-outer bar, constant radius (reads 3.1e-6).
+const CAP_OUTER_G1_CONSTANT: f64 = 1.0e-5;
+/// Cap-outer bar, variable radius (reads 1.17e-5): the rim rows' own
+/// along-tangent tilts off the variable strips inside the clamp band
+/// (the G0 landing translates each end's band, so its fit residual
+/// has a slope there). Closing it to the constant bar is PK-584.
+const CAP_OUTER_G1_VARIABLE: f64 = 2.5e-5;
 
 /// Serve evidence: the setback fan (4 sectors x 4 pieces), a clean
-/// `validate_all`, and cap-cap and cap-boundary (strip and support)
-/// seams under [`SEAM_G1`].
-fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) {
+/// `validate_all`, cap-cap seams under [`CAP_CAP_G1`] and cap-boundary
+/// (strip and support) seams under `outer_g1`.
+fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle, outer_g1: f64) {
     let setback = result
         .corner_patches
         .iter()
@@ -97,7 +110,7 @@ fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) 
         seams.worst_g0_gap
     );
     assert!(
-        seams.worst_g1_normal < SEAM_G1,
+        seams.worst_g1_normal < CAP_CAP_G1,
         "{name}: cap-cap g1 {:.3e}",
         seams.worst_g1_normal
     );
@@ -109,7 +122,7 @@ fn assert_saddle_serves(name: &str, result: &BlendResult, vertex: VertexHandle) 
         outer.worst_g0_gap
     );
     assert!(
-        outer.worst_g1_normal < SEAM_G1,
+        outer.worst_g1_normal < outer_g1,
         "{name}: cap-outer g1 {:.3e}",
         outer.worst_g1_normal
     );
@@ -121,7 +134,7 @@ fn constant_radius_saddle_serves_the_setback_fan_g1() {
         Point3::new(1.0, 0.6, 0.6),
         [0.06, 0.08, 0.10].map(FilletRadius::Constant),
     );
-    assert_saddle_serves("constant", &result, vertex);
+    assert_saddle_serves("constant", &result, vertex, CAP_OUTER_G1_CONSTANT);
 }
 
 #[test]
@@ -131,7 +144,7 @@ fn variable_radius_saddle_serves_the_setback_fan_g1() {
         [(0.05, 0.09), (0.07, 0.11), (0.08, 0.06)]
             .map(|(start, end)| FilletRadius::Variable { start, end }),
     );
-    assert_saddle_serves("variable", &result, vertex);
+    assert_saddle_serves("variable", &result, vertex, CAP_OUTER_G1_VARIABLE);
 }
 
 /// The notch's other two saddle vertices serve the same way: the
@@ -142,7 +155,12 @@ fn every_notch_saddle_serves_the_setback_fan_g1() {
     for corner in [Point3::new(0.6, 1.0, 0.6), Point3::new(0.6, 0.6, 1.0)] {
         let (result, vertex) =
             fillet_saddle(corner, [0.06, 0.08, 0.10].map(FilletRadius::Constant));
-        assert_saddle_serves(&format!("{corner:?}"), &result, vertex);
+        assert_saddle_serves(
+            &format!("{corner:?}"),
+            &result,
+            vertex,
+            CAP_OUTER_G1_CONSTANT,
+        );
     }
 }
 

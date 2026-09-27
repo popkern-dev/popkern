@@ -109,6 +109,7 @@ pub fn measure_cap_seam_continuity(
     faces: &[FaceHandle],
     samples_per_seam: usize,
 ) -> CapSeamContinuity {
+    let jets = crate::cap_seam_side::SurfaceJetCache::default();
     let set: std::collections::BTreeSet<FaceHandle> = faces.iter().copied().collect();
     let mut out = CapSeamContinuity::empty();
     if samples_per_seam < 2 {
@@ -121,11 +122,11 @@ pub fn measure_cap_seam_continuity(
         if !set.contains(&adjacency.face_a) || !set.contains(&adjacency.face_b) {
             continue;
         }
-        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency) else {
+        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency, &jets) else {
             continue;
         };
         out.seam_count += 1;
-        let worst = measure_edge_seam(&seam, samples_per_seam);
+        let worst = measure_edge_seam(&seam, samples_per_seam, SEAM_END_MARGIN);
         out.sample_count += worst.samples;
         out.worst_g0_gap = out.worst_g0_gap.max(worst.g0);
         if worst.g1 > out.worst_g1_normal {
@@ -153,6 +154,7 @@ pub fn seam_normal_profile(
     face_b: FaceHandle,
     fractions: &[f64],
 ) -> Option<Vec<(f64, f64)>> {
+    let jets = crate::cap_seam_side::SurfaceJetCache::default();
     let set: std::collections::BTreeSet<FaceHandle> = [face_a, face_b].into_iter().collect();
     for (_edge_handle, edge) in brep.edges.iter() {
         let Some(adjacency) = edge_seam_faces(brep, edge) else {
@@ -161,7 +163,7 @@ pub fn seam_normal_profile(
         if !set.contains(&adjacency.face_a) || !set.contains(&adjacency.face_b) {
             continue;
         }
-        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency) else {
+        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency, &jets) else {
             continue;
         };
         let mut out = Vec::with_capacity(fractions.len());

@@ -30,6 +30,7 @@ mod blend_insert_surface;
 mod blend_insert_three_quad_acceptance;
 #[path = "blend_insert_topology.rs"]
 mod blend_insert_topology;
+use crate::construct::direct_apex_promotion::cylinder_axes_mutually_orthogonal;
 use crate::types::{
     ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode,
 };
@@ -115,10 +116,12 @@ pub(crate) fn insert_vertex_blend(
     // transactionally with the reason recorded. Test seams:
     // dispatch_overrides::SETBACK_DISABLE / with_setback_forced_to_decline.
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
+    let ball_owned = sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre, classification);
     let setback_min_n = setback_min_n_for(
         edge_indices,
         edge_geometries,
         &fillet_surfaces_pre,
+        classification,
         tolerance,
     );
     let setback_attempted =
@@ -196,11 +199,8 @@ pub(crate) fn insert_vertex_blend(
     // served ring `n_gon_boundary` is substituted with the carved
     // (pushed) boundary; on a decline dispatch below is bit-identical
     // to the mitred path.
-    let sphere_claim_false = sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre)
-        && !crate::construct::direct_apex_promotion::cylinder_axes_mutually_orthogonal(
-            edge_indices,
-            edge_geometries,
-        );
+    let sphere_claim_false =
+        ball_owned && !cylinder_axes_mutually_orthogonal(edge_indices, edge_geometries);
     let (boundary_ring_eligible, ring_face, ring_decline) =
         blend_insert_ring_rung::boundary_ring_rung(
             brep,
@@ -396,7 +396,7 @@ pub(crate) fn insert_vertex_blend(
     // history, so its commits must pass the same cap/support
     // acceptance the N >= 5 routes answer to; 2N keeps its historical
     // unconditional acceptance.
-    let accept_n3_he = n_sides == 3 && !sphere_owns_corner(radii_uniform, &fillet_surfaces_pre);
+    let accept_n3_he = n_sides == 3 && !ball_owned;
     let n3_n_form_route = accept_n3_he && !face_has_2n_outer_half_edges(brep, blend_face, n_sides);
     let rational_dispatch_preconditions_met = dispatch_boundary.segments.len() == 2 * n_sides
         && crate::construct::poke_hex::face_has_2n_outer_half_edges_with_n3(

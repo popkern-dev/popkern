@@ -243,12 +243,17 @@ const BASELINE: &[PartBaseline] = &[
         // cap↔strip seam stubs next to every corner are gone, no
         // seam reclassified): the census is 60 (was 65), the rim
         // tangency 3.8e-3 (was 6.7e-2), achieved G1.
+        // PK-575 (2026-09-27): the G2 request now MEASURES G2. Rim
+        // cluster fields and spoke-junction dual-jet corners took the
+        // blunt fan's rim transverse curvature from 0.30 to 7e-4.
+        // Measured: achieved G2, g0 1.6e-8, g1 7.3e-6, g2 1.1e-3, all 60
+        // gated seams certified.
         name: "pentagon_tower",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G2,
         min_gated_seams: 60,
-        g0_cap: 2.0e-3,
-        g1_cap: 1.0e-1,
-        expected_downgrades: 1,
+        g0_cap: 1.0e-7,
+        g1_cap: 1.0e-5,
+        expected_downgrades: 0,
         min_certified_seams: 60,
         max_uncertified_seams: 0,
     },

@@ -354,9 +354,9 @@ pub(crate) fn build_pentagon_tower() -> Result<Part, PartError> {
     // the honest transverse postcondition, the part serves through
     // check 9 (the fan's accepted inexactness is recorded as entity
     // tolerances, including the endpoint-coherence ring) and meshes
-    // WATERTIGHT (PK-208 closed). The evidence substrate still
-    // records a downgrade — corner-region seams measure g1 ≈ 0.12 —
-    // the remaining Part-level quality gap, visible, not silent.
+    // WATERTIGHT (PK-208 closed). Since PK-575 the evidence measures
+    // the request met: achieved G2, worst g2 1.1e-3 over 60 certified
+    // seams.
     part.fillet_with(
         |f| {
             f.radius(0.05)

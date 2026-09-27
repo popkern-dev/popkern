@@ -160,6 +160,7 @@ pub fn apply_blend_geometry(
                 &result,
                 &vertex_edges,
                 edge_geometries,
+                &precomputed,
                 tolerance,
                 apply_cancel_poll(cancel).is_err(),
             );

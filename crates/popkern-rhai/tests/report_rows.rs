@@ -4,8 +4,13 @@
 //! a bare success mark for a blend whose measured continuity fell
 //! below the request). The fixture pairs a blend that meets its G2
 //! request (a cube's top edges) with one that serves a valid body but
-//! measures below it: every edge of a triangular prism at G2, whose
-//! corners land at G1.
+//! measures below it: a step whose reflex edge ends in two saddle
+//! vertices, rounded at G2. A saddle can never meet G2 (at each bridge
+//! foot the plane asks for curvature 0 and the strip for 1/r), so the
+//! downgrade row does not depend on construction quality. It reads a
+//! certified G1 since PK-583 (it had been a G0 crease; see
+//! `step_saddle_setback.rs`). The triangular prism this used before
+//! meets G2 since PK-575.
 //!
 //! PK-530: the fixture was a blend on a blend, whose second G2 fillet
 //! served corner residue off its faces. The territory gate now
@@ -17,8 +22,11 @@ use popkern_rhai::{ScriptHost, report_value};
 const MET_AND_DOWNGRADED: &str = r#"let m = model();
 let cube = m.profile(xy()).rect(1.0, 1.0).sketch("cube").extrude(blind(1.0));
 cube.fillet(edges().at_height(1.0), 0.15, #{ continuity: "g2", label: "top" });
-let prism = m.profile(xy()).polygon([[3.0, 0.0], [4.0, 0.0], [3.5, 0.8]]).sketch("prism").extrude(blind(1.0));
-prism.fillet(edges(), 0.08, #{ continuity: "g2", label: "rounds" });
+let step = m.profile(yz()).polygon([[0.0, 3.0], [1.0, 3.0], [1.0, 3.6], [0.6, 3.6], [0.6, 4.0], [0.0, 4.0]]).sketch("step").extrude(blind(1.0));
+step.fillet(edges().straight().direction("x").at_height(3.6)
+    .or(edges().straight().direction("y").at_height(3.6).chord_length_between(0.39, 0.41))
+    .or(edges().straight().direction("z").chord_length_between(0.39, 0.41)),
+    0.06, #{ continuity: "g2", label: "rounds" });
 m
 "#;
 
@@ -50,7 +58,7 @@ fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
         .expect("rounds row");
     assert_eq!(rounds["blend"]["downgraded"], true, "{rounds}");
     assert_eq!(rounds["blend"]["continuity"]["requested"], "G2");
-    assert_ne!(rounds["blend"]["continuity"]["achieved"], "G2");
+    assert_eq!(rounds["blend"]["continuity"]["achieved"], "G1");
     // The recorder agrees with the projection.
     assert_eq!(model.report().downgraded_blends().count(), 1);
 }

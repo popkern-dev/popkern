@@ -135,8 +135,10 @@ pub struct SeamContinuityRecord {
     /// Worst angle between the sides' normals, in degrees (the
     /// intent-classification signal).
     pub worst_normal_angle_deg: f64,
-    /// Worst normal-curvature jump across the along-seam, transverse,
-    /// and diagonal in-tangent-plane directions (units 1/length).
+    /// Worst normal-curvature jump over every in-tangent-plane
+    /// direction: the spectral norm of the second-fundamental-form jump,
+    /// assembled from the along-seam, transverse and diagonal readings
+    /// (units 1/length; PK-579).
     ///
     /// The transverse/diagonal terms carry the honest curvature-
     /// continuity content: along-seam agreement is implied by G0+G1
@@ -156,6 +158,11 @@ pub struct SeamContinuityRecord {
     /// [`BlendContinuityEvidence::certify_next_deferred`] runs on it.
     #[serde(default)]
     pub certification_deferred: bool,
+    /// Samples whose transverse/diagonal curvature could not be read
+    /// (a singular chart point). The sampled G2 residual covers every
+    /// other sample; a nonzero count says where it is blind (PK-579).
+    #[serde(default)]
+    pub skipped_curvature_samples: usize,
 }
 
 impl SeamContinuityRecord {
@@ -277,6 +284,16 @@ impl BlendContinuityEvidence {
     }
 }
 
+/// Seam end inset of the evidence instrument: 1e-3 of the seam. The
+/// sampled readings reach into the seam's end bands, where vertex-blend
+/// corner residuals live (PK-579: the former 5% inset hid a certified
+/// g2 >= 0.29 in the first 3% of pentagon5_blunt's rim seams). The
+/// inset only steps off the seam ENDPOINT itself: a seam endpoint is a
+/// patch corner, and a rational corner cell (dual-jet, dual-twist) is
+/// 0/0 exactly there. Its ε-regularized exact form read 1e21 at f = 0
+/// on the flagship. The regularized neighbourhood is ~1e-7 in parameter.
+const EVIDENCE_END_MARGIN: f64 = 1.0e-3;
+
 /// Measure the continuity evidence for the faces a blend created.
 ///
 /// Walks every edge with `blend_faces` on at least one side (and two
@@ -315,6 +332,7 @@ pub fn measure_blend_continuity_evidence_with(
     samples_per_seam: usize,
     certification: ContinuityCertification,
 ) -> BlendContinuityEvidence {
+    let jets = crate::cap_seam_side::SurfaceJetCache::default();
     let set: std::collections::BTreeSet<FaceHandle> = blend_faces.iter().copied().collect();
     let certify = evidence_certify_options(brep, gates);
     let inline = certification == ContinuityCertification::Inline;
@@ -334,11 +352,11 @@ pub fn measure_blend_continuity_evidence_with(
         } else {
             BlendSeamKind::BlendToSupport
         };
-        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency) else {
+        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency, &jets) else {
             unmeasured += 1;
             continue;
         };
-        let worst = measure_edge_seam(&seam, samples_per_seam);
+        let worst = measure_edge_seam(&seam, samples_per_seam, EVIDENCE_END_MARGIN);
         let gated = worst.angle_deg <= gates.smooth_intent_max_angle_deg;
         let certificate =
             (gated && inline).then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
@@ -354,6 +372,7 @@ pub fn measure_blend_continuity_evidence_with(
             worst_g2_residual: worst.g2.max(worst.g2_transverse),
             certificate,
             certification_deferred: gated && !inline,
+            skipped_curvature_samples: worst.skipped_curvature,
         });
     }
     let mut evidence = BlendContinuityEvidence {

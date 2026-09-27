@@ -50,28 +50,52 @@ pub(crate) fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandl
             Some(c) => (c.geometry.clone(), (c.t_start, c.t_end)),
             None => continue,
         };
-        let new_pcurve = match project_curve_into_plane_uv(
-            &curve_3d,
-            plane_origin,
-            plane_u,
-            plane_v,
-        )
-        .or_else(|| {
-            sample_project_curve_into_plane_uv(&curve_3d, window, plane_origin, plane_u, plane_v)
-        }) {
-            Some(p) => p,
-            None => continue,
-        };
+        // A control-point projection images the WHOLE 3D curve; the
+        // edge may use only a window of it (a rail split at a junction
+        // keeps its curve and narrows the window). Planar projection
+        // preserves the parameter, so the pcurve takes that window —
+        // exactly. Taking the curve's full range instead traced the
+        // unsplit rail past both vertices (PK-583: 0.237 on the step's
+        // saddle cap planes at a G2 request, where rails are fitted
+        // NURBS; G1 rails are lines and take the sampled path).
+        let (new_pcurve, projected_window) =
+            match project_curve_into_plane_uv(&curve_3d, plane_origin, plane_u, plane_v) {
+                Some(p) => (p, Some(window)),
+                None => match sample_project_curve_into_plane_uv(
+                    &curve_3d,
+                    window,
+                    plane_origin,
+                    plane_u,
+                    plane_v,
+                ) {
+                    Some(p) => (p, None),
+                    None => continue,
+                },
+            };
         // Half-edge orientation: if this half-edge runs the same
         // way as the underlying edge, use the projected pcurve as-is;
-        // otherwise reverse.
+        // otherwise reverse (which mirrors the window through the
+        // curve's range).
         let edge_he = brep.edges[edge].half_edge;
-        let pcurve = if he == edge_he {
+        let forward = he == edge_he;
+        let (t_min, t_max) = new_pcurve.parameter_range();
+        let nurbs = if forward {
             new_pcurve
         } else {
             reverse_nurbs(&new_pcurve)
         };
-        brep.half_edges[he].pcurve = Some(pcurve.into());
+        let mut pcurve: popkern_core::geometry::pcurve::Pcurve = nurbs.into();
+        if let Some((w0, w1)) = projected_window
+            && w0.is_finite()
+            && w1.is_finite()
+        {
+            (pcurve.t_start, pcurve.t_end) = if forward {
+                (w0, w1)
+            } else {
+                (t_min + t_max - w1, t_min + t_max - w0)
+            };
+        }
+        brep.half_edges[he].pcurve = Some(pcurve);
     }
 }
 

@@ -287,23 +287,30 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
     ("angled_rib_plate", &[]),
     ("double_boss_plate", &[]),
     ("notched_flange", &[]),
-    ("pentagon_tower", &[]),
+    // PK-575 made the blunt tower's cap natively G2. Its 10
+    // corner-layer seams cross the export at G1, the class
+    // kp_pyramid_apex already carries (PK-556 interchange contract).
+    ("pentagon_tower", &[("G2->G1", 10)]),
     ("kp_pyramid_apex", &[("G2->G1", 10)]),
     ("kp_cube_corner", &[]),
-    ("kp_notched_saddle", &[]),
+    // PK-575 raised 3 saddle cap seams to native G2; they cross the
+    // export at G1 (the same corner-layer class).
+    ("kp_notched_saddle", &[("G2->G1", 3)]),
 ];
 
 /// Total recorded drops on the OCC leg (OpenCASCADE reads the export
 /// and writes it back with shape processing off; popkern-io imports
 /// that): the pyramid cap's 10 corner-layer seams, accepted under the
-/// interchange continuity contract (PK-556). Retired: PK-552 the 55
+/// interchange continuity contract (PK-556), plus since PK-575 the
+/// blunt tower's 10 and the saddle's 3 (the same class; the popkern
+/// leg carries identical rows). Retired: PK-552 the 55
 /// foreign-pcurve drops, PK-554 the 4 exported-polyline drops, PK-551
 /// the position-only Gregory fits, PK-555/PK-558 tilted_hole_plate's
 /// drill-exit seam (popkern wrote pcurve control points as 3-D points,
 /// so OpenCASCADE discarded every popkern pcurve and re-projected; the
 /// same-parameter rebuild and the native recompute interpolated across
 /// the rim's parametric C0 knots).
-const OCC_BASELINE_DROPS: usize = 10;
+const OCC_BASELINE_DROPS: usize = 23;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()

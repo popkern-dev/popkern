@@ -74,6 +74,9 @@ pub(super) struct PairCornerCandidate {
     pub(super) chain_p: Vec<HalfEdgeHandle>,
     /// The phantom flap face enclosed by the chains (dies).
     pub(super) flap: FaceHandle,
+    /// Edges splitting the flap region into coplanar pieces, merged
+    /// into `flap` before the surgery (PK-583; empty for one face).
+    pub(super) flap_interior: Vec<EdgeHandle>,
 }
 
 /// Settle stale pair corners between blend strips the operation
@@ -96,7 +99,23 @@ pub(crate) fn settle_blend_seam_corners(
             continue;
         }
         let snapshot = result.clone();
-        let outcome = dispatch_repair(result, &candidate, tolerance);
+        let mut candidate = candidate;
+        let split = !candidate.flap_interior.is_empty();
+        let outcome = if split {
+            let region = super::blend_seam_corner_flap::FlapRegion {
+                flap: candidate.flap,
+                interior: std::mem::take(&mut candidate.flap_interior),
+            };
+            match super::blend_seam_corner_flap::merge_flap_region(result, &region) {
+                Ok(flap) => {
+                    candidate.flap = flap;
+                    dispatch_repair(result, &candidate, tolerance)
+                }
+                Err(_) => Err(BlendSeamCornerDeclineReason::EulerRejected),
+            }
+        } else {
+            dispatch_repair(result, &candidate, tolerance)
+        };
         if trace {
             eprintln!(
                 "[bsc] corner {:?} strips {:?}/{:?} seam {:?} -> {:?}",
@@ -108,7 +127,10 @@ pub(crate) fn settle_blend_seam_corners(
             );
         }
         match outcome {
-            Ok(()) => report.seams_built += 1,
+            Ok(()) => {
+                report.seams_built += 1;
+                report.split_flaps_merged += usize::from(split);
+            }
             Err(reason) => {
                 *result = snapshot;
                 report.declines.push(BlendSeamCornerDecline {
@@ -263,10 +285,6 @@ fn walk_corner_tangle(
         let p = brep.vertices.get(v)?.position;
         Some(off_strip(p, cyl_a) <= stale_tol && off_strip(p, cyl_b) <= stale_tol)
     };
-    let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
-        let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
-        Some(brep.loops.get(tw.loop_)?.face)
-    };
     // Next-walk on the strip whose seam half-edge arrives at the
     // corner: half-edges oriented away from the corner.
     let mut chain_n = Vec::new();
@@ -300,48 +318,14 @@ fn walk_corner_tangle(
     if far_p? != anchor_far || anchor_far == anchor_near || chain_n.is_empty() {
         return None;
     }
-    // Every chain half-edge must border one common flap face.
+    // The chains must enclose exactly one planar flap REGION: one
+    // face, or coplanar pieces a mitred neighbour split it into
+    // (merged before the surgery — see blend_seam_corner_flap).
     let strip_n = brep.loops.get(brep.half_edges.get(he_n)?.loop_)?.face;
     let strip_p = brep.loops.get(brep.half_edges.get(he_p)?.loop_)?.face;
-    let flap = twin_face(*chain_n.first()?)?;
-    if flap == strip_n || flap == strip_p {
-        return None;
-    }
-    for he in chain_n.iter().chain(chain_p.iter()) {
-        if twin_face(*he) != Some(flap) {
-            return None;
-        }
-    }
-    // The flap must be exactly the region the chains enclose: planar,
-    // no inner loops, boundary = the chain edges.
-    let f = brep.faces.get(flap)?;
-    if !f.inner_loops.is_empty()
-        || !matches!(
-            f.surface.as_ref().map(|s| &s.geometry),
-            Some(SurfaceGeometry::Plane { .. })
-        )
-    {
-        return None;
-    }
-    let chain_edges: HashSet<EdgeHandle> = chain_n
-        .iter()
-        .chain(chain_p.iter())
-        .filter_map(|he| Some(brep.half_edges.get(*he)?.edge))
-        .collect();
-    let mut flap_edges = HashSet::new();
-    let start = brep.loops.get(f.outer_loop)?.half_edge;
-    let mut he = start;
-    for _ in 0..brep.half_edges.len() {
-        let h = brep.half_edges.get(he)?;
-        flap_edges.insert(h.edge);
-        he = h.next;
-        if he == start {
-            break;
-        }
-    }
-    if flap_edges != chain_edges || flap_edges.len() != chain_n.len() + chain_p.len() {
-        return None;
-    }
+    let chains: Vec<HalfEdgeHandle> = chain_n.iter().chain(chain_p.iter()).copied().collect();
+    let region =
+        super::blend_seam_corner_flap::flap_region(brep, &chains, (strip_n, strip_p), stale_tol)?;
     Some(PairCornerCandidate {
         strip_n,
         strip_p,
@@ -353,7 +337,8 @@ fn walk_corner_tangle(
         anchor_far,
         chain_n,
         chain_p,
-        flap,
+        flap: region.flap,
+        flap_interior: region.interior,
     })
 }
 
