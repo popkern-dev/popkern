@@ -435,6 +435,8 @@ pub(crate) fn fillet_edges_internal(
                 &caps,
                 &crate::blend_continuity_evidence::ContinuityGates::commercial(),
             );
+        result.repair_report.setback_rims =
+            crate::setback_rim_landing::setback_rim_landing(&result.brep, &caps);
     }
     Ok(result)
 }

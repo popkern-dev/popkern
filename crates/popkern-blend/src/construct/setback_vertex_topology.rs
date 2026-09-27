@@ -62,6 +62,8 @@ mod setback_corner_dual_jet;
 mod setback_fan_seam_refresh;
 #[path = "setback_fan_trace_probes.rs"]
 mod setback_fan_trace_probes;
+#[path = "setback_rim_band_refit.rs"]
+mod setback_rim_band_refit;
 #[path = "setback_rim_curvature.rs"]
 mod setback_rim_curvature;
 #[path = "setback_rim_jet.rs"]
@@ -814,6 +816,21 @@ fn build_cap_face_fan(
                 &border_loop,
                 rim_off_loop_allowance,
             );
+            // Junction-continuous band refit (PK-584): the landing's
+            // translation-only end bands leave variable-radius rims
+            // tilted off their strips — see setback_rim_band_refit.
+            let refit = setback_rim_band_refit::refit_rim_bands(
+                &mut patches,
+                &candidates,
+                fillet_surfaces.len(),
+                &sides,
+            );
+            if popkern_core::trace::trace_enabled("setback") {
+                eprintln!(
+                    "  [rim-band] {} sides, {} coupled junctions, worst support deviation {:.3e} -> {:.3e}",
+                    refit.sides, refit.coupled_junctions, refit.worst_before, refit.worst_after
+                );
+            }
             let removed = setback_rim_stations::align_rim_end_tangents(
                 &mut patches,
                 &candidates,

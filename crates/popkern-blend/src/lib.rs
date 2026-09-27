@@ -93,6 +93,7 @@ pub mod residual_scaffolding;
 pub mod seam_profile;
 pub mod sensitivity;
 pub mod setback_corner_compatibility;
+pub mod setback_rim_landing;
 pub mod stale_cap;
 pub(crate) mod station_geometry;
 #[cfg(test)]

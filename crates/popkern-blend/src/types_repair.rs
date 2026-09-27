@@ -35,6 +35,10 @@ pub struct BlendRepairReport {
     /// input side; it is reported here, never absorbed into a rim
     /// tolerance).
     pub setback_corners: Vec<crate::setback_corner_compatibility::SetbackCornerCompatibility>,
+    /// PK-584 setback rim landings: per cap-boundary rim edge, how far
+    /// the rim's own tangent leaves its neighbour's tangent plane (a
+    /// G1 floor the rim reconciles cannot lower).
+    pub setback_rims: Vec<crate::setback_rim_landing::SetbackRimLanding>,
     /// PK-148 terminal-arc-trim settlement at open fillet chain ends.
     pub terminal_arc_trim: super::TerminalArcTrimReport,
     /// PK-152 blend×blend corner-seam settlement at adjacent-fillet

@@ -79,7 +79,7 @@ fn family() -> Vec<Fixture> {
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[3]),
             achieved: ContinuityLevel::G2,
         },
-        // Rim 2.3e-3 / g1 1.3e-5 (PK-581); the verdict is G1 because
+        // Rim 2.3e-3 (PK-581), g1 3.0e-8; the verdict is G1 because
         // three fan-internal cap-cap seams carry a certified G2 failure
         // (PK-580).
         Fixture {
@@ -94,17 +94,25 @@ fn family() -> Vec<Fixture> {
     ]
 }
 
-/// Worst rim form-norm curvature jump measured 2026-09-27, in family
-/// order.
-const RIM_G2_MEASURED: [f64; 5] = [4.088e-5, 5.978e-4, 9.026e-4, 1.825e-4, 2.281e-3];
+/// Worst rim form-norm curvature jump, in family order, measured
+/// 2026-09-27 after the PK-584 junction-continuous band refit, against
+/// the 4.088e-5 / 5.978e-4 / 9.026e-4 / 1.825e-4 / 2.281e-3 it replaced:
+/// flagship, hexagon6_blunt and hexagon6_mixed improved; pentagon5_blunt
+/// (+14%) and pentagon5_variable (+4%) moved up. The setback-corner k = 2
+/// cell is also the neighbour rim's fixed cross-curvature end cell, and
+/// holding it was measured to cost the saddle its whole G1 gain (PK-581
+/// owns the rim g2 floor).
+const RIM_G2_MEASURED: [f64; 5] = [4.053e-5, 6.810e-4, 8.548e-4, 1.813e-4, 2.364e-3];
 
-/// Worst rim g1 measured 2026-09-27, in family order.
-const RIM_G1_MEASURED: [f64; 5] = [6.278e-9, 1.464e-8, 1.780e-8, 8.946e-7, 1.309e-5];
+/// Worst rim g1, in family order, after the PK-584 band refit (was
+/// 6.278e-9 / 1.464e-8 / 1.780e-8 / 8.946e-7 / 1.309e-5: the variable
+/// fixtures' rim tangent no longer tilts off the strip).
+const RIM_G1_MEASURED: [f64; 5] = [7.324e-9, 2.358e-8, 2.552e-8, 1.675e-8, 3.121e-8];
 
-/// Rim G1 row of the PK-575 acceptance (normal-angle sine): the whole
-/// family except pentagon5_variable (PK-581) is under it with >= 10x
-/// margin.
-const RIM_G1_BAR: f64 = 1.0e-5;
+/// Rim G1 floor (normal-angle sine): every fixture is under it with at
+/// least 3x margin since PK-584. It was 1e-5, with pentagon5_variable
+/// (1.3e-5) excepted.
+const RIM_G1_BAR: f64 = 1.0e-7;
 
 fn build(fx: &Fixture) -> (BlendResult, BTreeSet<FaceHandle>) {
     let tol = Tolerance::default();
