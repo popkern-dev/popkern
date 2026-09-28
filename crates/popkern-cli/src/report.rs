@@ -122,7 +122,7 @@ pub fn text(summary: &RunSummary) -> String {
     }
     if let Some(z) = &summary.zebra {
         out.push_str(&format!(
-            "zebra ({} normals, {} stripes, {}° facets): mesh vs surface normal max {:.3}° mean {:.4}° p99 {:.3}° over {} px ({} ray hits); worst {} at {:?}; {} px change band\n",
+            "zebra ({} normals, {} stripes, {}° facets): mesh vs surface normal max {:.3}° mean {:.4}° p99 {:.3}° over {} px ({} ray hits; {} seam, {} silhouette px apart); worst {} at {:?}; {} px change band; facet accuracy max {:.3}° p99 {:.3}°\n",
             z.normals,
             z.stripes,
             z.facet_angle_deg,
@@ -131,9 +131,13 @@ pub fn text(summary: &RunSummary) -> String {
             z.p99_angle_deg,
             z.evaluated_pixels,
             z.ray_hit_pixels,
+            z.reassigned_pixels,
+            z.silhouette_pixels,
             z.worst_surface.unwrap_or("?"),
             z.worst_pixel.unwrap_or([0, 0]),
             z.band_mismatch_pixels,
+            z.facet_max_angle_deg,
+            z.facet_p99_angle_deg,
         ));
     }
     out

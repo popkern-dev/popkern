@@ -51,6 +51,21 @@ pub struct ZebraModeDisagreement {
     /// (between the mesh seam and the true seam). They are excluded
     /// from the angle statistics, which compare one face's normals.
     pub reassigned_pixels: usize,
+    /// Covered pixels whose located surface point lies outside the
+    /// visible facet's parameter footprint (silhouette slivers, see
+    /// [`super::ZebraSample::outside_facet`]). Excluded from the angle
+    /// statistics.
+    pub silhouette_pixels: usize,
+    /// Tessellation accuracy: largest angle between a pixel's
+    /// interpolated mesh normal and the surface normal at its facet
+    /// point's closest surface point (radians), over every covered
+    /// pixel. Unlike [`Self::max_angle_rad`] (what the eye sees along
+    /// the ray), this compares corresponding points.
+    pub facet_max_angle_rad: f64,
+    /// 99th-percentile tessellation-accuracy angle (radians).
+    pub facet_p99_angle_rad: f64,
+    /// Where the largest tessellation-accuracy angle occurs.
+    pub facet_worst: Option<ZebraWorstPixel>,
     /// Evaluated pixels that fell back to the closest surface point.
     pub closest_point_pixels: usize,
     /// Evaluated pixels that fell back to the interpolated parameter.
@@ -80,15 +95,38 @@ impl ZebraFrame {
         let mut band_mismatch = 0usize;
         let (mut ray_hits, mut closest, mut interpolated) = (0usize, 0usize, 0usize);
         let mut reassigned = 0usize;
+        let mut silhouette = 0usize;
+        let mut facet_angles: Vec<f64> = Vec::new();
+        let mut facet_worst: Option<ZebraWorstPixel> = None;
         let mut per_face: Vec<(FaceHandle, usize, f64, f64)> = Vec::new();
         for (idx, sample) in self.samples.iter().enumerate() {
             let Some(s) = sample else { continue };
             covered += 1;
+            if let Some(fnrm) = s.facet_surface_normal {
+                let a = angle_between(s.mesh_normal, fnrm);
+                facet_angles.push(a);
+                if facet_worst.is_none_or(|w| a > w.angle_rad) {
+                    facet_worst = Some(ZebraWorstPixel {
+                        x: (idx % self.width as usize) as u32,
+                        y: (idx / self.width as usize) as u32,
+                        face: s.face,
+                        uv: s.uv,
+                        angle_rad: a,
+                    });
+                }
+            }
             if s.surface_face != s.face {
                 // The views show different faces here (a pixel between
                 // the mesh seam and the true seam): not a tessellation
                 // error of one face's normals.
                 reassigned += 1;
+                continue;
+            }
+            if s.outside_facet {
+                // The ray meets the surface away from the point this
+                // facet approximates (a silhouette sliver): not a
+                // tessellation error of the facet's normals.
+                silhouette += 1;
                 continue;
             }
             let Some(sn) = s.surface_normal else { continue };
@@ -136,6 +174,12 @@ impl ZebraFrame {
         } else {
             0.0
         };
+        facet_angles.sort_by(f64::total_cmp);
+        let facet_p99 = if facet_angles.is_empty() {
+            0.0
+        } else {
+            facet_angles[((facet_angles.len() - 1) as f64 * 0.99).round() as usize]
+        };
         let mut per_face: Vec<ZebraFaceDisagreement> = per_face
             .into_iter()
             .map(|(face, pixels, max, sum)| ZebraFaceDisagreement {
@@ -151,6 +195,10 @@ impl ZebraFrame {
             evaluated_pixels: evaluated,
             ray_hit_pixels: ray_hits,
             reassigned_pixels: reassigned,
+            silhouette_pixels: silhouette,
+            facet_max_angle_rad: facet_angles.last().copied().unwrap_or(0.0),
+            facet_p99_angle_rad: facet_p99,
+            facet_worst,
             closest_point_pixels: closest,
             interpolated_pixels: interpolated,
             max_angle_rad: angles.last().copied().unwrap_or(0.0),

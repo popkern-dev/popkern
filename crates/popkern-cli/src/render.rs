@@ -86,6 +86,14 @@ pub struct ZebraSummary {
     /// Covered pixels whose surface view shows a neighbouring face
     /// (between the mesh seam and the true seam; not in the angles).
     pub reassigned_pixels: usize,
+    /// Covered pixels whose surface point lies outside the visible
+    /// facet's footprint (silhouette slivers; not in the angles).
+    pub silhouette_pixels: usize,
+    /// Tessellation accuracy: largest mesh-vs-surface normal angle at
+    /// corresponding points (degrees).
+    pub facet_max_angle_deg: f64,
+    /// Its 99th percentile (degrees).
+    pub facet_p99_angle_deg: f64,
     /// Evaluated pixels whose surface point is the view ray's hit.
     pub ray_hit_pixels: usize,
     /// Largest mesh-vs-surface normal angle (degrees).
@@ -140,6 +148,9 @@ pub fn render_zebra_png(
         covered_pixels: report.covered_pixels,
         evaluated_pixels: report.evaluated_pixels,
         reassigned_pixels: report.reassigned_pixels,
+        silhouette_pixels: report.silhouette_pixels,
+        facet_max_angle_deg: report.facet_max_angle_rad.to_degrees(),
+        facet_p99_angle_deg: report.facet_p99_angle_rad.to_degrees(),
         ray_hit_pixels: report.ray_hit_pixels,
         max_angle_deg: report.max_angle_rad.to_degrees(),
         mean_angle_deg: report.mean_angle_rad.to_degrees(),

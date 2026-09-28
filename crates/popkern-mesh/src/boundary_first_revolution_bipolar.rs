@@ -185,7 +185,12 @@ pub(super) fn try_tessellate(
             }
         }
     }
-    // Stations from the azimuthal chord criterion at the widest row.
+    // Stations from the azimuthal chord criterion AND the angular facet
+    // bound at the widest row (where both the sagitta and the normal
+    // turn per station step are largest). Chord alone left the
+    // ball_bearing balls at 16 stations (22.5° steps) against a 3°
+    // bound, and the angular refine pass exhausted its growth budget
+    // with 864 triangles per ball still over it (PK-578).
     let widest_v = rows_v.iter().map(|&(v, _)| v).max_by(|a, b| {
         let r = |v: f64| {
             surface
@@ -205,7 +210,19 @@ pub(super) fn try_tessellate(
             0.5 * (pa.y + pb.y),
             0.5 * (pa.z + pb.z),
         );
-        if pm.distance_to(&chord_mid) <= options.chord_height {
+        let turn_ok = options.angular_bound().is_none_or(|bound| {
+            let normal = |u: f64| {
+                surface
+                    .partial_u(u, widest_v)
+                    .cross(&surface.partial_v(u, widest_v))
+                    .normalized()
+            };
+            match (normal(u1), normal(u1 + du)) {
+                (Some(a), Some(b)) => a.angle_to(&b) <= bound,
+                _ => true,
+            }
+        });
+        if pm.distance_to(&chord_mid) <= options.chord_height && turn_ok {
             break;
         }
         stations *= 2;

@@ -192,3 +192,27 @@ fn small_constant_round_meets_the_display_facet_bound() {
     let coarse = popkern_mesh::tessellate(&brep, &TessellationOptions::default()).expect("mesh");
     assert!(worst_spread(&coarse) > 2.0 * DISPLAY_MAX_FACET_ANGLE);
 }
+
+/// A small full sphere is served by the bipolar revolution, whose
+/// azimuthal stations came from the chord criterion alone: a ball
+/// bearing's balls stayed at 16 stations (22.5° steps) against a 3°
+/// bound, and the angular refine pass exhausted its growth budget with
+/// 864 triangles per ball still over it (PK-578). The stations now
+/// honour the angular bound at the widest row as well.
+#[test]
+fn small_sphere_meets_tight_facet_bounds() {
+    let sphere = BRep::sphere(0.05, Tolerance::default()).expect("sphere");
+    for bound_deg in [12.0f64, 3.0] {
+        let options = TessellationOptions {
+            max_facet_angle: bound_deg.to_radians(),
+            ..TessellationOptions::display()
+        };
+        let mesh = popkern_mesh::tessellate(&sphere, &options).expect("mesh");
+        let spread = worst_spread(&mesh);
+        assert!(
+            spread <= bound_deg.to_radians() * 1.001,
+            "bound {bound_deg} deg: worst vertex-normal spread {:.2} deg",
+            spread.to_degrees()
+        );
+    }
+}

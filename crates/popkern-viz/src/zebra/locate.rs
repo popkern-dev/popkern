@@ -181,7 +181,11 @@ impl PixelQuery {
     }
 
     /// Gauss–Newton on `(S − facet)·S_u = (S − facet)·S_v = 0`.
-    fn closest_point(&self, surface: &SurfaceGeometry, seed: (f64, f64)) -> Option<(f64, f64)> {
+    pub(super) fn closest_point(
+        &self,
+        surface: &SurfaceGeometry,
+        seed: (f64, f64),
+    ) -> Option<(f64, f64)> {
         let f = self.facet;
         let eps = 1e-12 * (1.0 + dot(f, f).sqrt());
         let mut uv = seed;
@@ -212,7 +216,7 @@ impl PixelQuery {
 
 /// Which non-periodic coordinates of `uv` sit on (or past) a bound of
 /// the natural range, and the bound value.
-fn active_bounds(surface: &SurfaceGeometry, uv: (f64, f64)) -> [Option<f64>; 2] {
+pub(super) fn active_bounds(surface: &SurfaceGeometry, uv: (f64, f64)) -> [Option<f64>; 2] {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
     let (pu, pv) = surface.parameter_periodicity();
     let bound = |x: f64, lo: f64, hi: f64, periodic: bool| {
@@ -420,7 +424,11 @@ pub(super) fn locate_on_surface(
     if let Some(uv) = seeds.first().and_then(|&s| query.marched_hit(surface, s)) {
         return (uv, SurfaceHit::Ray);
     }
-    if let Some(uv) = seeds.iter().find_map(|&s| query.boundary_hit(surface, s)) {
+    if let Some(uv) = seeds
+        .iter()
+        .find_map(|&s| query.boundary_hit(surface, s))
+        .filter(|&uv| !super::footprint::on_closed_seam(surface, uv, query.reach))
+    {
         return (uv, SurfaceHit::DomainBoundary);
     }
     if let Some(uv) = seeds.iter().find_map(|&s| query.closest_point(surface, s)) {

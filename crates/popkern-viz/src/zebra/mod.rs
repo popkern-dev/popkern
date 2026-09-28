@@ -28,6 +28,7 @@ use popkern_mesh::TriMesh;
 
 use crate::camera::Camera;
 
+mod footprint;
 mod locate;
 mod reassign;
 mod report;
@@ -59,6 +60,9 @@ const LIGHT: u8 = 236;
 pub struct ZebraSample {
     /// Face owning the visible triangle (the mesh view's face).
     pub face: FaceHandle,
+    /// Index of the visible mesh triangle (into the rendered mesh's
+    /// `triangles`), for attributing a pixel's reading to its facet.
+    pub triangle: usize,
     /// Face whose surface the pixel's ray actually meets (the surface
     /// view's face). Differs from `face` within about a pixel of a
     /// seam: the display mesh's seam runs through shared edge samples
@@ -73,11 +77,25 @@ pub struct ZebraSample {
     pub mesh_normal: [f64; 3],
     /// How `uv` was located on the surface.
     pub hit: SurfaceHit,
+    /// The located surface point lies more than one facet-width outside
+    /// the visible triangle's own parameter footprint (a silhouette
+    /// sliver, PK-578). Near a silhouette the mesh's chord outline and
+    /// the true one differ, so a grazing ray through the facet meets
+    /// the surface elsewhere. The surface view is right there, but it
+    /// does not show the point the facet approximates. The report
+    /// counts these pixels apart from the angle statistics.
+    pub outside_facet: bool,
     /// Unit surface normal at `uv` in the face's facing sense; `None`
     /// when the face carries no surface or the chart has no regular
     /// point nearby (the surface view then falls back to the mesh
     /// normal and the report counts the pixel as unevaluated).
     pub surface_normal: Option<[f64; 3]>,
+    /// Surface normal at the surface point closest to the pixel's
+    /// facet point: the point the facet APPROXIMATES, as opposed to the
+    /// point the eye sees along the ray. Comparing it with
+    /// [`Self::mesh_normal`] measures tessellation accuracy (PK-578);
+    /// near grazing the two surface points differ, legitimately.
+    pub facet_surface_normal: Option<[f64; 3]>,
 }
 
 /// How a pixel's surface parameter was located.
@@ -128,6 +146,12 @@ pub struct ZebraFrame {
     /// is a majority decision.
     pub mixed_facing_faces: Vec<FaceHandle>,
 }
+
+/// How far outside its facet's parameter footprint a located point may
+/// sit, in barycentric units, before the pixel counts as a silhouette
+/// sliver (one full facet width: surface curvature moves genuine hits
+/// only slightly past an edge).
+const FACET_FOOTPRINT_SLACK: f64 = 1.0;
 
 pub(crate) fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -329,7 +353,7 @@ pub fn rasterize_zebra_frame(
                 .map(|sof| &sof.geometry);
             let uvs = locate::unwrapped_vertex_uvs(surface, &vs);
             let seed = locate::interpolate_uv(&uvs, c);
-            let (uv, hit) = match surface {
+            let (uv, hit, facet_uv) = match surface {
                 Some(s) => {
                     let query = locate::PixelQuery {
                         eye,
@@ -337,24 +361,35 @@ pub fn rasterize_zebra_frame(
                         reach: locate::triangle_reach(&vs),
                         sense: sign_of(face),
                     };
-                    locate::locate_on_surface(s, &[seed, uvs[0], uvs[1], uvs[2]], &query)
+                    let (uv, hit) =
+                        locate::locate_on_surface(s, &[seed, uvs[0], uvs[1], uvs[2]], &query);
+                    (uv, hit, query.closest_point(s, seed))
                 }
-                None => (seed, SurfaceHit::NoSurface),
+                None => (seed, SurfaceHit::NoSurface, None),
             };
-            let surface_normal = surface.and_then(|s| {
-                let n = popkern_mesh::surface_limit_normal(s, uv.0, uv.1)?;
-                let sg = sign_of(face);
-                Some([sg * n.x, sg * n.y, sg * n.z])
-            });
+            let outside_facet = matches!(hit, SurfaceHit::Ray | SurfaceHit::DomainBoundary)
+                && footprint::footprint_excess(surface, &uvs, uv) > FACET_FOOTPRINT_SLACK;
+            let normal_at = |at: (f64, f64)| {
+                surface.and_then(|s| {
+                    let n = popkern_mesh::surface_limit_normal(s, at.0, at.1)?;
+                    let sg = sign_of(face);
+                    Some([sg * n.x, sg * n.y, sg * n.z])
+                })
+            };
+            let surface_normal = normal_at(uv);
+            let facet_surface_normal = facet_uv.and_then(normal_at);
             Some((
                 ZebraSample {
                     face,
+                    triangle: ti,
                     surface_face: face,
                     uv,
                     position,
                     mesh_normal,
                     hit,
+                    outside_facet,
                     surface_normal,
+                    facet_surface_normal,
                 },
                 locate::triangle_reach(&vs),
             ))

@@ -100,9 +100,17 @@ fn sphere_surface_view_is_the_exact_normal_and_tessellation_independent() {
     assert!(err < 1e-9, "surface normal must be exact, worst {err:.3e}");
 
     // Every pixel's surface point is the ray hit (convex body: the ray
-    // crosses the surface before reaching the inscribed facet).
+    // crosses the surface before reaching the inscribed facet). On this
+    // deliberately coarse mesh the chord outline sits well inside the
+    // true one, so the rim pixels' rays meet the sphere far outside
+    // their facet: silhouette slivers, counted apart (PK-578; 206 of
+    // 8838 here).
     let report = cf.mode_disagreement(12);
-    assert_eq!(report.evaluated_pixels, report.covered_pixels);
+    assert_eq!(
+        report.evaluated_pixels + report.silhouette_pixels,
+        report.covered_pixels
+    );
+    assert!(report.silhouette_pixels < report.covered_pixels / 20);
     assert_eq!(report.ray_hit_pixels, report.evaluated_pixels);
     let worst = report.worst.expect("worst pixel");
     assert!((worst.angle_rad - report.max_angle_rad).abs() < 1e-15);
@@ -234,4 +242,35 @@ fn shading_paints_both_bands_and_background() {
             .reflection_coordinate(500, 0, ZebraNormals::Mesh)
             .is_none()
     );
+}
+
+/// PK-578: tessellation accuracy is measured at corresponding points.
+/// The view metric compares the facet's interpolated normal with the
+/// surface normal where the RAY meets the surface. Near a silhouette
+/// that is a different surface point, legitimately, so its maxima are
+/// not facet error. At the 12° display bound the facet-accuracy metric
+/// stays within B/2 + 1°, and pixels whose ray hit lies beyond their
+/// facet's footprint are counted apart.
+#[test]
+fn torus_facet_accuracy_is_within_half_the_display_bound() {
+    let tol = Tolerance::default();
+    let brep = BRep::torus(0.7, 0.25, tol).expect("torus");
+    let display = TessellationOptions::display();
+    let mesh = popkern_mesh::tessellate(&brep, &display).expect("display mesh");
+    let frame = rasterize_zebra_frame(&brep, &mesh, &camera(), 320, 240);
+    let report = frame.mode_disagreement(16);
+    let bound = display.max_facet_angle;
+    eprintln!(
+        "torus @display: view max {:.3} deg, facet max {:.3} p99 {:.3} deg, silhouette px {}",
+        report.max_angle_rad.to_degrees(),
+        report.facet_max_angle_rad.to_degrees(),
+        report.facet_p99_angle_rad.to_degrees(),
+        report.silhouette_pixels
+    );
+    assert!(
+        report.facet_max_angle_rad <= 0.5 * bound + 1f64.to_radians(),
+        "facet accuracy {:.2} deg over B/2 + 1",
+        report.facet_max_angle_rad.to_degrees()
+    );
+    assert!(report.facet_p99_angle_rad <= report.facet_max_angle_rad);
 }
