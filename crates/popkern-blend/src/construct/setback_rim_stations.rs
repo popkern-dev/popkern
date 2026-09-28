@@ -92,6 +92,9 @@ pub(super) struct Station {
     pub(super) t: f64,
     pub(super) normal: Vec3,
     pub(super) delta_n_bvv: f64,
+    /// `b²`: the transverse-curvature change per unit `n·B_vv` change
+    /// at this station (`Δκ = b²·Δ(n·B_vv)`).
+    pub(super) kappa_per_bvv: f64,
 }
 
 pub(super) fn side_stations(
@@ -147,6 +150,7 @@ pub(super) fn side_stations(
             t,
             normal: n_strip,
             delta_n_bvv: delta_kappa / (b * b),
+            kappa_per_bvv: b * b,
         });
     }
     Some(out)

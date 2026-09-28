@@ -187,8 +187,18 @@ pub(super) fn reconcile_rim_curvature(
     };
     let mut lsq = VecLsq::new(unknowns);
     for (li, (layout, ((_, _), stations))) in layouts.iter().zip(&fields).enumerate() {
+        // Rows in CURVATURE units (PK-581): a station's target is the
+        // d2-row change Δκ/b², so an unweighted fit under-weights the
+        // stations where b² is large (a skewed chart near a spoke
+        // junction) — exactly where the gate reads the worst Δκ.
+        // Weighting by b² (normalized per side for conditioning)
+        // fits the quantity the gate measures: pentagon5_variable rim
+        // g2 2.36e-3 -> 1.32e-3, the rest of the family unchanged.
+        let mean_scale =
+            stations.iter().map(|s| s.kappa_per_bvv).sum::<f64>() / stations.len().max(1) as f64;
         for station in stations {
-            let target = station.normal * (station.delta_n_bvv / 72.0);
+            let w = station.kappa_per_bvv / mean_scale.max(1e-300);
+            let target = station.normal * (w * station.delta_n_bvv / 72.0);
             // Row: per-end unknowns (dual claims, or clamp mass on a
             // shared cluster constant) + the four interiors.
             let mut entries: Vec<(usize, f64)> = Vec::with_capacity(8);
@@ -220,6 +230,9 @@ pub(super) fn reconcile_rim_curvature(
             }
             for k in 3..=6_usize {
                 entries.push((layout.interior_base + (k - 3), bern9(k, station.t)));
+            }
+            for e in entries.iter_mut() {
+                e.1 *= w;
             }
             lsq.add_vec_row(&entries, target);
         }
