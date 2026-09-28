@@ -148,6 +148,16 @@ pub struct AttributionFixture {
 }
 
 fn fillet_vertex(body: &BRep, vertex: VertexHandle, r: f64) -> (BRep, HashSet<FaceHandle>) {
+    fillet_vertex_radii(body, vertex, &[r])
+}
+
+/// [`fillet_vertex`] with per-edge radii, cycled over the vertex's
+/// edges in handle order (the setback family's convention).
+fn fillet_vertex_radii(
+    body: &BRep,
+    vertex: VertexHandle,
+    radii: &[f64],
+) -> (BRep, HashSet<FaceHandle>) {
     let mut edges: Vec<_> = body
         .half_edges
         .values()
@@ -158,7 +168,8 @@ fn fillet_vertex(body: &BRep, vertex: VertexHandle, r: f64) -> (BRep, HashSet<Fa
     edges.dedup();
     let specs: Vec<FilletSpec> = edges
         .into_iter()
-        .map(|edge| FilletSpec {
+        .zip(radii.iter().cycle())
+        .map(|(edge, &r)| FilletSpec {
             edge,
             radius: FilletRadius::Constant(r),
         })
@@ -216,6 +227,18 @@ pub fn attribution_fixtures() -> Vec<AttributionFixture> {
         brep,
         caps,
         camera: look([0.18, -0.15, 3.1], [0.0, 0.0, 2.85], glam::Vec3::Z),
+    });
+    // pentagon5_variable at the G2 request (1:3 radii): its rim's end
+    // layer at the spoke junctions (PK-581) is the largest rim
+    // residual in the setback family.
+    let variable = BRep::n_gonal_pyramid(5, 1.0, 0.8, tol).expect("variable");
+    let (brep, caps) =
+        fillet_vertex_radii(&variable, apex(&variable), &[0.02, 0.04, 0.06, 0.04, 0.02]);
+    out.push(AttributionFixture {
+        name: "pentagon5_variable_g2",
+        brep,
+        caps,
+        camera: look([0.16, -0.13, 0.98], [0.0, 0.0, 0.74], glam::Vec3::Z),
     });
     // Cube corner KP cap.
     let cube = BRep::unit_cube(tol).expect("cube");

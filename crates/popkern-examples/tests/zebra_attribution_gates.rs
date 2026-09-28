@@ -15,6 +15,8 @@
 //! | pentagon5_blunt G2 | cap-rim | 3.2e-2 | 2.4e-2 | 1.6e-1 | 1.4e-1 |
 //! | cube corner | cap-rim | 2.7e-4 | 4.0e-3 | 1.3e-3 | 7.2e-3 |
 //! | cube corner | cap-cap | 7.8e-4 | 3.9e-3 | 3.7e-3 | 1.6e-2 |
+//! | pentagon5_variable G2 | cap-rim | 5.0e-3 | 7.7e-3 | 1.9e-2 | 1.6e-2 |
+//! | pentagon5_variable G2 | cap-cap | 2.6e-3 | 7.3e-3 | 7.1e-3 | 1.5e-2 |
 //!
 //! Attribution: every strip-support kink the display shows is the
 //! tessellation's (the surface view is G1/G2-clean there), and so is
@@ -96,6 +98,12 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
         ("pentagon5_blunt_g2", "cap-rim", 3.19e-2, 1.56e-1),
         ("pentagon5_blunt_g2", "cap-cap", 3.38e-4, 4.33e-4),
         ("cube_corner", "cap-rim", 2.69e-4, 1.28e-3),
+        // pentagon5_variable (PK-581, 2026-09-28): its cap-rim reading
+        // is at the instrument's curvature x pixel-footprint floor, not
+        // its 1.3e-3 certified rim g2 (pentagon5_blunt reads 3.2e-2
+        // with certified rim g1 2.4e-8).
+        ("pentagon5_variable_g2", "cap-rim", 4.96e-3, 1.91e-2),
+        ("pentagon5_variable_g2", "cap-cap", 2.55e-3, 7.09e-3),
         ("cube_corner", "cap-cap", 7.79e-4, 3.74e-3),
     ];
     for &(name, class, nj, slope) in bars {
