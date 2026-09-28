@@ -12,7 +12,8 @@ mod marching_helpers;
 #[allow(unused_imports)]
 use marching_helpers::estimate_normal_near_singularity;
 use marching_helpers::{
-    find_tangent_march_direction, principal_branch_seed, recover_singular_normal, wrap_parameter,
+    exits_window, find_tangent_march_direction, principal_branch_seed, recover_singular_normal,
+    wrap_parameter,
 };
 
 pub(crate) use marching_newton::march_project;
@@ -332,22 +333,18 @@ pub(crate) fn march_one_direction(
                         crate::geometry::chart_periods::marching_periods(surface1);
                     let (period_u2, period_v2) =
                         crate::geometry::chart_periods::marching_periods(surface2);
-                    let (periodic_u1, periodic_v1) = (period_u1.is_some(), period_v1.is_some());
-                    let (periodic_u2, periodic_v2) = (period_u2.is_some(), period_v2.is_some());
                     sample.u1 = wrap_parameter(sample.u1, u1_range, period_u1);
                     sample.v1 = wrap_parameter(sample.v1, v1_range, period_v1);
                     sample.u2 = wrap_parameter(sample.u2, u2_range, period_u2);
                     sample.v2 = wrap_parameter(sample.v2, v2_range, period_v2);
 
-                    // Check domain bounds — only stop for non-periodic directions.
-                    let exits_u1 =
-                        !periodic_u1 && (sample.u1 < u1_range.0 || sample.u1 > u1_range.1);
-                    let exits_v1 =
-                        !periodic_v1 && (sample.v1 < v1_range.0 || sample.v1 > v1_range.1);
-                    let exits_u2 =
-                        !periodic_u2 && (sample.u2 < u2_range.0 || sample.u2 > u2_range.1);
-                    let exits_v2 =
-                        !periodic_v2 && (sample.v2 < v2_range.0 || sample.v2 > v2_range.1);
+                    // Check domain bounds on every axis the window
+                    // bounds: non-periodic axes and sub-period windows
+                    // of periodic ones (see `exits_window`).
+                    let exits_u1 = exits_window(sample.u1, u1_range, period_u1);
+                    let exits_v1 = exits_window(sample.v1, v1_range, period_v1);
+                    let exits_u2 = exits_window(sample.u2, u2_range, period_u2);
+                    let exits_v2 = exits_window(sample.v2, v2_range, period_v2);
                     if exits_u1 || exits_v1 || exits_u2 || exits_v2 {
                         termination = "domain-exit";
                         if crate::trace::trace_enabled("march") {

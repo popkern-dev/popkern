@@ -9,35 +9,70 @@ use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use std::f64::consts::TAU;
 
-/// Wrap a parameter value into the periodic domain `[u_range.0, u_range.1]`.
+/// Whether a query window covers at least one full period of its
+/// axis. The relative slack absorbs a full-circle face whose window
+/// endpoints were computed a few ULPs short of the period.
+fn window_covers_period(u_range: (f64, f64), period: f64) -> bool {
+    let span = u_range.1 - u_range.0;
+    period.is_finite() && period > 0.0 && span >= period * (1.0 - 1e-9)
+}
+
+/// Wrap a periodic parameter to the representative, modulo the TRUE
+/// period, that lies in (or nearest to) the query window
+/// `[u_range.0, u_range.1]`.
 ///
-/// If `is_periodic` is false the value is returned unchanged.
-/// If the period is non-positive the value is returned unchanged.
+/// A wrap is only honest when it is an isometry of the surface: every
+/// representative `u + k·period` is the same surface point. The
+/// wrap therefore never uses any other modulus. Windows covering at
+/// least one period (the boolean solvers pad 50%) land in
+/// `[u_range.0, u_range.0 + period)`: wrapping modulo the padded span
+/// let a cone trace run 1.5 laps with zero seam jumps (PK-460,
+/// chamfered rod). Sub-period windows take the representative
+/// nearest the window, so a sample just outside one edge stays just
+/// outside THAT edge for [`exits_window`] to stop the march: the
+/// former span-modulus wrap teleported it to the opposite edge — a
+/// different surface point 0.2 away on a fillet torus corner — and
+/// the march oscillated between the two preimages for its whole
+/// 200k-step budget (PK-572).
+///
+/// Non-periodic axes (`period == None`), degenerate windows, and
+/// non-finite inputs return `u` unchanged.
 pub(super) fn wrap_parameter(u: f64, u_range: (f64, f64), period: Option<f64>) -> f64 {
     let Some(p) = period else {
         return u;
     };
     let span = u_range.1 - u_range.0;
-    if span <= 0.0 || !u.is_finite() || !span.is_finite() {
+    if span <= 0.0 || !u.is_finite() || !span.is_finite() || !p.is_finite() || p <= 0.0 {
         return u;
     }
-    // Wrap modulo the TRUE geometric period when the query window
-    // covers at least one full period: the boolean solvers pad their
-    // windows 50%, and wrapping modulo the padded SPAN (1.5 periods)
-    // let a trace run 1.5 laps with zero seam jumps — the fitted
-    // record's chart span exceeded the period and the chart walk
-    // declined the face (PK-460, chamfered rod's tip-chamfer cone).
-    // Sub-period windows keep the span wrap (tuned behavior).
-    let modulus = if p.is_finite() && p > 0.0 && span >= p {
-        p
+    // Modular arithmetic instead of a while loop: bounded work for
+    // extreme values.
+    let wrapped = u_range.0 + (u - u_range.0).rem_euclid(p);
+    if wrapped <= u_range.1 || window_covers_period(u_range, p) {
+        return wrapped;
+    }
+    // In the gap (u_range.1, u_range.0 + p): pick the nearer edge's
+    // representative.
+    let below = wrapped - p;
+    if u_range.0 - below < wrapped - u_range.1 {
+        below
     } else {
-        span
-    };
-    // Use modular arithmetic instead of a while loop to avoid
-    // potential infinite loops with extreme values.
-    let offset = u - u_range.0;
-    let rem = offset.rem_euclid(modulus);
-    u_range.0 + rem
+        wrapped
+    }
+}
+
+/// Whether a wrapped parameter has left its query window along an
+/// axis the window bounds: every non-periodic axis, and periodic axes
+/// whose window covers less than one period (a partial-arc face's
+/// azimuth, a fillet torus's minor-angle strip). Full-period windows
+/// on periodic axes never exit — the wrap keeps them inside.
+pub(super) fn exits_window(u: f64, u_range: (f64, f64), period: Option<f64>) -> bool {
+    if let Some(p) = period
+        && window_covers_period(u_range, p)
+    {
+        return false;
+    }
+    u < u_range.0 || u > u_range.1
 }
 
 /// Estimate a surface normal near a singularity by averaging normals at offset points.

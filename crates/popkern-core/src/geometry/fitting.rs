@@ -2,7 +2,7 @@
 
 pub(crate) mod numerics;
 mod surface_interpolation;
-use numerics::{basis_function, solve_linear_system};
+use numerics::{BandRow, basis_function, solve_banded_system};
 pub use surface_interpolation::interpolate_surface_grid;
 
 use crate::error::CoreError;
@@ -66,21 +66,36 @@ pub fn interpolate_curve(
         }
     }
 
-    // Build the n×n basis matrix N where N[i][j] = B_j(params[i]).
-    let mut a: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
-    for (i, &t) in params.iter().enumerate() {
-        for (j, slot) in a[i].iter_mut().enumerate() {
-            *slot = basis_function(j, degree, t, &knots);
-        }
-    }
+    // Build the n×n basis matrix N where N[i][j] = B_j(params[i]),
+    // stored BANDED: row i holds the degree+1 basis functions whose
+    // support contains params[i], padded one index each side for the
+    // Cox–de Boor endpoint capture (the same window `fit_curve` uses;
+    // entries outside it are exactly 0.0). Dense storage cost O(n²)
+    // memory for long interpolations (PK-572).
+    let rows: Vec<BandRow> = params
+        .iter()
+        .map(|&t| {
+            let span = match knots.partition_point(|&k| k <= t) {
+                0 => degree,
+                p => (p - 1).clamp(degree, n - 1),
+            };
+            let lo = span.saturating_sub(degree + 1);
+            let hi = (span + 1).min(n - 1);
+            BandRow {
+                start: lo,
+                vals: (lo..=hi)
+                    .map(|j| basis_function(j, degree, t, &knots))
+                    .collect(),
+            }
+        })
+        .collect();
 
-    // Solve A · CP = points, separately per (x, y, z) coordinate.
+    // Solve A · CP = points for all three coordinates at once.
     let bx: Vec<f64> = points.iter().map(|p| p.x).collect();
     let by: Vec<f64> = points.iter().map(|p| p.y).collect();
     let bz: Vec<f64> = points.iter().map(|p| p.z).collect();
-    let cx = solve_linear_system(&a, &bx)?;
-    let cy = solve_linear_system(&a, &by)?;
-    let cz = solve_linear_system(&a, &bz)?;
+    let sol = solve_banded_system(rows, &[bx, by, bz])?;
+    let (cx, cy, cz) = (&sol[0], &sol[1], &sol[2]);
     let control_points: Vec<Point3> = (0..n).map(|i| Point3::new(cx[i], cy[i], cz[i])).collect();
     let weights = vec![1.0; n];
 
@@ -278,8 +293,30 @@ pub fn fit_curve(
     // rows. Row-outer accumulation adds each (i,j) product in increasing
     // row order — the same accumulation chain as the dense triple loop,
     // minus terms that are exactly ±0.0 (bit-neutral on these
-    // non-negative chains).
-    let mut ntn: Vec<Vec<f64>> = vec![vec![0.0; cols]; cols];
+    // non-negative chains). N^T·N is stored BANDED too: row i spans the
+    // union of the basis windows that touch column i, so memory is
+    // O(cols·degree) — the dense cols×cols matrix OOM-killed the test
+    // sweep on a 198k-sample marched trace (PK-572: 12.8 GB per copy).
+    let mut ntn_start = vec![usize::MAX; cols];
+    let mut ntn_end = vec![0usize; cols];
+    for (&s, vals) in band_start.iter().zip(&band_vals) {
+        for i in s..s + vals.len() {
+            ntn_start[i] = ntn_start[i].min(s);
+            ntn_end[i] = ntn_end[i].max(s + vals.len());
+        }
+    }
+    let mut ntn: Vec<BandRow> = (0..cols)
+        .map(|i| {
+            // A column no data row touches keeps a zero diagonal slot
+            // (the solve reports it singular, as the dense path did).
+            let start = ntn_start[i].min(i);
+            let end = ntn_end[i].max(i + 1);
+            BandRow {
+                start,
+                vals: vec![0.0; end - start],
+            }
+        })
+        .collect();
     let mut ntr_x = vec![0.0; cols];
     let mut ntr_y = vec![0.0; cols];
     let mut ntr_z = vec![0.0; cols];
@@ -289,8 +326,9 @@ pub fn fit_curve(
         let vals = &band_vals[k];
         for (di, &vi) in vals.iter().enumerate() {
             let i = s + di;
+            let row = &mut ntn[i];
             for (dj, &vj) in vals.iter().enumerate() {
-                ntn[i][s + dj] += vi * vj;
+                row.vals[s + dj - row.start] += vi * vj;
             }
             ntr_x[i] += vi * rhs_x[k];
             ntr_y[i] += vi * rhs_y[k];
@@ -298,10 +336,9 @@ pub fn fit_curve(
         }
     }
 
-    // Step 6: Solve for each coordinate separately
-    let sol_x = solve_linear_system(&ntn, &ntr_x)?;
-    let sol_y = solve_linear_system(&ntn, &ntr_y)?;
-    let sol_z = solve_linear_system(&ntn, &ntr_z)?;
+    // Step 6: Solve all three coordinates against one elimination.
+    let sol = solve_banded_system(ntn, &[ntr_x, ntr_y, ntr_z])?;
+    let (sol_x, sol_y, sol_z) = (&sol[0], &sol[1], &sol[2]);
 
     // Step 7: Assemble full control point array
     for j in 0..cols {
@@ -421,7 +458,7 @@ mod tests {
     #[test]
     fn fit_empty_system_solve() {
         // Test solve_linear_system with empty input
-        let result = solve_linear_system(&[], &[]);
+        let result = numerics::solve_linear_system(&[], &[]);
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
     }
@@ -446,3 +483,7 @@ mod tests {
         assert!(val > 0.0);
     }
 }
+
+#[cfg(test)]
+#[path = "fitting/banded_tests.rs"]
+mod banded_tests;

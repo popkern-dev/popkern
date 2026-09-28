@@ -425,6 +425,36 @@ fn degenerate_nurbs_surface(origin: Point3) -> SurfaceGeometry {
     })
 }
 
+/// PK-572: a sub-period window wraps only by the TRUE period, to the
+/// representative nearest the window, and the march exits there. The
+/// former span-modulus wrap moved a sample just below a fillet
+/// torus's azimuth window (1.11977, 2.02182) to just below its top
+/// edge — a different surface point — and the march oscillated for
+/// 200k steps.
+#[test]
+fn sub_period_window_wraps_by_true_period_and_exits() {
+    let w = (1.119_769_514_852_807, 2.021_823_138_736_986_3);
+    let just_below = w.0 - 1e-5;
+    assert!((wrap_parameter(just_below, w, Some(TAU)) - just_below).abs() < 1e-12);
+    assert!(exits_window(just_below, w, Some(TAU)));
+    // A full lap away is the same surface point: folds to the nearer edge.
+    let lapped = wrap_parameter(just_below + 2.0 * TAU, w, Some(TAU));
+    assert!((lapped - just_below).abs() < 1e-12, "lapped {lapped}");
+    let just_above = w.1 + 1e-5;
+    assert!((wrap_parameter(just_above - TAU, w, Some(TAU)) - just_above).abs() < 1e-12);
+    assert!(exits_window(just_above, w, Some(TAU)));
+    // Inside stays put and does not exit.
+    assert_eq!(wrap_parameter(1.5, w, Some(TAU)), 1.5);
+    assert!(!exits_window(1.5, w, Some(TAU)));
+    // A full-period window (a few ULPs short) never exits.
+    let full = (0.0, TAU * (1.0 - 1e-15));
+    assert!(!exits_window(TAU + 0.1, full, Some(TAU)));
+    assert!((wrap_parameter(TAU + 0.1, full, Some(TAU)) - 0.1).abs() < 1e-12);
+    // Non-periodic axes exit on either side.
+    assert!(exits_window(-0.1, (0.0, 1.0), None));
+    assert!(!exits_window(0.5, (0.0, 1.0), None));
+}
+
 /// `wrap_parameter` should return the input unchanged when `period <= 0`.
 ///
 /// This exercises the early-return guard `if period <= 0.0` (the zero-period
