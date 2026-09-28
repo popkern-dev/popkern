@@ -86,6 +86,12 @@ fn oracle_with_self_interference(step: &Path) -> Option<bool> {
     let output = std::process::Command::new(&python)
         .arg(&check)
         .arg("--self-interference")
+        // Content-addressed verdict cache (PK-590): byte-identical
+        // exports replay their stored verdict instead of re-running
+        // the minutes-long self-interference leg; any change to the
+        // written model changes the key and re-runs OCC.
+        .arg("--cache-dir")
+        .arg(Path::new(env!("CARGO_TARGET_TMPDIR")).join("occ-oracle-cache"))
         .arg(step)
         .output()
         .expect("oracle");

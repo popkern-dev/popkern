@@ -6,7 +6,7 @@ The FreeCAD-equivalent acceptance gate for popkern STEP exports
 STEP-consumer conventions; this oracle surfaces them).
 
 Usage:
-    <ocp-venv>/bin/python tools/occ-oracle/occ_check.py [--self-interference] FILE.step [FILE2.step ...]
+    <ocp-venv>/bin/python tools/occ-oracle/occ_check.py [--self-interference] [--cache-dir DIR] FILE.step [FILE2.step ...]
     # venv recreate: python3 -m venv ~/venvs/ocp && ~/venvs/ocp/bin/pip install cadquery-ocp
 
 Output: one JSON object per file on stdout with:
@@ -20,9 +20,24 @@ Output: one JSON object per file on stdout with:
                          self-interference + small-edge verdict and fault
                          statuses — the boolean pre-check a consumer runs
                          before any operation; it catches import-side
-                         tolerance inflation that BRepCheck accepts (PK-524)
+                         tolerance inflation that BRepCheck accepts (PK-524).
+                         Runs OCC's parallel mode: 175 s -> 23 s on a
+                         19-face setback cap (PK-590, same verdict).
+    cached               (with --cache-dir) true when the report was
+                         replayed from the verdict cache
+
+--cache-dir DIR replays a stored report when the SAME bytes were
+checked before under the same checker script, OCP version and flags
+(sha256 key over all four). The oracle is deterministic in those
+inputs, so a replay is the verdict a re-run would give. Any change to
+the exported model changes the key and re-runs OCC (PK-590: the
+self-interference leg set the whole test sweep's wall at 58 min while
+re-checking byte-identical files).
 Exit code 0 iff every file passes: valid, no reader checks, 0 open free bounds.
 """
+
+import hashlib
+import os
 
 import json
 import sys
@@ -168,7 +183,10 @@ def check_file(path, self_interference=False):
             solid_exp.Next()
         faults = set()
         for body in solids or [shape]:
-            check = BRepAlgoAPI_Check(body, True, True)
+            check = BRepAlgoAPI_Check()
+            check.SetData(body, True, True)
+            check.SetRunParallel(True)
+            check.Perform()
             si_ok = si_ok and check.IsValid()
             faults |= {str(res.GetCheckStatus()) for res in check.Result()}
         report["self_interference"] = {
@@ -188,19 +206,64 @@ def check_file(path, self_interference=False):
     return report, passed
 
 
+def cache_key(path, self_interference):
+    """sha256 over the file bytes, this script, the OCP version, flags."""
+    import OCP
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        digest.update(fh.read())
+    with open(os.path.abspath(__file__), "rb") as fh:
+        digest.update(fh.read())
+    digest.update(str(getattr(OCP, "__version__", "unknown")).encode())
+    digest.update(b"si" if self_interference else b"basic")
+    return digest.hexdigest()
+
+
+def cached_check(path, self_interference, cache_dir):
+    """`check_file`, replayed from `cache_dir` when the key matches."""
+    if cache_dir is None:
+        return check_file(path, self_interference)
+    os.makedirs(cache_dir, exist_ok=True)
+    entry = os.path.join(cache_dir, cache_key(path, self_interference) + ".json")
+    if os.path.exists(entry):
+        with open(entry) as fh:
+            stored = json.load(fh)
+        report = dict(stored["report"], file=path, cached=True)
+        return report, stored["passed"]
+    report, passed = check_file(path, self_interference)
+    tmp = entry + ".tmp%d" % os.getpid()
+    with open(tmp, "w") as fh:
+        json.dump({"report": report, "passed": passed}, fh)
+    os.replace(tmp, entry)
+    return dict(report, cached=False), passed
+
+
 def main():
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    if not args:
         print(__doc__, file=sys.stderr)
         return 2
-    self_interference = "--self-interference" in sys.argv[1:]
-    paths = [a for a in sys.argv[1:] if a != "--self-interference"]
+    self_interference = "--self-interference" in args
+    cache_dir = None
+    paths = []
+    i = 0
+    while i < len(args):
+        if args[i] == "--self-interference":
+            pass
+        elif args[i] == "--cache-dir" and i + 1 < len(args):
+            i += 1
+            cache_dir = args[i]
+        else:
+            paths.append(args[i])
+        i += 1
     if not paths:
         print(__doc__, file=sys.stderr)
         return 2
     all_passed = True
     for path in paths:
         try:
-            report, passed = check_file(path, self_interference)
+            report, passed = cached_check(path, self_interference, cache_dir)
         except Exception as exc:  # report per-file, keep sweeping
             report, passed = {"file": path, "fatal": repr(exc)}, False
         all_passed = all_passed and passed
