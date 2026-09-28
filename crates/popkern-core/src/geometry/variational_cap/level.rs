@@ -1,0 +1,337 @@
+//! One refinement level: the hard system, the fixed rim rows, the rim
+//! samples with their neighbour jets, and the solves over the null
+//! space.
+
+use std::sync::Arc;
+
+use faer::Mat;
+
+use super::energy::{Integrand, energy_gram};
+use super::jets::{NeighbourJet, NeighbourSampler};
+use super::linalg::{cholesky, lstsq, solve_lower};
+use super::measure::RimSample;
+use super::nullspace::{HardSystem, hard_system};
+use super::rim::side_rows;
+use super::space::{SectorSpace, gauss_legendre};
+use super::{RimHalf, VariationalCapError, VariationalCapSide};
+use crate::geometry::{Point3, Vec3};
+
+/// Model ↔ normalised frame: `p_model = origin + scale · p`.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Frame {
+    pub origin: Point3,
+    pub scale: f64,
+}
+
+impl Frame {
+    pub fn to_local(self, p: Point3) -> Vec3 {
+        Vec3::new(
+            (p.x - self.origin.x) / self.scale,
+            (p.y - self.origin.y) / self.scale,
+            (p.z - self.origin.z) / self.scale,
+        )
+    }
+}
+
+/// The per-level state.
+pub(super) struct Level {
+    pub space: SectorSpace,
+    pub hs: Arc<HardSystem>,
+    /// Fixed (rim) values per coordinate, in `hs.fixed` order.
+    pub fixed: [Vec<f64>; 3],
+    /// Particular free values per coordinate.
+    pub xp: [Vec<f64>; 3],
+    /// Rim samples with neighbour jets (normalised frame).
+    pub samples: Vec<RimSample>,
+}
+
+/// Build a level: rim rows, consistency check, samples.
+pub(super) fn build_level(
+    space: SectorSpace,
+    sides: &[VariationalCapSide],
+    frame: &Frame,
+) -> Result<Level, VariationalCapError> {
+    let n = space.n;
+    let m = space.m;
+    let hs = hard_system(&space).ok_or(VariationalCapError::Singular {
+        stage: "spoke null space",
+    })?;
+    let mut full: [Vec<f64>; 3] = std::array::from_fn(|_| vec![f64::NAN; space.total()]);
+    fn put(full: &mut [Vec<f64>; 3], idx: usize, p: Vec3) {
+        for (c, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+            full[c][idx] = v;
+        }
+    }
+    let mut params = Vec::with_capacity(n);
+    for (s, side) in sides.iter().enumerate() {
+        let rows = side_rows(&space, side, s)?;
+        let prev = (s + n - 1) % n;
+        for (j, &p) in rows.trailing.iter().enumerate() {
+            put(&mut full, space.index(s, m - 1, j), frame.to_local(p));
+        }
+        // The leading row's last point is corner c_{s−1}, written by side
+        // s−1's trailing row (closure was checked against the tolerance
+        // before any level was built).
+        for (i, &p) in rows.leading.iter().enumerate().take(m - 1) {
+            put(&mut full, space.index(prev, i, m - 1), frame.to_local(p));
+        }
+        params.push(rows.params);
+    }
+    let fixed: [Vec<f64>; 3] =
+        std::array::from_fn(|c| hs.fixed.iter().map(|&i| full[c][i]).collect());
+    if fixed.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(VariationalCapError::Inconsistent {
+            stage: "rim rows incomplete",
+            residual: f64::INFINITY,
+        });
+    }
+    let mut xp: [Vec<f64>; 3] = Default::default();
+    for c in 0..3 {
+        let (x, residual) = hs.particular(&fixed[c]);
+        if residual > 1.0e-9 {
+            return Err(VariationalCapError::Inconsistent {
+                stage: "spoke rows against rim rows",
+                residual,
+            });
+        }
+        xp[c] = x;
+    }
+    let samples = rim_samples(&space, sides, frame, &params)?;
+    Ok(Level {
+        space,
+        hs,
+        fixed,
+        xp,
+        samples,
+    })
+}
+
+/// Gauss samples on every rim half (`degree + 3` per span) plus both
+/// ends, each with its neighbour jet in the normalised frame.
+fn rim_samples(
+    space: &SectorSpace,
+    sides: &[VariationalCapSide],
+    frame: &Frame,
+    params: &[(f64, f64, f64)],
+) -> Result<Vec<RimSample>, VariationalCapError> {
+    let n = space.n;
+    let nodes = gauss_legendre(space.degree + 3);
+    let mut xs: Vec<f64> = vec![0.0];
+    for (a, b) in space.spans() {
+        xs.extend(nodes.iter().map(|&(x, _)| a + (b - a) * x));
+    }
+    xs.push(1.0);
+    let mut out = Vec::new();
+    for (s, side) in sides.iter().enumerate() {
+        let (t0, tm, t1) = params[s];
+        for half in [RimHalf::Leading, RimHalf::Trailing] {
+            let mut sampler = NeighbourSampler::new(&side.neighbour, side.neighbour_reversed)
+                .map_err(|reason| VariationalCapError::NeighbourJet {
+                    side: s,
+                    at: tm,
+                    reason,
+                })?;
+            let (sector, sign, h) = match half {
+                RimHalf::Trailing => (s, 1.0, t1 - tm),
+                RimHalf::Leading => ((s + n - 1) % n, -1.0, tm - t0),
+            };
+            for &x in &xs {
+                let t = tm + sign * x * h;
+                let p = crate::geometry::curve::CurveEval::point_at(&side.curve, t);
+                let model =
+                    sampler
+                        .jet_at(&p)
+                        .map_err(|reason| VariationalCapError::NeighbourJet {
+                            side: s,
+                            at: t,
+                            reason,
+                        })?;
+                out.push(RimSample {
+                    side: s,
+                    half,
+                    sector,
+                    x,
+                    t,
+                    jet: localise(&model, frame),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// A model-frame jet in the normalised frame (curvature × scale).
+fn localise(jet: &NeighbourJet, frame: &Frame) -> NeighbourJet {
+    let mut form = jet.form;
+    for row in &mut form {
+        for v in row.iter_mut() {
+            *v *= frame.scale;
+        }
+    }
+    let foot = frame.to_local(jet.foot);
+    NeighbourJet {
+        foot: Point3::new(foot.x, foot.y, foot.z),
+        normal: jet.normal,
+        form,
+    }
+}
+
+/// The energy reduced to the null space and Cholesky-compressed:
+/// `E(y) ∝ ‖Lᵀ y + r‖²` over `y = [y_x; y_y; y_z]`.
+pub(super) struct EnergyFactor {
+    pub l: Mat<f64>,
+    pub r: Vec<f64>,
+}
+
+/// Reduce the energy onto `level`'s null space. The Gram is normalised
+/// to unit mean diagonal, so the fairness weight is a relative weight
+/// per unknown.
+pub(super) fn energy_factor(
+    level: &Level,
+    integrand: &Integrand<'_>,
+) -> Result<EnergyFactor, VariationalCapError> {
+    use faer::linalg::matmul::matmul;
+    let space = &level.space;
+    let hs = &level.hs;
+    let k = hs.dim();
+    let gram = energy_gram(space, integrand);
+    let per = space.m * space.m;
+    let size = gram.size;
+    let mut g = Mat::<f64>::zeros(3 * k, 3 * k);
+    let mut h = vec![0.0; 3 * k];
+    for (s, block) in gram.blocks.iter().enumerate() {
+        let base = s * per;
+        let free_local: Vec<(usize, usize)> = (0..per)
+            .filter_map(|l| match hs.slots[base + l] {
+                (false, r) => Some((l, r)),
+                _ => None,
+            })
+            .collect();
+        let fixed_local: Vec<(usize, usize)> = (0..per)
+            .filter_map(|l| match hs.slots[base + l] {
+                (true, r) => Some((l, r)),
+                _ => None,
+            })
+            .collect();
+        let fl = free_local.len();
+        let zs = Mat::from_fn(fl, k, |a, j| hs.z.read(free_local[a].1, j));
+        for c in 0..3 {
+            for d in 0..3 {
+                let e_uu = Mat::from_fn(fl, fl, |a, b| {
+                    block[(c * per + free_local[a].0) * size + d * per + free_local[b].0]
+                });
+                if (0..fl).all(|a| (0..fl).all(|b| e_uu.read(a, b) == 0.0)) {
+                    continue;
+                }
+                let mut ez = Mat::<f64>::zeros(fl, k);
+                matmul(
+                    ez.as_mut(),
+                    e_uu.as_ref(),
+                    zs.as_ref(),
+                    None,
+                    1.0,
+                    faer::Parallelism::None,
+                );
+                let mut zez = Mat::<f64>::zeros(k, k);
+                matmul(
+                    zez.as_mut(),
+                    zs.transpose(),
+                    ez.as_ref(),
+                    None,
+                    1.0,
+                    faer::Parallelism::None,
+                );
+                for i in 0..k {
+                    for j in 0..k {
+                        let at = (c * k + i, d * k + j);
+                        g.write(at.0, at.1, g.read(at.0, at.1) + zez.read(i, j));
+                    }
+                }
+                // Constants: E_cd (x_p,d on free rows, f_d on fixed rows).
+                let mut ex = vec![0.0; fl];
+                for (a, &(la, _)) in free_local.iter().enumerate() {
+                    let row = (c * per + la) * size + d * per;
+                    let mut acc = 0.0;
+                    for &(lb, rb) in &free_local {
+                        acc += block[row + lb] * level.xp[d][rb];
+                    }
+                    for &(lb, rb) in &fixed_local {
+                        acc += block[row + lb] * level.fixed[d][rb];
+                    }
+                    ex[a] = acc;
+                }
+                for i in 0..k {
+                    h[c * k + i] += (0..fl).map(|a| zs.read(a, i) * ex[a]).sum::<f64>();
+                }
+            }
+        }
+    }
+    let dim = 3 * k;
+    let mean_diag = (0..dim).map(|i| g.read(i, i)).sum::<f64>() / dim.max(1) as f64;
+    if mean_diag.is_nan() || mean_diag <= 0.0 {
+        return Err(VariationalCapError::Singular { stage: "energy" });
+    }
+    for i in 0..dim {
+        for j in 0..dim {
+            g.write(i, j, g.read(i, j) / mean_diag);
+        }
+        g.write(i, i, g.read(i, i) + 1e-12);
+    }
+    let l = cholesky(g).ok_or(VariationalCapError::Singular { stage: "energy" })?;
+    let hn: Vec<f64> = h.iter().map(|v| v / mean_diag).collect();
+    let r = solve_lower(&l, &hn);
+    Ok(EnergyFactor { l, r })
+}
+
+/// Minimise `λ ‖Lᵀ y + r‖² + ‖A y − b‖²` by stacked QR.
+pub(super) fn solve(
+    energy: &EnergyFactor,
+    lambda: f64,
+    rim: Option<(&Mat<f64>, &[f64])>,
+) -> Result<[Vec<f64>; 3], VariationalCapError> {
+    let dim = energy.l.nrows();
+    let k = dim / 3;
+    let extra = rim.map_or(0, |(a, _)| a.nrows());
+    let sl = lambda.sqrt();
+    let mut a = Mat::<f64>::zeros(dim + extra, dim);
+    let mut b = Mat::<f64>::zeros(dim + extra, 1);
+    for i in 0..dim {
+        for j in 0..=i {
+            // Row j of Lᵀ holds L[i][j] at column i >= j.
+            a.write(j, i, sl * energy.l.read(i, j));
+        }
+        b.write(i, 0, -sl * energy.r[i]);
+    }
+    if let Some((rows, rhs)) = rim {
+        for (i, &value) in rhs.iter().enumerate().take(rows.nrows()) {
+            for j in 0..dim {
+                a.write(dim + i, j, rows.read(i, j));
+            }
+            b.write(dim + i, 0, value);
+        }
+    }
+    let x = lstsq(a, b, 1e-12).ok_or(VariationalCapError::Singular { stage: "fit" })?;
+    Ok(std::array::from_fn(|c| {
+        (0..k).map(|i| x.read(c * k + i, 0)).collect()
+    }))
+}
+
+/// Full coefficient vectors from null-space coordinates.
+pub(super) fn assemble(level: &Level, y: &[Vec<f64>; 3]) -> [Vec<f64>; 3] {
+    let hs = &level.hs;
+    let k = hs.dim();
+    std::array::from_fn(|c| {
+        let mut x = vec![0.0; level.space.total()];
+        for (r, &i) in hs.free.iter().enumerate() {
+            let mut v = level.xp[c][r];
+            for (j, &yj) in y[c].iter().enumerate().take(k) {
+                v += hs.z.read(r, j) * yj;
+            }
+            x[i] = v;
+        }
+        for (r, &i) in hs.fixed.iter().enumerate() {
+            x[i] = level.fixed[c][r];
+        }
+        x
+    })
+}

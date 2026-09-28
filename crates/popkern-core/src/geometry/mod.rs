@@ -37,6 +37,7 @@ pub mod surface_helpers;
 pub mod trim_domain;
 pub mod uv_projection;
 pub(crate) mod uv_projection_face_box;
+pub mod variational_cap;
 pub mod vector;
 
 pub use curve::{CurveEval, CurveGeometry, CurveOnEdge};
