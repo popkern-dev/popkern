@@ -13,15 +13,53 @@ use popkern_mesh::{MeshError, TessellationOptions, TriMesh};
 
 use crate::envelope::BodyMesh;
 
-/// Tessellate `brep` into buffers. `label_face` spells a face's stable
-/// name (or answers `None` for an unnamed face).
+/// Angular facet bound of the ANALYSIS mesh the zebra view renders
+/// from (PK-577). At the 12° display bound the zebra flips the stripe
+/// band on 3–10% of pixels on curved NURBS parts. At 6° the worst
+/// gallery part is 5.6% (pyramid_apex 0.8%). Shaded views stay on the
+/// display mesh.
+pub const ANALYSIS_MAX_FACET_ANGLE_DEG: f64 = 6.0;
+
+/// Largest estimated analysis mesh the zebra view builds: 300k
+/// triangles, about 8 MB of position, normal and index buffers.
+pub const ANALYSIS_TRIANGLE_BUDGET: usize = 300_000;
+
+/// The analysis tessellation: the display preset at
+/// [`ANALYSIS_MAX_FACET_ANGLE_DEG`].
+pub fn analysis_options() -> TessellationOptions {
+    TessellationOptions {
+        max_facet_angle: ANALYSIS_MAX_FACET_ANGLE_DEG.to_radians(),
+        ..TessellationOptions::display()
+    }
+}
+
+/// What a body mesh is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshPurpose {
+    /// Shaded and curvature views: the display preset (12°) with the
+    /// analytic per-vertex curvature fields.
+    Display,
+    /// The zebra view (PK-577): [`analysis_options`] (6°), with no
+    /// curvature fields. Zebra shading reads normals only, and the
+    /// analytic fields over a 6° mesh dominated its cost (coil_spring
+    /// 691 s against about 60 s for the tessellation alone).
+    ZebraAnalysis,
+}
+
+/// Tessellate `brep` into buffers for `purpose`. `label_face` spells a
+/// face's stable name (or answers `None` for an unnamed face).
 pub fn body_mesh(
     brep: &BRep,
     id: u64,
     label: Option<String>,
     label_face: impl Fn(FaceHandle) -> Option<String>,
+    purpose: MeshPurpose,
 ) -> Result<BodyMesh, MeshError> {
-    let mesh = popkern_mesh::tessellate(brep, &TessellationOptions::display())?;
+    let options = match purpose {
+        MeshPurpose::Display => TessellationOptions::display(),
+        MeshPurpose::ZebraAnalysis => analysis_options(),
+    };
+    let mesh = popkern_mesh::tessellate(brep, &options)?;
     let mut face_index: HashMap<FaceHandle, u32> = HashMap::new();
     let mut face_labels = Vec::with_capacity(brep.faces.len());
     for (handle, _) in brep.faces.iter() {
@@ -63,8 +101,13 @@ pub fn body_mesh(
             .map(|f| f.per_vertex.iter().map(|&v| v as f32).collect())
             .unwrap_or_default()
     };
-    let gaussian: Vec<f32> = field(popkern_measure::CurvatureKind::Gaussian);
-    let mean: Vec<f32> = field(popkern_measure::CurvatureKind::Mean);
+    let (gaussian, mean): (Vec<f32>, Vec<f32>) = match purpose {
+        MeshPurpose::Display => (
+            field(popkern_measure::CurvatureKind::Gaussian),
+            field(popkern_measure::CurvatureKind::Mean),
+        ),
+        MeshPurpose::ZebraAnalysis => (Vec::new(), Vec::new()),
+    };
     Ok(BodyMesh {
         id,
         label,

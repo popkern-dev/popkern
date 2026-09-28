@@ -97,6 +97,21 @@ fn worker_protocol_round_trips_under_node_and_cancel_replaces_a_wedged_worker() 
         serde_json::to_value(&native.bodies[0].face_labels).expect("json")
     );
     assert_eq!(out["run"]["params"], native.params.len());
+    // The zebra analysis mesh (PK-577): 6°, finer than the display
+    // mesh, the same buffers as the native engine's.
+    let analysis = &out["analysis"];
+    assert_eq!(analysis["ok"], true, "{analysis}");
+    assert_eq!(analysis["facet_deg"], 6.0);
+    assert_eq!(analysis["triangles"], analysis["buffer_triangles"]);
+    assert!(
+        analysis["triangles"].as_f64() > analysis["display_triangles"].as_f64(),
+        "{analysis}"
+    );
+    let native_analysis = session.analysis_meshes().expect("native analysis mesh");
+    assert_eq!(
+        analysis["indices_fnv"][0].as_str(),
+        Some(fnv1a_u32(&native_analysis[0].indices).to_string().as_str())
+    );
     // Parameter edit replays; a bad name is the ArgumentError class.
     assert_eq!(out["set_param"]["outcome"], "served");
     assert_eq!(out["set_param"]["value"], 0.5);

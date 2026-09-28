@@ -12,7 +12,7 @@ use popkern_script::ContinuityCertification;
 use popkern_script::Model;
 
 use crate::envelope::{BodyMesh, Envelope, ParamRow, WallBudget};
-use crate::mesh_buffers::body_mesh;
+use crate::mesh_buffers::{MeshPurpose, body_mesh};
 
 /// The budgets as the page spells them (JSON).
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -47,6 +47,9 @@ impl RunOptions {
 pub struct Session {
     options: HostOptions,
     model: Option<Model>,
+    /// Display-mesh triangles of the last described model (the analysis
+    /// mesh's budget estimate).
+    last_display_triangles: usize,
 }
 
 impl Session {
@@ -55,6 +58,7 @@ impl Session {
         Session {
             options,
             model: None,
+            last_display_triangles: 0,
         }
     }
 
@@ -194,6 +198,40 @@ impl Session {
     /// mesh per alive body. A served outcome becomes a kernel decline
     /// when the last replay recorded a failed feature, and a gate
     /// failure when a body will not tessellate.
+    /// The live bodies re-meshed at the zebra ANALYSIS bound
+    /// ([`crate::mesh_buffers::analysis_options`], PK-577), in the same
+    /// order as the last envelope's bodies.
+    ///
+    /// Fallback boundary: the analysis mesh has about four times the
+    /// display mesh's triangles (halving the facet angle quadruples the
+    /// density on curved faces). When that estimate exceeds
+    /// [`crate::mesh_buffers::ANALYSIS_TRIANGLE_BUDGET`], the request
+    /// declines typed and the zebra view keeps the display mesh. The
+    /// mesher's per-face cost grows faster than its triangle count at
+    /// tight bounds (coil_spring: 13x the face-pass time for 3.8x the
+    /// triangles, 50-107 s native), which the page cannot afford.
+    pub fn analysis_meshes(&mut self) -> Result<Vec<BodyMesh>, Outcome> {
+        let display_triangles: usize = self.last_display_triangles;
+        let estimate = 4 * display_triangles;
+        if estimate > crate::mesh_buffers::ANALYSIS_TRIANGLE_BUDGET {
+            return Err(Outcome::GateFailure {
+                step: "analysis_mesh".into(),
+                detail: format!(
+                    "the display mesh has {display_triangles} triangles; the 6° analysis mesh would be about {estimate}, over the {} budget: the zebra view keeps the display mesh",
+                    crate::mesh_buffers::ANALYSIS_TRIANGLE_BUDGET
+                ),
+            });
+        }
+        let model = self.model.as_mut().ok_or_else(no_model)?;
+        match mesh_bodies(model, MeshPurpose::ZebraAnalysis) {
+            (bodies, None) => Ok(bodies),
+            (_, Some(error)) => Err(Outcome::GateFailure {
+                step: "mesh".into(),
+                detail: error,
+            }),
+        }
+    }
+
     fn describe(
         &mut self,
         outcome: Outcome,
@@ -209,29 +247,15 @@ impl Session {
         if let Some(decline) = first_failure(model).filter(|_| outcome.is_served()) {
             outcome = decline;
         }
-        let mut bodies = Vec::new();
-        for body in model.alive_bodies() {
-            let brep = match model.brep_of(body) {
-                Ok(brep) => brep,
-                Err(_) => continue,
+        let (bodies, mesh_error) = mesh_bodies(model, MeshPurpose::Display);
+        self.last_display_triangles = bodies.iter().map(|b| b.indices.len() / 3).sum();
+        if let Some(error) = mesh_error
+            && outcome.is_served()
+        {
+            outcome = Outcome::GateFailure {
+                step: "mesh".into(),
+                detail: error,
             };
-            let label = model.body_label(body);
-            let label_face = |handle| {
-                let name = brep.faces.get(handle)?.name?;
-                let entity = brep.name_pool.get(name)?;
-                model.spell_entity(entity).ok()
-            };
-            match body_mesh(&brep, body.id.0 as u64, label, label_face) {
-                Ok(mesh) => bodies.push(mesh),
-                Err(error) => {
-                    if outcome.is_served() {
-                        outcome = Outcome::GateFailure {
-                            step: "mesh".into(),
-                            detail: error.to_string(),
-                        };
-                    }
-                }
-            }
         }
         Envelope {
             outcome,
@@ -297,4 +321,30 @@ fn params(model: &Model) -> Vec<ParamRow> {
 /// typed arrays over one at a time).
 pub fn body_buffers(bodies: &[BodyMesh], index: usize) -> Option<&BodyMesh> {
     bodies.get(index)
+}
+
+/// Mesh every live body of `model` for `purpose`: the buffers, and the
+/// first meshing error (a body that fails to mesh is skipped).
+fn mesh_bodies(model: &mut Model, purpose: MeshPurpose) -> (Vec<BodyMesh>, Option<String>) {
+    let mut bodies = Vec::new();
+    let mut error = None;
+    for body in model.alive_bodies() {
+        let brep = match model.brep_of(body) {
+            Ok(brep) => brep,
+            Err(_) => continue,
+        };
+        let label = model.body_label(body);
+        let label_face = |handle| {
+            let name = brep.faces.get(handle)?.name?;
+            let entity = brep.name_pool.get(name)?;
+            model.spell_entity(entity).ok()
+        };
+        match body_mesh(&brep, body.id.0 as u64, label, label_face, purpose) {
+            Ok(mesh) => bodies.push(mesh),
+            Err(e) => {
+                error.get_or_insert_with(|| e.to_string());
+            }
+        }
+    }
+    (bodies, error)
 }

@@ -47,6 +47,17 @@ out.run = {
   params: run.envelope.params.length,
 };
 
+// Zebra analysis mesh (PK-577): the same bodies at the 6° bound.
+const analysis = await host.analysisMesh();
+out.analysis = {
+  ok: analysis.ok,
+  facet_deg: analysis.stats?.facet_deg ?? null,
+  triangles: analysis.stats?.triangles ?? null,
+  buffer_triangles: (analysis.buffers ?? []).reduce((n, b) => n + b.indices.length / 3, 0),
+  display_triangles: run.buffers.reduce((n, b) => n + b.indices.length / 3, 0),
+  indices_fnv: (analysis.buffers ?? []).map((b) => fnv1a(bytesOf(b.indices))),
+};
+
 const edited = await host.setParam("extrude-1.distance", 0.5);
 out.set_param = {
   outcome: edited.envelope.outcome,

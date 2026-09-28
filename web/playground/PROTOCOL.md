@@ -25,6 +25,7 @@ its budgets, and a hostile script must not be able to wedge the page.
 | `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
 | `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
 | `export_pkn` | — | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
+| `analysis_mesh` | — | `{ ok: true, stats: { facet_deg, triangles, mesh_ms }, buffers }` or `{ ok: false, outcome }` — the live bodies re-meshed at the zebra analysis bound (6°), one `{ positions, normals, indices, face_ids }` per body in envelope order; cached until the next `run`/`set_param` |
 | `stats` | — | `{ ok: true, wasm_memory_bytes: number \| null, body_count }` — the module's linear memory size (grows, never shrinks) |
 
 `init` must be the first message; it loads the wasm module, registers

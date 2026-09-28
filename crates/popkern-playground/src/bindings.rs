@@ -50,6 +50,9 @@ pub fn protocol_version() -> String {
 pub struct Playground {
     session: Session,
     bodies: Vec<BodyMesh>,
+    /// The zebra analysis meshes of the current model (PK-577), built on
+    /// the first `analysis_mesh` request after a run.
+    analysis: Vec<BodyMesh>,
 }
 
 #[wasm_bindgen]
@@ -68,6 +71,7 @@ impl Playground {
         Ok(Playground {
             session: Session::new(options.host()),
             bodies: Vec::new(),
+            analysis: Vec::new(),
         })
     }
 
@@ -77,6 +81,7 @@ impl Playground {
         let envelope = self.session.run(source, name);
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
+        self.analysis.clear();
         json
     }
 
@@ -85,6 +90,7 @@ impl Playground {
         let envelope = self.session.set_param(name, value);
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
+        self.analysis.clear();
         json
     }
 
@@ -160,6 +166,60 @@ impl Playground {
         self.bodies
             .get(index)
             .map(|b| b.face_ids.clone())
+            .unwrap_or_default()
+    }
+
+    /// Re-mesh the live bodies at the zebra analysis bound (6°, PK-577)
+    /// and keep the buffers until the next run or parameter edit. The
+    /// JSON reply: `{"ok": true, "facet_deg", "triangles", "mesh_ms"}`,
+    /// or `{"ok": false, "outcome": ...}`.
+    pub fn analysis_mesh(&mut self) -> String {
+        let started = performance_now_ms();
+        match self.session.analysis_meshes() {
+            Ok(bodies) => {
+                let triangles: usize = bodies.iter().map(|b| b.indices.len() / 3).sum();
+                self.analysis = bodies;
+                let elapsed = performance_now_ms() - started;
+                let mesh_ms = if elapsed.is_finite() {
+                    serde_json::json!(elapsed)
+                } else {
+                    serde_json::Value::Null
+                };
+                serde_json::json!({
+                    "ok": true,
+                    "facet_deg": crate::mesh_buffers::ANALYSIS_MAX_FACET_ANGLE_DEG,
+                    "triangles": triangles,
+                    "mesh_ms": mesh_ms,
+                })
+                .to_string()
+            }
+            Err(outcome) => serde_json::json!({ "ok": false, "outcome": outcome }).to_string(),
+        }
+    }
+
+    /// Analysis-mesh buffers of body `index`, by `field`: `"positions"`
+    /// and `"normals"` (`Float32Array`). Empty before `analysis_mesh`.
+    pub fn analysis_f32(&self, index: usize, field: &str) -> Vec<f32> {
+        self.analysis
+            .get(index)
+            .map(|b| match field {
+                "positions" => b.positions.clone(),
+                "normals" => b.normals.clone(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// Analysis-mesh buffers of body `index`, by `field`: `"indices"`
+    /// and `"face_ids"` (`Uint32Array`). Empty before `analysis_mesh`.
+    pub fn analysis_u32(&self, index: usize, field: &str) -> Vec<u32> {
+        self.analysis
+            .get(index)
+            .map(|b| match field {
+                "indices" => b.indices.clone(),
+                "face_ids" => b.face_ids.clone(),
+                _ => Vec::new(),
+            })
             .unwrap_or_default()
     }
 

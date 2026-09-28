@@ -245,9 +245,17 @@ export class Viewer {
     this.render();
   }
 
-  /** Replace the scene with the envelope's bodies and their buffers. */
-  show(bodies, buffers) {
-    this.lastShown = { bodies, buffers };
+  /** Zebra analysis buffers for the shown model (PK-577), or `null`. */
+  setAnalysis(buffers) {
+    this.analysis = buffers;
+  }
+
+  /** Replace the scene with the envelope's bodies and their buffers.
+   *  The zebra view draws the analysis mesh when one is loaded. */
+  show(bodies, displayBuffers) {
+    this.lastShown = { bodies, buffers: displayBuffers };
+    const buffers =
+      this.mode === "zebra" && this.analysis?.length === bodies.length ? this.analysis : displayBuffers;
     this.group.clear();
     this.bodies = [];
     this.zebraMaterials = [];

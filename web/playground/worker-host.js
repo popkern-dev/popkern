@@ -120,6 +120,11 @@ export class WorkerHost {
     return this.request({ type: "export_pkn" });
   }
 
+  /** The zebra analysis mesh of the current model (PK-577). */
+  analysisMesh() {
+    return this.request({ type: "analysis_mesh" });
+  }
+
   stats() {
     return this.request({ type: "stats" });
   }

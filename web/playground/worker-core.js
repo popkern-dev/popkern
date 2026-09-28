@@ -107,6 +107,28 @@ export function createHandler(pkg, loadModule) {
           return bytesReply(id, () => playground.export_step(String(message.name ?? "model")));
         case "export_pkn":
           return bytesReply(id, () => playground.export_pkn());
+        case "analysis_mesh": {
+          // Zebra analysis mesh (PK-577): the live bodies at the 6°
+          // facet bound, same order as the last envelope's bodies.
+          const stats = JSON.parse(playground.analysis_mesh());
+          if (!stats.ok) {
+            return { reply: { id, ok: false, outcome: stats.outcome }, transfer: [] };
+          }
+          const buffers = [];
+          const transfer = [];
+          for (let i = 0; i < playground.body_count(); i++) {
+            const body = {
+              positions: playground.analysis_f32(i, "positions"),
+              normals: playground.analysis_f32(i, "normals"),
+              indices: playground.analysis_u32(i, "indices"),
+              face_ids: playground.analysis_u32(i, "face_ids"),
+            };
+            buffers.push(body);
+            transfer.push(body.positions.buffer, body.normals.buffer, body.indices.buffer, body.face_ids.buffer);
+          }
+          delete stats.ok;
+          return { reply: { id, ok: true, stats, buffers }, transfer };
+        }
         case "stats":
           return {
             reply: {

@@ -77,8 +77,10 @@ class Page {
     $("run").addEventListener("click", () => this.run());
     $("cancel").addEventListener("click", () => this.cancel("cancelled by the user"));
     $("fit").addEventListener("click", () => this.viewer.fitAgain());
-    $("view-mode").addEventListener("change", (e) => {
-      this.viewer.setMode(e.target.value);
+    $("view-mode").addEventListener("change", async (e) => {
+      const mode = e.target.value;
+      if (mode === "zebra") await this.ensureAnalysisMesh();
+      this.viewer.setMode(mode);
     });
     $("edges").addEventListener("change", (e) => {
       this.viewer.toggleEdges(e.target.checked);
@@ -129,7 +131,7 @@ class Page {
     clearTimeout(this.cancelTimer);
     this.running = false;
     $("run").disabled = false;
-    this.receive(reply);
+    await this.receive(reply);
     if (this.rerun) this.run();
     return reply;
   }
@@ -144,7 +146,7 @@ class Page {
     this.status(`${reason} — kernel restarted`, true);
   }
 
-  receive(reply) {
+  async receive(reply) {
     if (!reply.ok) {
       this.showOutcome(reply.outcome);
       return;
@@ -158,6 +160,8 @@ class Page {
     }
     if (envelope.outcome === "served") {
       this.lastGood = { envelope, buffers };
+      this.viewer.setAnalysis(null);
+      if (this.viewer.mode === "zebra") await this.ensureAnalysisMesh();
       this.viewer.show(envelope.bodies, buffers);
       this.editor.mark(null);
       $("overlay").hidden = true;
@@ -193,6 +197,26 @@ class Page {
       $("overlay-goto").hidden = true;
     }
     this.status(`${outcome.outcome.replace("_", " ")}: ${outcome.kind ?? outcome.step}${this.lastGood ? " (showing the last good model)" : ""}`, true);
+  }
+
+  /** The zebra view renders from a finer ANALYSIS mesh (6°, PK-577):
+   *  fetched once per served model, kept until the next run. On a
+   *  failure the zebra view falls back to the display mesh. */
+  async ensureAnalysisMesh() {
+    const good = this.lastGood;
+    if (!good || good.analysis) return;
+    const reply = await this.host.analysisMesh();
+    if (this.lastGood !== good) return;
+    if (!reply?.ok) {
+      const why = reply?.outcome?.detail ?? "unavailable";
+      this.status(`zebra: ${why}`, reply?.outcome?.step !== "analysis_mesh");
+      return;
+    }
+    good.analysis = reply.buffers;
+    this.viewer.setAnalysis(reply.buffers);
+    const { triangles, mesh_ms, facet_deg } = reply.stats;
+    const ms = mesh_ms == null ? "" : ` in ${mesh_ms.toFixed(0)} ms`;
+    this.status(`zebra: ${triangles} triangles at ${facet_deg}°${ms}`);
   }
 
   /** Certify the served model's deferred seams slice by slice, then
@@ -295,7 +319,7 @@ class Page {
     this.status(`replaying with ${name} = ${value}…`);
     const reply = await this.host.setParam(name, value);
     this.running = false;
-    this.receive(reply);
+    await this.receive(reply);
     return reply;
   }
 
