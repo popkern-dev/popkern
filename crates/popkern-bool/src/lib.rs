@@ -57,6 +57,7 @@ pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
 pub(crate) mod merge;
 pub mod merge_fallback;
+pub(crate) mod periodic_chart_parity;
 pub(crate) mod record_side_witness;
 
 /// PK-478 E1 diagnostic export (see `merge::closed_side_census`):

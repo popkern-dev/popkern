@@ -341,9 +341,10 @@ pub(super) fn multi_turn_band_hit(
     _tolerance: &Tolerance,
 ) -> Option<bool> {
     use popkern_core::geometry::SurfaceEval as _;
-    // Analytic periodic charts fold the hit onto the boundary's
-    // branch; helical NURBS bands (thread groove walls) test in
-    // their own chart directly. Everything else keeps tuned gates.
+    // Analytic periodic charts decide by exact parity over every
+    // period lift of the trim; helical NURBS bands (thread groove
+    // walls) test in their own chart directly. Everything else keeps
+    // tuned gates.
     let period = match surface {
         SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. } => {
             let p = surface.parameter_periodicity().0?;
@@ -376,71 +377,72 @@ pub(super) fn multi_turn_band_hit(
     if outer.len() < min_pieces {
         return None;
     }
-    let mut polygon: Vec<(f64, f64)> = Vec::new();
+    let mut loops: Vec<Vec<(f64, f64)>> = Vec::new();
     for contour in
         std::iter::once(outer).chain(crate::clip::face_uv_inner_boundaries(brep, face_handle))
     {
+        let mut ring: Vec<(f64, f64)> = Vec::new();
         for (_he, pcurve) in &contour {
             let (t0, t1) = pcurve.parameter_range();
             for i in 0..64 {
                 let t = t0 + (t1 - t0) * i as f64 / 64.0;
                 let q = pcurve.point_at(t);
-                polygon.push((q.x, q.y));
+                ring.push((q.x, q.y));
             }
         }
+        loops.push(ring);
     }
+    let polygon: Vec<(f64, f64)> = loops.iter().flatten().copied().collect();
     if polygon.len() < 3 {
         return None;
     }
-    let (u_lo, u_hi) = polygon
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
-            (lo.min(q.0), hi.max(q.0))
-        });
-    // Every whole-period branch of the hit the boundary's u extent
-    // reaches (PK-555): a helical band's trim unrolls SEVERAL periods,
-    // so the hit's point lies on the face in whichever branch falls
-    // inside the polygon — folding onto the single branch nearest the
-    // polygon's centre read the tapped wall's crest band as missed
-    // (odd parity, void kept) as soon as its rim pcurve moved the
-    // centre by a period. NURBS band charts are aperiodic: no fold.
-    let branches: Vec<f64> = match period {
-        Some(p) => {
-            let k_lo = ((u_lo - u) / p).floor() as i64;
-            let k_hi = ((u_hi - u) / p).ceil() as i64;
-            (k_lo..=k_hi).map(|k| u + k as f64 * p).collect()
+    // Analytic periodic bands: exact even-odd along the open v axis
+    // over every period lift, loop by loop. A horizontal test on the
+    // FOLDED polygon (the former rule here) has no seam segments: its
+    // turn pieces end at u = 0 and restart at u = period. A crest strip
+    // that wraps the seam at the query height therefore read as its
+    // complement (PK-566: a bore-void ray took a phantom crest-band
+    // hit 0.6 turns off the strip, and a void point on the M6 nut
+    // classified Inside). See `crate::periodic_chart_parity`.
+    if let Some(p) = period {
+        let (v_lo, v_hi) = polygon
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
+                (lo.min(q.1), hi.max(q.1))
+            });
+        let eps = (v_hi - v_lo).abs() * 1e-6 + 1e-9;
+        let rings: Vec<&[(f64, f64)]> = loops.iter().map(|l| l.as_slice()).collect();
+        let inside = v >= v_lo - eps
+            && v <= v_hi + eps
+            && crate::periodic_chart_parity::contains_on_u_periodic_chart(&rings, u, v, p);
+        if popkern_core::trace::trace_enabled("ray-classify") {
+            eprintln!(
+                "  [band-gate] {face_handle:?} uv=({u:.3},{v:.3}) periodic parity inside={inside}"
+            );
         }
-        None => vec![u],
-    };
-    // Even-odd along the +u ray at height v; the MULTI-BAND signature
-    // is >= 3 crossings at this v (a helical band's turns tile the
-    // strip; a plain wall or drilled boss crosses at most twice, and
-    // those keep the tuned coarse gates untouched).
+        return Some(inside);
+    }
+    // Aperiodic NURBS band charts (thread groove walls): even-odd
+    // along the +u ray at height v in the face's own chart. The
+    // MULTI-BAND signature is >= 3 crossings at this v (a helical
+    // band's turns tile the strip).
     let n = polygon.len();
     let mut crossings = 0usize;
-    let mut inside_at = vec![false; branches.len()];
+    let mut inside = false;
     for i in 0..n {
         let (x0, y0) = polygon[i];
         let (x1, y1) = polygon[(i + 1) % n];
         if (y0 > v) != (y1 > v) {
             crossings += 1;
             let x_cross = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
-            for (inside, &uq) in inside_at.iter_mut().zip(&branches) {
-                if x_cross > uq {
-                    *inside = !*inside;
-                }
+            if x_cross > u {
+                inside = !inside;
             }
         }
     }
-    let inside = inside_at.iter().any(|&b| b);
-    let uq = branches
-        .iter()
-        .zip(&inside_at)
-        .find(|(_, b)| **b)
-        .map_or(u, |(&uq, _)| uq);
     if popkern_core::trace::trace_enabled("ray-classify") {
         eprintln!(
-            "  [band-gate] {face_handle:?} uv=({u:.3},{v:.3}) uq={uq:.3} crossings={crossings} inside={inside}"
+            "  [band-gate] {face_handle:?} uv=({u:.3},{v:.3}) crossings={crossings} inside={inside}"
         );
     }
     if crossings == 0 {

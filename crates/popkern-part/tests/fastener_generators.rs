@@ -109,6 +109,7 @@ fn m6_bolt_nine_turn_thread_serves_watertight() {
 #[test]
 fn m6_nut_with_chamfers_serves_watertight() {
     let spec = ThreadSpec::parse("M6").expect("M6");
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
     let nut = HexNut::new(spec)
         .clearance(0.15)
         .build(Tolerance::default())
@@ -118,6 +119,35 @@ fn m6_nut_with_chamfers_serves_watertight() {
     assert!(
         lo[2].abs() < 1e-6 && (hi[2] - 5.2).abs() < 1e-6,
         "ISO thickness 5.2"
+    );
+    assert_cellular_served("M6 nut, clearance 0.15");
+}
+
+/// PK-566: at clearance 0.2 both mouth-chamfer cuts fell back from
+/// cellular. The chamfer cone's two threaded-band fragments wrap the
+/// cone seam with S-shaped loops, and the periodic-fold interior
+/// sampler placed each one's sample in the OTHER fragment's region,
+/// so their Inside/Outside verdicts swapped (the tool's apex ring
+/// was kept, the mouth ring dropped). Every boolean of the nut must
+/// now serve through the cellular pipeline.
+#[test]
+fn m6_nut_clearance_0p2_mouth_chamfers_serve_cellular() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let nut = HexNut::new(spec)
+        .clearance(0.2)
+        .build(Tolerance::default())
+        .expect("nut");
+    assert_eq!(nut.open_edge_count().expect("mesh"), 0, "watertight");
+    assert_cellular_served("M6 nut, clearance 0.2");
+}
+
+fn assert_cellular_served(fixture: &str) {
+    let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+    assert!(
+        fallbacks.is_empty(),
+        "{fixture}: {} boolean(s) fell back to graph-merge: {fallbacks:?}",
+        fallbacks.len()
     );
 }
 

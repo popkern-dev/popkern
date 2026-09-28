@@ -109,6 +109,56 @@ pub(super) fn fragment_interior_sample(
     if let Some(p) = u_period.filter(|p| u_hi - u_lo >= p * (1.0 - 1e-9)) {
         let anchor = outer_x[0];
         let fold = |u: f64| -> f64 { u - p * ((u - anchor) / p).floor() };
+        // Open-v charts (cylinders, cones, closed-profile
+        // extrusions): decide every fold arc by exact even-odd
+        // containment over all period lifts of the loops, and cancel
+        // coincident crossings in pairs (a seam edge's u = 0 and
+        // u = period copies). See `crate::periodic_chart_parity`.
+        if surface.parameter_periodicity().1.is_none() {
+            use crate::periodic_chart_parity::{
+                cancel_coincident_pairs, contains_on_u_periodic_chart,
+            };
+            let raw: Vec<f64> = outer_x
+                .iter()
+                .copied()
+                .chain(inners.iter().flat_map(|i| crossings_at(i, cv)))
+                .map(fold)
+                .collect();
+            let xs = cancel_coincident_pairs(raw, p * 1e-9);
+            let loops: Vec<&[(f64, f64)]> = std::iter::once(outer.as_slice())
+                .chain(inners.iter().map(|i| i.as_slice()))
+                .collect();
+            let arcs: Vec<(f64, f64)> = if xs.is_empty() {
+                vec![(anchor, anchor + p)]
+            } else {
+                (0..xs.len())
+                    .map(|i| {
+                        let b = xs.get(i + 1).copied().unwrap_or(xs[0] + p);
+                        (xs[i], b)
+                    })
+                    .collect()
+            };
+            let mut best: Option<(f64, f64)> = None;
+            for (a, b) in arcs {
+                let mid = 0.5 * (a + b);
+                let material = contains_on_u_periodic_chart(&loops, mid, cv, p);
+                if popkern_core::trace::trace_enabled("face-selection") {
+                    eprintln!(
+                        "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} contains={material}"
+                    );
+                }
+                if material && best.map(|(bw, _)| b - a > bw).unwrap_or(true) {
+                    best = Some((b - a, mid));
+                }
+            }
+            let (_, mid_u) = best?;
+            if popkern_core::trace::trace_enabled("face-selection") {
+                eprintln!(
+                    "      [selpoly] periodic-parity scan cv={cv:.3} xs={xs:?} -> mid_u={mid_u:.3}"
+                );
+            }
+            return Some(surface.point_at(mid_u, cv));
+        }
         let inner_folded: Vec<Vec<f64>> = inners
             .iter()
             .map(|i| crossings_at(i, cv).into_iter().map(fold).collect())
