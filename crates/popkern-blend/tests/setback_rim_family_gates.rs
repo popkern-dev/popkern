@@ -89,7 +89,32 @@ fn family() -> Vec<Fixture> {
             radii: vec![0.02, 0.04, 0.06, 0.04, 0.02],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[4],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[4]),
-            achieved: ContinuityLevel::G1,
+            // G2 since PK-582 (PK-580): its failing "fan-internal"
+            // cap-cap seams were the spokes carrying the rim's junction
+            // translation (certified curvature-jump LOWER bounds
+            // 0.050-0.075 on edges 8/10/50/52). The spoke re-reconcile
+            // certifies every seam under the 5e-2 gate.
+            achieved: ContinuityLevel::G2,
+        },
+        Fixture {
+            name: "hexagon6_variable",
+            n: 6,
+            height: 0.8,
+            radii: vec![0.02, 0.04, 0.06, 0.06, 0.04, 0.02],
+            rim_g2_bar: 1.25 * RIM_G2_MEASURED[5],
+            rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[5]),
+            // G1 without PK-582's spoke re-reconcile, like
+            // pentagon5_variable (PK-580 row 905).
+            achieved: ContinuityLevel::G2,
+        },
+        Fixture {
+            name: "octagon8_mixed",
+            n: 8,
+            height: 0.8,
+            radii: vec![0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06],
+            rim_g2_bar: 1.25 * RIM_G2_MEASURED[6],
+            rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[6]),
+            achieved: ContinuityLevel::G2,
         },
     ]
 }
@@ -103,12 +128,20 @@ fn family() -> Vec<Fixture> {
 /// to 0 and the junction point is pinned by the spoke boundary cell.
 /// pentagon5_blunt stays +13% from the band refit: the setback-corner
 /// k = 2 cell is the neighbour rim's fixed cross-curvature end cell.
-const RIM_G2_MEASURED: [f64; 5] = [4.054e-5, 6.753e-4, 8.488e-4, 1.817e-4, 1.323e-3];
+///
+/// hexagon6_variable and octagon8_mixed joined the family with PK-582
+/// (measured 2026-09-28); hexagon6_variable's rim carries the same
+/// spoke-junction end layer as pentagon5_variable (PK-581).
+const RIM_G2_MEASURED: [f64; 7] = [
+    4.054e-5, 6.753e-4, 8.488e-4, 1.817e-4, 1.323e-3, 2.481e-3, 7.760e-4,
+];
 
 /// Worst rim g1, in family order, after the PK-584 band refit (was
 /// 6.278e-9 / 1.464e-8 / 1.780e-8 / 8.946e-7 / 1.309e-5: the variable
 /// fixtures' rim tangent no longer tilts off the strip).
-const RIM_G1_MEASURED: [f64; 5] = [7.324e-9, 2.358e-8, 2.552e-8, 1.675e-8, 3.121e-8];
+const RIM_G1_MEASURED: [f64; 7] = [
+    7.324e-9, 2.358e-8, 2.552e-8, 1.675e-8, 3.121e-8, 3.120e-8, 3.868e-8,
+];
 
 /// Rim G1 floor (normal-angle sine): every fixture is under it with at
 /// least 3x margin since PK-584. It was 1e-5, with pentagon5_variable

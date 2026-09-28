@@ -70,6 +70,8 @@ mod setback_rim_curvature;
 mod setback_rim_jet;
 #[path = "setback_rim_stations.rs"]
 mod setback_rim_stations;
+#[path = "setback_spoke_reconcile.rs"]
+mod setback_spoke_reconcile;
 pub(crate) use setback_bezier9::{bezier9_eval, bezier9_extract, bezier9_nearest};
 #[path = "boundary_ring.rs"]
 mod boundary_ring;
@@ -790,6 +792,9 @@ fn build_cap_face_fan(
     // one seam). Spoke seams stay excluded by orders of magnitude —
     // their off-loop distance is half the loop diameter.
     let rim_off_loop_allowance = 2.0e-3_f64.max(2.0 * report.max_strip_movement);
+    // The fan as built, before the rim passes: the spoke re-reconcile
+    // reads each spoke's G1 relation from it (PK-582).
+    let pre_rim = patches.clone();
     setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
         &mut patches,
         fillet_surfaces,
@@ -879,6 +884,29 @@ fn build_cap_face_fan(
         setback_shared_net_unify::reunify_shared_boundary_cps(&mut patches, &shared_groups);
     if popkern_core::trace::trace_enabled("setback") {
         eprintln!("  [rim-unify] worst shared-CP tear closed: {rim_tear:.3e}");
+    }
+    // Spoke re-reconcile (PK-582): the rim passes' junction
+    // translation moves each spoke's boundary near the rim end; re-fit
+    // the spoke's cross cells to its pre-pass G1 relation.
+    {
+        let candidates: Vec<popkern_core::geometry::SurfaceGeometry> = fillet_surfaces
+            .iter()
+            .map(|f| f.surface.clone())
+            .chain(lateral_planes.iter().cloned())
+            .collect();
+        let spokes = setback_spoke_reconcile::reconcile_spokes(
+            &mut patches,
+            &pre_rim,
+            &candidates,
+            &border_loop,
+            rim_off_loop_allowance,
+        );
+        if popkern_core::trace::trace_enabled("setback") {
+            eprintln!(
+                "  [spoke] {} spokes re-fitted, worst relation residual {:.3e} -> {:.3e}",
+                spokes.spokes, spokes.worst_before, spokes.worst_after
+            );
+        }
     }
     // Face ↔ patch assignment by VERTEX-TO-GRID-CORNER agreement,
     // globally greedy over sorted scores. Nearest-centroid matching

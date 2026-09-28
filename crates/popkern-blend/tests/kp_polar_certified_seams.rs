@@ -3,9 +3,11 @@
 //!
 //! The sampled gates bound these seams at 5e-2. The certifier bounds
 //! them over the whole edge:
-//! - plain bi-nonic cap↔cap seams: G1 below 2e-5, G2 below 5e-3
-//!   (subdivision seams 3.4e-7 / 4.0e-4; the five spokes 1.2e-5 /
-//!   3.1e-3 since PK-575, see PK-582);
+//! - plain bi-nonic cap↔cap seams: G1 below 1e-6, G2 below 1e-3
+//!   (subdivision seams ~2e-8 / 3.7e-4; the five spokes 2.9e-7 /
+//!   7.5e-4 since PK-582's spoke re-reconcile, which restores the
+//!   spoke G1 relation after the rim passes: they read 1.2e-5 / 3.1e-3
+//!   from PK-575 to PK-582);
 //! - cylinder strip↔cap seams: G1 below 1e-5 (measured 7e-7), and a
 //!   certified transverse curvature jump of 0.093 (0.52 before PK-575).
 //!   This is the G1 fan's real cap↔strip G2 residual, a certified number
@@ -99,14 +101,13 @@ fn pentagon5_fan_seams_certify_over_the_whole_edge() {
                 cap_cap += 1;
                 assert!(cert.is_certified(), "cap-cap {edge:?}: {cert:?}");
                 // The five SPOKE seams carry the rim's junction
-                // correction since PK-575 (the rim's transverse
+                // translation near their rim ends (the rim's transverse
                 // curvature at a spoke junction is the spoke curve's own
-                // normal curvature): certified g1 1.2e-5, g2 3.1e-3,
-                // against 3.4e-7 / 4.0e-4 before. The re-reconcile of
-                // the spoke's cross rows is PK-582. Subdivision seams
-                // stay at the old class.
+                // normal curvature). PK-582 re-fits their cross rows to
+                // the pre-pass G1 relation: certified g1 2.1-2.9e-7,
+                // g2 6.9-7.5e-4 (1.2e-5 / 3.1e-3 without the re-fit).
                 assert!(
-                    cert.g1_upper < 2e-5 && cert.g2_upper < 5e-3,
+                    cert.g1_upper < 1e-6 && cert.g2_upper < 1e-3,
                     "cap-cap {edge:?}: {cert:?}"
                 );
             }
