@@ -66,17 +66,25 @@ pub(crate) fn sample_all_edges(
         let eval: &dyn CurveEval = &curve.geometry;
         let normal_probe = max_turn.map(|_| crate::facet_angle::EdgeNormalProbe::new(brep, edge));
         // Turn across curve fractions (first, interior…, last): the
-        // incident faces' normal turn, else the curve's tangent turn.
+        // incident faces' normal turn, else the curve's tangent turn,
+        // and the chord's foot error in the bound's units (PK-587: a
+        // helix seam chord on a coil tube turns the normal 1.9° but
+        // shows 5.2° over its midpoint).
         let turn_over = |fr: &[f64], pts: &[Point3]| -> f64 {
-            normal_probe
+            let n = pts.len();
+            let turn = normal_probe
                 .as_ref()
                 .and_then(|p| p.turn(fr))
                 .unwrap_or_else(|| {
-                    let n = pts.len();
                     (1..n - 1)
                         .map(|k| crate::facet_angle::curve_turn(pts[0], pts[k], pts[n - 1]))
                         .fold(0.0, f64::max)
-                })
+                });
+            let foot = normal_probe
+                .as_ref()
+                .and_then(|p| p.foot_error(fr[0], fr[n - 1], pts[0], pts[n - 1]))
+                .map_or(0.0, |e| e / crate::facet_angle::FOOT_SHARE);
+            turn.max(foot)
         };
         let at = |f: f64| eval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f);
         // Adaptive subdivision by chord height — BREADTH-FIRST under

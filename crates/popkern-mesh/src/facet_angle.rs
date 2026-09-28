@@ -23,6 +23,16 @@
 //!   INTO the hook, the off-surface gate declined the flank, and its
 //!   50-turn fallback grid meshed 468k triangles with 2870 open
 //!   edges.
+//! - **Chord-foot error** ([`chord_foot_error`]): the angle between the
+//!   smooth-shaded normal at a chord's midpoint and the surface normal
+//!   at the surface point the midpoint actually lies over. Vertex
+//!   normals cannot see a chord that crosses iso-lines: along a
+//!   helix on a coil tube the normal barely turns at the tube's top,
+//!   so a long seam chord passes the spread bound while its midpoint
+//!   sits on the tube 0.016 in `u` off the vertices' iso-line, where
+//!   the true normal is 5.2° away (PK-587). Radial sagitta (a chord
+//!   across a cylinder or sphere) leaves the foot normal equal to the
+//!   shaded one, so the measure is zero there by construction.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
@@ -69,6 +79,84 @@ pub(crate) fn normal_spread(surface: &SurfaceGeometry, u: (f64, f64), v: (f64, f
         }
     }
     worst
+}
+
+/// Share of the angular facet bound granted to [`chord_foot_error`]:
+/// the displayed-normal error the zebra facet-accuracy gate accepts is
+/// half the bound (PK-578), and a chord's foot error is that error at
+/// its worst interior point.
+pub(crate) const FOOT_SHARE: f64 = 0.5;
+
+/// Gauss–Newton iterations for a chord midpoint's foot point. One step
+/// from the parametric midpoint already lands within the chord's
+/// second-order sagitta; three absorb chart distortion.
+const FOOT_ITERATIONS: usize = 3;
+
+/// Chord-foot normal error (radians) of the chord `pa`–`pb`, whose ends
+/// carry unit surface normals `na`, `nb` and whose parametric midpoint
+/// is `uv_mid`. The error is the angle between the shaded normal at the
+/// chord midpoint (`na + nb`, normalised) and the surface normal at the
+/// midpoint's foot point, which is the closest surface point, found by
+/// Gauss–Newton from `uv_mid`. Sign-agnostic, since facing is the
+/// caller's.
+///
+/// Returns `None`, so the chord does not vote, when the foot is not
+/// local: it lies farther than half the chord from the midpoint
+/// (across a chart singularity or seam), the chart is singular there,
+/// or the shaded normal cancels.
+pub(crate) fn chord_foot_error(
+    surface: &SurfaceGeometry,
+    uv_mid: (f64, f64),
+    (pa, pb): (Point3, Point3),
+    (na, nb): (Vec3, Vec3),
+) -> Option<f64> {
+    let q = Point3::new(
+        0.5 * (pa.x + pb.x),
+        0.5 * (pa.y + pb.y),
+        0.5 * (pa.z + pb.z),
+    );
+    let len = pa.distance_to(&pb);
+    let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    let (per_u, per_v) = surface.parameter_periodicity();
+    let clamp = |x: f64, lo: f64, hi: f64, periodic: bool| {
+        if periodic || !(lo.is_finite() && hi.is_finite()) {
+            x
+        } else {
+            x.clamp(lo, hi)
+        }
+    };
+    let mut uv = uv_mid;
+    for _ in 0..FOOT_ITERATIONS {
+        let s = surface.point_at(uv.0, uv.1);
+        let r = Vec3::new(s.x - q.x, s.y - q.y, s.z - q.z);
+        let (su, sv) = (surface.partial_u(uv.0, uv.1), surface.partial_v(uv.0, uv.1));
+        let (a, b, c) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
+        let det = a * c - b * b;
+        if det.is_nan() || det <= 1e-24 * (a * c).max(1e-300) {
+            return None;
+        }
+        let (g0, g1) = (r.dot(&su), r.dot(&sv));
+        let (du, dv) = ((c * g0 - b * g1) / det, (a * g1 - b * g0) / det);
+        uv = (
+            clamp(uv.0 - du, u0, u1, per_u.is_some()),
+            clamp(uv.1 - dv, v0, v1, per_v.is_some()),
+        );
+        if !(uv.0.is_finite() && uv.1.is_finite()) {
+            return None;
+        }
+    }
+    if surface.point_at(uv.0, uv.1).distance_to(&q) > 0.5 * len
+        || crate::vertex_normal::chart_singular(surface, uv.0, uv.1)
+    {
+        return None;
+    }
+    let n = crate::vertex_normal::limit_normal(surface, uv.0, uv.1)?;
+    let shaded = Vec3::new(na.x + nb.x, na.y + nb.y, na.z + nb.z);
+    if shaded.length() < 1e-12 {
+        return None;
+    }
+    let angle = angle_between(n, shaded);
+    Some(angle.min(std::f64::consts::PI - angle))
 }
 
 /// Square-lattice station count for a boundary-first chart under the
@@ -167,6 +255,35 @@ impl<'a> EdgeNormalProbe<'a> {
         Self { traces }
     }
 
+    /// Largest [`chord_foot_error`] (radians) any incident face shows
+    /// for the chord between curve fractions `fa` and `fb` (images
+    /// `pa`, `pb`), or `None` when no face votes.
+    pub(crate) fn foot_error(&self, fa: f64, fb: f64, pa: Point3, pb: Point3) -> Option<f64> {
+        let mut worst: Option<f64> = None;
+        for trace in &self.traces {
+            let (t0, t1) = trace.pcurve.parameter_range();
+            let uv_at = |f: f64| {
+                let t = if trace.reversed {
+                    t1 - (t1 - t0) * f
+                } else {
+                    t0 + (t1 - t0) * f
+                };
+                let uv = trace.pcurve.point_at(t);
+                (uv.x, uv.y)
+            };
+            let (ua, ub, um) = (uv_at(fa), uv_at(fb), uv_at(0.5 * (fa + fb)));
+            let normal =
+                |uv: (f64, f64)| crate::vertex_normal::limit_normal(trace.surface, uv.0, uv.1);
+            let (Some(na), Some(nb)) = (normal(ua), normal(ub)) else {
+                continue;
+            };
+            if let Some(e) = chord_foot_error(trace.surface, um, (pa, pb), (na, nb)) {
+                worst = Some(worst.map_or(e, |w| w.max(e)));
+            }
+        }
+        worst
+    }
+
     /// Largest normal turn (radians) any incident face shows across
     /// the curve fractions `fractions` (pairwise over the samples), or
     /// `None` when no face trace is available.
@@ -237,6 +354,56 @@ mod tests {
         };
         let spread = normal_spread(&cyl, (0.0, 0.4), (0.0, 5.0));
         assert!((spread - 0.4).abs() < 1e-9, "{spread}");
+    }
+
+    /// The coil_spring defect in closed form (PK-587): a chord along
+    /// the TOP circle of a thin torus has identical vertex normals
+    /// (spread 0), yet its midpoint lies over the tube `atan(s / r)`
+    /// around from the top, `s = R (1 − cos(Δu/2))` the chord's
+    /// sagitta.
+    #[test]
+    fn chord_foot_error_sees_a_torus_top_chord_that_spread_cannot() {
+        let (big_r, r) = (1.0, 0.05);
+        let torus = SurfaceGeometry::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            major_radius: big_r,
+            minor_radius: r,
+        };
+        let v = 0.5 * std::f64::consts::PI;
+        for du in [0.05_f64, 0.1, 0.2] {
+            let (pa, pb) = (torus.point_at(0.0, v), torus.point_at(du, v));
+            let n = |u: f64| crate::vertex_normal::limit_normal(&torus, u, v).expect("normal");
+            let (na, nb) = (n(0.0), n(du));
+            assert!(angle_between(na, nb) < 1e-12);
+            let err = chord_foot_error(&torus, (0.5 * du, v), (pa, pb), (na, nb)).expect("foot");
+            let expected = (big_r * (1.0 - (0.5 * du).cos()) / r).atan();
+            assert!(
+                (err - expected).abs() < 1e-6,
+                "du {du}: {err} vs {expected}"
+            );
+        }
+    }
+
+    /// Radial sagitta is invisible to the measure: a chord across a
+    /// cylinder, straight or diagonal, has its foot on the parametric
+    /// midpoint's generator.
+    #[test]
+    fn chord_foot_error_of_a_cylinder_chord_is_zero() {
+        let cyl = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 0.1,
+        };
+        for (a, b) in [((0.0, 0.0), (0.4, 0.0)), ((0.0, 0.0), (0.4, 2.0))] {
+            let (pa, pb) = (cyl.point_at(a.0, a.1), cyl.point_at(b.0, b.1));
+            let n = |uv: (f64, f64)| {
+                crate::vertex_normal::limit_normal(&cyl, uv.0, uv.1).expect("normal")
+            };
+            let mid = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
+            let err = chord_foot_error(&cyl, mid, (pa, pb), (n(a), n(b))).expect("foot");
+            assert!(err < 1e-9, "{err}");
+        }
     }
 
     #[test]

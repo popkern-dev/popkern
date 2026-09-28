@@ -149,3 +149,61 @@ fn winding_is_preserved_by_splits() {
         assert_eq!(uv_area(&mesh, t).signum(), sign);
     }
 }
+
+/// PK-587: an interior chord along a thin torus's TOP circle has equal
+/// vertex normals, so spread alone never splits it, but its midpoint
+/// lies over the tube 5.7° around from the top. The chord-foot vote
+/// bisects it until every interior chord is within the foot share.
+#[test]
+fn a_torus_top_chord_is_split_by_its_foot_error() {
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 1.0,
+        minor_radius: 0.05,
+    };
+    let top = 0.5 * std::f64::consts::PI;
+    let corners = [(0.0, top), (0.2, top), (0.1, top + 0.02), (0.1, top - 0.02)];
+    let vertex = |&(u, v): &(f64, f64)| MeshVertex {
+        position: torus.point_at(u, v),
+        normal: unit(torus.normal_at(u, v)),
+        uv: (u, v),
+    };
+    let mut mesh = FaceMesh {
+        face: FaceHandle::default(),
+        vertices: corners.iter().map(vertex).collect(),
+        triangles: vec![[0, 1, 2], [1, 0, 3]],
+    };
+    let bound = 3.0_f64.to_radians();
+    let foot = |m: &FaceMesh, a: usize, b: usize| {
+        let (va, vb) = (&m.vertices[a], &m.vertices[b]);
+        let mid = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
+        crate::facet_angle::chord_foot_error(
+            &torus,
+            mid,
+            (va.position, vb.position),
+            (va.normal, vb.normal),
+        )
+        .unwrap_or(0.0)
+    };
+    assert!(foot(&mesh, 0, 1) > 5.0_f64.to_radians());
+    let boundary_before = boundary_edges(&mesh);
+    refine_face_mesh(&mut mesh, &torus, bound);
+    assert!(mesh.triangles.len() > 2, "the top chord must split");
+    assert_eq!(boundary_edges(&mesh).len(), boundary_before.len());
+    let boundary = boundary_edges(&mesh);
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            if boundary.contains(&(a.min(b), a.max(b))) {
+                continue;
+            }
+            let e = foot(&mesh, a, b);
+            assert!(
+                e <= crate::facet_angle::FOOT_SHARE * bound + 1e-12,
+                "interior chord {a}-{b}: foot error {:.3}°",
+                e.to_degrees()
+            );
+        }
+    }
+}

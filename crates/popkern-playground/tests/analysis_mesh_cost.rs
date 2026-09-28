@@ -1,5 +1,6 @@
 //! PK-577: the zebra view's 6° analysis mesh against the 12° display
-//! mesh, over every gallery part: triangles, mesh time and buffer bytes
+//! mesh on representative gallery parts (the whole gallery is the
+//! `analysis_mesh_cost` example): triangles, mesh time and buffer bytes
 //! (positions + normals + indices + face ids). The zebra view pays this
 //! once per served model, on entering zebra mode. The analysis mesh is
 //! never coarser than the display mesh.
@@ -63,26 +64,6 @@ fn analysis_mesh_is_finer_on_representative_parts() {
         "bored_block",
     ] {
         cost(&gallery(), name);
-    }
-}
-
-/// The whole gallery. About 20 minutes, most of it the scripts
-/// themselves (fastener_kit alone runs for minutes), so it is a report
-/// run on demand. The representative test above is the gate.
-#[test]
-#[ignore = "full-gallery cost report (~20 min): cargo test --release -p popkern-playground --test analysis_mesh_cost -- --ignored --nocapture"]
-fn analysis_mesh_cost_over_the_gallery() {
-    let dir = gallery();
-    let mut parts: Vec<String> = std::fs::read_dir(&dir)
-        .expect("gallery")
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|x| x == "rhai"))
-        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
-        .collect();
-    parts.sort();
-    assert!(parts.len() >= 20, "gallery parts: {}", parts.len());
-    for name in parts {
-        cost(&dir, &name);
     }
 }
 

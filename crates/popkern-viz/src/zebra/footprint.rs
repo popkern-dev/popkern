@@ -1,11 +1,12 @@
 //! Where a pixel's located surface point sits relative to its facet
 //! and to the surface's parameter domain (PK-578): closed-direction
 //! seams that are not domain boundaries, and hits outside the visible
-//! facet's parameter footprint (silhouette slivers).
+//! facet's 3D footprint (silhouette slivers).
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
-use super::locate::{active_bounds, unwrap_near};
+use super::dot;
+use super::locate::active_bounds;
 
 /// Whether the bound `uv` sits on is a SEAM of a geometrically closed
 /// direction rather than a domain edge (PK-578): a clamped NURBS ring
@@ -32,27 +33,30 @@ pub(super) fn on_closed_seam(surface: &SurfaceGeometry, uv: (f64, f64), reach: f
     closed_u || closed_v
 }
 
-/// How far `uv` lies outside the triangle with parameters `uvs`
-/// (already unwrapped onto one sheet), in barycentric units: 0 inside,
-/// otherwise the most negative barycentric coordinate's magnitude.
-/// A degenerate parameter triangle reports 0.
-pub(super) fn footprint_excess(
-    surface: Option<&SurfaceGeometry>,
-    uvs: &[(f64, f64); 3],
-    uv: (f64, f64),
-) -> f64 {
-    let (pu, pv) = surface.map_or((None, None), |s| s.parameter_periodicity());
-    let (x, y) = (
-        unwrap_near(uv.0, uvs[0].0, pu),
-        unwrap_near(uv.1, uvs[0].1, pv),
-    );
-    let (a, b, c) = (uvs[0], uvs[1], uvs[2]);
-    let det = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
-    if det.abs() < 1e-300 {
+/// How far `point` lies outside the triangle `tri`, in barycentric
+/// units of the triangle's own plane: 0 over the facet, otherwise the
+/// most negative barycentric coordinate's magnitude of `point`'s
+/// projection. A degenerate triangle reports 0.
+///
+/// Measured in 3D, not in the chart: a chord along a curving iso-line
+/// lies ON the surface but at another parameter (a coil_spring seam
+/// chord sits 0.016 in `u` off its vertices' iso-line, 2.7 facet
+/// widths), so a parameter-footprint test classified genuine,
+/// directly-underneath hits as silhouette slivers and hid a 5.2°
+/// display error from the view statistics (PK-587). A silhouette
+/// sliver is a hit displaced along the grazing ray, which is outside
+/// the facet in 3D as well.
+pub(super) fn footprint_excess(tri: &[[f64; 3]; 3], point: [f64; 3]) -> f64 {
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let (e1, e2, r) = (sub(tri[1], tri[0]), sub(tri[2], tri[0]), sub(point, tri[0]));
+    let (a, b, c) = (dot(e1, e1), dot(e1, e2), dot(e2, e2));
+    let det = a * c - b * b;
+    if det.is_nan() || det <= 1e-24 * a * c {
         return 0.0;
     }
-    let l1 = ((x - a.0) * (c.1 - a.1) - (c.0 - a.0) * (y - a.1)) / det;
-    let l2 = ((b.0 - a.0) * (y - a.1) - (x - a.0) * (b.1 - a.1)) / det;
+    let (p, q) = (dot(r, e1), dot(r, e2));
+    let l1 = (c * p - b * q) / det;
+    let l2 = (a * q - b * p) / det;
     let l0 = 1.0 - l1 - l2;
     (-l0.min(l1).min(l2)).max(0.0)
 }

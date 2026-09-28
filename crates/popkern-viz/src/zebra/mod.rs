@@ -23,11 +23,13 @@
 //! measures the per-pixel angle between the two normals so the
 //! tessellation's share of any image is a number, not a judgement.
 
+use popkern_core::geometry::surface::SurfaceEval as _;
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_mesh::TriMesh;
 
 use crate::camera::Camera;
 
+mod facing;
 mod footprint;
 mod locate;
 mod reassign;
@@ -78,7 +80,7 @@ pub struct ZebraSample {
     /// How `uv` was located on the surface.
     pub hit: SurfaceHit,
     /// The located surface point lies more than one facet-width outside
-    /// the visible triangle's own parameter footprint (a silhouette
+    /// the visible triangle's own 3D footprint (a silhouette
     /// sliver, PK-578). Near a silhouette the mesh's chord outline and
     /// the true one differ, so a grazing ray through the facet meets
     /// the surface elsewhere. The surface view is right there, but it
@@ -94,7 +96,13 @@ pub struct ZebraSample {
     /// facet point: the point the facet APPROXIMATES, as opposed to the
     /// point the eye sees along the ray. Comparing it with
     /// [`Self::mesh_normal`] measures tessellation accuracy (PK-578);
-    /// near grazing the two surface points differ, legitimately.
+    /// near grazing the two surface points differ, legitimately. The
+    /// facet's interpolated parameter point is not a substitute: it is
+    /// undefined at chart poles (ball_bearing read 19° there), and it
+    /// hides a chord that crosses iso-lines. coil_spring's helix seam
+    /// chords lie on the tube 0.016 in `u` off their vertices'
+    /// iso-line, where the true normal is 5.2° from the interpolated
+    /// one (PK-587).
     pub facet_surface_normal: Option<[f64; 3]>,
 }
 
@@ -147,7 +155,7 @@ pub struct ZebraFrame {
     pub mixed_facing_faces: Vec<FaceHandle>,
 }
 
-/// How far outside its facet's parameter footprint a located point may
+/// How far outside its facet's 3D footprint a located point may
 /// sit, in barycentric units, before the pixel counts as a silhouette
 /// sliver (one full facet width: surface curvature moves genuine hits
 /// only slightly past an edge).
@@ -171,37 +179,6 @@ pub(crate) fn angle_between(a: [f64; 3], b: [f64; 3]) -> f64 {
         a[0] * b[1] - a[1] * b[0],
     ];
     dot(c, c).sqrt().atan2(dot(a, b))
-}
-
-/// Per-face facing sign of the surface chart relative to the mesh:
-/// the length-weighted vote of `chart_normal · stored_normal` over the
-/// face mesh's vertices. The mesh's facing is the authority (the
-/// tessellator orients faces by global winding coherence, because
-/// `SurfaceOnFace::orientation` is not trustworthy on its own).
-fn facing_signs(brep: &BRep, mesh: &TriMesh) -> (Vec<(FaceHandle, f64)>, Vec<FaceHandle>) {
-    let mut signs = Vec::with_capacity(mesh.face_meshes.len());
-    let mut mixed = Vec::new();
-    for fm in &mesh.face_meshes {
-        let Some(sof) = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref()) else {
-            continue;
-        };
-        let (mut agree, mut oppose) = (0usize, 0usize);
-        for v in &fm.vertices {
-            if let Some(n) = popkern_mesh::surface_limit_normal(&sof.geometry, v.uv.0, v.uv.1) {
-                let d = n.dot(&v.normal);
-                if d > 0.0 {
-                    agree += 1;
-                } else if d < 0.0 {
-                    oppose += 1;
-                }
-            }
-        }
-        if agree > 0 && oppose > 0 {
-            mixed.push(fm.face);
-        }
-        signs.push((fm.face, if oppose > agree { -1.0 } else { 1.0 }));
-    }
-    (signs, mixed)
 }
 
 /// Rasterize `mesh` into a deferred [`ZebraFrame`] seen by `camera`.
@@ -312,7 +289,7 @@ pub fn rasterize_zebra_frame(
         camera.eye.y as f64,
         camera.eye.z as f64,
     ];
-    let (signs, mixed_facing_faces) = facing_signs(brep, mesh);
+    let (signs, mixed_facing_faces) = facing::facing_signs(brep, mesh);
     let sign_of = |face: FaceHandle| -> f64 {
         signs
             .iter()
@@ -367,8 +344,15 @@ pub fn rasterize_zebra_frame(
                 }
                 None => (seed, SurfaceHit::NoSurface, None),
             };
+            let corners = [0, 1, 2].map(|k| {
+                let p = vs[k].position;
+                [p.x, p.y, p.z]
+            });
             let outside_facet = matches!(hit, SurfaceHit::Ray | SurfaceHit::DomainBoundary)
-                && footprint::footprint_excess(surface, &uvs, uv) > FACET_FOOTPRINT_SLACK;
+                && surface.is_some_and(|s| {
+                    let q = s.point_at(uv.0, uv.1);
+                    footprint::footprint_excess(&corners, [q.x, q.y, q.z]) > FACET_FOOTPRINT_SLACK
+                });
             let normal_at = |at: (f64, f64)| {
                 surface.and_then(|s| {
                     let n = popkern_mesh::surface_limit_normal(s, at.0, at.1)?;

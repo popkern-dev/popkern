@@ -101,3 +101,47 @@ fn zebra_render_reports_the_mode_disagreement() {
     let json = serde_json::to_value(&summary).expect("json");
     assert!(json.get("zebra").is_none());
 }
+
+/// PK-587: a tapered helical tube's seam chords cross iso-lines. At
+/// the tube's top the normal barely turns along the helix, so vertex
+/// normals pass the facet bound, while a long chord's midpoint sits on
+/// the tube a quarter-facet around from its vertices' iso-line. The
+/// normal displayed there was 5.3° off at a 3° bound (coil_spring's
+/// valve spring, this fixture; constant-radius and 2-turn coils do not
+/// show it). The mesher's chord-foot criterion bounds that error by
+/// half the facet bound, and the zebra facet-accuracy metric (closest-
+/// point correspondence, independent of the mesher) must read it so.
+#[test]
+fn tapered_coil_facet_accuracy_is_within_half_the_facet_bound() {
+    let script = tmp("valve_coil.rhai");
+    std::fs::write(
+        &script,
+        r#"let m = model();
+m.profile(xy()).circle(0.04).sketch("wire")
+    .helical_sweep(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+                   0.3, 0.18, 5.0, #{ taper_to: 0.16, label: "valve_coil" });
+m
+"#,
+    )
+    .expect("script");
+    let png = tmp("valve_coil_3.png");
+    let cli = parsed(&[
+        "run",
+        script.to_str().expect("utf8"),
+        "--png",
+        png.to_str().expect("utf8"),
+        "--zebra=surface",
+        "--facet-angle",
+        "3",
+    ]);
+    let summary = execute(&cli);
+    assert!(matches!(summary.outcome, Outcome::Served), "{summary:?}");
+    let z = summary.zebra.as_ref().expect("zebra summary");
+    eprintln!(
+        "valve coil at 3°: facet max {:.3}° p99 {:.3}°, view max {:.3}°",
+        z.facet_max_angle_deg, z.facet_p99_angle_deg, z.max_angle_deg
+    );
+    assert!(z.covered_pixels > 1000, "{z:?}");
+    // Old mesher: 5.316°. Chord-foot criterion: 1.341°.
+    assert!(z.facet_max_angle_deg <= 1.5, "{z:?}");
+}

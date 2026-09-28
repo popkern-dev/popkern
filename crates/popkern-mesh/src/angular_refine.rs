@@ -12,7 +12,9 @@
 //! against a 12° bound).
 //!
 //! The pass is path-independent: while a triangle's vertex normals
-//! spread past the bound, bisect its longest INTERIOR edge at the
+//! spread past the bound, or one of its chords shows a foot error past
+//! the bound's foot share ([`crate::facet_angle::chord_foot_error`]),
+//! bisect its longest INTERIOR edge at the
 //! chart midpoint (evaluated on the surface) and split both incident
 //! triangles. Boundary edges are never split — they carry the
 //! canonical edge samples both neighbouring faces share (already
@@ -25,6 +27,7 @@
 //! work. Triangles left over the bound after the pass are boundary-
 //! limited or guard-limited, never silently dropped.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -96,12 +99,36 @@ pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, m
     // differ (measured: revolved_knob rounds budget-capped at 16x with
     // 43° triangles left). Along rulings the angle is ~0, so those
     // edges split only when LEPP forces them — anisotropic by design.
+    //
+    // An edge's normal angle is its vertex-normal spread or its chord-
+    // foot error in the bound's units, whichever is larger (PK-587):
+    // spread cannot see a chord that crosses iso-lines, and the edge
+    // to bisect is the one carrying the error. Foot errors are cached
+    // per edge (vertices never move, so an edge's value is final).
+    let foot_cache: RefCell<HashMap<(usize, usize), f64>> = RefCell::new(HashMap::new());
+    let edge_angle = |mesh: &FaceMesh, singular: &[bool], a: usize, b: usize| -> f64 {
+        if singular[a] || singular[b] {
+            return 0.0;
+        }
+        let (va, vb) = (&mesh.vertices[a], &mesh.vertices[b]);
+        let spread = angle_between(va.normal, vb.normal);
+        let e = key(a, b);
+        if let Some(&foot) = foot_cache.borrow().get(&e) {
+            return spread.max(foot);
+        }
+        let uv_mid = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
+        let foot = crate::facet_angle::chord_foot_error(
+            surface,
+            uv_mid,
+            (va.position, vb.position),
+            (va.normal, vb.normal),
+        )
+        .map_or(0.0, |x| x / crate::facet_angle::FOOT_SHARE);
+        foot_cache.borrow_mut().insert(e, foot);
+        spread.max(foot)
+    };
     let measure = |mesh: &FaceMesh, singular: &[bool], a: usize, b: usize| -> (f64, f64) {
-        let angle = if singular[a] || singular[b] {
-            0.0
-        } else {
-            angle_between(mesh.vertices[a].normal, mesh.vertices[b].normal)
-        };
+        let angle = edge_angle(mesh, singular, a, b);
         (
             angle,
             mesh.vertices[a]
@@ -164,10 +191,7 @@ pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, m
             let mut limited = false;
             for k in 0..3 {
                 let (a, b) = (t[k], t[(k + 1) % 3]);
-                if singular[a]
-                    || singular[b]
-                    || angle_between(mesh.vertices[a].normal, mesh.vertices[b].normal) <= max_angle
-                {
+                if edge_angle(mesh, &singular, a, b) <= max_angle {
                     continue;
                 }
                 violations += 1;
