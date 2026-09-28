@@ -24,7 +24,7 @@ use crate::mesh::FaceMesh;
 /// Relative degeneracy threshold: `|∂u × ∂v|` below this fraction of
 /// the larger partial's squared length reads as a singular chart
 /// point (a pole approached from either side, a collapsed edge).
-const SINGULAR_RATIO: f64 = 1.0e-6;
+pub(crate) const SINGULAR_RATIO: f64 = 1.0e-6;
 
 /// Fraction of a finite parameter span stepped off a singular point
 /// to read its limit normal.

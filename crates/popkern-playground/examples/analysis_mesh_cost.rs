@@ -4,7 +4,7 @@
 //! so it is an on-demand report, not a test; `tests/analysis_mesh_cost.rs`
 //! gates five representative parts.
 //!
-//! `cargo run --release -p popkern-playground --example analysis_mesh_cost`
+//! `cargo run --release -p popkern-playground --example analysis_mesh_cost [part…]`
 
 use popkern_core::time::Stopwatch;
 use popkern_playground::{HostOptions, Session};
@@ -29,6 +29,11 @@ fn main() {
         })
         .unwrap_or_default();
     parts.sort();
+    // Optional part names on the command line narrow the report.
+    let only: Vec<String> = std::env::args().skip(1).collect();
+    if !only.is_empty() {
+        parts.retain(|p| only.contains(p));
+    }
     for name in parts {
         let Ok(source) = std::fs::read_to_string(dir.join(format!("{name}.rhai"))) else {
             println!("{name}: unreadable");

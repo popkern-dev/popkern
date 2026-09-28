@@ -43,6 +43,8 @@ mod boundary_first_revolution;
 mod boundary_first_revolution_bipolar;
 #[path = "boundary_first_ring_condition.rs"]
 mod boundary_first_ring_condition;
+#[path = "boundary_first_ring_index.rs"]
+mod boundary_first_ring_index;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
@@ -422,24 +424,10 @@ pub(crate) fn tessellate_face_boundary_first(
     // sit outside the clearance band yet inside the diametral disk
     // of a diagonal segment, and the coverage check then rejects the
     // whole face (measured on a plate face with a circular hole
-    // ring).
-    let in_any_diametral_disk = |u: f64, v: f64| -> bool {
-        let (x, y) = (u * su, v * sv);
-        for ring in &rings {
-            let m = ring.uv.len();
-            for k in 0..m {
-                let a = (ring.uv[k].0 * su, ring.uv[k].1 * sv);
-                let b = (ring.uv[(k + 1) % m].0 * su, ring.uv[(k + 1) % m].1 * sv);
-                let cx = 0.5 * (a.0 + b.0);
-                let cy = 0.5 * (a.1 + b.1);
-                let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
-                if (x - cx).powi(2) + (y - cy).powi(2) < r2 * 1.0201 {
-                    return true;
-                }
-            }
-        }
-        false
-    };
+    // ring). The ring index answers containment, clearance and disk
+    // queries by bucket, identically to scanning every segment
+    // (PK-589: the scans made the lattice filter O(points × segments)).
+    let ring_index = boundary_first_ring_index::RingIndex::new(&rings, su, sv, clearance);
     // RULED charts (v-midline deviation below chord height: cylinder
     // and cone walls, extruded NURBS) skip the interior grid: full-
     // height boundary strips are EXACT along the ruling, and the
@@ -539,14 +527,14 @@ pub(crate) fn tessellate_face_boundary_first(
             for &v in &v_stations {
                 let in_band = u - u0 < 0.8 || u1 - u < 0.8;
                 let detail = seam_trace && u1 - u < 0.9 && (v - 1.0).abs() < 0.01;
-                if !point_in_region((u, v), &rings) {
+                if !ring_index.inside((u, v)) {
                     if seam_trace && in_band {
                         kill[0] += 1;
                     }
                     if detail {
                         eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED region");
                     }
-                } else if dist_to_rings((u, v), &rings, su, sv) <= clearance {
+                } else if ring_index.within_clearance((u, v)) {
                     if seam_trace && in_band {
                         kill[1] += 1;
                     }
@@ -556,7 +544,7 @@ pub(crate) fn tessellate_face_boundary_first(
                             dist_to_rings((u, v), &rings, su, sv)
                         );
                     }
-                } else if in_any_diametral_disk(u, v) {
+                } else if ring_index.in_diametral_disk(u, v) {
                     if seam_trace && in_band {
                         kill[2] += 1;
                     }
@@ -591,11 +579,11 @@ pub(crate) fn tessellate_face_boundary_first(
             for j in 1..n_v {
                 let u = u0 + (u1 - u0) * i as f64 / n_u as f64;
                 let v = v0 + (v1 - v0) * j as f64 / n_v as f64;
-                if !point_in_region((u, v), &rings) {
+                if !ring_index.inside((u, v)) {
                     census[0] += 1;
-                } else if dist_to_rings((u, v), &rings, su, sv) <= clearance {
+                } else if ring_index.within_clearance((u, v)) {
                     census[1] += 1;
-                } else if in_any_diametral_disk(u, v) {
+                } else if ring_index.in_diametral_disk(u, v) {
                     census[2] += 1;
                 } else {
                     census[3] += 1;
@@ -670,7 +658,7 @@ pub(crate) fn tessellate_face_boundary_first(
         let (a, b, c) = (uv_pts[t[0]], uv_pts[t[1]], uv_pts[t[2]]);
         let cx = (a.0 + b.0 + c.0) / 3.0;
         let cy = (a.1 + b.1 + c.1) / 3.0;
-        if !point_in_region((cx, cy), &rings) {
+        if !ring_index.inside((cx, cy)) {
             continue;
         }
         let signed = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);

@@ -68,14 +68,29 @@ fn analysis_mesh_is_finer_on_representative_parts() {
 }
 
 /// A model whose estimated analysis mesh exceeds the budget declines
-/// typed, and the zebra view keeps the display mesh (coil_spring: 94.6k
-/// display triangles, an estimated 378k analysis triangles, and 50-107 s
-/// to mesh natively).
+/// typed, and the zebra view keeps the display mesh. Four 6.5-turn
+/// springs carry over 100k display triangles, so their estimated
+/// analysis mesh is over the 400k budget. (coil_spring's three springs,
+/// 94.7k display triangles, fit since PK-589: 361k analysis triangles
+/// in about 7 s native.)
 #[test]
 fn an_over_budget_analysis_mesh_declines_typed() {
-    let source = std::fs::read_to_string(gallery().join("coil_spring.rhai")).expect("script");
+    let source = r#"let m = model();
+for i in 0..4 {
+    m.profile(xy()).circle(0.04).sketch(`wire_${i}`)
+        .helical_sweep(axis_at([i.to_float(), 0.0, 0.0], [0.0, 0.0, 1.0]),
+                       0.3, 0.15, 6.5, #{ label: `coil_${i}` });
+}
+m
+"#;
     let mut session = Session::new(HostOptions::default());
-    assert!(session.run(&source, "coil_spring").outcome.is_served());
+    let envelope = session.run(source, "springs");
+    assert!(envelope.outcome.is_served(), "{:?}", envelope.outcome);
+    let display: usize = envelope.bodies.iter().map(|b| b.indices.len() / 3).sum();
+    assert!(
+        4 * display > popkern_playground::mesh_buffers::ANALYSIS_TRIANGLE_BUDGET,
+        "fixture must be over budget: {display} display triangles"
+    );
     match session.analysis_meshes() {
         Err(popkern_playground::Outcome::GateFailure { step, detail }) => {
             assert_eq!(step, "analysis_mesh");

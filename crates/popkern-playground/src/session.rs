@@ -206,10 +206,9 @@ impl Session {
     /// display mesh's triangles (halving the facet angle quadruples the
     /// density on curved faces). When that estimate exceeds
     /// [`crate::mesh_buffers::ANALYSIS_TRIANGLE_BUDGET`], the request
-    /// declines typed and the zebra view keeps the display mesh. The
-    /// mesher's per-face cost grows faster than its triangle count at
-    /// tight bounds (coil_spring: 13x the face-pass time for 3.8x the
-    /// triangles, 50-107 s native), which the page cannot afford.
+    /// declines typed and the zebra view keeps the display mesh. Mesh
+    /// time grows about linearly with triangle count (PK-589), so the
+    /// budget bounds both the buffers and the wait.
     pub fn analysis_meshes(&mut self) -> Result<Vec<BodyMesh>, Outcome> {
         let display_triangles: usize = self.last_display_triangles;
         let estimate = 4 * display_triangles;

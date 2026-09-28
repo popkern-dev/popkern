@@ -89,8 +89,12 @@ pub(crate) const FOOT_SHARE: f64 = 0.5;
 
 /// Gauss–Newton iterations for a chord midpoint's foot point. One step
 /// from the parametric midpoint already lands within the chord's
-/// second-order sagitta; three absorb chart distortion.
-const FOOT_ITERATIONS: usize = 3;
+/// second-order sagitta; the second absorbs chart distortion, leaving
+/// at most 1.3e-4 rad of truncation on an exact rational cylinder, far
+/// below any foot share. A step below `FOOT_STEP_TOL` of the chord
+/// ends the iteration early.
+const FOOT_ITERATIONS: usize = 2;
+const FOOT_STEP_TOL: f64 = 1e-9;
 
 /// Chord-foot normal error (radians) of the chord `pa`–`pb`, whose ends
 /// carry unit surface normals `na`, `nb` and whose parametric midpoint
@@ -99,6 +103,11 @@ const FOOT_ITERATIONS: usize = 3;
 /// midpoint's foot point, which is the closest surface point, found by
 /// Gauss–Newton from `uv_mid`. Sign-agnostic, since facing is the
 /// caller's.
+///
+/// Planes, cylinders and spheres answer zero without evaluation: their
+/// foot is the radial projection, whose normal is the shaded one
+/// exactly. The refine pass asks this of every edge, so the analytic
+/// cases matter (PK-589).
 ///
 /// Returns `None`, so the chord does not vote, when the foot is not
 /// local: it lies farther than half the chord from the midpoint
@@ -110,6 +119,14 @@ pub(crate) fn chord_foot_error(
     (pa, pb): (Point3, Point3),
     (na, nb): (Vec3, Vec3),
 ) -> Option<f64> {
+    if matches!(
+        surface,
+        SurfaceGeometry::Plane { .. }
+            | SurfaceGeometry::Cylinder { .. }
+            | SurfaceGeometry::Sphere { .. }
+    ) {
+        return Some(0.0);
+    }
     let q = Point3::new(
         0.5 * (pa.x + pb.x),
         0.5 * (pa.y + pb.y),
@@ -144,18 +161,26 @@ pub(crate) fn chord_foot_error(
         if !(uv.0.is_finite() && uv.1.is_finite()) {
             return None;
         }
+        if (du * du * a + dv * dv * c).sqrt() <= FOOT_STEP_TOL * len {
+            break;
+        }
     }
-    if surface.point_at(uv.0, uv.1).distance_to(&q) > 0.5 * len
-        || crate::vertex_normal::chart_singular(surface, uv.0, uv.1)
-    {
+    if surface.point_at(uv.0, uv.1).distance_to(&q) > 0.5 * len {
         return None;
     }
-    let n = crate::vertex_normal::limit_normal(surface, uv.0, uv.1)?;
+    // One partial pair serves both the singularity test and the normal
+    // (the `chart_singular` ratio, then the regular normal).
+    let (su, sv) = (surface.partial_u(uv.0, uv.1), surface.partial_v(uv.0, uv.1));
+    let big = su.length().max(sv.length());
+    let cross = su.cross(&sv);
+    if big < 1e-300 || cross.length() < crate::vertex_normal::SINGULAR_RATIO * big * big {
+        return None;
+    }
     let shaded = Vec3::new(na.x + nb.x, na.y + nb.y, na.z + nb.z);
     if shaded.length() < 1e-12 {
         return None;
     }
-    let angle = angle_between(n, shaded);
+    let angle = angle_between(cross, shaded);
     Some(angle.min(std::f64::consts::PI - angle))
 }
 
@@ -379,30 +404,49 @@ mod tests {
             let err = chord_foot_error(&torus, (0.5 * du, v), (pa, pb), (na, nb)).expect("foot");
             let expected = (big_r * (1.0 - (0.5 * du).cos()) / r).atan();
             assert!(
-                (err - expected).abs() < 1e-6,
+                (err - expected).abs() < 1e-4 * expected,
                 "du {du}: {err} vs {expected}"
             );
         }
     }
 
     /// Radial sagitta is invisible to the measure: a chord across a
-    /// cylinder, straight or diagonal, has its foot on the parametric
-    /// midpoint's generator.
+    /// cylinder, straight or diagonal, has its foot on the radial
+    /// projection, whose normal is the shaded one. Measured on an EXACT
+    /// rational quarter-cylinder (the evaluated path, in a non-angular
+    /// chart), this is what licenses the analytic short-circuit. The
+    /// sphere is the same identity in closed form: the shaded direction
+    /// `(pa − c) + (pb − c) = 2 (m − c)` is the foot normal.
     #[test]
-    fn chord_foot_error_of_a_cylinder_chord_is_zero() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 0.1,
+    fn chord_foot_error_is_zero_on_an_exact_rational_cylinder() {
+        let (r, w) = (0.1, std::f64::consts::FRAC_1_SQRT_2);
+        let cps = [(r, 0.0), (r, r), (0.0, r)];
+        let nurbs = popkern_core::geometry::NurbsSurface {
+            degree_u: 2,
+            degree_v: 1,
+            knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            knots_v: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: cps
+                .iter()
+                .flat_map(|&(x, y)| [Point3::new(x, y, 0.0), Point3::new(x, y, 2.0)])
+                .collect(),
+            num_u: 3,
+            num_v: 2,
+            weights: vec![1.0, 1.0, w, w, 1.0, 1.0],
         };
-        for (a, b) in [((0.0, 0.0), (0.4, 0.0)), ((0.0, 0.0), (0.4, 2.0))] {
-            let (pa, pb) = (cyl.point_at(a.0, a.1), cyl.point_at(b.0, b.1));
+        let s = SurfaceGeometry::Nurbs(nurbs);
+        for (a, b) in [((0.1, 0.0), (0.6, 0.0)), ((0.1, 0.05), (0.7, 0.95))] {
+            let (pa, pb) = (s.point_at(a.0, a.1), s.point_at(b.0, b.1));
+            assert!((pa.x.hypot(pa.y) - r).abs() < 1e-12, "exact cylinder");
             let n = |uv: (f64, f64)| {
-                crate::vertex_normal::limit_normal(&cyl, uv.0, uv.1).expect("normal")
+                crate::vertex_normal::limit_normal(&s, uv.0, uv.1).expect("normal")
             };
             let mid = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
-            let err = chord_foot_error(&cyl, mid, (pa, pb), (n(a), n(b))).expect("foot");
-            assert!(err < 1e-9, "{err}");
+            let err = chord_foot_error(&s, mid, (pa, pb), (n(a), n(b))).expect("foot");
+            // Two Gauss–Newton steps leave <= 1.3e-4 rad of truncation
+            // in this non-angular chart (six leave 2e-8): 130x below
+            // the smallest foot share in use (1.5° at a 3° bound).
+            assert!(err < 2e-4, "{err}");
         }
     }
 

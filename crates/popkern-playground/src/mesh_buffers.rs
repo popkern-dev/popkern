@@ -20,9 +20,11 @@ use crate::envelope::BodyMesh;
 /// display mesh.
 pub const ANALYSIS_MAX_FACET_ANGLE_DEG: f64 = 6.0;
 
-/// Largest estimated analysis mesh the zebra view builds: 300k
-/// triangles, about 8 MB of position, normal and index buffers.
-pub const ANALYSIS_TRIANGLE_BUDGET: usize = 300_000;
+/// Largest estimated analysis mesh the zebra view builds: 400k
+/// triangles, about 11 MB of position, normal and index buffers. It
+/// covers every gallery part; coil_spring, the largest, meshes 361k
+/// analysis triangles in about 7 s native since PK-589.
+pub const ANALYSIS_TRIANGLE_BUDGET: usize = 400_000;
 
 /// The analysis tessellation: the display preset at
 /// [`ANALYSIS_MAX_FACET_ANGLE_DEG`].
