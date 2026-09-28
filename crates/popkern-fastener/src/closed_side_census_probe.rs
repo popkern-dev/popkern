@@ -24,19 +24,18 @@ mod tests {
         .expect("shank")
     }
 
-    /// PK-478 E1 measured fact (2026-09-11): per-face material
-    /// folding is HETEROGENEOUS even on a fresh, winding-honest,
-    /// majority-outward extrusion — the bottom cap's flag-folded
-    /// normal points INTO the material (flag true, normal_at +z,
-    /// material above z = 0) while wall and top cap fold outward.
-    /// `component_material_sense` is a majority statistic, not a
-    /// per-face invariant; any witness or walk convention keyed on
-    /// the flag-folded normal being outward is falsified by this
-    /// body. If this pin ever breaks, the PK-478 design assumptions
-    /// (docs/architecture/pk478-sense-aware-merge.md) must be
-    /// revisited before touching the closed-edge witness.
+    /// PK-478 E1 fact pin, revised by PK-565 (2026-09-28). E1
+    /// measured the extruded bottom cap folding INTO the material
+    /// (flag true, normal_at +z, material above z = 0). That was a
+    /// sweep producer defect: the self-loop start cap read its
+    /// half-edge as running "forward" along the profile circle. Caps
+    /// now follow the PK-303 canonical-half-edge convention, and every
+    /// face of a fresh extrusion folds OUTWARD. The PK-478 design
+    /// still keys nothing on flag-folded normals, because foreign
+    /// bodies can be heterogeneous (see the E1 revision note in
+    /// docs/architecture/pk478-sense-aware-merge.md).
     #[test]
-    fn extrusion_folding_is_per_face_heterogeneous() {
+    fn extrusion_folding_is_per_face_outward() {
         use popkern_core::geometry::SurfaceEval as _;
         let tol = Tolerance::default();
         let shank = extruded_shank(tol);
@@ -46,23 +45,23 @@ mod tests {
             Some(MaterialSense::FoldedOutward),
             "majority sense"
         );
-        let mut bottom_folded_z = None;
+        let mut cap_folded_z = Vec::new();
         for (_, f) in &shank.faces {
             let Some(sof) = &f.surface else { continue };
-            if let popkern_core::geometry::SurfaceGeometry::Plane { origin, .. } = &sof.geometry
-                && origin.z.abs() < 1e-9
-            {
+            if let popkern_core::geometry::SurfaceGeometry::Plane { origin, .. } = &sof.geometry {
                 let n = sof.geometry.normal_at(0.0, 0.0);
                 let folded = if sof.orientation { n } else { n * -1.0 };
-                bottom_folded_z = Some(folded.z);
+                cap_folded_z.push((origin.z, folded.z));
             }
         }
-        let z = bottom_folded_z.expect("bottom cap found");
-        assert!(
-            z > 0.0,
-            "bottom cap folded normal now points {z:+.2} — the measured \
-             heterogeneity fact changed; revisit the PK-478 design"
-        );
+        assert_eq!(cap_folded_z.len(), 2, "two planar caps");
+        for (z, folded_z) in cap_folded_z {
+            let outward = if z.abs() < 1e-9 { -1.0 } else { 1.0 };
+            assert!(
+                folded_z * outward > 0.99,
+                "cap at z={z} folds {folded_z:+.2} — not outward; PK-565 regressed"
+            );
+        }
     }
 
     /// Exploration dump for design-doc revisions: witness candidates

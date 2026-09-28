@@ -148,11 +148,22 @@ pub(crate) fn insert_intersection_curves(
         };
 
         // Attach UV curves as pcurves: curve_uv1 belongs to face A (fwd),
-        // curve_uv2 belongs to face B (twin).
-        let pcurve_a: Option<popkern_core::geometry::pcurve::Pcurve> =
-            Some(record.curve.curve_uv1.clone().into());
-        let pcurve_b: Option<popkern_core::geometry::pcurve::Pcurve> =
-            Some(record.curve.curve_uv2.clone().into());
+        // curve_uv2 belongs to face B (twin). A TRIM-RESIDUE pair lies
+        // on its owner face alone and both halves are registered to
+        // it (below), so both carry the OWNER's chart. The other
+        // face's chart on the twin was read as the owner's by every
+        // chart consumer that followed the twin (PK-565: a star
+        // socket's tip fragment on a cylinder cap sampled a
+        // tool-wall-chart run 28 units off the cap, landed outside
+        // the star, classified Outside, and the cellular assembly
+        // went non-manifold).
+        let (uv_fwd, uv_twin) = match record.residue_owner_a {
+            Some(true) => (&record.curve.curve_uv1, &record.curve.curve_uv1),
+            Some(false) => (&record.curve.curve_uv2, &record.curve.curve_uv2),
+            None => (&record.curve.curve_uv1, &record.curve.curve_uv2),
+        };
+        let pcurve_a: Option<popkern_core::geometry::pcurve::Pcurve> = Some(uv_fwd.clone().into());
+        let pcurve_b: Option<popkern_core::geometry::pcurve::Pcurve> = Some(uv_twin.clone().into());
 
         if popkern_core::trace::trace_enabled("record-insert") {
             eprintln!(
