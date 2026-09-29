@@ -254,6 +254,7 @@ pub(crate) fn fillet_edges_attempt(
         options.use_direct_apex_construction,
         options.continuity,
         excluded_direct_apex_vertices,
+        options.corner_cap,
         cancel,
         // PK-276: the apply phase ticks the reporter once per
         // vertex-blend corner (the dominant cost inside ApplyTopology).

@@ -91,8 +91,9 @@ pub use feature::{
     OperationMode, RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
 };
 pub use feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerModeDesc,
-    FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
+    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerCapDesc,
+    CornerConstructionDesc, CornerModeDesc, EdgeRadiusGroup, FilletRadiusLaw, FilletRecipeDesc,
+    InterferencePolicyKind, RadiusStation,
 };
 pub use feature_snapshot::SnapshotOrigin;
 pub use format::{format_expression, format_expression_with_unit};
@@ -104,8 +105,8 @@ pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, Param
 pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
 pub use replay_report::{
-    BlendEvidenceRecord, FallbackRecord, FeatureReport, KernelWarning, RecordSource, ReplayOutcome,
-    ReplayReport, ReplayResult, SkipRecord, SuppressionReason,
+    BlendEvidenceRecord, CornerEvidence, FallbackRecord, FeatureReport, KernelWarning,
+    RecordSource, ReplayOutcome, ReplayReport, ReplayResult, SkipRecord, SuppressionReason,
 };
 pub use serialize::{CURRENT_VERSION, MIN_SUPPORTED_VERSION};
 pub use unit::{DimensionKind, Unit};

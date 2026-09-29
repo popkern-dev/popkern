@@ -303,6 +303,7 @@ impl Body {
         recipe: FilletRecipeDesc,
         label: &str,
     ) -> Result<Body, ScriptError> {
+        crate::body_recipes::check_corner_cap(&recipe)?;
         let snapshot = self.edges(model, &edges)?;
         if snapshot.names.is_empty() {
             return Ok(self);

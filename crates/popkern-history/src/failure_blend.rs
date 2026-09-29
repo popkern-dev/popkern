@@ -160,6 +160,18 @@ pub enum BlendFailureReason {
         /// Where the worst edge is.
         location: Option<[f64; 3]>,
     },
+    /// A strict corner-cap preference named a construction that could
+    /// not serve the corner.
+    CornerCapUnavailable {
+        /// Debug-formatted vertex handle.
+        vertex: String,
+        /// The required construction's spelling (`setback`, `fitted`).
+        construction: String,
+        /// Why that construction declined.
+        reason: String,
+        /// Where the corner is.
+        location: Option<[f64; 3]>,
+    },
 }
 
 /// Projection of `popkern_blend::remediation::Remediation`.
@@ -254,6 +266,17 @@ impl From<&BlendFailure> for BlendFailureReason {
                     location: point(location),
                 }
             }
+            BlendFailure::CornerCapUnavailable {
+                vertex,
+                construction,
+                reason,
+                location,
+            } => BlendFailureReason::CornerCapUnavailable {
+                vertex: format!("{vertex:?}"),
+                construction: construction.spelling().to_string(),
+                reason: reason.clone(),
+                location: point(location),
+            },
         }
     }
 }
@@ -321,9 +344,35 @@ impl BlendDeclined {
             BlendError::Cancelled => BlendDeclineKind::Cancelled,
         };
         BlendDeclined {
-            message: error.to_string(),
+            message: corner_cap_message(error).unwrap_or_else(|| error.to_string()),
             remediation: RemediationRecord::from(&error.remediation_hint()),
             decline,
         }
     }
+}
+
+/// A strict corner-cap decline (PK-603) names the corner, the required
+/// construction and why it could not serve, instead of the generic
+/// "n of m edges failed".
+fn corner_cap_message(error: &BlendError) -> Option<String> {
+    let BlendError::PartialFailure { failures, .. } = error else {
+        return None;
+    };
+    failures.iter().find_map(|(_, failure)| match failure {
+        BlendFailure::CornerCapUnavailable {
+            construction,
+            reason,
+            location,
+            ..
+        } => {
+            let at = location
+                .map(|p| format!(" at ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z))
+                .unwrap_or_default();
+            Some(format!(
+                "corner{at}: the {} cap could not serve it and corner_cap_strict forbids a fallback: {reason}",
+                construction.spelling()
+            ))
+        }
+        _ => None,
+    })
 }

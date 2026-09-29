@@ -51,8 +51,60 @@ pub struct FilletRecipeDesc {
     /// take constant radii (no law) and never share an edge.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub edge_radii: Vec<EdgeRadiusGroup>,
+    /// Which construction closes a corner the setback rung can reach,
+    /// and whether falling back is allowed (PK-603). Omitted from the
+    /// serialised tree when it is the default ladder.
+    #[serde(default, skip_serializing_if = "CornerCapDesc::is_auto")]
+    pub corner_cap: CornerCapDesc,
 }
 
+/// A fillet's corner-cap preference (mirrors
+/// [`popkern_blend::CornerCapPreference`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CornerCapDesc {
+    /// The preferred construction.
+    #[serde(default)]
+    pub construction: CornerConstructionDesc,
+    /// Serve the preferred construction or fail; never fall back.
+    #[serde(default)]
+    pub strict: bool,
+}
+
+/// A corner construction (mirrors [`popkern_blend::CornerConstruction`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CornerConstructionDesc {
+    /// The kernel's ladder (setback cap, its downgrade, fitted cap,
+    /// classic paths).
+    #[default]
+    Auto,
+    /// The setback G2 cap first.
+    Setback,
+    /// The fitted (variational) cap first.
+    Fitted,
+    /// The classic vertex-blend paths; the setback rung is skipped.
+    Classic,
+}
+
+impl CornerCapDesc {
+    /// Whether this is the default ladder with no strictness.
+    pub fn is_auto(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The kernel preference this descriptor requests.
+    pub fn to_kernel(self) -> popkern_blend::CornerCapPreference {
+        use popkern_blend::CornerConstruction as C;
+        popkern_blend::CornerCapPreference {
+            construction: match self.construction {
+                CornerConstructionDesc::Auto => C::Auto,
+                CornerConstructionDesc::Setback => C::Setback,
+                CornerConstructionDesc::Fitted => C::Fitted,
+                CornerConstructionDesc::Classic => C::Classic,
+            },
+            strict: self.strict,
+        }
+    }
+}
 
 /// One radius group of a fillet feature (PK-602).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -243,8 +295,8 @@ impl InterferencePolicyKind {
 
 impl FilletRecipeDesc {
     /// Kernel fillet options for this recipe: the kernel defaults with
-    /// the recipe's continuity, cap, profile, interference policy and
-    /// corner mode applied. The engineering toggles that `FilletOptions` also
+    /// the recipe's continuity, cap, profile, interference policy,
+    /// corner mode and corner-cap preference applied. The engineering toggles that `FilletOptions` also
     /// carries (Gregory variants, soft supports, apex construction)
     /// are not document state and keep their defaults.
     pub fn to_kernel_options(&self) -> popkern_blend::FilletOptions {
@@ -254,8 +306,28 @@ impl FilletRecipeDesc {
             profile: self.profile.to_kernel(),
             interference_policy: self.interference.to_kernel(),
             vertex_mode: self.corner.to_kernel(),
+            corner_cap: self.corner_cap.to_kernel(),
             ..popkern_blend::FilletOptions::default()
         }
+    }
+
+    /// Why the recipe's corner-cap preference cannot apply, if it
+    /// cannot: a mitred corner has no cap to choose, and strictness
+    /// needs a construction that can decline (`setback`, `fitted`).
+    pub fn corner_cap_conflict(&self) -> Option<&'static str> {
+        let stated = !self.corner_cap.is_auto();
+        if stated && self.corner == CornerModeDesc::Mitre {
+            return Some(
+                "a mitred corner has no cap to choose; drop corner_cap or use corner: \"smooth\"",
+            );
+        }
+        let names_rung = matches!(
+            self.corner_cap.construction,
+            CornerConstructionDesc::Setback | CornerConstructionDesc::Fitted
+        );
+        (self.corner_cap.strict && !names_rung).then_some(
+            "corner_cap_strict needs corner_cap \"setback\" or \"fitted\"; the auto and classic ladders have nothing to refuse",
+        )
     }
 
     /// Every parameter the recipe's radius law references, beyond the

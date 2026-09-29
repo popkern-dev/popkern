@@ -27,6 +27,7 @@ pub fn apply_blend_geometry(
     use_direct_apex_construction: bool,
     requested_continuity: crate::types::ContinuityLevel,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
+    corner_cap: crate::types::CornerCapPreference,
     cancel: Option<&crate::cancellation::CancellationToken>,
     // `+ '_` keeps the trait object's pointee lifetime independent of
     // the reborrow so callers can reuse their reporter after this call.
@@ -47,6 +48,19 @@ pub fn apply_blend_geometry(
     // protected so sliver_absorb/cap_insert/late re-wiring don't re-author the cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
+    // PK-603: a stated setback/fitted preference keeps direct apex off
+    // the corners its rung can reach, so the rung runs there first.
+    let excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle> =
+        &excluded_direct_apex_vertices
+            .union(&corner_cap_preference::rung_claimed_corners(
+                brep,
+                vertex_mode,
+                edge_geometries,
+                corner_cap,
+                tolerance,
+            ))
+            .copied()
+            .collect();
     // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
     let mut promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
         brep,
@@ -314,8 +328,14 @@ pub fn apply_blend_geometry(
                         use_kp_polar_gregory,
                         Some(pre),
                         cap_presolve.get(vertex),
+                        corner_cap,
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
+                            failures.extend(corner_cap_preference::strict_decline_failure(
+                                brep,
+                                &diagnostics,
+                                edge_geometries[edge_indices[0]].analysis.edge,
+                            ));
                             if infos.is_empty() {
                                 let verdicts =
                                     corner_resolution::route_decline_verdicts(&diagnostics);
@@ -398,6 +418,10 @@ pub fn apply_blend_geometry(
     pipeline_timing.vertex_blend_ms = ms;
     if blend_cancelled {
         return Err(ApplyBlendError::Cancelled);
+    }
+    // A strict corner-cap decline fails the operation (transactional).
+    if !failures.is_empty() {
+        return Err(ApplyBlendError::Failures(failures));
     }
     // Fillet end runoff: trim strips at planar end faces they
     // overshoot and cut the end faces' sharp corners back to the

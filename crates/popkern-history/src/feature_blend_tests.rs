@@ -32,6 +32,11 @@ fn full_recipe(end: ParameterId) -> FilletRecipeDesc {
         interference: InterferencePolicyKind::ServeNonInterfering,
         corner: CornerModeDesc::Mitre,
         edge_radii: Vec::new(),
+        // Non-default so the round trip exercises it (PK-603).
+        corner_cap: CornerCapDesc {
+            construction: CornerConstructionDesc::Fitted,
+            strict: true,
+        },
     }
 }
 

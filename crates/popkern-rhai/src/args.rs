@@ -4,7 +4,7 @@
 
 use popkern_history::feature::{JoinStyleKind, OperationMode, ShellDirectionKind, TrimPolicyKind};
 use popkern_history::feature_blend::{
-    CapKindDesc, ContinuityKind, CornerModeDesc, InterferencePolicyKind,
+    CapKindDesc, ContinuityKind, CornerConstructionDesc, CornerModeDesc, InterferencePolicyKind,
 };
 use popkern_history::unit::Unit;
 use popkern_part::{Dir, SurfaceKind};
@@ -186,6 +186,23 @@ pub fn corner(argument: &str, value: &Dynamic) -> Result<CornerModeDesc, Box<Eva
         &[
             ("smooth", CornerModeDesc::Smooth),
             ("mitre", CornerModeDesc::Mitre),
+        ],
+    )
+}
+
+/// `auto | setback | fitted | classic` (PK-603).
+pub fn corner_cap(
+    argument: &str,
+    value: &Dynamic,
+) -> Result<CornerConstructionDesc, Box<EvalAltResult>> {
+    spelling(
+        argument,
+        value,
+        &[
+            ("auto", CornerConstructionDesc::Auto),
+            ("setback", CornerConstructionDesc::Setback),
+            ("fitted", CornerConstructionDesc::Fitted),
+            ("classic", CornerConstructionDesc::Classic),
         ],
     )
 }

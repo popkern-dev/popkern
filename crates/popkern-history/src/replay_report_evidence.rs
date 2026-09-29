@@ -84,6 +84,7 @@ impl FeatureEvidence {
             corner_patches: result.corner_patches.len(),
             requested_continuity: requested.unwrap_or(ContinuityLevel::G0),
             continuity,
+            corners: super::replay_report_corners::corner_evidence(result),
         });
         evidence
     }

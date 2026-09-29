@@ -196,6 +196,7 @@ impl Body {
                 reason: "radius laws are per fillet; fillet_each groups take constant radii".into(),
             });
         }
+        check_corner_cap(&recipe)?;
         if groups.is_empty() {
             return Err(ScriptError::Argument {
                 argument: "groups".into(),
@@ -408,5 +409,17 @@ impl Body {
             angle: Body::bind(model, "angle", &angle.into(), Unit::Degrees)?,
         };
         self.record(model, Feature::Transform { motion }, label, records)
+    }
+}
+
+/// Refuse a corner-cap preference that cannot apply (PK-603) before
+/// anything is recorded.
+pub(crate) fn check_corner_cap(recipe: &FilletRecipeDesc) -> Result<(), ScriptError> {
+    match recipe.corner_cap_conflict() {
+        Some(reason) => Err(ScriptError::Argument {
+            argument: "corner_cap".into(),
+            reason: reason.into(),
+        }),
+        None => Ok(()),
     }
 }

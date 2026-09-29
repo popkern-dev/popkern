@@ -8,8 +8,8 @@ use popkern_history::feature::{
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerModeDesc,
-    FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind,
+    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerConstructionDesc,
+    CornerModeDesc, FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind,
 };
 use popkern_history::feature_sketch::SketchPayload;
 use popkern_history::feature_transform::RigidMotionDesc;
@@ -77,6 +77,15 @@ fn fillet_options(
     }
     if recipe.corner == CornerModeDesc::Mitre {
         pairs.push(("corner", quoted("mitre")));
+    }
+    match recipe.corner_cap.construction {
+        CornerConstructionDesc::Auto => {}
+        CornerConstructionDesc::Setback => pairs.push(("corner_cap", quoted("setback"))),
+        CornerConstructionDesc::Fitted => pairs.push(("corner_cap", quoted("fitted"))),
+        CornerConstructionDesc::Classic => pairs.push(("corner_cap", quoted("classic"))),
+    }
+    if recipe.corner_cap.strict {
+        pairs.push(("corner_cap_strict", "true".to_string()));
     }
     match &recipe.radius_law {
         FilletRadiusLaw::Constant => {}

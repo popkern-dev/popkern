@@ -265,6 +265,24 @@ fn append_apex_diagnostic_actions(
                     shared_fact_ids: Vec::new(),
                 });
             }
+            ApexConstructionDiagnostic::CornerCapUnavailable {
+                vertex,
+                construction,
+                reason,
+            } => {
+                *apex_attempted += 1;
+                *apex_declined += 1;
+                actions.push(BrepRepairActionRecord {
+                    stage: "corner_cap_preference".to_string(),
+                    outcome: "declined".to_string(),
+                    subject: format!("vertex={vertex:?};required={}", construction.spelling()),
+                    reason: Some(reason.clone()),
+                    max_motion: 0.0,
+                    max_deviation: 0.0,
+                    affected_handles: vec![format!("vertex:{vertex:?}")],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
         }
     }
 }

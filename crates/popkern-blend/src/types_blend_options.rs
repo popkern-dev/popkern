@@ -1,6 +1,7 @@
 //! Blend-option enums split out of `types.rs` (500-line cap):
-//! the cross-section profile (PK-189) and the strip-interference
-//! resolution policy (PK-185).
+//! the cross-section profile (PK-189), the strip-interference
+//! resolution policy (PK-185), the end-cap kind (§8.3) and the corner
+//! construction preference (PK-603).
 
 /// Cross-section profile of a blend (requirements 2.2, PK-189).
 ///
@@ -71,4 +72,107 @@ pub enum InterferencePolicy {
     /// the operation still declines (there is no partial result to
     /// serve).
     ServeNonInterfering,
+}
+
+/// §8.3 blend cap type for free-boundary endpoints.
+///
+/// When a filleted edge terminates without meeting another blend
+/// (i.e. at a face boundary, a cut, or an open sheet edge), the
+/// engine applies one of five strategies to close the blend end.
+///
+/// The default is [`CapKind::Open`] — no explicit cap surface —
+/// which preserves the historical behaviour for callers that do
+/// not set [`crate::FilletOptions::cap_kind`]. The other variants each
+/// produce a dedicated cap face matching a specific continuity
+/// requirement (G0 for flat, G1 for rounded and tangent-match).
+///
+/// See [`crate::FilletOptions::cap_kind`] for the motivation and
+/// continuity guarantees of each kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapKind {
+    /// No cap surface — the blend ends at its natural trim boundary
+    /// and the free edge is reported to the caller as-is. This is
+    /// the default and matches the pre-§8.3 behaviour.
+    Open,
+    /// Planar cap perpendicular to the spine tangent at the blend
+    /// endpoint. G0 with the blend and supports. The cheapest cap
+    /// kind and the most common for chamfer-style end closures.
+    Flat,
+    /// Hemispherical cap of radius equal to the blend's local
+    /// minor radius, centred at the rolling-ball centre-curve
+    /// endpoint. G1 with the blend surface (matching radii of
+    /// curvature at the join).
+    Rounded,
+    /// NURBS cap of revolution about the end tangent, its meridian
+    /// continuing the strip's ruling with zero curvature to a flat
+    /// pole: G2 with straight constant-radius strips, G1 with the
+    /// supports. See [`crate::cap::build_tangent_match_cap`].
+    TangentMatch,
+    /// [BEYOND] The caller supplies the cap surface via a callback
+    /// or resource handle. Placeholder — not yet implemented;
+    /// requesting this kind currently falls back to [`Self::Open`]
+    /// with a warning.
+    UserDefined,
+}
+
+/// Which construction closes a setback-eligible fillet corner (three or
+/// more rounds meeting, smooth corner mode) — PK-603. Corners the
+/// setback rung never sees are unaffected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CornerConstruction {
+    /// The kernel's ladder: the setback G2 cap, its measured G1
+    /// downgrade, the fitted cap, then the classic vertex-blend paths.
+    #[default]
+    Auto,
+    /// The setback G2 cap first (as `Auto`, stated): direct-apex
+    /// promotion does not pre-empt it.
+    Setback,
+    /// The fitted cap (the variational corner fit, PK-574) first, then
+    /// the setback cap, then the classic paths.
+    Fitted,
+    /// Skip the setback rung: the classic vertex-blend paths (direct
+    /// apex, boundary ring, exact-boundary ring, Gregory, mitre).
+    Classic,
+}
+
+/// The corner construction preference of a fillet (PK-603).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CornerCapPreference {
+    /// The preferred construction.
+    pub construction: CornerConstruction,
+    /// Serve the preferred construction or fail the fillet with
+    /// [`crate::BlendFailure::CornerCapUnavailable`], never falling
+    /// back. Only `Setback` and `Fitted` can decline; `Auto` and
+    /// `Classic` have nothing to refuse.
+    pub strict: bool,
+}
+
+impl CornerConstruction {
+    /// The scripting spelling: `auto`, `setback`, `fitted`, `classic`.
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Setback => "setback",
+            Self::Fitted => "fitted",
+            Self::Classic => "classic",
+        }
+    }
+}
+
+impl CornerCapPreference {
+    /// Whether the preference names a setback-rung construction, so
+    /// direct-apex promotion must not claim a rung-eligible corner
+    /// before the rung runs.
+    pub fn names_setback_rung(&self) -> bool {
+        matches!(
+            self.construction,
+            CornerConstruction::Setback | CornerConstruction::Fitted
+        )
+    }
+
+    /// Whether a decline of the preferred construction fails the
+    /// fillet.
+    pub fn declines_when_unavailable(&self) -> bool {
+        self.strict && self.names_setback_rung()
+    }
 }

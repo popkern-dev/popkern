@@ -79,8 +79,8 @@ pub mod prelude {
         TrimPolicyKind, Vec3Desc,
     };
     pub use popkern_history::feature_blend::{
-        BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerModeDesc,
-        FilletRadiusLaw, InterferencePolicyKind,
+        BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerCapDesc,
+        CornerConstructionDesc, CornerModeDesc, FilletRadiusLaw, InterferencePolicyKind,
     };
     pub use popkern_history::unit::Unit;
     pub use popkern_part::{Dir, SurfaceKind};

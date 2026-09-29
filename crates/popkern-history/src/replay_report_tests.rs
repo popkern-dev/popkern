@@ -41,6 +41,7 @@ fn evidence_record(requested: ContinuityLevel, achieved: ContinuityLevel) -> Ble
             worst_g1_normal: 0.0,
             worst_g2_residual: 0.0,
         }),
+        corners: Vec::new(),
     }
 }
 

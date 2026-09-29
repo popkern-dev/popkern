@@ -204,6 +204,17 @@ pub enum ApexConstructionDiagnostic {
     /// The variational corner fit ran beneath a declined KP20 setback cap
     /// (PK-574): the KP20 decline, each fit attempt and the served level.
     SetbackFit(crate::types::SetbackFitDiagnostic),
+    /// A strict corner-cap preference (PK-603) named a construction the
+    /// setback rung could not serve at this corner; the apply phase
+    /// turns it into [`crate::BlendFailure::CornerCapUnavailable`].
+    CornerCapUnavailable {
+        /// The corner vertex.
+        vertex: popkern_core::topology::VertexHandle,
+        /// The required construction.
+        construction: crate::CornerConstruction,
+        /// Why it declined.
+        reason: String,
+    },
 }
 
 /// Coherence-validation diagnostic carried inside

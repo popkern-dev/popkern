@@ -46,6 +46,8 @@ use crate::parameter::{EvaluationWarning, ParameterId};
 
 #[path = "replay_report_evidence.rs"]
 mod evidence;
+#[path = "replay_report_corners.rs"]
+mod replay_report_corners;
 pub(crate) use evidence::{FeatureEvidence, face_census};
 
 /// Seam sampling density for blend-time continuity evidence: the
@@ -328,6 +330,28 @@ pub struct BlendEvidenceRecord {
     /// Measured continuity over the blend's live seams: `Some` for a
     /// fillet, `None` for a chamfer (nothing smooth was requested).
     pub continuity: Option<BlendContinuityEvidence>,
+    /// What closed each filleted corner (PK-603), in corner order.
+    #[serde(default)]
+    pub corners: Vec<CornerEvidence>,
+}
+
+/// What closed one filleted corner (PK-603).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CornerEvidence {
+    /// Filleted edges meeting at the corner.
+    pub sides: usize,
+    /// The construction that served: `setback` (the KP20 cap or its G1
+    /// downgrade), `fitted` (the variational fit), or
+    /// `classic:<method>` (`classic:gregory`, `classic:rolling_ball_sphere`,
+    /// `classic:exact_boundary`, `classic:mitre`, …).
+    pub construction: String,
+    /// Continuity the corner's construction reports achieving.
+    pub achieved: ContinuityLevel,
+    /// Faces the corner construction authored (zero for a mitre).
+    pub patches: usize,
+    /// Mean of the corner faces' boundary vertices, for locating the
+    /// corner; `None` when no face was authored.
+    pub centroid: Option<[f64; 3]>,
 }
 
 impl BlendEvidenceRecord {

@@ -264,6 +264,21 @@ pub enum BlendFailure {
         /// Midpoint of the worst edge, if available.
         location: Option<Point3>,
     },
+    /// A strict corner-cap preference
+    /// ([`crate::CornerCapPreference::strict`]) named a construction
+    /// that could not serve this corner, so the fillet declines
+    /// instead of falling back (PK-603).
+    CornerCapUnavailable {
+        /// The corner vertex.
+        vertex: VertexHandle,
+        /// The construction the preference required.
+        construction: crate::CornerConstruction,
+        /// Why that construction declined (carve, postcondition, or
+        /// certified continuity below the request).
+        reason: String,
+        /// 3D location of the corner, if available.
+        location: Option<Point3>,
+    },
 }
 
 impl BlendFailure {
@@ -285,6 +300,7 @@ impl BlendFailure {
             | BlendFailure::ContactSolverFailed { location, .. }
             | BlendFailure::SelfIntersectingBlend { location, .. }
             | BlendFailure::InconsistentGeometry { location, .. }
+            | BlendFailure::CornerCapUnavailable { location, .. }
             | BlendFailure::AlreadyBlended { location }
             | BlendFailure::SeamEdge { location } => *location,
         }

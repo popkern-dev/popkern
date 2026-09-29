@@ -211,6 +211,7 @@ mod tests {
             false,
             None,
             None,
+            crate::types::CornerCapPreference::default(),
         );
         assert!(result.is_err(), "should fail for invalid vertex");
     }
@@ -239,6 +240,7 @@ mod tests {
             false,
             None,
             None,
+            crate::types::CornerCapPreference::default(),
         );
         // This should fail (no edge geometries -> empty fillet surfaces
         // -> blend boundary computation fails), but NOT at the anchor check.

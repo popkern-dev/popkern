@@ -127,8 +127,8 @@ least `label`.
 | `extrude(end)` | `end`: `blind(d)`, `through_all()`, `up_to_surface(faces()...)`, `offset_from_surface(faces()..., d)`, `mid_plane(half_d)` | `label`, `mode` (`"new_body"` default, `"boss"`, `"cut"`) | `boss`/`cut` fold the new body into the body the sketch sits on (`on_face` sketches); a base-plane sketch is its own body — combine it with `union`/`subtract`. |
 | `revolve(axis, end)` | `axis`: `axis_at([o], [d])` or `axis(edges()...)`; `end`: `blind(angle_deg)`, `full_circle()`, `mid_plane(half_angle)` | `label` | Revolved spans become exact planes, cylinders, cones and tori. |
 | `union(tool)`, `subtract(tool)`, `intersect(tool)` | a body from `m.tool(...)` | `label` | The tool body is consumed; rebinding (`plate = plate.union(boss)`) keeps the live body. |
-| `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`), `corner` (`"smooth"`, `"mitre"`: trim every strip pair at a corner to its mutual intersection) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. A mitre with no point shared by every strip is a `FeatureFailed` naming the mitre's reason. |
-| `fillet_each(groups)` | `[[edges()..., radius], ...]`: one radius per group of edges | `label`, `continuity`, `cap`, `profile`, `interference`, `corner` (as for fillet; radius laws are not taken) | One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's `radius` parameter, later groups' are `radius_1`, `radius_2`, … |
+| `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`), `corner` (`"smooth"`, `"mitre"`: trim every strip pair at a corner to its mutual intersection), `corner_cap` (`"auto"`, `"setback"`, `"fitted"`, `"classic"`: which construction closes a corner where three or more rounds meet), `corner_cap_strict` (true: that construction or a failure, never a fallback; needs `"setback"` or `"fitted"`) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. A mitre with no point shared by every strip is a `FeatureFailed` naming the mitre's reason. A strict `corner_cap` that cannot serve a corner is a `FeatureFailed` naming the corner and every decline. |
+| `fillet_each(groups)` | `[[edges()..., radius], ...]`: one radius per group of edges | `label`, `continuity`, `cap`, `profile`, `interference`, `corner`, `corner_cap`, `corner_cap_strict` (as for fillet; radius laws are not taken) | One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's `radius` parameter, later groups' are `radius_1`, `radius_2`, … |
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
@@ -169,6 +169,23 @@ block.fillet_each([
     [edges().at_vertex(corner).direction("y"), 0.2],
     [edges().at_vertex(corner).direction("z"), 0.3],
 ], #{ continuity: "g2", label: "mixed_corner" });
+m.assert_watertight();
+m
+```
+
+A corner where three or more rounds meet is closed by one of several
+constructions. By default the kernel tries the setback cap first, then
+the fitted cap (a variational fit on the same corner), then the classic
+corner patches. `corner_cap` states a preference: `"fitted"` tries the
+fitted cap first, `"setback"` the setback cap, and `"classic"` skips
+both. With `corner_cap_strict: true` the fillet uses that construction
+or fails, never falling back. The report's `blend.corners` names what
+closed each corner:
+
+```rhai
+let m = model();
+let block = m.profile(xy()).rect(1.0, 1.0).sketch("block").extrude(blind(1.0));
+block.fillet(edges().at_vertex([0.5, 0.5, 1.0]), 0.2, #{ continuity: "g2", corner_cap: "fitted", label: "fitted_corner" });
 m.assert_watertight();
 m
 ```
@@ -444,7 +461,8 @@ END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_pla
 AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
 body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
 body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
-body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner})
+body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner, corner_cap, corner_cap_strict})
+body.fillet_each([[E, r], …], #{…as fillet, no law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})

@@ -78,6 +78,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
+    corner_cap: crate::types::CornerCapPreference,
 ) -> Result<InsertVertexBlendOutput, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
@@ -110,11 +111,9 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
-    // Setback boundary surgery rung (history in the setback_vertex_topology
-    // module docs — PK-225: N = 3 for corners the sphere does not own,
-    // PK-226: variable/mixed radii). Unsuitable geometry declines
-    // transactionally with the reason recorded. Test seams:
-    // dispatch_overrides::SETBACK_DISABLE / with_setback_forced_to_decline.
+    // Setback boundary surgery rung (setback_vertex_topology docs; PK-225/226),
+    // ordered by the corner-cap preference (PK-603); declines are transactional.
+    // Test seams: SETBACK_DISABLE / with_setback_forced_to_decline.
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let ball_owned = sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre, classification);
     let setback_min_n = setback_min_n_for(
@@ -137,6 +136,7 @@ pub(crate) fn insert_vertex_blend(
         classification,
         setback_min_n,
         cap_presolve,
+        corner_cap,
     );
     if let Some(outcome) = setback_served {
         return outcome;

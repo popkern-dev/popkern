@@ -69,6 +69,7 @@ pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurv
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves;
 #[path = "blend_geometry_apply.rs"]
 mod blend_geometry_apply;
+mod corner_cap_preference;
 mod direct_apex_promotion;
 mod face_trim_pipeline;
 pub(crate) mod helpers;

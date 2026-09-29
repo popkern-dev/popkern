@@ -410,6 +410,20 @@ impl BlendFailure {
                      could not be settled exactly."
                 ),
             ),
+            BlendFailure::CornerCapUnavailable {
+                construction,
+                reason,
+                ..
+            } => Remediation::new(
+                RemediationAction::UseAlternativeMode,
+                format!(
+                    "The corner was required to take the {} cap, which \
+                     could not serve it ({reason}). Allow a fallback \
+                     (drop `corner_cap_strict`), choose another corner \
+                     cap, or change the radii meeting at the corner.",
+                    construction.spelling()
+                ),
+            ),
         }
     }
 }
