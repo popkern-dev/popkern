@@ -96,7 +96,12 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
         ("pentagon_flagship", "cap-rim", 1.49e-3, 9.00e-3),
         ("pentagon_flagship", "cap-cap", 3.46e-4, 1.10e-3),
         ("pentagon5_blunt_g2", "cap-rim", 3.19e-2, 1.56e-1),
-        ("pentagon5_blunt_g2", "cap-cap", 3.38e-4, 4.33e-4),
+        // PK-600 (2026-09-29): the fair interior (cap max k*r 6.46 ->
+        // 5.19) redistributes curvature next to the internal seams; the
+        // cap-cap slope reads 1.04e-3 while the certified spoke bounds
+        // are unchanged (g1 4.3e-7, g2 5.1e-4; A/B
+        // `bi9_cap_keeps_the_certified_claims_on_the_blunt_pentagon`).
+        ("pentagon5_blunt_g2", "cap-cap", 3.38e-4, 1.04e-3),
         // PK-599 (2026-09-29): the bi-9 resampled KP20 cap reads the
         // cap-rim slope at 2.30e-3 (was 1.28e-3) while its certified rim
         // bounds are unchanged (g1 9.9e-7, g2 1.19e-4, A/B via

@@ -53,6 +53,8 @@ pub struct Kp20Bi9Resample {
     /// Worst relation residuals at the end: internal C², sector C⁰,
     /// eq (8), eq (9).
     pub relation_residual: [f64; 4],
+    /// The fair-interior decision (PK-600).
+    pub fair: super::kp20_bi9_fair::Kp20FairInterior,
 }
 
 /// Why the resampling declined (the bi-6 cap serves).
@@ -327,6 +329,17 @@ pub fn resample_kp20_cap_bi9(
             nets[t][b] = curr;
         }
     }
+    // PK-600: the fair interior, served only when it measures fairer.
+    let fair = super::kp20_bi9_fair::fair_interior_step(
+        n,
+        &nets,
+        &s9,
+        [kp20_b_coeffs_near_o(c), kp20_b_coeffs_near_m(c)],
+        tau,
+    );
+    if let Some(candidate) = &fair.candidate {
+        nets = candidate.clone();
+    }
     // Every relation, re-measured.
     let c2 = internal_c2_residual(&nets);
     if c2 > gates[0] {
@@ -360,6 +373,7 @@ pub fn resample_kp20_cap_bi9(
         deviation_before,
         deviation_after,
         relation_residual: [c2, worst[0], worst[1], worst[2]],
+        fair: fair.record,
     })
 }
 

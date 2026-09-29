@@ -153,7 +153,7 @@ pub(super) fn apply3(f: &Functional, coords: &[Vec<f64>; 3]) -> Vec3 {
 }
 
 /// Gauss–Legendre nodes and weights on [0, 1] (`count` <= 12).
-pub(super) fn gauss_legendre(count: usize) -> Vec<(f64, f64)> {
+pub(crate) fn gauss_legendre(count: usize) -> Vec<(f64, f64)> {
     // Newton on the Legendre polynomial from Chebyshev-like seeds.
     let n = count.max(1);
     let mut out = Vec::with_capacity(n);

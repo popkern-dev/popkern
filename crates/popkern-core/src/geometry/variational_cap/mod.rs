@@ -50,7 +50,7 @@ mod nullspace;
 mod rim;
 mod rim_rows;
 mod solve;
-mod space;
+pub(crate) mod space;
 mod spoke;
 
 #[cfg(test)]

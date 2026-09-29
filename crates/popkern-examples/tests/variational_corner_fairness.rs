@@ -391,16 +391,18 @@ fn row_879_fit_fairness_against_kp20() {
         }
     }
     eprintln!("{}\nPNGs: {}", table.join("\n"), dir.display());
-    // PK-599: the KP20 cap's bi-6 sampling artefact is gone (bi-9
-    // resampling). Pinned per corner as max k*r_min of the dispatched
-    // KP20 cap; the remaining excess is the guide-border misfit (PK-600).
+    // PK-599 (bi-9 resampling) and PK-600 (fair interior under the exact
+    // relations, served when it measures fairer): max k*r_min of the
+    // dispatched KP20 cap, pinned per corner. Before both: cube and
+    // saddle 6.77, pyramid3 2.78, flagship 2.07, blunt 6.43, variable
+    // 4.72.
     for (name, bound) in [
-        ("cube corner 0.2", 4.6),
-        ("notched saddle", 4.6),
-        ("pyramid3 h1.2", 2.4),
-        ("pentagon flagship", 2.07 * 1.02),
-        ("pentagon5 blunt", 6.43 * 1.02),
-        ("pentagon5 variable", 4.72 * 1.02),
+        ("cube corner 0.2", 2.45),
+        ("notched saddle", 2.45),
+        ("pyramid3 h1.2", 1.80),
+        ("pentagon flagship", 1.90),
+        ("pentagon5 blunt", 5.30),
+        ("pentagon5 variable", 4.81),
     ] {
         let reading = kp20.iter().find(|(n, _)| *n == name).map(|(_, r)| *r);
         let reading = reading.unwrap_or_else(|| panic!("{name}: KP20 did not serve"));

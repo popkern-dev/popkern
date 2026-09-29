@@ -141,3 +141,34 @@ fn exact_jets_match_differences() {
         }
     }
 }
+
+/// PK-600: the fair interior serves only when it measures fairer, and
+/// the relations hold either way. On the lifted ring at n = 5 it serves
+/// (measured 7.25 → 6.44).
+#[test]
+fn fair_interior_serves_only_when_fairer() {
+    for n in [4, 5, 7] {
+        let report = assemble_kp20_paper_cap(&production_border(n), Point3::new(0.0, 0.0, 0.0))
+            .expect("assemble");
+        let resample = report.bi9.as_ref().unwrap_or_else(|e| panic!("n={n}: {e}"));
+        let fair = resample.fair;
+        if let Some(after) = fair.max_curvature_after {
+            assert_eq!(
+                fair.served,
+                after <= fair.max_curvature_before,
+                "n={n}: {fair:?}"
+            );
+        } else {
+            assert!(!fair.served, "n={n}: {fair:?}");
+        }
+        if n == 5 {
+            assert!(fair.served, "n=5 fair interior should serve: {fair:?}");
+        }
+        let [c2, c0, g1, g2] = resample.relation_residual;
+        assert!(
+            c2 < 1e-10 && c0 < 1e-10 && g1 < 1e-9 && g2 < 1e-8,
+            "n={n}: {:?}",
+            resample.relation_residual
+        );
+    }
+}

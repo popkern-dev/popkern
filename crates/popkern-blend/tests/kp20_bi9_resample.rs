@@ -126,3 +126,24 @@ fn bi9_cap_keeps_the_certified_claims_on_the_variable_pentagon() {
         fillet(&body, apex, &[0.02, 0.04, 0.06, 0.04, 0.02])
     });
 }
+
+#[test]
+fn bi9_cap_keeps_the_certified_claims_on_the_blunt_pentagon() {
+    let body = BRep::n_gonal_pyramid(5, 1.0, 3.0, Tolerance::default()).expect("pyramid");
+    let apex = body
+        .vertices
+        .iter()
+        .max_by(|a, b| a.1.position.z.total_cmp(&b.1.position.z))
+        .map(|(h, _)| h)
+        .expect("apex");
+    let build = || fillet(&body, apex, &[0.05]);
+    let (a, b) = (
+        cap_bounds(&build()),
+        cap_bounds(&with_kp20_bi9_resample_disabled(build)),
+    );
+    eprintln!(
+        "blunt bi9 rim {:?} spoke {:?}; bi6 rim {:?} spoke {:?}",
+        a.0, a.1, b.0, b.1
+    );
+    assert_same_claims("pentagon5 blunt", &build);
+}
