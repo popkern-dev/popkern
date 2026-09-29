@@ -31,6 +31,7 @@ fn full_recipe(end: ParameterId) -> FilletRecipeDesc {
         profile: BlendProfileKind::Conic { rho: 0.4 },
         interference: InterferencePolicyKind::ServeNonInterfering,
         corner: CornerModeDesc::Mitre,
+        edge_radii: Vec::new(),
     }
 }
 
@@ -294,4 +295,52 @@ fn recipe_and_kind_params_are_reported() {
         .map(|(_, id)| id)
         .collect();
     assert_eq!(ids, vec![r, end]);
+}
+
+/// PK-602: radius groups serialise, load back, report one parameter
+/// role per group, and stay absent from single-radius recipes' JSON.
+#[test]
+fn radius_groups_round_trip_and_report_their_parameters() {
+    let mut tree = FeatureTree::new();
+    let (r0, r1, r2) = (
+        param(&mut tree, "r0", 0.05),
+        param(&mut tree, "r1", 0.2),
+        param(&mut tree, "r2", 0.3),
+    );
+    let recipe = FilletRecipeDesc {
+        edge_radii: vec![
+            EdgeRadiusGroup {
+                edges: vec![name(1, 1)],
+                radius: r1,
+            },
+            EdgeRadiusGroup {
+                edges: vec![name(1, 2)],
+                radius: r2,
+            },
+        ],
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&recipe).expect("serialise");
+    let back: FilletRecipeDesc = serde_json::from_str(&json).expect("load");
+    assert_eq!(back, recipe);
+    let plain = serde_json::to_string(&FilletRecipeDesc::default()).expect("serialise");
+    assert!(
+        !plain.contains("edge_radii"),
+        "single-radius JSON is unchanged: {plain}"
+    );
+
+    let feature = Feature::Fillet {
+        edges: vec![name(1, 0), name(1, 1), name(1, 2)],
+        radius: r0,
+        recipe,
+    };
+    let roles: Vec<(String, ParameterId)> = crate::feature_params::feature_param_ids(&feature);
+    assert_eq!(
+        roles,
+        vec![
+            ("radius".to_string(), r0),
+            ("radius_1".to_string(), r1),
+            ("radius_2".to_string(), r2)
+        ]
+    );
 }

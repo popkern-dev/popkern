@@ -1023,6 +1023,38 @@
       ]
     },
     {
+      "name": "fillet_each",
+      "section": "5",
+      "mark": "preview",
+      "signature": "fillet_each(groups, continuity?, cap?, profile?, interference?, corner?)",
+      "parameters": [
+        {
+          "name": "groups",
+          "optional": false
+        },
+        {
+          "name": "continuity",
+          "optional": true
+        },
+        {
+          "name": "cap",
+          "optional": true
+        },
+        {
+          "name": "profile",
+          "optional": true
+        },
+        {
+          "name": "interference",
+          "optional": true
+        },
+        {
+          "name": "corner",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "helical_sweep",
       "section": "5",
       "mark": "stable",
@@ -1638,6 +1670,11 @@
     },
     {
       "name": "at_height",
+      "kind": "edge",
+      "mark": "stable"
+    },
+    {
+      "name": "at_vertex",
       "kind": "edge",
       "mark": "stable"
     },

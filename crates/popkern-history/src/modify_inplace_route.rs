@@ -78,7 +78,9 @@ impl FeatureTree {
                 },
             ) if e_old == e_new
                 && rc_old == rc_new
-                && rc_old.radius_law == crate::feature_blend::FilletRadiusLaw::Constant =>
+                && rc_old.radius_law == crate::feature_blend::FilletRadiusLaw::Constant
+                // One radius per feature: radius groups replay in full.
+                && rc_old.edge_radii.is_empty() =>
             {
                 let (old_v, new_v) = resolved_pair(table, *r_old, *r_new)?;
                 if (old_v - new_v).abs() < 1.0e-15 {

@@ -38,6 +38,7 @@ pub mod conformance;
 pub mod conformance_audit;
 pub mod conformance_bindings;
 pub mod conformance_rust_bindings;
+pub mod conformance_unbound;
 pub mod emit;
 pub mod emit_feature;
 pub mod emit_spelling;

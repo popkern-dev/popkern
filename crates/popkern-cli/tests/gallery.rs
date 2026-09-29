@@ -70,6 +70,15 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          vertex blend cap",
     ),
     (
+        "mixed_radius_corner",
+        "Mixed-radius corner",
+        "A block corner where rounds of three different radii meet, closed \
+         by the variational corner fit: three NURBS sectors certified G2.",
+        3,
+        "fillet_each radius groups, at_vertex edge selection, \
+         variational corner fit",
+    ),
+    (
         "parametric_plate",
         "Parametric plate",
         "Parameters, an expression and a named configuration drive a plate and its rib.",

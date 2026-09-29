@@ -24,6 +24,10 @@ fn edge_direction(sel: &mut EdgeSelector, d: Dynamic) -> Result<EdgeSelector, Bo
     Ok(sel.clone().direction(args::dir("direction", &d)?))
 }
 
+fn edge_at_vertex(sel: &mut EdgeSelector, p: Dynamic) -> Result<EdgeSelector, Box<EvalAltResult>> {
+    Ok(sel.clone().at_vertex(args::vec3("point", &p)?))
+}
+
 fn edge_chord(
     sel: &mut EdgeSelector,
     min: Dynamic,
@@ -61,6 +65,7 @@ pub fn register(engine: &mut Engine) {
         .register_fn("nurbs", |s: &mut EdgeSelector| s.clone().nurbs())
         .register_fn("between", edge_between)
         .register_fn("at_height", edge_at_height)
+        .register_fn("at_vertex", edge_at_vertex)
         .register_fn("direction", edge_direction)
         .register_fn("chord_length_between", edge_chord)
         .register_fn("not_seam", |s: &mut EdgeSelector| s.clone().not_seam())

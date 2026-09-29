@@ -57,6 +57,14 @@
       "title": "Pyramid apex"
     },
     {
+      "blurb": "A block corner where rounds of three different radii meet, closed by the variational corner fit: three NURBS sectors certified G2.",
+      "demonstrates": "fillet_each radius groups, at_vertex edge selection, variational corner fit",
+      "features": 3,
+      "file": "mixed_radius_corner.rhai",
+      "thumbnail": "examples/mixed_radius_corner.png",
+      "title": "Mixed-radius corner"
+    },
+    {
       "blurb": "Parameters, an expression and a named configuration drive a plate and its rib.",
       "demonstrates": "param, param_expr, p(), expr(), configurations",
       "features": 6,

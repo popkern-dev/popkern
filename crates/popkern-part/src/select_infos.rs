@@ -89,7 +89,17 @@ pub fn edge_infos(brep: &BRep) -> Vec<EdgeInfo> {
             }
             None => ((None, None), false),
         };
+        let endpoints = brep.half_edges.get(edge.half_edge).and_then(|h| {
+            let a = brep.vertices.get(h.origin)?.position;
+            let b = brep
+                .half_edges
+                .get(h.twin)
+                .and_then(|t| brep.vertices.get(t.origin))?
+                .position;
+            Some((a, b))
+        });
         out.push(EdgeInfo {
+            endpoints,
             handle: eh,
             curve,
             midpoint,

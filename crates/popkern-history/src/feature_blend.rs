@@ -45,6 +45,22 @@ pub struct FilletRecipeDesc {
     /// How corners where several filleted edges meet are closed.
     #[serde(default)]
     pub corner: CornerModeDesc,
+    /// Radius groups beyond the feature's own (PK-602): each group's
+    /// edges take its radius; the feature's `radius` applies to every
+    /// edge no group names. Empty for a single-radius fillet. Groups
+    /// take constant radii (no law) and never share an edge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edge_radii: Vec<EdgeRadiusGroup>,
+}
+
+
+/// One radius group of a fillet feature (PK-602).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeRadiusGroup {
+    /// The group's edges, by stable name (a subset of the feature's).
+    pub edges: Vec<EntityName>,
+    /// The group's constant radius (resolved via the parameter table).
+    pub radius: ParameterId,
 }
 
 /// How a fillet closes corners where several filleted edges meet
@@ -242,8 +258,10 @@ impl FilletRecipeDesc {
         }
     }
 
-    /// Every parameter the recipe references, beyond the feature's own
-    /// `radius`, with a field label for dependency reporting.
+    /// Every parameter the recipe's radius law references, beyond the
+    /// feature's own `radius`, with a field label for dependency
+    /// reporting. Radius-group parameters carry per-group roles
+    /// (`radius_1`, …) and are listed by `feature_param_ids`.
     pub(crate) fn param_ids(&self) -> Vec<(&'static str, ParameterId)> {
         match &self.radius_law {
             FilletRadiusLaw::Constant => vec![],

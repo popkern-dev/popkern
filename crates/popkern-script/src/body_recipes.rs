@@ -177,6 +177,105 @@ impl Body {
         self.fillet_with(model, edges, radius, recipe, label)
     }
 
+    /// Fillet with several radius groups in one feature (PK-602): each
+    /// `(selector, radius)` group's edges take its radius, so the edges
+    /// meeting at a corner can carry different radii and the corner is
+    /// built as one vertex blend. Groups must not share an edge; a
+    /// group that selects nothing is dropped when its selector allows
+    /// empty. `recipe.radius_law` must be constant (laws are per fillet).
+    pub fn fillet_each(
+        self,
+        model: &mut Model,
+        groups: Vec<(EdgeSelector, Scalar)>,
+        mut recipe: FilletRecipeDesc,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        if recipe.radius_law != FilletRadiusLaw::Constant {
+            return Err(ScriptError::Argument {
+                argument: "law".into(),
+                reason: "radius laws are per fillet; fillet_each groups take constant radii".into(),
+            });
+        }
+        if groups.is_empty() {
+            return Err(ScriptError::Argument {
+                argument: "groups".into(),
+                reason: "fillet_each needs at least one [edge selector, radius] group".into(),
+            });
+        }
+        // Resolve every group before recording anything.
+        let mut resolved = Vec::with_capacity(groups.len());
+        for (i, (selector, radius)) in groups.into_iter().enumerate() {
+            let snapshot = self.edges(model, &selector)?;
+            resolved.push((i, snapshot, radius));
+        }
+        // Every overlapping pair, with its shared-edge count.
+        let mut overlaps: Vec<(usize, usize, usize)> = Vec::new();
+        for (x, (i, a, _)) in resolved.iter().enumerate() {
+            for (j, b, _) in resolved.iter().skip(x + 1) {
+                let shared = a.names.iter().filter(|n| b.names.contains(n)).count();
+                if shared > 0 {
+                    overlaps.push((*i, *j, shared));
+                }
+            }
+        }
+        if !overlaps.is_empty() {
+            let pairs: Vec<String> = overlaps
+                .iter()
+                .map(|(i, j, n)| {
+                    format!(
+                        "groups {i} and {j} ({n} edge{})",
+                        if *n == 1 { "" } else { "s" }
+                    )
+                })
+                .collect();
+            return Err(ScriptError::Argument {
+                argument: "groups".into(),
+                reason: format!(
+                    "fillet_each: an edge is selected by more than one group — {} — each edge takes one radius",
+                    pairs.join(", ")
+                ),
+            });
+        }
+        resolved.retain(|(_, snapshot, _)| !snapshot.names.is_empty());
+        if resolved.is_empty() {
+            return Ok(self);
+        }
+        let unit = model.unit;
+        let mut records = Vec::with_capacity(resolved.len());
+        let mut edges: Vec<EntityName> = Vec::new();
+        let mut base = None;
+        for (k, (_, snapshot, radius)) in resolved.iter().enumerate() {
+            let (role, edge_role) = if k == 0 {
+                ("radius".to_string(), "edges".to_string())
+            } else {
+                (format!("radius_{k}"), format!("edges_{k}"))
+            };
+            let pid = model.bind(&role, radius, unit)?;
+            records.push(Self::selection_record(&edge_role, snapshot));
+            edges.extend(snapshot.names.iter().cloned());
+            if k == 0 {
+                base = Some(pid);
+            } else {
+                recipe
+                    .edge_radii
+                    .push(popkern_history::feature_blend::EdgeRadiusGroup {
+                        edges: snapshot.names.clone(),
+                        radius: pid,
+                    });
+            }
+        }
+        let radius = base.ok_or_else(|| ScriptError::Argument {
+            argument: "groups".into(),
+            reason: "no group selected an edge".into(),
+        })?;
+        let feature = Feature::Fillet {
+            edges,
+            radius,
+            recipe,
+        };
+        self.record(model, feature, label, records)
+    }
+
     /// Chamfer with an explicit kind and label.
     pub fn chamfer_with(
         self,

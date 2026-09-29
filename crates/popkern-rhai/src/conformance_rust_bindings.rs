@@ -50,6 +50,7 @@ pub const RUST_BINDINGS: &[(&str, &str)] = &[
     ("subtract", "fn subtract"),
     ("intersect", "fn intersect"),
     ("fillet", "fn fillet"),
+    ("fillet_each", "fn fillet_each"),
     ("chamfer", "fn chamfer"),
     ("shell", "fn shell"),
     ("translate", "fn translate"),

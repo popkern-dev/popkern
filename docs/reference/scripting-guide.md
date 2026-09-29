@@ -128,6 +128,7 @@ least `label`.
 | `revolve(axis, end)` | `axis`: `axis_at([o], [d])` or `axis(edges()...)`; `end`: `blind(angle_deg)`, `full_circle()`, `mid_plane(half_angle)` | `label` | Revolved spans become exact planes, cylinders, cones and tori. |
 | `union(tool)`, `subtract(tool)`, `intersect(tool)` | a body from `m.tool(...)` | `label` | The tool body is consumed; rebinding (`plate = plate.union(boss)`) keeps the live body. |
 | `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`), `corner` (`"smooth"`, `"mitre"`: trim every strip pair at a corner to its mutual intersection) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. A mitre with no point shared by every strip is a `FeatureFailed` naming the mitre's reason. |
+| `fillet_each(groups)` | `[[edges()..., radius], ...]`: one radius per group of edges | `label`, `continuity`, `cap`, `profile`, `interference`, `corner` (as for fillet; radius laws are not taken) | One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's `radius` parameter, later groups' are `radius_1`, `radius_2`, … |
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
@@ -150,6 +151,24 @@ m.label_edge("bore_rim", edges().circular().at_height(0.5));
 block = block.fillet(edges().labeled("bore_rim"), 0.05, #{ label: "rim_round" });
 block = block.chamfer(edges().straight().at_height(0.0), 0.04,
     #{ kind: distance_angle(faces().facing_neg("z"), 30.0), label: "lead_in" });
+m.assert_watertight();
+m
+```
+
+`fillet_each` gives each group of edges its own radius in one
+feature, and `at_vertex` picks the edges meeting at one corner. Here
+a block's top corner meets three different radii; with `continuity:
+"g2"` the corner is closed by a curvature-continuous cap:
+
+```rhai
+let m = model();
+let block = m.profile(xy()).rect(1.0, 1.0).sketch("block").extrude(blind(1.0));
+let corner = [0.5, 0.5, 1.0];
+block.fillet_each([
+    [edges().at_vertex(corner).direction("x"), 0.05],
+    [edges().at_vertex(corner).direction("y"), 0.2],
+    [edges().at_vertex(corner).direction("z"), 0.3],
+], #{ continuity: "g2", label: "mixed_corner" });
 m.assert_watertight();
 m
 ```
@@ -202,6 +221,7 @@ it matches more.
 | `between("cylinder", "plane")` | the two adjacent surface kinds (`"plane"`, `"cylinder"`, `"cone"`, `"sphere"`, `"torus"`, `"nurbs"`) |
 | `at_height(z)` | the edge lies at that z |
 | `direction("z")` / `direction([x, y, z])` | a straight edge along that direction |
+| `at_vertex([x, y, z])` | an edge with an end at that point: the edges meeting at one corner |
 | `chord_length_between(min, max)` | endpoint distance in that range (a closed circle's chord is 0; use it to tell straight edges apart by length, and `at_height` plus the feature order to tell concentric rims apart) |
 | `not_seam()` | exclude periodic seams (they are excluded from blends anyway) |
 | `labeled("name")` | an edge labelled with `label_edge` |

@@ -98,6 +98,20 @@ impl Model {
                 Some(d) => format!("extrude {d}"),
                 None => "extrude".to_string(),
             },
+            Feature::Fillet { edges, recipe, .. } if !recipe.edge_radii.is_empty() => format!(
+                "fillet {} radius groups ({}) on {} edges{}",
+                recipe.edge_radii.len() + 1,
+                std::iter::once(scalar("radius"))
+                    .chain((1..=recipe.edge_radii.len()).map(|k| scalar(&format!("radius_{k}"))))
+                    .map(|r| r.map_or_else(|| "?".to_string(), |v| v.to_string()))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                edges.len(),
+                match recipe.continuity {
+                    popkern_history::feature_blend::ContinuityKind::G2 => " (G2)",
+                    _ => "",
+                },
+            ),
             Feature::Fillet { edges, recipe, .. } => format!(
                 "fillet {} on {} edges{}: {}",
                 scalar("radius").unwrap_or(f64::NAN),
@@ -196,6 +210,14 @@ impl Model {
                     (Feature::Fillet { edges, recipe, .. }, sel, _) => {
                         if let Some(kind) = edit.continuity {
                             recipe.continuity = kind;
+                        }
+                        if sel.is_some() && !recipe.edge_radii.is_empty() {
+                            return Err(ScriptError::Argument {
+                                argument: "edges".into(),
+                                reason: "a fillet with radius groups selects its edges per group: \
+                                         re-record it with fillet_each"
+                                    .into(),
+                            });
                         }
                         if let Some(sel) = sel {
                             let snap = resolve_edges(&before, sel, &labels)?;

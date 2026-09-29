@@ -24,6 +24,8 @@ pub enum EdgePredicate {
     AtHeight(f64),
     /// Chord direction parallel to an axis.
     Direction(Dir),
+    /// An end vertex at this point (the edges meeting at one corner).
+    AtVertex([f64; 3]),
     /// Chord length within a closed range.
     ChordLengthBetween(f64, f64),
     /// Not a seam edge.
@@ -125,6 +127,7 @@ impl EdgePredicate {
             }
             EdgePredicate::AtHeight(z) => format!("at_height({z})"),
             EdgePredicate::Direction(d) => format!("direction({})", dir_name(*d)),
+            EdgePredicate::AtVertex([x, y, z]) => format!("at_vertex([{x}, {y}, {z}])"),
             EdgePredicate::ChordLengthBetween(a, b) => format!("chord_length_between({a}, {b})"),
             EdgePredicate::NotSeam => "not_seam()".into(),
             EdgePredicate::Labeled(l) => format!("labeled({l:?})"),
@@ -182,6 +185,10 @@ impl EdgeSelector {
     /// Keep edges parallel to `dir`.
     pub fn direction(self, dir: Dir) -> Self {
         self.push(EdgePredicate::Direction(dir))
+    }
+    /// Keep edges with an end vertex at `point` (within 1e-6).
+    pub fn at_vertex(self, point: [f64; 3]) -> Self {
+        self.push(EdgePredicate::AtVertex(point))
     }
     /// Keep edges whose chord length is within `[min, max]`.
     pub fn chord_length_between(self, min: f64, max: f64) -> Self {
@@ -280,6 +287,9 @@ impl EdgeSelector {
                     EdgePredicate::Between(a, b) => q.between(*a, *b),
                     EdgePredicate::AtHeight(z) => q.at_height(*z),
                     EdgePredicate::Direction(d) => q.direction(*d),
+                    EdgePredicate::AtVertex([x, y, z]) => {
+                        q.at_vertex(popkern_core::geometry::Point3::new(*x, *y, *z))
+                    }
                     EdgePredicate::ChordLengthBetween(a, b) => q.chord_length_between(*a, *b),
                     EdgePredicate::NotSeam => q.not_seam(),
                     EdgePredicate::Labeled(l) => {

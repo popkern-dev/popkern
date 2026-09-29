@@ -75,6 +75,9 @@ pub struct EdgeInfo {
     pub chord_length: f64,
     /// The edge's stable name, when the body carries provenance names.
     pub name: Option<popkern_core::naming::EntityName>,
+    /// Positions of the edge's two end vertices (equal for a closed
+    /// edge; `None` when the topology has no vertices for it).
+    pub endpoints: Option<(Point3, Point3)>,
 }
 
 /// The analytic family of an edge's curve.
@@ -151,6 +154,19 @@ impl EdgeQuery {
         self.push(&format!("at_height({z})"), move |e| {
             (e.midpoint.z - z).abs() < 1e-6
         })
+    }
+
+    /// Keep edges with an end vertex at `point` (within 1e-6, the
+    /// `at_height` tolerance): the edges meeting at one corner.
+    pub fn at_vertex(self, point: Point3) -> EdgeQuery {
+        self.push(
+            &format!("at_vertex({}, {}, {})", point.x, point.y, point.z),
+            move |e| {
+                e.endpoints.is_some_and(|(a, b)| {
+                    a.distance_to(&point) < 1e-6 || b.distance_to(&point) < 1e-6
+                })
+            },
+        )
     }
 
     /// Keep edges whose chord direction is parallel to `dir`

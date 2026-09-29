@@ -363,6 +363,13 @@ pub fn statement(
             edges,
             radius,
             recipe,
+        } if !recipe.edge_radii.is_empty() => emit_feature_groups::fillet_each_call(
+            model, context, spell, label, edges, *radius, recipe,
+        )?,
+        Feature::Fillet {
+            edges,
+            radius,
+            recipe,
         } => format!(
             ".fillet({}, {}{})",
             spell("edges", edges, false)?,
@@ -465,3 +472,6 @@ pub fn statement(
         starts_body: false,
     })
 }
+
+#[path = "emit_feature_groups.rs"]
+mod emit_feature_groups;

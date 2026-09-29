@@ -17,6 +17,17 @@ pub(crate) fn feature_param_ids(feature: &Feature) -> Vec<(String, ParameterId)>
     if let Feature::Sketch { sketch_data, .. } = feature {
         ids.extend(sketch_data.param_ids());
     }
+    // PK-602: one role per radius group, `radius_1`, `radius_2`, …
+    // (group 0 is the feature's own `radius`).
+    if let Feature::Fillet { recipe, .. } = feature {
+        ids.extend(
+            recipe
+                .edge_radii
+                .iter()
+                .enumerate()
+                .map(|(k, g)| (format!("radius_{}", k + 1), g.radius)),
+        );
+    }
     ids
 }
 

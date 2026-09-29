@@ -342,6 +342,15 @@ pub fn register(engine: &mut Engine) {
                 b.fillet(edges, radius, &options)
             },
         )
+        .register_fn("fillet_each", |b: &mut ScriptBody, groups: rhai::Array| {
+            b.fillet_each(groups, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "fillet_each",
+            |b: &mut ScriptBody, groups: rhai::Array, options: Dynamic| {
+                b.fillet_each(groups, &options)
+            },
+        )
         .register_fn(
             "chamfer",
             |b: &mut ScriptBody, edges: EdgeSelector, d: Dynamic| {
@@ -463,3 +472,6 @@ pub fn register(engine: &mut Engine) {
             format!("Body({})", b.body.id.0)
         });
 }
+
+#[path = "body_api_groups.rs"]
+mod body_api_groups;
