@@ -3,13 +3,13 @@
 
 use super::chart::CharacteristicMap;
 use super::energy::Integrand;
-use super::level::{Frame, Level, assemble, build_level, energy_factor, solve};
-use super::measure::{cap_jet, regularity, rim_report, spoke_report};
-use super::rim_rows::{Reduction, rim_rows};
+use super::gauss_newton::solve_level;
+use super::level::{Frame, Level, build_level};
+use super::measure::{regularity, rim_report, spoke_report};
 use super::space::SectorSpace;
 use super::{
-    CapEnergy, RimResidual, VariationalCap, VariationalCapError, VariationalCapOptions,
-    VariationalCapReport, VariationalCapSide, VariationalCapTargets, excess,
+    RimResidual, VariationalCap, VariationalCapError, VariationalCapOptions, VariationalCapReport,
+    VariationalCapSide, VariationalCapTargets, excess,
 };
 use crate::geometry::curve::CurveEval;
 use crate::geometry::{Point3, Vec3};
@@ -18,17 +18,11 @@ use crate::geometry::{Point3, Vec3};
 /// have (E6: revised from the measured fixtures).
 const MIN_REGULARITY: f64 = 1.0e-3;
 
-/// Smallest normal-angle sine used to weight the G1 rows. The rim rows
-/// are weighted by 1/target against energy rows of scale √λ (0.1 at the
-/// default λ); past a weight ratio of ~1e7 the stacked QR cannot resolve
-/// the directions only the energy fixes and the solve reads singular
-/// (measured with 1e-14 targets). A tighter target still governs the
-/// stopping test.
-const WEIGHT_FLOOR_G1: f64 = 1.0e-6;
+/// Regularity samples per knot span for the served surface.
+const FINAL_GRID_PER_SPAN: usize = 12;
 
-/// Smallest normalised curvature jump used to weight the G2 rows (the
-/// same bound as [`WEIGHT_FLOOR_G1`] in the G2 row scale).
-const WEIGHT_FLOOR_G2: f64 = 1.0e-5;
+/// Spans within this factor of the worst span excess are split.
+const REFINE_BAND: f64 = 4.0;
 
 /// Fit a cap over the opening bounded by `sides` (see the module docs
 /// for the layout and the construction). `tolerance` is the model's
@@ -63,46 +57,51 @@ pub fn fit_variational_cap(
     let mut space = SectorSpace::bezier(n, options.degree);
     let mut gn_total = 0;
     let mut levels = 0;
+    // The best level so far by worst residual-to-target ratio: a level
+    // that refines past the targets' reach is not better than its
+    // predecessor, so the result is the best one seen.
+    let mut best: Option<(f64, VariationalCap)> = None;
+    let mut previous: Option<(SectorSpace, [Vec<f64>; 3])> = None;
     loop {
         let level = build_level(space.clone(), sides, &frame)?;
         let unknowns = 3 * level.hs.dim();
-        let (coords, iterations) = solve_level(&level, &local_targets, options, &phi)?;
+        let start = previous
+            .as_ref()
+            .and_then(|(old_space, old)| transfer(old_space, old, &level.space));
+        let (coords, iterations) =
+            solve_level(&level, &local_targets, options, &phi, start.as_ref())?;
         gn_total += iterations;
         let rim = rim_report(&level.space, &coords, &level.samples, n);
         let worst = rim
             .iter()
-            .copied()
-            .max_by(|a, b| excess(a, &local_targets).total_cmp(&excess(b, &local_targets)));
-        let met = rim.iter().all(|r| excess(r, &local_targets) <= 1.0);
-        if met {
-            return finish(level, coords, rim, levels, unknowns, gn_total, &frame);
+            .map(|r| excess(r, &local_targets))
+            .fold(0.0, f64::max);
+        let met = worst <= 1.0;
+        let refined = (!met).then(|| refine(&level, &coords, &local_targets));
+        let space_now = level.space.clone();
+        previous = Some((space_now.clone(), coords.clone()));
+        let cap = finish(level, coords, rim, levels, unknowns, gn_total, &frame, met)?;
+        if best.as_ref().is_none_or(|(w, _)| worst < *w) {
+            best = Some((worst, cap));
         }
-        let refined = refine(&level, &coords, &local_targets);
+        let Some(refined) = refined else {
+            break;
+        };
         let next = SectorSpace::new(n, options.degree, refined);
-        let next_unknowns_estimate = unknowns * next.m * next.m / (level.space.m * level.space.m);
+        let next_unknowns_estimate = unknowns * next.m * next.m / (space_now.m * space_now.m);
         if levels >= options.max_refinement_levels
-            || next.knots == level.space.knots
+            || next.knots == space_now.knots
             || next_unknowns_estimate > options.max_unknowns
         {
-            let worst = worst
-                .map(|w| model_residual(w, &frame))
-                .unwrap_or(RimResidual {
-                    side: 0,
-                    half: super::RimHalf::Leading,
-                    parameter: f64::NAN,
-                    g0: f64::INFINITY,
-                    g1: f64::INFINITY,
-                    g2: f64::INFINITY,
-                });
-            return Err(VariationalCapError::BudgetExhausted {
-                worst,
-                levels,
-                unknowns,
-            });
+            break;
         }
         space = next;
         levels += 1;
     }
+    best.map(|(_, cap)| cap)
+        .ok_or(VariationalCapError::Singular {
+            stage: "no level solved",
+        })
 }
 
 /// Closure, degeneracy, and the normalised frame (corner centroid,
@@ -144,79 +143,18 @@ fn check_sides(sides: &[VariationalCapSide], tolerance: f64) -> Result<Frame, Va
     })
 }
 
-/// Energy-only start, then Gauss–Newton on the rim terms. With
-/// [`CapEnergy::DataDependent`] every iteration after the first bends
-/// against the previous iterate's normal and metric.
-fn solve_level(
-    level: &Level,
-    targets: &VariationalCapTargets,
-    options: &VariationalCapOptions,
-    phi: &CharacteristicMap,
-) -> Result<([Vec<f64>; 3], usize), VariationalCapError> {
-    let characteristic = |_s: usize, u: f64, v: f64| phi.metric(u, v);
-    let parametric = Integrand::Parametric {
-        metric: &characteristic,
-        eps: options.membrane_weight,
-    };
-    let mut energy = energy_factor(level, &parametric)?;
-    let red = Reduction {
-        hs: &level.hs,
-        xp: &level.xp,
-        fixed: &level.fixed,
-    };
-    let mut y = solve(&energy, 1.0, None)?;
-    let mut coords = assemble(level, &y);
-    let mut previous = f64::INFINITY;
-    let mut iterations = 0;
-    for _ in 0..options.max_gauss_newton {
-        if options.energy == CapEnergy::DataDependent {
-            let space = &level.space;
-            let current = &coords;
-            let reference = |s: usize, u: f64, v: f64| {
-                let j = cap_jet(space, current, s, u, v);
-                let normal = j.su.cross(&j.sv).normalized()?;
-                Some((normal, [j.su.dot(&j.su), j.su.dot(&j.sv), j.sv.dot(&j.sv)]))
-            };
-            let bending = Integrand::Bending {
-                reference: &reference,
-                regular: options.parameter_regularisation,
-                eps: options.membrane_weight,
-            };
-            energy = energy_factor(level, &bending)?;
-        }
-        // Row weights come from the targets with a floor: a target below
-        // what double precision can resolve against the energy rows would
-        // only make the stacked system numerically singular, while the
-        // stopping test still uses the true targets.
-        let (rows, rhs) = rim_rows(
-            &level.space,
-            &red,
-            &coords,
-            &level.samples,
-            targets.g1.max(WEIGHT_FLOOR_G1),
-            targets.g2.map(|g| g.max(WEIGHT_FLOOR_G2)),
-        );
-        y = solve(&energy, options.fairness_weight, Some((&rows, &rhs)))?;
-        coords = assemble(level, &y);
-        iterations += 1;
-        let rim = rim_report(&level.space, &coords, &level.samples, level.space.n);
-        let worst = rim.iter().map(|r| excess(r, targets)).fold(0.0, f64::max);
-        if !worst.is_finite() {
-            continue;
-        }
-        if (previous - worst).abs() <= 1e-2 * worst.max(1e-300) || worst <= 1e-2 {
-            break;
-        }
-        previous = worst;
-    }
-    Ok((coords, iterations))
-}
-
 /// Insert the midpoint of every span holding a sample over its target.
 fn refine(level: &Level, coords: &[Vec<f64>; 3], targets: &VariationalCapTargets) -> Vec<f64> {
+    // Split the spans holding the worst samples: those within a factor
+    // REFINE_BAND of the level's worst excess (and over target). The
+    // residual that survives a level concentrates where the data
+    // conflict (the setback corners, where two G2 strips' curvature
+    // slopes are third-order incompatible for any polynomial cap), so
+    // grading the knots there converges; splitting every over-target
+    // span spends the budget uniformly.
     let space = &level.space;
-    let mut marked = vec![false; space.spans().len()];
     let spans = space.spans();
+    let mut span_excess = vec![0.0f64; spans.len()];
     for sample in &level.samples {
         let (g0, g1, g2) = super::measure::rim_residual(space, coords, sample);
         let r = RimResidual {
@@ -227,17 +165,17 @@ fn refine(level: &Level, coords: &[Vec<f64>; 3], targets: &VariationalCapTargets
             g1,
             g2,
         };
-        if excess(&r, targets) > 1.0
-            && let Some(i) = spans
-                .iter()
-                .position(|&(a, b)| sample.x >= a && (sample.x < b || (b == 1.0 && sample.x <= b)))
+        if let Some(i) = spans
+            .iter()
+            .position(|&(a, b)| sample.x >= a && (sample.x < b || (b == 1.0 && sample.x <= b)))
         {
-            marked[i] = true;
+            span_excess[i] = span_excess[i].max(excess(&r, targets));
         }
     }
+    let worst = span_excess.iter().copied().fold(0.0, f64::max);
     let mut knots = space.knots.clone();
     for (i, &(a, b)) in spans.iter().enumerate() {
-        if marked[i] {
+        if span_excess[i] > 1.0 && span_excess[i] >= worst / REFINE_BAND {
             knots.push(0.5 * (a + b));
         }
     }
@@ -253,6 +191,7 @@ fn model_residual(r: RimResidual, frame: &Frame) -> RimResidual {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finish(
     level: Level,
     coords: [Vec<f64>; 3],
@@ -261,12 +200,15 @@ fn finish(
     unknowns: usize,
     gauss_newton_iterations: usize,
     frame: &Frame,
+    targets_met: bool,
 ) -> Result<VariationalCap, VariationalCapError> {
     let space = &level.space;
-    let (min_regularity, sector) = regularity(space, &coords, 24);
+    let reg = regularity(space, &coords, FINAL_GRID_PER_SPAN);
+    let min_regularity = reg.ratio;
     if min_regularity < MIN_REGULARITY {
         return Err(VariationalCapError::Folded {
-            sector,
+            sector: reg.sector,
+            at: reg.uv,
             min_regularity,
         });
     }
@@ -297,6 +239,7 @@ fn finish(
             worst_spoke: (s0 * frame.scale, s1, s2 / frame.scale),
             min_regularity,
             energy,
+            targets_met,
         },
     })
 }
@@ -312,6 +255,7 @@ fn energy_value(level: &Level, coords: &[Vec<f64>; 3]) -> f64 {
             metric: &metric,
             eps: 0.0,
         },
+        None,
     );
     let per = level.space.m * level.space.m;
     let size = gram.size;
@@ -326,4 +270,42 @@ fn energy_value(level: &Level, coords: &[Vec<f64>; 3]) -> f64 {
         }
     }
     total
+}
+
+/// The previous level's coefficients in the refined space `new` (exact
+/// knot insertion per sector); `None` if the insertion fails.
+pub(super) fn transfer(
+    old_space: &SectorSpace,
+    old: &[Vec<f64>; 3],
+    new: &SectorSpace,
+) -> Option<[Vec<f64>; 3]> {
+    let mut inserted = Vec::new();
+    let mut remaining = old_space.knots.clone();
+    for &k in &new.knots {
+        match remaining.iter().position(|&r| r == k) {
+            Some(i) => {
+                remaining.remove(i);
+            }
+            None => inserted.push(k),
+        }
+    }
+    let mut out: [Vec<f64>; 3] = std::array::from_fn(|_| vec![0.0; new.total()]);
+    for s in 0..old_space.n {
+        let surface = old_space
+            .sector_surface(old, s)
+            .insert_knots_u(&inserted)
+            .ok()?
+            .insert_knots_v(&inserted)
+            .ok()?;
+        if surface.control_points.len() != new.m * new.m {
+            return None;
+        }
+        for (l, p) in surface.control_points.iter().enumerate() {
+            let at = s * new.m * new.m + l;
+            out[0][at] = p.x;
+            out[1][at] = p.y;
+            out[2][at] = p.z;
+        }
+    }
+    Some(out)
 }

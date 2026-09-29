@@ -12,13 +12,22 @@
 //!   geometric: it penalises the bilinear chart's own distortion, and
 //!   over a spherical n-gon the interior sags with n (measured 0.6 % at
 //!   n = 4 to 11 % of the radius at n = 8).
-//! - **Bending** with a frozen reference normal N and metric G:
-//!   `tr(G⁻¹BG⁻¹B)` with `B_ab = N·∂_a∂_b x`, i.e. κ₁² + κ₂² of the
-//!   surface when the reference is the surface itself. The spherical
-//!   cap is a critical point of this energy under sphere G1 data, so
-//!   the fit reproduces it. It sees no tangential motion, so a small
-//!   parametric term regularises the parameterisation.
+//! - **Mean-curvature variation** `∫ |∇_g H|² √det G` with `H = N·Δ_g x`,
+//!   N, g and the Laplace–Beltrami coefficients frozen at a reference
+//!   surface (Schneider & Kobbelt's ΔH = 0 fairness, linearised). Zero on
+//!   every constant-mean-curvature surface, so a sphere is an exact
+//!   minimiser; ∇H is taken by central differences of the linear
+//!   functional H. It sees no tangential motion, so a parametric thin
+//!   plate regularises the parameterisation. Measured on spherical
+//!   n-gons (theta 0.6), interior sag 1.8e-4 (n = 4) to 2.0e-3 (n = 6)
+//!   against 5e-3..3e-2 for a frozen-normal bending energy
+//!   (∫ tr(G⁻¹BG⁻¹B), B = N·∂∂x), which is not stationary at a sphere.
+//!   It is sixth order in x, so it needs the curvature rows at the rim:
+//!   under G1 rows alone it folded (cube corner 0.05/0.2/0.3, pyramid4
+//!   h=3), where the fourth-order bending energy serves.
+//! - **Bending** (fourth order), the energy of a G1-only fit.
 
+use super::energy_mcv::{Reference, combine, mean_curvature_gradient, outer};
 use super::space::{Basis1, SectorSpace, gauss_legendre};
 use crate::geometry::Vec3;
 
@@ -28,6 +37,21 @@ pub(super) struct EnergyGram {
     pub blocks: Vec<Vec<f64>>,
     /// Block side (`3m²`).
     pub size: usize,
+    /// Linear term per sector: the energy is `xᵀ B x − 2 bᵀ x`.
+    pub linear: Vec<Vec<f64>>,
+}
+
+/// Tangential anchoring: `weight · ∫ Σ_i (e_i·(x − x_ref))²`, with
+/// `(x_ref, [e_1, e_2])` a reference point and orthonormal tangent frame.
+/// It holds the parameterisation without resisting normal (shape)
+/// motion: the fairness energies act on normal components only, and
+/// the G1 rows are homogeneous in the cross derivative, so without it
+/// a fit can collapse its parameterisation into a fold (measured), and
+/// a parametric regulariser strong enough to prevent that also flattens
+/// the shape (measured sag).
+pub(super) struct Anchor<'a> {
+    pub reference: &'a dyn Fn(usize, f64, f64) -> Option<(Vec3, [Vec3; 2])>,
+    pub weight: f64,
 }
 
 /// What the integrand needs at a quadrature point.
@@ -38,25 +62,51 @@ pub(super) enum Integrand<'a> {
         metric: &'a dyn Fn(usize, f64, f64) -> [f64; 3],
         eps: f64,
     },
-    /// Bending against `reference(s, u, v) -> (normal, metric)`, plus
-    /// `regular` times the parametric thin plate and `eps` membrane.
+    /// Bending `∫ tr(G⁻¹BG⁻¹B)`, `B_ab = N·∂_a∂_b x`, against a frozen
+    /// reference `(normal, metric)`, plus `regular` times the parametric
+    /// thin plate and `eps` membrane. Fourth order: the energy for a fit
+    /// constrained at the rim to G1 only.
     Bending {
         reference: &'a dyn Fn(usize, f64, f64) -> Option<(Vec3, [f64; 3])>,
+        regular: f64,
+        eps: f64,
+    },
+    /// Mean-curvature variation `∫ |∇_g H|²` against a frozen reference
+    /// (see [`Reference`]), plus `regular` times the parametric thin
+    /// plate and `eps` membrane.
+    MeanCurvatureVariation {
+        reference: &'a dyn Fn(usize, f64, f64) -> Option<Reference>,
         regular: f64,
         eps: f64,
     },
 }
 
 /// Assemble the Gram blocks for `space`.
-pub(super) fn energy_gram(space: &SectorSpace, integrand: &Integrand<'_>) -> EnergyGram {
+pub(super) fn energy_gram(
+    space: &SectorSpace,
+    integrand: &Integrand<'_>,
+    anchor: Option<&Anchor<'_>>,
+) -> EnergyGram {
     let m = space.m;
     let per = m * m;
     let size = 3 * per;
     let nodes = gauss_legendre(space.degree + 2);
     let spans = space.spans();
     let mut blocks = Vec::with_capacity(space.n);
+    // The mean-curvature-variation part and its parametric regulariser
+    // are assembled apart and balanced by trace before weighting: the
+    // third-order MCV entries are orders larger than the thin plate's,
+    // and under one shared normalisation the regulariser vanished and
+    // the tangential directions went singular (measured: the cube corner
+    // 0.05/0.2/0.3 declined `Singular`, pyramid4 h=3 folded).
+    let mut regular_blocks = Vec::with_capacity(space.n);
+    let mut anchor_blocks = Vec::with_capacity(space.n);
+    let mut linear = Vec::with_capacity(space.n);
     for sector in 0..space.n {
         let mut block = vec![0.0; size * size];
+        let mut regular_block = vec![0.0; size * size];
+        let mut anchor_block = vec![0.0; size * size];
+        let mut anchor_linear = vec![0.0; size];
         for &(ua, ub) in &spans {
             for &(va, vb) in &spans {
                 for &(xu, wu) in &nodes {
@@ -66,6 +116,20 @@ pub(super) fn energy_gram(space: &SectorSpace, integrand: &Integrand<'_>) -> Ene
                         let v = va + (vb - va) * xv;
                         let bv = space.basis(v);
                         let area = wu * wv * (ub - ua) * (vb - va);
+                        if let Some(a) = anchor
+                            && let Some((p, frame)) = (a.reference)(sector, u, v)
+                        {
+                            anchor_rows(
+                                &mut anchor_block,
+                                &mut anchor_linear,
+                                m,
+                                &bu,
+                                &bv,
+                                p,
+                                &frame,
+                                area,
+                            );
+                        }
                         match integrand {
                             Integrand::Parametric { metric, eps } => {
                                 let g = metric(sector, u, v);
@@ -85,16 +149,33 @@ pub(super) fn energy_gram(space: &SectorSpace, integrand: &Integrand<'_>) -> Ene
                                 if let Some((mm, det)) = inverse_root(g) {
                                     let w = area * det.sqrt();
                                     bending(&mut block, m, &bu, &bv, &mm, normal, w);
-                                    parametric(
-                                        &mut block,
-                                        m,
-                                        &bu,
-                                        &bv,
-                                        &mm,
-                                        w * regular,
-                                        *eps / regular.max(1e-300),
-                                    );
+                                    parametric(&mut regular_block, m, &bu, &bv, &mm, w, *eps);
+                                    let _ = regular;
                                 }
+                            }
+                            Integrand::MeanCurvatureVariation {
+                                reference,
+                                regular,
+                                eps,
+                            } => {
+                                let Some(r) = reference(sector, u, v) else {
+                                    continue;
+                                };
+                                let Some((mm, det)) = inverse_root(r.metric) else {
+                                    continue;
+                                };
+                                let w = area * det.sqrt();
+                                let h = 1e-3 * (ub - ua).min(vb - va);
+                                if let Some([hu, hv]) =
+                                    mean_curvature_gradient(space, sector, u, v, h, *reference)
+                                {
+                                    for mp in &mm {
+                                        let row = combine(&[(mp[0], &hu), (mp[1], &hv)]);
+                                        outer(&mut block, size, &row, w);
+                                    }
+                                }
+                                let _ = regular;
+                                parametric(&mut regular_block, m, &bu, &bv, &mm, w, *eps);
                             }
                         }
                     }
@@ -102,8 +183,45 @@ pub(super) fn energy_gram(space: &SectorSpace, integrand: &Integrand<'_>) -> Ene
             }
         }
         blocks.push(block);
+        regular_blocks.push(regular_block);
+        anchor_blocks.push(anchor_block);
+        linear.push(anchor_linear);
     }
-    EnergyGram { blocks, size }
+    if let Integrand::MeanCurvatureVariation { regular, .. } | Integrand::Bending { regular, .. } =
+        integrand
+    {
+        let trace = |bs: &[Vec<f64>]| -> f64 {
+            bs.iter()
+                .map(|b| (0..size).map(|i| b[i * size + i]).sum::<f64>())
+                .sum()
+        };
+        let (t_mcv, t_reg) = (trace(&blocks), trace(&regular_blocks));
+        let scale = if t_mcv > 0.0 { t_reg / t_mcv } else { 0.0 };
+        let t_anchor = trace(&anchor_blocks);
+        let anchor_scale = match anchor {
+            Some(a) if t_anchor > 0.0 => a.weight * t_reg / t_anchor,
+            _ => 0.0,
+        };
+        for ((b, r), a) in blocks.iter_mut().zip(&regular_blocks).zip(&anchor_blocks) {
+            for ((x, y), z) in b.iter_mut().zip(r).zip(a) {
+                *x = scale * *x + regular * y + anchor_scale * z;
+            }
+        }
+        for l in &mut linear {
+            for x in l.iter_mut() {
+                *x *= anchor_scale;
+            }
+        }
+    } else {
+        for l in &mut linear {
+            l.fill(0.0);
+        }
+    }
+    EnergyGram {
+        blocks,
+        size,
+        linear,
+    }
 }
 
 /// `M = R⁻ᵀ` (lower) and `det G` for `G = [[a, b], [b, c]]`; `None`
@@ -134,7 +252,7 @@ fn hessian_rows(mm: &[[f64; 2]; 2], h: [[f64; 2]; 2]) -> [f64; 3] {
 }
 
 /// Basis-product supports: local index and `(value, ∂u, ∂v, ∂uu, ∂uv, ∂vv)`.
-fn supports(m: usize, bu: &Basis1, bv: &Basis1) -> Vec<(usize, [f64; 6])> {
+pub(super) fn supports(m: usize, bu: &Basis1, bv: &Basis1) -> Vec<(usize, [f64; 6])> {
     let mut out = Vec::with_capacity(bu.funcs.len() * bv.funcs.len());
     for (ri, fu) in bu.funcs.iter().enumerate() {
         for (rj, fv) in bv.funcs.iter().enumerate() {
@@ -186,6 +304,41 @@ fn parametric(
     }
 }
 
+/// Anchor rows at one point: for each tangent `e`, the row
+/// `Σ_c e_c N_l x_{c,l}` with target `e·p`, accumulated into the block
+/// and the linear term (`E = xᵀBx − 2bᵀx`).
+#[allow(clippy::too_many_arguments)]
+fn anchor_rows(
+    block: &mut [f64],
+    linear: &mut [f64],
+    m: usize,
+    bu: &Basis1,
+    bv: &Basis1,
+    p: Vec3,
+    frame: &[Vec3; 2],
+    w: f64,
+) {
+    let per = m * m;
+    let size = 3 * per;
+    for e in frame {
+        let ec = [e.x, e.y, e.z];
+        let target = e.dot(&p);
+        let mut row: Vec<(usize, f64)> = Vec::new();
+        for (l, d) in supports(m, bu, bv) {
+            for (c, ecc) in ec.iter().enumerate() {
+                row.push((c * per + l, ecc * d[0]));
+            }
+        }
+        for &(i, a) in &row {
+            linear[i] += w * target * a;
+            for &(j, b) in &row {
+                block[i * size + j] += w * a * b;
+            }
+        }
+    }
+}
+
+/// `‖M B Mᵀ‖_F²` with `B_ab = N·∂_a∂_b x`: rows over `(coord, local)`.
 fn bending(
     block: &mut [f64],
     m: usize,
@@ -198,7 +351,6 @@ fn bending(
     let per = m * m;
     let size = 3 * per;
     let nc = [normal.x, normal.y, normal.z];
-    // Rows over (coord, local): B_ab = Σ_c N_c ∂_a∂_b x_c.
     let mut rows: Vec<(usize, [f64; 3])> = Vec::new();
     for (l, d) in supports(m, bu, bv) {
         let h = hessian_rows(mm, [[d[3], d[4]], [d[4], d[5]]]);
@@ -208,8 +360,7 @@ fn bending(
     }
     for &(i, fi) in &rows {
         for &(j, fj) in &rows {
-            let dot = fi[0] * fj[0] + fi[1] * fj[1] + fi[2] * fj[2];
-            block[i * size + j] += w * dot;
+            block[i * size + j] += w * (fi[0] * fj[0] + fi[1] * fj[1] + fi[2] * fj[2]);
         }
     }
 }

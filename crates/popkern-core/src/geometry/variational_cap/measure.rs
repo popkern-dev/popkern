@@ -171,44 +171,77 @@ pub(super) fn spoke_report(
     (w0, w1, w2)
 }
 
-/// `(min |S_u × S_v| / mean, sector of the minimum)` over a grid.
-pub(super) fn regularity(space: &SectorSpace, coords: &[Vec<f64>; 3], grid: usize) -> (f64, usize) {
-    let mut worst = (f64::INFINITY, 0);
+/// The worst regularity sample of a grid: `min |S_u × S_v| / mean`
+/// (0 on a normal flip between neighbouring grid points), its sector
+/// and parameters.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Regularity {
+    pub ratio: f64,
+    pub sector: usize,
+    pub uv: (f64, f64),
+}
+
+/// Regularity over a per-span grid: `per_span` evenly spaced points in
+/// every knot span of each direction, plus the ends. A uniform grid is
+/// blind to the thin spans graded refinement puts beside the corners
+/// (measured: a fold at v = 0.958 inside the span [0.9375, 0.96875]
+/// passed a 16-point uniform grid).
+pub(super) fn regularity(
+    space: &SectorSpace,
+    coords: &[Vec<f64>; 3],
+    per_span: usize,
+) -> Regularity {
+    let mut worst = Regularity {
+        ratio: f64::INFINITY,
+        sector: 0,
+        uv: (0.0, 0.0),
+    };
+    let mut params: Vec<f64> = space
+        .spans()
+        .iter()
+        .flat_map(|&(a, b)| (0..per_span).map(move |i| a + (b - a) * i as f64 / per_span as f64))
+        .collect();
+    params.push(1.0);
+    let grid = params.len() - 1;
+    let at = |i: usize| params[i];
     for s in 0..space.n {
         let mut values = Vec::with_capacity((grid + 1) * (grid + 1));
         let mut normals = Vec::with_capacity((grid + 1) * (grid + 1));
         for i in 0..=grid {
             for j in 0..=grid {
-                let (u, v) = (i as f64 / grid as f64, j as f64 / grid as f64);
-                let jt = cap_jet(space, coords, s, u, v);
+                let jt = cap_jet(space, coords, s, at(i), at(j));
                 let cross = jt.su.cross(&jt.sv);
                 values.push(cross.length());
                 normals.push(cross.normalized());
             }
         }
-        // A fold reverses the normal between neighbouring grid points
-        // even when no sample lands on the zero of the Jacobian.
-        let flipped = (0..=grid).any(|i| {
-            (0..=grid).any(|j| {
-                let at = |i: usize, j: usize| normals[i * (grid + 1) + j];
-                let here = at(i, j);
-                let right = (i < grid).then(|| at(i + 1, j)).flatten();
-                let up = (j < grid).then(|| at(i, j + 1)).flatten();
-                match here {
-                    None => true,
-                    Some(h) => [right, up].iter().flatten().any(|o| h.dot(o) <= 0.0),
-                }
-            })
-        });
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let min = values.iter().copied().fold(f64::INFINITY, f64::min);
-        let ratio = if flipped || mean.is_nan() || mean <= 0.0 {
-            0.0
-        } else {
-            min / mean
-        };
-        if ratio < worst.0 {
-            worst = (ratio, s);
+        let idx = |i: usize, j: usize| i * (grid + 1) + j;
+        for i in 0..=grid {
+            for j in 0..=grid {
+                // A fold reverses the normal between neighbouring grid
+                // points even when no sample lands on the zero of the
+                // Jacobian.
+                let flipped = match normals[idx(i, j)] {
+                    None => true,
+                    Some(h) => [(i + 1, j), (i, j + 1)]
+                        .into_iter()
+                        .filter(|&(a, b)| a <= grid && b <= grid)
+                        .any(|(a, b)| normals[idx(a, b)].is_none_or(|o| h.dot(&o) <= 0.0)),
+                };
+                let ratio = if flipped || mean.is_nan() || mean <= 0.0 {
+                    0.0
+                } else {
+                    values[idx(i, j)] / mean
+                };
+                if ratio < worst.ratio {
+                    worst = Regularity {
+                        ratio,
+                        sector: s,
+                        uv: (at(i), at(j)),
+                    };
+                }
+            }
         }
     }
     worst

@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use faer::Mat;
 
-use super::energy::{Integrand, energy_gram};
+use super::energy::{Anchor, Integrand, energy_gram};
 use super::jets::{NeighbourJet, NeighbourSampler};
-use super::linalg::{cholesky, lstsq, solve_lower};
+use super::linalg::{cholesky, solve_lower};
 use super::measure::RimSample;
 use super::nullspace::{HardSystem, hard_system};
 use super::rim::side_rows;
@@ -181,6 +181,8 @@ fn localise(jet: &NeighbourJet, frame: &Frame) -> NeighbourJet {
 pub(super) struct EnergyFactor {
     pub l: Mat<f64>,
     pub r: Vec<f64>,
+    /// The normalised Gram `L Lᵀ` (for the normal-equation solve).
+    pub gram: Mat<f64>,
 }
 
 /// Reduce the energy onto `level`'s null space. The Gram is normalised
@@ -189,12 +191,13 @@ pub(super) struct EnergyFactor {
 pub(super) fn energy_factor(
     level: &Level,
     integrand: &Integrand<'_>,
+    anchor: Option<&Anchor<'_>>,
 ) -> Result<EnergyFactor, VariationalCapError> {
     use faer::linalg::matmul::matmul;
     let space = &level.space;
     let hs = &level.hs;
     let k = hs.dim();
-    let gram = energy_gram(space, integrand);
+    let gram = energy_gram(space, integrand, anchor);
     let per = space.m * space.m;
     let size = gram.size;
     let mut g = Mat::<f64>::zeros(3 * k, 3 * k);
@@ -265,6 +268,17 @@ pub(super) fn energy_factor(
                 }
             }
         }
+        // The linear term (E = xᵀBx − 2bᵀx) on the free coefficients.
+        let lin = &gram.linear[s];
+        for c in 0..3 {
+            for i in 0..k {
+                h[c * k + i] -= free_local
+                    .iter()
+                    .enumerate()
+                    .map(|(a, &(la, _))| zs.read(a, i) * lin[c * per + la])
+                    .sum::<f64>();
+            }
+        }
     }
     let dim = 3 * k;
     let mean_diag = (0..dim).map(|i| g.read(i, i)).sum::<f64>() / dim.max(1) as f64;
@@ -277,43 +291,11 @@ pub(super) fn energy_factor(
         }
         g.write(i, i, g.read(i, i) + 1e-12);
     }
+    let gram = g.clone();
     let l = cholesky(g).ok_or(VariationalCapError::Singular { stage: "energy" })?;
     let hn: Vec<f64> = h.iter().map(|v| v / mean_diag).collect();
     let r = solve_lower(&l, &hn);
-    Ok(EnergyFactor { l, r })
-}
-
-/// Minimise `λ ‖Lᵀ y + r‖² + ‖A y − b‖²` by stacked QR.
-pub(super) fn solve(
-    energy: &EnergyFactor,
-    lambda: f64,
-    rim: Option<(&Mat<f64>, &[f64])>,
-) -> Result<[Vec<f64>; 3], VariationalCapError> {
-    let dim = energy.l.nrows();
-    let k = dim / 3;
-    let extra = rim.map_or(0, |(a, _)| a.nrows());
-    let sl = lambda.sqrt();
-    let mut a = Mat::<f64>::zeros(dim + extra, dim);
-    let mut b = Mat::<f64>::zeros(dim + extra, 1);
-    for i in 0..dim {
-        for j in 0..=i {
-            // Row j of Lᵀ holds L[i][j] at column i >= j.
-            a.write(j, i, sl * energy.l.read(i, j));
-        }
-        b.write(i, 0, -sl * energy.r[i]);
-    }
-    if let Some((rows, rhs)) = rim {
-        for (i, &value) in rhs.iter().enumerate().take(rows.nrows()) {
-            for j in 0..dim {
-                a.write(dim + i, j, rows.read(i, j));
-            }
-            b.write(dim + i, 0, value);
-        }
-    }
-    let x = lstsq(a, b, 1e-12).ok_or(VariationalCapError::Singular { stage: "fit" })?;
-    Ok(std::array::from_fn(|c| {
-        (0..k).map(|i| x.read(c * k + i, 0)).collect()
-    }))
+    Ok(EnergyFactor { l, r, gram })
 }
 
 /// Full coefficient vectors from null-space coordinates.

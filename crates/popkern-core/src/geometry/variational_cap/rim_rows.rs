@@ -7,13 +7,18 @@
 //! previous iterate's `w`:
 //!
 //! ```text
-//! G1:  N·w / |w_k|                                   = 0
-//! G2:  (N·w' − 2 II(w_k, w) + II(w_k, w_k)) / |w_k|² = 0
+//! G1:        N·w / |w_k|                                   = 0
+//! G2 cross:  (N·w' − 2 II(w_k, w) + II(w_k, w_k)) / |w_k|² = 0
+//! G2 mixed:  (N·∂w/∂t − II(T, w)) / (|w_k| |T|)            = 0
 //! ```
 //!
-//! G2 is `N·w' − II(w, w)` linearised about `w_k`: with G0 exact and G1
-//! met, the along-rim and mixed curvature terms agree automatically, so
-//! the transverse term is the only independent G2 condition. Each row is
+//! with `T` the (fixed) rim tangent. The cross row is `N·w' − II(w, w)`
+//! linearised about `w_k`. The mixed row is exact and linear. With G0
+//! and G1 exact along the whole rim the mixed term would follow from
+//! differentiating G1 along the rim, but a fitted G1 barely constrains
+//! the twist: measured on the pentagon flagship, the corner twist
+//! missed the strip by 0.53 (normalised mixed curvature) while G1 read
+//! 5e-4. The along-rim term is fixed by the rim (Meusnier). Each row is
 //! divided by its target, so the least-squares term reads Σ (r/target)².
 
 use faer::Mat;
@@ -23,24 +28,46 @@ use super::nullspace::HardSystem;
 use super::space::{Functional, SectorSpace};
 use crate::geometry::Vec3;
 
+/// Extra weight on the mixed row at a setback corner (the rim end
+/// `x = 1`, where two sides meet). Each side's G2 data fixes the corner
+/// twist the same way (the two neighbours' second forms agree there),
+/// but the neighbours' curvature slopes conflict at third order for any
+/// polynomial cap (see the design doc, "setback corner theorem"). At
+/// unit weight the fit spent the corner twist to trade against that
+/// conflict and kept a constant corner error under every refinement
+/// (measured on the pentagon flagship: mixed curvature −0.078 against
+/// 0 at every level). Pinning the twist moves the conflict into the
+/// cross term beside the corner, where it decays linearly with the
+/// distance to the corner and so shrinks under corner refinement.
+const CORNER_TWIST_WEIGHT: f64 = 1.0e3;
+
 /// A functional reduced to the null-space coordinates of one
 /// coordinate: `f·x = a·y + c`.
 pub(super) struct Reduced {
+    /// Null-space coefficients (the same for every coordinate).
     pub a: Vec<f64>,
-    pub c: f64,
+    /// Constant term per coordinate.
+    pub c: [f64; 3],
 }
 
-/// Reduce `f` for one coordinate with particular free values `xp` and
-/// fixed values `fixed`.
-pub(super) fn reduce(f: &Functional, hs: &HardSystem, xp: &[f64], fixed: &[f64]) -> Reduced {
+/// Reduce `f` onto the null space; the constant uses each coordinate's
+/// particular free values and fixed values.
+pub(super) fn reduce(f: &Functional, red: &Reduction<'_>) -> Reduced {
+    let hs = red.hs;
     let k = hs.dim();
     let mut a = vec![0.0; k];
-    let mut c = 0.0;
+    let mut c = [0.0; 3];
     for &(i, w) in f {
         match hs.slots[i] {
-            (true, r) => c += w * fixed[r],
+            (true, r) => {
+                for (cc, slot) in c.iter_mut().enumerate() {
+                    *slot += w * red.fixed[cc][r];
+                }
+            }
             (false, r) => {
-                c += w * xp[r];
+                for (cc, slot) in c.iter_mut().enumerate() {
+                    *slot += w * red.xp[cc][r];
+                }
                 for (j, slot) in a.iter_mut().enumerate() {
                     *slot += w * hs.z.read(r, j);
                 }
@@ -67,7 +94,7 @@ pub(super) fn rim_rows(
     g2_target: Option<f64>,
 ) -> (Mat<f64>, Vec<f64>) {
     let k = red.hs.dim();
-    let per = if g2_target.is_some() { 2 } else { 1 };
+    let per = if g2_target.is_some() { 3 } else { 1 };
     let mut rows = Mat::<f64>::zeros(samples.len() * per, 3 * k);
     let mut rhs = vec![0.0; samples.len() * per];
     for (si, sample) in samples.iter().enumerate() {
@@ -88,12 +115,12 @@ pub(super) fn rim_rows(
         let r = si * per;
         let scale1 = 1.0 / (len * g1_target);
         let mut constant = 0.0;
+        let red_w = reduce(&fw, red);
         for (c, nc) in comps(n).iter().enumerate() {
-            let red_w = reduce(&fw, red.hs, &red.xp[c], &red.fixed[c]);
             for j in 0..k {
                 rows.write(r, c * k + j, scale1 * nc * red_w.a[j]);
             }
-            constant += nc * red_w.c;
+            constant += nc * red_w.c[c];
         }
         rhs[r] = -scale1 * constant;
         // G2.
@@ -102,17 +129,113 @@ pub(super) fn rim_rows(
             let qwk = sample.jet.apply(wk);
             let scale2 = 1.0 / (len * len * t2);
             let mut constant = sample.jet.ii(wk, wk);
+            let red_w2 = reduce(&fw2, red);
             for (c, (nc, qc)) in comps(n).iter().zip(comps(qwk)).enumerate() {
-                let red_w = reduce(&fw, red.hs, &red.xp[c], &red.fixed[c]);
-                let red_w2 = reduce(&fw2, red.hs, &red.xp[c], &red.fixed[c]);
                 for j in 0..k {
                     let coef = nc * red_w2.a[j] - 2.0 * qc * red_w.a[j];
                     rows.write(r, c * k + j, scale2 * coef);
                 }
-                constant += nc * red_w2.c - 2.0 * qc * red_w.c;
+                constant += nc * red_w2.c[c] - 2.0 * qc * red_w.c[c];
             }
             rhs[r] = -scale2 * constant;
+            // Mixed: N·S_uv − II(T, w), T the rim tangent.
+            let r = r + 1;
+            let tangent = if cross_u { jet.sv } else { jet.su };
+            let fuv = space.functional(sample.sector, u, v, 1, 1);
+            let qt = sample.jet.apply(tangent);
+            let corner = if sample.x == 1.0 {
+                CORNER_TWIST_WEIGHT
+            } else {
+                1.0
+            };
+            let scale3 = corner / (len * tangent.length().max(1e-12) * t2);
+            let mut constant = 0.0;
+            let red_uv = reduce(&fuv, red);
+            for (c, (nc, qc)) in comps(n).iter().zip(comps(qt)).enumerate() {
+                for j in 0..k {
+                    rows.write(r, c * k + j, scale3 * (nc * red_uv.a[j] - qc * red_w.a[j]));
+                }
+                constant += nc * red_uv.c[c] - qc * red_w.c[c];
+            }
+            rhs[r] = -scale3 * constant;
         }
     }
     (rows, rhs)
+}
+
+/// Transversality prior rows: each rim sample's cross derivative `w`
+/// pulled towards `w_t`, per coordinate, divided by `|w_t|`.
+///
+/// The G1 rows are homogeneous in `w`, so nothing else fixes how long
+/// the cross derivative is: measured on the cube corner 0.05/0.2/0.3,
+/// the G1 step shrank it at a rim midpoint until the Jacobian nearly
+/// vanished (regularity 0.35 -> 1.9e-2 -> 1.5e-3). The targets are the
+/// start surface's cross derivatives projected into each neighbour's
+/// tangent plane, so the prior never competes with G1.
+pub(super) fn transversal_rows(
+    space: &SectorSpace,
+    red: &Reduction<'_>,
+    samples: &[RimSample],
+    targets: &[Vec3],
+    weight: f64,
+) -> (Mat<f64>, Vec<f64>) {
+    let k = red.hs.dim();
+    let mut rows = Mat::<f64>::zeros(samples.len() * 3, 3 * k);
+    let mut rhs = vec![0.0; samples.len() * 3];
+    for (si, (sample, wt)) in samples.iter().zip(targets).enumerate() {
+        let ((u, v), cross_u) = rim_uv(sample);
+        let (du, dv) = if cross_u { (1, 0) } else { (0, 1) };
+        let fw = space.functional(sample.sector, u, v, du, dv);
+        let red_w = reduce(&fw, red);
+        let scale = weight / wt.length().max(1e-12);
+        for (c, t) in [wt.x, wt.y, wt.z].into_iter().enumerate() {
+            let r = 3 * si + c;
+            for j in 0..k {
+                rows.write(r, c * k + j, scale * red_w.a[j]);
+            }
+            rhs[r] = scale * (t - red_w.c[c]);
+        }
+    }
+    (rows, rhs)
+}
+
+/// The prior's targets: across each rim, into the neighbour, in its
+/// tangent plane.
+///
+/// With the sides counter-clockwise about the outward normal N, the cap
+/// lies to the left of the loop tangent T, so the cross derivative (u or
+/// v increasing towards the rim) must point along `e_out = T × N`. The
+/// linear G1 row `N·w = 0` cannot tell `w` from `−w`: on the cube corner
+/// 0.05/0.2/0.3 the G1 step produced a cap folded back over its strip
+/// along a third of one rim (cap normal against the strip's, dot −0.73).
+/// The target's length is the start surface's cross-derivative length
+/// (a scale only: the start's direction was itself flipped there), its
+/// component along the rim is the start's (the parameter flow).
+pub(super) fn transversal_targets(
+    space: &SectorSpace,
+    coords: &[Vec<f64>; 3],
+    samples: &[RimSample],
+) -> Vec<Vec3> {
+    samples
+        .iter()
+        .map(|sample| {
+            let ((u, v), cross_u) = rim_uv(sample);
+            let j = cap_jet(space, coords, sample.sector, u, v);
+            // Trailing half (u = 1): the rim runs with the loop along +v.
+            // Leading half (v = 1): the rim runs against it along +u.
+            let (w, t_loop) = if cross_u {
+                (j.su, j.sv)
+            } else {
+                (j.sv, j.su * -1.0)
+            };
+            let n = sample.jet.normal;
+            let Some(t) = t_loop.normalized() else {
+                return w - n * n.dot(&w);
+            };
+            let e_out = t.cross(&n);
+            let along = t * t.dot(&w);
+            let across = (w - n * n.dot(&w) - along).length().max(0.25 * w.length());
+            e_out * across + along
+        })
+        .collect()
 }

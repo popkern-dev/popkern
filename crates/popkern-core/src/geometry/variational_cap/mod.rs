@@ -29,7 +29,8 @@
 //!   with the oriented neighbour, Gauss–Newton over frozen neighbour
 //!   jets, weighted against a metric thin-plate energy ([`energy`]).
 //! - **Refinement.** Knots are inserted into `K` where the sampled rim
-//!   residual exceeds its target, within a budget.
+//!   residual exceeds its target, within a budget; the best level is
+//!   returned, flagged when it misses the targets.
 //!
 //! The module knows nothing about fillets or topology: turning sectors
 //! into faces, and certifying the result, is the caller's job (the
@@ -37,8 +38,10 @@
 
 mod chart;
 mod energy;
+mod energy_mcv;
 mod error;
 mod fit;
+mod gauss_newton;
 mod jets;
 mod level;
 mod linalg;
@@ -46,6 +49,7 @@ mod measure;
 mod nullspace;
 mod rim;
 mod rim_rows;
+mod solve;
 mod space;
 mod spoke;
 
@@ -110,10 +114,15 @@ pub enum CapEnergy {
     /// The characteristic map's metric throughout: scale-free, the same
     /// shape for every sector, the regular thin plate at n = 4.
     CharacteristicThinPlate,
-    /// The characteristic metric for the first solve, then the previous
-    /// iterate's first fundamental form (Greiner's data-dependent
-    /// energy), which measures bending on the surface itself.
-    DataDependent,
+    /// `∫ tr(G⁻¹BG⁻¹B)`, B the second derivatives' normal part against a
+    /// frozen reference: fourth order, the energy for a G1-only fit.
+    Bending,
+    /// `∫ |∇_g H|²`, H the mean curvature with the reference normal and
+    /// metric frozen (Schneider–Kobbelt's ΔH = 0 fairness): zero on
+    /// every constant-mean-curvature surface, so a sphere is an exact
+    /// minimiser. Sixth order: it needs the G2 rim rows, so a G1-only fit
+    /// (targets without `g2`) uses [`CapEnergy::Bending`] instead.
+    MeanCurvatureVariation,
 }
 
 /// Construction budget and energy choice.
@@ -138,6 +147,16 @@ pub struct VariationalCapOptions {
     /// parameterisation under the bending energy (which sees no
     /// tangential motion).
     pub parameter_regularisation: f64,
+    /// Outer passes re-freezing the energy's reference at the current
+    /// surface.
+    pub reference_passes: usize,
+    /// Weight of the tangential anchor to the level's start surface,
+    /// relative to the (trace-balanced) regulariser: it holds the
+    /// parameterisation without resisting the shape.
+    pub anchor_weight: f64,
+    /// Weight of the transversality prior on the rim cross derivatives
+    /// (relative residual units; the G1 rows outweigh it by ~1e6).
+    pub transversal_weight: f64,
 }
 
 impl Default for VariationalCapOptions {
@@ -146,11 +165,14 @@ impl Default for VariationalCapOptions {
             degree: 7,
             max_refinement_levels: 4,
             max_unknowns: 2400,
-            max_gauss_newton: 8,
-            energy: CapEnergy::DataDependent,
+            max_gauss_newton: 16,
+            energy: CapEnergy::MeanCurvatureVariation,
             fairness_weight: 1.0e-2,
             membrane_weight: 1.0e-2,
-            parameter_regularisation: 3.0e-1,
+            parameter_regularisation: 1.0e-3,
+            reference_passes: 1,
+            anchor_weight: 1.0,
+            transversal_weight: 1.0e-1,
         }
     }
 }
@@ -201,6 +223,11 @@ pub struct VariationalCapReport {
     pub min_regularity: f64,
     /// Final thin-plate energy (normalised units).
     pub energy: f64,
+    /// Whether every sampled rim residual met its target. A fit that
+    /// ran out of refinement budget returns its best level with this
+    /// `false`; the caller decides what the achieved residuals are worth
+    /// (a G2 attempt may still certify G1).
+    pub targets_met: bool,
 }
 
 impl VariationalCapReport {

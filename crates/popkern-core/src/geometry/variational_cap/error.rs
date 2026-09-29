@@ -1,7 +1,5 @@
 //! Why a variational cap could not be produced.
 
-use super::RimResidual;
-
 /// A structured decline of [`super::fit_variational_cap`]. Every
 /// variant names the offending side, stage or sample and the measured
 /// quantity, so a caller can report it and a GUI can point at it.
@@ -67,24 +65,16 @@ pub enum VariationalCapError {
         /// Which solve.
         stage: &'static str,
     },
-    /// The targets were not met within the refinement budget.
-    #[error(
-        "variational cap: targets not met after {levels} refinement level(s) and {unknowns} unknowns; worst side {} at parameter {:.4}: g0 {:.3e}, g1 {:.3e}, g2 {:.3e}",
-        worst.side, worst.parameter, worst.g0, worst.g1, worst.g2
-    )]
-    BudgetExhausted {
-        /// The worst rim sample when the budget ran out.
-        worst: RimResidual,
-        /// Refinement levels used.
-        levels: usize,
-        /// Unknowns in the last solve.
-        unknowns: usize,
-    },
     /// A fitted sector folds or degenerates.
-    #[error("variational cap: sector {sector} folds (min regularity {min_regularity:.3e})")]
+    #[error(
+        "variational cap: sector {sector} folds near (u, v) = ({:.3}, {:.3}) (min regularity {min_regularity:.3e})",
+        at.0, at.1
+    )]
     Folded {
         /// Offending sector.
         sector: usize,
+        /// Sector parameters of the worst sample.
+        at: (f64, f64),
         /// Smallest `|S_u × S_v|` relative to the sector mean.
         min_regularity: f64,
     },
