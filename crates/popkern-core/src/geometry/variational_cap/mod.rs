@@ -44,7 +44,7 @@ mod fit;
 mod gauss_newton;
 mod jets;
 mod level;
-mod linalg;
+pub(crate) mod linalg;
 mod measure;
 mod nullspace;
 mod rim;

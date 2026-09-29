@@ -64,6 +64,10 @@ pub struct Kp20PaperCapReport {
     /// Minimum sampled surface-regularity measure `|∂u × ∂v|` over
     /// all pieces.
     pub min_regularity: f64,
+    /// The constrained bi-9 resampling of the cap (PK-599), or why it
+    /// declined — the bi-6 `sectors` then serve.
+    pub bi9:
+        Result<super::kp20_bi9_resample::Kp20Bi9Resample, super::kp20_bi9_resample::Kp20Bi9Decline>,
 }
 
 /// Errors from the paper cap assembly.
@@ -195,6 +199,7 @@ pub fn assemble_kp20_paper_cap_conditioned(
             kp20_sample_paper_cap_sector(n, s, &guide.sectors[s], &tau_sector)
         })
         .collect();
+    let sampled = sectors.clone();
 
     // Step (ii): overwrite the gray rows from the reparameterized
     // split input border.
@@ -282,6 +287,18 @@ pub fn assemble_kp20_paper_cap_conditioned(
         max_strip_movement,
     );
     report.input_corner_mismatch = input_corner_mismatch;
+    report.bi9 = match enforcement {
+        Kp20StripEnforcement::HardG2 => super::kp20_bi9_resample::resample_kp20_cap_bi9(
+            n,
+            &guide.sectors,
+            &tau.tau,
+            &sampled,
+            &report.sectors,
+        ),
+        Kp20StripEnforcement::SoftG => {
+            Err(super::kp20_bi9_resample::Kp20Bi9Decline::SoftEnforcement)
+        }
+    };
     Ok(report)
 }
 

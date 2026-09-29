@@ -199,3 +199,27 @@ pub fn with_fit_cap_rim_tilted<R>(f: impl FnOnce() -> R) -> R {
 pub(crate) fn fit_cap_rim_tilted() -> bool {
     FIT_CAP_RIM_TILTED.with(std::cell::Cell::get)
 }
+
+thread_local! {
+    static KP20_BI9_RESAMPLE_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with the KP20 setback cap served from its bi-6 assembly even
+/// when the constrained bi-9 resampling (PK-599) succeeded — the A/B
+/// seam for measuring what the resampling changes. Thread-scoped;
+/// production never calls this.
+pub fn with_kp20_bi9_resample_disabled<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            KP20_BI9_RESAMPLE_DISABLED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(KP20_BI9_RESAMPLE_DISABLED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_kp20_bi9_resample_disabled`] is active on this thread.
+pub(crate) fn kp20_bi9_resample_disabled() -> bool {
+    KP20_BI9_RESAMPLE_DISABLED.with(std::cell::Cell::get)
+}

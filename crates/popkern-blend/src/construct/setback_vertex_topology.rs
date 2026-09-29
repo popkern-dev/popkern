@@ -55,6 +55,8 @@ mod setback_arc_crossings;
 mod setback_bezier9;
 #[path = "setback_boundary_tolerance.rs"]
 mod setback_boundary_tolerance;
+#[path = "setback_cap_patches.rs"]
+mod setback_cap_patches;
 #[path = "setback_cluster_field.rs"]
 mod setback_cluster_field;
 #[path = "setback_corner_dual_jet.rs"]
@@ -750,7 +752,11 @@ fn build_cap_face_fan(
     let _ = o_vertex;
 
     // 4. Assign piece surfaces by centroid matching.
-    let mut patches = super::kp20_polar_fold_summary::gregory_patches_from_macro_patches(sectors);
+    // PK-599: the constrained bi-9 resampling when it served; the
+    // elevated bi-6 cap otherwise (geometrically today's cap).
+    // PK-599: the constrained bi-9 resampling when it served; the
+    // elevated bi-6 cap otherwise (geometrically today's cap).
+    let mut patches = setback_cap_patches::setback_cap_patches(&report);
     // Sweep reconciliation (PK-096): the border's cubic row0 can only
     // follow the fillet surface to ~4e-4 over an arc half-span, and
     // the cap interpolates it exactly — a genuine C0 shell gap that

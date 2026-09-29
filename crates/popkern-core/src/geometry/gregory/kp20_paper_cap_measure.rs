@@ -156,6 +156,7 @@ pub(crate) fn measure_paper_cap(
         max_strip_movement,
         input_corner_mismatch: 0.0,
         min_regularity,
+        bi9: Err(super::kp20_bi9_resample::Kp20Bi9Decline::SoftEnforcement),
     }
 }
 

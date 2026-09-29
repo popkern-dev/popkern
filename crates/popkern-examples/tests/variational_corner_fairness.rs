@@ -359,6 +359,7 @@ fn row_879_fit_fairness_against_kp20() {
         "|---|---|---|---|---|---|---|---|".to_string(),
     ];
     let mut violations = Vec::new();
+    let mut kp20: Vec<(&'static str, f64)> = Vec::new();
     for corner in corners() {
         let dispatched = fillet(&corner);
         let fitted = with_kp20_cap_forced_to_decline(|| fillet(&corner));
@@ -379,6 +380,9 @@ fn row_879_fit_fairness_against_kp20() {
         );
         table.push(row(corner.name, &a));
         table.push(row(corner.name, &b));
+        if a.construction != "variational fit" {
+            kp20.push((corner.name, a.overshoot));
+        }
         if a.construction != "variational fit" && b.overshoot > 1.25 * a.overshoot {
             violations.push(format!(
                 "{}: fit {:.2} vs {} {:.2}",
@@ -387,6 +391,24 @@ fn row_879_fit_fairness_against_kp20() {
         }
     }
     eprintln!("{}\nPNGs: {}", table.join("\n"), dir.display());
+    // PK-599: the KP20 cap's bi-6 sampling artefact is gone (bi-9
+    // resampling). Pinned per corner as max k*r_min of the dispatched
+    // KP20 cap; the remaining excess is the guide-border misfit (PK-600).
+    for (name, bound) in [
+        ("cube corner 0.2", 4.6),
+        ("notched saddle", 4.6),
+        ("pyramid3 h1.2", 2.4),
+        ("pentagon flagship", 2.07 * 1.02),
+        ("pentagon5 blunt", 6.43 * 1.02),
+        ("pentagon5 variable", 4.72 * 1.02),
+    ] {
+        let reading = kp20.iter().find(|(n, _)| *n == name).map(|(_, r)| *r);
+        let reading = reading.unwrap_or_else(|| panic!("{name}: KP20 did not serve"));
+        assert!(
+            reading <= bound,
+            "{name}: KP20 cap k*r {reading:.2} over {bound:.2}"
+        );
+    }
     assert!(
         violations.is_empty(),
         "E3 gate: fit overshoot > 1.25x KP20: {violations:?}"

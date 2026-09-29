@@ -8,7 +8,7 @@ use faer::Mat;
 use faer::dyn_stack::{GlobalPodBuffer, PodStack};
 
 /// Thin-U, full-V singular value decomposition `A = U Σ Vᵀ`.
-pub(super) struct Svd {
+pub(crate) struct Svd {
     /// Singular values, nonincreasing (length `min(rows, cols)`).
     pub s: Vec<f64>,
     /// Left vectors, `rows × min(rows, cols)`.
@@ -18,7 +18,7 @@ pub(super) struct Svd {
 }
 
 /// SVD of `a`; `None` only if the workspace size overflows.
-pub(super) fn svd(a: &Mat<f64>) -> Option<Svd> {
+pub(crate) fn svd(a: &Mat<f64>) -> Option<Svd> {
     use faer::linalg::svd::{ComputeVectors, SvdParams, compute_svd, compute_svd_req};
     let (rows, cols) = (a.nrows(), a.ncols());
     let dim = rows.min(cols);
@@ -56,7 +56,7 @@ pub(super) fn svd(a: &Mat<f64>) -> Option<Svd> {
 /// equations). `A` must be tall (rows >= cols). Returns `None` when
 /// `R` is numerically rank deficient: a diagonal entry at or below
 /// `rank_tol` times its column's norm in `A`.
-pub(super) fn lstsq(mut a: Mat<f64>, mut b: Mat<f64>, rank_tol: f64) -> Option<Mat<f64>> {
+pub(crate) fn lstsq(mut a: Mat<f64>, mut b: Mat<f64>, rank_tol: f64) -> Option<Mat<f64>> {
     use faer::linalg::qr::no_pivoting::compute::{
         QrComputeParams, qr_in_place, qr_in_place_req, recommended_blocksize,
     };

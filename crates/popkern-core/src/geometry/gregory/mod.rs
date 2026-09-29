@@ -126,6 +126,10 @@ mod kp20_bi6_tau;
 mod kp20_bi6_tau_f3_solve;
 mod kp20_bi6_tau_solve_assemble;
 mod kp20_bi6_validate;
+mod kp20_bi9_exact;
+mod kp20_bi9_interior;
+mod kp20_bi9_resample;
+mod kp20_bi9_seams;
 mod kp20_border_degree;
 mod kp20_paper_border_piece;
 mod kp20_paper_cap;
@@ -331,6 +335,7 @@ pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_inp
 // module budget; rustdoc inlines it identically).
 mod kp20_bi6_exports;
 pub use kp20_bi6_exports::*;
+pub use kp20_bi9_resample::{Kp20Bi9Decline, Kp20Bi9Resample, resample_kp20_cap_bi9};
 pub use kp20_border_degree::{
     SexticRow, bernstein6, elevate_bi3_rows_to_sextic, elevate_cubic_row_to_sextic,
     eval_sextic_row, reduce_sextic_row_to_cubic, reduce_sextic_rows_to_bi3, reverse_sextic_rows,
