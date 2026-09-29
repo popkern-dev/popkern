@@ -91,35 +91,24 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
         );
     }
 
-    // Surface-view ratchets (1.25x the 2026-09-27 measurement).
+    // Surface-view ratchets (1.25x the measurement). PK-601
+    // (2026-09-29): the curvature-variation fair interior lowered every
+    // cap reading, so all bars were re-measured then. The cube's
+    // cap-rim slope fell from 2.30e-3 (PK-599's bi-9 guide-border
+    // relaxation) to 2.12e-4, and the variable pentagon's cap-rim nj
+    // from 1.25e-2 to 4.34e-3, with certified rim bounds unchanged. The
+    // blunt pentagon's cap-rim reading (4.97e-3) is still the
+    // instrument's curvature x pixel-footprint floor on its r = 0.05
+    // strips, not its certified rim g1 (2.4e-8).
     let bars: &[(&str, &str, f64, f64)] = &[
-        ("pentagon_flagship", "cap-rim", 1.49e-3, 9.00e-3),
-        ("pentagon_flagship", "cap-cap", 3.46e-4, 1.10e-3),
-        ("pentagon5_blunt_g2", "cap-rim", 3.19e-2, 1.56e-1),
-        // PK-600 (2026-09-29): the fair interior (cap max k*r 6.46 ->
-        // 5.19) redistributes curvature next to the internal seams; the
-        // cap-cap slope reads 1.04e-3 while the certified spoke bounds
-        // are unchanged (g1 4.3e-7, g2 5.1e-4; A/B
-        // `bi9_cap_keeps_the_certified_claims_on_the_blunt_pentagon`).
-        ("pentagon5_blunt_g2", "cap-cap", 3.38e-4, 1.04e-3),
-        // PK-599 (2026-09-29): the bi-9 resampled KP20 cap reads the
-        // cap-rim slope at 2.30e-3 (was 1.28e-3) while its certified rim
-        // bounds are unchanged (g1 9.9e-7, g2 1.19e-4, A/B via
-        // `with_kp20_bi9_resample_disabled`): the guide-border misfit
-        // (M2) now relaxes within bi-9's three rim rows, a steeper
-        // cap-side curvature gradient the 3-pixel extrapolation reads.
-        // PK-600 owns bringing it back under 1.6e-3.
-        ("cube_corner", "cap-rim", 2.69e-4, 2.30e-3),
-        // pentagon5_variable (PK-581, 2026-09-28): its cap-rim reading
-        // is at the instrument's curvature x pixel-footprint floor, not
-        // its 1.3e-3 certified rim g2 (pentagon5_blunt reads 3.2e-2
-        // with certified rim g1 2.4e-8).
-        // PK-599 (2026-09-29): 1.25e-2 / 2.24e-2 under the bi-9 cap
-        // with certified rim bounds unchanged (g1 9.9e-7, g2 1.6e-3,
-        // A/B); the same near-rim M2 relaxation as the cube. PK-600.
-        ("pentagon5_variable_g2", "cap-rim", 1.25e-2, 2.24e-2),
-        ("pentagon5_variable_g2", "cap-cap", 2.55e-3, 7.09e-3),
-        ("cube_corner", "cap-cap", 7.79e-4, 3.74e-3),
+        ("pentagon_flagship", "cap-rim", 7.17e-4, 5.18e-3),
+        ("pentagon_flagship", "cap-cap", 1.90e-4, 1.93e-4),
+        ("pentagon5_blunt_g2", "cap-rim", 4.97e-3, 3.30e-2),
+        ("pentagon5_blunt_g2", "cap-cap", 2.35e-4, 5.78e-4),
+        ("cube_corner", "cap-rim", 1.48e-4, 2.12e-4),
+        ("pentagon5_variable_g2", "cap-rim", 4.34e-3, 3.71e-3),
+        ("pentagon5_variable_g2", "cap-cap", 5.69e-4, 6.84e-4),
+        ("cube_corner", "cap-cap", 7.57e-5, 2.98e-4),
     ];
     for &(name, class, nj, slope) in bars {
         let (s, _) = get(name).class(class).expect(class);

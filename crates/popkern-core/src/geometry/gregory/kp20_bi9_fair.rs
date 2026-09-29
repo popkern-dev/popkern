@@ -27,7 +27,7 @@ fn binom(n: usize, k: usize) -> f64 {
 /// tr g / 2` the isotropic scale of τ's frozen metric. Three held rim
 /// rows clamp value, slope and second derivative; a sixth-order problem
 /// takes all three, where bending forces a boundary layer.
-fn metric_third_order_gram(tau: &super::kp20_bi6_cap::Kp20Bi6Patch) -> Vec<Vec<f64>> {
+pub(super) fn metric_third_order_gram(tau: &super::kp20_bi6_cap::Kp20Bi6Patch) -> Vec<Vec<f64>> {
     let gl = crate::geometry::variational_cap::space::gauss_legendre(12);
     let bern = |m: usize, k: isize, t: f64| {
         if k < 0 || k as usize > m {
@@ -221,16 +221,57 @@ pub(super) fn fair_interior(
     Some(())
 }
 
-/// The fair-interior decision for one cap (PK-600).
+/// The energy a fair-interior candidate minimised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kp20FairEnergy {
+    /// PK-601: the frozen-reference curvature variation (the shape
+    /// operator's variation), with a tangential anchor and a small pull
+    /// towards the guide sampling.
+    CurvatureVariation,
+    /// PK-600: the third-order departure from the guide sampling `S₉`.
+    GuideThirdOrder,
+}
+
+/// One fair-interior candidate: its energy, its largest principal
+/// curvature (`None` when the solve declined) and why it declined.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20FairAttempt {
+    /// The candidate's energy.
+    pub energy: Kp20FairEnergy,
+    /// Largest principal curvature of the candidate, `None` when its
+    /// solve declined.
+    pub max_curvature_after: Option<f64>,
+    /// The curvature-variation solve's decline, when it declined.
+    pub decline: Option<super::kp20_bi9_fair_curvature::Kp20CurvatureVariationDecline>,
+    /// Refined residual of the coupled solve (curvature-variation
+    /// candidate).
+    pub refinement_residual: Option<f64>,
+}
+
+/// The fair-interior decision for one cap (PK-600, PK-601): both
+/// candidates measured, the fairer served when it does not exceed the
+/// resampled cap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Kp20FairInterior {
-    /// Whether the fair interior serves (it measured fairer).
-    pub served: bool,
+    /// The energy whose candidate serves, `None` when the resampled cap
+    /// is kept.
+    pub served: Option<Kp20FairEnergy>,
     /// Largest principal curvature of the resampled cap before.
     pub max_curvature_before: f64,
-    /// Largest principal curvature of the fair candidate, `None` when
-    /// its solve failed.
-    pub max_curvature_after: Option<f64>,
+    /// The candidates: curvature variation, then guide third-order.
+    pub attempts: [Option<Kp20FairAttempt>; 2],
+}
+
+impl Kp20FairInterior {
+    /// The served candidate's largest principal curvature.
+    pub fn max_curvature_served(&self) -> Option<f64> {
+        let served = self.served?;
+        self.attempts
+            .iter()
+            .flatten()
+            .find(|a| a.energy == served)
+            .and_then(|a| a.max_curvature_after)
+    }
 }
 
 /// Outcome of the fair-interior step: the candidate nets when served.
@@ -242,42 +283,12 @@ pub(super) struct FairStep {
 /// Largest principal curvature over the nets' interiors (24×24 samples
 /// per piece; exact partials).
 pub(super) fn max_principal_curvature(nets: &[[Net; 4]]) -> f64 {
-    use crate::geometry::Vec3;
     let mut worst = 0.0f64;
     for sector in nets {
         for net in sector {
             for a in 1..24 {
                 for c in 1..24 {
-                    let (u, v) = (a as f64 / 24.0, c as f64 / 24.0);
-                    let (bu, bv): (Vec<[f64; 3]>, Vec<[f64; 3]>) = (
-                        (0..10).map(|i| b9(i, u)).collect(),
-                        (0..10).map(|j| b9(j, v)).collect(),
-                    );
-                    let d = |p: usize, q: usize| {
-                        let mut acc = Vec3::new(0.0, 0.0, 0.0);
-                        for i in 0..10 {
-                            for j in 0..10 {
-                                let x = net[i][j];
-                                acc = acc + Vec3::new(x.x, x.y, x.z) * (bu[i][p] * bv[j][q]);
-                            }
-                        }
-                        acc
-                    };
-                    let (su, sv, suu, suv, svv) = (d(1, 0), d(0, 1), d(2, 0), d(1, 1), d(0, 2));
-                    let Some(n) = su.cross(&sv).normalized() else {
-                        continue;
-                    };
-                    let (e, f, g) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
-                    let (l, m, o) = (n.dot(&suu), n.dot(&suv), n.dot(&svv));
-                    let det = e * g - f * f;
-                    if det.abs() < 1e-30 {
-                        continue;
-                    }
-                    let (kg, h) = (
-                        (l * o - m * m) / det,
-                        (e * o + g * l - 2.0 * f * m) / (2.0 * det),
-                    );
-                    worst = worst.max(h.abs() + (h * h - kg).max(0.0).sqrt());
+                    worst = worst.max(point_curvature(net, a as f64 / 24.0, c as f64 / 24.0));
                 }
             }
         }
@@ -285,11 +296,51 @@ pub(super) fn max_principal_curvature(nets: &[[Net; 4]]) -> f64 {
     worst
 }
 
-/// Solve the fair interior from `nets` and serve it only when its
-/// largest principal curvature does not exceed the start's. Following
-/// the accurate guide sampling is fairer wherever the guide is (cube,
-/// saddle, pyramids); where the guide itself is poor (pentagon5
-/// variable measured 4.71 → 7.60) the start is kept, recorded.
+/// Largest principal curvature of one bi-9 net at `(u, v)` (0 where the
+/// frame is degenerate).
+fn point_curvature(net: &Net, u: f64, v: f64) -> f64 {
+    use crate::geometry::Vec3;
+    let (bu, bv): (Vec<[f64; 3]>, Vec<[f64; 3]>) = (
+        (0..10).map(|i| b9(i, u)).collect(),
+        (0..10).map(|j| b9(j, v)).collect(),
+    );
+    let d = |p: usize, q: usize| {
+        let mut acc = Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..10 {
+            for j in 0..10 {
+                let x = net[i][j];
+                acc = acc + Vec3::new(x.x, x.y, x.z) * (bu[i][p] * bv[j][q]);
+            }
+        }
+        acc
+    };
+    let (su, sv, suu, suv, svv) = (d(1, 0), d(0, 1), d(2, 0), d(1, 1), d(0, 2));
+    let Some(n) = su.cross(&sv).normalized() else {
+        return 0.0;
+    };
+    let (e, f, g) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
+    let (l, m, o) = (n.dot(&suu), n.dot(&suv), n.dot(&svv));
+    let det = e * g - f * f;
+    if det.abs() < 1e-30 {
+        return 0.0;
+    }
+    let (kg, h) = (
+        (l * o - m * m) / det,
+        (e * o + g * l - 2.0 * f * m) / (2.0 * det),
+    );
+    h.abs() + (h * h - kg).max(0.0).sqrt()
+}
+
+/// The fair-interior step (PK-601): both candidates, the curvature
+/// variation and PK-600's guide third-order, are solved and measured;
+/// the fairer serves when it does not exceed the resampled cap's largest
+/// principal curvature, otherwise the resampled cap is kept. Both are
+/// measured because neither dominates: curvature variation is fairer on
+/// every fillet fixture (cube 2.39 → 1.79, blunt pentagon 5.19 → 1.71),
+/// while on a strongly curved synthetic n = 3 border it measured 31
+/// against the guide candidate's 10.8. Following the guide alone is
+/// worse where the guide is poor (pentagon5 variable, PK-600: 4.71 →
+/// 7.60), which is why the gate stays.
 pub(super) fn fair_interior_step(
     n: usize,
     nets: &[[Net; 4]],
@@ -298,25 +349,56 @@ pub(super) fn fair_interior_step(
     tau: &super::kp20_bi6_cap::Kp20MacroPatch,
 ) -> FairStep {
     let before = max_principal_curvature(nets);
-    let mut candidate = nets.to_vec();
-    if fair_interior(n, &mut candidate, s9, b, tau).is_none() {
-        return FairStep {
-            candidate: None,
-            record: Kp20FairInterior {
-                served: false,
-                max_curvature_before: before,
-                max_curvature_after: None,
-            },
-        };
-    }
-    let after = max_principal_curvature(&candidate);
-    let served = after <= before;
-    FairStep {
-        candidate: served.then_some(candidate),
-        record: Kp20FairInterior {
-            served,
-            max_curvature_before: before,
-            max_curvature_after: Some(after),
+    let mut variation = nets.to_vec();
+    let variation_attempt = match super::kp20_bi9_fair_curvature::fair_interior_curvature(
+        n,
+        &mut variation,
+        s9,
+        b,
+        tau,
+    ) {
+        Ok(residual) => Kp20FairAttempt {
+            energy: Kp20FairEnergy::CurvatureVariation,
+            max_curvature_after: Some(max_principal_curvature(&variation)),
+            decline: None,
+            refinement_residual: Some(residual),
         },
+        Err(decline) => Kp20FairAttempt {
+            energy: Kp20FairEnergy::CurvatureVariation,
+            max_curvature_after: None,
+            decline: Some(decline),
+            refinement_residual: None,
+        },
+    };
+    let mut guide = nets.to_vec();
+    let solved = fair_interior(n, &mut guide, s9, b, tau).is_some();
+    let guide_attempt = Kp20FairAttempt {
+        energy: Kp20FairEnergy::GuideThirdOrder,
+        max_curvature_after: solved.then(|| max_principal_curvature(&guide)),
+        decline: None,
+        refinement_residual: None,
+    };
+    let mut record = Kp20FairInterior {
+        served: None,
+        max_curvature_before: before,
+        attempts: [Some(variation_attempt), Some(guide_attempt)],
+    };
+    // The fairest candidate at or under the resampled cap; ties go to
+    // the curvature variation (the ladder's first rung).
+    let mut best: Option<(f64, Kp20FairEnergy)> = None;
+    for attempt in [variation_attempt, guide_attempt] {
+        if let Some(k) = attempt.max_curvature_after
+            && k <= before
+            && best.is_none_or(|(b, _)| k < b)
+        {
+            best = Some((k, attempt.energy));
+        }
     }
+    record.served = best.map(|(_, energy)| energy);
+    let candidate = match record.served {
+        Some(Kp20FairEnergy::CurvatureVariation) => Some(variation),
+        Some(Kp20FairEnergy::GuideThirdOrder) => Some(guide),
+        None => None,
+    };
+    FairStep { candidate, record }
 }

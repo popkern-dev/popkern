@@ -1,7 +1,7 @@
 use super::*;
 use crate::geometry::gregory::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::gregory::kp20_paper_guide::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
-use crate::geometry::gregory::{Kp20PieceId, assemble_kp20_paper_cap};
+use crate::geometry::gregory::{Kp20FairEnergy, Kp20PieceId, assemble_kp20_paper_cap};
 
 /// The lifted Catmull–Clark ring (genuine guide misfit, C² across sectors).
 fn production_border(n: usize) -> Kp20PaperGuideBorder {
@@ -142,27 +142,59 @@ fn exact_jets_match_differences() {
     }
 }
 
-/// PK-600: the fair interior serves only when it measures fairer, and
-/// the relations hold either way. On the lifted ring at n = 5 it serves
-/// (measured 7.25 → 6.44).
+/// PK-600/PK-601: the fair-interior step serves the fairer candidate
+/// only when it measures fairer than the resampled cap, and the
+/// relations hold either way. On the lifted ring at n = 5 the
+/// curvature-variation candidate serves (PK-600's guide candidate
+/// measured 7.25 → 6.44; PK-601's 6.32). At n = 3 the guide candidate
+/// is the fairer (10.8 against 31).
 #[test]
 fn fair_interior_serves_only_when_fairer() {
-    for n in [4, 5, 7] {
+    for n in [3, 4, 5, 7] {
         let report = assemble_kp20_paper_cap(&production_border(n), Point3::new(0.0, 0.0, 0.0))
             .expect("assemble");
         let resample = report.bi9.as_ref().unwrap_or_else(|e| panic!("n={n}: {e}"));
         let fair = resample.fair;
-        if let Some(after) = fair.max_curvature_after {
+        let before = fair.max_curvature_before;
+        for attempt in fair.attempts.iter().flatten() {
+            let fairer = attempt.max_curvature_after.is_some_and(|k| k <= before);
+            if fair.served == Some(attempt.energy) {
+                assert!(
+                    fairer,
+                    "n={n}: served a candidate that is not fairer: {fair:?}"
+                );
+            }
+        }
+        // The served candidate is the fairer of the two.
+        if let Some(served) = fair.max_curvature_served() {
+            for attempt in fair.attempts.iter().flatten() {
+                if let Some(k) = attempt.max_curvature_after {
+                    assert!(served <= k || k > before, "n={n}: {fair:?}");
+                }
+            }
+        }
+        if n == 3 {
             assert_eq!(
                 fair.served,
-                after <= fair.max_curvature_before,
-                "n={n}: {fair:?}"
+                Some(Kp20FairEnergy::GuideThirdOrder),
+                "n=3: {fair:?}"
             );
-        } else {
-            assert!(!fair.served, "n={n}: {fair:?}");
         }
         if n == 5 {
-            assert!(fair.served, "n=5 fair interior should serve: {fair:?}");
+            assert_eq!(
+                fair.served,
+                Some(Kp20FairEnergy::CurvatureVariation),
+                "n=5: {fair:?}"
+            );
+            let served = fair.max_curvature_served().expect("served curvature");
+            assert!(
+                served < 6.40,
+                "n=5: served max curvature {served} (PK-600 6.44)"
+            );
+            let residual = fair.attempts[0]
+                .and_then(|a| a.refinement_residual)
+                .expect("refined residual");
+            assert!(residual <= 1e-9, "n=5: refinement residual {residual:e}");
         }
         let [c2, c0, g1, g2] = resample.relation_residual;
         assert!(
