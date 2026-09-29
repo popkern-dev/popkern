@@ -143,9 +143,17 @@ fn binonic_passes_or_declines_commercially_on_cube_mixed() {
 /// crossings. Its candidate passes the promotion gates directly, a
 /// repair remaining the fallback. The served ring certifies G1 on every
 /// cap seam over the whole edge and claims the G1 it measures.
+///
+/// PK-574: the KP20 setback cap folds on this corner and the
+/// variational fit now serves it first (certified G1, rim sine 2.7e-7;
+/// `setback_variational_fit.rs`). The exact ring stays the fallback
+/// beneath the setback rung, so it is pinned with the rung forced to
+/// decline — the route this corner took before the fit existed.
 #[test]
 fn cube_extreme_binonic_promotion_serves_an_honest_exact_ring() {
-    let result = fillet_cube_result(&[0.02, 0.10, 0.20], true);
+    let result = popkern_blend::dispatch_overrides::with_setback_forced_to_decline(|| {
+        fillet_cube_result(&[0.02, 0.10, 0.20], true)
+    });
     let served = result.repair_report.apex_diagnostics.iter().any(|d| {
         matches!(
             d,

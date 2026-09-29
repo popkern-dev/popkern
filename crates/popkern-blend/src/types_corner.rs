@@ -24,7 +24,10 @@ pub enum CornerMethod {
     PolyhedralNetSpline,
     /// §5.3 item #7 — planar cap at a tangent corner.
     TangentPlane,
-    /// §5.3 Plate-minimisation (thin-plate energy). [BEYOND.]
+    /// §5.3 plate minimisation: the variational corner fit (PK-574), a
+    /// constrained energy-minimising B-spline cap on the setback region,
+    /// served when the KP20 cap declines. Spokes G2 by construction; the
+    /// rim level is certified (G2 when every seam certifies it, else G1).
     PlateMin,
 }
 
@@ -53,6 +56,8 @@ pub enum CornerSubPatchFamily {
     Kp13Bi5,
     /// KP20 bi-6 macro cap.
     Kp20Bi6,
+    /// Variational corner fit: one NURBS sector per side (PK-574).
+    VariationalFit,
 }
 
 /// CAD-domain role of one macro-cap sub-patch.
@@ -77,6 +82,9 @@ pub enum CornerSubPatchRole {
     SupportCellNearMidpointRight,
     /// Rectangular support-cell replacing the near-midpoint-left KP20 owner.
     SupportCellNearMidpointLeft,
+    /// A whole sector of a variational corner fit: the quad between the
+    /// centre, two spoke points and the rim corner between them.
+    Sector,
 }
 
 impl CornerSubPatchRole {

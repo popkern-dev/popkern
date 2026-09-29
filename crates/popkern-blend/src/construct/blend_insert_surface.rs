@@ -149,6 +149,12 @@ pub(crate) fn reclassify_corner_methods(
         if info.exact_boundary_cap {
             continue;
         }
+        // Variational-fit sectors (PK-574) are NURBS faces whose level
+        // comes from certificates; the inference would relabel them as
+        // an uncertified G1 Gregory cap.
+        if info.method == CornerMethod::PlateMin {
+            continue;
+        }
         let Some(sof) = brep.faces.get(info.face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

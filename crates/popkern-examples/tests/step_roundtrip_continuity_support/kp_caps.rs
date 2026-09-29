@@ -87,3 +87,19 @@ pub(crate) fn notched_saddle() -> Result<BRep, String> {
     let saddle = vertex_at(&body, Point3::new(0.6, 0.6, 0.6))?;
     fillet_vertex(&body, saddle, &[0.06, 0.08, 0.10], ContinuityLevel::G1)
 }
+
+/// The variational corner fit (PK-574) on the corner KP20 folds on: the
+/// wide mixed-radius cube corner, served by the curvature-weighted fit
+/// at certified G2 with no override.
+pub(crate) fn fit_cube_corner() -> Result<BRep, String> {
+    let cube = BRep::unit_cube(Tolerance::default()).map_err(|e| format!("{e}"))?;
+    let corner = vertex_at(&cube, Point3::new(1.0, 1.0, 1.0))?;
+    fillet_vertex(&cube, corner, &[0.05, 0.2, 0.3], ContinuityLevel::G2)
+}
+
+/// The variational corner fit on the KP20 flagship with the KP20 cap
+/// forced to decline: the tangent fit serves the pentagonal apex at
+/// certified G1.
+pub(crate) fn fit_pyramid_apex() -> Result<BRep, String> {
+    popkern_blend::dispatch_overrides::with_kp20_cap_forced_to_decline(pyramid_apex)
+}

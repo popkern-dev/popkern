@@ -14,6 +14,8 @@ mod types_repair;
 mod types_repair_blend_seam;
 #[path = "types_repair_exact_boundary.rs"]
 mod types_repair_exact_boundary;
+#[path = "types_repair_setback_fit.rs"]
+mod types_repair_setback_fit;
 #[path = "types_repair_terminal_arc.rs"]
 mod types_repair_terminal_arc;
 
@@ -44,6 +46,7 @@ pub use types_repair::{
 };
 pub use types_repair_blend_seam::*;
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
+pub use types_repair_setback_fit::*;
 pub use types_repair_terminal_arc::{
     TerminalArcTrimDecline, TerminalArcTrimDeclineReason, TerminalArcTrimReport,
 };

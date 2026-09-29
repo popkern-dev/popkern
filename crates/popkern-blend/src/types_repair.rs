@@ -201,6 +201,9 @@ pub enum ApexConstructionDiagnostic {
     /// operator whose return triggered the validation. An empty report
     /// means every tracked invariant held at the requested scope.
     CoherenceValidation(CoherenceValidationDiagnostic),
+    /// The variational corner fit ran beneath a declined KP20 setback cap
+    /// (PK-574): the KP20 decline, each fit attempt and the served level.
+    SetbackFit(crate::types::SetbackFitDiagnostic),
 }
 
 /// Coherence-validation diagnostic carried inside

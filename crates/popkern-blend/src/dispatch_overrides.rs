@@ -146,3 +146,56 @@ pub fn with_setback_forced_to_decline<R>(f: impl FnOnce() -> R) -> R {
 pub(crate) fn setback_decline_forced() -> bool {
     SETBACK_DECLINE_FORCED.with(std::cell::Cell::get)
 }
+
+thread_local! {
+    static KP20_CAP_DECLINE_FORCED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with the KP20 setback cap declining at its cap stage on
+/// this thread: the carve still runs, so the variational fit (PK-574)
+/// serves every corner the KP20 cap would have served. Thread-scoped
+/// like [`with_setback_forced_to_decline`]. Production never calls
+/// this.
+pub fn with_kp20_cap_forced_to_decline<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            KP20_CAP_DECLINE_FORCED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(KP20_CAP_DECLINE_FORCED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_kp20_cap_forced_to_decline`] is active on this thread.
+pub(crate) fn kp20_cap_decline_forced() -> bool {
+    KP20_CAP_DECLINE_FORCED.with(std::cell::Cell::get)
+}
+
+thread_local! {
+    static FIT_CAP_RIM_TILTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with every variational-fit cap (PK-574) corrupted before it
+/// is committed: sector 0's control row next to its `u = 1` rim is
+/// lifted along the cap normal by a fifth of the row spacing, which
+/// keeps the rim position (G0) and tilts the cross-boundary tangent.
+/// The negative control for the fit's certified claim: the certifier
+/// reads the committed topology, not the fit's own report, so a tilted
+/// cap must not be claimed G1. Thread-scoped; production never calls
+/// this.
+pub fn with_fit_cap_rim_tilted<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FIT_CAP_RIM_TILTED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(FIT_CAP_RIM_TILTED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_fit_cap_rim_tilted`] is active on this thread.
+pub(crate) fn fit_cap_rim_tilted() -> bool {
+    FIT_CAP_RIM_TILTED.with(std::cell::Cell::get)
+}

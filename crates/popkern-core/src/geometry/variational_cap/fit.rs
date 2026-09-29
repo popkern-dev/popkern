@@ -15,8 +15,13 @@ use crate::geometry::curve::CurveEval;
 use crate::geometry::{Point3, Vec3};
 
 /// Smallest regularity (min/mean of `|S_u × S_v|`) a served sector may
-/// have (E6: revised from the measured fixtures).
-const MIN_REGULARITY: f64 = 1.0e-3;
+/// have. E6 (measured 2026-09-29 over 44 served setback corners and
+/// their rejected attempts): every served cap sits at 0.131 or above;
+/// caps between 1e-3 and 0.005 were near-folds whose spoke seams the
+/// certifier could not enclose (Jacobian), so they are declined here,
+/// typed, before certification. A fold gate, not a quality measure:
+/// caps rejected for G2 at 0.007–0.136 overlap the served range.
+const MIN_REGULARITY: f64 = 2.0e-2;
 
 /// Regularity samples per knot span for the served surface.
 const FINAL_GRID_PER_SPAN: usize = 12;

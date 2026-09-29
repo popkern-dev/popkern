@@ -39,7 +39,7 @@ pub(super) fn commit_cap_fan(
     // corner path edges live on the lateral planes). Cap pieces and
     // sweep faces: the new edges follow iso/straight uv paths, so
     // endpoint-projected Linear pcurves are exact.
-    author_setback_pcurves(brep, &cap_faces)?;
+    author_setback_pcurves(brep, &cap_faces, &[])?;
 
     // Commit postcondition: the fan's live seams must be commercial.
     // The all-or-nothing contract belongs HERE, on measured seam

@@ -248,6 +248,8 @@ fn fixtures() -> Vec<Fixture> {
         ("kp_pyramid_apex", kp_caps::pyramid_apex),
         ("kp_cube_corner", kp_caps::cube_corner),
         ("kp_notched_saddle", kp_caps::notched_saddle),
+        ("fit_cube_corner", kp_caps::fit_cube_corner),
+        ("fit_pyramid_apex", kp_caps::fit_pyramid_apex),
     ]
 }
 
@@ -296,6 +298,8 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
     // PK-575 raised 3 saddle cap seams to native G2; they cross the
     // export at G1 (the same corner-layer class).
     ("kp_notched_saddle", &[("G2->G1", 3)]),
+    ("fit_cube_corner", &[]),
+    ("fit_pyramid_apex", &[]),
 ];
 
 /// Total recorded drops on the OCC leg (OpenCASCADE reads the export

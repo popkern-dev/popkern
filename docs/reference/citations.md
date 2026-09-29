@@ -225,6 +225,118 @@ All paper-derived implementations in this codebase are **clean-room from papers 
 
 ---
 
+## Variational corner fit (PK-574, setback fallback rung)
+
+Design: `docs/architecture/variational-corner-fit.md`. Clean-room from
+the papers below; no kernel implementation (OCC GeomPlate /
+BRepFill_Filling or any other) was read or borrowed, so there is no
+ip-check record to file. A patent search on Loop–Schaefer 2008 found
+none.
+
+**Modules:** `crates/popkern-core/src/geometry/variational_cap/`
+(`spoke.rs`, `chart.rs`, `space.rs`, `nullspace.rs`, `rim.rs`,
+`rim_rows.rs`, `jets.rs`, `energy.rs`, `energy_mcv.rs`, `level.rs`,
+`solve.rs`, `gauss_newton.rs`, `fit.rs`, `measure.rs`, `linalg.rs`);
+`crates/popkern-blend/src/construct/setback_fit_{cap,fan,certify}.rs`,
+`setback_cap_commit.rs`, `setback_decline.rs`,
+`blend_insert_setback_rung.rs`.
+
+**Key commits:** `3390d9ec` (design v1), `42a6b141` (core fit),
+`3e1f7a64` (core hardening), `fef43ebd` (design v2), the stage-C rung
+commit.
+
+### Loop & Schaefer 2008 — G2 tensor product splines over extraordinary vertices
+
+**Citation:** Loop, C. & Schaefer, S. (2008). "G2 Tensor Product Splines
+over Extraordinary Vertices." *Computer Graphics Forum* 27(5) (SGP 2008),
+1373–1382. Local: `docs/papers/loop2008.pdf` (and the 2004 precursor
+`loop2004.pdf`, "Second Order Smoothness over Extraordinary Vertices").
+
+**What's implemented:** the fixed correspondence maps built from the
+characteristic map φ_n and the G2 spoke conditions, eqs. (8)–(10) with
+c = cos(2π/n), imposed as hard linear collocation rows on the n sector
+B-splines (`spoke.rs`, `chart.rs`); verified symbolically for n = 3..8
+and by `pulled_back_polynomials_satisfy_the_spoke_rows`.
+
+### Welch & Witkin 1992 — Variational surface modeling
+
+**Citation:** Welch, W. & Witkin, A. (1992). "Variational Surface
+Modeling." *Computer Graphics* 26(2) (SIGGRAPH '92), 157–166. Local:
+`docs/papers/welch-witkin92-variational-surface-modeling.pdf`.
+
+**What's implemented:** equality-constrained energy minimisation over
+B-spline coefficients — hard constraints eliminated by a null-space
+basis, quadratic energy minimised in the free coordinates
+(`nullspace.rs`, `level.rs`, `solve.rs`).
+
+### Greiner 1994 — Variational design and fairing of spline surfaces
+
+**Citation:** Greiner, G. (1994). "Variational Design and Fairing of
+Spline Surfaces." *Computer Graphics Forum* 13(3) (Eurographics '94),
+143–154. Local: `docs/papers/greiner1994.pdf` (and `greiner1996.pdf`).
+
+**What's implemented:** the data-dependent (reference-metric) fairness
+energy — the bending energy tr(G⁻¹BG⁻¹B) with the metric frozen from a
+reference surface and refreshed per pass (`energy.rs`).
+
+### Moreton & Séquin 1992 — Functional optimization for fair surface design
+
+**Citation:** Moreton, H. P. & Séquin, C. H. (1992). "Functional
+Optimization for Fair Surface Design." *Computer Graphics* 26(2)
+(SIGGRAPH '92), 167–176. Local:
+`docs/papers/moreton-sequin92-functional-optimization-fair-surface.pdf`.
+
+**What's implemented:** the curvature-variation fairness idea behind the
+curvature-weighted mode (whose energy follows Schneider–Kobbelt below);
+MVS polish itself is not implemented (design doc E3: only if the
+fairness report shows the need).
+
+### Schneider & Kobbelt 2001 — Geometric fairing of irregular meshes
+
+**Citation:** Schneider, R. & Kobbelt, L. (2001). "Geometric Fairing of
+Irregular Meshes for Free-Form Surface Design." *Computer Aided Geometric
+Design* 18(4), 359–379. Local:
+`docs/papers/schneider-kobbelt01-geometric-fairing-irregular-meshes.pdf`.
+
+**What's implemented:** the mean-curvature-variation energy ∫|∇_g H|²
+(ΔH = 0, linearised with the reference frozen) for G2-targeted fits;
+zero on spheres (`energy_mcv.rs`).
+
+### Weiss, Andor, Renner & Várady 2002 — Advanced surface fitting techniques
+
+**Citation:** Weiss, V., Andor, L., Renner, G. & Várady, T. (2002).
+"Advanced Surface Fitting Techniques." *Computer Aided Geometric Design*
+19(1), 19–42. Local: `docs/papers/Advanced_surface_fitting_techniques.pdf`.
+
+**What's implemented:** fit-to-tolerance with a smoothing term and
+residual-driven knot insertion — the graded refinement of the shared
+knot vector and warm start by knot insertion (`fit.rs`).
+
+### Piegl & Tiller 1999 — Filling n-sided regions with NURBS patches
+
+**Citation:** Piegl, L. & Tiller, W. (1999). "Filling n-sided Regions
+with NURBS Patches." *The Visual Computer* 15(2), 77–89. Local:
+`docs/papers/piegl1999.pdf`.
+
+**What's implemented:** the n-sector split of an n-sided region from a
+centre point to side midpoints, with tangent (G1) boundary conditions
+from the neighbouring surfaces (`space.rs`, `rim_rows.rs`; blend
+topology in `setback_fit_fan.rs`).
+
+### Várady, Rockwood & Salvi 2011 — Transfinite surface interpolation over irregular n-sided domains
+
+**Citation:** Várady, T., Rockwood, A. & Salvi, P. (2011). "Transfinite
+Surface Interpolation over Irregular n-sided Domains." *Computer-Aided
+Design* 43(11), 1330–1340. Local:
+`docs/papers/varady-rockwood-salvi11-transfinite-irregular-nsided-domains-CAD.pdf`.
+
+**What's implemented:** background only — the ribbon view of neighbour
+cross-derivative data along each side, which the rim G1/G2 rows
+consume; no transfinite interpolant is built. Várady & Rockwood 1997
+(`varady1997.pdf`) is the setback vertex-blend topology the rung fills.
+
+---
+
 ## Optional / deferred PnS follow-ons
 
 The following papers cover other PnS configurations. We haven't implemented these because our current CAD vertex-blend use case only needs the n-gon configuration. Adding them later would be additive extensions.

@@ -23,6 +23,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use super::kp20_paper_border_extract::Kp20SetbackArc;
+use super::setback_decline::{SetbackCapStrategy, SetbackDecline};
 use crate::construct::setback_cap_presolve::setback_surgery_border;
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -88,8 +89,12 @@ mod setback_trim_pcurve;
 pub(crate) use boundary_ring::try_boundary_ring_carve;
 use setback_arc_crossings::arc_boundary_crossings;
 
+#[path = "setback_cap_commit.rs"]
+mod setback_cap_commit;
 #[path = "setback_fan_probe.rs"]
 mod setback_fan_probe;
+#[path = "setback_fit_fan.rs"]
+mod setback_fit_fan;
 pub(crate) use setback_fan_probe::fan_quality_stage_probe;
 
 pub(crate) fn setback_topology_commit_enabled() -> bool {
@@ -115,8 +120,11 @@ pub(crate) struct SetbackTopologyOutcome {
     /// The n corner vertices (trim intersections), angular-walk order
     /// (corner k = between arc k and arc k+1 of that walk).
     pub corner_vertices: Vec<VertexHandle>,
-    /// The 4n KP20 piece faces subdividing the blend region.
+    /// The cap faces subdividing the blend region (4n KP20 pieces or n
+    /// fitted sectors).
     pub cap_faces: Vec<FaceHandle>,
+    /// The variational fit's certified serve, when the fit built the cap.
+    pub fit: Option<setback_fit_fan::FitServe>,
 }
 
 /// Attempt the setback boundary surgery at `vertex`. On any error the
@@ -134,15 +142,15 @@ pub(crate) fn try_setback_boundary_surgery(
     vertex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-    gate_seam_g2: bool,
+    strategy: SetbackCapStrategy,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
-) -> Result<SetbackTopologyOutcome, String> {
+) -> Result<SetbackTopologyOutcome, SetbackDecline> {
     match surgery_inner(
         brep,
         vertex,
         fillet_surfaces,
         tolerance,
-        gate_seam_g2,
+        strategy,
         cap_presolve,
     ) {
         Ok(outcome) => Ok(outcome),
@@ -159,12 +167,12 @@ fn surgery_inner(
     vertex: VertexHandle,
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-    gate_seam_g2: bool,
+    strategy: SetbackCapStrategy,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
-) -> Result<SetbackTopologyOutcome, String> {
+) -> Result<SetbackTopologyOutcome, SetbackDecline> {
     let n = fillet_surfaces.len();
     if n < 3 {
-        return Err(format!("setback surgery needs >= 3 fillets, got {n}"));
+        return Err(format!("setback surgery needs >= 3 fillets, got {n}").into());
     }
     let vertex_position = brep
         .vertices
@@ -180,7 +188,7 @@ fn surgery_inner(
     let presolved: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve> =
         match cap_presolve.and_then(|entry| entry.matching(fillet_surfaces, vertex_position)) {
             Some(Ok(solve)) => Some(solve),
-            Some(Err(e)) => return Err(e.clone()),
+            Some(Err(e)) => return Err(e.clone().into()),
             None => None,
         };
     let extract = match presolved {
@@ -199,28 +207,32 @@ fn surgery_inner(
             fillet_surfaces,
             tolerance,
         )?;
-        let cap_faces = setback_fan_commit::commit_cap_fan(
+        let (cap_faces, fit) = setback_cap_commit::commit_cap(
             brep,
             blend_face,
             &side_edges,
             fillet_surfaces,
+            &extract.setback_arcs,
             vertex_position,
             presolved,
-            gate_seam_g2,
-        )?;
+            strategy,
+            tolerance,
+        )
+        .map_err(SetbackDecline::cap)?;
         return Ok(SetbackTopologyOutcome {
             blend_face,
             arc_edges: side_edges,
             corner_vertices: Vec::new(),
             cap_faces,
+            fit,
         });
     }
     if extract.setback_arcs.len() != n {
-        return Err(format!(
+        return Err(SetbackDecline::from(format!(
             "extractor returned {} arcs for {} fillets",
             extract.setback_arcs.len(),
             n
-        ));
+        )));
     }
     // The arcs stay in the extractor's angular-walk order: arc k's
     // corner_next is arc k+1's corner_prev only in that order, and
@@ -239,7 +251,7 @@ fn surgery_inner(
             .get_mut(arc.fillet_index)
             .ok_or_else(|| "setback arc fillet index out of range".to_string())?;
         if std::mem::replace(slot, true) {
-            return Err(format!("duplicate arc for fillet {}", arc.fillet_index));
+            return Err(format!("duplicate arc for fillet {}", arc.fillet_index).into());
         }
     }
 
@@ -512,20 +524,24 @@ fn surgery_inner(
     // arc (design: [arc, trim, base-end, trim]), so scaffold edges
     // between same-surface fillet pieces are dissolved.
     absorb_same_surface_bands(brep, &arc_edges, blend_face)?;
-    let cap_faces = setback_fan_commit::commit_cap_fan(
+    let (cap_faces, fit) = setback_cap_commit::commit_cap(
         brep,
         blend_face,
         &arc_edges,
         fillet_surfaces,
+        &extract.setback_arcs,
         vertex_position,
         presolved,
-        gate_seam_g2,
-    )?;
+        strategy,
+        tolerance,
+    )
+    .map_err(SetbackDecline::cap)?;
     Ok(SetbackTopologyOutcome {
         blend_face,
         arc_edges,
         corner_vertices,
         cap_faces,
+        fit,
     })
 }
 
@@ -1028,7 +1044,11 @@ fn build_cap_face_fan(
 /// interpolants with a polyline fallback — see `setback_trim_pcurve`);
 /// anything else missing a pcurve gets an endpoint-projected Linear
 /// pcurve (exact for iso-line piece boundaries).
-fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
+pub(super) fn author_setback_pcurves(
+    brep: &mut BRep,
+    cap_faces: &[FaceHandle],
+    skip: &[FaceHandle],
+) -> Result<(), String> {
     use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     // 1. Plane faces.
@@ -1053,12 +1073,13 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
         .faces
         .iter()
         .filter(|(fh, f)| {
-            cap_faces.contains(fh)
-                || matches!(
-                    f.surface.as_ref().map(|s| &s.geometry),
-                    Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_))
-                        | Some(popkern_core::geometry::SurfaceGeometry::Gregory(_))
-                )
+            !skip.contains(fh) && cap_faces.contains(fh)
+                || !skip.contains(fh)
+                    && matches!(
+                        f.surface.as_ref().map(|s| &s.geometry),
+                        Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_))
+                            | Some(popkern_core::geometry::SurfaceGeometry::Gregory(_))
+                    )
         })
         .map(|(fh, _)| fh)
         .collect();

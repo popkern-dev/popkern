@@ -229,6 +229,42 @@ fn append_apex_diagnostic_actions(
             }
             ApexConstructionDiagnostic::SupportCellSplit(_) => {}
             ApexConstructionDiagnostic::CoherenceValidation(_) => {}
+            ApexConstructionDiagnostic::SetbackFit(fit) => {
+                *apex_attempted += 1;
+                let rim = fit
+                    .attempts
+                    .iter()
+                    .filter_map(|a| match &a.outcome {
+                        crate::types::SetbackFitOutcome::Served(c) => Some(c.rim[0]),
+                        _ => None,
+                    })
+                    .fold(0.0, f64::max);
+                *apex_max_deviation = apex_max_deviation.max(rim);
+                if fit.served.is_some() {
+                    *apex_authored += 1;
+                } else {
+                    *apex_declined += 1;
+                }
+                actions.push(BrepRepairActionRecord {
+                    stage: "setback_variational_fit".to_string(),
+                    outcome: if fit.served.is_some() {
+                        "authored".to_string()
+                    } else {
+                        "declined".to_string()
+                    },
+                    subject: format!(
+                        "vertex={:?};served={:?};attempts={}",
+                        fit.vertex,
+                        fit.served,
+                        fit.attempts.len()
+                    ),
+                    reason: Some(fit.kp20_decline.clone()),
+                    max_motion: 0.0,
+                    max_deviation: rim,
+                    affected_handles: vec![format!("vertex:{:?}", fit.vertex)],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
         }
     }
 }

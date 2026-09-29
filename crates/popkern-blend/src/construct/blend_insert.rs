@@ -127,7 +127,7 @@ pub(crate) fn insert_vertex_blend(
     let setback_attempted =
         crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
             && edge_indices.len() >= setback_min_n;
-    if let Some(outcome) = blend_insert_setback_rung::try_setback_rung(
+    let (setback_served, setback_diagnostics) = blend_insert_setback_rung::try_setback_rung(
         brep,
         vertex,
         edge_indices,
@@ -137,7 +137,8 @@ pub(crate) fn insert_vertex_blend(
         classification,
         setback_min_n,
         cap_presolve,
-    ) {
+    );
+    if let Some(outcome) = setback_served {
         return outcome;
     }
     // Reaching here with `setback_attempted` set means the surgery
@@ -316,8 +317,7 @@ pub(crate) fn insert_vertex_blend(
         setback_cap: false,
         exact_boundary_cap: false,
     };
-    let mut diagnostics = Vec::new();
-
+    let mut diagnostics = setback_diagnostics;
     // The ring rung records its outcome either way — a decline means
     // the mitred fallback is serving (PK-236 deviation classes).
     diagnostics.extend(blend_insert_ring_rung::boundary_ring_diagnostic(
