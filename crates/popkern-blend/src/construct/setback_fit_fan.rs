@@ -68,6 +68,7 @@ pub(super) fn commit_fit_fan(
             VariationalCapOptions {
                 max_refinement_levels: 2,
                 energy: CapEnergy::Bending,
+                reference_passes: 3, // PK-605: one freeze left a rim curvature layer
                 ..Default::default()
             },
         ),

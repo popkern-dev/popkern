@@ -383,20 +383,25 @@ fn row_879_fit_fairness_against_kp20() {
         if a.construction != "variational fit" {
             kp20.push((corner.name, a.overshoot));
         }
-        // Tracked E3 exceptions (PK-605): PK-601 made KP20 much fairer
-        // on these apexes (blunt 5.19 -> 1.70, variable 4.71 -> 3.75)
-        // while the fallback fit is unchanged; the gate's planned
-        // polish is PK-605. The fit's own readings are pinned so it
-        // cannot regress meanwhile.
-        let tracked = [("pentagon5 blunt", 5.20), ("pentagon5 variable", 5.85)];
-        if let Some((_, pin)) = tracked.iter().find(|(n, _)| *n == corner.name) {
+        // PK-605: the tangent (G1) fit re-freezes its bending reference
+        // three times; its max k*r_min is pinned where it serves at G1
+        // (before: blunt 5.10, variable 5.73, flagship 1.48,
+        // pyramid3 1.17).
+        let fit_pin = [
+            ("pentagon5 blunt", 1.76),
+            ("pentagon5 variable", 2.20),
+            ("pentagon flagship", 1.40),
+            ("pyramid3 h1.2", 1.22),
+        ];
+        if let Some((_, pin)) = fit_pin.iter().find(|(n, _)| *n == corner.name) {
             assert!(
                 b.overshoot <= *pin,
-                "{}: fit k*r {:.2} over its PK-605 pin {pin:.2}",
+                "{}: fit k*r {:.2} over its pin {pin:.2}",
                 corner.name,
                 b.overshoot
             );
-        } else if a.construction != "variational fit" && b.overshoot > 1.25 * a.overshoot {
+        }
+        if a.construction != "variational fit" && b.overshoot > 1.25 * a.overshoot {
             violations.push(format!(
                 "{}: fit {:.2} vs {} {:.2}",
                 corner.name, b.overshoot, a.construction, a.overshoot
