@@ -92,7 +92,34 @@ pub struct Kp20PaperTauReport {
 /// Solve the KP20 paper τ for one valence from the derived
 /// characteristic tensor-border (canonical sector 0; the full τ is its
 /// rotations).
+///
+/// τ depends only on `n` (the characteristic map of the valence), so the
+/// result is memoised per valence for the process: every KP20 corner of
+/// a valence reuses one solve (PK-604 measured 0.085 s per solve at
+/// n = 8). The cached value is the exact result of the first solve.
 pub fn solve_kp20_paper_tau(n: usize) -> Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    type Cache = Mutex<HashMap<usize, Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError>>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .get(&n)
+    {
+        return hit.clone();
+    }
+    let solved = compute_kp20_paper_tau(n);
+    cache
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .insert(n, solved.clone());
+    solved
+}
+
+/// The uncached τ solve behind [`solve_kp20_paper_tau`].
+fn compute_kp20_paper_tau(n: usize) -> Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError> {
     let solved = solve_kp20_paper_tau_raw(n)?;
     let orientation = kp20_paper_tau_orientation_summary(&solved.tau_macro_patch);
     let jet_delta = match super::kp20_bi6_math::kappa_for_valence(n) {

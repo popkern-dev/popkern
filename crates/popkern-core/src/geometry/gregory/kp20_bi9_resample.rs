@@ -245,8 +245,12 @@ pub fn resample_kp20_cap_bi9(
     // 1. Accurate bi-9 sampling S₉ of h from the elevated step (iii)
     //    sampling: corner blocks (exact 2-jets) held; every band middle
     //    and interior re-fitted to h (internal seams shared, so C² exact).
+    //    Sectors are independent (each reads and writes its own four
+    //    pieces), so under the `parallel` feature they are fitted
+    //    concurrently with identical results (PK-604: 0.086 s serial at
+    //    n = 8).
     let mut s9 = sampled9.clone();
-    for (s, sector) in s9.iter_mut().enumerate() {
+    let fit_sector = |s: usize, sector: &mut [Net; 4]| -> Result<(), Kp20Bi9Decline> {
         for (pair, &(m, sm, p, sp)) in INTERNAL.iter().enumerate() {
             let (mut minus, mut plus) = (sector[m], sector[p]);
             fit_internal_seam(&mut minus, &mut plus, sm, sp, &exacts[s][m], &exacts[s][p]).ok_or(
@@ -286,7 +290,24 @@ pub fn resample_kp20_cap_bi9(
                 },
             )?;
         }
-    }
+        Ok(())
+    };
+    #[cfg(feature = "parallel")]
+    let fitted: Vec<Result<(), Kp20Bi9Decline>> = {
+        use rayon::prelude::*;
+        s9.par_iter_mut()
+            .enumerate()
+            .map(|(s, sector)| fit_sector(s, sector))
+            .collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let fitted: Vec<Result<(), Kp20Bi9Decline>> = s9
+        .iter_mut()
+        .enumerate()
+        .map(|(s, sector)| fit_sector(s, sector))
+        .collect();
+    // The first failing sector in sector order, as the serial loop reported.
+    fitted.into_iter().collect::<Result<Vec<()>, _>>()?;
     // 2–3. Target T₉ = X₀ + (S₉ − S): the sampling artefact removed,
     //      every later-stage change kept. Placement owns the rim bands, so
     //      the correction is zero there.

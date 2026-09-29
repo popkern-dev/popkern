@@ -280,15 +280,34 @@ pub(super) struct FairStep {
     pub record: Kp20FairInterior,
 }
 
-/// Largest principal curvature over the nets' interiors (24×24 samples
-/// per piece; exact partials).
+/// Interior samples per direction of [`max_principal_curvature`].
+const CURVATURE_SAMPLES: usize = 24;
+
+/// The degree-9 basis at the curvature samples `k / 24`, `k = 1..24`,
+/// evaluated once (PK-604: re-evaluating it per sample cost 0.03 s per
+/// cap measurement at n = 8).
+fn sample_basis() -> &'static [[[f64; 3]; 10]] {
+    static TABLE: std::sync::OnceLock<Vec<[[f64; 3]; 10]>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        (1..CURVATURE_SAMPLES)
+            .map(|k| {
+                let t = k as f64 / CURVATURE_SAMPLES as f64;
+                std::array::from_fn(|i| b9(i, t))
+            })
+            .collect()
+    })
+}
+
+/// Largest principal curvature over the nets' interiors (23×23 samples
+/// per piece at `k / 24`; exact partials).
 pub(super) fn max_principal_curvature(nets: &[[Net; 4]]) -> f64 {
+    let table = sample_basis();
     let mut worst = 0.0f64;
     for sector in nets {
         for net in sector {
-            for a in 1..24 {
-                for c in 1..24 {
-                    worst = worst.max(point_curvature(net, a as f64 / 24.0, c as f64 / 24.0));
+            for bu in table {
+                for bv in table {
+                    worst = worst.max(point_curvature(net, bu, bv));
                 }
             }
         }
@@ -296,14 +315,10 @@ pub(super) fn max_principal_curvature(nets: &[[Net; 4]]) -> f64 {
     worst
 }
 
-/// Largest principal curvature of one bi-9 net at `(u, v)` (0 where the
-/// frame is degenerate).
-fn point_curvature(net: &Net, u: f64, v: f64) -> f64 {
+/// Largest principal curvature of one bi-9 net at the parameter whose
+/// basis is `bu × bv` (0 where the frame is degenerate).
+fn point_curvature(net: &Net, bu: &[[f64; 3]; 10], bv: &[[f64; 3]; 10]) -> f64 {
     use crate::geometry::Vec3;
-    let (bu, bv): (Vec<[f64; 3]>, Vec<[f64; 3]>) = (
-        (0..10).map(|i| b9(i, u)).collect(),
-        (0..10).map(|j| b9(j, v)).collect(),
-    );
     let d = |p: usize, q: usize| {
         let mut acc = Vec3::new(0.0, 0.0, 0.0);
         for i in 0..10 {
@@ -349,35 +364,51 @@ pub(super) fn fair_interior_step(
     tau: &super::kp20_bi6_cap::Kp20MacroPatch,
 ) -> FairStep {
     let before = max_principal_curvature(nets);
-    let mut variation = nets.to_vec();
-    let variation_attempt = match super::kp20_bi9_fair_curvature::fair_interior_curvature(
-        n,
-        &mut variation,
-        s9,
-        b,
-        tau,
-    ) {
-        Ok(residual) => Kp20FairAttempt {
-            energy: Kp20FairEnergy::CurvatureVariation,
-            max_curvature_after: Some(max_principal_curvature(&variation)),
+    // The two candidates are independent pure solves: under the
+    // `parallel` feature they run concurrently (identical results either
+    // way; PK-604: the guide candidate's 0.13 s at n = 8 hides behind
+    // the curvature candidate).
+    let curvature_candidate = || {
+        let mut variation = nets.to_vec();
+        let attempt = match super::kp20_bi9_fair_curvature::fair_interior_curvature(
+            n,
+            &mut variation,
+            s9,
+            b,
+            tau,
+        ) {
+            Ok(residual) => Kp20FairAttempt {
+                energy: Kp20FairEnergy::CurvatureVariation,
+                max_curvature_after: Some(max_principal_curvature(&variation)),
+                decline: None,
+                refinement_residual: Some(residual),
+            },
+            Err(decline) => Kp20FairAttempt {
+                energy: Kp20FairEnergy::CurvatureVariation,
+                max_curvature_after: None,
+                decline: Some(decline),
+                refinement_residual: None,
+            },
+        };
+        (variation, attempt)
+    };
+    let guide_candidate = || {
+        let mut guide = nets.to_vec();
+        let solved = fair_interior(n, &mut guide, s9, b, tau).is_some();
+        let attempt = Kp20FairAttempt {
+            energy: Kp20FairEnergy::GuideThirdOrder,
+            max_curvature_after: solved.then(|| max_principal_curvature(&guide)),
             decline: None,
-            refinement_residual: Some(residual),
-        },
-        Err(decline) => Kp20FairAttempt {
-            energy: Kp20FairEnergy::CurvatureVariation,
-            max_curvature_after: None,
-            decline: Some(decline),
             refinement_residual: None,
-        },
+        };
+        (guide, attempt)
     };
-    let mut guide = nets.to_vec();
-    let solved = fair_interior(n, &mut guide, s9, b, tau).is_some();
-    let guide_attempt = Kp20FairAttempt {
-        energy: Kp20FairEnergy::GuideThirdOrder,
-        max_curvature_after: solved.then(|| max_principal_curvature(&guide)),
-        decline: None,
-        refinement_residual: None,
-    };
+    #[cfg(feature = "parallel")]
+    let ((variation, variation_attempt), (guide, guide_attempt)) =
+        rayon::join(curvature_candidate, guide_candidate);
+    #[cfg(not(feature = "parallel"))]
+    let ((variation, variation_attempt), (guide, guide_attempt)) =
+        (curvature_candidate(), guide_candidate());
     let mut record = Kp20FairInterior {
         served: None,
         max_curvature_before: before,
