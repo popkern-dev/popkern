@@ -201,6 +201,22 @@ pub(super) fn should_promote_direct_apex(
     let Some((&first, rest)) = radii.split_first() else {
         return false;
     };
+    // DirectApex v1 builds only on cylinder strips (`UnsupportedSurface`
+    // otherwise). Promoting a corner with any other strip kind is a
+    // guaranteed decline, and its fallback runs the vertex blend on
+    // direct-apex anchors: a mixed-radius G2 pyramid3 apex (NURBS strips)
+    // served every rail creased 13° that way (PK-593).
+    let all_cylinders = edge_indices.iter().all(|&index| {
+        edge_geometries.get(index).is_some_and(|g| {
+            matches!(
+                g.surface,
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
+            )
+        })
+    });
+    if !all_cylinders {
+        return false;
+    }
     let uniform_effective = rest.iter().all(|radius| (*radius - first).abs() <= 1.0e-9);
     if uniform_effective {
         // Uniform arm: constant-radius cylindrical apexes.

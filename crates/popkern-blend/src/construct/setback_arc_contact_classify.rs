@@ -25,6 +25,15 @@ use super::*;
 /// cluster (shared with the detector's chain clustering).
 pub(super) const CLUSTER_ADJACENCY: f64 = 0.05;
 
+/// Side extent, as a fraction of the arc's UV diameter, that a mid-arc
+/// contact must reach on both sides to count as a crossing. Over the
+/// cluster window (±[`CLUSTER_ADJACENCY`] in arc t) a transversal
+/// crossing leaves the edge by about `0.05 · diam · sin(angle)`, above
+/// 1e-2 for any crossing steeper than ~12° (measured genuine crossings:
+/// 4e-2); a graze stays at projection-scale excursions (measured
+/// 2.3e-4, PK-591).
+const MID_ARC_CROSSING_EXTENT: f64 = 1.0e-2;
+
 /// One contact event: the best (min-margin) representative hit plus
 /// the arc-t span and population of its cluster.
 pub(super) struct ContactCluster {
@@ -163,9 +172,10 @@ pub(super) fn classify_contacts(
     // where the arc TERMINATES just past the boundary (measured
     // t=0.016/0.984 crossings with extents +2.6e-14/−4.5e-2: one
     // side only, and demanding both sides declined the pentagon5/
-    // hexagon6 blunt fans that have served since PK-187). Endpoint
-    // contacts are the arc's designed corner landings and are
-    // exempt.
+    // hexagon6 blunt fans that have served since PK-187), so the
+    // one-sided allowance is confined to the arc's terminal band.
+    // Endpoint contacts are the arc's designed corner landings and
+    // are exempt.
     {
         let diam = {
             let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (
@@ -216,7 +226,21 @@ pub(super) fn classify_contacts(
                 pos = pos.max(side);
                 neg = neg.max(-side);
             }
-            let transversal = pos >= extent_gate || neg >= extent_gate;
+            // One side suffices only where the arc TERMINATES (the
+            // blunt-apex landings at t 0.016/0.984). Mid-arc, a contact
+            // must genuinely cross: finite extent on BOTH sides, at the
+            // scale a transversal crossing reaches over the cluster
+            // window. The S-shaped mixed-radius arc grazes a strip
+            // boundary (t 0.218, extents ±2-4e-4 of the chart) and read as
+            // a third crossing, declining the carve; genuine mid-arc
+            // crossings reach ±7e-2 (PK-591).
+            let terminal = c.t_first < CLUSTER_ADJACENCY || c.t_last > 1.0 - CLUSTER_ADJACENCY;
+            let transversal = if terminal {
+                pos >= extent_gate || neg >= extent_gate
+            } else {
+                let crossing_gate = MID_ARC_CROSSING_EXTENT * diam;
+                pos >= crossing_gate && neg >= crossing_gate
+            };
             if !transversal && trace {
                 eprintln!(
                     "    [crossings] dropped non-transversal contact on {:?}: t {:.3}..{:.3} \
