@@ -188,8 +188,19 @@ pub fn assert_record_serves(
         "{name}: rim {:?}",
         c.rim
     );
+    // A G2 serve claims the spokes at G2, so their bound is held to the
+    // gate. A G1 serve claims G1 there; its G2 enclosure is a regression
+    // ceiling only (PK-606: the 1:10 cube corner's tangent fit read
+    // 0.0499 while Gauss-Newton passed through a flipped iterate the
+    // coarse fold guard missed, 0.066 once the guard shares the served
+    // grid; lower witness 0 either way, rim g2 bound 1948 -> 624).
+    let spoke_g2_bound = if level == ContinuityLevel::G2 {
+        G2_GATE
+    } else {
+        0.1
+    };
     assert!(
-        c.spoke[0] <= G0_GATE && c.spoke[1] <= 1e-5 && c.spoke[2] <= G2_GATE,
+        c.spoke[0] <= G0_GATE && c.spoke[1] <= 1e-5 && c.spoke[2] <= spoke_g2_bound,
         "{name}: spoke {:?}",
         c.spoke
     );

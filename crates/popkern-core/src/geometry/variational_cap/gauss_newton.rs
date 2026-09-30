@@ -34,13 +34,6 @@ const WEIGHT_FLOOR_G2: f64 = 1.0e-5;
 /// Step halvings per Gauss–Newton step before the run stops.
 const STEP_HALVINGS: usize = 12;
 
-/// Samples per knot span of the merit's fold guard.
-const FOLD_GRID: usize = 6;
-
-/// Regularity (min/mean Jacobian, 0 on a normal flip) below which a
-/// trial step is refused.
-const FOLD_FLOOR: f64 = 1e-3;
-
 /// Solve one level; returns the coefficients and the iterations used.
 pub(super) fn solve_level(
     level: &Level,
@@ -292,7 +285,9 @@ fn merit(
     }
     // A step that folds the interior is never an improvement, however
     // much it lowers the rim residuals.
-    if super::measure::regularity(&level.space, coords, FOLD_GRID).ratio < FOLD_FLOOR {
+    // A step that flips a normal anywhere on the served grid is never
+    // accepted (PK-606: see `measure::FOLD_FLOOR`).
+    if super::measure::served_regularity(&level.space, coords).ratio < super::measure::FOLD_FLOOR {
         return f64::INFINITY;
     }
     let dim = energy.l.nrows();

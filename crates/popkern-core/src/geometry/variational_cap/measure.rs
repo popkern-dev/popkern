@@ -181,6 +181,36 @@ pub(super) struct Regularity {
     pub uv: (f64, f64),
 }
 
+/// Smallest regularity (min/mean of `|S_u × S_v|`) a served sector may
+/// have, sampled on [`SERVED_GRID_PER_SPAN`] (the grid the Gauss–Newton
+/// fold guard shares; its floor is [`FOLD_FLOOR`]). E6 (measured 2026-09-29 over 44 served setback corners and
+/// their rejected attempts): every served cap sits at 0.131 or above;
+/// caps between 1e-3 and 0.005 were near-folds whose spoke seams the
+/// certifier could not enclose (Jacobian), so they are declined here,
+/// typed, before certification. A fold gate, not a quality measure:
+/// caps rejected for G2 at 0.007–0.136 overlap the served range.
+pub(super) const SERVED_MIN_REGULARITY: f64 = 2.0e-2;
+
+/// Regularity samples per knot span for the served surface.
+pub(super) const SERVED_GRID_PER_SPAN: usize = 12;
+
+/// Regularity below which a Gauss–Newton trial step is refused as
+/// folded: a normal flip reads 0. It is deliberately below
+/// [`SERVED_MIN_REGULARITY`]: an intermediate iterate may pass through a
+/// near-fold and recover, and a guard at the served floor stopped that
+/// recovery (PK-606: the 1:10 cube corner's tangent fit then served with
+/// its spoke g2 at 0.067, over its 0.05 claim). What the guard must share
+/// with the final gate is the grid: at 6 samples per span it accepted
+/// flips between its samples (every pentagon G2 attempt, declined Folded
+/// at v = 11/12, regularity 0).
+pub(super) const FOLD_FLOOR: f64 = 1e-3;
+
+/// Regularity of `coords` under the served contract
+/// ([`SERVED_GRID_PER_SPAN`]; compare with [`SERVED_MIN_REGULARITY`]).
+pub(super) fn served_regularity(space: &SectorSpace, coords: &[Vec<f64>; 3]) -> Regularity {
+    regularity(space, coords, SERVED_GRID_PER_SPAN)
+}
+
 /// Regularity over a per-span grid: `per_span` evenly spaced points in
 /// every knot span of each direction, plus the ends. A uniform grid is
 /// blind to the thin spans graded refinement puts beside the corners

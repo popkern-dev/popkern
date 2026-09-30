@@ -5,7 +5,7 @@ use super::chart::CharacteristicMap;
 use super::energy::Integrand;
 use super::gauss_newton::solve_level;
 use super::level::{Frame, Level, build_level};
-use super::measure::{regularity, rim_report, spoke_report};
+use super::measure::{SERVED_MIN_REGULARITY, rim_report, served_regularity, spoke_report};
 use super::space::SectorSpace;
 use super::{
     RimResidual, VariationalCap, VariationalCapError, VariationalCapOptions, VariationalCapReport,
@@ -13,18 +13,6 @@ use super::{
 };
 use crate::geometry::curve::CurveEval;
 use crate::geometry::{Point3, Vec3};
-
-/// Smallest regularity (min/mean of `|S_u × S_v|`) a served sector may
-/// have. E6 (measured 2026-09-29 over 44 served setback corners and
-/// their rejected attempts): every served cap sits at 0.131 or above;
-/// caps between 1e-3 and 0.005 were near-folds whose spoke seams the
-/// certifier could not enclose (Jacobian), so they are declined here,
-/// typed, before certification. A fold gate, not a quality measure:
-/// caps rejected for G2 at 0.007–0.136 overlap the served range.
-const MIN_REGULARITY: f64 = 2.0e-2;
-
-/// Regularity samples per knot span for the served surface.
-const FINAL_GRID_PER_SPAN: usize = 12;
 
 /// Spans within this factor of the worst span excess are split.
 const REFINE_BAND: f64 = 4.0;
@@ -208,9 +196,9 @@ fn finish(
     targets_met: bool,
 ) -> Result<VariationalCap, VariationalCapError> {
     let space = &level.space;
-    let reg = regularity(space, &coords, FINAL_GRID_PER_SPAN);
+    let reg = served_regularity(space, &coords);
     let min_regularity = reg.ratio;
-    if min_regularity < MIN_REGULARITY {
+    if min_regularity < SERVED_MIN_REGULARITY {
         return Err(VariationalCapError::Folded {
             sector: reg.sector,
             at: reg.uv,
