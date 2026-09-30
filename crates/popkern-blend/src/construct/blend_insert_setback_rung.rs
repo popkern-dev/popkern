@@ -146,7 +146,7 @@ pub(super) fn try_setback_rung(
     }
     let reason = declines.join("; ");
     record_decline(vertex, &reason);
-    let mut diagnostics = Vec::new();
+    let mut diagnostics = vec![setback_decline_diagnostic(&reason)];
     if !record.attempts.is_empty() {
         diagnostics.push(ApexConstructionDiagnostic::SetbackFit(record));
     }
@@ -159,6 +159,39 @@ pub(super) fn try_setback_rung(
         return (Some(Ok((Vec::new(), None, diagnostics))), Vec::new());
     }
     (None, diagnostics)
+}
+
+/// The setback rung's decline, named for the user (PK-594) and carried
+/// into the corner's decline verdicts
+/// (`corner_resolution::route_decline_verdicts`), first: the setback
+/// cap is the corner's primary construction, and the fallbacks' own
+/// verdicts alone (PnS cap-support gaps, Gregory creases) described
+/// the last route tried, not why the corner has no cap.
+fn setback_decline_diagnostic(reason: &str) -> ApexConstructionDiagnostic {
+    let class = if reason.contains("arc/boundary crossings") {
+        "setback arcs overrun a narrow strip: a neighbouring fillet's \
+         setback carries this strip's setback arc across its own \
+         boundary near the apex (reduce the radius disparity at this \
+         corner)"
+    } else if reason.contains("fold") {
+        "every setback cap folds at this corner"
+    } else {
+        "the setback cap declined"
+    };
+    ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
+        stage: "setback_rung".to_string(),
+        code: "setback.declined".to_string(),
+        detail_code: Some(format!("{class} ({reason})")),
+        sector_name: String::new(),
+        edge: None,
+        support_half_edge: None,
+        support_face: None,
+        residual: None,
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
+        shared_fact_ids: Vec::new(),
+    })
 }
 
 /// One setback surgery's outcome.

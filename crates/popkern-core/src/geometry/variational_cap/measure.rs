@@ -184,12 +184,17 @@ pub(super) struct Regularity {
 /// Smallest regularity (min/mean of `|S_u × S_v|`) a served sector may
 /// have, sampled on [`SERVED_GRID_PER_SPAN`] (the grid the Gauss–Newton
 /// fold guard shares; its floor is [`FOLD_FLOOR`]). E6 (measured 2026-09-29 over 44 served setback corners and
-/// their rejected attempts): every served cap sits at 0.131 or above;
+/// their rejected attempts): every served cap sat at 0.131 or above;
 /// caps between 1e-3 and 0.005 were near-folds whose spoke seams the
 /// certifier could not enclose (Jacobian), so they are declined here,
-/// typed, before certification. A fold gate, not a quality measure:
-/// caps rejected for G2 at 0.007–0.136 overlap the served range.
-pub(super) const SERVED_MIN_REGULARITY: f64 = 2.0e-2;
+/// typed, before certification. Above 0.005 the certifier is the
+/// arbiter: a seam it cannot enclose still rejects the cap. The gate
+/// sat at 2e-2 until PK-594, which declined the octagonal h 1.2 apexes
+/// (variable and wide radii) at 8.4e-3 and 1.6e-2 — tangent caps that
+/// certify G1 on every seam (g1 1e-6) and pass `validate_all`. A fold
+/// gate, not a quality measure: caps rejected for G2 at 0.007–0.136
+/// overlap the served range.
+pub(super) const SERVED_MIN_REGULARITY: f64 = 5.0e-3;
 
 /// Regularity samples per knot span for the served surface.
 pub(super) const SERVED_GRID_PER_SPAN: usize = 12;

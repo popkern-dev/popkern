@@ -126,6 +126,15 @@ pub(crate) fn route_decline_verdicts(
         .iter()
         .filter_map(|diagnostic| match diagnostic {
             crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(d)
+                if d.code == "setback.declined" =>
+            {
+                Some(format!(
+                    "{}: {}",
+                    d.stage,
+                    d.detail_code.as_deref().unwrap_or("declined")
+                ))
+            }
+            crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(d)
                 if d.code.ends_with(".declined")
                     && (d.stage.ends_with("cap_support_acceptance")
                         || d.stage.ends_with("construction_error")
