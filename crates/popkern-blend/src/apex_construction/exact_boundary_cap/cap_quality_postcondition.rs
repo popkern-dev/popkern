@@ -49,12 +49,18 @@
 //! 2.9e-1 (pyramid4) and 5.9e-1 (oblique N=3) were all exactly the
 //! 0.6-fraction artifact, not geometry. The serving-boundary refresh
 //! below re-measures on the final body and appends
-//! `served_mid_seam_normal` to the diagnostic; gates pin the served
-//! value.
+//! `served_mid_seam_normal` to the diagnostic, with the whole-seam
+//! `served_cap_seam_g1` beside it (PK-607): the mid-seam fractions
+//! are blind to a cap that creases toward its pole or rim, so gates pin
+//! the whole-seam value.
 
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::cap_seam_continuity::seam_normal_profile;
+
+/// Samples per seam for the served whole-seam cap reading (the
+/// continuity evidence's density).
+const WHOLE_SEAM_SAMPLES: usize = 33;
 
 /// Fractions along each seam that count as "the middle".
 const MID_SEAM_FRACTIONS: [f64; 3] = [0.4, 0.5, 0.6];
@@ -106,7 +112,20 @@ pub(crate) fn refresh_served_mid_seam_diagnostics(
         let Some(served) = worst_mid_seam_misalignment(brep, faces) else {
             continue;
         };
-        let served_field = format!("served_mid_seam_normal={served:.3e}");
+        // The mid-seam number reads fractions 0.4-0.6 only; a cap that
+        // creases toward its pole or its rim reads clean there (the
+        // pyramid-4 mixed Coons cap: 1.5e-8 mid-seam against 28° at
+        // the seam ends, PK-607). The whole-seam reading beside it is
+        // the one to gate on.
+        let whole = crate::cap_seam_continuity::measure_cap_seam_continuity(
+            brep,
+            faces,
+            WHOLE_SEAM_SAMPLES,
+        );
+        let served_field = format!(
+            "served_mid_seam_normal={served:.3e};served_cap_seam_g1={:.3e}",
+            whole.worst_g1_normal
+        );
         // The route-report row is the authoritative surface; capture
         // its commit-time detail so the top-level apex-diagnostic
         // copy can be matched EXACTLY (several routes can commit the

@@ -238,6 +238,36 @@ pub(crate) struct SeamSampleReading {
     pub(crate) jump_diag: Option<f64>,
 }
 
+/// Coarse side-B images at evenly spaced fractions: the reference for
+/// [`side_b_at`].
+pub(crate) fn side_b_reference(seam: &EdgeSeam<'_>) -> Vec<Point3> {
+    (0..=SEAM_REFERENCE_SAMPLES)
+        .map(|r| {
+            let g = r as f64 / SEAM_REFERENCE_SAMPLES as f64;
+            seam.side_b.eval_fraction(g).1
+        })
+        .collect()
+}
+
+/// Side B at the 3D position `p_a` (coarse candidates from
+/// `b_points`, then golden-section refinement — see
+/// [`nearest_fraction`]): `(fraction, uv, point)`. Side B's pcurve may
+/// run against side A's or at another speed, so a shared fraction is
+/// not a shared point (PK-607).
+pub(crate) fn side_b_at(
+    seam: &EdgeSeam<'_>,
+    b_points: &[Point3],
+    p_a: &Point3,
+) -> (f64, (f64, f64), Point3) {
+    let g = nearest_fraction(
+        b_points,
+        |g| p_a.distance_to(&seam.side_b.eval_fraction(g).1),
+        p_a,
+    );
+    let (uv_b, p_b) = seam.side_b.eval_fraction(g);
+    (g, uv_b, p_b)
+}
+
 /// Sample one seam at `samples_per_seam` fractions inset by
 /// `end_margin` at each end; degenerate charts skipped — see module
 /// docs.
@@ -283,26 +313,12 @@ pub(crate) fn sample_edge_seam(
         let g = nearest_fraction(&reference, |g| p.distance_to(&curve_at(g)), p);
         p.distance_to(&curve_at(g))
     };
-    // Coarse side-B image cache for the nearest-point search.
-    let b_images: Vec<(f64, Point3)> = (0..=SEAM_REFERENCE_SAMPLES)
-        .map(|r| {
-            let g = r as f64 / SEAM_REFERENCE_SAMPLES as f64;
-            (g, seam.side_b.eval_fraction(g).1)
-        })
-        .collect();
+    let b_points = side_b_reference(seam);
 
     for k in 0..samples_per_seam {
         let f = end_margin + (1.0 - 2.0 * end_margin) * k as f64 / (samples_per_seam - 1) as f64;
         let (uv_a, p_a) = seam.side_a.eval_fraction(f);
-        // Locate side B at the same 3D position (coarse candidates,
-        // then golden-section refinement — see [`nearest_fraction`]).
-        let b_points: Vec<Point3> = b_images.iter().map(|(_, q)| *q).collect();
-        let g = nearest_fraction(
-            &b_points,
-            |g| p_a.distance_to(&seam.side_b.eval_fraction(g).1),
-            &p_a,
-        );
-        let (uv_b, p_b) = seam.side_b.eval_fraction(g);
+        let (g, uv_b, p_b) = side_b_at(seam, &b_points, &p_a);
 
         // G0: each side against the shared curve (trim contract).
         let (d_a, d_b) = (dist_to_curve(&p_a), dist_to_curve(&p_b));

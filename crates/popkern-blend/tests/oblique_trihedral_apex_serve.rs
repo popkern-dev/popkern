@@ -118,7 +118,8 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
     // here — a premature-measurement artifact (mid-pipeline pcurves
     // mis-resolve the pole half of each spoke; identical control
     // points measure 3.4e-3 served). The serving-boundary refresh
-    // stamps `served_mid_seam_normal`; a missing stamp is a failure.
+    // stamps the whole-seam `served_cap_seam_g1` (PK-607: the mid-seam
+    // number reads fractions 0.4-0.6 only); a missing stamp is a failure.
     let mut served_pinned = false;
     for route in &result.repair_report.apex_routes {
         for diagnostic in &route.exact_boundary_report.diagnostics {
@@ -129,7 +130,7 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
             let served: f64 = detail
                 .split(';')
                 .find_map(|part| {
-                    part.strip_prefix("served_mid_seam_normal")?
+                    part.strip_prefix("served_cap_seam_g1")?
                         .strip_prefix('=')?
                         .parse()
                         .ok()
@@ -137,14 +138,14 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
                 .unwrap_or(f64::NAN);
             assert!(
                 served.is_finite() && served <= 5.0e-2,
-                "served_mid_seam_normal {served:.3e} exceeds the crate G1 bar 5e-2 ({detail})"
+                "served_cap_seam_g1 {served:.3e} exceeds the crate G1 bar 5e-2 ({detail})"
             );
             served_pinned = true;
         }
     }
     assert!(
         served_pinned,
-        "the served oblique cap must record a served mid-seam measurement"
+        "the served oblique cap must record a whole-seam cap measurement"
     );
 
     let errors = result.brep.validate_all();

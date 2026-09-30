@@ -43,11 +43,13 @@ fn direct_apex_pyramid3_uniform_cap_outer_commercial_gate() {
 ///   2.8e-1 "pole vertex-enclosure class" was exactly this artifact.
 ///   Pinned at the recorded ceiling as a construction-regression
 ///   canary only.
-/// - `served_mid_seam_normal` — re-measured at the pipeline tail on
-///   the final body (PK-220). This is the truth a user sees, and
-///   every class meets the crate's 5e-2 G1 bar: measured pyramid3
-///   3.8e-2 (pole-end sample; mid-seam 0.0), pyramid4 2.1e-3,
-///   mixed 1.5e-8.
+/// - `served_cap_seam_g1` — the cap's own seams re-measured at the
+///   pipeline tail on the final body over the WHOLE seam (the
+///   continuity evidence's sampler, PK-607), and gated at the crate's
+///   5e-2 G1 bar: measured pyramid3 2.4e-3, pyramid4 2.1e-3. The
+///   `served_mid_seam_normal` beside it reads fractions 0.4-0.6 only
+///   (1.5e-8 on a pyramid-4 mixed Coons cap that creased 28° toward
+///   its seam ends), so it is recorded, not gated.
 ///
 /// A missing measurement on a multi-face commit is an assertion
 /// failure, never a pass — for BOTH numbers.
@@ -75,7 +77,7 @@ fn direct_apex_pyramid_mid_seam_normals_pinned() {
                         .unwrap_or(f64::NAN)
                 };
                 let commit_worst = field("worst_mid_seam_normal");
-                let served = field("served_mid_seam_normal");
+                let served = field("served_cap_seam_g1");
                 eprintln!("[direct-apex validation mid_seam] {name}: {detail}");
                 assert!(
                     commit_worst.is_finite() && commit_worst <= commit_ceiling,
@@ -84,12 +86,12 @@ fn direct_apex_pyramid_mid_seam_normals_pinned() {
                 );
                 assert!(
                     served.is_finite(),
-                    "{name} recorded no served_mid_seam_normal — the serving-boundary \
+                    "{name} recorded no served_cap_seam_g1 — the serving-boundary \
                      refresh must measure every surviving committed cap ({detail})"
                 );
                 assert!(
                     served <= SERVED_GATE,
-                    "{name} served_mid_seam_normal {served:.3e} exceeds the crate G1 \
+                    "{name} served_cap_seam_g1 {served:.3e} exceeds the crate G1 \
                      bar {SERVED_GATE:.1e} ({detail})"
                 );
                 measured = true;

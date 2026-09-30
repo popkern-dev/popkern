@@ -39,7 +39,9 @@
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
-use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
+use crate::cap_seam_measure::{
+    edge_seam_faces, measure_edge_seam, resolve_edge_seam, side_b_at, side_b_reference,
+};
 
 /// Fraction of the seam skipped at each end. Adjacent cap sectors
 /// meet at a degenerate pole; samples taken there describe the chart,
@@ -166,10 +168,15 @@ pub fn seam_normal_profile(
         let Some(seam) = resolve_edge_seam(brep, edge, &adjacency, &jets) else {
             continue;
         };
+        let b_points = side_b_reference(&seam);
         let mut out = Vec::with_capacity(fractions.len());
         for &f in fractions {
-            let (uv_a, _) = seam.side_a.eval_fraction(f);
-            let (uv_b, _) = seam.side_b.eval_fraction(f);
+            // Side B at side A's POINT, as the continuity evidence
+            // locates it, not at the same pcurve fraction: two pcurves
+            // of one edge may run at different speeds, and a shared
+            // fraction is then not a shared point (PK-607).
+            let (uv_a, p_a) = seam.side_a.eval_fraction(f);
+            let (_, uv_b, _) = side_b_at(&seam, &b_points, &p_a);
             let (Some(n_a), Some(n_b)) = (seam.side_a.normal(uv_a), seam.side_b.normal(uv_b))
             else {
                 continue;
