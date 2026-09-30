@@ -216,6 +216,23 @@ pub struct BridgeGeometry {
     pub plane: SurfaceGeometry,
 }
 
+/// A bridge's shape between its feet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BridgeShape {
+    /// Rail-flat through [`RAIL_FLAT_ORDER`], turning near the rails'
+    /// crossing. At a reflex face corner the crossing lies beyond the
+    /// cap, and the bridge is convex from the cap's side.
+    RailFlat,
+    /// The straight chord between the feet (PK-611). At a convex face
+    /// corner a rail-flat bridge turns about the crossing, which lies
+    /// inside the cap: the face's rounded corner pokes a tongue into
+    /// the cap, and the fit's sectors fold at its tip (curvature
+    /// 85–250 on the pentagon h0.8 wide apex, strips 7–28). The chord
+    /// chamfers the face corner instead, so each foot is a convex cap
+    /// corner of 90° plus the chord's angle to the rail.
+    Chord,
+}
+
 /// The bridge on the shared face of strips `a` and `b`. It leaves `a`'s
 /// rail level with `a`'s other corner `station_a`, and meets `b`'s rail
 /// level with `station_b`.
@@ -225,6 +242,7 @@ pub(super) fn bridge_between(
     station_a: Point3,
     station_b: Point3,
     vertex: Point3,
+    shape: BridgeShape,
 ) -> Result<BridgeGeometry, String> {
     let (rail_a, rail_b) =
         shared_rails(a, b).ok_or("adjacent strips have no coplanar rail pair")?;
@@ -264,6 +282,9 @@ pub(super) fn bridge_between(
         .cross(&(end - shoulder))
         .normalized()
         .ok_or("degenerate bridge shoulder")?;
+    if shape == BridgeShape::Chord {
+        return chord_bridge(start, end, normal);
+    }
     let u_axis = (shoulder - start)
         .normalized()
         .ok_or("degenerate bridge leg")?;
@@ -289,6 +310,37 @@ pub(super) fn bridge_between(
             knots: vec![0.0; 2 * k + 1]
                 .into_iter()
                 .chain(vec![1.0; 2 * k + 1])
+                .collect(),
+            weights: vec![1.0; control_points.len()],
+            control_points,
+        },
+        plane: SurfaceGeometry::Plane {
+            origin: start,
+            normal,
+            u_axis,
+            v_axis: normal.cross(&u_axis),
+        },
+    })
+}
+
+/// The straight bridge `start` → `end` in the plane with unit
+/// `normal`, at the rail-flat bridge's degree with uniform speed.
+fn chord_bridge(start: Point3, end: Point3, normal: Vec3) -> Result<BridgeGeometry, String> {
+    let u_axis = (end - start)
+        .normalized()
+        .ok_or("degenerate bridge chord")?;
+    let degree = 2 * RAIL_FLAT_ORDER;
+    let control_points: Vec<Point3> = (0..=degree)
+        .map(|i| start + (end - start) * (i as f64 / degree as f64))
+        .collect();
+    Ok(BridgeGeometry {
+        start,
+        end,
+        curve: NurbsCurve {
+            degree,
+            knots: vec![0.0; degree + 1]
+                .into_iter()
+                .chain(vec![1.0; degree + 1])
                 .collect(),
             weights: vec![1.0; control_points.len()],
             control_points,

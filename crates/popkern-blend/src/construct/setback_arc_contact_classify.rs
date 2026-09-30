@@ -253,7 +253,8 @@ pub(super) fn classify_contacts(
     }
     if clusters.len() != 2 {
         return Err(format!(
-            "expected 2 arc/boundary crossings, found {} ({:?})",
+            "expected 2 {}, found {} ({:?})",
+            crate::construct::setback_decline::ARC_BOUNDARY_CROSSINGS,
             clusters.len(),
             clusters
                 .iter()

@@ -6,6 +6,12 @@
 //! acceptance or postcondition) is exactly where the variational fit
 //! can serve the same carved region.
 
+/// The signature of the crossing carve's decline when a setback arc
+/// runs across its strip's trimmed boundary mid-arc: the corners
+/// border overran a narrow strip (PK-594), which the bridged border
+/// retries (PK-611).
+pub(crate) const ARC_BOUNDARY_CROSSINGS: &str = "arc/boundary crossings";
+
 /// Where the setback surgery declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetbackStage {

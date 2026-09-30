@@ -168,7 +168,7 @@ pub(super) fn try_setback_rung(
 /// verdicts alone (PnS cap-support gaps, Gregory creases) described
 /// the last route tried, not why the corner has no cap.
 fn setback_decline_diagnostic(reason: &str) -> ApexConstructionDiagnostic {
-    let class = if reason.contains("arc/boundary crossings") {
+    let class = if reason.contains(crate::construct::setback_decline::ARC_BOUNDARY_CROSSINGS) {
         "setback arcs overrun a narrow strip: a neighbouring fillet's \
          setback carries this strip's setback arc across its own \
          boundary near the apex (reduce the radius disparity at this \

@@ -98,8 +98,15 @@ fn the_notch_saddle_has_one_reflex_face() {
 #[test]
 fn the_bridge_continues_both_rails_on_the_reflex_face() {
     let [_, s1, s2] = notch();
-    let bridge = bridge_between(&s1, &s2, p(0.92, 0.66, 0.6), p(0.9, 0.6, 0.66), VERTEX)
-        .expect("bridge builds");
+    let bridge = bridge_between(
+        &s1,
+        &s2,
+        p(0.92, 0.66, 0.6),
+        p(0.9, 0.6, 0.66),
+        VERTEX,
+        BridgeShape::RailFlat,
+    )
+    .expect("bridge builds");
     assert!(bridge.start.distance_to(&p(1.0, 0.66, 0.52)) < 1e-12);
     assert!(bridge.end.distance_to(&p(1.0, 0.5, 0.66)) < 1e-12);
     for (t, along) in [
@@ -154,4 +161,51 @@ fn a_convex_cube_corner_has_only_corners() {
             "junction {k}"
         );
     }
+}
+
+/// At a convex face corner (the notch's floor, z = 0.6, where S0's and
+/// S1's rails cross at (0.92, 0.66)) the chord bridge runs straight
+/// from S0's foot to S1's foot in the floor plane, so the face corner
+/// is chamfered and never pokes into the cap.
+#[test]
+fn the_chord_bridge_chamfers_a_convex_face_corner() {
+    let [s0, s1, _] = notch();
+    let bridge = bridge_between(
+        &s0,
+        &s1,
+        p(0.85, 0.7, 0.62),
+        p(0.95, 0.75, 0.62),
+        VERTEX,
+        BridgeShape::Chord,
+    )
+    .expect("bridge builds");
+    assert!(bridge.start.distance_to(&p(0.85, 0.66, 0.6)) < 1e-12);
+    assert!(bridge.end.distance_to(&p(0.92, 0.75, 0.6)) < 1e-12);
+    let chord = bridge.end - bridge.start;
+    for k in 0..=16 {
+        let t = k as f64 / 16.0;
+        let q = bridge.curve.point_at(t);
+        let on_chord = bridge.start + chord * t;
+        assert!(q.distance_to(&on_chord) < 1e-12, "t={t}: {q:?}");
+    }
+    let SurfaceGeometry::Plane { normal, .. } = bridge.plane else {
+        panic!("a plane");
+    };
+    assert!(normal.dot(&Vec3::new(0.0, 0.0, 1.0)).abs() > 1.0 - 1e-12);
+}
+
+/// A foot on the vertex side of the crossing has no bridge.
+#[test]
+fn a_convex_bridge_needs_both_feet_past_the_crossing() {
+    let [s0, s1, _] = notch();
+    let err = bridge_between(
+        &s0,
+        &s1,
+        p(0.95, 0.66, 0.6),
+        p(0.92, 0.75, 0.6),
+        VERTEX,
+        BridgeShape::Chord,
+    )
+    .expect_err("the S0 foot lies between the vertex and the crossing");
+    assert!(err.contains("not on the vertex side"), "{err}");
 }

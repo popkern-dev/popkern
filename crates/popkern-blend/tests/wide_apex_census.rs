@@ -10,12 +10,13 @@
 //!   caps sat at served regularity 8.4e-3 and 1.6e-2, under a 2e-2
 //!   floor the E6 data never supported (near-folds sat below 5e-3).
 //!   They certify G1 on every seam (g1 ~1e-6) and pass `validate_all`.
-//! - Class A, declined by name: pyr5 h0.4 variable and wide, pyr5 h0.8
+//! - Class A, served by PK-611: pyr5 h0.4 variable and wide, pyr5 h0.8
 //!   wide, pyr6 h0.4 wide. A thin strip's setback arc, run between the
 //!   corners its wide neighbours fix, crosses its own trimmed boundary
-//!   mid-arc; no setback carve exists on the corners-at-crossings
-//!   border, and the fallbacks miss their supports. The convex bridge
-//!   border that would serve them is PK-611.
+//!   mid-arc, and the corners border's carve declines. The surgery
+//!   retries on the bridged border (each strip at its own station, a
+//!   chord bridge on every support face), where the tangent fit
+//!   certifies G1 on every seam and passes `validate_all`.
 
 use std::collections::BTreeSet;
 
@@ -23,8 +24,8 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    BlendError, BlendFailure, BlendResult, ContinuityLevel, FilletOptions, FilletRadius,
-    FilletSpec, fillet_edges,
+    ApexConstructionDiagnostic, BlendError, BlendResult, ContinuityLevel, CornerMethod,
+    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -133,26 +134,53 @@ fn steep_pentagon_and_hexagon_rows_serve_the_setback_fan() {
     }
 }
 
+/// A class A row serves the tangent fit on the bridged border,
+/// certified G1 on every seam, and records why the corners border and
+/// the KP20 fan did not serve.
+fn assert_bridged_fit_serve(n: usize, h: f64, radii: &[f64]) {
+    let label = format!("pyr{n} h{h} {radii:?}");
+    assert_eq!(
+        served(n, h, radii),
+        Some(ContinuityLevel::G1),
+        "{label}: certified"
+    );
+    let (_, result) = apex_fillet(n, h, radii);
+    let result = result.unwrap_or_else(|e| panic!("{label}: {e}"));
+    assert!(result.brep.validate_all().is_empty(), "{label}");
+    assert!(
+        result.corner_patches.len() == 2 * n
+            && result
+                .corner_patches
+                .iter()
+                .all(|p| p.method == CornerMethod::PlateMin),
+        "{label}: one fitted sector per side of the 2n-sided border: {:?}",
+        result.corner_patches
+    );
+    let record = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            ApexConstructionDiagnostic::SetbackFit(record) => Some(record),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{label}: the fit's record"));
+    assert!(
+        record.kp20_decline.contains("arc/boundary crossings")
+            && record.kp20_decline.contains("bridged border"),
+        "{label}: {}",
+        record.kp20_decline
+    );
+}
+
 #[test]
-fn a_narrow_strip_overrun_declines_by_name() {
-    for (n, h, radii) in [
-        (5, 0.4, &VARIABLE[..5]),
-        (5, 0.4, &WIDE[..5]),
-        (5, 0.8, &WIDE[..5]),
-        (6, 0.4, &WIDE[..6]),
-    ] {
-        let label = format!("pyr{n} h{h} {radii:?}");
-        let (_, result) = apex_fillet(n, h, radii);
-        let Err(BlendError::PartialFailure { failures, .. }) = result else {
-            panic!("{label}: the corner declines typed");
-        };
-        assert!(
-            failures.iter().any(|(_, failure)| matches!(
-                failure,
-                BlendFailure::VertexBlendFailed { reason, .. }
-                    if reason.contains("setback arcs overrun a narrow strip")
-            )),
-            "{label}: the decline names the class: {failures:?}"
-        );
-    }
+fn a_narrow_strip_overrun_serves_the_bridged_border() {
+    assert_bridged_fit_serve(5, 0.4, &VARIABLE[..5]);
+    assert_bridged_fit_serve(5, 0.4, &WIDE[..5]);
+}
+
+#[test]
+fn wide_overruns_serve_the_bridged_border() {
+    assert_bridged_fit_serve(5, 0.8, &WIDE[..5]);
+    assert_bridged_fit_serve(6, 0.4, &WIDE[..6]);
 }

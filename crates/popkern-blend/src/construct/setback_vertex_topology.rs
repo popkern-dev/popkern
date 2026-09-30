@@ -55,6 +55,8 @@ mod setback_arc_crossings;
 mod setback_bezier9;
 #[path = "setback_boundary_tolerance.rs"]
 mod setback_boundary_tolerance;
+#[path = "setback_bridged_retry.rs"]
+mod setback_bridged_retry;
 #[path = "setback_cap_patches.rs"]
 mod setback_cap_patches;
 #[path = "setback_cluster_field.rs"]
@@ -147,20 +149,35 @@ pub(crate) fn try_setback_boundary_surgery(
     strategy: SetbackCapStrategy,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
-    match surgery_inner(
-        brep,
-        vertex,
-        fillet_surfaces,
-        tolerance,
-        strategy,
-        cap_presolve,
-    ) {
-        Ok(outcome) => Ok(outcome),
-        Err(e) => {
+    let attempt = |brep: &mut BRep, bridged: Option<&_>| {
+        let result = surgery_inner(
+            brep,
+            vertex,
+            fillet_surfaces,
+            tolerance,
+            strategy,
+            cap_presolve,
+            bridged,
+        );
+        if result.is_err() {
             *brep = snapshot.clone();
-            Err(e)
         }
-    }
+        result
+    };
+    setback_bridged_retry::with_bridged_retry(
+        brep,
+        fillet_surfaces,
+        vertex_position_of(snapshot, vertex)?,
+        strategy,
+        attempt,
+    )
+}
+
+fn vertex_position_of(brep: &BRep, vertex: VertexHandle) -> Result<Point3, SetbackDecline> {
+    brep.vertices
+        .get(vertex)
+        .map(|v| v.position)
+        .ok_or_else(|| "apex vertex not in BRep".into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -171,6 +188,7 @@ fn surgery_inner(
     tolerance: &Tolerance,
     strategy: SetbackCapStrategy,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
+    bridged: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve>,
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
     let n = fillet_surfaces.len();
     if n < 3 {
@@ -187,8 +205,10 @@ fn surgery_inner(
     // presolve when its recorded inputs match this call's inputs
     // exactly; otherwise solve inline (byte-identical either way —
     // the extractor is a pure function of these two arguments).
+    // The bridged border's retry (PK-611) carries its own inline solve.
     let presolved: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve> =
         match cap_presolve.and_then(|entry| entry.matching(fillet_surfaces, vertex_position)) {
+            _ if bridged.is_some() => bridged,
             Some(Ok(solve)) => Some(solve),
             Some(Err(e)) => return Err(e.clone().into()),
             None => None,
@@ -254,86 +274,6 @@ fn surgery_inner(
             .ok_or_else(|| "setback arc fillet index out of range".to_string())?;
         if std::mem::replace(slot, true) {
             return Err(format!("duplicate arc for fillet {}", arc.fillet_index).into());
-        }
-    }
-
-    // WIP probe: where does the arc midpoint live relative to the
-    // current face partition?
-    if popkern_core::trace::trace_enabled("setback") {
-        for k in 0..n.min(2) {
-            let mid = eval_cubic_mid(&arcs[k].cubic);
-            let mut nearest = (f64::INFINITY, String::new());
-            for (fh, face) in brep.faces.iter() {
-                let Some(surface) = face.surface.as_ref() else {
-                    continue;
-                };
-                let kind = match &surface.geometry {
-                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
-                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                    _ => "Other",
-                };
-                if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
-                    &surface.geometry,
-                    &mid,
-                ) {
-                    let d = (&surface.geometry as &dyn SurfaceEval)
-                        .point_at(u, v)
-                        .distance_to(&mid);
-                    if d < nearest.0 {
-                        nearest = (d, format!("{fh:?} {kind}"));
-                    }
-                }
-            }
-            eprintln!(
-                "  [setback-probe] arc {k} midpoint nearest surface: {} at {:.3e}",
-                nearest.1, nearest.0
-            );
-            // And the fillet face's u-extent: distance from arc mid to the fillet face's loop edges.
-            let ff = setback_arc_binding::find_fillet_face(
-                brep,
-                &fillet_surfaces[arcs[k].fillet_index],
-                &arcs[k].section_curve(),
-                vertex_position,
-            )?;
-            let mut best_edge = f64::INFINITY;
-            for he in face_loop_half_edges(brep, ff)? {
-                let edge = brep.half_edges[he].edge;
-                if let Some(c) = brep.edges[edge].curve.as_ref() {
-                    best_edge = best_edge.min(curve_distance(&c.geometry, c.t_start, c.t_end, mid));
-                }
-            }
-            eprintln!(
-                "  [setback-probe] arc {k} midpoint distance to its fillet face boundary: {best_edge:.3e}"
-            );
-            eprintln!("  [setback-probe] fillet {k} face = {ff:?}");
-            // Corner territory: nearest surfaced face to the corner point.
-            let corner = arcs[k].corner_next;
-            let mut ranked: Vec<(f64, String)> = Vec::new();
-            for (fh, face) in brep.faces.iter() {
-                let Some(surface) = face.surface.as_ref() else {
-                    continue;
-                };
-                let kind = match &surface.geometry {
-                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
-                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                    _ => "Other",
-                };
-                if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
-                    &surface.geometry,
-                    &corner,
-                ) {
-                    let d = (&surface.geometry as &dyn SurfaceEval)
-                        .point_at(u, v)
-                        .distance_to(&corner);
-                    ranked.push((d, format!("{fh:?} {kind}")));
-                }
-            }
-            ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-            for (d, label) in ranked.iter().take(3) {
-                eprintln!("  [setback-probe] corner {k} near: {label} d={d:.3e}");
-            }
         }
     }
 
@@ -1782,14 +1722,6 @@ fn common_face_excluding(
         }
     }
     None
-}
-
-fn eval_cubic_mid(cps: &[Point3; 4]) -> Point3 {
-    Point3::new(
-        0.125 * (cps[0].x + 3.0 * cps[1].x + 3.0 * cps[2].x + cps[3].x),
-        0.125 * (cps[0].y + 3.0 * cps[1].y + 3.0 * cps[2].y + cps[3].y),
-        0.125 * (cps[0].z + 3.0 * cps[1].z + 3.0 * cps[2].z + cps[3].z),
-    )
 }
 
 fn bezier_cubic_curve(cps: &[Point3; 4]) -> NurbsCurve {

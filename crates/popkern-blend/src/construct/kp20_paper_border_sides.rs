@@ -7,7 +7,9 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 
-use super::junctions::{BridgeGeometry, JunctionKind, bridge_between, classify_junction};
+use super::junctions::{
+    BridgeGeometry, BridgeShape, JunctionKind, bridge_between, classify_junction,
+};
 use crate::fillet_surface::FilletSurfaceResult;
 
 /// Which junctions a setback border may take.
@@ -18,6 +20,12 @@ pub enum SetbackJunctionPolicy {
     CornersOnly,
     /// Reflex face corners take a bridge side (the saddle setback).
     BridgeReflexFaces,
+    /// Every junction takes a bridge side, and each strip is set back
+    /// to a station of its own past both its rail crossings (PK-611,
+    /// see `stations`): the 2n-sided setback vertex blend. It serves
+    /// the convex corners whose narrow strips the corners border
+    /// overruns.
+    BridgeEveryJunction,
 }
 
 /// One side of the setback boundary.
@@ -67,22 +75,56 @@ pub(super) fn setback_sides(
                 .unwrap_or(JunctionKind::Corner)
             })
             .collect(),
+        SetbackJunctionPolicy::BridgeEveryJunction => vec![JunctionKind::Bridge; n],
     };
+    // A convex face corner's bridge is a chord; a reflex one's is
+    // rail-flat (see `BridgeShape`).
+    let shape = |k: usize| match policy {
+        SetbackJunctionPolicy::BridgeEveryJunction => {
+            match classify_junction(
+                &fillet_surfaces[order[k]],
+                &fillet_surfaces[order[(k + 1) % n]],
+                vertex,
+            ) {
+                Ok(JunctionKind::Bridge) => BridgeShape::RailFlat,
+                _ => BridgeShape::Chord,
+            }
+        }
+        _ => BridgeShape::RailFlat,
+    };
+    // A strip between two bridges is anchored by its own station; under
+    // the reflex policy it is anchored by its corners, so it needs one.
+    let feet =
+        match policy {
+            SetbackJunctionPolicy::BridgeEveryJunction => Some(
+                super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex)?,
+            ),
+            _ => None,
+        };
     let bridges: Vec<Option<BridgeGeometry>> = (0..n)
         .map(|k| {
             if kinds[k] != JunctionKind::Bridge {
                 return Ok(None);
             }
             let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
-            if kinds[prev] == JunctionKind::Bridge || kinds[next] == JunctionKind::Bridge {
-                return Err("a strip between two reflex faces has no anchoring corner".to_string());
-            }
+            let (station_a, station_b) = match &feet {
+                Some(feet) => (feet[k][1], feet[next][0]),
+                None => {
+                    if kinds[prev] == JunctionKind::Bridge || kinds[next] == JunctionKind::Bridge {
+                        return Err(
+                            "a strip between two reflex faces has no anchoring corner".to_string()
+                        );
+                    }
+                    (corners[prev].1, corners[next].1)
+                }
+            };
             bridge_between(
                 &fillet_surfaces[order[k]],
                 &fillet_surfaces[order[next]],
-                corners[prev].1,
-                corners[next].1,
+                station_a,
+                station_b,
                 vertex,
+                shape(k),
             )
             .map(Some)
         })

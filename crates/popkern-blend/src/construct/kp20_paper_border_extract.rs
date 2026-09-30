@@ -130,6 +130,8 @@ mod junctions;
 mod kp20_paper_border_corners;
 #[path = "kp20_paper_border_sides.rs"]
 mod sides;
+#[path = "kp20_paper_border_stations.rs"]
+mod stations;
 
 /// One fillet's setback arc, exported for BRep topology insertion:
 /// the arc is the fillet face's new apex-side boundary, running from
