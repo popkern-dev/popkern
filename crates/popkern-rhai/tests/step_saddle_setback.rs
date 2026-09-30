@@ -46,7 +46,10 @@ m
 fn assert_certified_g1(rounds: &serde_json::Value, request: &str, corner_patches: usize) {
     let blend = &rounds["blend"];
     let c = &blend["continuity"];
-    assert_eq!(blend["corner_patches"], corner_patches, "{request}: {blend}");
+    assert_eq!(
+        blend["corner_patches"], corner_patches,
+        "{request}: {blend}"
+    );
     assert_eq!(c["achieved"], "G1", "{request}: {c}");
     assert_eq!(c["certified_achieved"], "G1", "{request}");
     assert_eq!(c["uncertified_seams"], 0, "{request}");
