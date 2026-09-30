@@ -20,7 +20,7 @@ pub(super) fn commit_cap(
     tolerance: &Tolerance,
 ) -> Result<(Vec<FaceHandle>, Option<setback_fit_fan::FitServe>), CapCommitError> {
     match strategy {
-        SetbackCapStrategy::Kp20 { gate_seam_g2 } => {
+        SetbackCapStrategy::Kp20 => {
             if crate::dispatch_overrides::kp20_cap_decline_forced() {
                 return Err("KP20 cap forced to decline (dispatch override)".into());
             }
@@ -31,7 +31,6 @@ pub(super) fn commit_cap(
                 fillet_surfaces,
                 vertex_position,
                 presolved,
-                gate_seam_g2,
             )
             .map(|faces| (faces, None))
             .map_err(CapCommitError::from)

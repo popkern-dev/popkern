@@ -34,7 +34,7 @@ pub(crate) static SETBACK_TOPOLOGY_COMMIT_SET: AtomicBool = AtomicBool::new(fals
 #[path = "setback_arc_binding.rs"]
 mod setback_arc_binding;
 #[path = "setback_fan_commit.rs"]
-mod setback_fan_commit;
+pub(crate) mod setback_fan_commit;
 /// Whether the setback vertex blend replaces the vertex-blend corner
 /// machinery for eligible apexes. Production default: ON — the
 /// surgery declines (with a recorded reason) and falls through to

@@ -6,9 +6,9 @@ use super::*;
 
 /// Build the KP20 cap fan over `blend_face` (one ring side per edge of
 /// `side_edges`, in the border's side order), author its pcurves, and
-/// run the commit postconditions: seam quality, folds, the strip
-/// conflict class, and seam G2 under a G2 request. On success the fan
-/// is recorded with its boundary tolerances.
+/// run the commit postconditions: seam quality, folds and the strip
+/// conflict class. On success the fan is recorded with its boundary
+/// tolerances; its seam-G2 verdict is [`fan_seam_g2_failure`].
 #[allow(clippy::too_many_arguments)]
 pub(super) fn commit_cap_fan(
     brep: &mut BRep,
@@ -17,7 +17,6 @@ pub(super) fn commit_cap_fan(
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
     presolved: Option<&crate::construct::setback_cap_presolve::SetbackCapSolve>,
-    gate_seam_g2: bool,
 ) -> Result<Vec<FaceHandle>, String> {
     // ---- cap face fan ---------------------------------------------------
     let cap_faces = {
@@ -49,10 +48,9 @@ pub(super) fn commit_cap_fan(
     // declining lets the sphere-fit rung serve the gentle
     // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
     // g1 ≤ 2e-3 here — orders under the gates.
-    let (seam_g0, seam_g1, seam_g2) =
-        setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
+    let (seam_g0, seam_g1, _) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
     if popkern_core::trace::trace_enabled("setback") {
-        eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e} g2={seam_g2:.3e}");
+        eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e}");
     }
     if seam_g0 > 1.0e-5 || seam_g1 > 5.0e-2 {
         return Err(format!(
@@ -131,21 +129,6 @@ pub(super) fn commit_cap_fan(
             "strip-conflict postcondition failed: {conflict}; measured: {intersection}"
         ));
     }
-    // A G2 REQUEST additionally gates the seam's normal-curvature
-    // residual (PK-122): a blunt apex (18° half-angle, pentagon5_blunt)
-    // builds a G0/G1-commercial fan whose wide flat sectors still jump
-    // 7.0e-2 in curvature across seams; committing it would report an
-    // achieved G2 the geometry does not have. Declining hands the
-    // gentle corner to the sphere-fit rung. Sharp-apex fixtures
-    // measure well inside the gate (the kp_polar commercial gates
-    // assert the same 5e-2 bound on their live seams).
-    if gate_seam_g2 && seam_g2 > 5.0e-2 {
-        return Err(format!(
-            "fan seam G2 postcondition failed under a G2 request: \
-             g2={seam_g2:.3e} (gate 5e-2, g0={seam_g0:.3e} g1={seam_g1:.3e})"
-        ));
-    }
-
     // Record the fit residual the rim reconciliation legitimately
     // left as per-edge tolerances so the serving curve-surface
     // validation (check 9) can accept the fan — see
@@ -188,4 +171,84 @@ fn worst_cap_boundary_g1(brep: &BRep, cap_faces: &[FaceHandle]) -> f64 {
         });
     }
     worst
+}
+
+/// The committed fan's seam-G2 verdict under a G2 request:
+/// `Some(reason)` when it reads below G2, and the rung then serves the
+/// same fan as a measured G1 downgrade (no rebuild: the fan does not
+/// depend on the request).
+///
+/// Two instruments, either failing fails the fan:
+///
+/// * the fan's own dense cap-cap sampling (PK-122): a blunt apex (18°
+///   half-angle, pentagon5_blunt) builds a G0/G1-commercial fan whose
+///   wide flat sectors jump 7.0e-2 in curvature across seams in a
+///   narrow spike;
+/// * the whole blend's continuity evidence over the fan's cap-cap and
+///   rim seams (PK-596): a pyramid-4 fan at r = 0.05 read under the
+///   gate on the first instrument (end margin, finite-difference
+///   normals) while its spokes certifiably jump 8.7e-2 near the
+///   centre, and the corner reported a G2 the body did not have.
+///
+/// The evidence is sampled first, then certified where it matters:
+/// every gated seam whose sampled reading fails is certified (PK-499,
+/// decision mode), and its certificate confirms (`lower > gate`) or
+/// overturns (`upper <= gate`) the failure exactly as the whole-blend
+/// evidence decides it. Seams sampling under the gate are not
+/// certified here (the fan's 40 seams certify in ~2.3 s against ~1 s
+/// for the whole corner); the served body's evidence certifies them.
+pub(crate) fn fan_seam_g2_failure(brep: &BRep, cap_faces: &[FaceHandle]) -> Option<String> {
+    let (_, _, seam_g2) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, cap_faces);
+    if seam_g2 > 5.0e-2 {
+        return Some(format!("fan seam sampling g2={seam_g2:.3e} (gate 5e-2)"));
+    }
+
+    use crate::ContinuityLevel;
+    use crate::blend_continuity_certification::{
+        ContinuityCertification, certify_seam_for_evidence, evidence_certify_options,
+    };
+    use crate::blend_continuity_evidence::{
+        ContinuityGates, measure_blend_continuity_evidence_with,
+    };
+    let gates = ContinuityGates::commercial();
+    let mut evidence = measure_blend_continuity_evidence_with(
+        brep,
+        cap_faces,
+        ContinuityLevel::G2,
+        &gates,
+        RIM_SAMPLES,
+        ContinuityCertification::Deferred,
+    );
+    if evidence.achieved >= ContinuityLevel::G2 {
+        return None;
+    }
+    let options = evidence_certify_options(brep, &gates);
+    for seam in evidence.seams.iter_mut().filter(|s| s.gated) {
+        let (g0, g1, g2) = seam.classified_residuals(&gates);
+        if g0 > gates.g0_gap || g1 > gates.g1_normal || g2 > gates.g2_curvature {
+            seam.certificate = Some(certify_seam_for_evidence(brep, seam.edge, &options));
+            seam.certification_deferred = false;
+        }
+    }
+    evidence.summarize();
+    if evidence.achieved >= ContinuityLevel::G2 {
+        return None;
+    }
+    let (seam, (g0, g1, g2)) = evidence
+        .seams
+        .iter()
+        .filter(|s| s.gated)
+        .map(|s| (s, s.classified_residuals(&gates)))
+        .max_by(|a, b| a.1.2.total_cmp(&b.1.2))?;
+    Some(format!(
+        "{} {:?} (seam {:?} {:?}: g0={g0:.3e} g1={g1:.3e} g2={g2:.3e}, gate 5e-2)",
+        if seam.certificate_decides(&gates) {
+            "certified"
+        } else {
+            "sampled"
+        },
+        evidence.achieved,
+        seam.edge,
+        seam.kind
+    ))
 }

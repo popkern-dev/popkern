@@ -90,8 +90,9 @@ impl std::fmt::Display for SetbackDecline {
 /// Which cap the surgery commits on the carved region.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetbackCapStrategy {
-    /// The KP20 fan (`gate_seam_g2` selects its seam-G2 postcondition).
-    Kp20 { gate_seam_g2: bool },
+    /// The KP20 fan. Its seam-G2 verdict is read by the rung after the
+    /// commit (`setback_fan_commit::fan_seam_g2_failure`).
+    Kp20,
     /// The variational fit.
     VariationalFit(crate::types::SetbackFitMode),
 }

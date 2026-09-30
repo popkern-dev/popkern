@@ -14,8 +14,9 @@
 //! - With the fans serving, the C1 pair-corner flap arrived split in
 //!   two by a mitre chord, and the settlement skipped it.
 //!
-//! A saddle cannot meet G2, so the G2 request downgrades honestly to a
-//! certified G1.
+//! The saddle fan cannot meet G2. Under a G2 request one saddle's
+//! curvature-weighted fit serves it instead (PK-596) and the other's
+//! fan serves the G1 downgrade, so the body certifies G1 honestly.
 
 use popkern_rhai::{ScriptHost, report_value};
 
@@ -42,19 +43,18 @@ m
         .expect("rounds row")
 }
 
-fn assert_certified_g1(rounds: &serde_json::Value, request: &str) {
+fn assert_certified_g1(rounds: &serde_json::Value, request: &str, corner_patches: usize) {
     let blend = &rounds["blend"];
     let c = &blend["continuity"];
-    // Two setback fans of 16 pieces each.
-    assert_eq!(blend["corner_patches"], 32, "{request}: {blend}");
+    assert_eq!(blend["corner_patches"], corner_patches, "{request}: {blend}");
     assert_eq!(c["achieved"], "G1", "{request}: {c}");
     assert_eq!(c["certified_achieved"], "G1", "{request}");
     assert_eq!(c["uncertified_seams"], 0, "{request}");
     assert_eq!(c["unmeasured_seams"], 0, "{request}");
-    // Measured 8.0e-8 (G1 request) and 3.3e-8 (G2 request); the old
-    // creases read 0.42-0.49.
+    // Measured 8.0e-8 (G1 request, two fans) and 4.0e-6 (G2 request,
+    // the fitted saddle); the old creases read 0.42-0.49.
     let g1 = c["worst_g1_normal"].as_f64().expect("g1");
-    assert!(g1 < 1e-6, "{request}: worst g1 {g1:.3e}");
+    assert!(g1 < 1e-5, "{request}: worst g1 {g1:.3e}");
     // The commercial G0 gate. Measured 1.9e-10 (G1 request) and 3.4e-6
     // (G2 request). The whole-rail plane pcurves read 0.225.
     let g0 = c["worst_g0_gap"].as_f64().expect("g0");
@@ -64,14 +64,18 @@ fn assert_certified_g1(rounds: &serde_json::Value, request: &str) {
 #[test]
 fn a_g1_request_serves_both_step_saddles_certified_g1() {
     let rounds = step_rounds("g1");
-    assert_certified_g1(&rounds, "G1");
+    // Two setback fans of 16 pieces each.
+    assert_certified_g1(&rounds, "G1", 32);
     assert_eq!(rounds["blend"]["downgraded"], false);
 }
 
 #[test]
 fn a_g2_request_on_the_step_downgrades_honestly_to_certified_g1() {
     let rounds = step_rounds("g2");
-    assert_certified_g1(&rounds, "G2");
+    // PK-596: one saddle's fan fails G2 and the curvature-weighted fit
+    // serves it (4 sectors); the other saddle's fit declines and its
+    // fan serves the G1 downgrade (16 pieces), so the body stays G1.
+    assert_certified_g1(&rounds, "G2", 20);
     assert_eq!(rounds["blend"]["downgraded"], true);
     assert_eq!(rounds["blend"]["continuity"]["requested"], "G2");
 }

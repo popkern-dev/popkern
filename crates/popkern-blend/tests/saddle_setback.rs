@@ -176,14 +176,10 @@ fn every_notch_saddle_serves_the_setback_fan_g1() {
     }
 }
 
-/// A G2 request cannot be met at a saddle. At each bridge foot the
-/// direction across the bridge is the strip's section direction, so
-/// the plane asks for curvature 0 and the strip for 1/r at the same
-/// point. The fan's seam-G2 postcondition declines, and the rung's G1
-/// retry serves. Every corner patch reports achieved G1, and the
-/// downgrade is a typed warning, not a G2 claim.
-#[test]
-fn a_g2_request_on_a_saddle_serves_an_honest_g1_downgrade() {
+/// `(body, vertex, G2 result)` for the saddle at (1, 0.6, 0.6) with
+/// radii 0.06/0.08/0.10 under a G2 request and corner-cap preference
+/// `corner_cap`.
+fn g2_saddle(corner_cap: popkern_blend::CornerCapPreference) -> (BRep, VertexHandle, BlendResult) {
     let (body, vertex) = notched_cube(Point3::new(1.0, 0.6, 0.6));
     let mut edges: Vec<_> = body
         .half_edges
@@ -203,10 +199,27 @@ fn a_g2_request_on_a_saddle_serves_an_honest_g1_downgrade() {
         .collect();
     let options = FilletOptions {
         continuity: popkern_blend::ContinuityLevel::G2,
+        corner_cap,
         ..FilletOptions::default()
     };
     let result = fillet_edges(&body, &specs, &options, Tolerance::default(), None)
         .expect("the saddle serves under a G2 request");
+    (body, vertex, result)
+}
+
+/// The KP20 fan cannot meet a G2 request at a saddle. At each bridge
+/// foot the direction across the bridge is the strip's section
+/// direction, so the plane asks for curvature 0 and the strip for 1/r
+/// at the same point. With the fit ruled out (strict setback
+/// preference) the fan serves as a G1 downgrade: every corner patch
+/// reports achieved G1, and the downgrade is a typed warning, not a G2
+/// claim.
+#[test]
+fn a_g2_request_on_a_saddle_fan_serves_an_honest_g1_downgrade() {
+    let (_, vertex, result) = g2_saddle(popkern_blend::CornerCapPreference {
+        construction: popkern_blend::CornerConstruction::Setback,
+        strict: true,
+    });
     let corner: Vec<_> = result
         .corner_patches
         .iter()
@@ -226,5 +239,49 @@ fn a_g2_request_on_a_saddle_serves_an_honest_g1_downgrade() {
         )),
         "the downgrade is reported: {:?}",
         result.edge_warnings
+    );
+}
+
+/// PK-596: under the default ladder the fan's G2 failure hands the
+/// saddle to the curvature-weighted fit, whose cap need not honour the
+/// bridge foot's pointwise 0-vs-1/r conflict the fan's layout
+/// inherits. Measured 2026-09-30: the fit serves and the whole-blend
+/// evidence certifies G2 on every seam (g1 3.3e-6, g2 1.6e-3).
+#[test]
+fn a_g2_request_on_a_saddle_serves_the_certified_g2_fit() {
+    use popkern_blend::blend_continuity_evidence::{
+        ContinuityGates, measure_blend_continuity_evidence,
+    };
+    let (body, vertex, result) = g2_saddle(Default::default());
+    let corner: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == vertex)
+        .collect();
+    assert_eq!(corner.len(), 4, "the fitted cap serves: {corner:?}");
+    assert!(
+        corner.iter().all(|p| p.setback_cap
+            && p.method == popkern_blend::CornerMethod::PlateMin
+            && p.achieved_continuity == popkern_blend::ContinuityLevel::G2),
+        "{corner:?}"
+    );
+    let pre: std::collections::BTreeSet<_> = body.faces.keys().collect();
+    let blend: Vec<_> = result
+        .brep
+        .faces
+        .keys()
+        .filter(|f| !pre.contains(f))
+        .collect();
+    let evidence = measure_blend_continuity_evidence(
+        &result.brep,
+        &blend,
+        popkern_blend::ContinuityLevel::G2,
+        &ContinuityGates::commercial(),
+        33,
+    );
+    assert_eq!(
+        evidence.certified_achieved,
+        Some(popkern_blend::ContinuityLevel::G2),
+        "{evidence:#?}"
     );
 }

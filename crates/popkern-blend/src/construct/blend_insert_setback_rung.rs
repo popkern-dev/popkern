@@ -9,7 +9,8 @@ use popkern_core::topology::{BRep, VertexHandle};
 
 use crate::construct::setback_decline::{SetbackCapStrategy, SetbackDecline, SetbackStage};
 use crate::construct::setback_vertex_topology::{
-    SETBACK_TOPOLOGY_LAST, SetbackTopologyOutcome, try_setback_boundary_surgery,
+    SETBACK_TOPOLOGY_LAST, SetbackTopologyOutcome, setback_fan_commit::fan_seam_g2_failure,
+    try_setback_boundary_surgery,
 };
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
@@ -117,9 +118,9 @@ pub(super) fn try_setback_rung(
     };
     for fit in order {
         let step = match (fit, try_fit, try_kp20) {
-            (true, true, _) => rung.fit(brep, &mut record),
+            (true, true, _) => rung.fit(brep, &mut record, rung.fit_modes()),
             (false, _, true) => {
-                let step = rung.kp20(brep);
+                let step = rung.kp20(brep, &mut record, try_fit);
                 if let RungStep::Declined(reason) | RungStep::CarveDeclined(reason) = &step {
                     record.kp20_decline = reason.clone();
                 }
@@ -205,51 +206,74 @@ impl SetbackRung<'_> {
     }
 
     /// The KP20 cap. It serves both continuity levels: it is the proven
-    /// watertight tiling and a G2 cap satisfies G1. A fan that fails
-    /// ONLY the seam-G2 postcondition still beats every other fallback
-    /// measured on that class (rim+verticals box: the declined fan's
+    /// watertight tiling and a G2 cap satisfies G1.
+    ///
+    /// Under a G2 request a fan whose seams read below G2
+    /// ([`fan_seam_g2_failure`]: its dense seam sampling or the
+    /// certified blend evidence, PK-596) hands the corner to the
+    /// curvature-weighted fit first (`try_fit`, unless it already ran):
+    /// the pyramid-4 h 0.25 r 0.05 apex fan certifies g2 2.9e-1 where
+    /// the fit certifies G2 at 2.8e-2. When the fit declines, the fan
+    /// serves as a measured G1 downgrade — it still beats every other
+    /// fallback measured on that class (rim+verticals box: the fan's
     /// seams at g1 2.9e-3 / g2 5.4e-2 against the Gregory fallback's
-    /// 27° crease), so it serves as a measured G1 downgrade.
-    fn kp20(&self, brep: &mut BRep) -> RungStep {
-        let gate_seam_g2 = self.requested_continuity == ContinuityLevel::G2;
-        let reason = match self.surgery(brep, SetbackCapStrategy::Kp20 { gate_seam_g2 }) {
-            Ok(outcome) => {
-                // A KP20 (G2-interior) cap on G1 sweeps yields a G1 blend.
-                let achieved = match self.requested_continuity {
-                    ContinuityLevel::G2 => ContinuityLevel::G2,
-                    _ => ContinuityLevel::G1,
-                };
-                return RungStep::Decided(commit(brep, &self.commit_snapshot, &outcome, |f, _| {
-                    self.info(f, CornerMethod::Gregory, achieved, None)
-                }));
-            }
+    /// 27° crease; pyramid-4 h 3 r 0.05: fan g2 8.8e-2 against the
+    /// tangent fit's 19) — recorded G1 on every piece, which the corner
+    /// downgrade warning names. The fan is kept, not rebuilt: it does
+    /// not depend on the request.
+    fn kp20(&self, brep: &mut BRep, record: &mut SetbackFitDiagnostic, try_fit: bool) -> RungStep {
+        let outcome = match self.surgery(brep, SetbackCapStrategy::Kp20) {
+            Ok(outcome) => outcome,
             Err(d) if d.stage == SetbackStage::Carve => return RungStep::CarveDeclined(d.reason),
-            Err(d) => d.reason,
+            Err(d) => return RungStep::Declined(d.reason),
         };
-        if !(gate_seam_g2 && reason.starts_with("fan seam G2 postcondition failed")) {
-            return RungStep::Declined(reason);
+        let serve = |brep: &mut BRep, achieved| {
+            RungStep::Decided(commit(brep, &self.commit_snapshot, &outcome, |f, _| {
+                self.info(f, CornerMethod::Gregory, achieved, None)
+            }))
+        };
+        if self.requested_continuity != ContinuityLevel::G2 {
+            // A KP20 (G2-interior) cap on G1 sweeps yields a G1 blend.
+            return serve(brep, ContinuityLevel::G1);
         }
-        let downgrade = SetbackCapStrategy::Kp20 {
-            gate_seam_g2: false,
+        let Some(reason) = fan_seam_g2_failure(brep, &outcome.cap_faces) else {
+            return serve(brep, ContinuityLevel::G2);
         };
-        match self.surgery(brep, downgrade) {
-            Ok(outcome) => {
-                RungStep::Decided(commit(brep, &self.commit_snapshot, &outcome, |f, _| {
-                    self.info(f, CornerMethod::Gregory, ContinuityLevel::G1, None)
-                }))
+        record.kp20_decline = format!("G2 not reached, G1 downgrade held: {reason}");
+        let fit_ran = record
+            .attempts
+            .iter()
+            .any(|a| a.mode == SetbackFitMode::CurvatureWeighted);
+        if try_fit && !fit_ran {
+            let fan = std::mem::replace(brep, self.commit_snapshot.clone());
+            if let step @ RungStep::Decided(Ok(_)) =
+                self.fit(brep, record, &[SetbackFitMode::CurvatureWeighted])
+            {
+                return step;
             }
-            Err(d) => RungStep::Declined(format!("{reason}; G1 downgrade: {}", d.reason)),
+            *brep = fan;
         }
+        serve(brep, ContinuityLevel::G1)
     }
 
-    /// The variational fit on the carve (PK-574): curvature-weighted
-    /// under a G2 request, then tangent. Every attempt is recorded.
-    fn fit(&self, brep: &mut BRep, record: &mut SetbackFitDiagnostic) -> RungStep {
-        let modes: &[SetbackFitMode] = if self.requested_continuity == ContinuityLevel::G2 {
+    /// The fit modes the request admits: curvature-weighted under a G2
+    /// request, then tangent.
+    fn fit_modes(&self) -> &'static [SetbackFitMode] {
+        if self.requested_continuity == ContinuityLevel::G2 {
             &[SetbackFitMode::CurvatureWeighted, SetbackFitMode::Tangent]
         } else {
             &[SetbackFitMode::Tangent]
-        };
+        }
+    }
+
+    /// The variational fit on the carve (PK-574) in `modes` order.
+    /// Every attempt is recorded.
+    fn fit(
+        &self,
+        brep: &mut BRep,
+        record: &mut SetbackFitDiagnostic,
+        modes: &[SetbackFitMode],
+    ) -> RungStep {
         let mut reasons = Vec::new();
         for &mode in modes {
             match self.surgery(brep, SetbackCapStrategy::VariationalFit(mode)) {
