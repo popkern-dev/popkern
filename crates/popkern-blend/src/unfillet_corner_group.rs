@@ -35,9 +35,9 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 
 use crate::error::BlendError;
 use crate::unfillet_corner_group_geometry::{
-    cylinder_support_pair, edge_between, face_diameter, intersect_three_planes, invalid,
-    is_cap_surface, is_strip_surface, loop_vertices_near, needs_mef, pick_mef_pair,
-    plane_deviation, surface_kind_of, weld_cluster,
+    cylinder_support_pair, drop_extra_corner_spurs, edge_between, face_diameter,
+    intersect_three_planes, invalid, is_cap_surface, is_strip_surface, loop_vertices_near,
+    needs_mef, pick_mef_pair, plane_deviation, surface_kind_of, weld_cluster,
 };
 use crate::unfillet_helpers::{
     PlaneData, collect_end_face_planes, extract_plane, intersect_line_plane, intersect_planes,
@@ -379,6 +379,7 @@ pub(crate) fn restore_corner_group(
     // --- 4. Two mefs restore the sector split ------------------------------
     // The third restored edge is the surviving slit; the mefs put its
     // two sides into different sector loops.
+    drop_extra_corner_spurs(&mut out, corner_v, &far_vs);
     let mut mef_edges: Vec<(EdgeHandle, usize)> = Vec::new();
     let mut sector_faces: Vec<FaceHandle> = vec![merged];
     for (i, &far_v) in far_vs.iter().enumerate() {
@@ -450,8 +451,9 @@ pub(crate) fn restore_corner_group(
             "restored_body",
             format!("{} validation errors", errors.len()),
             format!(
-                "corner-group restore postcondition failed (first: {:?}); the setback-class                  corner is served by the operation record path",
-                errors.first()
+                "corner-group restore postcondition failed ({:?}); the setback-class \
+                 corner is served by the operation record path",
+                &errors[..errors.len().min(4)]
             ),
         ));
     }

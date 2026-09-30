@@ -116,27 +116,52 @@ fn recordless_uniform_corner_group_restores_cube() {
     assert_restored_cube(&out);
 }
 
-/// The mixed-radius corner's direct-apex cap creases across its own
-/// seams (PK-597: certified cap-cap normal sine 1.8e-1, body G0), so the
-/// serve takes the exclusion re-run and the setback rung owns the corner
-/// (certified G1). Recordless restore of the setback-class topology
-/// declines typed to the record path (PK-143), as it did before PK-255;
-/// recordless support for that class is PK-608.
+/// Setback-served corners restore recordless (PK-608). The KP20 fan
+/// (cube 0.08/0.1/0.12: 12 Gregory pieces) and the fitted cap (cube
+/// 0.05/0.2/0.3: 3 NURBS sectors) leave more than one corner-to-far
+/// spur after the group merge; before PK-608 the extra spurs skipped
+/// two sector splits and the restore declined typed to the record path
+/// (four edges 1.0 off a face folded over two support planes).
 #[test]
-fn recordless_mixed_radius_corner_group_routes_to_the_record_path() {
-    let result = capped_corner_result([0.08, 0.1, 0.12]);
-    assert!(
-        result.corner_patches.iter().all(|p| p.setback_cap),
-        "the setback rung owns the corner: {:?}",
-        result.corner_patches
-    );
+fn recordless_setback_corner_groups_restore_cube() {
+    for radii in [[0.08, 0.1, 0.12], [0.05, 0.2, 0.3]] {
+        let result = capped_corner_result(radii);
+        assert!(
+            result.corner_patches.iter().all(|p| p.setback_cap),
+            "{radii:?}: the setback rung owns the corner: {:?}",
+            result.corner_patches
+        );
+        let (brep, strip) = capped_corner(radii);
+        let out = popkern_blend::unfillet_face(&brep, strip)
+            .unwrap_or_else(|e| panic!("{radii:?}: recordless restore: {e:?}"));
+        assert_restored_cube(&out);
+    }
+}
+
+/// Recordless MODIFY of a setback-served corner (PK-608): the group
+/// restores, then re-fillets with the target at the new radius.
+#[test]
+fn recordless_setback_corner_group_modify_changes_target_radius() {
     let (brep, strip) = capped_corner([0.08, 0.1, 0.12]);
-    let Err(error) = popkern_blend::unfillet_face(&brep, strip) else {
-        panic!("recordless restore of the setback class must decline typed");
-    };
+    let out = popkern_blend::modify_fillet_radius(
+        &brep,
+        strip,
+        popkern_blend::FilletRadius::Constant(0.14),
+        Tolerance::default(),
+    )
+    .expect("recordless setback corner modify");
+    assert!(out.validate().is_ok(), "{:?}", out.validate());
+    let radii: std::collections::BTreeSet<u64> = out
+        .faces
+        .iter()
+        .filter_map(|(_, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Cylinder { radius, .. }) => Some((radius * 1e6).round() as u64),
+            _ => None,
+        })
+        .collect();
     assert!(
-        format!("{error:?}").contains("unfillet_via_record"),
-        "the decline names the record path: {error:?}"
+        radii.contains(&140_000),
+        "the target strip is re-filleted at 0.14: {radii:?}"
     );
 }
 

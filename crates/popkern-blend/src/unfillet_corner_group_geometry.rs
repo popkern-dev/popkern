@@ -144,6 +144,48 @@ pub(crate) fn needs_mef(brep: &BRep, a: VertexHandle, b: VertexHandle) -> bool {
     })
 }
 
+/// Keep at most one corner-to-far spur before the sector split (PK-608).
+///
+/// The group merge leaves a same-face spur along a strip contact edge
+/// per independent cycle of the group's face adjacency. The uniform
+/// sphere corner (a 6-ring plus one cap) leaves one, from the corner
+/// to one far vertex; the two sector mefs to the other far vertices
+/// re-legitimise it as the third restored edge. A setback corner's cap
+/// is several sector faces and leaves more: measured on the cube
+/// 0.08/0.1/0.12 KP20 fan and the 0.05/0.2/0.3 fitted cap, spurs to two
+/// far vertices (one of them doubled), so [`needs_mef`] skipped two
+/// splits and the restore served a face folded over two support planes.
+/// Every spur but the first is zero-area (`remove_slit_loop_edges`), so
+/// dropping them changes no geometry; the dropped far vertices then
+/// take their mefs.
+pub(crate) fn drop_extra_corner_spurs(brep: &mut BRep, corner: VertexHandle, far: &[VertexHandle]) {
+    let view: &BRep = brep;
+    let spurs: Vec<EdgeHandle> = far
+        .iter()
+        .flat_map(|&f| {
+            view.edges
+                .iter()
+                .filter(move |(_, ed)| {
+                    let Some(he) = view.half_edges.get(ed.half_edge) else {
+                        return false;
+                    };
+                    let Some(tw) = view.half_edges.get(he.twin) else {
+                        return false;
+                    };
+                    let joins = (he.origin == corner && tw.origin == f)
+                        || (he.origin == f && tw.origin == corner);
+                    joins && he.loop_ == tw.loop_ && (he.next == he.twin || tw.next == ed.half_edge)
+                })
+                .map(|(eh, _)| eh)
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let extra: std::collections::BTreeSet<EdgeHandle> = spurs.into_iter().skip(1).collect();
+    if !extra.is_empty() {
+        crate::unfillet_surgery::remove_slit_loop_edges_where(brep, |eh| extra.contains(&eh));
+    }
+}
+
 /// Pick a same-loop half-edge pair (origin `corner`, origin `far`)
 /// for the sector mef. Tries every corner-origin candidate against
 /// every far-origin candidate and returns the first same-loop pair.

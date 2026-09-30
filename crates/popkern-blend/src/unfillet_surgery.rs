@@ -316,7 +316,18 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
 /// touched. Zero-length self-loop pairs remain
 /// [`remove_degenerate_self_loop_edges`]'s job.
 pub(crate) fn remove_slit_loop_edges(brep: &mut BRep) {
+    remove_slit_loop_edges_where(brep, |_| true);
+}
+
+/// [`remove_slit_loop_edges`] restricted to the spurs `select` names.
+pub(crate) fn remove_slit_loop_edges_where(
+    brep: &mut BRep,
+    select: impl Fn(popkern_core::topology::EdgeHandle) -> bool,
+) {
     while let Some((eh, first, second)) = brep.edges.iter().find_map(|(eh, edge)| {
+        if !select(eh) {
+            return None;
+        }
         let he = brep.half_edges.get(edge.half_edge)?;
         let twin = brep.half_edges.get(he.twin)?;
         if he.loop_ != twin.loop_ || he.origin == twin.origin {
