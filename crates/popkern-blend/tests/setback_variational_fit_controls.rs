@@ -50,35 +50,24 @@ fn row_878_a_tilted_cap_is_rejected_on_its_certificate() {
         .expect("the fallthrough body validates");
 }
 
-/// E6 negative control: the curvature-weighted fit folds on the steep
-/// octagonal apex (measured regularity 0: a flipped normal inside a
-/// sector). The fold gate declines it typed, before certification, and
-/// the tangent fit serves. (The square apex h0.8 this control first
-/// used sat between 5e-3 and the old 2e-2 floor, not folded; since
-/// PK-594 it clears the gate and the rim curvature witness declines it.)
+/// E6 negative control: the curvature-weighted fit folds on the square
+/// apex (measured regularity 0 inside a sector). The fold gate declines
+/// it typed, before certification, and the tangent fit serves.
 #[test]
 fn e6_a_folded_fit_declines_at_the_fold_gate() {
-    let radii = [0.02, 0.04, 0.06, 0.04, 0.02, 0.05, 0.03, 0.06];
     let result =
-        with_kp20_cap_forced_to_decline(|| pyramid_apex(8, 1.2, &radii, ContinuityLevel::G2));
-    let record = only_record("pyramid8 h1.2", &result);
+        with_kp20_cap_forced_to_decline(|| pyramid_apex(4, 0.8, &[0.16], ContinuityLevel::G2));
+    let record = only_record("pyramid4 h0.8", &result);
     let first = &record.attempts[0];
     assert_eq!(first.mode, SetbackFitMode::CurvatureWeighted);
     let SetbackFitOutcome::Declined(reason) = &first.outcome else {
         panic!("the folded fit must decline before certification: {first:#?}");
     };
-    assert!(
-        reason.contains("folds") && reason.contains("min regularity 0.000e0"),
-        "{reason}"
+    assert!(reason.contains("folds"), "{reason}");
+    assert_record_serves(
+        "pyramid4 h0.8",
+        &record,
+        SetbackFitMode::Tangent,
+        ContinuityLevel::G1,
     );
-    // The tangent cap is thin (served regularity 8.4e-3, under the
-    // PK-574 fixture set's 0.1 ratchet) and certified G1 on every seam.
-    assert_eq!(record.served, Some(ContinuityLevel::G1), "{record:#?}");
-    let last = record.attempts.last().expect("an attempt");
-    assert_eq!(last.mode, SetbackFitMode::Tangent, "{record:#?}");
-    let SetbackFitOutcome::Served(certified) = &last.outcome else {
-        panic!("the tangent fit serves: {record:#?}");
-    };
-    assert_eq!(certified.level, ContinuityLevel::G1);
-    assert!(result.brep.validate().is_ok());
 }

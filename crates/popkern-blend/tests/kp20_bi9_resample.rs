@@ -4,7 +4,9 @@
 //! the sampling artefact leaves the interior (the fairness report,
 //! `popkern-examples/tests/variational_corner_fairness.rs`).
 
-use popkern_blend::dispatch_overrides::with_kp20_bi9_resample_disabled;
+use popkern_blend::dispatch_overrides::{
+    with_cap_fairness_ladder_disabled, with_kp20_bi9_resample_disabled,
+};
 use popkern_blend::{
     BlendResult, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
@@ -67,9 +69,13 @@ fn cap_bounds(result: &BlendResult) -> ([f64; 3], [f64; 3]) {
     (rim, spoke)
 }
 
+/// Both legs run with the interior-fairness ladder off (PK-612): the
+/// bi-6 caps ripple (PK-599's finding) and the ladder hands those
+/// corners to the fit, while this A/B compares the fan's two
+/// constructions.
 fn assert_same_claims(name: &str, build: &dyn Fn() -> BlendResult) {
-    let resampled = build();
-    let bi6 = with_kp20_bi9_resample_disabled(build);
+    let resampled = with_cap_fairness_ladder_disabled(build);
+    let bi6 = with_cap_fairness_ladder_disabled(|| with_kp20_bi9_resample_disabled(build));
     let claims = |r: &BlendResult| {
         r.corner_patches
             .iter()

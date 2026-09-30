@@ -137,6 +137,7 @@ pub(crate) fn insert_vertex_blend(
         setback_min_n,
         cap_presolve,
         corner_cap,
+        blend_insert_surface::corner_min_radius(edge_indices, edge_geometries),
     );
     if let Some(outcome) = setback_served {
         return outcome;
@@ -155,8 +156,7 @@ pub(crate) fn insert_vertex_blend(
     // rebuild then collapses the rolling-ball 6-vertex cap loop to a
     // 3-vertex cap-tangent-arc loop directly. For non-uniform
     // corners, substitution and rebuild stay active.
-    let radii_uniform = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
-    let auto_disable_substitution = radii_uniform;
+    let auto_disable_substitution = radii_uniform_pre;
     let boundary_options = crate::blend::BlendBoundaryOptions {
         disable_sphere_fit_substitution: if auto_disable_substitution {
             Some(true)

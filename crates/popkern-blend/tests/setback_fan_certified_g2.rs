@@ -17,8 +17,10 @@ use std::collections::BTreeSet;
 use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
+use popkern_blend::dispatch_overrides::with_cap_fairness_ladder_disabled;
 use popkern_blend::{
-    ContinuityLevel, CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, FilletOptions, FilletRadius,
+    FilletSpec, fillet_edges,
 };
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -56,6 +58,18 @@ fn serve(h: f64) -> (ContinuityLevel, CornerMethod, ContinuityLevel) {
     };
     let result = fillet_edges(&body, &specs, &options, tol, None).expect("fillet");
     assert!(result.brep.validate().is_ok(), "h{h}");
+    let fairness = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            ApexConstructionDiagnostic::SetbackFit(record) => record.fairness,
+            _ => None,
+        });
+    if let Some(f) = fairness {
+        // Whichever cap served, the record names both readings.
+        assert!(f.kp20 > f.bound, "h{h}: {f:?}");
+    }
     let patches = &result.corner_patches;
     assert!(
         !patches.is_empty() && patches.iter().all(|p| p.setback_cap),
@@ -91,13 +105,35 @@ fn serve(h: f64) -> (ContinuityLevel, CornerMethod, ContinuityLevel) {
 fn a_fan_certified_below_g2_serves_a_recorded_g1_downgrade() {
     // Measured 2026-09-30: spokes certify g2 lower bounds 8.7e-2
     // (h 3) and 5.3e-2 (h 0.8); the curvature-weighted fit declines
-    // and the tangent fit's g2 (19, 22) is far worse than the fan's.
+    // and the tangent fit's seam g2 (19, 22) is far worse than the
+    // fan's. The fans' interiors also bend past the fairness bound
+    // (4.22 and 4.35 / r_min, PK-612), so the downgrade path is pinned
+    // with the fairness ladder off.
+    for h in [3.0, 0.8] {
+        assert_eq!(
+            with_cap_fairness_ladder_disabled(|| serve(h)),
+            (
+                ContinuityLevel::G1,
+                CornerMethod::Gregory,
+                ContinuityLevel::G1
+            ),
+            "h{h}"
+        );
+    }
+}
+
+#[test]
+fn an_unfair_fan_below_g2_yields_to_the_fairer_tangent_fit() {
+    // PK-612, measured 2026-09-30: the fans read interior curvature
+    // 4.22 (h 3) and 4.35 (h 0.8) / r_min, the tangent fits 1.53 and
+    // 1.32 with cleaner rims (zebra cap-rim normal p95 1.3e-2 against
+    // the fan's 4.1e-2 at h 3). Both are G1.
     for h in [3.0, 0.8] {
         assert_eq!(
             serve(h),
             (
                 ContinuityLevel::G1,
-                CornerMethod::Gregory,
+                CornerMethod::PlateMin,
                 ContinuityLevel::G1
             ),
             "h{h}"

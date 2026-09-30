@@ -187,14 +187,15 @@ pub(super) struct Regularity {
 /// their rejected attempts): every served cap sat at 0.131 or above;
 /// caps between 1e-3 and 0.005 were near-folds whose spoke seams the
 /// certifier could not enclose (Jacobian), so they are declined here,
-/// typed, before certification. Above 0.005 the certifier is the
-/// arbiter: a seam it cannot enclose still rejects the cap. The gate
-/// sat at 2e-2 until PK-594, which declined the octagonal h 1.2 apexes
-/// (variable and wide radii) at 8.4e-3 and 1.6e-2 — tangent caps that
-/// certify G1 on every seam (g1 1e-6) and pass `validate_all`. A fold
-/// gate, not a quality measure: caps rejected for G2 at 0.007–0.136
-/// overlap the served range.
-pub(super) const SERVED_MIN_REGULARITY: f64 = 5.0e-3;
+/// typed, before certification. PK-594 lowered the gate to 5e-3 to serve
+/// the octagonal h 1.2 apexes (variable and wide radii) at 8.4e-3 and
+/// 1.6e-2: tangent caps that certify G1 on every seam. PK-612 measured
+/// their interiors: sampled curvature 2572 and 2850 times the smallest
+/// radius, a near-fold pinch the seam certificates cannot see (pentagon
+/// h1.2 wide's fit at 1.5e-2: 2073). Fair fits read 1.1–2.6, so the
+/// gate is back at 2e-2. A fold gate, not a quality measure: caps
+/// rejected for G2 at 0.007–0.136 overlap the served range.
+pub(super) const SERVED_MIN_REGULARITY: f64 = 2.0e-2;
 
 /// Regularity samples per knot span for the served surface.
 pub(super) const SERVED_GRID_PER_SPAN: usize = 12;

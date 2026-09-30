@@ -89,4 +89,20 @@ pub struct SetbackFitDiagnostic {
     /// Level served by the fit, `None` when every attempt declined and
     /// the corner fell through to the vertex-blend path.
     pub served: Option<ContinuityLevel>,
+    /// The KP20 cap's interior fairness reading, when it exceeded the
+    /// bound and the fit was tried for a fairer cap (PK-612).
+    pub fairness: Option<SetbackCapFairness>,
+}
+
+/// Interior fairness of a corner's candidate caps (PK-612): the largest
+/// sampled principal curvature over the cap's interior, times the
+/// corner's smallest fillet radius.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SetbackCapFairness {
+    /// The KP20 cap's reading.
+    pub kp20: f64,
+    /// The served fit's reading, when a fit served.
+    pub fit: Option<f64>,
+    /// The bound the KP20 cap exceeded.
+    pub bound: f64,
 }

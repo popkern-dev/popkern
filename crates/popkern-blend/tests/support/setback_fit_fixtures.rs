@@ -171,9 +171,9 @@ pub fn assert_record_serves(
         panic!("{name}: last attempt not served: {record:#?}");
     };
     assert_eq!(c.level, level, "{name}");
-    // E6: this fixture set's served caps measured at regularity 0.131
-    // and above (a ratchet); the core fold gate declines below 5e-3
-    // (PK-594: thin octagonal caps at 8.4e-3 certify and serve).
+    // E6: served caps measured at regularity 0.131 and above; the core
+    // fold gate declines below 0.02 (PK-612: the thin octagonal caps
+    // PK-594 served at 8.4e-3 were near-fold pinches).
     assert!(
         c.min_regularity >= 0.1,
         "{name}: regularity {}",

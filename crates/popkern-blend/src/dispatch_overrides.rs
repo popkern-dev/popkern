@@ -224,6 +224,32 @@ pub(crate) fn kp20_bi9_resample_disabled() -> bool {
     KP20_BI9_RESAMPLE_DISABLED.with(std::cell::Cell::get)
 }
 
+thread_local! {
+    static CAP_FAIRNESS_LADDER_DISABLED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with the setback rung's interior-fairness ladder (PK-612)
+/// off: the KP20 fan serves on its seam verdicts alone, as before the
+/// ladder, so an A/B of the fan's own construction (the bi-9
+/// resampling) compares fans, not a fan against the fit that replaced
+/// it. Thread-scoped; production never calls this.
+pub fn with_cap_fairness_ladder_disabled<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CAP_FAIRNESS_LADDER_DISABLED.with(|cell| cell.set(self.0));
+        }
+    }
+    let _restore = Restore(CAP_FAIRNESS_LADDER_DISABLED.with(|cell| cell.replace(true)));
+    f()
+}
+
+/// Whether [`with_cap_fairness_ladder_disabled`] is active on this
+/// thread.
+pub(crate) fn cap_fairness_ladder_disabled() -> bool {
+    CAP_FAIRNESS_LADDER_DISABLED.with(std::cell::Cell::get)
+}
+
 /// The thread-scoped seams above, captured on one thread so work that
 /// a construction hands to another thread (the setback rung's
 /// concurrent fit attempts, PK-598) runs under the same overrides.

@@ -80,17 +80,22 @@ fn verdict(n: usize, h: f64, radii: &[f64]) -> ContinuityLevel {
 }
 
 #[test]
-fn triangular_apexes_serve_g2_on_the_setback_rung() {
+fn triangular_apexes_serve_the_setback_rung() {
     // Measured 2026-09-30. h 0.4 variable/wide serve the fitted cap at
-    // certified G1 (KP20 declines there, the fit is G1 on these).
+    // certified G1 (KP20 declines there, the fit is G1 on these). Where
+    // the KP20 fan's interior bends past the fairness bound, the fairer
+    // tangent fit serves at G1 (PK-612; fan / fit interior curvature
+    // times r_min): h 0.4 mixed 10.5 / 1.48, h 0.8 variable 27.6 / 1.91,
+    // h 0.8 wide 55.6 / 2.57, h 1.2 variable 7.2 / 2.60. h 1.2 wide keeps
+    // its G2 fan (9.5): its fit is less fair (36.9).
     for (h, radii, level) in [
-        (0.4, &MIXED[..3], ContinuityLevel::G2),
+        (0.4, &MIXED[..3], ContinuityLevel::G1),
         (0.4, &VARIABLE[..3], ContinuityLevel::G1),
         (0.4, &WIDE[..3], ContinuityLevel::G1),
         (0.8, &MIXED[..3], ContinuityLevel::G2),
-        (0.8, &VARIABLE[..3], ContinuityLevel::G2),
-        (0.8, &WIDE[..3], ContinuityLevel::G2),
-        (1.2, &VARIABLE[..3], ContinuityLevel::G2),
+        (0.8, &VARIABLE[..3], ContinuityLevel::G1),
+        (0.8, &WIDE[..3], ContinuityLevel::G1),
+        (1.2, &VARIABLE[..3], ContinuityLevel::G1),
         (1.2, &WIDE[..3], ContinuityLevel::G2),
     ] {
         assert_eq!(verdict(3, h, radii), level, "pyr3 h{h} {radii:?}");

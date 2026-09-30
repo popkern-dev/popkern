@@ -2,14 +2,17 @@
 //! `PartialFailure` and never reach a corner cap.
 //!
 //! Measured 2026-09-30 (G2 request, whole-blend evidence):
-//! - Served since PK-591/593/596/597: pyr5 h1.2 wide and pyr6 h1.2
-//!   variable (setback fan, G2); pyr8 h0.4/h0.8 variable and wide
-//!   (tangent fit, certified G1).
-//! - Class B, served by PK-594: pyr8 h1.2 variable and wide. The KP20
-//!   fan folds and the curvature-weighted fit folds; the tangent fit's
-//!   caps sat at served regularity 8.4e-3 and 1.6e-2, under a 2e-2
-//!   floor the E6 data never supported (near-folds sat below 5e-3).
-//!   They certify G1 on every seam (g1 ~1e-6) and pass `validate_all`.
+//! - Served since PK-591/593/596/597: pyr5 h1.2 wide (setback fan, G2)
+//!   and pyr8 h0.4/h0.8 variable and wide (tangent fit, certified G1).
+//!   pyr6 h1.2 variable's fan pinches (interior 4.5e5 / r_min at
+//!   regularity 2.4e-3); since PK-612 the fairer tangent fit (2.09)
+//!   serves it at certified G1.
+//! - Class B, pyr8 h1.2 variable and wide: declined. The KP20 fan
+//!   folds and the curvature-weighted fit folds. PK-594 served the
+//!   tangent fit's caps at served regularity 8.4e-3 and 1.6e-2, but
+//!   PK-612 measured their interiors at 2572 and 2850 times 1/r_min:
+//!   near-fold pinches the seam certificates cannot see. With the fold
+//!   floor back at 2e-2 the corner declines typed.
 //! - Class A, served by PK-611: pyr5 h0.4 variable and wide, pyr5 h0.8
 //!   wide, pyr6 h0.4 wide. A thin strip's setback arc, run between the
 //!   corners its wide neighbours fix, crosses its own trimmed boundary
@@ -24,8 +27,8 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendError, BlendResult, ContinuityLevel, CornerMethod,
-    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    ApexConstructionDiagnostic, BlendError, BlendFailure, BlendResult, ContinuityLevel,
+    CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -94,12 +97,17 @@ fn served(n: usize, h: f64, radii: &[f64]) -> Option<ContinuityLevel> {
 }
 
 #[test]
-fn octagonal_steep_apexes_serve_a_certified_g1_fit() {
+fn octagonal_steep_apexes_decline_where_every_cap_nearly_folds() {
     for radii in [VARIABLE, WIDE] {
-        assert_eq!(
-            served(8, 1.2, &radii),
-            Some(ContinuityLevel::G1),
-            "{radii:?}"
+        let (_, result) = apex_fillet(8, 1.2, &radii);
+        let Err(BlendError::PartialFailure { failures, .. }) = result else {
+            panic!("{radii:?}: the corner declines typed");
+        };
+        assert!(
+            failures
+                .iter()
+                .all(|(_, f)| matches!(f, BlendFailure::VertexBlendFailed { .. })),
+            "{radii:?}: {failures:?}"
         );
     }
 }
@@ -118,20 +126,40 @@ fn octagonal_low_apexes_serve_a_certified_g1_fit() {
 }
 
 #[test]
-fn steep_pentagon_and_hexagon_rows_serve_the_setback_fan() {
-    for (n, radii) in [(5, &WIDE[..5]), (6, &VARIABLE[..6])] {
-        let label = format!("pyr{n} h1.2 {radii:?}");
-        let (_, result) = apex_fillet(n, 1.2, radii);
-        let result = result.unwrap_or_else(|e| panic!("{label}: {e}"));
-        assert!(
-            result
-                .corner_patches
-                .iter()
-                .all(|p| p.setback_cap && p.achieved_continuity == ContinuityLevel::G2),
-            "{label}: {:?}",
-            result.corner_patches
-        );
-    }
+fn steep_pentagon_keeps_its_fan_and_the_hexagon_serves_the_fairer_fit() {
+    // pyr5 h1.2 wide: the fan's interior reads 8.53 / r_min, past the
+    // fairness bound, but its fit nearly folds (declined at the 2e-2
+    // floor), so the fan serves G2 with both readings recorded.
+    let label = "pyr5 h1.2 wide";
+    let (_, result) = apex_fillet(5, 1.2, &WIDE[..5]);
+    let result = result.unwrap_or_else(|e| panic!("{label}: {e}"));
+    assert!(
+        result
+            .corner_patches
+            .iter()
+            .all(|p| p.setback_cap && p.achieved_continuity == ContinuityLevel::G2),
+        "{label}: {:?}",
+        result.corner_patches
+    );
+    let fairness = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            ApexConstructionDiagnostic::SetbackFit(record) => record.fairness,
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{label}: the fairness record"));
+    assert!(
+        fairness.kp20 > fairness.bound && fairness.fit.is_none(),
+        "{label}: {fairness:?}"
+    );
+    // pyr6 h1.2 variable: the pinched fan yields to the tangent fit.
+    assert_eq!(
+        served(6, 1.2, &VARIABLE[..6]),
+        Some(ContinuityLevel::G1),
+        "pyr6 h1.2 variable"
+    );
 }
 
 /// A class A row serves the tangent fit on the bridged border,

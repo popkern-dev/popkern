@@ -7,6 +7,7 @@ use super::InsertVertexBlendOutput;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, VertexHandle};
 
+use crate::construct::setback_cap_fairness::{CAP_FAIRNESS_BOUND, CapInterior, cap_interior};
 use crate::construct::setback_decline::{SetbackCapStrategy, SetbackDecline, SetbackStage};
 use crate::construct::setback_vertex_topology::{
     SETBACK_TOPOLOGY_LAST, SetbackTopologyOutcome, setback_fan_commit::fan_seam_g2_failure,
@@ -15,10 +16,13 @@ use crate::construct::setback_vertex_topology::{
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
     ApexConstructionDiagnostic, ContinuityLevel, CornerCapPreference, CornerConstruction,
-    CornerMethod, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
-    CornerSubPatchRole, SetbackFitAttempt, SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
+    CornerMethod, CornerPatchInfo, CornerSubPatchProvenance, SetbackCapFairness,
+    SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
 };
 use crate::vertex_classifier::VertexBlendClassification;
+
+#[path = "blend_insert_setback_fit_step.rs"]
+mod fit_step;
 
 /// The rung's result: `served` is `Some` when the rung decided (served
 /// or hard-errored), `None` to fall through to the vertex-blend corner
@@ -48,6 +52,8 @@ struct SetbackRung<'a> {
     classification: VertexBlendClassification,
     cap_presolve: Option<&'a crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
     commit_snapshot: BRep,
+    /// The corner's smallest fillet radius, the fairness measure's unit.
+    r_min: f64,
 }
 
 /// Attempt the setback rung, each construction transactional on the
@@ -76,6 +82,7 @@ pub(super) fn try_setback_rung(
     setback_min_n: usize,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
     corner_cap: CornerCapPreference,
+    r_min: f64,
 ) -> SetbackRungOutcome {
     if corner_cap.construction == CornerConstruction::Classic
         || !(crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
@@ -94,6 +101,7 @@ pub(super) fn try_setback_rung(
         classification,
         cap_presolve,
         commit_snapshot: brep.clone(),
+        r_min,
     };
     let strict = corner_cap.declines_when_unavailable();
     let fitted_first = corner_cap.construction == CornerConstruction::Fitted;
@@ -109,6 +117,7 @@ pub(super) fn try_setback_rung(
         },
         attempts: Vec::new(),
         served: None,
+        fairness: None,
     };
     let mut declines: Vec<String> = Vec::new();
     let order: [bool; 2] = if fitted_first {
@@ -118,7 +127,19 @@ pub(super) fn try_setback_rung(
     };
     for fit in order {
         let step = match (fit, try_fit, try_kp20) {
-            (true, true, _) => rung.fit(brep, &mut record, rung.fit_modes()),
+            (true, true, _) => {
+                // Modes the KP20 step already tried (PK-612) are not rerun.
+                let modes: Vec<SetbackFitMode> = rung
+                    .fit_modes()
+                    .iter()
+                    .copied()
+                    .filter(|&mode| !record.attempts.iter().any(|a| a.mode == mode))
+                    .collect();
+                if modes.is_empty() {
+                    continue;
+                }
+                rung.fit(brep, &mut record, &modes)
+            }
             (false, _, true) => {
                 let step = rung.kp20(brep, &mut record, try_fit);
                 if let RungStep::Declined(reason) | RungStep::CarveDeclined(reason) = &step {
@@ -131,7 +152,9 @@ pub(super) fn try_setback_rung(
         match step {
             RungStep::Decided(Ok((infos, boundary, mut diagnostics))) => {
                 // A KP20 serve after declined fit attempts keeps their record.
-                if record.served.is_none() && !record.attempts.is_empty() {
+                if record.served.is_none()
+                    && (!record.attempts.is_empty() || record.fairness.is_some())
+                {
                     diagnostics.push(ApexConstructionDiagnostic::SetbackFit(record));
                 }
                 return (Some(Ok((infos, boundary, diagnostics))), Vec::new());
@@ -194,9 +217,6 @@ fn setback_decline_diagnostic(reason: &str) -> ApexConstructionDiagnostic {
     })
 }
 
-/// One setback surgery's outcome.
-type SurgeryResult = Result<SetbackTopologyOutcome, SetbackDecline>;
-
 impl SetbackRung<'_> {
     fn surgery(
         &self,
@@ -257,6 +277,11 @@ impl SetbackRung<'_> {
     /// tangent fit's 19) — recorded G1 on every piece, which the corner
     /// downgrade warning names. The fan is kept, not rebuilt: it does
     /// not depend on the request.
+    ///
+    /// A fan whose interior bends past [`CAP_FAIRNESS_BOUND`] (PK-612,
+    /// see `setback_cap_fairness`) tries every fit the request admits,
+    /// and the fit serves when its own interior is fairer. Otherwise
+    /// the fan serves, with both readings on the record.
     fn kp20(&self, brep: &mut BRep, record: &mut SetbackFitDiagnostic, try_fit: bool) -> RungStep {
         let outcome = match self.surgery(brep, SetbackCapStrategy::Kp20) {
             Ok(outcome) => outcome,
@@ -268,174 +293,103 @@ impl SetbackRung<'_> {
                 self.info(f, CornerMethod::Gregory, achieved, None)
             }))
         };
-        if self.requested_continuity != ContinuityLevel::G2 {
-            // A KP20 (G2-interior) cap on G1 sweeps yields a G1 blend.
-            return serve(brep, ContinuityLevel::G1);
-        }
-        let Some(reason) = fan_seam_g2_failure(brep, &outcome.cap_faces) else {
-            return serve(brep, ContinuityLevel::G2);
-        };
-        record.kp20_decline = format!("G2 not reached, G1 downgrade held: {reason}");
-        let fit_ran = record
-            .attempts
-            .iter()
-            .any(|a| a.mode == SetbackFitMode::CurvatureWeighted);
-        if try_fit && !fit_ran {
-            let fan = std::mem::replace(brep, self.commit_snapshot.clone());
-            if let step @ RungStep::Decided(Ok(_)) =
-                self.fit(brep, record, &[SetbackFitMode::CurvatureWeighted])
-            {
-                return step;
-            }
-            *brep = fan;
-        }
-        serve(brep, ContinuityLevel::G1)
-    }
-
-    /// A two-mode ladder's attempts run concurrently (PK-598): the
-    /// first on `brep`, the second on a clone of the rung's snapshot,
-    /// both under the calling thread's test overrides. Both are pure
-    /// functions of the snapshot, so each outcome is the one the serial
-    /// ladder computes; the caller still consumes them in order, and a
-    /// served first attempt discards the second. The second attempt's
-    /// wall time hides behind the first (octagon8 mixed: 0.48 s
-    /// curvature-weighted then 1.25 s tangent).
-    fn concurrent_attempts(
-        &self,
-        brep: &mut BRep,
-        modes: &[SetbackFitMode],
-    ) -> (Option<SurgeryResult>, Option<(BRep, SurgeryResult)>) {
-        #[cfg(feature = "parallel")]
-        if let [a, b] = *modes {
-            let overrides = crate::dispatch_overrides::ThreadOverrides::capture();
-            let mut other = self.commit_snapshot.clone();
-            let (first, second) = rayon::join(
-                // Called from outside the pool, `join` runs BOTH closures
-                // on pool workers: each carries the overrides.
-                || overrides.apply(|| self.surgery(brep, SetbackCapStrategy::VariationalFit(a))),
-                || {
-                    overrides
-                        .apply(|| self.surgery(&mut other, SetbackCapStrategy::VariationalFit(b)))
-                },
-            );
-            return (Some(first), Some((other, second)));
-        }
-        let _ = (brep, modes);
-        (None, None)
-    }
-
-    /// The fit modes the request admits: curvature-weighted under a G2
-    /// request, then tangent.
-    fn fit_modes(&self) -> &'static [SetbackFitMode] {
-        if self.requested_continuity == ContinuityLevel::G2 {
-            &[SetbackFitMode::CurvatureWeighted, SetbackFitMode::Tangent]
+        // A KP20 (G2-interior) cap on G1 sweeps yields a G1 blend.
+        let g2_failure = (self.requested_continuity == ContinuityLevel::G2)
+            .then(|| fan_seam_g2_failure(brep, &outcome.cap_faces))
+            .flatten();
+        let achieved = if self.requested_continuity == ContinuityLevel::G2 && g2_failure.is_none() {
+            ContinuityLevel::G2
         } else {
-            &[SetbackFitMode::Tangent]
+            ContinuityLevel::G1
+        };
+        let fan = if crate::dispatch_overrides::cap_fairness_ladder_disabled() {
+            CapInterior {
+                overshoot: 0.0,
+                regularity: f64::INFINITY,
+            }
+        } else {
+            cap_interior(brep, &outcome.cap_faces, self.r_min)
+        };
+        let (overshoot, unfair) = (fan.overshoot, fan.unfair());
+        if !unfair && g2_failure.is_none() {
+            return serve(brep, achieved);
         }
-    }
-
-    /// The variational fit on the carve (PK-574) in `modes` order.
-    /// Every attempt is recorded.
-    fn fit(
-        &self,
-        brep: &mut BRep,
-        record: &mut SetbackFitDiagnostic,
-        modes: &[SetbackFitMode],
-    ) -> RungStep {
         let mut reasons = Vec::new();
-        let (mut first, mut ahead) = self.concurrent_attempts(brep, modes);
-        for &mode in modes {
-            let attempt = if let Some(result) = first.take() {
-                result
-            } else if let Some((attempted, result)) = ahead.take() {
-                *brep = attempted;
-                result
-            } else {
-                self.surgery(brep, SetbackCapStrategy::VariationalFit(mode))
-            };
-            match attempt {
-                Ok(outcome) => {
-                    let Some(serve) = outcome.fit.clone() else {
-                        *brep = self.commit_snapshot.clone();
-                        let reason = "fit surgery returned no fit record".to_string();
-                        reasons.push(format!("{mode:?} fit: {reason}"));
-                        record.attempts.push(SetbackFitAttempt {
-                            mode,
-                            outcome: SetbackFitOutcome::Declined(reason),
-                        });
-                        continue;
-                    };
-                    if let Err(e) = brep.validate() {
-                        *brep = self.commit_snapshot.clone();
-                        let reason = format!("validation: {e}");
-                        reasons.push(format!("{mode:?} fit: {reason}"));
-                        record.attempts.push(SetbackFitAttempt {
-                            mode,
-                            outcome: SetbackFitOutcome::Rejected {
-                                certified: serve.certified,
-                                reason,
-                            },
-                        });
-                        continue;
-                    }
-                    let achieved = match mode {
-                        SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
-                        SetbackFitMode::Tangent => ContinuityLevel::G1,
-                    };
-                    record.attempts.push(SetbackFitAttempt {
-                        mode,
-                        outcome: SetbackFitOutcome::Served(serve.certified),
-                    });
-                    record.served = Some(achieved);
-                    let n = outcome.cap_faces.len();
-                    let infos = outcome
-                        .cap_faces
-                        .iter()
-                        .enumerate()
-                        .map(|(s, &f)| {
-                            self.info(
-                                f,
-                                CornerMethod::PlateMin,
-                                achieved,
-                                Some(CornerSubPatchProvenance {
-                                    family: CornerSubPatchFamily::VariationalFit,
-                                    sector_index: s,
-                                    sector_count: n,
-                                    piece_index: 0,
-                                    piece_count: 1,
-                                    role: CornerSubPatchRole::Sector,
-                                }),
-                            )
-                        })
-                        .collect();
-                    let diagnostics = vec![ApexConstructionDiagnostic::SetbackFit(record.clone())];
-                    return RungStep::Decided(Ok((infos, None, diagnostics)));
+        if let Some(reason) = &g2_failure {
+            reasons.push(format!("G2 not reached, G1 downgrade held: {reason}"));
+        }
+        if fan.near_fold() {
+            reasons.push(format!(
+                "fan nearly folds (interior regularity {:.3e} under {:.0e})",
+                fan.regularity,
+                crate::construct::setback_cap_fairness::CAP_MIN_REGULARITY
+            ));
+        }
+        if unfair {
+            reasons.push(format!(
+                "fan interior curvature {overshoot:.2} / r_min over the fairness bound \
+                 {CAP_FAIRNESS_BOUND}"
+            ));
+            record.fairness = Some(SetbackCapFairness {
+                kp20: overshoot,
+                fit: None,
+                bound: CAP_FAIRNESS_BOUND,
+            });
+        }
+        record.kp20_decline = reasons.join("; ");
+        // An unfair fan tries every fit the request admits; a fair fan
+        // below G2 tries the curvature-weighted fit for a G2 cap.
+        let ran = |mode| record.attempts.iter().any(|a| a.mode == mode);
+        let modes: Vec<SetbackFitMode> = if unfair {
+            self.fit_modes().to_vec()
+        } else {
+            vec![SetbackFitMode::CurvatureWeighted]
+        }
+        .into_iter()
+        .filter(|&mode| !ran(mode))
+        .collect();
+        if try_fit && !modes.is_empty() {
+            let fan_model = std::mem::replace(brep, self.commit_snapshot.clone());
+            if let RungStep::Decided(Ok((infos, boundary, mut diagnostics))) =
+                self.fit(brep, record, &modes)
+            {
+                if !unfair {
+                    return RungStep::Decided(Ok((infos, boundary, diagnostics)));
                 }
-                Err(d) if d.stage == SetbackStage::Carve => {
-                    return RungStep::CarveDeclined(d.reason);
+                let faces: Vec<_> = infos.iter().map(|info| info.face).collect();
+                let fit = cap_interior(brep, &faces, self.r_min).overshoot;
+                if let Some(fairness) = record.fairness.as_mut() {
+                    fairness.fit = Some(fit);
                 }
-                Err(d) => {
-                    if popkern_core::trace::trace_enabled("setback-fit") {
-                        eprintln!(
-                            "  [setback-fit] {mode:?} declined at {:?}: {}",
-                            self.vertex, d.reason
-                        );
+                if fan.near_fold() || fit < overshoot {
+                    for diagnostic in &mut diagnostics {
+                        if let ApexConstructionDiagnostic::SetbackFit(served) = diagnostic {
+                            served.fairness = record.fairness;
+                        }
                     }
-                    reasons.push(format!("{mode:?} fit: {}", d.reason));
-                    record.attempts.push(SetbackFitAttempt {
-                        mode,
-                        outcome: match d.fit_certified {
-                            Some(certified) => SetbackFitOutcome::Rejected {
-                                certified,
-                                reason: d.reason,
-                            },
-                            None => SetbackFitOutcome::Declined(d.reason),
-                        },
-                    });
+                    return RungStep::Decided(Ok((infos, boundary, diagnostics)));
+                }
+                // The fit is no fairer: the fan serves.
+                record.served = None;
+                if let Some(last) = record.attempts.last_mut()
+                    && let SetbackFitOutcome::Served(certified) = last.outcome
+                {
+                    last.outcome = SetbackFitOutcome::Rejected {
+                        certified,
+                        reason: format!(
+                            "interior curvature {fit:.2} / r_min, no fairer than the fan's \
+                             {overshoot:.2}"
+                        ),
+                    };
                 }
             }
+            *brep = fan_model;
         }
-        RungStep::Declined(reasons.join("; "))
+        if fan.near_fold() {
+            *brep = self.commit_snapshot.clone();
+            return RungStep::Declined(record.kp20_decline.clone());
+        }
+        serve(brep, achieved)
     }
 }
 

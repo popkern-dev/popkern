@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
+use popkern_blend::dispatch_overrides::with_cap_fairness_ladder_disabled;
 use popkern_blend::seam_profile::seam_profile;
 use popkern_blend::{
     BlendResult, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
@@ -178,7 +179,14 @@ fn build(fx: &Fixture) -> (BlendResult, BTreeSet<FaceHandle>) {
         ..FilletOptions::default()
     };
     let pre: BTreeSet<FaceHandle> = pyr.faces.keys().collect();
-    let result = fillet_edges(&pyr, &specs, &options, tol, None).expect("fillet");
+    // The family pins the KP20 fan's rims, so it runs with the
+    // interior-fairness ladder off (PK-612): hexagon6_variable's fan
+    // bends to 4.73 / r_min, past the bound, and in production the
+    // fairer tangent fit (2.89) serves it at G1. Every other member's
+    // fan is under the bound (octagon8_mixed 3.92, hexagon6_mixed 2.00).
+    let result =
+        with_cap_fairness_ladder_disabled(|| fillet_edges(&pyr, &specs, &options, tol, None))
+            .expect("fillet");
     (result, pre)
 }
 

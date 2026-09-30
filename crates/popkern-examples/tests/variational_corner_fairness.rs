@@ -79,6 +79,14 @@ fn corners() -> Vec<Corner> {
             0.8,
             vec![0.02, 0.04, 0.06, 0.04, 0.02],
         ),
+        // PK-612: the KP20 fan pinches here (4.5e5 / r_min); the
+        // dispatch serves the fairer tangent fit.
+        (
+            "hexagon6 variable h1.2",
+            6,
+            1.2,
+            vec![0.02, 0.04, 0.06, 0.04, 0.02, 0.05],
+        ),
     ] {
         let body = pyramid(n, h);
         let vertex = apex(&body);
@@ -392,6 +400,11 @@ fn row_879_fit_fairness_against_kp20() {
             ("pentagon5 variable", 2.20),
             ("pentagon flagship", 1.40),
             ("pyramid3 h1.2", 1.22),
+            // PK-612: the fit ripples beside the thin strip on this 6x
+            // disparity corner (dispatched: KP20 declines) - a measured
+            // frontier, filed with PK-612's follow-ups.
+            ("cube corner 0.05/0.2/0.3", 5.30),
+            ("hexagon6 variable h1.2", 2.20),
         ];
         if let Some((_, pin)) = fit_pin.iter().find(|(n, _)| *n == corner.name) {
             assert!(
@@ -401,6 +414,15 @@ fn row_879_fit_fairness_against_kp20() {
                 b.overshoot
             );
         }
+        // PK-612: no dispatched KP20 fan on this set bends past the
+        // bound (a fan past it yields to a fairer fit).
+        assert!(
+            a.construction == "variational fit" || a.overshoot <= 4.0,
+            "{}: dispatched {} bends to {:.2} / r_min",
+            corner.name,
+            a.construction,
+            a.overshoot
+        );
         if a.construction != "variational fit" && b.overshoot > 1.25 * a.overshoot {
             violations.push(format!(
                 "{}: fit {:.2} vs {} {:.2}",

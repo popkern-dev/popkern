@@ -127,6 +127,19 @@ pub(super) fn corner_radii_uniform(
     anchor.is_some()
 }
 
+/// The corner's smallest fillet radius over both ends of every strip,
+/// the fairness measure's unit (PK-612).
+pub(super) fn corner_min_radius(
+    edge_indices: &[usize],
+    edge_geometries: &[crate::construct::EdgeGeometry],
+) -> f64 {
+    edge_indices
+        .iter()
+        .filter_map(|&i| edge_geometries.get(i))
+        .map(|eg| eg.radius_at_start.min(eg.radius_at_end))
+        .fold(f64::INFINITY, f64::min)
+}
+
 /// Sphere-owned corner pre-screen (PK-222): uniform radii with
 /// all-analytic strips always serve through the rolling-ball sphere,
 /// so the N=3 N-form dispatch skips its attempt there outright — the
