@@ -213,10 +213,21 @@ fn surgery_inner(
             Some(Err(e)) => return Err(e.clone().into()),
             None => None,
         };
-    let extract = match presolved {
-        Some(solve) => solve.extract.clone(),
-        None => setback_surgery_border(fillet_surfaces, vertex_position)?.1,
+    // Without a matching presolve the same solve runs inline, so the fan
+    // commit always has the ranked assemblies (PK-613).
+    let inline;
+    let solve = match presolved {
+        Some(solve) => solve,
+        None => {
+            inline = crate::construct::setback_cap_presolve::solve_setback_cap(
+                fillet_surfaces,
+                vertex_position,
+            )?;
+            &inline
+        }
     };
+    let presolved = Some(solve);
+    let extract = solve.extract.clone();
     // A saddle's bridged border (PK-527) carves through the ring carve,
     // which resolves the pre-carve's mitre complex, then commits the
     // same cap fan.
@@ -516,13 +527,14 @@ fn build_cap_face_fan(
             let (border, _extract) = setback_surgery_border(fillet_surfaces, vertex_position)?;
             let star =
                 crate::construct::setback_cap_presolve::kp20_cap_star(&border, vertex_position);
-            let report = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
+            let report = popkern_core::geometry::gregory::assemble_kp20_paper_cap_ranked(
                 &border,
                 star,
                 popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
-                0.0,
+                &popkern_core::geometry::gregory::KP20_GUIDE_FAIRING_CANDIDATES,
             )
-            .map_err(|e| format!("cap assembly: {e}"))?;
+            .map_err(|e| format!("cap assembly: {e}"))?
+            .swap_remove(0);
             (border, report)
         }
     };

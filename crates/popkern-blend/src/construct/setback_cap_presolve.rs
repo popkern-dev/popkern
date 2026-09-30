@@ -46,8 +46,13 @@ pub(crate) struct SetbackCapSolve {
     /// inserts into the topology.
     pub extract: Kp20PaperBorderExtractReport,
     /// The §4.4 cap assembly, or its error formatted exactly as the
-    /// inline fan-builder call site formats it.
+    /// inline fan-builder call site formats it. The fairest of the
+    /// guide-fairing candidates (PK-613).
     pub assembly: Result<Kp20PaperCapReport, String>,
+    /// The other candidates' assemblies, fairest first: the fan commit
+    /// falls back along them when the head's fan fails its
+    /// postconditions.
+    pub alternates: Vec<Kp20PaperCapReport>,
 }
 
 /// One presolved corner: the exact inputs used plus the solve result.
@@ -129,17 +134,29 @@ pub(crate) fn solve_setback_cap(
 ) -> Result<SetbackCapSolve, String> {
     let (border, extract) = setback_surgery_border(fillet_surfaces, vertex_position)?;
     let star = kp20_cap_star(&border, vertex_position);
-    let assembly = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
-        &border,
-        star,
-        popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
-        0.0,
-    )
-    .map_err(|e| format!("cap assembly: {e}"));
+    let (assembly, alternates) =
+        match popkern_core::geometry::gregory::assemble_kp20_paper_cap_ranked(
+            &border,
+            star,
+            popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
+            &popkern_core::geometry::gregory::KP20_GUIDE_FAIRING_CANDIDATES,
+        ) {
+            Ok(ranked) => {
+                let mut ranked = ranked.into_iter();
+                (
+                    ranked
+                        .next()
+                        .ok_or_else(|| "cap assembly: no candidate".to_string()),
+                    ranked.collect(),
+                )
+            }
+            Err(e) => (Err(format!("cap assembly: {e}")), Vec::new()),
+        };
     Ok(SetbackCapSolve {
         border,
         extract,
         assembly,
+        alternates,
     })
 }
 

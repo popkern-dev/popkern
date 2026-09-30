@@ -286,7 +286,7 @@ const CURVATURE_SAMPLES: usize = 24;
 /// The degree-9 basis at the curvature samples `k / 24`, `k = 1..24`,
 /// evaluated once (PK-604: re-evaluating it per sample cost 0.03 s per
 /// cap measurement at n = 8).
-fn sample_basis() -> &'static [[[f64; 3]; 10]] {
+pub(super) fn sample_basis() -> &'static [[[f64; 3]; 10]] {
     static TABLE: std::sync::OnceLock<Vec<[[f64; 3]; 10]>> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
         (1..CURVATURE_SAMPLES)

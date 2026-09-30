@@ -137,6 +137,7 @@ mod kp20_bi9_seams;
 mod kp20_border_degree;
 mod kp20_paper_border_piece;
 mod kp20_paper_cap;
+mod kp20_paper_cap_fairest;
 mod kp20_paper_cap_measure;
 mod kp20_paper_cap_sample;
 mod kp20_paper_cap_strip;
@@ -351,6 +352,9 @@ pub use kp20_paper_cap::{
     Kp20PaperCapError, Kp20PaperCapReport, assemble_kp20_paper_cap,
     assemble_kp20_paper_cap_conditioned, assemble_kp20_paper_cap_with_enforcement,
     assemble_kp20_paper_macro_cap,
+};
+pub use kp20_paper_cap_fairest::{
+    KP20_GUIDE_FAIRING_CANDIDATES, assemble_kp20_paper_cap_ranked, kp20_cap_interior_curvature,
 };
 pub use kp20_paper_cap_strip::Kp20StripEnforcement;
 pub use kp20_paper_guide::{

@@ -24,16 +24,43 @@ pub(super) fn commit_cap(
             if crate::dispatch_overrides::kp20_cap_decline_forced() {
                 return Err("KP20 cap forced to decline (dispatch override)".into());
             }
-            super::setback_fan_commit::commit_cap_fan(
-                brep,
-                blend_face,
-                side_edges,
-                fillet_surfaces,
-                vertex_position,
-                presolved,
-            )
-            .map(|faces| (faces, None))
-            .map_err(CapCommitError::from)
+            // The ranked assemblies (PK-613): the fairest first, then each
+            // alternate on a fan postcondition failure, from the same carve.
+            let alternates = presolved.map_or(&[][..], |solve| &solve.alternates[..]);
+            let snapshot = (!alternates.is_empty()).then(|| brep.clone());
+            let commit = |brep: &mut BRep,
+                          solve: Option<
+                &crate::construct::setback_cap_presolve::SetbackCapSolve,
+            >| {
+                super::setback_fan_commit::commit_cap_fan(
+                    brep,
+                    blend_face,
+                    side_edges,
+                    fillet_surfaces,
+                    vertex_position,
+                    solve,
+                )
+            };
+            let first = match commit(brep, presolved) {
+                Ok(faces) => return Ok((faces, None)),
+                Err(e) => e,
+            };
+            if let (Some(solve), Some(snapshot)) = (presolved, snapshot) {
+                for alternate in alternates {
+                    *brep = snapshot.clone();
+                    let retry = crate::construct::setback_cap_presolve::SetbackCapSolve {
+                        border: solve.border.clone(),
+                        extract: solve.extract.clone(),
+                        assembly: Ok(alternate.clone()),
+                        alternates: Vec::new(),
+                    };
+                    if let Ok(faces) = commit(brep, Some(&retry)) {
+                        return Ok((faces, None));
+                    }
+                }
+                *brep = snapshot;
+            }
+            Err(CapCommitError::from(first))
         }
         SetbackCapStrategy::VariationalFit(mode) => super::setback_fit_fan::commit_fit_fan(
             brep,

@@ -82,6 +82,7 @@ pub(super) fn with_bridged_retry(
             border,
             extract,
             assembly: Err(BRIDGED_FAN_DECLINE.to_string()),
+            alternates: Vec::new(),
         },
         Err(e) => return Err(both(overrun, SetbackDecline::from(e))),
     };

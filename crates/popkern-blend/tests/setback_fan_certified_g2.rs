@@ -103,42 +103,49 @@ fn serve(h: f64) -> (ContinuityLevel, CornerMethod, ContinuityLevel) {
 
 #[test]
 fn a_fan_certified_below_g2_serves_a_recorded_g1_downgrade() {
-    // Measured 2026-09-30: spokes certify g2 lower bounds 8.7e-2
-    // (h 3) and 5.3e-2 (h 0.8); the curvature-weighted fit declines
-    // and the tangent fit's seam g2 (19, 22) is far worse than the
-    // fan's. The fans' interiors also bend past the fairness bound
-    // (4.22 and 4.35 / r_min, PK-612), so the downgrade path is pinned
-    // with the fairness ladder off.
-    for h in [3.0, 0.8] {
-        assert_eq!(
-            with_cap_fairness_ladder_disabled(|| serve(h)),
-            (
-                ContinuityLevel::G1,
-                CornerMethod::Gregory,
-                ContinuityLevel::G1
-            ),
-            "h{h}"
-        );
-    }
+    // Measured 2026-09-30: h 3's spokes certify a g2 lower bound
+    // 8.7e-2; the curvature-weighted fit declines and the tangent fit's
+    // seam g2 (19) is far worse than the fan's. The fan's interior also
+    // bends past the fairness bound (4.22 / r_min, PK-612), so the
+    // downgrade path is pinned with the fairness ladder off.
+    assert_eq!(
+        with_cap_fairness_ladder_disabled(|| serve(3.0)),
+        (
+            ContinuityLevel::G1,
+            CornerMethod::Gregory,
+            ContinuityLevel::G1
+        )
+    );
 }
 
 #[test]
 fn an_unfair_fan_below_g2_yields_to_the_fairer_tangent_fit() {
-    // PK-612, measured 2026-09-30: the fans read interior curvature
-    // 4.22 (h 3) and 4.35 (h 0.8) / r_min, the tangent fits 1.53 and
-    // 1.32 with cleaner rims (zebra cap-rim normal p95 1.3e-2 against
-    // the fan's 4.1e-2 at h 3). Both are G1.
-    for h in [3.0, 0.8] {
-        assert_eq!(
-            serve(h),
-            (
-                ContinuityLevel::G1,
-                CornerMethod::PlateMin,
-                ContinuityLevel::G1
-            ),
-            "h{h}"
-        );
-    }
+    // PK-612, measured 2026-09-30: h 3's fan reads interior curvature
+    // 4.22 / r_min, the tangent fit 1.53 with cleaner rims (zebra
+    // cap-rim normal p95 1.3e-2 against the fan's 4.1e-2). Both are G1.
+    assert_eq!(
+        serve(3.0),
+        (
+            ContinuityLevel::G1,
+            CornerMethod::PlateMin,
+            ContinuityLevel::G1
+        )
+    );
+}
+
+#[test]
+fn the_faired_fan_certifies_g2_at_h_0_8() {
+    // PK-613: before the guide fairing, h 0.8's fan spokes certified a
+    // g2 lower bound 5.3e-2 (a G1 downgrade) and its interior read
+    // 4.35 / r_min. The faired guide's fan certifies G2 on every seam.
+    assert_eq!(
+        serve(0.8),
+        (
+            ContinuityLevel::G2,
+            CornerMethod::Gregory,
+            ContinuityLevel::G2
+        )
+    );
 }
 
 #[test]

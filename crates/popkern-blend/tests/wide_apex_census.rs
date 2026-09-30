@@ -3,16 +3,15 @@
 //!
 //! Measured 2026-09-30 (G2 request, whole-blend evidence):
 //! - Served since PK-591/593/596/597: pyr5 h1.2 wide (setback fan, G2)
-//!   and pyr8 h0.4/h0.8 variable and wide (tangent fit, certified G1).
-//!   pyr6 h1.2 variable's fan pinches (interior 4.5e5 / r_min at
-//!   regularity 2.4e-3); since PK-612 the fairer tangent fit (2.09)
-//!   serves it at certified G1.
-//! - Class B, pyr8 h1.2 variable and wide: declined. The KP20 fan
-//!   folds and the curvature-weighted fit folds. PK-594 served the
-//!   tangent fit's caps at served regularity 8.4e-3 and 1.6e-2, but
-//!   PK-612 measured their interiors at 2572 and 2850 times 1/r_min:
-//!   near-fold pinches the seam certificates cannot see. With the fold
-//!   floor back at 2e-2 the corner declines typed.
+//!   and pyr8 h0.4/h0.8 variable and wide. PK-613's faired guide serves
+//!   pyr6 h1.2 variable (its unfaired fan pinched at 4.5e5 / r_min) and
+//!   the wide octagons as G2 fans inside the fairness bound.
+//! - Class B, pyr8 h1.2 variable and wide: the KP20 fan and the
+//!   curvature-weighted fit folded; PK-594 served tangent fits at
+//!   regularity 8.4e-3 / 1.6e-2 that PK-612 measured as near-fold
+//!   pinches (2572 / 2850 x 1/r_min). With the faired guide (PK-613)
+//!   the fan serves: wide at G2, variable at G1 with its interior
+//!   reading recorded past the bound (its fit still nearly folds).
 //! - Class A, served by PK-611: pyr5 h0.4 variable and wide, pyr5 h0.8
 //!   wide, pyr6 h0.4 wide. A thin strip's setback arc, run between the
 //!   corners its wide neighbours fix, crosses its own trimmed boundary
@@ -27,8 +26,8 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendError, BlendFailure, BlendResult, ContinuityLevel,
-    CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    ApexConstructionDiagnostic, BlendError, BlendResult, ContinuityLevel, CornerMethod,
+    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -96,69 +95,103 @@ fn served(n: usize, h: f64, radii: &[f64]) -> Option<ContinuityLevel> {
     .certified_achieved
 }
 
-#[test]
-fn octagonal_steep_apexes_decline_where_every_cap_nearly_folds() {
-    for radii in [VARIABLE, WIDE] {
-        let (_, result) = apex_fillet(8, 1.2, &radii);
-        let Err(BlendError::PartialFailure { failures, .. }) = result else {
-            panic!("{radii:?}: the corner declines typed");
-        };
-        assert!(
-            failures
-                .iter()
-                .all(|(_, f)| matches!(f, BlendFailure::VertexBlendFailed { .. })),
-            "{radii:?}: {failures:?}"
-        );
-    }
-}
-
-#[test]
-fn octagonal_low_apexes_serve_a_certified_g1_fit() {
-    for h in [0.4, 0.8] {
-        for radii in [VARIABLE, WIDE] {
-            assert_eq!(
-                served(8, h, &radii),
-                Some(ContinuityLevel::G1),
-                "h{h} {radii:?}"
-            );
-        }
-    }
-}
-
-#[test]
-fn steep_pentagon_keeps_its_fan_and_the_hexagon_serves_the_fairer_fit() {
-    // pyr5 h1.2 wide: the fan's interior reads 8.53 / r_min, past the
-    // fairness bound, but its fit nearly folds (declined at the 2e-2
-    // floor), so the fan serves G2 with both readings recorded.
-    let label = "pyr5 h1.2 wide";
-    let (_, result) = apex_fillet(5, 1.2, &WIDE[..5]);
+/// The served row's construction, the whole-blend evidence level (the
+/// KP20 fans' seams sample their level but not all certify), and the
+/// fan's recorded interior reading when it was past the fairness bound.
+fn outcome(n: usize, h: f64, radii: &[f64]) -> (CornerMethod, ContinuityLevel, Option<f64>) {
+    let label = format!("pyr{n} h{h} {radii:?}");
+    let (body, result) = apex_fillet(n, h, radii);
     let result = result.unwrap_or_else(|e| panic!("{label}: {e}"));
     assert!(
-        result
-            .corner_patches
-            .iter()
-            .all(|p| p.setback_cap && p.achieved_continuity == ContinuityLevel::G2),
-        "{label}: {:?}",
-        result.corner_patches
+        !result.corner_patches.is_empty() && result.corner_patches.iter().all(|p| p.setback_cap),
+        "{label}: the setback rung serves"
+    );
+    assert!(result.brep.validate_all().is_empty(), "{label}");
+    let pre: BTreeSet<FaceHandle> = body.faces.keys().collect();
+    let blend: Vec<FaceHandle> = result
+        .brep
+        .faces
+        .keys()
+        .filter(|f| !pre.contains(f))
+        .collect();
+    let evidence = measure_blend_continuity_evidence(
+        &result.brep,
+        &blend,
+        ContinuityLevel::G2,
+        &ContinuityGates::commercial(),
+        33,
     );
     let fairness = result
         .repair_report
         .apex_diagnostics
         .iter()
         .find_map(|d| match d {
-            ApexConstructionDiagnostic::SetbackFit(record) => record.fairness,
+            ApexConstructionDiagnostic::SetbackFit(record) => record.fairness.map(|f| f.kp20),
             _ => None,
-        })
-        .unwrap_or_else(|| panic!("{label}: the fairness record"));
-    assert!(
-        fairness.kp20 > fairness.bound && fairness.fit.is_none(),
-        "{label}: {fairness:?}"
-    );
-    // pyr6 h1.2 variable: the pinched fan yields to the tangent fit.
+        });
+    (result.corner_patches[0].method, evidence.achieved, fairness)
+}
+
+#[test]
+fn octagonal_steep_apexes_serve_the_faired_fan() {
+    // PK-613: the guide-faired KP20 fan. Wide: G2 inside the fairness
+    // bound. Variable: the fan's seams reach G1 only and its interior
+    // reads 15.3 / r_min, past the bound, but the tangent fit nearly
+    // folds (declined), so the fan serves with the reading recorded.
+    let (method, level, fairness) = outcome(8, 1.2, &WIDE);
     assert_eq!(
-        served(6, 1.2, &VARIABLE[..6]),
-        Some(ContinuityLevel::G1),
-        "pyr6 h1.2 variable"
+        (method, level, fairness),
+        (CornerMethod::Gregory, ContinuityLevel::G2, None)
+    );
+    let (method, level, fairness) = outcome(8, 1.2, &VARIABLE);
+    assert_eq!(
+        (method, level),
+        (CornerMethod::Gregory, ContinuityLevel::G1)
+    );
+    assert!(fairness.is_some_and(|f| f > 4.0), "{fairness:?}");
+}
+
+#[test]
+fn octagonal_low_apexes_serve() {
+    // Wide radii: the faired fan serves G2 inside the fairness bound
+    // (PK-613; the tangent fit served these at G1 before). h 0.4
+    // variable: the fan reads 5.5 / r_min and the fairer tangent fit
+    // (2.07) serves, certified G1. h 0.8 variable: the fan (10.6) is
+    // fairer than the fit (18.3) and serves at G1, recorded.
+    for h in [0.4, 0.8] {
+        let (method, level, fairness) = outcome(8, h, &WIDE);
+        assert_eq!(
+            (method, level, fairness),
+            (CornerMethod::Gregory, ContinuityLevel::G2, None),
+            "h{h} wide"
+        );
+    }
+    assert_eq!(served(8, 0.4, &VARIABLE), Some(ContinuityLevel::G1));
+    let (method, level, fairness) = outcome(8, 0.8, &VARIABLE);
+    assert_eq!(
+        (method, level),
+        (CornerMethod::Gregory, ContinuityLevel::G1)
+    );
+    assert!(fairness.is_some_and(|f| f > 4.0), "{fairness:?}");
+}
+
+#[test]
+fn steep_pentagon_and_hexagon_rows_serve_the_setback_fan() {
+    // pyr5 h1.2 wide: the fan's interior reads 8.53 / r_min, past the
+    // fairness bound, but its fit nearly folds (declined at the 2e-2
+    // floor), so the fan serves G2 with the reading recorded. pyr6 h1.2
+    // variable: the unfaired fan pinched (4.5e5 / r_min); the faired
+    // guide (PK-613) serves it at G2 inside the bound.
+    let (method, level, fairness) = outcome(5, 1.2, &WIDE[..5]);
+    assert_eq!(
+        (method, level),
+        (CornerMethod::Gregory, ContinuityLevel::G2)
+    );
+    assert!(fairness.is_some_and(|f| f > 4.0), "{fairness:?}");
+    let (method, level, fairness) = outcome(6, 1.2, &VARIABLE[..6]);
+    assert_eq!(
+        (method, level, fairness),
+        (CornerMethod::Gregory, ContinuityLevel::G2, None)
     );
 }
 
