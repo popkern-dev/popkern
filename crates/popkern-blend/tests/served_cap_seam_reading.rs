@@ -65,5 +65,8 @@ fn the_whole_seam_reading_sees_a_crease_the_mid_seam_misses() {
     let mid = field(detail, "served_mid_seam_normal");
     let whole = field(detail, "served_cap_seam_g1");
     assert!(mid < 0.3, "the mid-seam number reads 0.245: {detail}");
-    assert!(whole > 0.9, "the whole-seam reading sees the crease: {detail}");
+    assert!(
+        whole > 0.9,
+        "the whole-seam reading sees the crease: {detail}"
+    );
 }
