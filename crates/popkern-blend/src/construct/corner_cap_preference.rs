@@ -23,6 +23,7 @@ pub(super) fn rung_claimed_corners(
     edge_geometries: &[EdgeGeometry],
     corner_cap: CornerCapPreference,
     tolerance: &Tolerance,
+    explicit_subpatch_family: bool,
 ) -> BTreeSet<VertexHandle> {
     if !corner_cap.names_setback_rung()
         || *vertex_mode != VertexMode::Smooth
@@ -54,6 +55,7 @@ pub(super) fn rung_claimed_corners(
                 &fillet_surfaces,
                 classification,
                 tolerance,
+                explicit_subpatch_family,
             )
     })
     .map(|(vertex, _)| vertex)

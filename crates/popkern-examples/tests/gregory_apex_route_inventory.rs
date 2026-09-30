@@ -270,6 +270,14 @@ fn mixed_radius_gregory_cube(options: FilletOptions) -> popkern_blend::BlendResu
             radius: FilletRadius::Constant(radius),
         })
         .collect::<Vec<_>>();
+    // Construction-level: observe the exact-boundary route itself. Its cap
+    // creases across its own seams (certified cap-cap normal sine 1.7e-1),
+    // so the serving layer re-runs this corner on the setback rung
+    // (PK-597); the serving retry is off here.
+    let options = FilletOptions {
+        serving_self_intersection_retry: false,
+        ..options
+    };
     fillet_edges(&cube, &specs, &options, Tolerance::default(), None)
         .expect("mixed-radius Gregory cube must build")
 }

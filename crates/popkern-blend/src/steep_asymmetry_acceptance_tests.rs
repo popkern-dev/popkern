@@ -96,39 +96,44 @@ fn assert_direct_commercial_serve(label: &str, result: &BlendResult) {
     );
 }
 
-/// The PK-255 ledger fixture serves DirectApex at commercial quality
-/// with no serving machinery, at both mirrored corners (measured
-/// g0 = 1.7e-8, g1 = 1.4e-5 at each).
-#[test]
-fn steep_asymmetry_corner_serves_direct_at_commercial_quality() {
-    for corner in [[1.0, 1.0, 1.0], [0.0, 0.0, 0.0]] {
-        let result = cube_corner_result([0.05, 0.1, 0.2], corner);
-        let label = format!("cube [0.05,0.1,0.2] @ {corner:?}");
-        assert!(
-            result.repair_report.serving_footprint_repairs.is_empty()
-                && result
-                    .repair_report
-                    .serving_self_intersection_retries
-                    .is_empty(),
-            "{label}: must serve without serving machinery"
-        );
-        assert_direct_commercial_serve(&label, &result);
-    }
+/// PK-597: a direct-apex cap that creases across its own seams (the
+/// certified cap-cap normal jump over the commercial G1 gate) takes the
+/// serving exclusion re-run, and the setback rung serves the corner.
+/// The cap-outer bars these fixtures were pinned on never measured the
+/// cap's own seams.
+fn assert_crease_rerun_serve(label: &str, result: &crate::types::BlendResult) {
+    assert!(
+        result
+            .repair_report
+            .serving_self_intersection_retries
+            .iter()
+            .any(|retry| retry.detail.contains("served cap-cap crease")),
+        "{label}: the creased cap takes the exclusion re-run: {:?}",
+        result.repair_report.serving_self_intersection_retries
+    );
+    assert!(
+        result
+            .corner_patches
+            .iter()
+            .all(|p| p.setback_cap && p.achieved_continuity >= crate::types::ContinuityLevel::G1),
+        "{label}: the setback rung serves at G1 or better: {:?}",
+        result.corner_patches
+    );
+    assert!(
+        result.brep.validate().is_ok(),
+        "{label}: the re-run serve validates"
+    );
 }
 
-/// PK-256: the mirrored (0,0,0) corner of the same fixture serves
-/// DirectApex clean with NO serving machinery. Root chain
-/// (2026-08-10): reauthored FilletEnd seams reverse the final cap
-/// winding relative to the §14.7 mef authoring parity, so the
-/// cap/support bridge sides swap owners (winding-honest bridge-side
-/// selection + chain-slot exchange), the extended-facet assembler
-/// serves the five-side coincident-old-tangent shape, and the
-/// materialized cap boundary reuses seam twins in reversed sector
-/// order.
+/// The PK-255 ledger fixture at (1,1,1) serves DirectApex at commercial
+/// quality with no serving machinery (measured g0 = 1.7e-8, g1 = 1.4e-5;
+/// certified cap-cap normal sine 9.3e-3, under the G1 gate). The
+/// mirrored (0,0,0) corner's cap creases across its own seams (certified
+/// 7.3e-2, PK-597) and takes the exclusion re-run.
 #[test]
-fn mirrored_corner_bridge_winding_serves_direct_clean() {
-    let result = cube_corner_result([0.15, 0.1, 0.1], [0.0, 0.0, 0.0]);
-    let label = "cube [0.15,0.1,0.1] @ (0,0,0)";
+fn steep_asymmetry_corner_serves_direct_at_commercial_quality() {
+    let result = cube_corner_result([0.05, 0.1, 0.2], [1.0, 1.0, 1.0]);
+    let label = "cube [0.05,0.1,0.2] @ (1,1,1)";
     assert!(
         result.repair_report.serving_footprint_repairs.is_empty()
             && result
@@ -138,11 +143,25 @@ fn mirrored_corner_bridge_winding_serves_direct_clean() {
         "{label}: must serve without serving machinery"
     );
     assert_direct_commercial_serve(label, &result);
+    let mirrored = cube_corner_result([0.05, 0.1, 0.2], [0.0, 0.0, 0.0]);
+    assert_crease_rerun_serve("cube [0.05,0.1,0.2] @ (0,0,0)", &mirrored);
 }
 
-/// The [0.15, 0.1, 0.1] neighbor keeps its cleared-repair DirectApex
-/// serve AND now holds the commercial bars (its pre-PK-255 blessed
-/// serve measured worst_g1 0.959 — the family-worst crease).
+/// PK-256 made the mirrored (0,0,0) corner of [0.15, 0.1, 0.1] serve
+/// DirectApex with no serving machinery (winding-honest bridge sides,
+/// the five-side coincident-old-tangent shape, reversed-order seam
+/// twins). Its cap creases across its own seams (certified cap-cap
+/// normal sine 2.4e-1, PK-597), so it takes the exclusion re-run.
+#[test]
+fn mirrored_corner_bridge_winding_serves_direct_clean() {
+    let result = cube_corner_result([0.15, 0.1, 0.1], [0.0, 0.0, 0.0]);
+    assert_crease_rerun_serve("cube [0.15,0.1,0.1] @ (0,0,0)", &result);
+}
+
+/// The [0.15, 0.1, 0.1] neighbour's footprint repair still clears its
+/// strip crossing in place, but the repaired cap creases across its own
+/// seams (certified 2.4e-1, PK-597; its pre-PK-255 serve measured
+/// worst_g1 0.959), so the corner takes the exclusion re-run.
 #[test]
 fn interior_crossing_neighbor_serves_repaired_at_commercial_quality() {
     let result = cube_corner_result([0.15, 0.1, 0.1], [1.0, 1.0, 1.0]);
@@ -157,12 +176,5 @@ fn interior_crossing_neighbor_serves_repaired_at_commercial_quality() {
         repairs[0].cleared,
         "{label}: the repair must clear: {repairs:?}"
     );
-    assert!(
-        result
-            .repair_report
-            .serving_self_intersection_retries
-            .is_empty(),
-        "{label}: a cleared repair must not retry"
-    );
-    assert_direct_commercial_serve(label, &result);
+    assert_crease_rerun_serve(label, &result);
 }

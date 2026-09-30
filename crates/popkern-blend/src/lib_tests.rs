@@ -303,7 +303,20 @@ fn mixed_radius_cube_corner_accepts_exact_boundary_cap() {
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    // Construction-level: observe the exact-boundary route itself. Its cap
+    // creases across its own seams, so the serving layer re-runs this corner
+    // on the setback rung (PK-597); the serving retry is off here.
+    let result = fillet_edges(
+        &cube,
+        &specs,
+        &FilletOptions {
+            serving_self_intersection_retry: false,
+            ..FilletOptions::default()
+        },
+        tol(),
+        None,
+    )
+    .unwrap();
     let route = result
         .repair_report
         .apex_routes

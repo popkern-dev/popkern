@@ -38,6 +38,9 @@ pub fn try_fillet_cube_result(
         use_biseptic_gregory: true,
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: use_kp_binonic,
+        // Candidate-quality instrument: the constructed candidate, not
+        // the serving re-route (PK-250, and PK-597's crease re-run).
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     fillet_edges(

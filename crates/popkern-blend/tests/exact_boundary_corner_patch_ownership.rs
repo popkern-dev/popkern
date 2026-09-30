@@ -182,26 +182,26 @@ fn pyramid4_mixed_default_serve_is_direct_and_clean() {
         repairs.is_empty(),
         "hover is not a crossing — no repair should engage: {repairs:?}"
     );
+    // PK-597: the direct-apex cap creases across its own seams (certified
+    // cap-cap normal sine 4.8e-1, body G0), so the corner takes the
+    // serving exclusion re-run and the setback rung serves it (certified
+    // G1, g1 2.8e-9). The only retry cause is the crease.
+    let retries = &result.repair_report.serving_self_intersection_retries;
+    assert!(
+        !retries.is_empty()
+            && retries
+                .iter()
+                .all(|retry| retry.detail.contains("served cap-cap crease")),
+        "the crease is the only retry cause: {retries:?}"
+    );
     assert!(
         result
-            .repair_report
-            .serving_self_intersection_retries
-            .is_empty(),
-        "no retry for a clean direct serve"
-    );
-    let route = result
-        .repair_report
-        .apex_routes
-        .iter()
-        .find(|r| r.vertex == apex)
-        .expect("apex route recorded");
-    assert!(
-        matches!(
-            route.route,
-            popkern_blend::ApexConstructionRoute::DirectApex
-        ),
-        "the corner keeps its direct-apex serve: {:?}",
-        route.route
+            .corner_patches
+            .iter()
+            .filter(|p| p.vertex == apex)
+            .all(|p| p.setback_cap),
+        "the setback rung serves the corner: {:?}",
+        result.corner_patches
     );
     let errors = result.brep.validate_all();
     assert!(

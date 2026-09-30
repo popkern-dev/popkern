@@ -53,10 +53,9 @@ type InsertVertexBlendOutput = (
 
 /// Insert a smooth G1 vertex blend face at a multi-fillet vertex.
 ///
-/// For each face touching the vertex, splits off the corner triangle using
-/// `mef()`, then merges all corner triangles into one N-gon by removing
-/// edges through the vertex using `kef()`. Finally assigns the blend surface
-/// geometry to the merged face.
+/// For each face touching the vertex, splits off the corner triangle with `mef()`,
+/// merges the triangles into one N-gon by removing edges through the vertex with
+/// `kef()`, and assigns the blend surface geometry to the merged face.
 ///
 /// # Errors
 ///
@@ -79,6 +78,7 @@ pub(crate) fn insert_vertex_blend(
     precomputed_classification: Option<VertexBlendClassification>,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
     corner_cap: crate::types::CornerCapPreference,
+    explicit_subpatch_family: bool,
 ) -> Result<InsertVertexBlendOutput, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
@@ -111,9 +111,8 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
-    // Setback boundary surgery rung (setback_vertex_topology docs; PK-225/226),
-    // ordered by the corner-cap preference (PK-603); declines are transactional.
-    // Test seams: SETBACK_DISABLE / with_setback_forced_to_decline.
+    // Setback rung (setback_vertex_topology docs; PK-225/226; order PK-603; gate PK-597);
+    // declines are transactional. Seams: SETBACK_DISABLE / with_setback_forced_to_decline.
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let ball_owned = sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre, classification);
     let setback_min_n = setback_min_n_for(
@@ -122,6 +121,7 @@ pub(crate) fn insert_vertex_blend(
         &fillet_surfaces_pre,
         classification,
         tolerance,
+        explicit_subpatch_family,
     );
     let setback_attempted =
         crate::construct::setback_vertex_topology::setback_topology_commit_enabled()

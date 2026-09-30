@@ -72,6 +72,25 @@ pub(crate) fn try_build_under_direct_apex_with_pyramid_height(
     radii: &[f64],
     pyramid_height: f64,
 ) -> Result<BlendResult, popkern_blend::BlendError> {
+    build_under_direct_apex_options(is_pyramid, radii, pyramid_height, true)
+}
+
+/// The direct-apex construction itself, with the serving retry off: the
+/// candidate the matrix measures, not the serving re-route. PK-597's
+/// crease re-run would replace the mixed-radius caps, which crease across
+/// their own seams (certified cap-cap normal sine 0.17-0.48), with the
+/// setback rung's serve.
+pub(crate) fn build_candidate_under_direct_apex(is_pyramid: bool, radii: &[f64]) -> BlendResult {
+    build_under_direct_apex_options(is_pyramid, radii, 0.8, false)
+        .expect("fillet_edges succeeds under DirectApex")
+}
+
+fn build_under_direct_apex_options(
+    is_pyramid: bool,
+    radii: &[f64],
+    pyramid_height: f64,
+    serving_retry: bool,
+) -> Result<BlendResult, popkern_blend::BlendError> {
     let _g = popkern_blend::dispatch_overrides::SPHERE_FIT_BOUNDARY.set_guard(true);
     let tol = Tolerance::default();
     let brep = if is_pyramid {
@@ -102,13 +121,12 @@ pub(crate) fn try_build_under_direct_apex_with_pyramid_height(
         use_biseptic_gregory: true,
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: true,
-        // PK-260: the serving retry runs here again (default-ON
-        // contract). Every matrix fixture serves crossing-free — the
-        // cube-family flags were a grazing false positive fixed at
-        // the core validator root (PK-230), and the oblique
-        // base-corner class (pyramid3 mixed/extreme) now DECLINES at
-        // the serving-shape gate and serves vertex-blend clean, so the
-        // retry has nothing to catch.
+        // PK-260: the serving retry runs (default-ON contract): the
+        // oblique base-corner class (pyramid3 mixed/extreme) DECLINES at
+        // the serving-shape gate and serves vertex-blend clean.
+        // `build_candidate_under_direct_apex` turns it off to observe the
+        // construction itself.
+        serving_self_intersection_retry: serving_retry,
         ..FilletOptions::default()
     };
     fillet_edges(&brep, &specs, &options, tol, None)

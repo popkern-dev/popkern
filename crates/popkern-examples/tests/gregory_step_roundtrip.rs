@@ -41,6 +41,11 @@ fn mixed_radius_gregory_cube_result() -> BlendResult {
         .collect();
     let opts = FilletOptions {
         use_rational_gregory: true,
+        // Construction-level: observe the exact-boundary route itself. Its cap
+        // creases across its own seams (certified cap-cap normal sine 1.7e-1),
+        // so the serving layer re-runs this corner on the setback rung
+        // (PK-597); the serving retry is off here.
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)

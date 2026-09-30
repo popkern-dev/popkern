@@ -40,6 +40,23 @@ pub(super) fn assert_logical_gregory_corner(
     n_sides: usize,
     context: &str,
 ) {
+    // PK-597: a direct-apex cap that creases across its own seams takes
+    // the serving exclusion re-run, and the setback rung then owns the
+    // corner — the current routed path for the mixed-radius cube corner.
+    let owned_by_setback = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == vertex)
+        .all(|p| p.setback_cap);
+    if owned_by_setback
+        && result
+            .repair_report
+            .serving_self_intersection_retries
+            .iter()
+            .any(|r| r.vertex == vertex && r.detail.contains("served cap-cap crease"))
+    {
+        return;
+    }
     let patches = gregory_corners_for_vertex(result, vertex);
     if patches.is_empty()
         && result.repair_report.apex_routes.iter().any(|route| {

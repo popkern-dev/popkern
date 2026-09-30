@@ -101,6 +101,20 @@ fn cube_default_result(radii: [f64; 3]) -> BlendResult {
     fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None).expect("cube fillet")
 }
 
+/// Whether the serve took PK-597's crease re-run (a direct-apex cap
+/// creasing across its own seams; not a self-intersection decision).
+fn crease_rerun(result: &BlendResult) -> bool {
+    result
+        .repair_report
+        .serving_self_intersection_retries
+        .iter()
+        .any(|retry| retry.detail.contains("served cap-cap crease"))
+}
+
+/// The self-intersection subject of this file: no footprint repair and no
+/// self-intersection retry, and the served body validates clean. The
+/// corner keeps its direct-apex serve unless its cap creases across its
+/// own seams (PK-597), in which case the setback rung serves it.
 fn assert_direct_clean_serve(label: &str, result: &BlendResult) {
     assert!(
         result.repair_report.serving_footprint_repairs.is_empty(),
@@ -111,17 +125,21 @@ fn assert_direct_clean_serve(label: &str, result: &BlendResult) {
         result
             .repair_report
             .serving_self_intersection_retries
-            .is_empty(),
-        "{label}: clean corner must not retry"
+            .iter()
+            .all(|retry| retry.detail.contains("served cap-cap crease")),
+        "{label}: clean corner must not take a self-intersection retry: {:?}",
+        result.repair_report.serving_self_intersection_retries
     );
     let direct = result
         .repair_report
         .apex_routes
         .iter()
         .any(|route| matches!(route.route, ApexConstructionRoute::DirectApex));
+    let setback =
+        !result.corner_patches.is_empty() && result.corner_patches.iter().all(|p| p.setback_cap);
     assert!(
-        direct,
-        "{label}: the corner must keep its direct-apex serve: {:?}",
+        direct || (crease_rerun(result) && setback),
+        "{label}: direct serve, or the crease re-run on the setback rung: {:?}",
         result
             .repair_report
             .apex_routes
@@ -132,7 +150,7 @@ fn assert_direct_clean_serve(label: &str, result: &BlendResult) {
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "{label}: direct serve must validate clean: {errors:?}"
+        "{label}: served body must validate clean: {errors:?}"
     );
 }
 
@@ -159,7 +177,7 @@ fn hover_pyramid_corners_serve_direct() {
 
 /// The cube's interior crossing of a neighbour strip is repairable:
 /// the serving repair clears it (material-sense-oriented, scan-depth
-/// pushes) and the corner keeps its direct serve with no retry.
+/// pushes) and no self-intersection retry runs.
 #[test]
 fn cube_interior_crossing_repairs_to_direct_serve() {
     let result = cube_default_result([0.15, 0.1, 0.1]);
@@ -173,23 +191,25 @@ fn cube_interior_crossing_repairs_to_direct_serve() {
         repairs[0].cleared && repairs[0].detail == "cleared",
         "cube [0.15,0.1,0.1]: the repair must clear the crossing: {repairs:?}"
     );
+    // The cleared repair leaves no crossing to retry; the repaired cap
+    // still creases across its own seams (certified 2.4e-1), so PK-597's
+    // crease re-run serves the corner on the setback rung.
     assert!(
         result
             .repair_report
             .serving_self_intersection_retries
-            .is_empty(),
-        "cube [0.15,0.1,0.1]: a cleared repair must not retry"
+            .iter()
+            .all(|retry| retry.detail.contains("served cap-cap crease")),
+        "cube [0.15,0.1,0.1]: a cleared repair must not take a self-intersection retry"
     );
-    let direct = result
-        .repair_report
-        .apex_routes
-        .iter()
-        .any(|route| matches!(route.route, ApexConstructionRoute::DirectApex));
-    assert!(direct, "cube [0.15,0.1,0.1]: direct serve kept");
+    assert!(
+        crease_rerun(&result),
+        "cube [0.15,0.1,0.1]: the crease re-run serves"
+    );
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "cube [0.15,0.1,0.1]: repaired direct serve must validate clean: {errors:?}"
+        "cube [0.15,0.1,0.1]: the re-run serve must validate clean: {errors:?}"
     );
 }
 

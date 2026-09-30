@@ -50,10 +50,14 @@ fn fillet_mixed_corner(
             radius: FilletRadius::Constant(r),
         })
         .collect();
+    // Construction-level scorecard: the serving retry is off so the family
+    // construction is observed, not PK-597's crease re-run onto the
+    // setback rung (this corner's direct cap creases across its seams).
     let opts = FilletOptions {
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: use_biquintic_full,
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();

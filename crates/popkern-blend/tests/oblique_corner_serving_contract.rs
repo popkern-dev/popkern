@@ -54,8 +54,8 @@ fn crossing_count(result: &popkern_blend::BlendResult) -> usize {
         .count()
 }
 
-/// The fixed class: pyramid3_mixed serves direct-apex natively under
-/// pure defaults.
+/// pyramid3_mixed under pure defaults: no self-intersection, and the
+/// creased direct-apex cap is replaced by the setback rung (PK-597).
 #[test]
 fn pyramid3_mixed_default_serve_is_native_direct_apex() {
     let result = default_corner_serve(&[0.08, 0.10, 0.12]);
@@ -64,20 +64,22 @@ fn pyramid3_mixed_default_serve_is_native_direct_apex() {
         0,
         "pyramid3_mixed: default serve must census zero SelfIntersection"
     );
+    // PK-597: the direct-apex cap creases across its own seams
+    // (certified cap-cap normal sine 2.8e-1, body G0), so the corner
+    // takes the serving exclusion re-run; the setback rung serves it
+    // (certified G1, g1 2.2e-6). The crease is the only retry cause.
+    let retries = &result.repair_report.serving_self_intersection_retries;
     assert!(
-        result
-            .repair_report
-            .serving_self_intersection_retries
-            .is_empty(),
-        "pyramid3_mixed: the native serve needs no retry"
+        !retries.is_empty()
+            && retries
+                .iter()
+                .all(|retry| retry.detail.contains("served cap-cap crease")),
+        "pyramid3_mixed: the crease is the only retry cause: {retries:?}"
     );
     assert!(
-        result
-            .repair_report
-            .apex_routes
-            .iter()
-            .all(|route| route.route == ApexConstructionRoute::DirectApex),
-        "pyramid3_mixed: the corner serves direct-apex natively"
+        result.corner_patches.iter().all(|p| p.setback_cap),
+        "pyramid3_mixed: the setback rung serves the corner: {:?}",
+        result.corner_patches
     );
     assert!(
         result.brep.boundary_edges.is_empty(),

@@ -13,6 +13,13 @@ use crate::fillet_pipeline::fillet_edges_attempt;
 use crate::types::{BlendResult, FilletOptions, FilletSpec};
 use crate::{cancellation, progress};
 
+#[path = "fillet_serving_retry_probes.rs"]
+mod probes;
+use probes::{
+    served_direct_apex_creases, served_direct_apex_self_intersections,
+    serving_shape_declined_corners,
+};
+
 /// Entry for [`fillet_edges`] + cancellable/progress variants: one
 /// pipeline attempt, then the PK-250 serving-boundary check — each
 /// served direct-apex corner region must be free of face-face
@@ -80,7 +87,8 @@ fn fillet_edges_serving(
     // (measured 8.5e-2 edge/surface deviations on the oblique
     // base-corner class); excluding the corner BEFORE anchor splitting
     // re-places perp-walk anchors and the vertex-blend dispatch serves clean.
-    let declined = serving_shape_declined_corners(&first);
+    let mut declined = serving_shape_declined_corners(&first);
+    declined.extend(served_direct_apex_creases(&first));
     if offending.is_empty() && declined.is_empty() {
         return Ok(first);
     }
@@ -140,6 +148,10 @@ fn fillet_edges_serving(
             refresh_served_mid_seam_diagnostics(&first.brep, &mut first.repair_report);
         return Ok(first);
     }
+    // A crossing the footprint repair cleared is resolved: when only
+    // another cause (a serving-shape decline or a creased cap, PK-597)
+    // forces the re-run, the retry record must not name the crossing.
+    let offending = if all_cleared { Vec::new() } else { offending };
     let excluded: std::collections::BTreeSet<popkern_core::topology::VertexHandle> = offending
         .iter()
         .map(|(vertex, _)| *vertex)
@@ -359,52 +371,6 @@ fn serve_score(
         worst_g0,
         worst_g1,
     }
-}
-
-/// Corners whose direct-apex construction declined at the
-/// serving-shape gate (PK-260), with the recorded decline reason. The
-/// mid-pipeline fallback serves a degraded vertex-blend body (direct-apex
-/// anchor convention); the exclusion re-run serves clean.
-fn serving_shape_declined_corners(
-    result: &BlendResult,
-) -> Vec<(popkern_core::topology::VertexHandle, String)> {
-    result
-        .repair_report
-        .apex_routes
-        .iter()
-        .filter(|route| {
-            route.route == crate::types::ApexConstructionRoute::DirectApexFallbackToVertexBlend
-        })
-        .filter_map(|route| {
-            route
-                .fallback_reason
-                .as_ref()
-                .filter(|reason| reason.contains(crate::types::SERVING_SHAPE_DECLINE_PREFIX))
-                .map(|reason| (route.vertex, format!("serving-shape decline: {reason}")))
-        })
-        .collect()
-}
-
-/// Served direct-apex corners whose region self-intersects, with the
-/// validator's face-pair detail.
-fn served_direct_apex_self_intersections(
-    result: &BlendResult,
-) -> Vec<(popkern_core::topology::VertexHandle, String)> {
-    result
-        .repair_report
-        .apex_routes
-        .iter()
-        .filter(|route| {
-            matches!(route.route, crate::types::ApexConstructionRoute::DirectApex)
-                && !route.built_faces.is_empty()
-        })
-        .filter_map(|route| {
-            crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
-                validate_candidate_region_self_intersection(&result.brep, &route.built_faces)
-                .err()
-                .map(|detail| (route.vertex, detail))
-        })
-        .collect()
 }
 
 /// [`fillet_edges_serving`] plus the result's setback-corner

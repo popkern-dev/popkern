@@ -1,5 +1,6 @@
 use crate::direct_apex_validate_helpers::{
-    build_under_direct_apex, direct_apex_fallback_reasons, native_cap_faces,
+    build_candidate_under_direct_apex, build_under_direct_apex, direct_apex_fallback_reasons,
+    native_cap_faces,
 };
 use crate::helpers::measure_cap_outer_boundary;
 use popkern_blend::{
@@ -13,7 +14,7 @@ use popkern_blend::{
 /// the final support-authority trim restore.
 #[test]
 fn direct_apex_5_cap_outer_cube_mixed_records_accepted_exact_boundary_route() {
-    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
+    let result = build_candidate_under_direct_apex(false, &[0.08, 0.10, 0.12]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
@@ -240,7 +241,7 @@ fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
     radii: &[f64],
     expect_multipatch_recovery: bool,
 ) {
-    let result = build_under_direct_apex(true, radii);
+    let result = build_candidate_under_direct_apex(true, radii);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),

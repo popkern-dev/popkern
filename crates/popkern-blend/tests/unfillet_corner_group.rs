@@ -116,21 +116,28 @@ fn recordless_uniform_corner_group_restores_cube() {
     assert_restored_cube(&out);
 }
 
-/// The mixed-radius corner serves a LOCAL DirectApex corner group
-/// since PK-255 (three strips, partitioned cap sectors) and the
-/// recordless restore now succeeds — the historical setback-fan
-/// topology (spanning sector faces, far-corner residuals) that
-/// forced a decline to the record path no longer ships for this
-/// class. The restore must produce the exact cube: the group merge
-/// strands a zero-area slit loop per redundant contact edge and
-/// `remove_slit_loop_edges` must clear them (a 13-edge "cube" with a
-/// same-face twin pair was the measured failure).
+/// The mixed-radius corner's direct-apex cap creases across its own
+/// seams (PK-597: certified cap-cap normal sine 1.8e-1, body G0), so the
+/// serve takes the exclusion re-run and the setback rung owns the corner
+/// (certified G1). Recordless restore of the setback-class topology
+/// declines typed to the record path (PK-143), as it did before PK-255;
+/// recordless support for that class is PK-608.
 #[test]
-fn recordless_mixed_radius_corner_group_restores_cube() {
+fn recordless_mixed_radius_corner_group_routes_to_the_record_path() {
+    let result = capped_corner_result([0.08, 0.1, 0.12]);
+    assert!(
+        result.corner_patches.iter().all(|p| p.setback_cap),
+        "the setback rung owns the corner: {:?}",
+        result.corner_patches
+    );
     let (brep, strip) = capped_corner([0.08, 0.1, 0.12]);
-    let out = popkern_blend::unfillet_face(&brep, strip)
-        .expect("mixed-radius corner group must restore recordless");
-    assert_restored_cube(&out);
+    let Err(error) = popkern_blend::unfillet_face(&brep, strip) else {
+        panic!("recordless restore of the setback class must decline typed");
+    };
+    assert!(
+        format!("{error:?}").contains("unfillet_via_record"),
+        "the decline names the record path: {error:?}"
+    );
 }
 
 /// Recordless corner-group MODIFY: change one strip's radius on a
@@ -216,15 +223,14 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     );
 }
 
-/// PK-250/PK-253 pin: with the serving-boundary retry opted in, the
-/// mixed [0.15, 0.1, 0.1] corner's defective direct-apex candidate
-/// (strip 9v1 Cylinder r=0.1 × cap sector Nurbs — the one genuinely
-/// crossing fixture of the class) is detected AFTER the full
-/// pipeline, and the PK-251 serving footprint repair now CLEARS it
-/// in place (material-sense-oriented, scan-depth pushes — PK-253):
-/// the corner keeps its direct serve, no exclusion retry runs, and
-/// the served body validates clean including the self-intersection
-/// check. The repair record is the audit trail.
+/// PK-250/PK-253/PK-597 pin: with the serving-boundary retry opted in,
+/// the mixed [0.15, 0.1, 0.1] corner's direct-apex candidate crosses a
+/// strip (strip 9v1 Cylinder r=0.1 × cap sector Nurbs) and the PK-251
+/// footprint repair clears the crossing in place — but the repaired cap
+/// still creases across its own seams (certified cap-cap normal sine
+/// 2.4e-1, body G0), so PK-597's crease check sends the corner to the
+/// exclusion re-run. The retry record names the crease; the served body
+/// validates clean and certifies G1 (g1 1.6e-6).
 #[test]
 fn direct_mixed_15_10_10_retry_serves_clean() {
     let options = FilletOptions {
@@ -242,27 +248,21 @@ fn direct_mixed_15_10_10_retry_serves_clean() {
         repairs[0].cleared,
         "the repair clears the crossing in place: {repairs:?}"
     );
+    let retries = &r.repair_report.serving_self_intersection_retries;
     assert!(
-        r.repair_report.serving_self_intersection_retries.is_empty(),
-        "a cleared repair leaves nothing for the exclusion retry"
+        retries
+            .iter()
+            .any(|retry| retry.detail.contains("served cap-cap crease")),
+        "the creased cap takes the exclusion re-run: {retries:?}"
     );
-    let route = r
-        .repair_report
-        .apex_routes
-        .iter()
-        .find(|route| route.vertex == repairs[0].vertex)
-        .expect("repaired apex has a route record");
     assert!(
-        matches!(
-            route.route,
-            popkern_blend::ApexConstructionRoute::DirectApex
-        ),
-        "the repaired apex keeps its direct serve: {:?}",
-        route.route
+        r.corner_patches.iter().all(|p| p.setback_cap),
+        "the setback rung serves the corner: {:?}",
+        r.corner_patches
     );
     let errors = r.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "repaired serve must validate clean: {errors:?}"
+        "the re-run serve must validate clean: {errors:?}"
     );
 }

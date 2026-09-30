@@ -49,6 +49,7 @@ pub(crate) fn setback_min_n_for(
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     classification: crate::vertex_classifier::VertexBlendClassification,
     tolerance: &Tolerance,
+    explicit_subpatch_family: bool,
 ) -> usize {
     if crate::dispatch_overrides::SETBACK_DISABLE.get() == Some(true) {
         usize::MAX
@@ -56,11 +57,38 @@ pub(crate) fn setback_min_n_for(
         corner_radii_uniform(edge_indices, edge_geometries, tolerance),
         fillet_surfaces,
         classification,
-    ) {
+    ) || (!explicit_subpatch_family
+        && oblique_cylinder_corner(edge_indices, edge_geometries, fillet_surfaces))
+    {
         3
     } else {
         5
     }
+}
+
+/// Whether a uniform cylindrical corner's strip axes are NOT mutually
+/// orthogonal (PK-597). The rolling-ball sphere is only constructed for
+/// the orthogonal (cube-class) trihedron: at an oblique corner — every
+/// regular pyramid apex — `try_spherical_blend`'s fit on co-circular
+/// samples is degenerate (PK-229/233), so a "sphere-owned" oblique
+/// corner fell to the boundary-ring Gregory cap (n = 4 G1: 27° crease,
+/// body G0). Such corners take the setback rung instead (measured: n = 4
+/// h = 1.2 r = 0.16 G1 certifies G1 at g1 9.3e-10). A sub-patch family
+/// flag keeps these corners on the vertex-blend ladder, whose reaching
+/// fixture they are (direct-apex promotion stands down likewise).
+fn oblique_cylinder_corner(
+    edge_indices: &[usize],
+    edge_geometries: &[crate::construct::EdgeGeometry],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    fillet_surfaces
+        .iter()
+        .all(|fs| matches!(fs.surface, SurfaceGeometry::Cylinder { .. }))
+        && !crate::construct::direct_apex_promotion::cylinder_axes_mutually_orthogonal(
+            edge_indices,
+            edge_geometries,
+        )
 }
 
 /// §6c-X.A.7 helper: detect whether all incident fillets at this
@@ -212,6 +240,7 @@ mod tests {
             None,
             None,
             crate::types::CornerCapPreference::default(),
+            false,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
     }
@@ -241,6 +270,7 @@ mod tests {
             None,
             None,
             crate::types::CornerCapPreference::default(),
+            false,
         );
         // This should fail (no edge geometries -> empty fillet surfaces
         // -> blend boundary computation fails), but NOT at the anchor check.

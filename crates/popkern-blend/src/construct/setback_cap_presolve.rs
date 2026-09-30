@@ -161,6 +161,7 @@ pub(crate) fn presolve_setback_caps(
     edge_geometries: &[EdgeGeometry],
     classifications: &BTreeMap<VertexHandle, crate::vertex_classifier::VertexBlendClassification>,
     tolerance: &Tolerance,
+    explicit_subpatch_family: bool,
     cancelled: bool,
 ) -> SetbackCapPresolve {
     if cancelled || !crate::construct::setback_vertex_topology::setback_topology_commit_enabled() {
@@ -183,6 +184,7 @@ pub(crate) fn presolve_setback_caps(
                 &fillet_surfaces,
                 classification,
                 tolerance,
+                explicit_subpatch_family,
             );
             (edge_indices.len() >= min_n && fillet_surfaces.len() >= 3).then_some((
                 *vertex,

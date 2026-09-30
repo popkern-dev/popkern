@@ -48,6 +48,15 @@ pub fn apply_blend_geometry(
     // protected so sliver_absorb/cap_insert/late re-wiring don't re-author the cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
+    // A sub-patch family flag keeps the vertex-blend ladder reachable on
+    // the corners that are its reaching fixtures: direct-apex promotion
+    // stands down for it, and so does the setback rung's oblique-corner
+    // eligibility (PK-597).
+    let explicit_subpatch_family = use_biquintic_full_gregory
+        || use_biseptic_gregory
+        || use_two_stripe_gregory
+        || use_kp_binonic_gregory
+        || use_kp_polar_gregory;
     // PK-603: a stated setback/fitted preference keeps direct apex off
     // the corners its rung can reach, so the rung runs there first.
     let excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle> =
@@ -58,6 +67,7 @@ pub fn apply_blend_geometry(
                 edge_geometries,
                 corner_cap,
                 tolerance,
+                explicit_subpatch_family,
             ))
             .copied()
             .collect();
@@ -69,11 +79,7 @@ pub fn apply_blend_geometry(
         direct_apex_promotion::PromotionFlags {
             use_rational_gregory,
             use_kp_binonic_gregory,
-            explicit_subpatch_family_requested: use_biquintic_full_gregory
-                || use_biseptic_gregory
-                || use_two_stripe_gregory
-                || use_kp_binonic_gregory
-                || use_kp_polar_gregory,
+            explicit_subpatch_family_requested: explicit_subpatch_family,
         },
         tolerance,
     );
@@ -176,6 +182,7 @@ pub fn apply_blend_geometry(
                 edge_geometries,
                 &precomputed,
                 tolerance,
+                explicit_subpatch_family,
                 apply_cancel_poll(cancel).is_err(),
             );
             // PK-276 per-corner progress: corners are the dominant
@@ -329,6 +336,7 @@ pub fn apply_blend_geometry(
                         Some(pre),
                         cap_presolve.get(vertex),
                         corner_cap,
+                        explicit_subpatch_family,
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
                             failures.extend(corner_cap_preference::strict_decline_failure(

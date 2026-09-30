@@ -75,7 +75,14 @@ fn mixed_radius_trihedral_corner_produces_gregory() {
         })
         .collect();
 
-    let r = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
+    // Construction-level: observe the exact-boundary route itself. Its cap
+    // creases across its own seams, so the serving layer re-runs this corner
+    // on the setback rung (PK-597); the serving retry is off here.
+    let options = FilletOptions {
+        serving_self_intersection_retry: false,
+        ..FilletOptions::default()
+    };
+    let r = fillet_edges(&cube, &specs, &options, tol(), None).unwrap();
     let route = r
         .repair_report
         .apex_routes
