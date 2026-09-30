@@ -24,6 +24,16 @@ const MAX_CAP_OUTER_G0: f64 = 5.0e-3;
 const MAX_CAP_OUTER_G1: f64 = 5.0e-2;
 
 fn cube_corner_result(radii: [f64; 3], corner_position: [f64; 3]) -> BlendResult {
+    cube_corner_result_with_retry(radii, corner_position, true)
+}
+
+/// The corner fillet with the serving retry on or off (off observes
+/// the construction).
+fn cube_corner_result_with_retry(
+    radii: [f64; 3],
+    corner_position: [f64; 3],
+    retry: bool,
+) -> BlendResult {
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
     let corner = brep
@@ -54,7 +64,11 @@ fn cube_corner_result(radii: [f64; 3], corner_position: [f64; 3]) -> BlendResult
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    crate::fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None).expect("cube fillet")
+    let options = FilletOptions {
+        serving_self_intersection_retry: retry,
+        ..FilletOptions::default()
+    };
+    crate::fillet_edges(&brep, &specs, &options, tol, None).expect("cube fillet")
 }
 
 fn assert_direct_commercial_serve(label: &str, result: &BlendResult) {
@@ -125,24 +139,20 @@ fn assert_crease_rerun_serve(label: &str, result: &crate::types::BlendResult) {
     );
 }
 
-/// The PK-255 ledger fixture at (1,1,1) serves DirectApex at commercial
-/// quality with no serving machinery (measured g0 = 1.7e-8, g1 = 1.4e-5;
-/// certified cap-cap normal sine 9.3e-3, under the G1 gate). The
-/// mirrored (0,0,0) corner's cap creases across its own seams (certified
-/// 7.3e-2, PK-597) and takes the exclusion re-run.
+/// The PK-255 ledger fixture at (1,1,1) served DirectApex with no
+/// serving machinery and cap-outer quality g0 1.7e-8 / g1 1.4e-5, but
+/// its sector seams crease toward the cap centre (certified normal-sine
+/// lower bounds 0.48-0.95; PK-597's 9.3e-3 read only the seams the
+/// 30° intent bound gated, PK-609). Both it and the mirrored (0,0,0)
+/// corner (certified 7.3e-2) take the exclusion re-run; the construction
+/// keeps the commercial cap-outer quality it was pinned on.
 #[test]
 fn steep_asymmetry_corner_serves_direct_at_commercial_quality() {
-    let result = cube_corner_result([0.05, 0.1, 0.2], [1.0, 1.0, 1.0]);
     let label = "cube [0.05,0.1,0.2] @ (1,1,1)";
-    assert!(
-        result.repair_report.serving_footprint_repairs.is_empty()
-            && result
-                .repair_report
-                .serving_self_intersection_retries
-                .is_empty(),
-        "{label}: must serve without serving machinery"
-    );
-    assert_direct_commercial_serve(label, &result);
+    let construction = cube_corner_result_with_retry([0.05, 0.1, 0.2], [1.0, 1.0, 1.0], false);
+    assert_direct_commercial_serve(label, &construction);
+    let result = cube_corner_result([0.05, 0.1, 0.2], [1.0, 1.0, 1.0]);
+    assert_crease_rerun_serve(label, &result);
     let mirrored = cube_corner_result([0.05, 0.1, 0.2], [0.0, 0.0, 0.0]);
     assert_crease_rerun_serve("cube [0.05,0.1,0.2] @ (0,0,0)", &mirrored);
 }

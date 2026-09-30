@@ -1,7 +1,11 @@
 //! Seam intent classification for the continuity evidence (PK-592):
 //! which live seams are gated for G1/G2 and which are designed creases.
 
+use std::collections::BTreeSet;
+
 use popkern_core::topology::{BRep, FaceHandle};
+
+use crate::cap_seam_measure::EdgeSeamFaces;
 
 use super::{BlendSeamKind, ContinuityGates};
 
@@ -56,6 +60,87 @@ pub(super) fn smooth_intent(
         }
         _ => within_bound,
     }
+}
+
+/// Seam intent over one blend: the classification rules plus the
+/// blend's corner-cap interior (PK-609).
+pub(super) struct SeamIntent<'a> {
+    brep: &'a BRep,
+    gates: &'a ContinuityGates,
+    /// Blend faces every one of whose edge neighbours is a blend face:
+    /// corner-cap pieces (KP20 fan pieces, fitted, direct-apex and
+    /// vertex-blend sectors). Fillet strips and chamfer faces border
+    /// their supports, so they are never interior.
+    interior: BTreeSet<FaceHandle>,
+}
+
+impl<'a> SeamIntent<'a> {
+    pub(super) fn new(
+        brep: &'a BRep,
+        blend: &BTreeSet<FaceHandle>,
+        gates: &'a ContinuityGates,
+    ) -> Self {
+        let interior = blend
+            .iter()
+            .copied()
+            .filter(|&f| {
+                edge_neighbours(brep, f).is_some_and(|ns| ns.iter().all(|n| blend.contains(n)))
+            })
+            .collect();
+        Self {
+            brep,
+            gates,
+            interior,
+        }
+    }
+
+    /// Whether the seam is gated for G1/G2 (intended smooth).
+    ///
+    /// A seam between two sectors of one corner cap is smooth by
+    /// construction: no cap is designed with an internal crease. It is
+    /// gated at any angle — the angle bound let a direct-apex cube cap
+    /// whose sector seam certifies a normal sine of 0.9998 read as a
+    /// designed crease and the blend as G1 (PK-609). Two planar pieces
+    /// (a chamfer's corner patch) stay designed creases. Every other
+    /// seam follows [`smooth_intent`].
+    pub(super) fn gated(
+        &self,
+        kind: BlendSeamKind,
+        worst: &crate::cap_seam_measure::SeamWorst,
+        adjacency: &EdgeSeamFaces,
+        blend_face: FaceHandle,
+    ) -> bool {
+        let (a, b) = (adjacency.face_a, adjacency.face_b);
+        if kind == BlendSeamKind::BlendToBlend
+            && self.interior.contains(&a)
+            && self.interior.contains(&b)
+            && !(planar(self.brep, a) && planar(self.brep, b))
+        {
+            return true;
+        }
+        smooth_intent(kind, worst, planar(self.brep, blend_face), self.gates)
+    }
+}
+
+/// Every face sharing an edge with `face` (all loops), or `None` when
+/// a loop is broken or an edge has no second side.
+fn edge_neighbours(brep: &BRep, face: FaceHandle) -> Option<Vec<FaceHandle>> {
+    let data = brep.faces.get(face)?;
+    let mut out = Vec::new();
+    for &lh in std::iter::once(&data.outer_loop).chain(&data.inner_loops) {
+        let start = brep.loops.get(lh)?.half_edge;
+        let mut cursor = start;
+        for _ in 0..=brep.half_edges.len() {
+            let he = brep.half_edges.get(cursor)?;
+            let twin = brep.half_edges.get(he.twin)?;
+            out.push(brep.loops.get(twin.loop_)?.face);
+            cursor = he.next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    Some(out)
 }
 
 /// Whether `face` carries a plane.

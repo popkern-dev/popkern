@@ -97,7 +97,9 @@ fn cube_mixed_exact_boundary_cap_outer_passes_commercial_gate() {
 
 #[test]
 fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
-    let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    // The construction (serving retry off): its sector seams crease
+    // across the cap (PK-609), so the serve takes the exclusion re-run.
+    let result = build_candidate_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
@@ -197,7 +199,9 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
 
 #[test]
 fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
-    let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    // The construction (serving retry off): its sector seams crease
+    // across the cap (PK-609), so the serve takes the exclusion re-run.
+    let result = build_candidate_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let route = result
         .repair_report
         .apex_routes

@@ -249,6 +249,16 @@ impl BRep {
                 s.x, s.y, e.x, e.y
             );
         }
+        // A pcurve spanning another stretch of the edge's carrier (the
+        // edge was trimmed under it) cannot be repaired by endpoint
+        // surgery: re-project it (PK-610, see `pcurve_end_snap`).
+        if self.pcurve_end_snap_folds(heh, existing, surface) {
+            if trace {
+                eprintln!("  [pcurve] {heh:?} cleared (mis-spanned), recomputing");
+            }
+            self.half_edges[heh].pcurve = None;
+            return false;
+        }
         // Non-periodic self-loops use the 3D trim fallback.
         if !is_periodic {
             return true;

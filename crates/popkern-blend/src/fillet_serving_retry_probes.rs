@@ -60,13 +60,16 @@ pub(super) fn served_direct_apex_self_intersections(
 /// Served direct-apex corners whose cap creases across its own seams
 /// (PK-597), with the worst seam. Measured by the whole-seam continuity
 /// evidence on the served body, restricted to seams between two of the
-/// corner's cap faces. The PK-197 mid-seam instrument is not used: on a
-/// mixed n = 4 G1 apex it read 1.5e-8 where the evidence reads a 28.6°
-/// cap-cap crease, and 0.98 on cube caps the evidence reads clean
-/// (PK-607). A gated cap-cap normal jump above the commercial G1 gate
-/// breaks the G1 every corner blend claims, so the corner takes the
-/// exclusion re-run (measured: the n = 4 apex then serves the setback
-/// rung, certified G1 at 2.8e-9).
+/// corner's cap faces — every such seam, whatever its angle: a cap
+/// has no designed internal crease (PK-609; under the blend-to-blend
+/// angle bound the cube 0.05/0.2/0.3 cap's sector seam, certified
+/// normal sine 0.9998, read as a designed crease and never fired).
+/// The PK-197 mid-seam instrument is not used: it reads fractions
+/// 0.4-0.6 only (1.5e-8 on a mixed n = 4 G1 apex whose cap creases
+/// 28.6° toward the seam ends, PK-607). A cap-cap normal jump above the
+/// commercial G1 gate breaks the G1 every corner blend claims, so the
+/// corner takes the exclusion re-run (measured: the n = 4 apex then
+/// serves the setback rung, certified G1 at 2.8e-9).
 pub(super) fn served_direct_apex_creases(
     result: &BlendResult,
 ) -> Vec<(popkern_core::topology::VertexHandle, String)> {
@@ -90,9 +93,7 @@ pub(super) fn served_direct_apex_creases(
             let worst = evidence
                 .seams
                 .iter()
-                .filter(|seam| {
-                    seam.gated && both_sides_in(&result.brep, seam.edge, &route.built_faces)
-                })
+                .filter(|seam| both_sides_in(&result.brep, seam.edge, &route.built_faces))
                 .map(|seam| seam.worst_g1_normal)
                 .fold(0.0_f64, f64::max);
             (worst > gates.g1_normal).then(|| {

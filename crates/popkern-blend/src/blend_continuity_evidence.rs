@@ -39,8 +39,8 @@
 //!   angle on a curved blend (a degraded rail), is gated; a strip end
 //!   (crease varying with the profile), a planar fragment, or a crease
 //!   past the bound is designed-sharp. See `blend_continuity_intent`.
-//! - **Blend-to-blend seams** keep the measured-angle bound
-//!   [`ContinuityGates::smooth_intent_max_angle_deg`].
+//! - **Blend-to-blend seams** keep the angle bound, except inside a corner
+//!   cap: gated at any angle between two blend-enclosed faces (PK-609).
 //!
 //! Both are measurement-side readings of construction intent (the
 //! honest source would be rail provenance threaded through commit). A
@@ -346,6 +346,7 @@ pub fn measure_blend_continuity_evidence_with(
 ) -> BlendContinuityEvidence {
     let jets = crate::cap_seam_side::SurfaceJetCache::default();
     let set: std::collections::BTreeSet<FaceHandle> = blend_faces.iter().copied().collect();
+    let seam_intent = intent::SeamIntent::new(brep, &set, gates);
     let certify = evidence_certify_options(brep, gates);
     let inline = certification == ContinuityCertification::Inline;
     let mut seams = Vec::new();
@@ -370,7 +371,7 @@ pub fn measure_blend_continuity_evidence_with(
         };
         let worst = measure_edge_seam(&seam, samples_per_seam, EVIDENCE_END_MARGIN);
         let blend_face = [adjacency.face_b, adjacency.face_a][usize::from(a_in)];
-        let gated = intent::smooth_intent(kind, &worst, intent::planar(brep, blend_face), gates);
+        let gated = seam_intent.gated(kind, &worst, &adjacency, blend_face);
         let certificate =
             (gated && inline).then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
         seams.push(SeamContinuityRecord {

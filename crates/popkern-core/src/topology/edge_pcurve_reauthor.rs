@@ -49,28 +49,36 @@ pub fn coparameterised_pcurves(
         let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
         let ahead = pcurve_for(surface, curve, range, tolerance)?;
         let behind = reversed_pcurve(&ahead);
-        let reversed = match half_edge.pcurve.as_ref() {
-            Some(old) => {
-                let trace = |p: &Pcurve| -> Vec<Point3> {
-                    [0.25, 0.5, 0.75]
-                        .iter()
-                        .map(|f| {
-                            let uv = p.point_at(p.t_start + (p.t_end - p.t_start) * f);
-                            surface.point_at(uv.x, uv.y)
-                        })
-                        .collect()
-                };
-                let old_trace = trace(old);
-                let score = |p: &Pcurve| -> f64 {
-                    trace(p)
-                        .iter()
-                        .zip(&old_trace)
-                        .map(|(a, b)| a.distance_to(b))
-                        .fold(0.0, f64::max)
-                };
-                score(&behind) < score(&ahead)
-            }
-            None => default_reversed,
+        // An open edge's half-edge runs from its origin vertex: that
+        // fixes the direction (PK-610: a strip pcurve still spanning
+        // the pre-carve edge out-voted the vertices and authored a
+        // fitted rim's neighbour pcurve backwards). Only a closed rim,
+        // whose one vertex cannot tell, keeps the old trace's sense.
+        let reversed = match vertex_sense(brep, he, curve) {
+            Some(reversed) => reversed,
+            None => match half_edge.pcurve.as_ref() {
+                Some(old) => {
+                    let trace = |p: &Pcurve| -> Vec<Point3> {
+                        [0.25, 0.5, 0.75]
+                            .iter()
+                            .map(|f| {
+                                let uv = p.point_at(p.t_start + (p.t_end - p.t_start) * f);
+                                surface.point_at(uv.x, uv.y)
+                            })
+                            .collect()
+                    };
+                    let old_trace = trace(old);
+                    let score = |p: &Pcurve| -> f64 {
+                        trace(p)
+                            .iter()
+                            .zip(&old_trace)
+                            .map(|(a, b)| a.distance_to(b))
+                            .fold(0.0, f64::max)
+                    };
+                    score(&behind) < score(&ahead)
+                }
+                None => default_reversed,
+            },
         };
         let mut pcurve = if reversed { behind } else { ahead };
         if let Some(old) = half_edge.pcurve.as_ref() {
@@ -82,6 +90,24 @@ pub fn coparameterised_pcurves(
         out.push((he, pcurve));
     }
     Some(out)
+}
+
+/// Whether half-edge `he` runs against `curve`, from its vertices:
+/// `None` for a closed curve (its ends coincide) or when the origin is
+/// not clearly nearer one end.
+fn vertex_sense(brep: &BRep, he: HalfEdgeHandle, curve: &CurveOnEdge) -> Option<bool> {
+    let origin = brep.vertices.get(brep.half_edges.get(he)?.origin)?.position;
+    let geometry: &dyn CurveEval = &curve.geometry;
+    let (start, end) = (
+        geometry.point_at(curve.t_start),
+        geometry.point_at(curve.t_end),
+    );
+    let (d_start, d_end) = (origin.distance_to(&start), origin.distance_to(&end));
+    let length = start.distance_to(&end);
+    if length < 1e-9 || (d_start - d_end).abs() < 0.5 * length {
+        return None;
+    }
+    Some(d_end < d_start)
 }
 
 /// The pcurve of `curve` on `surface`: the exact plane arm, the

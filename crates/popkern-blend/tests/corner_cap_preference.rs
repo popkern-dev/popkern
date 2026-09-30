@@ -23,6 +23,18 @@ fn cube_corner_with(
     construction: CornerConstruction,
     strict: bool,
 ) -> Result<BlendResult, BlendError> {
+    cube_corner_with_retry(radii, continuity, construction, strict, true)
+}
+
+/// [`cube_corner_with`] with the serving retry on or off (off observes
+/// the construction, before any exclusion re-run).
+fn cube_corner_with_retry(
+    radii: &[f64],
+    continuity: ContinuityLevel,
+    construction: CornerConstruction,
+    strict: bool,
+    serving_self_intersection_retry: bool,
+) -> Result<BlendResult, BlendError> {
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let corner = cube
         .vertices
@@ -44,6 +56,7 @@ fn cube_corner_with(
             construction,
             strict,
         },
+        serving_self_intersection_retry,
         ..Default::default()
     };
     fillet_edges(&cube, &specs, &options, Tolerance::default(), None)
@@ -187,18 +200,21 @@ fn classic_skips_the_setback_rung() {
 fn a_stated_preference_holds_direct_apex_off_rung_corners() {
     // G1 mixed-radius cylindrical corners are a promoted direct-apex
     // class: under `auto` direct apex claims the corner before the
-    // rung. A stated `fitted` preference must reach the rung.
-    let auto = cube_corner_with(
+    // rung (observed at construction; its sector seams crease, PK-609,
+    // so the serve then takes the exclusion re-run onto the rung). A
+    // stated `fitted` preference reaches the rung without that re-run.
+    let auto = cube_corner_with_retry(
         &[0.05, 0.2, 0.3],
         ContinuityLevel::G1,
         CornerConstruction::Auto,
+        false,
         false,
     )
     .expect("auto");
     assert_eq!(
         fitted_sectors(&auto),
         0,
-        "control: auto must not already serve the fit here: {:?}",
+        "control: auto's construction is not the fit: {:?}",
         auto.corner_patches
     );
     assert!(
@@ -217,5 +233,13 @@ fn a_stated_preference_holds_direct_apex_off_rung_corners() {
     )
     .expect("fitted");
     assert!(fitted_sectors(&fitted) >= 3, "{:?}", fitted.corner_patches);
+    assert!(
+        fitted
+            .repair_report
+            .serving_self_intersection_retries
+            .is_empty(),
+        "the preference reaches the rung directly: {:?}",
+        fitted.repair_report.serving_self_intersection_retries
+    );
     assert!(fitted.brep.validate().is_ok());
 }
