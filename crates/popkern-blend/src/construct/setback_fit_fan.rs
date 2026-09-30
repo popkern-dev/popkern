@@ -22,6 +22,7 @@ use popkern_core::geometry::{
 use super::*;
 use crate::blend_continuity_evidence::ContinuityGates;
 use crate::construct::kp20_paper_border_extract::Kp20SetbackArc;
+use crate::construct::setback_commit_gate::fit_cap_region_self_intersection;
 use crate::construct::setback_decline::CapCommitError;
 use crate::construct::setback_fit_cap::fit_sides;
 use crate::types::{SetbackFitCertified, SetbackFitMode};
@@ -106,11 +107,9 @@ pub(super) fn commit_fit_fan(
             fit_certified: Some(certified),
         });
     }
-    if let Err(intersection) = crate::apex_construction::exact_boundary_cap::
-        cap_quality_postcondition::validate_candidate_region_self_intersection(brep, &cap_faces)
-    {
+    if let Err(intersection) = fit_cap_region_self_intersection(brep, &cap_faces, fillet_surfaces) {
         return Err(CapCommitError {
-            reason: format!("variational fit cap self-intersection postcondition failed: {intersection}"),
+            reason: format!("fit cap self-intersection postcondition failed: {intersection}"),
             fit_certified: Some(certified),
         });
     }

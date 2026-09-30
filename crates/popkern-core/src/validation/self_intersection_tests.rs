@@ -4,7 +4,7 @@ use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
-use crate::topology::BRep;
+use crate::topology::{BRep, FaceHandle};
 
 /// Build a degree-1 bilinear NURBS patch (a flat quad) spanning a finite
 /// parameter region.  The four corner control points are given in the order
@@ -124,8 +124,9 @@ fn all_faces_without_surfaces_pass() {
 ///
 /// Both patches share the segment x∈[0,1], y=0, z=0, so their AABBs overlap
 /// and `intersect_surfaces_with_handler` finds an intersection line.
-#[test]
-fn self_intersecting_faces_detected() {
+/// Two crossing quads (the fixture above), each an isolated shell:
+/// `(brep, face A, face B, [the shells' surfaceless outer faces])`.
+fn crossing_quads() -> (BRep, FaceHandle, FaceHandle, [FaceHandle; 2]) {
     let mut brep = BRep::new(Tolerance::default());
 
     // Face A — isolated topology node; carries patch A geometry.
@@ -177,10 +178,42 @@ fn self_intersecting_faces_detected() {
         orientation: true,
     });
 
+    (brep, mef_a.face, mef_b.face, [mvfs_a.face, mvfs_b.face])
+}
+
+#[test]
+fn self_intersecting_faces_detected() {
+    let (brep, _, _, _) = crossing_quads();
     let result = brep.validate_self_intersection();
     assert!(
         matches!(result, Err(ValidationError::SelfIntersection { .. })),
         "expected SelfIntersection error, got: {result:?}"
+    );
+}
+
+/// PK-598: the focus-scoped scan keeps only pairs touching the focus.
+#[test]
+fn touching_scan_keeps_only_pairs_with_a_focus_face() {
+    let (brep, a, b, outer) = crossing_quads();
+    let region: Vec<FaceHandle> = brep.faces.keys().collect();
+    assert!(
+        matches!(
+            brep.validate_self_intersection_touching(&region, &[a]),
+            Err(ValidationError::SelfIntersection { .. })
+        ),
+        "the crossing pair touches the focus"
+    );
+    assert!(
+        matches!(
+            brep.validate_self_intersection_touching(&region, &[b]),
+            Err(ValidationError::SelfIntersection { .. })
+        ),
+        "either side of the pair is enough"
+    );
+    assert!(
+        brep.validate_self_intersection_touching(&region, &outer)
+            .is_ok(),
+        "the crossing pair touches no focus face"
     );
 }
 

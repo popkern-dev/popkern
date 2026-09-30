@@ -185,6 +185,10 @@ pub(super) struct EnergyFactor {
     pub gram: Mat<f64>,
 }
 
+/// One sector's reduced energy: `(c, d, Zₛᵀ E_cd Zₛ, constant-term
+/// row)` per nonzero coordinate block, and its linear term.
+type SectorReduction = (Vec<(usize, usize, Mat<f64>, Vec<f64>)>, Vec<f64>);
+
 /// Reduce the energy onto `level`'s null space. The Gram is normalised
 /// to unit mean diagonal, so the fairness weight is a relative weight
 /// per unknown.
@@ -200,9 +204,12 @@ pub(super) fn energy_factor(
     let gram = energy_gram(space, integrand, anchor);
     let per = space.m * space.m;
     let size = gram.size;
-    let mut g = Mat::<f64>::zeros(3 * k, 3 * k);
-    let mut h = vec![0.0; 3 * k];
-    for (s, block) in gram.blocks.iter().enumerate() {
+    // Each sector's reduction `Zₛᵀ E_cd Zₛ` is independent; sectors
+    // reduce in parallel and their contributions accumulate below in
+    // the serial loop's order (sector, then c, then d), so `g` and `h`
+    // are bit-identical to it (PK-598: 0.05 s per refresh at n = 8).
+    let reduce = |s: usize| -> SectorReduction {
+        let block = &gram.blocks[s];
         let base = s * per;
         let free_local: Vec<(usize, usize)> = (0..per)
             .filter_map(|l| match hs.slots[base + l] {
@@ -218,6 +225,7 @@ pub(super) fn energy_factor(
             .collect();
         let fl = free_local.len();
         let zs = Mat::from_fn(fl, k, |a, j| hs.z.read(free_local[a].1, j));
+        let mut pairs = Vec::new();
         for c in 0..3 {
             for d in 0..3 {
                 let e_uu = Mat::from_fn(fl, fl, |a, b| {
@@ -244,12 +252,6 @@ pub(super) fn energy_factor(
                     1.0,
                     faer::Parallelism::None,
                 );
-                for i in 0..k {
-                    for j in 0..k {
-                        let at = (c * k + i, d * k + j);
-                        g.write(at.0, at.1, g.read(at.0, at.1) + zez.read(i, j));
-                    }
-                }
                 // Constants: E_cd (x_p,d on free rows, f_d on fixed rows).
                 let mut ex = vec![0.0; fl];
                 for (a, &(la, _)) in free_local.iter().enumerate() {
@@ -263,21 +265,51 @@ pub(super) fn energy_factor(
                     }
                     ex[a] = acc;
                 }
-                for i in 0..k {
-                    h[c * k + i] += (0..fl).map(|a| zs.read(a, i) * ex[a]).sum::<f64>();
-                }
+                let hc: Vec<f64> = (0..k)
+                    .map(|i| (0..fl).map(|a| zs.read(a, i) * ex[a]).sum::<f64>())
+                    .collect();
+                pairs.push((c, d, zez, hc));
             }
         }
         // The linear term (E = xᵀBx − 2bᵀx) on the free coefficients.
         let lin = &gram.linear[s];
-        for c in 0..3 {
+        let linear: Vec<f64> = (0..3)
+            .flat_map(|c| {
+                let (zs, free_local) = (&zs, &free_local);
+                (0..k).map(move |i| {
+                    free_local
+                        .iter()
+                        .enumerate()
+                        .map(|(a, &(la, _))| zs.read(a, i) * lin[c * per + la])
+                        .sum::<f64>()
+                })
+            })
+            .collect();
+        (pairs, linear)
+    };
+    #[cfg(feature = "parallel")]
+    let reductions: Vec<SectorReduction> = {
+        use rayon::prelude::*;
+        (0..gram.blocks.len()).into_par_iter().map(reduce).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let reductions: Vec<SectorReduction> = (0..gram.blocks.len()).map(reduce).collect();
+    let mut g = Mat::<f64>::zeros(3 * k, 3 * k);
+    let mut h = vec![0.0; 3 * k];
+    for (pairs, linear) in reductions {
+        for (c, d, zez, hc) in pairs {
             for i in 0..k {
-                h[c * k + i] -= free_local
-                    .iter()
-                    .enumerate()
-                    .map(|(a, &(la, _))| zs.read(a, i) * lin[c * per + la])
-                    .sum::<f64>();
+                for j in 0..k {
+                    let at = (c * k + i, d * k + j);
+                    g.write(at.0, at.1, g.read(at.0, at.1) + zez.read(i, j));
+                }
             }
+            for (i, v) in hc.into_iter().enumerate() {
+                h[c * k + i] += v;
+            }
+        }
+        for (hi, v) in h.iter_mut().zip(linear) {
+            *hi -= v;
         }
     }
     let dim = 3 * k;

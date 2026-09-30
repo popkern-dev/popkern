@@ -56,6 +56,28 @@ impl BRep {
         }
     }
 
+    /// [`Self::validate_self_intersection_among`] restricted to the
+    /// pairs with at least one face in `focus`: a local construction
+    /// (a corner cap) that changed only `focus` checks its new faces
+    /// against the region without re-proving the pairs among the
+    /// untouched neighbours, which it did not change. Same adjacency
+    /// exemption, pruning, certificates and pair budget; the budget is
+    /// spent only on focus pairs.
+    pub fn validate_self_intersection_touching(
+        &self,
+        face_keys: &[FaceHandle],
+        focus: &[FaceHandle],
+    ) -> Result<(), ValidationError> {
+        let focus: std::collections::BTreeSet<FaceHandle> = focus.iter().copied().collect();
+        match self
+            .scan_self_intersecting_pairs(face_keys, Some(&focus), false, false)
+            .first()
+        {
+            Some(&(face_a, face_b)) => Err(ValidationError::SelfIntersection { face_a, face_b }),
+            None => Ok(()),
+        }
+    }
+
     fn trace_self_intersection_pair(
         &self,
         face_a: crate::topology::FaceHandle,

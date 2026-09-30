@@ -161,6 +161,9 @@ pub(super) fn try_setback_rung(
     (None, diagnostics)
 }
 
+/// One setback surgery's outcome.
+type SurgeryResult = Result<SetbackTopologyOutcome, SetbackDecline>;
+
 impl SetbackRung<'_> {
     fn surgery(
         &self,
@@ -256,6 +259,38 @@ impl SetbackRung<'_> {
         serve(brep, ContinuityLevel::G1)
     }
 
+    /// A two-mode ladder's attempts run concurrently (PK-598): the
+    /// first on `brep`, the second on a clone of the rung's snapshot,
+    /// both under the calling thread's test overrides. Both are pure
+    /// functions of the snapshot, so each outcome is the one the serial
+    /// ladder computes; the caller still consumes them in order, and a
+    /// served first attempt discards the second. The second attempt's
+    /// wall time hides behind the first (octagon8 mixed: 0.48 s
+    /// curvature-weighted then 1.25 s tangent).
+    fn concurrent_attempts(
+        &self,
+        brep: &mut BRep,
+        modes: &[SetbackFitMode],
+    ) -> (Option<SurgeryResult>, Option<(BRep, SurgeryResult)>) {
+        #[cfg(feature = "parallel")]
+        if let [a, b] = *modes {
+            let overrides = crate::dispatch_overrides::ThreadOverrides::capture();
+            let mut other = self.commit_snapshot.clone();
+            let (first, second) = rayon::join(
+                // Called from outside the pool, `join` runs BOTH closures
+                // on pool workers: each carries the overrides.
+                || overrides.apply(|| self.surgery(brep, SetbackCapStrategy::VariationalFit(a))),
+                || {
+                    overrides
+                        .apply(|| self.surgery(&mut other, SetbackCapStrategy::VariationalFit(b)))
+                },
+            );
+            return (Some(first), Some((other, second)));
+        }
+        let _ = (brep, modes);
+        (None, None)
+    }
+
     /// The fit modes the request admits: curvature-weighted under a G2
     /// request, then tangent.
     fn fit_modes(&self) -> &'static [SetbackFitMode] {
@@ -275,8 +310,17 @@ impl SetbackRung<'_> {
         modes: &[SetbackFitMode],
     ) -> RungStep {
         let mut reasons = Vec::new();
+        let (mut first, mut ahead) = self.concurrent_attempts(brep, modes);
         for &mode in modes {
-            match self.surgery(brep, SetbackCapStrategy::VariationalFit(mode)) {
+            let attempt = if let Some(result) = first.take() {
+                result
+            } else if let Some((attempted, result)) = ahead.take() {
+                *brep = attempted;
+                result
+            } else {
+                self.surgery(brep, SetbackCapStrategy::VariationalFit(mode))
+            };
+            match attempt {
                 Ok(outcome) => {
                     let Some(serve) = outcome.fit.clone() else {
                         *brep = self.commit_snapshot.clone();

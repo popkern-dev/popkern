@@ -43,6 +43,10 @@ pub(super) fn solve(
     solve_qr(energy, lambda, rim, damping)
 }
 
+/// Diagonal spread past which the normal equations cannot factorise
+/// (see [`solve_normal`]).
+const NORMAL_EQUATIONS_MAX_DIAGONAL_RATIO: f64 = 1e16;
+
 fn solve_normal(
     energy: &EnergyFactor,
     lambda: f64,
@@ -55,6 +59,29 @@ fn solve_normal(
     use faer::linalg::matmul::matmul;
     let dim = energy.l.nrows();
     let k = dim / 3;
+    // κ(H) ≥ max Hᵢᵢ / min Hᵢᵢ for symmetric positive definite H. Past
+    // 1/ε the factor's smallest pivot keeps no correct digit and the
+    // factorisation fails (measured on every n = 5..8 pyramid fit:
+    // ratios 7e16..1e20, all declined): read the diagonal from the
+    // row norms and skip straight to the QR without forming AᵀA
+    // (PK-598: ~0.05 s per step at 666 unknowns).
+    if !ridge_allowed {
+        let diag: Vec<f64> = (0..dim)
+            .map(|j| {
+                (0..rows.nrows())
+                    .map(|i| rows.read(i, j).powi(2))
+                    .sum::<f64>()
+                    + lambda * energy.gram.read(j, j)
+                    + mu[j]
+            })
+            .collect();
+        let (lo, hi) = diag.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &d| {
+            (lo.min(d), hi.max(d))
+        });
+        if !(lo > 0.0 && hi / lo <= NORMAL_EQUATIONS_MAX_DIAGONAL_RATIO) {
+            return None;
+        }
+    }
     let mut h = Mat::<f64>::zeros(dim, dim);
     matmul(
         h.as_mut(),

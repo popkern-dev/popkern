@@ -44,6 +44,7 @@
 use popkern_core::geometry::gregory::{Kp20PaperCapReport, Kp20PaperGuideBorder};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -89,6 +90,34 @@ pub(in crate::construct) fn paper_cap_acceptance(
         report.max_border_residual,
         report.min_regularity,
     ))
+}
+
+/// The fitted cap's self-intersection postcondition (PK-574, scoped
+/// by PK-598): the cap's pieces against the whole candidate region
+/// (cap plus edge-adjacent neighbours).
+///
+/// Pairs among the untouched neighbours are re-proved only when the
+/// strips are in the flat-section interpenetration class — the one
+/// class where two carved strips genuinely cross near the corner (the
+/// rho 0.35 cube), exactly the trigger the KP20 fan's strip-conflict
+/// postcondition uses. Otherwise the neighbour pairs are the strips
+/// and supports the carve already committed, which the fit does not
+/// change, and re-proving them cost 0.08-0.64 s per attempt (measured
+/// 2026-09-29 on pentagon/hexagon/octagon apexes).
+pub(in crate::construct) fn fit_cap_region_self_intersection(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> Result<(), String> {
+    use crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::{
+        candidate_region, validate_candidate_region_self_intersection,
+    };
+    if flat_section_class(fillet_surfaces).is_some() {
+        return validate_candidate_region_self_intersection(brep, cap_faces);
+    }
+    let region = candidate_region(brep, cap_faces);
+    brep.validate_self_intersection_touching(&region, cap_faces)
+        .map_err(|error| format!("{error}"))
 }
 
 /// Decline reason when any strip's section is flatter than its
@@ -204,3 +233,7 @@ fn section_fullness(section: impl Fn(f64) -> Point3) -> Option<(f64, f64)> {
     let rho_circular = c_half / (1.0 + c_half);
     Some((rho, rho_circular))
 }
+
+#[cfg(test)]
+#[path = "setback_commit_gate_tests.rs"]
+mod tests;

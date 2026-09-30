@@ -38,6 +38,19 @@ impl BRep {
         collect_all: bool,
         tangential_band_is_clean: bool,
     ) -> Vec<(FaceHandle, FaceHandle)> {
+        self.scan_self_intersecting_pairs(face_keys, None, collect_all, tangential_band_is_clean)
+    }
+
+    /// The scan behind [`Self::collect_self_intersecting_pairs_among`];
+    /// `focus`, when set, keeps only pairs with at least one face in it
+    /// (see [`Self::validate_self_intersection_touching`]).
+    pub(crate) fn scan_self_intersecting_pairs(
+        &self,
+        face_keys: &[FaceHandle],
+        focus: Option<&std::collections::BTreeSet<FaceHandle>>,
+        collect_all: bool,
+        tangential_band_is_clean: bool,
+    ) -> Vec<(FaceHandle, FaceHandle)> {
         let mut found: Vec<(FaceHandle, FaceHandle)> = Vec::new();
         let face_keys: Vec<FaceHandle> = {
             let mut seen = std::collections::BTreeSet::new();
@@ -201,7 +214,9 @@ impl BRep {
                 break;
             }
             let pair = if i < j { (i, j) } else { (j, i) };
-            if adjacent.contains(&pair) {
+            if adjacent.contains(&pair)
+                || focus.is_some_and(|f| !f.contains(&face_keys[i]) && !f.contains(&face_keys[j]))
+            {
                 continue;
             }
 

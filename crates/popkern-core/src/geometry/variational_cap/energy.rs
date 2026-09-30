@@ -50,7 +50,7 @@ pub(super) struct EnergyGram {
 /// a parametric regulariser strong enough to prevent that also flattens
 /// the shape (measured sag).
 pub(super) struct Anchor<'a> {
-    pub reference: &'a dyn Fn(usize, f64, f64) -> Option<(Vec3, [Vec3; 2])>,
+    pub reference: &'a (dyn Fn(usize, f64, f64) -> Option<(Vec3, [Vec3; 2])> + Sync),
     pub weight: f64,
 }
 
@@ -59,7 +59,7 @@ pub(super) enum Integrand<'a> {
     /// Parametric thin plate with metric `metric(s, u, v)` and membrane
     /// weight `eps`.
     Parametric {
-        metric: &'a dyn Fn(usize, f64, f64) -> [f64; 3],
+        metric: &'a (dyn Fn(usize, f64, f64) -> [f64; 3] + Sync),
         eps: f64,
     },
     /// Bending `∫ tr(G⁻¹BG⁻¹B)`, `B_ab = N·∂_a∂_b x`, against a frozen
@@ -67,7 +67,7 @@ pub(super) enum Integrand<'a> {
     /// thin plate and `eps` membrane. Fourth order: the energy for a fit
     /// constrained at the rim to G1 only.
     Bending {
-        reference: &'a dyn Fn(usize, f64, f64) -> Option<(Vec3, [f64; 3])>,
+        reference: &'a (dyn Fn(usize, f64, f64) -> Option<(Vec3, [f64; 3])> + Sync),
         regular: f64,
         eps: f64,
     },
@@ -75,11 +75,15 @@ pub(super) enum Integrand<'a> {
     /// (see [`Reference`]), plus `regular` times the parametric thin
     /// plate and `eps` membrane.
     MeanCurvatureVariation {
-        reference: &'a dyn Fn(usize, f64, f64) -> Option<Reference>,
+        reference: &'a (dyn Fn(usize, f64, f64) -> Option<Reference> + Sync),
         regular: f64,
         eps: f64,
     },
 }
+
+/// One sector's energy, regulariser and anchor blocks and anchor
+/// linear term.
+type SectorBlocks = (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>);
 
 /// Assemble the Gram blocks for `space`.
 pub(super) fn energy_gram(
@@ -92,17 +96,16 @@ pub(super) fn energy_gram(
     let size = 3 * per;
     let nodes = gauss_legendre(space.degree + 2);
     let spans = space.spans();
-    let mut blocks = Vec::with_capacity(space.n);
     // The mean-curvature-variation part and its parametric regulariser
     // are assembled apart and balanced by trace before weighting: the
     // third-order MCV entries are orders larger than the thin plate's,
     // and under one shared normalisation the regulariser vanished and
     // the tangential directions went singular (measured: the cube corner
     // 0.05/0.2/0.3 declined `Singular`, pyramid4 h=3 folded).
-    let mut regular_blocks = Vec::with_capacity(space.n);
-    let mut anchor_blocks = Vec::with_capacity(space.n);
-    let mut linear = Vec::with_capacity(space.n);
-    for sector in 0..space.n {
+    // Sectors are independent quadratures: they assemble in parallel
+    // with an ordered collect, so the blocks are bit-identical to the
+    // serial loop (PK-598: 0.09-0.11 s per bending refresh at n = 8).
+    let assemble = |sector: usize| {
         let mut block = vec![0.0; size * size];
         let mut regular_block = vec![0.0; size * size];
         let mut anchor_block = vec![0.0; size * size];
@@ -182,6 +185,20 @@ pub(super) fn energy_gram(
                 }
             }
         }
+        (block, regular_block, anchor_block, anchor_linear)
+    };
+    #[cfg(feature = "parallel")]
+    let per_sector: Vec<SectorBlocks> = {
+        use rayon::prelude::*;
+        (0..space.n).into_par_iter().map(assemble).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let per_sector: Vec<SectorBlocks> = (0..space.n).map(assemble).collect();
+    let mut blocks = Vec::with_capacity(space.n);
+    let mut regular_blocks = Vec::with_capacity(space.n);
+    let mut anchor_blocks = Vec::with_capacity(space.n);
+    let mut linear = Vec::with_capacity(space.n);
+    for (block, regular_block, anchor_block, anchor_linear) in per_sector {
         blocks.push(block);
         regular_blocks.push(regular_block);
         anchor_blocks.push(anchor_block);

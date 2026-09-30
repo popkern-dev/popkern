@@ -223,3 +223,48 @@ pub fn with_kp20_bi9_resample_disabled<R>(f: impl FnOnce() -> R) -> R {
 pub(crate) fn kp20_bi9_resample_disabled() -> bool {
     KP20_BI9_RESAMPLE_DISABLED.with(std::cell::Cell::get)
 }
+
+/// The thread-scoped seams above, captured on one thread so work that
+/// a construction hands to another thread (the setback rung's
+/// concurrent fit attempts, PK-598) runs under the same overrides.
+#[derive(Clone, Copy)]
+pub(crate) struct ThreadOverrides {
+    setback_decline: bool,
+    kp20_cap_decline: bool,
+    fit_cap_rim_tilted: bool,
+    kp20_bi9_disabled: bool,
+}
+
+impl ThreadOverrides {
+    /// The calling thread's overrides.
+    pub(crate) fn capture() -> Self {
+        Self {
+            setback_decline: setback_decline_forced(),
+            kp20_cap_decline: kp20_cap_decline_forced(),
+            fit_cap_rim_tilted: fit_cap_rim_tilted(),
+            kp20_bi9_disabled: kp20_bi9_resample_disabled(),
+        }
+    }
+
+    /// Run `f` on this thread under the captured overrides, restoring
+    /// the thread's own afterwards.
+    pub(crate) fn apply<R>(self, f: impl FnOnce() -> R) -> R {
+        struct Restore([bool; 4]);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                let [a, b, c, d] = self.0;
+                SETBACK_DECLINE_FORCED.with(|cell| cell.set(a));
+                KP20_CAP_DECLINE_FORCED.with(|cell| cell.set(b));
+                FIT_CAP_RIM_TILTED.with(|cell| cell.set(c));
+                KP20_BI9_RESAMPLE_DISABLED.with(|cell| cell.set(d));
+            }
+        }
+        let _restore = Restore([
+            SETBACK_DECLINE_FORCED.with(|cell| cell.replace(self.setback_decline)),
+            KP20_CAP_DECLINE_FORCED.with(|cell| cell.replace(self.kp20_cap_decline)),
+            FIT_CAP_RIM_TILTED.with(|cell| cell.replace(self.fit_cap_rim_tilted)),
+            KP20_BI9_RESAMPLE_DISABLED.with(|cell| cell.replace(self.kp20_bi9_disabled)),
+        ]);
+        f()
+    }
+}

@@ -36,21 +36,22 @@ pub(super) fn certify_cap(
         decision_gates: Some([gates.g0_gap, RECORD_SINE, gates.g2_curvature]),
         ..evidence_certify_options(brep, gates)
     };
-    let (mut rim, mut spoke) = ([0.0f64; 3], [0.0f64; 3]);
-    let mut seams = 0;
-    for (edge, data) in brep.edges.iter() {
-        let Some(he) = brep.half_edges.get(data.half_edge) else {
-            continue;
-        };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
-            continue;
-        };
-        let (fa, fb) = (brep.loops[he.loop_].face, brep.loops[tw.loop_].face);
-        let (ca, cb) = (caps.contains(&fa), caps.contains(&fb));
-        if !(ca || cb) || fa == fb {
-            continue;
-        }
-        seams += 1;
+    // Every seam touching the cap: (spoke?, edge). Each certificate is
+    // a pure read of the BRep, so the seams certify in parallel (PK-598:
+    // octagon8 mixed, 16 seams, 1.8 s serial); the fold is a max, so
+    // the claim does not depend on order.
+    let targets: Vec<(bool, popkern_core::topology::EdgeHandle)> = brep
+        .edges
+        .iter()
+        .filter_map(|(edge, data)| {
+            let he = brep.half_edges.get(data.half_edge)?;
+            let tw = brep.half_edges.get(he.twin)?;
+            let (fa, fb) = (brep.loops[he.loop_].face, brep.loops[tw.loop_].face);
+            let (ca, cb) = (caps.contains(&fa), caps.contains(&fb));
+            ((ca || cb) && fa != fb).then_some((ca && cb, edge))
+        })
+        .collect();
+    let certify = |&(is_spoke, edge): &(bool, popkern_core::topology::EdgeHandle)| {
         let cert =
             popkern_core::topology::edge_seam_certificate::certify_edge_seam(brep, edge, &options);
         let bounds = if cert.bounds_cover_seam() {
@@ -58,11 +59,23 @@ pub(super) fn certify_cap(
         } else {
             [f64::INFINITY; 3]
         };
-        let slot = if ca && cb { &mut spoke } else { &mut rim };
+        (is_spoke, bounds)
+    };
+    #[cfg(feature = "parallel")]
+    let certified: Vec<(bool, [f64; 3])> = {
+        use rayon::prelude::*;
+        targets.par_iter().map(certify).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let certified: Vec<(bool, [f64; 3])> = targets.iter().map(certify).collect();
+    let (mut rim, mut spoke) = ([0.0f64; 3], [0.0f64; 3]);
+    for (is_spoke, bounds) in &certified {
+        let slot = if *is_spoke { &mut spoke } else { &mut rim };
         for (s, b) in slot.iter_mut().zip(bounds) {
-            *s = s.max(b);
+            *s = s.max(*b);
         }
     }
+    let seams = certified.len();
     if seams == 0 {
         return Err("variational fit cap has no seams to certify".into());
     }
