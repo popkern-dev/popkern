@@ -78,6 +78,9 @@ pub(crate) struct SeamWorst {
     pub(crate) g1: f64,
     /// Fraction along the seam where [`Self::g1`] occurred.
     pub(crate) g1_fraction: Option<f64>,
+    /// Smallest `|n_a × n_b|` over the samples (infinite without any):
+    /// whether the two sides run tangent anywhere along the seam.
+    pub(crate) best_g1: f64,
     /// Worst normal angle in degrees.
     pub(crate) angle_deg: f64,
     /// Worst normal-curvature jump ALONG the seam direction.
@@ -123,6 +126,7 @@ pub(crate) fn measure_edge_seam(
         g0: 0.0,
         g1: 0.0,
         g1_fraction: None,
+        best_g1: f64::INFINITY,
         angle_deg: 0.0,
         g2: 0.0,
         g2_transverse: 0.0,
@@ -133,6 +137,7 @@ pub(crate) fn measure_edge_seam(
         out.g0 = out.g0.max(r.g0);
         let Some(g1) = r.g1 else { continue };
         out.samples += 1;
+        out.best_g1 = out.best_g1.min(g1);
         if g1 > out.g1 {
             out.g1 = g1;
             out.g1_fraction = Some(r.fraction);

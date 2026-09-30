@@ -32,17 +32,21 @@
 //! Not every live seam of a blend is supposed to be smooth: an
 //! open-ended fillet strip terminates against a transverse face in a
 //! crease *by design* (the end cross-section), and gating G1 there
-//! would make every open-ended fillet read `G0`. Seam intent is
-//! classified by the measured normal angle against
-//! [`ContinuityGates::smooth_intent_max_angle_deg`]: within the bound
-//! the seam is gated for G1/G2; beyond it the seam is recorded as
-//! intended-sharp and gated for G0 only. This is a measurement-side
-//! approximation of construction intent (the honest source would be
-//! rail provenance threaded through commit — a recorded follow-up):
-//! a seam that degrades *past* the bound stops being gated, so
-//! corpus baselines must pin the gated/sharp seam census alongside
-//! the residuals — a rail collapsing into "sharp" then trips the
-//! census, not silence.
+//! would make every open-ended fillet read `G0`.
+//!
+//! - **Blend-to-support seams** are classified structurally (PK-592): a
+//!   seam that runs tangent somewhere, or creases by a constant sub-bound
+//!   angle on a curved blend (a degraded rail), is gated; a strip end
+//!   (crease varying with the profile), a planar fragment, or a crease
+//!   past the bound is designed-sharp. See `blend_continuity_intent`.
+//! - **Blend-to-blend seams** keep the measured-angle bound
+//!   [`ContinuityGates::smooth_intent_max_angle_deg`].
+//!
+//! Both are measurement-side readings of construction intent (the
+//! honest source would be rail provenance threaded through commit). A
+//! seam misread as sharp stops being gated, so corpus baselines pin the
+//! gated/sharp seam census alongside the residuals: a rail collapsing
+//! into "sharp" then trips the census, not silence.
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 use serde::{Deserialize, Serialize};
@@ -53,6 +57,9 @@ pub use crate::blend_continuity_certification::ContinuityCertification;
 use crate::blend_continuity_certification::{certify_seam_for_evidence, evidence_certify_options};
 use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 use crate::types::ContinuityLevel;
+
+#[path = "blend_continuity_intent.rs"]
+mod intent;
 
 /// Explicit residual gates for classifying measured continuity.
 ///
@@ -133,8 +140,13 @@ pub struct SeamContinuityRecord {
     /// Worst `|n_a × n_b|` across samples.
     pub worst_g1_normal: f64,
     /// Worst angle between the sides' normals, in degrees (the
-    /// intent-classification signal).
+    /// blend-to-blend intent-classification signal).
     pub worst_normal_angle_deg: f64,
+    /// Smallest `|n_a × n_b|` across samples: whether the sides run
+    /// tangent anywhere along the seam (the blend-to-support intent
+    /// signal, PK-592). Infinite when no sample gave both normals.
+    #[serde(default = "intent::no_tangency")]
+    pub best_g1_normal: f64,
     /// Worst normal-curvature jump over every in-tangent-plane
     /// direction: the spectral norm of the second-fundamental-form jump,
     /// assembled from the along-seam, transverse and diagonal readings
@@ -357,7 +369,8 @@ pub fn measure_blend_continuity_evidence_with(
             continue;
         };
         let worst = measure_edge_seam(&seam, samples_per_seam, EVIDENCE_END_MARGIN);
-        let gated = worst.angle_deg <= gates.smooth_intent_max_angle_deg;
+        let blend_face = [adjacency.face_b, adjacency.face_a][usize::from(a_in)];
+        let gated = intent::smooth_intent(kind, &worst, intent::planar(brep, blend_face), gates);
         let certificate =
             (gated && inline).then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
         seams.push(SeamContinuityRecord {
@@ -369,6 +382,7 @@ pub fn measure_blend_continuity_evidence_with(
             worst_g0_gap: worst.g0,
             worst_g1_normal: worst.g1,
             worst_normal_angle_deg: worst.angle_deg,
+            best_g1_normal: worst.best_g1,
             worst_g2_residual: worst.g2.max(worst.g2_transverse),
             certificate,
             certification_deferred: gated && !inline,
