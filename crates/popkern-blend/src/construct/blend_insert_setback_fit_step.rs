@@ -27,10 +27,10 @@ impl SetbackRung<'_> {
     /// ladder computes; the caller still consumes them in order, and a
     /// served first attempt discards the second. The second attempt's
     /// wall time hides behind the first (octagon8 mixed: 0.48 s
-    /// curvature-weighted then 1.25 s tangent). Later attempts (the
-    /// corner-cell rescue, the bridged border) run serially, only after
-    /// both fail; a G1 ladder runs serially (its rescue is rarely
-    /// needed).
+    /// curvature-weighted then 1.25 s tangent). The bridged border's
+    /// first pair runs the same way when the ladder reaches it; the
+    /// corner-cell rescues run serially, and a G1 ladder runs serially
+    /// (its rescue is rarely needed).
     pub(super) fn concurrent_attempts(
         &self,
         brep: &mut BRep,
@@ -135,6 +135,23 @@ impl SetbackRung<'_> {
         let mut held: Option<HeldFit> = None;
         for (index, &candidate) in ladder.iter().enumerate() {
             let FitCandidate { mode, .. } = candidate;
+            // The bridged pass's first pair runs concurrently too, when
+            // neither attempt has run (PK-620: the octagon h1.2 variable
+            // apex's bridged tangent fit, 10 s, hides behind its
+            // curvature-weighted fit, 62 s).
+            if first.is_none()
+                && ahead.is_none()
+                && candidate.border == SetbackFitBorder::Bridged
+                && ladder[..index]
+                    .iter()
+                    .all(|c| c.border == SetbackFitBorder::Corners)
+                && ladder[index..]
+                    .iter()
+                    .take(2)
+                    .all(|c| c.border == SetbackFitBorder::Bridged && !c.ran(record))
+            {
+                (first, ahead) = self.concurrent_attempts(brep, &ladder[index..]);
+            }
             let attempt = if let Some(result) = first.take() {
                 result
             } else if let Some((attempted, result)) = ahead.take() {
