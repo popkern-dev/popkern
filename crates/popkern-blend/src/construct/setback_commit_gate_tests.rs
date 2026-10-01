@@ -67,20 +67,43 @@ fn a_served_fit_cap_passes_and_a_displaced_sector_declines() {
     // where it was, but its surface now runs through the sectors and
     // strips opposite (not its edge neighbours, whose contact every
     // scan exempts: sinking it along the axis crossed only those).
-    let Some(SurfaceGeometry::Nurbs(nurbs)) = brep.faces[caps[0]]
+    let shift = |points: &mut dyn Iterator<Item = &mut popkern_core::geometry::Point3>| {
+        let points: Vec<&mut popkern_core::geometry::Point3> = points.collect();
+        let count = points.len() as f64;
+        let (cx, cy) = points
+            .iter()
+            .fold((0.0, 0.0), |(x, y), p| (x + p.x / count, y + p.y / count));
+        for p in points {
+            *p = *p - Vec3::new(2.0 * cx, 2.0 * cy, 0.0);
+        }
+    };
+    match brep.faces[caps[0]]
         .surface
         .as_mut()
         .map(|s| &mut s.geometry)
-    else {
-        panic!("fitted sectors are NURBS");
-    };
-    let count = nurbs.control_points.len() as f64;
-    let (cx, cy) = nurbs
-        .control_points
-        .iter()
-        .fold((0.0, 0.0), |(x, y), p| (x + p.x / count, y + p.y / count));
-    for p in &mut nurbs.control_points {
-        *p = *p - Vec3::new(2.0 * cx, 2.0 * cy, 0.0);
+    {
+        Some(SurfaceGeometry::Nurbs(nurbs)) => shift(&mut nurbs.control_points.iter_mut()),
+        // A curvature-weighted fit serves dual-jet patches (PK-595): the
+        // grid and both claims of each corner cell move together.
+        Some(SurfaceGeometry::Gregory(
+            popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonicDualJet(patch),
+        )) => {
+            let patch = &mut **patch;
+            let claims = patch.corners.iter_mut().flatten().flat_map(|c| {
+                [
+                    &mut c.cell_11.0,
+                    &mut c.cell_11.1,
+                    &mut c.cell_12.0,
+                    &mut c.cell_12.1,
+                    &mut c.cell_21.0,
+                    &mut c.cell_21.1,
+                    &mut c.cell_22.0,
+                    &mut c.cell_22.1,
+                ]
+            });
+            shift(&mut patch.grid.iter_mut().flatten().chain(claims));
+        }
+        _ => panic!("fitted sectors are NURBS or dual-jet patches"),
     }
     let verdict = fit_cap_region_self_intersection(&brep, &caps, &[]);
     assert!(

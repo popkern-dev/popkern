@@ -10,7 +10,6 @@
 //! decline; the surgery restores the snapshot.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::variational_cap::{
     CapEnergy, VariationalCap, VariationalCapOptions, VariationalCapTargets, fit_variational_cap,
@@ -29,6 +28,9 @@ use crate::types::{SetbackFitCertified, SetbackFitMode};
 
 #[path = "setback_fit_certify.rs"]
 mod setback_fit_certify;
+#[path = "setback_fit_pcurves.rs"]
+mod setback_fit_pcurves;
+use setback_fit_pcurves::author_cap_pcurves;
 
 /// A certified fit serve.
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +63,12 @@ pub(super) fn commit_fit_fan(
             VariationalCapOptions {
                 max_refinement_levels: 0,
                 energy: CapEnergy::MeanCurvatureVariation,
+                // PK-614: one freeze bent the blunt pentagon to 3.03 / r_min
+                // (three: 1.31) and the hexagon h1.2 to 12.4 (4.39).
+                reference_passes: 3,
+                // PK-595: each rim owns its corner 2-jet (dual-jet cells, degree 9).
+                corner_cells: true,
+                degree: 9,
                 ..Default::default()
             },
         ),
@@ -78,6 +86,7 @@ pub(super) fn commit_fit_fan(
         .map_err(|e| format!("variational fit: {e}"))?;
     if crate::dispatch_overrides::fit_cap_rim_tilted() {
         tilt_rim_row(&mut cap.sectors[0]);
+        tilted_face(&mut cap.faces[0], &cap.sectors[0]);
     }
     if mode == SetbackFitMode::CurvatureWeighted {
         curvature_witness_gate(&cap, gates.g2_curvature)?;
@@ -166,6 +175,31 @@ fn author_neighbour_pcurves(
 /// 0 and 1 carry the spoke `v = 0` and its cross tangent, the last two
 /// the `v = 1` rim and its — so exactly one thing breaks: the `u = 1`
 /// rim's cross tangent (position intact).
+/// The served face after [`tilt_rim_row`] moved its plain net: a NURBS
+/// face takes the net; a dual-jet face its grid and the u-claims of the
+/// dual cells (the u = 1 rim reads them), the v-claims kept.
+fn tilted_face(face: &mut SurfaceGeometry, sector: &NurbsSurface) {
+    use popkern_core::geometry::gregory::GregoryPatch;
+    match face {
+        SurfaceGeometry::Nurbs(n) => *n = sector.clone(),
+        SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonicDualJet(patch)) => {
+            let m = sector.num_v;
+            for (i, row) in patch.grid.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    *cell = sector.control_points[i * m + j];
+                }
+            }
+            for block in patch.corners.iter_mut().flatten() {
+                block.cell_11.0 = patch.grid[8][8];
+                block.cell_12.0 = patch.grid[8][7];
+                block.cell_21.0 = patch.grid[7][8];
+                block.cell_22.0 = patch.grid[7][7];
+            }
+        }
+        _ => {}
+    }
+}
+
 fn tilt_rim_row(sector: &mut NurbsSurface) {
     let (m_u, m_v) = (sector.num_u, sector.num_v);
     if m_u < 2 || m_v < 5 {
@@ -348,7 +382,7 @@ fn build_sector_faces(
             n_nb = n_nb * -1.0;
         }
         brep.faces[face].surface = Some(SurfaceOnFace {
-            geometry: SurfaceGeometry::Nurbs(sec.clone()),
+            geometry: cap.faces[s].clone(),
             orientation: n_cap.dot(&n_nb) > 0.0,
         });
     }
@@ -449,51 +483,4 @@ fn param_on(curve: &popkern_core::geometry::NurbsCurve, p: Point3) -> f64 {
     } else {
         t
     }
-}
-
-/// Exact Linear iso pcurves on every cap half-edge: each vertex of a
-/// sector face maps to its sector parameters (o → (0,0), a spoke point
-/// → an edge of the unit square, rim points → u = 1 or v = 1).
-fn author_cap_pcurves(
-    brep: &mut BRep,
-    cap_faces: &[FaceHandle],
-    cap: &VariationalCap,
-) -> Result<(), String> {
-    for (s, &face) in cap_faces.iter().enumerate() {
-        let sec = &cap.sectors[s];
-        let rims = [sec.iso_curve_at_u(1.0), sec.iso_curve_at_v(1.0)];
-        let spokes = [sec.iso_curve_at_v(0.0), sec.iso_curve_at_u(0.0)];
-        let uv_of = |p: Point3| -> (f64, f64) {
-            let cands = [
-                (param_on(&rims[0], p), 0usize),
-                (param_on(&rims[1], p), 1),
-                (param_on(&spokes[0], p), 2),
-                (param_on(&spokes[1], p), 3),
-            ];
-            let curves = [&rims[0], &rims[1], &spokes[0], &spokes[1]];
-            let (t, k) = cands
-                .iter()
-                .copied()
-                .min_by(|a, b| {
-                    curves[a.1]
-                        .point_at(a.0)
-                        .distance_to(&p)
-                        .total_cmp(&curves[b.1].point_at(b.0).distance_to(&p))
-                })
-                .unwrap_or((0.0, 0));
-            match k {
-                0 => (1.0, t),
-                1 => (t, 1.0),
-                2 => (t, 0.0),
-                _ => (0.0, t),
-            }
-        };
-        for he in face_loop_half_edges(brep, face)? {
-            let a = brep.vertices[brep.half_edges[he].origin].position;
-            let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
-            let (uv_a, uv_b) = (uv_of(a), uv_of(b));
-            brep.half_edges[he].pcurve = Some(Pcurve::linear(uv_a, uv_b, 0.0, 1.0));
-        }
-    }
-    Ok(())
 }

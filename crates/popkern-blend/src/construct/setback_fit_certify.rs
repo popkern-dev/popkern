@@ -16,6 +16,13 @@ use crate::types::{ContinuityLevel, SetbackFitCertified};
 /// the commercial G1 gate.
 const RECORD_SINE: f64 = 1e-5;
 
+/// Intervals per seam. The corner-cell fit's degree-9 spokes are G2 by
+/// construction (every certified lower bound 0) but their curvature
+/// enclosures widen beside the valence-n centre: on the cube corner
+/// 0.05/0.2/0.3 one spoke stopped at the evidence's 256 intervals with
+/// an upper bound 7.2e-2 over the 5e-2 gate (PK-595).
+const FIT_CERTIFY_BUDGET: usize = 1024;
+
 /// Certify the cap's seams and derive its level.
 pub(super) fn certify_cap(
     brep: &BRep,
@@ -34,6 +41,7 @@ pub(super) fn certify_cap(
     let options = SeamCertifyOptions {
         targets: popkern_core::topology::edge_seam_certificate::seam_certify_options(brep).targets,
         decision_gates: Some([gates.g0_gap, RECORD_SINE, gates.g2_curvature]),
+        budget: FIT_CERTIFY_BUDGET,
         ..evidence_certify_options(brep, gates)
     };
     // Every seam touching the cap: (spoke?, edge). Each certificate is

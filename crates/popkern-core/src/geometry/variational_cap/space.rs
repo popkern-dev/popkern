@@ -7,6 +7,12 @@
 //! surface quantity the fit uses is a linear functional of that vector,
 //! represented sparsely as `(index, weight)` pairs.
 
+use super::corner_cells::{
+    CELLS, CORNER_CELL_DEGREE, CornerOwner, cell_slot, claim_weight, complement, dual_jet_patch,
+    product,
+};
+use crate::geometry::SurfaceGeometry;
+use crate::geometry::gregory::GregoryPatch;
 use crate::geometry::nurbs_ops::{basis::basis_funs_and_two_derivs, find_span};
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
@@ -17,6 +23,8 @@ pub(super) type Functional = Vec<(usize, f64)>;
 /// Basis functions with their first two derivatives at one parameter.
 #[derive(Debug, Clone)]
 pub(super) struct Basis1 {
+    /// The parameter.
+    pub t: f64,
     /// Global index of the first non-zero function.
     pub first: usize,
     /// `[value, d/dt, d²/dt²]` per non-zero function.
@@ -34,6 +42,10 @@ pub(super) struct SectorSpace {
     pub knots: Vec<f64>,
     /// Control points per direction.
     pub m: usize,
+    /// Dual-jet corner cells at every sector's rim corner (PK-595, see
+    /// `corner_cells`): four v-claims per sector after its `m²` plain
+    /// coefficients.
+    pub corner_cells: bool,
 }
 
 impl SectorSpace {
@@ -45,7 +57,26 @@ impl SectorSpace {
             degree,
             knots,
             m,
+            corner_cells: false,
         }
+    }
+
+    /// The same space with dual-jet corner cells: degree 9, one span (a
+    /// sector is then a dual-jet patch, see `corner_cells`); other
+    /// spaces are returned unchanged.
+    pub fn with_corner_cells(mut self) -> Self {
+        self.corner_cells = self.spans().len() == 1 && self.degree == CORNER_CELL_DEGREE;
+        self
+    }
+
+    /// Coefficients per coordinate in one sector.
+    pub fn per(&self) -> usize {
+        self.m * self.m + if self.corner_cells { CELLS } else { 0 }
+    }
+
+    /// Flat index of dual-cell `slot`'s v-claim in `sector`.
+    pub fn claim_index(&self, sector: usize, slot: usize) -> usize {
+        sector * self.per() + self.m * self.m + slot
     }
 
     /// The single-span (Bézier) space.
@@ -57,12 +88,13 @@ impl SectorSpace {
 
     /// Coefficients per coordinate over all sectors.
     pub fn total(&self) -> usize {
-        self.n * self.m * self.m
+        self.n * self.per()
     }
 
-    /// Flat index of control point `(i, j)` of `sector`.
+    /// Flat index of control point `(i, j)` of `sector` (the u-claim at
+    /// a dual cell).
     pub fn index(&self, sector: usize, i: usize, j: usize) -> usize {
-        sector * self.m * self.m + i * self.m + j
+        sector * self.per() + i * self.m + j
     }
 
     /// The distinct knot spans `[a, b)` of `K`.
@@ -79,9 +111,68 @@ impl SectorSpace {
         let span = find_span(self.degree, &self.knots, self.m, t);
         let (b0, b1, b2) = basis_funs_and_two_derivs(self.degree, &self.knots, span, t);
         Basis1 {
+            t,
             first: span - self.degree,
             funcs: (0..=self.degree).map(|r| [b0[r], b1[r], b2[r]]).collect(),
         }
+    }
+
+    /// The basis products of one sector at `(bu.t, bv.t)`: local index
+    /// and `[f, ∂u, ∂v, ∂uu, ∂uv, ∂vv]`. A dual cell contributes its
+    /// u-claim at the plain slot and its v-claim after the `m²` plain
+    /// slots, each with the claim weight folded in.
+    pub fn local_supports(
+        &self,
+        bu: &Basis1,
+        bv: &Basis1,
+        owner: CornerOwner,
+    ) -> Vec<(usize, [f64; 6])> {
+        self.supports_in_order(bu, bv, owner, false)
+    }
+
+    /// [`Self::local_supports`] in u-major (`v_major == false`, the
+    /// energy's order) or v-major order (the functionals' order): each
+    /// caller keeps its historical summation order, so a space without
+    /// corner cells evaluates bit for bit as before PK-595.
+    fn supports_in_order(
+        &self,
+        bu: &Basis1,
+        bv: &Basis1,
+        owner: CornerOwner,
+        v_major: bool,
+    ) -> Vec<(usize, [f64; 6])> {
+        let m = self.m;
+        let (nu, nv) = (bu.funcs.len(), bv.funcs.len());
+        let mut out = Vec::with_capacity(nu * nv + CELLS);
+        let weight = self.corner_cells.then(|| claim_weight(bu.t, bv.t, owner));
+        let (outer_len, inner_len) = if v_major { (nv, nu) } else { (nu, nv) };
+        for outer in 0..outer_len {
+            for inner in 0..inner_len {
+                let (ri, rj) = if v_major {
+                    (inner, outer)
+                } else {
+                    (outer, inner)
+                };
+                let (fu, fv) = (bu.funcs[ri], bv.funcs[rj]);
+                let (i, j) = (bu.first + ri, bv.first + rj);
+                let b = [
+                    fu[0] * fv[0],
+                    fu[1] * fv[0],
+                    fu[0] * fv[1],
+                    fu[2] * fv[0],
+                    fu[1] * fv[1],
+                    fu[0] * fv[2],
+                ];
+                match (weight, cell_slot(m, i, j)) {
+                    (Some(a), Some(slot)) => {
+                        out.push((i * m + j, product(b, a)));
+                        out.push((m * m + slot, product(b, complement(a))));
+                    }
+                    _ => out.push((i * m + j, b)),
+                }
+            }
+        }
+        out
     }
 
     /// The functional `∂^{du+dv} S_sector / ∂u^du ∂v^dv` at `(u, v)`
@@ -94,28 +185,75 @@ impl SectorSpace {
         du: usize,
         dv: usize,
     ) -> Functional {
-        let mut out = Vec::with_capacity(bu.funcs.len() * bv.funcs.len());
-        for (rj, fv) in bv.funcs.iter().enumerate() {
-            for (ri, fu) in bu.funcs.iter().enumerate() {
-                let w = fu[du] * fv[dv];
-                if w != 0.0 {
-                    out.push((self.index(sector, bu.first + ri, bv.first + rj), w));
-                }
-            }
-        }
-        out
+        self.functional_owned(sector, bu, bv, du, dv, CornerOwner::Interior)
+    }
+
+    /// [`Self::functional_from`] for a sample owned by a rim (decides
+    /// the dual cells' claim at the corner itself).
+    pub fn functional_owned(
+        &self,
+        sector: usize,
+        bu: &Basis1,
+        bv: &Basis1,
+        du: usize,
+        dv: usize,
+        owner: CornerOwner,
+    ) -> Functional {
+        let component = match (du, dv) {
+            (0, 0) => 0,
+            (1, 0) => 1,
+            (0, 1) => 2,
+            (2, 0) => 3,
+            (1, 1) => 4,
+            _ => 5,
+        };
+        let base = sector * self.per();
+        self.supports_in_order(bu, bv, owner, true)
+            .into_iter()
+            .filter_map(|(l, d)| (d[component] != 0.0).then_some((base + l, d[component])))
+            .collect()
     }
 
     /// The functional `∂^{du+dv} S_sector / ∂u^du ∂v^dv` at `(u, v)`.
+    #[cfg(test)]
     pub fn functional(&self, sector: usize, u: f64, v: f64, du: usize, dv: usize) -> Functional {
-        let bu = self.basis(u);
-        let bv = self.basis(v);
-        self.functional_from(sector, &bu, &bv, du, dv)
+        self.functional_at(sector, u, v, du, dv, CornerOwner::Interior)
     }
 
-    /// Wrap `sector`'s coefficients as a surface.
+    /// [`Self::functional`] for a sample a rim owns.
+    pub fn functional_at(
+        &self,
+        sector: usize,
+        u: f64,
+        v: f64,
+        du: usize,
+        dv: usize,
+        owner: CornerOwner,
+    ) -> Functional {
+        let bu = self.basis(u);
+        let bv = self.basis(v);
+        self.functional_owned(sector, &bu, &bv, du, dv, owner)
+    }
+
+    /// The face surface of `sector`: the dual-jet patch with corner
+    /// cells, else the sector itself.
+    pub fn face_surface(&self, coords: &[Vec<f64>; 3], sector: usize) -> SurfaceGeometry {
+        if !self.corner_cells {
+            return SurfaceGeometry::Nurbs(self.sector_surface(coords, sector));
+        }
+        let at = |k: usize| Point3::new(coords[0][k], coords[1][k], coords[2][k]);
+        SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonicDualJet(Box::new(
+            dual_jet_patch(&|i, j| at(self.index(sector, i, j)), &|slot| {
+                at(self.claim_index(sector, slot))
+            }),
+        )))
+    }
+
+    /// Wrap `sector`'s plain coefficients (the u-claims at dual cells) as
+    /// a surface. With corner cells it carries the sector's boundary
+    /// curves exactly (the claims are interior cells), not its interior.
     pub fn sector_surface(&self, coords: &[Vec<f64>; 3], sector: usize) -> NurbsSurface {
-        let base = sector * self.m * self.m;
+        let base = sector * self.per();
         let control_points = (0..self.m * self.m)
             .map(|k| {
                 Point3::new(

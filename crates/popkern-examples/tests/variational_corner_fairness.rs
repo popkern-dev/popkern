@@ -391,33 +391,40 @@ fn row_879_fit_fairness_against_kp20() {
         if a.construction != "variational fit" {
             kp20.push((corner.name, a.overshoot));
         }
-        // PK-605: the tangent (G1) fit re-freezes its bending reference
-        // three times; its max k*r_min is pinned where it serves at G1
-        // (before: blunt 5.10, variable 5.73, flagship 1.48,
-        // pyramid3 1.17).
+        // The forced fit's max k*r_min, pinned. PK-605: the tangent fit
+        // re-freezes its bending reference three times (blunt 5.10 ->
+        // 1.76). PK-595 + PK-614: the curvature-weighted fit serves
+        // dual-jet corner cells at G2 with three freezes (one: blunt
+        // 3.03, hexagon 12.4); past the fairness bound it yields to a
+        // fairer tangent fit (hexagon: G2 4.39 -> G1 2.09; the 6x
+        // disparity cube: G2 30.2 -> G1 2.22, was 5.30 before the
+        // G1-phase regularity guard).
         let fit_pin = [
-            ("pentagon5 blunt", 1.76),
-            ("pentagon5 variable", 2.20),
-            ("pentagon flagship", 1.40),
-            ("pyramid3 h1.2", 1.22),
-            // PK-612: the fit ripples beside the thin strip on this 6x
-            // disparity corner (dispatched: KP20 declines) - a measured
-            // frontier, filed with PK-612's follow-ups.
-            ("cube corner 0.05/0.2/0.3", 5.30),
-            ("hexagon6 variable h1.2", 2.20),
+            ("pentagon5 blunt", ContinuityLevel::G2, 1.40),
+            ("pentagon5 variable", ContinuityLevel::G2, 1.80),
+            ("pentagon flagship", ContinuityLevel::G2, 1.40),
+            ("pyramid3 h1.2", ContinuityLevel::G2, 1.30),
+            ("cube corner 0.2", ContinuityLevel::G2, 1.40),
+            ("notched saddle", ContinuityLevel::G2, 1.40),
+            ("cube corner 0.05/0.2/0.3", ContinuityLevel::G1, 2.30),
+            ("hexagon6 variable h1.2", ContinuityLevel::G1, 2.20),
         ];
-        if let Some((_, pin)) = fit_pin.iter().find(|(n, _)| *n == corner.name) {
-            assert!(
-                b.overshoot <= *pin,
-                "{}: fit k*r {:.2} over its pin {pin:.2}",
-                corner.name,
-                b.overshoot
-            );
-        }
-        // PK-612: no dispatched KP20 fan on this set bends past the
-        // bound (a fan past it yields to a fairer fit).
+        let (_, level, pin) = fit_pin
+            .iter()
+            .find(|(n, _, _)| *n == corner.name)
+            .unwrap_or_else(|| panic!("{}: no fit pin", corner.name));
+        assert_eq!(b.level, *level, "{}: forced fit level", corner.name);
         assert!(
-            a.construction == "variational fit" || a.overshoot <= 4.0,
+            b.overshoot <= *pin,
+            "{}: fit k*r {:.2} over its pin {pin:.2}",
+            corner.name,
+            b.overshoot
+        );
+        // PK-612 + PK-614: no dispatched cap on this set bends past the
+        // bound (a fan past it yields to a fairer fit, a fit to a
+        // fairer fit).
+        assert!(
+            a.overshoot <= 4.0,
             "{}: dispatched {} bends to {:.2} / r_min",
             corner.name,
             a.construction,

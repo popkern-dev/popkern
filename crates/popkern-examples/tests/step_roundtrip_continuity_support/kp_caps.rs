@@ -89,12 +89,14 @@ pub(crate) fn notched_saddle() -> Result<BRep, String> {
 }
 
 /// The variational corner fit (PK-574) on the corner KP20 folds on: the
-/// wide mixed-radius cube corner, served by the curvature-weighted fit
-/// at certified G2 with no override.
+/// mixed-radius cube corner (0.08 / 0.2 / 0.3: the fan bends to
+/// 468 / r_min), served by the curvature-weighted fit at certified G2
+/// with no override. At 0.05 / 0.2 / 0.3 the G2 fit bends past the
+/// fairness bound and the tangent fit serves (PK-614).
 pub(crate) fn fit_cube_corner() -> Result<BRep, String> {
     let cube = BRep::unit_cube(Tolerance::default()).map_err(|e| format!("{e}"))?;
     let corner = vertex_at(&cube, Point3::new(1.0, 1.0, 1.0))?;
-    fillet_vertex(&cube, corner, &[0.05, 0.2, 0.3], ContinuityLevel::G2)
+    fillet_vertex(&cube, corner, &[0.08, 0.2, 0.3], ContinuityLevel::G2)
 }
 
 /// The variational corner fit on the KP20 flagship with the KP20 cap

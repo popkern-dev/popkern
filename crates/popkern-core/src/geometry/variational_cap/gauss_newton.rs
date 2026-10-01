@@ -75,11 +75,34 @@ pub(super) fn solve_level(
     };
     // G1 phase: one solve with the G1 rows against the characteristic
     // energy, which holds the parameterisation; only a first level has
-    // it (a warm start is already G1).
+    // it (a warm start is already G1). The step is shortened by halving
+    // until the surface keeps the served regularity floor (PK-614): on
+    // a low mixed-radius trihedral apex with circular strips (pyramid-3
+    // h0.4 radii 0.05/0.15/0.08 at G1) the full step folded the
+    // energy-only start (regularity 0.39 -> 0), and every guarded step
+    // after it was refused, so the fit declined folded. The damped runs
+    // below carry the G1 rows the rest of the way.
     for _ in 0..g1_phase {
         let (rows, rhs) = all_rows(level, &red, &coords, w1, None, &prior);
-        y = solve(&energy, lambda, Some((&rows, &rhs)), None)?;
-        coords = assemble(level, &y);
+        let full = solve(&energy, lambda, Some((&rows, &rhs)), None)?;
+        let mut alpha = 1.0;
+        for _ in 0..STEP_HALVINGS {
+            let trial_y: [Vec<f64>; 3] = std::array::from_fn(|c| {
+                y[c].iter()
+                    .zip(&full[c])
+                    .map(|(a, b)| a + alpha * (b - a))
+                    .collect()
+            });
+            let trial = assemble(level, &trial_y);
+            if super::measure::served_regularity(&level.space, &trial).ratio
+                >= super::measure::SERVED_MIN_REGULARITY
+            {
+                y = trial_y;
+                coords = trial;
+                break;
+            }
+            alpha *= 0.5;
+        }
         iterations += 1;
     }
     // The tangential anchor: the G1 phase's surface (or the warm start),
@@ -257,7 +280,14 @@ fn merit(
     let mut total = 0.0;
     for (sample, wt) in level.samples.iter().zip(&prior.targets) {
         let ((u, v), cross_u) = super::measure::rim_uv(sample);
-        let j = cap_jet(&level.space, coords, sample.sector, u, v);
+        let j = super::measure::cap_jet_owned(
+            &level.space,
+            coords,
+            sample.sector,
+            u,
+            v,
+            super::measure::rim_owner(sample),
+        );
         let Some(n_cap) = j.su.cross(&j.sv).normalized() else {
             return f64::INFINITY;
         };

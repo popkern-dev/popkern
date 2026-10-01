@@ -2,6 +2,7 @@
 //! between sectors, and regularity. These drive refinement and fill the
 //! report; the caller's certifier is the acceptance instrument.
 
+use super::corner_cells::CornerOwner;
 use super::jets::{NeighbourJet, form_from_partials, form_jump};
 use super::space::{SectorSpace, apply3};
 use super::{RimHalf, RimResidual};
@@ -25,9 +26,27 @@ pub(super) fn cap_jet(
     u: f64,
     v: f64,
 ) -> CapJet {
+    cap_jet_owned(space, coords, sector, u, v, CornerOwner::Interior)
+}
+
+/// [`cap_jet`] for a rim sample (its rim owns the corner cells' claim at
+/// the corner itself).
+pub(super) fn cap_jet_owned(
+    space: &SectorSpace,
+    coords: &[Vec<f64>; 3],
+    sector: usize,
+    u: f64,
+    v: f64,
+    owner: CornerOwner,
+) -> CapJet {
     let bu = space.basis(u);
     let bv = space.basis(v);
-    let d = |a, b| apply3(&space.functional_from(sector, &bu, &bv, a, b), coords);
+    let d = |a, b| {
+        apply3(
+            &space.functional_owned(sector, &bu, &bv, a, b, owner),
+            coords,
+        )
+    };
     CapJet {
         p: d(0, 0),
         su: d(1, 0),
@@ -62,6 +81,14 @@ pub(super) fn rim_uv(sample: &RimSample) -> ((f64, f64), bool) {
     }
 }
 
+/// The rim a sample lies on, as the corner cells' claim owner.
+pub(super) fn rim_owner(sample: &RimSample) -> CornerOwner {
+    match sample.half {
+        RimHalf::Trailing => CornerOwner::URim,
+        RimHalf::Leading => CornerOwner::VRim,
+    }
+}
+
 /// `(g0, g1, g2)` of one rim sample.
 pub(super) fn rim_residual(
     space: &SectorSpace,
@@ -69,7 +96,7 @@ pub(super) fn rim_residual(
     sample: &RimSample,
 ) -> (f64, f64, f64) {
     let ((u, v), _) = rim_uv(sample);
-    let j = cap_jet(space, coords, sample.sector, u, v);
+    let j = cap_jet_owned(space, coords, sample.sector, u, v, rim_owner(sample));
     let n_nb = sample.jet.normal;
     let foot = Vec3::new(sample.jet.foot.x, sample.jet.foot.y, sample.jet.foot.z);
     let g0 = (j.p - foot).length();

@@ -164,3 +164,23 @@ pub(super) fn nurbs_gauss_newton_project(
 
     if best_dist <= MAX_DIST { best_uv } else { None }
 }
+
+/// A Gregory patch's preimage within rounding (1e-12) of its unit
+/// chart's edge, moved onto that edge. A dual-jet patch's boundary 2-jet
+/// is its polynomial surrogate's only on the boundary itself, and the
+/// certifier takes the surrogate only for pcurves lying on it exactly
+/// (PK-541): a corner vertex projected to u = 1 − 1e-16, the pcurve
+/// recompute fitted its line through that, and the rim seam then fell to
+/// the rational form's 0/0 corner and stayed uncertified (PK-595).
+pub(super) fn onto_unit_chart_edge((u, v): (f64, f64)) -> (f64, f64) {
+    let snap = |x: f64| {
+        if x.abs() <= 1e-12 {
+            0.0
+        } else if (x - 1.0).abs() <= 1e-12 {
+            1.0
+        } else {
+            x
+        }
+    };
+    (snap(u), snap(v))
+}

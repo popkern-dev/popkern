@@ -48,6 +48,9 @@ pub fn fit_variational_cap(
     };
     let phi = CharacteristicMap::new(n);
     let mut space = SectorSpace::bezier(n, options.degree);
+    if options.corner_cells {
+        space = space.with_corner_cells();
+    }
     let mut gn_total = 0;
     let mut levels = 0;
     // The best level so far by worst residual-to-target ratio: a level
@@ -83,6 +86,7 @@ pub fn fit_variational_cap(
         let next = SectorSpace::new(n, options.degree, refined);
         let next_unknowns_estimate = unknowns * next.m * next.m / (space_now.m * space_now.m);
         if levels >= options.max_refinement_levels
+            || space_now.corner_cells
             || next.knots == space_now.knots
             || next_unknowns_estimate > options.max_unknowns
         {
@@ -213,14 +217,19 @@ fn finish(
     let sectors = (0..space.n)
         .map(|s| space.sector_surface(&model, s))
         .collect::<Vec<_>>();
+    // Clamped corners are control points of either form (the rational
+    // corner-cell sectors have their own net size, PK-595).
+    let faces = (0..space.n)
+        .map(|s| space.face_surface(&model, s))
+        .collect::<Vec<_>>();
     let centre = sectors[0].control_points[0];
-    let m = space.m;
     let spoke_points = (0..space.n)
-        .map(|s| sectors[s].control_points[(m - 1) * m])
+        .map(|s| sectors[s].control_points[(sectors[s].num_u - 1) * sectors[s].num_v])
         .collect();
     let energy = energy_value(&level, &coords);
     Ok(VariationalCap {
         sectors,
+        faces,
         centre,
         spoke_points,
         report: VariationalCapReport {
@@ -250,7 +259,7 @@ fn energy_value(level: &Level, coords: &[Vec<f64>; 3]) -> f64 {
         },
         None,
     );
-    let per = level.space.m * level.space.m;
+    let per = level.space.per();
     let size = gram.size;
     let mut total = 0.0;
     for (s, block) in gram.blocks.iter().enumerate() {
@@ -272,6 +281,9 @@ pub(super) fn transfer(
     old: &[Vec<f64>; 3],
     new: &SectorSpace,
 ) -> Option<[Vec<f64>; 3]> {
+    if old_space.corner_cells || new.corner_cells {
+        return None;
+    }
     let mut inserted = Vec::new();
     let mut remaining = old_space.knots.clone();
     for &k in &new.knots {
@@ -294,7 +306,7 @@ pub(super) fn transfer(
             return None;
         }
         for (l, p) in surface.control_points.iter().enumerate() {
-            let at = s * new.m * new.m + l;
+            let at = s * new.per() + l;
             out[0][at] = p.x;
             out[1][at] = p.y;
             out[2][at] = p.z;

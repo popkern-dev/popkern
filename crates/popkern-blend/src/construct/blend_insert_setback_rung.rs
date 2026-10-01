@@ -16,7 +16,7 @@ use crate::construct::setback_vertex_topology::{
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
     ApexConstructionDiagnostic, ContinuityLevel, CornerCapPreference, CornerConstruction,
-    CornerMethod, CornerPatchInfo, CornerSubPatchProvenance, SetbackCapFairness,
+    CornerMethod, CornerPatchInfo, CornerSubPatchProvenance, SetbackCapFairness, SetbackFitAttempt,
     SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
 };
 use crate::vertex_classifier::VertexBlendClassification;
@@ -356,8 +356,9 @@ impl SetbackRung<'_> {
                 if !unfair {
                     return RungStep::Decided(Ok((infos, boundary, diagnostics)));
                 }
-                let faces: Vec<_> = infos.iter().map(|info| info.face).collect();
-                let fit = cap_interior(brep, &faces, self.r_min).overshoot;
+                let fit = served_attempt(record)
+                    .and_then(|a| a.interior)
+                    .unwrap_or(f64::INFINITY);
                 if let Some(fairness) = record.fairness.as_mut() {
                     fairness.fit = Some(fit);
                 }
@@ -371,7 +372,7 @@ impl SetbackRung<'_> {
                 }
                 // The fit is no fairer: the fan serves.
                 record.served = None;
-                if let Some(last) = record.attempts.last_mut()
+                if let Some(last) = served_attempt(record)
                     && let SetbackFitOutcome::Served(certified) = last.outcome
                 {
                     last.outcome = SetbackFitOutcome::Rejected {
@@ -391,6 +392,14 @@ impl SetbackRung<'_> {
         }
         serve(brep, achieved)
     }
+}
+
+/// The record's served fit attempt (at most one serves).
+fn served_attempt(record: &mut SetbackFitDiagnostic) -> Option<&mut SetbackFitAttempt> {
+    record
+        .attempts
+        .iter_mut()
+        .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
 }
 
 /// Validate a served KP20 surgery and build its corner records; a

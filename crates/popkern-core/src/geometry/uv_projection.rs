@@ -142,9 +142,10 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
         // [`SurfaceEval::closest_point`] dispatches via
         // `closest_point_gauss_newton` for any surface variant
         // without a closed-form inverse.
-        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
-            surface.closest_point(point)
-        }
+        SurfaceGeometry::Gregory(_) => surface
+            .closest_point(point)
+            .map(uv_projection_clamped::onto_unit_chart_edge),
+        SurfaceGeometry::PolyhedralSpline(_) => surface.closest_point(point),
     }
 }
 

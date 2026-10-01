@@ -3,11 +3,13 @@
 //! attempt recorded. Split from `blend_insert_setback_rung` for the file
 //! budget; it shares that module's private rung state.
 
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{RungStep, SetbackRung};
+use crate::construct::setback_cap_fairness::{CAP_FAIRNESS_BOUND, cap_interior};
 use crate::construct::setback_decline::{SetbackCapStrategy, SetbackDecline, SetbackStage};
 use crate::construct::setback_vertex_topology::SetbackTopologyOutcome;
+use crate::dispatch_overrides;
 use crate::types::{
     ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, CornerSubPatchFamily,
     CornerSubPatchProvenance, CornerSubPatchRole, SetbackFitAttempt, SetbackFitDiagnostic,
@@ -61,7 +63,16 @@ impl SetbackRung<'_> {
     }
 
     /// The variational fit on the carve (PK-574) in `modes` order.
-    /// Every attempt is recorded.
+    /// Every attempt is recorded with its interior reading.
+    ///
+    /// A served fit whose interior bends past [`CAP_FAIRNESS_BOUND`]
+    /// does not end the ladder when a later mode is admitted (PK-614):
+    /// the later fit runs and the fairer of the two serves, the other
+    /// recorded as rejected. Measured on the 6x-disparity cube corner
+    /// (r 0.05 / 0.2 / 0.3, G2 request): the curvature-weighted fit
+    /// certifies G2 but bends to 30 / r_min beside the thin strip, the
+    /// tangent fit to 5.3. The rule is the fan's (PK-612): past the
+    /// bound, fairness outranks the claimed level.
     pub(super) fn fit(
         &self,
         brep: &mut BRep,
@@ -70,6 +81,8 @@ impl SetbackRung<'_> {
     ) -> RungStep {
         let mut reasons = Vec::new();
         let (mut first, mut ahead) = self.concurrent_attempts(brep, modes);
+        // An unfair served fit held while a later mode runs.
+        let mut held: Option<HeldFit> = None;
         for &mode in modes {
             let attempt = if let Some(result) = first.take() {
                 result
@@ -77,6 +90,9 @@ impl SetbackRung<'_> {
                 *brep = attempted;
                 result
             } else {
+                if held.is_some() {
+                    *brep = self.commit_snapshot.clone();
+                }
                 self.surgery(brep, SetbackCapStrategy::VariationalFit(mode))
             };
             match attempt {
@@ -88,6 +104,7 @@ impl SetbackRung<'_> {
                         record.attempts.push(SetbackFitAttempt {
                             mode,
                             outcome: SetbackFitOutcome::Declined(reason),
+                            interior: None,
                         });
                         continue;
                     };
@@ -101,41 +118,52 @@ impl SetbackRung<'_> {
                                 certified: serve.certified,
                                 reason,
                             },
+                            interior: None,
                         });
                         continue;
                     }
-                    let achieved = match mode {
-                        SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
-                        SetbackFitMode::Tangent => ContinuityLevel::G1,
+                    let interior = if dispatch_overrides::cap_fairness_ladder_disabled() {
+                        0.0
+                    } else {
+                        cap_interior(brep, &outcome.cap_faces, self.r_min).overshoot
                     };
                     record.attempts.push(SetbackFitAttempt {
                         mode,
                         outcome: SetbackFitOutcome::Served(serve.certified),
+                        interior: Some(interior),
                     });
-                    record.served = Some(achieved);
-                    let n = outcome.cap_faces.len();
-                    let infos = outcome
-                        .cap_faces
-                        .iter()
-                        .enumerate()
-                        .map(|(s, &f)| {
-                            self.info(
-                                f,
-                                CornerMethod::PlateMin,
-                                achieved,
-                                Some(CornerSubPatchProvenance {
-                                    family: CornerSubPatchFamily::VariationalFit,
-                                    sector_index: s,
-                                    sector_count: n,
-                                    piece_index: 0,
-                                    piece_count: 1,
-                                    role: CornerSubPatchRole::Sector,
-                                }),
-                            )
-                        })
-                        .collect();
-                    let diagnostics = vec![ApexConstructionDiagnostic::SetbackFit(record.clone())];
-                    return RungStep::Decided(Ok((infos, None, diagnostics)));
+                    let candidate = HeldFit {
+                        brep: None,
+                        attempt: record.attempts.len() - 1,
+                        mode,
+                        cap_faces: outcome.cap_faces,
+                        interior,
+                    };
+                    let later = modes.last() != Some(&mode);
+                    let chosen = match held.take() {
+                        None if interior > CAP_FAIRNESS_BOUND && later => {
+                            held = Some(HeldFit {
+                                brep: Some(std::mem::replace(brep, self.commit_snapshot.clone())),
+                                ..candidate
+                            });
+                            continue;
+                        }
+                        None => candidate,
+                        Some(earlier) => {
+                            let (winner, loser) = if candidate.interior < earlier.interior {
+                                (candidate, earlier)
+                            } else {
+                                let mut earlier = earlier;
+                                if let Some(model) = earlier.brep.take() {
+                                    *brep = model;
+                                }
+                                (earlier, candidate)
+                            };
+                            reject_fairer(record, &loser, &winner);
+                            winner
+                        }
+                    };
+                    return self.serve_fit(record, chosen);
                 }
                 Err(d) if d.stage == SetbackStage::Carve => {
                     return RungStep::CarveDeclined(d.reason);
@@ -157,10 +185,77 @@ impl SetbackRung<'_> {
                             },
                             None => SetbackFitOutcome::Declined(d.reason),
                         },
+                        interior: None,
                     });
                 }
             }
         }
+        // Every later mode declined: the held (unfair) fit serves.
+        if let Some(mut earlier) = held {
+            if let Some(model) = earlier.brep.take() {
+                *brep = model;
+            }
+            return self.serve_fit(record, earlier);
+        }
         RungStep::Declined(reasons.join("; "))
+    }
+
+    /// The served fit's corner records.
+    fn serve_fit(&self, record: &mut SetbackFitDiagnostic, fit: HeldFit) -> RungStep {
+        let achieved = match fit.mode {
+            SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
+            SetbackFitMode::Tangent => ContinuityLevel::G1,
+        };
+        record.served = Some(achieved);
+        let n = fit.cap_faces.len();
+        let infos = fit
+            .cap_faces
+            .iter()
+            .enumerate()
+            .map(|(s, &f)| {
+                self.info(
+                    f,
+                    CornerMethod::PlateMin,
+                    achieved,
+                    Some(CornerSubPatchProvenance {
+                        family: CornerSubPatchFamily::VariationalFit,
+                        sector_index: s,
+                        sector_count: n,
+                        piece_index: 0,
+                        piece_count: 1,
+                        role: CornerSubPatchRole::Sector,
+                    }),
+                )
+            })
+            .collect();
+        let diagnostics = vec![ApexConstructionDiagnostic::SetbackFit(record.clone())];
+        RungStep::Decided(Ok((infos, None, diagnostics)))
+    }
+}
+
+/// A served fit candidate: its model (`Some` only while held aside),
+/// its attempt index in the record, mode, cap faces and interior
+/// reading.
+struct HeldFit {
+    brep: Option<BRep>,
+    attempt: usize,
+    mode: SetbackFitMode,
+    cap_faces: Vec<FaceHandle>,
+    interior: f64,
+}
+
+/// Records `loser` as rejected for the fairer `winner`.
+fn reject_fairer(record: &mut SetbackFitDiagnostic, loser: &HeldFit, winner: &HeldFit) {
+    if let Some(attempt) = record.attempts.get_mut(loser.attempt)
+        && let SetbackFitOutcome::Served(certified) = attempt.outcome
+    {
+        attempt.outcome = SetbackFitOutcome::Rejected {
+            certified,
+            reason: format!(
+                "interior curvature {:.2} / r_min; the {:?} fit's {:.2} is fairer \
+                 (bound {CAP_FAIRNESS_BOUND})",
+                loser.interior, winner.mode, winner.interior
+            ),
+        };
     }
 }

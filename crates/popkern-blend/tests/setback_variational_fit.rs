@@ -18,7 +18,10 @@ use setback_fit_fixtures::*;
 #[test]
 fn the_fit_serves_the_cube_corner_kp20_folds_on() {
     // Row 877: the C1 census class (KP20 folds on the wide mixed-radius
-    // cube corner) is served by the curvature-weighted fit at G2.
+    // cube corner) is served by the fit. At 0.05 / 0.2 / 0.3 the
+    // curvature-weighted fit certifies G2 but its skinny, sheared sector
+    // beside the thin strip bends to 30 / r_min (chart sine 0.12), so
+    // the fairer tangent fit (2.2) serves at G1 (PK-614).
     let result = cube_corner(&[0.05, 0.2, 0.3]);
     let record = only_record("cube 0.05/0.2/0.3", &result);
     assert!(
@@ -28,6 +31,27 @@ fn the_fit_serves_the_cube_corner_kp20_folds_on() {
     );
     assert_fit_serves(
         "cube 0.05/0.2/0.3",
+        &result,
+        SetbackFitMode::Tangent,
+        ContinuityLevel::G1,
+    );
+    let first = &record.attempts[0];
+    assert_eq!(first.mode, SetbackFitMode::CurvatureWeighted);
+    assert!(
+        first.interior.is_some_and(|k| k > 4.0)
+            && matches!(&first.outcome, SetbackFitOutcome::Rejected { certified, reason }
+                if certified.level == ContinuityLevel::G2 && reason.contains("fairer")),
+        "{record:#?}"
+    );
+    assert!(
+        record.attempts[1].interior.is_some_and(|k| k < 4.0),
+        "{record:#?}"
+    );
+    // At 0.08 / 0.2 / 0.3 the fan bends to 468 / r_min and the G2 fit
+    // serves fair (1.75).
+    let result = cube_corner(&[0.08, 0.2, 0.3]);
+    assert_fit_serves(
+        "cube 0.08/0.2/0.3",
         &result,
         SetbackFitMode::CurvatureWeighted,
         ContinuityLevel::G2,
@@ -45,11 +69,13 @@ fn row_876_triangular_and_square_apexes_serve_with_kp20_forced_off() {
         ("pyramid4 h1.2", 4, 1.2),
         ("pyramid4 h3", 4, 3.0),
     ] {
+        // PK-595: the corner-cell fit certifies G2 on every one (the
+        // tangent fit served them at G1 before).
         fixtures.push((
             name,
             Box::new(move || pyramid_apex(n, h, &[0.16], ContinuityLevel::G2)),
-            SetbackFitMode::Tangent,
-            ContinuityLevel::G1,
+            SetbackFitMode::CurvatureWeighted,
+            ContinuityLevel::G2,
         ));
     }
     census(fixtures);
@@ -57,23 +83,30 @@ fn row_876_triangular_and_square_apexes_serve_with_kp20_forced_off() {
 
 #[test]
 fn row_876_wide_apexes_serve_with_kp20_forced_off() {
-    let tangent = |name, build: Box<dyn Fn() -> BlendResult>| {
-        (name, build, SetbackFitMode::Tangent, ContinuityLevel::G1)
+    // PK-595: the corner-cell fit certifies G2 on the whole rim family
+    // (rim g2 bounds 1.9e-3..5.0e-2, spokes 7.9e-3..4.9e-2).
+    let curvature_weighted = |name, build: Box<dyn Fn() -> BlendResult>| {
+        (
+            name,
+            build,
+            SetbackFitMode::CurvatureWeighted,
+            ContinuityLevel::G2,
+        )
     };
     census(vec![
-        tangent(
+        curvature_weighted(
             "pentagon flagship",
             Box::new(|| pyramid_apex(5, 1.2, &[0.16], ContinuityLevel::G2)),
         ),
-        tangent(
+        curvature_weighted(
             "pentagon5 blunt",
             Box::new(|| pyramid_apex(5, 3.0, &[0.05], ContinuityLevel::G2)),
         ),
-        tangent(
+        curvature_weighted(
             "hexagon6 blunt",
             Box::new(|| pyramid_apex(6, 3.0, &[0.05], ContinuityLevel::G2)),
         ),
-        tangent(
+        curvature_weighted(
             "hexagon6 mixed",
             Box::new(|| {
                 pyramid_apex(
@@ -84,11 +117,11 @@ fn row_876_wide_apexes_serve_with_kp20_forced_off() {
                 )
             }),
         ),
-        tangent(
+        curvature_weighted(
             "pentagon5 variable",
             Box::new(|| pyramid_apex(5, 0.8, &[0.02, 0.04, 0.06, 0.04, 0.02], ContinuityLevel::G2)),
         ),
-        tangent(
+        curvature_weighted(
             "octagon8 mixed",
             Box::new(|| {
                 pyramid_apex(
@@ -165,8 +198,8 @@ fn row_876_saddles_and_variable_radii_serve_with_kp20_forced_off() {
                     ContinuityLevel::G2,
                 )
             }),
-            SetbackFitMode::Tangent,
-            ContinuityLevel::G1,
+            SetbackFitMode::CurvatureWeighted,
+            ContinuityLevel::G2,
         ),
     ]);
 }
@@ -197,7 +230,13 @@ fn row_876_all_edge_pyramids_serve_every_corner_with_kp20_forced_off() {
         let records = fit_records(&result);
         assert_eq!(records.len(), n + 1, "{name}: one record per corner");
         for record in records {
-            assert_record_serves(&name, record, SetbackFitMode::Tangent, ContinuityLevel::G1);
+            // PK-595: every corner certifies G2 on the corner-cell fit.
+            assert_record_serves(
+                &name,
+                record,
+                SetbackFitMode::CurvatureWeighted,
+                ContinuityLevel::G2,
+            );
         }
         result
             .brep

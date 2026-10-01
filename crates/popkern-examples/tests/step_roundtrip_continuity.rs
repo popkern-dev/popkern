@@ -298,8 +298,10 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
     // PK-575 raised 3 saddle cap seams to native G2; they cross the
     // export at G1 (the same corner-layer class).
     ("kp_notched_saddle", &[("G2->G1", 3)]),
+    // PK-595: the curvature-weighted fit serves dual-jet corner-cell
+    // sectors at certified G2, and every seam crosses the export at G2.
     ("fit_cube_corner", &[]),
-    ("fit_pyramid_apex", &[]),
+    ("fit_pyramid_apex", &[("G2->G1", 10)]),
 ];
 
 /// Total recorded drops on the OCC leg (OpenCASCADE reads the export
@@ -313,8 +315,10 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
 /// drill-exit seam (popkern wrote pcurve control points as 3-D points,
 /// so OpenCASCADE discarded every popkern pcurve and re-projected; the
 /// same-parameter rebuild and the native recompute interpolated across
-/// the rim's parametric C0 knots).
-const OCC_BASELINE_DROPS: usize = 23;
+/// the rim's parametric C0 knots). Since PK-595 the fit pyramid apex's
+/// 10 corner-layer seams join the same class, as on the popkern leg
+/// (the fit cube corner crosses at G2).
+const OCC_BASELINE_DROPS: usize = 33;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()

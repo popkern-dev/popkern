@@ -81,20 +81,19 @@ fn verdict(n: usize, h: f64, radii: &[f64]) -> ContinuityLevel {
 
 #[test]
 fn triangular_apexes_serve_the_setback_rung() {
-    // Measured 2026-09-30. h 0.4 variable/wide serve the fitted cap at
-    // certified G1 (KP20 declines there, the fit is G1 on these). Where
-    // the KP20 fan's interior bends past the fairness bound, the fairer
-    // tangent fit serves at G1 (PK-612; fan / fit interior curvature
-    // times r_min): h 0.4 mixed 10.5 / 1.48, h 0.8 variable 27.6 / 1.91,
-    // h 0.8 wide 55.6 / 2.57, h 1.2 variable 7.2 / 2.60. h 1.2 wide keeps
-    // its G2 fan (9.5): its fit is less fair (36.9).
+    // Measured 2026-10-01. The corner-cell fit (PK-595) certifies G2
+    // where the KP20 fan bends past the fairness bound or folds (h 0.4
+    // all, h 0.8 variable and wide); the faired fan serves the rest at
+    // G2. h 1.2 variable: the fan reads 7.13 / r_min (past the bound),
+    // the G2 fit 15.5, the tangent fit 2.60 - the fairest cap serves,
+    // at G1 (PK-612's rule, applied across the fit modes by PK-614).
     for (h, radii, level) in [
-        (0.4, &MIXED[..3], ContinuityLevel::G1),
-        (0.4, &VARIABLE[..3], ContinuityLevel::G1),
-        (0.4, &WIDE[..3], ContinuityLevel::G1),
+        (0.4, &MIXED[..3], ContinuityLevel::G2),
+        (0.4, &VARIABLE[..3], ContinuityLevel::G2),
+        (0.4, &WIDE[..3], ContinuityLevel::G2),
         (0.8, &MIXED[..3], ContinuityLevel::G2),
-        (0.8, &VARIABLE[..3], ContinuityLevel::G1),
-        (0.8, &WIDE[..3], ContinuityLevel::G1),
+        (0.8, &VARIABLE[..3], ContinuityLevel::G2),
+        (0.8, &WIDE[..3], ContinuityLevel::G2),
         (1.2, &VARIABLE[..3], ContinuityLevel::G1),
         (1.2, &WIDE[..3], ContinuityLevel::G2),
     ] {
@@ -103,13 +102,15 @@ fn triangular_apexes_serve_the_setback_rung() {
 }
 
 #[test]
-fn quad_apexes_certify_at_least_g1_on_the_setback_rung() {
-    // Measured 2026-09-30: every row certifies G1 (KP20's measured G1
-    // downgrade, C3 class, or the fitted cap at h 0.4 wide); none G0.
+fn quad_apexes_certify_g2_on_the_setback_rung() {
+    // Measured 2026-10-01: every row serves the corner-cell fit
+    // (PK-595), certified G2 on every seam (before: G1 at best - the
+    // fan's measured G1 downgrade, C3 class, or the tangent fit).
     for h in [0.4, 0.8, 1.2] {
         for radii in [&MIXED[..], &VARIABLE[..], &WIDE[..]] {
-            assert!(
-                verdict(4, h, radii) >= ContinuityLevel::G1,
+            assert_eq!(
+                verdict(4, h, radii),
+                ContinuityLevel::G2,
                 "pyr4 h{h} {radii:?}"
             );
         }

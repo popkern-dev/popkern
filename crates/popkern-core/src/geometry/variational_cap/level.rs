@@ -202,7 +202,7 @@ pub(super) fn energy_factor(
     let hs = &level.hs;
     let k = hs.dim();
     let gram = energy_gram(space, integrand, anchor);
-    let per = space.m * space.m;
+    let per = space.per();
     let size = gram.size;
     // Each sector's reduction `Zₛᵀ E_cd Zₛ` is independent; sectors
     // reduce in parallel and their contributions accumulate below in

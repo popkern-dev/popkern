@@ -23,7 +23,7 @@
 
 use faer::Mat;
 
-use super::measure::{RimSample, cap_jet, rim_uv};
+use super::measure::{RimSample, cap_jet_owned, rim_owner, rim_uv};
 use super::nullspace::HardSystem;
 use super::space::{Functional, SectorSpace};
 use crate::geometry::Vec3;
@@ -104,9 +104,10 @@ pub(super) fn rim_rows(
         } else {
             ((0, 1), (0, 2))
         };
-        let fw = space.functional(sample.sector, u, v, d1.0, d1.1);
-        let fw2 = space.functional(sample.sector, u, v, d2.0, d2.1);
-        let jet = cap_jet(space, coords, sample.sector, u, v);
+        let owner = rim_owner(sample);
+        let fw = space.functional_at(sample.sector, u, v, d1.0, d1.1, owner);
+        let fw2 = space.functional_at(sample.sector, u, v, d2.0, d2.1, owner);
+        let jet = cap_jet_owned(space, coords, sample.sector, u, v, owner);
         let wk = if cross_u { jet.su } else { jet.sv };
         let len = wk.length().max(1e-12);
         let n = sample.jet.normal;
@@ -141,9 +142,12 @@ pub(super) fn rim_rows(
             // Mixed: N·S_uv − II(T, w), T the rim tangent.
             let r = r + 1;
             let tangent = if cross_u { jet.sv } else { jet.su };
-            let fuv = space.functional(sample.sector, u, v, 1, 1);
+            let fuv = space.functional_at(sample.sector, u, v, 1, 1, owner);
             let qt = sample.jet.apply(tangent);
-            let corner = if sample.x == 1.0 {
+            // With corner cells each rim owns its corner twist, so the
+            // pin that moved the theorem's conflict off the corner is
+            // not needed (PK-595).
+            let corner = if sample.x == 1.0 && !space.corner_cells {
                 CORNER_TWIST_WEIGHT
             } else {
                 1.0
@@ -185,7 +189,7 @@ pub(super) fn transversal_rows(
     for (si, (sample, wt)) in samples.iter().zip(targets).enumerate() {
         let ((u, v), cross_u) = rim_uv(sample);
         let (du, dv) = if cross_u { (1, 0) } else { (0, 1) };
-        let fw = space.functional(sample.sector, u, v, du, dv);
+        let fw = space.functional_at(sample.sector, u, v, du, dv, rim_owner(sample));
         let red_w = reduce(&fw, red);
         let scale = weight / wt.length().max(1e-12);
         for (c, t) in [wt.x, wt.y, wt.z].into_iter().enumerate() {
@@ -220,7 +224,7 @@ pub(super) fn transversal_targets(
         .iter()
         .map(|sample| {
             let ((u, v), cross_u) = rim_uv(sample);
-            let j = cap_jet(space, coords, sample.sector, u, v);
+            let j = cap_jet_owned(space, coords, sample.sector, u, v, rim_owner(sample));
             // Trailing half (u = 1): the rim runs with the loop along +v.
             // Leading half (v = 1): the rim runs against it along +u.
             let (w, t_loop) = if cross_u {

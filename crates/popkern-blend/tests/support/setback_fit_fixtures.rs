@@ -131,15 +131,22 @@ pub fn assert_fit_serves(
                 "{name}"
             );
             assert_eq!(prov.sector_count, fitted, "{name}");
+            // A tangent fit serves NURBS sectors; a curvature-weighted
+            // fit serves dual-jet corner-cell patches (PK-595).
             assert!(
                 matches!(
                     result.brep.faces[p.face]
                         .surface
                         .as_ref()
                         .map(|s| &s.geometry),
-                    Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_))
+                    Some(
+                        popkern_core::geometry::SurfaceGeometry::Nurbs(_)
+                            | popkern_core::geometry::SurfaceGeometry::Gregory(
+                                popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonicDualJet(_)
+                            )
+                    )
                 ),
-                "{name}: fitted sector is a NURBS face"
+                "{name}: fitted sector is a NURBS or dual-jet face"
             );
             prov.sector_index
         })

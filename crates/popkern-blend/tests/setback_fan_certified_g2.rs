@@ -8,7 +8,8 @@
 //! evidence (PK-499 certificates) read G1. The rung now reads the
 //! fan's verdict from the same evidence, hands a failing fan to the
 //! curvature-weighted fit, and serves the fan as a recorded G1
-//! downgrade when the fit declines. Each row pins the corner record,
+//! downgrade when the fit declines (since PK-595 the corner-cell fit
+//! serves every row here). Each row pins the corner record,
 //! the served construction and the whole-blend verdict, and that the
 //! record never claims more than the evidence.
 
@@ -102,33 +103,34 @@ fn serve(h: f64) -> (ContinuityLevel, CornerMethod, ContinuityLevel) {
 }
 
 #[test]
-fn a_fan_certified_below_g2_serves_a_recorded_g1_downgrade() {
-    // Measured 2026-09-30: h 3's spokes certify a g2 lower bound
-    // 8.7e-2; the curvature-weighted fit declines and the tangent fit's
-    // seam g2 (19) is far worse than the fan's. The fan's interior also
-    // bends past the fairness bound (4.22 / r_min, PK-612), so the
-    // downgrade path is pinned with the fairness ladder off.
+fn a_fan_certified_below_g2_hands_h3_to_the_corner_cell_fit() {
+    // Measured 2026-10-01: h 3's spokes certify a g2 lower bound
+    // 8.7e-2. Before PK-595 the curvature-weighted fit declined and the
+    // fan served as a recorded G1 downgrade; the corner-cell fit now
+    // certifies G2 on every seam (rim g2 2.8e-2, spoke 4.2e-2). The
+    // downgrade path itself is pinned on the octagonal steep variable
+    // row (wide_apex_census). Pinned with the fairness ladder off so
+    // only the G2 gate routes the corner.
     assert_eq!(
         with_cap_fairness_ladder_disabled(|| serve(3.0)),
         (
-            ContinuityLevel::G1,
-            CornerMethod::Gregory,
-            ContinuityLevel::G1
+            ContinuityLevel::G2,
+            CornerMethod::PlateMin,
+            ContinuityLevel::G2
         )
     );
 }
 
 #[test]
-fn an_unfair_fan_below_g2_yields_to_the_fairer_tangent_fit() {
-    // PK-612, measured 2026-09-30: h 3's fan reads interior curvature
-    // 4.22 / r_min, the tangent fit 1.53 with cleaner rims (zebra
-    // cap-rim normal p95 1.3e-2 against the fan's 4.1e-2). Both are G1.
+fn an_unfair_fan_below_g2_yields_to_the_fairer_g2_fit() {
+    // PK-612: h 3's fan reads interior curvature 4.22 / r_min, past the
+    // bound. PK-595: the corner-cell fit serves it at certified G2.
     assert_eq!(
         serve(3.0),
         (
-            ContinuityLevel::G1,
+            ContinuityLevel::G2,
             CornerMethod::PlateMin,
-            ContinuityLevel::G1
+            ContinuityLevel::G2
         )
     );
 }

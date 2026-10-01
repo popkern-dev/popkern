@@ -75,6 +75,10 @@ pub struct SetbackFitAttempt {
     pub mode: SetbackFitMode,
     /// Served, rejected on its certificate, or declined earlier.
     pub outcome: SetbackFitOutcome,
+    /// The fitted cap's interior fairness (largest sampled principal
+    /// curvature times the corner's smallest radius, PK-614), when the
+    /// attempt built a valid cap.
+    pub interior: Option<f64>,
 }
 
 /// The fallback-rung record for one setback corner.

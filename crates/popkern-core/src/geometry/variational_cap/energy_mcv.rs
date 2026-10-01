@@ -2,7 +2,7 @@
 //! reference fields, `H = N·Δ_g x` as a functional, and its gradient by
 //! central differences (see `energy.rs` for the energy itself).
 
-use super::energy::supports;
+use super::corner_cells::CornerOwner;
 use super::space::SectorSpace;
 use crate::geometry::Vec3;
 
@@ -60,13 +60,12 @@ fn mean_curvature(
     reference: &dyn Fn(usize, f64, f64) -> Option<Reference>,
 ) -> Option<Sparse> {
     let r = reference(sector, u, v)?;
-    let m = space.m;
-    let per = m * m;
+    let per = space.per();
     let bu = space.basis(u);
     let bv = space.basis(v);
     let nc = [r.normal.x, r.normal.y, r.normal.z];
     let mut out = Vec::new();
-    for (l, d) in supports(m, &bu, &bv) {
+    for (l, d) in space.local_supports(&bu, &bv, CornerOwner::Interior) {
         let lap = r.lap2[0] * d[3]
             + 2.0 * r.lap2[1] * d[4]
             + r.lap2[2] * d[5]

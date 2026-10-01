@@ -27,8 +27,9 @@
 //!   h=3), where the fourth-order bending energy serves.
 //! - **Bending** (fourth order), the energy of a G1-only fit.
 
+use super::corner_cells::CornerOwner;
 use super::energy_mcv::{Reference, combine, mean_curvature_gradient, outer};
-use super::space::{Basis1, SectorSpace, gauss_legendre};
+use super::space::{SectorSpace, gauss_legendre};
 use crate::geometry::Vec3;
 
 /// Per-sector Gram blocks, `(3m²) × (3m²)` row-major.
@@ -91,8 +92,7 @@ pub(super) fn energy_gram(
     integrand: &Integrand<'_>,
     anchor: Option<&Anchor<'_>>,
 ) -> EnergyGram {
-    let m = space.m;
-    let per = m * m;
+    let per = space.per();
     let size = 3 * per;
     let nodes = gauss_legendre(space.degree + 2);
     let spans = space.spans();
@@ -119,15 +119,15 @@ pub(super) fn energy_gram(
                         let v = va + (vb - va) * xv;
                         let bv = space.basis(v);
                         let area = wu * wv * (ub - ua) * (vb - va);
+                        let sup = space.local_supports(&bu, &bv, CornerOwner::Interior);
                         if let Some(a) = anchor
                             && let Some((p, frame)) = (a.reference)(sector, u, v)
                         {
                             anchor_rows(
                                 &mut anchor_block,
                                 &mut anchor_linear,
-                                m,
-                                &bu,
-                                &bv,
+                                per,
+                                &sup,
                                 p,
                                 &frame,
                                 area,
@@ -138,7 +138,7 @@ pub(super) fn energy_gram(
                                 let g = metric(sector, u, v);
                                 if let Some((mm, det)) = inverse_root(g) {
                                     let w = area * det.sqrt();
-                                    parametric(&mut block, m, &bu, &bv, &mm, w, *eps);
+                                    parametric(&mut block, per, &sup, &mm, w, *eps);
                                 }
                             }
                             Integrand::Bending {
@@ -151,8 +151,8 @@ pub(super) fn energy_gram(
                                 };
                                 if let Some((mm, det)) = inverse_root(g) {
                                     let w = area * det.sqrt();
-                                    bending(&mut block, m, &bu, &bv, &mm, normal, w);
-                                    parametric(&mut regular_block, m, &bu, &bv, &mm, w, *eps);
+                                    bending(&mut block, per, &sup, &mm, normal, w);
+                                    parametric(&mut regular_block, per, &sup, &mm, w, *eps);
                                     let _ = regular;
                                 }
                             }
@@ -178,7 +178,7 @@ pub(super) fn energy_gram(
                                     }
                                 }
                                 let _ = regular;
-                                parametric(&mut regular_block, m, &bu, &bv, &mm, w, *eps);
+                                parametric(&mut regular_block, per, &sup, &mm, w, *eps);
                             }
                         }
                     }
@@ -268,42 +268,19 @@ fn hessian_rows(mm: &[[f64; 2]; 2], h: [[f64; 2]; 2]) -> [f64; 3] {
     [k(0, 0), std::f64::consts::SQRT_2 * k(0, 1), k(1, 1)]
 }
 
-/// Basis-product supports: local index and `(value, ∂u, ∂v, ∂uu, ∂uv, ∂vv)`.
-pub(super) fn supports(m: usize, bu: &Basis1, bv: &Basis1) -> Vec<(usize, [f64; 6])> {
-    let mut out = Vec::with_capacity(bu.funcs.len() * bv.funcs.len());
-    for (ri, fu) in bu.funcs.iter().enumerate() {
-        for (rj, fv) in bv.funcs.iter().enumerate() {
-            out.push((
-                (bu.first + ri) * m + bv.first + rj,
-                [
-                    fu[0] * fv[0],
-                    fu[1] * fv[0],
-                    fu[0] * fv[1],
-                    fu[2] * fv[0],
-                    fu[1] * fv[1],
-                    fu[0] * fv[2],
-                ],
-            ));
-        }
-    }
-    out
-}
-
 fn parametric(
     block: &mut [f64],
-    m: usize,
-    bu: &Basis1,
-    bv: &Basis1,
+    per: usize,
+    sup: &[(usize, [f64; 6])],
     mm: &[[f64; 2]; 2],
     w: f64,
     eps: f64,
 ) {
-    let per = m * m;
     let size = 3 * per;
     let se = eps.sqrt();
-    let rows: Vec<(usize, [f64; 5])> = supports(m, bu, bv)
-        .into_iter()
-        .map(|(l, d)| {
+    let rows: Vec<(usize, [f64; 5])> = sup
+        .iter()
+        .map(|&(l, d)| {
             let h = hessian_rows(mm, [[d[3], d[4]], [d[4], d[5]]]);
             let g0 = mm[0][0] * d[1] + mm[0][1] * d[2];
             let g1 = mm[1][0] * d[1] + mm[1][1] * d[2];
@@ -328,20 +305,18 @@ fn parametric(
 fn anchor_rows(
     block: &mut [f64],
     linear: &mut [f64],
-    m: usize,
-    bu: &Basis1,
-    bv: &Basis1,
+    per: usize,
+    sup: &[(usize, [f64; 6])],
     p: Vec3,
     frame: &[Vec3; 2],
     w: f64,
 ) {
-    let per = m * m;
     let size = 3 * per;
     for e in frame {
         let ec = [e.x, e.y, e.z];
         let target = e.dot(&p);
         let mut row: Vec<(usize, f64)> = Vec::new();
-        for (l, d) in supports(m, bu, bv) {
+        for &(l, d) in sup {
             for (c, ecc) in ec.iter().enumerate() {
                 row.push((c * per + l, ecc * d[0]));
             }
@@ -358,18 +333,16 @@ fn anchor_rows(
 /// `‖M B Mᵀ‖_F²` with `B_ab = N·∂_a∂_b x`: rows over `(coord, local)`.
 fn bending(
     block: &mut [f64],
-    m: usize,
-    bu: &Basis1,
-    bv: &Basis1,
+    per: usize,
+    sup: &[(usize, [f64; 6])],
     mm: &[[f64; 2]; 2],
     normal: Vec3,
     w: f64,
 ) {
-    let per = m * m;
     let size = 3 * per;
     let nc = [normal.x, normal.y, normal.z];
     let mut rows: Vec<(usize, [f64; 3])> = Vec::new();
-    for (l, d) in supports(m, bu, bv) {
+    for &(l, d) in sup {
         let h = hessian_rows(mm, [[d[3], d[4]], [d[4], d[5]]]);
         for (c, ncc) in nc.iter().enumerate() {
             rows.push((c * per + l, [h[0] * ncc, h[1] * ncc, h[2] * ncc]));

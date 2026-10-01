@@ -37,6 +37,7 @@
 //! setback rung in popkern-blend).
 
 mod chart;
+mod corner_cells;
 mod energy;
 mod energy_mcv;
 mod error;
@@ -157,6 +158,11 @@ pub struct VariationalCapOptions {
     /// Weight of the transversality prior on the rim cross derivatives
     /// (relative residual units; the G1 rows outweigh it by ~1e6).
     pub transversal_weight: f64,
+    /// Dual-jet corner cells at every sector's rim corner (PK-595): each
+    /// rim owns its corner 2-jet, lifting the setback corner theorem's
+    /// obstruction; the sectors become rational. Single-level fits only
+    /// (no refinement).
+    pub corner_cells: bool,
 }
 
 impl Default for VariationalCapOptions {
@@ -173,6 +179,7 @@ impl Default for VariationalCapOptions {
             reference_passes: 1,
             anchor_weight: 1.0,
             transversal_weight: 1.0e-1,
+            corner_cells: false,
         }
     }
 }
@@ -258,8 +265,14 @@ pub(crate) fn excess(r: &RimResidual, targets: &VariationalCapTargets) -> f64 {
 /// A fitted cap: one sector surface per side.
 #[derive(Debug, Clone)]
 pub struct VariationalCap {
-    /// Sector `s` (see the module docs for its corners and edges).
+    /// Sector `s` (see the module docs for its corners and edges). With
+    /// corner cells this is the plain net (the u-claims at the dual
+    /// cells): it carries the sector's boundary curves exactly, not its
+    /// interior.
     pub sectors: Vec<NurbsSurface>,
+    /// The surface each sector's face serves: the sector itself, or the
+    /// dual-jet patch with corner cells (PK-595).
+    pub faces: Vec<SurfaceGeometry>,
     /// The shared centre `o`.
     pub centre: Point3,
     /// `m_s`: the midpoint of side `s`, where spoke `s` meets the rim.
