@@ -128,17 +128,12 @@ pub(super) fn try_setback_rung(
     for fit in order {
         let step = match (fit, try_fit, try_kp20) {
             (true, true, _) => {
-                // Modes the KP20 step already tried (PK-612) are not rerun.
-                let modes: Vec<SetbackFitMode> = rung
-                    .fit_modes()
-                    .iter()
-                    .copied()
-                    .filter(|&mode| !record.attempts.iter().any(|a| a.mode == mode))
-                    .collect();
-                if modes.is_empty() {
+                // Attempts the KP20 step already ran (PK-612) are not rerun.
+                let ladder = rung.fit_ladder(&record, rung.fit_modes());
+                if ladder.is_empty() {
                     continue;
                 }
-                rung.fit(brep, &mut record, &modes)
+                rung.fit(brep, &mut record, &ladder, None)
             }
             (false, _, true) => {
                 let step = rung.kp20(brep, &mut record, try_fit);
@@ -160,9 +155,14 @@ pub(super) fn try_setback_rung(
                 return (Some(Ok((infos, boundary, diagnostics))), Vec::new());
             }
             RungStep::Decided(Err(e)) => return (Some(Err(e)), Vec::new()),
+            // A carve decline ends the rung after the fit step, which
+            // has tried the bridged border too (PK-618); after the KP20
+            // step, the fit still tries the bridged border.
             RungStep::CarveDeclined(reason) => {
                 declines.push(reason);
-                break;
+                if fit {
+                    break;
+                }
             }
             RungStep::Declined(reason) => declines.push(reason),
         }
@@ -339,19 +339,16 @@ impl SetbackRung<'_> {
         record.kp20_decline = reasons.join("; ");
         // An unfair fan tries every fit the request admits; a fair fan
         // below G2 tries the curvature-weighted fit for a G2 cap.
-        let ran = |mode| record.attempts.iter().any(|a| a.mode == mode);
-        let modes: Vec<SetbackFitMode> = if unfair {
-            self.fit_modes().to_vec()
+        let modes: &[SetbackFitMode] = if unfair {
+            self.fit_modes()
         } else {
-            vec![SetbackFitMode::CurvatureWeighted]
-        }
-        .into_iter()
-        .filter(|&mode| !ran(mode))
-        .collect();
-        if try_fit && !modes.is_empty() {
+            &[SetbackFitMode::CurvatureWeighted]
+        };
+        let ladder = self.fit_ladder(record, modes);
+        if try_fit && !ladder.is_empty() {
             let fan_model = std::mem::replace(brep, self.commit_snapshot.clone());
             if let RungStep::Decided(Ok((infos, boundary, mut diagnostics))) =
-                self.fit(brep, record, &modes)
+                self.fit(brep, record, &ladder, unfair.then_some(overshoot))
             {
                 if !unfair {
                     return RungStep::Decided(Ok((infos, boundary, diagnostics)));

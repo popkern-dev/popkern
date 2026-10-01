@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn corners_land_on_the_kite() {
-        for n in 3..=12 {
+        for n in 3..=24 {
             let phi = CharacteristicMap::new(n);
             // φ(u, v) from the closed form.
             let eval = |u: f64, v: f64| {

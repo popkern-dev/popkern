@@ -99,10 +99,15 @@ pub(super) fn commit_fit_fan(
         ),
     };
     // PK-618: a layout bending past the fairness bound is refit with the
-    // spokes' feet nearest the fitted centre; the fairer cap is kept.
+    // spokes' feet nearest the fitted centre; the fairer cap is kept. A
+    // sector under the served regularity floor serves only inside the
+    // bound (a short strip between long bridges gives its sector a thin
+    // edge, not a fold).
+    let fairness_limit = (r_min.is_finite() && r_min > 0.0)
+        .then(|| crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND / r_min);
     let options = VariationalCapOptions {
-        layout_refit_curvature: (r_min.is_finite() && r_min > 0.0)
-            .then(|| crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND / r_min),
+        layout_refit_curvature: fairness_limit,
+        thin_sector_curvature: fairness_limit,
         ..options
     };
     let mut cap = fit_variational_cap(&sides, &targets, &options, tolerance.linear())

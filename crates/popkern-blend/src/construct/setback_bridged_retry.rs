@@ -41,14 +41,16 @@ use crate::construct::setback_decline::{
     ARC_OVERRUN, SetbackCapStrategy, SetbackDecline, SetbackStage,
 };
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::SetbackFitBorder;
 
 /// The KP20 strategy's decline on the bridged border.
 pub(crate) const BRIDGED_FAN_DECLINE: &str =
     "the bridged border's 2n-sided KP20 fan is not attempted (the fit serves it)";
 
 /// Run `attempt` on the surgery's own border, then on the bridged
-/// border after an overrun decline. `attempt` restores the model on
-/// every decline.
+/// border after an overrun decline. A fit requested on the bridged
+/// border (PK-618) carves it directly. `attempt` restores the model on
+/// every decline. The outcome and the decline name the border carved.
 pub(super) fn with_bridged_retry(
     brep: &mut BRep,
     fillet_surfaces: &[FilletSurfaceResult],
@@ -59,17 +61,29 @@ pub(super) fn with_bridged_retry(
         Option<&SetbackCapSolve>,
     ) -> Result<SetbackTopologyOutcome, SetbackDecline>,
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
-    let overrun = match attempt(brep, None) {
-        Err(d) if d.stage == SetbackStage::Carve && d.reason.contains(ARC_OVERRUN) => d,
-        result => return result,
+    let requested = matches!(
+        strategy,
+        SetbackCapStrategy::VariationalFit {
+            border: SetbackFitBorder::Bridged,
+            ..
+        }
+    );
+    let overrun = if requested {
+        None
+    } else {
+        match attempt(brep, None) {
+            Err(d) if d.stage == SetbackStage::Carve && d.reason.contains(ARC_OVERRUN) => Some(d),
+            result => return result,
+        }
     };
     if strategy == SetbackCapStrategy::Kp20 {
-        return Err(both(
+        return Err(bridged_decline(
             overrun,
             SetbackDecline {
                 stage: SetbackStage::Cap,
                 reason: BRIDGED_FAN_DECLINE.to_string(),
                 fit_certified: None,
+                border: SetbackFitBorder::Bridged,
             },
         ));
     }
@@ -84,18 +98,29 @@ pub(super) fn with_bridged_retry(
             assembly: Err(BRIDGED_FAN_DECLINE.to_string()),
             alternates: Vec::new(),
         },
-        Err(e) => return Err(both(overrun, SetbackDecline::from(e))),
+        Err(e) => return Err(bridged_decline(overrun, SetbackDecline::from(e))),
     };
-    attempt(brep, Some(&solve)).map_err(|bridged| both(overrun, bridged))
+    match attempt(brep, Some(&solve)) {
+        Ok(mut outcome) => {
+            outcome.border = SetbackFitBorder::Bridged;
+            Ok(outcome)
+        }
+        Err(bridged) => Err(bridged_decline(overrun, bridged)),
+    }
 }
 
-/// The overrun decline followed by the bridged border's, at the
-/// bridged border's stage (a cap decline there is still a cap the
-/// next construction may serve on the same carve).
-fn both(overrun: SetbackDecline, bridged: SetbackDecline) -> SetbackDecline {
+/// The bridged border's decline, after the overrun that led to it when
+/// there was one, at the bridged border's stage (a cap decline there is
+/// still a cap the next construction may serve on the same carve).
+fn bridged_decline(overrun: Option<SetbackDecline>, bridged: SetbackDecline) -> SetbackDecline {
+    let reason = match overrun {
+        Some(overrun) => format!("{}; bridged border: {}", overrun.reason, bridged.reason),
+        None => format!("bridged border: {}", bridged.reason),
+    };
     SetbackDecline {
         stage: bridged.stage,
-        reason: format!("{}; bridged border: {}", overrun.reason, bridged.reason),
+        reason,
         fit_certified: bridged.fit_certified,
+        border: SetbackFitBorder::Bridged,
     }
 }

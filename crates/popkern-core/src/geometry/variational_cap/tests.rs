@@ -266,3 +266,89 @@ fn warm_start_transfer_reproduces_the_previous_level_exactly() {
         }
     }
 }
+
+#[test]
+fn a_thin_sector_serves_only_inside_the_curvature_limit() {
+    // A spherical pentagon with one short side (0.012 rad of azimuth
+    // against ~1.6): the short side's sectors are thin (regularity
+    // 1.1e-2, under the 2e-2 served floor), and the fit bends beside it
+    // to curvature 18 on the unit sphere (measured).
+    let sides = spherical_polygon(&[0.0, 0.012, 1.6, 3.2, 4.7], 0.6);
+    let targets = VariationalCapTargets::g1(1e-6, 1e-4);
+    let with_limit = |limit| VariationalCapOptions {
+        thin_sector_curvature: limit,
+        ..Default::default()
+    };
+    // Without a limit the served floor alone decides.
+    assert!(matches!(
+        fit_variational_cap(&sides, &targets, &with_limit(None), 1e-7),
+        Err(VariationalCapError::Folded { .. })
+    ));
+    // Under a limit the cap stays inside, the thin cap serves.
+    let cap = fit_variational_cap(&sides, &targets, &with_limit(Some(100.0)), 1e-7)
+        .expect("a thin cap inside the limit serves");
+    let regularity = cap.report.min_regularity;
+    assert!((5e-3..2e-2).contains(&regularity), "{regularity}");
+    // Past a limit under its curvature it declines typed.
+    match fit_variational_cap(&sides, &targets, &with_limit(Some(4.0)), 1e-7) {
+        Err(VariationalCapError::ThinSectorBends {
+            curvature, limit, ..
+        }) => assert!(curvature > limit && limit == 4.0, "{curvature}"),
+        other => panic!("expected ThinSectorBends: {other:?}"),
+    }
+    // Under the hard floor no limit admits the cap.
+    let sides = spherical_polygon(&[0.0, 0.003, 1.6, 3.2, 4.7], 0.6);
+    assert!(matches!(
+        fit_variational_cap(&sides, &targets, &with_limit(Some(1e9)), 1e-7),
+        Err(VariationalCapError::Folded { .. })
+    ));
+}
+
+#[test]
+fn the_fit_takes_up_to_twenty_four_sides() {
+    // The bridged setback border of an eight-strip apex has 16 sides.
+    let targets = VariationalCapTargets::g1(1e-6, 1e-4);
+    let options = VariationalCapOptions {
+        max_refinement_levels: 0,
+        ..Default::default()
+    };
+    let cap =
+        fit_variational_cap(&spherical_ngon(16, 0.6), &targets, &options, 1e-7).expect("16 sides");
+    assert_eq!(cap.sectors.len(), 16);
+    assert!(cap.report.min_regularity >= 2e-2);
+    assert!(matches!(
+        fit_variational_cap(
+            &spherical_ngon(MAX_CAP_SIDES + 1, 0.6),
+            &targets,
+            &options,
+            1e-7
+        ),
+        Err(VariationalCapError::UnsupportedSideCount { got: 25 })
+    ));
+}
+
+/// A spherical polygon at polar angle `theta` about +z with corners at
+/// the azimuths `angles` (counter-clockwise).
+fn spherical_polygon(angles: &[f64], theta: f64) -> Vec<VariationalCapSide> {
+    let sphere = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let n = angles.len();
+    let corner = |k: usize| {
+        let a = angles[k % n];
+        Vec3::new(theta.sin() * a.cos(), theta.sin() * a.sin(), theta.cos())
+    };
+    let p = corner(0);
+    let (u, v) = sphere
+        .closest_point(&Point3::new(p.x, p.y, p.z))
+        .expect("projection");
+    let reversed = sphere.normal_at(u, v).dot(&p) < 0.0;
+    (0..n)
+        .map(|k| VariationalCapSide {
+            curve: great_arc(corner(k), corner(k + 1)),
+            neighbour: sphere.clone(),
+            neighbour_reversed: reversed,
+        })
+        .collect()
+}

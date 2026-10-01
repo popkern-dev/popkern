@@ -6,7 +6,9 @@ use super::energy::Integrand;
 use super::gauss_newton::solve_level;
 use super::layout;
 use super::level::{Frame, Level, build_level};
-use super::measure::{SERVED_MIN_REGULARITY, rim_report, served_regularity, spoke_report};
+use super::measure::{
+    SERVED_MIN_REGULARITY, THIN_SECTOR_MIN_REGULARITY, rim_report, served_regularity, spoke_report,
+};
 use super::space::SectorSpace;
 use super::{
     RimResidual, VariationalCap, VariationalCapError, VariationalCapOptions, VariationalCapReport,
@@ -17,6 +19,11 @@ use crate::geometry::{Point3, Vec3};
 
 /// Spans within this factor of the worst span excess are split.
 const REFINE_BAND: f64 = 4.0;
+
+/// The most sides the fit takes. The characteristic chart and the
+/// spoke conditions hold for every n >= 3; 24 covers the bridged
+/// setback border (two sides per strip, PK-611) of a twelve-strip apex.
+pub const MAX_CAP_SIDES: usize = 24;
 
 /// Fit a cap over the opening bounded by `sides` (see the module docs
 /// for the layout and the construction). `tolerance` is the model's
@@ -33,7 +40,7 @@ pub fn fit_variational_cap(
     tolerance: f64,
 ) -> Result<VariationalCap, VariationalCapError> {
     let n = sides.len();
-    if !(3..=12).contains(&n) {
+    if !(3..=MAX_CAP_SIDES).contains(&n) {
         return Err(VariationalCapError::UnsupportedSideCount { got: n });
     }
     if !(5..=9).contains(&options.degree) {
@@ -117,7 +124,17 @@ fn fit_with_splits(
         let refined = (!met).then(|| refine(&level, &coords, &local_targets));
         let space_now = level.space.clone();
         previous = Some((space_now.clone(), coords.clone()));
-        let cap = finish(level, coords, rim, levels, unknowns, gn_total, &frame, met)?;
+        let cap = finish(
+            level,
+            coords,
+            rim,
+            levels,
+            unknowns,
+            gn_total,
+            &frame,
+            met,
+            options.thin_sector_curvature,
+        )?;
         if best.as_ref().is_none_or(|(w, _)| worst < *w) {
             best = Some((worst, cap));
         }
@@ -239,11 +256,13 @@ fn finish(
     gauss_newton_iterations: usize,
     frame: &Frame,
     targets_met: bool,
+    thin_limit: Option<f64>,
 ) -> Result<VariationalCap, VariationalCapError> {
     let space = &level.space;
     let reg = served_regularity(space, &coords);
     let min_regularity = reg.ratio;
-    if min_regularity < SERVED_MIN_REGULARITY {
+    let thin = min_regularity < SERVED_MIN_REGULARITY;
+    if thin && (min_regularity < THIN_SECTOR_MIN_REGULARITY || thin_limit.is_none()) {
         return Err(VariationalCapError::Folded {
             sector: reg.sector,
             at: reg.uv,
@@ -268,7 +287,7 @@ fn finish(
         .map(|s| sectors[s].control_points[(sectors[s].num_u - 1) * sectors[s].num_v])
         .collect();
     let energy = energy_value(&level, &coords);
-    Ok(VariationalCap {
+    let cap = VariationalCap {
         sectors,
         faces,
         centre,
@@ -286,7 +305,21 @@ fn finish(
             layout: layout::CapLayout::Midpoints,
             interior_curvature: 0.0,
         },
-    })
+    };
+    // A thin sector serves only when the cap stays fair.
+    if let (true, Some(limit)) = (thin, thin_limit) {
+        let curvature = layout::interior_curvature(&cap);
+        if curvature > limit {
+            return Err(VariationalCapError::ThinSectorBends {
+                sector: reg.sector,
+                at: reg.uv,
+                min_regularity,
+                curvature,
+                limit,
+            });
+        }
+    }
+    Ok(cap)
 }
 
 /// Thin-plate energy of the result under the characteristic metric

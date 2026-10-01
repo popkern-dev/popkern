@@ -6,7 +6,7 @@
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum VariationalCapError {
     /// The opening has too few or too many sides.
-    #[error("variational cap: {got} sides; the fit supports 3 to 12")]
+    #[error("variational cap: {got} sides; the fit supports 3 to 24")]
     UnsupportedSideCount {
         /// Sides supplied.
         got: usize,
@@ -77,5 +77,25 @@ pub enum VariationalCapError {
         at: (f64, f64),
         /// Smallest `|S_u × S_v|` relative to the sector mean.
         min_regularity: f64,
+    },
+    /// A sector thinner than the served regularity floor bends past the
+    /// caller's thin-sector curvature limit: a near-fold pinch, not a
+    /// thin but fair sector
+    /// ([`super::VariationalCapOptions::thin_sector_curvature`]).
+    #[error(
+        "variational cap: sector {sector} is thin near (u, v) = ({:.3}, {:.3}) (min regularity {min_regularity:.3e}) and bends to curvature {curvature:.3e} over the limit {limit:.3e}",
+        at.0, at.1
+    )]
+    ThinSectorBends {
+        /// Offending sector.
+        sector: usize,
+        /// Sector parameters of the thinnest sample.
+        at: (f64, f64),
+        /// Smallest `|S_u × S_v|` relative to the sector mean.
+        min_regularity: f64,
+        /// Largest sampled interior principal curvature (model units).
+        curvature: f64,
+        /// The caller's limit (model units).
+        limit: f64,
     },
 }

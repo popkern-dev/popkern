@@ -59,7 +59,7 @@ mod spoke;
 mod tests;
 
 pub use error::VariationalCapError;
-pub use fit::fit_variational_cap;
+pub use fit::{MAX_CAP_SIDES, fit_variational_cap};
 pub use layout::CapLayout;
 
 use super::Point3;
@@ -170,6 +170,16 @@ pub struct VariationalCapOptions {
     /// foot at the side point nearest the fitted centre, and the fairer
     /// cap is returned (PK-618, [`CapLayout`]). `None`: midpoints only.
     pub layout_refit_curvature: Option<f64>,
+    /// A cap whose regularity falls under the served floor (2e-2) but
+    /// stays above a hard floor (5e-3) serves when its largest interior
+    /// principal curvature stays under this (model units); otherwise it
+    /// declines [`VariationalCapError::ThinSectorBends`]. A short side
+    /// between long ones gives its sector a thin edge the fit cannot
+    /// widen (PK-618: the octagon h1.2 bridged border, regularity 1.8e-2
+    /// at a fair 2.4 / r_min); a near-fold pinch bends far past any
+    /// fairness bound (PK-612: 2572 / r_min). `None`: the served floor
+    /// alone decides.
+    pub thin_sector_curvature: Option<f64>,
 }
 
 impl Default for VariationalCapOptions {
@@ -188,6 +198,7 @@ impl Default for VariationalCapOptions {
             transversal_weight: 1.0e-1,
             corner_cells: false,
             layout_refit_curvature: None,
+            thin_sector_curvature: None,
         }
     }
 }

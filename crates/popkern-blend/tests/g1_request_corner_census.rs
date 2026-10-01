@@ -11,7 +11,7 @@ use popkern_blend::blend_continuity_evidence::{
 };
 use popkern_blend::{
     ApexConstructionDiagnostic, BlendResult, ContinuityLevel, CornerMethod, FilletOptions,
-    FilletRadius, FilletSpec, SetbackFitMode, SetbackFitOutcome, fillet_edges,
+    FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome, fillet_edges,
 };
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -190,8 +190,9 @@ fn cap_fairness(result: &BlendResult, r_min: f64) -> f64 {
 /// A mixed-radius G1 row the corner-cell tangent fit rescues (PK-615):
 /// served on the setback rung by `TangentCornerCells` after the plain
 /// tangent fit failed, every corner piece claiming G1, the whole blend
-/// certified G1 and the cap under the fairness bound.
-fn assert_corner_cell_rescue(n: usize, h: f64, radii: &[f64]) {
+/// certified G1 and the cap under the fairness bound. Returns the
+/// border the served fit was carved on.
+fn assert_corner_cell_rescue(n: usize, h: f64, radii: &[f64]) -> SetbackFitBorder {
     let name = format!("pyramid n={n} h={h} {radii:?}");
     let (result, pre) = pyramid_apex(n, h, radii);
     assert!(
@@ -221,6 +222,7 @@ fn assert_corner_cell_rescue(n: usize, h: f64, radii: &[f64]) {
     let r_min = radii.iter().take(n).copied().fold(f64::INFINITY, f64::min);
     let fairness = cap_fairness(&result, r_min);
     assert!(fairness < 4.0, "{name}: cap interior {fairness:.2} / r_min");
+    served.border
 }
 
 #[test]
@@ -242,4 +244,73 @@ fn mixed_radius_quad_g1_apexes_serve_the_corner_cell_tangent_fit() {
     // Both now 1.0-1.4 / r_min.
     assert_corner_cell_rescue(4, 0.4, &[0.05, 0.15, 0.08, 0.2]);
     assert_corner_cell_rescue(4, 0.8, &[0.02, 0.04, 0.06, 0.04]);
+}
+
+#[test]
+fn mixed_radius_g1_apexes_serve_the_corner_cell_fit_on_the_bridged_border() {
+    // PK-616 / PK-618, measured 2026-10-01: the KP20 fans read 9.34
+    // (pyramid-3 h1.2 variable) and 10.8 (h3 wide) / r_min; on the
+    // corners border the corner-cell fit bent to 9.2 or certified G0.
+    // On the bridged border it certifies G1 at 1.23 and 3.20.
+    for (h, radii) in [
+        (1.2, &[0.02, 0.04, 0.06][..]),
+        (3.0, &[0.05, 0.15, 0.08][..]),
+    ] {
+        assert_eq!(
+            assert_corner_cell_rescue(3, h, radii),
+            SetbackFitBorder::Bridged,
+            "pyramid-3 h{h}"
+        );
+    }
+}
+
+#[test]
+fn steep_mixed_radius_g1_apexes_serve_the_fairest_certified_cap() {
+    // PK-616, measured 2026-10-01: the KP20 fans rippled at 9.08
+    // (pyramid-3 h3 variable), 27.2 (pyramid-4 h3 variable) and 21.3
+    // (pyramid-4 h3 wide) / r_min. The bridged border's corner-cell fit
+    // certifies G1 at 4.12, 4.27 and 4.22: past the fairness bound but
+    // two to six times fairer, so it serves (the rescue serves when
+    // fairer than the fan). Under the bound is PK-619's acceptance.
+    for (n, radii, fan) in [
+        (3, &[0.02, 0.04, 0.06][..], 9.0),
+        (4, &[0.02, 0.04, 0.06, 0.04][..], 27.0),
+        (4, &[0.05, 0.15, 0.08, 0.2][..], 21.0),
+    ] {
+        let name = format!("pyramid n={n} h=3 {radii:?}");
+        let (result, pre) = pyramid_apex(n, 3.0, radii);
+        assert_certified_g1(&name, &result, &pre, 1e-4);
+        let record = setback_record(&result).unwrap_or_else(|| panic!("{name}"));
+        let served = record
+            .attempts
+            .iter()
+            .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
+            .unwrap_or_else(|| panic!("{name}: {record:#?}"));
+        assert_eq!(
+            (served.mode, served.border),
+            (
+                SetbackFitMode::TangentCornerCells,
+                SetbackFitBorder::Bridged
+            ),
+            "{name}"
+        );
+        let interior = served.interior.unwrap_or(f64::INFINITY);
+        let kp20 = record.fairness.map_or(0.0, |f| f.kp20);
+        assert!(
+            kp20 > fan && interior < 4.5,
+            "{name}: fit {interior}, fan {kp20}"
+        );
+    }
+}
+
+/// The setback rung's fit record.
+fn setback_record(result: &BlendResult) -> Option<&popkern_blend::SetbackFitDiagnostic> {
+    result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            ApexConstructionDiagnostic::SetbackFit(record) => Some(record),
+            _ => None,
+        })
 }

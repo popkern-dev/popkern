@@ -33,6 +33,20 @@ impl SetbackFitMode {
     }
 }
 
+/// The setback border a fit attempt was carved on (PK-618).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetbackFitBorder {
+    /// n sides: one arc per strip, the corners at the rail crossings.
+    Corners,
+    /// 2n sides: each strip set back to a station of its own, with a
+    /// bridge on every support face and the stations balancing each
+    /// bridge's legs (PK-611). On a corner whose radii differ widely
+    /// the corners border leaves a small corner between two short
+    /// sides, which a one-centre cap gives a thin, bent sector; the
+    /// bridged border is near-regular there.
+    Bridged,
+}
+
 /// Certified outcome of one fit attempt that reached the certifier.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SetbackFitCertified {
@@ -89,11 +103,15 @@ impl SetbackFitOutcome {
     }
 }
 
-/// One fit attempt: its mode and how it ended.
+/// One fit attempt: its mode, border and how it ended.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetbackFitAttempt {
     /// Mode attempted.
     pub mode: SetbackFitMode,
+    /// The border the attempt was carved on: [`SetbackFitBorder::Bridged`]
+    /// when requested, or when the corners border overran a narrow
+    /// strip and the surgery retried on the bridged border.
+    pub border: SetbackFitBorder,
     /// Served, rejected on its certificate, or declined earlier.
     pub outcome: SetbackFitOutcome,
     /// The fitted cap's interior fairness (largest sampled principal

@@ -35,6 +35,8 @@ pub(crate) struct SetbackDecline {
     /// The fit's certified bounds when a variational-fit cap reached
     /// the certifier and was declined on them.
     pub fit_certified: Option<crate::types::SetbackFitCertified>,
+    /// The border the declining attempt was carved on.
+    pub border: crate::types::SetbackFitBorder,
 }
 
 impl SetbackDecline {
@@ -44,6 +46,7 @@ impl SetbackDecline {
             stage: SetbackStage::Cap,
             reason: error.reason,
             fit_certified: error.fit_certified,
+            border: crate::types::SetbackFitBorder::Corners,
         }
     }
 }
@@ -79,6 +82,7 @@ impl From<String> for SetbackDecline {
             stage: SetbackStage::Carve,
             reason,
             fit_certified: None,
+            border: crate::types::SetbackFitBorder::Corners,
         }
     }
 }
@@ -110,5 +114,8 @@ pub(crate) enum SetbackCapStrategy {
     VariationalFit {
         mode: crate::types::SetbackFitMode,
         r_min: f64,
+        /// The border to carve first; a corners border that overruns a
+        /// narrow strip retries on the bridged border (PK-611).
+        border: crate::types::SetbackFitBorder,
     },
 }

@@ -129,6 +129,8 @@ pub(crate) struct SetbackTopologyOutcome {
     pub cap_faces: Vec<FaceHandle>,
     /// The variational fit's certified serve, when the fit built the cap.
     pub fit: Option<setback_fit_fan::FitServe>,
+    /// The border the region was carved on.
+    pub border: crate::types::SetbackFitBorder,
 }
 
 /// Attempt the setback boundary surgery at `vertex`. On any error the
@@ -258,6 +260,8 @@ fn surgery_inner(
             corner_vertices: Vec::new(),
             cap_faces,
             fit,
+            // The bridged retry marks its own carve.
+            border: crate::types::SetbackFitBorder::Corners,
         });
     }
     if extract.setback_arcs.len() != n {
@@ -495,6 +499,7 @@ fn surgery_inner(
         corner_vertices,
         cap_faces,
         fit,
+        border: crate::types::SetbackFitBorder::Corners,
     })
 }
 

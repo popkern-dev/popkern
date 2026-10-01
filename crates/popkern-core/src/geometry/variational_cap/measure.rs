@@ -224,6 +224,11 @@ pub(super) struct Regularity {
 /// rejected for G2 at 0.007–0.136 overlap the served range.
 pub(super) const SERVED_MIN_REGULARITY: f64 = 2.0e-2;
 
+/// The hard regularity floor under the served one: a thinner cap never
+/// serves, fair or not. E6: caps between 1e-3 and 5e-3 had spoke seams
+/// the certifier could not enclose (Jacobian).
+pub(super) const THIN_SECTOR_MIN_REGULARITY: f64 = 5.0e-3;
+
 /// Regularity samples per knot span for the served surface.
 pub(super) const SERVED_GRID_PER_SPAN: usize = 12;
 
