@@ -108,5 +108,6 @@ pub(super) fn certify_cap(
         refinement_levels: report.refinement_levels,
         unknowns: report.unknowns,
         min_regularity: report.min_regularity,
+        layout: report.layout,
     })
 }

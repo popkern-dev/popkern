@@ -84,12 +84,12 @@ fn triangular_apexes_serve_the_setback_rung() {
     // Measured 2026-10-01. The corner-cell fit (PK-595) certifies G2
     // where the KP20 fan bends past the fairness bound or folds (h 0.4
     // all, h 0.8 variable and wide); the faired fan serves the rest at
-    // G2. h 1.2 variable: the fan reads 7.13 / r_min (past the bound),
-    // the G2 fit 15.5, the tangent fit 2.60 - the fairest cap serves,
-    // at G1 (PK-612's rule, applied across the fit modes by PK-614).
-    // h 1.2 wide: the fan reads 9.49, the G2 fit fails, the tangent fit
-    // 36.9 and the corner-cell tangent fit 6.53 - it serves at G1
-    // (PK-615).
+    // G2. h 1.2 variable: the fan reads 7.13 / r_min (past the bound);
+    // the G2 fit read 15.5 on the midpoint layout and 1.74 with the
+    // spokes' feet nearest its centre (PK-618), certified G2.
+    // h 1.2 wide: the fan reads 9.49; with the spokes' feet nearest the
+    // fitted centre (PK-618) the G2 fit certifies (before: G2 fit G0,
+    // the corner-cell tangent fit served G1 at 6.53).
     for (h, radii, level) in [
         (0.4, &MIXED[..3], ContinuityLevel::G2),
         (0.4, &VARIABLE[..3], ContinuityLevel::G2),
@@ -97,8 +97,8 @@ fn triangular_apexes_serve_the_setback_rung() {
         (0.8, &MIXED[..3], ContinuityLevel::G2),
         (0.8, &VARIABLE[..3], ContinuityLevel::G2),
         (0.8, &WIDE[..3], ContinuityLevel::G2),
-        (1.2, &VARIABLE[..3], ContinuityLevel::G1),
-        (1.2, &WIDE[..3], ContinuityLevel::G1),
+        (1.2, &VARIABLE[..3], ContinuityLevel::G2),
+        (1.2, &WIDE[..3], ContinuityLevel::G2),
     ] {
         assert_eq!(verdict(3, h, radii), level, "pyr3 h{h} {radii:?}");
     }

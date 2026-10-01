@@ -396,9 +396,10 @@ fn row_879_fit_fairness_against_kp20() {
         // 1.76). PK-595 + PK-614: the curvature-weighted fit serves
         // dual-jet corner cells at G2 with three freezes (one: blunt
         // 3.03, hexagon 12.4); past the fairness bound it yields to a
-        // fairer tangent fit (hexagon: G2 4.39 -> G1 2.09; the 6x
-        // disparity cube: G2 30.2 -> G1 2.22, was 5.30 before the
-        // G1-phase regularity guard).
+        // fairer tangent fit. PK-618: a layout past the bound refits
+        // with the spokes' feet nearest the fitted centre; the hexagon
+        // (G2 4.39 midpoints) and the 6x-disparity cube (G2 30.2
+        // midpoints, then G1 2.22 by the tangent fit) both serve G2.
         let fit_pin = [
             ("pentagon5 blunt", ContinuityLevel::G2, 1.40),
             ("pentagon5 variable", ContinuityLevel::G2, 1.80),
@@ -406,8 +407,8 @@ fn row_879_fit_fairness_against_kp20() {
             ("pyramid3 h1.2", ContinuityLevel::G2, 1.30),
             ("cube corner 0.2", ContinuityLevel::G2, 1.40),
             ("notched saddle", ContinuityLevel::G2, 1.40),
-            ("cube corner 0.05/0.2/0.3", ContinuityLevel::G1, 2.30),
-            ("hexagon6 variable h1.2", ContinuityLevel::G1, 2.20),
+            ("cube corner 0.05/0.2/0.3", ContinuityLevel::G2, 2.15),
+            ("hexagon6 variable h1.2", ContinuityLevel::G2, 3.10),
         ];
         let (_, level, pin) = fit_pin
             .iter()

@@ -35,26 +35,61 @@ pub(super) struct SideRows {
     pub params: (f64, f64, f64),
 }
 
+/// The map from a half row's parameter `x ∈ [0, 1]` (measured from
+/// `m_s`) to the side curve: `t = tm ± h (x ± a x²)`, `h` the mean half
+/// length and `a = (H_t − H_l) / (H_t + H_l)`. Both halves share the
+/// 2-jet at `m_s` (first derivative negated), so the spoke conditions
+/// hold exactly for an off-centre split; `a = 0` is the affine split.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct HalfMap {
+    pub tm: f64,
+    pub h: f64,
+    pub a: f64,
+}
+
+impl HalfMap {
+    /// The split `(t0, tm, t1)`.
+    pub fn new(t0: f64, tm: f64, t1: f64) -> Self {
+        let (ht, hl) = (t1 - tm, tm - t0);
+        HalfMap {
+            tm,
+            h: 0.5 * (ht + hl),
+            a: (ht - hl) / (ht + hl),
+        }
+    }
+
+    /// Side parameter of `x` on the trailing (`true`) or leading half.
+    pub fn t(&self, trailing: bool, x: f64) -> f64 {
+        if trailing {
+            self.tm + self.h * (x + self.a * x * x)
+        } else {
+            self.tm - self.h * (x - self.a * x * x)
+        }
+    }
+}
+
 /// Fit both half rows of `side` in `space`.
 pub(super) fn side_rows(
     space: &SectorSpace,
     side: &VariationalCapSide,
     index: usize,
+    tm: f64,
 ) -> Result<SideRows, VariationalCapError> {
     let (t0, t1) = side.curve.parameter_range();
-    let tm = 0.5 * (t0 + t1);
-    let h = 0.5 * (t1 - t0);
+    let map = HalfMap::new(t0, tm, t1);
+    let h = map.h;
     let (pm, c1, c2) = side.curve_jet(tm);
+    let second = c2 * (h * h) + c1 * (2.0 * map.a * h);
     let trailing = half_row(
         space,
-        |x| side.curve_at(tm + x * h),
-        (pm, c1 * h, c2 * (h * h)),
+        |x| side.curve_at(map.t(true, x)),
+        (pm, c1 * h, second),
         index,
     )?;
     let leading = half_row(
         space,
-        |x| side.curve_at(tm - x * h),
-        (pm, c1 * -h, c2 * (h * h)),
+        |x| side.curve_at(map.t(false, x)),
+        (pm, c1 * -h, second),
         index,
     )?;
     Ok(SideRows {

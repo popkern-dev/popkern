@@ -4,6 +4,7 @@
 use super::chart::CharacteristicMap;
 use super::energy::Integrand;
 use super::gauss_newton::solve_level;
+use super::layout;
 use super::level::{Frame, Level, build_level};
 use super::measure::{SERVED_MIN_REGULARITY, rim_report, served_regularity, spoke_report};
 use super::space::SectorSpace;
@@ -46,6 +47,46 @@ pub fn fit_variational_cap(
         g1: targets.g1,
         g2: targets.g2.map(|g| g * frame.scale),
     };
+    let mut cap = fit_with_splits(
+        sides,
+        options,
+        &frame,
+        &local_targets,
+        &layout::midpoints(sides),
+    )?;
+    let Some(limit) = options.layout_refit_curvature else {
+        return Ok(cap);
+    };
+    cap.report.interior_curvature = layout::interior_curvature(&cap);
+    if cap.report.interior_curvature <= limit {
+        return Ok(cap);
+    }
+    // PK-618: the midpoint layout bends past the caller's limit; refit
+    // with the spokes' feet nearest the fitted centre and keep the
+    // fairer cap. A refit that declines leaves the midpoint cap.
+    let feet = layout::centre_feet(sides, &cap);
+    if let Ok(mut refit) = fit_with_splits(sides, options, &frame, &local_targets, &feet) {
+        refit.report.interior_curvature = layout::interior_curvature(&refit);
+        refit.report.layout = layout::CapLayout::CentreFeet;
+        if refit.report.interior_curvature < cap.report.interior_curvature {
+            return Ok(refit);
+        }
+    }
+    Ok(cap)
+}
+
+/// One fit (levels, Gauss–Newton, refinement) with side `s` split at
+/// `splits[s]`.
+fn fit_with_splits(
+    sides: &[VariationalCapSide],
+    options: &VariationalCapOptions,
+    frame: &Frame,
+    local_targets: &VariationalCapTargets,
+    splits: &[f64],
+) -> Result<VariationalCap, VariationalCapError> {
+    let n = sides.len();
+    let frame = *frame;
+    let local_targets = *local_targets;
     let phi = CharacteristicMap::new(n);
     let mut space = SectorSpace::bezier(n, options.degree);
     if options.corner_cells {
@@ -59,7 +100,7 @@ pub fn fit_variational_cap(
     let mut best: Option<(f64, VariationalCap)> = None;
     let mut previous: Option<(SectorSpace, [Vec<f64>; 3])> = None;
     loop {
-        let level = build_level(space.clone(), sides, &frame)?;
+        let level = build_level(space.clone(), sides, &frame, splits)?;
         let unknowns = 3 * level.hs.dim();
         let start = previous
             .as_ref()
@@ -242,6 +283,8 @@ fn finish(
             min_regularity,
             energy,
             targets_met,
+            layout: layout::CapLayout::Midpoints,
+            interior_curvature: 0.0,
         },
     })
 }

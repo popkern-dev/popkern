@@ -52,6 +52,10 @@ pub struct SetbackFitCertified {
     /// The fit's smallest sampled `|S_u × S_v|` relative to its mean
     /// (the core fold gate declines below 0.02).
     pub min_regularity: f64,
+    /// Where the fit split the sides: midpoints, or the spokes' feet
+    /// nearest the fitted centre after the midpoint layout bent past the
+    /// fairness bound (PK-618).
+    pub layout: popkern_core::geometry::variational_cap::CapLayout,
 }
 
 /// How one fit attempt ended.

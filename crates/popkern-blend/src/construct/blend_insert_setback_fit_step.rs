@@ -42,16 +42,21 @@ impl SetbackRung<'_> {
             let (first, second) = rayon::join(
                 // Called from outside the pool, `join` runs BOTH closures
                 // on pool workers: each carries the overrides.
-                || overrides.apply(|| self.surgery(brep, SetbackCapStrategy::VariationalFit(a))),
-                || {
-                    overrides
-                        .apply(|| self.surgery(&mut other, SetbackCapStrategy::VariationalFit(b)))
-                },
+                || overrides.apply(|| self.surgery(brep, self.fit_strategy(a))),
+                || overrides.apply(|| self.surgery(&mut other, self.fit_strategy(b))),
             );
             return (Some(first), Some((other, second)));
         }
         let _ = (brep, modes);
         (None, None)
+    }
+
+    /// The surgery strategy for a fit in `mode`.
+    fn fit_strategy(&self, mode: SetbackFitMode) -> SetbackCapStrategy {
+        SetbackCapStrategy::VariationalFit {
+            mode,
+            r_min: self.r_min,
+        }
     }
 
     /// The fit modes the request admits: curvature-weighted under a G2
@@ -101,7 +106,7 @@ impl SetbackRung<'_> {
                 if held.is_some() {
                     *brep = self.commit_snapshot.clone();
                 }
-                self.surgery(brep, SetbackCapStrategy::VariationalFit(mode))
+                self.surgery(brep, self.fit_strategy(mode))
             };
             match attempt {
                 Ok(outcome) => {

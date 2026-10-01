@@ -50,6 +50,7 @@ pub(super) fn build_level(
     space: SectorSpace,
     sides: &[VariationalCapSide],
     frame: &Frame,
+    splits: &[f64],
 ) -> Result<Level, VariationalCapError> {
     let n = space.n;
     let m = space.m;
@@ -64,7 +65,7 @@ pub(super) fn build_level(
     }
     let mut params = Vec::with_capacity(n);
     for (s, side) in sides.iter().enumerate() {
-        let rows = side_rows(&space, side, s)?;
+        let rows = side_rows(&space, side, s, splits[s])?;
         let prev = (s + n - 1) % n;
         for (j, &p) in rows.trailing.iter().enumerate() {
             put(&mut full, space.index(s, m - 1, j), frame.to_local(p));
@@ -131,12 +132,13 @@ fn rim_samples(
                     at: tm,
                     reason,
                 })?;
-            let (sector, sign, h) = match half {
-                RimHalf::Trailing => (s, 1.0, t1 - tm),
-                RimHalf::Leading => ((s + n - 1) % n, -1.0, tm - t0),
+            let map = super::rim::HalfMap::new(t0, tm, t1);
+            let (sector, trailing) = match half {
+                RimHalf::Trailing => (s, true),
+                RimHalf::Leading => ((s + n - 1) % n, false),
             };
             for &x in &xs {
-                let t = tm + sign * x * h;
+                let t = map.t(trailing, x);
                 let p = crate::geometry::curve::CurveEval::point_at(&side.curve, t);
                 let model =
                     sampler

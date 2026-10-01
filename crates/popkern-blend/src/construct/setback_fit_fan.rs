@@ -14,9 +14,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::variational_cap::{
     CapEnergy, VariationalCap, VariationalCapOptions, VariationalCapTargets, fit_variational_cap,
 };
-use popkern_core::geometry::{
-    CurveGeometry, CurveOnEdge, NurbsSurface, SurfaceGeometry, SurfaceOnFace,
-};
+use popkern_core::geometry::{CurveGeometry, CurveOnEdge, NurbsSurface, SurfaceOnFace};
 
 use super::*;
 use crate::blend_continuity_evidence::ContinuityGates;
@@ -30,7 +28,10 @@ use crate::types::{SetbackFitCertified, SetbackFitMode};
 mod setback_fit_certify;
 #[path = "setback_fit_pcurves.rs"]
 mod setback_fit_pcurves;
+#[path = "setback_fit_tilt.rs"]
+mod setback_fit_tilt;
 use setback_fit_pcurves::author_cap_pcurves;
+use setback_fit_tilt::{tilt_rim_row, tilted_face};
 
 /// A certified fit serve.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,6 +47,7 @@ pub(super) fn commit_fit_fan(
     fillet_surfaces: &[FilletSurfaceResult],
     arcs: &[Kp20SetbackArc],
     mode: SetbackFitMode,
+    r_min: f64,
     tolerance: &Tolerance,
 ) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
     let gates = ContinuityGates::commercial();
@@ -95,6 +97,13 @@ pub(super) fn commit_fit_fan(
                 ..Default::default()
             },
         ),
+    };
+    // PK-618: a layout bending past the fairness bound is refit with the
+    // spokes' feet nearest the fitted centre; the fairer cap is kept.
+    let options = VariationalCapOptions {
+        layout_refit_curvature: (r_min.is_finite() && r_min > 0.0)
+            .then(|| crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND / r_min),
+        ..options
     };
     let mut cap = fit_variational_cap(&sides, &targets, &options, tolerance.linear())
         .map_err(|e| format!("variational fit: {e}"))?;
@@ -177,54 +186,6 @@ fn author_neighbour_pcurves(
         }
     }
     Ok(())
-}
-
-/// The negative-control corruption behind
-/// [`crate::dispatch_overrides::with_fit_cap_rim_tilted`]: lift the
-/// control row next to the `u = 1` rim along the unit surface normal
-/// by a fifth of the row spacing. Only interior columns move — columns
-/// 0 and 1 carry the spoke `v = 0` and its cross tangent, the last two
-/// the `v = 1` rim and its — so exactly one thing breaks: the `u = 1`
-/// rim's cross tangent (position intact).
-/// The served face after [`tilt_rim_row`] moved its plain net: a NURBS
-/// face takes the net; a dual-jet face its grid and the u-claims of the
-/// dual cells (the u = 1 rim reads them), the v-claims kept.
-fn tilted_face(face: &mut SurfaceGeometry, sector: &NurbsSurface) {
-    use popkern_core::geometry::gregory::GregoryPatch;
-    match face {
-        SurfaceGeometry::Nurbs(n) => *n = sector.clone(),
-        SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonicDualJet(patch)) => {
-            let m = sector.num_v;
-            for (i, row) in patch.grid.iter_mut().enumerate() {
-                for (j, cell) in row.iter_mut().enumerate() {
-                    *cell = sector.control_points[i * m + j];
-                }
-            }
-            for block in patch.corners.iter_mut().flatten() {
-                block.cell_11.0 = patch.grid[8][8];
-                block.cell_12.0 = patch.grid[8][7];
-                block.cell_21.0 = patch.grid[7][8];
-                block.cell_22.0 = patch.grid[7][7];
-            }
-        }
-        _ => {}
-    }
-}
-
-fn tilt_rim_row(sector: &mut NurbsSurface) {
-    let (m_u, m_v) = (sector.num_u, sector.num_v);
-    if m_u < 2 || m_v < 5 {
-        return;
-    }
-    for j in 2..m_v - 2 {
-        let (rim, inner) = ((m_u - 1) * m_v + j, (m_u - 2) * m_v + j);
-        let spacing = sector.control_points[rim].distance_to(&sector.control_points[inner]);
-        let v = j as f64 / (m_v - 1) as f64;
-        let Some(normal) = sector.normal_at(1.0, v).normalized() else {
-            continue;
-        };
-        sector.control_points[inner] = sector.control_points[inner] + normal * (0.2 * spacing);
-    }
 }
 
 /// Decline a curvature-weighted fit before any topology when its own

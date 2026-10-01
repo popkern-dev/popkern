@@ -44,6 +44,7 @@ mod error;
 mod fit;
 mod gauss_newton;
 mod jets;
+mod layout;
 mod level;
 pub(crate) mod linalg;
 mod measure;
@@ -59,6 +60,7 @@ mod tests;
 
 pub use error::VariationalCapError;
 pub use fit::fit_variational_cap;
+pub use layout::CapLayout;
 
 use super::Point3;
 use super::nurbs_curve::NurbsCurve;
@@ -163,6 +165,11 @@ pub struct VariationalCapOptions {
     /// obstruction; the sectors become rational. Single-level fits only
     /// (no refinement).
     pub corner_cells: bool,
+    /// When set, a cap whose largest sampled interior principal
+    /// curvature exceeds this (model units) is refit with every spoke's
+    /// foot at the side point nearest the fitted centre, and the fairer
+    /// cap is returned (PK-618, [`CapLayout`]). `None`: midpoints only.
+    pub layout_refit_curvature: Option<f64>,
 }
 
 impl Default for VariationalCapOptions {
@@ -180,6 +187,7 @@ impl Default for VariationalCapOptions {
             anchor_weight: 1.0,
             transversal_weight: 1.0e-1,
             corner_cells: false,
+            layout_refit_curvature: None,
         }
     }
 }
@@ -235,6 +243,12 @@ pub struct VariationalCapReport {
     /// `false`; the caller decides what the achieved residuals are worth
     /// (a G2 attempt may still certify G1).
     pub targets_met: bool,
+    /// Where the sides were split.
+    pub layout: CapLayout,
+    /// Largest sampled interior principal curvature (model units), when
+    /// [`VariationalCapOptions::layout_refit_curvature`] asked for it;
+    /// otherwise 0.
+    pub interior_curvature: f64,
 }
 
 impl VariationalCapReport {

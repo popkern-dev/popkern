@@ -175,8 +175,10 @@ fn octagonal_low_apexes_serve() {
     // Wide radii: the faired fan serves G2 inside the fairness bound
     // (PK-613; the tangent fit served these at G1 before). h 0.4
     // variable: the fan reads 5.5 / r_min and the corner-cell fit
-    // (PK-595) serves, certified G2. h 0.8 variable: the fan (10.6) is
-    // fairer than the fit (18.3) and serves at G1, recorded.
+    // (PK-595) serves, certified G2. h 0.8 variable: the fan reads 10.6
+    // (a G1 downgrade); the tangent fit read 18.3 on the midpoint
+    // layout and 2.76 with the spokes' feet nearest its centre, and
+    // serves at G1 (PK-618).
     for h in [0.4, 0.8] {
         let (method, level, fairness) = outcome(8, h, &WIDE);
         assert_eq!(
@@ -189,7 +191,7 @@ fn octagonal_low_apexes_serve() {
     let (method, level, fairness) = outcome(8, 0.8, &VARIABLE);
     assert_eq!(
         (method, level),
-        (CornerMethod::Gregory, ContinuityLevel::G1)
+        (CornerMethod::PlateMin, ContinuityLevel::G1)
     );
     assert!(fairness.is_some_and(|f| f > 4.0), "{fairness:?}");
 }

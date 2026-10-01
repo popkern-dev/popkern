@@ -183,11 +183,12 @@ pub fn assert_record_serves(
         unreachable!("{name}: found by its outcome");
     };
     assert_eq!(c.level, level, "{name}");
-    // E6: served caps measured at regularity 0.131 and above; the core
-    // fold gate declines below 0.02 (PK-612: the thin octagonal caps
-    // PK-594 served at 8.4e-3 were near-fold pinches).
+    // E6: served caps measured at regularity 0.091 and above (the
+    // corner-cell fit on the 1:10 cube corner; 0.131 before PK-615); the
+    // core fold gate declines below 0.02 (PK-612: the thin octagonal
+    // caps PK-594 served at 8.4e-3 were near-fold pinches).
     assert!(
-        c.min_regularity >= 0.1,
+        c.min_regularity >= 0.05,
         "{name}: regularity {}",
         c.min_regularity
     );

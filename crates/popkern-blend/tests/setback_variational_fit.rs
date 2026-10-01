@@ -11,6 +11,7 @@ use popkern_blend::{
     BlendResult, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, SetbackFitMode,
     SetbackFitOutcome, fillet_edges,
 };
+use popkern_core::geometry::variational_cap::CapLayout;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use setback_fit_fixtures::*;
@@ -18,37 +19,34 @@ use setback_fit_fixtures::*;
 #[test]
 fn the_fit_serves_the_cube_corner_kp20_folds_on() {
     // Row 877: the C1 census class (KP20 folds on the wide mixed-radius
-    // cube corner) is served by the fit. At 0.05 / 0.2 / 0.3 the
-    // curvature-weighted fit certifies G2 but its skinny, sheared sector
-    // beside the thin strip bends to 30 / r_min (chart sine 0.12), so
-    // the fairer tangent fit (2.2) serves at G1 (PK-614).
-    let result = cube_corner(&[0.05, 0.2, 0.3]);
-    let record = only_record("cube 0.05/0.2/0.3", &result);
-    assert!(
-        record.kp20_decline.contains("fold"),
-        "{}",
-        record.kp20_decline
-    );
-    assert_fit_serves(
-        "cube 0.05/0.2/0.3",
-        &result,
-        SetbackFitMode::Tangent,
-        ContinuityLevel::G1,
-    );
-    let first = &record.attempts[0];
-    assert_eq!(first.mode, SetbackFitMode::CurvatureWeighted);
-    assert!(
-        first.interior.is_some_and(|k| k > 4.0)
-            && matches!(&first.outcome, SetbackFitOutcome::Rejected { certified, reason }
-                if certified.level == ContinuityLevel::G2 && reason.contains("fairer")),
-        "{record:#?}"
-    );
-    assert!(
-        record.attempts[1].interior.is_some_and(|k| k < 4.0),
-        "{record:#?}"
-    );
-    // At 0.08 / 0.2 / 0.3 the fan bends to 468 / r_min and the G2 fit
-    // serves fair (1.75).
+    // cube corner) is served by the curvature-weighted fit at G2. At
+    // 0.05 / 0.2 / 0.3 its midpoint layout shears the sector beside the
+    // thin strip (30 / r_min, chart sine 0.12); the refit with the
+    // spokes' feet nearest the fitted centre reads 2.07 (PK-618).
+    for radii in [[0.05, 0.2, 0.3], [0.06, 0.2, 0.3], [0.05, 0.15, 0.25]] {
+        let name = format!("cube {radii:?}");
+        let result = cube_corner(&radii);
+        let record = only_record(&name, &result);
+        assert!(
+            record.kp20_decline.contains("fold"),
+            "{}",
+            record.kp20_decline
+        );
+        assert_fit_serves(
+            &name,
+            &result,
+            SetbackFitMode::CurvatureWeighted,
+            ContinuityLevel::G2,
+        );
+        let served = &record.attempts[0];
+        assert!(
+            served.interior.is_some_and(|k| k < 4.0)
+                && matches!(&served.outcome, SetbackFitOutcome::Served(c)
+                    if c.layout == CapLayout::CentreFeet),
+            "{record:#?}"
+        );
+    }
+    // At 0.08 / 0.2 / 0.3 the midpoint layout is already fair (1.75).
     let result = cube_corner(&[0.08, 0.2, 0.3]);
     assert_fit_serves(
         "cube 0.08/0.2/0.3",
@@ -249,9 +247,11 @@ fn row_876_all_edge_pyramids_serve_every_corner_with_kp20_forced_off() {
 fn the_fit_serves_the_extreme_cube_corner_ahead_of_the_exact_ring() {
     // Row 877, second C1 fixture: the 1:10 cube corner. KP20's cap folds;
     // before PK-574 the corner fell through to the exact-boundary ring
-    // (G1 by measurement). The tangent fit now serves it, certified G1
+    // (G1 by measurement). A tangent fit now serves it, certified G1
     // (the curvature-weighted attempt is declined on its own rim
-    // witness, a curvature jump ~80 against the 5e-2 gate).
+    // witness, a curvature jump ~80 against the 5e-2 gate): the
+    // corner-cell fit at 3.74 / r_min, fairer than the plain tangent
+    // fit's 18.2 (PK-615, PK-618).
     let result = cube_corner(&[0.02, 0.10, 0.20]);
     let record = only_record("cube 0.02/0.1/0.2", &result);
     assert!(
@@ -266,7 +266,7 @@ fn the_fit_serves_the_extreme_cube_corner_ahead_of_the_exact_ring() {
     assert_fit_serves(
         "cube 0.02/0.1/0.2",
         &result,
-        SetbackFitMode::Tangent,
+        SetbackFitMode::TangentCornerCells,
         ContinuityLevel::G1,
     );
 }
