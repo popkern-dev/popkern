@@ -81,6 +81,20 @@ pub(super) fn commit_fit_fan(
                 ..Default::default()
             },
         ),
+        // PK-615: the plain tangent fit folds or creases on mixed-radius
+        // G1 corners (pyramid-3 h0.4 wide: rim g1 0.99); with corner
+        // cells it certifies G1 at 3.2 / r_min.
+        SetbackFitMode::TangentCornerCells => (
+            VariationalCapTargets::g1(tolerance.linear(), 1e-6),
+            VariationalCapOptions {
+                max_refinement_levels: 0,
+                energy: CapEnergy::Bending,
+                reference_passes: 3,
+                corner_cells: true,
+                degree: 9,
+                ..Default::default()
+            },
+        ),
     };
     let mut cap = fit_variational_cap(&sides, &targets, &options, tolerance.linear())
         .map_err(|e| format!("variational fit: {e}"))?;
@@ -97,10 +111,7 @@ pub(super) fn commit_fit_fan(
     author_neighbour_pcurves(brep, &cap_faces, tolerance)?;
     super::setback_boundary_tolerance::record_boundary_tolerances(brep, &cap_faces);
     let certified = setback_fit_certify::certify_cap(brep, &cap_faces, &gates, &cap.report)?;
-    let required = match mode {
-        SetbackFitMode::CurvatureWeighted => crate::types::ContinuityLevel::G2,
-        SetbackFitMode::Tangent => crate::types::ContinuityLevel::G1,
-    };
+    let required = mode.level();
     if level_rank(certified.level) < level_rank(required) {
         return Err(CapCommitError {
             reason: format!(

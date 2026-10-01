@@ -14,6 +14,23 @@ pub enum SetbackFitMode {
     CurvatureWeighted,
     /// G1 rim rows only; served when every cap seam certifies G1.
     Tangent,
+    /// G1 rim rows with dual-jet corner cells (each rim owns its corner
+    /// 2-jet, PK-595): the tangent fit's rescue where its shared corner
+    /// control point cannot meet both strips (the setback corner
+    /// theorem's G1 case on mixed-radius circular strips, PK-615).
+    /// Tried only after [`Self::Tangent`] fails; served when every cap
+    /// seam certifies G1.
+    TangentCornerCells,
+}
+
+impl SetbackFitMode {
+    /// The level every cap seam must certify for the mode to serve.
+    pub fn level(self) -> ContinuityLevel {
+        match self {
+            SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
+            SetbackFitMode::Tangent | SetbackFitMode::TangentCornerCells => ContinuityLevel::G1,
+        }
+    }
 }
 
 /// Certified outcome of one fit attempt that reached the certifier.

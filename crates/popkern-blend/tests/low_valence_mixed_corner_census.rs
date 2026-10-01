@@ -87,6 +87,9 @@ fn triangular_apexes_serve_the_setback_rung() {
     // G2. h 1.2 variable: the fan reads 7.13 / r_min (past the bound),
     // the G2 fit 15.5, the tangent fit 2.60 - the fairest cap serves,
     // at G1 (PK-612's rule, applied across the fit modes by PK-614).
+    // h 1.2 wide: the fan reads 9.49, the G2 fit fails, the tangent fit
+    // 36.9 and the corner-cell tangent fit 6.53 - it serves at G1
+    // (PK-615).
     for (h, radii, level) in [
         (0.4, &MIXED[..3], ContinuityLevel::G2),
         (0.4, &VARIABLE[..3], ContinuityLevel::G2),
@@ -95,7 +98,7 @@ fn triangular_apexes_serve_the_setback_rung() {
         (0.8, &VARIABLE[..3], ContinuityLevel::G2),
         (0.8, &WIDE[..3], ContinuityLevel::G2),
         (1.2, &VARIABLE[..3], ContinuityLevel::G1),
-        (1.2, &WIDE[..3], ContinuityLevel::G2),
+        (1.2, &WIDE[..3], ContinuityLevel::G1),
     ] {
         assert_eq!(verdict(3, h, radii), level, "pyr3 h{h} {radii:?}");
     }

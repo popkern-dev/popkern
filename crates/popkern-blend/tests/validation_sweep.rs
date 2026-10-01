@@ -16,7 +16,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 mod live_seam;
 #[path = "validation_sweep_scoring.rs"]
 mod scoring;
-use scoring::{Outcome, RungResult, Scorecard, count_variants, gregory_patch_of, sample_scorecard};
+use scoring::{Outcome, RungResult, Scorecard, count_variants, gregory_patch_of};
 
 #[derive(Clone, Copy, Debug)]
 enum Variant {
@@ -166,7 +166,6 @@ fn run_rung(
     n_samples: usize,
 ) -> RungResult {
     let prep = fixture_fn();
-    let n_sides = prep.edges.len();
     let outcome = match run_fillet(prep, radii, variant) {
         Err(e) => Outcome::FilletFailed(e),
         Ok((brep, faces)) => {
@@ -179,25 +178,21 @@ fn run_rung(
             } else {
                 let variant_counts = count_variants(&patches);
                 let brep_valid = brep.validate().is_ok();
-                // The index scorecard's ring convention only describes
-                // the one-patch-per-sector polar layout.
-                // Multi-patch commits (setback fans, sector
-                // subdivisions) must be measured across the LIVE seam
-                // topology or the frame mismatch dominates the reading
-                // (measured 5.6e-2 on pyramid5_uniform's 20-patch fan
-                // whose true seams sit at machine zero, PK-087).
-                let scorecard = if patches.len() == n_sides {
-                    sample_scorecard(&patches, n_samples)
-                } else {
-                    let m = live_seam::measure_live_cap_seams(&brep, &faces, n_samples.max(2));
-                    Scorecard {
-                        n_samples: m.cos_samples,
-                        min_cos: m.cos_min,
-                        mean_cos: m.cos_mean,
-                        max_cos: m.cos_max,
-                        max_angle_rad: m.cos_min.clamp(-1.0, 1.0).acos(),
-                        max_position_gap: m.worst_g0_gap,
-                    }
+                // Measured across the LIVE seam topology: the index
+                // scorecard's ring convention describes only the
+                // one-patch-per-sector polar layout, and other layouts
+                // with the same patch count read a frame mismatch
+                // (5.6e-2 on pyramid5_uniform's 20-patch fan, PK-087;
+                // 0.175 on cube_extreme's three variational-fit
+                // sectors, whose live seams read 7.5e-17, PK-615).
+                let m = live_seam::measure_live_cap_seams(&brep, &faces, n_samples.max(2));
+                let scorecard = Scorecard {
+                    n_samples: m.cos_samples,
+                    min_cos: m.cos_min,
+                    mean_cos: m.cos_mean,
+                    max_cos: m.cos_max,
+                    max_angle_rad: m.cos_min.clamp(-1.0, 1.0).acos(),
+                    max_position_gap: m.worst_g0_gap,
                 };
                 Outcome::Success {
                     n_sub_patches: patches.len(),

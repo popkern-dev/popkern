@@ -172,10 +172,15 @@ pub fn assert_record_serves(
     level: ContinuityLevel,
 ) {
     assert_eq!(record.served, Some(level), "{name}: {record:#?}");
-    let served = record.attempts.last().expect("an attempt");
+    // The served attempt (a fairer earlier fit can outrank a later one).
+    let served = record
+        .attempts
+        .iter()
+        .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
+        .unwrap_or_else(|| panic!("{name}: no served attempt: {record:#?}"));
     assert_eq!(served.mode, mode, "{name}: {record:#?}");
     let SetbackFitOutcome::Served(c) = &served.outcome else {
-        panic!("{name}: last attempt not served: {record:#?}");
+        unreachable!("{name}: found by its outcome");
     };
     assert_eq!(c.level, level, "{name}");
     // E6: served caps measured at regularity 0.131 and above; the core

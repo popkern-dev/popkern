@@ -231,8 +231,9 @@ fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
         .expect("committed setback blend must leave a valid BRep");
 }
 
-/// N=6 variable radii — the setback vertex blend ships a
-/// commercial-grade 24-patch cap fan (re-pinned 2026-07-15, PK-087
+/// N=6 variable radii — the setback rung ships a commercial-grade cap:
+/// since PK-615 the corner-cell tangent fit (six sectors); before it a
+/// 24-patch cap fan (re-pinned 2026-07-15, PK-087
 /// semantic rim gate). History: this fixture was the long-standing
 /// route blocker (fallback cap g0=5.359e-3/g1=0.99, then PK-089
 /// mitred rollback with edges=0, then a folded fan with g1=7.8e-1
@@ -248,15 +249,35 @@ fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
 /// cross-sectional rim ends measure g0 = 8.8e-13, g1 = 3.4e-6 — gated
 /// at the mixed-radius class bars.
 #[test]
-fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
+fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_cap() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
     println!(
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_normal, m.edges_measured
     );
+    // PK-615 (2026-10-01): the fan's interior reads past the fairness
+    // bound and the plain tangent fit fails, so the corner-cell tangent
+    // fit serves: six sectors, 12 cap/support edges, g0 5.9e-12, g1
+    // 6.1e-6.
     assert_eq!(
-        m.edges_measured, 24,
-        "hexagon6_variable setback fan must expose its full cap/support boundary"
+        m.edges_measured, 12,
+        "hexagon6_variable fitted cap must expose its full cap/support boundary"
+    );
+    let record = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            popkern_blend::ApexConstructionDiagnostic::SetbackFit(record) => Some(record),
+            _ => None,
+        })
+        .expect("the rung's record");
+    assert!(
+        record.attempts.iter().any(
+            |a| a.mode == popkern_blend::SetbackFitMode::TangentCornerCells
+                && matches!(a.outcome, popkern_blend::SetbackFitOutcome::Served(_))
+        ),
+        "{record:#?}"
     );
     assert!(
         m.worst_g0_gap <= MIXED_G0_BAR,
@@ -274,8 +295,8 @@ fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
         .filter(|patch| patch.n_sides == 6)
         .count();
     assert_eq!(
-        apex_patches, 24,
-        "the committed setback fan must record one CornerPatchInfo per cap face"
+        apex_patches, 6,
+        "the committed fitted cap must record one CornerPatchInfo per sector"
     );
     assert!(
         !result

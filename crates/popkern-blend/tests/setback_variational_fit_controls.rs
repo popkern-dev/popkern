@@ -20,7 +20,8 @@ fn row_878_a_tilted_cap_is_rejected_on_its_certificate() {
     let result = with_fit_cap_rim_tilted(|| cube_corner(&[0.05, 0.2, 0.3]));
     let record = only_record("tilted cube", &result);
     assert_eq!(record.served, None, "{record:#?}");
-    assert_eq!(record.attempts.len(), 2, "{record:#?}");
+    // Curvature-weighted, tangent, and the corner-cell tangent rescue.
+    assert_eq!(record.attempts.len(), 3, "{record:#?}");
     for attempt in &record.attempts {
         let SetbackFitOutcome::Rejected { certified, reason } = &attempt.outcome else {
             panic!("tilted cap must be rejected on its certificate: {attempt:#?}");

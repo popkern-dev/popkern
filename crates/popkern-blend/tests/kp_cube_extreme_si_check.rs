@@ -22,7 +22,10 @@ fn cube_extreme_binonic_is_not_self_intersecting() {
     let patches = collect_patches(&brep, &faces);
     for (i, p) in patches.iter().enumerate() {
         match p {
-            GregoryPatch::RectangularBiNonic(_) => {
+            // PK-615: the corner-cell tangent fit serves dual-jet sectors
+            // here when it is fairer than the plain fit (26.8 against
+            // 576 / r_min); they take the same check.
+            GregoryPatch::RectangularBiNonic(_) | GregoryPatch::RectangularBiNonicDualJet(_) => {
                 let self_int_1e6 = p.self_intersects_with_tolerance(1e-6);
                 let self_int_1e4 = p.self_intersects_with_tolerance(1e-4);
                 println!(

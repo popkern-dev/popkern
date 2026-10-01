@@ -10,10 +10,12 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    BlendResult, ContinuityLevel, CornerMethod, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
+    ApexConstructionDiagnostic, BlendResult, ContinuityLevel, CornerMethod, FilletOptions,
+    FilletRadius, FilletSpec, SetbackFitMode, SetbackFitOutcome, fillet_edges,
 };
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::healing::curvature::principal_curvatures;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
@@ -155,4 +157,89 @@ fn orthogonal_cube_corner_keeps_the_rolling_ball_sphere() {
         result.corner_patches
     );
     assert_certified_g1("cube corner r=0.2", &result, &pre, 1e-6);
+}
+
+/// Largest sampled principal curvature over the corner caps' interiors
+/// (30 x 30 per face), times `r_min`: the PK-612 fairness reading.
+fn cap_fairness(result: &BlendResult, r_min: f64) -> f64 {
+    let mut worst = 0.0_f64;
+    for patch in &result.corner_patches {
+        let Some(surface) = result
+            .brep
+            .faces
+            .get(patch.face)
+            .and_then(|f| f.surface.as_ref())
+        else {
+            continue;
+        };
+        let geometry: &dyn SurfaceEval = &surface.geometry;
+        let ((u0, u1), (v0, v1)) = geometry.parameter_range();
+        for i in 1..31 {
+            for j in 1..31 {
+                let u = u0 + (u1 - u0) * i as f64 / 31.0;
+                let v = v0 + (v1 - v0) * j as f64 / 31.0;
+                if let Some((k1, k2)) = principal_curvatures(geometry, u, v) {
+                    worst = worst.max(k1.abs().max(k2.abs()));
+                }
+            }
+        }
+    }
+    worst * r_min
+}
+
+/// A mixed-radius G1 row the corner-cell tangent fit rescues (PK-615):
+/// served on the setback rung by `TangentCornerCells` after the plain
+/// tangent fit failed, every corner piece claiming G1, the whole blend
+/// certified G1 and the cap under the fairness bound.
+fn assert_corner_cell_rescue(n: usize, h: f64, radii: &[f64]) {
+    let name = format!("pyramid n={n} h={h} {radii:?}");
+    let (result, pre) = pyramid_apex(n, h, radii);
+    assert!(
+        result
+            .corner_patches
+            .iter()
+            .all(|p| p.setback_cap && p.achieved_continuity == ContinuityLevel::G1),
+        "{name}: {:?}",
+        result.corner_patches
+    );
+    let record = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|d| match d {
+            ApexConstructionDiagnostic::SetbackFit(record) => Some(record),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{name}: the rung's record"));
+    let served = record
+        .attempts
+        .iter()
+        .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
+        .unwrap_or_else(|| panic!("{name}: {record:#?}"));
+    assert_eq!(served.mode, SetbackFitMode::TangentCornerCells, "{name}");
+    assert_certified_g1(&name, &result, &pre, 1e-4);
+    let r_min = radii.iter().take(n).copied().fold(f64::INFINITY, f64::min);
+    let fairness = cap_fairness(&result, r_min);
+    assert!(fairness < 4.0, "{name}: cap interior {fairness:.2} / r_min");
+}
+
+#[test]
+fn mixed_radius_trihedral_g1_apexes_serve_the_corner_cell_tangent_fit() {
+    // Measured 2026-10-01. Before PK-615 these served the boundary-ring
+    // Gregory cap claiming G0 (pyramid-3 h0.4 wide: a 64° blend-blend
+    // crease): the KP20 fan creased along a spoke (seam g1 0.79) and the
+    // plain tangent fit met a rim at g1 0.99. With corner cells the
+    // tangent fit certifies G1 at 2.1-3.2 / r_min.
+    assert_corner_cell_rescue(3, 0.4, &[0.02, 0.04, 0.06]);
+    assert_corner_cell_rescue(3, 0.4, &[0.05, 0.15, 0.08]);
+    assert_corner_cell_rescue(3, 0.8, &[0.05, 0.15, 0.08]);
+}
+
+#[test]
+fn mixed_radius_quad_g1_apexes_serve_the_corner_cell_tangent_fit() {
+    // pyramid-4 h0.4 wide served the ring Gregory cap claiming G0 (fair
+    // 102 / r_min); h0.8 variable the KP20 fan at 31.7 (PK-616's list).
+    // Both now 1.0-1.4 / r_min.
+    assert_corner_cell_rescue(4, 0.4, &[0.05, 0.15, 0.08, 0.2]);
+    assert_corner_cell_rescue(4, 0.8, &[0.02, 0.04, 0.06, 0.04]);
 }

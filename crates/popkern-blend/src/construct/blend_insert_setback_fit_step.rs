@@ -20,21 +20,23 @@ use crate::types::{
 type SurgeryResult = Result<SetbackTopologyOutcome, SetbackDecline>;
 
 impl SetbackRung<'_> {
-    /// A two-mode ladder's attempts run concurrently (PK-598): the
+    /// The G2 ladder's first two attempts run concurrently (PK-598): the
     /// first on `brep`, the second on a clone of the rung's snapshot,
     /// both under the calling thread's test overrides. Both are pure
     /// functions of the snapshot, so each outcome is the one the serial
     /// ladder computes; the caller still consumes them in order, and a
     /// served first attempt discards the second. The second attempt's
     /// wall time hides behind the first (octagon8 mixed: 0.48 s
-    /// curvature-weighted then 1.25 s tangent).
+    /// curvature-weighted then 1.25 s tangent). The corner-cell tangent
+    /// rescue runs serially, only after both fail; a G1 ladder runs
+    /// serially (its rescue is rarely needed).
     pub(super) fn concurrent_attempts(
         &self,
         brep: &mut BRep,
         modes: &[SetbackFitMode],
     ) -> (Option<SurgeryResult>, Option<(BRep, SurgeryResult)>) {
         #[cfg(feature = "parallel")]
-        if let [a, b] = *modes {
+        if let [a @ SetbackFitMode::CurvatureWeighted, b, ..] = *modes {
             let overrides = crate::dispatch_overrides::ThreadOverrides::capture();
             let mut other = self.commit_snapshot.clone();
             let (first, second) = rayon::join(
@@ -53,12 +55,16 @@ impl SetbackRung<'_> {
     }
 
     /// The fit modes the request admits: curvature-weighted under a G2
-    /// request, then tangent.
+    /// request, then tangent, then tangent with corner cells.
     pub(super) fn fit_modes(&self) -> &'static [SetbackFitMode] {
         if self.requested_continuity == ContinuityLevel::G2 {
-            &[SetbackFitMode::CurvatureWeighted, SetbackFitMode::Tangent]
+            &[
+                SetbackFitMode::CurvatureWeighted,
+                SetbackFitMode::Tangent,
+                SetbackFitMode::TangentCornerCells,
+            ]
         } else {
-            &[SetbackFitMode::Tangent]
+            &[SetbackFitMode::Tangent, SetbackFitMode::TangentCornerCells]
         }
     }
 
@@ -72,7 +78,9 @@ impl SetbackRung<'_> {
     /// (r 0.05 / 0.2 / 0.3, G2 request): the curvature-weighted fit
     /// certifies G2 but bends to 30 / r_min beside the thin strip, the
     /// tangent fit to 5.3. The rule is the fan's (PK-612): past the
-    /// bound, fairness outranks the claimed level.
+    /// bound, fairness outranks the claimed level. The corner-cell
+    /// rescue (PK-615) serves only under the bound or when fairer than
+    /// a held fit.
     pub(super) fn fit(
         &self,
         brep: &mut BRep,
@@ -141,6 +149,27 @@ impl SetbackRung<'_> {
                     };
                     let later = modes.last() != Some(&mode);
                     let chosen = match held.take() {
+                        // The corner-cell rescue serves only a fair cap:
+                        // past the bound it has moved the corner's
+                        // obstruction into the interior (pyramid-4 h3
+                        // variable: 726 / r_min), not resolved it.
+                        None if mode == SetbackFitMode::TangentCornerCells
+                            && interior > CAP_FAIRNESS_BOUND =>
+                        {
+                            *brep = self.commit_snapshot.clone();
+                            let reason = format!(
+                                "corner-cell rescue interior curvature {interior:.2} / r_min \
+                                 over the fairness bound {CAP_FAIRNESS_BOUND}"
+                            );
+                            reasons.push(format!("{mode:?} fit: {reason}"));
+                            if let Some(last) = record.attempts.last_mut() {
+                                last.outcome = SetbackFitOutcome::Rejected {
+                                    certified: serve.certified,
+                                    reason,
+                                };
+                            }
+                            continue;
+                        }
                         None if interior > CAP_FAIRNESS_BOUND && later => {
                             held = Some(HeldFit {
                                 brep: Some(std::mem::replace(brep, self.commit_snapshot.clone())),
@@ -202,10 +231,7 @@ impl SetbackRung<'_> {
 
     /// The served fit's corner records.
     fn serve_fit(&self, record: &mut SetbackFitDiagnostic, fit: HeldFit) -> RungStep {
-        let achieved = match fit.mode {
-            SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
-            SetbackFitMode::Tangent => ContinuityLevel::G1,
-        };
+        let achieved = fit.mode.level();
         record.served = Some(achieved);
         let n = fit.cap_faces.len();
         let infos = fit
