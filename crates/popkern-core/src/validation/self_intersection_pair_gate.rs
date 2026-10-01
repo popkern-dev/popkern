@@ -20,8 +20,17 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 /// Subdivision budget: pairs examined before giving up (→ `false`).
 const MAX_BOXES: usize = 50_000;
 
-/// Maximum subdivision depth per pair.
-const MAX_DEPTH: usize = 7;
+/// Maximum subdivision depth per pair: halvings of EITHER patch along
+/// one path, so a pair of patches each needing `k` halvings per
+/// parameter to resolve the gap needs about `4k`. At 7 a fitted corner
+/// sector 3e-2 from a non-adjacent fillet strip (sampled-gap inflation
+/// needs boxes of about the gap) was never certified and fell to the
+/// marching solver, which proved "no curve" in 0.5-14 s per pair
+/// (PK-617, the dual-jet sectors' rational form the slowest). At 24
+/// those pairs certify in milliseconds. Uncertifiable pairs (touching
+/// at a vertex) end along a few paths whose length grows linearly with
+/// the depth, and MAX_BOXES still bounds the whole search.
+const MAX_DEPTH: usize = 24;
 
 /// True when the minimum distance between the two windowed patches is
 /// PROVABLY greater than `clearance`. `false` means "could not
