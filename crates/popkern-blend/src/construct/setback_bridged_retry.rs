@@ -38,7 +38,7 @@ use crate::construct::kp20_paper_border_extract::{
 };
 use crate::construct::setback_cap_presolve::SetbackCapSolve;
 use crate::construct::setback_decline::{
-    ARC_BOUNDARY_CROSSINGS, SetbackCapStrategy, SetbackDecline, SetbackStage,
+    ARC_OVERRUN, SetbackCapStrategy, SetbackDecline, SetbackStage,
 };
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -60,7 +60,7 @@ pub(super) fn with_bridged_retry(
     ) -> Result<SetbackTopologyOutcome, SetbackDecline>,
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
     let overrun = match attempt(brep, None) {
-        Err(d) if d.stage == SetbackStage::Carve && d.reason.contains(ARC_BOUNDARY_CROSSINGS) => d,
+        Err(d) if d.stage == SetbackStage::Carve && d.reason.contains(ARC_OVERRUN) => d,
         result => return result,
     };
     if strategy == SetbackCapStrategy::Kp20 {

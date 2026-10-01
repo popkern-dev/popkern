@@ -82,18 +82,40 @@ fn assert_no_mitred_fallback(result: &popkern_blend::BlendResult) {
     );
 }
 
-/// The class serve: welded direct-apex cap at the commercial bars
-/// under pure `FilletOptions::default()` (measured g0 4.9e-8 /
-/// g1 4.5e-7 at promotion time).
+/// The class serve under pure `FilletOptions::default()` (PK-615): the
+/// setback rung. The direct-apex exact-boundary cap PK-232 promoted
+/// here pinches where its patches meet (pyramid-3 h0.8 r0.05 G1: 139 /
+/// r interior curvature), while the setback rung serves the class
+/// certified G1 at 2.3 / r.
 #[test]
-fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
+fn oblique_uniform_trihedral_apex_serves_the_setback_rung_by_default() {
     let result = oblique_apex_result(&FilletOptions::default());
+    assert_no_mitred_fallback(&result);
+    assert!(
+        !result.corner_patches.is_empty() && result.corner_patches.iter().all(|p| p.setback_cap),
+        "{:?}",
+        result.corner_patches
+    );
+    assert!(direct_apex_committed_faces(&result).is_empty());
+    let errors = result.brep.validate_all();
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+/// The requested direct-apex serve (`use_direct_apex_construction`):
+/// welded cap at the commercial bars (measured g0 4.9e-8 / g1 4.5e-7
+/// at promotion time).
+#[test]
+fn oblique_uniform_trihedral_apex_serves_direct_apex_on_request() {
+    let result = oblique_apex_result(&FilletOptions {
+        use_direct_apex_construction: true,
+        ..FilletOptions::default()
+    });
     assert_no_mitred_fallback(&result);
 
     let committed = direct_apex_committed_faces(&result);
     assert!(
         committed.len() >= 3,
-        "the promoted direct-apex route must commit the sector complex, got {committed:?}"
+        "the requested direct-apex route must commit the sector complex, got {committed:?}"
     );
 
     let metrics = measure_cap_outer_boundary(&result.brep, &committed, 100);

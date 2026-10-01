@@ -109,17 +109,17 @@ fn oblique_uniform_apexes_certify_g1_on_the_setback_rung() {
 }
 
 #[test]
-fn oblique_uniform_trihedral_apex_certifies_g1_on_direct_apex() {
-    // The oblique uniform n = 3 apex stays a direct-apex exact-boundary
-    // serve: its cap seams certify G1 (measured g1 1.3e-2, under the 5e-2
-    // gate), so no crease re-run fires.
+fn oblique_uniform_trihedral_apex_certifies_g1_on_the_setback_rung() {
+    // PK-615: the oblique uniform n = 3 apex left the direct-apex route
+    // (its exact-boundary cap pinches at the centre); the setback rung
+    // serves it certified G1.
     let (result, pre) = pyramid_apex(3, 1.2, &[0.16]);
     assert!(
-        result.corner_patches.iter().all(|p| p.exact_boundary_cap),
+        result.corner_patches.iter().all(|p| p.setback_cap),
         "{:?}",
         result.corner_patches
     );
-    assert_certified_g1("pyramid n=3 h=1.2 r=0.16", &result, &pre, 2e-2);
+    assert_certified_g1("pyramid n=3 h=1.2 r=0.16", &result, &pre, 1e-6);
 }
 
 #[test]

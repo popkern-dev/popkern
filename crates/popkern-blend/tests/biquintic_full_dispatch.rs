@@ -85,8 +85,8 @@ fn is_biquintic_full(gp: &GregoryPatch) -> bool {
     matches!(gp, GregoryPatch::RectangularBiquinticFull(_))
 }
 
-/// The flag flips the uniform pyramid4 apex between the promoted
-/// direct-apex serve (no rectangular Gregory sub-patches) and the
+/// The flag flips the uniform pyramid4 apex between the default
+/// setback serve (PK-615) and the
 /// flag-gated 4-patch biquintic-full ladder. Locks both directions of the
 /// dispatch.
 #[test]
@@ -94,12 +94,20 @@ fn biquintic_full_flag_engages_pyramid4_uniform_apex() {
     let result_default = fillet_pyramid4_uniform(false);
     let result_full = fillet_pyramid4_uniform(true);
 
-    let gregory_baseline = count_variant(&result_default, |_| true);
+    // PK-615: the default flag set serves the setback rung (the KP20
+    // fan's 16 pieces), not the direct-apex route the uniform arm used
+    // to promote and not the flag-gated rectangular ladder.
+    assert!(
+        result_default.corner_patches.len() == 16
+            && result_default.corner_patches.iter().all(|p| p.setback_cap),
+        "the default flag set serves the setback fan on pyramid4_uniform — if \
+         this changed, re-measure the reaching matrix: {:?}",
+        result_default.corner_patches
+    );
     assert_eq!(
-        gregory_baseline, 0,
-        "the default flag set serves the promoted direct-apex route on \
-         pyramid4_uniform (no rectangular Gregory sub-patches) — if this changed, \
-         re-measure the reaching matrix"
+        count_variant(&result_default, is_biquintic_full),
+        0,
+        "the default flag set ships no biquintic-full sub-patches"
     );
     let biquintic_full_count = count_variant(&result_full, is_biquintic_full);
     assert_eq!(

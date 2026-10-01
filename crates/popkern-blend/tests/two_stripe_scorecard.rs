@@ -162,15 +162,14 @@ fn two_stripe_scorecard_ladder_rungs() {
     let result_t = fillet_pyramid4_apex(Variant::TwoStripe);
 
     // The deg5-only set IS the default configuration: the uniform
-    // apex promotes to the direct-apex route and no rectangular
-    // sub-patches ship. This is the documented reaching condition —
-    // the LADDER rungs below are the flag-effect claims.
-    let patches_d = corner_patches(&result_d);
+    // apex serves the setback rung (PK-615: the KP20 fan's 16 pieces;
+    // before, the direct-apex route the uniform arm promoted). The
+    // LADDER rungs below are the flag-effect claims.
     assert!(
-        patches_d.is_empty(),
-        "deg5-only (default) flag set should serve the promoted direct-apex route \
-         with no rectangular Gregory sub-patches; got {}",
-        patches_d.len()
+        result_d.corner_patches.len() == 16
+            && result_d.corner_patches.iter().all(|p| p.setback_cap),
+        "deg5-only (default) flag set should serve the setback fan; got {:?}",
+        result_d.corner_patches
     );
 
     let patches_q = corner_patches(&result_q);

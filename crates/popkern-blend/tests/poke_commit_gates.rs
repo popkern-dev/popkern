@@ -78,18 +78,49 @@ fn uniform_pyramid_apex_blend(
     (result, apex)
 }
 
-/// PK-229 serve pin: uniform-radius square-pyramid apex blend
-/// (4 slant edges only) under PURE DEFAULT options auto-promotes to
-/// the direct-apex route (`direct_apex_promotion.rs` uniform arm) and
-/// serves 4 exact-boundary Coons sector caps at commercial quality
-/// (measured 2026-08-02: cap_outer g0 = 3.671e-8, g1 = 4.270e-8).
+/// PK-615 serve pin: the uniform-radius square-pyramid apex blend (4
+/// slant edges only) under PURE DEFAULT options serves the setback
+/// rung. PK-229 promoted the class to the direct-apex route, whose
+/// exact-boundary Coons cap pinches where its four patches meet
+/// (curvature growing faster than 1/distance toward the centre); the
+/// setback rung serves the class certified G1 inside the fairness
+/// bound.
+#[test]
+fn uniform_pyramid_apex_serves_the_setback_rung_by_default() {
+    let (result, apex) = uniform_pyramid_apex_blend(&FilletOptions::default());
+    let route = result
+        .repair_report
+        .apex_routes
+        .iter()
+        .find(|r| r.vertex == apex)
+        .expect("apex route recorded");
+    assert_eq!(route.route, ApexConstructionRoute::VertexBlend);
+    let caps: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == apex)
+        .collect();
+    assert!(
+        !caps.is_empty() && caps.iter().all(|p| p.setback_cap),
+        "the setback rung serves: {caps:?}"
+    );
+    result.brep.validate().expect("valid BRep");
+}
+
+/// PK-229 serve pin, on request: the exact-boundary direct-apex route
+/// (`use_direct_apex_construction`) serves 4 exact-boundary Coons
+/// sector caps at commercial cap-outer quality (measured 2026-08-02:
+/// cap_outer g0 = 3.671e-8, g1 = 4.270e-8).
 ///
 /// Before PK-229 this class was the ONLY default-options serving
 /// consumer of the N-quad poke, at sub-commercial quality
 /// (g0 = 2.18e-1) — see the module doc for the root-cause chain.
 #[test]
-fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
-    let (result, apex) = uniform_pyramid_apex_blend(&FilletOptions::default());
+fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_on_request() {
+    let (result, apex) = uniform_pyramid_apex_blend(&FilletOptions {
+        use_direct_apex_construction: true,
+        ..FilletOptions::default()
+    });
 
     let route = result
         .repair_report
@@ -100,7 +131,7 @@ fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
     assert_eq!(
         route.route,
         ApexConstructionRoute::DirectApex,
-        "uniform cylindrical N=4 pyramid apex must auto-promote to direct apex"
+        "the requested direct-apex route serves the uniform N=4 apex"
     );
 
     let caps: Vec<_> = result
@@ -132,7 +163,7 @@ fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
     let faces: Vec<_> = caps.iter().map(|p| p.face).collect();
     let metrics = measure_cap_outer_boundary(&result.brep, &faces, 100);
     eprintln!(
-        "[poke-commit] uniform pyramid apex (default direct-apex serve): \
+        "[poke-commit] uniform pyramid apex (requested direct-apex serve): \
          cap_outer g0={:.3e} g1={:.3e} edges={}",
         metrics.worst_g0_gap, metrics.worst_g1_normal, metrics.edges_measured
     );

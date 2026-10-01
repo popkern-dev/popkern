@@ -29,6 +29,10 @@
 //!   (cube-class) corners stay vertex-blend for their exact rolling-ball
 //!   sphere serve.
 //!
+//! The two uniform arms run only with the setback rung disabled: since
+//! PK-615 the rung serves those apexes fairer and certified (see
+//! `should_promote_direct_apex`).
+//!
 //! All classes rely on the direct-apex entry-snapshot rollback: any
 //! construction failure restores the corner and the vertex-blend dispatch
 //! serves exactly as before (`DirectApexFallbackToVertexBlend` recorded).
@@ -235,6 +239,17 @@ pub(super) fn should_promote_direct_apex(
             })
         });
         if flags.explicit_subpatch_family_requested || !cylindrical_constant {
+            return false;
+        }
+        // PK-615: with the setback rung enabled the uniform arm stands
+        // down. Its exact-boundary Coons cap pinches where its four (or
+        // three) patches meet: curvature grows faster than 1/distance
+        // toward the centre (pyramid-4 h0.4 r0.05: 3.3 / r at 1/4 of the
+        // diagonal, 380 at 1/32, 6.5e4 at 1/256), and its seams do not
+        // certify (pyramid-4 h0.4 reads G0). The setback rung serves
+        // every uniform pyramid-3/4 G1 census row certified G1 at
+        // 1.3-3.7 / r, in 0.5-0.9 s against 2-7 s.
+        if super::setback_vertex_topology::setback_topology_commit_enabled() {
             return false;
         }
         // N = 4 (PK-229): pyramid apex slant blends, measured

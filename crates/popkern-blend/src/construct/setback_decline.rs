@@ -6,11 +6,17 @@
 //! acceptance or postcondition) is exactly where the variational fit
 //! can serve the same carved region.
 
-/// The signature of the crossing carve's decline when a setback arc
-/// runs across its strip's trimmed boundary mid-arc: the corners
-/// border overran a narrow strip (PK-594), which the bridged border
-/// retries (PK-611).
+/// The crossing carve's decline when a setback arc does not cross its
+/// strip's trimmed boundary exactly twice.
 pub(crate) const ARC_BOUNDARY_CROSSINGS: &str = "arc/boundary crossings";
+
+/// The marker on [`ARC_BOUNDARY_CROSSINGS`] declines with more than two
+/// crossings: the arc runs across its strip's trimmed boundary mid-arc,
+/// the corners border overrunning a narrow strip (PK-594), which the
+/// bridged border retries (PK-611). Fewer than two crossings is a
+/// different class (PK-615: pyramid-3 h0.4 wide at G1 found none) and
+/// does not retry.
+pub(crate) const ARC_OVERRUN: &str = "a mid-arc crossing overruns the strip";
 
 /// Where the setback surgery declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
