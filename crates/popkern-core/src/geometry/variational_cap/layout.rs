@@ -27,6 +27,13 @@ pub(super) const FOOT_CLAMP: f64 = 0.35;
 /// Interior samples per face parameter for [`interior_curvature`].
 const SAMPLES: usize = 30;
 
+/// Extra samples beside each face edge, as fractions of the parameter
+/// range (PK-621): a dual-jet corner peaks within 2% of the corner, which
+/// the uniform grid's outermost row misses (the octagon h1.2 variable
+/// bridged fit read 2.4 / r_min there and 15 with the layers). The
+/// blend's fairness reading uses the same layers.
+const EDGE_LAYERS: [f64; 3] = [1.0 / 64.0, 1.0 / 256.0, 1.0 / 1024.0];
+
 /// Where the fit split each side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapLayout {
@@ -74,14 +81,17 @@ pub(super) fn centre_feet(sides: &[VariationalCapSide], cap: &VariationalCap) ->
 /// The largest sampled principal curvature over the faces' interiors
 /// (model units), the reading the blend's fairness bound applies to.
 pub(super) fn interior_curvature(cap: &VariationalCap) -> f64 {
+    let mut fractions: Vec<f64> = (1..SAMPLES).map(|i| i as f64 / SAMPLES as f64).collect();
+    for d in EDGE_LAYERS {
+        fractions.extend([d, 1.0 - d]);
+    }
     let mut worst = 0.0_f64;
     for face in &cap.faces {
         let surface: &dyn SurfaceEval = face;
         let ((u0, u1), (v0, v1)) = surface.parameter_range();
-        for i in 1..SAMPLES {
-            for j in 1..SAMPLES {
-                let u = u0 + (u1 - u0) * i as f64 / SAMPLES as f64;
-                let v = v0 + (v1 - v0) * j as f64 / SAMPLES as f64;
+        for &fu in &fractions {
+            for &fv in &fractions {
+                let (u, v) = (u0 + (u1 - u0) * fu, v0 + (v1 - v0) * fv);
                 if let Some((k1, k2)) = principal_curvatures(surface, u, v) {
                     worst = worst.max(k1.abs().max(k2.abs()));
                 }

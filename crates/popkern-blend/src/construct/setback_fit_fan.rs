@@ -47,7 +47,7 @@ pub(super) fn commit_fit_fan(
     fillet_surfaces: &[FilletSurfaceResult],
     arcs: &[Kp20SetbackArc],
     mode: SetbackFitMode,
-    r_min: f64,
+    (r_min, rival): (f64, Option<f64>),
     tolerance: &Tolerance,
 ) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
     let gates = ContinuityGates::commercial();
@@ -100,14 +100,17 @@ pub(super) fn commit_fit_fan(
     };
     // PK-618: a layout bending past the fairness bound is refit with the
     // spokes' feet nearest the fitted centre; the fairer cap is kept. A
-    // sector under the served regularity floor serves only inside the
-    // bound (a short strip between long bridges gives its sector a thin
-    // edge, not a fold).
-    let fairness_limit = (r_min.is_finite() && r_min > 0.0)
-        .then(|| crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND / r_min);
+    // sector under the served regularity floor serves only under the
+    // bound or the unfair fan the rung holds (a short strip between long
+    // bridges gives its sector a thin edge, not a fold; PK-621: the
+    // octagon h1.2 variable's thin fit reads 15.1 against the fan's 17.9).
+    let bound = crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND;
+    let usable = r_min.is_finite() && r_min > 0.0;
+    let fairness_limit = usable.then(|| bound / r_min);
+    let thin_limit = usable.then(|| rival.map_or(bound, |fan| fan.max(bound)) / r_min);
     let options = VariationalCapOptions {
         layout_refit_curvature: fairness_limit,
-        thin_sector_curvature: fairness_limit,
+        thin_sector_curvature: thin_limit,
         ..options
     };
     let mut cap = fit_variational_cap(&sides, &targets, &options, tolerance.linear())

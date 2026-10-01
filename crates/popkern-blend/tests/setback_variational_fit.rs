@@ -8,8 +8,8 @@ mod setback_fit_fixtures;
 
 use popkern_blend::dispatch_overrides::with_kp20_cap_forced_to_decline;
 use popkern_blend::{
-    BlendResult, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, SetbackFitMode,
-    SetbackFitOutcome, fillet_edges,
+    BlendResult, ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, SetbackFitBorder,
+    SetbackFitMode, SetbackFitOutcome, fillet_edges,
 };
 use popkern_core::geometry::variational_cap::CapLayout;
 use popkern_core::tolerance::Tolerance;
@@ -249,9 +249,10 @@ fn the_fit_serves_the_extreme_cube_corner_ahead_of_the_exact_ring() {
     // before PK-574 the corner fell through to the exact-boundary ring
     // (G1 by measurement). A tangent fit now serves it, certified G1
     // (the curvature-weighted attempt is declined on its own rim
-    // witness, a curvature jump ~80 against the 5e-2 gate): the
-    // corner-cell fit at 3.74 / r_min, fairer than the plain tangent
-    // fit's 18.2 (PK-615, PK-618).
+    // witness, a curvature jump ~80 against the 5e-2 gate). Measured on
+    // the graded reading (PK-621): on the corners border the plain
+    // tangent fit reads 46.5 / r_min and the corner-cell fit 4.37; the
+    // bridged border's tangent fit reads 1.19 and serves.
     let result = cube_corner(&[0.02, 0.10, 0.20]);
     let record = only_record("cube 0.02/0.1/0.2", &result);
     assert!(
@@ -266,7 +267,14 @@ fn the_fit_serves_the_extreme_cube_corner_ahead_of_the_exact_ring() {
     assert_fit_serves(
         "cube 0.02/0.1/0.2",
         &result,
-        SetbackFitMode::TangentCornerCells,
+        SetbackFitMode::Tangent,
         ContinuityLevel::G1,
     );
+    let served = record
+        .attempts
+        .iter()
+        .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
+        .expect("served");
+    assert_eq!(served.border, SetbackFitBorder::Bridged);
+    assert!(served.interior.is_some_and(|f| f < 4.0), "{served:#?}");
 }

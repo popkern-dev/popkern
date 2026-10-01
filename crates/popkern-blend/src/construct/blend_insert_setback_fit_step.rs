@@ -35,6 +35,7 @@ impl SetbackRung<'_> {
         &self,
         brep: &mut BRep,
         ladder: &[FitCandidate],
+        rival: Option<f64>,
     ) -> (Option<SurgeryResult>, Option<(BRep, SurgeryResult)>) {
         #[cfg(feature = "parallel")]
         if let [
@@ -51,21 +52,22 @@ impl SetbackRung<'_> {
             let (first, second) = rayon::join(
                 // Called from outside the pool, `join` runs BOTH closures
                 // on pool workers: each carries the overrides.
-                || overrides.apply(|| self.surgery(brep, self.fit_strategy(a))),
-                || overrides.apply(|| self.surgery(&mut other, self.fit_strategy(b))),
+                || overrides.apply(|| self.surgery(brep, self.fit_strategy(a, rival))),
+                || overrides.apply(|| self.surgery(&mut other, self.fit_strategy(b, rival))),
             );
             return (Some(first), Some((other, second)));
         }
-        let _ = (brep, ladder);
+        let _ = (brep, ladder, rival);
         (None, None)
     }
 
     /// The surgery strategy for a fit candidate.
-    fn fit_strategy(&self, candidate: FitCandidate) -> SetbackCapStrategy {
+    fn fit_strategy(&self, candidate: FitCandidate, rival: Option<f64>) -> SetbackCapStrategy {
         SetbackCapStrategy::VariationalFit {
             mode: candidate.mode,
             r_min: self.r_min,
             border: candidate.border,
+            rival,
         }
     }
 
@@ -110,9 +112,8 @@ impl SetbackRung<'_> {
     /// beside the thin strip, the tangent fit to 5.3. The rule is the
     /// fan's (PK-612): past the bound, fairness outranks the claimed
     /// level. The corner-cell rescue (PK-615) serves only under the
-    /// bound or when fairer than a held fit or than `rival`, the
-    /// reading of an unfair fan the rung holds (PK-616: pyramid-4 h3
-    /// wide, the fan 21.3 against the bridged rescue's 4.2).
+    /// bound, when fairer than `rival` (the reading of an unfair fan the
+    /// rung holds), or when there is no rival (PK-621).
     ///
     /// The bridged border's attempts follow the corners border's
     /// (PK-618), so a corner whose corners-border fits are fair never
@@ -129,7 +130,7 @@ impl SetbackRung<'_> {
         rival: Option<f64>,
     ) -> RungStep {
         let mut reasons = Vec::new();
-        let (mut first, mut ahead) = self.concurrent_attempts(brep, ladder);
+        let (mut first, mut ahead) = self.concurrent_attempts(brep, ladder, rival);
         // The fairest served fit so far, held while later attempts run;
         // its model is held aside.
         let mut held: Option<HeldFit> = None;
@@ -150,7 +151,7 @@ impl SetbackRung<'_> {
                     .take(2)
                     .all(|c| c.border == SetbackFitBorder::Bridged && !c.ran(record))
             {
-                (first, ahead) = self.concurrent_attempts(brep, &ladder[index..]);
+                (first, ahead) = self.concurrent_attempts(brep, &ladder[index..], rival);
             }
             let attempt = if let Some(result) = first.take() {
                 result
@@ -162,7 +163,7 @@ impl SetbackRung<'_> {
                     continue;
                 }
                 *brep = self.commit_snapshot.clone();
-                self.surgery(brep, self.fit_strategy(candidate))
+                self.surgery(brep, self.fit_strategy(candidate, rival))
             };
             match attempt {
                 Ok(outcome) => {
@@ -213,20 +214,27 @@ impl SetbackRung<'_> {
                         cap_faces: outcome.cap_faces,
                         interior,
                     };
-                    // The corner-cell rescue serves only a fair cap or one
-                    // fairer than a held fit or the rival fan: past the
-                    // bound it can move the corner's obstruction into the
-                    // interior (pyramid-4 h3 variable: 726 / r_min) rather
-                    // than resolve it.
+                    // Past the bound the corner-cell rescue yields to a
+                    // fairer rival fan: it can move the corner's
+                    // obstruction into the interior (pyramid-4 h3
+                    // variable: 726 / r_min against the fan's 27). With
+                    // no rival it is held like any other fit and the
+                    // fairest serves: declining sends the corner to a
+                    // vertex-blend cap that does not certify G1
+                    // (pyramid-3 h1.2 wide: a G0 Gregory cap at 418
+                    // against the rescue's 10.4; pyramid-5 and -6 h0.4
+                    // wide: no cap at all) (PK-621).
                     if held.is_none()
                         && mode == SetbackFitMode::TangentCornerCells
                         && interior > CAP_FAIRNESS_BOUND
-                        && rival.is_none_or(|fan| interior >= fan)
+                        && rival.is_some_and(|fan| interior >= fan)
                     {
                         *brep = self.commit_snapshot.clone();
                         let reason = format!(
                             "corner-cell rescue interior curvature {interior:.2} / r_min \
-                             over the fairness bound {CAP_FAIRNESS_BOUND}"
+                             over the fairness bound {CAP_FAIRNESS_BOUND}, no fairer than \
+                             the fan's {:.2}",
+                            rival.unwrap_or(f64::INFINITY)
                         );
                         reasons.push(format!("{mode:?} fit ({border:?}): {reason}"));
                         if let Some(last) = record.attempts.last_mut() {

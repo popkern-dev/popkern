@@ -148,14 +148,20 @@ fn pyramid_apex_gregory() -> Option<(BRep, Vec<popkern_core::topology::FaceHandl
     };
     let r = fillet_edges(&pyramid, &specs, &opts, tol(), None).ok()?;
     // Exact-boundary commits author CornerPatchInfo per committed
-    // sector face (PK-119): both the direct-apex partition route
-    // (method Coons) and rational-Gregory caps surface through
+    // sector face (PK-119): the direct-apex partition route (method
+    // Coons), rational-Gregory caps and the setback rung's fitted
+    // sectors (PlateMin, served here since PK-621's honest fairness
+    // reading ranks the fit over the fan) surface through
     // corner_patches, so no route-report archaeology is needed.
     let faces: Vec<_> = r
         .corner_patches
         .iter()
         .filter(|p| {
-            p.vertex == apex && matches!(p.method, CornerMethod::Coons | CornerMethod::Gregory)
+            p.vertex == apex
+                && matches!(
+                    p.method,
+                    CornerMethod::Coons | CornerMethod::Gregory | CornerMethod::PlateMin
+                )
         })
         .map(|p| p.face)
         .collect();
@@ -293,8 +299,8 @@ fn reflection_and_zebra_within_bounds_cross_fixture() {
     let (brep, corner_face) = cube_corner_mixed_native_cap();
     assert_within_bounds("cube corner mixed native cap", &brep, corner_face);
 
-    // Fixture 4: pyramid apex (N=4 mixed — direct-apex partition cap
-    // sectors, or a Gregory corner patch on older routes).
+    // Fixture 4: pyramid apex (N=4 mixed — fitted or direct-apex
+    // partition cap sectors, or a Gregory corner patch).
     let (brep, cap_faces) =
         pyramid_apex_gregory().expect("pyramid apex fixture must produce measurable cap faces");
     for (i, face) in cap_faces.iter().enumerate() {

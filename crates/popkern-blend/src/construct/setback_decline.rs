@@ -117,5 +117,9 @@ pub(crate) enum SetbackCapStrategy {
         /// The border to carve first; a corners border that overruns a
         /// narrow strip retries on the bridged border (PK-611).
         border: crate::types::SetbackFitBorder,
+        /// The interior reading (in `1 / r_min`) of an unfair fan the rung
+        /// holds: a thin fitted sector serves while it stays under the
+        /// larger of this and the fairness bound (PK-621).
+        rival: Option<f64>,
     },
 }

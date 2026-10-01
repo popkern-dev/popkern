@@ -4,8 +4,8 @@
 //! Measured 2026-09-30 (G2 request, whole-blend evidence):
 //! - Served since PK-591/593/596/597: pyr8 h0.4/h0.8 variable and wide.
 //!   PK-618: pyr5 h1.2 wide and pyr8 h1.2 variable serve fits on the
-//!   bridged border inside the fairness bound (their fans read 8.5 and
-//!   15.3 / r_min). PK-613's faired guide serves
+//!   bridged border (graded readings 2.14 and 15.0 / r_min, PK-621;
+//!   their fans read 8.5 and 17.9). PK-613's faired guide serves
 //!   pyr6 h1.2 variable (its unfaired fan pinched at 4.5e5 / r_min) and
 //!   the wide octagons as G2 fans inside the fairness bound.
 //! - Class B, pyr8 h1.2 variable and wide: the KP20 fan and the
@@ -156,13 +156,14 @@ fn outcome_and_fit(
 }
 
 #[test]
-fn octagonal_steep_apexes_serve_inside_the_fairness_bound() {
+fn octagonal_steep_apexes_serve_the_fairest_cap() {
     // PK-613: the guide-faired KP20 fan serves the wide apex at G2
     // inside the fairness bound. The variable apex's fan reaches G1
-    // only and reads 15.3 / r_min; on the corners border every fit
-    // folds or pinches, and on the bridged border (PK-618) the tangent
-    // fit serves at 2.40 / r_min, its sector beside the shortest strip
-    // thin (regularity 1.8e-2) but fair.
+    // only and reads 17.9 / r_min (graded reading, PK-621); on the
+    // corners border every fit folds or pinches. On the bridged border
+    // (PK-618) the tangent fit reads 15.0, its sector beside the
+    // shortest strip thin (regularity 1.8e-2): fairer than the fan, so
+    // it serves, though past the bound.
     let (method, level, fairness) = outcome(8, 1.2, &WIDE);
     assert_eq!(
         (method, level, fairness),
@@ -173,16 +174,16 @@ fn octagonal_steep_apexes_serve_inside_the_fairness_bound() {
         (method, level),
         (CornerMethod::PlateMin, ContinuityLevel::G1)
     );
-    assert!(fairness.is_some_and(|f| f > 4.0), "the fan's {fairness:?}");
+    let fan = fairness.expect("the fan's reading");
     let fit = fit.expect("a served fit");
     assert_eq!(
         (fit.mode, fit.border),
         (SetbackFitMode::Tangent, SetbackFitBorder::Bridged)
     );
-    assert!(fit.interior < 4.0, "{fit:?}");
+    assert!(fit.interior < fan, "fan {fan}: {fit:?}");
     assert!(
         (5e-3..2e-2).contains(&fit.regularity),
-        "a thin sector served inside the bound: {fit:?}"
+        "a thin sector served under the fan's reading: {fit:?}"
     );
 }
 
@@ -213,23 +214,26 @@ fn octagonal_low_apexes_serve() {
 }
 
 #[test]
-fn steep_pentagon_and_hexagon_rows_serve_inside_the_fairness_bound() {
+fn steep_pentagon_and_hexagon_rows_serve_the_fairest_cap() {
     // pyr5 h1.2 wide: the fan's interior reads 8.53 / r_min and the
     // corners border's fits 41 and 277 (a small corner between two
-    // short sides gets a thin, bent sector); the bridged border's
-    // curvature-weighted fit serves G2 at 3.89 (PK-618). pyr6 h1.2
+    // short sides gets a thin, bent sector). On the bridged border
+    // (PK-618) the curvature-weighted fit reads 4.16 on the graded
+    // reading (PK-621) and the tangent fit 2.14: past the bound
+    // fairness outranks the claimed level, so the tangent fit serves
+    // G1. pyr6 h1.2
     // variable: the unfaired fan pinched (4.5e5 / r_min); the faired
     // guide (PK-613) serves it at G2 inside the bound.
     let (method, level, fairness, fit) = outcome_and_fit(5, 1.2, &WIDE[..5]);
     assert_eq!(
         (method, level),
-        (CornerMethod::PlateMin, ContinuityLevel::G2)
+        (CornerMethod::PlateMin, ContinuityLevel::G1)
     );
     assert!(fairness.is_some_and(|f| f > 4.0), "the fan's {fairness:?}");
     let fit = fit.expect("a served fit");
     assert_eq!(
         (fit.mode, fit.border),
-        (SetbackFitMode::CurvatureWeighted, SetbackFitBorder::Bridged)
+        (SetbackFitMode::Tangent, SetbackFitBorder::Bridged)
     );
     assert!(fit.interior < 4.0 && fit.regularity >= 2e-2, "{fit:?}");
     let (method, level, fairness) = outcome(6, 1.2, &VARIABLE[..6]);
