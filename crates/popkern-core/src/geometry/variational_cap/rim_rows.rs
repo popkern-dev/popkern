@@ -82,6 +82,25 @@ pub(super) struct Reduction<'a> {
     pub fixed: &'a [Vec<f64>; 3],
 }
 
+/// How the transversality prior sizes its target across the rim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CrossDerivativeTarget {
+    /// The length of the start's cross derivative within the
+    /// neighbour's tangent plane (at least a quarter of its full
+    /// length): the start's own speed across the rim, where the start
+    /// meets the neighbour near tangentially.
+    #[default]
+    InPlaneLength,
+    /// The start's full length, rotated into the tangent plane. Where the
+    /// start crosses the rim steeply to the neighbour's tangent plane its
+    /// in-plane part collapses, and a short target pins a short cross
+    /// derivative: the cap turns into the neighbour inside a thin rim
+    /// layer (PK-625, measured on the octagon h3 wide apex: 44 / r_min
+    /// at the rim against 0.3 inside, the corner-patched cap reading 37;
+    /// with the start's length, 2.33).
+    StartLength,
+}
+
 /// Rows `(coefficients over 3k, rhs)` for every sample.
 pub(super) fn rim_rows(
     space: &SectorSpace,
@@ -210,13 +229,13 @@ pub(super) fn transversal_rows(
 /// linear G1 row `N·w = 0` cannot tell `w` from `−w`: on the cube corner
 /// 0.05/0.2/0.3 the G1 step produced a cap folded back over its strip
 /// along a third of one rim (cap normal against the strip's, dot −0.73).
-/// The target's length is the start surface's cross-derivative length
-/// (a scale only: the start's direction was itself flipped there), its
-/// component along the rim is the start's (the parameter flow).
+/// The target's component along the rim is the start's (the parameter
+/// flow); its length across the rim follows `rule`.
 pub(super) fn transversal_targets(
     space: &SectorSpace,
     coords: &[Vec<f64>; 3],
     samples: &[RimSample],
+    rule: CrossDerivativeTarget,
 ) -> Vec<Vec3> {
     samples
         .iter()
@@ -236,7 +255,15 @@ pub(super) fn transversal_targets(
             };
             let e_out = t.cross(&n);
             let along = t * t.dot(&w);
-            let across = (w - n * n.dot(&w) - along).length().max(0.25 * w.length());
+            let across = match rule {
+                CrossDerivativeTarget::InPlaneLength => {
+                    (w - n * n.dot(&w) - along).length().max(0.25 * w.length())
+                }
+                CrossDerivativeTarget::StartLength => (w.dot(&w) - along.dot(&along))
+                    .max(0.0)
+                    .sqrt()
+                    .max(0.25 * w.length()),
+            };
             e_out * across + along
         })
         .collect()

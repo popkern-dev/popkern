@@ -55,8 +55,9 @@ pub(crate) struct FitServe {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum FitProof {
     Certified(SetbackFitCertified),
-    /// Past the fairness bound: the ladder certifies it only if it is
-    /// the fairest fit left when the ladder ends (PK-620).
+    /// Past the fairness bound (PK-620), or corner-patched (PK-625): the
+    /// ladder certifies it only if it is the fairest fit left when the
+    /// ladder ends.
     Deferred(DeferredProof),
 }
 
@@ -170,8 +171,15 @@ fn finish_commit(
 ) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
     let pieces = pieces(cap_faces.len());
     let proof = DeferredProof { report };
+    // A corner-patched fit always defers: the patched attempts are the
+    // ladder's last, run as one group, so the fairest of them serves
+    // rather than the first under the bound (PK-625, measured: a bridged
+    // patched cap at 2.95-3.53 / r_min served ahead of the flat bowed
+    // border's at 1.5).
     let proof = if stakes.defer
-        && interior.is_some_and(|i| i > crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND)
+        && (mode == SetbackFitMode::TangentCornerPatched
+            || interior
+                .is_some_and(|i| i > crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND))
     {
         FitProof::Deferred(proof)
     } else {
@@ -314,6 +322,11 @@ fn fit_settings(
     let options = VariationalCapOptions {
         layout_refit_curvature: fairness_limit,
         thin_sector_curvature: thin_limit,
+        // PK-625: the corner-patched fit runs after every star attempt is
+        // past the bound, so its rescue pre-empts nothing; on a star fit
+        // it would (measured: rescued star caps at 3.3-3.9 / r_min served
+        // ahead of corner-patched caps at 1.5).
+        cross_target_refit: mode == SetbackFitMode::TangentCornerPatched,
         ..options
     };
     (targets, options)

@@ -12,9 +12,8 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendResult, BridgeBow, ContinuityLevel, CornerSubPatchRole,
-    FilletOptions, FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome,
-    fillet_edges,
+    ApexConstructionDiagnostic, BlendResult, ContinuityLevel, CornerSubPatchRole, FilletOptions,
+    FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome, fillet_edges,
 };
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::healing::curvature::principal_curvatures;
@@ -85,7 +84,8 @@ fn cap_fairness(result: &BlendResult, r_min: f64) -> f64 {
     worst * r_min
 }
 
-/// The row serves the corner-patched cap on the flat bowed border:
+/// The row serves the corner-patched cap on a bowed border (the fairest
+/// of the patched attempts, PK-625):
 /// certified G1 over the whole blend, under the bound, fairer than the
 /// stage-2 star (`star`), its faces naming their piece.
 fn assert_corner_patched(n: usize, h: f64, radii: &[f64], star: f64, at_most: f64) {
@@ -124,13 +124,12 @@ fn assert_corner_patched(n: usize, h: f64, radii: &[f64], star: f64, at_most: f6
         .iter()
         .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
         .unwrap_or_else(|| panic!("{name}: {record:#?}"));
-    assert_eq!(
-        (served.mode, served.border),
-        (
-            SetbackFitMode::TangentCornerPatched,
-            SetbackFitBorder::BowedBridges(BridgeBow::Flat)
-        ),
-        "{name}"
+    assert!(
+        served.mode == SetbackFitMode::TangentCornerPatched
+            && matches!(served.border, SetbackFitBorder::BowedBridges(_)),
+        "{name}: {:?} on {:?}",
+        served.mode,
+        served.border
     );
     let r_min = radii.iter().take(n).copied().fold(f64::INFINITY, f64::min);
     let fairness = cap_fairness(&result, r_min);
@@ -158,14 +157,15 @@ fn assert_corner_patched(n: usize, h: f64, radii: &[f64], star: f64, at_most: f6
 
 #[test]
 fn steep_trihedral_variable_apex_serves_the_corner_patched_cap() {
-    // Stage 2 served the round-bow star at 6.29 / r_min; measured 2.51.
-    assert_corner_patched(3, 3.0, &[0.02, 0.04, 0.06], 6.29, 3.0);
+    // Stage 2 served the round-bow star at 6.29 / r_min; stage 3 measured
+    // 2.51, and the fairest patched attempt (PK-625) 1.20.
+    assert_corner_patched(3, 3.0, &[0.02, 0.04, 0.06], 6.29, 1.5);
 }
 
 #[test]
 fn steep_trihedral_wide_apex_serves_the_corner_patched_cap() {
-    // Stage 2: 8.27; measured 2.49.
-    assert_corner_patched(3, 3.0, &[0.05, 0.15, 0.08], 8.27, 3.0);
+    // Stage 2: 8.27; stage 3 measured 2.49; PK-625: 1.24.
+    assert_corner_patched(3, 3.0, &[0.05, 0.15, 0.08], 8.27, 1.5);
 }
 
 #[test]
@@ -177,12 +177,12 @@ fn steep_pentagonal_wide_apex_serves_the_corner_patched_cap() {
 
 #[test]
 fn steep_pentagonal_mixed_apex_serves_the_corner_patched_cap() {
-    // Stage 2: 4.53; measured 2.56.
-    assert_corner_patched(5, 3.0, &[0.04, 0.06, 0.05, 0.07, 0.04], 4.53, 3.0);
+    // Stage 2: 4.53; stage 3 measured 2.56; PK-625: 2.14.
+    assert_corner_patched(5, 3.0, &[0.04, 0.06, 0.05, 0.07, 0.04], 4.53, 2.5);
 }
 
 #[test]
 fn steep_hexagonal_variable_apex_serves_the_corner_patched_cap() {
-    // Stage 2: 50.4; measured 1.69.
+    // Stage 2: 50.4; measured 1.69 (PK-625: 1.67).
     assert_corner_patched(6, 3.0, &[0.02, 0.04, 0.06, 0.04, 0.02, 0.05], 50.4, 2.0);
 }

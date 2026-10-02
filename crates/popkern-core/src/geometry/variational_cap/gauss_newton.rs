@@ -42,6 +42,7 @@ pub(super) fn solve_level(
     options: &VariationalCapOptions,
     phi: &CharacteristicMap,
     start: Option<&[Vec<f64>; 3]>,
+    cross: super::rim_rows::CrossDerivativeTarget,
 ) -> Result<([Vec<f64>; 3], usize), VariationalCapError> {
     let characteristic = |_s: usize, u: f64, v: f64| phi.metric(u, v);
     let parametric = Integrand::Parametric {
@@ -71,7 +72,7 @@ pub(super) fn solve_level(
     // parameterised by construction (energy-only, or the previous
     // level's accepted result).
     let prior = Prior {
-        targets: transversal_targets(&level.space, &coords, &level.samples),
+        targets: transversal_targets(&level.space, &coords, &level.samples, cross),
         weight: options.transversal_weight,
     };
     // G1 phase: one solve with the G1 rows against the characteristic

@@ -28,7 +28,7 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendError, BlendResult, BridgeBow, ContinuityLevel, CornerMethod,
+    ApexConstructionDiagnostic, BlendError, BlendResult, ContinuityLevel, CornerMethod,
     FilletOptions, FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome,
     fillet_edges,
 };
@@ -164,8 +164,9 @@ fn octagonal_steep_apexes_serve_the_fairest_cap() {
     // border (PK-618) the tangent fit reads 15.0, its sector beside the
     // shortest strip thin. PK-620's structured solve lets the octagon
     // reach the bowed borders (the PK-619 containment kept them to six
-    // strips): the corner-patched cap on the flat bowed border serves
-    // inside the bound, certified G1 (measured 2026-10-02: 3.62).
+    // strips): the corner-patched cap on a bowed border serves inside the
+    // bound, certified G1 (measured 2026-10-02: 3.62 on the flat bow;
+    // with PK-625's fairest-of-group rule, 2.48 on the round bow).
     let (method, level, fairness) = outcome(8, 1.2, &WIDE);
     assert_eq!(
         (method, level, fairness),
@@ -178,12 +179,10 @@ fn octagonal_steep_apexes_serve_the_fairest_cap() {
     );
     let fan = fairness.expect("the fan's reading");
     let fit = fit.expect("a served fit");
-    assert_eq!(
-        (fit.mode, fit.border),
-        (
-            SetbackFitMode::TangentCornerPatched,
-            SetbackFitBorder::BowedBridges(BridgeBow::Flat)
-        )
+    assert!(
+        fit.mode == SetbackFitMode::TangentCornerPatched
+            && matches!(fit.border, SetbackFitBorder::BowedBridges(_)),
+        "{fit:?}"
     );
     assert!(
         fit.interior < 4.0 && fit.interior < fan,

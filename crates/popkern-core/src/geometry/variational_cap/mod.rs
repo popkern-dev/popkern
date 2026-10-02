@@ -78,6 +78,7 @@ pub use corner_patch::{
 pub use error::VariationalCapError;
 pub use fit::{MAX_CAP_SIDES, fit_variational_cap};
 pub use layout::CapLayout;
+pub use rim_rows::CrossDerivativeTarget;
 
 use super::Point3;
 use super::nurbs_curve::NurbsCurve;
@@ -187,6 +188,12 @@ pub struct VariationalCapOptions {
     /// foot at the side point nearest the fitted centre, and the fairer
     /// cap is returned (PK-618, [`CapLayout`]). `None`: midpoints only.
     pub layout_refit_curvature: Option<f64>,
+    /// With [`Self::layout_refit_curvature`], also refit with the
+    /// transversality prior at the start's full length
+    /// ([`CrossDerivativeTarget::StartLength`], PK-625) and keep the
+    /// fairest. Off by default: on a caller that serves the first cap
+    /// under its bound, a rescued cap can pre-empt a fairer later one.
+    pub cross_target_refit: bool,
     /// A cap whose regularity falls under the served floor (2e-2) but
     /// stays above a hard floor (5e-3) serves when its largest interior
     /// principal curvature stays under this (model units); otherwise it
@@ -215,6 +222,7 @@ impl Default for VariationalCapOptions {
             transversal_weight: 1.0e-1,
             corner_cells: false,
             layout_refit_curvature: None,
+            cross_target_refit: false,
             thin_sector_curvature: None,
         }
     }
@@ -273,6 +281,8 @@ pub struct VariationalCapReport {
     pub targets_met: bool,
     /// Where the sides were split.
     pub layout: CapLayout,
+    /// How the transversality prior sized its targets (PK-625).
+    pub cross_target: CrossDerivativeTarget,
     /// Largest sampled interior principal curvature (model units), when
     /// [`VariationalCapOptions::layout_refit_curvature`] asked for it;
     /// otherwise 0.

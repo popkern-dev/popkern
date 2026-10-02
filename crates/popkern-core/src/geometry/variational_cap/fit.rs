@@ -9,6 +9,7 @@ use super::level::{Frame, Level, build_level};
 use super::measure::{
     SERVED_MIN_REGULARITY, THIN_SECTOR_MIN_REGULARITY, rim_report, served_regularity, spoke_report,
 };
+use super::rim_rows::CrossDerivativeTarget;
 use super::space::SectorSpace;
 use super::{
     RimResidual, VariationalCap, VariationalCapError, VariationalCapOptions, VariationalCapReport,
@@ -54,29 +55,78 @@ pub fn fit_variational_cap(
         g1: targets.g1,
         g2: targets.g2.map(|g| g * frame.scale),
     };
-    let mut cap = fit_with_splits(
+    let midpoints = layout::midpoints(sides);
+    let first =
+        |cross| fit_with_splits(sides, options, &frame, &local_targets, (&midpoints, cross));
+    let Some(limit) = options.layout_refit_curvature else {
+        return first(CrossDerivativeTarget::InPlaneLength);
+    };
+    let read = |mut cap: VariationalCap, layout, cross| {
+        cap.report.interior_curvature = layout::interior_curvature(&cap);
+        cap.report.layout = layout;
+        cap.report.cross_target = cross;
+        cap
+    };
+    // A cap bending past the caller's limit is refit, and the fairest
+    // kept (the earlier on a tie; a refit that declines is dropped); a
+    // cap inside the limit keeps its fit unchanged.
+    // - PK-625 (when the caller asks): the transversality prior at the
+    //   start's full length, for a cap that turns into a neighbour inside
+    //   a thin rim layer. It is fitted alongside the first fit, and is
+    //   wasted work only when the first fit is fair.
+    // - PK-618: the spokes' feet nearest the first fit's centre, while
+    //   the fairest is still past the limit (measured over the 56
+    //   corner-patched pieces of the 160-row census: the start-length
+    //   refit was fairest 38 times, the centre-feet refit once, by 1%).
+    let candidates = if options.cross_target_refit { 2 } else { 1 };
+    let mut fits = super::linalg::par_map(candidates, |t| {
+        first(if t == 0 {
+            CrossDerivativeTarget::InPlaneLength
+        } else {
+            CrossDerivativeTarget::StartLength
+        })
+    })
+    .into_iter();
+    let first_fit = fits.next().ok_or(VariationalCapError::Singular {
+        stage: "no level solved",
+    })??;
+    let first_fit = read(
+        first_fit,
+        layout::CapLayout::Midpoints,
+        CrossDerivativeTarget::InPlaneLength,
+    );
+    if first_fit.report.interior_curvature <= limit {
+        return Ok(first_fit);
+    }
+    let feet = layout::centre_feet(sides, &first_fit);
+    let mut cap = first_fit;
+    if let Some(Ok(refit)) = fits.next() {
+        let refit = read(
+            refit,
+            layout::CapLayout::Midpoints,
+            CrossDerivativeTarget::StartLength,
+        );
+        if refit.report.interior_curvature < cap.report.interior_curvature {
+            cap = refit;
+        }
+    }
+    if cap.report.interior_curvature <= limit {
+        return Ok(cap);
+    }
+    if let Ok(refit) = fit_with_splits(
         sides,
         options,
         &frame,
         &local_targets,
-        &layout::midpoints(sides),
-    )?;
-    let Some(limit) = options.layout_refit_curvature else {
-        return Ok(cap);
-    };
-    cap.report.interior_curvature = layout::interior_curvature(&cap);
-    if cap.report.interior_curvature <= limit {
-        return Ok(cap);
-    }
-    // PK-618: the midpoint layout bends past the caller's limit; refit
-    // with the spokes' feet nearest the fitted centre and keep the
-    // fairer cap. A refit that declines leaves the midpoint cap.
-    let feet = layout::centre_feet(sides, &cap);
-    if let Ok(mut refit) = fit_with_splits(sides, options, &frame, &local_targets, &feet) {
-        refit.report.interior_curvature = layout::interior_curvature(&refit);
-        refit.report.layout = layout::CapLayout::CentreFeet;
+        (&feet, CrossDerivativeTarget::InPlaneLength),
+    ) {
+        let refit = read(
+            refit,
+            layout::CapLayout::CentreFeet,
+            CrossDerivativeTarget::InPlaneLength,
+        );
         if refit.report.interior_curvature < cap.report.interior_curvature {
-            return Ok(refit);
+            cap = refit;
         }
     }
     Ok(cap)
@@ -89,7 +139,7 @@ fn fit_with_splits(
     options: &VariationalCapOptions,
     frame: &Frame,
     local_targets: &VariationalCapTargets,
-    splits: &[f64],
+    (splits, cross): (&[f64], CrossDerivativeTarget),
 ) -> Result<VariationalCap, VariationalCapError> {
     let n = sides.len();
     let frame = *frame;
@@ -113,7 +163,7 @@ fn fit_with_splits(
             .as_ref()
             .and_then(|(old_space, old)| transfer(old_space, old, &level.space));
         let (coords, iterations) =
-            solve_level(&level, &local_targets, options, &phi, start.as_ref())?;
+            solve_level(&level, &local_targets, options, &phi, start.as_ref(), cross)?;
         gn_total += iterations;
         let rim = rim_report(&level.space, &coords, &level.samples, n);
         let worst = rim
@@ -303,6 +353,7 @@ fn finish(
             energy,
             targets_met,
             layout: layout::CapLayout::Midpoints,
+            cross_target: CrossDerivativeTarget::InPlaneLength,
             interior_curvature: 0.0,
         },
     };
