@@ -28,6 +28,7 @@ pub fn apply_blend_geometry(
     requested_continuity: crate::types::ContinuityLevel,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
     corner_cap: crate::types::CornerCapPreference,
+    corner_setback: &crate::types::CornerSetback,
     cancel: Option<&crate::cancellation::CancellationToken>,
     // `+ '_` keeps the trait object's pointee lifetime independent of
     // the reborrow so callers can reuse their reporter after this call.
@@ -65,7 +66,7 @@ pub fn apply_blend_geometry(
                 brep,
                 vertex_mode,
                 edge_geometries,
-                corner_cap,
+                (corner_cap, corner_setback),
                 tolerance,
                 explicit_subpatch_family,
             ))
@@ -335,7 +336,13 @@ pub fn apply_blend_geometry(
                         use_kp_polar_gregory,
                         Some(pre),
                         cap_presolve.get(vertex),
-                        corner_cap,
+                        &super::blend_insert_setback_user::CornerRequest::at(
+                            corner_cap,
+                            corner_setback,
+                            *vertex,
+                            (edge_indices, edge_geometries),
+                            brep,
+                        ),
                         explicit_subpatch_family,
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {

@@ -56,6 +56,12 @@ pub struct FilletRecipeDesc {
     /// serialised tree when it is the default ladder.
     #[serde(default, skip_serializing_if = "CornerCapDesc::is_auto")]
     pub corner_cap: CornerCapDesc,
+    /// The user setback at every corner the setback construction serves
+    /// (PK-623, [`popkern_blend::CornerSetback::uniform`]); `None` keeps
+    /// the kernel's automatic setbacks. Omitted from the serialised tree
+    /// when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setback: Option<f64>,
 }
 
 /// A fillet's corner-cap preference (mirrors
@@ -296,7 +302,7 @@ impl InterferencePolicyKind {
 impl FilletRecipeDesc {
     /// Kernel fillet options for this recipe: the kernel defaults with
     /// the recipe's continuity, cap, profile, interference policy,
-    /// corner mode and corner-cap preference applied. The engineering toggles that `FilletOptions` also
+    /// corner mode, corner-cap preference and corner setback applied. The engineering toggles that `FilletOptions` also
     /// carries (Gregory variants, soft supports, apex construction)
     /// are not document state and keep their defaults.
     pub fn to_kernel_options(&self) -> popkern_blend::FilletOptions {
@@ -307,6 +313,10 @@ impl FilletRecipeDesc {
             interference_policy: self.interference.to_kernel(),
             vertex_mode: self.corner.to_kernel(),
             corner_cap: self.corner_cap.to_kernel(),
+            corner_setback: self
+                .setback
+                .map(popkern_blend::CornerSetback::uniform)
+                .unwrap_or_default(),
             ..popkern_blend::FilletOptions::default()
         }
     }
@@ -327,6 +337,22 @@ impl FilletRecipeDesc {
         );
         (self.corner_cap.strict && !names_rung).then_some(
             "corner_cap_strict needs corner_cap \"setback\" or \"fitted\"; the auto and classic ladders have nothing to refuse",
+        )
+    }
+
+    /// Why the recipe's corner setback cannot apply, if it cannot
+    /// (PK-623): a non-positive distance, a mitred corner (no setback),
+    /// or the classic corner paths (they do not set rounds back).
+    pub fn setback_conflict(&self) -> Option<&'static str> {
+        let distance = self.setback?;
+        if !(distance.is_finite() && distance > 0.0) {
+            return Some("a setback must be a positive distance");
+        }
+        if self.corner == CornerModeDesc::Mitre {
+            return Some("a mitred corner has no setback; drop setback or use corner: \"smooth\"");
+        }
+        (self.corner_cap.construction == CornerConstructionDesc::Classic).then_some(
+            "the classic corner paths do not set rounds back; drop setback or choose another corner_cap",
         )
     }
 

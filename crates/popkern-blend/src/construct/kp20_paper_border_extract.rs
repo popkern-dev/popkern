@@ -47,10 +47,13 @@ mod section_fit;
 mod section_path;
 #[path = "kp20_paper_border_setback.rs"]
 mod setback;
+#[path = "kp20_paper_border_setback_order.rs"]
+mod setback_order;
 pub use junctions::BridgeGeometry;
 use popkern_core::geometry::gregory::elevate_cubic_row_to_sextic;
 pub use setback::{
-    kp20_paper_border_from_fillet_setback, kp20_paper_border_from_fillet_setback_with,
+    kp20_paper_border_from_fillet_setback, kp20_paper_border_from_fillet_setback_stationed,
+    kp20_paper_border_from_fillet_setback_with, setback_station_ranges,
 };
 pub use sides::SetbackJunctionPolicy;
 

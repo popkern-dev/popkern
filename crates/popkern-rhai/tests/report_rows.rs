@@ -26,7 +26,7 @@ let step = m.profile(yz()).polygon([[0.0, 3.0], [1.0, 3.0], [1.0, 3.6], [0.6, 3.
 step.fillet(edges().straight().direction("x").at_height(3.6)
     .or(edges().straight().direction("y").at_height(3.6).chord_length_between(0.39, 0.41))
     .or(edges().straight().direction("z").chord_length_between(0.39, 0.41)),
-    0.06, #{ continuity: "g2", label: "rounds" });
+    0.06, #{ continuity: "g2", corner_cap: "classic", label: "rounds" });
 m
 "#;
 
@@ -56,9 +56,12 @@ fn report_rows_carry_elapsed_ms_and_the_blend_downgrade_verdict() {
         .iter()
         .find(|r| r["label"] == "rounds")
         .expect("rounds row");
+    // The default ladder now certifies this step G2 (PK-623); its
+    // saddles are held to the classic corner paths, which serve a
+    // measured downgrade, so the row has a verdict to carry.
     assert_eq!(rounds["blend"]["downgraded"], true, "{rounds}");
     assert_eq!(rounds["blend"]["continuity"]["requested"], "G2");
-    assert_eq!(rounds["blend"]["continuity"]["achieved"], "G1");
+    assert_eq!(rounds["blend"]["continuity"]["achieved"], "G0");
     // The recorder agrees with the projection.
     assert_eq!(model.report().downgraded_blends().count(), 1);
 }

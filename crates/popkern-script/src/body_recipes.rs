@@ -412,12 +412,18 @@ impl Body {
     }
 }
 
-/// Refuse a corner-cap preference that cannot apply (PK-603) before
-/// anything is recorded.
+/// Refuse a corner-cap preference (PK-603) or a corner setback
+/// (PK-623) that cannot apply, before anything is recorded.
 pub(crate) fn check_corner_cap(recipe: &FilletRecipeDesc) -> Result<(), ScriptError> {
-    match recipe.corner_cap_conflict() {
-        Some(reason) => Err(ScriptError::Argument {
+    if let Some(reason) = recipe.corner_cap_conflict() {
+        return Err(ScriptError::Argument {
             argument: "corner_cap".into(),
+            reason: reason.into(),
+        });
+    }
+    match recipe.setback_conflict() {
+        Some(reason) => Err(ScriptError::Argument {
+            argument: "setback".into(),
             reason: reason.into(),
         }),
         None => Ok(()),

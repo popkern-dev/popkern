@@ -77,7 +77,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
-    corner_cap: crate::types::CornerCapPreference,
+    corner: &super::blend_insert_setback_user::CornerRequest,
     explicit_subpatch_family: bool,
 ) -> Result<InsertVertexBlendOutput, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
@@ -136,7 +136,7 @@ pub(crate) fn insert_vertex_blend(
         classification,
         setback_min_n,
         cap_presolve,
-        corner_cap,
+        corner,
         blend_insert_surface::corner_min_radius(edge_indices, edge_geometries),
     );
     if let Some(outcome) = setback_served {

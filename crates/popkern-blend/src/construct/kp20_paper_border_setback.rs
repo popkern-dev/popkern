@@ -2,9 +2,8 @@
 //! exact section rows). Nested in `kp20_paper_border_extract` to share
 //! its segment/calibration substrate; split out for the file budget.
 
-use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
-use popkern_core::geometry::{Point3, Vec3};
 
 use super::section_path::SectionPath;
 use super::sides::{
@@ -49,6 +48,36 @@ pub fn kp20_paper_border_from_fillet_setback_with(
     vertex_position: Point3,
     policy: SetbackJunctionPolicy,
 ) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
+    kp20_paper_border_from_fillet_setback_stationed(fillet_surfaces, vertex_position, policy, &[])
+}
+
+/// Each round's admissible user setback `(minimum, maximum)` at this
+/// corner, indexed like `fillet_surfaces` (PK-623): past both its rail
+/// crossings with its neighbours, and within its rails.
+pub fn setback_station_ranges(
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+) -> Result<Vec<(f64, f64)>, String> {
+    if fillet_surfaces.len() < 3 {
+        return Err(format!(
+            "setback border needs >= 3 fillets, got {}",
+            fillet_surfaces.len()
+        ));
+    }
+    let order = super::setback_order::angular_order(fillet_surfaces)?;
+    let corners =
+        kp20_paper_border_corners::setback_corners(fillet_surfaces, &order, vertex_position);
+    super::stations::station_ranges(fillet_surfaces, &order, &corners, vertex_position)
+}
+
+/// [`kp20_paper_border_from_fillet_setback_with`] with user-set stations
+/// by fillet index (PK-623), applied under the bridged policies.
+pub fn kp20_paper_border_from_fillet_setback_stationed(
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+    policy: SetbackJunctionPolicy,
+    stations: &[Option<f64>],
+) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     let n = fillet_surfaces.len();
@@ -56,47 +85,7 @@ pub fn kp20_paper_border_from_fillet_setback_with(
         return Err(format!("setback border needs >= 3 fillets, got {n}"));
     }
 
-    // Angular order of the fillets about the vertex (best-fit frame
-    // from the trim-curve midpoints).
-    let rep_point = |fi: usize| -> Point3 {
-        let c = &fillet_surfaces[fi].trim_curve_1;
-        let (t0, t1) = c.parameter_range();
-        c.point_at(0.5 * (t0 + t1))
-    };
-    let centroid = {
-        let mut acc = [0.0_f64; 3];
-        for fi in 0..n {
-            let p = rep_point(fi);
-            acc[0] += p.x;
-            acc[1] += p.y;
-            acc[2] += p.z;
-        }
-        Point3::new(acc[0] / n as f64, acc[1] / n as f64, acc[2] / n as f64)
-    };
-    let mut axis = Vec3::new(0.0, 0.0, 0.0);
-    for fi in 0..n {
-        let a = rep_point(fi) - centroid;
-        let b = rep_point((fi + 1) % n) - centroid;
-        axis = axis + a.cross(&b);
-    }
-    let axis = axis
-        .normalized()
-        .ok_or_else(|| "degenerate fillet arrangement".to_string())?;
-    let seed = rep_point(0) - centroid;
-    let u0 = (seed - axis * seed.dot(&axis))
-        .normalized()
-        .ok_or_else(|| "degenerate angular frame".to_string())?;
-    let v0 = axis.cross(&u0);
-    let angle_of = |p: Point3| -> f64 {
-        let d = p - centroid;
-        d.dot(&v0).atan2(d.dot(&u0))
-    };
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| {
-        angle_of(rep_point(a))
-            .partial_cmp(&angle_of(rep_point(b)))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let order = super::setback_order::angular_order(fillet_surfaces)?;
 
     // Setback corners between angularly adjacent fillets — see
     // `kp20_paper_border_corners` for the pair-selection and
@@ -106,7 +95,14 @@ pub fn kp20_paper_border_from_fillet_setback_with(
     let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
     // The boundary's sides: one per strip, plus a bridge per reflex
     // face corner under the bridging policy (PK-527).
-    let sides = setback_sides(fillet_surfaces, &order, &corners, vertex_position, policy)?;
+    let sides = setback_sides(
+        fillet_surfaces,
+        &order,
+        &corners,
+        vertex_position,
+        policy,
+        stations,
+    )?;
     let n = sides.len();
 
     // Corners cut exactly at the trim intersection. (A fractional

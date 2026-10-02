@@ -172,6 +172,22 @@ pub enum BlendFailureReason {
         /// Where the corner is.
         location: Option<[f64; 3]>,
     },
+    /// A user setback lies outside the range the corner admits for one
+    /// round (PK-623).
+    SetbackOutOfRange {
+        /// Debug-formatted vertex handle.
+        vertex: String,
+        /// Debug-formatted edge handle.
+        edge: String,
+        /// The requested distance.
+        requested: f64,
+        /// The farther rail crossing.
+        minimum: f64,
+        /// The round's length along its shorter rail.
+        maximum: f64,
+        /// Where the corner is.
+        location: Option<[f64; 3]>,
+    },
 }
 
 /// Projection of `popkern_blend::remediation::Remediation`.
@@ -277,6 +293,21 @@ impl From<&BlendFailure> for BlendFailureReason {
                 reason: reason.clone(),
                 location: point(location),
             },
+            BlendFailure::SetbackOutOfRange {
+                vertex,
+                edge,
+                requested,
+                minimum,
+                maximum,
+                location,
+            } => BlendFailureReason::SetbackOutOfRange {
+                vertex: format!("{vertex:?}"),
+                edge: format!("{edge:?}"),
+                requested: *requested,
+                minimum: *minimum,
+                maximum: *maximum,
+                location: point(location),
+            },
         }
     }
 }
@@ -352,8 +383,9 @@ impl BlendDeclined {
 }
 
 /// A strict corner-cap decline (PK-603) names the corner, the required
-/// construction and why it could not serve, instead of the generic
-/// "n of m edges failed".
+/// construction and why it could not serve, and a user setback out of
+/// range (PK-623) names the range, instead of the generic "n of m
+/// edges failed".
 fn corner_cap_message(error: &BlendError) -> Option<String> {
     let BlendError::PartialFailure { failures, .. } = error else {
         return None;
@@ -368,9 +400,29 @@ fn corner_cap_message(error: &BlendError) -> Option<String> {
             let at = location
                 .map(|p| format!(" at ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z))
                 .unwrap_or_default();
+            // PK-623: a user setback refuses every fallback.
+            if let Some(why) = reason.strip_prefix("user setback: ") {
+                return Some(format!(
+                    "corner{at}: no setback construction serves it at the requested setback, and a setback is never replaced by another: {why}"
+                ));
+            }
             Some(format!(
                 "corner{at}: the {} cap could not serve it and corner_cap_strict forbids a fallback: {reason}",
                 construction.spelling()
+            ))
+        }
+        BlendFailure::SetbackOutOfRange {
+            requested,
+            minimum,
+            maximum,
+            location,
+            ..
+        } => {
+            let at = location
+                .map(|p| format!(" at ({:.4}, {:.4}, {:.4})", p.x, p.y, p.z))
+                .unwrap_or_default();
+            Some(format!(
+                "corner{at}: setback {requested:.4} is outside what this corner admits for one of its rounds (more than {minimum:.4}, at most {maximum:.4})"
             ))
         }
         _ => None,

@@ -48,12 +48,19 @@ pub(crate) fn fit_sides(
             .ok_or_else(|| format!("arc {k}: side midpoint does not project onto its neighbour"))?;
         let natural = neighbour.normal_at(u, v);
         let is_outward = outward(k, mid, natural);
-        outward_sum = outward_sum + if is_outward { natural } else { natural * -1.0 };
         sides.push(VariationalCapSide {
             curve,
             neighbour,
             neighbour_reversed: !is_outward,
         });
+    }
+    orient_bridges_from_strips(arcs, &mut sides)?;
+    for side in &sides {
+        let (t0, t1) = side.curve.parameter_range();
+        let mid = side.curve.point_at(0.5 * (t0 + t1));
+        let normal = oriented_normal(side, &mid)
+            .ok_or("a side midpoint does not project onto its neighbour")?;
+        outward_sum = outward_sum + normal;
     }
     // Newell normal of the corner loop.
     let corners: Vec<Point3> = sides
@@ -89,4 +96,48 @@ fn reversed_curve(curve: &NurbsCurve) -> NurbsCurve {
         control_points: curve.control_points.iter().rev().copied().collect(),
         weights: curve.weights.iter().rev().copied().collect(),
     }
+}
+
+/// Orient each bridge side's plane from its preceding strip side at their
+/// shared corner, where the plane is tangent to the strip (a bridge foot
+/// lies on the strip's rail). The face flags cannot: the strips are faces
+/// the blend built, the planes the input body's own faces, and a body's
+/// flags follow its shell's convention (primitives build inward shells,
+/// extrusions and booleans outward ones). Measured on an extruded block's
+/// mixed corner: every bridged fit read rim g1 0.8–2.1, the planes'
+/// normals flipped against the strips' (PK-623).
+fn orient_bridges_from_strips(
+    arcs: &[Kp20SetbackArc],
+    sides: &mut [VariationalCapSide],
+) -> Result<(), String> {
+    let n = sides.len();
+    for k in 0..n {
+        if arcs[k].bridge.is_none() {
+            continue;
+        }
+        let prev = (k + n - 1) % n;
+        if arcs[prev].bridge.is_some() {
+            continue;
+        }
+        let corner = sides[k].curve.point_at(sides[k].curve.parameter_range().0);
+        let strip = oriented_normal(&sides[prev], &corner)
+            .ok_or_else(|| format!("arc {prev}: the strip has no normal at the bridge foot"))?;
+        let plane = oriented_normal(&sides[k], &corner)
+            .ok_or_else(|| format!("arc {k}: the plane has no normal at the bridge foot"))?;
+        if plane.dot(&strip) < 0.0 {
+            sides[k].neighbour_reversed = !sides[k].neighbour_reversed;
+        }
+    }
+    Ok(())
+}
+
+/// The side's neighbour normal at the foot of `p`, oriented by its flag.
+fn oriented_normal(side: &VariationalCapSide, p: &Point3) -> Option<Vec3> {
+    let (u, v) = project_point_to_uv(&side.neighbour, p)?;
+    let normal = side.neighbour.normal_at(u, v).normalized()?;
+    Some(if side.neighbour_reversed {
+        normal * -1.0
+    } else {
+        normal
+    })
 }

@@ -419,11 +419,27 @@ impl BlendFailure {
                 format!(
                     "The corner was required to take the {} cap, which \
                      could not serve it ({reason}). Allow a fallback \
-                     (drop `corner_cap_strict`), choose another corner \
-                     cap, or change the radii meeting at the corner.",
+                     (drop `corner_cap_strict` or the corner setback), \
+                     choose another corner cap, or change the radii \
+                     meeting at the corner.",
                     construction.spelling()
                 ),
             ),
+            BlendFailure::SetbackOutOfRange {
+                requested,
+                minimum,
+                maximum,
+                ..
+            } => Remediation::new(
+                RemediationAction::FixInput,
+                format!(
+                    "The setback {requested:.4} puts this round's end outside \
+                     what the corner admits: past its neighbours' rail \
+                     crossings ({minimum:.4}) and within the round \
+                     ({maximum:.4}). Choose a setback in that range."
+                ),
+            )
+            .with_parameter("setback"),
         }
     }
 }

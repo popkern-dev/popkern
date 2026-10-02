@@ -56,13 +56,15 @@ pub(super) struct SetbackSide {
 /// bridge side between its two strips, and each strip then ends at the
 /// bridge's foot on its rail. `corners[k]` is junction k's rail
 /// crossing, used at corner junctions and as the anchoring station of
-/// a bridge.
+/// a bridge. `stations` holds the user-set stations by fillet index
+/// (PK-623), applied under the bridged policies.
 pub(super) fn setback_sides(
     fillet_surfaces: &[FilletSurfaceResult],
     order: &[usize],
     corners: &[(f64, Point3)],
     vertex: Point3,
     policy: SetbackJunctionPolicy,
+    stations: &[Option<f64>],
 ) -> Result<Vec<SetbackSide>, String> {
     let n = order.len();
     let kinds: Vec<JunctionKind> = match policy {
@@ -103,7 +105,7 @@ pub(super) fn setback_sides(
     let feet = match policy {
         SetbackJunctionPolicy::BridgeEveryJunction
         | SetbackJunctionPolicy::BridgeEveryJunctionBowed(_) => Some(
-            super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex)?,
+            super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex, stations)?,
         ),
         _ => None,
     };

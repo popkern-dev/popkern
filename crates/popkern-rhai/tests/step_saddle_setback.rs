@@ -73,12 +73,21 @@ fn a_g1_request_serves_both_step_saddles_certified_g1() {
 }
 
 #[test]
-fn a_g2_request_on_the_step_downgrades_honestly_to_certified_g1() {
+fn a_g2_request_on_the_step_serves_both_saddles_certified_g2() {
     let rounds = step_rounds("g2");
-    // PK-596: one saddle's fan fails G2 and the curvature-weighted fit
-    // serves it (4 sectors); the other saddle's fit declines and its
-    // fan serves the G1 downgrade (16 pieces), so the body stays G1.
-    assert_certified_g1(&rounds, "G2", 20);
-    assert_eq!(rounds["blend"]["downgraded"], true);
-    assert_eq!(rounds["blend"]["continuity"]["requested"], "G2");
+    // PK-596 left one saddle's fit declining and its fan serving the G1
+    // downgrade. Since PK-623 orients each bridge plane from its strip
+    // (the extruded step is an outward shell, whose plane flags read
+    // flipped against the blend's strips), both saddles serve the
+    // curvature-weighted fit, 4 sectors each, and every seam certifies
+    // G2.
+    let blend = &rounds["blend"];
+    let c = &blend["continuity"];
+    assert_eq!(blend["corner_patches"], 8, "{blend}");
+    assert_eq!(c["requested"], "G2");
+    assert_eq!(c["achieved"], "G2", "{c}");
+    assert_eq!(c["certified_achieved"], "G2", "{c}");
+    assert_eq!(c["uncertified_seams"], 0);
+    assert_eq!(c["unmeasured_seams"], 0);
+    assert_eq!(blend["downgraded"], false);
 }

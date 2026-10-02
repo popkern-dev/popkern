@@ -279,6 +279,24 @@ pub enum BlendFailure {
         /// 3D location of the corner, if available.
         location: Option<Point3>,
     },
+    /// A user setback (PK-623, [`crate::CornerSetback`]) puts a round's
+    /// end where the setback construction cannot: before a rail
+    /// crossing with a neighbouring round, or past the round's end.
+    SetbackOutOfRange {
+        /// The corner vertex.
+        vertex: VertexHandle,
+        /// The round's edge.
+        edge: EdgeHandle,
+        /// The requested distance.
+        requested: f64,
+        /// The smallest distance the corner admits for this round: its
+        /// farther rail crossing.
+        minimum: f64,
+        /// The largest: the round's length along its shorter rail.
+        maximum: f64,
+        /// 3D location of the corner, if available.
+        location: Option<Point3>,
+    },
 }
 
 impl BlendFailure {
@@ -301,6 +319,7 @@ impl BlendFailure {
             | BlendFailure::SelfIntersectingBlend { location, .. }
             | BlendFailure::InconsistentGeometry { location, .. }
             | BlendFailure::CornerCapUnavailable { location, .. }
+            | BlendFailure::SetbackOutOfRange { location, .. }
             | BlendFailure::AlreadyBlended { location }
             | BlendFailure::SeamEdge { location } => *location,
         }

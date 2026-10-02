@@ -41,6 +41,14 @@ pub fn try_fillet_cube_result(
         // Candidate-quality instrument: the constructed candidate, not
         // the serving re-route (PK-250, and PK-597's crease re-run).
         serving_self_intersection_retry: false,
+        // The vertex-blend ladder this instruments sits after the
+        // setback rung, which now serves the extreme cube corners itself
+        // (PK-619/623: the corner-patched fit, certified G1 at 1.03 /
+        // r_min on 1:20); the classic paths keep the ladder reachable.
+        corner_cap: popkern_blend::CornerCapPreference {
+            construction: popkern_blend::CornerConstruction::Classic,
+            strict: false,
+        },
         ..FilletOptions::default()
     };
     fillet_edges(

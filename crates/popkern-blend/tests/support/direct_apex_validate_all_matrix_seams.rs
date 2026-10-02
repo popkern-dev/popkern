@@ -29,8 +29,23 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
             is_pyramid: true,
         },
     ];
+    let mut checked = 0;
     for case in cases {
         let result = build_under_direct_apex(case.is_pyramid, case.radii);
+        // PK-623: a corner the serving retry handed to the setback rung
+        // (cube_extreme: the direct-apex cap creases, and the rung's
+        // corner-patched fit now serves it certified G1) is not a
+        // direct-apex serve; the direct-apex invariants apply to
+        // direct-apex corners only.
+        if !result
+            .repair_report
+            .apex_routes
+            .iter()
+            .all(|r| r.route == popkern_blend::ApexConstructionRoute::DirectApex)
+        {
+            continue;
+        }
+        checked += 1;
         let cap_faces = result
             .corner_patches
             .iter()
@@ -160,6 +175,10 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
             findings.join(", ")
         );
     }
+    assert!(
+        checked > 0,
+        "no case served direct apex: the inventory ran on nothing"
+    );
 }
 
 fn dump_cap_loops(

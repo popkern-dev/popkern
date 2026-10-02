@@ -252,7 +252,9 @@ mod tests {
             false,
             None,
             None,
-            crate::types::CornerCapPreference::default(),
+            &crate::construct::blend_insert_setback_user::CornerRequest::cap_only(
+                crate::types::CornerCapPreference::default(),
+            ),
             false,
         );
         assert!(result.is_err(), "should fail for invalid vertex");
@@ -282,7 +284,9 @@ mod tests {
             false,
             None,
             None,
-            crate::types::CornerCapPreference::default(),
+            &crate::construct::blend_insert_setback_user::CornerRequest::cap_only(
+                crate::types::CornerCapPreference::default(),
+            ),
             false,
         );
         // This should fail (no edge geometries -> empty fillet surfaces

@@ -986,7 +986,7 @@
       "name": "fillet",
       "section": "5",
       "mark": "stable",
-      "signature": "fillet(edges, radius, continuity?, cap?, profile?, interference?, law?, corner?, corner_cap?, corner_cap_strict?)",
+      "signature": "fillet(edges, radius, continuity?, cap?, profile?, interference?, law?, corner?, corner_cap?, corner_cap_strict?, setback?)",
       "parameters": [
         {
           "name": "edges",
@@ -1027,6 +1027,10 @@
         {
           "name": "corner_cap_strict",
           "optional": true
+        },
+        {
+          "name": "setback",
+          "optional": true
         }
       ]
     },
@@ -1034,7 +1038,7 @@
       "name": "fillet_each",
       "section": "5",
       "mark": "preview",
-      "signature": "fillet_each(groups, continuity?, cap?, profile?, interference?, corner?, corner_cap?, corner_cap_strict?)",
+      "signature": "fillet_each(groups, continuity?, cap?, profile?, interference?, corner?, corner_cap?, corner_cap_strict?, setback?)",
       "parameters": [
         {
           "name": "groups",
@@ -1066,6 +1070,10 @@
         },
         {
           "name": "corner_cap_strict",
+          "optional": true
+        },
+        {
+          "name": "setback",
           "optional": true
         }
       ]

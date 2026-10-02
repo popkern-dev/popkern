@@ -49,8 +49,8 @@ mod helpers;
 
 use direct_apex_validate_helpers::{
     assert_native_gregory_case, assert_native_gregory_cube_case, breakdown,
-    build_under_direct_apex, count_direct_apex_fallbacks, direct_apex_fallback_reasons,
-    native_cap_faces,
+    build_candidate_under_direct_apex, build_under_direct_apex, count_direct_apex_fallbacks,
+    direct_apex_fallback_reasons, native_cap_faces,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
@@ -396,7 +396,18 @@ fn direct_apex_does_not_store_semantic_lines_as_nurbs() {
         },
     ];
     for case in cases {
-        let result = build_under_direct_apex(case.is_pyramid, case.radii);
+        // The direct-apex construction itself, before the serving retry
+        // (which hands a creased corner to the setback rung, PK-623).
+        let result = build_candidate_under_direct_apex(case.is_pyramid, case.radii);
+        assert!(
+            result
+                .repair_report
+                .apex_routes
+                .iter()
+                .all(|r| r.route == popkern_blend::ApexConstructionRoute::DirectApex),
+            "[{}] the candidate is a direct-apex serve",
+            case.name
+        );
         let mut semantic_line_nurbs = Vec::new();
         for (edge, edge_data) in result.brep.edges.iter() {
             let Some(curve) = edge_data.curve.as_ref() else {

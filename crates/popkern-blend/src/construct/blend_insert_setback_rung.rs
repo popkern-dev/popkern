@@ -15,14 +15,15 @@ use crate::construct::setback_vertex_topology::{
 };
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
-    ApexConstructionDiagnostic, ContinuityLevel, CornerCapPreference, CornerConstruction,
-    CornerMethod, CornerPatchInfo, CornerSubPatchProvenance, SetbackCapFairness, SetbackFitAttempt,
-    SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
+    ApexConstructionDiagnostic, ContinuityLevel, CornerConstruction, CornerMethod, CornerPatchInfo,
+    CornerSubPatchProvenance, SetbackCapFairness, SetbackFitAttempt, SetbackFitDiagnostic,
+    SetbackFitMode, SetbackFitOutcome,
 };
 use crate::vertex_classifier::VertexBlendClassification;
 
 #[path = "blend_insert_setback_fit_step.rs"]
 mod fit_step;
+use crate::construct::blend_insert_setback_user as user;
 
 /// The rung's result: `served` is `Some` when the rung decided (served
 /// or hard-errored), `None` to fall through to the vertex-blend corner
@@ -54,6 +55,8 @@ struct SetbackRung<'a> {
     commit_snapshot: BRep,
     /// The corner's smallest fillet radius, the fairness measure's unit.
     r_min: f64,
+    /// User-set stations by fillet index (PK-623); empty: automatic.
+    stations: &'a [Option<f64>],
 }
 
 /// Attempt the setback rung, each construction transactional on the
@@ -70,6 +73,12 @@ struct SetbackRung<'a> {
 /// construction; when it declines the rung returns an empty serve
 /// carrying [`ApexConstructionDiagnostic::CornerCapUnavailable`], which
 /// the apply phase turns into a failure instead of a fallback.
+///
+/// A corner with a user setback (`user`, PK-623) is served at its
+/// stations or refused: only the variational fits on the bridged and
+/// bowed borders honour stations, so the KP20 fan and the corners border
+/// are skipped, and every decline is strict. A station outside the
+/// corner's admissible range is refused before any construction.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_setback_rung(
     brep: &mut BRep,
@@ -81,14 +90,38 @@ pub(super) fn try_setback_rung(
     classification: VertexBlendClassification,
     setback_min_n: usize,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
-    corner_cap: CornerCapPreference,
+    corner: &user::CornerRequest,
     r_min: f64,
 ) -> SetbackRungOutcome {
-    if corner_cap.construction == CornerConstruction::Classic
-        || !(crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
-            && edge_indices.len() >= setback_min_n)
-    {
-        return (None, Vec::new());
+    let (corner_cap, user) = (corner.cap, corner.user.as_ref());
+    // A user setback asks for the setback construction itself, so it
+    // claims any corner of three or more rounds, the sphere-owned
+    // orthogonal corner included.
+    let setback_min_n = if user.is_some() { 3 } else { setback_min_n };
+    let reachable = corner_cap.construction != CornerConstruction::Classic
+        && crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
+        && edge_indices.len() >= setback_min_n;
+    if !reachable {
+        return match user {
+            Some(user) if user.named => refuse(vec![user::unavailable(
+                vertex,
+                "the setback construction does not reach this corner".to_string(),
+            )]),
+            _ => (None, Vec::new()),
+        };
+    }
+    if let Some(user) = user {
+        let position = brep.vertices.get(vertex).map(|v| v.position);
+        let refusal = match position {
+            Some(position) => user::out_of_range(user, fillet_surfaces_pre, vertex, position),
+            None => Some(user::unavailable(
+                vertex,
+                "the corner vertex is missing".into(),
+            )),
+        };
+        if let Some(refusal) = refusal {
+            return refuse(vec![refusal]);
+        }
     }
     // On any surgery error the snapshot restore inside the surgery has
     // already run; the next attempt starts from the same model.
@@ -102,15 +135,19 @@ pub(super) fn try_setback_rung(
         cap_presolve,
         commit_snapshot: brep.clone(),
         r_min,
+        stations: user.map_or(&[], |u| u.stations.as_slice()),
     };
-    let strict = corner_cap.declines_when_unavailable();
-    let fitted_first = corner_cap.construction == CornerConstruction::Fitted;
+    let strict = corner_cap.declines_when_unavailable() || user.is_some();
+    let fitted_first = corner_cap.construction == CornerConstruction::Fitted || user.is_some();
     let try_kp20 = !(strict && fitted_first);
     let try_fit = !(strict && corner_cap.construction == CornerConstruction::Setback);
     // A fitted-first record is written before the KP20 cap runs.
     let mut record = SetbackFitDiagnostic {
         vertex,
         kp20_decline: match (fitted_first, try_kp20) {
+            _ if user.is_some() => {
+                "not attempted: a user setback is served on the bridged borders".to_string()
+            }
             (true, false) => "not attempted: the fitted cap is strict".to_string(),
             (true, true) => "not attempted: the fitted cap is preferred".to_string(),
             _ => String::new(),
@@ -129,7 +166,11 @@ pub(super) fn try_setback_rung(
         let step = match (fit, try_fit, try_kp20) {
             (true, true, _) => {
                 // Attempts the KP20 step already ran (PK-612) are not rerun.
-                let ladder = rung.fit_ladder(&record, rung.fit_modes());
+                let mut ladder = rung.fit_ladder(&record, rung.fit_modes());
+                if user.is_some() {
+                    // The corners border ends strips at the crossings.
+                    ladder.retain(|c| c.border != crate::types::SetbackFitBorder::Corners);
+                }
                 if ladder.is_empty() {
                     continue;
                 }
@@ -174,10 +215,13 @@ pub(super) fn try_setback_rung(
         diagnostics.push(ApexConstructionDiagnostic::SetbackFit(record));
     }
     if strict {
-        diagnostics.push(ApexConstructionDiagnostic::CornerCapUnavailable {
-            vertex,
-            construction: corner_cap.construction,
-            reason,
+        diagnostics.push(match user {
+            Some(_) => user::unavailable(vertex, reason),
+            None => ApexConstructionDiagnostic::CornerCapUnavailable {
+                vertex,
+                construction: corner_cap.construction,
+                reason,
+            },
         });
         return (Some(Ok((Vec::new(), None, diagnostics))), Vec::new());
     }
@@ -234,6 +278,7 @@ impl SetbackRung<'_> {
             self.tolerance,
             strategy,
             self.cap_presolve,
+            self.stations,
         )
     }
 
@@ -431,4 +476,10 @@ fn record_decline(vertex: VertexHandle, reason: &str) {
     if popkern_core::trace::trace_enabled("corner-carve") {
         eprintln!("  [setback] declined at {vertex:?}: {reason}");
     }
+}
+
+/// The rung's empty serve carrying `diagnostics`: the apply phase fails
+/// the fillet on them (a user setback's refusal, PK-623).
+fn refuse(diagnostics: Vec<ApexConstructionDiagnostic>) -> SetbackRungOutcome {
+    (Some(Ok((Vec::new(), None, diagnostics))), Vec::new())
 }

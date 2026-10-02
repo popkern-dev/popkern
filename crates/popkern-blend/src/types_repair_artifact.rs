@@ -283,6 +283,28 @@ fn append_apex_diagnostic_actions(
                     shared_fact_ids: Vec::new(),
                 });
             }
+            ApexConstructionDiagnostic::SetbackOutOfRange {
+                vertex,
+                edge,
+                requested,
+                minimum,
+                maximum,
+            } => {
+                *apex_attempted += 1;
+                *apex_declined += 1;
+                actions.push(BrepRepairActionRecord {
+                    stage: "corner_setback".to_string(),
+                    outcome: "declined".to_string(),
+                    subject: format!("vertex={vertex:?};edge={edge:?}"),
+                    reason: Some(format!(
+                        "setback {requested} outside [{minimum}, {maximum}]"
+                    )),
+                    max_motion: 0.0,
+                    max_deviation: 0.0,
+                    affected_handles: vec![format!("vertex:{vertex:?}"), format!("edge:{edge:?}")],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
         }
     }
 }

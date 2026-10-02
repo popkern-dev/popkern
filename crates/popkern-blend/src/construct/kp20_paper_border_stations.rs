@@ -36,46 +36,90 @@ const BRIDGE_LEG_FRACTION: f64 = 1.0;
 /// Polyline samples along a rail from its vertex station.
 const RAIL_SAMPLES: usize = 512;
 
+/// The rail walks and crossings of a setback corner, in `order`.
+struct StationFrame<'a> {
+    /// Strip k's rails: `[shared with the previous strip, shared with
+    /// the next]`.
+    walks: Vec<[RailWalk<'a>; 2]>,
+    /// Junction k's crossing along strip k's rail (`.0`) and strip
+    /// k+1's (`.1`).
+    along: Vec<(f64, f64)>,
+}
+
+impl<'a> StationFrame<'a> {
+    fn new(
+        fillet_surfaces: &'a [FilletSurfaceResult],
+        order: &[usize],
+        corners: &[(f64, Point3)],
+        vertex: Point3,
+    ) -> Result<Self, String> {
+        let n = order.len();
+        let rails = |a: usize, b: usize| {
+            shared_rails(&fillet_surfaces[order[a]], &fillet_surfaces[order[b]])
+                .ok_or_else(|| "adjacent strips have no coplanar rail pair".to_string())
+        };
+        let walks: Vec<[RailWalk<'_>; 2]> = (0..n)
+            .map(|k| {
+                let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
+                Ok([
+                    RailWalk::new(rails(prev, k)?.1, vertex),
+                    RailWalk::new(rails(k, next)?.0, vertex),
+                ])
+            })
+            .collect::<Result<_, String>>()?;
+        let behind = || "a rail crossing lies behind the strip's vertex station".to_string();
+        let along: Vec<(f64, f64)> = (0..n)
+            .map(|k| {
+                let next = (k + 1) % n;
+                Ok((
+                    walks[k][1].arclength_to(corners[k].1).ok_or_else(behind)?,
+                    walks[next][0]
+                        .arclength_to(corners[k].1)
+                        .ok_or_else(behind)?,
+                ))
+            })
+            .collect::<Result<_, String>>()?;
+        Ok(StationFrame { walks, along })
+    }
+
+    /// Strip k's admissible stations: past both its rail crossings, and
+    /// within both its rails.
+    fn range(&self, k: usize) -> (f64, f64) {
+        let n = self.along.len();
+        let minimum = self.along[k].0.max(self.along[(k + n - 1) % n].1);
+        let maximum = self.walks[k][0].length().min(self.walks[k][1].length());
+        (minimum, maximum)
+    }
+}
+
 /// Each strip's feet at its station, in `order`: `[on the rail shared
 /// with the previous strip, on the rail shared with the next]`.
 /// `corners[k]` is the crossing of strip `order[k]`'s and strip
-/// `order[k + 1]`'s rails.
+/// `order[k + 1]`'s rails. `user[i]`, when set, is fillet `i`'s
+/// user-set station (PK-623), which replaces its balanced one; it must
+/// lie in the strip's admissible range ([`station_ranges`]).
 pub(super) fn strip_station_feet(
     fillet_surfaces: &[FilletSurfaceResult],
     order: &[usize],
     corners: &[(f64, Point3)],
     vertex: Point3,
+    user: &[Option<f64>],
 ) -> Result<Vec<[Point3; 2]>, String> {
-    let n = order.len();
-    let rails = |a: usize, b: usize| {
-        shared_rails(&fillet_surfaces[order[a]], &fillet_surfaces[order[b]])
-            .ok_or_else(|| "adjacent strips have no coplanar rail pair".to_string())
-    };
-    let walks: Vec<[RailWalk<'_>; 2]> = (0..n)
-        .map(|k| {
-            let (prev, next) = ((k + n - 1) % n, (k + 1) % n);
-            Ok([
-                RailWalk::new(rails(prev, k)?.1, vertex),
-                RailWalk::new(rails(k, next)?.0, vertex),
-            ])
-        })
-        .collect::<Result<_, String>>()?;
-    let behind = || "a rail crossing lies behind the strip's vertex station".to_string();
-    // Junction k's crossing along strip k's rail (`along[k].0`) and
-    // strip k+1's (`along[k].1`).
-    let along: Vec<(f64, f64)> = (0..n)
-        .map(|k| {
-            let next = (k + 1) % n;
-            Ok((
-                walks[k][1].arclength_to(corners[k].1).ok_or_else(behind)?,
-                walks[next][0]
-                    .arclength_to(corners[k].1)
-                    .ok_or_else(behind)?,
-            ))
-        })
-        .collect::<Result<_, String>>()?;
-    let station = balanced_stations(&along);
-    (0..n)
+    let frame = StationFrame::new(fillet_surfaces, order, corners, vertex)?;
+    let mut station = balanced_stations(&frame.along);
+    for (k, s) in station.iter_mut().enumerate() {
+        if let Some(Some(requested)) = user.get(order[k]) {
+            let (minimum, maximum) = frame.range(k);
+            if !(*requested > minimum && *requested <= maximum) {
+                return Err(format!(
+                    "strip {}'s user setback {requested:.4} outside ({minimum:.4}, {maximum:.4}]",
+                    order[k]
+                ));
+            }
+            *s = *requested;
+        }
+    }
+    (0..order.len())
         .map(|k| {
             let foot = |rail: &RailWalk<'_>| {
                 rail.point_at_arclength(station[k]).ok_or_else(|| {
@@ -85,9 +129,26 @@ pub(super) fn strip_station_feet(
                     )
                 })
             };
-            Ok([foot(&walks[k][0])?, foot(&walks[k][1])?])
+            Ok([foot(&frame.walks[k][0])?, foot(&frame.walks[k][1])?])
         })
         .collect()
+}
+
+/// Each strip's admissible user station `(minimum, maximum)`, indexed
+/// like `fillet_surfaces` (PK-623): past both its rail crossings (a
+/// bridge leg must be positive) and within both its rails.
+pub(super) fn station_ranges(
+    fillet_surfaces: &[FilletSurfaceResult],
+    order: &[usize],
+    corners: &[(f64, Point3)],
+    vertex: Point3,
+) -> Result<Vec<(f64, f64)>, String> {
+    let frame = StationFrame::new(fillet_surfaces, order, corners, vertex)?;
+    let mut ranges = vec![(0.0, 0.0); fillet_surfaces.len()];
+    for (k, &fi) in order.iter().enumerate() {
+        ranges[fi] = frame.range(k);
+    }
+    Ok(ranges)
 }
 
 /// One station per strip (arclength from each rail's vertex station)
@@ -159,6 +220,19 @@ impl<'a> RailWalk<'a> {
             prev = q;
         }
         Some(acc)
+    }
+
+    /// The rail's arclength from the vertex station to its strip end.
+    fn length(&self) -> f64 {
+        let mut acc = 0.0;
+        let mut prev = self.rail.point_at(self.t_vertex);
+        for i in 1..=RAIL_SAMPLES {
+            let t = self.t_vertex + (self.t_end - self.t_vertex) * i as f64 / RAIL_SAMPLES as f64;
+            let q = self.rail.point_at(t);
+            acc += prev.distance_to(&q);
+            prev = q;
+        }
+        acc
     }
 
     /// The rail point at `arclength` from the vertex station, or `None`

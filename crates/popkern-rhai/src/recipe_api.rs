@@ -37,6 +37,7 @@ pub const FILLET_OPTIONS: &[&str] = &[
     "corner",
     "corner_cap",
     "corner_cap_strict",
+    "setback",
 ];
 
 /// Options a `chamfer` call accepts.
@@ -124,6 +125,9 @@ pub fn fillet_options(
     }
     if let Some(strict) = options.with("corner_cap_strict", args::boolean)? {
         recipe.corner_cap.strict = strict;
+    }
+    if let Some(setback) = options.with("setback", args::float)? {
+        recipe.setback = Some(setback);
     }
     let law = options
         .with("law", radius_law)?

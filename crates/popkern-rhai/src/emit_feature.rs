@@ -87,6 +87,9 @@ fn fillet_options(
     if recipe.corner_cap.strict {
         pairs.push(("corner_cap_strict", "true".to_string()));
     }
+    if let Some(setback) = recipe.setback {
+        pairs.push(("setback", float(setback)));
+    }
     match &recipe.radius_law {
         FilletRadiusLaw::Constant => {}
         FilletRadiusLaw::Linear { end } => {

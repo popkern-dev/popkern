@@ -215,6 +215,21 @@ pub enum ApexConstructionDiagnostic {
         /// Why it declined.
         reason: String,
     },
+    /// A user setback (PK-623) lies outside the range the corner
+    /// admits for one round; the apply phase turns it into
+    /// [`crate::BlendFailure::SetbackOutOfRange`].
+    SetbackOutOfRange {
+        /// The corner vertex.
+        vertex: popkern_core::topology::VertexHandle,
+        /// The round's edge.
+        edge: popkern_core::topology::EdgeHandle,
+        /// The requested distance.
+        requested: f64,
+        /// The farther rail crossing.
+        minimum: f64,
+        /// The round's length along its shorter rail.
+        maximum: f64,
+    },
 }
 
 /// Coherence-validation diagnostic carried inside

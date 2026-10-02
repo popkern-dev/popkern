@@ -34,7 +34,7 @@ use popkern_core::topology::BRep;
 
 use super::SetbackTopologyOutcome;
 use crate::construct::kp20_paper_border_extract::{
-    SetbackJunctionPolicy, kp20_paper_border_from_fillet_setback_with,
+    SetbackJunctionPolicy, kp20_paper_border_from_fillet_setback_stationed,
 };
 use crate::construct::setback_cap_presolve::SetbackCapSolve;
 use crate::construct::setback_decline::{
@@ -51,11 +51,14 @@ pub(crate) const BRIDGED_FAN_DECLINE: &str =
 /// border after an overrun decline. A fit requested on the bridged
 /// border (PK-618) carves it directly. `attempt` restores the model on
 /// every decline. The outcome and the decline name the border carved.
+/// `stations` (user-set, by fillet index, PK-623) place the bridged
+/// border's strip ends.
 pub(super) fn with_bridged_retry(
     brep: &mut BRep,
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
     strategy: SetbackCapStrategy,
+    stations: &[Option<f64>],
     attempt: impl Fn(
         &mut BRep,
         Option<&SetbackCapSolve>,
@@ -88,7 +91,7 @@ pub(super) fn with_bridged_retry(
             },
         ));
     }
-    let solve = match kp20_paper_border_from_fillet_setback_with(
+    let solve = match kp20_paper_border_from_fillet_setback_stationed(
         fillet_surfaces,
         vertex_position,
         match requested {
@@ -97,6 +100,7 @@ pub(super) fn with_bridged_retry(
             }
             _ => SetbackJunctionPolicy::BridgeEveryJunction,
         },
+        stations,
     ) {
         Ok((border, extract)) => SetbackCapSolve {
             border,

@@ -134,7 +134,9 @@ pub(crate) struct SetbackTopologyOutcome {
     pub border: crate::types::SetbackFitBorder,
 }
 
-/// Attempt the setback boundary surgery at `vertex`. On any error the
+/// Attempt the setback boundary surgery at `vertex`. `stations` holds
+/// user-set stations by fillet index (PK-623; empty: automatic), which
+/// only the bridged borders honour. On any error the
 /// BRep is restored from a snapshot and the error is returned for the
 /// caller's structured diagnostics; the vertex-blend path then proceeds.
 /// `snapshot` is the caller-held pre-surgery state (the rung's commit
@@ -151,6 +153,7 @@ pub(crate) fn try_setback_boundary_surgery(
     tolerance: &Tolerance,
     strategy: SetbackCapStrategy,
     cap_presolve: Option<&crate::construct::setback_cap_presolve::SetbackCapPresolveEntry>,
+    stations: &[Option<f64>],
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
     let attempt = |brep: &mut BRep, bridged: Option<&_>| {
         let result = surgery_inner(
@@ -172,6 +175,7 @@ pub(crate) fn try_setback_boundary_surgery(
         fillet_surfaces,
         vertex_position_of(snapshot, vertex)?,
         strategy,
+        stations,
         attempt,
     )
 }

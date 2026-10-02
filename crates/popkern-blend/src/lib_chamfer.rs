@@ -253,6 +253,7 @@ fn chamfer_edges_internal(
         crate::types::ContinuityLevel::G1,
         &std::collections::BTreeSet::new(),
         crate::types::CornerCapPreference::default(), // mitred corners have no cap
+        &crate::types::CornerSetback::default(),
         cancel,
         None, // chamfers report no per-corner progress (mitred corners are cheap)
     )

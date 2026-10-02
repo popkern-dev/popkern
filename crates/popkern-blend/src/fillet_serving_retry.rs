@@ -386,6 +386,10 @@ pub(crate) fn fillet_edges_internal(
     cancel: Option<&cancellation::CancellationToken>,
     reporter: Option<&mut dyn progress::ProgressReporter>,
 ) -> Result<BlendResult, BlendError> {
+    let filleted: Vec<_> = specs.iter().map(|s| s.edge).collect();
+    options
+        .corner_setback
+        .validate(brep, &filleted, &options.vertex_mode, options.corner_cap)?;
     let mut result =
         fillet_edges_serving(brep, specs, options, tolerance, tracking, cancel, reporter)?;
     let caps: Vec<_> = result

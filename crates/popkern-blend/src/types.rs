@@ -55,7 +55,8 @@ use popkern_core::topology::EdgeHandle;
 
 use crate::error::BlendWarning;
 pub use crate::types_blend_options::{
-    BlendProfile, CapKind, CornerCapPreference, CornerConstruction, InterferencePolicy,
+    BlendProfile, CapKind, CornerCapPreference, CornerConstruction, CornerSetback, EdgeEndSetback,
+    InterferencePolicy,
 };
 
 /// Result of a successful blend operation.
@@ -161,6 +162,10 @@ pub struct FilletOptions {
     /// Which construction closes setback-eligible corners, and whether
     /// it may fall back (PK-603). Default: the kernel's ladder.
     pub corner_cap: CornerCapPreference,
+    /// User-set setback distances at the corners the setback
+    /// construction serves (PK-623). Default: the kernel's automatic
+    /// setbacks.
+    pub corner_setback: CornerSetback,
     /// Requested blend-boundary continuity level. The fillet engine
     /// tries to build a surface that meets this continuity with the
     /// two support faces at every contact point; falls back to a
@@ -362,6 +367,7 @@ impl Default for FilletOptions {
             soft_support_factor: 10.0,
             cap_kind: CapKind::Open,
             corner_cap: CornerCapPreference::default(),
+            corner_setback: CornerSetback::default(),
             // §5.3 R8 C9 — default-ON per the C4b.2c scorecard
             // (Gregory wins 30-70pp vs polar-NURBS on the §2.4
             // metric; uniform-radii falls through to sphere).
