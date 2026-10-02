@@ -264,14 +264,11 @@ fn steep_mixed_radius_g1_apexes_serve_the_bowed_bridge_fit() {
     // variable), 27.2 (pyramid-4 h3 variable) and 21.3 (h3 wide) / r_min;
     // the chord-bridged corner-cell fits peak at their 167 deg corners
     // (10.7-64). Bowed bridges open those corners. The flat bow serves
-    // the moderate and square apexes under the bound (1.29, 2.15, 2.70);
-    // on the steep trihedral apexes the round bow is fairer (8.27, 6.29),
-    // still past the bound: their peaks sit on the bridge rims beside the
-    // thin strip's corner.
+    // the moderate and square apexes under the bound (1.29, 2.15, 2.70).
+    // The steep trihedral apexes stayed past it on every bow (6.29, 8.27)
+    // and now serve the corner-patched cap (tests/corner_patched_cap.rs).
     for (n, h, radii, bow, at_most) in [
         (3, 1.2, &[0.02, 0.04, 0.06][..], BridgeBow::Flat, 1.5),
-        (3, 3.0, &[0.05, 0.15, 0.08][..], BridgeBow::Round, 8.5),
-        (3, 3.0, &[0.02, 0.04, 0.06][..], BridgeBow::Round, 6.5),
         (4, 3.0, &[0.02, 0.04, 0.06, 0.04][..], BridgeBow::Flat, 2.5),
         (4, 3.0, &[0.05, 0.15, 0.08, 0.2][..], BridgeBow::Flat, 3.0),
     ] {

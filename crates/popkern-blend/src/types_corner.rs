@@ -85,6 +85,9 @@ pub enum CornerSubPatchRole {
     /// A whole sector of a variational corner fit: the quad between the
     /// centre, two spoke points and the rim corner between them.
     Sector,
+    /// A sector of a corner patch of a corner-patched variational fit
+    /// (PK-619): the patch over one short side's corner region.
+    CornerPatchSector,
 }
 
 impl CornerSubPatchRole {

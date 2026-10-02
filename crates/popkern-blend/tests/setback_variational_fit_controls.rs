@@ -25,8 +25,10 @@ fn row_878_a_tilted_cap_is_rejected_on_its_certificate() {
     // Curvature-weighted, tangent, and the corner-cell tangent rescue,
     // on the corners border and then on the bridged border (PK-618), then
     // the two tangent modes on the flat and the round bowed-bridge
-    // borders (PK-619).
-    assert_eq!(record.attempts.len(), 10, "{record:#?}");
+    // borders (PK-619), then the corner-patched fit on the bridged and
+    // both bowed borders (PK-619 stage 3: the tilt corrupts its main
+    // cap's rim the same way).
+    assert_eq!(record.attempts.len(), 13, "{record:#?}");
     for attempt in &record.attempts {
         let SetbackFitOutcome::Rejected { certified, reason } = &attempt.outcome else {
             panic!("tilted cap must be rejected on its certificate: {attempt:#?}");

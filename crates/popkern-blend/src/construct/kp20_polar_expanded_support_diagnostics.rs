@@ -138,5 +138,6 @@ fn role_label(role: CornerSubPatchRole) -> &'static str {
         CornerSubPatchRole::SupportCellNearMidpointRight => "SupportCellNearMidpointRight",
         CornerSubPatchRole::SupportCellNearMidpointLeft => "SupportCellNearMidpointLeft",
         CornerSubPatchRole::Sector => "Sector",
+        CornerSubPatchRole::CornerPatchSector => "CornerPatchSector",
     }
 }

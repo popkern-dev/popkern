@@ -98,4 +98,39 @@ pub enum VariationalCapError {
         /// The caller's limit (model units).
         limit: f64,
     },
+    /// The corner-patched cap found no thin side to give a patch.
+    #[error(
+        "corner-patched cap: no side is thin (shortest ratio to its neighbours' mean {shortest_ratio:.3}, threshold {threshold:.3})"
+    )]
+    NoThinSide {
+        /// The smallest side-length ratio to its neighbours' mean.
+        shortest_ratio: f64,
+        /// The thin-side threshold it was compared against.
+        threshold: f64,
+    },
+    /// The seam of the corner patch over `side` could not be built.
+    #[error("corner-patched cap: the seam over side {side} failed: {reason}")]
+    CornerPatchSeam {
+        /// The thin side.
+        side: usize,
+        /// What failed.
+        reason: String,
+    },
+    /// One piece of a corner-patched cap declined.
+    #[error("corner-patched cap: the {} piece declined: {source}", piece_name(*side))]
+    PatchPiece {
+        /// The thin side whose corner patch declined, or `None` for the
+        /// main cap.
+        side: Option<usize>,
+        /// The piece's own decline.
+        source: Box<VariationalCapError>,
+    },
+}
+
+/// A piece's name in a decline message.
+fn piece_name(side: Option<usize>) -> String {
+    match side {
+        Some(s) => format!("side-{s} corner patch"),
+        None => "main".to_string(),
+    }
 }

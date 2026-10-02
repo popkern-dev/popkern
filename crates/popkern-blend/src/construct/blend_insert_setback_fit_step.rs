@@ -80,47 +80,73 @@ impl SetbackRung<'_> {
     }
 
     /// The fit modes the request admits: curvature-weighted under a G2
-    /// request, then tangent, then tangent with corner cells.
+    /// request, then tangent, then tangent with corner cells, then the
+    /// corner-patched fit (PK-619; the ladder runs it after every star
+    /// attempt).
     pub(super) fn fit_modes(&self) -> &'static [SetbackFitMode] {
         if self.requested_continuity == ContinuityLevel::G2 {
             &[
                 SetbackFitMode::CurvatureWeighted,
                 SetbackFitMode::Tangent,
                 SetbackFitMode::TangentCornerCells,
+                SetbackFitMode::TangentCornerPatched,
             ]
         } else {
-            &[SetbackFitMode::Tangent, SetbackFitMode::TangentCornerCells]
+            &[
+                SetbackFitMode::Tangent,
+                SetbackFitMode::TangentCornerCells,
+                SetbackFitMode::TangentCornerPatched,
+            ]
         }
     }
 
-    /// The ladder over `modes`: every mode on the corners border, then
-    /// on the bridged border (PK-618), then the tangent modes on the
-    /// flat and then the round bowed-bridge borders (PK-619), less the
-    /// attempts the record already holds. A later border runs only while every
-    /// earlier fit is past the fairness bound.
+    /// The ladder over `modes`: every star mode on the corners border,
+    /// then on the bridged border (PK-618), then the tangent modes on
+    /// the flat and then the round bowed-bridge borders (PK-619); then
+    /// the corner-patched fit on the bridged and bowed borders (PK-619
+    /// stage 3), less the attempts the record already holds. A later
+    /// attempt runs only while every earlier fit is past the fairness
+    /// bound, so a star cap fair on any border is never traded for the
+    /// patched cap's extra seams (measured: pyramid-4 h3 wide G2 served
+    /// the patched cap on the bridged border at 3.46 / r_min, before
+    /// the flat bow's star at 1.79). The corner-patched fit never served
+    /// on the corners border in the 160-row census, so it is not run
+    /// there.
     pub(super) fn fit_ladder(
         &self,
         record: &SetbackFitDiagnostic,
         modes: &[SetbackFitMode],
     ) -> Vec<FitCandidate> {
-        [
+        const BORDERS: [SetbackFitBorder; 4] = [
             SetbackFitBorder::Corners,
             SetbackFitBorder::Bridged,
             SetbackFitBorder::BowedBridges(BridgeBow::Flat),
             SetbackFitBorder::BowedBridges(BridgeBow::Round),
-        ]
-        .into_iter()
-        .flat_map(|border| modes.iter().map(move |&mode| FitCandidate { mode, border }))
-        // The bowed border runs the tangent fits only: no curvature-
-        // weighted fit served on it in the 160-row census, and on an
-        // octagon that attempt alone costs up to 62 s (PK-620).
-        .filter(|c| {
-            !(matches!(c.border, SetbackFitBorder::BowedBridges(_))
-                && (c.mode == SetbackFitMode::CurvatureWeighted
-                    || self.n_sides > BOWED_BORDER_MAX_STRIPS))
-        })
-        .filter(|c| !c.ran(record))
-        .collect()
+        ];
+        let patched = |mode: &SetbackFitMode| *mode == SetbackFitMode::TangentCornerPatched;
+        let star = BORDERS.into_iter().flat_map(|border| {
+            modes
+                .iter()
+                .filter(|m| !patched(m))
+                .map(move |&mode| FitCandidate { mode, border })
+        });
+        let corner_patched = BORDERS[1..].iter().flat_map(|&border| {
+            modes
+                .iter()
+                .filter(|m| patched(m))
+                .map(move |&mode| FitCandidate { mode, border })
+        });
+        star.chain(corner_patched)
+            // The bowed border runs the tangent fits only: no curvature-
+            // weighted fit served on it in the 160-row census, and on an
+            // octagon that attempt alone costs up to 62 s (PK-620).
+            .filter(|c| {
+                !(matches!(c.border, SetbackFitBorder::BowedBridges(_))
+                    && (c.mode == SetbackFitMode::CurvatureWeighted
+                        || self.n_sides > BOWED_BORDER_MAX_STRIPS))
+            })
+            .filter(|c| !c.ran(record))
+            .collect()
     }
 
     /// The variational fit on the carve (PK-574), in `ladder` order.
@@ -235,6 +261,7 @@ impl SetbackRung<'_> {
                         mode,
                         border,
                         cap_faces: outcome.cap_faces,
+                        pieces: serve.pieces.clone(),
                         interior,
                     };
                     // Past the bound the corner-cell rescue yields to a
@@ -248,7 +275,11 @@ impl SetbackRung<'_> {
                     // against the rescue's 10.4; pyramid-5 and -6 h0.4
                     // wide: no cap at all) (PK-621).
                     if held.is_none()
-                        && mode == SetbackFitMode::TangentCornerCells
+                        && matches!(
+                            mode,
+                            SetbackFitMode::TangentCornerCells
+                                | SetbackFitMode::TangentCornerPatched
+                        )
                         && interior > CAP_FAIRNESS_BOUND
                         && rival.is_some_and(|fan| interior >= fan)
                     {
@@ -368,23 +399,29 @@ impl SetbackRung<'_> {
     fn serve_fit(&self, record: &mut SetbackFitDiagnostic, fit: HeldFit) -> RungStep {
         let achieved = fit.mode.level();
         record.served = Some(achieved);
-        let n = fit.cap_faces.len();
+        // A corner-patched cap's faces name their piece (0: the main cap)
+        // and their sector within it (PK-619).
+        let piece_count = fit.pieces.iter().map(|p| p.piece + 1).max().unwrap_or(1);
         let infos = fit
             .cap_faces
             .iter()
-            .enumerate()
-            .map(|(s, &f)| {
+            .zip(&fit.pieces)
+            .map(|(&f, place)| {
                 self.info(
                     f,
                     CornerMethod::PlateMin,
                     achieved,
                     Some(CornerSubPatchProvenance {
                         family: CornerSubPatchFamily::VariationalFit,
-                        sector_index: s,
-                        sector_count: n,
-                        piece_index: 0,
-                        piece_count: 1,
-                        role: CornerSubPatchRole::Sector,
+                        sector_index: place.sector,
+                        sector_count: place.sectors,
+                        piece_index: place.piece,
+                        piece_count,
+                        role: if place.piece == 0 {
+                            CornerSubPatchRole::Sector
+                        } else {
+                            CornerSubPatchRole::CornerPatchSector
+                        },
                     }),
                 )
             })
@@ -395,13 +432,15 @@ impl SetbackRung<'_> {
 }
 
 /// A served fit: its model (`Some` only while held aside), its attempt
-/// index in the record, mode, border, cap faces and interior reading.
+/// index in the record, mode, border, cap faces (with each face's piece
+/// and sector) and interior reading.
 struct HeldFit {
     brep: Option<BRep>,
     attempt: usize,
     mode: SetbackFitMode,
     border: SetbackFitBorder,
     cap_faces: Vec<FaceHandle>,
+    pieces: Vec<crate::construct::setback_vertex_topology::FacePiece>,
     interior: f64,
 }
 

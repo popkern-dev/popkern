@@ -7,14 +7,13 @@
 //! cap edge its exact iso-curve and every cap half-edge its exact Linear
 //! iso pcurve, re-authors the neighbours' pcurves, and certifies the
 //! cap's seams (see `setback_fit_certify`). Any failure is a cap-stage
-//! decline; the surgery restores the snapshot.
+//! decline; the surgery restores the snapshot. The corner-patched mode
+//! (PK-619) builds several such pieces, see `setback_fit_patched`.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::variational_cap::{
     CapEnergy, VariationalCap, VariationalCapOptions, VariationalCapTargets, fit_variational_cap,
 };
-use popkern_core::geometry::{CurveGeometry, CurveOnEdge, NurbsSurface, SurfaceOnFace};
 
 use super::*;
 use crate::blend_continuity_evidence::ContinuityGates;
@@ -26,8 +25,13 @@ use crate::types::{SetbackFitCertified, SetbackFitMode};
 
 #[path = "setback_fit_certify.rs"]
 mod setback_fit_certify;
+#[path = "setback_fit_patched.rs"]
+mod setback_fit_patched;
 #[path = "setback_fit_pcurves.rs"]
 mod setback_fit_pcurves;
+#[path = "setback_fit_sectors.rs"]
+mod setback_fit_sectors;
+use setback_fit_sectors::build_sector_faces;
 #[path = "setback_fit_tilt.rs"]
 mod setback_fit_tilt;
 use setback_fit_pcurves::author_cap_pcurves;
@@ -38,6 +42,30 @@ use setback_fit_tilt::{tilt_rim_row, tilted_face};
 pub(crate) struct FitServe {
     pub mode: SetbackFitMode,
     pub certified: SetbackFitCertified,
+    /// Per cap face (in cap-face order): which piece it belongs to and
+    /// its sector there (PK-619).
+    pub pieces: Vec<FacePiece>,
+}
+
+/// A cap face's place in its cap: the piece (0 for a star cap or the
+/// main cap of a corner-patched one, k for its k-th corner patch), its
+/// sector within that piece, and the piece's sector count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FacePiece {
+    pub piece: usize,
+    pub sector: usize,
+    pub sectors: usize,
+}
+
+/// The star cap's faces: one piece.
+fn star_pieces(n: usize) -> Vec<FacePiece> {
+    (0..n)
+        .map(|sector| FacePiece {
+            piece: 0,
+            sector,
+            sectors: n,
+        })
+        .collect()
 }
 
 /// Fit, build and certify the cap over `blend_face`.
@@ -59,60 +87,17 @@ pub(super) fn commit_fit_fan(
         .collect::<Result<_, String>>()?;
     let outward = |k: usize, _: Point3, _: popkern_core::geometry::Vec3| orientation[k];
     let sides = fit_sides(arcs, fillet_surfaces, &outward)?;
-    let (targets, options) = match mode {
-        SetbackFitMode::CurvatureWeighted => (
-            VariationalCapTargets::g2(tolerance.linear(), 1e-4, gates.g2_curvature),
-            VariationalCapOptions {
-                max_refinement_levels: 0,
-                energy: CapEnergy::MeanCurvatureVariation,
-                // PK-614: one freeze bent the blunt pentagon to 3.03 / r_min
-                // (three: 1.31) and the hexagon h1.2 to 12.4 (4.39).
-                reference_passes: 3,
-                // PK-595: each rim owns its corner 2-jet (dual-jet cells, degree 9).
-                corner_cells: true,
-                degree: 9,
-                ..Default::default()
-            },
-        ),
-        SetbackFitMode::Tangent => (
-            VariationalCapTargets::g1(tolerance.linear(), 1e-6),
-            VariationalCapOptions {
-                max_refinement_levels: 2,
-                energy: CapEnergy::Bending,
-                reference_passes: 3, // PK-605: one freeze left a rim curvature layer
-                ..Default::default()
-            },
-        ),
-        // PK-615: the plain tangent fit folds or creases on mixed-radius
-        // G1 corners (pyramid-3 h0.4 wide: rim g1 0.99); with corner
-        // cells it certifies G1 at 3.2 / r_min.
-        SetbackFitMode::TangentCornerCells => (
-            VariationalCapTargets::g1(tolerance.linear(), 1e-6),
-            VariationalCapOptions {
-                max_refinement_levels: 0,
-                energy: CapEnergy::Bending,
-                reference_passes: 3,
-                corner_cells: true,
-                degree: 9,
-                ..Default::default()
-            },
-        ),
-    };
-    // PK-618: a layout bending past the fairness bound is refit with the
-    // spokes' feet nearest the fitted centre; the fairer cap is kept. A
-    // sector under the served regularity floor serves only under the
-    // bound or the unfair fan the rung holds (a short strip between long
-    // bridges gives its sector a thin edge, not a fold; PK-621: the
-    // octagon h1.2 variable's thin fit reads 15.1 against the fan's 17.9).
-    let bound = crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND;
-    let usable = r_min.is_finite() && r_min > 0.0;
-    let fairness_limit = usable.then(|| bound / r_min);
-    let thin_limit = usable.then(|| rival.map_or(bound, |fan| fan.max(bound)) / r_min);
-    let options = VariationalCapOptions {
-        layout_refit_curvature: fairness_limit,
-        thin_sector_curvature: thin_limit,
-        ..options
-    };
+    let (targets, options) = fit_settings(mode, (r_min, rival), tolerance);
+    if mode == SetbackFitMode::TangentCornerPatched {
+        return setback_fit_patched::commit_patched_fan(
+            brep,
+            blend_face,
+            fillet_surfaces,
+            &sides,
+            (&targets, &options),
+            tolerance,
+        );
+    }
     let mut cap = fit_variational_cap(&sides, &targets, &options, tolerance.linear())
         .map_err(|e| format!("variational fit: {e}"))?;
     if crate::dispatch_overrides::fit_cap_rim_tilted() {
@@ -150,7 +135,86 @@ pub(super) fn commit_fit_fan(
             fit_certified: Some(certified),
         });
     }
-    Ok((cap_faces, FitServe { mode, certified }))
+    let pieces = star_pieces(cap_faces.len());
+    Ok((
+        cap_faces,
+        FitServe {
+            mode,
+            certified,
+            pieces,
+        },
+    ))
+}
+
+/// The fit's targets and options for `mode`, with the fairness and
+/// thin-sector limits for a corner of smallest radius `r_min` and the
+/// rival fan's reading.
+fn fit_settings(
+    mode: SetbackFitMode,
+    (r_min, rival): (f64, Option<f64>),
+    tolerance: &Tolerance,
+) -> (VariationalCapTargets, VariationalCapOptions) {
+    let (targets, options) = match mode {
+        SetbackFitMode::CurvatureWeighted => (
+            VariationalCapTargets::g2(
+                tolerance.linear(),
+                1e-4,
+                ContinuityGates::commercial().g2_curvature,
+            ),
+            VariationalCapOptions {
+                max_refinement_levels: 0,
+                energy: CapEnergy::MeanCurvatureVariation,
+                // PK-614: one freeze bent the blunt pentagon to 3.03 / r_min
+                // (three: 1.31) and the hexagon h1.2 to 12.4 (4.39).
+                reference_passes: 3,
+                // PK-595: each rim owns its corner 2-jet (dual-jet cells, degree 9).
+                corner_cells: true,
+                degree: 9,
+                ..Default::default()
+            },
+        ),
+        SetbackFitMode::Tangent => (
+            VariationalCapTargets::g1(tolerance.linear(), 1e-6),
+            VariationalCapOptions {
+                max_refinement_levels: 2,
+                energy: CapEnergy::Bending,
+                reference_passes: 3, // PK-605: one freeze left a rim curvature layer
+                ..Default::default()
+            },
+        ),
+        // PK-615: the plain tangent fit folds or creases on mixed-radius
+        // G1 corners (pyramid-3 h0.4 wide: rim g1 0.99); with corner
+        // cells it certifies G1 at 3.2 / r_min.
+        // PK-619: the corner-patched cap's pieces are corner-cell tangent
+        // fits.
+        SetbackFitMode::TangentCornerCells | SetbackFitMode::TangentCornerPatched => (
+            VariationalCapTargets::g1(tolerance.linear(), 1e-6),
+            VariationalCapOptions {
+                max_refinement_levels: 0,
+                energy: CapEnergy::Bending,
+                reference_passes: 3,
+                corner_cells: true,
+                degree: 9,
+                ..Default::default()
+            },
+        ),
+    };
+    // PK-618: a layout bending past the fairness bound is refit with the
+    // spokes' feet nearest the fitted centre; the fairer cap is kept. A
+    // sector under the served regularity floor serves only under the
+    // bound or the unfair fan the rung holds (a short strip between long
+    // bridges gives its sector a thin edge, not a fold; PK-621: the
+    // octagon h1.2 variable's thin fit reads 15.1 against the fan's 17.9).
+    let bound = crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND;
+    let usable = r_min.is_finite() && r_min > 0.0;
+    let fairness_limit = usable.then(|| bound / r_min);
+    let thin_limit = usable.then(|| rival.map_or(bound, |fan| fan.max(bound)) / r_min);
+    let options = VariationalCapOptions {
+        layout_refit_curvature: fairness_limit,
+        thin_sector_curvature: thin_limit,
+        ..options
+    };
+    (targets, options)
 }
 
 /// Co-parameterise every neighbour half-edge along the rim with the
@@ -254,181 +318,6 @@ fn side_neighbour_orientation(
         .and_then(|f| f.surface.as_ref())
         .map(|s| s.orientation)
         .ok_or_else(|| "side neighbour face has no surface".to_string())
-}
-
-/// Split the blend face into the fit's sectors; returns the sector
-/// faces in sector order.
-fn build_sector_faces(
-    brep: &mut BRep,
-    blend_face: FaceHandle,
-    cap: &VariationalCap,
-    sides: &[popkern_core::geometry::variational_cap::VariationalCapSide],
-) -> Result<Vec<FaceHandle>, String> {
-    let n = cap.sectors.len();
-    // 1. Spoke vertices on the sides, moved exactly onto the fit's m_s.
-    let mut m_vertices = Vec::with_capacity(n);
-    for &m in &cap.spoke_points {
-        let v = split_blend_boundary_at(brep, blend_face, m)?;
-        brep.vertices[v].position = m;
-        m_vertices.push(v);
-    }
-    // 2. Spokes: o by mev from m_0, the rest closed onto o by mef.
-    let o = cap.centre;
-    let mut o_vertex: Option<VertexHandle> = None;
-    for (s, &m_v) in m_vertices.iter().enumerate() {
-        let spoke = spoke_curve(&cap.sectors[s]);
-        match o_vertex {
-            None => {
-                let he = half_edge_at_vertex_on_face_containing(brep, m_v, &o)?;
-                let mev = brep.mev(he, o).map_err(|e| format!("mev spoke 0: {e}"))?;
-                brep.edges[mev.edge].curve = Some(spoke);
-                o_vertex = Some(mev.vertex);
-            }
-            Some(o_v) => {
-                let (he_m, he_o) = half_edge_pair_in_common_loop(brep, m_v, o_v)?;
-                let mef = brep
-                    .mef(he_m, he_o)
-                    .map_err(|e| format!("mef spoke {s}: {e}"))?;
-                brep.edges[mef.edge].curve = Some(spoke);
-            }
-        }
-    }
-    let o_vertex = o_vertex.ok_or("no spoke vertex")?;
-    brep.vertices[o_vertex].position = o;
-    // 3. Sector faces: the faces around o, matched to sectors by their
-    //    corners (o, m_s, c_s, m_{s+1}).
-    let around: Vec<FaceHandle> = {
-        let mut faces: Vec<FaceHandle> = brep
-            .half_edges
-            .values()
-            .filter(|h| h.origin == o_vertex)
-            .map(|h| brep.loops[h.loop_].face)
-            .collect();
-        faces.sort();
-        faces.dedup();
-        faces
-    };
-    if around.len() != n {
-        return Err(format!(
-            "{} faces around the centre, expected {n}",
-            around.len()
-        ));
-    }
-    let mut assigned: Vec<Option<FaceHandle>> = vec![None; n];
-    for &face in &around {
-        let verts: Vec<Point3> = face_loop_half_edges(brep, face)?
-            .iter()
-            .map(|&he| brep.vertices[brep.half_edges[he].origin].position)
-            .collect();
-        let score = |s: usize| {
-            let sec = &cap.sectors[s];
-            [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
-                .iter()
-                .map(|&(u, v)| {
-                    let p = sec.point_at(u, v);
-                    verts
-                        .iter()
-                        .map(|q| q.distance_to(&p))
-                        .fold(f64::INFINITY, f64::min)
-                })
-                .fold(0.0, f64::max)
-        };
-        let (best, d) = (0..n)
-            .map(|s| (s, score(s)))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .ok_or("no sector")?;
-        if d > 1e-6 || assigned[best].is_some() {
-            return Err(format!(
-                "face {face:?} matches no free sector (best {best} at {d:.3e})"
-            ));
-        }
-        assigned[best] = Some(face);
-    }
-    let faces: Vec<FaceHandle> = assigned
-        .into_iter()
-        .collect::<Option<_>>()
-        .ok_or("unassigned sector")?;
-    // 4. Surfaces, oriented by the neighbour's outward normal at m_s.
-    for (s, &face) in faces.iter().enumerate() {
-        let sec = &cap.sectors[s];
-        let side = &sides[s];
-        let p = sec.point_at(1.0, 0.5);
-        let n_cap = sec.partial_u(1.0, 0.5).cross(&sec.partial_v(1.0, 0.5));
-        let (u, v) =
-            popkern_core::geometry::uv_projection::project_point_to_uv(&side.neighbour, &p)
-                .ok_or("sector rim does not project onto its neighbour")?;
-        let mut n_nb = side.neighbour.normal_at(u, v);
-        if side.neighbour_reversed {
-            n_nb = n_nb * -1.0;
-        }
-        brep.faces[face].surface = Some(SurfaceOnFace {
-            geometry: cap.faces[s].clone(),
-            orientation: n_cap.dot(&n_nb) > 0.0,
-        });
-    }
-    // 5. Rim edges: each non-spoke cap edge takes its sector's rim
-    //    iso-curve over its own parameter window; rim vertices snap onto
-    //    it.
-    for (s, &face) in faces.iter().enumerate() {
-        let sec = &cap.sectors[s];
-        let rims = [sec.iso_curve_at_u(1.0), sec.iso_curve_at_v(1.0)];
-        for he in face_loop_half_edges(brep, face)? {
-            let edge = brep.half_edges[he].edge;
-            let (a, b) = (
-                brep.half_edges[he].origin,
-                brep.half_edges[brep.half_edges[he].twin].origin,
-            );
-            if a == o_vertex || b == o_vertex {
-                continue;
-            }
-            let (pa, pb) = (brep.vertices[a].position, brep.vertices[b].position);
-            // A rim piece lies on one iso-curve (its corner end sits on
-            // both): take the rim that carries both ends.
-            let (rim, ta, tb, d) = rim_carrying(&rims, pa, pb);
-            if d > 1e-3 {
-                return Err(format!(
-                    "rim edge {d:.3e} off sector {s}'s rims (ends {pa:?}, {pb:?})"
-                ));
-            }
-            brep.vertices[a].position = rims[rim].point_at(ta);
-            brep.vertices[b].position = rims[rim].point_at(tb);
-            brep.edges[edge].curve = Some(CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(rims[rim].clone()),
-                t_start: ta.min(tb),
-                t_end: ta.max(tb),
-            });
-        }
-    }
-    Ok(faces)
-}
-
-/// Spoke `s` as its sector's `v = 0` iso-curve (o at u = 0, m_s at 1).
-fn spoke_curve(sector: &NurbsSurface) -> CurveOnEdge {
-    CurveOnEdge {
-        geometry: CurveGeometry::Nurbs(sector.iso_curve_at_v(0.0)),
-        t_start: 0.0,
-        t_end: 1.0,
-    }
-}
-
-/// The rim iso-curve carrying both ends of a rim edge: the one whose
-/// worse end distance is smallest, with both end parameters and that
-/// distance.
-fn rim_carrying(
-    rims: &[popkern_core::geometry::NurbsCurve; 2],
-    pa: Point3,
-    pb: Point3,
-) -> (usize, f64, f64, f64) {
-    let fit = |k: usize| {
-        let (ta, tb) = (param_on(&rims[k], pa), param_on(&rims[k], pb));
-        let d = rims[k]
-            .point_at(ta)
-            .distance_to(&pa)
-            .max(rims[k].point_at(tb).distance_to(&pb));
-        (k, ta, tb, d)
-    };
-    let (first, second) = (fit(0), fit(1));
-    if first.3 <= second.3 { first } else { second }
 }
 
 /// Parameter of the point of `curve` (on [0, 1]) nearest `p`: a dense

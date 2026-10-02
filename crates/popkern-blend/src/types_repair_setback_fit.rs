@@ -21,6 +21,14 @@ pub enum SetbackFitMode {
     /// Tried only after [`Self::Tangent`] fails; served when every cap
     /// seam certifies G1.
     TangentCornerCells,
+    /// Corner-cell tangent fits over a corner-patched layout (PK-619):
+    /// each side much shorter than its neighbours gets a four-sided
+    /// corner patch, joined to the main cap G1 along a seam. A star cap
+    /// gives a short side's two sectors lopsided rims and bends there
+    /// (the steep trihedral apexes: 6.3–50 / r_min). Tried after the
+    /// star modes on a border; served when every cap seam, the patch
+    /// seams included, certifies G1.
+    TangentCornerPatched,
 }
 
 impl SetbackFitMode {
@@ -28,7 +36,9 @@ impl SetbackFitMode {
     pub fn level(self) -> ContinuityLevel {
         match self {
             SetbackFitMode::CurvatureWeighted => ContinuityLevel::G2,
-            SetbackFitMode::Tangent | SetbackFitMode::TangentCornerCells => ContinuityLevel::G1,
+            SetbackFitMode::Tangent
+            | SetbackFitMode::TangentCornerCells
+            | SetbackFitMode::TangentCornerPatched => ContinuityLevel::G1,
         }
     }
 }

@@ -30,7 +30,7 @@ fn great_arc(a: Vec3, b: Vec3) -> NurbsCurve {
 
 /// A spherical n-gon at polar angle `theta` about +z on the unit
 /// sphere, sides counter-clockwise about the outward normal.
-fn spherical_ngon(n: usize, theta: f64) -> Vec<VariationalCapSide> {
+pub(super) fn spherical_ngon(n: usize, theta: f64) -> Vec<VariationalCapSide> {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
@@ -329,7 +329,7 @@ fn the_fit_takes_up_to_twenty_four_sides() {
 
 /// A spherical polygon at polar angle `theta` about +z with corners at
 /// the azimuths `angles` (counter-clockwise).
-fn spherical_polygon(angles: &[f64], theta: f64) -> Vec<VariationalCapSide> {
+pub(super) fn spherical_polygon(angles: &[f64], theta: f64) -> Vec<VariationalCapSide> {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,

@@ -32,12 +32,19 @@
 //!   residual exceeds its target, within a budget; the best level is
 //!   returned, flagged when it misses the targets.
 //!
+//! A side much shorter than its neighbours makes two lopsided sectors;
+//! [`fit_corner_patched_cap`] gives each such side's corner region its
+//! own patch, joined to the main cap G1 through a seam ribbon
+//! (PK-619).
+//!
 //! The module knows nothing about fillets or topology: turning sectors
 //! into faces, and certifying the result, is the caller's job (the
 //! setback rung in popkern-blend).
 
 mod chart;
 mod corner_cells;
+mod corner_patch;
+mod corner_patch_seam;
 mod energy;
 mod energy_mcv;
 mod error;
@@ -58,6 +65,9 @@ mod spoke;
 #[cfg(test)]
 mod tests;
 
+pub use corner_patch::{
+    CapPiece, CornerPatch, CornerPatchOptions, CornerPatchedCap, fit_corner_patched_cap, thin_sides,
+};
 pub use error::VariationalCapError;
 pub use fit::{MAX_CAP_SIDES, fit_variational_cap};
 pub use layout::CapLayout;
