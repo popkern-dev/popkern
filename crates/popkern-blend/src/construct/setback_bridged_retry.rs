@@ -92,7 +92,9 @@ pub(super) fn with_bridged_retry(
         fillet_surfaces,
         vertex_position,
         match requested {
-            Some(SetbackFitBorder::BowedBridges) => SetbackJunctionPolicy::BridgeEveryJunctionBowed,
+            Some(SetbackFitBorder::BowedBridges(bow)) => {
+                SetbackJunctionPolicy::BridgeEveryJunctionBowed(bow)
+            }
             _ => SetbackJunctionPolicy::BridgeEveryJunction,
         },
     ) {

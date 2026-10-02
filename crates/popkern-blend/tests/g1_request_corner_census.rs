@@ -10,8 +10,9 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendResult, ContinuityLevel, CornerMethod, FilletOptions,
-    FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome, fillet_edges,
+    ApexConstructionDiagnostic, BlendResult, BridgeBow, ContinuityLevel, CornerMethod,
+    FilletOptions, FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome,
+    fillet_edges,
 };
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -262,16 +263,17 @@ fn steep_mixed_radius_g1_apexes_serve_the_bowed_bridge_fit() {
     // fans read 9.34 (pyramid-3 h1.2 variable), 10.8 (h3 wide), 9.08 (h3
     // variable), 27.2 (pyramid-4 h3 variable) and 21.3 (h3 wide) / r_min;
     // the chord-bridged corner-cell fits peak at their 167 deg corners
-    // (10.7-64). Bowing the bridges opens those corners: the corner-cell
-    // fit on the bowed border reads 3.84, 8.27, 6.29, 15.7 and 7.29 and
-    // serves, certified G1. Only the first is under the bound; the steep
-    // rows' remaining peaks sit at the bowed rims' spoke feet.
-    for (n, h, radii, at_most) in [
-        (3, 1.2, &[0.02, 0.04, 0.06][..], 4.0),
-        (3, 3.0, &[0.05, 0.15, 0.08][..], 8.5),
-        (3, 3.0, &[0.02, 0.04, 0.06][..], 6.5),
-        (4, 3.0, &[0.02, 0.04, 0.06, 0.04][..], 16.0),
-        (4, 3.0, &[0.05, 0.15, 0.08, 0.2][..], 7.5),
+    // (10.7-64). Bowed bridges open those corners. The flat bow serves
+    // the moderate and square apexes under the bound (1.29, 2.15, 2.70);
+    // on the steep trihedral apexes the round bow is fairer (8.27, 6.29),
+    // still past the bound: their peaks sit on the bridge rims beside the
+    // thin strip's corner.
+    for (n, h, radii, bow, at_most) in [
+        (3, 1.2, &[0.02, 0.04, 0.06][..], BridgeBow::Flat, 1.5),
+        (3, 3.0, &[0.05, 0.15, 0.08][..], BridgeBow::Round, 8.5),
+        (3, 3.0, &[0.02, 0.04, 0.06][..], BridgeBow::Round, 6.5),
+        (4, 3.0, &[0.02, 0.04, 0.06, 0.04][..], BridgeBow::Flat, 2.5),
+        (4, 3.0, &[0.05, 0.15, 0.08, 0.2][..], BridgeBow::Flat, 3.0),
     ] {
         let name = format!("pyramid n={n} h={h} {radii:?}");
         let (result, pre) = pyramid_apex(n, h, radii);
@@ -287,7 +289,7 @@ fn steep_mixed_radius_g1_apexes_serve_the_bowed_bridge_fit() {
             (served.mode, served.border),
             (
                 SetbackFitMode::TangentCornerCells,
-                SetbackFitBorder::BowedBridges
+                SetbackFitBorder::BowedBridges(bow)
             ),
             "{name}"
         );

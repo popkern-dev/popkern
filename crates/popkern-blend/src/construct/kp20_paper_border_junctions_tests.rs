@@ -194,12 +194,12 @@ fn the_chord_bridge_chamfers_a_convex_face_corner() {
     assert!(normal.dot(&Vec3::new(0.0, 0.0, 1.0)).abs() > 1.0 - 1e-12);
 }
 
-/// The bowed bridge (PK-619) shares the chord's feet and plane, and is
-/// the quadratic whose control point lies a quarter of the way from the
-/// chord's midpoint to the rails' crossing (0.92, 0.66): it leaves each
-/// foot turned towards the crossing, opening the cap's corner there.
+/// The bowed bridge (PK-619) shares the chord's feet and plane. It is
+/// the cubic whose end tangents point a quarter of the way from the
+/// chord's midpoint to the rails' crossing (0.92, 0.66), with its inner
+/// controls a third of the way along them.
 #[test]
-fn the_bowed_bridge_bends_a_quarter_of_the_way_to_the_crossing() {
+fn the_bowed_bridge_turns_near_its_feet() {
     let [s0, s1, _] = notch();
     let bridge = bridge_between(
         &s0,
@@ -207,23 +207,35 @@ fn the_bowed_bridge_bends_a_quarter_of_the_way_to_the_crossing() {
         p(0.85, 0.7, 0.62),
         p(0.95, 0.75, 0.62),
         VERTEX,
-        BridgeShape::Bowed,
+        BridgeShape::Bowed(crate::types::BridgeBow::Flat),
     )
     .expect("bridge builds");
     let (a, b) = (p(0.85, 0.66, 0.6), p(0.92, 0.75, 0.6));
     assert!(bridge.start.distance_to(&a) < 1e-12);
     assert!(bridge.end.distance_to(&b) < 1e-12);
     let mid = a + (b - a) * 0.5;
-    let control = mid + (p(0.92, 0.66, 0.6) - mid) * BRIDGE_BOW;
+    let towards = mid + (p(0.92, 0.66, 0.6) - mid) * BRIDGE_BOW;
+    let c = [
+        a,
+        a + (towards - a) * BRIDGE_TURN,
+        b + (towards - b) * BRIDGE_TURN,
+        b,
+    ];
     for k in 0..=16 {
         let t = k as f64 / 16.0;
-        let quadratic = Point3::new(
-            (1.0 - t) * (1.0 - t) * a.x + 2.0 * t * (1.0 - t) * control.x + t * t * b.x,
-            (1.0 - t) * (1.0 - t) * a.y + 2.0 * t * (1.0 - t) * control.y + t * t * b.y,
+        let w = [
+            (1.0 - t).powi(3),
+            3.0 * t * (1.0 - t).powi(2),
+            3.0 * t * t * (1.0 - t),
+            t.powi(3),
+        ];
+        let cubic = Point3::new(
+            (0..4).map(|i| w[i] * c[i].x).sum(),
+            (0..4).map(|i| w[i] * c[i].y).sum(),
             0.6,
         );
         let q = bridge.curve.point_at(t);
-        assert!(q.distance_to(&quadratic) < 1e-12, "t={t}: {q:?}");
+        assert!(q.distance_to(&cubic) < 1e-12, "t={t}: {q:?}");
     }
 }
 

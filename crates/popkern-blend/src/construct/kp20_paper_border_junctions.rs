@@ -216,15 +216,26 @@ pub struct BridgeGeometry {
     pub plane: SurfaceGeometry,
 }
 
-/// How far a bowed bridge bends towards its rails' crossing: its
-/// quadratic control point lies this fraction of the way from the
+/// How far a bowed bridge's end tangents turn towards its rails'
+/// crossing: they point at the point this fraction of the way from the
 /// chord's midpoint to the crossing (PK-619). At 1 each foot leaves
 /// along its rail (a 90° cap corner), but on a steep apex the bridge
 /// then pushes a long tongue into the cap. Measured on the 160-row
 /// census with fractions 0.25 and 0.75 both in the ladder: 0.25 won
-/// every row a bowed border served (pyramid-4 h3 wide G1 21.3 -> 7.29,
-/// pyramid-6 h0.4 wide G1 11.8 -> 3.03 / r_min), 0.75 none.
+/// every row a bowed border served, 0.75 none.
 const BRIDGE_BOW: f64 = 0.25;
+
+/// Where a bowed bridge's inner controls sit along its end tangents, as
+/// a fraction of the way to [`BRIDGE_BOW`]'s point (2/3 would be the
+/// quadratic). Smaller turns the bridge nearer its feet and flattens its
+/// middle, where the spokes meet the bridge: the quadratic's curved
+/// middle forced the cap to twist at the spoke foot (pyramid-4 h3
+/// variable G1 15.7 / r_min). Measured (honest reading, G1):
+/// 2/3 -> 1/3 takes pyramid-4 h3 variable 15.7 -> 2.15, wide 7.30 ->
+/// 2.70, pyramid-6 h0.4 wide 3.03 -> 1.03, pyramid-3 h1.2 variable
+/// 3.84 -> 1.26; 0.2 declines on the steep trihedral apexes, 0.45 reads
+/// 3.3 and 2.6 on the square ones.
+const BRIDGE_TURN: f64 = 1.0 / 3.0;
 
 /// A bridge's shape between its feet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,9 +252,10 @@ pub(super) enum BridgeShape {
     /// chamfers the face corner instead, so each foot is a convex cap
     /// corner of 90° plus the chord's angle to the rail.
     Chord,
-    /// A quadratic bowed [`BRIDGE_BOW`] of the way towards the rails'
-    /// crossing (PK-619), at the rail-flat bridge's degree.
-    Bowed,
+    /// A cubic whose end tangents turn [`BRIDGE_BOW`] of the way towards
+    /// the rails' crossing (PK-619), at the rail-flat bridge's degree:
+    /// flat ([`BRIDGE_TURN`]) or round (the quadratic).
+    Bowed(crate::types::BridgeBow),
 }
 
 /// The bridge on the shared face of strips `a` and `b`. It leaves `a`'s
@@ -297,10 +309,26 @@ pub(super) fn bridge_between(
         .ok_or("degenerate bridge shoulder")?;
     match shape {
         BridgeShape::Chord => return chord_bridge(start, end, normal),
-        BridgeShape::Bowed => {
+        BridgeShape::Bowed(bow) => {
+            let turn = match bow {
+                crate::types::BridgeBow::Flat => BRIDGE_TURN,
+                // A cubic with its inner controls two thirds of the way to
+                // the quadratic's control is that quadratic.
+                crate::types::BridgeBow::Round => 2.0 / 3.0,
+            };
+            // The bow's end tangents point at the control a quarter of
+            // the way to the crossing; the inner controls sit a third
+            // of the way along them, so the bridge turns near its feet
+            // and runs nearly straight through its middle.
             let mid = start + (end - start) * 0.5;
-            let control = mid + (shoulder - mid) * BRIDGE_BOW;
-            return bowed_bridge(start, control, end, normal);
+            let towards = mid + (shoulder - mid) * BRIDGE_BOW;
+            let controls = [
+                start,
+                start + (towards - start) * turn,
+                end + (towards - end) * turn,
+                end,
+            ];
+            return bowed_bridge(controls, normal);
         }
         BridgeShape::RailFlat => {}
     }
@@ -373,28 +401,24 @@ fn chord_bridge(start: Point3, end: Point3, normal: Vec3) -> Result<BridgeGeomet
     })
 }
 
-/// The quadratic bridge `start`, `control`, `end` in the plane with unit
+/// The cubic bridge with Bézier controls `c` in the plane with unit
 /// `normal`, degree-elevated to the rail-flat bridge's degree.
-fn bowed_bridge(
-    start: Point3,
-    control: Point3,
-    end: Point3,
-    normal: Vec3,
-) -> Result<BridgeGeometry, String> {
+fn bowed_bridge(c: [Point3; 4], normal: Vec3) -> Result<BridgeGeometry, String> {
+    let (start, end) = (c[0], c[3]);
     let u_axis = (end - start)
         .normalized()
         .ok_or("degenerate bridge chord")?;
     let degree = 2 * RAIL_FLAT_ORDER;
     let binomial =
         |n: usize, k: usize| (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64);
-    // Elevation from degree 2: control i of degree d is the binomial
-    // blend of the quadratic's three controls.
+    // Elevation from degree 3: control i of degree d is the binomial
+    // blend of the cubic's four controls.
     let control_points: Vec<Point3> = (0..=degree)
         .map(|i| {
             let mut p = Vec3::new(0.0, 0.0, 0.0);
-            for (j, q) in [start, control, end].into_iter().enumerate() {
-                if j <= i && i - j <= degree - 2 {
-                    let w = binomial(2, j) * binomial(degree - 2, i - j) / binomial(degree, i);
+            for (j, q) in c.into_iter().enumerate() {
+                if j <= i && i - j <= degree - 3 {
+                    let w = binomial(3, j) * binomial(degree - 3, i - j) / binomial(degree, i);
                     p = p + Vec3::new(q.x, q.y, q.z) * w;
                 }
             }

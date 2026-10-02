@@ -28,7 +28,7 @@ pub enum SetbackJunctionPolicy {
     BridgeEveryJunction,
     /// [`Self::BridgeEveryJunction`] with each convex face corner's
     /// bridge bowed towards its rails' crossing (PK-619).
-    BridgeEveryJunctionBowed,
+    BridgeEveryJunctionBowed(crate::types::BridgeBow),
 }
 
 /// One side of the setback boundary.
@@ -79,7 +79,7 @@ pub(super) fn setback_sides(
             })
             .collect(),
         SetbackJunctionPolicy::BridgeEveryJunction
-        | SetbackJunctionPolicy::BridgeEveryJunctionBowed => vec![JunctionKind::Bridge; n],
+        | SetbackJunctionPolicy::BridgeEveryJunctionBowed(_) => vec![JunctionKind::Bridge; n],
     };
     // A convex face corner's bridge is a chord; a reflex one's is
     // rail-flat (see `BridgeShape`).
@@ -94,7 +94,7 @@ pub(super) fn setback_sides(
         };
         match policy {
             SetbackJunctionPolicy::BridgeEveryJunction => convex(BridgeShape::Chord),
-            SetbackJunctionPolicy::BridgeEveryJunctionBowed => convex(BridgeShape::Bowed),
+            SetbackJunctionPolicy::BridgeEveryJunctionBowed(bow) => convex(BridgeShape::Bowed(bow)),
             _ => BridgeShape::RailFlat,
         }
     };
@@ -102,7 +102,7 @@ pub(super) fn setback_sides(
     // the reflex policy it is anchored by its corners, so it needs one.
     let feet = match policy {
         SetbackJunctionPolicy::BridgeEveryJunction
-        | SetbackJunctionPolicy::BridgeEveryJunctionBowed => Some(
+        | SetbackJunctionPolicy::BridgeEveryJunctionBowed(_) => Some(
             super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex)?,
         ),
         _ => None,

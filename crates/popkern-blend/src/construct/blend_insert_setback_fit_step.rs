@@ -11,7 +11,7 @@ use crate::construct::setback_decline::{SetbackCapStrategy, SetbackDecline, Setb
 use crate::construct::setback_vertex_topology::SetbackTopologyOutcome;
 use crate::dispatch_overrides;
 use crate::types::{
-    ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, CornerSubPatchFamily,
+    ApexConstructionDiagnostic, BridgeBow, ContinuityLevel, CornerMethod, CornerSubPatchFamily,
     CornerSubPatchProvenance, CornerSubPatchRole, SetbackFitAttempt, SetbackFitBorder,
     SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
 };
@@ -95,8 +95,8 @@ impl SetbackRung<'_> {
 
     /// The ladder over `modes`: every mode on the corners border, then
     /// on the bridged border (PK-618), then the tangent modes on the
-    /// bowed-bridge border (PK-619), less the attempts the record
-    /// already holds. A later border runs only while every
+    /// flat and then the round bowed-bridge borders (PK-619), less the
+    /// attempts the record already holds. A later border runs only while every
     /// earlier fit is past the fairness bound.
     pub(super) fn fit_ladder(
         &self,
@@ -106,7 +106,8 @@ impl SetbackRung<'_> {
         [
             SetbackFitBorder::Corners,
             SetbackFitBorder::Bridged,
-            SetbackFitBorder::BowedBridges,
+            SetbackFitBorder::BowedBridges(BridgeBow::Flat),
+            SetbackFitBorder::BowedBridges(BridgeBow::Round),
         ]
         .into_iter()
         .flat_map(|border| modes.iter().map(move |&mode| FitCandidate { mode, border }))
@@ -114,7 +115,7 @@ impl SetbackRung<'_> {
         // weighted fit served on it in the 160-row census, and on an
         // octagon that attempt alone costs up to 62 s (PK-620).
         .filter(|c| {
-            !(c.border == SetbackFitBorder::BowedBridges
+            !(matches!(c.border, SetbackFitBorder::BowedBridges(_))
                 && (c.mode == SetbackFitMode::CurvatureWeighted
                     || self.n_sides > BOWED_BORDER_MAX_STRIPS))
         })

@@ -46,15 +46,30 @@ pub enum SetbackFitBorder {
     /// bridged border is near-regular there. Each bridge is the straight
     /// chord between its feet.
     Bridged,
-    /// The bridged border with each bridge bowed a quarter of the way
-    /// towards its rails' crossing (PK-619). A chord meets a circular
-    /// strip's end at 180° − α/2 for a face apex angle α, nearly in line
-    /// on a steep apex; there the strip's curvature `1 / r` along its end
-    /// and the plane's 0 along the bridge cannot share one second
-    /// fundamental form, and the cap's corner peaks near
-    /// `0.67 / (r sin²(α/2))`. A bowed bridge opens the corners towards
-    /// 90°, where the two jets agree.
-    BowedBridges,
+    /// The bridged border with each convex bridge bowed towards its
+    /// rails' crossing (PK-619). A chord meets a circular strip's end at
+    /// 180° − α/2 for a face apex angle α, nearly in line on a steep
+    /// apex; there the strip's curvature `1 / r` along its end and the
+    /// plane's 0 along the bridge cannot share one second fundamental
+    /// form, and the cap's corner peaks near `0.67 / (r sin²(α/2))`. A
+    /// bowed bridge opens the corners towards 90°, where the two jets
+    /// agree.
+    BowedBridges(BridgeBow),
+}
+
+/// How a bowed bridge distributes its turn between its feet and its
+/// middle (PK-619). Both leave each foot turned towards the point a
+/// quarter of the way from the chord's midpoint to the rails' crossing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BridgeBow {
+    /// Turns near its feet and runs nearly straight through its middle,
+    /// where the spokes meet the bridge (pyramid-4 h3 variable G1: 2.15
+    /// / r_min against the round bow's 15.7).
+    Flat,
+    /// The quadratic, turning evenly along its length. Fairer on steep
+    /// trihedral apexes, where the flat bow's turn lands beside a corner
+    /// (pyramid-3 h3 variable G1: 6.29 against the flat bow's 8.57).
+    Round,
 }
 
 /// Certified outcome of one fit attempt that reached the certifier.
