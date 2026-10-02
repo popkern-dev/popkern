@@ -257,46 +257,42 @@ fn mixed_radius_quad_g1_apexes_serve_the_corner_cell_tangent_fit() {
 }
 
 #[test]
-fn steep_mixed_radius_g1_apexes_serve_the_fairer_of_the_fan_and_the_fit() {
-    // PK-616 / PK-621, measured 2026-10-01 on the graded reading. The
-    // KP20 fans read 9.34 (pyramid-3 h1.2 variable), 10.8 (h3 wide),
-    // 9.08 (h3 variable), 27.2 (pyramid-4 h3 variable) and 21.3 (h3
-    // wide) / r_min. The bridged border's corner-cell fit peaks at its
-    // 167 deg corners (incompatible circular-strip and plane jets, read
-    // 10.7-64), so the fan serves and the fit is recorded no fairer.
-    // A fair cap on these corners is PK-619's.
-    for (n, h, radii) in [
-        (3, 1.2, &[0.02, 0.04, 0.06][..]),
-        (3, 3.0, &[0.05, 0.15, 0.08][..]),
-        (3, 3.0, &[0.02, 0.04, 0.06][..]),
-        (4, 3.0, &[0.02, 0.04, 0.06, 0.04][..]),
-        (4, 3.0, &[0.05, 0.15, 0.08, 0.2][..]),
+fn steep_mixed_radius_g1_apexes_serve_the_bowed_bridge_fit() {
+    // PK-616 / PK-619, measured 2026-10-02 on the graded reading. The KP20
+    // fans read 9.34 (pyramid-3 h1.2 variable), 10.8 (h3 wide), 9.08 (h3
+    // variable), 27.2 (pyramid-4 h3 variable) and 21.3 (h3 wide) / r_min;
+    // the chord-bridged corner-cell fits peak at their 167 deg corners
+    // (10.7-64). Bowing the bridges opens those corners: the corner-cell
+    // fit on the bowed border reads 3.84, 8.27, 6.29, 15.7 and 7.29 and
+    // serves, certified G1. Only the first is under the bound; the steep
+    // rows' remaining peaks sit at the bowed rims' spoke feet.
+    for (n, h, radii, at_most) in [
+        (3, 1.2, &[0.02, 0.04, 0.06][..], 4.0),
+        (3, 3.0, &[0.05, 0.15, 0.08][..], 8.5),
+        (3, 3.0, &[0.02, 0.04, 0.06][..], 6.5),
+        (4, 3.0, &[0.02, 0.04, 0.06, 0.04][..], 16.0),
+        (4, 3.0, &[0.05, 0.15, 0.08, 0.2][..], 7.5),
     ] {
         let name = format!("pyramid n={n} h={h} {radii:?}");
         let (result, pre) = pyramid_apex(n, h, radii);
         assert_certified_g1(&name, &result, &pre, 1e-4);
-        assert!(
-            result
-                .corner_patches
-                .iter()
-                .all(|p| p.setback_cap && p.method == CornerMethod::Gregory),
-            "{name}: the fan serves"
-        );
         let record = setback_record(&result).unwrap_or_else(|| panic!("{name}"));
         let fan = record.fairness.map_or(0.0, |f| f.kp20);
-        let rescue = record
+        let served = record
             .attempts
             .iter()
-            .find(|a| {
-                a.mode == SetbackFitMode::TangentCornerCells
-                    && a.border == SetbackFitBorder::Bridged
-            })
+            .find(|a| matches!(a.outcome, SetbackFitOutcome::Served(_)))
             .unwrap_or_else(|| panic!("{name}: {record:#?}"));
-        assert!(
-            matches!(rescue.outcome, SetbackFitOutcome::Rejected { .. })
-                && rescue.interior.is_some_and(|fit| fit >= fan && fan > 4.0),
-            "{name}: fan {fan}, {rescue:#?}"
+        assert_eq!(
+            (served.mode, served.border),
+            (
+                SetbackFitMode::TangentCornerCells,
+                SetbackFitBorder::BowedBridges
+            ),
+            "{name}"
         );
+        let fit = served.interior.unwrap_or(f64::INFINITY);
+        assert!(fit < fan && fit <= at_most, "{name}: fit {fit}, fan {fan}");
     }
 }
 

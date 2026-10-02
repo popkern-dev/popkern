@@ -26,6 +26,9 @@ pub enum SetbackJunctionPolicy {
     /// the convex corners whose narrow strips the corners border
     /// overruns.
     BridgeEveryJunction,
+    /// [`Self::BridgeEveryJunction`] with each convex face corner's
+    /// bridge bowed towards its rails' crossing (PK-619).
+    BridgeEveryJunctionBowed,
 }
 
 /// One side of the setback boundary.
@@ -75,32 +78,35 @@ pub(super) fn setback_sides(
                 .unwrap_or(JunctionKind::Corner)
             })
             .collect(),
-        SetbackJunctionPolicy::BridgeEveryJunction => vec![JunctionKind::Bridge; n],
+        SetbackJunctionPolicy::BridgeEveryJunction
+        | SetbackJunctionPolicy::BridgeEveryJunctionBowed => vec![JunctionKind::Bridge; n],
     };
     // A convex face corner's bridge is a chord; a reflex one's is
     // rail-flat (see `BridgeShape`).
-    let shape = |k: usize| match policy {
-        SetbackJunctionPolicy::BridgeEveryJunction => {
-            match classify_junction(
-                &fillet_surfaces[order[k]],
-                &fillet_surfaces[order[(k + 1) % n]],
-                vertex,
-            ) {
-                Ok(JunctionKind::Bridge) => BridgeShape::RailFlat,
-                _ => BridgeShape::Chord,
-            }
+    let shape = |k: usize| {
+        let convex = |bridge| match classify_junction(
+            &fillet_surfaces[order[k]],
+            &fillet_surfaces[order[(k + 1) % n]],
+            vertex,
+        ) {
+            Ok(JunctionKind::Bridge) => BridgeShape::RailFlat,
+            _ => bridge,
+        };
+        match policy {
+            SetbackJunctionPolicy::BridgeEveryJunction => convex(BridgeShape::Chord),
+            SetbackJunctionPolicy::BridgeEveryJunctionBowed => convex(BridgeShape::Bowed),
+            _ => BridgeShape::RailFlat,
         }
-        _ => BridgeShape::RailFlat,
     };
     // A strip between two bridges is anchored by its own station; under
     // the reflex policy it is anchored by its corners, so it needs one.
-    let feet =
-        match policy {
-            SetbackJunctionPolicy::BridgeEveryJunction => Some(
-                super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex)?,
-            ),
-            _ => None,
-        };
+    let feet = match policy {
+        SetbackJunctionPolicy::BridgeEveryJunction
+        | SetbackJunctionPolicy::BridgeEveryJunctionBowed => Some(
+            super::stations::strip_station_feet(fillet_surfaces, order, corners, vertex)?,
+        ),
+        _ => None,
+    };
     let bridges: Vec<Option<BridgeGeometry>> = (0..n)
         .map(|k| {
             if kinds[k] != JunctionKind::Bridge {

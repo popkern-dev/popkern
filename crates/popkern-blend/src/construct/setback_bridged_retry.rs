@@ -61,14 +61,15 @@ pub(super) fn with_bridged_retry(
         Option<&SetbackCapSolve>,
     ) -> Result<SetbackTopologyOutcome, SetbackDecline>,
 ) -> Result<SetbackTopologyOutcome, SetbackDecline> {
-    let requested = matches!(
-        strategy,
-        SetbackCapStrategy::VariationalFit {
-            border: SetbackFitBorder::Bridged,
-            ..
+    let requested = match strategy {
+        SetbackCapStrategy::VariationalFit { border, .. }
+            if border != SetbackFitBorder::Corners =>
+        {
+            Some(border)
         }
-    );
-    let overrun = if requested {
+        _ => None,
+    };
+    let overrun = if requested.is_some() {
         None
     } else {
         match attempt(brep, None) {
@@ -90,7 +91,10 @@ pub(super) fn with_bridged_retry(
     let solve = match kp20_paper_border_from_fillet_setback_with(
         fillet_surfaces,
         vertex_position,
-        SetbackJunctionPolicy::BridgeEveryJunction,
+        match requested {
+            Some(SetbackFitBorder::BowedBridges) => SetbackJunctionPolicy::BridgeEveryJunctionBowed,
+            _ => SetbackJunctionPolicy::BridgeEveryJunction,
+        },
     ) {
         Ok((border, extract)) => SetbackCapSolve {
             border,
@@ -98,14 +102,22 @@ pub(super) fn with_bridged_retry(
             assembly: Err(BRIDGED_FAN_DECLINE.to_string()),
             alternates: Vec::new(),
         },
-        Err(e) => return Err(bridged_decline(overrun, SetbackDecline::from(e))),
+        Err(e) => {
+            let mut decline = bridged_decline(overrun, SetbackDecline::from(e));
+            decline.border = requested.unwrap_or(SetbackFitBorder::Bridged);
+            return Err(decline);
+        }
     };
     match attempt(brep, Some(&solve)) {
         Ok(mut outcome) => {
-            outcome.border = SetbackFitBorder::Bridged;
+            outcome.border = requested.unwrap_or(SetbackFitBorder::Bridged);
             Ok(outcome)
         }
-        Err(bridged) => Err(bridged_decline(overrun, bridged)),
+        Err(bridged) => {
+            let mut decline = bridged_decline(overrun, bridged);
+            decline.border = requested.unwrap_or(SetbackFitBorder::Bridged);
+            Err(decline)
+        }
     }
 }
 

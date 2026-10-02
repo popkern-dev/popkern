@@ -43,8 +43,18 @@ pub enum SetbackFitBorder {
     /// bridge's legs (PK-611). On a corner whose radii differ widely
     /// the corners border leaves a small corner between two short
     /// sides, which a one-centre cap gives a thin, bent sector; the
-    /// bridged border is near-regular there.
+    /// bridged border is near-regular there. Each bridge is the straight
+    /// chord between its feet.
     Bridged,
+    /// The bridged border with each bridge bowed a quarter of the way
+    /// towards its rails' crossing (PK-619). A chord meets a circular
+    /// strip's end at 180° − α/2 for a face apex angle α, nearly in line
+    /// on a steep apex; there the strip's curvature `1 / r` along its end
+    /// and the plane's 0 along the bridge cannot share one second
+    /// fundamental form, and the cap's corner peaks near
+    /// `0.67 / (r sin²(α/2))`. A bowed bridge opens the corners towards
+    /// 90°, where the two jets agree.
+    BowedBridges,
 }
 
 /// Certified outcome of one fit attempt that reached the certifier.

@@ -23,8 +23,9 @@ fn row_878_a_tilted_cap_is_rejected_on_its_certificate() {
     let record = only_record("tilted cube", &result);
     assert_eq!(record.served, None, "{record:#?}");
     // Curvature-weighted, tangent, and the corner-cell tangent rescue,
-    // on the corners border and then on the bridged border (PK-618).
-    assert_eq!(record.attempts.len(), 6, "{record:#?}");
+    // on the corners border and then on the bridged border (PK-618), then
+    // the two tangent modes on the bowed-bridge border (PK-619).
+    assert_eq!(record.attempts.len(), 8, "{record:#?}");
     for attempt in &record.attempts {
         let SetbackFitOutcome::Rejected { certified, reason } = &attempt.outcome else {
             panic!("tilted cap must be rejected on its certificate: {attempt:#?}");

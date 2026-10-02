@@ -16,6 +16,14 @@ use crate::types::{
     SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
 };
 
+/// TEMPORARY CONTAINMENT (PK-619, replaced by PK-620's solver): the
+/// bowed-bridge border runs only at corners of at most this many strips.
+/// On an octagon its 16-sided fits push the corner to 400-700 s on the
+/// dense solve, and every bowed serve on the 160-row census was at six
+/// strips or fewer (the octagon h3 rows it reached served at 173-651 /
+/// r_min, a near-pinch). PK-620's sector elimination lifts the limit.
+const BOWED_BORDER_MAX_STRIPS: usize = 6;
+
 /// One setback surgery's outcome.
 type SurgeryResult = Result<SetbackTopologyOutcome, SetbackDecline>;
 
@@ -86,18 +94,32 @@ impl SetbackRung<'_> {
     }
 
     /// The ladder over `modes`: every mode on the corners border, then
-    /// every mode on the bridged border (PK-618), less the attempts the
-    /// record already holds.
+    /// on the bridged border (PK-618), then the tangent modes on the
+    /// bowed-bridge border (PK-619), less the attempts the record
+    /// already holds. A later border runs only while every
+    /// earlier fit is past the fairness bound.
     pub(super) fn fit_ladder(
         &self,
         record: &SetbackFitDiagnostic,
         modes: &[SetbackFitMode],
     ) -> Vec<FitCandidate> {
-        [SetbackFitBorder::Corners, SetbackFitBorder::Bridged]
-            .into_iter()
-            .flat_map(|border| modes.iter().map(move |&mode| FitCandidate { mode, border }))
-            .filter(|c| !c.ran(record))
-            .collect()
+        [
+            SetbackFitBorder::Corners,
+            SetbackFitBorder::Bridged,
+            SetbackFitBorder::BowedBridges,
+        ]
+        .into_iter()
+        .flat_map(|border| modes.iter().map(move |&mode| FitCandidate { mode, border }))
+        // The bowed border runs the tangent fits only: no curvature-
+        // weighted fit served on it in the 160-row census, and on an
+        // octagon that attempt alone costs up to 62 s (PK-620).
+        .filter(|c| {
+            !(c.border == SetbackFitBorder::BowedBridges
+                && (c.mode == SetbackFitMode::CurvatureWeighted
+                    || self.n_sides > BOWED_BORDER_MAX_STRIPS))
+        })
+        .filter(|c| !c.ran(record))
+        .collect()
     }
 
     /// The variational fit on the carve (PK-574), in `ladder` order.
@@ -282,7 +304,7 @@ impl SetbackRung<'_> {
                     }
                     if !ladder[index..]
                         .iter()
-                        .any(|c| c.border == SetbackFitBorder::Bridged)
+                        .any(|c| c.border != SetbackFitBorder::Corners)
                     {
                         return RungStep::CarveDeclined(d.reason);
                     }
