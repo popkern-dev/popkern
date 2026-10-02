@@ -68,9 +68,7 @@ pub(super) fn reduce(f: &Functional, red: &Reduction<'_>) -> Reduced {
                 for (cc, slot) in c.iter_mut().enumerate() {
                     *slot += w * red.xp[cc][r];
                 }
-                for (j, slot) in a.iter_mut().enumerate() {
-                    *slot += w * hs.z.read(r, j);
-                }
+                hs.add_row(r, w, &mut a);
             }
         }
     }

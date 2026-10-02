@@ -88,6 +88,7 @@ pub(super) fn with_bridged_retry(
                 reason: BRIDGED_FAN_DECLINE.to_string(),
                 fit_certified: None,
                 border: SetbackFitBorder::Bridged,
+                interior: None,
             },
         ));
     }
@@ -140,5 +141,6 @@ fn bridged_decline(overrun: Option<SetbackDecline>, bridged: SetbackDecline) -> 
         reason,
         fit_certified: bridged.fit_certified,
         border: SetbackFitBorder::Bridged,
+        interior: bridged.interior,
     }
 }

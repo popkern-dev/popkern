@@ -18,7 +18,6 @@ use popkern_core::geometry::variational_cap::{
 use super::*;
 use crate::blend_continuity_evidence::ContinuityGates;
 use crate::construct::kp20_paper_border_extract::Kp20SetbackArc;
-use crate::construct::setback_commit_gate::fit_cap_region_self_intersection;
 use crate::construct::setback_decline::CapCommitError;
 use crate::construct::setback_fit_cap::fit_sides;
 use crate::types::{SetbackFitCertified, SetbackFitMode};
@@ -31,20 +30,52 @@ mod setback_fit_patched;
 mod setback_fit_pcurves;
 #[path = "setback_fit_sectors.rs"]
 mod setback_fit_sectors;
+pub(crate) use setback_fit_certify::prove_fit;
 use setback_fit_sectors::build_sector_faces;
 #[path = "setback_fit_tilt.rs"]
 mod setback_fit_tilt;
 use setback_fit_pcurves::author_cap_pcurves;
 use setback_fit_tilt::{tilt_rim_row, tilted_face};
 
-/// A certified fit serve.
+/// A fit serve: certified, or past the fairness bound with its proof
+/// deferred to the ladder's end.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FitServe {
     pub mode: SetbackFitMode,
-    pub certified: SetbackFitCertified,
+    pub proof: FitProof,
+    /// The cap's interior reading (in `1 / r_min`), when the commit took
+    /// it for the fairness cut ([`fairness_cut`]).
+    pub interior: Option<f64>,
     /// Per cap face (in cap-face order): which piece it belongs to and
     /// its sector there (PK-619).
     pub pieces: Vec<FacePiece>,
+}
+
+/// A fit's proof: its certificate, or what certifies it later.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum FitProof {
+    Certified(SetbackFitCertified),
+    /// Past the fairness bound: the ladder certifies it only if it is
+    /// the fairest fit left when the ladder ends (PK-620).
+    Deferred(DeferredProof),
+}
+
+/// The fit report a deferred proof certifies against.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DeferredProof {
+    report: popkern_core::geometry::variational_cap::VariationalCapReport,
+}
+
+/// What a fit commits under (PK-620): the corner's smallest radius,
+/// the rival fan's reading, the reading a fit must beat to serve (see
+/// [`fairness_cut`]), and whether a fit past the fairness bound defers
+/// its proof.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FitStakes {
+    pub r_min: f64,
+    pub rival: Option<f64>,
+    pub bar: Option<f64>,
+    pub defer: bool,
 }
 
 /// A cap face's place in its cap: the piece (0 for a star cap or the
@@ -75,7 +106,7 @@ pub(super) fn commit_fit_fan(
     fillet_surfaces: &[FilletSurfaceResult],
     arcs: &[Kp20SetbackArc],
     mode: SetbackFitMode,
-    (r_min, rival): (f64, Option<f64>),
+    stakes: FitStakes,
     tolerance: &Tolerance,
 ) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
     let gates = ContinuityGates::commercial();
@@ -87,7 +118,7 @@ pub(super) fn commit_fit_fan(
         .collect::<Result<_, String>>()?;
     let outward = |k: usize, _: Point3, _: popkern_core::geometry::Vec3| orientation[k];
     let sides = fit_sides(arcs, fillet_surfaces, &outward)?;
-    let (targets, options) = fit_settings(mode, (r_min, rival), tolerance);
+    let (targets, options) = fit_settings(mode, (stakes.r_min, stakes.rival), tolerance);
     if mode == SetbackFitMode::TangentCornerPatched {
         return setback_fit_patched::commit_patched_fan(
             brep,
@@ -95,6 +126,7 @@ pub(super) fn commit_fit_fan(
             fillet_surfaces,
             &sides,
             (&targets, &options),
+            stakes,
             tolerance,
         );
     }
@@ -112,38 +144,108 @@ pub(super) fn commit_fit_fan(
     super::author_setback_pcurves(brep, &[], &cap_faces)?;
     author_neighbour_pcurves(brep, &cap_faces, tolerance)?;
     super::setback_boundary_tolerance::record_boundary_tolerances(brep, &cap_faces);
-    let certified = setback_fit_certify::certify_cap(brep, &cap_faces, &gates, &cap.report)?;
-    let required = mode.level();
-    if level_rank(certified.level) < level_rank(required) {
-        return Err(CapCommitError {
-            reason: format!(
-                "variational fit ({mode:?}) certified {:?}, needs {required:?}: rim (g0 {:.3e}, g1 {:.3e}, g2 {:.3e}), spoke (g0 {:.3e}, g1 {:.3e}, g2 {:.3e})",
-                certified.level,
-                certified.rim[0],
-                certified.rim[1],
-                certified.rim[2],
-                certified.spoke[0],
-                certified.spoke[1],
-                certified.spoke[2],
-            ),
-            fit_certified: Some(certified),
-        });
-    }
-    if let Err(intersection) = fit_cap_region_self_intersection(brep, &cap_faces, fillet_surfaces) {
-        return Err(CapCommitError {
-            reason: format!("fit cap self-intersection postcondition failed: {intersection}"),
-            fit_certified: Some(certified),
-        });
-    }
-    let pieces = star_pieces(cap_faces.len());
+    let interior = fairness_cut(brep, &cap_faces, mode, stakes)?;
+    finish_commit(
+        brep,
+        cap_faces,
+        fillet_surfaces,
+        (mode, cap.report.clone()),
+        (interior, stakes),
+        star_pieces,
+    )
+}
+
+/// Prove the built fit now, or defer its proof when it is past the
+/// fairness bound and the ladder defers (see [`FitProof::Deferred`]).
+fn finish_commit(
+    brep: &BRep,
+    cap_faces: Vec<FaceHandle>,
+    fillet_surfaces: &[FilletSurfaceResult],
+    (mode, report): (
+        SetbackFitMode,
+        popkern_core::geometry::variational_cap::VariationalCapReport,
+    ),
+    (interior, stakes): (Option<f64>, FitStakes),
+    pieces: impl FnOnce(usize) -> Vec<FacePiece>,
+) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
+    let pieces = pieces(cap_faces.len());
+    let proof = DeferredProof { report };
+    let proof = if stakes.defer
+        && interior.is_some_and(|i| i > crate::construct::setback_cap_fairness::CAP_FAIRNESS_BOUND)
+    {
+        FitProof::Deferred(proof)
+    } else {
+        FitProof::Certified(prove_fit(brep, &cap_faces, fillet_surfaces, mode, &proof)?)
+    };
     Ok((
         cap_faces,
         FitServe {
             mode,
-            certified,
+            proof,
+            interior,
             pieces,
         },
     ))
+}
+
+/// The fairness cut before certification (PK-620): a fit that cannot
+/// serve whatever it certifies is declined uncertified, with its
+/// interior reading. The ladder serves the fairest certified fit, and a
+/// fit serves over an unfair fan (one not nearly folded) only when
+/// fairer, so a fit no fairer than `held` (the lower of those
+/// readings) cannot serve; nor can a corner-cell or corner-patched
+/// rescue past the fairness bound and no fairer than the rival fan (the
+/// ladder's rescue rule, PK-621). Every
+/// fit that could still serve is certified as before. Measured on the
+/// octagon h1.2 variable apex: certification was 59 s of the corner's
+/// 161 s serial build, most of it on fits the ladder then rejected.
+/// `Ok(None)` when no cut applies and the proof is not deferred (the
+/// reading is then left to the ladder).
+fn fairness_cut(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    mode: SetbackFitMode,
+    stakes: FitStakes,
+) -> Result<Option<f64>, CapCommitError> {
+    let FitStakes {
+        r_min,
+        rival,
+        bar: held,
+        defer,
+    } = stakes;
+    use crate::construct::setback_cap_fairness::{CAP_FAIRNESS_BOUND, cap_interior};
+    let rescue = matches!(
+        mode,
+        SetbackFitMode::TangentCornerCells | SetbackFitMode::TangentCornerPatched
+    );
+    if crate::dispatch_overrides::cap_fairness_ladder_disabled()
+        || (!defer && held.is_none() && !(rescue && rival.is_some()))
+    {
+        return Ok(None);
+    }
+    let interior = cap_interior(brep, cap_faces, r_min).overshoot;
+    let reason = match (held, rival) {
+        (Some(h), _) if interior >= h => format!(
+            "not certified: interior curvature {interior:.2} / r_min, no fairer than the \
+             {h:.2} a fit must beat to serve"
+        ),
+        // A deferring ladder decides the rescue rule itself, once it
+        // knows whether an earlier fit certifies (`conclude_deferred`).
+        (None, Some(fan))
+            if !defer && rescue && interior > CAP_FAIRNESS_BOUND && interior >= fan =>
+        {
+            format!(
+                "not certified: corner-cell rescue interior curvature {interior:.2} / r_min \
+                 over the fairness bound {CAP_FAIRNESS_BOUND}, no fairer than the fan's {fan:.2}"
+            )
+        }
+        _ => return Ok(Some(interior)),
+    };
+    Err(CapCommitError {
+        reason,
+        fit_certified: None,
+        interior: Some(interior),
+    })
 }
 
 /// The fit's targets and options for `mode`, with the fairness and

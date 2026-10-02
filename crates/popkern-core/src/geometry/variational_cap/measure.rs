@@ -4,7 +4,7 @@
 
 use super::corner_cells::CornerOwner;
 use super::jets::{NeighbourJet, form_from_partials, form_jump};
-use super::space::{SectorSpace, apply3};
+use super::space::{Functional, SectorSpace};
 use super::{RimHalf, RimResidual};
 use crate::geometry::Vec3;
 
@@ -41,19 +41,14 @@ pub(super) fn cap_jet_owned(
 ) -> CapJet {
     let bu = space.basis(u);
     let bv = space.basis(v);
-    let d = |a, b| {
-        apply3(
-            &space.functional_owned(sector, &bu, &bv, a, b, owner),
-            coords,
-        )
-    };
+    let [p, su, sv, suu, suv, svv] = space.jet_owned(sector, &bu, &bv, owner, coords);
     CapJet {
-        p: d(0, 0),
-        su: d(1, 0),
-        sv: d(0, 1),
-        suu: d(2, 0),
-        suv: d(1, 1),
-        svv: d(0, 2),
+        p,
+        su,
+        sv,
+        suu,
+        suv,
+        svv,
     }
 }
 
@@ -272,16 +267,35 @@ pub(super) fn regularity(
     params.push(1.0);
     let grid = params.len() - 1;
     let at = |i: usize| params[i];
+    // The grid's first-derivative functionals, once for sector 0: every
+    // sector's are the same with its coefficients offset (PK-620: the
+    // merit evaluated this grid per trial step, building every point's
+    // functionals and all six derivatives per sector, 19 ms per trial on
+    // a 16-sector degree-9 cap). Each sum runs in the functional's own
+    // order, so the readings are bit-identical to `cap_jet`'s.
+    let bases: Vec<_> = params.iter().map(|&t| space.basis(t)).collect();
+    let derivatives: Vec<[Functional; 2]> = (0..=grid)
+        .flat_map(|i| (0..=grid).map(move |j| (i, j)))
+        .map(|(i, j)| {
+            let f = |du, dv| {
+                space.functional_owned(0, &bases[i], &bases[j], du, dv, CornerOwner::Interior)
+            };
+            [f(1, 0), f(0, 1)]
+        })
+        .collect();
+    let per = space.per();
     for s in 0..space.n {
+        let base = s * per;
+        let apply_at = |f: &Functional| {
+            let c = |x: &[f64]| f.iter().map(|&(l, w)| w * x[base + l]).sum::<f64>();
+            Vec3::new(c(&coords[0]), c(&coords[1]), c(&coords[2]))
+        };
         let mut values = Vec::with_capacity((grid + 1) * (grid + 1));
         let mut normals = Vec::with_capacity((grid + 1) * (grid + 1));
-        for i in 0..=grid {
-            for j in 0..=grid {
-                let jt = cap_jet(space, coords, s, at(i), at(j));
-                let cross = jt.su.cross(&jt.sv);
-                values.push(cross.length());
-                normals.push(cross.normalized());
-            }
+        for [fu, fv] in &derivatives {
+            let cross = apply_at(fu).cross(&apply_at(fv));
+            values.push(cross.length());
+            normals.push(cross.normalized());
         }
         let mean = values.iter().sum::<f64>() / values.len() as f64;
         let idx = |i: usize, j: usize| i * (grid + 1) + j;

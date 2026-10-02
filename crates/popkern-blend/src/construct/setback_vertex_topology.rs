@@ -100,7 +100,7 @@ mod setback_fan_probe;
 #[path = "setback_fit_fan.rs"]
 mod setback_fit_fan;
 pub(crate) use setback_fan_probe::fan_quality_stage_probe;
-pub(crate) use setback_fit_fan::FacePiece;
+pub(crate) use setback_fit_fan::{DeferredProof, FacePiece, FitProof, prove_fit};
 
 pub(crate) fn setback_topology_commit_enabled() -> bool {
     if SETBACK_TOPOLOGY_COMMIT_SET.load(Ordering::Relaxed) {

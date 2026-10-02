@@ -9,8 +9,10 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::blend_continuity_certification::evidence_certify_options;
 use crate::blend_continuity_evidence::ContinuityGates;
+use crate::construct::setback_commit_gate::fit_cap_region_self_intersection;
 use crate::construct::setback_decline::CapCommitError;
-use crate::types::{ContinuityLevel, SetbackFitCertified};
+use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::{ContinuityLevel, SetbackFitCertified, SetbackFitMode};
 
 /// Normal-sine resolution of the recorded bounds: three decades inside
 /// the commercial G1 gate.
@@ -110,4 +112,54 @@ pub(super) fn certify_cap(
         min_regularity: report.min_regularity,
         layout: report.layout,
     })
+}
+
+/// Certify a built fit's seams and check its postconditions: the
+/// mode's level, and no self-intersection of the cap region.
+pub(crate) fn prove_fit(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+    fillet_surfaces: &[FilletSurfaceResult],
+    mode: SetbackFitMode,
+    proof: &super::DeferredProof,
+) -> Result<SetbackFitCertified, CapCommitError> {
+    let gates = ContinuityGates::commercial();
+    let certified = certify_cap(brep, cap_faces, &gates, &proof.report)?;
+    let required = mode.level();
+    if super::level_rank(certified.level) < super::level_rank(required) {
+        let reason = if mode == SetbackFitMode::TangentCornerPatched {
+            format!(
+                "corner-patched fit certified {:?}, needs {required:?}: rim (g0 {:.3e}, g1 {:.3e}), seams and spokes (g0 {:.3e}, g1 {:.3e})",
+                certified.level,
+                certified.rim[0],
+                certified.rim[1],
+                certified.spoke[0],
+                certified.spoke[1],
+            )
+        } else {
+            format!(
+                "variational fit ({mode:?}) certified {:?}, needs {required:?}: rim (g0 {:.3e}, g1 {:.3e}, g2 {:.3e}), spoke (g0 {:.3e}, g1 {:.3e}, g2 {:.3e})",
+                certified.level,
+                certified.rim[0],
+                certified.rim[1],
+                certified.rim[2],
+                certified.spoke[0],
+                certified.spoke[1],
+                certified.spoke[2],
+            )
+        };
+        return Err(CapCommitError {
+            reason,
+            fit_certified: Some(certified),
+            interior: None,
+        });
+    }
+    if let Err(intersection) = fit_cap_region_self_intersection(brep, cap_faces, fillet_surfaces) {
+        return Err(CapCommitError {
+            reason: format!("fit cap self-intersection postcondition failed: {intersection}"),
+            fit_certified: Some(certified),
+            interior: None,
+        });
+    }
+    Ok(certified)
 }

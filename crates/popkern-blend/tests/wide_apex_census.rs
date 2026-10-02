@@ -28,7 +28,7 @@ use popkern_blend::blend_continuity_evidence::{
     ContinuityGates, measure_blend_continuity_evidence,
 };
 use popkern_blend::{
-    ApexConstructionDiagnostic, BlendError, BlendResult, ContinuityLevel, CornerMethod,
+    ApexConstructionDiagnostic, BlendError, BlendResult, BridgeBow, ContinuityLevel, CornerMethod,
     FilletOptions, FilletRadius, FilletSpec, SetbackFitBorder, SetbackFitMode, SetbackFitOutcome,
     fillet_edges,
 };
@@ -160,10 +160,12 @@ fn octagonal_steep_apexes_serve_the_fairest_cap() {
     // PK-613: the guide-faired KP20 fan serves the wide apex at G2
     // inside the fairness bound. The variable apex's fan reaches G1
     // only and reads 17.9 / r_min (graded reading, PK-621); on the
-    // corners border every fit folds or pinches. On the bridged border
-    // (PK-618) the tangent fit reads 15.0, its sector beside the
-    // shortest strip thin (regularity 1.8e-2): fairer than the fan, so
-    // it serves, though past the bound.
+    // corners border every fit folds or pinches, and on the bridged
+    // border (PK-618) the tangent fit reads 15.0, its sector beside the
+    // shortest strip thin. PK-620's structured solve lets the octagon
+    // reach the bowed borders (the PK-619 containment kept them to six
+    // strips): the corner-patched cap on the flat bowed border serves
+    // inside the bound, certified G1 (measured 2026-10-02: 3.62).
     let (method, level, fairness) = outcome(8, 1.2, &WIDE);
     assert_eq!(
         (method, level, fairness),
@@ -178,12 +180,14 @@ fn octagonal_steep_apexes_serve_the_fairest_cap() {
     let fit = fit.expect("a served fit");
     assert_eq!(
         (fit.mode, fit.border),
-        (SetbackFitMode::Tangent, SetbackFitBorder::Bridged)
+        (
+            SetbackFitMode::TangentCornerPatched,
+            SetbackFitBorder::BowedBridges(BridgeBow::Flat)
+        )
     );
-    assert!(fit.interior < fan, "fan {fan}: {fit:?}");
     assert!(
-        (5e-3..2e-2).contains(&fit.regularity),
-        "a thin sector served under the fan's reading: {fit:?}"
+        fit.interior < 4.0 && fit.interior < fan,
+        "fan {fan}: {fit:?}"
     );
 }
 

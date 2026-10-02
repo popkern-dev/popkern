@@ -7,8 +7,8 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{RungStep, SetbackRung};
 use crate::construct::setback_cap_fairness::{CAP_FAIRNESS_BOUND, cap_interior};
-use crate::construct::setback_decline::{SetbackCapStrategy, SetbackDecline, SetbackStage};
-use crate::construct::setback_vertex_topology::SetbackTopologyOutcome;
+use crate::construct::setback_decline::{SetbackDecline, SetbackStage};
+use crate::construct::setback_vertex_topology::{FitProof, SetbackTopologyOutcome};
 use crate::dispatch_overrides;
 use crate::types::{
     ApexConstructionDiagnostic, BridgeBow, ContinuityLevel, CornerMethod, CornerSubPatchFamily,
@@ -16,69 +16,14 @@ use crate::types::{
     SetbackFitDiagnostic, SetbackFitMode, SetbackFitOutcome,
 };
 
-/// TEMPORARY CONTAINMENT (PK-619, replaced by PK-620's solver): the
-/// bowed-bridge border runs only at corners of at most this many strips.
-/// On an octagon its 16-sided fits push the corner to 400-700 s on the
-/// dense solve, and every bowed serve on the 160-row census was at six
-/// strips or fewer (the octagon h3 rows it reached served at 173-651 /
-/// r_min, a near-pinch). PK-620's sector elimination lifts the limit.
-const BOWED_BORDER_MAX_STRIPS: usize = 6;
-
 /// One setback surgery's outcome.
 type SurgeryResult = Result<SetbackTopologyOutcome, SetbackDecline>;
 
+#[path = "blend_insert_setback_fit_groups.rs"]
+mod groups;
+use groups::{DeferredFit, outranked};
+
 impl SetbackRung<'_> {
-    /// The G2 ladder's first two attempts run concurrently (PK-598): the
-    /// first on `brep`, the second on a clone of the rung's snapshot,
-    /// both under the calling thread's test overrides. Both are pure
-    /// functions of the snapshot, so each outcome is the one the serial
-    /// ladder computes; the caller still consumes them in order, and a
-    /// served first attempt discards the second. The second attempt's
-    /// wall time hides behind the first (octagon8 mixed: 0.48 s
-    /// curvature-weighted then 1.25 s tangent). The bridged border's
-    /// first pair runs the same way when the ladder reaches it; the
-    /// corner-cell rescues run serially, and a G1 ladder runs serially
-    /// (its rescue is rarely needed).
-    pub(super) fn concurrent_attempts(
-        &self,
-        brep: &mut BRep,
-        ladder: &[FitCandidate],
-        rival: Option<f64>,
-    ) -> (Option<SurgeryResult>, Option<(BRep, SurgeryResult)>) {
-        #[cfg(feature = "parallel")]
-        if let [
-            a @ FitCandidate {
-                mode: SetbackFitMode::CurvatureWeighted,
-                ..
-            },
-            b,
-            ..,
-        ] = *ladder
-        {
-            let overrides = crate::dispatch_overrides::ThreadOverrides::capture();
-            let mut other = self.commit_snapshot.clone();
-            let (first, second) = rayon::join(
-                // Called from outside the pool, `join` runs BOTH closures
-                // on pool workers: each carries the overrides.
-                || overrides.apply(|| self.surgery(brep, self.fit_strategy(a, rival))),
-                || overrides.apply(|| self.surgery(&mut other, self.fit_strategy(b, rival))),
-            );
-            return (Some(first), Some((other, second)));
-        }
-        let _ = (brep, ladder, rival);
-        (None, None)
-    }
-
-    /// The surgery strategy for a fit candidate.
-    fn fit_strategy(&self, candidate: FitCandidate, rival: Option<f64>) -> SetbackCapStrategy {
-        SetbackCapStrategy::VariationalFit {
-            mode: candidate.mode,
-            r_min: self.r_min,
-            border: candidate.border,
-            rival,
-        }
-    }
-
     /// The fit modes the request admits: curvature-weighted under a G2
     /// request, then tangent, then tangent with corner cells, then the
     /// corner-patched fit (PK-619; the ladder runs it after every star
@@ -138,12 +83,10 @@ impl SetbackRung<'_> {
         });
         star.chain(corner_patched)
             // The bowed border runs the tangent fits only: no curvature-
-            // weighted fit served on it in the 160-row census, and on an
-            // octagon that attempt alone costs up to 62 s (PK-620).
+            // weighted fit served on it in the 160-row census.
             .filter(|c| {
                 !(matches!(c.border, SetbackFitBorder::BowedBridges(_))
-                    && (c.mode == SetbackFitMode::CurvatureWeighted
-                        || self.n_sides > BOWED_BORDER_MAX_STRIPS))
+                    && c.mode == SetbackFitMode::CurvatureWeighted)
             })
             .filter(|c| !c.ran(record))
             .collect()
@@ -177,43 +120,46 @@ impl SetbackRung<'_> {
         record: &mut SetbackFitDiagnostic,
         ladder: &[FitCandidate],
         rival: Option<f64>,
+        fan_bar: Option<f64>,
     ) -> RungStep {
         let mut reasons = Vec::new();
-        let (mut first, mut ahead) = self.concurrent_attempts(brep, ladder, rival);
+        // Each attempt's model and outcome, filled a group at a time.
+        let mut pending: Vec<Option<(BRep, SurgeryResult)>> = ladder.iter().map(|_| None).collect();
         // The fairest served fit so far, held while later attempts run;
         // its model is held aside.
         let mut held: Option<HeldFit> = None;
+        // Fits past the fairness bound defer their proof to the ladder's
+        // end (PK-620, see `conclude_deferred`).
+        let defer = !dispatch_overrides::cap_fairness_ladder_disabled();
+        let mut deferred: Vec<DeferredFit> = Vec::new();
         for (index, &candidate) in ladder.iter().enumerate() {
             let FitCandidate { mode, .. } = candidate;
-            // The bridged pass's first pair runs concurrently too, when
-            // neither attempt has run (PK-620: the octagon h1.2 variable
-            // apex's bridged tangent fit, 10 s, hides behind its
-            // curvature-weighted fit, 62 s).
-            if first.is_none()
-                && ahead.is_none()
-                && candidate.border == SetbackFitBorder::Bridged
-                && ladder[..index]
-                    .iter()
-                    .all(|c| c.border == SetbackFitBorder::Corners)
-                && ladder[index..]
-                    .iter()
-                    .take(2)
-                    .all(|c| c.border == SetbackFitBorder::Bridged && !c.ran(record))
-            {
-                (first, ahead) = self.concurrent_attempts(brep, &ladder[index..], rival);
-            }
-            let attempt = if let Some(result) = first.take() {
-                result
-            } else if let Some((attempted, result)) = ahead.take() {
-                *brep = attempted;
-                result
-            } else {
+            if pending[index].is_none() {
                 if candidate.ran(record) {
                     continue;
                 }
-                *brep = self.commit_snapshot.clone();
-                self.surgery(brep, self.fit_strategy(candidate, rival))
+                // A group's later attempts may already be on the record
+                // (a corners attempt that overran ran on the bridged
+                // border, PK-611).
+                let members: Vec<usize> = (index..self.group_end(ladder, index))
+                    .filter(|&i| i == index || !ladder[i].ran(record))
+                    .collect();
+                let candidates: Vec<FitCandidate> = members.iter().map(|&i| ladder[i]).collect();
+                // The reading a fit must beat to serve: the held fit's,
+                // and an unfair fan's (PK-620, see `fairness_cut`).
+                let bar = match (held.as_ref().map(|h| h.interior), fan_bar) {
+                    (Some(h), Some(f)) => Some(h.min(f)),
+                    (h, f) => h.or(f),
+                };
+                let results = self.run_group(&candidates, rival, (bar, defer));
+                for (i, result) in members.into_iter().zip(results) {
+                    pending[i] = Some(result);
+                }
+            }
+            let Some((model, attempt)) = pending[index].take() else {
+                continue;
             };
+            *brep = model;
             match attempt {
                 Ok(outcome) => {
                     let border = outcome.border;
@@ -236,9 +182,11 @@ impl SetbackRung<'_> {
                         record.attempts.push(SetbackFitAttempt {
                             mode,
                             border,
-                            outcome: SetbackFitOutcome::Rejected {
-                                certified: serve.certified,
-                                reason,
+                            outcome: match serve.proof {
+                                FitProof::Certified(certified) => {
+                                    SetbackFitOutcome::Rejected { certified, reason }
+                                }
+                                FitProof::Deferred(_) => SetbackFitOutcome::Declined(reason),
                             },
                             interior: None,
                         });
@@ -246,13 +194,50 @@ impl SetbackRung<'_> {
                     }
                     let interior = if dispatch_overrides::cap_fairness_ladder_disabled() {
                         0.0
+                    } else if let Some(interior) = serve.interior {
+                        interior
                     } else {
                         cap_interior(brep, &outcome.cap_faces, self.r_min).overshoot
+                    };
+                    let certified = match serve.proof {
+                        FitProof::Certified(certified) => certified,
+                        FitProof::Deferred(proof) => {
+                            record.attempts.push(SetbackFitAttempt {
+                                mode,
+                                border,
+                                outcome: SetbackFitOutcome::Declined(
+                                    "proof deferred to the ladder's end".to_string(),
+                                ),
+                                interior: Some(interior),
+                            });
+                            deferred.push(DeferredFit {
+                                // The rescue rule's reach (see below).
+                                conditional: matches!(
+                                    mode,
+                                    SetbackFitMode::TangentCornerCells
+                                        | SetbackFitMode::TangentCornerPatched
+                                ) && rival.is_some_and(|fan| interior >= fan),
+                                fit: HeldFit {
+                                    brep: Some(std::mem::replace(
+                                        brep,
+                                        self.commit_snapshot.clone(),
+                                    )),
+                                    attempt: record.attempts.len() - 1,
+                                    mode,
+                                    border,
+                                    cap_faces: outcome.cap_faces,
+                                    pieces: serve.pieces.clone(),
+                                    interior,
+                                },
+                                proof,
+                            });
+                            continue;
+                        }
                     };
                     record.attempts.push(SetbackFitAttempt {
                         mode,
                         border,
-                        outcome: SetbackFitOutcome::Served(serve.certified),
+                        outcome: SetbackFitOutcome::Served(certified),
                         interior: Some(interior),
                     });
                     let candidate = HeldFit {
@@ -292,10 +277,7 @@ impl SetbackRung<'_> {
                         );
                         reasons.push(format!("{mode:?} fit ({border:?}): {reason}"));
                         if let Some(last) = record.attempts.last_mut() {
-                            last.outcome = SetbackFitOutcome::Rejected {
-                                certified: serve.certified,
-                                reason,
-                            };
+                            last.outcome = SetbackFitOutcome::Rejected { certified, reason };
                         }
                         continue;
                     }
@@ -324,6 +306,7 @@ impl SetbackRung<'_> {
                         });
                         continue;
                     }
+                    outranked(record, &deferred, &best);
                     return self.serve_fit(record, best);
                 }
                 Err(d)
@@ -333,6 +316,9 @@ impl SetbackRung<'_> {
                     // bridged border is a different carve.
                     if let Some(earlier) = held.take() {
                         return self.serve_held(brep, record, earlier);
+                    }
+                    if !deferred.is_empty() {
+                        return self.conclude_deferred(brep, record, deferred, &mut reasons);
                     }
                     if !ladder[index..]
                         .iter()
@@ -348,8 +334,11 @@ impl SetbackRung<'_> {
                         interior: None,
                     });
                     // Every corners-border attempt shares the carve.
-                    first = None;
-                    ahead = None;
+                    for (slot, c) in pending.iter_mut().zip(ladder).skip(index + 1) {
+                        if c.border == SetbackFitBorder::Corners {
+                            *slot = None;
+                        }
+                    }
                     skip_corners(record, ladder, index);
                 }
                 Err(d) => {
@@ -365,12 +354,12 @@ impl SetbackRung<'_> {
                         border: d.border,
                         outcome: match d.fit_certified {
                             Some(certified) => SetbackFitOutcome::Rejected {
-                                certified,
+                                certified: *certified,
                                 reason: d.reason,
                             },
                             None => SetbackFitOutcome::Declined(d.reason),
                         },
-                        interior: None,
+                        interior: d.interior,
                     });
                 }
             }
@@ -378,6 +367,9 @@ impl SetbackRung<'_> {
         // Every later attempt declined: the held (unfair) fit serves.
         if let Some(earlier) = held {
             return self.serve_held(brep, record, earlier);
+        }
+        if !deferred.is_empty() {
+            return self.conclude_deferred(brep, record, deferred, &mut reasons);
         }
         RungStep::Declined(reasons.join("; "))
     }

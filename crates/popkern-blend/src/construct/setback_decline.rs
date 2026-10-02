@@ -33,10 +33,14 @@ pub(crate) struct SetbackDecline {
     pub stage: SetbackStage,
     pub reason: String,
     /// The fit's certified bounds when a variational-fit cap reached
-    /// the certifier and was declined on them.
-    pub fit_certified: Option<crate::types::SetbackFitCertified>,
+    /// the certifier and was declined on them (boxed: the decline is an
+    /// error value).
+    pub fit_certified: Option<Box<crate::types::SetbackFitCertified>>,
     /// The border the declining attempt was carved on.
     pub border: crate::types::SetbackFitBorder,
+    /// The fit's interior reading (in `1 / r_min`) when it was declined
+    /// uncertified for being unable to serve (PK-620).
+    pub interior: Option<f64>,
 }
 
 impl SetbackDecline {
@@ -45,8 +49,9 @@ impl SetbackDecline {
         SetbackDecline {
             stage: SetbackStage::Cap,
             reason: error.reason,
-            fit_certified: error.fit_certified,
+            fit_certified: error.fit_certified.map(Box::new),
             border: crate::types::SetbackFitBorder::Corners,
+            interior: error.interior,
         }
     }
 }
@@ -57,6 +62,9 @@ impl SetbackDecline {
 pub(crate) struct CapCommitError {
     pub reason: String,
     pub fit_certified: Option<crate::types::SetbackFitCertified>,
+    /// The fit's interior reading when it was declined uncertified (see
+    /// [`SetbackDecline::interior`]).
+    pub interior: Option<f64>,
 }
 
 impl From<String> for CapCommitError {
@@ -64,6 +72,7 @@ impl From<String> for CapCommitError {
         CapCommitError {
             reason,
             fit_certified: None,
+            interior: None,
         }
     }
 }
@@ -83,6 +92,7 @@ impl From<String> for SetbackDecline {
             reason,
             fit_certified: None,
             border: crate::types::SetbackFitBorder::Corners,
+            interior: None,
         }
     }
 }
@@ -121,5 +131,12 @@ pub(crate) enum SetbackCapStrategy {
         /// holds: a thin fitted sector serves while it stays under the
         /// larger of this and the fairness bound (PK-621).
         rival: Option<f64>,
+        /// The reading a fit must beat to serve (the fit the ladder
+        /// holds, or an unfair fan's): a fit no fairer is declined
+        /// before certification (PK-620).
+        held: Option<f64>,
+        /// Whether a fit past the fairness bound defers its proof to
+        /// the ladder's end (PK-620).
+        defer: bool,
     },
 }

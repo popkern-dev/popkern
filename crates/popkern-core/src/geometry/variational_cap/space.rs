@@ -175,6 +175,33 @@ impl SectorSpace {
         out
     }
 
+    /// `[S, S_u, S_v, S_uu, S_uv, S_vv]` of `sector` at `(bu.t, bv.t)`
+    /// in one pass over the supports: each derivative sums its nonzero
+    /// terms in the functionals' order, so it is bit-identical to
+    /// applying [`Self::functional_owned`] per derivative, without
+    /// building six functionals (PK-620).
+    pub fn jet_owned(
+        &self,
+        sector: usize,
+        bu: &Basis1,
+        bv: &Basis1,
+        owner: CornerOwner,
+        coords: &[Vec<f64>; 3],
+    ) -> [Vec3; 6] {
+        let base = sector * self.per();
+        let mut acc = [[0.0_f64; 3]; 6];
+        for (l, d) in self.supports_in_order(bu, bv, owner, true) {
+            for (component, &w) in d.iter().enumerate() {
+                if w != 0.0 {
+                    for (c, slot) in acc[component].iter_mut().enumerate() {
+                        *slot += w * coords[c][base + l];
+                    }
+                }
+            }
+        }
+        acc.map(|[x, y, z]| Vec3::new(x, y, z))
+    }
+
     /// The functional `∂^{du+dv} S_sector / ∂u^du ∂v^dv` at `(u, v)`
     /// (`du, dv <= 2`), from precomputed bases.
     pub fn functional_from(
@@ -277,11 +304,13 @@ impl SectorSpace {
 }
 
 /// Apply a functional to one coordinate's coefficients.
+#[cfg(test)]
 pub(super) fn apply(f: &Functional, x: &[f64]) -> f64 {
     f.iter().map(|&(i, w)| w * x[i]).sum()
 }
 
 /// Apply a functional to all three coordinates.
+#[cfg(test)]
 pub(super) fn apply3(f: &Functional, coords: &[Vec<f64>; 3]) -> Vec3 {
     Vec3::new(
         apply(f, &coords[0]),

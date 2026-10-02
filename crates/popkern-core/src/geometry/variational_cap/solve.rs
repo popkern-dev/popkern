@@ -1,121 +1,77 @@
-//! The level solves: the normal equations by Cholesky (fast path),
-//! the stacked Householder QR (accurate fallback), and a ridged
-//! Cholesky (last resort) — see [`solve`].
+//! The level solves: the stacked Householder QR in the null space's
+//! structure, the dense stacked QR behind it, and a ridged Cholesky of
+//! the normal equations as the last resort — see [`solve`].
 
 use faer::Mat;
 
 use super::VariationalCapError;
-use super::level::EnergyFactor;
+use super::factor::EnergyFactor;
 use super::linalg::{cholesky, lstsq, solve_lower};
 
-/// Minimise `λ ‖Lᵀ y + r‖² + ‖A y − b‖² + Σ μ_j (y_j − y_k,j)²`.
+/// Minimise `λ ‖energy rows‖² + ‖A y − b‖²` by the stacked QR in the
+/// energy factor's block structure ([`banded`](super::banded)), with
+/// the dense stacked QR behind it for a row that breaks the structure.
 ///
-/// With rim rows the normal matrix `λ G + AᵀA (+ diag(μ))` is
-/// symmetric positive definite (G is) and a Cholesky solve costs ~20×
-/// less than the stacked QR (measured need: 2000 unknowns, 5–10 s per QR
-/// step). The stacked QR remains the path for the energy-only solve and
-/// the fallback when the Cholesky factorisation fails.
+/// There is no normal-equation fast path (PK-620). Its guard read the
+/// diagonal spread of `λG + AᵀA`, which depends on the null-space basis:
+/// the dense basis mixed every column and always read past 1e16 on the
+/// fits that mattered, but the structured basis's unit interior columns
+/// pass it, and the Cholesky then squared a condition number of ~1e7
+/// (measured: the octagon h0.4 variable apex's corner-cell G1 step
+/// landed 8% over the minimum objective, and the fit bent to 3.57 /
+/// r_min instead of 1.59). With the structured QR at ~0.1 s per step
+/// the shortcut buys nothing.
 pub(super) fn solve(
-    energy: &EnergyFactor,
-    lambda: f64,
-    rim: Option<(&Mat<f64>, &[f64])>,
-    damping: Option<(&[f64], &[Vec<f64>; 3])>,
-) -> Result<[Vec<f64>; 3], VariationalCapError> {
-    if let Some((rows, rhs)) = rim {
-        let dim = energy.l.nrows();
-        let zeros_mu = vec![0.0; dim];
-        let zeros_y: [Vec<f64>; 3] = std::array::from_fn(|_| vec![0.0; dim / 3]);
-        let (mu, yk) = damping.unwrap_or((&zeros_mu, &zeros_y));
-        if let Some(y) = solve_normal(energy, lambda, rows, rhs, mu, yk, false) {
-            return Ok(y);
-        }
-        if let Ok(y) = solve_qr(energy, lambda, rim, damping) {
-            return Ok(y);
-        }
-        // Extreme target weights (rows scaled 1e6..1e7 against λG ~ 1e-2)
-        // can defeat both factorisations; a relative ridge, grown until
-        // the Cholesky succeeds, still yields a step (it shortens the
-        // directions the rows do not see) for the merit to judge.
-        if let Some(y) = solve_normal(energy, lambda, rows, rhs, mu, yk, true) {
-            return Ok(y);
-        }
-    }
-    solve_qr(energy, lambda, rim, damping)
-}
-
-/// Diagonal spread past which the normal equations cannot factorise
-/// (see [`solve_normal`]).
-const NORMAL_EQUATIONS_MAX_DIAGONAL_RATIO: f64 = 1e16;
-
-fn solve_normal(
     energy: &EnergyFactor,
     lambda: f64,
     rows: &Mat<f64>,
     rhs: &[f64],
-    mu: &[f64],
-    yk: &[Vec<f64>; 3],
-    ridge_allowed: bool,
+) -> Result<[Vec<f64>; 3], VariationalCapError> {
+    if let Some(y) = super::banded::solve(energy, lambda, rows, rhs) {
+        return Ok(y);
+    }
+    if let Ok(y) = solve_dense_qr(energy, lambda, rows, rhs) {
+        return Ok(y);
+    }
+    // Extreme target weights (rows scaled 1e6..1e7 against λG ~ 1e-2)
+    // can defeat both factorisations; a relative ridge, grown until
+    // the Cholesky succeeds, still yields a step (it shortens the
+    // directions the rows do not see) for the merit to judge.
+    solve_ridged(energy, lambda, rows, rhs).ok_or(VariationalCapError::Singular { stage: "fit" })
+}
+
+/// The normal equations `(λG + AᵀA) y = Aᵀb − λh` by a Cholesky with a
+/// relative ridge (see [`ridged_cholesky`]).
+fn solve_ridged(
+    energy: &EnergyFactor,
+    lambda: f64,
+    rows: &Mat<f64>,
+    rhs: &[f64],
 ) -> Option<[Vec<f64>; 3]> {
     use faer::linalg::matmul::matmul;
-    let dim = energy.l.nrows();
-    let k = dim / 3;
-    // κ(H) ≥ max Hᵢᵢ / min Hᵢᵢ for symmetric positive definite H. Past
-    // 1/ε the factor's smallest pivot keeps no correct digit and the
-    // factorisation fails (measured on every n = 5..8 pyramid fit:
-    // ratios 7e16..1e20, all declined): read the diagonal from the
-    // row norms and skip straight to the QR without forming AᵀA
-    // (PK-598: ~0.05 s per step at 666 unknowns).
-    if !ridge_allowed {
-        let diag: Vec<f64> = (0..dim)
-            .map(|j| {
-                (0..rows.nrows())
-                    .map(|i| rows.read(i, j).powi(2))
-                    .sum::<f64>()
-                    + lambda * energy.gram.read(j, j)
-                    + mu[j]
-            })
-            .collect();
-        let (lo, hi) = diag.iter().fold((f64::INFINITY, 0.0_f64), |(lo, hi), &d| {
-            (lo.min(d), hi.max(d))
-        });
-        if !(lo > 0.0 && hi / lo <= NORMAL_EQUATIONS_MAX_DIAGONAL_RATIO) {
-            return None;
-        }
-    }
-    let mut h = Mat::<f64>::zeros(dim, dim);
+    let k = energy.k;
+    let dim = 3 * k;
+    let mut h = energy.dense_gram();
     matmul(
         h.as_mut(),
         rows.transpose(),
         rows.as_ref(),
-        None,
+        Some(lambda),
         1.0,
         faer::Parallelism::None,
     );
     let mut g = vec![0.0; dim];
     for (j, gj) in g.iter_mut().enumerate() {
-        *gj = (0..rows.nrows())
-            .map(|i| rows.read(i, j) * rhs[i])
-            .sum::<f64>();
+        // Aᵀb − λ L r, with L r = h.
+        *gj = rows
+            .col_as_slice(j)
+            .iter()
+            .zip(rhs)
+            .map(|(a, b)| a * b)
+            .sum::<f64>()
+            - lambda * energy.h[j];
     }
-    // −λ L r
-    for (i, gi) in g.iter_mut().enumerate() {
-        let lr: f64 = (0..=i).map(|j| energy.l.read(i, j) * energy.r[j]).sum();
-        *gi -= lambda * lr;
-    }
-    for i in 0..dim {
-        for j in 0..dim {
-            h.write(i, j, h.read(i, j) + lambda * energy.gram.read(i, j));
-        }
-        h.write(i, i, h.read(i, i) + mu[i]);
-        g[i] += mu[i] * yk[i / k][i % k];
-    }
-    let l = cholesky(h.clone()).or_else(|| {
-        if ridge_allowed {
-            ridged_cholesky(&h)
-        } else {
-            None
-        }
-    })?;
+    let l = cholesky(h.clone()).or_else(|| ridged_cholesky(&h))?;
     let z = solve_lower(&l, &g);
     // Back substitution with Lᵀ.
     let mut y = vec![0.0; dim];
@@ -132,42 +88,31 @@ fn solve_normal(
     Some(std::array::from_fn(|c| y[c * k..(c + 1) * k].to_vec()))
 }
 
-/// Minimise `λ ‖Lᵀ y + r‖² + ‖A y − b‖² (+ damping)` by stacked QR.
-fn solve_qr(
+/// Minimise `λ ‖Lᵀ y + r‖² + ‖A y − b‖²` by the dense stacked QR.
+fn solve_dense_qr(
     energy: &EnergyFactor,
     lambda: f64,
-    rim: Option<(&Mat<f64>, &[f64])>,
-    damping: Option<(&[f64], &[Vec<f64>; 3])>,
+    rows: &Mat<f64>,
+    rhs: &[f64],
 ) -> Result<[Vec<f64>; 3], VariationalCapError> {
-    let dim = energy.l.nrows();
-    let k = dim / 3;
-    let rim_rows = rim.map_or(0, |(a, _)| a.nrows());
-    let extra = rim_rows + damping.map_or(0, |_| dim);
+    let k = energy.k;
+    let dim = 3 * k;
     let sl = lambda.sqrt();
-    let mut a = Mat::<f64>::zeros(dim + extra, dim);
-    let mut b = Mat::<f64>::zeros(dim + extra, 1);
-    for i in 0..dim {
-        for j in 0..=i {
-            // Row j of Lᵀ holds L[i][j] at column i >= j.
-            a.write(j, i, sl * energy.l.read(i, j));
+    let (factor_rows, r) = energy.dense_rows();
+    let top = factor_rows.nrows();
+    let mut a = Mat::<f64>::zeros(top + rows.nrows(), dim);
+    let mut b = Mat::<f64>::zeros(top + rows.nrows(), 1);
+    for (i, &ri) in r.iter().enumerate() {
+        for j in 0..dim {
+            a.write(i, j, sl * factor_rows.read(i, j));
         }
-        b.write(i, 0, -sl * energy.r[i]);
+        b.write(i, 0, -sl * ri);
     }
-    if let Some((rows, rhs)) = rim {
-        for (i, &value) in rhs.iter().enumerate().take(rows.nrows()) {
-            for j in 0..dim {
-                a.write(dim + i, j, rows.read(i, j));
-            }
-            b.write(dim + i, 0, value);
+    for (i, &value) in rhs.iter().enumerate().take(rows.nrows()) {
+        for j in 0..dim {
+            a.write(top + i, j, rows.read(i, j));
         }
-    }
-    // Levenberg–Marquardt rows: √(μ_j) (y_j − y_k,j).
-    if let Some((mu, yk)) = damping {
-        for (j, &m) in mu.iter().enumerate().take(dim) {
-            let s = m.sqrt();
-            a.write(dim + rim_rows + j, j, s);
-            b.write(dim + rim_rows + j, 0, s * yk[j / k][j % k]);
-        }
+        b.write(top + i, 0, value);
     }
     let x = lstsq(a, b, 1e-12).ok_or(VariationalCapError::Singular { stage: "fit" })?;
     Ok(std::array::from_fn(|c| {

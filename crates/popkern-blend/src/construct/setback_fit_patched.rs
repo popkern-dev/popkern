@@ -23,9 +23,9 @@ pub(super) fn commit_patched_fan(
     fillet_surfaces: &[FilletSurfaceResult],
     sides: &[VariationalCapSide],
     (targets, options): (&VariationalCapTargets, &VariationalCapOptions),
+    stakes: FitStakes,
     tolerance: &Tolerance,
 ) -> Result<(Vec<FaceHandle>, FitServe), CapCommitError> {
-    let gates = ContinuityGates::commercial();
     let mut cap = fit_corner_patched_cap(
         sides,
         targets,
@@ -82,36 +82,16 @@ pub(super) fn commit_patched_fan(
         .iter()
         .map(|c| c.piece.cap.report.min_regularity)
         .fold(report.min_regularity, f64::min);
-    let certified = setback_fit_certify::certify_cap(brep, &cap_faces, &gates, &report)?;
     let mode = SetbackFitMode::TangentCornerPatched;
-    let required = mode.level();
-    if level_rank(certified.level) < level_rank(required) {
-        return Err(CapCommitError {
-            reason: format!(
-                "corner-patched fit certified {:?}, needs {required:?}: rim (g0 {:.3e}, g1 {:.3e}), seams and spokes (g0 {:.3e}, g1 {:.3e})",
-                certified.level,
-                certified.rim[0],
-                certified.rim[1],
-                certified.spoke[0],
-                certified.spoke[1],
-            ),
-            fit_certified: Some(certified),
-        });
-    }
-    if let Err(intersection) = fit_cap_region_self_intersection(brep, &cap_faces, fillet_surfaces) {
-        return Err(CapCommitError {
-            reason: format!("fit cap self-intersection postcondition failed: {intersection}"),
-            fit_certified: Some(certified),
-        });
-    }
-    Ok((
+    let interior = fairness_cut(brep, &cap_faces, mode, stakes)?;
+    finish_commit(
+        brep,
         cap_faces,
-        FitServe {
-            mode,
-            certified,
-            pieces,
-        },
-    ))
+        fillet_surfaces,
+        (mode, report),
+        (interior, stakes),
+        |_| pieces,
+    )
 }
 
 /// Piece `piece`'s faces, in sector order.

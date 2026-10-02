@@ -180,35 +180,79 @@ pub fn fit_corner_patched_cap(
             interior_curvature,
         })
     };
+    // Every piece's sides: the corner patches', then the main cap's.
+    let mut pieces: Vec<Result<Vec<VariationalCapSide>, VariationalCapError>> = seams
+        .iter()
+        .map(|(t, seam, ribbon)| {
+            let (a, b) = (&sides[(t + n - 1) % n], &sides[(t + 1) % n]);
+            Ok(vec![
+                VariationalCapSide {
+                    curve: restrict(&a.curve, 1.0 - tail, 1.0).map_err(seam_error(*t))?,
+                    ..a.clone()
+                },
+                sides[*t].clone(),
+                VariationalCapSide {
+                    curve: restrict(&b.curve, 0.0, tail).map_err(seam_error(*t))?,
+                    ..b.clone()
+                },
+                VariationalCapSide {
+                    curve: seam.clone(),
+                    neighbour: ribbon.clone(),
+                    neighbour_reversed: false,
+                },
+            ])
+        })
+        .collect();
+    pieces.push(main_sides(sides, &seams, &thin, tail));
+    // The pieces share nothing but their seams, so they fit
+    // concurrently (PK-620: the octagon's five pieces took 5-7 s one
+    // after another). Each fit is a pure function of its sides, and the
+    // results are read in the serial order, so the first error is the
+    // serial fit's.
+    let fitted = super::linalg::par_map(pieces.len(), |k| {
+        let side = seams.get(k).map(|(t, _, _)| *t);
+        match &pieces[k] {
+            Ok(piece_sides) => Some(fit(piece_sides.clone(), side)),
+            Err(_) => None,
+        }
+    });
     let mut corners = Vec::with_capacity(seams.len());
-    for (t, seam, ribbon) in &seams {
-        let (a, b) = (&sides[(t + n - 1) % n], &sides[(t + 1) % n]);
-        let patch_sides = vec![
-            VariationalCapSide {
-                curve: restrict(&a.curve, 1.0 - tail, 1.0).map_err(seam_error(*t))?,
-                ..a.clone()
-            },
-            sides[*t].clone(),
-            VariationalCapSide {
-                curve: restrict(&b.curve, 0.0, tail).map_err(seam_error(*t))?,
-                ..b.clone()
-            },
-            VariationalCapSide {
-                curve: seam.clone(),
-                neighbour: ribbon.clone(),
-                neighbour_reversed: false,
-            },
-        ];
-        corners.push(CornerPatch {
-            side: *t,
-            piece: fit(patch_sides, Some(*t))?,
-            seam: seam.clone(),
-        });
+    let mut main = None;
+    for (k, (piece_sides, fitted)) in pieces.into_iter().zip(fitted).enumerate() {
+        piece_sides?;
+        let piece = fitted.ok_or(VariationalCapError::Singular {
+            stage: "corner patch piece",
+        })??;
+        match seams.get(k) {
+            Some((t, seam, _)) => corners.push(CornerPatch {
+                side: *t,
+                piece,
+                seam: seam.clone(),
+            }),
+            None => main = Some(piece),
+        }
     }
-    let mut main_sides = Vec::with_capacity(n);
+    Ok(CornerPatchedCap {
+        main: main.ok_or(VariationalCapError::Singular {
+            stage: "corner patch main cap",
+        })?,
+        corners,
+    })
+}
+
+/// The main cap's sides: each thin side replaced by its seam, reversed,
+/// and its neighbours shortened by the patch's tail.
+fn main_sides(
+    sides: &[VariationalCapSide],
+    seams: &[(usize, NurbsCurve, SurfaceGeometry)],
+    thin: &[usize],
+    tail: f64,
+) -> Result<Vec<VariationalCapSide>, VariationalCapError> {
+    let n = sides.len();
+    let mut main = Vec::with_capacity(n);
     for (s, side) in sides.iter().enumerate() {
         if let Some((_, seam, ribbon)) = seams.iter().find(|(t, _, _)| *t == s) {
-            main_sides.push(VariationalCapSide {
+            main.push(VariationalCapSide {
                 curve: reversed(seam),
                 neighbour: ribbon.clone(),
                 neighbour_reversed: false,
@@ -225,15 +269,13 @@ pub fn fit_corner_patched_cap(
         } else {
             1.0
         };
-        main_sides.push(VariationalCapSide {
-            curve: restrict(&side.curve, lo, hi).map_err(seam_error(s))?,
+        main.push(VariationalCapSide {
+            curve: restrict(&side.curve, lo, hi)
+                .map_err(|reason| VariationalCapError::CornerPatchSeam { side: s, reason })?,
             ..side.clone()
         });
     }
-    Ok(CornerPatchedCap {
-        main: fit(main_sides, None)?,
-        corners,
-    })
+    Ok(main)
 }
 
 #[cfg(test)]

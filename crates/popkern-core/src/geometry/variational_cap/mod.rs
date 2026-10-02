@@ -41,6 +41,7 @@
 //! into faces, and certifying the result, is the caller's job (the
 //! setback rung in popkern-blend).
 
+mod banded;
 mod chart;
 mod corner_cells;
 mod corner_patch;
@@ -48,14 +49,20 @@ mod corner_patch_seam;
 mod energy;
 mod energy_mcv;
 mod error;
+mod factor;
 mod fit;
 mod gauss_newton;
+mod gram_accumulator;
+mod jacobi_svd;
 mod jets;
 mod layout;
 mod level;
 pub(crate) mod linalg;
 mod measure;
 mod nullspace;
+mod nullspace_basis;
+#[cfg(test)]
+mod nullspace_tests;
 mod rim;
 mod rim_rows;
 mod solve;

@@ -28,7 +28,8 @@
 //! - **Bending** (fourth order), the energy of a G1-only fit.
 
 use super::corner_cells::CornerOwner;
-use super::energy_mcv::{Reference, combine, mean_curvature_gradient, outer};
+use super::energy_mcv::{Reference, combine, mean_curvature_gradient};
+use super::gram_accumulator::GramAccumulator;
 use super::space::{SectorSpace, gauss_legendre};
 use crate::geometry::Vec3;
 
@@ -110,6 +111,12 @@ pub(super) fn energy_gram(
         let mut regular_block = vec![0.0; size * size];
         let mut anchor_block = vec![0.0; size * size];
         let mut anchor_linear = vec![0.0; size];
+        // The parametric thin plate is the same per coordinate: one
+        // per × per Gram, copied onto the three diagonal blocks.
+        let mut thin_plate = vec![0.0; per * per];
+        let mut acc = GramAccumulator::new(size);
+        let mut acc_thin = GramAccumulator::new(per);
+        let mut acc_anchor = GramAccumulator::new(size);
         for &(ua, ub) in &spans {
             for &(va, vb) in &spans {
                 for &(xu, wu) in &nodes {
@@ -124,6 +131,7 @@ pub(super) fn energy_gram(
                             && let Some((p, frame)) = (a.reference)(sector, u, v)
                         {
                             anchor_rows(
+                                &mut acc_anchor,
                                 &mut anchor_block,
                                 &mut anchor_linear,
                                 per,
@@ -138,29 +146,20 @@ pub(super) fn energy_gram(
                                 let g = metric(sector, u, v);
                                 if let Some((mm, det)) = inverse_root(g) {
                                     let w = area * det.sqrt();
-                                    parametric(&mut block, per, &sup, &mm, w, *eps);
+                                    parametric(&mut acc_thin, &mut thin_plate, &sup, &mm, w, *eps);
                                 }
                             }
-                            Integrand::Bending {
-                                reference,
-                                regular,
-                                eps,
-                            } => {
+                            Integrand::Bending { reference, eps, .. } => {
                                 let Some((normal, g)) = reference(sector, u, v) else {
                                     continue;
                                 };
                                 if let Some((mm, det)) = inverse_root(g) {
                                     let w = area * det.sqrt();
-                                    bending(&mut block, per, &sup, &mm, normal, w);
-                                    parametric(&mut regular_block, per, &sup, &mm, w, *eps);
-                                    let _ = regular;
+                                    bending(&mut acc, &mut block, per, &sup, &mm, normal, w);
+                                    parametric(&mut acc_thin, &mut thin_plate, &sup, &mm, w, *eps);
                                 }
                             }
-                            Integrand::MeanCurvatureVariation {
-                                reference,
-                                regular,
-                                eps,
-                            } => {
+                            Integrand::MeanCurvatureVariation { reference, eps, .. } => {
                                 let Some(r) = reference(sector, u, v) else {
                                     continue;
                                 };
@@ -174,14 +173,30 @@ pub(super) fn energy_gram(
                                 {
                                     for mp in &mm {
                                         let row = combine(&[(mp[0], &hu), (mp[1], &hv)]);
-                                        outer(&mut block, size, &row, w);
+                                        acc.push_sparse(&mut block, &row, w);
                                     }
                                 }
-                                let _ = regular;
-                                parametric(&mut regular_block, per, &sup, &mm, w, *eps);
+                                parametric(&mut acc_thin, &mut thin_plate, &sup, &mm, w, *eps);
                             }
                         }
                     }
+                }
+            }
+        }
+        acc.flush(&mut block);
+        acc_thin.flush(&mut thin_plate);
+        acc_anchor.flush(&mut anchor_block);
+        // The thin plate is the energy itself under the parametric
+        // integrand, the regulariser otherwise.
+        let target = match integrand {
+            Integrand::Parametric { .. } => &mut block,
+            _ => &mut regular_block,
+        };
+        for c in 0..3 {
+            let base = c * per;
+            for i in 0..per {
+                for j in 0..per {
+                    target[(base + i) * size + base + j] += thin_plate[i * per + j];
                 }
             }
         }
@@ -269,14 +284,13 @@ fn hessian_rows(mm: &[[f64; 2]; 2], h: [[f64; 2]; 2]) -> [f64; 3] {
 }
 
 fn parametric(
+    acc: &mut GramAccumulator,
     block: &mut [f64],
-    per: usize,
     sup: &[(usize, [f64; 6])],
     mm: &[[f64; 2]; 2],
     w: f64,
     eps: f64,
 ) {
-    let size = 3 * per;
     let se = eps.sqrt();
     let rows: Vec<(usize, [f64; 5])> = sup
         .iter()
@@ -287,13 +301,11 @@ fn parametric(
             (l, [h[0], h[1], h[2], se * g0, se * g1])
         })
         .collect();
-    for c in 0..3 {
-        let base = c * per;
-        for &(i, fi) in &rows {
-            for &(j, fj) in &rows {
-                let dot: f64 = fi.iter().zip(fj.iter()).map(|(a, b)| a * b).sum();
-                block[(base + i) * size + base + j] += w * dot;
-            }
+    let sw = w.sqrt();
+    for t in 0..5 {
+        let column = acc.column(block);
+        for &(l, f) in &rows {
+            column[l] += sw * f[t];
         }
     }
 }
@@ -303,6 +315,7 @@ fn parametric(
 /// and the linear term (`E = xᵀBx − 2bᵀx`).
 #[allow(clippy::too_many_arguments)]
 fn anchor_rows(
+    acc: &mut GramAccumulator,
     block: &mut [f64],
     linear: &mut [f64],
     per: usize,
@@ -311,20 +324,16 @@ fn anchor_rows(
     frame: &[Vec3; 2],
     w: f64,
 ) {
-    let size = 3 * per;
+    let sw = w.sqrt();
     for e in frame {
         let ec = [e.x, e.y, e.z];
         let target = e.dot(&p);
-        let mut row: Vec<(usize, f64)> = Vec::new();
+        let column = acc.column(block);
         for &(l, d) in sup {
             for (c, ecc) in ec.iter().enumerate() {
-                row.push((c * per + l, ecc * d[0]));
-            }
-        }
-        for &(i, a) in &row {
-            linear[i] += w * target * a;
-            for &(j, b) in &row {
-                block[i * size + j] += w * a * b;
+                let a = ecc * d[0];
+                column[c * per + l] += sw * a;
+                linear[c * per + l] += w * target * a;
             }
         }
     }
@@ -332,6 +341,7 @@ fn anchor_rows(
 
 /// `‖M B Mᵀ‖_F²` with `B_ab = N·∂_a∂_b x`: rows over `(coord, local)`.
 fn bending(
+    acc: &mut GramAccumulator,
     block: &mut [f64],
     per: usize,
     sup: &[(usize, [f64; 6])],
@@ -339,18 +349,18 @@ fn bending(
     normal: Vec3,
     w: f64,
 ) {
-    let size = 3 * per;
     let nc = [normal.x, normal.y, normal.z];
-    let mut rows: Vec<(usize, [f64; 3])> = Vec::new();
-    for &(l, d) in sup {
-        let h = hessian_rows(mm, [[d[3], d[4]], [d[4], d[5]]]);
-        for (c, ncc) in nc.iter().enumerate() {
-            rows.push((c * per + l, [h[0] * ncc, h[1] * ncc, h[2] * ncc]));
-        }
-    }
-    for &(i, fi) in &rows {
-        for &(j, fj) in &rows {
-            block[i * size + j] += w * (fi[0] * fj[0] + fi[1] * fj[1] + fi[2] * fj[2]);
+    let hessians: Vec<(usize, [f64; 3])> = sup
+        .iter()
+        .map(|&(l, d)| (l, hessian_rows(mm, [[d[3], d[4]], [d[4], d[5]]])))
+        .collect();
+    let sw = w.sqrt();
+    for t in 0..3 {
+        let column = acc.column(block);
+        for &(l, h) in &hessians {
+            for (c, ncc) in nc.iter().enumerate() {
+                column[c * per + l] += sw * h[t] * ncc;
+            }
         }
     }
 }

@@ -63,14 +63,24 @@ pub(super) fn commit_cap(
             Err(CapCommitError::from(first))
         }
         SetbackCapStrategy::VariationalFit {
-            mode, r_min, rival, ..
+            mode,
+            r_min,
+            rival,
+            held,
+            defer,
+            ..
         } => super::setback_fit_fan::commit_fit_fan(
             brep,
             blend_face,
             fillet_surfaces,
             arcs,
             mode,
-            (r_min, rival),
+            super::setback_fit_fan::FitStakes {
+                r_min,
+                rival,
+                bar: held,
+                defer,
+            },
             tolerance,
         )
         .map(|(faces, serve)| (faces, Some(serve))),

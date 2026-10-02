@@ -115,12 +115,3 @@ pub(super) fn combine(terms: &[(f64, &Sparse)]) -> Sparse {
     }
     merged
 }
-
-/// `block += w · row rowᵀ`.
-pub(super) fn outer(block: &mut [f64], size: usize, row: &Sparse, w: f64) {
-    for &(i, a) in row {
-        for &(j, b) in row {
-            block[i * size + j] += w * a * b;
-        }
-    }
-}

@@ -174,7 +174,7 @@ pub(super) fn try_setback_rung(
                 if ladder.is_empty() {
                     continue;
                 }
-                rung.fit(brep, &mut record, &ladder, None)
+                rung.fit(brep, &mut record, &ladder, None, None)
             }
             (false, _, true) => {
                 let step = rung.kp20(brep, &mut record, try_fit);
@@ -392,9 +392,15 @@ impl SetbackRung<'_> {
         let ladder = self.fit_ladder(record, modes);
         if try_fit && !ladder.is_empty() {
             let fan_model = std::mem::replace(brep, self.commit_snapshot.clone());
-            if let RungStep::Decided(Ok((infos, boundary, mut diagnostics))) =
-                self.fit(brep, record, &ladder, unfair.then_some(overshoot))
-            {
+            if let RungStep::Decided(Ok((infos, boundary, mut diagnostics))) = self.fit(
+                brep,
+                record,
+                &ladder,
+                unfair.then_some(overshoot),
+                // A fit serves over an unfair fan only when fairer,
+                // unless the fan nearly folds (below).
+                (unfair && !fan.near_fold()).then_some(overshoot),
+            ) {
                 if !unfair {
                     return RungStep::Decided(Ok((infos, boundary, diagnostics)));
                 }

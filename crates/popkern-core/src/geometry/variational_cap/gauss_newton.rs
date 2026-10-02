@@ -13,7 +13,8 @@
 use super::chart::CharacteristicMap;
 use super::energy::{Anchor, Integrand};
 use super::energy_mcv::Reference;
-use super::level::{EnergyFactor, Level, assemble, energy_factor};
+use super::factor::{EnergyFactor, energy_factor};
+use super::level::{Level, assemble};
 use super::measure::cap_jet;
 use super::rim_rows::{Reduction, rim_rows, transversal_rows, transversal_targets};
 use super::solve::solve;
@@ -63,7 +64,7 @@ pub(super) fn solve_level(
     // across levels; a first level starts from the energy alone.
     let (mut y, g1_phase) = match start {
         Some(x) => (project(level, x), 0),
-        None => (solve(&energy, 1.0, None, None)?, 1),
+        None => (energy.minimiser()?, 1),
     };
     let mut coords = assemble(level, &y);
     // The tangential anchor: the level's start surface, well
@@ -84,7 +85,7 @@ pub(super) fn solve_level(
     // below carry the G1 rows the rest of the way.
     for _ in 0..g1_phase {
         let (rows, rhs) = all_rows(level, &red, &coords, w1, None, &prior);
-        let full = solve(&energy, lambda, Some((&rows, &rhs)), None)?;
+        let full = solve(&energy, lambda, &rows, &rhs)?;
         let mut alpha = 1.0;
         for _ in 0..STEP_HALVINGS {
             let trial_y: [Vec<f64>; 3] = std::array::from_fn(|c| {
@@ -177,7 +178,7 @@ fn damped_run(
     for _ in 0..options.max_gauss_newton {
         let current = merit(level, &coords, &y, energy, lambda, w1, w2, prior);
         let (rows, rhs) = all_rows(level, red, &coords, w1, w2, prior);
-        let full = solve(energy, lambda, Some((&rows, &rhs)), None)?;
+        let full = solve(energy, lambda, &rows, &rhs)?;
         let mut alpha = 1.0;
         let mut accepted = None;
         for _ in 0..STEP_HALVINGS {
@@ -320,16 +321,7 @@ fn merit(
     if super::measure::served_regularity(&level.space, coords).ratio < super::measure::FOLD_FLOOR {
         return f64::INFINITY;
     }
-    let dim = energy.l.nrows();
-    let k = dim / 3;
-    let mut e = 0.0;
-    for j in 0..dim {
-        let mut acc = energy.r[j];
-        for i in j..dim {
-            acc += energy.l.read(i, j) * y[i / k][i % k];
-        }
-        e += acc * acc;
-    }
+    let e = energy.value(y);
     total + lambda * e
 }
 
@@ -337,17 +329,14 @@ fn merit(
 /// `Z` has orthonormal columns).
 fn project(level: &Level, x: &[Vec<f64>; 3]) -> [Vec<f64>; 3] {
     let hs = &level.hs;
-    let k = hs.dim();
     std::array::from_fn(|c| {
-        (0..k)
-            .map(|j| {
-                hs.free
-                    .iter()
-                    .enumerate()
-                    .map(|(r, &i)| hs.z.read(r, j) * (x[c][i] - level.xp[c][r]))
-                    .sum()
-            })
-            .collect()
+        let d: Vec<f64> = hs
+            .free
+            .iter()
+            .enumerate()
+            .map(|(r, &i)| x[c][i] - level.xp[c][r])
+            .collect();
+        hs.project(&d)
     })
 }
 
