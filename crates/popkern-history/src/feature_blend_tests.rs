@@ -39,6 +39,7 @@ fn full_recipe(end: ParameterId) -> FilletRecipeDesc {
         },
         // Set so the round trip exercises it (PK-623).
         setback: Some(0.35),
+        end_setbacks: Vec::new(),
     }
 }
 

@@ -63,3 +63,48 @@ fn a_setback_is_refused_where_it_cannot_apply() {
     let negative = refused(&mixed_corner(", setback: -0.1"));
     assert!(negative.contains("positive distance"), "{negative}");
 }
+
+#[test]
+fn a_setback_end_overrides_one_round_and_round_trips() {
+    // The z round's end at the corner set back 0.6; the others 0.45.
+    let ends = r#", setback: 0.45, setback_ends: [[edges().at_vertex(corner).direction("z"), edges().at_vertex(corner), 0.6]]"#;
+    let outcome = ScriptHost::new()
+        .run(&mixed_corner(ends), "setback_ends.rhai")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut model = outcome.model.expect("model");
+    let emitted = to_rhai(&mut model).expect("emit");
+    assert!(
+        emitted.contains("setback_ends: [[") && emitted.contains(", 0.6]]"),
+        "{emitted}"
+    );
+    // The emitted script replays to the same tree.
+    let replayed = ScriptHost::new()
+        .run(&emitted, "emitted.rhai")
+        .unwrap_or_else(|e| panic!("{e}\n{emitted}"));
+    let mut again = replayed.model.expect("model");
+    assert_eq!(to_rhai(&mut again).expect("emit"), emitted);
+    // An edit replays the fillet: the end setback re-binds through the
+    // edges' stable names.
+    model
+        .set_param("corner.radius_1", 0.15)
+        .expect("set a group radius");
+    let part = model
+        .to_part()
+        .expect("replays with the end setback re-bound");
+    assert!(part.brep().validate().is_ok());
+}
+
+#[test]
+fn a_setback_end_outside_the_fillet_is_refused() {
+    let message = refused(&mixed_corner(
+        r#", setback_ends: [[edges().at_height(0.0), edges().at_vertex(corner), 0.3]]"#,
+    ));
+    assert!(message.contains("does not round"), "{message}");
+    let shape = refused(&mixed_corner(
+        r#", setback_ends: [[edges().at_vertex(corner), 0.3]]"#,
+    ));
+    assert!(
+        shape.contains("must be [edge selector, edge selector, distance]"),
+        "{shape}"
+    );
+}

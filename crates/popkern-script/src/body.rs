@@ -311,6 +311,7 @@ impl Body {
         let unit = model.unit;
         let radius = Self::bind(model, "radius", &radius.into(), unit)?;
         let record = Self::selection_record("edges", &snapshot);
+        crate::body_recipes::check_end_setbacks(&recipe, &snapshot.names)?;
         let feature = Feature::Fillet {
             edges: snapshot.names,
             radius,

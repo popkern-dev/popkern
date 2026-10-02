@@ -49,6 +49,7 @@ fn fillet_options(
     recipe: &FilletRecipeDesc,
     label: &str,
     context: &str,
+    spell: Speller<'_>,
 ) -> Result<String, EmitError> {
     let tree = model.tree();
     let mut pairs = vec![label_option(label)];
@@ -87,9 +88,7 @@ fn fillet_options(
     if recipe.corner_cap.strict {
         pairs.push(("corner_cap_strict", "true".to_string()));
     }
-    if let Some(setback) = recipe.setback {
-        pairs.push(("setback", float(setback)));
-    }
+    pairs.extend(emit_feature_groups::setback_pairs(recipe, spell)?);
     match &recipe.radius_law {
         FilletRadiusLaw::Constant => {}
         FilletRadiusLaw::Linear { end } => {
@@ -386,7 +385,7 @@ pub fn statement(
             ".fillet({}, {}{})",
             spell("edges", edges, false)?,
             scalar(tree, *radius, context)?,
-            fillet_options(model, recipe, label, context)?
+            fillet_options(model, recipe, label, context, spell)?
         ),
         Feature::Chamfer {
             edges,

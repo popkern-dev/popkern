@@ -38,7 +38,8 @@ pub(super) fn execute_fillet(
     } else {
         grouped_fillet_specs(brep, edges, radius, recipe, param_table)?
     };
-    let options = recipe.to_kernel_options();
+    let mut options = recipe.to_kernel_options();
+    options.corner_setback.ends = end_setbacks(brep, edges, recipe)?;
     let pre_faces = face_census(brep);
     let result = popkern_blend::fillet_edges(brep, &specs, &options, *tolerance, Some(tracking))
         .map_err(|e| ReplayError::FeatureFailed {
@@ -116,6 +117,64 @@ fn grouped_fillet_specs(
     }
     let count = specs.len();
     Ok((specs, count))
+}
+
+/// The kernel's per-end setbacks for the recipe's groups (PK-624): each
+/// group edge's end at the corner it shares with one of the group's
+/// `at` edges. Refuses a group naming an edge outside the fillet, an
+/// edge that meets no `at` edge, or one that meets them at both ends.
+fn end_setbacks(
+    brep: &BRep,
+    edges: &[EntityName],
+    recipe: &FilletRecipeDesc,
+) -> Result<Vec<popkern_blend::EdgeEndSetback>, ReplayError> {
+    let failed = |reason: String| ReplayError::FeatureFailed {
+        label: "fillet".into(),
+        error: reason.into(),
+    };
+    let ends_of = |e: popkern_core::topology::EdgeHandle| {
+        let mut ends: Vec<_> = brep
+            .half_edges
+            .values()
+            .filter(|h| h.edge == e)
+            .map(|h| h.origin)
+            .collect();
+        ends.sort();
+        ends.dedup();
+        ends
+    };
+    let mut out = Vec::new();
+    for (g, group) in recipe.end_setbacks.iter().enumerate() {
+        if let Some(name) = group
+            .edges
+            .iter()
+            .chain(&group.at)
+            .find(|n| !edges.contains(n))
+        {
+            return Err(failed(format!(
+                "setback end group {g} names edge {name:?} outside the fillet"
+            )));
+        }
+        let at = resolve_edges(&group.at, brep)?;
+        for edge in resolve_edges(&group.edges, brep)? {
+            let corners: Vec<_> = ends_of(edge)
+                .into_iter()
+                .filter(|v| at.iter().any(|&f| f != edge && ends_of(f).contains(v)))
+                .collect();
+            let [vertex] = corners[..] else {
+                return Err(failed(format!(
+                    "setback end group {g}: edge {edge:?} meets its `at` edges at {} ends, not one",
+                    corners.len()
+                )));
+            };
+            out.push(popkern_blend::EdgeEndSetback {
+                vertex,
+                edge,
+                distance: group.distance,
+            });
+        }
+    }
+    Ok(out)
 }
 
 /// Execute a chamfer feature in place on `brep`.

@@ -38,6 +38,7 @@ pub const FILLET_OPTIONS: &[&str] = &[
     "corner_cap",
     "corner_cap_strict",
     "setback",
+    "setback_ends",
 ];
 
 /// Options a `chamfer` call accepts.
@@ -133,6 +134,58 @@ pub fn fillet_options(
         .with("law", radius_law)?
         .unwrap_or(RadiusLaw::Constant);
     Ok((recipe, law, options.label()?))
+}
+
+/// The `setback_ends` option of a fillet (PK-624): `[[edges, at,
+/// distance], …]`, each group setting back the end of each `edges` edge
+/// at the corner it shares with an `at` edge. Empty when absent.
+pub fn setback_end_selectors(
+    value: &Dynamic,
+) -> Result<
+    Vec<(
+        popkern_script::EdgeSelector,
+        popkern_script::EdgeSelector,
+        f64,
+    )>,
+    Box<EvalAltResult>,
+> {
+    let options = Options::parse("fillet", value, FILLET_OPTIONS)?;
+    let Some(groups) = options.get("setback_ends") else {
+        return Ok(Vec::new());
+    };
+    let groups = groups.clone().try_cast::<rhai::Array>().ok_or_else(|| {
+        argument_error(
+            "setback_ends",
+            "setback_ends must be a list of [edges, at, distance]",
+        )
+    })?;
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, group)| {
+            let shape = || {
+                argument_error(
+                    "setback_ends",
+                    format!(
+                        "setback_ends group {i} must be [edge selector, edge selector, distance]"
+                    ),
+                )
+            };
+            let triple = group.try_cast::<rhai::Array>().ok_or_else(shape)?;
+            let [edges, at, distance] = &triple[..] else {
+                return Err(shape());
+            };
+            let edges = edges
+                .clone()
+                .try_cast::<popkern_script::EdgeSelector>()
+                .ok_or_else(shape)?;
+            let at = at
+                .clone()
+                .try_cast::<popkern_script::EdgeSelector>()
+                .ok_or_else(shape)?;
+            Ok((edges, at, args::float("setback_ends", distance)?))
+        })
+        .collect()
 }
 
 /// The chamfer kind and label from an options map.

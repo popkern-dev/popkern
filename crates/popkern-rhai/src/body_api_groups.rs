@@ -32,7 +32,14 @@ impl ScriptBody {
             let radius = args::scalar("radius", &pair[1])?;
             parsed.push((selector, radius));
         }
-        let (recipe, law, label) = fillet_options(options)?;
+        let (mut recipe, law, label) = fillet_options(options)?;
+        recipe.end_setbacks = self
+            .body
+            .setback_ends(
+                &mut self.model.borrow_mut(),
+                crate::recipe_api::setback_end_selectors(options)?,
+            )
+            .script()?;
         if law != popkern_script::RadiusLaw::Constant {
             return Err(
                 "fillet_each: radius laws are per fillet; fillet_each groups take constant radii"

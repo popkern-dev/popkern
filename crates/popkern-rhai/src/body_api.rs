@@ -90,7 +90,14 @@ impl ScriptBody {
         options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
         let radius = args::scalar("radius", &radius)?;
-        let (recipe, law, label) = fillet_options(options)?;
+        let (mut recipe, law, label) = fillet_options(options)?;
+        recipe.end_setbacks = self
+            .body
+            .setback_ends(
+                &mut self.model.borrow_mut(),
+                crate::recipe_api::setback_end_selectors(options)?,
+            )
+            .script()?;
         let body = self
             .body
             .fillet_law(

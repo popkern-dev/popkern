@@ -62,6 +62,26 @@ pub struct FilletRecipeDesc {
     /// when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setback: Option<f64>,
+    /// Per-end setbacks (PK-624): each group sets back the end of each of
+    /// its `edges` that meets one of its `at` edges, overriding
+    /// `setback` there. Omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub end_setbacks: Vec<EndSetbackGroup>,
+}
+
+/// One per-end setback group of a fillet (PK-624): the end of each
+/// `edges` edge it shares with an `at` edge (the corner where they meet)
+/// is set back `distance`. Edge ends are named through edges, which
+/// carry stable names; both lists are edges of the same fillet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EndSetbackGroup {
+    /// The edges whose ends are set back.
+    pub edges: Vec<EntityName>,
+    /// The edges naming the corner: an `edges` edge's end at a corner it
+    /// shares with one of these.
+    pub at: Vec<EntityName>,
+    /// The setback distance (model units).
+    pub distance: f64,
 }
 
 /// A fillet's corner-cap preference (mirrors
@@ -344,8 +364,14 @@ impl FilletRecipeDesc {
     /// (PK-623): a non-positive distance, a mitred corner (no setback),
     /// or the classic corner paths (they do not set rounds back).
     pub fn setback_conflict(&self) -> Option<&'static str> {
-        let distance = self.setback?;
-        if !(distance.is_finite() && distance > 0.0) {
+        if self.setback.is_none() && self.end_setbacks.is_empty() {
+            return None;
+        }
+        let distances = self
+            .setback
+            .iter()
+            .chain(self.end_setbacks.iter().map(|g| &g.distance));
+        if distances.copied().any(|d| !(d.is_finite() && d > 0.0)) {
             return Some("a setback must be a positive distance");
         }
         if self.corner == CornerModeDesc::Mitre {

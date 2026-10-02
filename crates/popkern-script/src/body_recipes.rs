@@ -269,12 +269,35 @@ impl Body {
             argument: "groups".into(),
             reason: "no group selected an edge".into(),
         })?;
+        check_end_setbacks(&recipe, &edges)?;
         let feature = Feature::Fillet {
             edges,
             radius,
             recipe,
         };
         self.record(model, feature, label, records)
+    }
+
+    /// Per-end setback groups (PK-624) from `(edges, at, distance)`
+    /// selector triples, resolved on this body: the end of each `edges`
+    /// edge at the corner it shares with an `at` edge is set back
+    /// `distance`. Put them in `recipe.end_setbacks` before recording the
+    /// fillet; both selections must be edges of that fillet.
+    pub fn setback_ends(
+        self,
+        model: &mut Model,
+        groups: Vec<(EdgeSelector, EdgeSelector, f64)>,
+    ) -> Result<Vec<popkern_history::feature_blend::EndSetbackGroup>, ScriptError> {
+        groups
+            .into_iter()
+            .map(|(edges, at, distance)| {
+                Ok(popkern_history::feature_blend::EndSetbackGroup {
+                    edges: self.edges(model, &edges)?.names,
+                    at: self.edges(model, &at)?.names,
+                    distance,
+                })
+            })
+            .collect()
     }
 
     /// Chamfer with an explicit kind and label.
@@ -410,6 +433,33 @@ impl Body {
         };
         self.record(model, Feature::Transform { motion }, label, records)
     }
+}
+
+/// Refuse per-end setback groups (PK-624) that select nothing or name
+/// an edge outside the fillet, before anything is recorded.
+pub(crate) fn check_end_setbacks(
+    recipe: &FilletRecipeDesc,
+    fillet: &[EntityName],
+) -> Result<(), ScriptError> {
+    for (g, group) in recipe.end_setbacks.iter().enumerate() {
+        let reason = if group.edges.is_empty() || group.at.is_empty() {
+            Some(format!("setback end group {g} selects no edge"))
+        } else {
+            group
+                .edges
+                .iter()
+                .chain(&group.at)
+                .any(|n| !fillet.contains(n))
+                .then(|| format!("setback end group {g} selects an edge the fillet does not round"))
+        };
+        if let Some(reason) = reason {
+            return Err(ScriptError::Argument {
+                argument: "setback_ends".into(),
+                reason,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Refuse a corner-cap preference (PK-603) or a corner setback
