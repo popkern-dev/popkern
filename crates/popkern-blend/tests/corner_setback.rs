@@ -221,3 +221,27 @@ fn invalid_setbacks_are_refused_before_any_geometry() {
         VertexMode::Smooth
     )));
 }
+
+#[test]
+fn two_setbacks_on_one_edge_must_not_overlap() {
+    // Every edge of the unit cube rounded: each edge runs between two
+    // corners of three rounds, so a 0.6 setback at both ends would
+    // overlap. Each end's room is 1.0 - 0.6.
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let specs: Vec<FilletSpec> = cube
+        .edges
+        .keys()
+        .map(|edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let options = FilletOptions {
+        corner_setback: CornerSetback::uniform(0.6),
+        ..Default::default()
+    };
+    let result = fillet_edges(&cube, &specs, &options, Tolerance::default(), None);
+    let (_, requested, _, maximum) = out_of_range(&result).expect("overlapping setbacks refused");
+    assert_eq!(requested, 0.6);
+    assert!((maximum - 0.4).abs() < 1e-6, "room {maximum}");
+}

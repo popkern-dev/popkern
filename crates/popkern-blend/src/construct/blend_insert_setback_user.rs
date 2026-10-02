@@ -48,7 +48,9 @@ impl CornerRequest {
 pub(crate) struct UserSetback {
     pub stations: Vec<Option<f64>>,
     pub edges: Vec<EdgeHandle>,
-    /// Each edge's length on the input body.
+    /// Each round's room along its edge on the input body: the edge's
+    /// length, less the far end's user setback when that end is also a
+    /// setback corner.
     pub edge_lengths: Vec<f64>,
     /// Whether an override names this corner (a uniform setback alone
     /// leaves corners the rung does not reach untouched).
@@ -71,11 +73,35 @@ impl UserSetback {
             .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
             .collect();
         let stations: Vec<Option<f64>> = edges.iter().map(|&e| setback.at(vertex, e)).collect();
+        // Each round's room along its edge: the edge's length, less the
+        // user setback at its far end when that end is also a corner of
+        // three or more rounds (two setbacks on one edge must not overlap).
+        let room = |&(i, e): &(usize, EdgeHandle)| {
+            let length = edge_length(input, e).unwrap_or(f64::INFINITY);
+            let Some(analysis) = edge_geometries.get(i).map(|g| &g.analysis) else {
+                return length;
+            };
+            let far = if analysis.vertex_start == vertex {
+                analysis.vertex_end
+            } else {
+                analysis.vertex_start
+            };
+            let rounds_at_far = edge_geometries
+                .iter()
+                .filter(|g| g.analysis.vertex_start == far || g.analysis.vertex_end == far)
+                .count();
+            match setback.at(far, e) {
+                Some(d) if rounds_at_far >= 3 => length - d,
+                _ => length,
+            }
+        };
         stations.iter().any(Option::is_some).then(|| UserSetback {
             stations,
-            edge_lengths: edges
+            edge_lengths: edge_indices
                 .iter()
-                .map(|&e| edge_length(input, e).unwrap_or(f64::INFINITY))
+                .copied()
+                .zip(edges.iter().copied())
+                .map(|pair| room(&pair))
                 .collect(),
             edges,
             named: setback.names_vertex(vertex),
