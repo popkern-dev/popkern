@@ -249,6 +249,57 @@ fn script_sits_above_part_and_history() {
     }
 }
 
+/// `popkern-assembly` is the product-structure tier above the recorder
+/// (design `docs/architecture/assemblies.md` §3): a part definition is
+/// a recorded `Model`, so the tier depends on `popkern-script`; nothing
+/// at or below the recorder may depend on it, and it never reaches up
+/// to a skin or host.
+#[test]
+fn assembly_sits_above_script() {
+    let cargo_toml =
+        fs::read_to_string(workspace_root().join("crates/popkern-assembly/Cargo.toml"))
+            .expect("Could not read popkern-assembly/Cargo.toml");
+    assert!(
+        declares_dependency(&cargo_toml, "popkern-script"),
+        "popkern-assembly must depend on popkern-script"
+    );
+    for above in [
+        "popkern-rhai",
+        "popkern-cli",
+        "popkern-playground",
+        "popkern-viz",
+    ] {
+        assert!(
+            !declares_dependency(&cargo_toml, above),
+            "popkern-assembly must not depend on {above}"
+        );
+    }
+    for below in [
+        "popkern-core",
+        "popkern-constraint",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-blend",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+        "popkern-sketch",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-assembly"),
+            "{below} must not depend on popkern-assembly (assemblies sit above the recorder)"
+        );
+    }
+}
+
 /// `popkern-rhai` is a skin over `popkern-script`: it may depend on the
 /// recorder and the facades it re-exports, never on the native viewer,
 /// and nothing below the recorder may depend on it.
@@ -281,6 +332,7 @@ fn rhai_sits_above_script() {
         "popkern-part",
         "popkern-history",
         "popkern-script",
+        "popkern-assembly",
     ] {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
             .unwrap_or_default();
@@ -321,6 +373,7 @@ fn cli_sits_above_rhai() {
         "popkern-part",
         "popkern-history",
         "popkern-script",
+        "popkern-assembly",
         "popkern-rhai",
         "popkern-playground",
         "popkern-examples",
@@ -369,6 +422,7 @@ fn playground_sits_above_rhai() {
         "popkern-part",
         "popkern-history",
         "popkern-script",
+        "popkern-assembly",
         "popkern-rhai",
     ] {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))

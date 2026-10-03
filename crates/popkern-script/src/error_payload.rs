@@ -220,6 +220,9 @@ fn history_payload(error: &HistoryError) -> Value {
         HistoryError::SerializeError(detail) => json!({
             "kind": "DocumentError", "reason": "serialization", "detail": detail,
         }),
+        HistoryError::AssemblyDocument => {
+            json!({ "kind": "DocumentError", "reason": "assembly_document" })
+        }
         HistoryError::UnsupportedVersion {
             file_version,
             min_supported,

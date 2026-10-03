@@ -11,6 +11,7 @@ use crate::step::document::{
     AngleUnit, LengthUnit, RepresentationContext, ShapeRepKind, StepDocument,
 };
 use crate::step::export::{ExportContext, enum_, int, list, real, ref_, str_param};
+use crate::step::export_assembly::AssemblyStructure;
 use crate::step::parser::types::EntityId;
 
 impl ExportContext {
@@ -50,8 +51,24 @@ impl ExportContext {
             vec![str_param(""), ref_(ac_id), str_param("mechanical")],
         );
 
+        // Product-structure roles: a product placed under a parent
+        // needs an origin axis in its representation (the
+        // ITEM_DEFINED_TRANSFORMATION's first item), and a parent
+        // needs one placement axis per child in its own (the second
+        // item). A product with neither role exports exactly as
+        // before — a single part stays byte-identical.
+        let mut is_child = vec![false; doc.products.len()];
+        for product in &doc.products {
+            for child in &product.children {
+                if let Some(flag) = is_child.get_mut(child.product_index) {
+                    *flag = true;
+                }
+            }
+        }
+
         // Emit each product
         let mut product_def_ids: Vec<EntityId> = Vec::new();
+        let mut structure = AssemblyStructure::default();
         for (i, product) in doc.products.iter().enumerate() {
             let shape_items = shape_item_ids.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
 
@@ -85,15 +102,31 @@ impl ExportContext {
                 vec![str_param(""), str_param(""), ref_(pd_id)],
             );
 
+            let mut items: Vec<EntityId> = shape_items.to_vec();
+            let origin = is_child
+                .get(i)
+                .copied()
+                .unwrap_or(false)
+                .then(|| self.export_transform_axis(&Transform3::identity()));
+            items.extend(origin);
+            let child_axes: Vec<EntityId> = product
+                .children
+                .iter()
+                .map(|child| self.export_transform_axis(&child.transform))
+                .collect();
+            items.extend(child_axes.iter().copied());
+
             // Build SHAPE_REPRESENTATION containing the solid items
-            if !shape_items.is_empty() {
-                let items: Vec<_> = shape_items.iter().map(|&id| ref_(id)).collect();
+            let mut rep = None;
+            if !items.is_empty() {
+                let refs: Vec<_> = items.iter().map(|&id| ref_(id)).collect();
 
                 // Determine the representation type name
-                let rep_type = if product
-                    .shapes
-                    .iter()
-                    .any(|s| s.kind == ShapeRepKind::AdvancedBrep)
+                let rep_type = if !shape_items.is_empty()
+                    && product
+                        .shapes
+                        .iter()
+                        .any(|s| s.kind == ShapeRepKind::AdvancedBrep)
                     && !items_include_surface_model(self, shape_items)
                 {
                     "ADVANCED_BREP_SHAPE_REPRESENTATION"
@@ -101,7 +134,8 @@ impl ExportContext {
                     "SHAPE_REPRESENTATION"
                 };
 
-                let sr_id = self.emit(rep_type, vec![str_param(""), list(items), ref_(ctx_id)]);
+                let sr_id = self.emit(rep_type, vec![str_param(""), list(refs), ref_(ctx_id)]);
+                rep = Some(sr_id);
 
                 // SHAPE_DEFINITION_REPRESENTATION
                 self.emit(
@@ -109,38 +143,12 @@ impl ExportContext {
                     vec![ref_(pds_id), ref_(sr_id)],
                 );
             }
+            structure.reps.push(rep);
+            structure.origins.push(origin);
+            structure.child_axes.push(child_axes);
         }
 
-        // Export assembly relationships
-        for (i, product) in doc.products.iter().enumerate() {
-            let parent_pd = product_def_ids[i];
-            for child in &product.children {
-                if child.product_index >= product_def_ids.len() {
-                    continue;
-                }
-                let child_pd = product_def_ids[child.product_index];
-
-                let instance_name = child.instance_name.as_deref().unwrap_or("");
-
-                // NEXT_ASSEMBLY_USAGE_OCCURRENCE
-                let nauo_id = self.emit(
-                    "NEXT_ASSEMBLY_USAGE_OCCURRENCE",
-                    vec![
-                        str_param(""),
-                        str_param(instance_name),
-                        str_param(""),
-                        ref_(parent_pd),
-                        ref_(child_pd),
-                    ],
-                );
-
-                // If non-identity transform, emit placement
-                if !is_identity(&child.transform) {
-                    self.export_assembly_transform(nauo_id, &child.transform);
-                }
-            }
-        }
-
+        self.export_assembly_relationships(doc, &product_def_ids, &structure);
         Ok(())
     }
 
@@ -268,20 +276,6 @@ impl ExportContext {
             });
         id
     }
-
-    /// Emit entities for an assembly child placement transform.
-    fn export_assembly_transform(&mut self, _nauo_id: EntityId, transform: &Transform3) {
-        let m = &transform.matrix;
-
-        // Extract origin (translation column)
-        let origin = popkern_core::geometry::Point3::new(m[0][3], m[1][3], m[2][3]);
-        // Extract Z axis (3rd column of rotation)
-        let z = popkern_core::geometry::Vec3::new(m[0][2], m[1][2], m[2][2]);
-        // Extract X axis (1st column of rotation)
-        let x = popkern_core::geometry::Vec3::new(m[0][0], m[1][0], m[2][0]);
-
-        self.export_placement(&origin, &z, &x);
-    }
 }
 
 fn items_include_surface_model(ctx: &ExportContext, item_ids: &[EntityId]) -> bool {
@@ -290,19 +284,6 @@ fn items_include_surface_model(ctx: &ExportContext, item_ids: &[EntityId]) -> bo
             .iter()
             .any(|entity| entity.id == *item_id && entity.type_name == "SHELL_BASED_SURFACE_MODEL")
     })
-}
-
-/// Check if a transform is the identity (no rotation, no translation).
-fn is_identity(t: &Transform3) -> bool {
-    let id = Transform3::identity();
-    for r in 0..4 {
-        for c in 0..4 {
-            if (t.matrix[r][c] - id.matrix[r][c]).abs() > 1e-15 {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 #[cfg(test)]
@@ -405,12 +386,6 @@ mod tests {
 
         assert_eq!(count("PRODUCT"), 2);
         assert_eq!(count("NEXT_ASSEMBLY_USAGE_OCCURRENCE"), 1);
-    }
-
-    #[test]
-    fn is_identity_check() {
-        assert!(is_identity(&Transform3::identity()));
-        assert!(!is_identity(&Transform3::translation(1.0, 0.0, 0.0)));
     }
 
     #[test]

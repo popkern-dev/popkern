@@ -35,6 +35,12 @@ pub enum HistoryError {
         /// Newest version this build can read (the one it writes).
         max_supported: u32,
     },
+    /// The file is an assembly document (`.pkn` version 5 carries
+    /// `assembly` in place of `tree`): it holds several part
+    /// documents and their placements, and opens through
+    /// `popkern_assembly::Document`, not as one feature tree.
+    #[error("this .pkn is an assembly document, not a single feature tree: open it as an assembly")]
+    AssemblyDocument,
     /// The file records an entity-naming scheme this build cannot read
     /// (newer than [`popkern_core::naming::NAMING_SCHEME_VERSION`], or one
     /// with no migration).

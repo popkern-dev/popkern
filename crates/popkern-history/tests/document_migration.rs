@@ -1,6 +1,8 @@
-//! `.pkn` load-migration gate (design row 1h, E4): a document written by
-//! the version-3 writer loads under the version-4 reader, replays to the
-//! body the same recipe builds today, and re-saves at version 4.
+//! `.pkn` load-migration gate (design row 1h, E4; PK-629 version 5):
+//! documents written by the version-3 and version-4 writers load under
+//! the current reader, replay to the body the same recipe builds today,
+//! and re-save at the current version; an assembly document is refused
+//! as one tree with a typed error.
 
 mod support;
 
@@ -12,6 +14,10 @@ use popkern_history::{
 
 /// Frozen bytes from the version-3 writer (see `support::author_reference_document`).
 const VERSION_3_DOCUMENT: &[u8] = include_bytes!("fixtures/reference-document-v3.pkn");
+
+/// Frozen bytes from the version-4 writer: the same builder saved at
+/// commit 4bb55614, before the version-5 envelope (PK-629).
+const VERSION_4_DOCUMENT: &[u8] = include_bytes!("fixtures/reference-document-v4.pkn");
 
 fn sorted_vertices(brep: &BRep) -> Vec<[f64; 3]> {
     let mut pts: Vec<[f64; 3]> = brep
@@ -51,11 +57,11 @@ fn fixture_is_a_version_3_document() {
         "v3 had no tolerance attribute"
     );
     assert_eq!(MIN_SUPPORTED_VERSION, 3);
-    assert_eq!(CURRENT_VERSION, 4);
+    assert_eq!(CURRENT_VERSION, 5);
 }
 
 #[test]
-fn version_3_document_loads_and_replays_clean_under_the_version_4_reader() {
+fn version_3_document_loads_and_replays_clean_under_the_current_reader() {
     let mut loaded = FeatureTree::load(VERSION_3_DOCUMENT).expect("v3 loads");
 
     // Defaults for every field added since version 3.
@@ -114,10 +120,10 @@ fn migrated_document_resaves_at_the_current_version_and_round_trips() {
 
     let bytes = loaded.save().expect("save");
     let text = String::from_utf8_lossy(&bytes);
-    assert!(text.starts_with("{\"version\":4,"), "{}", &text[..40]);
+    assert!(text.starts_with("{\"version\":5,"), "{}", &text[..40]);
     assert!(text.contains("\"naming_scheme\":1"));
 
-    let mut again = FeatureTree::load(&bytes).expect("v4 loads");
+    let mut again = FeatureTree::load(&bytes).expect("v5 loads");
     again.replay(Tolerance::default()).expect("replay");
     let again_body = again.current_brep().expect("body");
     assert_eq!(sorted_vertices(again_body), sorted_vertices(&body));
@@ -129,7 +135,7 @@ fn versions_outside_the_supported_range_are_refused() {
     let text = String::from_utf8_lossy(VERSION_3_DOCUMENT);
     for (version, bumped) in [
         (2, text.replacen("\"version\":3", "\"version\":2", 1)),
-        (5, text.replacen("\"version\":3", "\"version\":5", 1)),
+        (6, text.replacen("\"version\":3", "\"version\":6", 1)),
     ] {
         match FeatureTree::load(bumped.as_bytes()) {
             Err(HistoryError::UnsupportedVersion {
@@ -139,10 +145,49 @@ fn versions_outside_the_supported_range_are_refused() {
             }) => {
                 assert_eq!(
                     (file_version, min_supported, max_supported),
-                    (version, 3, 4)
+                    (version, 3, 5)
                 );
             }
             other => panic!("version {version}: expected UnsupportedVersion, got {other:?}"),
         }
     }
+}
+
+#[test]
+fn version_4_document_loads_and_replays_to_the_same_body() {
+    let text = String::from_utf8_lossy(VERSION_4_DOCUMENT);
+    assert!(text.starts_with("{\"version\":4,"), "fixture must stay v4");
+    assert!(
+        !text.contains("\"assembly\""),
+        "v4 had no assembly envelope"
+    );
+    let mut loaded = FeatureTree::load(VERSION_4_DOCUMENT).expect("v4 loads");
+    let result = loaded.replay(Tolerance::default()).expect("replay");
+    let body = loaded.current_brep().expect("body").clone();
+    let mut fresh = support::author_reference_document();
+    let fresh_result = fresh.replay(Tolerance::default()).expect("replay");
+    assert_eq!(
+        sorted_vertices(&body),
+        sorted_vertices(fresh.current_brep().expect("body"))
+    );
+    assert_eq!(outcomes(&loaded, &result), outcomes(&fresh, &fresh_result));
+    let resaved = loaded.save().expect("save");
+    assert!(String::from_utf8_lossy(&resaved).starts_with("{\"version\":5,"));
+}
+
+#[test]
+fn an_assembly_document_is_refused_as_one_tree() {
+    let assembly =
+        br#"{"version":5,"naming_scheme":1,"assembly":{"name":"a","definitions":[],"root":[]}}"#;
+    match FeatureTree::load(assembly) {
+        Err(HistoryError::AssemblyDocument) => {}
+        other => panic!("expected AssemblyDocument, got {other:?}"),
+    }
+    // A version-4 reader saw neither key it knows: still a typed
+    // refusal, by version, for the same bytes.
+    let neither = br#"{"version":5,"naming_scheme":1}"#;
+    assert!(matches!(
+        FeatureTree::load(neither),
+        Err(HistoryError::SerializeError(_))
+    ));
 }

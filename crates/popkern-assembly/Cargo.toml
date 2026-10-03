@@ -1,0 +1,19 @@
+[package]
+name = "popkern-assembly"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Assemblies: part definitions built once and placed as named rigid instances (product structure above the scripting recorder)"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-history = { path = "../popkern-history" }
+popkern-part = { path = "../popkern-part" }
+popkern-io = { path = "../popkern-io" }
+popkern-script = { path = "../popkern-script" }
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+popkern-part = { path = "../popkern-part" }

@@ -34,12 +34,17 @@ use crate::error::HistoryError;
 ///
 /// Version history (the compatibility policy is
 /// `docs/decisions/2026-08-30-pkn-format-compatibility-policy.md`):
+/// - **5** (2026-10-03, PK-629): the envelope carries EITHER `tree`
+///   (a part document, unchanged) OR `assembly` (part definitions and
+///   placed instances, `popkern-assembly`). Bumped so a version-4
+///   reader refuses an assembly by version instead of failing on the
+///   missing `tree`; part documents differ only in the number.
 /// - **4** (2026-08-30): `naming_scheme` envelope field; label table,
 ///   auto-label counters and build tolerance on the tree; `RawBody`,
 ///   `Transform`, analytic sketches, draft literal planes, full fillet
 ///   recipes. Every field defaults, so version-3 documents load.
 /// - **3**: the format before the scripted-modeling campaign.
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 5;
 
 /// Oldest document format version [`FeatureTree::load`] reads.
 pub const MIN_SUPPORTED_VERSION: u32 = 3;
@@ -71,8 +76,12 @@ struct PknDocumentIn {
     /// when absent).
     #[serde(default = "unrecorded_naming_scheme")]
     naming_scheme: u32,
-    /// The feature tree payload.
-    tree: FeatureTree,
+    /// The feature tree payload; absent in an assembly document.
+    #[serde(default)]
+    tree: Option<FeatureTree>,
+    /// Present (and not read here) in an assembly document.
+    #[serde(default)]
+    assembly: Option<serde::de::IgnoredAny>,
 }
 
 fn unrecorded_naming_scheme() -> u32 {
@@ -132,6 +141,8 @@ impl FeatureTree {
     /// - [`HistoryError::UnsupportedVersion`] — file was written by a different build.
     /// - [`HistoryError::UnsupportedNamingScheme`] — the file's entity names
     ///   were minted under a scheme this build cannot read.
+    /// - [`HistoryError::AssemblyDocument`] — the file is an assembly
+    ///   (several part documents), not one tree.
     pub fn load(data: &[u8]) -> Result<Self, HistoryError> {
         let doc: PknDocumentIn = serde_json::from_slice(data)
             .map_err(|e| HistoryError::SerializeError(e.to_string()))?;
@@ -146,7 +157,15 @@ impl FeatureTree {
 
         check_naming_scheme(doc.naming_scheme)?;
 
-        let mut tree = doc.tree;
+        let mut tree = match (doc.tree, doc.assembly) {
+            (Some(tree), _) => tree,
+            (None, Some(_)) => return Err(HistoryError::AssemblyDocument),
+            (None, None) => {
+                return Err(HistoryError::SerializeError(
+                    "missing field `tree`".to_string(),
+                ));
+            }
+        };
         tree.rebuild_indices();
         tree.enforce_unique_feature_labels();
         Ok(tree)

@@ -7,6 +7,7 @@
 //! - [`presentation`] — colors, layers, and visual metadata
 
 pub mod geometry;
+pub(crate) mod occurrence;
 pub mod presentation;
 pub mod product;
 pub mod topology;

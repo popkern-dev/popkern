@@ -18,6 +18,7 @@ use crate::step::document::{
     AssemblyChild, RepresentationContext, ShapeRep, ShapeRepKind, StepProductNode,
 };
 use crate::step::mapping::geometry::GeometryCache;
+use crate::step::mapping::occurrence::{OccurrenceIndex, occurrence_name};
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
 use crate::step::schema::product::{
@@ -47,7 +48,7 @@ pub fn map_products(
     }
 
     // 1. Find all PRODUCT_DEFINITION entities and trace to PRODUCT
-    let pd_ids: Vec<(EntityId, ProductDefinition)> = graph
+    let mut pd_ids: Vec<(EntityId, ProductDefinition)> = graph
         .iter()
         .filter_map(|(&id, e)| {
             if e.type_name == "PRODUCT_DEFINITION" {
@@ -59,6 +60,9 @@ pub fn map_products(
             }
         })
         .collect();
+    // File order (entity id), not hash order: product and child order
+    // must be the same on every import of the same file.
+    pd_ids.sort_unstable_by_key(|(id, _)| *id);
 
     for (pd_id, pd) in &pd_ids {
         // Trace PD → PDF → PRODUCT
@@ -77,16 +81,22 @@ pub fn map_products(
     }
 
     // 2. Link shapes: PD_SHAPE → SDR → shape_rep → BRep solids
-    let sdr_list: Vec<ShapeDefinitionRepresentation> = graph
+    let mut sdr_list: Vec<(EntityId, ShapeDefinitionRepresentation)> = graph
         .iter()
-        .filter_map(|(_, e)| {
+        .filter_map(|(&id, e)| {
             if e.type_name == "SHAPE_DEFINITION_REPRESENTATION" {
-                ShapeDefinitionRepresentation::from_params(&e.params).ok()
+                ShapeDefinitionRepresentation::from_params(&e.params)
+                    .ok()
+                    .map(|sdr| (id, sdr))
             } else {
                 None
             }
         })
         .collect();
+    sdr_list.sort_unstable_by_key(|(id, _)| *id);
+    // Each product's own representations: an occurrence relationship
+    // is read against them to tell child from parent.
+    let mut product_reps: Vec<HashSet<EntityId>> = vec![HashSet::new(); products.len()];
 
     // Also build PD_SHAPE → PD index
     let pds_to_pd: HashMap<EntityId, EntityId> = graph
@@ -102,7 +112,7 @@ pub fn map_products(
         })
         .collect();
 
-    for sdr in &sdr_list {
+    for (_, sdr) in &sdr_list {
         // sdr.definition → PD_SHAPE → PD
         let pd_id = match pds_to_pd.get(&sdr.definition) {
             Some(&pd_id) => pd_id,
@@ -115,6 +125,9 @@ pub fn map_products(
 
         // Find which rep this is and what kind
         let rep_id = sdr.used_representation;
+        if let Some(reps) = product_reps.get_mut(product_idx) {
+            reps.insert(rep_id);
+        }
         let rep_entity = match graph.get(rep_id) {
             Some(e) => e,
             None => continue,
@@ -154,7 +167,7 @@ pub fn map_products(
     }
 
     // 3. Assembly relationships via NEXT_ASSEMBLY_USAGE_OCCURRENCE
-    let nauo_list: Vec<(EntityId, NextAssemblyUsageOccurrence)> = graph
+    let mut nauo_list: Vec<(EntityId, NextAssemblyUsageOccurrence)> = graph
         .iter()
         .filter_map(|(&id, e)| {
             if e.type_name == "NEXT_ASSEMBLY_USAGE_OCCURRENCE" {
@@ -166,22 +179,25 @@ pub fn map_products(
             }
         })
         .collect();
+    nauo_list.sort_unstable_by_key(|(id, _)| *id);
 
+    let occurrences = OccurrenceIndex::build(graph);
     let mut child_pds: HashSet<EntityId> = HashSet::new();
-    for (_nauo_id, nauo) in &nauo_list {
+    for (nauo_id, nauo) in &nauo_list {
         let parent_idx = pd_to_index.get(&nauo.relating).copied();
         let child_idx = pd_to_index.get(&nauo.related).copied();
 
         if let (Some(pi), Some(ci)) = (parent_idx, child_idx) {
             child_pds.insert(nauo.related);
 
-            // Try to resolve transform from REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION
-            let transform = resolve_nauo_transform(graph, geo, nauo, log);
+            let transform = occurrences
+                .placement(graph, geo, *nauo_id, &product_reps[ci], log)
+                .unwrap_or_else(Transform3::identity);
 
             products[pi].children.push(AssemblyChild {
                 product_index: ci,
                 transform,
-                instance_name: nauo.reference_designator.clone(),
+                instance_name: occurrence_name(nauo),
             });
         }
     }
@@ -223,22 +239,6 @@ fn resolve_product_info(
     }
 
     (pd.id.clone(), pd.id.clone())
-}
-
-/// Attempt to resolve the assembly transform for a NAUO.
-///
-/// This is a simplified version that returns identity when no transform is found.
-fn resolve_nauo_transform(
-    _graph: &EntityGraph,
-    _geo: &mut GeometryCache<'_>,
-    _nauo: &NextAssemblyUsageOccurrence,
-    _log: &mut DiagnosticLog,
-) -> Transform3 {
-    // Full implementation would trace:
-    // NAUO → CONTEXT_DEPENDENT_SHAPE_REPRESENTATION → REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION
-    // → ITEM_DEFINED_TRANSFORMATION → two AXIS2_PLACEMENT_3D → compute relative transform
-    // For now, return identity.
-    Transform3::identity()
 }
 
 #[cfg(test)]

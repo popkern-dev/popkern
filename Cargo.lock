@@ -3281,6 +3281,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 
 [[package]]
+name = "popkern-assembly"
+version = "0.1.0"
+dependencies = [
+ "popkern-core",
+ "popkern-history",
+ "popkern-io",
+ "popkern-part",
+ "popkern-script",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-blend"
 version = "0.1.0"
 dependencies = [

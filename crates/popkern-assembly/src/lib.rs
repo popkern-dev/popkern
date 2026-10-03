@@ -1,0 +1,52 @@
+//! `popkern-assembly` — product structure above the scripting recorder.
+//!
+//! An [`Assembly`] is a document of **part definitions** (each a
+//! recorded [`popkern_script::Model`], built once) and **instances**:
+//! named, rigidly [`Placement`]-ed occurrences of a definition,
+//! nestable through sub-assembly definitions. Geometry lives only in
+//! definitions; [`Assembly::flatten`] moves bodies to world
+//! coordinates on demand (export as one solid, interference,
+//! cross-part booleans). Exports keep the structure: STEP writes a
+//! product per definition and an occurrence per instance
+//! ([`Assembly::to_step_bytes`]); `.pkn` version 5 carries the tree
+//! ([`Assembly::to_pkn_bytes`], [`Document::from_pkn_bytes`]).
+//!
+//! The design (invariants, wire forms, the popkern live tree, the
+//! stage 2–3 families, interference, mates and STEP import) is
+//! `docs/architecture/assemblies.md`.
+//!
+//! ```no_run
+//! # use popkern_assembly::{Assembly, Parent, Placement};
+//! # fn ball() -> popkern_script::Model { unimplemented!() }
+//! let mut asm = Assembly::new("bearing");
+//! let ball = asm.add_part("ball", ball())?;          // built once
+//! for i in 0..8 {
+//!     let a = i as f64 * std::f64::consts::TAU / 8.0;
+//!     let at = Placement::translation(0.7 * a.cos(), 0.7 * a.sin(), 0.0);
+//!     asm.place(Parent::Root, ball, Some(&format!("ball_{i}")), at)?;
+//! }
+//! let step = asm.to_step_bytes("bearing")?;          // one solid, eight occurrences
+//! # Ok::<(), popkern_assembly::AssemblyError>(())
+//! ```
+
+#![forbid(unsafe_code)]
+
+pub mod assembly;
+pub mod document;
+pub mod error;
+pub mod family;
+pub mod flatten;
+pub mod names;
+pub mod placement;
+pub mod step;
+pub mod tree;
+
+pub use assembly::{
+    Assembly, Definition, DefinitionContent, DefinitionId, Instance, InstanceRef, Parent, TreeRow,
+};
+pub use document::{Document, FIRST_ASSEMBLY_VERSION};
+pub use error::AssemblyError;
+pub use family::{FamilyVariant, ParamValue};
+pub use flatten::FlatBody;
+pub use names::{InstancePath, entity_path, validate_name};
+pub use placement::{Placement, RIGID_TOLERANCE};
