@@ -7,9 +7,12 @@
 //! file's `NEXT_ASSEMBLY_USAGE_OCCURRENCE` count, solids recorded
 //! against the file's `MANIFOLD_SOLID_BREP` count, refused solids and
 //! occurrences, part occurrences against OpenCASCADE's (XCAF, when the
-//! OCP oracle is installed), and how many part bodies tessellate
-//! watertight. Prints a markdown table (and writes it to the report
-//! path when given).
+//! OCP oracle is installed), how many part bodies tessellate
+//! watertight, and how many of those match a solid OpenCASCADE reads
+//! from the file (same face count, volume within 1.5 %; PK-649 — a
+//! watertight mesh of the wrong region or winding is not correct).
+//! Prints a markdown table (and writes it to the report path when
+//! given).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -30,6 +33,8 @@ struct Row {
     refused_instances: usize,
     bodies: usize,
     watertight: usize,
+    /// Watertight bodies matching an OCC solid; `None` without the oracle.
+    volume_matched: Option<usize>,
     ms: u128,
 }
 
@@ -47,6 +52,62 @@ fn occ_occurrences(path: &Path) -> Option<usize> {
     let out = Command::new(python).arg(script).arg(path).output().ok()?;
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
     report["instances"].as_array().map(Vec::len)
+}
+
+/// Every solid OpenCASCADE reads from the file as (faces, volume);
+/// `None` when the OCP oracle is not installed.
+fn occ_solids(path: &Path) -> Option<Vec<(usize, f64)>> {
+    let python = PathBuf::from(std::env::var("HOME").ok()?).join("venvs/ocp/bin/python");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/occ-oracle/occ_solids.py");
+    if !python.exists() {
+        return None;
+    }
+    let out = Command::new(python).arg(script).arg(path).output().ok()?;
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let rows = report["solids"].as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|r| Some((r["faces"].as_u64()? as usize, r["volume"].as_f64()?)))
+            .collect(),
+    )
+}
+
+/// The mesh's enclosed volume (outward winding positive).
+fn mesh_volume(mesh: &popkern_mesh::TriMesh) -> f64 {
+    mesh.triangles
+        .iter()
+        .map(|t| {
+            let (a, b, c) = (
+                mesh.vertices[t[0]].position,
+                mesh.vertices[t[1]].position,
+                mesh.vertices[t[2]].position,
+            );
+            (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                + a.z * (b.x * c.y - b.y * c.x))
+                / 6.0
+        })
+        .sum()
+}
+
+/// Whether a watertight body matches one of OCC's solids: the same
+/// face count and a mesh volume within 1.5 %. Small parts whose chord
+/// sag alone exceeds that at the default chord height are re-measured
+/// at a tenth of it (4pinplug's pins: 8 % low at 0.005, matched at
+/// 0.0005).
+fn matches_occ(brep: &popkern_core::topology::BRep, volume: f64, occ: &[(usize, f64)]) -> bool {
+    let faces = brep.faces.len();
+    let near = |v: f64| {
+        occ.iter()
+            .any(|&(f, o)| f == faces && (v - o).abs() <= 0.015 * o.abs().max(1e-12))
+    };
+    if near(volume) {
+        return true;
+    }
+    let fine = popkern_mesh::TessellationOptions {
+        chord_height: 0.1 * popkern_mesh::TessellationOptions::default().chord_height,
+        ..Default::default()
+    };
+    popkern_mesh::tessellate(brep, &fine).is_ok_and(|m| near(mesh_volume(&m)))
 }
 
 fn measure(path: &Path) -> Row {
@@ -70,8 +131,11 @@ fn measure(path: &Path) -> Row {
         refused_instances: 0,
         bodies: 0,
         watertight: 0,
+        volume_matched: None,
         ms: 0,
     };
+    let occ = occ_solids(path);
+    let mut matched = 0;
     let started = popkern_core::time::Stopwatch::start();
     let stem = path
         .file_stem()
@@ -107,6 +171,17 @@ fn measure(path: &Path) -> Row {
                             ) && popkern_mesh::welded_open_edges(&mesh) == 0
                             {
                                 row.watertight += 1;
+                                if let Some(occ) = &occ {
+                                    let volume = mesh_volume(&mesh);
+                                    if matches_occ(part.brep(), volume, occ) {
+                                        matched += 1;
+                                    } else {
+                                        eprintln!(
+                                            "  {file}: watertight body with {} faces, volume {volume:.6}, matches no OpenCASCADE solid",
+                                            part.brep().faces.len()
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -115,6 +190,7 @@ fn measure(path: &Path) -> Row {
             }
         }
     }
+    row.volume_matched = occ.map(|_| matched);
     row.ms = started.elapsed().map_or(0, |d| d.as_millis());
     row
 }
@@ -134,9 +210,10 @@ fn main() {
     });
     files.sort();
     let mut table = String::from(
-        "| file | loaded | products | NAUO in file | part occurrences (ours / OCC) | solids recorded / MSB in file | refused solids | refused occurrences | watertight bodies | ms |\n|---|---|---|---|---|---|---|---|---|---|\n",
+        "| file | loaded | products | NAUO in file | part occurrences (ours / OCC) | solids recorded / MSB in file | refused solids | refused occurrences | watertight bodies | of which OCC-volume-matched | ms |\n|---|---|---|---|---|---|---|---|---|---|---|\n",
     );
     let (mut loaded, mut complete) = (0, 0);
+    let (mut watertight, mut matched, mut bodies) = (0, 0, 0);
     for path in &files {
         let r = measure(path);
         let occ = r
@@ -156,8 +233,11 @@ fn main() {
             }
             Err(e) => format!("no: {}", e.chars().take(80).collect::<String>()),
         };
+        watertight += r.watertight;
+        bodies += r.bodies;
+        matched += r.volume_matched.unwrap_or(0);
         table.push_str(&format!(
-            "| {} | {} | {} | {} | {} / {} | {} / {} | {} | {} | {}/{} | {} |\n",
+            "| {} | {} | {} | {} | {} / {} | {} / {} | {} | {} | {}/{} | {} | {} |\n",
             r.file,
             ok,
             r.products,
@@ -170,11 +250,14 @@ fn main() {
             r.refused_instances,
             r.watertight,
             r.bodies,
+            r.volume_matched
+                .map(|m| format!("{m}/{}", r.watertight))
+                .unwrap_or_else(|| "–".into()),
             r.ms
         ));
     }
     let summary = format!(
-        "\n{loaded}/{} files loaded; {complete}/{} complete (every solid recorded, every occurrence placed, occurrence count equal to OpenCASCADE's).\n",
+        "\n{loaded}/{} files loaded; {complete}/{} complete (every solid recorded, every occurrence placed, occurrence count equal to OpenCASCADE's); {watertight}/{bodies} bodies watertight, {matched} of them matching an OpenCASCADE solid's volume.\n",
         files.len(),
         files.len()
     );
