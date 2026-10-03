@@ -16,7 +16,6 @@ use crate::step::mapping::product::map_products;
 use crate::step::mapping::topology::map_brep_solids;
 use crate::step::parser::entities::parse_step_file;
 use crate::step::parser::graph::EntityGraph;
-use crate::step::schema::product::{GlobalUncertaintyAssignedContext, UncertaintyMeasureWithUnit};
 
 /// Options controlling how a STEP file is imported.
 #[derive(Debug, Clone)]
@@ -86,16 +85,44 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
 
     // Determine tolerance from override (millimetres), STEP uncertainty
     // (file units), or default
-    let tolerance = match options.tolerance_override {
-        Some(tol) => Tolerance::default().with_linear(tol / units.mm_per_length),
-        None => extract_step_uncertainty(&graph, &mut log)
-            .map(|u| Tolerance::default().with_linear(u))
-            .unwrap_or_default(),
+    let default_linear = Tolerance::default().linear() / units.mm_per_length;
+    // Geometry maps at the strict default (file pcurves and edges must
+    // meet it to be used as written; otherwise they are rebuilt); the
+    // file's uncertainty, when looser, is the precision its writer
+    // guarantees and is honoured only where it RESCUES data: a vertex
+    // within it of its curve end is that end, and an edge end gap
+    // within it is recorded as that edge's tolerance (PK-639). Used as
+    // the mapping tolerance it accepted OCC's 2e-3 pcurves over exact
+    // rebuilt ones (offset_bracket: seven seams G0 -> open).
+    let (tolerance, allowance) = match options.tolerance_override {
+        Some(tol) => {
+            let t = tol / units.mm_per_length;
+            (Tolerance::default().with_linear(t), t)
+        }
+        None => {
+            let file = crate::step::import_uncertainty::extract_step_uncertainty(
+                &graph,
+                units.mm_per_length,
+            );
+            let allowance = file.map_or(default_linear, |u| u.max(default_linear));
+            if allowance > default_linear {
+                log.warn(
+                    Phase::MapTopology,
+                    None,
+                    format!(
+                        "trim allowance widened to the file's uncertainty {:.2e} mm",
+                        allowance * units.mm_per_length
+                    ),
+                );
+            }
+            (Tolerance::default().with_linear(default_linear), allowance)
+        }
     };
 
     // Map geometry + topology
     let mut geo_cache = GeometryCache::new(&graph);
     geo_cache.set_radians_per_angle(units.radians_per_angle);
+    geo_cache.set_trim_allowance(allowance);
     let mut brep_solids = map_brep_solids(&graph, &mut geo_cache, &mut log, tolerance);
 
     // Healing
@@ -107,13 +134,6 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         if let Some(healed) = solids_only.get(i) {
             *brep = healed.clone();
         }
-        measure_import_deviations(brep, &mut log);
-        // Import is a serving boundary for UNTRUSTED external data:
-        // the stored orientation flag is derived state (loop winding
-        // × surface), so a file whose `same_sense` contradicts its
-        // own loop winding (dishonest exporter or mapping defect)
-        // must not ship that lie into downstream operators. Derive
-        // the honest value and record the repair (PK-245).
         // Faces whose half-edges carry no pcurve (writers that omit
         // them, or whose pcurves the mapper could not use) tessellate
         // their boundaries face by face, and neighbouring faces' samples
@@ -146,6 +166,23 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
                 ),
             );
         }
+        // Deviations are measured once every half-edge has its pcurve:
+        // an edge without one measures zero, so measuring first left
+        // the synthesized edges' file imprecision untracked and part
+        // validation refused them (measured: hose-fitting, vaccase,
+        // weldment bodies off by 6e-5 to 4e-4).
+        crate::step::import_precision::measure_import_deviations(
+            brep,
+            default_linear,
+            allowance,
+            &mut log,
+        );
+        // Import is a serving boundary for UNTRUSTED external data:
+        // the stored orientation flag is derived state (loop winding
+        // × surface), so a file whose `same_sense` contradicts its
+        // own loop winding (dishonest exporter or mapping defect)
+        // must not ship that lie into downstream operators. Derive
+        // the honest value and record the repair (PK-245).
         let flipped = brep.reconcile_orientation_flags();
         if flipped > 0 {
             log.warn(
@@ -245,102 +282,6 @@ pub fn import_step_file(
     import_step(&data, options)
 }
 
-/// Extract geometric uncertainty from the STEP entity graph.
-///
-/// Scans for `GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT` entities (both standalone
-/// and as complex-entity parts), resolves their `UNCERTAINTY_MEASURE_WITH_UNIT`
-/// references, and returns the first uncertainty value found.
-fn extract_step_uncertainty(graph: &EntityGraph, log: &mut DiagnosticLog) -> Option<f64> {
-    for (_, entity) in graph.iter() {
-        // Check standalone entity
-        if entity.type_name == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
-            && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(&entity.params)
-        {
-            return resolve_uncertainty_value(graph, &guac.uncertainty, log);
-        }
-        // Check complex-entity parts
-        for (part_type, part_params) in &entity.complex_parts {
-            if part_type == "GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT"
-                && let Ok(guac) = GlobalUncertaintyAssignedContext::from_params(part_params)
-            {
-                return resolve_uncertainty_value(graph, &guac.uncertainty, log);
-            }
-        }
-    }
-    None
-}
-
-/// Resolve uncertainty measure references to a concrete value.
-fn resolve_uncertainty_value(
-    graph: &EntityGraph,
-    refs: &[u64],
-    log: &mut DiagnosticLog,
-) -> Option<f64> {
-    for &ref_id in refs {
-        if let Some(ent) = graph.get(ref_id)
-            && let Ok(umu) = UncertaintyMeasureWithUnit::from_params(&ent.params)
-            && umu.value > 0.0
-            && umu.value.is_finite()
-        {
-            log.warn(
-                Phase::MapTopology,
-                Some(ref_id),
-                format!(
-                    "using STEP uncertainty {:.2e} from '{}'",
-                    umu.value, umu.name
-                ),
-            );
-            return Some(umu.value);
-        }
-    }
-    None
-}
-
-/// Measure edge deviations on an imported BRep and set entity tolerances.
-///
-/// For each edge with a curve, measures the deviation between the 3D curve
-/// and the surface evaluations via pcurves. If the deviation exceeds
-/// a small threshold, records it as the edge's tracked imprecision.
-fn measure_import_deviations(brep: &mut popkern_core::topology::BRep, log: &mut DiagnosticLog) {
-    let edge_handles: Vec<_> = brep.edges.keys().collect();
-    let linear_tol = brep.tolerance.linear();
-    let mut edge_count = 0u32;
-    let mut max_tracked_deviation = 0.0_f64;
-
-    for eh in edge_handles {
-        let dev = brep.measure_edge_deviation(eh);
-        if dev > linear_tol {
-            brep.set_entity_tolerance(popkern_core::precision::EntityHandle::Edge(eh), dev);
-            max_tracked_deviation = max_tracked_deviation.max(dev);
-            edge_count += 1;
-        }
-    }
-
-    widen_import_precision_envelope(brep, max_tracked_deviation);
-
-    if edge_count > 0 {
-        log.warn(
-            Phase::Validate,
-            None,
-            format!(
-                "{edge_count} edge(s) with measurable deviation tracked; import precision envelope {:.2e}",
-                brep.max_imprecision
-            ),
-        );
-    }
-}
-
-fn widen_import_precision_envelope(
-    brep: &mut popkern_core::topology::BRep,
-    max_tracked_deviation: f64,
-) {
-    if max_tracked_deviation <= brep.max_imprecision {
-        return;
-    }
-    brep.max_imprecision = (max_tracked_deviation * 1.01)
-        .max(max_tracked_deviation + brep.tolerance.numerical_floor());
-}
-
 #[cfg(test)]
 #[path = "import_malformed_tests.rs"]
 mod malformed_tests;
@@ -364,7 +305,13 @@ mod import_precision_tests {
         assert!(dev > brep.max_imprecision);
         let mut log = DiagnosticLog::new();
 
-        measure_import_deviations(&mut brep, &mut log);
+        let record_above = brep.tolerance.linear();
+        crate::step::import_precision::measure_import_deviations(
+            &mut brep,
+            record_above,
+            record_above,
+            &mut log,
+        );
 
         let tracked = brep.edge_tolerance(edge);
         assert!(tracked >= dev);

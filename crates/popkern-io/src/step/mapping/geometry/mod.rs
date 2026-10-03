@@ -47,6 +47,9 @@ pub struct GeometryCache<'a> {
     radians_per_angle: f64,
     /// Box of the file's 3-D points (bounds extrusion patches).
     model_box: Option<(Point3, Point3)>,
+    /// How far a vertex may sit from its edge curve's end and still be
+    /// that end (the file's declared precision, PK-639).
+    trim_allowance: f64,
 }
 
 impl<'a> GeometryCache<'a> {
@@ -59,7 +62,19 @@ impl<'a> GeometryCache<'a> {
             placements: HashMap::new(),
             radians_per_angle: 1.0,
             model_box: None,
+            trim_allowance: 0.0,
         }
+    }
+
+    /// Accept vertices within `allowance` of their edge curve's ends
+    /// (the file's declared precision; trim recovery only).
+    pub(crate) fn set_trim_allowance(&mut self, allowance: f64) {
+        self.trim_allowance = allowance;
+    }
+
+    /// The trim-recovery allowance.
+    pub(crate) fn trim_allowance(&self) -> f64 {
+        self.trim_allowance
     }
 
     /// Read angle-valued attributes (a cone's semi-angle) in a file
@@ -196,9 +211,22 @@ impl<'a> GeometryCache<'a> {
                 return None;
             }
         };
+        // The kernel's orientation flag says the outer loop runs
+        // counter-clockwise in the surface CHART (the winding-honesty
+        // contract); STEP's `same_sense` says it runs counter-clockwise
+        // about STEP's surface normal. They agree where the chart normal
+        // ∂u × ∂v is STEP's normal — every elementary surface except
+        // the sphere, whose colatitude chart normal points INWARD.
+        // Without the flip, every imported sphere face whose loop the
+        // audit cannot measure (a cap around a pole) kept a backwards
+        // flag (measured: jack_in_the_box's ball knobs).
+        let chart_opposes_step = matches!(
+            geometry,
+            popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
+        );
         Some(SurfaceOnFace {
             geometry,
-            orientation: same_sense,
+            orientation: same_sense != chart_opposes_step,
         })
     }
 }

@@ -120,6 +120,15 @@ pub(crate) fn resolve_file_units(graph: &EntityGraph, log: &mut DiagnosticLog) -
     chosen
 }
 
+/// Millimetres per unit for a LENGTH unit entity (`None` for any other
+/// kind or an unresolvable unit).
+pub(crate) fn mm_per_length_unit(graph: &EntityGraph, unit: EntityId) -> Option<f64> {
+    match unit_factor(graph, unit, &mut HashSet::new())? {
+        (UnitKind::Length, f) => Some(f),
+        _ => None,
+    }
+}
+
 /// The parameters of `name` in a simple or complex entity.
 fn part<'e>(entity: &'e EntityInstance, name: &str) -> Option<&'e [Parameter]> {
     if entity.type_name == name {

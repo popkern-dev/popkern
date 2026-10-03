@@ -228,8 +228,10 @@ fn build_brep_from_faces(
         if let Some(curve) = geo.resolve_curve(ec.edge_geometry, log) {
             let start = builder.brep().vertices[v1].position;
             let end = builder.brep().vertices[v2].position;
-            let curve =
-                recover_edge_curve_trim(ec_id, curve, start, end, ec.same_sense, tolerance, log);
+            // A vertex within the file's declared precision of its curve
+            // end IS that end (PK-639: weldment arm's refused trims).
+            let trim = tolerance.with_linear(tolerance.linear().max(geo.trim_allowance()));
+            let curve = recover_edge_curve_trim(ec_id, curve, start, end, ec.same_sense, trim, log);
             builder.set_edge_curve(eh, curve);
         }
     }

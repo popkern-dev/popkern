@@ -12,7 +12,9 @@ impl BRep {
     /// Check 8: Loop closure.
     ///
     /// Walks each loop and verifies that the end of the last edge coincides
-    /// with the start of the first edge, within `self.tolerance.linear()`.
+    /// with the start of the first edge, within the closing vertex's
+    /// effective tolerance ([`BRep::vertex_tolerance`]: the body's, or a
+    /// larger recorded one).
     ///
     /// For edges without curve geometry, the check is based on vertex positions.
     /// For edges with [`CurveOnEdge`], the curve is evaluated at `t_end` and
@@ -28,6 +30,7 @@ impl BRep {
             let mut cursor = start_he;
             let mut first_pos = None;
             let mut prev_end_pos = None;
+            let mut first_vertex = None;
 
             for _ in 0..=bound {
                 let he = match self.half_edges.get(cursor) {
@@ -43,6 +46,7 @@ impl BRep {
                 let start_pos = origin_vertex.position;
                 if first_pos.is_none() {
                     first_pos = Some(start_pos);
+                    first_vertex = Some(he.origin);
                 }
 
                 // Determine the "end" position of this half-edge.
@@ -96,7 +100,11 @@ impl BRep {
             // start_pos (within linear tolerance).
             if let (Some(first), Some(last_end)) = (first_pos, prev_end_pos) {
                 let gap = first.distance_to(&last_end);
-                if gap > self.tolerance.linear() {
+                // The closing vertex's effective tolerance (recorded where an
+                // imported curve's ends sit off it, PK-639).
+                let allowed =
+                    first_vertex.map_or(self.tolerance.linear(), |v| self.vertex_tolerance(v));
+                if gap > allowed {
                     if crate::trace::trace_enabled("closure") {
                         let face = self.loops[loop_handle].face;
                         eprintln!("  [closure] loop {loop_handle:?} face {face:?} gap {gap:.4}:");
@@ -214,7 +222,13 @@ impl BRep {
             let swapped_gap = swapped_start.max(swapped_end);
             let gap = natural_gap.min(swapped_gap);
 
-            if gap > self.tolerance.linear() {
+            // The vertices' effective tolerance: the body's, or a larger
+            // one recorded where an imported curve's ends sit off its
+            // vertices by the file's precision (PK-639).
+            let allowed = self
+                .vertex_tolerance(he.origin)
+                .max(self.vertex_tolerance(twin.origin));
+            if gap > allowed {
                 return Err(ValidationError::ShellGap {
                     edge: edge_handle,
                     gap,

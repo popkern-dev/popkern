@@ -21,6 +21,8 @@ mod export_topology_face_uses;
 mod export_topology_helpers;
 pub mod healing;
 pub mod import;
+pub(crate) mod import_precision;
+pub(crate) mod import_uncertainty;
 pub mod mapping;
 pub mod parser;
 mod same_parameter;

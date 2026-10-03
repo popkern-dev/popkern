@@ -182,7 +182,9 @@ pub(crate) fn sample_all_edges(
         // exact seam arc's end 1e-4 from the vertex the 1e-3
         // intersection placed; an absolute 1e-6 gate left the seam
         // and rim rings disagreeing there and 16 open mesh edges).
-        let snap_gate = brep.tolerance.linear().max(1.0e-6);
+        // Recorded vertex tolerances count: imported curve ends off
+        // their vertices by the file's precision record them (PK-639).
+        let snap_gate = boundary_first_edge_seed::vertex_snap_gate(brep, edge.half_edge);
         if let (Some(first), Some(last), Some((va, vb))) = (
             points.first().copied(),
             points.last().copied(),
@@ -195,11 +197,11 @@ pub(crate) fn sample_all_edges(
             } else {
                 (vb, va)
             };
-            if first.distance_to(&pa) < snap_gate {
+            if first.distance_to(&pa) <= snap_gate {
                 points[0] = pa;
             }
             let n = points.len() - 1;
-            if points[n].distance_to(&pb) < snap_gate {
+            if points[n].distance_to(&pb) <= snap_gate {
                 points[n] = pb;
             }
         }

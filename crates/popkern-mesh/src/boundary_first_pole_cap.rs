@@ -14,12 +14,11 @@
 //! `u0 → u0 ± p`, and a pole run returns along `v = v_pole` at the
 //! ring's own u stations, every station the same 3-D point (the
 //! triangles on that run are zero-area in 3-D and weld away). Which
-//! pole the face contains follows from the loop convention: a loop
-//! runs counter-clockwise about the face normal, so in the chart the
-//! face lies to the LEFT of the walk when the face normal agrees with
-//! `∂u × ∂v` and to the right otherwise; a walk toward +u has +v on its
-//! left. A side without a pole there (the far side of a cone's apex)
-//! keeps the decline.
+//! pole a sphere cap contains follows from the kernel's flag contract
+//! (the loop runs counter-clockwise in the chart when the flag is
+//! set, so the face lies left of the walk; a walk toward +u has +v on
+//! its left). A cone cap is always the apex side (the only bounded
+//! one).
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
@@ -44,15 +43,10 @@ pub(super) fn close_through_pole(
     if winding.abs() != 1 {
         return None;
     }
-    // Chart handedness against the face normal at a ring sample.
-    let (u, v) = ring.uv[n / 2];
-    let chart_normal = surface.partial_u(u, v).cross(&surface.partial_v(u, v));
-    let face_normal = surface.normal_at(u, v) * if orientation { 1.0 } else { -1.0 };
-    let agrees = chart_normal.dot(&face_normal);
-    if agrees.abs() <= 1e-12 * chart_normal.length().max(1e-300) {
-        return None;
-    }
-    let face_toward_larger_v = (agrees > 0.0) != (winding > 0);
+    // The kernel flag says the loop runs counter-clockwise in the
+    // chart (the winding-honesty contract), so the face lies LEFT of
+    // the walk when the flag is set; left of a walk toward +u is +v.
+    let face_toward_larger_v = orientation == (winding > 0);
     let v_pole = match surface {
         SurfaceGeometry::Sphere { .. } => {
             if face_toward_larger_v {
@@ -61,7 +55,11 @@ pub(super) fn close_through_pole(
                 0.0
             }
         }
-        SurfaceGeometry::Cone { .. } if !face_toward_larger_v => 0.0,
+        // A cone face bounded by one circle is the BOUNDED side — the
+        // apex; the other side runs to infinity. This holds whatever
+        // the orientation flag says (measured: team.stp's drill-point
+        // cone carries a flag the side rule reads backwards).
+        SurfaceGeometry::Cone { .. } => 0.0,
         _ => return None,
     };
     let pole = surface.point_at(ring.uv[0].0, v_pole);

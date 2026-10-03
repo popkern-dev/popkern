@@ -55,6 +55,8 @@ impl GlobalUncertaintyAssignedContext {
 pub struct UncertaintyMeasureWithUnit {
     /// The uncertainty value.
     pub value: f64,
+    /// The measure type when typed (`LENGTH_MEASURE`, `PLANE_ANGLE_MEASURE`).
+    pub measure: Option<String>,
     /// Reference to the unit entity.
     pub unit: EntityId,
     /// Descriptive name.
@@ -66,8 +68,16 @@ impl UncertaintyMeasureWithUnit {
 
     /// Parse from raw STEP parameters.
     pub fn from_params(params: &[Parameter]) -> Result<Self, MappingError> {
+        // The value is a typed measure (`LENGTH_MEASURE(1.E-06)`), the
+        // form every writer uses; a bare real is accepted too.
+        let value = param_at(params, 0, Self::TYPE)?;
+        let measure = match value {
+            Parameter::Typed(name, _) => Some(name.clone()),
+            _ => None,
+        };
         Ok(Self {
-            value: as_real(param_at(params, 0, Self::TYPE)?, Self::TYPE)?,
+            value: as_measure_value(value).map_or_else(|| as_real(value, Self::TYPE), Ok)?,
+            measure,
             unit: as_entity_ref(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
             name: as_string(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
         })
@@ -185,6 +195,18 @@ impl PlaneAngleMeasureWithUnit {
             value: as_real(param_at(params, 0, Self::TYPE)?, Self::TYPE)?,
             unit: as_entity_ref(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
         })
+    }
+}
+
+/// A measure's number: plain, or typed (`LENGTH_MEASURE(25.4)`, which
+/// the parser holds as a one-element list).
+pub fn as_measure_value(param: &Parameter) -> Option<f64> {
+    match param {
+        Parameter::Real(v) => Some(*v),
+        Parameter::Int(v) => Some(*v as f64),
+        Parameter::Typed(_, inner) => as_measure_value(inner),
+        Parameter::List(items) if items.len() == 1 => as_measure_value(&items[0]),
+        _ => None,
     }
 }
 

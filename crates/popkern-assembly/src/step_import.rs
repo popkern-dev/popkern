@@ -305,7 +305,17 @@ fn record_part(
     solids: &[&popkern_core::topology::BRep],
     report: &mut StepImportReport,
 ) -> Result<Option<DefinitionId>, AssemblyError> {
-    let mut model = Model::new();
+    // The part is built at the tolerance its solids were imported at
+    // (the file's uncertainty when looser than the default, PK-639):
+    // validating an imported body at the kernel default refused gaps
+    // the file's own precision allows (measured: a 2.9e-5 shell gap in
+    // a weldment arm written to 2.3e-3).
+    let tolerance = solids
+        .iter()
+        .map(|s| s.tolerance)
+        .max_by(|a, b| a.linear().total_cmp(&b.linear()))
+        .unwrap_or_default();
+    let mut model = Model::with_tolerance(tolerance);
     let mut recorded = 0;
     for (k, solid) in solids.iter().enumerate() {
         let origin = SnapshotOrigin::Import {

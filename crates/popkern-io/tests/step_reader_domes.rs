@@ -128,3 +128,56 @@ fn a_tilted_cap_whose_rim_is_no_latitude() {
 fn a_cap_clear_of_both_poles() {
     check_dome([1.0, 0.0, 0.0], 4.0);
 }
+
+/// A drill-point cone tip: the cone face from its apex to one circle
+/// (with the apex written as a `VERTEX_LOOP` bound, as team.stp does)
+/// plus the disk. The cone face is the apex side by construction —
+/// the only bounded one.
+fn cone_tip_step(r: f64, alpha: f64, cone_sense: &str, cone_edge: &str, disk_edge: &str) -> String {
+    let h = r / alpha.tan();
+    format!(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('tip'),'2;1');\nFILE_NAME('tip.step','',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\n\
+#1=CARTESIAN_POINT('',(0.,0.,{h:.17e}));\n#2=DIRECTION('',(0.,0.,1.));\n#3=DIRECTION('',(1.,0.,0.));\n#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);\n\
+#5=CIRCLE('',#4,{r:.17e});\n#6=CARTESIAN_POINT('',({r:.17e},0.,{h:.17e}));\n#7=VERTEX_POINT('',#6);\n#8=EDGE_CURVE('',#7,#7,#5,.T.);\n\
+#13=CONICAL_SURFACE('',#4,{r:.17e},{alpha:.17e});\n#14=ORIENTED_EDGE('',*,*,#8,{cone_edge});\n#15=EDGE_LOOP('',(#14));\n#16=FACE_OUTER_BOUND('',#15,.T.);\n\
+#31=CARTESIAN_POINT('',(0.,0.,0.));\n#32=VERTEX_POINT('',#31);\n#33=VERTEX_LOOP('',#32);\n#34=FACE_BOUND('',#33,.T.);\n\
+#17=ADVANCED_FACE('',(#16,#34),#13,{cone_sense});\n#20=PLANE('',#4);\n\
+#21=ORIENTED_EDGE('',*,*,#8,{disk_edge});\n#22=EDGE_LOOP('',(#21));\n#23=FACE_OUTER_BOUND('',#22,.T.);\n#24=ADVANCED_FACE('',(#23),#20,.T.);\n\
+#25=CLOSED_SHELL('',(#17,#24));\n#26=MANIFOLD_SOLID_BREP('',#25);\n\
+#27=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n#28=(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.));\n\
+#29=(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNIT_ASSIGNED_CONTEXT((#27,#28)) REPRESENTATION_CONTEXT('',''));\n\
+#30=ADVANCED_BREP_SHAPE_REPRESENTATION('',(#26),#29);\nENDSEC;\nEND-ISO-10303-21;\n"
+    )
+}
+
+#[test]
+fn a_cone_tip_closes_at_its_apex_whatever_its_flag() {
+    let (r, alpha) = (3.0, 59f64.to_radians());
+    let exact = std::f64::consts::PI * r * r * (r / alpha.tan()) / 3.0;
+    // The honest spelling, and the cone written with the opposite
+    // sense flag (the side must not follow it).
+    for (sense, cone_edge, disk_edge) in [(".T.", ".F.", ".T."), (".F.", ".F.", ".T.")] {
+        let text = cone_tip_step(r, alpha, sense, cone_edge, disk_edge);
+        let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
+        let tip = imported
+            .document
+            .products
+            .iter()
+            .flat_map(|p| p.shapes.iter())
+            .flat_map(|s| s.solids.iter().cloned())
+            .next()
+            .expect("solid");
+        let mesh = popkern_mesh::tessellate(&tip, &popkern_mesh::TessellationOptions::default())
+            .expect("mesh");
+        assert_eq!(
+            popkern_mesh::welded_open_edges(&mesh),
+            0,
+            "sense {sense}: watertight"
+        );
+        let got = mesh_volume(&mesh);
+        assert!(
+            (got - exact).abs() < 2e-3 * exact,
+            "sense {sense}: volume {got} vs {exact}"
+        );
+    }
+}

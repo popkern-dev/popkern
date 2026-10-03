@@ -131,3 +131,22 @@ pub(super) fn seed_closed_curve(at: &dyn Fn(f64) -> Point3, fractions: &mut Vec<
         *fractions = vec![0.0, 0.25, 0.5, 0.75, 1.0];
     }
 }
+
+/// How far a curve-end sample may sit from its vertex and still be that
+/// vertex: the larger effective tolerance of the edge's two vertices
+/// (recorded where imported curve ends sit off them, PK-639), floored
+/// at 1e-6.
+pub(super) fn vertex_snap_gate(
+    brep: &popkern_core::topology::BRep,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+) -> f64 {
+    let ends = || {
+        let he = brep.half_edges.get(half_edge)?;
+        Some((he.origin, brep.half_edges.get(he.twin)?.origin))
+    };
+    ends()
+        .map_or(brep.tolerance.linear(), |(a, b)| {
+            brep.vertex_tolerance(a).max(brep.vertex_tolerance(b))
+        })
+        .max(1.0e-6)
+}
