@@ -109,7 +109,9 @@ pub fn execute(cli: &Cli) -> RunSummary {
             }
         };
         if let Some(path) = &cli.step {
-            if let Err(e) = part.export_step(path) {
+            // Each body its own solid (Model::to_step), not the
+            // concatenated render view.
+            if let Err(e) = model.to_step(path) {
                 summary.outcome = Outcome::GateFailure {
                     step: "step".into(),
                     detail: e.to_string(),

@@ -402,44 +402,6 @@ impl Part {
         let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
         popkern_mesh::export_stl(&mesh, path, true).map_err(|source| PartError::Mesh { source })
     }
-
-    /// Round-trip gate: re-import the STEP just written at `path`
-    /// and require the full face count back (the dropped-faces
-    /// defect class). Returns `self` for chaining.
-    ///
-    /// # Errors
-    ///
-    /// [`PartError::Io`] on import failure;
-    /// [`PartError::NotApplicable`] describing the mismatch when
-    /// faces are missing.
-    pub fn assert_step_roundtrip(
-        self,
-        path: impl AsRef<std::path::Path>,
-    ) -> Result<Part, PartError> {
-        let path = path.as_ref();
-        let imported =
-            popkern_io::import_step_file(path, &popkern_io::StepImportOptions::default()).map_err(
-                |source| PartError::Io {
-                    path: path.display().to_string(),
-                    source,
-                },
-            )?;
-        let faces_back: usize = imported
-            .document
-            .products
-            .iter()
-            .flat_map(|p| p.shapes.iter())
-            .flat_map(|s| s.solids.iter())
-            .map(|b| b.faces.len())
-            .sum();
-        if faces_back != self.face_count() {
-            return Err(PartError::NotApplicable(format!(
-                "STEP round-trip returned {faces_back} faces, exported {}",
-                self.face_count()
-            )));
-        }
-        Ok(self)
-    }
 }
 
 /// The finer (smaller linear value) of two tolerances.

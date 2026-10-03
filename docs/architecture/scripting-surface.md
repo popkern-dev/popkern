@@ -111,9 +111,9 @@ boolean invariant 3 extended to the whole surface.
 | `replay_lenient` | preview | `model.replay_lenient() -> ReplayReport` | Failed features are reported (`outcome: failed`) and replay continues with the body up to the failure; requires the tree to gain continue-on-failure replay. |
 | `to_brep` | stable | `model.to_brep() -> BRep` | Ephemeral exit: replay (incremental, from the cache) and return the current body of the active `BodyId`. |
 | `to_part` | stable | `model.to_part() -> Part` | As above wrapped in `popkern_part::Part` (validated at the serving boundary). |
-| `to_step` / `to_stl` / `to_obj` | stable / preview / preview | `model.to_step(path)` … | Export the current body. |
+| `to_step` / `to_stl` / `to_obj` | stable / preview / preview | `model.to_step(path)` … | `to_step`: the whole model, every alive body as its own solid (PK-627); `to_stl`/`to_obj`: the current body. |
 | `assert_watertight` | stable | `model.assert_watertight()` | Gate: 0 open mesh edges; raises `NotWatertight { open_edges }`. |
-| `assert_step_roundtrip` | stable | `model.assert_step_roundtrip(path)` | Gate: export, re-import, face count identical. |
+| `assert_step_roundtrip` | stable | `model.assert_step_roundtrip(path)` | Gate: whole-model export, re-import, every face back and a solid per body. |
 | `bodies` | preview | `model.bodies() -> [BodyId]` | Bodies alive at the end of the timeline. |
 | `body` | preview | `model.body(id_or_label) -> BodyId` | Resolve a body by id or label (§9). |
 | `active_body` / `set_active_body` | preview | | The body new features attach to; default = the body of the last feature. |

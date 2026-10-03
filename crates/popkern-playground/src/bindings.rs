@@ -136,8 +136,8 @@ impl Playground {
             .map_err(|outcome| outcome_js(&outcome))
     }
 
-    /// The active body as STEP bytes (`Uint8Array`), or the outcome
-    /// JSON as the error.
+    /// The whole model as STEP bytes (`Uint8Array`, every body its own
+    /// solid), or the outcome JSON as the error.
     pub fn export_step(&mut self, name: &str) -> Result<Vec<u8>, JsValue> {
         self.session
             .export_step(name)

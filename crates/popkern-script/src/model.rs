@@ -365,34 +365,48 @@ impl Model {
     /// multi-body document (a bearing's races and balls; a box and
     /// its lid) — [`Model::to_part`] stays the ACTIVE body's view.
     pub fn to_part_all(&mut self) -> Result<Part, ScriptError> {
-        let bodies = self.alive_bodies();
-        let mut breps = Vec::with_capacity(bodies.len());
-        for body in bodies {
-            breps.push(self.body_brep(body.id)?);
-        }
-        let mut iter = breps.into_iter();
-        let Some(first) = iter.next() else {
+        let mut parts = self.to_parts_all()?.into_iter();
+        let Some(mut part) = parts.next() else {
             return self.to_part();
         };
-        let mut part = Part::from_brep(first, self.tolerance, "popkern-script")?;
-        for brep in iter {
-            let next = Part::from_brep(brep, self.tolerance, "popkern-script")?;
+        for next in parts {
             part = part.concatenate(&next)?;
         }
         Ok(part)
     }
 
-    /// Export the active body as STEP.
-    pub fn to_step(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
-        Ok(self.to_part()?.export_step(path)?)
+    /// EVERY alive body as its own validated [`Part`], in body order
+    /// (the active body alone when none is alive). The whole-model
+    /// export unit: each body leaves as its own solid.
+    pub fn to_parts_all(&mut self) -> Result<Vec<Part>, ScriptError> {
+        let bodies = self.alive_bodies();
+        if bodies.is_empty() {
+            return Ok(vec![self.to_part()?]);
+        }
+        let mut parts = Vec::with_capacity(bodies.len());
+        for body in bodies {
+            let brep = self.body_brep(body.id)?;
+            parts.push(Part::from_brep(brep, self.tolerance, "popkern-script")?);
+        }
+        Ok(parts)
     }
 
-    /// The active body as STEP Part 21 bytes with `name` as the
+    /// Export the whole model as STEP: every alive body as its own
+    /// solid in one product (a gearbox's six gears, not the active
+    /// one). A single-body model writes exactly what
+    /// [`Part::export_step`] writes for that body.
+    pub fn to_step(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
+        let parts = self.to_parts_all()?;
+        Ok(popkern_part::export_step_of(&parts, path)?)
+    }
+
+    /// The whole model as STEP Part 21 bytes with `name` as the
     /// product name — what [`Model::to_step`] writes for a path whose
     /// file stem is `name`. Hosts without a filesystem (the browser
     /// playground) hand these to a download.
     pub fn to_step_bytes(&mut self, name: &str) -> Result<Vec<u8>, ScriptError> {
-        Ok(self.to_part()?.step_bytes(name)?)
+        let parts = self.to_parts_all()?;
+        Ok(popkern_part::step_bytes_of(&parts, name)?)
     }
 
     /// The current BRep of `body` (replaying first when the tree
@@ -410,14 +424,15 @@ impl Model {
         Ok(())
     }
 
-    /// Gate: STEP export re-imports with the same face count.
+    /// Gate: the whole-model STEP export ([`Model::to_step`])
+    /// re-imports with every face and a solid per body.
     pub fn assert_step_roundtrip(
         &mut self,
         path: impl AsRef<std::path::Path>,
     ) -> Result<(), ScriptError> {
-        let part = self.to_part()?;
-        part.export_step(&path)?;
-        part.assert_step_roundtrip(&path)?;
+        let parts = self.to_parts_all()?;
+        popkern_part::export_step_of(&parts, &path)?;
+        popkern_part::assert_step_roundtrip_of(&parts, &path)?;
         Ok(())
     }
 }

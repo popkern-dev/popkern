@@ -60,6 +60,7 @@ pub use engrave::{
 pub use error::PartError;
 pub use feature::{Feature, FeatureLog};
 pub use part::Part;
+pub use part_export::{assert_step_roundtrip_of, export_step_of, step_bytes_of};
 pub use popkern_shell::{
     JoinStyle, OffsetConstraint, PreviewMesh, SafeOffsetReport, ShellDirection, ShellOptions,
     TrimPolicy,

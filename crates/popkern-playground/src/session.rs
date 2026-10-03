@@ -180,7 +180,8 @@ impl Session {
         })
     }
 
-    /// The active body as STEP bytes with `name` as the product name.
+    /// The whole model as STEP bytes (every alive body its own solid)
+    /// with `name` as the product name.
     pub fn export_step(&mut self, name: &str) -> Result<Vec<u8>, Outcome> {
         let Some(model) = self.model.as_mut() else {
             return Err(no_model());

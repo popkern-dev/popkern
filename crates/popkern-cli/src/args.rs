@@ -8,7 +8,7 @@ use std::time::Duration;
 pub const USAGE: &str = "\
 usage: popkern run <script.rhai> [options]
 
-  --step <path>        export the active body as STEP
+  --step <path>        export the model as STEP (every body)
   --png <path>         render the active body to PNG
   --pkn <path>         save the document
   --json               print the report as JSON instead of text
