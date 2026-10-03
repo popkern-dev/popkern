@@ -17,7 +17,23 @@ const DRAFT_KEY = "popkern-playground-draft";
 // An edited script from an earlier visit, held aside while the page
 // opens on the pre-built default (restore puts it back).
 const SAVED_DRAFT_KEY = "popkern-playground-saved-draft";
-const DOCUMENT_NAME = "document.rhai";
+// The document's title names its tab and its downloads (see fileStem):
+// an example's gallery title, "Boss plate" for the default script, and
+// "Document" for a script that is neither.
+const DEFAULT_TITLE = "Boss plate";
+const UNTITLED = "Document";
+
+/** A title as a file stem: lowercase, spaces as underscores, and no
+ *  characters a file name cannot carry ("Planetary gearbox" ->
+ *  planetary_gearbox). */
+function fileStem(title) {
+  const stem = title
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/[\/\\:*?"<>|\x00-\x1f]/g, "");
+  return stem || "document";
+}
 const TIME_LIMIT_KEY = "popkern-playground-time-limit";
 
 // The build time limit the user picks, in seconds (null = none). The
@@ -86,7 +102,7 @@ class Page {
     this.certifyGeneration = 0;
     this.wire();
     this.renderTimeLimit();
-    this.loadExamples();
+    this.examplesReady = this.loadExamples();
     this.status("loading the kernel…");
     this.openFirstScript();
     this.host
@@ -141,7 +157,7 @@ class Page {
       this.showDraftNotice();
     });
     $("reset").addEventListener("click", async () => {
-      this.openDocument(DOCUMENT_NAME, await this.defaultScript());
+      this.openDocument(DEFAULT_TITLE, await this.defaultScript());
       storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
       this.run();
     });
@@ -159,14 +175,15 @@ class Page {
       storage((s) => s.setItem(SAVED_DRAFT_KEY, draft));
     }
     const name = prebuilt ? await this.bakes.nameOf(draft) : null;
-    this.openDocument(name && name !== "default.rhai" ? name : DOCUMENT_NAME, prebuilt ? draft : fallback);
+    const titles = await this.examplesReady;
+    this.openDocument(titles?.get(name) ?? DEFAULT_TITLE, prebuilt ? draft : fallback);
     this.showDraftNotice();
     this.run();
   }
 
-  /** Put `text` in the editor as the document `name` (the tab). */
-  openDocument(name, text) {
-    this.docName = name;
+  /** Put `text` in the editor as the document titled `title`. */
+  openDocument(title, text) {
+    this.docTitle = title;
     this.docSource = text;
     this.editor.value = text;
     this.showDocument();
@@ -175,7 +192,7 @@ class Page {
   /** The tab: the document's name, marked once it is edited. */
   showDocument() {
     const edited = this.docSource != null && this.editor.value !== this.docSource;
-    $("doc-name").textContent = `${this.docName ?? DOCUMENT_NAME}${edited ? " ●" : ""}`;
+    $("doc-name").textContent = `${fileStem(this.docTitle ?? UNTITLED)}.rhai${edited ? " ●" : ""}`;
     $("doc-name").title = edited ? "edited: builds live" : "";
   }
 
@@ -188,7 +205,7 @@ class Page {
     storage((s) => s.removeItem(SAVED_DRAFT_KEY));
     this.showDraftNotice();
     if (!saved) return;
-    this.openDocument(DOCUMENT_NAME, saved);
+    this.openDocument(UNTITLED, saved);
     storage((s) => s.setItem(DRAFT_KEY, saved));
     this.viewer.fitted = false;
     this.run();
@@ -551,7 +568,10 @@ class Page {
 
   async download(kind) {
     if (!(await this.ensureLive())) return;
-    const reply = kind === "step" ? await this.host.exportStep("model") : await this.host.exportPkn();
+    // Named after the document: "Planetary gearbox" downloads as
+    // planetary_gearbox.step (the STEP product carries the name too).
+    const name = fileStem(this.docTitle ?? UNTITLED);
+    const reply = kind === "step" ? await this.host.exportStep(name) : await this.host.exportPkn();
     if (!reply.ok) {
       this.showOutcome(reply.outcome);
       return;
@@ -560,7 +580,7 @@ class Page {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `model.${kind}`;
+    a.download = `${name}.${kind}`;
     document.body.append(a);
     a.click();
     a.remove();
@@ -584,15 +604,19 @@ class Page {
       if (!response.ok) return;
       const manifest = await response.json();
       const select = $("examples");
+      const titles = new Map();
       for (const entry of manifest.examples ?? []) {
+        titles.set(entry.file, entry.title);
         const option = document.createElement("option");
         option.value = entry.file;
         option.textContent = entry.title;
         select.append(option);
       }
       $("examples-row").hidden = select.options.length <= 1;
+      return titles;
     } catch {
       // No gallery beside the page: the example picker stays hidden.
+      return null;
     }
   }
 
@@ -600,7 +624,8 @@ class Page {
     if (!file) return;
     const response = await fetch(`./examples/${file}`);
     if (!response.ok) return;
-    this.openDocument(file, await response.text());
+    const titles = await this.examplesReady;
+    this.openDocument(titles?.get(file) ?? file.replace(/\.rhai$/, ""), await response.text());
     // A refresh reopens the chosen example (pre-built, so instant).
     storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
     this.viewer.fitted = false;
