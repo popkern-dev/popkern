@@ -96,7 +96,10 @@ pub(super) fn orient_face_meshes_coherently(
     // canonical edge polyline. Positive = traverses the edge in
     // increasing parameter, negative = decreasing; magnitude = the
     // summed length of matched segments (the vote's weight).
-    let advance_along = |segs: &[(Point3, Point3)], polyline: &[(f64, Point3)]| -> f64 {
+    let advance_along = |segs: &[(Point3, Point3)],
+                         polyline: &[(f64, Point3)],
+                         curve: &dyn popkern_core::geometry::curve::CurveEval|
+     -> f64 {
         let mut length = 0.0_f64;
         for w in polyline.windows(2) {
             length += w[0].1.distance_to(&w[1].1);
@@ -105,10 +108,12 @@ pub(super) fn orient_face_meshes_coherently(
             return 0.0;
         }
         let tol = (length * 1.0e-3).max(1.0e-9);
-        // Arc-length parameter of the nearest polyline point, or None
-        // if the point is farther than tol from every segment.
-        let project = |p: &Point3| -> Option<f64> {
-            let mut best: Option<(f64, f64)> = None; // (dist, s)
+        let exact_tol = (length * 1.0e-4).max(1.0e-9);
+        // Arc-length parameter of the nearest polyline point and the
+        // point's distance from the edge CURVE, or None if the point is
+        // farther than tol from every polyline segment.
+        let project = |p: &Point3| -> Option<(f64, f64)> {
+            let mut best: Option<(f64, f64, f64)> = None; // (dist, s, t)
             let mut s0 = 0.0_f64;
             for w in polyline.windows(2) {
                 let (a, b) = (w[0].1, w[1].1);
@@ -120,12 +125,31 @@ pub(super) fn orient_face_meshes_coherently(
                 let t = ((*p - a).dot(&ab) / (len * len)).clamp(0.0, 1.0);
                 let q = a + ab * t;
                 let d = p.distance_to(&q);
-                if best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, s0 + len * t));
+                if best.is_none_or(|(bd, _, _)| d < bd) {
+                    best = Some((d, s0 + len * t, w[0].0 + (w[1].0 - w[0].0) * t));
                 }
                 s0 += len;
             }
-            best.and_then(|(d, s)| (d <= tol).then_some(s))
+            // The polyline is only a coarse stand-in (its chords sag
+            // up to ~R·(π/32)²/2 off a circle), so the distance that
+            // decides membership is to the curve itself (below).
+            let (d, s, t_seed) = best?;
+            if d > tol {
+                return None;
+            }
+            let mut t = t_seed;
+            for _ in 0..4 {
+                let c = curve.point_at(t);
+                let d1 = curve.derivative_at(t, 1);
+                let d2 = curve.derivative_at(t, 2);
+                let r = c - *p;
+                let fp = d1.dot(&d1) + r.dot(&d2);
+                if fp.abs() <= 1e-300 {
+                    break;
+                }
+                t -= r.dot(&d1) / fp;
+            }
+            Some((s, curve.point_at(t).distance_to(p)))
         };
         // Closed polylines (rim circles): a raw arc-length delta
         // telescopes to zero around the loop — the wraparound
@@ -140,7 +164,20 @@ pub(super) fn orient_face_meshes_coherently(
             .is_some_and(|(a, b)| a.1.distance_to(&b.1) <= tol);
         let mut advance = 0.0_f64;
         for (p, q) in segs {
-            if let (Some(sp), Some(sq)) = (project(p), project(q)) {
+            if let (Some((sp, dp)), Some((sq, dq))) = (project(p), project(q)) {
+                // A segment is ON the edge when the curve passes within
+                // a quarter of the segment's own length of both ends (a
+                // fallback-grid boundary sags off by about a chord
+                // height) or a ten-thousandth of the edge. The polyline
+                // tolerance alone admitted a parallel boundary of the
+                // same face (a thin annulus's other rim 0.6 away under
+                // 1.3-long segments on a 662-long circle), whose
+                // opposite traversal cancelled the vote (turbine.stp,
+                // PK-648).
+                let on_edge = exact_tol.max(0.25 * p.distance_to(q));
+                if dp > on_edge || dq > on_edge {
+                    continue;
+                }
                 let mut d = sq - sp;
                 if closed {
                     d -= length * (d / length).round();
@@ -203,8 +240,8 @@ pub(super) fn orient_face_meshes_coherently(
                 (t, eval.point_at(t))
             })
             .collect();
-        let d1 = advance_along(&boundary_segments[f1], &polyline);
-        let d2 = advance_along(&boundary_segments[f2], &polyline);
+        let d1 = advance_along(&boundary_segments[f1], &polyline, eval);
+        let d2 = advance_along(&boundary_segments[f2], &polyline, eval);
         // Require a non-trivial matched length on BOTH sides before
         // trusting the vote (a lone straggler segment is sew noise).
         let mut edge_len = 0.0;
@@ -318,11 +355,18 @@ pub(super) fn orient_face_meshes_coherently(
             }
         }
         let enclosed = crate::winding_side::component_is_enclosed(&component, face_meshes);
-        let wrong_side = if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
+        // Only a CLOSED component's signed volume says which side it
+        // faces. An open one — faces cut off from the rest of the
+        // body by missing votes — keeps the winding its faces' flags
+        // gave it (measured: turbine.stp's fillet strip, unlinked
+        // from its planes, was flipped on an open strip's volume and
+        // the solid meshed 66 % over; PK-648).
+        let closed = component_is_closed(&component, &boundary_segments);
+        let wrong_side = closed && if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
         if popkern_core::trace::trace_enabled("mesh-orientation") {
             eprintln!(
                 "  [orient] component {component:?} vol6 {vol6:.4} enclosed={enclosed} \
-                 wrong_side={wrong_side}"
+                 closed={closed} wrong_side={wrong_side}"
             );
         }
         if wrong_side {
@@ -341,4 +385,33 @@ pub(super) fn orient_face_meshes_coherently(
             }
         }
     }
+}
+
+/// Whether a component's face meshes close on themselves: every
+/// boundary segment of every member is walked back by some member
+/// (positions welded at 1e-7, as the mesh weld does).
+fn component_is_closed(component: &[usize], boundary_segments: &[Vec<(Point3, Point3)>]) -> bool {
+    use std::collections::HashMap;
+    let key = |p: &Point3| {
+        (
+            (p.x * 1e7).round() as i64,
+            (p.y * 1e7).round() as i64,
+            (p.z * 1e7).round() as i64,
+        )
+    };
+    let mut balance: HashMap<_, i64> = HashMap::new();
+    for &f in component {
+        for (a, b) in &boundary_segments[f] {
+            let (ka, kb) = (key(a), key(b));
+            if ka == kb {
+                continue;
+            }
+            if ka < kb {
+                *balance.entry((ka, kb)).or_default() += 1;
+            } else {
+                *balance.entry((kb, ka)).or_default() -= 1;
+            }
+        }
+    }
+    balance.values().all(|&n| n == 0)
 }
