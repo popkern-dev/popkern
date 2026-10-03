@@ -4,6 +4,7 @@
 //! (from a filesystem path). Both return a [`StepImportResult`] containing the
 //! imported [`StepDocument`] and a diagnostic log.
 
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 
 use crate::error::IoError;
@@ -166,8 +167,10 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
                 ),
             );
         }
-        // Closed NURBS bands bounded by their rims alone get the seam
+        // Edges through a sphere pole split there (import_pole_split);
+        // closed NURBS bands bounded by their rims alone get the seam
         // their chart needs (import_missing_seam).
+        crate::step::import_pole_split::split_edges_at_poles(brep, &mut log);
         crate::step::import_missing_seam::add_missing_seams(brep, &mut log);
         // Deviations are measured once every half-edge has its pcurve:
         // an edge without one measures zero, so measuring first left
@@ -186,7 +189,17 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         // own loop winding (dishonest exporter or mapping defect)
         // must not ship that lie into downstream operators. Derive
         // the honest value and record the repair (PK-245).
-        let flipped = brep.reconcile_orientation_flags();
+        // Faces on closed surfaces are exempt: their loop bounds two
+        // regions and the file's sense is the only witness of which.
+        let flipped = brep.reconcile_orientation_flags_where(|b, face| {
+            !matches!(
+                b.faces
+                    .get(face)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| &s.geometry),
+                Some(SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Torus { .. })
+            )
+        });
         if flipped > 0 {
             log.warn(
                 Phase::MapTopology,

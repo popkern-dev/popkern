@@ -293,12 +293,39 @@ impl BRep {
                         let dv = surface.partial_v(u, v).length();
                         du <= 1.0e-4 * dv.max(1.0e-12)
                     };
+                    // The free azimuth at a pole is the curve's limit:
+                    // the direction it arrives from (leaves toward),
+                    // read a hair inside the edge. A quarter sample's
+                    // azimuth is not it when the curve swings round
+                    // the pole (measured: a dome rim through the pole
+                    // snapped its arriving end π off — 0.41 out of r
+                    // 10; PK-646).
+                    // Analytic poles only (sphere, cone apex), whose
+                    // azimuth is well conditioned a hair from the pole;
+                    // a NURBS chart's collapsed row is not (measured:
+                    // the pyramid3 apex cap's projections there lost
+                    // the cap's G1 rim, 0.975 vs a 5e-2 gate).
+                    let analytic_pole = matches!(
+                        surface,
+                        crate::geometry::surface::SurfaceGeometry::Sphere { .. }
+                            | crate::geometry::surface::SurfaceGeometry::Cone { .. }
+                    );
+                    let limit_u = |fraction: f64, reference: f64| -> f64 {
+                        let t = t_lo + (t_hi - t_lo) * fraction;
+                        match analytic_pole {
+                            true => {
+                                project_point_to_uv(&surface, &curve_on_edge.geometry.point_at(t))
+                                    .map_or(reference, |(u, _)| align(u, reference, period_u))
+                            }
+                            false => reference,
+                        }
+                    };
                     if pole_at(u_s, v_s) {
-                        u_s = first_u;
+                        u_s = limit_u(1.0e-7, first_u);
                         u_snapped = true;
                     }
                     if pole_at(u_e, v_e) {
-                        u_e = chain.0;
+                        u_e = limit_u(1.0 - 1.0e-7, chain.0);
                         u_snapped = true;
                     }
                 }

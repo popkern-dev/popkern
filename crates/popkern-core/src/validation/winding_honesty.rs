@@ -235,9 +235,28 @@ impl BRep {
     /// face changes the tangency evidence available to its
     /// pole-degenerate neighbours.
     pub fn reconcile_orientation_flags(&mut self) -> usize {
+        self.reconcile_orientation_flags_where(|_, _| true)
+    }
+
+    /// [`BRep::reconcile_orientation_flags`] restricted to the faces
+    /// `eligible` admits; the others keep their authored flag whatever
+    /// the audit says. A serving boundary uses this where the audit's
+    /// premise fails for a class of faces: on a CLOSED surface (sphere,
+    /// torus) a loop bounds two regions, both bounded, so its chart
+    /// winding cannot tell a dishonest flag from a face that is the
+    /// other region (measured: an imported sphere minus a cap clear of
+    /// both poles was "reconciled" into the cap; PK-646).
+    pub fn reconcile_orientation_flags_where(
+        &mut self,
+        eligible: impl Fn(&BRep, FaceHandle) -> bool,
+    ) -> usize {
         let mut flipped = 0;
         for _ in 0..4 {
-            let dishonest = self.dishonest_winding_faces();
+            let dishonest: Vec<FaceHandle> = self
+                .dishonest_winding_faces()
+                .into_iter()
+                .filter(|&face| eligible(self, face))
+                .collect();
             if dishonest.is_empty() {
                 break;
             }

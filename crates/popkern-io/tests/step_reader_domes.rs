@@ -69,6 +69,11 @@ fn mesh_volume(mesh: &popkern_mesh::TriMesh) -> f64 {
 }
 
 fn check_dome(n: [f64; 3], d: f64) {
+    check_dome_within(n, d, 2e-3);
+}
+
+/// `check_dome` with an explicit relative volume bound.
+fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
     let r = 10.0;
     let text = dome_step(r, n, d);
     let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
@@ -87,6 +92,13 @@ fn check_dome(n: [f64; 3], d: f64) {
     );
     let dome = &solids[0];
     dome.validate().expect("valid");
+    for (eh, _) in dome.edges.iter() {
+        let dev = dome.measure_edge_deviation(eh);
+        assert!(
+            dev < 1e-5,
+            "n {n:?} d {d}: edge {eh:?} pcurve deviation {dev}"
+        );
+    }
     let mesh = popkern_mesh::tessellate(dome, &popkern_mesh::TessellationOptions::default())
         .expect("mesh");
     assert_eq!(
@@ -98,7 +110,7 @@ fn check_dome(n: [f64; 3], d: f64) {
     let exact = std::f64::consts::PI * h * h * (3.0 * r - h) / 3.0;
     let got = mesh_volume(&mesh);
     assert!(
-        (got - exact).abs() < 2e-3 * exact,
+        (got - exact).abs() < bound * exact,
         "n {n:?} d {d}: volume {got} vs {exact}"
     );
 }
@@ -127,6 +139,55 @@ fn a_tilted_cap_whose_rim_is_no_latitude() {
 #[test]
 fn a_cap_clear_of_both_poles() {
     check_dome([1.0, 0.0, 0.0], 4.0);
+}
+
+/// PK-646: the rest of the sphere beyond a cap clear of both poles —
+/// a ball with a stem — contains both chart poles, which no chart
+/// polygon encloses: it charts as the whole period box with the rim as
+/// a hole, and import keeps the file's sense (the loop's winding cannot
+/// say which of the two bounded regions a closed surface's face is).
+/// Measured before: meshed the cap, 904 of 3284.
+#[test]
+fn the_rest_of_a_sphere_beyond_a_cap_clear_of_both_poles() {
+    check_dome_within([-1.0, 0.0, 0.0], -4.0, REST_OF_SPHERE_BOUND);
+    check_dome_within([0.3, -0.5, 0.2], -6.0, REST_OF_SPHERE_BOUND);
+}
+
+/// PK-646: a rim circle through a chart pole runs up to the pole on
+/// one meridian and away on the opposite one. Split at the pole, each
+/// half has an honest pcurve, and the chart takes the pole row between
+/// them in the direction the face flag selects — so the small cap and
+/// the rest of the sphere both mesh as themselves (measured: jack body
+/// 29's corner sphere meshed 0.034 of 0.261).
+#[test]
+fn a_cap_whose_rim_passes_through_the_north_pole() {
+    let n = [1.0, 0.0, 1.0];
+    let d = 10.0 * std::f64::consts::FRAC_1_SQRT_2; // the plane holds (0, 0, r)
+    check_dome(n, d);
+    check_dome_within([-n[0], -n[1], -n[2]], -d, REST_OF_SPHERE_BOUND);
+}
+
+#[test]
+fn a_cap_whose_rim_passes_through_the_south_pole() {
+    let n = [0.0, 1.0, -1.0];
+    let d = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
+    check_dome(n, d);
+    check_dome_within([-n[0], -n[1], -n[2]], -d, REST_OF_SPHERE_BOUND);
+}
+
+/// The rest of the sphere (85 % of it) meshes 2.0e-3 short of the
+/// exact volume: the sphere chart's interior lattice is capped at
+/// `max_subdivisions`, leaving facets up to 1.7e-2 off the surface at
+/// a 0.005 chord height — the same cap leaves the larger-than-a-
+/// hemisphere dome 1.8e-3 short (PK-647 tracks the lattice cap).
+const REST_OF_SPHERE_BOUND: f64 = 3e-3;
+
+#[test]
+fn hemispheres_whose_rim_is_a_meridian_circle() {
+    // The rim passes through both poles.
+    check_dome([1.0, 0.0, 0.0], 0.0);
+    check_dome([-1.0, 0.0, 0.0], 0.0);
+    check_dome([0.6, 0.8, 0.0], 0.0);
 }
 
 /// A drill-point cone tip: the cone face from its apex to one circle

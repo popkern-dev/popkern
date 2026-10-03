@@ -24,6 +24,13 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 use super::BoundaryRing;
 
+#[path = "boundary_first_pole_crossing.rs"]
+mod pole_crossing;
+#[path = "boundary_first_pole_runs.rs"]
+mod pole_runs;
+pub(super) use pole_crossing::resolve_pole_crossings;
+pub(super) use pole_runs::{complement_through_poles, enclose_both_poles};
+
 /// The ring closed through the pole the face contains, or `None` when
 /// the surface has no pole on that side (or the ring does not wrap
 /// exactly once).
@@ -81,7 +88,26 @@ pub(super) fn close_through_pole(
     // band slit) chosen so each wall chord stays within the chord
     // height of the surface — a single rim-to-pole chord flattened
     // the cap (measured: 8 % of a dome's volume).
-    let ladder = wall_stations(surface, ring.uv[0].0, v_rim, v_pole, chord_height);
+    // A wall chord is also no longer than the ring's own longest
+    // sample step: the wall's span is a zero-length pole run that the
+    // mesher's segment refinement cannot split, and a straight cone
+    // meridian has no sag to bisect, so one rim-to-apex segment's
+    // protecting disk evacuated the cap's interior lattice and
+    // Delaunay fanned chords through the solid (measured: jack body
+    // 28's drill-point cone meshed 33.2 of 42.1, watertight).
+    let longest_step = ring
+        .pos
+        .iter()
+        .zip(ring.pos.iter().cycle().skip(1))
+        .map(|(a, b)| a.distance_to(b))
+        .fold(0.0_f64, f64::max);
+    let ladder = wall_stations(
+        surface,
+        ring.uv[0].0,
+        (v_rim, v_pole),
+        chord_height,
+        longest_step,
+    );
     out.uv.push((u_end, v_rim));
     out.pos.push(ring.pos[0]);
     out.sources.push(pole_span);
@@ -93,10 +119,23 @@ pub(super) fn close_through_pole(
     out.uv.push((u_end, v_pole));
     out.pos.push(pole);
     out.sources.push(pole_span);
+    // The return run walks from u_end back to u0 strictly
+    // monotonically: a ring that reaches a pole itself (a rim through
+    // the other pole, PK-646) holds runs of near-equal u, and repeating
+    // them left zero-length pole-row segments the coverage walk could
+    // not cover.
+    let toward = (ring.uv[0].0 - u_end).signum();
+    let step_floor = 1e-6 * period;
+    let mut last_u = u_end;
     for k in (1..n).rev() {
-        out.uv.push((ring.uv[k].0, v_pole));
+        let u = ring.uv[k].0;
+        if (u - last_u) * toward < step_floor || (ring.uv[0].0 - u) * toward < step_floor {
+            continue;
+        }
+        out.uv.push((u, v_pole));
         out.pos.push(pole);
         out.sources.push(pole_span);
+        last_u = u;
     }
     out.uv.push((ring.uv[0].0, v_pole));
     out.pos.push(pole);
@@ -111,13 +150,14 @@ pub(super) fn close_through_pole(
 
 /// Interior v stations of the meridian `u` from `v_rim` toward
 /// `v_pole` (exclusive of both), bisected until every chord's
-/// midpoint sits within `chord_height` of the surface.
+/// midpoint sits within `chord_height` of the surface and no chord is
+/// longer than `longest_step`.
 fn wall_stations(
     surface: &SurfaceGeometry,
     u: f64,
-    v_rim: f64,
-    v_pole: f64,
+    (v_rim, v_pole): (f64, f64),
     chord_height: f64,
+    longest_step: f64,
 ) -> Vec<f64> {
     let mut vs = vec![v_rim, v_pole];
     for _ in 0..12 {
@@ -131,7 +171,7 @@ fn wall_stations(
                 0.5 * (a.y + b.y),
                 0.5 * (a.z + b.z),
             );
-            if m.distance_to(&mid) > chord_height {
+            if m.distance_to(&mid) > chord_height || a.distance_to(&b) > longest_step {
                 next.push(0.5 * (w[0] + w[1]));
                 split = true;
             }

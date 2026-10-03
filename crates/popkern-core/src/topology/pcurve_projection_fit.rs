@@ -28,14 +28,23 @@ use crate::geometry::{NurbsCurve, Point3};
 /// Samples of the historical fixed recompute (the OCCT default); the
 /// initial sampling spreads this many over the segments.
 pub(super) const PROJECTION_SAMPLES: usize = 23;
-/// Doublings of each segment's span count: 23 samples reach 177.
-const MAX_DOUBLINGS: usize = 3;
+/// Doublings of each segment's span count while the gap converges:
+/// 23 samples reach 736. Three (177) left a full-turn rim on a
+/// radius-10 sphere 1e-3 off its edge — cubic interpolation error
+/// falls 16× per doubling, from 1.5e-2 at 23 (PK-646).
+const MAX_DOUBLINGS: usize = 5;
 /// Fewest spans per segment (cubic interpolation needs four samples).
 const MIN_SEGMENT_SPANS: usize = 3;
-/// Initial gaps beyond this multiple of the target are not
+/// Initial gaps beyond this multiple of the target AND beyond
+/// `MISFIT_EXTENT_FRACTION` of the edge's own extent are not
 /// interpolation error (a branch or topology misfit on intermediate
 /// boolean bodies, measured up to 15) and are left unrefined.
 const REFINABLE_GAP_FACTOR: f64 = 1.0e4;
+/// A gap this fraction of the edge's chord extent or below is
+/// interpolation error at any model scale: the absolute floor alone
+/// shipped a radius-10 sphere's full-turn rim pcurve 1.5e-2 off its
+/// edge unrefined (PK-646), recorded as an import tolerance.
+const MISFIT_EXTENT_FRACTION: f64 = 1.0e-2;
 /// Newton steps locating the edge-curve point nearest an image sample.
 const NEAREST_NEWTON_STEPS: usize = 4;
 /// Fraction of the model's linear tolerance the pcurve's image may
@@ -148,7 +157,8 @@ pub(super) fn measured_projection_interpolant(
     };
     let target = PROJECTION_FIT_FRACTION * linear_tolerance;
     let mut best_gap = image_gap(&best, surface, curve_on_edge, (t_lo, t_hi), &breaks, &spans);
-    if best_gap > REFINABLE_GAP_FACTOR * target {
+    let extent = edge_extent(curve_on_edge, (t_lo, t_hi));
+    if best_gap > REFINABLE_GAP_FACTOR * target && best_gap > MISFIT_EXTENT_FRACTION * extent {
         return Some(best);
     }
     for _ in 0..MAX_DOUBLINGS {
@@ -170,6 +180,16 @@ pub(super) fn measured_projection_interpolant(
         }
     }
     Some(best)
+}
+
+/// The edge curve's polygonal length over 32 chords.
+fn edge_extent(curve_on_edge: &CurveOnEdge, (t_lo, t_hi): (f64, f64)) -> f64 {
+    let at = |k: usize| {
+        curve_on_edge
+            .geometry
+            .point_at(t_lo + (t_hi - t_lo) * k as f64 / 32.0)
+    };
+    (0..32).map(|k| at(k).distance_to(&at(k + 1))).sum()
 }
 
 /// The historical interpolant: uniform parameters over the samples.

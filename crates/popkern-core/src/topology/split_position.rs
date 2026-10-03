@@ -206,6 +206,21 @@ pub(super) fn route_split_curves(
     t: f64,
 ) {
     if let Some(curve) = curve_on_edge {
+        // Circles and ellipses are parameterised by angle without bound:
+        // their two sub-ranges (set by `split_position_and_propagation`
+        // with the same direction decision) are already exact. Their
+        // rational form is one turn on [0, 2π] whatever the trim, with
+        // parameter ≠ angle inside each quarter, so a NURBS split left an
+        // edge trimmed past one turn with the whole turn (measured: a
+        // closed ellipse rim on jack_in_the_box trimmed [2.98, 6.34]
+        // split at 2π kept [0, 2π], a 3.44 shell gap).
+        if matches!(
+            curve.geometry,
+            crate::geometry::curve::CurveGeometry::Circle { .. }
+                | crate::geometry::curve::CurveGeometry::Ellipse { .. }
+        ) {
+            return;
+        }
         let curve_aligned = curve_alignment_for_split(brep, he_ab, he_ba, curve, pos_a, pos_b);
         let aligned_t = if curve_aligned { t } else { 1.0 - t };
         let t_param = curve.t_start + aligned_t * (curve.t_end - curve.t_start);

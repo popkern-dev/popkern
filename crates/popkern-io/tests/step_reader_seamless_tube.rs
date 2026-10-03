@@ -1,4 +1,4 @@
-//! PK-641: a closed band bounded by its rims alone — an extruded
+//! PK-641, PK-646: a closed band bounded by its rims alone — an extruded
 //! ellipse tube written as `SURFACE_OF_LINEAR_EXTRUSION` with one
 //! ellipse loop per end and no seam edge — gets the seam its chart
 //! needs at import, meshes watertight, and encloses π·a·b·h.
@@ -59,6 +59,16 @@ fn check_tube(start: f64) {
         .next()
         .expect("solid");
     tube.validate().expect("valid");
+    // The split rims' pcurves are re-projected once the seam exists:
+    // kept from before, they crossed the chart's wrap inside
+    // themselves (PK-646: jack body 56 recorded deviations up to 3.15).
+    for (eh, _) in tube.edges.iter() {
+        let dev = tube.measure_edge_deviation(eh);
+        assert!(
+            dev < 1e-5,
+            "start {start}: edge {eh:?} pcurve deviation {dev}"
+        );
+    }
     let mesh = popkern_mesh::tessellate(&tube, &popkern_mesh::TessellationOptions::default())
         .expect("mesh");
     assert_eq!(

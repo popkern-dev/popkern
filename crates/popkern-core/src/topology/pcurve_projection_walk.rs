@@ -75,11 +75,35 @@ pub(super) fn anchored_uv_samples(
     } else {
         start_walk
     };
-    winner
+    let complete = winner.iter().all(Option::is_some);
+    let mut points: Vec<Point3> = winner
         .into_iter()
         .flatten()
         .map(|(u, v)| Point3::new(u, v, 0.0))
-        .collect()
+        .collect();
+    // An endpoint AT a chart pole has no azimuth of its own: its
+    // projection's u is arbitrary. It takes its seed's u — the curve's
+    // limit azimuth there — on its neighbour's branch (measured: a
+    // dome rim through the sphere pole ended π off, 0.41 out of r 10;
+    // PK-646).
+    if complete && points.len() >= 2 {
+        let ((u_s, _), (u_e, _)) = endpoint_uv_seeds;
+        let period = surface.periodicity().0.filter(|&p| p > 0.0);
+        let last = points.len() - 1;
+        for (end, next, seed) in [(0, 1, u_s), (last, last - 1, u_e)] {
+            let (u, v) = (points[end].x, points[end].y);
+            let du = surface.partial_u(u, v).length();
+            let dv = surface.partial_v(u, v).length();
+            if du <= 1.0e-4 * dv.max(1.0e-12) {
+                let reference = points[next].x;
+                points[end].x = match period {
+                    Some(p) => seed - ((seed - reference) / p).round() * p,
+                    None => seed,
+                };
+            }
+        }
+    }
+    points
 }
 
 /// One continuation walk anchored at `anchor_index`: the anchor is

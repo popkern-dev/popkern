@@ -13,6 +13,54 @@ use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
 
 use super::BoundaryRing;
 
+/// Which ring samples are chart-degenerate in u (empty when u is not
+/// periodic).
+///
+/// A sample AT a chart pole (sphere pole, cone apex) has
+/// undefined azimuth: shifting u by half a period leaves
+/// the 3D point fixed. Its pcurve u is arbitrary, and if
+/// it participates in the consecutive unwrap it chains
+/// the rest of the ring into a spurious ±period branch —
+/// a phantom "full wrap" (flagship corner caps hold one
+/// vertex exactly at the cap sphere's pole; the phantom
+/// winding declined 2 of 4 caps). Degenerate samples are
+/// skipped as unwrap anchors and their u is rewritten
+/// from the flanking regular samples afterwards.
+/// Gate at 1e-4 of the ring scale: a sample whose
+/// half-period u-shift moves it by less than a
+/// ten-thousandth of a boundary chord has no meaningful
+/// azimuth for charting, and rewriting its u moves
+/// geometry sub-chord. A pole VERTEX projected at
+/// v ≈ 1e-6 shifts by ~2·r·v ≈ 1e-8 — above the old
+/// 1e-7·scale gate — and its arbitrary atan2 u chained
+/// PK-325's corner-cap rings into a phantom full wrap
+/// (all four wavy-plate top caps declined to uniform-grid
+/// sampling and their chains tore off the strips).
+pub(super) fn chart_degenerate(
+    ring: &BoundaryRing,
+    surface: &SurfaceGeometry,
+    period_u: Option<f64>,
+) -> Vec<bool> {
+    let ring_scale = ring
+        .pos
+        .iter()
+        .zip(ring.pos.iter().cycle().skip(1))
+        .map(|(a, b)| a.distance_to(b))
+        .fold(0.0_f64, f64::max)
+        .max(1e-9);
+    match period_u {
+        Some(p) => ring
+            .uv
+            .iter()
+            .zip(ring.pos.iter())
+            .map(|((u, v), pos)| {
+                surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-4 * ring_scale
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 pub(super) fn unwrap_dir(
     ring: &mut BoundaryRing,
     period: f64,
@@ -87,6 +135,24 @@ pub(super) fn unwrap_dir(
 /// which a majority of its samples fall inside the outer ring; zero
 /// shift wins ties. A ring no shift places inside keeps its sheet —
 /// it may be a second boundary component rather than a hole.
+/// Place a face's rings on one chart sheet: closed-NURBS rings move
+/// into the knot domain, a sphere ring through both poles takes the
+/// side its flag names, and holes join the outer ring's sheet.
+pub(super) fn place_rings_on_chart(
+    rings: &mut Vec<BoundaryRing>,
+    surface: &SurfaceGeometry,
+    orientation: bool,
+    chord_height: f64,
+) {
+    use super::boundary_first_pole_cap::{complement_through_poles, enclose_both_poles};
+    shift_into_closed_nurbs_domain(rings, surface);
+    if let [ring] = rings.as_mut_slice() {
+        complement_through_poles(ring, surface, orientation);
+    }
+    enclose_both_poles(rings, surface, orientation, chord_height);
+    align_hole_sheets(rings, surface);
+}
+
 pub(super) fn align_hole_sheets(rings: &mut [BoundaryRing], surface: &SurfaceGeometry) {
     let (period_u, period_v) = surface.parameter_periodicity();
     let offsets = |period: Option<f64>| -> Vec<f64> {
@@ -154,3 +220,68 @@ pub(super) fn dump_ring(ring: &BoundaryRing, dir: &str) {
         }
     }
 }
+
+/// Rings on a NURBS surface CLOSED in a direction (first and last
+/// control rows coincide) may come out of the consecutive pcurve walk
+/// one or more whole periods off the knot domain (a seamed band read
+/// from its seam at the domain end runs [2π, 4π]). The polygon is
+/// right, but a NURBS evaluates outside its domain by clamping, so
+/// every interior point lands on the domain-end iso-line (measured:
+/// jack_in_the_box body 56's extrusion band meshed 84.2 of OCC's
+/// 127.5, watertight). The surface has no analytic period to wrap by,
+/// so the rings move, together, by the whole domain lengths that put
+/// the outer ring's centre inside the domain.
+fn shift_into_closed_nurbs_domain(rings: &mut [BoundaryRing], surface: &SurfaceGeometry) {
+    let SurfaceGeometry::Nurbs(n) = surface else {
+        return;
+    };
+    let Some(outer) = rings.first() else {
+        return;
+    };
+    let ((u0, u1), (v0, v1)) = n.parameter_range();
+    let scale = n
+        .control_points
+        .iter()
+        .fold(0.0_f64, |m, p| {
+            m.max(p.x.abs()).max(p.y.abs()).max(p.z.abs())
+        })
+        .max(1.0);
+    let rows_match = |a: usize, b: usize| {
+        n.control_points[a].distance_to(&n.control_points[b]) <= 1e-9 * scale
+            && (n.weights[a] - n.weights[b]).abs() <= 1e-12 * n.weights[a].abs().max(1.0)
+    };
+    let closed_u = n.num_u >= 2 && (0..n.num_v).all(|j| rows_match(j, (n.num_u - 1) * n.num_v + j));
+    let closed_v =
+        n.num_v >= 2 && (0..n.num_u).all(|i| rows_match(i * n.num_v, i * n.num_v + n.num_v - 1));
+    let shift = |closed: bool, lo: f64, hi: f64, values: &mut dyn Iterator<Item = f64>| -> f64 {
+        let period = hi - lo;
+        if !closed || period <= 0.0 {
+            return 0.0;
+        }
+        let (mut a, mut b) = (f64::INFINITY, f64::NEG_INFINITY);
+        for x in values {
+            a = a.min(x);
+            b = b.max(x);
+        }
+        let eps = 1e-9 * period;
+        if a >= lo - eps && b <= hi + eps {
+            return 0.0;
+        }
+        -(((0.5 * (a + b) - lo) / period).floor() * period)
+    };
+    let du = shift(closed_u, u0, u1, &mut outer.uv.iter().map(|q| q.0));
+    let dv = shift(closed_v, v0, v1, &mut outer.uv.iter().map(|q| q.1));
+    if du == 0.0 && dv == 0.0 {
+        return;
+    }
+    for ring in rings.iter_mut() {
+        for q in &mut ring.uv {
+            q.0 += du;
+            q.1 += dv;
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "boundary_first_unwrap_tests.rs"]
+mod tests;

@@ -5,6 +5,8 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
+#[path = "split_tests_conic.rs"]
+mod split_tests_conic;
 #[path = "split_tests_face.rs"]
 mod split_tests_face;
 

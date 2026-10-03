@@ -158,44 +158,16 @@ pub(crate) fn tessellate_face_boundary_first(
             // points and unaffected; cos/sin accept any branch).
             {
                 let (period_u, period_v) = surface.parameter_periodicity();
-                // A sample AT a chart pole (sphere pole, cone apex) has
-                // undefined azimuth: shifting u by half a period leaves
-                // the 3D point fixed. Its pcurve u is arbitrary, and if
-                // it participates in the consecutive unwrap it chains
-                // the rest of the ring into a spurious ±period branch —
-                // a phantom "full wrap" (flagship corner caps hold one
-                // vertex exactly at the cap sphere's pole; the phantom
-                // winding declined 2 of 4 caps). Degenerate samples are
-                // skipped as unwrap anchors and their u is rewritten
-                // from the flanking regular samples afterwards.
-                let ring_scale = ring
-                    .pos
-                    .iter()
-                    .zip(ring.pos.iter().cycle().skip(1))
-                    .map(|(a, b)| a.distance_to(b))
-                    .fold(0.0_f64, f64::max)
-                    .max(1e-9);
-                // Gate at 1e-4 of the ring scale: a sample whose
-                // half-period u-shift moves it by less than a
-                // ten-thousandth of a boundary chord has no meaningful
-                // azimuth for charting, and rewriting its u moves
-                // geometry sub-chord. A pole VERTEX projected at
-                // v ≈ 1e-6 shifts by ~2·r·v ≈ 1e-8 — above the old
-                // 1e-7·scale gate — and its arbitrary atan2 u chained
-                // PK-325's corner-cap rings into a phantom full wrap
-                // (all four wavy-plate top caps declined to uniform-grid
-                // sampling and their chains tore off the strips).
-                let u_degenerate: Vec<bool> = match period_u {
-                    Some(p) => ring
-                        .uv
-                        .iter()
-                        .zip(ring.pos.iter())
-                        .map(|((u, v), pos)| {
-                            surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-4 * ring_scale
-                        })
-                        .collect(),
-                    None => Vec::new(),
-                };
+                // Chart-degenerate samples (poles, apexes) and sphere
+                // pole crossings (`chart_degenerate`, `resolve_pole_crossings`).
+                let mut u_degenerate =
+                    boundary_first_unwrap::chart_degenerate(&ring, surface, period_u);
+                boundary_first_pole_cap::resolve_pole_crossings(
+                    &mut ring,
+                    &mut u_degenerate,
+                    surface,
+                    orientation,
+                );
                 if let Some(p) = period_u
                     && !boundary_first_unwrap::unwrap_dir(
                         &mut ring,
@@ -254,7 +226,8 @@ pub(crate) fn tessellate_face_boundary_first(
     if rings.is_empty() {
         return None;
     }
-    boundary_first_unwrap::align_hole_sheets(&mut rings, surface);
+    let chord = options.chord_height;
+    boundary_first_unwrap::place_rings_on_chart(&mut rings, surface, orientation, chord);
     if popkern_core::trace::trace_enabled("boundary-first-ring") {
         for (ri, ring) in rings.iter().enumerate() {
             eprintln!(
