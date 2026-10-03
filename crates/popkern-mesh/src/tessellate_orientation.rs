@@ -361,7 +361,7 @@ pub(super) fn orient_face_meshes_coherently(
         // gave it (measured: turbine.stp's fillet strip, unlinked
         // from its planes, was flipped on an open strip's volume and
         // the solid meshed 66 % over; PK-648).
-        let closed = component_is_closed(&component, &boundary_segments);
+        let closed = component_is_closed(brep, &component, face_meshes);
         let wrong_side = closed && if enclosed { vol6 > 0.0 } else { vol6 < 0.0 };
         if popkern_core::trace::trace_enabled("mesh-orientation") {
             eprintln!(
@@ -387,31 +387,48 @@ pub(super) fn orient_face_meshes_coherently(
     }
 }
 
-/// Whether a component's face meshes close on themselves: every
-/// boundary segment of every member is walked back by some member
-/// (positions welded at 1e-7, as the mesh weld does).
-fn component_is_closed(component: &[usize], boundary_segments: &[Vec<(Point3, Point3)>]) -> bool {
-    use std::collections::HashMap;
-    let key = |p: &Point3| {
-        (
-            (p.x * 1e7).round() as i64,
-            (p.y * 1e7).round() as i64,
-            (p.z * 1e7).round() as i64,
-        )
-    };
-    let mut balance: HashMap<_, i64> = HashMap::new();
-    for &f in component {
-        for (a, b) in &boundary_segments[f] {
-            let (ka, kb) = (key(a), key(b));
-            if ka == kb {
-                continue;
-            }
-            if ka < kb {
-                *balance.entry((ka, kb)).or_default() += 1;
-            } else {
-                *balance.entry((kb, ka)).or_default() -= 1;
-            }
-        }
-    }
-    balance.values().all(|&n| n == 0)
+/// Whether a component is topologically closed: every edge of every
+/// member face has its other face in the component too. (Balancing
+/// the meshes' boundary segments read closed bodies as open — face
+/// meshes still carry T-junctions here, before the crack zipper — and
+/// left them inside-out: jack_in_the_box's 3-face bodies and io1-tc
+/// meshed at negative volume, caught by the corpus OCC volume gate.)
+fn component_is_closed(
+    brep: &BRep,
+    component: &[usize],
+    face_meshes: &[crate::mesh::FaceMesh],
+) -> bool {
+    let faces: std::collections::HashSet<_> =
+        component.iter().map(|&f| face_meshes[f].face).collect();
+    faces.iter().all(|&face| {
+        let Some(data) = brep.faces.get(face) else {
+            return false;
+        };
+        std::iter::once(data.outer_loop)
+            .chain(data.inner_loops.iter().copied())
+            .all(|lh| {
+                let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+                    return false;
+                };
+                let mut he = start;
+                for _ in 0..=brep.half_edges.len() {
+                    let Some(h) = brep.half_edges.get(he) else {
+                        return false;
+                    };
+                    let other = brep
+                        .half_edges
+                        .get(h.twin)
+                        .and_then(|t| brep.loops.get(t.loop_))
+                        .map(|l| l.face);
+                    if !other.is_some_and(|o| faces.contains(&o)) {
+                        return false;
+                    }
+                    he = h.next;
+                    if he == start {
+                        break;
+                    }
+                }
+                true
+            })
+    })
 }

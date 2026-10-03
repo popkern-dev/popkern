@@ -353,3 +353,36 @@ fn a_puck_with_both_edges_rounded_winds_consistently() {
         "signed volume {signed} vs {exact} (outward winding)"
     );
 }
+
+/// A shell written inside out (every face sense and loop reversed) is
+/// still a closed body: the mesh faces outward. The coherence pass
+/// flips a closed component on its signed volume; judging closure by
+/// the face meshes' boundary segments read such bodies as open (their
+/// meshes still carry T-junctions there) and left them inside out
+/// (jack_in_the_box's pins, io1-tc; PK-648's corpus volume gate).
+#[test]
+fn an_inside_out_puck_meshes_outward() {
+    let (big, small, h) = (10.0, 1.5, 6.0);
+    let text: String = puck_step(big, small, h)
+        .lines()
+        .map(|line| {
+            if line.contains("ORIENTED_EDGE") || line.contains("ADVANCED_FACE") {
+                line.replace(".T.", ".X.")
+                    .replace(".F.", ".T.")
+                    .replace(".X.", ".F.")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let got = signed_meshed_volume(&text);
+    use std::f64::consts::PI;
+    let rounded_layer = PI * big * big * small
+        + 2.0 * PI * (big + 4.0 * small / (3.0 * PI)) * (PI * small * small / 4.0);
+    let exact = PI * (big + small).powi(2) * (h - 2.0 * small) + 2.0 * rounded_layer;
+    assert!(
+        (got - exact).abs() < 2e-3 * exact,
+        "signed volume {got} vs {exact} (outward winding)"
+    );
+}
