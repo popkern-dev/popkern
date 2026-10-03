@@ -1,5 +1,5 @@
-// The playground page: editor → worker → viewer, with the report,
-// parameters, downloads and show-as-code panels. Everything the user
+// popkern live: editor → worker → viewer, with the feature tree,
+// parameters, exports and show-as-code. Everything the user
 // types stays in this tab (design §7: client-side only; the worker is
 // terminated, never trusted, when a script defeats its budgets).
 import { Bakes } from "./bakes.js";
@@ -17,6 +17,7 @@ const DRAFT_KEY = "popkern-playground-draft";
 // An edited script from an earlier visit, held aside while the page
 // opens on the pre-built default (restore puts it back).
 const SAVED_DRAFT_KEY = "popkern-playground-saved-draft";
+const DOCUMENT_NAME = "document.rhai";
 const TIME_LIMIT_KEY = "popkern-playground-time-limit";
 
 // The build time limit the user picks, in seconds (null = none). The
@@ -118,17 +119,29 @@ class Page {
     $("code-close").addEventListener("click", () => ($("code-dialog").hidden = true));
     $("code-use").addEventListener("click", () => {
       this.editor.value = $("code-text").textContent;
+      this.showDocument();
       $("code-dialog").hidden = true;
       this.run();
     });
     $("examples").addEventListener("change", (e) => this.loadExample(e.target.value));
     $("draft-restore").addEventListener("click", () => this.restoreDraft());
+    $("about").addEventListener("click", () => ($("about-dialog").hidden = false));
+    $("about-close").addEventListener("click", () => ($("about-dialog").hidden = true));
+    for (const dialog of ["about-dialog", "code-dialog"]) {
+      // A click on the backdrop (not the box) or Escape closes it.
+      $(dialog).addEventListener("click", (e) => {
+        if (e.target === e.currentTarget) e.currentTarget.hidden = true;
+      });
+    }
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") for (const dialog of ["about-dialog", "code-dialog"]) $(dialog).hidden = true;
+    });
     $("draft-dismiss").addEventListener("click", () => {
       storage((s) => s.removeItem(SAVED_DRAFT_KEY));
       this.showDraftNotice();
     });
     $("reset").addEventListener("click", async () => {
-      this.editor.value = await this.defaultScript();
+      this.openDocument(DOCUMENT_NAME, await this.defaultScript());
       storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
       this.run();
     });
@@ -145,9 +158,25 @@ class Page {
     if (draft && !prebuilt && draft !== fallback) {
       storage((s) => s.setItem(SAVED_DRAFT_KEY, draft));
     }
-    this.editor.value = prebuilt ? draft : fallback;
+    const name = prebuilt ? await this.bakes.nameOf(draft) : null;
+    this.openDocument(name && name !== "default.rhai" ? name : DOCUMENT_NAME, prebuilt ? draft : fallback);
     this.showDraftNotice();
     this.run();
+  }
+
+  /** Put `text` in the editor as the document `name` (the tab). */
+  openDocument(name, text) {
+    this.docName = name;
+    this.docSource = text;
+    this.editor.value = text;
+    this.showDocument();
+  }
+
+  /** The tab: the document's name, marked once it is edited. */
+  showDocument() {
+    const edited = this.docSource != null && this.editor.value !== this.docSource;
+    $("doc-name").textContent = `${this.docName ?? DOCUMENT_NAME}${edited ? " ●" : ""}`;
+    $("doc-name").title = edited ? "edited: builds live" : "";
   }
 
   showDraftNotice() {
@@ -159,7 +188,7 @@ class Page {
     storage((s) => s.removeItem(SAVED_DRAFT_KEY));
     this.showDraftNotice();
     if (!saved) return;
-    this.editor.value = saved;
+    this.openDocument(DOCUMENT_NAME, saved);
     storage((s) => s.setItem(DRAFT_KEY, saved));
     this.viewer.fitted = false;
     this.run();
@@ -184,6 +213,7 @@ class Page {
 
   changed(text) {
     storage((s) => s.setItem(DRAFT_KEY, text));
+    this.showDocument();
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.run(), IDLE_RUN_MS);
   }
@@ -216,6 +246,7 @@ class Page {
     this.certifyGeneration += 1;
     $("run").disabled = true;
     $("time-limit").disabled = true;
+    document.body.classList.add("busy");
     let finished;
     this.runDone = new Promise((resolve) => (finished = resolve));
     const started = performance.now();
@@ -231,6 +262,7 @@ class Page {
     this.running = false;
     $("run").disabled = false;
     $("time-limit").disabled = false;
+    document.body.classList.remove("busy");
     if (token === this.viewToken) {
       // A described model (a report) is now the worker's; it is the one
       // on screen only when it served. A run that raised kept the
@@ -320,6 +352,7 @@ class Page {
     this.running = false;
     $("run").disabled = false;
     $("time-limit").disabled = false;
+    document.body.classList.remove("busy");
     this.status(`${reason} — kernel restarted`, true);
   }
 
@@ -500,7 +533,9 @@ class Page {
     this.running = true;
     this.certifyGeneration += 1;
     this.status(`replaying with ${name} = ${value}…`);
+    document.body.classList.add("busy");
     const reply = await this.host.setParam(name, value);
+    document.body.classList.remove("busy");
     this.running = false;
     await this.receive(reply);
     return reply;
@@ -565,7 +600,7 @@ class Page {
     if (!file) return;
     const response = await fetch(`./examples/${file}`);
     if (!response.ok) return;
-    this.editor.value = await response.text();
+    this.openDocument(file, await response.text());
     // A refresh reopens the chosen example (pre-built, so instant).
     storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
     this.viewer.fitted = false;

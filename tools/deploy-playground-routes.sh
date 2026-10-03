@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy the browser playground to the sandbox's /routes/ web server
+# Deploy popkern live (the browser playground) to the sandbox's /routes/ web server
 # (PK-426, design §10 phase 6e).
 #
 #   tools/deploy-playground-routes.sh              # build, bake, rsync, verify
@@ -40,7 +40,10 @@ for arg in "$@"; do
   esac
 done
 
-ROUTE_NAME="${POPKERN_ROUTE_NAME:-popkern-playground}"
+ROUTE_NAME="${POPKERN_ROUTE_NAME:-popkern-live}"
+# Earlier name of the route (the page was "popkern playground" until
+# 2026-10-03): it keeps answering, as a redirect to the current one.
+LEGACY_ROUTE_NAMES=(popkern-playground)
 ROUTES_DIR="${ROUTES_DIR:-$HOME/code/.routes}"
 DEST="$ROUTES_DIR/static/$ROUTE_NAME"
 LOCAL_BASE="${POPKERN_ROUTES_BASE:-http://127.0.0.1:7681}"
@@ -114,6 +117,32 @@ done
 find "$DEST" -mindepth 1 -maxdepth 1 ! -name v ! -name index.html ! -name guide.html \
   -exec rm -rf {} +
 ls -dt "$DEST"/v/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
+
+# Legacy routes: entry pages that redirect here (meta refresh: the CSP
+# allows no script), and no app of their own, so an old bookmark lands
+# on the current build instead of a stale one.
+for legacy in "${LEGACY_ROUTE_NAMES[@]}"; do
+  [[ "$legacy" == "$ROUTE_NAME" ]] && continue
+  LEGACY_DEST="$ROUTES_DIR/static/$legacy"
+  mkdir -p "$LEGACY_DEST"
+  find "$LEGACY_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  for page in index.html guide.html; do
+    target="../$ROUTE_NAME/"
+    [[ $page == guide.html ]] && target="../$ROUTE_NAME/guide.html"
+    cat > "$LEGACY_DEST/$page" <<HTML
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="refresh" content="0; url=$target">
+<title>popkern live</title>
+</head>
+<body><p>popkern playground is now <a href="$target">popkern live</a>.</p></body>
+</html>
+HTML
+  done
+done
 
 echo "deployed $STAMP to $VDIR"
 echo "served at $URL/  (and at /routes/$ROUTE_NAME/ on the tunnel hostname)"

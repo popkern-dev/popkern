@@ -7,7 +7,7 @@ must serve (or raise exactly the error class its comment names), and
 every stable verb, selector predicate and error class of the
 [scripting surface](../architecture/scripting-surface.md) is named
 here by its exact spelling (`crates/popkern-rhai/tests/guide.rs`
-checks both). Try any block in the playground (`web/playground/`) or
+checks both). Try any block in popkern live (`web/playground/`) or
 with `popkern run file.rhai --png out.png --step out.step`.
 
 ## 1. The mental model in five sentences
@@ -49,7 +49,7 @@ m
   verb needs a nested recording: `m.tool(|m| ...)`,
   `m.insert_before(anchor, |m, b| ...)`.
 - **The script's last expression is its value.** End with `m` so the
-  host receives the model (the playground and `popkern run` use it).
+  host receives the model (popkern live and `popkern run` use it).
 - **Errors are maps.** `try { ... } catch (e) { print(e.kind) }` gives
   you the same structured payload the host prints; every error is
   positioned at the raising call.
@@ -439,15 +439,29 @@ m
 
 ## 11. Inspecting surface quality
 
-- The **view** selector in the viewer bar switches between *shaded*, *zebra*, and *gaussian / mean curvature*. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.
+- The **view** selector above the viewport switches between CAD (the default: grey faces with black edges; the face or edge under the mouse is highlighted, and a click names it in the status bar), face colours (one colour per face), zebra, and gaussian / mean curvature. Edges are the faces' true boundaries, so tangent fillet seams are drawn too. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.
 - The curvature views paint analytic per-vertex curvature through a diverging palette: blue negative, white zero, red positive, ranged at the median nonzero magnitude so one spike cannot wash the map out. A constant-radius fillet reads as a uniform band in mean curvature; a value step across a seam is a curvature discontinuity.
 
 ## 12. Budgets, size, speed
 
-- The playground runs a script under an operation budget and a wall
-  clock budget (about 20 s); `popkern run --max-ops N --timeout S`
-  does the same. A script that overruns is stopped with
-  `BudgetExceeded`; the last good model stays on screen.
+- popkern live stops a build at its **time limit**: 24 s by default,
+  set in the toolbar from 10 s up to no limit and remembered in this
+  browser. The status bar counts the seconds while a build runs;
+  **Stop** always cancels. A script that overruns is stopped with
+  `BudgetExceeded` and the last good model stays on screen. The
+  interpreter's operation budget, a guard against runaway loops,
+  scales with the limit and is lifted with it.
+  `popkern run --max-ops N --timeout S` sets the same budgets from
+  the command line.
+- The default document and the gallery examples are **pre-built**,
+  and the page always opens on one (an edited script from your last
+  visit is kept aside: a notice above the editor restores it).
+  Opening one shows the model, its feature tree (continuity already
+  certified) and its parameters at once, without waiting for the
+  kernel; the status bar says served (pre-built) and how long it
+  takes to build natively. Editing the script, moving a slider,
+  exporting, show-as-code and the zebra view build the model live
+  first; a heavy example may then need a longer time limit.
 - G2 fillets with corners are the slow path today (seconds each,
   tens of seconds for a fully rounded cube); G1 rounds and chamfers
   are fast. Prefer G1 unless curvature continuity is the point.
@@ -461,7 +475,7 @@ m
   cutter with `m.tool(...)` and `subtract` it.
 - A single expression may nest to 64 levels at the top level and 32
   inside a `fn` body (the same limit in every build — CLI, tests, and
-  the wasm playground). Computed-geometry arithmetic rarely reaches
+  the browser build). Computed-geometry arithmetic rarely reaches
   it, but a deep chain like `a + b*c/d - f(g(x))` repeated in a point
   literal can; if you hit `Expression exceeds maximum complexity`,
   bind sub-results to `let` locals (`let ang = rot - half; [r*cos(ang),

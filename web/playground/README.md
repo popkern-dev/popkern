@@ -1,8 +1,9 @@
-# popkern playground (static page)
+# popkern live (static page)
 
-The browser playground: a script editor, the kernel compiled to
-WebAssembly running in a Web Worker, a three.js viewer, the replay
-report, parameter sliders, STEP/`.pkn` downloads and show-as-code.
+popkern live, the browser workbench (the code and crate keep the
+working name "playground"): a script editor, the kernel compiled to
+WebAssembly running in a Web Worker, a three.js viewport, the feature
+tree, parameter sliders, STEP/`.pkn` exports and show-as-code.
 Everything runs in the tab — no server-side component, no network
 use beyond loading these files.
 
@@ -30,15 +31,17 @@ tools/deploy-playground-routes.sh --no-build   # redeploy the built bundle
 ```
 
 One command builds the bundle, copies the runtime assets (not the
-harnesses or npm metadata) to `~/code/.routes/static/popkern-playground/`,
+harnesses or npm metadata) to `~/code/.routes/static/popkern-live/`,
 and verifies the served copy: content types by `curl`, then the
 `test/browser.mjs` harness pointed at the deployed URL via
 `POPKERN_PAGE_ORIGIN` — a real kernel run, request accounting, and
 recorded load numbers in `docs/reports/playground/routes-deploy.json`.
-The sandbox's Caddy serves the tree at `/routes/popkern-playground/`
+The sandbox's Caddy serves the tree at `/routes/popkern-live/`
 (locally on port 7681 and on the tunnel hostname); the script's
 header documents the `conf.d` reverse-proxy variant a live
-`popkern-daemon` session will use instead.
+`popkern-daemon` session will use instead. The former route,
+`/routes/popkern-playground/`, is rewritten on every deploy to
+redirect pages pointing here.
 
 ## Files
 

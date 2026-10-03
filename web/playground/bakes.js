@@ -39,10 +39,11 @@ export class Bakes {
     }
   }
 
-  /** The index entry for a gallery file, or null (for the picker). */
-  forFile(file) {
-    for (const entry of this.entries.values()) if (entry.file === file) return entry;
-    return null;
+  /** The gallery file name a script text was baked from (index
+   *  lookup by key only: a label, never trusted for content). */
+  async nameOf(source) {
+    await this.ready;
+    return this.entries.get(sourceKey(source))?.file ?? null;
   }
 
   /** The bake of exactly `source`: `{ envelope, buffers, native }`,

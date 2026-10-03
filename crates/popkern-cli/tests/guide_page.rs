@@ -1,4 +1,4 @@
-//! PK-413: the playground serves the scripting guide as a page.
+//! PK-413: popkern live serves the scripting guide as a page.
 //! `web/playground/guide.html` is generated from
 //! `docs/reference/scripting-guide.md` by the small Markdown renderer
 //! below (headings, paragraphs, lists, tables, fenced code, inline
@@ -184,7 +184,7 @@ fn render(markdown: &str) -> String {
 
 fn page(body: &str) -> String {
     format!(
-        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>popkern scripting guide</title>\n<link rel=\"icon\" href=\"./favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"./guide.css\">\n</head>\n<body>\n<nav class=\"top\"><a href=\"./index.html\">← playground</a></nav>\n<main class=\"guide\">\n{body}</main>\n</body>\n</html>\n"
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>popkern scripting guide</title>\n<link rel=\"icon\" href=\"./favicon.svg\" type=\"image/svg+xml\">\n<link rel=\"stylesheet\" href=\"./guide.css\">\n</head>\n<body>\n<nav class=\"top\"><a href=\"./index.html\">← popkern live</a></nav>\n<main class=\"guide\">\n{body}</main>\n</body>\n</html>\n"
     )
 }
 

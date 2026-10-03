@@ -106,7 +106,7 @@ export class Viewer {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x1d2026);
+    this.scene.background = new THREE.Color(0x16181d);
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.9));
     const key = new THREE.DirectionalLight(0xffffff, 0.8);
