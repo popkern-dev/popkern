@@ -377,7 +377,10 @@ GUI's history-tree edits.
   body is consumed. Bodies can be labelled (`label_body(name, body)`,
   preview) and are stable across save/open (labels are document
   data).
-- Assemblies/product structure are out of scope (design §1).
+- Assemblies/product structure live one tier up, in
+  `popkern-assembly` (`docs/architecture/assemblies.md`, PK-628):
+  a document of part definitions (each a `Model` as specified here)
+  and placed instances. The verbs there are `preview`.
 
 ---
 
