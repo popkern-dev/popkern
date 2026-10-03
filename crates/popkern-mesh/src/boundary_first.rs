@@ -139,7 +139,7 @@ pub(crate) fn tessellate_face_boundary_first(
 
     // Build boundary rings from canonical samples.
     let mut rings: Vec<BoundaryRing> = Vec::new();
-    let (mut wrapped_rings, mut wrapped_period) = (Vec::<BoundaryRing>::new(), None::<f64>); // PK-468
+    let (mut wrapped_rings, mut wrapped_period) = (Vec::<BoundaryRing>::new(), None::<(f64, bool)>); // PK-468
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
     for lh in loops {
@@ -222,14 +222,15 @@ pub(crate) fn tessellate_face_boundary_first(
                         return Some(fm);
                     }
                     stash_wrapped_ring(ring, &mut wrapped_rings); // PK-468 band slit
-                    wrapped_period = Some(p);
+                    boundary_first_wrap_pair::record_wrap(&mut wrapped_period, (p, false))?;
                     continue;
                 }
                 if let Some(p) = period_v
                     && !boundary_first_unwrap::unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
                 {
-                    boundary_first_unwrap::dump_ring(&ring, "v");
-                    return None;
+                    boundary_first_wrap_pair::record_wrap(&mut wrapped_period, (p, true))?;
+                    boundary_first_wrap_pair::stash_transposed(ring, &mut wrapped_rings);
+                    continue; // a v-wrapped band (an imported pipe elbow) slits transposed
                 }
             }
             for lobe in boundary_first_slit::dissolve_pinches(ring) {
@@ -239,7 +240,7 @@ pub(crate) fn tessellate_face_boundary_first(
             }
         }
     }
-    if let Some(p) = wrapped_period {
+    if let Some((p, transposed)) = wrapped_period {
         rings.extend(join_wrapped_rings(
             face_handle,
             &wrapped_rings,
@@ -247,6 +248,7 @@ pub(crate) fn tessellate_face_boundary_first(
             surface,
             orientation,
             options.chord_height,
+            transposed,
         )?);
     }
     if rings.is_empty() {
@@ -332,17 +334,9 @@ pub(crate) fn tessellate_face_boundary_first(
         }
         n = crate::facet_angle::densify_lattice(surface, ((u0, u1), (v0, v1)), n, options);
     }
-    // Per-direction station counts for NURBS charts — the diagonal
-    // probe above reads a coiled chart by phase luck (n=4 ribbon,
-    // see `boundary_first_lattice`); analytic charts keep the grid.
-    let (n_u, n_v) = if matches!(
-        surface,
-        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
-    ) {
-        boundary_first_lattice::directional_stations(surface, (u0, u1), (v0, v1), options)
-    } else {
-        (n, n)
-    };
+    // Per-direction station counts (see `boundary_first_lattice::lattice_counts`).
+    let (n_u, n_v) =
+        boundary_first_lattice::lattice_counts(surface, (u0, u1), (v0, v1), n, options);
     // Chart metric scale (mm per parameter unit at the chart
     // centre). The chart mixes units (radians × millimetres on a
     // cylinder), and every proximity quantity below — cell size,

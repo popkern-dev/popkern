@@ -7,6 +7,31 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 use crate::TessellationOptions;
 
+/// The interior lattice's station counts `(n_u, n_v)` given the grid
+/// count `n` from the chart-diagonal probe. NURBS charts use
+/// [`directional_stations`]: the diagonal probe reads a coiled chart
+/// by phase luck. A torus takes the larger of the two per direction: a
+/// band spanning a full minor turn (an imported pipe elbow) reads the
+/// diagonal by the same luck (sagging 5x the chord height), while the
+/// grid stays the floor native tori were tuned on (PK-641). Other
+/// analytic charts keep the grid.
+pub(super) fn lattice_counts(
+    surface: &SurfaceGeometry,
+    u_span: (f64, f64),
+    v_span: (f64, f64),
+    n: usize,
+    options: &TessellationOptions,
+) -> (usize, usize) {
+    match surface {
+        SurfaceGeometry::Nurbs(_) => directional_stations(surface, u_span, v_span, options),
+        SurfaceGeometry::Torus { .. } => {
+            let (n_u, n_v) = directional_stations(surface, u_span, v_span, options);
+            (n_u.max(n), n_v.max(n))
+        }
+        _ => (n, n),
+    }
+}
+
 /// Interior-lattice station counts per chart direction, refined until
 /// the worst iso-line chord sagitta meets `chord_height` and (with an
 /// angular facet bound) the worst iso-line tangent turn meets

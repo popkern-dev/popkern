@@ -94,7 +94,18 @@ pub(super) fn slit_band(
     wrapped: &[BoundaryRing],
     period: f64,
     surface: &SurfaceGeometry,
+    transposed: bool,
+    chord_height: f64,
 ) -> Option<Vec<BoundaryRing>> {
+    // In a transposed chart (rings wrapping in v) the first coordinate
+    // is the surface's v.
+    let point_at = |a: f64, b: f64| {
+        if transposed {
+            surface.point_at(b, a)
+        } else {
+            surface.point_at(a, b)
+        }
+    };
     let ring0 = wrapped.first()?;
     let crossings_of = |ring: &BoundaryRing, u_star: f64| -> usize {
         let n = ring.uv.len();
@@ -242,10 +253,10 @@ pub(super) fn slit_band(
             let src0 = sources[0];
             let src_end = *sources.last()?;
             uv.insert(0, (sw, v_start));
-            pos.insert(0, surface.point_at(sw, v_start));
+            pos.insert(0, point_at(sw, v_start));
             sources.insert(0, (src0.0, src0.1, src0.1));
             uv.push((ew, v_end));
-            pos.push(surface.point_at(ew, v_end));
+            pos.push(point_at(ew, v_end));
             sources.push((src_end.0, src_end.2, src_end.2));
             pieces.push((uv, pos, sources));
         }
@@ -357,10 +368,32 @@ pub(super) fn slit_band(
         let steps = ((from.1 - to.1).abs() / (0.02 * period).max(1e-9))
             .ceil()
             .clamp(1.0, 64.0) as usize;
-        for k in 1..steps {
-            let v = from.1 + (to.1 - from.1) * k as f64 / steps as f64;
+        let mut vs: Vec<f64> = (0..=steps)
+            .map(|k| from.1 + (to.1 - from.1) * k as f64 / steps as f64)
+            .collect();
+        // A wall along a CURVED iso-line (a torus band's major circle in
+        // a transposed chart) also refines until each chord sits within
+        // the chord height (PK-641: elbows sagged 0.025 at 0.005).
+        for _ in 0..6 {
+            let mut next = vec![vs[0]];
+            for w in vs.windows(2) {
+                let (a, b) = (point_at(from.0, w[0]), point_at(from.0, w[1]));
+                let m = point_at(from.0, 0.5 * (w[0] + w[1]));
+                let mid = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+                if m.distance_to(&mid) > chord_height && next.len() < 512 {
+                    next.push(0.5 * (w[0] + w[1]));
+                }
+                next.push(w[1]);
+            }
+            let split = next.len() > vs.len();
+            vs = next;
+            if !split {
+                break;
+            }
+        }
+        for &v in &vs[1..vs.len() - 1] {
             bundle.0.push((from.0, v));
-            bundle.1.push(surface.point_at(from.0, v));
+            bundle.1.push(point_at(from.0, v));
             bundle.2.push((src.0, src.1, src.1));
         }
     };
