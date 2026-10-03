@@ -28,6 +28,11 @@
 </header>
 <main class="layout">
   <section class="pane pane-editor" aria-label="Script">
+    <div id="draft-notice" class="draft-notice" hidden role="status">
+      <span>Your edited script from last time is saved.</span>
+      <button id="draft-restore" type="button" title="Put it back in the editor and build it">restore it</button>
+      <button id="draft-dismiss" type="button" title="Forget it">dismiss</button>
+    </div>
     <div id="editor"></div>
   </section>
   <section class="pane pane-viewer" aria-label="Model">

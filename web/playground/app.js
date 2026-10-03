@@ -14,6 +14,9 @@ import { WorkerHost } from "./worker-host.js";
 const CERTIFY_SLICE_MS = 250;
 const IDLE_RUN_MS = 900;
 const DRAFT_KEY = "popkern-playground-draft";
+// An edited script from an earlier visit, held aside while the page
+// opens on the pre-built default (restore puts it back).
+const SAVED_DRAFT_KEY = "popkern-playground-saved-draft";
 const TIME_LIMIT_KEY = "popkern-playground-time-limit";
 
 // The build time limit the user picks, in seconds (null = none). The
@@ -84,12 +87,7 @@ class Page {
     this.renderTimeLimit();
     this.loadExamples();
     this.status("loading the kernel…");
-    // A pre-built script shows before the kernel has even loaded.
-    const draft = storage((s) => s.getItem(DRAFT_KEY));
-    (draft ? Promise.resolve(draft) : this.defaultScript()).then((text) => {
-      this.editor.value = text;
-      this.run();
-    });
+    this.openFirstScript();
     this.host
       .start()
       .then((info) => {
@@ -124,10 +122,47 @@ class Page {
       this.run();
     });
     $("examples").addEventListener("change", (e) => this.loadExample(e.target.value));
+    $("draft-restore").addEventListener("click", () => this.restoreDraft());
+    $("draft-dismiss").addEventListener("click", () => {
+      storage((s) => s.removeItem(SAVED_DRAFT_KEY));
+      this.showDraftNotice();
+    });
     $("reset").addEventListener("click", async () => {
       this.editor.value = await this.defaultScript();
+      storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
       this.run();
     });
+  }
+
+  /** The page opens on something pre-built, so a visitor never waits
+   *  on the kernel: the last script when it has a bake (the default or
+   *  an example), else the default — and an edited script from last
+   *  time is held aside with a notice offering to restore it. */
+  async openFirstScript() {
+    const draft = storage((s) => s.getItem(DRAFT_KEY));
+    const fallback = await this.defaultScript();
+    const prebuilt = draft ? await this.bakes.find(draft) : null;
+    if (draft && !prebuilt && draft !== fallback) {
+      storage((s) => s.setItem(SAVED_DRAFT_KEY, draft));
+    }
+    this.editor.value = prebuilt ? draft : fallback;
+    this.showDraftNotice();
+    this.run();
+  }
+
+  showDraftNotice() {
+    $("draft-notice").hidden = !storage((s) => s.getItem(SAVED_DRAFT_KEY));
+  }
+
+  restoreDraft() {
+    const saved = storage((s) => s.getItem(SAVED_DRAFT_KEY));
+    storage((s) => s.removeItem(SAVED_DRAFT_KEY));
+    this.showDraftNotice();
+    if (!saved) return;
+    this.editor.value = saved;
+    storage((s) => s.setItem(DRAFT_KEY, saved));
+    this.viewer.fitted = false;
+    this.run();
   }
 
   /** The script a fresh page (and reset) shows, fetched once. It
@@ -531,6 +566,8 @@ class Page {
     const response = await fetch(`./examples/${file}`);
     if (!response.ok) return;
     this.editor.value = await response.text();
+    // A refresh reopens the chosen example (pre-built, so instant).
+    storage((s) => s.setItem(DRAFT_KEY, this.editor.value));
     this.viewer.fitted = false;
     this.run();
   }

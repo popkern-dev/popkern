@@ -325,6 +325,24 @@ try {
     return { options, initial, none, restored_timeout: window.playground.host.options.timeout_ms };
   })()`);
 
+  // A returning visitor with an edited script saved: the page still
+  // opens pre-built (nothing builds on load) and offers the edit back.
+  if (out.bakes_present) {
+    await evaluate(`localStorage.setItem("popkern-playground-draft", "// edited last time\\n" + document.querySelector("#editor textarea").value)`);
+    await send("Page.navigate", { url: `${origin}/` });
+    const reopened = await waitFor(`(() => { const s = document.getElementById("status")?.textContent ?? ""; return s.startsWith("served") ? s : null; })()`, 60000, "the reopened page");
+    out.returning = {
+      status: reopened,
+      live: await evaluate(`window.playground.live`),
+      notice_visible: await evaluate(`!document.getElementById("draft-notice").hidden`),
+      editor_is_default: await evaluate(`window.playground.defaultScript().then((d) => window.playground.editor.value === d)`),
+    };
+    await evaluate(`document.getElementById("draft-restore").click()`);
+    out.returning.restored = await waitFor(`(() => { const s = document.getElementById("status").textContent; return /^served: /.test(s) ? s : null; })()`, 60000, "the restored draft");
+    out.returning.editor_restored = await evaluate(`window.playground.editor.value.startsWith("// edited last time")`);
+    out.returning.notice_after = await evaluate(`!document.getElementById("draft-notice").hidden`);
+  }
+
   if (process.env.POPKERN_LAUNCH === "1") {
     out.launch = await launchRows();
   }

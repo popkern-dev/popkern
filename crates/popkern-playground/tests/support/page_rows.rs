@@ -45,6 +45,18 @@ pub fn assert_time_limit_and_bakes(out: &Value) {
                 .is_some_and(|t| t.contains("certified") && !t.contains("certifying")),
             "{prebuilt}"
         );
+        let returning = &out["returning"];
+        assert!(
+            returning["status"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("served (pre-built)")),
+            "a returning visitor with an edited draft still opens pre-built: {returning}"
+        );
+        assert_eq!(returning["live"], false, "{returning}");
+        assert_eq!(returning["notice_visible"], true, "{returning}");
+        assert_eq!(returning["editor_is_default"], true, "{returning}");
+        assert_eq!(returning["editor_restored"], true, "{returning}");
+        assert_eq!(returning["notice_after"], false, "{returning}");
         let cheap = &out["prebuilt_cheap"];
         assert_eq!(cheap["made_live"], true, "{cheap}");
         assert!(
