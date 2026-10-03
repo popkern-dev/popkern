@@ -7,8 +7,8 @@ mod surfaces;
 pub use surfaces::*;
 
 use super::{
-    MappingError, as_bool, as_entity_ref, as_enum, as_int, as_int_list, as_list, as_optional_ref,
-    as_real, as_real_list, as_ref_list, as_string, param_at,
+    MappingError, as_bool, as_entity_ref, as_enum, as_int, as_int_list, as_list, as_logical,
+    as_optional_ref, as_real, as_real_list, as_ref_list, as_string, param_at,
 };
 use crate::step::parser::types::{EntityId, Parameter};
 
@@ -296,8 +296,8 @@ impl BSplineCurveWithKnots {
             degree: as_int(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
             control_points: as_ref_list(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
             curve_form: as_enum(param_at(params, 3, Self::TYPE)?, Self::TYPE)?,
-            closed: as_bool(param_at(params, 4, Self::TYPE)?, Self::TYPE)?,
-            self_intersect: as_bool(param_at(params, 5, Self::TYPE)?, Self::TYPE)?,
+            closed: as_logical(param_at(params, 4, Self::TYPE)?, Self::TYPE)?,
+            self_intersect: as_logical(param_at(params, 5, Self::TYPE)?, Self::TYPE)?,
             knot_multiplicities: as_int_list(param_at(params, 6, Self::TYPE)?, Self::TYPE)?,
             knots: as_real_list(param_at(params, 7, Self::TYPE)?, Self::TYPE)?,
             knot_spec: as_enum(param_at(params, 8, Self::TYPE)?, Self::TYPE)?,
@@ -360,7 +360,7 @@ impl CompositeCurve {
         Ok(Self {
             name: as_string(param_at(params, 0, Self::TYPE)?, Self::TYPE)?,
             segments: as_ref_list(param_at(params, 1, Self::TYPE)?, Self::TYPE)?,
-            self_intersect: as_bool(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
+            self_intersect: as_logical(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
         })
     }
 }

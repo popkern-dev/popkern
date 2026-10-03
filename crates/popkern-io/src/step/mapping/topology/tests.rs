@@ -445,3 +445,32 @@ fn closed_rim_trim_recovery_spans_full_period() {
         "reversed closed rim must cover a full period, got [{s2}, {e2}]"
     );
 }
+
+/// Vertex projection can land turns away (Newton from spread starts):
+/// the trim is the vertex angles folded into one turn, so an open arc
+/// never spans more than a period (turbine.stp rims came out −15.6 →
+/// 3.2, three turns, and their faces' pcurves livelocked the mesher).
+#[test]
+fn periodic_trims_fold_to_one_turn() {
+    use popkern_core::geometry::{Point3, Vec3};
+    let circle = popkern_core::geometry::curve::CurveGeometry::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        radius: 105.45,
+    };
+    let tau = std::f64::consts::TAU;
+    for same_sense in [true, false] {
+        let (mut s, mut e) = (-15.6483345620379, 3.239043580358187);
+        super::normalize_periodic_parameter_order(&circle, same_sense, &mut s, &mut e);
+        let span = (e - s).abs();
+        assert!(
+            span > 0.0 && span < tau,
+            "same_sense {same_sense}: [{s}, {e}]"
+        );
+        assert!((0.0..2.0 * tau).contains(&s) && (0.0..2.0 * tau).contains(&e));
+        // Same vertices as before, modulo the period.
+        let same =
+            |a: f64, b: f64| ((a - b).rem_euclid(tau)).min(tau - (a - b).rem_euclid(tau)) < 1e-9;
+        assert!(same(s, -15.6483345620379) && same(e, 3.239043580358187));
+    }
+}

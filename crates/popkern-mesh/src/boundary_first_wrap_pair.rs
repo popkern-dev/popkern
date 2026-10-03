@@ -16,7 +16,27 @@ pub(super) fn join_wrapped_rings(
     wrapped_rings: &[BoundaryRing],
     p: f64,
     surface: &SurfaceGeometry,
+    orientation: bool,
+    chord_height: f64,
 ) -> Option<Vec<BoundaryRing>> {
+    // One ring winding once: a cap around a chart pole (PK-636).
+    if let [ring] = wrapped_rings
+        && let Some(cap) = super::boundary_first_pole_cap::close_through_pole(
+            ring,
+            p,
+            surface,
+            orientation,
+            chord_height,
+        )
+    {
+        if popkern_core::trace::trace_enabled("boundary-first") {
+            eprintln!(
+                "    [bf] face {face_handle:?} pole cap: {} pts",
+                cap.uv.len()
+            );
+        }
+        return Some(vec![cap]);
+    }
     // Stored walk direction decides the SIGN; the slit orients each
     // piece explicitly, so only |winding| matters.
     let in_scope = !wrapped_rings.is_empty()

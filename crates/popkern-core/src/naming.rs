@@ -132,6 +132,16 @@ pub struct NamePool {
     /// `criteria[i]` corresponds to `names[i]`. May be `None` when no
     /// geometric hint is available or relevant.
     pub criteria: Vec<Option<GeometricCriteria>>,
+    /// Provenance beside each name (PK-633): the names (as VALUES, so
+    /// they stay comparable across pools) of the entities this one was
+    /// cut, trimmed or carried from, transitively. NOT part of a name's
+    /// identity — a stable name never changes because lineage was
+    /// recorded — but what lets a label or spelled name bound earlier
+    /// find its entity after a later operation. Parallel to `names`
+    /// (shorter in documents written before it existed: missing entries
+    /// are empty). See [`NamePool::add_lineage`].
+    #[serde(default)]
+    pub lineage: Vec<Vec<EntityName>>,
     /// Reverse index: name → id. Rebuilt after deserialization.
     #[serde(skip)]
     index: HashMap<EntityName, NameId>,
@@ -149,6 +159,7 @@ impl NamePool {
         Self {
             names: Vec::new(),
             criteria: Vec::new(),
+            lineage: Vec::new(),
             index: HashMap::new(),
         }
     }
@@ -231,6 +242,7 @@ impl NamePool {
             };
             let criteria = other.criteria[i].clone();
             let new_id = self.intern(remapped, criteria);
+            self.add_lineage(new_id, other.lineage(old_id).iter().cloned());
             remap.insert(old_id, new_id);
         }
         remap
@@ -248,6 +260,7 @@ impl NamePool {
         let mut remap: HashMap<NameId, NameId> = HashMap::new();
         let mut new_names: Vec<EntityName> = Vec::new();
         let mut new_criteria: Vec<Option<GeometricCriteria>> = Vec::new();
+        let mut new_lineage: Vec<Vec<EntityName>> = Vec::new();
 
         for (i, name) in self.names.iter().enumerate() {
             let old_id = NameId(i as u32);
@@ -258,6 +271,7 @@ impl NamePool {
             remap.insert(old_id, new_id);
             new_names.push(name.clone());
             new_criteria.push(self.criteria[i].clone());
+            new_lineage.push(self.lineage.get(i).cloned().unwrap_or_default());
         }
 
         // Remap ancestor references inside surviving names.
@@ -271,6 +285,7 @@ impl NamePool {
 
         self.names = new_names;
         self.criteria = new_criteria;
+        self.lineage = new_lineage;
         self.rebuild_index();
         remap
     }

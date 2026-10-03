@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::graph::EntityGraph;
-use crate::step::parser::types::EntityId;
+use crate::step::parser::types::{EntityId, Parameter};
 use crate::step::schema::topology::{
     AdvancedFace, EdgeCurve, EdgeLoop, FaceBound, FaceOuterBound, OrientedEdge,
 };
@@ -62,15 +62,39 @@ pub(super) fn collect_face_data(
     let mut seen_vertices: HashMap<EntityId, ()> = HashMap::new();
     let mut seen_edges: HashMap<EntityId, ()> = HashMap::new();
 
-    for &face_id in face_ids {
+    for &shell_face_id in face_ids {
+        // A shell may list an ORIENTED_FACE('', *, face, orientation):
+        // the face it wraps, used reversed when the orientation is .F.
+        // — its sense and every bound's orientation flip (PK-635,
+        // measured: piston.stp's closed shell).
+        let (face_id, reversed) = match graph.get(shell_face_id) {
+            Some(e) if e.type_name == "ORIENTED_FACE" => match (e.params.get(2), e.params.get(3)) {
+                (Some(Parameter::EntityRef(inner)), orientation) => (
+                    *inner,
+                    matches!(orientation, Some(Parameter::Enum(v)) if v == "F"),
+                ),
+                _ => {
+                    log.error(
+                        Phase::MapTopology,
+                        Some(shell_face_id),
+                        "ORIENTED_FACE without a face element",
+                    );
+                    return None;
+                }
+            },
+            _ => (shell_face_id, false),
+        };
         let face_entity = graph.get(face_id)?;
-        let af = match AdvancedFace::from_params(&face_entity.params) {
+        let mut af = match AdvancedFace::from_params(&face_entity.params) {
             Ok(f) => f,
             Err(e) => {
                 log.error(Phase::MapTopology, Some(face_id), format!("{e}"));
                 return None;
             }
         };
+        if reversed {
+            af.same_sense = !af.same_sense;
+        }
 
         let mut bounds = Vec::new();
         for &bound_id in &af.bounds {
@@ -106,7 +130,21 @@ pub(super) fn collect_face_data(
                 }
             };
 
+            // A reversed face reverses each of its bounds.
+            let bound_orientation = bound_orientation != reversed;
             let loop_entity = graph.get(loop_id)?;
+            if loop_entity.type_name == "VERTEX_LOOP" {
+                // A degenerate bound — one vertex, a cone's apex: the
+                // face's other loop already closes the region, so the
+                // point loop carries no boundary to wire (PK-635,
+                // measured: team.stp).
+                log.warn(
+                    Phase::MapTopology,
+                    Some(loop_id),
+                    "VERTEX_LOOP bound (degenerate apex) skipped",
+                );
+                continue;
+            }
             let el = match EdgeLoop::from_params(&loop_entity.params) {
                 Ok(l) => l,
                 Err(e) => {
@@ -156,6 +194,15 @@ pub(super) fn collect_face_data(
                 });
             }
 
+            // A reversed bound (`orientation .F.`) is the loop traversed
+            // backwards: every edge flipped (composed above) AND the
+            // order reversed. Flipping alone leaves a 3+-edge loop open
+            // (measured: every face of an OpenCASCADE-written box, whose
+            // writer marks its outer loops `FACE_BOUND(.F.)`, refused
+            // as "loop is not closed").
+            if !bound_orientation {
+                oriented_edges.reverse();
+            }
             bounds.push(BoundInfo {
                 is_outer,
                 oriented_edges,
@@ -178,6 +225,51 @@ pub(super) fn collect_face_data(
         edge_curve_ids,
         faces,
     })
+}
+
+/// The bound whose sampled boundary has the largest extent (bounding
+/// box diagonal): the outer loop of a face whose file marks none. A
+/// single bound is its own outer loop.
+pub(super) fn widest_bound(
+    bounds: &[BoundInfo],
+    edge_map: &HashMap<
+        EntityId,
+        (
+            popkern_core::topology::EdgeHandle,
+            popkern_core::topology::HalfEdgeHandle,
+            popkern_core::topology::HalfEdgeHandle,
+        ),
+    >,
+    brep: &popkern_core::topology::BRep,
+) -> Option<usize> {
+    use popkern_core::geometry::curve::CurveEval;
+    if bounds.len() <= 1 {
+        return (!bounds.is_empty()).then_some(0);
+    }
+    let extent = |bound: &BoundInfo| {
+        let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+        for oe in &bound.oriented_edges {
+            let Some(curve) = edge_map
+                .get(&oe.edge_curve_id)
+                .and_then(|(eh, _, _)| brep.edges.get(*eh))
+                .and_then(|e| e.curve.as_ref())
+            else {
+                continue;
+            };
+            for k in 0..=8 {
+                let t = curve.t_start + (curve.t_end - curve.t_start) * f64::from(k) / 8.0;
+                let p = curve.geometry.point_at(t);
+                for (i, x) in [p.x, p.y, p.z].into_iter().enumerate() {
+                    lo[i] = lo[i].min(x);
+                    hi[i] = hi[i].max(x);
+                }
+            }
+        }
+        (0..3)
+            .map(|i| (hi[i] - lo[i]).max(0.0).powi(2))
+            .sum::<f64>()
+    };
+    (0..bounds.len()).max_by(|&a, &b| extent(&bounds[a]).total_cmp(&extent(&bounds[b])))
 }
 
 #[cfg(test)]

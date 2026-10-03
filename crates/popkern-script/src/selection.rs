@@ -3,6 +3,7 @@
 //! the document stores the resolved names — never the query.
 
 use popkern_core::naming::EntityName;
+use popkern_core::topology::BRep;
 use popkern_part::{CurveKind, Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
 
 use crate::error::ScriptError;
@@ -265,10 +266,14 @@ impl EdgeSelector {
     pub(crate) fn allow_empty_flag(&self) -> bool {
         self.allow_empty
     }
-    /// Compile to the `popkern-part` query used for resolution.
-    /// `resolve` maps an entity label or spelling to its name.
+    /// Compile to the `popkern-part` query used for resolution against
+    /// `brep`. `resolve` maps an entity label or spelling to its name;
+    /// a name selects the edges it names on `brep`, or, when a later
+    /// operation split or reshaped it, every piece that descends from
+    /// it (PK-633: `naming_resolve::resolve_lineage`).
     pub(crate) fn to_query(
         &self,
+        brep: &BRep,
         resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
     ) -> Result<EdgeQuery, ScriptError> {
         let mut query: Option<EdgeQuery> = None;
@@ -293,16 +298,16 @@ impl EdgeSelector {
                     EdgePredicate::ChordLengthBetween(a, b) => q.chord_length_between(*a, *b),
                     EdgePredicate::NotSeam => q.not_seam(),
                     EdgePredicate::Labeled(l) => {
-                        let name = resolve(EntityRef::Label(l))?;
-                        q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
+                        let set = edges_named(brep, &resolve(EntityRef::Label(l))?);
+                        q.filter(move |e: &EdgeInfo| set.contains(&e.handle))
                     }
                     EdgePredicate::Named(n) => {
-                        let name = n.clone();
-                        q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
+                        let set = edges_named(brep, n);
+                        q.filter(move |e: &EdgeInfo| set.contains(&e.handle))
                     }
                     EdgePredicate::Spelled(t) => {
-                        let name = resolve(EntityRef::Spelled(t))?;
-                        q.filter(move |e: &EdgeInfo| e.name.as_ref() == Some(&name))
+                        let set = edges_named(brep, &resolve(EntityRef::Spelled(t))?);
+                        q.filter(move |e: &EdgeInfo| set.contains(&e.handle))
                     }
                 };
             }
@@ -389,8 +394,11 @@ impl FaceSelector {
     pub(crate) fn allow_empty_flag(&self) -> bool {
         self.allow_empty
     }
+    /// Compile to the `popkern-part` query used for resolution against
+    /// `brep` (names follow lineage, as for edges).
     pub(crate) fn to_query(
         &self,
+        brep: &BRep,
         resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
     ) -> Result<FaceQuery, ScriptError> {
         let mut q = FaceQuery::new();
@@ -401,16 +409,16 @@ impl FaceSelector {
                 FacePredicate::FacingNeg(d) => q.facing_neg(*d),
                 FacePredicate::AtHeight(z) => q.at_height(*z),
                 FacePredicate::Labeled(l) => {
-                    let name = resolve(EntityRef::Label(l))?;
-                    q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
+                    let set = faces_named(brep, &resolve(EntityRef::Label(l))?);
+                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
                 }
                 FacePredicate::Named(n) => {
-                    let name = n.clone();
-                    q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
+                    let set = faces_named(brep, n);
+                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
                 }
                 FacePredicate::Spelled(t) => {
-                    let name = resolve(EntityRef::Spelled(t))?;
-                    q.filter(move |f: &FaceInfo| f.name.as_ref() == Some(&name))
+                    let set = faces_named(brep, &resolve(EntityRef::Spelled(t))?);
+                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
                 }
             };
         }
@@ -419,6 +427,34 @@ impl FaceSelector {
         }
         Ok(q)
     }
+}
+
+/// The edges `name` resolves to on `brep`: exactly, else its pieces.
+fn edges_named(
+    brep: &BRep,
+    name: &EntityName,
+) -> std::collections::HashSet<popkern_core::topology::EdgeHandle> {
+    popkern_core::naming_resolve::resolve_lineage(name, brep)
+        .into_iter()
+        .filter_map(|r| match r {
+            popkern_core::naming_resolve::ResolvedEntity::Edge(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The faces `name` resolves to on `brep`: exactly, else its pieces.
+fn faces_named(
+    brep: &BRep,
+    name: &EntityName,
+) -> std::collections::HashSet<popkern_core::topology::FaceHandle> {
+    popkern_core::naming_resolve::resolve_lineage(name, brep)
+        .into_iter()
+        .filter_map(|r| match r {
+            popkern_core::naming_resolve::ResolvedEntity::Face(f) => Some(f),
+            _ => None,
+        })
+        .collect()
 }
 
 #[path = "selection_resolve.rs"]

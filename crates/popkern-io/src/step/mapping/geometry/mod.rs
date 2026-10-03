@@ -6,9 +6,13 @@
 //!
 //! Surface resolution is in the [`surfaces`] submodule.
 
+mod bspline_implicit_knots;
 mod curves_complex;
+mod pcurve_chart;
 mod pcurves;
+mod placement_axes;
 mod surfaces;
+mod surfaces_swept;
 use curves_complex::resolve_rational_bspline_curve_weights;
 #[cfg(test)]
 mod tests_resolve;
@@ -39,6 +43,10 @@ pub struct GeometryCache<'a> {
     points: HashMap<EntityId, Point3>,
     directions: HashMap<EntityId, Vec3>,
     placements: HashMap<EntityId, (Point3, Vec3, Vec3)>,
+    /// Radians per file plane-angle unit (π/180 for a degree file).
+    radians_per_angle: f64,
+    /// Box of the file's 3-D points (bounds extrusion patches).
+    model_box: Option<(Point3, Point3)>,
 }
 
 impl<'a> GeometryCache<'a> {
@@ -49,7 +57,15 @@ impl<'a> GeometryCache<'a> {
             points: HashMap::new(),
             directions: HashMap::new(),
             placements: HashMap::new(),
+            radians_per_angle: 1.0,
+            model_box: None,
         }
+    }
+
+    /// Read angle-valued attributes (a cone's semi-angle) in a file
+    /// plane-angle unit of `radians_per_angle` radians.
+    pub(crate) fn set_radians_per_angle(&mut self, radians_per_angle: f64) {
+        self.radians_per_angle = radians_per_angle;
     }
 
     /// Resolve a `CARTESIAN_POINT` entity to a [`Point3`].
@@ -93,6 +109,7 @@ impl<'a> GeometryCache<'a> {
         match entity.type_name.as_str() {
             "LINE" => self.resolve_line(id, log),
             "CIRCLE" => self.resolve_circle(id, log),
+            "ELLIPSE" => self.resolve_ellipse(id, log),
             "B_SPLINE_CURVE_WITH_KNOTS" => self.resolve_bspline_curve(id, log),
             // Standard Part-21 complex form for rational B-splines:
             // the leading partial is BOUNDED_CURVE, the spline data
@@ -106,7 +123,22 @@ impl<'a> GeometryCache<'a> {
             {
                 self.resolve_bspline_curve_complex(id, log)
             }
-            "SURFACE_CURVE" | "SEAM_CURVE" => self.resolve_surface_curve(id, log),
+            // INTERSECTION_CURVE is a SURFACE_CURVE subtype with the same
+            // attributes (its associated geometry names the two surfaces
+            // it lies on); the 3-D curve is the edge geometry either way.
+            t if bspline_implicit_knots::IMPLICIT_CURVES.contains(&t) => {
+                self.resolve_implicit_knot_curve(id, log)
+            }
+            "BOUNDED_CURVE"
+                if entity.complex_parts.iter().any(|(n, _)| {
+                    bspline_implicit_knots::IMPLICIT_CURVES.contains(&n.as_str())
+                }) =>
+            {
+                self.resolve_implicit_knot_curve(id, log)
+            }
+            "SURFACE_CURVE" | "SEAM_CURVE" | "INTERSECTION_CURVE" => {
+                self.resolve_surface_curve(id, log)
+            }
             other => {
                 log.warn(
                     Phase::MapGeometry,
@@ -133,6 +165,18 @@ impl<'a> GeometryCache<'a> {
             "SPHERICAL_SURFACE" => self.resolve_spherical_surface(id, log)?,
             "TOROIDAL_SURFACE" => self.resolve_toroidal_surface(id, log)?,
             "B_SPLINE_SURFACE_WITH_KNOTS" => self.resolve_bspline_surface(id, log)?,
+            "SURFACE_OF_REVOLUTION" => self.resolve_surface_of_revolution(id, log)?,
+            t if bspline_implicit_knots::IMPLICIT_SURFACES.contains(&t) => {
+                self.resolve_implicit_knot_surface(id, log)?
+            }
+            "BOUNDED_SURFACE"
+                if entity.complex_parts.iter().any(|(n, _)| {
+                    bspline_implicit_knots::IMPLICIT_SURFACES.contains(&n.as_str())
+                }) =>
+            {
+                self.resolve_implicit_knot_surface(id, log)?
+            }
+            "SURFACE_OF_LINEAR_EXTRUSION" => self.resolve_surface_of_linear_extrusion(id, log)?,
             // Standard Part-21 complex form for rational B-spline
             // surfaces (mirrors the BOUNDED_CURVE arm above).
             "BOUNDED_SURFACE"
@@ -234,7 +278,7 @@ impl<'a> GeometryCache<'a> {
         };
         let x_axis = match a2p.ref_direction {
             Some(ref_id) => self.resolve_direction(ref_id, log)?,
-            None => Vec3::new(1.0, 0.0, 0.0),
+            None => placement_axes::default_ref_direction(z_axis),
         };
         Some((origin, z_axis, x_axis))
     }
@@ -375,109 +419,5 @@ fn expand_knots(values: &[f64], multiplicities: &[i64]) -> Vec<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::step::parser::types::{EntityInstance, Parameter};
-    use popkern_core::geometry::surface::SurfaceGeometry;
-
-    fn ent(id: EntityId, ty: &str, p: Vec<Parameter>) -> EntityInstance {
-        EntityInstance {
-            id,
-            type_name: ty.into(),
-            params: p,
-            complex_parts: vec![],
-        }
-    }
-    fn s(v: &str) -> Parameter {
-        Parameter::String(v.into())
-    }
-    fn r(v: f64) -> Parameter {
-        Parameter::Real(v)
-    }
-    fn er(id: u64) -> Parameter {
-        Parameter::EntityRef(id)
-    }
-    fn l(items: Vec<Parameter>) -> Parameter {
-        Parameter::List(items)
-    }
-
-    fn graph(entities: Vec<EntityInstance>) -> EntityGraph {
-        EntityGraph::build(entities, &mut DiagnosticLog::new())
-    }
-
-    /// Build the standard origin-Z-X placement (point #1, dir #2 = Z, dir #3 = X, a2p #4).
-    fn placement_entities(px: f64, py: f64, pz: f64) -> Vec<EntityInstance> {
-        vec![
-            ent(
-                1,
-                "CARTESIAN_POINT",
-                vec![s(""), l(vec![r(px), r(py), r(pz)])],
-            ),
-            ent(2, "DIRECTION", vec![s(""), l(vec![r(0.0), r(0.0), r(1.0)])]),
-            ent(3, "DIRECTION", vec![s(""), l(vec![r(1.0), r(0.0), r(0.0)])]),
-            ent(4, "AXIS2_PLACEMENT_3D", vec![s(""), er(1), er(2), er(3)]),
-        ]
-    }
-
-    #[test]
-    fn resolve_cartesian_point() {
-        let g = graph(vec![ent(
-            1,
-            "CARTESIAN_POINT",
-            vec![s("p"), l(vec![r(1.0), r(2.0), r(3.0)])],
-        )]);
-        let mut c = GeometryCache::new(&g);
-        let mut log = DiagnosticLog::new();
-        let pt = c.resolve_point(1, &mut log).map(|p| (p.x, p.y, p.z));
-        assert_eq!(pt, Some((1.0, 2.0, 3.0)));
-        assert!(c.resolve_point(1, &mut log).is_some()); // cached
-    }
-
-    #[test]
-    fn resolve_direction_normalized() {
-        let g = graph(vec![ent(
-            1,
-            "DIRECTION",
-            vec![s("d"), l(vec![r(0.0), r(0.0), r(2.0)])],
-        )]);
-        let mut c = GeometryCache::new(&g);
-        let mut log = DiagnosticLog::new();
-        let d = c.resolve_direction(1, &mut log);
-        assert!(d.is_some());
-        let v = d.unwrap();
-        assert!(v.x.abs() < 1e-10 && v.y.abs() < 1e-10 && (v.z - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn resolve_axis2_placement() {
-        let ents = placement_entities(10.0, 20.0, 30.0);
-        // Override point to (10, 20, 30)
-        let g = graph(ents);
-        let mut c = GeometryCache::new(&g);
-        let mut log = DiagnosticLog::new();
-        let (origin, z, x) = c.resolve_placement(4, &mut log).unwrap();
-        assert!((origin.x - 10.0).abs() < 1e-10);
-        assert!((z.z - 1.0).abs() < 1e-10);
-        assert!((x.x - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn resolve_plane_surface() {
-        let mut ents = placement_entities(0.0, 0.0, 0.0);
-        ents.push(ent(5, "PLANE", vec![s(""), er(4)]));
-        let g = graph(ents);
-        let mut c = GeometryCache::new(&g);
-        let mut log = DiagnosticLog::new();
-        let sof = c.resolve_surface(5, true, &mut log).unwrap();
-        assert!(sof.orientation);
-        assert!(matches!(sof.geometry, SurfaceGeometry::Plane { .. }));
-    }
-
-    #[test]
-    fn expand_knots_works() {
-        assert_eq!(
-            expand_knots(&[0.0, 1.0], &[3, 3]),
-            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
-        );
-    }
-}
+#[path = "tests_cache.rs"]
+mod tests;

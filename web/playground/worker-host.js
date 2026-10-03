@@ -104,6 +104,11 @@ export class WorkerHost {
     return this.request({ type: "run", source, name });
   }
 
+  /** Open a STEP file's bytes (an ArrayBuffer) as a view-only assembly. */
+  openStep(bytes, name) {
+    return this.request({ type: "open_step", bytes, name });
+  }
+
   setParam(name, value) {
     return this.request({ type: "set_param", name, value });
   }
@@ -123,6 +128,17 @@ export class WorkerHost {
 
   exportPkn() {
     return this.request({ type: "export_pkn" });
+  }
+
+  /** Interference and clearance between assembly occurrences. */
+  interference(clearance) {
+    return this.request({ type: "interference", clearance });
+  }
+
+  /** Show or hide an assembly occurrence in the worker's document (so
+   *  a saved .pkn carries it); no geometry changes. */
+  setVisible(path, visible) {
+    return this.request({ type: "set_visible", path, visible });
   }
 
   /** The zebra analysis mesh of the current model (PK-577). */

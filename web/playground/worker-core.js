@@ -100,6 +100,8 @@ export function createHandler(pkg, loadModule) {
           } catch (raised) {
             return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
           }
+        case "open_step":
+          return envelopeReply(id, playground.open_step(new Uint8Array(message.bytes ?? []), String(message.name ?? "model")));
         case "set_param":
           return envelopeReply(id, playground.set_param(String(message.name), Number(message.value)));
         case "certify":
@@ -114,6 +116,19 @@ export function createHandler(pkg, loadModule) {
           return bytesReply(id, () => playground.export_step(String(message.name ?? "model")));
         case "export_pkn":
           return bytesReply(id, () => playground.export_pkn());
+        case "interference":
+          try {
+            return { reply: { id, ok: true, report: JSON.parse(playground.interference(Number(message.clearance ?? 0))) }, transfer: [] };
+          } catch (raised) {
+            return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
+          }
+        case "set_visible":
+          try {
+            playground.set_visible(String(message.path ?? ""), Boolean(message.visible));
+            return { reply: { id, ok: true }, transfer: [] };
+          } catch (raised) {
+            return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
+          }
         case "analysis_mesh": {
           // Zebra analysis mesh (PK-577): the live bodies at the 6°
           // facet bound, same order as the last envelope's bodies.

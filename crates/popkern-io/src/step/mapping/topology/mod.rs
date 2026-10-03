@@ -31,7 +31,7 @@ use crate::step::schema::topology::{
 };
 
 use crate::step::same_parameter::SameParameterTally;
-use face_collector::collect_face_data;
+use face_collector::{collect_face_data, widest_bound};
 use half_edge_use::choose_step_half_edge_use;
 use import_fidelity_diagnostics::{
     StepHalfEdgeImportProvenance, StepTopologyImportProvenance,
@@ -247,6 +247,16 @@ fn build_brep_from_faces(
             builder.set_face_surface(face_h, sof);
         }
 
+        // The outer loop: the bound the file marks FACE_OUTER_BOUND;
+        // else (writers such as OpenCASCADE mark every loop FACE_BOUND)
+        // the only bound, or the bound whose boundary spans the most
+        // (an outer loop contains its holes).
+        let outer = face_info
+            .bounds
+            .iter()
+            .position(|b| b.is_outer)
+            .or_else(|| widest_bound(&face_info.bounds, &edge_map, builder.brep()));
+
         // Wire each bound as a loop
         for (bound_idx, bound) in face_info.bounds.iter().enumerate() {
             let mut half_edges = Vec::with_capacity(bound.oriented_edges.len());
@@ -327,7 +337,7 @@ fn build_brep_from_faces(
                 continue;
             }
 
-            let loop_result = if bound_idx == 0 && bound.is_outer {
+            let loop_result = if Some(bound_idx) == outer {
                 builder.add_loop(&half_edges, face_h)
             } else {
                 builder.add_inner_loop(&half_edges, face_h)
@@ -449,6 +459,13 @@ pub(super) fn normalize_periodic_parameter_order(
     if !is_periodic {
         return;
     }
+    // Projection lands on any period branch (Newton from spread
+    // starts converges turns away: measured turbine.stp rims at
+    // t = −15.6 → 3.2, a 3-turn trim whose pcurves then spanned 4π and
+    // livelocked the mesher). The trim is the vertex angles folded to
+    // one turn, then ordered.
+    *start_t = start_t.rem_euclid(std::f64::consts::TAU);
+    *end_t = end_t.rem_euclid(std::f64::consts::TAU);
 
     if same_sense {
         while *end_t < *start_t {

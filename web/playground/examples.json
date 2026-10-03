@@ -81,9 +81,9 @@
       "title": "Project box"
     },
     {
-      "blurb": "A deep-groove bearing: races revolved with exact torus grooves, chamfered lead-ins, and a ring of balls placed by trigonometry — ten bodies.",
-      "demonstrates": "revolve with arc paths, exact torus and sphere surfaces, trigonometric placement loops, multi-body export",
-      "features": 30,
+      "blurb": "A deep-groove bearing assembly: races revolved with exact torus grooves and chamfered lead-ins, and one ball built once and placed eight times by trigonometry.",
+      "demonstrates": "assemblies (part, place, translate), revolve with arc paths, exact torus and sphere surfaces, trigonometric placement loops, product-structure STEP export",
+      "features": 8,
       "file": "ball_bearing.rhai",
       "thumbnail": "examples/ball_bearing.png",
       "title": "Ball bearing"
@@ -137,9 +137,9 @@
       "title": "Keyed shaft"
     },
     {
-      "blurb": "A 4:1 planetary set — sun, three phased planets, an internal ring gear cut by a toothed disc, and a spider carrier — six meshing bodies whose involute teeth and assembly phasing are all computed in the script.",
-      "demonstrates": "computed involute teeth, internal ring gears, meshing-assembly phasing, the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
-      "features": 45,
+      "blurb": "A 4:1 planetary set as an assembly — sun, one planet placed three times at its mesh phase, an internal ring gear cut by a toothed disc, and a spider carrier — whose involute teeth and planet phasing are all computed in the script.",
+      "demonstrates": "computed involute teeth, internal ring gears, meshing-assembly phasing, the (Zs+Zr)%N constraint, single-polygon spiders, assemblies (one part placed many times with rotate then translate)",
+      "features": 35,
       "file": "planetary_gearbox.rhai",
       "thumbnail": "examples/planetary_gearbox.png",
       "title": "Planetary gearbox"
@@ -169,9 +169,9 @@
       "title": "Countersunk joint"
     },
     {
-      "blurb": "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk screw — real modeled ISO threads with heads, tip lead-ins, and runout from the nominal tables.",
-      "demonstrates": "bolt and nut generators, ISO thread designations, head styles, printed-fit clearance, multi-body layout",
-      "features": 9,
+      "blurb": "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk screw as an assembly — the three screws are one parametric part family — with real modeled ISO threads, heads, tip lead-ins, and runout from the nominal tables.",
+      "demonstrates": "bolt and nut generators, ISO thread designations, head styles, printed-fit clearance, part families (one parametric part, several sizes)",
+      "features": 4,
       "file": "fastener_kit.rhai",
       "thumbnail": "examples/fastener_kit.png",
       "title": "Fastener kit"

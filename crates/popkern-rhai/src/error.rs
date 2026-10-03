@@ -49,6 +49,17 @@ impl<T> IntoScriptResult<T> for Result<T, ScriptError> {
     }
 }
 
+/// The raising call's error, unwrapped from the function-call frames a
+/// closure adds (`m.tool(|m| …)`, `a.part(…, |m| …)`): the class,
+/// payload and position are the call that failed, not the closure call.
+pub fn innermost(error: Box<EvalAltResult>) -> Box<EvalAltResult> {
+    let mut error = error;
+    while let EvalAltResult::ErrorInFunctionCall(_, _, inner, _) = *error {
+        error = inner;
+    }
+    error
+}
+
 /// Read the error map back out of a runtime error (host side).
 pub fn error_map(error: &EvalAltResult) -> Option<Map> {
     match error {

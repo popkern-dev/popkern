@@ -1,6 +1,6 @@
 //! PK-627: STEP export is the whole model. A multi-body document (the
-//! ball bearing: two races and eight balls) leaves as one solid per
-//! body, re-imports with every face, and passes the OCC oracle where it
+//! single-tree ball bearing — two races and eight balls, the frozen
+//! pre-assembly gallery script) leaves as one solid per body, re-imports with every face, and passes the OCC oracle where it
 //! is installed; a single-body document exports exactly the bytes its
 //! one body exported before.
 
@@ -14,8 +14,14 @@ fn root() -> PathBuf {
 }
 
 fn served(file: &str) -> Session {
-    let source = std::fs::read_to_string(root().join("web/playground/examples").join(file))
-        .expect("gallery script");
+    // The bearing is an assembly in the gallery now (PK-629); the
+    // multi-body PART document it used to be is frozen as a fixture.
+    let path = if file == "ball_bearing.rhai" {
+        root().join("crates/popkern-rhai/tests/fixtures/single_model_ball_bearing.rhai")
+    } else {
+        root().join("web/playground/examples").join(file)
+    };
+    let source = std::fs::read_to_string(path).expect("script");
     let mut session = Session::new(HostOptions::default());
     let envelope = session.run(&source, file);
     assert!(

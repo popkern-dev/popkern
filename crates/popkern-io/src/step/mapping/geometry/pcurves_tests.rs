@@ -4,6 +4,7 @@
 use super::*;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::pcurve::PcurveGeometry;
 
 use crate::step::document::{OpaqueBag, StepDocument, StepProductNode, UnitContext};
 use crate::step::export::StepExportOptions;

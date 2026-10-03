@@ -80,9 +80,14 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     // Build entity graph
     let graph = EntityGraph::build(parse_result.entities, &mut log);
 
-    // Determine tolerance from override, STEP uncertainty, or default
+    // The file's units: geometry is mapped in them, angles converted at
+    // the source and lengths converted once the document is mapped.
+    let units = crate::step::mapping::units::resolve_file_units(&graph, &mut log);
+
+    // Determine tolerance from override (millimetres), STEP uncertainty
+    // (file units), or default
     let tolerance = match options.tolerance_override {
-        Some(tol) => Tolerance::default().with_linear(tol),
+        Some(tol) => Tolerance::default().with_linear(tol / units.mm_per_length),
         None => extract_step_uncertainty(&graph, &mut log)
             .map(|u| Tolerance::default().with_linear(u))
             .unwrap_or_default(),
@@ -90,6 +95,7 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
 
     // Map geometry + topology
     let mut geo_cache = GeometryCache::new(&graph);
+    geo_cache.set_radians_per_angle(units.radians_per_angle);
     let mut brep_solids = map_brep_solids(&graph, &mut geo_cache, &mut log, tolerance);
 
     // Healing
@@ -108,6 +114,38 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         // own loop winding (dishonest exporter or mapping defect)
         // must not ship that lie into downstream operators. Derive
         // the honest value and record the repair (PK-245).
+        // Faces whose half-edges carry no pcurve (writers that omit
+        // them, or whose pcurves the mapper could not use) tessellate
+        // their boundaries face by face, and neighbouring faces' samples
+        // never meet: measured, the plain imported unit cube carried 24
+        // open mesh edges. Synthesize the missing pcurves by projecting
+        // each edge onto its face, so every face samples a shared edge
+        // the same way (PK-636); recorded, never silent.
+        let missing = brep
+            .half_edges
+            .values()
+            .filter(|h| h.pcurve.is_none())
+            .count();
+        if missing > 0 {
+            let synthesized = brep.recompute_pcurves_where_missing();
+            let left = brep
+                .half_edges
+                .values()
+                .filter(|h| h.pcurve.is_none())
+                .count();
+            log.warn(
+                Phase::MapTopology,
+                Some(*id),
+                format!(
+                    "synthesized {} missing pcurve(s) by projection ({left} left{})",
+                    missing - left,
+                    synthesized
+                        .err()
+                        .map(|e| format!("; {e}"))
+                        .unwrap_or_default()
+                ),
+            );
+        }
         let flipped = brep.reconcile_orientation_flags();
         if flipped > 0 {
             log.warn(
@@ -123,7 +161,40 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
 
     // Map product structure
     let brep_refs: Vec<_> = brep_solids.iter().map(|(id, b)| (*id, b.clone())).collect();
-    let (mut products, roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
+    let (mut products, mut roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
+    // A file with solids but no product structure (some writers emit
+    // bare geometry): one product holding every solid, so the
+    // geometry is never silently dropped (PK-635).
+    if products
+        .iter()
+        .all(|p| p.shapes.iter().all(|s| s.solids.is_empty()))
+        && !brep_refs.is_empty()
+    {
+        log.warn(
+            Phase::MapProduct,
+            None,
+            "no product carries the file's solids: importing them as one product",
+        );
+        products.push(crate::step::document::StepProductNode {
+            name: "geometry".into(),
+            id: "geometry".into(),
+            children: Vec::new(),
+            shapes: vec![std::sync::Arc::new(crate::step::document::ShapeRep {
+                kind: ShapeRepKind::AdvancedBrep,
+                solids: brep_refs.iter().map(|(_, b)| b.clone()).collect(),
+                context: crate::step::document::RepresentationContext::default(),
+                non_brep_items: Vec::new(),
+            })],
+            metadata: Default::default(),
+        });
+        roots = vec![products.len() - 1];
+    }
+
+    crate::step::mapping::units::convert_lengths_to_mm(
+        &mut products,
+        units.mm_per_length,
+        &mut log,
+    );
 
     // Map presentation (colors, layers)
     map_presentation(&graph, &mut products, &mut log);

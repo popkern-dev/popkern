@@ -102,7 +102,11 @@ fn tool(
 ) -> Result<ScriptBody, Box<EvalAltResult>> {
     let previous = m.borrow_mut().active().ok();
     let model = m.clone();
-    let body: ScriptBody = build.call_within_context(&ctx, (model,))?;
+    // An error inside the closure is the failing call's own (class,
+    // payload, line), not a generic closure-call failure (PK-634).
+    let body: ScriptBody = build
+        .call_within_context(&ctx, (model,))
+        .map_err(crate::error::innermost)?;
     if let Some(previous) = previous {
         m.borrow_mut().set_active(previous).script()?;
     }

@@ -145,6 +145,19 @@ pub fn as_optional_ref(
     }
 }
 
+/// Extract a STEP LOGICAL (`.T.`, `.F.` or `.U.` unknown) as "asserted
+/// true": unknown reads as false. The schema's LOGICAL attributes
+/// (a B-spline's `closed_curve`, `self_intersect`, `u_closed`) are
+/// writer hints the geometry itself settles; rejecting `.U.` dropped
+/// every such curve and surface (measured: 37 entities in
+/// jack_in_the_box.stp).
+pub fn as_logical(param: &Parameter, entity_type: &str) -> Result<bool, MappingError> {
+    match param {
+        Parameter::Enum(s) if s == "U" => Ok(false),
+        _ => as_bool(param, entity_type),
+    }
+}
+
 /// Extract a STEP boolean (`.T.` / `.F.` stored as `Enum`).
 pub fn as_bool(param: &Parameter, entity_type: &str) -> Result<bool, MappingError> {
     match param {
@@ -208,6 +221,9 @@ mod tests {
         assert!(as_bool(&Parameter::Enum("T".into()), "T").unwrap());
         assert!(!as_bool(&Parameter::Enum("F".into()), "T").unwrap());
         assert!(as_bool(&Parameter::Enum("X".into()), "T").is_err());
+        assert!(as_bool(&Parameter::Enum("U".into()), "T").is_err());
+        assert!(!as_logical(&Parameter::Enum("U".into()), "T").unwrap());
+        assert!(as_logical(&Parameter::Enum("T".into()), "T").unwrap());
     }
 
     #[test]

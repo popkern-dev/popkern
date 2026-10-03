@@ -37,6 +37,8 @@ use boundary_first_fidelity::closed_chart_fidelity_ok;
 mod boundary_first_edge_samples;
 #[path = "boundary_first_lattice.rs"]
 mod boundary_first_lattice;
+#[path = "boundary_first_pole_cap.rs"]
+mod boundary_first_pole_cap;
 #[path = "boundary_first_revolution.rs"]
 mod boundary_first_revolution;
 #[path = "boundary_first_revolution_bipolar.rs"]
@@ -238,7 +240,14 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
     if let Some(p) = wrapped_period {
-        rings.extend(join_wrapped_rings(face_handle, &wrapped_rings, p, surface)?);
+        rings.extend(join_wrapped_rings(
+            face_handle,
+            &wrapped_rings,
+            p,
+            surface,
+            orientation,
+            options.chord_height,
+        )?);
     }
     if rings.is_empty() {
         return None;

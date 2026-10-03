@@ -23,12 +23,14 @@ mod trim_canonical;
 mod trim_clip;
 mod trim_sampling;
 mod vertex_normal;
+mod watertight;
 mod winding_side;
 
 pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;
 pub use vertex_normal::limit_normal as surface_limit_normal;
+pub use watertight::welded_open_edges;
 
 use popkern_core::topology::BRep;
 use std::io::Write;

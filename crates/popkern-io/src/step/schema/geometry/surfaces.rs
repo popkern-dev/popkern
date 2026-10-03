@@ -2,7 +2,7 @@
 
 use crate::step::parser::types::{EntityId, Parameter};
 use crate::step::schema::{
-    MappingError, as_bool, as_entity_ref, as_enum, as_int, as_int_list, as_list, as_real,
+    MappingError, as_entity_ref, as_enum, as_int, as_int_list, as_list, as_logical, as_real,
     as_real_list, as_ref_list, as_string, param_at,
 };
 
@@ -178,9 +178,9 @@ impl BSplineSurfaceWithKnots {
             v_degree: as_int(param_at(params, 2, Self::TYPE)?, Self::TYPE)?,
             control_points,
             surface_form: as_enum(param_at(params, 4, Self::TYPE)?, Self::TYPE)?,
-            u_closed: as_bool(param_at(params, 5, Self::TYPE)?, Self::TYPE)?,
-            v_closed: as_bool(param_at(params, 6, Self::TYPE)?, Self::TYPE)?,
-            self_intersect: as_bool(param_at(params, 7, Self::TYPE)?, Self::TYPE)?,
+            u_closed: as_logical(param_at(params, 5, Self::TYPE)?, Self::TYPE)?,
+            v_closed: as_logical(param_at(params, 6, Self::TYPE)?, Self::TYPE)?,
+            self_intersect: as_logical(param_at(params, 7, Self::TYPE)?, Self::TYPE)?,
             u_multiplicities: as_int_list(param_at(params, 8, Self::TYPE)?, Self::TYPE)?,
             v_multiplicities: as_int_list(param_at(params, 9, Self::TYPE)?, Self::TYPE)?,
             u_knots: as_real_list(param_at(params, 10, Self::TYPE)?, Self::TYPE)?,

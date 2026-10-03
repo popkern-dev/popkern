@@ -95,6 +95,17 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
     // edge caps the band at 2% of its own chord — a refinement that
     // moves an endpoint a large fraction of the edge it lands on is
     // never the fit-slop class.
+    // A plane × plane record is the EXACT line of the two planes, and
+    // its window ends are exact line × boundary crossings: there is no
+    // fit slop to repair, and the slop band could only snap an end onto
+    // a DIFFERENT junction nearby (PK-632: a flank × flank line passing
+    // 1.07e-4 from the other gear's chord vertex was dragged onto that
+    // vertex and the merge stranded 22 record sides).
+    if matches!(surf_a, SurfaceGeometry::Plane { .. })
+        && matches!(surf_b, SurfaceGeometry::Plane { .. })
+    {
+        return;
+    }
     let band = tolerance.linear() * 250.0;
     for end in [false, true] {
         if !(if end { ends.1 } else { ends.0 }) {
@@ -120,6 +131,16 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
                 brep_b, face_b, surf_a, windows_a, &p, band, &tan_out, tolerance,
             )
         });
+        // An endpoint already ON its exact junction (to tolerance) is
+        // done: the far tier below exists for MISLOCATED crossings
+        // and, run on an exact end, re-trims it onto the NEXT
+        // junction along the curve (PK-632: a flank face's corner
+        // lying in the other prism's coplanar cap was moved 0.1 along
+        // its own edge, collapsing the cap's imprint and stranding
+        // the merge).
+        if refined.is_some_and(|r| r.distance_to(&p) <= tolerance.linear()) {
+            continue;
+        }
         if let Some(r) = refined
             && r.distance_to(&p) > tolerance.linear()
             && r.distance_to(&p) < band * 64.0

@@ -25,6 +25,21 @@ import { join, extname, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const [screenshotPath, chromeArg] = process.argv.slice(2);
+// The assembly rows' document: four pins and a two-pin sub-assembly,
+// one part definition with a radius parameter (fast to build live).
+const ASSEMBLY_SCRIPT = `let a = assembly("pins");
+let pin = a.part("pin", |m| {
+    m.param("radius", 0.1, "m");
+    m.profile(xy()).circle(p("radius")).sketch("pin").extrude(blind(1.0));
+});
+for i in 0..4 { a.place(pin, "pin_" + i).translate(i * 0.5, 0.0, 0.0); }
+let pair = a.subassembly("pair", |s| {
+    s.place(pin, "low");
+    s.place(pin, "high").translate(0.0, 0.0, 1.5);
+});
+a.place(pair).translate(0.0, 2.0, 0.0);
+a
+`;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -323,6 +338,99 @@ try {
     select.dispatchEvent(new Event("change"));
     await new Promise((r) => setTimeout(r, 200));
     return { options, initial, none, restored_timeout: window.playground.host.options.timeout_ms };
+  })()`);
+
+  // An assembly (PK-629): the tree, instanced drawing (one geometry per
+  // part definition), hide, open-part scoping, a qualified parameter
+  // edit moving every instance, instance-path picks, product-structure
+  // STEP and visibility saved into the .pkn.
+  out.assembly = await evaluate(`(async () => {
+    const page = window.playground;
+    page.editor.value = ${JSON.stringify(ASSEMBLY_SCRIPT)};
+    const run = await page.run({ live: true });
+    const rows = () => [...document.querySelectorAll("#assembly-tree li")];
+    const drawn = () => page.viewer.bodies.filter((m) => m.visible).length;
+    const result = {
+      outcome: run?.envelope?.outcome ?? run?.outcome?.outcome ?? null,
+      status: document.getElementById("status").textContent,
+      section_visible: !document.getElementById("assembly-section").hidden,
+      summary: document.getElementById("assembly-summary").textContent,
+      rows: rows().map((r) => r.dataset.path),
+      meshes: page.viewer.bodies.length,
+      geometries: new Set(page.viewer.bodies.map((m) => m.geometry)).size,
+    };
+    rows().find((r) => r.dataset.path === "pair_1").querySelector(".tree-eye").click();
+    result.drawn_after_hide = drawn();
+    result.hidden_rows = rows().filter((r) => r.classList.contains("tree-hidden")).map((r) => r.dataset.path);
+    rows().find((r) => r.dataset.path === "pin_2").querySelector(".tree-open").click();
+    result.open_name = document.getElementById("assembly-open-name").textContent;
+    result.open_params = [...document.querySelectorAll("#params .param-name")].map((e) => e.textContent);
+    result.open_report_rows = document.querySelectorAll("#report tr").length;
+    // Pick the centre of pin_2 through the real hit test.
+    const mesh = page.viewer.bodies.find((m) => m.userData.instance === "pin_2");
+    const box = mesh.geometry.boundingBox ?? (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox);
+    const centre = box.getCenter(mesh.position.clone()).applyMatrix4(mesh.matrixWorld).project(page.viewer.camera);
+    const rect = page.viewer.canvas.getBoundingClientRect();
+    page.viewer.pick({ clientX: rect.left + (centre.x + 1) / 2 * rect.width, clientY: rect.top + (1 - centre.y) / 2 * rect.height });
+    result.pick = document.getElementById("pick").textContent;
+    const before = page.viewer.bodies.map((m) => m.userData.body.bounds[1][0]);
+    const edited = await page.setParam("pin:radius", 0.2);
+    result.param_outcome = edited?.envelope?.outcome ?? edited?.outcome?.outcome ?? null;
+    result.radius_grew_everywhere = page.viewer.bodies.every((m, i) => m.userData.body.bounds[1][0] > before[i] - 1e-12) && page.viewer.bodies[0].userData.body.bounds[1][0] > before[0];
+    result.drawn_after_edit = drawn();
+    const step = await page.host.exportStep("pins");
+    const text = step.ok ? new TextDecoder().decode(step.bytes) : "";
+    result.step_occurrences = text.split("=NEXT_ASSEMBLY_USAGE_OCCURRENCE(").length - 1;
+    result.step_solids = text.split("=MANIFOLD_SOLID_BREP(").length - 1;
+    // Clearance (PK-630): after the edit the pins are radius 0.2 at a
+    // 0.5 pitch — three neighbouring pairs 0.1 apart.
+    document.getElementById("clearance").value = "0.2";
+    const check = await page.checkClearance();
+    result.clearance = check?.ok ? check.report.pairs.map((p) => [p.a, p.b, p.status, Math.round(p.distance * 1e9) / 1e9]) : check;
+    result.clearance_rows = document.querySelectorAll("#clearance-list li").length;
+    // Exploded view (PK-630): transforms only — the per-frame cost of
+    // moving every occurrence and drawing, over a sweep of the slider.
+    const slider = document.getElementById("explode");
+    result.explode_visible = !document.getElementById("explode-row").hidden;
+    const frames = [];
+    for (let k = 0; k <= 60; k++) {
+      const t0 = performance.now();
+      slider.value = String(k / 60);
+      slider.dispatchEvent(new Event("input"));
+      frames.push(performance.now() - t0);
+    }
+    frames.sort((x, y) => x - y);
+    result.explode_frame_ms = { median: frames[30], p95: frames[57], max: frames[60] };
+    const moved = page.viewer.bodies.find((m) => m.userData.instance === "pin_0");
+    result.explode_moved = moved.matrix.elements[12] !== moved.userData.base.elements[12] || moved.matrix.elements[13] !== moved.userData.base.elements[13] || moved.matrix.elements[14] !== moved.userData.base.elements[14];
+    slider.value = "0";
+    slider.dispatchEvent(new Event("input"));
+    await page.host.setVisible("pair_1", false);
+    const pkn = await page.host.exportPkn();
+    const doc = pkn.ok ? JSON.parse(new TextDecoder().decode(pkn.bytes)) : null;
+    result.pkn_version = doc?.version ?? null;
+    result.pkn_hidden = doc?.assembly?.root?.filter((i) => !i.visible).map((i) => i.name) ?? null;
+    document.getElementById("assembly-close").click();
+    return result;
+  })()`);
+
+  // Open STEP (PK-631): a third-party writer's assembly (OpenCASCADE
+  // XCAF, tools/occ-oracle/occ_write_assembly.py) opens with its tree,
+  // names and shared parts.
+  const stepFixture = (await readFile(join(root, "..", "..", "crates/popkern-assembly/tests/fixtures/occ_bench_assembly.step"))).toString("base64");
+  out.open_step = await evaluate(`(async () => {
+    const page = window.playground;
+    const bytes = Uint8Array.from(atob(${JSON.stringify(stepFixture)}), (c) => c.charCodeAt(0)).buffer;
+    const reply = await page.openStep("occ_bench_assembly.step", bytes);
+    return {
+      outcome: reply?.envelope?.outcome ?? reply?.outcome?.outcome ?? null,
+      printed: reply?.envelope?.printed ?? null,
+      rows: [...document.querySelectorAll("#assembly-tree li")].map((r) => r.dataset.path + "=" + r.querySelector(".tree-kind").textContent),
+      geometries: new Set(page.viewer.bodies.map((m) => m.geometry)).size,
+      meshes: page.viewer.bodies.length,
+      tab: document.getElementById("doc-name").textContent,
+      build_kept: await page.run({ live: true }).then((r) => r === null),
+    };
   })()`);
 
   // A returning visitor with an edited script saved: the page still

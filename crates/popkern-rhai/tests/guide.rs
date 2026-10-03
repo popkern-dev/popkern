@@ -8,8 +8,8 @@
 //!   a real key of that op's Rhai binding (`RHAI_BINDINGS`), and
 //!   every binding key is in the guide.
 //! - Every ```rhai block in the guide runs through `ScriptHost` and
-//!   serves, or raises exactly the class its `// raises:` comment
-//!   names.
+//!   serves (a model or an assembly), or raises exactly the class its
+//!   `// raises:` comment names.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -194,8 +194,8 @@ fn every_code_block_in_the_guide_runs_as_the_prose_says() {
         match (result, raises) {
             (Ok(outcome), None) => {
                 assert!(
-                    outcome.model.is_some(),
-                    "guide block at line {line} produced no model"
+                    outcome.model.is_some() || outcome.assembly.is_some(),
+                    "guide block at line {line} produced no model or assembly"
                 );
             }
             (Err(error), Some(class)) => {

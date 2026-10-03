@@ -61,32 +61,42 @@ pub fn execute(cli: &Cli) -> RunSummary {
         }
     };
     summary = summary.with_elapsed(outcome.elapsed);
-    summary.printed = outcome.printed;
-    let Some(mut model) = outcome.model else {
+    let mut outcome = outcome;
+    summary.printed = std::mem::take(&mut outcome.printed);
+    let Some(mut document) = outcome.take_document() else {
         summary.outcome = Outcome::GateFailure {
             step: "model".into(),
-            detail: "the script created no model (call model() and keep it in a variable)".into(),
+            detail: "the script created no model (call model() or assembly() and keep it in a \
+                     variable)"
+                .into(),
         };
         return summary;
     };
     for (key, value) in &cli.params {
-        if let Err(e) = model
-            .set_param(key, *value)
-            .and_then(|_| model.replay().map(|_| ()))
-        {
-            summary.outcome =
-                popkern_rhai::outcome::from_script_error(&e, &format!("--param {key}"));
+        let set = document.set_param(key, *value).and_then(|_| {
+            for (part, model) in document.models_mut() {
+                model
+                    .replay()
+                    .map_err(|source| popkern_assembly::AssemblyError::Script {
+                        definition: part.unwrap_or_else(|| "<document>".into()),
+                        source,
+                    })?;
+            }
+            Ok(())
+        });
+        if let Err(e) = set {
+            summary.outcome = popkern_rhai::from_assembly_error(&e, &format!("--param {key}"));
             return summary;
         }
     }
-    summary.report = Some(popkern_rhai::report_value(&model));
-    summary.features = model.features().len();
-    if let Some(outcome) = popkern_rhai::outcome::first_failure(&model) {
+    summary.report = Some(popkern_rhai::document_report_value(&mut document));
+    summary.features = popkern_rhai::document_feature_count(&mut document);
+    if let Some(outcome) = popkern_rhai::document_first_failure(&mut document) {
         summary.outcome = outcome;
         return summary;
     }
     if let Some(path) = &cli.pkn {
-        if let Err(e) = model.save(path) {
+        if let Err(e) = document.save(path) {
             summary.outcome = Outcome::GateFailure {
                 step: "pkn".into(),
                 detail: e.to_string(),
@@ -96,9 +106,9 @@ pub fn execute(cli: &Cli) -> RunSummary {
         summary.outputs.push(path.clone());
     }
     if cli.step.is_some() || cli.png.is_some() {
-        // Whole-model view: every alive body (a multi-body document's
-        // STEP and thumbnail carry all of it, not the active body).
-        let part = match model.to_part_all() {
+        // Whole-document view: every alive body (every visible part
+        // occurrence of an assembly, placed) for the thumbnail.
+        let part = match document.to_part_all() {
             Ok(part) => part,
             Err(e) => {
                 summary.outcome = Outcome::GateFailure {
@@ -109,9 +119,10 @@ pub fn execute(cli: &Cli) -> RunSummary {
             }
         };
         if let Some(path) = &cli.step {
-            // Each body its own solid (Model::to_step), not the
-            // concatenated render view.
-            if let Err(e) = model.to_step(path) {
+            // A part document: each body its own solid; an assembly:
+            // its product structure (a product per part, an
+            // occurrence per instance).
+            if let Err(e) = document.to_step(path) {
                 summary.outcome = Outcome::GateFailure {
                     step: "step".into(),
                     detail: e.to_string(),

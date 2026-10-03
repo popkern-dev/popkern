@@ -95,9 +95,9 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     (
         "ball_bearing",
         "Ball bearing",
-        "A deep-groove bearing: races revolved with exact torus grooves, chamfered lead-ins, and a ring of balls placed by trigonometry — ten bodies.",
-        30,
-        "revolve with arc paths, exact torus and sphere surfaces, trigonometric placement loops, multi-body export",
+        "A deep-groove bearing assembly: races revolved with exact torus grooves and chamfered lead-ins, and one ball built once and placed eight times by trigonometry.",
+        8,
+        "assemblies (part, place, translate), revolve with arc paths, exact torus and sphere surfaces, trigonometric placement loops, product-structure STEP export",
     ),
     (
         "involute_gear",
@@ -153,12 +153,13 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     (
         "planetary_gearbox",
         "Planetary gearbox",
-        "A 4:1 planetary set — sun, three phased planets, an internal ring gear cut by \
-         a toothed disc, and a spider carrier — six meshing bodies whose involute teeth \
-         and assembly phasing are all computed in the script.",
-        45,
+        "A 4:1 planetary set as an assembly — sun, one planet placed three times at its \
+         mesh phase, an internal ring gear cut by a toothed disc, and a spider carrier — \
+         whose involute teeth and planet phasing are all computed in the script.",
+        35,
         "computed involute teeth, internal ring gears, meshing-assembly phasing, \
-         the (Zs+Zr)%N constraint, single-polygon spiders, multi-body assemblies",
+         the (Zs+Zr)%N constraint, single-polygon spiders, assemblies (one part placed \
+         many times with rotate then translate)",
     ),
     (
         "threaded_stud",
@@ -188,11 +189,12 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "fastener_kit",
         "Fastener kit",
         "An M6 hex bolt with its nut, a socket-head cap screw, and a countersunk \
-         screw — real modeled ISO threads with heads, tip lead-ins, and runout \
-         from the nominal tables.",
-        9,
+         screw as an assembly — the three screws are one parametric part family — \
+         with real modeled ISO threads, heads, tip lead-ins, and runout from the \
+         nominal tables.",
+        4,
         "bolt and nut generators, ISO thread designations, head styles, \
-         printed-fit clearance, multi-body layout",
+         printed-fit clearance, part families (one parametric part, several sizes)",
     ),
     (
         "angled_fitting",

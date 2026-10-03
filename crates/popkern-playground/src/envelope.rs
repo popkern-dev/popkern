@@ -117,8 +117,55 @@ pub struct Envelope {
     pub features: usize,
     /// Declared parameters.
     pub params: Vec<ParamRow>,
-    /// One triangle buffer set per alive body.
+    /// One triangle buffer set per alive body (for an assembly: per
+    /// alive body of each part definition, shared by its instances).
     pub bodies: Vec<BodyMesh>,
+    /// The product structure, when the document is an assembly.
+    pub assembly: Option<AssemblyView>,
+}
+
+/// An assembly as the page's tree and instanced renderer see it
+/// (design `docs/architecture/assemblies.md` §6.5).
+#[derive(Debug, Clone, Serialize)]
+pub struct AssemblyView {
+    /// The assembly's name.
+    pub name: String,
+    /// Every definition, in definition order.
+    pub definitions: Vec<DefinitionView>,
+    /// Every occurrence of the expanded tree, depth-first.
+    pub instances: Vec<InstanceView>,
+}
+
+/// One part or sub-assembly definition.
+#[derive(Debug, Clone, Serialize)]
+pub struct DefinitionView {
+    /// The definition name (`planet`, `bolt[size=M4]`).
+    pub name: String,
+    /// `"part"` or `"assembly"`.
+    pub kind: &'static str,
+    /// Indices into the envelope's `bodies` of this part's meshes.
+    pub bodies: Vec<usize>,
+    /// Feature count of the part's document (0 for a sub-assembly).
+    pub features: usize,
+}
+
+/// One occurrence in the expanded tree.
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceView {
+    /// `/`-joined instance names from the root.
+    pub path: String,
+    /// The last name of the path.
+    pub name: String,
+    /// Depth below the root (top level = 0).
+    pub depth: usize,
+    /// Index into `definitions`.
+    pub definition: u32,
+    /// World placement, 16 column-major numbers (a GPU matrix).
+    pub world: [f32; 16],
+    /// Effective visibility (this instance and every ancestor).
+    pub visible: bool,
+    /// A part occurrence (drawn) rather than a sub-assembly.
+    pub is_part: bool,
 }
 
 impl Envelope {
@@ -134,6 +181,7 @@ impl Envelope {
             features: 0,
             params: Vec::new(),
             bodies: Vec::new(),
+            assembly: None,
         }
     }
 

@@ -43,6 +43,7 @@ mod clip_triple_junction;
 pub mod coincidence;
 pub mod csg;
 mod curve_projection;
+mod entity_lineage;
 mod entity_naming;
 mod entity_naming_edges;
 pub mod error;
@@ -192,6 +193,9 @@ pub fn boolean(
     })?;
     if let Some(ctx) = tracking {
         entity_naming::assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
+        // Lineage beside the names (PK-633): which input faces each
+        // output face is a piece of, so labels follow trimmed faces.
+        entity_lineage::record_face_lineage(&mut result, &a, &b, &tol);
         entity_naming_edges::assign_boolean_edge_vertex_names(
             &mut result,
             &input_edges,
@@ -199,6 +203,7 @@ pub fn boolean(
             ctx,
             &tol,
         );
+        entity_lineage::record_edge_lineage(&mut result, &a, &b, &tol);
     }
     Ok(result)
 }

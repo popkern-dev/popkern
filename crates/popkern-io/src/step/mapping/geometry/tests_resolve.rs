@@ -11,6 +11,8 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 
 #[path = "tests_resolve_curves.rs"]
 mod tests_resolve_curves;
+#[path = "tests_swept.rs"]
+mod tests_swept;
 
 pub(super) fn ent(id: EntityId, ty: &str, p: Vec<Parameter>) -> EntityInstance {
     EntityInstance {
@@ -89,10 +91,47 @@ fn resolve_cylindrical_surface() {
 #[test]
 fn resolve_conical_surface() {
     match resolve_surf("CONICAL_SURFACE", vec![s(""), er(4), r(2.0), r(0.5)]) {
-        SurfaceGeometry::Cone { half_angle, .. } => {
+        SurfaceGeometry::Cone {
+            half_angle, apex, ..
+        } => {
             assert!((half_angle - 0.5).abs() < 1e-10);
+            // The placement is where the radius is 2: the apex lies
+            // 2 / tan 0.5 back along +Z from (1, 2, 3).
+            assert!(
+                (apex.z - (3.0 - 2.0 / 0.5f64.tan())).abs() < 1e-12,
+                "{apex:?}"
+            );
+            assert!((apex.x - 1.0).abs() < 1e-12 && (apex.y - 2.0).abs() < 1e-12);
         }
         other => panic!("expected Cone, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_cone_semi_angle_reads_in_the_file_angle_unit() {
+    use popkern_core::geometry::SurfaceEval;
+    let mut ents = placement_entities(0.0, 0.0, 0.0);
+    ents.push(ent(
+        5,
+        "CONICAL_SURFACE",
+        vec![s(""), er(4), r(2.0), r(45.0)],
+    ));
+    let g = graph(ents);
+    let mut c = GeometryCache::new(&g);
+    c.set_radians_per_angle(std::f64::consts::PI / 180.0);
+    let mut log = DiagnosticLog::new();
+    let cone = c.resolve_surface(5, true, &mut log).expect("cone").geometry;
+    let SurfaceGeometry::Cone { half_angle, .. } = cone else {
+        panic!("expected Cone, got {cone:?}");
+    };
+    assert!((half_angle - std::f64::consts::FRAC_PI_4).abs() < 1e-15);
+    // The reference circle (radius 2 in the placement plane) is on it.
+    for k in 0..8 {
+        let a = k as f64 * std::f64::consts::TAU / 8.0;
+        let p = popkern_core::geometry::Point3::new(2.0 * a.cos(), 2.0 * a.sin(), 0.0);
+        let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(&cone, &p)
+            .expect("projects");
+        assert!(cone.point_at(u, v).distance_to(&p) < 1e-12);
     }
 }
 

@@ -21,11 +21,14 @@ its budgets, and a hostile script must not be able to wedge the page.
 | `init` | `options: { max_operations: number \| null, timeout_ms: number \| null, continuity_certification?: "Inline" \| "Deferred" }` | `{ ok, protocol_version, clock_available }` |
 | `set_budget` | `options: { max_operations: number \| null, timeout_ms: number \| null }` | `{ ok: true, budget: { max_operations, timeout_ms } }` or `{ ok: false, outcome }` — replaces the budgets for later runs (the page's time limit); the certification mode and the model are kept |
 | `run` | `source: string`, `name: string` | envelope reply |
+| `open_step` | `bytes: ArrayBuffer`, `name: string` | envelope reply — a STEP file's product structure as a view-only assembly (assemblies.md §8.3): imported parts with no recipe, re-exportable and savable; `printed` carries the import summary and anything left out |
 | `set_param` | `name: string`, `value: number` | envelope reply |
 | `certify` | `slice_ms: number` | `{ ok: true, step: { certified, remaining, report: ReplayReport \| null, failure: outcome \| null } }` |
 | `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
 | `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
 | `export_pkn` | — | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |
+| `interference` | `clearance: number` | `{ ok: true, report: { pairs: [{ a, b, status: "clear" \| "touching" \| "interfering", distance?, lower_bound?, refined?, volume?, decline?, closest?, faces? }], occurrences, candidate_pairs, tolerance, clearance } }` or `{ ok: false, outcome }` — every pair of assembly part occurrences within `clearance` (assemblies.md §8.1): certified clearances, contact, overlap volumes (null with `decline` when the boolean declined) |
+| `set_visible` | `path: string`, `visible: boolean` | `{ ok: true }` or `{ ok: false, outcome }` — show or hide an assembly occurrence (`stage/planet_1`) in the document (saved with `.pkn`); no geometry changes, nothing is re-meshed |
 | `analysis_mesh` | — | `{ ok: true, stats: { facet_deg, triangles, mesh_ms }, buffers }` or `{ ok: false, outcome }` — the live bodies re-meshed at the zebra analysis bound (6°), one `{ positions, normals, indices, face_ids }` per body in envelope order; cached until the next `run`/`set_param` |
 | `stats` | — | `{ ok: true, wasm_memory_bytes: number \| null, body_count }` — the module's linear memory size (grows, never shrinks) |
 
@@ -70,8 +73,17 @@ certification could not continue. Without the option the default is
     features: number,
     params: [{ name, value, unit, expression, bounds: [lo, hi] | null, read_only }],
     bodies: [{ id, label, vertex_count, triangle_count, face_count,
-               face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }]
+               face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }],
+    assembly: null | {                 // an assembly document (assemblies.md §6.5)
+      name,
+      definitions: [{ name, kind: "part" | "assembly", bodies: number[], features }],
+      instances: [{ path, name, depth, definition, world: number[16] /* column-major */,
+                    visible, is_part }]
+    }
   },
+  // For an assembly `bodies` are the part definitions' meshes, each
+  // drawn once per occurrence under its `world` matrix; an assembly's
+  // `params` are qualified "part:name", and `set_param` takes the same.
   buffers: [{ positions: Float32Array, normals: Float32Array,
               indices: Uint32Array, face_ids: Uint32Array,
               gaussian: Float32Array, mean: Float32Array }]    // one per body, transferred

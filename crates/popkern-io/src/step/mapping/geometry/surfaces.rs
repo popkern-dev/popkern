@@ -75,10 +75,23 @@ impl<'a> GeometryCache<'a> {
             }
         };
         let (origin, axis, _x) = self.resolve_placement(cone.position, log)?;
+        let half_angle = cone.semi_angle * self.radians_per_angle;
+        if !(half_angle > 0.0 && half_angle < std::f64::consts::FRAC_PI_2) {
+            log.error(
+                Phase::MapGeometry,
+                Some(id),
+                format!("cone semi-angle {half_angle} rad is outside (0, π/2)"),
+            );
+            return None;
+        }
+        // STEP places a cone where its radius is R; popkern's apex is
+        // R / tan α back along the axis (measured: drill-point cones
+        // with R = 4e-5 sat 2.4e-5 off their own edges, and chamfer or
+        // countersink cones with a real R were displaced by it).
         Some(SurfaceGeometry::Cone {
-            apex: origin,
+            apex: origin - axis * cone_apex_distance(cone.radius, half_angle),
             axis,
-            half_angle: cone.semi_angle,
+            half_angle,
         })
     }
 
@@ -177,7 +190,7 @@ impl<'a> GeometryCache<'a> {
         self.resolve_bspline_surface_from(id, &params, log)
     }
 
-    fn resolve_bspline_surface_from(
+    pub(super) fn resolve_bspline_surface_from(
         &mut self,
         id: EntityId,
         params: &[crate::step::parser::types::Parameter],
@@ -267,4 +280,10 @@ fn resolve_rational_bspline_surface_weights(
             }
             Some(weights)
         })
+}
+
+/// The distance along a STEP cone's axis from its placement (where its
+/// radius is `radius`) back to the apex.
+pub(super) fn cone_apex_distance(radius: f64, half_angle: f64) -> f64 {
+    radius / half_angle.tan()
 }

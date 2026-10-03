@@ -50,6 +50,7 @@ pub(crate) fn far_junction(
     let far_cap = 0.25 * chord;
     let fit_gate = tolerance.linear() * 2000.0;
     let mut cands: Vec<(f64, Point3, f64)> = Vec::new();
+    let mut exact_here = false;
     for (brep, face, other_surface, other_windows) in [
         (brep_a, face_a, surf_b, windows_b),
         (brep_b, face_b, surf_a, windows_a),
@@ -101,7 +102,15 @@ pub(crate) fn far_junction(
                     tolerance,
                 );
                 let d = point.distance_to(p);
-                if d <= tolerance.linear() || d > far_cap {
+                if d <= tolerance.linear() {
+                    // The endpoint IS an exact junction: nothing was
+                    // mislocated, so no far correction applies (the
+                    // next junction along the curve is a different
+                    // crossing — PK-632).
+                    exact_here = true;
+                    continue;
+                }
+                if d > far_cap {
                     continue;
                 }
                 // The junction must lie ON the source curve. Dense
@@ -133,6 +142,9 @@ pub(crate) fn far_junction(
                 cands.push((d, *point, t_star));
             }
         }
+    }
+    if exact_here {
+        return Some(Vec::new());
     }
     // Among boundary junctions ON the source curve, the clip's sloppy
     // crossing belongs to the one nearest in PARAMETER — the crossing

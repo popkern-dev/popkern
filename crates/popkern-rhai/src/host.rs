@@ -34,8 +34,14 @@ pub struct HostOptions {
 /// What a finished run produced.
 pub struct RunOutcome {
     /// The model the script authored: the script's return value when
-    /// it is a model, else the last `Model` variable in scope.
+    /// it is a model; else, when no assembly was returned or left in
+    /// scope, the last `Model` variable in scope.
     pub model: Option<popkern_script::Model>,
+    /// The assembly the script authored: the script's return value
+    /// when it is an assembly, else (when no model was returned) the
+    /// last `Assembly` variable in scope. At most one of `model` and
+    /// `assembly` is set.
+    pub assembly: Option<popkern_assembly::Assembly>,
     /// Lines the script printed, in order.
     pub printed: Vec<String>,
     /// Wall time of the run when a clock was available.
@@ -66,6 +72,7 @@ impl std::fmt::Debug for RunOutcome {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RunOutcome")
             .field("model", &self.model.is_some())
+            .field("assembly", &self.assembly.is_some())
             .field("printed", &self.printed)
             .field("elapsed", &self.elapsed)
             .finish()
@@ -98,6 +105,13 @@ impl ScriptRunError {
     }
 
     fn from_eval(error: &EvalAltResult, script: &str) -> ScriptRunError {
+        // A failure inside a closure or a script `fn` arrives wrapped in
+        // function-call frames: report the call that failed (its class,
+        // payload and line), not the frame (PK-634).
+        let mut error = error;
+        while let EvalAltResult::ErrorInFunctionCall(_, _, inner, _) = error {
+            error = inner;
+        }
         let position = error.position();
         let (line, column) = (position.line(), position.position());
         let message = error.to_string();
@@ -175,6 +189,7 @@ impl ScriptHost {
             engine.set_max_operations(max);
         }
         crate::model_api::register_constructors(&mut engine, options.continuity_certification);
+        crate::assembly_api::register_constructors(&mut engine, options.continuity_certification);
         ScriptHost {
             engine,
             printed,
@@ -229,21 +244,46 @@ impl ScriptHost {
             .map_err(|e| ScriptRunError::from_eval(&e, script))?;
         let in_scope: Vec<Dynamic> = scope.iter().map(|(_, _, value)| value).collect();
         drop(scope);
-        let model = returned
-            .try_cast::<ScriptModel>()
-            .or_else(|| {
-                in_scope
-                    .into_iter()
-                    .rev()
-                    .find_map(|value| value.try_cast::<ScriptModel>())
-            })
-            .map(ScriptModel::into_inner);
+        let (model, assembly) = authored(returned, in_scope);
         Ok(RunOutcome {
             model,
+            assembly,
             printed: self.printed.borrow().clone(),
             elapsed: watch.elapsed(),
         })
     }
+}
+
+/// The document a run authored (design §7: the returned value wins;
+/// with none, the last assembly in scope, then the last model).
+fn authored(
+    returned: Dynamic,
+    in_scope: Vec<Dynamic>,
+) -> (
+    Option<popkern_script::Model>,
+    Option<popkern_assembly::Assembly>,
+) {
+    use crate::assembly_api::ScriptAssembly;
+    let returned = match returned.try_cast_result::<ScriptModel>() {
+        Ok(model) => return (Some(model.into_inner()), None),
+        Err(other) => other,
+    };
+    if let Some(assembly) = returned.try_cast::<ScriptAssembly>() {
+        return (None, Some(assembly.into_inner()));
+    }
+    if let Some(assembly) = in_scope.iter().rev().find_map(|v| {
+        v.clone()
+            .try_cast::<ScriptAssembly>()
+            .filter(ScriptAssembly::is_root)
+    }) {
+        return (None, Some(assembly.into_inner()));
+    }
+    let model = in_scope
+        .into_iter()
+        .rev()
+        .find_map(|value| value.try_cast::<ScriptModel>())
+        .map(ScriptModel::into_inner);
+    (model, None)
 }
 
 impl Default for ScriptHost {

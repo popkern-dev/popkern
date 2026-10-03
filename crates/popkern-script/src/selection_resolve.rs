@@ -31,7 +31,7 @@ pub(crate) fn resolve_edges(
     resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
 ) -> Result<SelectionSnapshot, ScriptError> {
     let describe = selector.describe();
-    let query = selector.to_query(resolve)?;
+    let query = selector.to_query(brep, resolve)?;
     let infos = popkern_part::edge_infos(brep);
     let handles = query.resolve(&infos);
     let seams: std::collections::HashSet<_> = infos
@@ -77,7 +77,7 @@ pub(crate) fn resolve_faces(
     resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
 ) -> Result<SelectionSnapshot, ScriptError> {
     let describe = selector.describe();
-    let query = selector.to_query(resolve)?;
+    let query = selector.to_query(brep, resolve)?;
     let infos = popkern_part::face_infos(brep);
     let handles = query.resolve(&infos);
     let names: Vec<EntityName> = handles

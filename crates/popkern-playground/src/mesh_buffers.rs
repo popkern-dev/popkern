@@ -7,7 +7,6 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_mesh::{MeshError, TessellationOptions, TriMesh};
 
@@ -128,35 +127,11 @@ pub fn body_mesh(
     })
 }
 
-/// Welded open-edge census: weld vertices at 1e-7, count edges used by
-/// exactly one triangle (0 = watertight). Mirrors the part facade's
-/// gate so a body the page calls watertight is one the CLI would too.
+/// Welded open-edge census: the part facade's gate
+/// ([`popkern_mesh::welded_open_edges`]), so a body the page calls
+/// watertight is one the CLI would too.
 pub fn welded_open_edges(mesh: &TriMesh) -> usize {
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
-    let mut id = |p: Point3| -> usize {
-        let k = (
-            (p.x * 1.0e7).round() as i64,
-            (p.y * 1.0e7).round() as i64,
-            (p.z * 1.0e7).round() as i64,
-        );
-        let next = key.len();
-        *key.entry(k).or_insert(next)
-    };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
-    for t in &mesh.triangles {
-        let w = [
-            id(mesh.vertices[t[0]].position),
-            id(mesh.vertices[t[1]].position),
-            id(mesh.vertices[t[2]].position),
-        ];
-        if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
-            continue;
-        }
-        for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
-            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
-        }
-    }
-    counts.values().filter(|&&c| c == 1).count()
+    popkern_mesh::welded_open_edges(mesh)
 }
 
 /// FNV-1a over the little-endian bytes of `f32` values: the page-side

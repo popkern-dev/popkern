@@ -207,9 +207,9 @@ pub fn resolve_entity(entity: &EntityInstance) -> Result<ResolvedEntity, Mapping
         "COMPOSITE_CURVE" => Ok(ResolvedEntity::CompositeCurve(CompositeCurve::from_params(
             &entity.params,
         )?)),
-        "SURFACE_CURVE" => Ok(ResolvedEntity::SurfaceCurve(SurfaceCurve::from_params(
-            &entity.params,
-        )?)),
+        "SURFACE_CURVE" | "INTERSECTION_CURVE" => Ok(ResolvedEntity::SurfaceCurve(
+            SurfaceCurve::from_params(&entity.params)?,
+        )),
         "SEAM_CURVE" => Ok(ResolvedEntity::SeamCurve(SeamCurve::from_params(
             &entity.params,
         )?)),

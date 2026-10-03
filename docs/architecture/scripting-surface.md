@@ -534,6 +534,15 @@ exercising the op through record→replay, (2) an error-payload row in
 
 ---
 
+- 2026-10-03 (PK-629..PK-631, `preview`): assemblies, one tier up in
+  `popkern-assembly` — `assembly()`, `a.part`, `a.subassembly`,
+  `a.place(...).translate/rotate/frame/hide`, part families
+  (`a.part(name, defaults, |m, p| …)`, `def.variant`), mates,
+  interference. Specified in `docs/architecture/assemblies.md` (not in
+  this document's op tables: the recorder surface is unchanged).
+  Labels and spelled names now follow their entity through later
+  booleans (PK-633: exact name, else its pieces).
+
 ## 14. Design review record (2026-08-30, `/design-review`)
 
 1. **Consumer perspective.** §12 is the README example. First draft

@@ -107,6 +107,14 @@ pub struct Assembly {
     pub(crate) name: String,
     pub(crate) definitions: Vec<Definition>,
     pub(crate) root: Vec<Instance>,
+    /// Mates, in the order they were added (stage 3).
+    pub(crate) mates: Vec<crate::mates::Mate>,
+    /// The root instance the mate solve holds fixed (`None`: the first).
+    pub(crate) ground: Option<String>,
+    /// Assembly parameters (PK-638).
+    pub(crate) params: Vec<crate::params::AssemblyParam>,
+    /// Assembly parameters driving part parameters.
+    pub(crate) drives: Vec<crate::params::Drive>,
 }
 
 impl Assembly {
@@ -116,6 +124,10 @@ impl Assembly {
             name: name.to_string(),
             definitions: Vec::new(),
             root: Vec::new(),
+            mates: Vec::new(),
+            ground: None,
+            params: Vec::new(),
+            drives: Vec::new(),
         }
     }
 
@@ -176,10 +188,25 @@ impl Assembly {
     /// [`AssemblyError::InvalidName`], [`AssemblyError::DuplicateDefinitionName`],
     /// [`AssemblyError::EmptyDefinition`] when the model has no alive body.
     pub fn add_part(&mut self, name: &str, model: Model) -> Result<DefinitionId, AssemblyError> {
-        self.add_part_variant(name, model, None)
+        self.add_part_with(name, model, None)
     }
 
-    pub(crate) fn add_part_variant(
+    /// Add a part definition that is a variant of a family (the
+    /// family's name and full parameter set are recorded with it).
+    ///
+    /// # Errors
+    ///
+    /// As [`Assembly::add_part`].
+    pub fn add_family_variant(
+        &mut self,
+        name: &str,
+        model: Model,
+        variant: crate::family::FamilyVariant,
+    ) -> Result<DefinitionId, AssemblyError> {
+        self.add_part_with(name, model, Some(variant))
+    }
+
+    fn add_part_with(
         &mut self,
         name: &str,
         mut model: Model,

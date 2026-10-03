@@ -101,6 +101,67 @@ pub(super) fn decisive_windows(
         )
     };
 
+    // TRANSVERSAL crossings (PK-632): the hugging guard below exists
+    // for boundary-RUNNING traces — records that meet the trim at a
+    // graze and then lie along it. An out-of-face interval bounded by
+    // crossings where the record cuts the boundary at an angle is a
+    // genuine gap between two in-face spans however close the rim is
+    // (measured: a toothed prism's cap × the mating gear's flank line
+    // crosses tooth flanks at ~40°; its tooth-gap interval sits within
+    // the 2 % clearance of a flank, the guard fell back to the crossing
+    // hull, the hull bridged two teeth through the gap, and the
+    // intersection served open or declined). Transversality is the
+    // sine of the uv angle between the record and the boundary pcurve
+    // at the crossing; an unknown boundary (an inner-loop half-edge)
+    // counts as grazing, keeping the guard.
+    //
+    // A gap is crossed from one boundary EDGE to ANOTHER (flank to
+    // flank across a notch). An out-of-face interval that leaves and
+    // rejoins the SAME edge is the record running alongside that edge
+    // — the hugging class itself, however steep its crossings
+    // (measured: the centrifugal impeller's vane-wall spirals leave
+    // the disc's rim circle at sin 0.22–0.29 and run outside it within
+    // 0.66 of the clearance band before re-crossing the same circle;
+    // all 70 such intervals were same-edge, all 272 toothed-prism gaps
+    // were edge-to-edge). Same-edge intervals keep the guard.
+    let boundary = crate::clip::face_uv_boundary(brep, face);
+    let transversal = |c: &UvCrossing| -> bool {
+        use popkern_core::geometry::curve::CurveEval as _;
+        let Some(pcurve) = boundary
+            .as_ref()
+            .and_then(|b| b.iter().find(|(h, _)| *h == c.boundary_he))
+            .map(|(_, pc)| pc.to_nurbs())
+        else {
+            return false;
+        };
+        let tb = pcurve.tangent_at(c.t_boundary);
+        let tr = curve_uv.tangent_at(c.t_curve);
+        let (lb, lr) = (
+            (tb.x * tb.x + tb.y * tb.y).sqrt(),
+            (tr.x * tr.x + tr.y * tr.y).sqrt(),
+        );
+        if lb < 1e-12 || lr < 1e-12 {
+            return false;
+        }
+        (tb.x * tr.y - tb.y * tr.x).abs() / (lb * lr) >= 0.17
+    };
+    let crossing_transversal_at = |t: f64| -> bool {
+        let near: Vec<&UvCrossing> = crossings
+            .iter()
+            .filter(|c| (c.t_curve - t).abs() < span * 1e-7)
+            .collect();
+        !near.is_empty() && near.iter().all(|c| transversal(c))
+    };
+
+    let rejoins_same_edge = |a: f64, b: f64| -> bool {
+        let at = |t: f64| {
+            crossings
+                .iter()
+                .filter(move |c| (c.t_curve - t).abs() < span * 1e-7)
+        };
+        at(a).any(|ca| at(b).any(|cb| cb.boundary_he == ca.boundary_he))
+    };
+
     let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(intervals.len());
     for &(a, b) in &intervals {
         if b - a < min_len {
@@ -117,7 +178,16 @@ pub(super) fn decisive_windows(
         if flags[0] != flags[1] || flags[1] != flags[2] {
             return None;
         }
-        if !is_closed && !flags[0] && near_boundary_at(a + (b - a) * 0.5) {
+        // The interval's ends that are crossings (an open record's
+        // first and last intervals end at the record's own end).
+        let bounded_by_transversals = (a <= t_min || crossing_transversal_at(a))
+            && (b >= t_max || crossing_transversal_at(b))
+            && !rejoins_same_edge(a, b);
+        if !is_closed
+            && !flags[0]
+            && near_boundary_at(a + (b - a) * 0.5)
+            && !bounded_by_transversals
+        {
             return None;
         }
         verdicts.push(Some(flags[0]));

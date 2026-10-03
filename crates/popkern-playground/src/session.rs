@@ -5,14 +5,19 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use popkern_assembly::{Document, InstancePath};
 use popkern_core::time::{Stopwatch, monotonic_clock_available};
-use popkern_rhai::outcome::{first_failure, from_run_error, from_script_error, report_value};
-use popkern_rhai::{HostOptions, Outcome, ScriptHost};
+use popkern_rhai::outcome::from_run_error;
+use popkern_rhai::{
+    HostOptions, Outcome, ScriptHost, document_feature_count, document_first_failure,
+    document_report_value, from_assembly_error,
+};
 use popkern_script::ContinuityCertification;
 use popkern_script::Model;
 
-use crate::envelope::{BodyMesh, Envelope, ParamRow, WallBudget};
-use crate::mesh_buffers::{MeshPurpose, body_mesh};
+use crate::envelope::{BodyMesh, Envelope, WallBudget};
+use crate::mesh_buffers::MeshPurpose;
+use crate::session_document::{document_params, mesh_document};
 
 /// The budgets as the page spells them (JSON).
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
@@ -43,10 +48,10 @@ impl RunOptions {
     }
 }
 
-/// A session over one document.
+/// A session over one document (a part or an assembly).
 pub struct Session {
     options: HostOptions,
-    model: Option<Model>,
+    document: Option<Document>,
     /// Display-mesh triangles of the last described model (the analysis
     /// mesh's budget estimate).
     last_display_triangles: usize,
@@ -57,7 +62,7 @@ impl Session {
     pub fn new(options: HostOptions) -> Session {
         Session {
             options,
-            model: None,
+            document: None,
             last_display_triangles: 0,
         }
     }
@@ -73,15 +78,32 @@ impl Session {
         self.options = options;
     }
 
-    /// The model the last successful run left (a failed run keeps the
-    /// previous one so exports and parameter edits still answer).
+    /// The model the last successful run left, when it authored a part
+    /// document (a failed run keeps the previous document so exports
+    /// and parameter edits still answer).
     pub fn model(&self) -> Option<&Model> {
-        self.model.as_ref()
+        match &self.document {
+            Some(Document::Part(model)) => Some(model),
+            _ => None,
+        }
     }
 
-    /// Mutable access to the retained model.
+    /// Mutable access to the retained part document's model.
     pub fn model_mut(&mut self) -> Option<&mut Model> {
-        self.model.as_mut()
+        match &mut self.document {
+            Some(Document::Part(model)) => Some(model),
+            _ => None,
+        }
+    }
+
+    /// The retained document of either kind.
+    pub fn document(&self) -> Option<&Document> {
+        self.document.as_ref()
+    }
+
+    /// Mutable access to the retained document.
+    pub fn document_mut(&mut self) -> Option<&mut Document> {
+        self.document.as_mut()
     }
 
     fn wall_budget(&self) -> WallBudget {
@@ -99,16 +121,16 @@ impl Session {
         let mut host = ScriptHost::with_options(self.options);
         match host.run(source, name) {
             Err(error) => self.bare(from_run_error(&error)),
-            Ok(outcome) => {
-                let Some(model) = outcome.model else {
+            Ok(mut outcome) => {
+                let Some(document) = outcome.take_document() else {
                     return self.bare(Outcome::GateFailure {
                         step: "model".into(),
-                        detail: "the script created no model (call model() and keep it in a \
-                                 variable)"
+                        detail: "the script created no model (call model() or assembly() and \
+                                 keep it in a variable)"
                             .into(),
                     });
                 };
-                self.model = Some(model);
+                self.document = Some(document);
                 self.describe(
                     Outcome::Served,
                     outcome.printed,
@@ -118,21 +140,88 @@ impl Session {
         }
     }
 
+    /// Open a STEP file's product structure as the session's document
+    /// (PK-631, design §8.3): a view-only assembly of imported parts —
+    /// placed, named, re-exportable and savable, with no recipe. The
+    /// envelope's `printed` carries the import report's summary; on
+    /// failure the previous document is kept.
+    pub fn open_step(&mut self, bytes: &[u8], name: &str) -> Envelope {
+        match popkern_assembly::Assembly::from_step_bytes(bytes, name) {
+            Err(error) => self.bare(from_assembly_error(&error, "open_step")),
+            Ok((assembly, report)) => {
+                let mut printed = vec![format!(
+                    "imported {name}: {} part(s), {} occurrence(s), {} solid(s)",
+                    report.parts, report.instances, report.solids
+                )];
+                printed.extend(
+                    report
+                        .refused_solids
+                        .iter()
+                        .map(|r| format!("refused solid: {r}")),
+                );
+                printed.extend(
+                    report
+                        .refused_instances
+                        .iter()
+                        .map(|r| format!("left out: {r}")),
+                );
+                self.document = Some(Document::Assembly(Box::new(assembly)));
+                self.describe(Outcome::Served, printed, None)
+            }
+        }
+    }
+
     /// Set a declared parameter and replay.
+    /// An assembly takes `part:name` and replays only that part (every
+    /// instance of it updates).
     pub fn set_param(&mut self, name: &str, value: f64) -> Envelope {
-        let Some(model) = self.model.as_mut() else {
+        let Some(document) = self.document.as_mut() else {
             return self.bare(no_model());
         };
-        let result = model
-            .set_param(name, value)
-            .and_then(|_| model.replay().map(|_| ()));
+        // A part parameter replays its part; an assembly parameter
+        // replays the parts it drives inside `set_param` already.
+        let part = name.split_once(':').map(|(part, _)| part.to_string());
+        let assembly_param = part.is_none() && matches!(document, Document::Assembly(_));
+        let result = document.set_param(name, value).and_then(|_| {
+            for (definition, model) in document.models_mut() {
+                if assembly_param {
+                    break;
+                }
+                if part.is_none() || definition == part {
+                    model
+                        .replay()
+                        .map_err(|source| popkern_assembly::AssemblyError::Script {
+                            definition: definition.unwrap_or_else(|| "<document>".into()),
+                            source,
+                        })?;
+                }
+            }
+            Ok(())
+        });
         match result {
             Err(error) => {
-                let outcome = from_script_error(&error, &format!("set_param {name}"));
+                let outcome = from_assembly_error(&error, &format!("set_param {name}"));
                 self.describe(outcome, Vec::new(), None)
             }
             Ok(()) => self.describe(Outcome::Served, Vec::new(), None),
         }
+    }
+
+    /// Show or hide the occurrence at `path` (`stage/planet_1`) in an
+    /// assembly. Visibility is document data (it is saved), but it
+    /// changes no geometry, so nothing is re-meshed.
+    pub fn set_visible(&mut self, path: &str, visible: bool) -> Result<(), Outcome> {
+        let Some(Document::Assembly(assembly)) = self.document.as_mut() else {
+            return Err(Outcome::GateFailure {
+                step: "set_visible".into(),
+                detail: "visibility applies to assembly instances; this document is one part"
+                    .into(),
+            });
+        };
+        assembly
+            .resolve(&InstancePath::parse(path))
+            .and_then(|at| assembly.set_visible(at, visible))
+            .map_err(|error| from_assembly_error(&error, "set_visible"))
     }
 
     /// Certify deferred blend seams of the retained model for about
@@ -140,41 +229,49 @@ impl Session {
     /// upgrading its report in place. The step carries the report once
     /// nothing is left, so the page swaps it in whole.
     pub fn certify(&mut self, slice: Duration) -> CertifyStep {
-        let Some(model) = self.model.as_mut() else {
+        let Some(document) = self.document.as_mut() else {
             return CertifyStep::failed(no_model());
         };
         let clock = Stopwatch::start();
         let mut certified = 0;
-        loop {
-            match model.certify_next_deferred_seam() {
-                Ok(Some(_)) => certified += 1,
-                Ok(None) => break,
-                Err(error) => {
-                    return CertifyStep::failed(Outcome::GateFailure {
-                        step: "certify".into(),
-                        detail: error.to_string(),
-                    });
+        // Parts in definition order: each model's seams until it has
+        // none left, within one slice.
+        'parts: for (_, model) in document.models_mut() {
+            loop {
+                if certified > 0 && clock.elapsed().is_none_or(|spent| spent >= slice) {
+                    break 'parts;
+                }
+                match model.certify_next_deferred_seam() {
+                    Ok(Some(_)) => certified += 1,
+                    Ok(None) => break,
+                    Err(error) => {
+                        return CertifyStep::failed(Outcome::GateFailure {
+                            step: "certify".into(),
+                            detail: error.to_string(),
+                        });
+                    }
                 }
             }
-            if clock.elapsed().is_none_or(|spent| spent >= slice) {
-                break;
-            }
         }
-        let remaining = model.deferred_seam_count();
+        let remaining = document
+            .models_mut()
+            .into_iter()
+            .map(|(_, m)| m.deferred_seam_count())
+            .sum();
         CertifyStep {
             certified,
             remaining,
-            report: (remaining == 0).then(|| report_value(model)),
+            report: (remaining == 0).then(|| document_report_value(document)),
             failure: None,
         }
     }
 
     /// The document shown back as canonical Rhai.
     pub fn to_rhai(&mut self) -> Result<String, Outcome> {
-        let Some(model) = self.model.as_mut() else {
+        let Some(document) = self.document.as_mut() else {
             return Err(no_model());
         };
-        popkern_rhai::to_rhai(model).map_err(|error| Outcome::GateFailure {
+        popkern_rhai::document_to_rhai(document).map_err(|error| Outcome::GateFailure {
             step: "to_rhai".into(),
             detail: error.to_string(),
         })
@@ -182,23 +279,52 @@ impl Session {
 
     /// The whole model as STEP bytes (every alive body its own solid)
     /// with `name` as the product name.
+    /// An assembly exports its product structure.
     pub fn export_step(&mut self, name: &str) -> Result<Vec<u8>, Outcome> {
-        let Some(model) = self.model.as_mut() else {
+        let Some(document) = self.document.as_mut() else {
             return Err(no_model());
         };
-        model
+        document
             .to_step_bytes(name)
-            .map_err(|error| from_script_error(&error, "export_step"))
+            .map_err(|error| from_assembly_error(&error, "export_step"))
+    }
+
+    /// Interference and clearance between the assembly's part
+    /// occurrences within `clearance` (design §8.1): the report, or a
+    /// gate failure for a part document.
+    pub fn interference(
+        &mut self,
+        clearance: f64,
+    ) -> Result<popkern_assembly::InterferenceReport, Outcome> {
+        let Some(Document::Assembly(assembly)) = self.document.as_mut() else {
+            return Err(Outcome::GateFailure {
+                step: "interference".into(),
+                detail:
+                    "interference is checked between assembly instances; this document is one part"
+                        .into(),
+            });
+        };
+        let options = popkern_assembly::InterferenceOptions {
+            clearance: if clearance.is_finite() && clearance >= 0.0 {
+                clearance
+            } else {
+                0.0
+            },
+            ..Default::default()
+        };
+        assembly
+            .interference(&options)
+            .map_err(|error| from_assembly_error(&error, "interference"))
     }
 
     /// The document as `.pkn` bytes.
     pub fn export_pkn(&self) -> Result<Vec<u8>, Outcome> {
-        let Some(model) = self.model.as_ref() else {
+        let Some(document) = self.document.as_ref() else {
             return Err(no_model());
         };
-        model
+        document
             .to_pkn_bytes()
-            .map_err(|error| from_script_error(&error, "export_pkn"))
+            .map_err(|error| from_assembly_error(&error, "export_pkn"))
     }
 
     /// The envelope for the retained model: report, parameters, and a
@@ -228,10 +354,10 @@ impl Session {
                 ),
             });
         }
-        let model = self.model.as_mut().ok_or_else(no_model)?;
-        match mesh_bodies(model, MeshPurpose::ZebraAnalysis) {
-            (bodies, None) => Ok(bodies),
-            (_, Some(error)) => Err(Outcome::GateFailure {
+        let document = self.document.as_mut().ok_or_else(no_model)?;
+        match mesh_document(document, MeshPurpose::ZebraAnalysis) {
+            (bodies, _, None) => Ok(bodies),
+            (_, _, Some(error)) => Err(Outcome::GateFailure {
                 step: "mesh".into(),
                 detail: error,
             }),
@@ -246,14 +372,14 @@ impl Session {
     ) -> Envelope {
         let clock_available = monotonic_clock_available();
         let wall_budget = self.wall_budget();
-        let Some(model) = self.model.as_mut() else {
+        let Some(document) = self.document.as_mut() else {
             return Envelope::bare(outcome, clock_available, wall_budget);
         };
         let mut outcome = outcome;
-        if let Some(decline) = first_failure(model).filter(|_| outcome.is_served()) {
+        if let Some(decline) = document_first_failure(document).filter(|_| outcome.is_served()) {
             outcome = decline;
         }
-        let (bodies, mesh_error) = mesh_bodies(model, MeshPurpose::Display);
+        let (bodies, assembly, mesh_error) = mesh_document(document, MeshPurpose::Display);
         self.last_display_triangles = bodies.iter().map(|b| b.indices.len() / 3).sum();
         if let Some(error) = mesh_error
             && outcome.is_served()
@@ -269,10 +395,11 @@ impl Session {
             elapsed_ms,
             clock_available,
             wall_budget,
-            report: Some(report_value(model)),
-            features: model.features().len(),
-            params: params(model),
+            report: Some(document_report_value(document)),
+            features: document_feature_count(document),
+            params: document_params(document),
             bodies,
+            assembly,
         }
     }
 }
@@ -308,49 +435,8 @@ fn no_model() -> Outcome {
     }
 }
 
-fn params(model: &Model) -> Vec<ParamRow> {
-    model
-        .params()
-        .into_iter()
-        .map(|p| ParamRow {
-            name: p.name,
-            value: p.value,
-            unit: serde_json::to_value(p.unit).unwrap_or(serde_json::Value::Null),
-            expression: p.expression,
-            bounds: p.bounds.map(|(lo, hi)| [lo, hi]),
-            read_only: p.read_only,
-        })
-        .collect()
-}
-
 /// The buffers of `bodies` by index (a convenience for hosts that hand
 /// typed arrays over one at a time).
 pub fn body_buffers(bodies: &[BodyMesh], index: usize) -> Option<&BodyMesh> {
     bodies.get(index)
-}
-
-/// Mesh every live body of `model` for `purpose`: the buffers, and the
-/// first meshing error (a body that fails to mesh is skipped).
-fn mesh_bodies(model: &mut Model, purpose: MeshPurpose) -> (Vec<BodyMesh>, Option<String>) {
-    let mut bodies = Vec::new();
-    let mut error = None;
-    for body in model.alive_bodies() {
-        let brep = match model.brep_of(body) {
-            Ok(brep) => brep,
-            Err(_) => continue,
-        };
-        let label = model.body_label(body);
-        let label_face = |handle| {
-            let name = brep.faces.get(handle)?.name?;
-            let entity = brep.name_pool.get(name)?;
-            model.spell_entity(entity).ok()
-        };
-        match body_mesh(&brep, body.id.0 as u64, label, label_face, purpose) {
-            Ok(mesh) => bodies.push(mesh),
-            Err(e) => {
-                error.get_or_insert_with(|| e.to_string());
-            }
-        }
-    }
-    (bodies, error)
 }

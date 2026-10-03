@@ -1,8 +1,8 @@
-// A deep-groove ball bearing: two races revolved from sections whose
-// grooves are exact arcs, and a ring of balls placed by trigonometry
-// in a loop — ten bodies from one script, every surface an exact
-// plane, cylinder, sphere or torus.
-let m = model();
+// A deep-groove ball bearing, as an ASSEMBLY: two races revolved from
+// sections whose grooves are exact arcs, and ONE ball built once and
+// placed eight times around the pitch circle by trigonometry in a loop —
+// every surface an exact plane, cylinder, sphere or torus.
+let a = assembly("ball_bearing");
 
 // Groove geometry: balls of radius 0.15 on a pitch circle of radius
 // 0.7, grooves cut 0.01 deeper. The groove arc crosses each race
@@ -13,37 +13,45 @@ let groove_r = 0.16;
 let lip = sqrt(groove_r * groove_r - 0.12 * 0.12);
 
 // ---- Inner race: bore 0.35, wall at 0.58, groove to 0.54 ----
-let inner = m.profile(xz())
-    .path(0.35, 0.0).line_to(0.58, 0.0).line_to(0.58, 0.2 - lip)
-    .arc_to([pitch - groove_r, 0.2], [0.58, 0.2 + lip])
-    .line_to(0.58, 0.4).line_to(0.35, 0.4).close()
-    .sketch("inner_section")
-    .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
-inner = inner.chamfer(edges().circular().at_height(0.0).or(edges().circular().at_height(0.4)), 0.02,
-    #{ label: "inner_lead_ins" });
+let inner = a.part("inner_race", |m| {
+    let race = m.profile(xz())
+        .path(0.35, 0.0).line_to(0.58, 0.0).line_to(0.58, 0.2 - lip)
+        .arc_to([pitch - groove_r, 0.2], [0.58, 0.2 + lip])
+        .line_to(0.58, 0.4).line_to(0.35, 0.4).close()
+        .sketch("inner_section")
+        .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
+    race.chamfer(edges().circular().at_height(0.0).or(edges().circular().at_height(0.4)), 0.02,
+        #{ label: "inner_lead_ins" });
+});
+a.place(inner);
 
 // ---- Outer race: wall at 0.82, groove to 0.86, rim 1.05 ----
-let outer = m.profile(xz())
-    .path(0.82, 0.2 - lip).line_to(0.82, 0.0).line_to(1.05, 0.0)
-    .line_to(1.05, 0.4).line_to(0.82, 0.4).line_to(0.82, 0.2 + lip)
-    .arc_to([pitch + groove_r, 0.2], [0.82, 0.2 - lip]).close()
-    .sketch("outer_section")
-    .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
-outer = outer.chamfer(edges().circular().at_height(0.0).or(edges().circular().at_height(0.4)), 0.02,
-    #{ label: "outer_lead_ins" });
+let outer = a.part("outer_race", |m| {
+    let race = m.profile(xz())
+        .path(0.82, 0.2 - lip).line_to(0.82, 0.0).line_to(1.05, 0.0)
+        .line_to(1.05, 0.4).line_to(0.82, 0.4).line_to(0.82, 0.2 + lip)
+        .arc_to([pitch + groove_r, 0.2], [0.82, 0.2 - lip]).close()
+        .sketch("outer_section")
+        .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
+    race.chamfer(edges().circular().at_height(0.0).or(edges().circular().at_height(0.4)), 0.02,
+        #{ label: "outer_lead_ins" });
+});
+a.place(outer);
 
-// ---- Eight balls, placed by the loop, not by hand ----
+// ---- One ball, placed eight times by the loop ----
+let ball = a.part("ball", |m| {
+    m.profile(xz())
+        .path(0.0, 0.2 - ball_r).arc_to([ball_r, 0.2], [0.0, 0.2 + ball_r])
+        .line_to(0.0, 0.2 - ball_r).close()
+        .sketch("ball")
+        .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
+});
 let pi = 3.141592653589793;
 let count = 8;
 for i in 0..count {
     let angle = i * 2.0 * pi / count;
-    let ball = m.profile(xz())
-        .path(0.0, 0.2 - ball_r).arc_to([ball_r, 0.2], [0.0, 0.2 + ball_r])
-        .line_to(0.0, 0.2 - ball_r).close()
-        .sketch("ball_" + i)
-        .revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
-    ball.translate(pitch * cos(angle), pitch * sin(angle), 0.0);
+    a.place(ball, "ball_" + i).translate(pitch * cos(angle), pitch * sin(angle), 0.0);
 }
 
-m.assert_watertight();
-m
+a.assert_watertight();
+a

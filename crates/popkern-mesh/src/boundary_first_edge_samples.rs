@@ -107,6 +107,7 @@ pub(crate) fn sample_all_edges(
             &at,
             &mut fractions,
         );
+        boundary_first_edge_seed::seed_closed_curve(&at, &mut fractions);
         // Budget and floor scale with the curve's knot-span count
         // (PK-461): a flat 512-sample cap and 1e-3 minimum span
         // under-sampled a 41-turn thread-tool crease edge to ~12

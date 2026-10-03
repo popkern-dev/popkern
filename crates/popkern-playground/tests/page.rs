@@ -226,6 +226,8 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     assert_eq!(out["set_param"]["outcome"], "served");
     assert_eq!(out["set_param"]["value"], 0.5);
     page_rows::assert_time_limit_and_bakes(&out);
+    page_rows::assert_assembly(&out);
+    page_rows::assert_open_step(&out);
     // Broken script: overlay with class + position, line marked, last good model kept.
     assert_eq!(out["broken"]["outcome"], "script_error");
     assert_eq!(out["broken"]["kind"], "SyntaxError");
@@ -355,48 +357,17 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     );
 }
 
-/// Same-origin asset loads only: `fetch("./relative/path")`.
-fn network_violations(source: &str) -> Vec<String> {
-    let mut found = Vec::new();
-    for (n, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("//") {
-            continue;
-        }
-        for api in [
-            "XMLHttpRequest",
-            "WebSocket",
-            "sendBeacon",
-            "EventSource",
-            "importScripts",
-        ] {
-            if line.contains(api) {
-                found.push(format!("line {}: {api}", n + 1));
-            }
-        }
-        let mut rest = line;
-        while let Some(at) = rest.find("fetch(") {
-            let after = &rest[at + "fetch(".len()..];
-            let literal = after.trim_start();
-            let relative = (literal.starts_with("\"./") || literal.starts_with("`./"))
-                && !literal.contains("http");
-            if !relative {
-                found.push(format!("line {}: fetch with a non-relative target", n + 1));
-            }
-            rest = after;
-        }
-    }
-    found
-}
-
 #[test]
 fn page_scripts_reach_the_network_only_for_same_origin_assets() {
     let own = [
         "app.js",
+        "assembly-panel.js",
         "bakes.js",
         "edges.js",
         "editor.js",
+        "instances.js",
         "orbit.js",
+        "shading.js",
         "viewer.js",
         "worker.js",
         "worker-core.js",
@@ -404,7 +375,7 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
     ];
     for file in own {
         let source = read(page().join(file));
-        let violations = network_violations(&source);
+        let violations = page_rows::network_violations(&source);
         assert!(violations.is_empty(), "{file}: {violations:?}");
     }
     let html = read(page().join("index.html"));

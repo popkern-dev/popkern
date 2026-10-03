@@ -44,6 +44,10 @@ use popkern_core::topology::BRep;
 
 use crate::mesh::TriMesh;
 
+#[path = "crack_zipper_index.rs"]
+mod crack_zipper_index;
+use crack_zipper_index::SegmentIndex;
+
 /// Weld-grid resolution — must match the welded-open-edge census the
 /// example gates use.
 const WELD: f64 = 1.0e7;
@@ -75,6 +79,44 @@ struct EdgePolyline {
     closed: bool,
 }
 
+/// The curve over `[t0, t1]` as a polyline within `sag` of it: 64
+/// uniform stations, then every span whose parameter midpoint sits
+/// farther than `sag` off its chord is halved (capped at 8192 points).
+/// Membership is measured against this polyline, so its own error must
+/// sit well inside the band: a flat 64-gon of a 4.9-radius rim sagged
+/// 5.9e-3, past the 5e-3 band, and on-curve T-vertices failed to
+/// locate (measured: clevis21.stp's slit cylinder bands left one open
+/// segment on every rim they shared).
+fn curve_polyline(ce: &dyn CurveEval, t0: f64, t1: f64, sag: f64) -> Vec<Point3> {
+    let mut ts: Vec<f64> = (0..=64).map(|i| t0 + (t1 - t0) * i as f64 / 64.0).collect();
+    let mut pts: Vec<Point3> = ts.iter().map(|&t| ce.point_at(t)).collect();
+    loop {
+        let mut next_ts = Vec::with_capacity(ts.len() * 2);
+        let mut next_pts = Vec::with_capacity(ts.len() * 2);
+        let mut split = false;
+        for i in 0..ts.len() - 1 {
+            next_ts.push(ts[i]);
+            next_pts.push(pts[i]);
+            let tm = 0.5 * (ts[i] + ts[i + 1]);
+            let pm = ce.point_at(tm);
+            let (a, b) = (pts[i], pts[i + 1]);
+            let chord_mid = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+            if pm.distance_to(&chord_mid) > sag && ts.len() + next_ts.len() < 8192 {
+                next_ts.push(tm);
+                next_pts.push(pm);
+                split = true;
+            }
+        }
+        next_ts.push(ts[ts.len() - 1]);
+        next_pts.push(pts[pts.len() - 1]);
+        ts = next_ts;
+        pts = next_pts;
+        if !split {
+            return pts;
+        }
+    }
+}
+
 /// Close T-junction cracks along two-sided BRep edges. Returns the
 /// number of junction splits performed.
 pub(crate) fn zip_recorded_tolerance_cracks(
@@ -102,9 +144,10 @@ pub(crate) fn zip_recorded_tolerance_cracks(
             continue;
         }
         let ce: &dyn CurveEval = &curve.geometry;
-        let pts: Vec<Point3> = (0..=64)
-            .map(|i| ce.point_at(curve.t_start + (curve.t_end - curve.t_start) * i as f64 / 64.0))
-            .collect();
+        let band = DEFAULT_BAND
+            .max(chord_height)
+            .max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
+        let pts = curve_polyline(ce, curve.t_start, curve.t_end, 0.25 * band);
         let mut cum = Vec::with_capacity(pts.len());
         let mut total = 0.0;
         cum.push(0.0);
@@ -122,9 +165,6 @@ pub(crate) fn zip_recorded_tolerance_cracks(
         // below the mesh's resolution contract, so openness within it
         // along a two-sided edge is a sampling artifact by
         // construction.
-        let band = DEFAULT_BAND
-            .max(chord_height)
-            .max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
         let closed = pts
             .first()
             .zip(pts.last())
@@ -141,9 +181,10 @@ pub(crate) fn zip_recorded_tolerance_cracks(
         return 0;
     }
 
+    let index = SegmentIndex::build(&closed_edges);
     let mut zipped = 0usize;
     for round in 0..MAX_ROUNDS {
-        let splits = zip_round(mesh, &closed_edges);
+        let splits = zip_round(mesh, &closed_edges, &index);
         if popkern_core::trace::trace_enabled("crack-zipper") {
             eprintln!("  [zip] round {round}: {splits} splits");
         }
@@ -155,33 +196,7 @@ pub(crate) fn zip_recorded_tolerance_cracks(
     zipped
 }
 
-/// Locate `p` on `edge`: `(arc position, distance off the polyline)`.
-fn locate_on(edge: &EdgePolyline, p: &Point3) -> (f64, f64) {
-    let mut best = (0.0, f64::MAX);
-    for (i, w) in edge.pts.windows(2).enumerate() {
-        let (f, foot) = project_point_segment(p, &w[0], &w[1]);
-        let d = foot.distance_to(p);
-        if d < best.1 {
-            best = (edge.cum[i] + (edge.cum[i + 1] - edge.cum[i]) * f, d);
-        }
-    }
-    best
-}
-
-/// Best on-curve location of `p` across all polylines within band:
-/// `(edge index, arc position)`.
-fn locate(closed_edges: &[EdgePolyline], p: &Point3) -> Option<(usize, f64)> {
-    let mut best: Option<(usize, f64, f64)> = None;
-    for (ei, edge) in closed_edges.iter().enumerate() {
-        let (s, d) = locate_on(edge, p);
-        if d <= edge.band && best.map(|(_, _, bd)| d < bd).unwrap_or(true) {
-            best = Some((ei, s, d));
-        }
-    }
-    best.map(|(ei, s, _)| (ei, s))
-}
-
-fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
+fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline], index: &SegmentIndex) -> usize {
     // Weld census: open edges are used by exactly one triangle.
     let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut weld_id = |p: Point3| -> usize {
@@ -245,7 +260,7 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
     // On-curve location per candidate, computed once.
     let located: Vec<Option<(usize, f64)>> = candidates
         .iter()
-        .map(|(_, pv)| locate(closed_edges, pv))
+        .map(|(_, pv)| index.locate(closed_edges, pv))
         .collect();
 
     // One fan per triangle per round keeps the bookkeeping simple;
@@ -270,9 +285,10 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline]) -> usize {
         // Both endpoints must lie ON the same two-sided edge's curve
         // (within its band) — the topology then says the mesh must
         // close here, and the shared curve parameterizes the merge.
-        let (Some((ea, s_a)), Some((eb, s_b))) =
-            (locate(closed_edges, &pa), locate(closed_edges, &pb))
-        else {
+        let (Some((ea, s_a)), Some((eb, s_b))) = (
+            index.locate(closed_edges, &pa),
+            index.locate(closed_edges, &pb),
+        ) else {
             stats.1 += 1;
             trace_skip("off-curve endpoint", &pa, &pb);
             continue;
@@ -402,4 +418,36 @@ fn project_point_segment(p: &Point3, a: &Point3, b: &Point3) -> (f64, Point3) {
         f,
         Point3::new(a.x + ab.x * f, a.y + ab.y * f, a.z + ab.z * f),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::curve::CurveGeometry;
+
+    #[test]
+    fn the_locate_polyline_stays_within_its_sag_of_a_large_rim() {
+        // A 64-gon of this rim sags 5.9e-3; the band it serves is 5e-3.
+        let center = Point3::new(1.0, 2.0, 3.0);
+        let rim = CurveGeometry::Circle {
+            center,
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 4.92,
+        };
+        let sag = 0.25 * 5.0e-3;
+        let pts = curve_polyline(&rim, 0.0, std::f64::consts::TAU, sag);
+        assert!(pts.len() > 65, "refined: {}", pts.len());
+        for w in pts.windows(2) {
+            let mid = Point3::new(
+                0.5 * (w[0].x + w[1].x),
+                0.5 * (w[0].y + w[1].y),
+                0.5 * (w[0].z + w[1].z),
+            );
+            assert!(
+                4.92 - mid.distance_to(&center) <= sag,
+                "chord sags past {sag}"
+            );
+        }
+    }
 }

@@ -5,8 +5,6 @@
 //! preserves that: a failed operation leaves its inputs untouched
 //! and returns the kernel's diagnostics inside [`PartError`].
 
-use std::collections::HashMap;
-
 use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -359,7 +357,7 @@ impl Part {
     /// [`PartError::Mesh`] when tessellation fails.
     pub fn open_edge_count(&self) -> Result<usize, PartError> {
         let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
-        Ok(welded_open_edges(&mesh))
+        Ok(popkern_mesh::welded_open_edges(&mesh))
     }
 
     /// Watertightness gate: error unless the tessellated part has
@@ -407,35 +405,4 @@ impl Part {
 /// The finer (smaller linear value) of two tolerances.
 fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
     if a.linear() <= b.linear() { a } else { b }
-}
-
-/// Welded open-edge census (the watertightness measure every example
-/// gate uses): weld mesh vertices at 1e-7, count edges used by
-/// exactly one triangle.
-fn welded_open_edges(mesh: &popkern_mesh::TriMesh) -> usize {
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
-    let mut id = |p: popkern_core::geometry::Point3| -> usize {
-        let k = (
-            (p.x * 1.0e7).round() as i64,
-            (p.y * 1.0e7).round() as i64,
-            (p.z * 1.0e7).round() as i64,
-        );
-        let next = key.len();
-        *key.entry(k).or_insert(next)
-    };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
-    for t in &mesh.triangles {
-        let w = [
-            id(mesh.vertices[t[0]].position),
-            id(mesh.vertices[t[1]].position),
-            id(mesh.vertices[t[2]].position),
-        ];
-        if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
-            continue;
-        }
-        for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
-            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
-        }
-    }
-    counts.values().filter(|&&c| c == 1).count()
 }

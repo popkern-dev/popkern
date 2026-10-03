@@ -19,6 +19,7 @@ use crate::step::document::{
 };
 use crate::step::mapping::geometry::GeometryCache;
 use crate::step::mapping::occurrence::{OccurrenceIndex, occurrence_name};
+use crate::step::mapping::shape_reach::ShapeReach;
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
 use crate::step::schema::product::{
@@ -112,6 +113,18 @@ pub fn map_products(
         })
         .collect();
 
+    // Every product's own (SDR) representations, so the reach walk of
+    // one product never enters another's.
+    let mut own_reps: HashMap<EntityId, usize> = HashMap::new();
+    for (_, sdr) in &sdr_list {
+        if let Some(&pd) = pds_to_pd.get(&sdr.definition)
+            && let Some(&idx) = pd_to_index.get(&pd)
+        {
+            own_reps.insert(sdr.used_representation, idx);
+        }
+    }
+    let reach = ShapeReach::build(graph);
+
     for (_, sdr) in &sdr_list {
         // sdr.definition → PD_SHAPE → PD
         let pd_id = match pds_to_pd.get(&sdr.definition) {
@@ -140,21 +153,19 @@ pub fn map_products(
             other => ShapeRepKind::Other(other.into()),
         };
 
-        // Collect BRep solids that are items of this representation
-        let items =
-            crate::step::schema::product::StepShapeRepresentation::from_params(&rep_entity.params);
-        let solids: Vec<BRep> = match items {
-            Ok(sr) => sr
-                .items
-                .iter()
-                .flat_map(|item_id| {
-                    brep_by_id
-                        .get(item_id)
-                        .into_iter()
-                        .flat_map(|bodies| bodies.iter().map(|body| (*body).clone()))
-                })
-                .collect(),
-            Err(_) => Vec::new(),
+        // The solids this representation reaches: its own items,
+        // mapped items, and representations linked by a plain
+        // SHAPE_REPRESENTATION_RELATIONSHIP (PK-635).
+        let foreign: HashSet<EntityId> = own_reps
+            .iter()
+            .filter(|(_, idx)| **idx != product_idx)
+            .map(|(rep, _)| *rep)
+            .collect();
+        let solids: Vec<BRep> = reach.solids(graph, geo, rep_id, &foreign, &brep_by_id, log);
+        let kind = if solids.is_empty() || kind == ShapeRepKind::AdvancedBrep {
+            kind
+        } else {
+            ShapeRepKind::AdvancedBrep
         };
 
         let shape = Arc::new(ShapeRep {

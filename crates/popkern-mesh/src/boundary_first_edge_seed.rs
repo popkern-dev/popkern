@@ -111,3 +111,23 @@ pub(super) fn knot_seed_and_coarsen(
         }
     }
 }
+
+/// Seed a CLOSED edge (a full circle bounding a face on its own) with
+/// quarter turns. Its coincident ends start as one zero-chord interval
+/// that neither refinement test can split when the curve is smaller
+/// than the chord height: the midpoint sags by the diameter, which is
+/// below the chord height, and the end normals are the same normal.
+/// Left at two samples it is no ring at all, and the face it bounds
+/// falls off the boundary-first path (measured: clevis21.stp's
+/// 4e-5-radius drill-point circles — six cone faces declined and
+/// meshed open). Quarter turns are what bisection reaches on any
+/// larger closed curve, so those sample identically.
+pub(super) fn seed_closed_curve(at: &dyn Fn(f64) -> Point3, fractions: &mut Vec<f64>) {
+    if fractions.len() != 2 {
+        return;
+    }
+    let (start, end) = (at(0.0), at(1.0));
+    if start.distance_to(&end) <= 1.0e-12 * (1.0 + at(0.5).distance_to(&start)) {
+        *fractions = vec![0.0, 0.25, 0.5, 0.75, 1.0];
+    }
+}

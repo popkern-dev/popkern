@@ -481,7 +481,94 @@ m
   bind sub-results to `let` locals (`let ang = rot - half; [r*cos(ang),
   r*sin(ang)]`), which also reads better.
 
-## 13. Cheat-sheet
+## 13. Assemblies: parts built once, placed many times
+
+A model with repeated parts (a bearing's balls, a gearbox's planets)
+is an **assembly**: part definitions, each recorded by a closure on a
+fresh model and built **once**, and named instances that place them.
+An instance moves with `translate` / `rotate` (the later call applies
+after the earlier, as on bodies) or `frame(origin, z_dir, x_dir)`;
+placements are rigid (no scale or mirror). A script may return an
+assembly instead of a model.
+
+```rhai
+let a = assembly("pins");
+let pin = a.part("pin", |m| {
+    m.param("radius", 0.1, "m");
+    m.profile(xy()).circle(p("radius")).sketch("pin").extrude(blind(1.0));
+});
+for i in 0..4 {
+    a.place(pin, "pin_" + i).translate(i * 0.5, 0.0, 0.0);
+}
+let pair = a.subassembly("pair", |s| {
+    s.place(pin, "low");
+    s.place(pin, "high").translate(0.0, 0.0, 1.5);
+});
+a.place(pair).rotate(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), 90.0).translate(0.0, 2.0, 0.0);
+a.assert_watertight();
+a
+```
+
+A **part family** is one parametric part: declare its default
+parameters, and ask for other sizes with `variant` — each distinct
+parameter set is built once, however often it is placed, and its name
+spells the changed values (`block[w=3]`):
+
+```rhai
+let a = assembly("blocks");
+let block = a.part("block", #{ w: 1.0, h: 0.5 }, |m, p| {
+    m.profile(xy()).rect(p.w, p.h).sketch("block").extrude(blind(0.2));
+});
+a.place(block);
+a.place(block.variant(#{ w: 3.0 })).translate(0.0, 2.0, 0.0);
+a
+```
+
+An **assembly parameter** drives a parameter in several parts at
+once — one slider for a value the parts share:
+
+```rhai
+let a = assembly("plates");
+let thin = a.part("thin", |m| {
+    m.param("t", 0.1, "m");
+    m.profile(xy()).rect(1.0, 1.0).sketch("thin").extrude(blind(p("t")));
+});
+let wide = a.part("wide", |m| {
+    m.param("t", 0.1, "m");
+    m.profile(xy()).rect(2.0, 1.0).sketch("wide").extrude(blind(p("t")));
+});
+a.place(thin);
+a.place(wide).translate(0.0, 2.0, 0.0);
+a.param("t", 0.25, "m");
+a.drive("t", [thin, wide]);       // both parts' own "t" now follow it
+a
+```
+
+- STEP export writes the product structure: a product per part, an
+  occurrence per instance with its placement and name, each part's
+  solids once.
+- `.pkn` saves the whole tree.
+- Show-as-code emits every part's own recorded script and the
+  placements.
+- An assembly's parameters are qualified by their part: `pin:radius`
+  (a CLI `--param pin:radius=0.2`, or the part's slider in popkern
+  live). Changing one rebuilds that part once and moves every
+  instance of it.
+- In popkern live the inspector lists the instance tree:
+  - hide and show instances;
+  - select one;
+  - **open** a part to see its features and parameters.
+- Picks name the occurrence: `pin_2:pin/…`.
+- The `part colours` view tints each part.
+
+Instance and part names cannot contain `/` or `:` (the instance path
+and entity separators). Placing a sub-assembly inside itself, a
+duplicate sibling name, or a part whose closure built no solid each
+raise an `AssemblyError` naming the instance, the part and the
+reason. An error inside a part's closure is that operation's own
+error, with the closure's line and `in part '…'`.
+
+## 14. Cheat-sheet
 
 ```text
 model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
@@ -514,9 +601,14 @@ feature.describe() evidence() modify(#{…}) suppress() unsuppress() dependents(
 m.insert_before(f, |m, b| …) insert_after reorder(f, i) delete(f) rollback_to(f) rollback_to_end() undo() redo()
 m.add_config add_derived_config duplicate_config delete_config rename_config set_active_config
   set_override clear_override set_suppression clear_suppression configs() config(name)
+assembly(name)   a.part(name, |m| …)   a.part(name, #{defaults}, |m, p| …)   def.variant(#{…})
+a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).hide()
+a.param(name, v, unit)   a.drive(name, [defs])   a.drive(name, def, part_param)   a.set_param(name, v)
+a.assert_watertight()   a.save(path)   a.to_step(path)
 ```
 
 Gallery scripts that exercise all of this: `crates/popkern-rhai/examples/`
 (`boss_plate`, `revolved_knob`, `shelled_enclosure`,
 `chamfered_bracket`, `bored_block`, `tapered_fillet`,
-`parametric_plate`, `keyed_shaft`).
+`parametric_plate`, `keyed_shaft`); the assemblies are
+`ball_bearing`, `planetary_gearbox` and `fastener_kit`.

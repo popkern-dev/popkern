@@ -105,6 +105,16 @@ impl Playground {
         json
     }
 
+    /// Open a STEP file (`Uint8Array`) as a view-only assembly; the
+    /// envelope as JSON, buffers readable by index as after `run`.
+    pub fn open_step(&mut self, bytes: &[u8], name: &str) -> String {
+        let envelope = self.session.open_step(bytes, name);
+        let json = envelope.to_json().to_string();
+        self.bodies = envelope.bodies;
+        self.analysis.clear();
+        json
+    }
+
     /// Set a declared parameter and replay; the envelope as JSON.
     pub fn set_param(&mut self, name: &str, value: f64) -> String {
         let envelope = self.session.set_param(name, value);
@@ -149,6 +159,27 @@ impl Playground {
     pub fn export_pkn(&self) -> Result<Vec<u8>, JsValue> {
         self.session
             .export_pkn()
+            .map_err(|outcome| outcome_js(&outcome))
+    }
+
+    /// Show or hide the assembly occurrence at `path`
+    /// (`stage/planet_1`); the outcome JSON as the error.
+    pub fn set_visible(&mut self, path: &str, visible: bool) -> Result<(), JsValue> {
+        self.session
+            .set_visible(path, visible)
+            .map_err(|outcome| outcome_js(&outcome))
+    }
+
+    /// Interference and clearance between assembly occurrences within
+    /// `clearance`: the report JSON, or the outcome JSON as the error.
+    pub fn interference(&mut self, clearance: f64) -> Result<String, JsValue> {
+        self.session
+            .interference(clearance)
+            .map(|report| {
+                serde_json::to_value(report)
+                    .unwrap_or(serde_json::Value::Null)
+                    .to_string()
+            })
             .map_err(|outcome| outcome_js(&outcome))
     }
 

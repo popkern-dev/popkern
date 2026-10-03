@@ -11,6 +11,7 @@ popkern-history = { path = "../popkern-history" }
 popkern-part = { path = "../popkern-part" }
 popkern-fastener = { path = "../popkern-fastener" }
 popkern-script = { path = "../popkern-script" }
+popkern-assembly = { path = "../popkern-assembly" }
 popkern-sketch = { path = "../popkern-sketch" }
 # `std` only: no `ahash/runtime-rng`, so the engine has no getrandom
 # dependency (browser build needs no backend) and hashing is fixed-seed
@@ -23,3 +24,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }

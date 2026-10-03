@@ -15,6 +15,7 @@ popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-rhai = { path = "../popkern-rhai" }
+popkern-assembly = { path = "../popkern-assembly" }
 popkern-script = { path = "../popkern-script" }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -33,13 +33,22 @@
 
 pub mod assembly;
 pub mod document;
+pub mod document_ops;
 pub mod error;
 pub mod family;
 pub mod flatten;
+pub mod interference;
+pub mod mate_linalg;
+pub mod mate_solve;
+pub mod mates;
+pub mod mesh_bvh;
 pub mod names;
+pub mod params;
 pub mod placement;
 pub mod step;
+pub mod step_import;
 pub mod tree;
+pub mod tri_geometry;
 
 pub use assembly::{
     Assembly, Definition, DefinitionContent, DefinitionId, Instance, InstanceRef, Parent, TreeRow,
@@ -48,5 +57,10 @@ pub use document::{Document, FIRST_ASSEMBLY_VERSION};
 pub use error::AssemblyError;
 pub use family::{FamilyVariant, ParamValue};
 pub use flatten::FlatBody;
+pub use interference::{InterferenceOptions, InterferenceReport, PairReport, PairStatus};
+pub use mate_solve::{MATE_TOLERANCE, MateReport};
+pub use mates::{Datum, Mate, MateEntity, MateKind, MateRef};
 pub use names::{InstancePath, entity_path, validate_name};
+pub use params::{AssemblyParam, Drive};
 pub use placement::{Placement, RIGID_TOLERANCE};
+pub use step_import::StepImportReport;

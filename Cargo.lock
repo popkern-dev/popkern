@@ -3284,9 +3284,12 @@ checksum = "2f3a9f18d041e6d0e102a0a46750538147e5e8992d3b4873aaafee2520b00ce3"
 name = "popkern-assembly"
 version = "0.1.0"
 dependencies = [
+ "popkern-bool",
  "popkern-core",
  "popkern-history",
  "popkern-io",
+ "popkern-measure",
+ "popkern-mesh",
  "popkern-part",
  "popkern-script",
  "serde",
@@ -3326,6 +3329,7 @@ name = "popkern-cli"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "popkern-assembly",
  "popkern-core",
  "popkern-mesh",
  "popkern-part",
@@ -3436,6 +3440,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-blend",
  "popkern-core",
+ "popkern-mesh",
  "thiserror 2.0.18",
  "winnow 0.7.15",
 ]
@@ -3497,6 +3502,7 @@ name = "popkern-playground"
 version = "0.1.0"
 dependencies = [
  "js-sys",
+ "popkern-assembly",
  "popkern-core",
  "popkern-measure",
  "popkern-mesh",
@@ -3513,9 +3519,11 @@ dependencies = [
 name = "popkern-rhai"
 version = "0.1.0"
 dependencies = [
+ "popkern-assembly",
  "popkern-core",
  "popkern-fastener",
  "popkern-history",
+ "popkern-measure",
  "popkern-mesh",
  "popkern-part",
  "popkern-script",

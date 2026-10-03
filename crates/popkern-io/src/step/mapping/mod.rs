@@ -10,4 +10,6 @@ pub mod geometry;
 pub(crate) mod occurrence;
 pub mod presentation;
 pub mod product;
+pub(crate) mod shape_reach;
 pub mod topology;
+pub(crate) mod units;

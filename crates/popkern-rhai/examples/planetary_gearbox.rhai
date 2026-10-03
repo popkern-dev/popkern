@@ -1,13 +1,14 @@
-// A 4:1 planetary gearbox: a keyed sun gear, three planets, an internal
-// ring gear, and a three-arm spider carrier with an output boss — six
-// meshing bodies from one script. Every tooth flank is a TRUE involute
-// computed below, and one outline function cuts both the external gears
-// and the internal ring. The planets are PHASED so all three mesh
-// simultaneously; the assembly constraint (Zs + Zr) % N == 0 is checked
-// in the source.
-let m = model();
-m.param("width", 0.4, "m");
-m.param("pin_bore", 0.075, "m");
+// A 4:1 planetary gearbox, as an ASSEMBLY: four part definitions — a
+// keyed sun gear, a planet, an internal ring gear, and a three-arm spider
+// carrier with an output boss — and six placed instances. The planet is
+// built ONCE and placed three times, each turned to its mesh phase and
+// moved to its pin. Every tooth flank is a TRUE involute computed below,
+// and one outline function cuts both the external gears and the internal
+// ring. The planet phasing makes all three mesh simultaneously; the
+// assembly constraint (Zs + Zr) % N == 0 is checked in the source.
+let a = assembly("planetary_gearbox");
+let width = 0.4;
+let pin_bore = 0.075;
 
 let pi = 3.141592653589793;
 let pressure = 30.0 * pi / 180.0; // 30°: undercut-free down to 8 teeth
@@ -94,36 +95,48 @@ let rp_s = tooth_module * z_sun / 2.0;
 let rb_s = rp_s * cos(pressure);
 let ra_s = rp_s + tooth_module;
 let rf_s = rp_s - 1.25 * tooth_module;
-let sun_outline = toothed_outline(z_sun, rb_s, ra_s, rf_s, 0.0, 0.0,
-    -backlash, 0.0, pressure, pi, 6);
-let sun = m.profile(xy()).polygon(sun_outline).sketch("sun_gear")
-    .extrude(blind(p("width")));
-let sun_bore = m.tool(|m| {
-    // Bore and keyway are ONE tool with staggered z-extents.
-    let hole = m.profile(xy_at(-0.1)).circle(0.1).sketch("sun_bore").extrude(blind(0.6));
-    let key = m.profile(xy_at(-0.14)).rect(0.06, 0.05).at(0.0, 0.115)
-        .sketch("sun_key").extrude(blind(0.68));
-    hole.union(key)
+let sun = a.part("sun", |m| {
+    m.param("width", width, "m");
+    let outline = toothed_outline(z_sun, rb_s, ra_s, rf_s, 0.0, 0.0,
+        -backlash, 0.0, pressure, pi, 6);
+    let gear = m.profile(xy()).polygon(outline).sketch("sun_gear")
+        .extrude(blind(p("width")));
+    let bore = m.tool(|m| {
+        // Bore and keyway are ONE tool with staggered z-extents.
+        let hole = m.profile(xy_at(-0.1)).circle(0.1).sketch("sun_bore").extrude(blind(0.6));
+        let key = m.profile(xy_at(-0.14)).rect(0.06, 0.05).at(0.0, 0.115)
+            .sketch("sun_key").extrude(blind(0.68));
+        hole.union(key)
+    });
+    gear.subtract(bore);
 });
-sun = sun.subtract(sun_bore);
+a.place(sun);
 
-// ---- Three planets, phased to mesh ----
+// ---- One planet, placed three times, phased to mesh ----
 // A planet at carrier angle phi meshes the sun when its rotation is
 // psi = phi*(1 + Zs/Zp) + pi + pi/Zp — tooth centers of one land on
-// gap centers of the other along the line of centers.
+// gap centers of the other along the line of centers. The definition
+// is cut at the origin with phase 0; each instance turns by psi about
+// its own axis, then moves out to its pin.
+let planet = a.part("planet", |m| {
+    m.param("width", width, "m");
+    m.param("pin_bore", pin_bore, "m");
+    let outline = toothed_outline(z_planet, rb_s, ra_s, rf_s, 0.0, 0.0,
+        -backlash, 0.0, pressure, pi, 6);
+    let gear = m.profile(xy()).polygon(outline).sketch("planet")
+        .extrude(blind(p("width")));
+    let pin_hole = m.tool(|m| m.profile(xy_at(-0.1)).circle(p("pin_bore"))
+        .sketch("planet_bore").extrude(blind(0.6)));
+    gear.subtract(pin_hole);
+});
 let carrier_r = rp_s + tooth_module * z_planet / 2.0;
+let z_axis = axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
 for k in 0..planets {
     let phi = k * 2.0 * pi / planets;
     let psi = phi * (1.0 + z_sun * 1.0 / z_planet) + pi + pi / z_planet;
-    let cx = carrier_r * cos(phi);
-    let cy = carrier_r * sin(phi);
-    let outline = toothed_outline(z_planet, rb_s, ra_s, rf_s, cx, cy,
-        -backlash, psi, pressure, pi, 6);
-    let planet = m.profile(xy()).polygon(outline).sketch("planet_" + k)
-        .extrude(blind(p("width")));
-    let pin_hole = m.tool(|m| m.profile(xy_at(-0.1)).circle(p("pin_bore")).at(cx, cy)
-        .sketch("planet_bore_" + k).extrude(blind(0.6)));
-    planet = planet.subtract(pin_hole);
+    a.place(planet, "planet_" + k)
+        .rotate(z_axis, psi * 180.0 / pi)
+        .translate(carrier_r * cos(phi), carrier_r * sin(phi), 0.0);
 }
 
 // ---- Ring gear: internal teeth cut by a toothed disc ----
@@ -131,75 +144,88 @@ for k in 0..planets {
 // ring base circle, tips at the ring root, valleys at the ring tooth
 // tips. Its phase follows planet 0's: the (Zs+Zr)%N check above is
 // exactly what lets the other two planets mesh the same ring.
-let rp_r = tooth_module * z_ring / 2.0;
-let rb_r = rp_r * cos(pressure);
-let ring = m.profile(xy()).circle(0.92).sketch("ring_blank")
-    .extrude(blind(p("width")));
-let ring_phase = (pi + pi / z_planet) * z_planet / z_ring;
-// The ring cutter drives the boolean cost, so it takes fewer flank
-// chords (its teeth are small and peripheral); coarser chords fall
-// INSIDE the true involute, thinning the ring teeth and only widening
-// the mesh clearance.
-let cutter_outline = toothed_outline(z_ring, rb_r, rp_r + 1.25 * tooth_module,
-    rp_r - tooth_module, 0.0, 0.0, backlash, ring_phase, pressure, pi, 3);
-let cutter = m.tool(|m| m.profile(xy_at(-0.1)).polygon(cutter_outline)
-    .sketch("ring_cutter").extrude(blind(0.6)));
-ring = ring.subtract(cutter);
+let ring = a.part("ring", |m| {
+    m.param("width", width, "m");
+    let rp_r = tooth_module * z_ring / 2.0;
+    let rb_r = rp_r * cos(pressure);
+    let blank = m.profile(xy()).circle(0.92).sketch("ring_blank")
+        .extrude(blind(p("width")));
+    let ring_phase = (pi + pi / z_planet) * z_planet / z_ring;
+    // The ring cutter drives the boolean cost, so it takes fewer flank
+    // chords (its teeth are small and peripheral); coarser chords fall
+    // INSIDE the true involute, thinning the ring teeth and only
+    // widening the mesh clearance.
+    let cutter_outline = toothed_outline(z_ring, rb_r, rp_r + 1.25 * tooth_module,
+        rp_r - tooth_module, 0.0, 0.0, backlash, ring_phase, pressure, pi, 3);
+    let cutter = m.tool(|m| m.profile(xy_at(-0.1)).polygon(cutter_outline)
+        .sketch("ring_cutter").extrude(blind(0.6)));
+    blank.subtract(cutter);
+});
+a.place(ring);
 
 // ---- Carrier: a three-arm spider so the gear train shows through ----
 // A hub over the sun with three radial arms out to the planet pins,
 // built as ONE polygon (arm-into-hub unions hit the split-precondition
 // class when a straight arm crosses the round hub). The open spaces
 // between the arms are what let the meshing gears be seen.
-let hub_z = 0.44;
-let hub_r = 0.24;
-let arm_hw = 0.09; // arm half-width
-let arm_out = carrier_r + 0.02; // reach just past the pins
-// Each arm meets the hub circle where the offset edge is at radius
-// hub_r: t0 = sqrt(hub_r^2 - hw^2), at hub angle +/- da.
-let t0 = sqrt(hub_r * hub_r - arm_hw * arm_hw);
-let da = atan(arm_hw / t0);
-let spider = [];
-for k in 0..planets {
-    let phi = k * 2.0 * pi / planets;
-    let ux = cos(phi);
-    let uy = sin(phi);
-    let px = -uy; // unit perpendicular
-    let py = ux;
-    let wx = arm_hw * px;
-    let wy = arm_hw * py;
-    // Out along the right edge, across the tip, back along the left.
-    spider.push([t0 * ux - wx, t0 * uy - wy]);
-    spider.push([arm_out * ux - wx, arm_out * uy - wy]);
-    spider.push([arm_out * ux + wx, arm_out * uy + wy]);
-    spider.push([t0 * ux + wx, t0 * uy + wy]);
-    // Hub arc to the next arm.
-    let a0 = phi + da;
-    let a1 = (k + 1) * 2.0 * pi / planets - da;
-    for s in 1..6 {
-        let a = a0 + (a1 - a0) * s / 6;
-        spider.push([hub_r * cos(a), hub_r * sin(a)]);
+let carrier = a.part("carrier", |m| {
+    let hub_z = 0.44;
+    let hub_r = 0.24;
+    let arm_hw = 0.09; // arm half-width
+    let arm_out = carrier_r + 0.02; // reach just past the pins
+    // Each arm meets the hub circle where the offset edge is at radius
+    // hub_r: t0 = sqrt(hub_r^2 - hw^2), at hub angle +/- da.
+    let t0 = sqrt(hub_r * hub_r - arm_hw * arm_hw);
+    let da = atan(arm_hw / t0);
+    let spider = [];
+    for k in 0..planets {
+        let phi = k * 2.0 * pi / planets;
+        let ux = cos(phi);
+        let uy = sin(phi);
+        let px = -uy; // unit perpendicular
+        let py = ux;
+        let wx = arm_hw * px;
+        let wy = arm_hw * py;
+        // Out along the right edge, across the tip, back along the left.
+        spider.push([t0 * ux - wx, t0 * uy - wy]);
+        spider.push([arm_out * ux - wx, arm_out * uy - wy]);
+        spider.push([arm_out * ux + wx, arm_out * uy + wy]);
+        spider.push([t0 * ux + wx, t0 * uy + wy]);
+        // Hub arc to the next arm.
+        let a0 = phi + da;
+        let a1 = (k + 1) * 2.0 * pi / planets - da;
+        for s in 1..6 {
+            let t = a0 + (a1 - a0) * s / 6;
+            spider.push([hub_r * cos(t), hub_r * sin(t)]);
+        }
     }
-}
-let carrier = m.profile(xy_at(hub_z)).polygon(spider).sketch("carrier_spider")
-    .extrude(blind(0.12));
-for k in 0..planets {
-    let phi = k * 2.0 * pi / planets;
-    let pin = m.tool(|m| m.profile(xy_at(0.02)).circle(0.07)
-        .at(carrier_r * cos(phi), carrier_r * sin(phi))
-        .sketch("pin_" + k).extrude(blind(0.48)));
-    carrier = carrier.union(pin);
-}
-let boss = m.tool(|m| m.profile(xy_at(0.52)).circle(0.16)
-    .sketch("output_boss").extrude(blind(0.28)));
-carrier = carrier.union(boss);
-// A plain coaxial output bore through the boss and hub. (The keyed
-// coupling lives on the SUN input; a keyway cut through this
-// hub/boss union junction reaches the open chain-into-junction split
-// class — PK-428 — so the carrier takes a plain bore.)
-let out_bore = m.tool(|m| m.profile(xy_at(0.40)).circle(0.1)
-    .sketch("output_bore").extrude(blind(0.45)));
-carrier = carrier.subtract(out_bore);
+    let body = m.profile(xy_at(hub_z)).polygon(spider).sketch("carrier_spider")
+        .extrude(blind(0.12));
+    for k in 0..planets {
+        let phi = k * 2.0 * pi / planets;
+        let pin = m.tool(|m| m.profile(xy_at(0.02)).circle(0.07)
+            .at(carrier_r * cos(phi), carrier_r * sin(phi))
+            .sketch("pin_" + k).extrude(blind(0.48)));
+        body = body.union(pin);
+    }
+    let boss = m.tool(|m| m.profile(xy_at(0.52)).circle(0.16)
+        .sketch("output_boss").extrude(blind(0.28)));
+    body = body.union(boss);
+    // A plain coaxial output bore through the boss and hub. (The keyed
+    // coupling lives on the SUN input; a keyway cut through this
+    // hub/boss union junction reaches the open chain-into-junction split
+    // class — PK-428 — so the carrier takes a plain bore.)
+    let out_bore = m.tool(|m| m.profile(xy_at(0.40)).circle(0.1)
+        .sketch("output_bore").extrude(blind(0.45)));
+    body.subtract(out_bore);
+});
+a.place(carrier);
 
-m.assert_watertight();
-m
+// One face width for every gear: the assembly parameter drives each
+// part's own `width`, so a single slider rebuilds the sun, the planet
+// (and all three of its instances) and the ring together.
+a.param("width", width, "m");
+a.drive("width", [sun, planet, ring]);
+
+a.assert_watertight();
+a

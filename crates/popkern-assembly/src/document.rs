@@ -118,6 +118,10 @@ impl Assembly {
                     })
                     .collect(),
                 root: &self.root,
+                mates: &self.mates,
+                ground: self.ground.as_deref(),
+                params: &self.params,
+                drives: &self.drives,
             },
         };
         serde_json::to_vec(&out).map_err(|e| AssemblyError::Document(e.to_string()))
@@ -148,6 +152,14 @@ struct AssemblyOut<'a> {
     name: &'a str,
     definitions: Vec<DefinitionOut<'a>>,
     root: &'a [Instance],
+    #[serde(skip_serializing_if = "<[crate::mates::Mate]>::is_empty")]
+    mates: &'a [crate::mates::Mate],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ground: Option<&'a str>,
+    #[serde(skip_serializing_if = "<[crate::params::AssemblyParam]>::is_empty")]
+    params: &'a [crate::params::AssemblyParam],
+    #[serde(skip_serializing_if = "<[crate::params::Drive]>::is_empty")]
+    drives: &'a [crate::params::Drive],
 }
 
 #[derive(Serialize)]
@@ -179,6 +191,14 @@ struct AssemblyIn {
     name: String,
     definitions: Vec<DefinitionIn>,
     root: Vec<Instance>,
+    #[serde(default)]
+    mates: Vec<crate::mates::Mate>,
+    #[serde(default)]
+    ground: Option<String>,
+    #[serde(default)]
+    params: Vec<crate::params::AssemblyParam>,
+    #[serde(default)]
+    drives: Vec<crate::params::Drive>,
 }
 
 #[derive(Deserialize)]
@@ -237,6 +257,15 @@ impl AssemblyIn {
         for instance in self.root {
             place_loaded(&mut assembly, Parent::Root, instance)?;
         }
+        if let Some(ground) = &self.ground {
+            assembly.set_ground(ground)?;
+        }
+        // Stored placements are the solved ones: the mates are kept, not
+        // re-solved on open.
+        assembly.mates = self.mates;
+        // Stored part parameters already carry the driven values.
+        assembly.params = self.params;
+        assembly.drives = self.drives;
         Ok(assembly)
     }
 }

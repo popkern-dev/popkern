@@ -101,6 +101,41 @@ fn descends_from(id: NameId, name_id: NameId, brep: &BRep) -> bool {
     false
 }
 
+/// Structural resolution with lineage (PK-633): the entities named
+/// exactly `name`, else every entity whose name descends from it —
+/// through its ancestors or its recorded lineage
+/// ([`crate::naming_lineage`]), compared by value so a name minted in
+/// an earlier body's pool still finds its pieces. No geometric
+/// fallback: a selection that names an entity must never silently
+/// bind to a different one.
+pub fn resolve_lineage(name: &EntityName, brep: &BRep) -> Vec<ResolvedEntity> {
+    if let Some(id) = brep.name_pool.find(name) {
+        let exact = collect_matches(id, brep);
+        if !exact.is_empty() {
+            return exact;
+        }
+    }
+    let pool = &brep.name_pool;
+    let descends = |id: Option<NameId>| id.is_some_and(|id| pool.descends(id, name));
+    let mut matches = Vec::new();
+    for (handle, vertex) in &brep.vertices {
+        if descends(vertex.name) {
+            matches.push(ResolvedEntity::Vertex(handle));
+        }
+    }
+    for (handle, edge) in &brep.edges {
+        if descends(edge.name) {
+            matches.push(ResolvedEntity::Edge(handle));
+        }
+    }
+    for (handle, face) in &brep.faces {
+        if descends(face.name) {
+            matches.push(ResolvedEntity::Face(handle));
+        }
+    }
+    matches
+}
+
 /// Collect the entities whose names descend from `name_id`: the
 /// successors of a renamed entity (one, or several after a split).
 fn collect_successors(name_id: NameId, brep: &BRep) -> Vec<ResolvedEntity> {

@@ -12,3 +12,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 popkern-blend = { path = "../popkern-blend" }
+popkern-mesh = { path = "../popkern-mesh" }

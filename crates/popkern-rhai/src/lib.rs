@@ -33,13 +33,19 @@
 #![forbid(unsafe_code)]
 
 pub mod args;
+pub mod assembly_api;
+mod assembly_family_api;
+pub mod assembly_mate_api;
+pub mod assembly_param_api;
 pub mod body_api;
 pub mod conformance;
 pub mod conformance_audit;
 pub mod conformance_bindings;
 pub mod conformance_rust_bindings;
 pub mod conformance_unbound;
+pub mod document_report;
 pub mod emit;
+pub mod emit_assembly;
 pub mod emit_feature;
 pub mod emit_spelling;
 pub mod engine;
@@ -57,7 +63,11 @@ pub mod values;
 
 pub use conformance::{Checklist, checklist_from_spec};
 pub use conformance_audit::{Finding, audit_error_classes, audit_rhai, audit_rust};
+pub use document_report::{
+    document_feature_count, document_first_failure, document_report_value, from_assembly_error,
+};
 pub use emit::{EmitError, to_rhai};
+pub use emit_assembly::{assembly_to_rhai, document_to_rhai};
 pub use engine::{FORBIDDEN_FUNCTIONS, build_engine, registered_function_names};
 pub use error::{error_map, payload, remediation_lines};
 pub use host::{HostOptions, RunOutcome, ScriptHost, ScriptRunError};

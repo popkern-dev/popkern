@@ -20,11 +20,12 @@ pub mod bake;
 pub mod envelope;
 pub mod mesh_buffers;
 pub mod session;
+mod session_document;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod bindings;
 
-pub use envelope::{BodyMesh, Envelope, WallBudget};
+pub use envelope::{AssemblyView, BodyMesh, DefinitionView, Envelope, InstanceView, WallBudget};
 pub use popkern_rhai::{HostOptions, Outcome};
 pub use popkern_script::ContinuityCertification;
 pub use session::{CertifyStep, RunOptions, Session};

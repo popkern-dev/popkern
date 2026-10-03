@@ -90,6 +90,12 @@ impl Placement {
             .map_err(|_| non_rigid(instance, defect, false))
     }
 
+    /// Wrap a matrix the caller built from rigid factors (no check);
+    /// anything leaving the crate goes through [`Placement::from_matrix`].
+    pub(crate) fn from_raw(matrix: Transform3) -> Placement {
+        Placement(matrix)
+    }
+
     /// The matrix.
     pub fn transform(&self) -> &Transform3 {
         &self.0

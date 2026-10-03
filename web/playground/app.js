@@ -2,6 +2,7 @@
 // parameters, exports and show-as-code. Everything the user
 // types stays in this tab (design §7: client-side only; the worker is
 // terminated, never trusted, when a script defeats its budgets).
+import { AssemblyPanel } from "./assembly-panel.js";
 import { Bakes } from "./bakes.js";
 import { Editor } from "./editor.js";
 import { Viewer } from "./viewer.js";
@@ -89,6 +90,13 @@ class Page {
     this.runDone = Promise.resolve();
     this.host.onCrash = (detail) => this.status(`worker error: ${detail}`, true);
     this.viewer = new Viewer($("viewer"), (pick) => this.showPick(pick));
+    // The assembly tree: selection and visibility are view state here
+    // (a rebuild keeps them); "open" scopes the inspector to one part.
+    this.assembly = new AssemblyPanel({
+      select: (path) => this.viewer.select(path),
+      visible: (path, visible) => this.viewer.setVisible(path, visible),
+      open: () => this.renderInspector(),
+    });
     this.editor = new Editor($("editor"), {
       onChange: (text) => this.changed(text),
       onRun: () => this.run(),
@@ -125,9 +133,14 @@ class Page {
       if (mode === "zebra") await this.ensureAnalysisMesh();
       this.viewer.setMode(mode);
     });
-    $("edges").addEventListener("change", (e) => {
-      this.viewer.toggleEdges(e.target.checked);
-      if (this.lastGood) this.viewer.show(this.lastGood.envelope.bodies, this.lastGood.buffers);
+    $("edges").addEventListener("change", (e) => this.viewer.toggleEdges(e.target.checked));
+    $("explode").addEventListener("input", (e) => this.viewer.setExplode(Number(e.target.value)));
+    $("clearance-check").addEventListener("click", () => this.checkClearance());
+    $("open-step").addEventListener("click", () => $("open-step-file").click());
+    $("open-step-file").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (file) await this.openStep(file.name, await file.arrayBuffer());
+      e.target.value = "";
     });
     $("download-step").addEventListener("click", () => this.download("step"));
     $("download-pkn").addEventListener("click", () => this.download("pkn"));
@@ -240,6 +253,11 @@ class Page {
   async run({ live = false } = {}) {
     clearTimeout(this.idleTimer);
     const source = this.editor.value;
+    // An imported STEP document has no script to build: keep it.
+    if (this.importedSource != null && source === this.importedSource) {
+      this.status("an imported STEP assembly is view only: pick an example or write a script to build");
+      return null;
+    }
     const token = ++this.viewToken;
     if (!live) {
       const bake = await this.bakes.find(source);
@@ -322,17 +340,17 @@ class Page {
     this.live = false;
     this.certifyGeneration += 1;
     const { envelope, buffers } = bake;
-    this.renderReport(envelope);
-    this.renderParams(envelope.params);
     this.lastGood = { envelope, buffers, bakedSource: source };
+    this.assembly.render(envelope.assembly ?? null);
+    this.renderInspector();
     this.viewer.setAnalysis(null);
-    this.viewer.show(envelope.bodies, buffers);
+    this.showModel(envelope, buffers);
     this.editor.mark(null);
     $("overlay").hidden = true;
     const open = envelope.bodies.reduce((n, b) => n + b.open_edges, 0);
     const native = ((bake.native?.run_ms ?? 0) + (bake.native?.certify_ms ?? 0)) / 1000;
     const first = this.firstRenderMs == null ? ` — first render ${(this.firstRenderMs = performance.now()).toFixed(0)} ms after page start` : "";
-    this.servedText = `served (pre-built): ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
+    this.servedText = `served (pre-built): ${envelope.features} feature(s), ${contents(envelope)}${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
     this.status(`${this.servedText} — continuity certified; builds natively in ${native.toFixed(1)} s, and edits, sliders and exports rebuild it live`);
     if (this.viewer.mode === "zebra") this.ensureAnalysisMesh();
   }
@@ -382,20 +400,21 @@ class Page {
     // A run that raised carries no report: the panels keep describing
     // the last good model, like the viewer does.
     if (envelope.report) {
-      this.renderReport(envelope);
-      this.renderParams(envelope.params);
+      this.reportEnvelope = envelope;
+      if (envelope.outcome === "served") this.assembly.render(envelope.assembly ?? null);
+      this.renderInspector(envelope);
     }
     if (envelope.outcome === "served") {
       this.lastGood = { envelope, buffers };
       this.viewer.setAnalysis(null);
       if (this.viewer.mode === "zebra") await this.ensureAnalysisMesh();
-      this.viewer.show(envelope.bodies, buffers);
+      this.showModel(envelope, buffers);
       this.editor.mark(null);
       $("overlay").hidden = true;
       const ms = envelope.elapsed_ms == null ? "" : ` in ${envelope.elapsed_ms.toFixed(0)} ms`;
       const open = envelope.bodies.reduce((n, b) => n + b.open_edges, 0);
       const first = this.firstRenderMs == null ? ` — first render ${(this.firstRenderMs = performance.now()).toFixed(0)} ms after page start` : "";
-      this.servedText = `served: ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${ms}${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
+      this.servedText = `served: ${envelope.features} feature(s), ${contents(envelope)}${ms}${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
       this.status(this.servedText);
       this.certify(envelope);
     } else {
@@ -472,16 +491,105 @@ class Page {
       remaining = step.remaining;
       if (step.report) {
         envelope.report = step.report;
-        this.renderReport(envelope);
+        this.renderInspector(envelope);
       }
     }
     this.status(`${this.servedText} — continuity certified (${total} seams, ${((performance.now() - started) / 1000).toFixed(1)} s)`);
   }
 
+  /** Draw a served model, re-applying the tree's visibility and
+   *  selection (a rebuild keeps what the user hid). */
+  showModel(envelope, buffers) {
+    // The explode slider belongs to assemblies; a new document starts
+    // assembled.
+    const exploding = envelope.assembly != null;
+    if (!exploding || $("explode-row").hidden) {
+      $("explode").value = "0";
+      this.viewer.explode = 0;
+    }
+    $("explode-row").hidden = !exploding;
+    this.viewer.show(envelope.bodies, buffers, envelope.assembly ?? null);
+    for (const path of this.assembly.hidden) this.viewer.setVisible(path, false);
+    if (this.assembly.selected != null) this.viewer.select(this.assembly.selected);
+  }
+
+  /** Open a STEP file as a view-only assembly (PK-631): the product
+   *  tree, names and placements, with no script behind it. The file is
+   *  read here and handed to the worker; it never leaves the tab. */
+  async openStep(fileName, bytes) {
+    if (!this.host.info) {
+      this.status("the kernel is still loading", true);
+      return null;
+    }
+    await this.runDone;
+    const stem = fileName.replace(/\.(step|stp)$/i, "");
+    this.status(`opening ${fileName}…`);
+    const token = ++this.viewToken;
+    this.certifyGeneration += 1;
+    const reply = await this.host.openStep(bytes, stem);
+    if (token !== this.viewToken) return reply;
+    if (reply.ok && reply.envelope?.outcome === "served") {
+      this.importedSource = `// ${fileName}: an imported STEP assembly — view only (no script).\n// Pick an example or write a script to build.\n`;
+      this.openDocument(stem, this.importedSource);
+      this.viewer.fitted = false;
+      this.live = true;
+    }
+    await this.receive(reply);
+    if (reply.ok && reply.envelope?.printed?.length) this.status(`${reply.envelope.printed[0]} — ${this.servedText ?? ""}`);
+    return reply;
+  }
+
+  /** Interference and clearance between the assembly's parts (PK-630):
+   *  certified clearances, contact and overlap volumes, worst first. A
+   *  row selects its two occurrences. */
+  async checkClearance() {
+    if (!(await this.ensureLive())) return null;
+    const clearance = Math.max(0, Number($("clearance").value) || 0);
+    this.status(`checking clearance within ${clearance}…`);
+    const reply = await this.host.interference(clearance);
+    const list = $("clearance-list");
+    list.innerHTML = "";
+    list.hidden = false;
+    $("clearance-summary").hidden = false;
+    if (!reply.ok) {
+      $("clearance-summary").textContent = reply.outcome?.detail ?? reply.outcome?.rendered ?? "the check failed";
+      return reply;
+    }
+    const { pairs, occurrences, candidate_pairs } = reply.report;
+    const clashes = pairs.filter((p) => p.status === "interfering").length;
+    $("clearance-summary").textContent = `${occurrences} occurrence(s), ${candidate_pairs} pair(s) near: ${clashes} interfering, ${pairs.length - clashes} within ${clearance}`;
+    for (const pair of pairs) {
+      const row = document.createElement("li");
+      row.className = `tree-row ${pair.status === "interfering" ? "clash" : pair.status === "touching" ? "contact" : ""}`;
+      const name = document.createElement("span");
+      name.className = "tree-name";
+      name.textContent = `${pair.a} ↔ ${pair.b}`;
+      const what = document.createElement("span");
+      what.className = "tree-kind";
+      what.textContent = clearanceText(pair);
+      row.title = (pair.faces ?? []).join("  ↔  ") || what.textContent;
+      row.append(name, what);
+      row.addEventListener("click", () => this.viewer.select([pair.a, pair.b]));
+      list.append(row);
+    }
+    this.status(`clearance checked: ${$("clearance-summary").textContent}`);
+    return reply;
+  }
+
+  /** The feature tree and parameters for the model on screen, scoped
+   *  to the opened part of an assembly. */
+  renderInspector(envelope = this.lastGood?.envelope) {
+    if (!envelope) return;
+    this.renderReport(envelope);
+    this.renderParams(envelope.params);
+  }
+
   renderReport(envelope) {
     const table = $("report");
     table.innerHTML = "";
-    const features = envelope.report?.features ?? [];
+    const part = this.assembly?.openPart ?? null;
+    const scoped = envelope.assembly != null;
+    const features = (envelope.report?.features ?? []).filter((f) => part == null || f.part === part);
     for (const f of features) {
       const row = document.createElement("tr");
       const label = f.feature?.label ?? f.label ?? "?";
@@ -501,7 +609,8 @@ class Page {
           ? `downgraded: ${continuity.achieved} ${how}, ${continuity.requested} requested`
           : `${outcome} · ${continuity.achieved} ${how}`;
       }
-      row.innerHTML = `<td>${label}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
+      const shown = scoped && part == null && f.part ? `${f.part}: ${label}` : label;
+      row.innerHTML = `<td>${shown}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
       if (Array.isArray(f.warnings) && f.warnings.length) {
         const warn = document.createElement("tr");
         warn.className = "row-warn";
@@ -520,8 +629,12 @@ class Page {
   renderParams(params) {
     const list = $("params");
     list.innerHTML = "";
+    const part = this.assembly?.openPart ?? null;
     for (const p of params) {
       if (p.read_only || p.expression) continue;
+      // An assembly's parameters are qualified "part:name"; an opened
+      // part shows only its own.
+      if (part != null && !p.name.startsWith(`${part}:`)) continue;
       const row = document.createElement("label");
       row.className = "param";
       const bounds = p.bounds ?? [p.value > 0 ? p.value / 4 : p.value * 2 - 1, p.value > 0 ? p.value * 3 : p.value / 2 + 1];
@@ -571,6 +684,15 @@ class Page {
     // Named after the document: "Planetary gearbox" downloads as
     // planetary_gearbox.step (the STEP product carries the name too).
     const name = fileStem(this.docTitle ?? UNTITLED);
+    // Visibility set in the tree is document data: the saved .pkn
+    // carries it (the live model was built with the script's own).
+    if (kind === "pkn" && this.lastGood?.envelope.assembly) {
+      for (const instance of this.lastGood.envelope.assembly.instances) {
+        const hidden = this.assembly.hidden.has(instance.path);
+        const scripted = this.lastGood.envelope.assembly.instances.find((i) => i.path === instance.path);
+        if (hidden || !scripted.visible) await this.host.setVisible(instance.path, !hidden);
+      }
+    }
     const reply = kind === "step" ? await this.host.exportStep(name) : await this.host.exportPkn();
     if (!reply.ok) {
       this.showOutcome(reply.outcome);
@@ -637,6 +759,16 @@ class Page {
 /** The viewer bar's text for a face or edge pick (null: the hint). */
 function pickText(pick) {
   if (!pick) return "click a face or edge to see its stable name";
+  if (pick.instance) {
+    // An assembly pick is an entity path: the occurrence, then the
+    // part's own stable name (design §4): "planet_1:planet/…".
+    const at = (label) => `${pick.instance}:${label}`;
+    if (pick.edge) {
+      const [la, lb] = pick.edge.labels;
+      return pick.edge.faces[1] === null ? `open edge of ${at(la)}` : `edge of ${at(la)} | ${at(lb)}`;
+    }
+    return `face ${at(pick.label)}`;
+  }
   const body = pick.body.label ? `${pick.body.label} · ` : "";
   if (pick.edge) {
     const [a, b] = pick.edge.faces;
@@ -644,6 +776,22 @@ function pickText(pick) {
     return b === null ? `${body}open edge of face ${a}: ${la}` : `${body}edge of faces ${a} | ${b}: ${la} | ${lb}`;
   }
   return `${body}face ${pick.face}: ${pick.label}`;
+}
+
+/** A clearance row's verdict. */
+function clearanceText(pair) {
+  const n = (x) => (Math.abs(x) >= 1e-3 || x === 0 ? x.toPrecision(4) : x.toExponential(3));
+  if (pair.status === "interfering") return pair.volume != null ? `interfering: ${n(pair.volume)} overlap` : `interfering (volume unknown: ${pair.decline ?? "declined"})`;
+  if (pair.status === "touching") return "touching";
+  return `clear: ${n(pair.distance)}${pair.refined ? "" : " (mesh)"}, ≥ ${n(pair.lower_bound)}`;
+}
+
+/** "3 body(ies)" for a part document, "4 part(s), 9 occurrence(s)" for an assembly. */
+function contents(envelope) {
+  const view = envelope.assembly;
+  if (!view) return `${envelope.bodies.length} body(ies)`;
+  const parts = view.definitions.filter((d) => d.kind === "part").length;
+  return `${parts} part(s), ${view.instances.filter((i) => i.is_part).length} occurrence(s)`;
 }
 
 function deferredSeams(report) {
