@@ -95,6 +95,11 @@ export class WorkerHost {
     return this.start();
   }
 
+  /** Replace the operation and wall-clock budgets for later runs. */
+  setBudget(options) {
+    return this.request({ type: "set_budget", options: { max_operations: options.max_operations, timeout_ms: options.timeout_ms } });
+  }
+
   run(source, name) {
     return this.request({ type: "run", source, name });
   }

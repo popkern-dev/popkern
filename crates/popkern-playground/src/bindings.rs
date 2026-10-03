@@ -75,6 +75,26 @@ impl Playground {
         })
     }
 
+    /// Replace the operation and wall-clock budgets for later runs
+    /// (`{"max_operations": …, "timeout_ms": …}`, null = unlimited);
+    /// the certification mode and the model are kept. Answers the
+    /// budgets now in force as JSON, or the parse error.
+    pub fn set_budget(&mut self, options_json: &str) -> Result<String, JsValue> {
+        let options: RunOptions = serde_json::from_str(options_json)
+            .map_err(|e| JsValue::from_str(&format!("options: {e}")))?;
+        let host = options.host();
+        self.session.set_options(popkern_rhai::HostOptions {
+            max_operations: host.max_operations,
+            timeout: host.timeout,
+            continuity_certification: self.session.options().continuity_certification,
+        });
+        Ok(serde_json::json!({
+            "max_operations": options.max_operations,
+            "timeout_ms": options.timeout_ms,
+        })
+        .to_string())
+    }
+
     /// Run a script; the envelope as JSON. Body buffers are then
     /// readable by index until the next run or parameter edit.
     pub fn run(&mut self, source: &str, name: &str) -> String {

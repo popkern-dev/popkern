@@ -24,6 +24,7 @@ button:disabled { opacity: 0.5; }
 button:focus-visible, select:focus-visible, input:focus-visible, canvas:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .bar { display: flex; align-items: center; gap: 1rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 0.5rem; align-items: center; }
+.time-limit { white-space: nowrap; }
 .status { margin: 0; flex: 1; min-width: 12rem; }
 .status-failed { color: var(--bad); }
 .layout { flex: 1; display: grid; grid-template-columns: minmax(20rem, 1fr) minmax(24rem, 1.4fr) minmax(16rem, 0.8fr); min-height: 0; }

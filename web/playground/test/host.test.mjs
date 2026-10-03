@@ -76,6 +76,21 @@ out.exports = {
   rhai_fnv: code.ok ? fnv1a(new TextEncoder().encode(code.code)) : null,
 };
 
+// The page's time limit: set_budget changes the budgets of later runs
+// without touching the model (an operation budget stops a script loop;
+// lifting it lets the same loop finish).
+const counting = "let m = model();\nlet n = 0;\nfor i in 0..20000 { n += i; }\nm\n";
+const tight = await host.setBudget({ max_operations: 1000, timeout_ms: null });
+const stopped = await host.run(counting, "counting.rhai");
+const lifted = await host.setBudget({ max_operations: null, timeout_ms: null });
+const finished = await host.run(counting, "counting.rhai");
+out.set_budget = {
+  ok: tight.ok && lifted.ok,
+  echoed: tight.budget ?? null,
+  stopped_kind: stopped.envelope?.kind ?? null,
+  finished_outcome: finished.envelope?.outcome ?? null,
+};
+
 // A malformed request has the one error shape.
 const bogus = await host.request({ type: "frobnicate" });
 out.bogus = bogus.outcome;

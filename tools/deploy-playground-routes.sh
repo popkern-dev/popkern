@@ -2,7 +2,7 @@
 # Deploy the browser playground to the sandbox's /routes/ web server
 # (PK-426, design §10 phase 6e).
 #
-#   tools/deploy-playground-routes.sh              # build, rsync, verify
+#   tools/deploy-playground-routes.sh              # build, bake, rsync, verify
 #   tools/deploy-playground-routes.sh --no-build   # redeploy the existing bundle
 #   tools/deploy-playground-routes.sh --no-verify  # skip the headless-Chrome pass
 #
@@ -52,6 +52,9 @@ if [[ ! -d "$ROUTES_DIR/static" ]]; then
 fi
 
 [[ $BUILD == 1 ]] && tools/build-playground.sh --web
+# Pre-built gallery examples (reused while the bundle and scripts are
+# unchanged; a new bundle rebakes them all, about 90 s).
+[[ $BUILD == 1 ]] && tools/bake-playground.sh
 
 if [[ ! -f web/playground/pkg/popkern_playground_bg.wasm ]]; then
   echo "no wasm bundle at web/playground/pkg/ — run without --no-build" >&2

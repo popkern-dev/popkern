@@ -19,6 +19,7 @@ its budgets, and a hostile script must not be able to wedge the page.
 | type | fields | reply |
 |---|---|---|
 | `init` | `options: { max_operations: number \| null, timeout_ms: number \| null, continuity_certification?: "Inline" \| "Deferred" }` | `{ ok, protocol_version, clock_available }` |
+| `set_budget` | `options: { max_operations: number \| null, timeout_ms: number \| null }` | `{ ok: true, budget: { max_operations, timeout_ms } }` or `{ ok: false, outcome }` — replaces the budgets for later runs (the page's time limit); the certification mode and the model are kept |
 | `run` | `source: string`, `name: string` | envelope reply |
 | `set_param` | `name: string`, `value: number` | envelope reply |
 | `certify` | `slice_ms: number` | `{ ok: true, step: { certified, remaining, report: ReplayReport \| null, failure: outcome \| null } }` |

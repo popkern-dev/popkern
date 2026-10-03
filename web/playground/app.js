@@ -2,6 +2,7 @@
 // parameters, downloads and show-as-code panels. Everything the user
 // types stays in this tab (design §7: client-side only; the worker is
 // terminated, never trusted, when a script defeats its budgets).
+import { Bakes } from "./bakes.js";
 import { Editor } from "./editor.js";
 import { Viewer } from "./viewer.js";
 import { WorkerHost } from "./worker-host.js";
@@ -10,11 +11,37 @@ import { WorkerHost } from "./worker-host.js";
 // their seams afterwards in short slices (PROTOCOL.md, "Deferred
 // continuity certification"), so a G2 part is on screen long before
 // its continuity is proven.
-const BUDGET = { max_operations: 20_000_000, timeout_ms: 20_000, continuity_certification: "Deferred" };
 const CERTIFY_SLICE_MS = 250;
 const IDLE_RUN_MS = 900;
-const CANCEL_GRACE_MS = 4_000;
 const DRAFT_KEY = "popkern-playground-draft";
+const TIME_LIMIT_KEY = "popkern-playground-time-limit";
+
+// The build time limit the user picks, in seconds (null = none). The
+// kernel's wall budget stops the script at the limit less a grace, and
+// the page terminates the worker at the limit itself (the backstop for
+// a long kernel call the script cannot interrupt). The operation
+// budget, a guard against runaway script loops, scales with the time.
+const TIME_LIMITS = [10, 24, 60, 120, 300, 900, null];
+const DEFAULT_TIME_LIMIT = 24;
+const OPERATIONS_PER_SECOND = 1_000_000;
+
+function budgetFor(limit) {
+  if (limit == null) return { max_operations: null, timeout_ms: null, continuity_certification: "Deferred" };
+  const kernel = limit - Math.min(4, limit / 6);
+  return { max_operations: Math.round(kernel * OPERATIONS_PER_SECOND), timeout_ms: kernel * 1000, continuity_certification: "Deferred" };
+}
+
+function describeLimit(limit) {
+  if (limit == null) return "no limit";
+  return limit < 60 ? `${limit} s` : `${limit / 60} min`;
+}
+
+function storedLimit() {
+  const stored = storage((s) => s.getItem(TIME_LIMIT_KEY));
+  if (stored === "none") return null;
+  const value = Number(stored);
+  return TIME_LIMITS.includes(value) ? value : DEFAULT_TIME_LIMIT;
+}
 
 const DEFAULT_SCRIPT = `// A boss plate: plate, boss, union, rounds.
 let m = model();
@@ -45,7 +72,18 @@ function storage(action) {
 
 class Page {
   constructor() {
-    this.host = new WorkerHost(() => new Worker("./worker.js", { type: "module" }), BUDGET);
+    this.timeLimit = storedLimit();
+    this.host = new WorkerHost(() => new Worker("./worker.js", { type: "module" }), budgetFor(this.timeLimit));
+    this.bakes = new Bakes();
+    // Whether the worker's model is the one on screen. A pre-built
+    // example is shown without the kernel; anything that needs the
+    // live model (a slider, an export, show-as-code, zebra) builds it
+    // first.
+    this.live = false;
+    // Bumped by every run request: a reply or bake lookup from an
+    // older request never replaces a newer view.
+    this.viewToken = 0;
+    this.runDone = Promise.resolve();
     this.host.onCrash = (detail) => this.status(`worker error: ${detail}`, true);
     this.viewer = new Viewer($("viewer"), (pick) => this.showPick(pick));
     this.editor = new Editor($("editor"), {
@@ -60,21 +98,25 @@ class Page {
     // edit, stop): a certify loop from an older generation stops.
     this.certifyGeneration = 0;
     this.wire();
+    this.renderTimeLimit();
     this.editor.value = storage((s) => s.getItem(DRAFT_KEY)) || DEFAULT_SCRIPT;
     this.loadExamples();
     this.status("loading the kernel…");
+    // A pre-built script shows before the kernel has even loaded.
+    this.run();
     this.host
       .start()
       .then((info) => {
         this.kernelReadyMs = performance.now();
-        this.status(`kernel ready in ${this.kernelReadyMs.toFixed(0)} ms (protocol ${info.protocol_version}${info.clock_available ? "" : ", no clock: wall budget off"})`);
-        this.run();
+        if (!this.lastGood) this.status(`kernel ready in ${this.kernelReadyMs.toFixed(0)} ms (protocol ${info.protocol_version}${info.clock_available ? "" : ", no clock: wall budget off"})`);
+        if (this.pendingLive) this.run({ live: true });
       })
       .catch((error) => this.status(`kernel failed to load: ${error.message}`, true));
   }
 
   wire() {
-    $("run").addEventListener("click", () => this.run());
+    $("run").addEventListener("click", () => this.run({ live: true }));
+    $("time-limit").addEventListener("change", (e) => this.setTimeLimit(e.target.value === "none" ? null : Number(e.target.value)));
     $("cancel").addEventListener("click", () => this.cancel("cancelled by the user"));
     $("fit").addEventListener("click", () => this.viewer.fitAgain());
     $("view-mode").addEventListener("change", async (e) => {
@@ -114,35 +156,138 @@ class Page {
     this.idleTimer = setTimeout(() => this.run(), IDLE_RUN_MS);
   }
 
-  async run() {
+  /** Show the editor's script: its pre-built bake when one exists
+   *  (unless `live`), else a kernel run. */
+  async run({ live = false } = {}) {
     clearTimeout(this.idleTimer);
-    if (!this.host.info) return;
+    const source = this.editor.value;
+    const token = ++this.viewToken;
+    if (!live) {
+      const bake = await this.bakes.find(source);
+      if (token !== this.viewToken) return null;
+      if (bake) {
+        if (this.lastGood?.bakedSource !== source || this.live) this.showBake(bake, source);
+        return { ok: true, baked: true };
+      }
+    }
+    if (!this.host.info) {
+      this.pendingLive = true;
+      return null;
+    }
+    this.pendingLive = false;
     if (this.running) {
       this.rerun = true;
-      return;
+      return null;
     }
     this.running = true;
     this.rerun = false;
     this.certifyGeneration += 1;
     $("run").disabled = true;
-    this.status("building…");
-    this.cancelTimer = setTimeout(() => this.cancel(`no answer within ${(BUDGET.timeout_ms + CANCEL_GRACE_MS) / 1000}s: the worker was stopped`), BUDGET.timeout_ms + CANCEL_GRACE_MS);
-    const reply = await this.host.run(this.editor.value, "playground.rhai");
+    $("time-limit").disabled = true;
+    let finished;
+    this.runDone = new Promise((resolve) => (finished = resolve));
+    const started = performance.now();
+    const tick = () => this.status(`building… ${this.clock(started)}`);
+    tick();
+    this.clockTimer = setInterval(tick, 1000);
+    if (this.timeLimit != null) {
+      this.cancelTimer = setTimeout(() => this.cancel(`no answer within the ${describeLimit(this.timeLimit)} time limit: the worker was stopped`), this.timeLimit * 1000);
+    }
+    const reply = await this.host.run(source, "playground.rhai");
     clearTimeout(this.cancelTimer);
+    clearInterval(this.clockTimer);
     this.running = false;
     $("run").disabled = false;
-    await this.receive(reply);
+    $("time-limit").disabled = false;
+    if (token === this.viewToken) {
+      // A described model (a report) is now the worker's; it is the one
+      // on screen only when it served. A run that raised kept the
+      // previous model, so `live` stands.
+      if (reply.ok && reply.envelope?.report) this.live = reply.envelope.outcome === "served";
+      await this.receive(reply);
+    } else {
+      // Superseded (by an edit queued as a rerun, or a pre-built
+      // example now on screen): its model is in the worker but not on
+      // screen, and its reply is dropped.
+      this.live = false;
+    }
+    finished();
     if (this.rerun) this.run();
     return reply;
   }
 
+  /** Elapsed build time against the limit, for the status line. */
+  clock(started) {
+    const seconds = Math.floor((performance.now() - started) / 1000);
+    return this.timeLimit == null ? `${seconds} s (no time limit; stop cancels)` : `${seconds} s of ${describeLimit(this.timeLimit)}`;
+  }
+
+  /** Make the worker's model the one on screen (a pre-built example
+   *  is rebuilt live). Resolves to whether it now is. */
+  async ensureLive() {
+    await this.runDone;
+    if (this.live) return true;
+    if (!this.host.info) {
+      this.status("the kernel is still loading", true);
+      return false;
+    }
+    await this.run({ live: true });
+    return this.live;
+  }
+
+  /** Show a pre-built example: the certified report, parameters and
+   *  display meshes exactly as the native build left them. */
+  showBake(bake, source) {
+    this.live = false;
+    this.certifyGeneration += 1;
+    const { envelope, buffers } = bake;
+    this.renderReport(envelope);
+    this.renderParams(envelope.params);
+    this.lastGood = { envelope, buffers, bakedSource: source };
+    this.viewer.setAnalysis(null);
+    this.viewer.show(envelope.bodies, buffers);
+    this.editor.mark(null);
+    $("overlay").hidden = true;
+    const open = envelope.bodies.reduce((n, b) => n + b.open_edges, 0);
+    const native = ((bake.native?.run_ms ?? 0) + (bake.native?.certify_ms ?? 0)) / 1000;
+    const first = this.firstRenderMs == null ? ` — first render ${(this.firstRenderMs = performance.now()).toFixed(0)} ms after page start` : "";
+    this.servedText = `served (pre-built): ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
+    this.status(`${this.servedText} — builds natively in ${native.toFixed(1)} s; edits, sliders and exports rebuild it live`);
+    if (this.viewer.mode === "zebra") this.ensureAnalysisMesh();
+  }
+
+  renderTimeLimit() {
+    const select = $("time-limit");
+    select.innerHTML = "";
+    for (const limit of TIME_LIMITS) {
+      const option = document.createElement("option");
+      option.value = limit == null ? "none" : String(limit);
+      option.textContent = describeLimit(limit) + (limit === DEFAULT_TIME_LIMIT ? " (default)" : "");
+      option.selected = limit === this.timeLimit;
+      select.append(option);
+    }
+  }
+
+  /** Change the build time limit for later runs (remembered here). */
+  async setTimeLimit(limit) {
+    this.timeLimit = limit;
+    storage((s) => s.setItem(TIME_LIMIT_KEY, limit == null ? "none" : String(limit)));
+    const budget = budgetFor(limit);
+    // A restarted worker (stop, crash) starts under the new limit too.
+    this.host.options = budget;
+    if (this.host.info) await this.host.setBudget(budget);
+  }
+
   async cancel(reason) {
     clearTimeout(this.cancelTimer);
+    clearInterval(this.clockTimer);
+    this.live = false;
     this.certifyGeneration += 1;
     this.status("stopping the worker…", true);
     await this.host.cancel(reason);
     this.running = false;
     $("run").disabled = false;
+    $("time-limit").disabled = false;
     this.status(`${reason} — kernel restarted`, true);
   }
 
@@ -181,9 +326,12 @@ class Page {
     overlay.hidden = false;
     const lines = [];
     if (outcome.outcome === "gate_failure") {
-      lines.push(`${outcome.step} failed: ${outcome.detail}`);
+      lines.push(outcome.step === "cancelled" ? outcome.detail : `${outcome.step} failed: ${outcome.detail}`);
     } else {
       lines.push(outcome.rendered ?? `${outcome.kind}`);
+    }
+    if (outcome.kind === "BudgetExceeded" || outcome.step === "cancelled") {
+      lines.push("", this.timeLimit == null ? "Press run to try again." : `The time limit is ${describeLimit(this.timeLimit)}: raise it in the top bar and run again.`);
     }
     $("overlay-text").textContent = lines.join("\n");
     $("overlay-class").textContent = outcome.outcome.replace("_", " ");
@@ -203,8 +351,10 @@ class Page {
    *  fetched once per served model, kept until the next run. On a
    *  failure the zebra view falls back to the display mesh. */
   async ensureAnalysisMesh() {
+    if (!this.lastGood || this.lastGood.analysis) return;
+    if (!(await this.ensureLive())) return;
     const good = this.lastGood;
-    if (!good || good.analysis) return;
+    if (good.analysis) return;
     const reply = await this.host.analysisMesh();
     if (this.lastGood !== good) return;
     if (!reply?.ok) {
@@ -313,6 +463,7 @@ class Page {
   }
 
   async setParam(name, value) {
+    if (!this.live && !(await this.ensureLive())) return { ok: false, outcome: { outcome: "gate_failure", step: "live", detail: "the live model could not be built" } };
     if (this.running) return { ok: false, outcome: { outcome: "gate_failure", step: "busy", detail: "a run is in progress" } };
     this.running = true;
     this.certifyGeneration += 1;
@@ -332,6 +483,7 @@ class Page {
   }
 
   async download(kind) {
+    if (!(await this.ensureLive())) return;
     const reply = kind === "step" ? await this.host.exportStep("model") : await this.host.exportPkn();
     if (!reply.ok) {
       this.showOutcome(reply.outcome);
@@ -349,6 +501,7 @@ class Page {
   }
 
   async showCode() {
+    if (!(await this.ensureLive())) return;
     const reply = await this.host.toRhai();
     if (!reply.ok) {
       this.showOutcome(reply.outcome);

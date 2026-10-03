@@ -260,7 +260,9 @@ try {
   // Exports through the page's host (a download click cannot be
   // observed headlessly; the bytes are what the click would save).
   await evaluate(`window.playground.editor.value = ${JSON.stringify(await readFile(join(root, "..", "..", "crates/popkern-rhai/examples/boss_plate.rhai"), "utf8"))}`);
-  await evaluate(`window.playground.run().then(() => true)`);
+  // live: the boss plate is also a pre-built example, and the exports
+  // read the worker's model.
+  await evaluate(`window.playground.run({ live: true }).then(() => true)`);
   // The bytes a download click would save, handed back for the Rust
   // side to run through the OCC oracle / reopen / re-run.
   const toB64 = `(bytes) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(""))`;
@@ -277,7 +279,42 @@ try {
   await evaluate(`(async () => { const p = window.playground.run(); await new Promise((r) => setTimeout(r, 300)); await window.playground.cancel("harness cancel"); await p; return true; })()`);
   out.cancel = { elapsed_ms: Date.now() - cancelStarted, status: await statusText(), restarts: await evaluate(`window.playground.host.restarts`) };
   await evaluate(`window.playground.editor.value = ${JSON.stringify(await readFile(join(root, "..", "..", "crates/popkern-rhai/examples/boss_plate.rhai"), "utf8"))}`);
-  out.after_cancel = await evaluate(`window.playground.run().then((r) => r.envelope?.outcome ?? r.outcome?.outcome)`);
+  out.after_cancel = await evaluate(`window.playground.run({ live: true }).then((r) => r.envelope?.outcome ?? r.outcome?.outcome)`);
+
+  // Pre-built examples (bakes): choosing one shows its certified build
+  // without the kernel; anything needing the live model rebuilds it.
+  out.bakes_present = await evaluate(`fetch("./bakes/index.json").then((r) => r.ok)`);
+  if (out.bakes_present) {
+    const choose = async (file) => {
+      const before = await statusText();
+      const started = Date.now();
+      await evaluate(`(() => { const s = document.getElementById("examples"); s.value = "${file}"; s.dispatchEvent(new Event("change")); })()`);
+      const status = await waitFor(`(() => { const s = document.getElementById("status").textContent; return s.startsWith("served (pre-built)") && s !== ${JSON.stringify(before)} ? s : null; })()`, 30000, `the ${file} example`);
+      return { status, wall_ms: Date.now() - started, live: await evaluate(`window.playground.live`) };
+    };
+    out.prebuilt = await choose("pyramid_apex.rhai");
+    out.prebuilt.report_text = await evaluate(`[...document.querySelectorAll("#report tr")].map((r) => r.textContent.trim()).join(" | ")`);
+    out.prebuilt.bodies_on_screen = await evaluate(`window.playground.viewer.bodies.length`);
+    out.prebuilt_cheap = await choose("revolved_knob.rhai");
+    out.prebuilt_cheap.made_live = await evaluate(`window.playground.ensureLive()`);
+    out.prebuilt_cheap.status_after_live = await statusText();
+  }
+
+  // The time limit: presets up to none, remembered, applied to the
+  // worker's budgets.
+  out.time_limit = await evaluate(`(async () => {
+    const select = document.getElementById("time-limit");
+    const options = [...select.options].map((o) => o.textContent);
+    const initial = select.value;
+    select.value = "none";
+    select.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 200));
+    const none = { host_timeout: window.playground.host.options.timeout_ms, host_ops: window.playground.host.options.max_operations, stored: localStorage.getItem("popkern-playground-time-limit"), status: document.getElementById("status").textContent };
+    select.value = initial;
+    select.dispatchEvent(new Event("change"));
+    await new Promise((r) => setTimeout(r, 200));
+    return { options, initial, none, restored_timeout: window.playground.host.options.timeout_ms };
+  })()`);
 
   if (process.env.POPKERN_LAUNCH === "1") {
     out.launch = await launchRows();

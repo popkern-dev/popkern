@@ -16,6 +16,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod bake;
 pub mod envelope;
 pub mod mesh_buffers;
 pub mod session;

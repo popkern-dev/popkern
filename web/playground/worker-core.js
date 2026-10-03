@@ -93,6 +93,13 @@ export function createHandler(pkg, loadModule) {
       switch (message.type) {
         case "run":
           return envelopeReply(id, playground.run(String(message.source ?? ""), String(message.name ?? "script.rhai")));
+        case "set_budget":
+          try {
+            const budget = JSON.parse(playground.set_budget(JSON.stringify(message.options ?? {})));
+            return { reply: { id, ok: true, budget }, transfer: [] };
+          } catch (raised) {
+            return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
+          }
         case "set_param":
           return envelopeReply(id, playground.set_param(String(message.name), Number(message.value)));
         case "certify":

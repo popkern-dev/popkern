@@ -69,6 +69,15 @@ emit() { # target out-dir
   fi
 }
 [[ $WEB == 1 ]] && emit web web/playground/pkg
+# Bakes (tools/bake-playground.sh) answer for one bundle: drop any made
+# for another, so the page never shows a model this kernel did not build.
+if [[ $WEB == 1 && -f web/playground/bakes/index.json ]]; then
+  KERNEL=$(sha256sum web/playground/pkg/popkern_playground_bg.wasm | cut -c1-64)
+  if ! grep -q "\"kernel\": \"$KERNEL\"" web/playground/bakes/index.json; then
+    rm -rf web/playground/bakes
+    echo "bakes: removed (made for another bundle; run tools/bake-playground.sh)"
+  fi
+fi
 [[ $NODE == 1 ]] && emit nodejs target/playground/node
 
 report() { # file

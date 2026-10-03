@@ -67,6 +67,12 @@ impl Session {
         self.options
     }
 
+    /// Replace the budgets for every later run (the page's time-limit
+    /// control). The retained model is kept.
+    pub fn set_options(&mut self, options: HostOptions) {
+        self.options = options;
+    }
+
     /// The model the last successful run left (a failed run keeps the
     /// previous one so exports and parameter edits still answer).
     pub fn model(&self) -> Option<&Model> {

@@ -21,6 +21,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[path = "support/page_rows.rs"]
+mod page_rows;
 mod support;
 
 use popkern_playground::mesh_buffers::fnv1a_u32;
@@ -135,6 +137,12 @@ fn worker_protocol_round_trips_under_node_and_cancel_replaces_a_wedged_worker() 
         "canonical Rhai"
     );
     // One error shape for a malformed request.
+    let budget = &out["set_budget"];
+    assert_eq!(budget["ok"], true, "{out}");
+    assert_eq!(budget["echoed"]["max_operations"], 1000);
+    assert!(budget["echoed"]["timeout_ms"].is_null());
+    assert_eq!(budget["stopped_kind"], "BudgetExceeded", "{out}");
+    assert_eq!(budget["finished_outcome"], "served", "{out}");
     assert_eq!(out["bogus"]["outcome"], "gate_failure");
     assert_eq!(out["bogus"]["step"], "worker");
     // Cancel: the pending request resolves as a gate failure within
@@ -210,6 +218,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     );
     assert_eq!(out["set_param"]["outcome"], "served");
     assert_eq!(out["set_param"]["value"], 0.5);
+    page_rows::assert_time_limit_and_bakes(&out);
     // Broken script: overlay with class + position, line marked, last good model kept.
     assert_eq!(out["broken"]["outcome"], "script_error");
     assert_eq!(out["broken"]["kind"], "SyntaxError");
@@ -377,6 +386,7 @@ fn network_violations(source: &str) -> Vec<String> {
 fn page_scripts_reach_the_network_only_for_same_origin_assets() {
     let own = [
         "app.js",
+        "bakes.js",
         "edges.js",
         "editor.js",
         "orbit.js",

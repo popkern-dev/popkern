@@ -65,3 +65,4 @@ target-wt/
 
 # Built wasm bundle of the browser playground (tools/build-playground.sh)
 web/playground/pkg/
+web/playground/bakes/
