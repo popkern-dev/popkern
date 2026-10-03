@@ -43,23 +43,6 @@ function storedLimit() {
   return TIME_LIMITS.includes(value) ? value : DEFAULT_TIME_LIMIT;
 }
 
-const DEFAULT_SCRIPT = `// A boss plate: plate, boss, union, rounds.
-let m = model();
-let plate = m.profile(xy()).rect(2.4, 1.6).sketch("plate_sketch")
-             .extrude(blind(0.4));
-let boss = m.tool(|m| m.profile(xy_at(0.2)).circle(0.35).sketch("boss_sketch")
-             .extrude(blind(0.8)));
-plate = plate.union(boss);
-plate.fillet(
-    edges().between("cylinder", "plane").at_height(0.4)
-        .or(edges().straight().at_height(0.4))
-        .or(edges().straight().direction("z")),
-    0.08, #{ continuity: "g1", label: "rounds" });
-m.assert_watertight();
-print(m.feature("rounds").describe());
-m
-`;
-
 const $ = (id) => document.getElementById(id);
 
 function storage(action) {
@@ -99,11 +82,14 @@ class Page {
     this.certifyGeneration = 0;
     this.wire();
     this.renderTimeLimit();
-    this.editor.value = storage((s) => s.getItem(DRAFT_KEY)) || DEFAULT_SCRIPT;
     this.loadExamples();
     this.status("loading the kernel…");
     // A pre-built script shows before the kernel has even loaded.
-    this.run();
+    const draft = storage((s) => s.getItem(DRAFT_KEY));
+    (draft ? Promise.resolve(draft) : this.defaultScript()).then((text) => {
+      this.editor.value = text;
+      this.run();
+    });
     this.host
       .start()
       .then((info) => {
@@ -138,10 +124,21 @@ class Page {
       this.run();
     });
     $("examples").addEventListener("change", (e) => this.loadExample(e.target.value));
-    $("reset").addEventListener("click", () => {
-      this.editor.value = DEFAULT_SCRIPT;
+    $("reset").addEventListener("click", async () => {
+      this.editor.value = await this.defaultScript();
       this.run();
     });
+  }
+
+  /** The script a fresh page (and reset) shows, fetched once. It
+   *  lives in default.rhai so tools/bake-playground.sh pre-builds it
+   *  with the gallery: a refresh that has not edited it never waits on
+   *  the kernel. */
+  defaultScript() {
+    this.defaultText ??= fetch("./default.rhai")
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .catch((error) => `// The default script could not be loaded (${error.message}).\n// Pick an example above, or write a script here.\nlet m = model();\nm\n`);
+    return this.defaultText;
   }
 
   status(text, failed = false) {
@@ -252,7 +249,7 @@ class Page {
     const native = ((bake.native?.run_ms ?? 0) + (bake.native?.certify_ms ?? 0)) / 1000;
     const first = this.firstRenderMs == null ? ` — first render ${(this.firstRenderMs = performance.now()).toFixed(0)} ms after page start` : "";
     this.servedText = `served (pre-built): ${envelope.features} feature(s), ${envelope.bodies.length} body(ies)${open ? `, ${open} open mesh edges` : ", watertight"}${first}`;
-    this.status(`${this.servedText} — builds natively in ${native.toFixed(1)} s; edits, sliders and exports rebuild it live`);
+    this.status(`${this.servedText} — continuity certified; builds natively in ${native.toFixed(1)} s, and edits, sliders and exports rebuild it live`);
     if (this.viewer.mode === "zebra") this.ensureAnalysisMesh();
   }
 

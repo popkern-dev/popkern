@@ -187,6 +187,15 @@ try {
   out.overlay_hidden = await evaluate(`getComputedStyle(document.getElementById("overlay")).display === "none"`);
   out.webgl = await evaluate(`!!document.getElementById("viewer").getContext("webgl2") || !!document.getElementById("viewer").getContext("webgl")`);
   out.bodies_on_screen = await evaluate(`window.playground.viewer.bodies.length`);
+  out.first_run_live = await evaluate(`window.playground.live`);
+  // The default script is pre-built where the bundle was baked; build
+  // it live too, so the kernel run and its deferred certification are
+  // what the rows below measure.
+  if (!out.first_run_live) {
+    await waitFor(`window.playground.host.info ? true : null`, 120000, "the kernel");
+    const live = await evaluate(`window.playground.run({ live: true }).then((r) => r?.envelope?.outcome ?? null)`);
+    out.live_run = { outcome: live, status: await statusText() };
+  }
   // Deferred continuity certification (PK-561): the page certifies the
   // served fillet's seams after render and swaps in the certified rows.
   const certifyStarted = Date.now();

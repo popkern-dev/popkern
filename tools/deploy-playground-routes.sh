@@ -171,6 +171,8 @@ if [[ $VERIFY == 1 ]]; then
     const fail = (m) => { console.error("FAIL: " + m); process.exit(1); };
     if (out.error) fail(out.error);
     if (!/^served/.test(out.status_after_first_run ?? "")) fail("first run: " + out.status_after_first_run);
+    if (out.bakes_present && !/^served \(pre-built\)/.test(out.status_after_first_run)) fail("the default script built live on load: its bake is missing");
+    if (out.live_run && out.live_run.outcome !== "served") fail("live run of the default script: " + JSON.stringify(out.live_run));
     if (out.foreign_requests.length) fail("foreign requests: " + out.foreign_requests.join(", "));
     if (out.exceptions.length) fail("page exceptions: " + JSON.stringify(out.exceptions[0]));
     if (out.server_requests.length) fail("harness server was hit; the deploy was not what ran");

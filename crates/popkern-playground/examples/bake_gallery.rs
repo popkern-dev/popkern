@@ -1,5 +1,6 @@
-//! Bake the gallery: run every example in `web/playground/examples.json`
-//! natively with no budgets, certify every deferred seam, and write
+//! Bake the gallery: run the page's default script
+//! (`web/playground/default.rhai`) and every example in
+//! `web/playground/examples.json` natively with no budgets, certify every deferred seam, and write
 //! `web/playground/bakes/<stem>.bin` plus `bakes/index.json` (see
 //! `popkern_playground::bake`). An existing bake is reused when the
 //! index records the same kernel identity and source key.
@@ -102,15 +103,17 @@ fn main() {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null);
-    let files: Vec<String> = manifest["examples"]
-        .as_array()
-        .map(|entries| {
+    // The page's default script, then the gallery: (index name, path).
+    let mut files: Vec<(String, std::path::PathBuf)> =
+        vec![("default.rhai".to_string(), page.join("default.rhai"))];
+    if let Some(entries) = manifest["examples"].as_array() {
+        files.extend(
             entries
                 .iter()
-                .filter_map(|e| e["file"].as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
+                .filter_map(|e| e["file"].as_str())
+                .map(|f| (f.to_string(), dir.join(f))),
+        );
+    }
     // Reuse bakes from the same kernel whose source is unchanged.
     let previous: Value = std::fs::read_to_string(out.join("index.json"))
         .ok()
@@ -139,8 +142,10 @@ fn main() {
             scope.spawn(|| {
                 loop {
                     let next = queue.lock().ok().and_then(|mut q| q.pop());
-                    let Some((position, file)) = next else { break };
-                    let Ok(source) = std::fs::read_to_string(dir.join(file)) else {
+                    let Some((position, (file, path))) = next else {
+                        break;
+                    };
+                    let Ok(source) = std::fs::read_to_string(path) else {
                         eprintln!("{file}: unreadable");
                         continue;
                     };

@@ -192,10 +192,17 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     });
     assert!(out["error"].is_null(), "{out}");
     let status = out["status_after_first_run"].as_str().unwrap_or("");
-    assert!(
-        status.starts_with("served: 6 feature(s), 1 body(ies)"),
-        "{status}"
-    );
+    // A baked bundle shows the default script pre-built: a refresh
+    // never waits on the kernel.
+    let expected = if out["bakes_present"] == true {
+        "served (pre-built): 6 feature(s), 1 body(ies)"
+    } else {
+        "served: 6 feature(s), 1 body(ies)"
+    };
+    assert!(status.starts_with(expected), "{status}");
+    if out["first_run_live"] == false {
+        assert_eq!(out["live_run"]["outcome"], "served", "{out}");
+    }
     assert!(status.contains("watertight"), "{status}");
     assert_eq!(out["webgl"], true, "WebGL context created");
     assert_eq!(out["bodies_on_screen"], 1);
