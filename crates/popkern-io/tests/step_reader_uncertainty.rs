@@ -1,4 +1,4 @@
-//! PK-639: the file's geometric uncertainty is read (writers type it,
+//! PK-639, PK-644: the file's geometric uncertainty is read (writers type it,
 //! `LENGTH_MEASURE(1.E-06)`, which once never parsed, so every import
 //! ran at the default) and is the trim-recovery allowance when looser
 //! than the kernel default (reported); the imported body keeps the default
@@ -90,21 +90,107 @@ fn an_uncertainty_in_another_length_unit_is_converted() {
 /// The cube with edge E0's line moved 1e-5 off both its vertices (and
 /// off one of its faces by as much).
 fn cube_with_an_edge_off_its_vertices(uncertainty: &str) -> String {
+    cube_with_an_edge_moved(uncertainty, "1.0E-05")
+}
+
+/// The cube with edge E0's line moved `offset` off its vertices and
+/// one of its faces.
+fn cube_with_an_edge_moved(uncertainty: &str, offset: &str) -> String {
     let text = with_uncertainty(&format!(
         "#402 = UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE({uncertainty}), #401, 'tolerance');"
     ));
     let text = text.replacen(
         "#40 = LINE('', #1, #30);",
-        "#409 = CARTESIAN_POINT('', (0.0, 1.0E-05, 0.0));\n#40 = LINE('', #409, #30);",
+        &format!("#409 = CARTESIAN_POINT('', (0.0, {offset}, 0.0));\n#40 = LINE('', #409, #30);"),
         1,
     );
     assert!(text.contains("#409"));
     text
 }
 
+/// A radius-1 cylinder of height 2 whose two rim circles are written at
+/// radius `1 + miss` (the caps hold them exactly; the cylinder misses
+/// them by `miss`), under the file uncertainty `uncertainty`.
+fn cylinder_off_its_rims(miss: f64, uncertainty: f64) -> String {
+    let r = 1.0 + miss;
+    format!(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('rod'),'2;1');\nFILE_NAME('rod.step','',(''),(''),'','','');\nFILE_SCHEMA(('AUTOMOTIVE_DESIGN'));\nENDSEC;\nDATA;\n\
+#1=CARTESIAN_POINT('',(0.,0.,0.));\n#2=DIRECTION('',(0.,0.,1.));\n#3=DIRECTION('',(1.,0.,0.));\n#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);\n\
+#5=CYLINDRICAL_SURFACE('',#4,1.);\n#6=CIRCLE('',#4,{r:.17e});\n#7=CARTESIAN_POINT('',(0.,0.,2.));\n#8=AXIS2_PLACEMENT_3D('',#7,#2,#3);\n#9=CIRCLE('',#8,{r:.17e});\n\
+#10=CARTESIAN_POINT('',({r:.17e},0.,0.));\n#11=VERTEX_POINT('',#10);\n#12=EDGE_CURVE('',#11,#11,#6,.T.);\n\
+#13=CARTESIAN_POINT('',({r:.17e},0.,2.));\n#14=VERTEX_POINT('',#13);\n#15=EDGE_CURVE('',#14,#14,#9,.T.);\n\
+#20=ORIENTED_EDGE('',*,*,#12,.T.);\n#21=EDGE_LOOP('',(#20));\n#22=FACE_BOUND('',#21,.T.);\n\
+#23=ORIENTED_EDGE('',*,*,#15,.F.);\n#24=EDGE_LOOP('',(#23));\n#25=FACE_BOUND('',#24,.T.);\n#26=ADVANCED_FACE('',(#22,#25),#5,.T.);\n\
+#30=DIRECTION('',(0.,0.,-1.));\n#31=AXIS2_PLACEMENT_3D('',#1,#30,#3);\n#32=PLANE('',#31);\n#33=ORIENTED_EDGE('',*,*,#12,.F.);\n#34=EDGE_LOOP('',(#33));\n#35=FACE_OUTER_BOUND('',#34,.T.);\n#36=ADVANCED_FACE('',(#35),#32,.T.);\n\
+#40=PLANE('',#8);\n#41=ORIENTED_EDGE('',*,*,#15,.T.);\n#42=EDGE_LOOP('',(#41));\n#43=FACE_OUTER_BOUND('',#42,.T.);\n#44=ADVANCED_FACE('',(#43),#40,.T.);\n\
+#50=CLOSED_SHELL('',(#26,#36,#44));\n#51=MANIFOLD_SOLID_BREP('',#50);\n\
+#52=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));\n#53=(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.));\n\
+#54=UNCERTAINTY_MEASURE_WITH_UNIT(LENGTH_MEASURE({uncertainty:.17e}),#52,'tolerance');\n\
+#55=(GEOMETRIC_REPRESENTATION_CONTEXT(3) GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#54)) GLOBAL_UNIT_ASSIGNED_CONTEXT((#52,#53)) REPRESENTATION_CONTEXT('',''));\n\
+#56=ADVANCED_BREP_SHAPE_REPRESENTATION('',(#51),#55);\nENDSEC;\nEND-ISO-10303-21;\n"
+    )
+}
+
+/// PK-644: a face whose surface misses its boundary at the file's
+/// precision records that as its face tolerance, and the mesher's
+/// boundary residual gate honours it — the face no longer falls to
+/// the fallback grid, whose boundary samples the surface and cracks
+/// against its neighbours (measured: weldment_asm_solid body 1's
+/// cylinders, 199 open mesh edges).
 #[test]
-fn an_edge_off_its_vertices_within_the_file_precision_imports_watertight() {
-    let text = cube_with_an_edge_off_its_vertices("1.0E-03");
+fn a_face_off_its_edges_within_the_file_precision_meshes_watertight() {
+    for miss in [3e-3, 6e-3] {
+        let text = cylinder_off_its_rims(miss, 1e-2);
+        let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
+        let solid = imported
+            .document
+            .products
+            .iter()
+            .flat_map(|p| p.shapes.iter())
+            .flat_map(|s| s.solids.iter())
+            .next()
+            .expect("a solid");
+        solid
+            .validate()
+            .expect("valid within the recorded tolerances");
+        assert!(
+            solid.faces.values().any(|f| f.tolerance.is_some()),
+            "miss {miss}: the miss is recorded on the cylinder"
+        );
+        let mesh = popkern_mesh::tessellate(solid, &popkern_mesh::TessellationOptions::default())
+            .expect("mesh");
+        assert_eq!(
+            popkern_mesh::welded_open_edges(&mesh),
+            0,
+            "miss {miss}: watertight"
+        );
+        let volume: f64 = mesh
+            .triangles
+            .iter()
+            .map(|t| {
+                let (a, b, c) = (
+                    mesh.vertices[t[0]].position,
+                    mesh.vertices[t[1]].position,
+                    mesh.vertices[t[2]].position,
+                );
+                (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                    + a.z * (b.x * c.y - b.y * c.x))
+                    / 6.0
+            })
+            .sum();
+        let exact = 2.0 * std::f64::consts::PI;
+        assert!(
+            (volume.abs() - exact).abs() < 1e-2 * exact,
+            "miss {miss}: volume {volume}"
+        );
+    }
+}
+
+/// Beyond the file's uncertainty the miss is a defect: nothing is
+/// recorded on the face, and the strict gate keeps it visible.
+#[test]
+fn a_face_off_its_edges_beyond_the_file_precision_records_nothing() {
+    let text = cylinder_off_its_rims(3e-3, 1e-3);
     let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
     let solid = imported
         .document
@@ -114,15 +200,9 @@ fn an_edge_off_its_vertices_within_the_file_precision_imports_watertight() {
         .flat_map(|s| s.solids.iter())
         .next()
         .expect("a solid");
-    solid
-        .validate()
-        .expect("valid within the recorded edge tolerance");
-    let mesh = popkern_mesh::tessellate(solid, &popkern_mesh::TessellationOptions::default())
-        .expect("mesh");
-    assert_eq!(
-        popkern_mesh::welded_open_edges(&mesh),
-        0,
-        "corners meet at the vertices"
+    assert!(
+        solid.faces.values().all(|f| f.tolerance.is_none()),
+        "no face tolerance beyond the declared precision"
     );
 }
 

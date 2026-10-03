@@ -53,7 +53,8 @@ pub(crate) fn measure_import_deviations(
         }
     }
 
-    widen_import_precision_envelope(brep, max_tracked_deviation);
+    let face_deviation = record_face_deviations(brep, linear_tol, end_gap_allowance, log);
+    widen_import_precision_envelope(brep, max_tracked_deviation.max(face_deviation));
 
     if edge_count > 0 {
         log.warn(
@@ -108,6 +109,89 @@ fn record_end_gap(
             brep.set_entity_tolerance(EntityHandle::Vertex(v), gap);
         }
     }
+}
+
+/// Record, on each face, how far its surface lies from its own
+/// boundary (edge-curve samples and vertices), when that is beyond the
+/// body's tolerance and within the file's declared uncertainty (PK-644).
+/// Files write faces whose surfaces miss their edges at the file's
+/// precision (measured: weldment_asm_solid body 1's cylinders, 1.3e-3
+/// to 5.0e-3 under a 5.8e-2 uncertainty); the boundary-first mesher's
+/// residual gate honours the recorded face tolerance instead of
+/// sending the face to the fallback grid, whose boundary samples the
+/// surface and cracks against the neighbours. Face tolerances are
+/// IMPORT provenance — no modelling operator records them — so native
+/// bodies keep the strict gate (widening it by edge tolerances, which
+/// blends record, was falsified on the blunt-fan corpus). A larger
+/// miss is a defect the fallback keeps visible. Returns the largest
+/// recorded value.
+fn record_face_deviations(
+    brep: &mut popkern_core::topology::BRep,
+    record_above: f64,
+    allowance: f64,
+    log: &mut DiagnosticLog,
+) -> f64 {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+    let mut recorded = Vec::new();
+    for (fh, face) in brep.faces.iter() {
+        let Some(sof) = face.surface.as_ref() else {
+            continue;
+        };
+        let mut worst = 0.0_f64;
+        for lh in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+            let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+                continue;
+            };
+            let mut he = start;
+            for _ in 0..=brep.half_edges.len() {
+                let Some(data) = brep.half_edges.get(he) else {
+                    break;
+                };
+                let mut points = Vec::new();
+                if let Some(v) = brep.vertices.get(data.origin) {
+                    points.push(v.position);
+                }
+                if let Some(c) = brep.edges.get(data.edge).and_then(|e| e.curve.as_ref()) {
+                    points.extend((0..=32).map(|k| {
+                        c.geometry
+                            .point_at(c.t_start + (c.t_end - c.t_start) * k as f64 / 32.0)
+                    }));
+                }
+                for p in points {
+                    if let Some((u, v)) = sof.geometry.closest_point(&p) {
+                        worst = worst.max(sof.geometry.point_at(u, v).distance_to(&p));
+                    }
+                }
+                he = data.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        // Samples between these may sit a little farther off (the
+        // mesher samples adaptively): a quarter's margin, within the
+        // allowance.
+        let tolerance = (1.25 * worst).min(allowance);
+        if worst > record_above && worst <= allowance && tolerance > brep.face_tolerance(fh) {
+            recorded.push((fh, tolerance));
+        }
+    }
+    let largest = recorded.iter().map(|r| r.1).fold(0.0_f64, f64::max);
+    for &(fh, tolerance) in &recorded {
+        brep.set_entity_tolerance(popkern_core::precision::EntityHandle::Face(fh), tolerance);
+    }
+    if !recorded.is_empty() {
+        log.warn(
+            Phase::Validate,
+            None,
+            format!(
+                "{} face(s) whose surface misses its boundary within the file's uncertainty; largest {largest:.2e}",
+                recorded.len()
+            ),
+        );
+    }
+    largest
 }
 
 fn widen_import_precision_envelope(

@@ -877,23 +877,11 @@ fn build_ring(
                 &origin,
             )?;
         let m = samples.points.len();
-        if popkern_core::trace::trace_enabled("boundary-first-ring") {
-            let (pt0, pt1) = pc.parameter_range();
-            let a = pc.point_at(pt0);
-            let b = pc.point_at(pt1);
-            eprintln!(
-                "      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge} fwd={forward} entry={closed_entry_forward:?} pc ({:.4},{:.4})->({:.4},{:.4}) uvlast {:?}",
-                a.x,
-                a.y,
-                b.x,
-                b.y,
-                uv.last()
-                    .map(|&(u, v): &(f64, f64)| ((u * 1e4).round() / 1e4, (v * 1e4).round() / 1e4))
-            );
-        }
+        let walk = (closed_edge, forward, closed_entry_forward);
+        boundary_first_fold::trace_ring_leg(he, eh, m, walk, pc, uv.last().copied());
         // Emit all but the last point (the next half-edge provides
         // its own start, which is the shared vertex).
-        let mut leg_shift: Option<(f64, f64)> = None;
+        let (mut leg_shift, mut walk_forward) = (None::<(f64, f64)>, true);
         for k in 0..(m - 1) {
             let idx = if forward { k } else { m - 1 - k };
             let f = samples.fractions[idx];
@@ -940,14 +928,15 @@ fn build_ring(
                 &target,
                 samples,
             )?;
-            // NOTE: widening this gate by recorded entity tolerance
-            // was tried twice (with and without the cold retry above)
-            // and is FALSIFIED both times: it repartitions the
-            // boundary-first/uniform-grid face split and the mixed
-            // boundaries crack far worse than the fallback it avoids
-            // (hexagon6_blunt 0 -> 482; pentagon5_blunt/G2
-            // 106 -> 492). Do not reintroduce it.
-            if residual > gate {
+            // NOTE: widening this gate by recorded EDGE tolerance (which
+            // blends record) was tried twice and is FALSIFIED both times:
+            // it repartitions the boundary-first/uniform-grid face split
+            // and the mixed boundaries crack far worse (hexagon6_blunt
+            // 0 -> 482; pentagon5_blunt/G2 106 -> 492). Do not reintroduce
+            // it. A FACE tolerance is import provenance only: a surface
+            // missing its boundary at the file's precision (PK-644).
+            let face_tolerance = brep.faces[brep.loops[data.loop_].face].tolerance;
+            if residual > gate.max(face_tolerance.unwrap_or(0.0)) {
                 if popkern_core::trace::trace_enabled("boundary-first") {
                     eprintln!(
                         "    [bf] edge {eh:?}: off-surface residual {residual:.3e} at sample {idx}/{m} \
@@ -990,11 +979,7 @@ fn build_ring(
                         )
                     } else {
                         uv.push((uu, vv));
-                        pos.push(popkern_core::geometry::Point3::new(
-                            target.x + 0.0,
-                            target.y + 0.0,
-                            target.z + 0.0,
-                        ));
+                        pos.push(boundary_first_fold::ring_point(target));
                         sources.push((eh, f, f));
                         (uu + shift.0, vv + shift.1)
                     }
@@ -1002,17 +987,25 @@ fn build_ring(
             };
             first_leg_starts.entry(eh).or_insert((uu, vv));
             uv.push((uu, vv));
-            // Normalize negative zeros: two arcs meeting at an anchor
-            // evaluate the shared point as +0.0 / −0.0 in a coordinate,
-            // the position-weld keys are BIT patterns, and the mismatch
-            // left an unpaired sliver at the joint (PK-344).
-            pos.push(popkern_core::geometry::Point3::new(
-                target.x + 0.0,
-                target.y + 0.0,
-                target.z + 0.0,
-            ));
+            pos.push(boundary_first_fold::ring_point(target)); // PK-344 signed zeros
             let next_idx = if forward { idx + 1 } else { idx - 1 };
             sources.push((eh, f, samples.fractions[next_idx]));
+            walk_forward = pcurve_forward_along_walk;
+        }
+        let end = if forward { m - 1 } else { 0 };
+        let geometry = &sof_ring_geometry(brep, data)?.geometry;
+        let last = uv.last().copied();
+        if let Some(image) = boundary_first_fold::collapsed_row_arrival(
+            geometry,
+            pc,
+            walk_forward,
+            last,
+            leg_shift,
+            ring_periods,
+        ) {
+            uv.push(image);
+            pos.push(boundary_first_fold::ring_point(samples.points[end]));
+            sources.push((eh, samples.fractions[end], samples.fractions[end]));
         }
         he = data.next;
         if he == start {
@@ -1020,7 +1013,10 @@ fn build_ring(
         }
     }
     boundary_first_fold::weld_consecutive_positions(&mut pos);
-    Some(BoundaryRing { uv, pos, sources })
+    let mut ring = BoundaryRing { uv, pos, sources };
+    boundary_first_fold::drop_repeated_samples(&mut ring);
+    boundary_first_fold::close_through_collapsed_runs(&mut ring, ring_periods);
+    Some(ring)
 }
 
 /// Even-odd point-in-region across all rings (outer + holes).

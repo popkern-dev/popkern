@@ -160,3 +160,139 @@ pub(crate) fn weld_consecutive_positions(pos: &mut [popkern_core::geometry::Poin
         }
     }
 }
+
+/// The canonical 3-D point of a ring sample. Two arcs meeting at an
+/// anchor evaluate the shared point as +0.0 / −0.0 in a coordinate,
+/// the position-weld keys are BIT patterns, and the mismatch left an
+/// unpaired sliver at the joint (PK-344): negative zeros normalize.
+pub(super) fn ring_point(target: popkern_core::geometry::Point3) -> popkern_core::geometry::Point3 {
+    popkern_core::geometry::Point3::new(target.x + 0.0, target.y + 0.0, target.z + 0.0)
+}
+
+/// The ARRIVING chart image of an edge's end vertex when that vertex
+/// lies on a collapsed control row of a NURBS chart (a cone-like
+/// surface whose first row is its apex), or `None` (PK-644). Every
+/// point of the row is the same 3-D point, so the edge arriving there
+/// and the edge leaving reach it in different columns; the ring walked
+/// only the leaving image, and the chart chord from the arriving
+/// edge's last sample straight to it crossed the face (measured:
+/// f1-db's cone sector, a rim-to-apex ruling at v = 2 joined to the
+/// apex at v = 1 by a diagonal whose 3-D image spirals across the
+/// cone, so the face fell back). With both images the ring runs along
+/// the row between them, a zero-length 3-D run. The image is the
+/// pcurve's own end (inverting the apex point is arbitrary), lifted
+/// onto the ring's chain like every other sample.
+pub(super) fn collapsed_row_arrival(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    pcurve_forward_along_walk: bool,
+    last: Option<(f64, f64)>,
+    leg_shift: Option<(f64, f64)>,
+    ring_periods: (Option<f64>, Option<f64>),
+) -> Option<(f64, f64)> {
+    use popkern_core::geometry::SurfaceEval;
+    if !matches!(surface, popkern_core::geometry::SurfaceGeometry::Nurbs(_)) {
+        return None;
+    }
+    let end = pc.point_at(if pcurve_forward_along_walk {
+        pc.t_end
+    } else {
+        pc.t_start
+    });
+    let (u, v) = (end.x, end.y);
+    let (du, dv) = (
+        surface.partial_u(u, v).length(),
+        surface.partial_v(u, v).length(),
+    );
+    if du > 1e-9 * dv && dv > 1e-9 * du {
+        return None;
+    }
+    Some(match leg_shift {
+        Some(shift) if shift != (0.0, 0.0) => (u + shift.0, v + shift.1),
+        _ => lift_to_chain((u, v), last, ring_periods),
+    })
+}
+
+/// Drop ring samples that repeat their predecessor exactly (chart
+/// image and 3-D point): an arriving collapsed-row image equal to the
+/// leaving one would be a zero-length chart segment.
+pub(super) fn drop_repeated_samples(ring: &mut super::BoundaryRing) {
+    let n = ring.uv.len();
+    if n < 2 {
+        return;
+    }
+    let keep: Vec<bool> = (0..n)
+        .map(|i| {
+            let j = (i + n - 1) % n;
+            i == 0 || ring.uv[i] != ring.uv[j] || ring.pos[i] != ring.pos[j]
+        })
+        .collect();
+    let mut k = 0;
+    ring.uv.retain(|_| (keep[k], k += 1).0);
+    k = 0;
+    ring.pos.retain(|_| (keep[k], k += 1).0);
+    k = 0;
+    ring.sources.retain(|_| (keep[k], k += 1).0);
+}
+
+/// The `[bf-ring]` per-leg trace of the ring builder (boundary-first-
+/// ring topic): the half-edge, its walk direction, and its pcurve ends.
+pub(super) fn trace_ring_leg(
+    he: popkern_core::topology::HalfEdgeHandle,
+    eh: popkern_core::topology::EdgeHandle,
+    m: usize,
+    (closed_edge, forward, entry): (bool, bool, Option<bool>),
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    last: Option<(f64, f64)>,
+) {
+    if !popkern_core::trace::trace_enabled("boundary-first-ring") {
+        return;
+    }
+    let (pt0, pt1) = pc.parameter_range();
+    let (a, b) = (pc.point_at(pt0), pc.point_at(pt1));
+    let last = last.map(|(u, v)| ((u * 1e4).round() / 1e4, (v * 1e4).round() / 1e4));
+    eprintln!(
+        "      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge} fwd={forward} entry={entry:?} pc ({:.4},{:.4})->({:.4},{:.4}) uvlast {last:?}",
+        a.x, a.y, b.x, b.y
+    );
+}
+
+/// Close a ring whose chain lift took a collapsed-row run the wrong
+/// way (PK-644). A row run between an edge's arriving and the next
+/// edge's leaving image of a chart-collapsed vertex may be half a
+/// period long (a cone sector of half a turn), where the nearest-branch
+/// lift is a tie; taken the wrong way, everything after it sits one
+/// period over and the ring fails to close by that period (measured:
+/// f1-db's second half-cone sector closed (1, 3) -> (1, 1)). The
+/// samples after the first such run move back by the closure's whole
+/// periods.
+pub(super) fn close_through_collapsed_runs(
+    ring: &mut super::BoundaryRing,
+    (period_u, period_v): (Option<f64>, Option<f64>),
+) {
+    let n = ring.uv.len();
+    if n < 3 {
+        return;
+    }
+    let whole = |gap: f64, period: Option<f64>| match period {
+        Some(p) if p > 0.0 && gap.abs() > 0.5 * p => (gap / p).round() * p,
+        _ => 0.0,
+    };
+    let (first, last) = (ring.uv[0], ring.uv[n - 1]);
+    let (du, dv) = (
+        whole(first.0 - last.0, period_u),
+        whole(first.1 - last.1, period_v),
+    );
+    if du == 0.0 && dv == 0.0 {
+        return;
+    }
+    let Some(run) =
+        (0..n - 1).find(|&i| ring.pos[i] == ring.pos[i + 1] && ring.uv[i] != ring.uv[i + 1])
+    else {
+        return;
+    };
+    for q in &mut ring.uv[run + 1..] {
+        q.0 += du;
+        q.1 += dv;
+    }
+}
