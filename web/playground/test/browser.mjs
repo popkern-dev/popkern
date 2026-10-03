@@ -436,7 +436,9 @@ try {
   // A returning visitor with an edited script saved: the page still
   // opens pre-built (nothing builds on load) and offers the edit back.
   if (out.bakes_present) {
-    await evaluate(`localStorage.setItem("popkern-playground-draft", "// edited last time\\n" + document.querySelector("#editor textarea").value)`);
+    // The draft is the default script edited (the editor may hold the
+    // view-only placeholder of the STEP opened above).
+    await evaluate(`window.playground.defaultScript().then((d) => localStorage.setItem("popkern-playground-draft", "// edited last time\\n" + d))`);
     await send("Page.navigate", { url: `${origin}/` });
     const reopened = await waitFor(`(() => { const s = document.getElementById("status")?.textContent ?? ""; return s.startsWith("served") ? s : null; })()`, 60000, "the reopened page");
     out.returning = {
