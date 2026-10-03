@@ -304,7 +304,7 @@ m
 </code></pre>
 <h2>11. Inspecting surface quality</h2>
 <ul>
-<li>The <strong>view</strong> selector in the viewer bar switches between *shaded*, *zebra*, and *gaussian / mean curvature*. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.</li>
+<li>The <strong>view</strong> selector in the viewer bar switches between *CAD* (the default: grey faces with black edges; the face or edge under the mouse is highlighted, and a click names it), *face colours* (one colour per face), *zebra*, and *gaussian / mean curvature*. Edges are the faces' true boundaries, so tangent fillet seams are drawn too. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.</li>
 <li>The curvature views paint analytic per-vertex curvature through a diverging palette: blue negative, white zero, red positive, ranged at the median nonzero magnitude so one spike cannot wash the map out. A constant-radius fillet reads as a uniform band in mean curvature; a value step across a seam is a curvature discontinuity.</li>
 </ul>
 <h2>12. Budgets, size, speed</h2>

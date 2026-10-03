@@ -1,7 +1,10 @@
 // The three.js viewer: one mesh per body from the engine's buffers,
-// per-face colouring and picking through the face-id attribute, a
+// per-face colouring and picking through the face-id attribute, the
+// faces' boundary edges, hover pre-highlighting in the CAD view, a
 // small orbit control (no addon), fit-to-bounds on the first render.
 import * as THREE from "./vendor/three.module.min.js";
+import { boundaryEdges, fatLines } from "./edges.js";
+import { Orbit } from "./orbit.js";
 
 const PALETTE = [0x6c8ebf, 0x8fb56c, 0xd9a25f, 0xb87ab8, 0x66b3b3, 0xc97a7a, 0x9c9c6c, 0x7a8fc9];
 
@@ -9,136 +12,29 @@ function faceColor(index) {
   return new THREE.Color(PALETTE[index % PALETTE.length]);
 }
 
-class Orbit {
-  constructor(camera, element, onChange) {
-    this.camera = camera;
-    this.element = element;
-    this.onChange = onChange;
-    this.target = new THREE.Vector3();
-    this.spherical = new THREE.Spherical(5, Math.PI / 3, Math.PI / 4);
-    this.dragging = null;
-    // Active pointers by id: one drives orbit (or pan with the right
-    // button / shift), two drive pinch-zoom plus two-finger pan.
-    this.pointers = new Map();
-    this.pinch = null;
-    // Path length of the current gesture, so a drag does not also pick.
-    this.travel = 0;
-    element.addEventListener("pointerdown", (e) => {
-      if (this.pointers.size === 0) this.travel = 0;
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      element.setPointerCapture(e.pointerId);
-      if (this.pointers.size === 2) {
-        this.dragging = null;
-        this.pinch = this.pinchState();
-      } else if (this.pointers.size === 1) {
-        this.dragging = { x: e.clientX, y: e.clientY, button: e.button, shift: e.shiftKey };
-      }
-    });
-    element.addEventListener("pointermove", (e) => {
-      const p = this.pointers.get(e.pointerId);
-      if (!p) return;
-      this.travel += Math.hypot(e.clientX - p.x, e.clientY - p.y);
-      p.x = e.clientX;
-      p.y = e.clientY;
-      if (this.pinch) {
-        const next = this.pinchState();
-        if (!next) return;
-        if (next.distance > 0 && this.pinch.distance > 0) this.spherical.radius *= this.pinch.distance / next.distance;
-        this.pan(next.x - this.pinch.x, next.y - this.pinch.y);
-        this.pinch = next;
-        this.update();
-        return;
-      }
-      if (!this.dragging) return;
-      const dx = e.clientX - this.dragging.x;
-      const dy = e.clientY - this.dragging.y;
-      this.dragging.x = e.clientX;
-      this.dragging.y = e.clientY;
-      if (this.dragging.button === 2 || this.dragging.shift) {
-        this.pan(dx, dy);
-      } else {
-        this.spherical.theta -= dx * 0.008;
-        this.spherical.phi = Math.min(Math.PI - 0.05, Math.max(0.05, this.spherical.phi - dy * 0.008));
-      }
-      this.update();
-    });
-    const release = (e) => {
-      this.pointers.delete(e.pointerId);
-      this.pinch = this.pointers.size >= 2 ? this.pinchState() : null;
-      // Lifting one finger of a pinch hands orbit to the other from
-      // where it now is, so the model does not jump.
-      const rest = this.pointers.size === 1 ? [...this.pointers.values()][0] : null;
-      this.dragging = rest ? { x: rest.x, y: rest.y, button: 0, shift: false } : null;
-    };
-    element.addEventListener("pointerup", release);
-    element.addEventListener("pointercancel", release);
-    element.addEventListener("contextmenu", (e) => e.preventDefault());
-    element.addEventListener(
-      "wheel",
-      (e) => {
-        e.preventDefault();
-        this.spherical.radius *= Math.exp(e.deltaY * 0.001);
-        this.update();
-      },
-      { passive: false },
-    );
-    element.addEventListener("keydown", (e) => {
-      const step = 0.05;
-      if (e.key === "ArrowLeft") this.spherical.theta += step;
-      else if (e.key === "ArrowRight") this.spherical.theta -= step;
-      else if (e.key === "ArrowUp") this.spherical.phi = Math.max(0.05, this.spherical.phi - step);
-      else if (e.key === "ArrowDown") this.spherical.phi = Math.min(Math.PI - 0.05, this.spherical.phi + step);
-      else if (e.key === "+" || e.key === "=") this.spherical.radius *= 0.9;
-      else if (e.key === "-") this.spherical.radius *= 1.1;
-      else return;
-      e.preventDefault();
-      this.update();
-    });
-  }
+// The CAD view: uniform grey faces, black edges, and a blue
+// pre-highlight on the face or edge under the pointer.
+const CAD_FACE = 0xb4b8be;
+const CAD_EDGE = 0x000000;
+const HOVER = 0x3b82f6;
+// Pointer slack for edge hover and pick, and the hovered edge's
+// width, in CSS pixels.
+const EDGE_PICK_PX = 5;
+const HOVER_EDGE_PX = 3;
+// Depth offsets so edges (offset 0) draw over a hovered face (1),
+// which draws over the face itself (2).
+const FACE_OFFSET = 2;
+const HOVER_OFFSET = 1;
 
-  /** Midpoint and separation of the first two active pointers. */
-  pinchState() {
-    const [a, b] = [...this.pointers.values()];
-    if (!a || !b) return null;
-    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) };
+// Boundary edges per body buffer, computed once per served mesh.
+const edgeCache = new WeakMap();
+function cachedEdges(b) {
+  let edges = edgeCache.get(b);
+  if (!edges) {
+    edges = boundaryEdges(b);
+    edgeCache.set(b, edges);
   }
-
-  /** Whether the last gesture moved far enough to count as a drag. */
-  wasDrag() {
-    return this.travel > 6;
-  }
-
-  pan(dx, dy) {
-    const scale = this.spherical.radius * 0.0015;
-    const right = new THREE.Vector3();
-    const up = new THREE.Vector3(0, 0, 1);
-    this.camera.getWorldDirection(right);
-    right.cross(up).normalize();
-    const trueUp = right.clone().cross(new THREE.Vector3().subVectors(this.target, this.camera.position).normalize()).normalize();
-    this.target.addScaledVector(right, -dx * scale);
-    this.target.addScaledVector(trueUp, dy * scale);
-  }
-
-  fit(bounds) {
-    const min = new THREE.Vector3(...bounds[0]);
-    const max = new THREE.Vector3(...bounds[1]);
-    this.target = min.clone().add(max).multiplyScalar(0.5);
-    const size = max.clone().sub(min).length() || 1;
-    this.spherical.radius = size * 1.4;
-    this.update();
-  }
-
-  update() {
-    // Z is up: spherical about the Z axis.
-    const s = this.spherical;
-    const x = s.radius * Math.sin(s.phi) * Math.cos(s.theta);
-    const y = s.radius * Math.sin(s.phi) * Math.sin(s.theta);
-    const z = s.radius * Math.cos(s.phi);
-    this.camera.position.set(this.target.x + x, this.target.y + y, this.target.z + z);
-    this.camera.up.set(0, 0, 1);
-    this.camera.lookAt(this.target);
-    this.onChange();
-  }
+  return edges;
 }
 
 // Reflection-line zebra: per-pixel stripes over the reflected view
@@ -206,7 +102,7 @@ export class Viewer {
   constructor(canvas, onPick) {
     this.canvas = canvas;
     this.onPick = onPick;
-    this.mode = "shaded";
+    this.mode = "cad";
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
@@ -219,6 +115,9 @@ export class Viewer {
     this.group = new THREE.Group();
     this.scene.add(this.group);
     this.bodies = [];
+    this.edgeLines = [];
+    this.highlight = null;
+    this.hovered = null;
     this.showEdges = true;
     this.fitted = false;
     this.raycaster = new THREE.Raycaster();
@@ -227,6 +126,23 @@ export class Viewer {
     canvas.addEventListener("click", (e) => {
       if (!this.orbit.wasDrag()) this.pick(e);
     });
+    // Hover pre-highlight (CAD view, mouse only, not mid-drag), one hit
+    // test per frame however fast the pointer moves.
+    canvas.addEventListener("pointermove", (e) => {
+      if (this.mode !== "cad" || e.pointerType !== "mouse" || e.buttons) return;
+      this.pendingHover = { x: e.clientX, y: e.clientY };
+      if (this.hoverFrame) return;
+      this.hoverFrame = requestAnimationFrame(() => {
+        this.hoverFrame = 0;
+        const at = this.pendingHover;
+        this.setHover(at ? this.hitTest(at.x, at.y) : null);
+      });
+    });
+    canvas.addEventListener("pointerleave", () => {
+      this.pendingHover = null;
+      this.setHover(null);
+    });
+    canvas.addEventListener("pointerdown", () => this.setHover(null));
     this.resize();
     // The container, not the window, sets the canvas size: the narrow
     // layout resizes it on rotation and when mobile toolbars collapse.
@@ -258,6 +174,9 @@ export class Viewer {
       this.mode === "zebra" && this.analysis?.length === bodies.length ? this.analysis : displayBuffers;
     this.group.clear();
     this.bodies = [];
+    this.edgeLines = [];
+    this.highlight = null;
+    this.hovered = null;
     this.zebraMaterials = [];
     let union = null;
     const halfRange = this.mode === "gaussian" || this.mode === "mean" ? robustHalfRange(buffers, this.mode) : 0;
@@ -272,8 +191,14 @@ export class Viewer {
       mesh.userData = { body, faceIds: b.face_ids, index: i };
       this.group.add(mesh);
       if (this.showEdges) {
-        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 25), new THREE.LineBasicMaterial({ color: 0x0f1115 }));
-        this.group.add(edges);
+        const edges = cachedEdges(b);
+        const lineGeometry = new THREE.BufferGeometry();
+        lineGeometry.setAttribute("position", new THREE.BufferAttribute(edges.positions, 3));
+        const color = this.mode === "cad" ? CAD_EDGE : 0x0f1115;
+        const lines = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color }));
+        lines.userData = { edges, index: i };
+        this.group.add(lines);
+        this.edgeLines.push(lines);
       }
       this.bodies.push(mesh);
       const [lo, hi] = body.bounds;
@@ -329,13 +254,17 @@ export class Viewer {
       this.zebraMaterials.push(material);
       return material;
     }
+    const offset = { polygonOffset: true, polygonOffsetFactor: FACE_OFFSET, polygonOffsetUnits: FACE_OFFSET };
     if (this.mode === "gaussian" || this.mode === "mean") {
-      return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+      return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, ...offset });
     }
-    return new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide });
+    if (this.mode === "cad") {
+      return new THREE.MeshStandardMaterial({ color: CAD_FACE, metalness: 0.05, roughness: 0.55, side: THREE.DoubleSide, ...offset });
+    }
+    return new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide, ...offset });
   }
 
-  /** Switch the surface view: shaded | zebra | gaussian | mean. */
+  /** Switch the surface view: cad | shaded | zebra | gaussian | mean. */
   setMode(mode) {
     this.mode = mode;
     if (this.lastShown) this.show(this.lastShown.bodies, this.lastShown.buffers);
@@ -363,19 +292,106 @@ export class Viewer {
     }
   }
 
-  pick(event) {
+  /** What lies under the client point: `{ kind: "face", mesh, face,
+   *  point }`, `{ kind: "edge", mesh, edge, point }` (an edge within
+   *  EDGE_PICK_PX of the pointer and not hidden behind a face), or null. */
+  hitTest(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const hits = this.raycaster.intersectObjects(this.bodies, false);
-    if (!hits.length) {
+    const faceHit = this.raycaster.intersectObjects(this.bodies, false)[0];
+    // World size of the pixel slack at the depth of the hit (or of the
+    // orbit target when the ray misses every face).
+    const depth = faceHit ? faceHit.distance : this.camera.position.distanceTo(this.orbit.target);
+    const perPixel = (2 * depth * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)) / Math.max(1, rect.height);
+    const slack = EDGE_PICK_PX * perPixel;
+    this.raycaster.params.Line.threshold = slack;
+    const edgeHit = this.edgeLines.length ? this.raycaster.intersectObjects(this.edgeLines, false)[0] : null;
+    if (edgeHit && (!faceHit || edgeHit.distance <= faceHit.distance + 2 * slack)) {
+      const { edges, index } = edgeHit.object.userData;
+      const edge = edges.segmentEdge[Math.floor(edgeHit.index / 2)];
+      return { kind: "edge", mesh: this.bodies[index], edge, point: edgeHit.point.toArray() };
+    }
+    if (!faceHit) return null;
+    const face = faceHit.object.userData.faceIds[faceHit.faceIndex];
+    return { kind: "face", mesh: faceHit.object, face, point: faceHit.point.toArray() };
+  }
+
+  /** Pre-highlight the hovered face or edge (null clears it). */
+  setHover(hit) {
+    const same =
+      hit && this.hovered && hit.kind === this.hovered.kind && hit.mesh === this.hovered.mesh &&
+      (hit.kind === "face" ? hit.face === this.hovered.face : hit.edge === this.hovered.edge);
+    if (same || (!hit && !this.hovered)) return;
+    if (this.highlight) {
+      this.group.remove(this.highlight);
+      this.highlight.geometry.dispose();
+      this.highlight.material.dispose();
+      this.highlight = null;
+    }
+    this.hovered = hit;
+    if (hit?.kind === "face") this.highlight = this.faceHighlight(hit.mesh, hit.face);
+    else if (hit?.kind === "edge") this.highlight = this.edgeHighlight(hit.mesh.userData.index, hit.edge);
+    if (this.highlight) this.group.add(this.highlight);
+    this.canvas.style.cursor = hit ? "pointer" : "";
+    this.render();
+  }
+
+  /** The triangles of `face` on `mesh`, over the mesh's own vertices. */
+  faceHighlight(mesh, face) {
+    const { faceIds } = mesh.userData;
+    const source = mesh.geometry;
+    const index = source.index.array;
+    const picked = [];
+    for (let t = 0; t < faceIds.length; t++) {
+      if (faceIds[t] === face) picked.push(index[t * 3], index[t * 3 + 1], index[t * 3 + 2]);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", source.getAttribute("position"));
+    geometry.setAttribute("normal", source.getAttribute("normal"));
+    geometry.setIndex(picked);
+    const material = new THREE.MeshStandardMaterial({
+      color: HOVER,
+      metalness: 0.05,
+      roughness: 0.55,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: HOVER_OFFSET,
+      polygonOffsetUnits: HOVER_OFFSET,
+    });
+    return new THREE.Mesh(geometry, material);
+  }
+
+  /** The segments of boundary edge `edge` on body `index`. */
+  edgeHighlight(index, edge) {
+    const lines = this.edgeLines.find((l) => l.userData.index === index);
+    if (!lines) return null;
+    const { edges } = lines.userData;
+    const points = [];
+    for (let s = 0; s < edges.segmentEdge.length; s++) {
+      if (edges.segmentEdge[s] !== edge) continue;
+      for (let k = 0; k < 6; k++) points.push(edges.positions[s * 6 + k]);
+    }
+    const highlight = fatLines(THREE, new Float32Array(points), HOVER, HOVER_EDGE_PX * this.renderer.getPixelRatio());
+    highlight.renderOrder = 1;
+    return highlight;
+  }
+
+  pick(event) {
+    const hit = this.hitTest(event.clientX, event.clientY);
+    if (!hit) {
       this.onPick(null);
       return;
     }
-    const hit = hits[0];
-    const { body, faceIds } = hit.object.userData;
-    const face = faceIds[hit.faceIndex];
-    this.onPick({ body, face, label: body.face_labels[face] ?? "unnamed", point: hit.point.toArray() });
+    const { body } = hit.mesh.userData;
+    const name = (face) => (face === null ? "open boundary" : body.face_labels[face] ?? "unnamed");
+    if (hit.kind === "edge") {
+      const lines = this.edgeLines.find((l) => l.userData.index === hit.mesh.userData.index);
+      const faces = lines.userData.edges.edges[hit.edge].faces;
+      this.onPick({ body, edge: { faces, labels: faces.map(name) }, point: hit.point });
+      return;
+    }
+    this.onPick({ body, face: hit.face, label: name(hit.face), point: hit.point });
   }
 
   render() {
@@ -387,6 +403,8 @@ export class Viewer {
       const right = forward.clone().cross(this.camera.up).normalize();
       for (const m of this.zebraMaterials) m.uniforms.stripeAxis.value.copy(right);
     }
+    const viewport = this.highlight?.material.uniforms?.viewport;
+    if (viewport) this.renderer.getDrawingBufferSize(viewport.value);
     this.renderer.render(this.scene, this.camera);
   }
 }

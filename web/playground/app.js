@@ -325,11 +325,10 @@ class Page {
 
   showPick(pick) {
     const el = $("pick");
-    if (!pick) {
-      el.textContent = "click a face to see its stable name";
-      return;
-    }
-    el.textContent = `${pick.body.label ? `${pick.body.label} · ` : ""}face ${pick.face}: ${pick.label}`;
+    el.textContent = pickText(pick);
+    // One line (the full name is the tooltip), so a long pick never
+    // reflows the viewer under the pointer.
+    el.title = el.textContent;
   }
 
   async download(kind) {
@@ -388,6 +387,18 @@ class Page {
 }
 
 /** Deferred seams across a report's blend rows. */
+/** The viewer bar's text for a face or edge pick (null: the hint). */
+function pickText(pick) {
+  if (!pick) return "click a face or edge to see its stable name";
+  const body = pick.body.label ? `${pick.body.label} · ` : "";
+  if (pick.edge) {
+    const [a, b] = pick.edge.faces;
+    const [la, lb] = pick.edge.labels;
+    return b === null ? `${body}open edge of face ${a}: ${la}` : `${body}edge of faces ${a} | ${b}: ${la} | ${lb}`;
+  }
+  return `${body}face ${pick.face}: ${pick.label}`;
+}
+
 function deferredSeams(report) {
   return (report?.features ?? []).reduce((n, f) => n + (f.blend?.continuity?.deferred_seams ?? 0), 0);
 }

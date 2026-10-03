@@ -377,7 +377,9 @@ fn network_violations(source: &str) -> Vec<String> {
 fn page_scripts_reach_the_network_only_for_same_origin_assets() {
     let own = [
         "app.js",
+        "edges.js",
         "editor.js",
+        "orbit.js",
         "viewer.js",
         "worker.js",
         "worker-core.js",

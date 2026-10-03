@@ -46,7 +46,9 @@ header documents the `conf.d` reverse-proxy variant a live
 | `index.html`, `style.css` | The page and its CSP (`'self'` for everything; `'wasm-unsafe-eval'` for the module) |
 | `app.js` | Page logic: editor → worker → viewer, report, parameters, downloads, show-as-code, error overlay |
 | `editor.js` | Dependency-free editor (textarea + highlighted mirror + gutter) |
-| `viewer.js` | three.js scene, per-face colouring and picking, orbit control |
+| `viewer.js` | three.js scene: the view modes (CAD grey with hover pre-highlight, face colours, zebra, curvature), face and edge picking |
+| `edges.js` | Face-boundary edges from the mesh buffers, grouped by the face pair they separate |
+| `orbit.js` | Orbit control: drag, pinch, wheel, arrow keys |
 | `worker.js`, `worker-core.js` | The Web Worker owning one `Playground` session |
 | `worker-host.js` | The page's side of the protocol: request matching, cancel = terminate + restart |
 | `PROTOCOL.md` | The worker message shapes (versioned; the daemon's socket schema grows from it) |
