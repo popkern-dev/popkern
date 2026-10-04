@@ -3,6 +3,7 @@
 #
 #   tools/live-size-gate.sh              # check against the baseline
 #   tools/live-size-gate.sh --update     # rewrite the baseline from the current bundle
+#   (attribute first: tools/live-size-attribution.sh <last-baseline-commit>)
 #
 # The baseline (tools/live-size-baseline.txt) holds the measured
 # raw and gzip byte counts of web/live/pkg/popkern_live_bg.wasm
@@ -42,5 +43,9 @@ printf 'bundle: raw %d bytes (baseline %d, ceiling %d); gzip %d bytes (baseline 
   "$raw" "$raw_bytes" "$raw_ceiling" "$gz" "$gzip_bytes" "$gzip_ceiling"
 if (( raw > raw_ceiling )); then echo "FAIL: raw bundle exceeds its ceiling" >&2; status=1; fi
 if (( gz > gzip_ceiling )); then echo "FAIL: gzip bundle exceeds its ceiling" >&2; status=1; fi
-if (( status == 0 )); then echo "bundle size within the ratchet"; fi
+if (( status == 0 )); then
+  echo "bundle size within the ratchet"
+else
+  echo "attribute the growth before re-baselining: tools/live-size-attribution.sh <commit of the last baseline>" >&2
+fi
 exit $status
