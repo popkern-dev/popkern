@@ -251,11 +251,12 @@ fn a_thin_washer_with_a_rounded_bore_keeps_its_bore_strip_outward() {
     // PK-650: the fillet bands are 628 long and 2.4 wide; protecting
     // disks of their rim segments evacuated the Delaunay interior and
     // facets spanned rim to rim (turbine: 0.21 off a 0.8 tube). The
-    // tensor path meshes them within the lattice's design bound.
+    // tensor path meshes them, and over-chord cells split their rims
+    // (PK-653: the 512-sample rim cap left facets at 1.34x chord).
     let chord = popkern_mesh::TessellationOptions::default().chord_height;
     let deviation = worst_facet_deviation(&washer_step(a, w, r, h));
     assert!(
-        deviation <= 2.0 * chord,
+        deviation <= chord,
         "a facet lies {deviation} off its surface"
     );
     let got = signed_meshed_volume(&washer_step(a, w, r, h));

@@ -694,11 +694,13 @@ pub(crate) fn tessellate_brep(
             let Some(samples) = edge_samples.get_mut(&eh) else {
                 continue;
             };
-            if samples.fractions.len() >= 512 {
+            if samples.fractions.len() >= 8192 {
                 // Refinement cap per edge — matches the adaptive
-                // sampler's own cap (96 starved the xfine cut-curve
-                // splits and the coverage check bounced the whole
-                // wall to the uniform-grid path).
+                // sampler's runaway guard (96 starved the xfine
+                // cut-curve splits and the coverage check bounced the
+                // whole wall to the uniform-grid path; 512 refused a
+                // long torus-band rim the splits its facets need,
+                // PK-653).
                 continue;
             }
             let idx = samples.fractions.partition_point(|&f| f < fraction);

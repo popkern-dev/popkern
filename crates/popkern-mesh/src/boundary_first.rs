@@ -57,6 +57,8 @@ mod boundary_first_ruled_lattice;
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
 mod boundary_first_slit;
+#[path = "boundary_first_strip_refine.rs"]
+mod boundary_first_strip_refine;
 #[path = "boundary_first_triangulate.rs"]
 mod boundary_first_triangulate;
 #[path = "boundary_first_unwrap.rs"]
@@ -250,9 +252,7 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
     // Four-sided ruled charts (fillet/chamfer strips) take the
-    // structured tensor path: exact boundary conformity, interior on
-    // the cross-station lattice, chord error = the edge sampling's
-    // own tolerance. Declines (the boundary-first trace topic reason) continue below.
+    // structured tensor path; over-chord cells request boundary splits.
     if let Some(fm) = boundary_first_ruled_strip::try_tessellate(
         face_handle,
         surface,
@@ -260,6 +260,8 @@ pub(crate) fn tessellate_face_boundary_first(
         &rings,
         options,
     ) {
+        let refine = boundary_first_strip_refine::request_deviation_splits;
+        refine(&fm, surface, &rings[0], chord, split_requests);
         return Some(fm);
     }
 

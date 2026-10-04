@@ -108,7 +108,7 @@ pub(crate) fn sample_all_edges(
             &mut fractions,
         );
         boundary_first_edge_seed::seed_closed_curve(&at, &mut fractions);
-        // Budget and floor scale with the curve's knot-span count
+        // The span floor scales with the curve's knot-span count
         // (PK-461): a flat 512-sample cap and 1e-3 minimum span
         // under-sampled a 41-turn thread-tool crease edge to ~12
         // samples per coil turn — its sparse ring segments failed the
@@ -116,8 +116,8 @@ pub(crate) fn sample_all_edges(
         // tool wall face fell back to the uniform-grid path, and the
         // served mesh tore along the whole coil (8235 open edges on a
         // body whose topology was correct). Sixteen samples per span
-        // (64 per quarter-arc turn) holds sag quality; simple curves
-        // converge on chord height far below either bound.
+        // (64 per quarter-arc turn) holds sag quality. The cap only
+        // guards runaway: 512 under-sampled a 1336 mm rim (PK-653).
         let spans = match &curve.geometry {
             popkern_core::geometry::CurveGeometry::Nurbs(nc) => nc
                 .knots
@@ -127,7 +127,7 @@ pub(crate) fn sample_all_edges(
                 .max(1),
             _ => 1,
         };
-        let cap = (16usize * spans).clamp(512, 8192);
+        let cap = 8192usize;
         let min_span = (0.0625 / spans as f64).min(1e-3);
         loop {
             let mut split_at: Vec<(f64, usize)> = Vec::new();

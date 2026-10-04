@@ -308,7 +308,7 @@ fn is_ring_segment(ring_ranges: &[(usize, usize)], i: usize, j: usize) -> bool {
 /// distance to `S(uv)` adds the chart's tangential distortion (a
 /// non-affine helical NURBS parameterization), which is no facet error
 /// and over-refined a 48-turn thread flank about tenfold (PK-651).
-fn normal_gap(surface: &SurfaceGeometry, uv: (f64, f64), p: Point3) -> f64 {
+pub(super) fn normal_gap(surface: &SurfaceGeometry, uv: (f64, f64), p: Point3) -> f64 {
     let s = surface.point_at(uv.0, uv.1);
     let n = surface.normal_at(uv.0, uv.1);
     let len = n.length();
