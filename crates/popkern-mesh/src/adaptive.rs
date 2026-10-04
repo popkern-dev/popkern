@@ -36,10 +36,52 @@ pub(crate) fn effective_max_subdivisions(
     }
 }
 
+/// Stations per chart direction at which the worst iso-line chord
+/// sagitta (three cross-stations per direction) meets `chord_height`:
+/// the larger direction's count, doubled from `start` and capped at
+/// `cap`. Sizes the quadtree cap of whole periodic charts (a sphere or
+/// torus face bounded only by its seam), whose fixed cap of 64 left an
+/// r 254 sphere's facets 0.34 off at a 0.005 chord (PK-654).
+pub(crate) fn chord_station_count(
+    surface: &SurfaceGeometry,
+    (u0, u1): (f64, f64),
+    (v0, v1): (f64, f64),
+    chord_height: f64,
+    (start, cap): (usize, usize),
+) -> usize {
+    let sag_at = |n: usize, along_u: bool| -> f64 {
+        let mut worst = 0.0_f64;
+        for cross in [0.25, 0.5, 0.75] {
+            let at = |f: f64| {
+                if along_u {
+                    surface.point_at(u0 + (u1 - u0) * f, v0 + (v1 - v0) * cross)
+                } else {
+                    surface.point_at(u0 + (u1 - u0) * cross, v0 + (v1 - v0) * f)
+                }
+            };
+            for k in 0..n {
+                let (a, b) = (at(k as f64 / n as f64), at((k + 1) as f64 / n as f64));
+                let mid = at((k as f64 + 0.5) / n as f64);
+                let chord_mid =
+                    Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+                worst = worst.max(mid.distance_to(&chord_mid));
+            }
+        }
+        worst
+    };
+    let mut n = start.max(1);
+    while n < cap && (sag_at(n, true) > chord_height || sag_at(n, false) > chord_height) {
+        n *= 2;
+    }
+    n.min(cap)
+}
+
 /// Compute the chord-height error for a UV cell.
 ///
 /// This measures the distance from the bilinear interpolation of the four
-/// corner points to the actual surface point at the cell's UV midpoint.
+/// corner points to the actual surface point at five interior samples,
+/// and from the emitted facets (the shorter-diagonal split) at the cell's
+/// UV midpoint.
 /// A flat (zero-curvature) surface will return approximately zero; a curved
 /// surface will return a positive value proportional to its local curvature.
 pub(crate) fn chord_height(surface: &SurfaceGeometry, cell: &UvCell) -> f64 {
@@ -54,7 +96,7 @@ pub(crate) fn chord_height(surface: &SurfaceGeometry, cell: &UvCell) -> f64 {
         (0.25, 0.75),
         (0.75, 0.75),
     ];
-    samples
+    let bilinear = samples
         .iter()
         .map(|&(su, sv)| {
             let u = cell.u_min + su * (cell.u_max - cell.u_min);
@@ -62,7 +104,39 @@ pub(crate) fn chord_height(surface: &SurfaceGeometry, cell: &UvCell) -> f64 {
             let interp = bilinear_point(p00, p10, p01, p11, su, sv);
             interp.distance_to(&surface.point_at(u, v))
         })
-        .fold(0.0, f64::max)
+        .fold(0.0, f64::max);
+    // The cell is emitted as two triangles split along its shorter
+    // diagonal, whose midpoint is the facet point over the cell centre.
+    // A bilinear patch reproduces a saddle exactly, so the bilinear
+    // samples read a torus's inner equator as flat while the facets sat
+    // 0.017 off at a 0.005 chord (PK-654).
+    let centre = surface.point_at(
+        0.5 * (cell.u_min + cell.u_max),
+        0.5 * (cell.v_min + cell.v_max),
+    );
+    let mid =
+        |a: Point3, b: Point3| Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+    let diagonal = if p00.distance_to(&p11) <= p10.distance_to(&p01) {
+        mid(p00, p11)
+    } else {
+        mid(p10, p01)
+    };
+    // Each cell side is an emitted edge: its own chord sag (a saddle's
+    // opposite-signed side sags cancel in every interior sample).
+    let (um, vm) = (
+        0.5 * (cell.u_min + cell.u_max),
+        0.5 * (cell.v_min + cell.v_max),
+    );
+    let sides = [
+        (p00, p10, (um, cell.v_min)),
+        (p01, p11, (um, cell.v_max)),
+        (p00, p01, (cell.u_min, vm)),
+        (p10, p11, (cell.u_max, vm)),
+    ]
+    .iter()
+    .map(|&(a, b, (u, v))| surface.point_at(u, v).distance_to(&mid(a, b)))
+    .fold(0.0, f64::max);
+    bilinear.max(centre.distance_to(&diagonal)).max(sides)
 }
 
 fn bilinear_point(p00: Point3, p10: Point3, p01: Point3, p11: Point3, u: f64, v: f64) -> Point3 {
@@ -227,207 +301,5 @@ pub(crate) fn adaptive_subdivide_bounded(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::geometry::Vec3;
-    use std::f64::consts::{PI, TAU};
-
-    #[test]
-    fn chord_height_plane_is_zero() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let cell = UvCell {
-            u_min: 0.0,
-            u_max: 1.0,
-            v_min: 0.0,
-            v_max: 1.0,
-        };
-        assert!(chord_height(&plane, &cell) < 1e-10);
-    }
-
-    #[test]
-    fn chord_height_sphere_positive() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let cell = UvCell {
-            u_min: 0.0,
-            u_max: 1.0,
-            v_min: 0.5,
-            v_max: 1.5,
-        };
-        assert!(chord_height(&sphere, &cell) > 0.0);
-    }
-
-    #[test]
-    fn adaptive_plane_no_refinement() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let cells = adaptive_subdivide(&plane, (0.0, 1.0), (0.0, 1.0), 2, 64, 0.01);
-        assert_eq!(cells.len(), 4);
-    }
-
-    #[test]
-    fn adaptive_sphere_refines() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.01);
-        assert!(cells.len() > 4);
-    }
-
-    #[test]
-    fn tighter_tolerance_more_cells() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let coarse = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.1);
-        let fine = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.001);
-        assert!(fine.len() > coarse.len());
-    }
-
-    #[test]
-    fn max_subdivisions_respected() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        // Very tight tolerance with low max — should hit the cap.
-        // max_subdivisions=4, min_subdivisions=2 => ratio=2 => max_depth=1
-        // At depth 1 each of the 4 initial cells can split into 4 => up to 16 cells.
-        let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 4, 0.0001);
-        assert!(cells.len() <= 16);
-    }
-
-    #[test]
-    fn min_subdivisions_zero_treated_as_one() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        // min_subdivisions=0 should be clamped to 1 internally.
-        let cells = adaptive_subdivide(&plane, (0.0, 1.0), (0.0, 1.0), 0, 64, 0.01);
-        assert_eq!(cells.len(), 1);
-    }
-
-    #[test]
-    fn equal_min_max_no_refinement() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        // max == min => max_depth = 0, so no refinement possible.
-        let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 4, 4, 0.0001);
-        // 4x4 initial grid = 16 cells, none refined further.
-        assert_eq!(cells.len(), 16);
-    }
-
-    #[test]
-    fn cells_cover_full_parameter_domain() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let cells = adaptive_subdivide(&plane, (0.0, 2.0), (0.0, 3.0), 3, 64, 0.01);
-        // For a plane (no refinement), 3x3 = 9 cells.
-        assert_eq!(cells.len(), 9);
-        // Verify total area coverage: sum of cell areas should equal domain area.
-        let total_area: f64 = cells
-            .iter()
-            .map(|c| (c.u_max - c.u_min) * (c.v_max - c.v_min))
-            .sum();
-        assert!((total_area - 6.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn cells_do_not_overlap() {
-        let sphere = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
-        };
-        let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 8, 0.05);
-        // No two leaf cells should overlap (their interiors should be disjoint).
-        for (i, a) in cells.iter().enumerate() {
-            for b in cells.iter().skip(i + 1) {
-                let u_overlap = a.u_min < b.u_max && b.u_min < a.u_max;
-                let v_overlap = a.v_min < b.v_max && b.v_min < a.v_max;
-                if u_overlap && v_overlap {
-                    // Cells share at most a boundary, not an interior.
-                    let u_inter = (a.u_max.min(b.u_max) - a.u_min.max(b.u_min)).max(0.0);
-                    let v_inter = (a.v_max.min(b.v_max) - a.v_min.max(b.v_min)).max(0.0);
-                    assert!(
-                        u_inter * v_inter < 1e-20,
-                        "Cells {i} and {} overlap with area {}",
-                        i + 1,
-                        u_inter * v_inter
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn chord_height_cylinder_positive() {
-        let cylinder = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        let cell = UvCell {
-            u_min: 0.0,
-            u_max: 1.0,
-            v_min: 0.0,
-            v_max: 1.0,
-        };
-        assert!(chord_height(&cylinder, &cell) > 0.0);
-    }
-
-    #[test]
-    fn large_radius_sphere_less_refinement_than_small() {
-        let large = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 100.0,
-        };
-        let small = SurfaceGeometry::Sphere {
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 0.5,
-        };
-        // Same angular range but different radii => different chord heights.
-        // For the same tolerance, a larger sphere needs more cells (larger absolute error).
-        let large_cells = adaptive_subdivide(&large, (0.0, 1.0), (0.5, 1.5), 2, 64, 0.01);
-        let small_cells = adaptive_subdivide(&small, (0.0, 1.0), (0.5, 1.5), 2, 64, 0.01);
-        assert!(
-            large_cells.len() >= small_cells.len(),
-            "larger sphere should need at least as many cells"
-        );
-    }
-
-    #[test]
-    fn narrow_parameter_range_still_works() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        // Very narrow range.
-        let cells = adaptive_subdivide(&plane, (0.0, 0.001), (0.0, 0.001), 1, 64, 0.01);
-        assert_eq!(cells.len(), 1);
-        assert!((cells[0].u_max - cells[0].u_min - 0.001).abs() < 1e-15);
-    }
-}
+#[path = "adaptive_tests.rs"]
+mod tests;

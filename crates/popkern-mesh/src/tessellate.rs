@@ -205,10 +205,32 @@ pub(crate) fn tessellate_face_with_samples(
     // grid). SEAM-SPINE faces (full-periodic charts — a whole ball)
     // are this path's designed home and are never sewn, so the
     // angular facet bound applies to them.
-    let angular = if outer_loop_is_seam_spine(brep, face_handle) {
+    let seam_spine = outer_loop_is_seam_spine(brep, face_handle);
+    let angular = if seam_spine {
         options.angular_bound()
     } else {
         None
+    };
+    // Whole periodic charts (seam spine, or no boundary edges at all: a
+    // STEP torus bounded only by vertex loops) size the quadtree cap by
+    // the chord itself; they are never sewn to a neighbour's samples.
+    let boundaryless = brep.faces.get(face_handle).is_some_and(|f| {
+        f.inner_loops.is_empty()
+            && brep
+                .loops
+                .get(f.outer_loop)
+                .is_none_or(|l| !brep.half_edges.contains_key(l.half_edge))
+    });
+    let max_subdivisions = if seam_spine || boundaryless {
+        crate::adaptive::chord_station_count(
+            surface,
+            u_range,
+            v_range,
+            options.chord_height,
+            (max_subdivisions, 4096),
+        )
+    } else {
+        max_subdivisions
     };
     let cells = adaptive_subdivide_bounded(
         surface,
