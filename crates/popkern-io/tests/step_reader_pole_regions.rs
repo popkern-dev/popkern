@@ -130,18 +130,13 @@ fn meshed_volume(text: &str, label: &str) -> (f64, [f64; 3]) {
     (volume.abs(), moment.map(|m| m / volume))
 }
 
-/// The sphere chart's interior lattice is capped at `max_subdivisions`
-/// (PK-647): faces covering most of a radius-10 sphere facet past the
-/// chord height and mesh up to 2e-3 short.
-const LARGE_SPHERE_FACE_BOUND: f64 = 3e-3;
-
 fn check_lune(a: f64, phi: f64) {
     let r = 10.0;
     let label = format!("lune a {a} phi {phi}");
     let (got, centroid) = meshed_volume(&lune_step(r, a, phi), &label);
     let exact = phi * 2.0 / 3.0 * r * r * r;
     assert!(
-        (got - exact).abs() < LARGE_SPHERE_FACE_BOUND * exact,
+        (got - exact).abs() < 2e-3 * exact,
         "{label}: volume {got} vs {exact}"
     );
     // The solid's centroid lies on the bisecting half-plane: this names

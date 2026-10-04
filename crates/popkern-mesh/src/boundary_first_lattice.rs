@@ -24,7 +24,12 @@ pub(super) fn lattice_counts(
 ) -> (usize, usize) {
     match surface {
         SurfaceGeometry::Nurbs(_) => directional_stations(surface, u_span, v_span, options),
-        SurfaceGeometry::Torus { .. } => {
+        // Doubly curved analytic charts: the square grid's diagonal
+        // probe is capped at max_subdivisions, so a face covering most
+        // of a sphere faceted past the chord height (r 10: 1.7e-2 at a
+        // 0.005 chord, the rest of a sphere 2.0e-3 short; PK-647);
+        // per-direction iso-line sag decides, never below the grid.
+        SurfaceGeometry::Torus { .. } | SurfaceGeometry::Sphere { .. } => {
             let (n_u, n_v) = directional_stations(surface, u_span, v_span, options);
             (n_u.max(n), n_v.max(n))
         }

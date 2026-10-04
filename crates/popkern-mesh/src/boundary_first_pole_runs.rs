@@ -152,7 +152,7 @@ fn assemble(
             // pole; its span begins at the pole vertex.
             let leaving = ring.sources[run[run.len() - 1]];
             let span = (leaving.0, leaving.1, leaving.1);
-            let steps = ((to - from).abs() / (period / 64.0)).ceil().max(1.0) as usize;
+            let steps = ((to - from).abs() / (period / 128.0)).ceil().max(1.0) as usize;
             for k in 0..=steps {
                 out.uv
                     .push((from + (to - from) * k as f64 / steps as f64, v));
@@ -247,7 +247,7 @@ pub(in crate::boundary_first) fn enclose_both_poles(
     let span = (source.0, source.1, source.1);
     let ladder = super::wall_stations(surface, u0, (PI, 0.0), chord_height, longest_step);
     let row = |from: f64, to: f64| -> Vec<f64> {
-        let steps = ((to - from).abs() / (TAU / 64.0)).ceil().max(1.0) as usize;
+        let steps = ((to - from).abs() / (TAU / 128.0)).ceil().max(1.0) as usize;
         (0..steps)
             .map(|k| from + (to - from) * k as f64 / steps as f64)
             .collect()

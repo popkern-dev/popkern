@@ -131,7 +131,7 @@ fn assemble(
                 let t_mid = 0.5 * (t_i + t_j);
                 out.sources.push((edge, t_i, t_mid));
                 let point: Point3 = surface.point_at(u, v_pole);
-                let stations = (step.abs() / (TAU / 32.0)).ceil().max(1.0) as usize;
+                let stations = (step.abs() / (TAU / 128.0)).ceil().max(1.0) as usize;
                 for s in 0..=stations {
                     out.uv.push((u + step * s as f64 / stations as f64, v_pole));
                     out.pos.push(point);

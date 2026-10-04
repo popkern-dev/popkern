@@ -106,6 +106,34 @@ fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
         0,
         "n {n:?} d {d}: watertight"
     );
+    // Facets on the sphere sit within the lattice's design bound:
+    // iso-line chords meet the chord height, so a cell's diagonal facet
+    // sags up to about twice it (bounding facet deviation itself is
+    // PK-650). The chart lattice capped at max_subdivisions left 1.7e-2
+    // (3.4x) on faces covering most of the sphere (PK-647).
+    let chord = popkern_mesh::TessellationOptions::default().chord_height;
+    let worst_sag = mesh
+        .triangles
+        .iter()
+        .map(|t| t.map(|i| mesh.vertices[i].position))
+        .filter(|[a, b, c]| {
+            [a, b, c]
+                .iter()
+                .all(|p| ((p.x * p.x + p.y * p.y + p.z * p.z).sqrt() - r).abs() < 1e-6)
+        })
+        .map(|[a, b, c]| {
+            let (x, y, z) = (
+                (a.x + b.x + c.x) / 3.0,
+                (a.y + b.y + c.y) / 3.0,
+                (a.z + b.z + c.z) / 3.0,
+            );
+            r - (x * x + y * y + z * z).sqrt()
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(
+        worst_sag <= 2.0 * chord,
+        "n {n:?} d {d}: a facet sags {worst_sag} off the sphere"
+    );
     let h = r - d;
     let exact = std::f64::consts::PI * h * h * (3.0 * r - h) / 3.0;
     let got = mesh_volume(&mesh);
@@ -149,8 +177,8 @@ fn a_cap_clear_of_both_poles() {
 /// Measured before: meshed the cap, 904 of 3284.
 #[test]
 fn the_rest_of_a_sphere_beyond_a_cap_clear_of_both_poles() {
-    check_dome_within([-1.0, 0.0, 0.0], -4.0, REST_OF_SPHERE_BOUND);
-    check_dome_within([0.3, -0.5, 0.2], -6.0, REST_OF_SPHERE_BOUND);
+    check_dome([-1.0, 0.0, 0.0], -4.0);
+    check_dome([0.3, -0.5, 0.2], -6.0);
 }
 
 /// PK-646: a rim circle through a chart pole runs up to the pole on
@@ -164,7 +192,7 @@ fn a_cap_whose_rim_passes_through_the_north_pole() {
     let n = [1.0, 0.0, 1.0];
     let d = 10.0 * std::f64::consts::FRAC_1_SQRT_2; // the plane holds (0, 0, r)
     check_dome(n, d);
-    check_dome_within([-n[0], -n[1], -n[2]], -d, REST_OF_SPHERE_BOUND);
+    check_dome([-n[0], -n[1], -n[2]], -d);
 }
 
 #[test]
@@ -172,15 +200,8 @@ fn a_cap_whose_rim_passes_through_the_south_pole() {
     let n = [0.0, 1.0, -1.0];
     let d = 10.0 * std::f64::consts::FRAC_1_SQRT_2;
     check_dome(n, d);
-    check_dome_within([-n[0], -n[1], -n[2]], -d, REST_OF_SPHERE_BOUND);
+    check_dome([-n[0], -n[1], -n[2]], -d);
 }
-
-/// The rest of the sphere (85 % of it) meshes 2.0e-3 short of the
-/// exact volume: the sphere chart's interior lattice is capped at
-/// `max_subdivisions`, leaving facets up to 1.7e-2 off the surface at
-/// a 0.005 chord height — the same cap leaves the larger-than-a-
-/// hemisphere dome 1.8e-3 short (PK-647 tracks the lattice cap).
-const REST_OF_SPHERE_BOUND: f64 = 3e-3;
 
 #[test]
 fn hemispheres_whose_rim_is_a_meridian_circle() {
