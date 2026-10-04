@@ -5,7 +5,7 @@
 //! (a curvature-discontinuous seam shows as a value step across the
 //! seam; an inflection band shows as a sign change), and the field is
 //! the substrate for false-color rendering in popkern-viz and the
-//! playground viewer.
+//! popkern live viewer.
 //!
 //! Curvature is evaluated ANALYTICALLY at each mesh vertex's recorded
 //! surface parameters through [`SurfaceEval`] first and second

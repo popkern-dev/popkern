@@ -4,7 +4,7 @@
 //!
 //! Each fixture is rendered once into a deferred zebra frame and read
 //! in both normal sources — interpolated display-mesh normals (what
-//! the playground shows) and the faces' own normals at the pixel's ray
+//! popkern live shows) and the faces' own normals at the pixel's ray
 //! hit. Per seam class (cap–cap, cap rim = cap–strip, strip–support,
 //! strip–strip) the image-space seam readings are reported for both
 //! views: the NORMAL jump (radians, both sides extrapolated to the

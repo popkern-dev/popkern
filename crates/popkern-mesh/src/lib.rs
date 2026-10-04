@@ -100,7 +100,7 @@ impl TessellationOptions {
 
 /// The angular facet bound of [`TessellationOptions::display`]: 12°.
 /// Reflection lines sampled at this density stay visually straight on
-/// G2 blends at the playground's 16-stripe zebra frequency while a
+/// G2 blends at popkern live's 16-stripe zebra frequency while a
 /// quarter-round costs 8 facets.
 pub const DISPLAY_MAX_FACET_ANGLE: f64 = 12.0 * std::f64::consts::PI / 180.0;
 

@@ -1,0 +1,6 @@
+{
+  "name": "popkern-live-page",
+  "private": true,
+  "type": "module",
+  "description": "Static assets of the popkern popkern live (no build step; the wasm bundle comes from tools/build-live.sh)"
+}

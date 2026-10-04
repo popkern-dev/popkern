@@ -1,7 +1,7 @@
 //! Angular facet bound (`TessellationOptions::max_facet_angle`) and
 //! the display preset: acceptance gates on real blend fixtures.
 //!
-//! - A variable-radius round (0.04 → 0.18, the playground's tapered
+//! - A variable-radius round (0.04 → 0.18, popkern live's tapered
 //!   fillet) meshed at display quality keeps every triangle's
 //!   vertex-normal spread within the bound, watertight.
 //! - At DEFAULT options (chord-only) the same strip must still honour

@@ -88,7 +88,7 @@ impl Model {
 
     /// The document as `.pkn` bytes at the current format version —
     /// exactly what [`Model::save`] writes. Hosts without a filesystem
-    /// (the browser playground) hand these to a download.
+    /// (popkern live) hand these to a download.
     pub fn to_pkn_bytes(&self) -> Result<Vec<u8>, ScriptError> {
         Ok(self.tree.save()?)
     }
@@ -402,8 +402,8 @@ impl Model {
 
     /// The whole model as STEP Part 21 bytes with `name` as the
     /// product name — what [`Model::to_step`] writes for a path whose
-    /// file stem is `name`. Hosts without a filesystem (the browser
-    /// playground) hand these to a download.
+    /// file stem is `name`. Hosts without a filesystem (popkern
+    /// live) hand these to a download.
     pub fn to_step_bytes(&mut self, name: &str) -> Result<Vec<u8>, ScriptError> {
         let parts = self.to_parts_all()?;
         Ok(popkern_part::step_bytes_of(&parts, name)?)

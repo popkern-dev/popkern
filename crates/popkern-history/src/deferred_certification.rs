@@ -4,7 +4,7 @@
 //! cheap and always measured, and interval certificates that bound the
 //! residuals over each whole seam — often 95% of a G2 fillet feature's
 //! time. Construction never depends on the certificate, so a host that
-//! must show the part first (the browser playground) sets
+//! must show the part first (popkern live) sets
 //! [`ContinuityCertification::Deferred`]: replay serves on sampled
 //! evidence, marks the gated seams deferred, and keeps each such
 //! feature's exact output BRep here. The host then certifies one seam

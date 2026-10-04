@@ -10,7 +10,7 @@
 //! either normal source:
 //!
 //! - [`ZebraNormals::Mesh`]: the interpolated vertex normal (what the
-//!   playground's GPU shader shows);
+//!   popkern live's GPU shader shows);
 //! - [`ZebraNormals::Surface`]: the face surface's own normal
 //!   evaluated at the interpolated `(u, v)`, in the face's facing
 //!   sense, with the one-sided limit at chart singularities

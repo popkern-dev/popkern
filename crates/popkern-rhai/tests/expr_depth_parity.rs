@@ -2,7 +2,7 @@
 //! build profile agrees. Rhai's own defaults are lower in debug (32
 //! global / 16 in function bodies) than release (64 / 32); left
 //! unpinned, a computed-geometry script with deep arithmetic could
-//! parse in the release wasm playground yet be rejected by a debug
+//! parse in the release wasm build of popkern live yet be rejected by a debug
 //! `cargo test` gate — a portability trap where the test bar is
 //! stricter than production. `build_engine` calls
 //! `set_max_expr_depths(64, 32)`; these tests fail (in debug) if that

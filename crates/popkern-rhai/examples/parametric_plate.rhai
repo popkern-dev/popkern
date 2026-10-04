@@ -1,5 +1,5 @@
 // A plate driven by parameters and an expression, with a named
-// configuration that overrides the wall: the playground's sliders
+// configuration that overrides the wall: popkern live's sliders
 // edit `wall` and `span`; the "heavy" configuration doubles the wall.
 let m = model();
 m.param("wall", 0.3, "m");

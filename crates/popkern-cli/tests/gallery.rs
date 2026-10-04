@@ -1,8 +1,8 @@
 //! PK-412: the examples gallery cannot rot. One table drives three
 //! things — the native gate on every script (served, no failures, no
 //! downgraded blends, watertight display mesh within the angular facet
-//! bound, STEP through the OCC oracle when present), the manifest the playground page reads
-//! (`web/playground/examples.json` + the script copies beside it),
+//! bound, STEP through the OCC oracle when present), the manifest the popkern live page reads
+//! (`web/live/examples.json` + the script copies beside it),
 //! and the thumbnails. `POPKERN_UPDATE_GALLERY=1` regenerates the
 //! manifest, copies and thumbnails; without it the test fails on any
 //! drift, so a script edit that changes a feature count is a diff in
@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use popkern_cli::{Outcome, execute, parse_args};
-use popkern_playground::{HostOptions, Session};
+use popkern_live::{HostOptions, Session};
 use serde_json::{Value, json};
 
 /// The gallery: file stem, title, blurb, expected feature count, and
@@ -252,7 +252,7 @@ fn examples_dir() -> PathBuf {
 }
 
 fn page_dir() -> PathBuf {
-    root().join("web/playground")
+    root().join("web/live")
 }
 
 fn updating() -> bool {
@@ -376,7 +376,7 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
     let committed = std::fs::read_to_string(&manifest_path).unwrap_or_default();
     assert_eq!(
         committed, manifest_text,
-        "web/playground/examples.json drifted from the gallery table: run with \
+        "web/live/examples.json drifted from the gallery table: run with \
          POPKERN_UPDATE_GALLERY=1"
     );
     let committed: Value = serde_json::from_str(&committed).expect("manifest json");
@@ -385,7 +385,7 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
         let copy = std::fs::read(copies.join(format!("{stem}.rhai"))).unwrap_or_default();
         assert_eq!(
             source, copy,
-            "[{stem}] web/playground/examples copy drifted: run with POPKERN_UPDATE_GALLERY=1"
+            "[{stem}] web/live/examples copy drifted: run with POPKERN_UPDATE_GALLERY=1"
         );
         assert!(
             copies.join(format!("{stem}.png")).exists(),

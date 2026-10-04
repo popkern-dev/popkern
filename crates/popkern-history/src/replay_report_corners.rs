@@ -1,6 +1,6 @@
 //! Per-corner evidence for a served fillet (PK-603): which
-//! construction closed each corner, so a document (and the
-//! playground) can show what a corner-cap preference actually got.
+//! construction closed each corner, so a document (and
+//! popkern live) can show what a corner-cap preference actually got.
 //! Derived from the kernel's corner patches and its mitre-fallback
 //! warnings; the kernel records stay the single source of truth.
 

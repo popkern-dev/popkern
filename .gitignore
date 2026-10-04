@@ -63,6 +63,6 @@ core.[0-9]*
 !.env.example
 target-wt/
 
-# Built wasm bundle of the browser playground (tools/build-playground.sh)
-web/playground/pkg/
-web/playground/bakes/
+# Built wasm bundle of popkern live (tools/build-live.sh)
+web/live/pkg/
+web/live/bakes/

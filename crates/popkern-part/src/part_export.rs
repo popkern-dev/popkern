@@ -1,6 +1,6 @@
 //! STEP export of one [`Part`] or of several as one document: the path
 //! form, the in-memory bytes form (hosts without a filesystem — the
-//! browser playground — hand the bytes to a download), and the
+//! popkern live — hand the bytes to a download), and the
 //! round-trip gate.
 //!
 //! Several parts export as ONE product whose shape representation
@@ -28,7 +28,7 @@ impl Part {
     /// The STEP solid as Part 21 bytes, with `name` as the product
     /// name (the file stem when written to disk). This is the in-memory
     /// form [`Part::export_step`] writes: a host without a filesystem
-    /// (the browser playground) hands these bytes to a download.
+    /// (popkern live) hands these bytes to a download.
     ///
     /// # Errors
     ///

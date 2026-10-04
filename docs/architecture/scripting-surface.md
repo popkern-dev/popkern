@@ -31,7 +31,7 @@ format-compatibility ADR `docs/decisions/2026-08-30-pkn-format-compatibility-pol
 | Mark | Meaning |
 |---|---|
 | `stable` | Frozen for the launch train: name, parameter shape, and semantics change only through a change-log entry with a deprecation period. The launch `stable` set is deliberately small: profiles, extrude/revolve, booleans, fillet/chamfer, shell, parameters, labels, save/open/export, replay + gates. |
-| `preview` | Shipped and usable, subject to change; docs and the playground label it as such. |
+| `preview` | Shipped and usable, subject to change; docs and popkern live label it as such. |
 | `reserved` | Named here so skins do not squat the spelling; not implemented in this phase. |
 
 ### 1.2 Naming

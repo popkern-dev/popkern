@@ -1,5 +1,5 @@
 //! How a hosted run ended — one class partition shared by every host
-//! (the `popkern` command, the browser playground, the daemon): the
+//! (the `popkern` command, popkern live, the daemon): the
 //! §10 error classes are sorted into *the script was wrong*, *the
 //! kernel declined a feature*, and *a gate or export failed after the
 //! script ran*, and each partition owns one process exit code.

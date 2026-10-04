@@ -7,7 +7,7 @@ must serve (or raise exactly the error class its comment names), and
 every stable verb, selector predicate and error class of the
 [scripting surface](../architecture/scripting-surface.md) is named
 here by its exact spelling (`crates/popkern-rhai/tests/guide.rs`
-checks both). Try any block in popkern live (`web/playground/`) or
+checks both). Try any block in popkern live (`web/live/`) or
 with `popkern run file.rhai --png out.png --step out.step`.
 
 ## 1. The mental model in five sentences
@@ -400,7 +400,7 @@ line per hint. In a script, `try`/`catch` receives the same map.
 | `DocumentError`, `IoFailed`, `NotApplicable` | a document that will not open, a path that will not write, an op the body cannot take | `reason` / `path`, `detail` |
 | `NotWatertight`, `ValidationFailed` | a gate failed | `open_edges` / `feature`, `detail`, `issues` |
 | `CoreError` | a kernel invariant tripped (report it) | `detail` |
-| `Cancelled`, `BudgetExceeded` | the host stopped the run (playground and CLI budgets: `budget` is `operations` or `wall_clock`) | `budget` |
+| `Cancelled`, `BudgetExceeded` | the host stopped the run (popkern live and CLI budgets: `budget` is `operations` or `wall_clock`) | `budget` |
 | `SyntaxError` | Rhai could not parse the script | position |
 
 ```rhai

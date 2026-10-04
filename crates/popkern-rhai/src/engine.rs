@@ -23,10 +23,10 @@ pub fn build_engine(print: impl Fn(&str) + 'static) -> Engine {
     // global / 16 in function bodies) than release (64 / 32), so a
     // computed-geometry script — `a + b*c/d` chains and nested-array
     // point literals, which naturally nest deep — could parse in the
-    // release wasm playground yet be rejected by a debug `cargo test`
+    // release wasm build of popkern live yet be rejected by a debug `cargo test`
     // gate, a portability trap where the test bar is stricter than
     // production. These are Rhai's release defaults: a wasm-safe
-    // ceiling (the untrusted playground already parses at 64/32) that
+    // ceiling (untrusted popkern live already parses at 64/32) that
     // still admits the arithmetic depth such scripts want. Parse-depth
     // is a stack-overflow guard, not a runtime lever — runtime is
     // bounded separately by `set_max_operations`.

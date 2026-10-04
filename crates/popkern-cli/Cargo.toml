@@ -26,5 +26,5 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 # Host parity gate: the browser engine and the command share one class
-# partition (crates/popkern-cli/tests/playground_parity.rs).
-popkern-playground = { path = "../popkern-playground" }
+# partition (crates/popkern-cli/tests/live_parity.rs).
+popkern-live = { path = "../popkern-live" }

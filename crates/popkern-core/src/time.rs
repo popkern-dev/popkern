@@ -11,7 +11,7 @@
 //! - Native and WASI targets: wraps `std::time::Instant`; timing is
 //!   always available.
 //! - `wasm32-unknown-unknown`: reads a host-registered millisecond
-//!   clock (the browser playground registers `performance.now` at
+//!   clock (popkern live registers `performance.now` at
 //!   startup via [`register_monotonic_clock`]). With no registered
 //!   clock, [`Stopwatch::elapsed`] returns `None` — telemetry is
 //!   honestly absent, never a fabricated zero.

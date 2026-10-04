@@ -263,12 +263,7 @@ fn assembly_sits_above_script() {
         declares_dependency(&cargo_toml, "popkern-script"),
         "popkern-assembly must depend on popkern-script"
     );
-    for above in [
-        "popkern-rhai",
-        "popkern-cli",
-        "popkern-playground",
-        "popkern-viz",
-    ] {
+    for above in ["popkern-rhai", "popkern-cli", "popkern-live", "popkern-viz"] {
         assert!(
             !declares_dependency(&cargo_toml, above),
             "popkern-assembly must not depend on {above}"
@@ -375,7 +370,7 @@ fn cli_sits_above_rhai() {
         "popkern-script",
         "popkern-assembly",
         "popkern-rhai",
-        "popkern-playground",
+        "popkern-live",
         "popkern-examples",
     ] {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
@@ -387,24 +382,24 @@ fn cli_sits_above_rhai() {
     }
 }
 
-/// `popkern-playground` is the browser engine over the Rhai skin: it
+/// `popkern-live` is the browser engine over the Rhai skin: it
 /// may depend on the skin, the recorder and the mesher; never on the
 /// native viewer (browsers render kernel triangles in JS) and nothing
 /// below the command tier depends on it.
 #[test]
-fn playground_sits_above_rhai() {
-    let cargo_toml_path = workspace_root().join("crates/popkern-playground/Cargo.toml");
+fn live_sits_above_rhai() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-live/Cargo.toml");
     let cargo_toml =
-        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-playground/Cargo.toml");
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-live/Cargo.toml");
     for dep in ["popkern-rhai", "popkern-script", "popkern-mesh"] {
         assert!(
             declares_dependency(&cargo_toml, dep),
-            "popkern-playground must depend on {dep}"
+            "popkern-live must depend on {dep}"
         );
     }
     assert!(
         !declares_dependency(&cargo_toml, "popkern-viz"),
-        "popkern-playground must not depend on popkern-viz (browsers render in JS)"
+        "popkern-live must not depend on popkern-viz (browsers render in JS)"
     );
     for below in [
         "popkern-core",
@@ -428,8 +423,8 @@ fn playground_sits_above_rhai() {
         let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
             .unwrap_or_default();
         assert!(
-            !declares_dependency(&toml, "popkern-playground"),
-            "{below} must not depend on popkern-playground (hosts are the top of the graph)"
+            !declares_dependency(&toml, "popkern-live"),
+            "{below} must not depend on popkern-live (hosts are the top of the graph)"
         );
     }
 }

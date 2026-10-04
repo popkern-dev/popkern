@@ -44,7 +44,7 @@ use crate::blend_continuity_evidence::{BlendContinuityEvidence, ContinuityGates}
 ///
 /// Construction never depends on the certificate: it only upgrades a
 /// sampled classification to a rigorous one (or overturns it). A host
-/// that must show the part first (the browser playground) defers
+/// that must show the part first (popkern live) defers
 /// certification and runs it afterwards, seam by seam, against the
 /// same BRep; batch callers (the CLI, tests, the part API) certify
 /// inline.

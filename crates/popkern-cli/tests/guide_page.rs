@@ -1,5 +1,5 @@
 //! PK-413: popkern live serves the scripting guide as a page.
-//! `web/playground/guide.html` is generated from
+//! `web/live/guide.html` is generated from
 //! `docs/reference/scripting-guide.md` by the small Markdown renderer
 //! below (headings, paragraphs, lists, tables, fenced code, inline
 //! code/bold/links — the subset the guide uses; no dependency).
@@ -193,7 +193,7 @@ fn the_guide_page_is_the_rendered_guide() {
     let markdown =
         std::fs::read_to_string(root().join("docs/reference/scripting-guide.md")).expect("guide");
     let html = page(&render(&markdown));
-    let path = root().join("web/playground/guide.html");
+    let path = root().join("web/live/guide.html");
     if std::env::var("POPKERN_UPDATE_GALLERY").is_ok_and(|v| v == "1") {
         std::fs::write(&path, &html).expect("write guide.html");
         return;
@@ -201,7 +201,7 @@ fn the_guide_page_is_the_rendered_guide() {
     let committed = std::fs::read_to_string(&path).unwrap_or_default();
     assert_eq!(
         committed, html,
-        "web/playground/guide.html drifted from docs/reference/scripting-guide.md: run with \
+        "web/live/guide.html drifted from docs/reference/scripting-guide.md: run with \
          POPKERN_UPDATE_GALLERY=1"
     );
     // Sanity of the render: every heading and every code block made it.

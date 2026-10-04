@@ -3331,9 +3331,9 @@ dependencies = [
  "glam",
  "popkern-assembly",
  "popkern-core",
+ "popkern-live",
  "popkern-mesh",
  "popkern-part",
- "popkern-playground",
  "popkern-rhai",
  "popkern-script",
  "popkern-viz",
@@ -3450,6 +3450,24 @@ name = "popkern-lints"
 version = "0.1.0"
 
 [[package]]
+name = "popkern-live"
+version = "0.1.0"
+dependencies = [
+ "js-sys",
+ "popkern-assembly",
+ "popkern-core",
+ "popkern-measure",
+ "popkern-mesh",
+ "popkern-part",
+ "popkern-rhai",
+ "popkern-script",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "popkern-measure"
 version = "0.1.0"
 dependencies = [
@@ -3495,24 +3513,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "ttf-parser",
-]
-
-[[package]]
-name = "popkern-playground"
-version = "0.1.0"
-dependencies = [
- "js-sys",
- "popkern-assembly",
- "popkern-core",
- "popkern-measure",
- "popkern-mesh",
- "popkern-part",
- "popkern-rhai",
- "popkern-script",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "wasm-bindgen",
 ]
 
 [[package]]

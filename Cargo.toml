@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-draft", "crates/popkern-blend", "crates/popkern-sweep", "crates/popkern-shell", "crates/popkern-fastener", "crates/popkern-io", "crates/popkern-mesh", "crates/popkern-part", "crates/popkern-measure", "crates/popkern-viz", "crates/popkern-examples", "crates/popkern-constraint", "crates/popkern-sketch", "crates/popkern-history", "crates/popkern-script", "crates/popkern-assembly", "crates/popkern-rhai", "crates/popkern-cli", "crates/popkern-playground", "tools/lints", "tools/structural-tests"]
+members = ["crates/popkern-core", "crates/popkern-bool", "crates/popkern-draft", "crates/popkern-blend", "crates/popkern-sweep", "crates/popkern-shell", "crates/popkern-fastener", "crates/popkern-io", "crates/popkern-mesh", "crates/popkern-part", "crates/popkern-measure", "crates/popkern-viz", "crates/popkern-examples", "crates/popkern-constraint", "crates/popkern-sketch", "crates/popkern-history", "crates/popkern-script", "crates/popkern-assembly", "crates/popkern-rhai", "crates/popkern-cli", "crates/popkern-live", "tools/lints", "tools/structural-tests"]
 # Probe crates build on their own (own lockfile, own deps such as pyo3)
 # so they never enter the kernel build or the cargo-deny graph.
 exclude = ["probes/pyo3-diagnostics"]
@@ -30,11 +30,11 @@ debug = "line-tables-only"
 [profile.dev]
 debug = "line-tables-only"
 
-# The browser playground bundle (tools/build-playground.sh): release
+# The popkern live bundle (tools/build-live.sh): release
 # codegen with whole-program LTO and one codegen unit, which is where
 # wasm size and speed both come from; symbols stripped (the page
 # never symbolicates a trap — the envelope carries the diagnostics).
-[profile.playground]
+[profile.live]
 inherits = "release"
 lto = "fat"
 codegen-units = 1

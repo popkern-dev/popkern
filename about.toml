@@ -32,7 +32,7 @@ accepted = ["AGPL-3.0-only"]
 [popkern-cli]
 accepted = ["AGPL-3.0-only"]
 
-[popkern-playground]
+[popkern-live]
 accepted = ["AGPL-3.0-only"]
 
 [popkern-core]
