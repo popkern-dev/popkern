@@ -48,7 +48,26 @@ redirect pages pointing here.
 | File | Role |
 |---|---|
 | `index.html`, `style.css` | The page and its CSP (`'self'` for everything; `'wasm-unsafe-eval'` for the module) |
-| `app.js` | Page logic: editor → worker → viewer, report, parameters, downloads, show-as-code, error overlay |
+| `app.js` | The page controller (`window.popkernLive`): owns the build lifecycle — run, bake shortcut, cancel, parameter replay — and the state the modules below share |
+| `controls.js` | Wires the top bar, viewer bar, draft notice and dialogs to the controller |
+| `local-store.js` | Everything kept in `localStorage` behind one guarded accessor: the draft, the held-aside draft, the time limit, and the one-time `popkern-playground-*` key adoption |
+| `drafts.js` | Which document a visit opens (pre-built first, an edited script held aside), restore, reset, opening an example |
+| `document-tab.js` | The open document: its title, file stem and edited mark; an imported STEP placeholder |
+| `gallery.js` | The examples dropdown from `examples.json`, example and default-script fetches |
+| `time-limit.js` | The build time-limit presets, the worker budgets they map to, and applying a change |
+| `status-line.js` | The status line, the pick readout, served-model wording, page-error reporting |
+| `outcome-overlay.js` | The viewport overlay for a build that did not serve, with the line jump |
+| `report-table.js` | The feature tree rows (blend continuity measured vs requested) and its summary |
+| `params-panel.js` | Parameter sliders and number boxes, scoped to an opened assembly part |
+| `model-display.js` | A served model or pre-built bake landing on screen (viewer, overlay, status) |
+| `continuity-certification.js` | Deferred seam certification in slices after a served build |
+| `analysis-mesh.js` | The zebra view's finer analysis mesh, fetched once per served model |
+| `exports.js` | STEP / `.pkn` downloads (tree visibility saved into the `.pkn`) and show-as-code |
+| `clearance-panel.js` | Interference and clearance check and its pair list |
+| `step-import.js` | Open STEP as a view-only assembly |
+| `assembly-panel.js` | The assembly tree: visibility, selection, open part |
+| `instances.js` | Assembly occurrences in the viewer: per-occurrence drawing, placement, explode directions |
+| `shading.js` | Viewer shading: face palette, zebra shaders, curvature map |
 | `editor.js` | Dependency-free editor (textarea + highlighted mirror + gutter) |
 | `viewer.js` | three.js scene: the view modes (CAD grey with hover pre-highlight, face colours, zebra, curvature), face and edge picking |
 | `edges.js` | Face-boundary edges from the mesh buffers, grouped by the face pair they separate |

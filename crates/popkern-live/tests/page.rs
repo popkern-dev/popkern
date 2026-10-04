@@ -359,21 +359,20 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
 
 #[test]
 fn page_scripts_reach_the_network_only_for_same_origin_assets() {
-    let own = [
-        "app.js",
-        "assembly-panel.js",
-        "bakes.js",
-        "edges.js",
-        "editor.js",
-        "instances.js",
-        "orbit.js",
-        "shading.js",
-        "viewer.js",
-        "worker.js",
-        "worker-core.js",
-        "worker-host.js",
-    ];
-    for file in own {
+    // Every page module (each top-level `.js` file; `vendor/` is
+    // pinned by hash below), so a new module is vetted without being
+    // listed here.
+    let mut own: Vec<String> = std::fs::read_dir(page())
+        .expect("page dir")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".js"))
+        .collect();
+    own.sort();
+    for core in ["app.js", "local-store.js", "worker.js", "worker-host.js"] {
+        assert!(own.iter().any(|f| f == core), "{core} missing: {own:?}");
+    }
+    for file in &own {
         let source = read(page().join(file));
         let violations = page_rows::network_violations(&source);
         assert!(violations.is_empty(), "{file}: {violations:?}");
@@ -407,10 +406,17 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
             "script tag not same-origin: {line}"
         );
     }
-    // Drafts persist only under try/catch and only locally.
-    let app = read(page().join("app.js"));
-    assert!(app.contains("localStorage"));
-    assert!(app.contains("function storage(action) {\n  try {"));
+    // Drafts persist only under try/catch and only locally: one module
+    // owns `localStorage`, behind a guarded accessor.
+    let store = read(page().join("local-store.js"));
+    assert!(store.contains("localStorage"));
+    assert!(store.contains("function storage(action) {\n  try {"));
+    for file in own.iter().filter(|f| *f != "local-store.js") {
+        assert!(
+            !read(page().join(file)).contains("localStorage"),
+            "{file} reaches localStorage outside local-store.js"
+        );
+    }
 }
 
 #[test]
