@@ -26,8 +26,11 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::FaceHandle;
 
 use super::BoundaryRing;
+#[path = "boundary_first_ruled_strip_interior.rs"]
+mod interior;
 use crate::TessellationOptions;
 use crate::mesh::{FaceMesh, MeshVertex};
+use interior::resolves_interior;
 
 /// One boundary chain of the rectangle decomposition: ring indices
 /// (into the single ring's point list) ordered along the chain,
@@ -116,13 +119,22 @@ pub(super) fn try_tessellate(
         );
         pm.distance_to(&chord_mid) <= options.chord_height
     };
-    let swap = if straight_along(false) {
-        false
-    } else if straight_along(true) {
-        true
-    } else {
-        return None; // doubly curved — not this path's class
-    };
+    // A DOUBLY curved four-sided chart (a slit torus fillet band)
+    // takes the same tensor lattice: protecting disks evacuated a
+    // 662-long 1.26-wide band (facets 0.21 off a 0.8 tube) and
+    // isotropic refinement cost 5x the triangles (PK-650).
+    let doubly_curved = !straight_along(false) && !straight_along(true);
+    // Analytic only: NURBS thread flanks' folded seam charts tore
+    // (79-202 open edges on fasteners; PK-651 owns NURBS strips).
+    if doubly_curved
+        && !matches!(
+            surface,
+            SurfaceGeometry::Torus { .. } | SurfaceGeometry::Sphere { .. }
+        )
+    {
+        return None;
+    }
+    let swap = !doubly_curved && !straight_along(false);
     // Chart coordinates (a, b): b runs along the ruling.
     let chart: Vec<(f64, f64)> = ring
         .uv
@@ -152,6 +164,13 @@ pub(super) fn try_tessellate(
         (du.max(1e-9), dv.max(1e-9))
     };
     let diag = (su * (u1 - u0)).hypot(sv * (v1 - v0)).max(1e-12);
+    // Doubly curved: anisotropic only (a near-square wavy face meshed
+    // 1.03% short on tensor diagonals vs 0.73% on Delaunay; PK-650).
+    let (ext_u, ext_v) = (su * (u1 - u0), sv * (v1 - v0));
+    if doubly_curved && ext_u.max(ext_v) < 8.0 * ext_u.min(ext_v) {
+        trace("doubly curved chart is not anisotropic");
+        return None;
+    }
 
     // Corner detection on the metric polyline: a corner is a turn
     // sharper than 45°. A clean rectangle has exactly four.
@@ -292,7 +311,7 @@ pub(super) fn try_tessellate(
     let aligned = cross_a.len() == cross_b.len()
         && (0..cross_a.len())
             .all(|i| su * (chart[cross_a[i]].0 - chart[cross_b[i]].0).abs() <= 0.5 * gap_u);
-    if !aligned && !swap {
+    if !aligned && !swap && !doubly_curved {
         // Chart-ruled-along-v strips with misaligned end chains keep
         // the Delaunay path: its encroachment rounds equalize the
         // SHARED rim samples (a drafted cone's two circles), which the
@@ -303,6 +322,14 @@ pub(super) fn try_tessellate(
         // edges). The zip below serves only TRANSPOSED strips, whose
         // Delaunay alternative evacuates the interior outright.
         trace("end chains misaligned on a v-ruled chart");
+        return None;
+    }
+
+    // Boundary stations must resolve the surface mid-chart too (a wavy
+    // plate's waves are interior: the lattice flattened them; PK-650).
+    let crosses = [cross_a.as_slice(), cross_b.as_slice()];
+    if doubly_curved && !resolves_interior(&chart, crosses, rail_l, &eval, options.chord_height) {
+        trace("boundary stations under-sample a doubly curved interior");
         return None;
     }
 

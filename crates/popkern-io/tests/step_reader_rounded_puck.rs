@@ -208,10 +208,56 @@ fn washer_step(a: f64, w: f64, r: f64, h: f64) -> String {
     text
 }
 
+/// The worst distance from a curved face's facet centroid to its
+/// surface, over the solid's tessellation.
+fn worst_facet_deviation(text: &str) -> f64 {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
+    let solid = imported
+        .document
+        .products
+        .iter()
+        .flat_map(|p| p.shapes.iter())
+        .flat_map(|s| s.solids.iter().cloned())
+        .next()
+        .expect("solid");
+    let mesh = popkern_mesh::tessellate(&solid, &popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut worst = 0.0_f64;
+    for (ti, t) in mesh.triangles.iter().enumerate() {
+        let Some(sof) = solid.faces[mesh.face_map[ti]].surface.as_ref() else {
+            continue;
+        };
+        if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+            continue;
+        }
+        let [a, b, c] = t.map(|i| mesh.vertices[i].position);
+        let g = popkern_core::geometry::Point3::new(
+            (a.x + b.x + c.x) / 3.0,
+            (a.y + b.y + c.y) / 3.0,
+            (a.z + b.z + c.z) / 3.0,
+        );
+        if let Some((u, v)) = sof.geometry.closest_point(&g) {
+            worst = worst.max(sof.geometry.point_at(u, v).distance_to(&g));
+        }
+    }
+    worst
+}
+
 #[test]
 fn a_thin_washer_with_a_rounded_bore_keeps_its_bore_strip_outward() {
     use std::f64::consts::PI;
     let (a, w, r, h) = (100.0, 0.5, 1.5, 6.0);
+    // PK-650: the fillet bands are 628 long and 2.4 wide; protecting
+    // disks of their rim segments evacuated the Delaunay interior and
+    // facets spanned rim to rim (turbine: 0.21 off a 0.8 tube). The
+    // tensor path meshes them within the lattice's design bound.
+    let chord = popkern_mesh::TessellationOptions::default().chord_height;
+    let deviation = worst_facet_deviation(&washer_step(a, w, r, h));
+    assert!(
+        deviation <= 2.0 * chord,
+        "a facet lies {deviation} off its surface"
+    );
     let got = signed_meshed_volume(&washer_step(a, w, r, h));
     let rect = (w + r) * h * 0.5 * (2.0 * a - r + w);
     let spandrel = r * r * (a - 0.5 * r) - (PI * r * r / 4.0) * (a - 4.0 * r / (3.0 * PI));
