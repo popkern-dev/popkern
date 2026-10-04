@@ -25,6 +25,27 @@ use crate::node::FeatureId;
 use crate::parameter::{ParameterId, ParameterTable};
 
 impl FeatureTree {
+    /// The edited feature's body just before and just after timeline
+    /// position `pos` in the last replay's chain — only when that chain
+    /// is still the current tree's through `pos` (same keys under the
+    /// current parameter values), so the route never edits a stale state.
+    fn chain_bodies_around(&self, pos: usize) -> Option<(&BRep, &BRep)> {
+        let keys = self.step_keys(pos + 1, &self.effective_build_tolerance());
+        let chain = self.cache.chain();
+        if chain.len() <= pos
+            || keys
+                .iter()
+                .zip(chain)
+                .any(|(key, (_, cached))| key.is_none() || key != cached)
+        {
+            return None;
+        }
+        let body = self.features.get(self.timeline[pos])?.body;
+        let before = self.cache.chain_state(pos - 1)?.body(body)?;
+        let at = self.cache.chain_state(pos)?.body(body)?;
+        Some((before, at))
+    }
+
     /// Attempt the in-place route for an `old → new` feature edit.
     /// Returns the refreshed post-feature snapshot on success.
     pub(crate) fn try_parameter_tweak_in_place(
@@ -41,26 +62,11 @@ impl FeatureTree {
         if pos == 0 {
             return None;
         }
-        let state_before = match self.cache.get(None, self.timeline[pos - 1]) {
-            Some(s) => s,
-            None => {
-                if trace {
-                    eprintln!(
-                        "  [tweak-route] no cache at pos-1 ({:?})",
-                        self.timeline[pos - 1]
-                    );
-                }
-                return None;
+        let Some((state_before, state_at)) = self.chain_bodies_around(pos) else {
+            if trace {
+                eprintln!("  [tweak-route] no current cached states around {id:?}");
             }
-        };
-        let state_at = match self.cache.get(None, id) {
-            Some(s) => s,
-            None => {
-                if trace {
-                    eprintln!("  [tweak-route] no cache at feature {id:?}");
-                }
-                return None;
-            }
+            return None;
         };
         let table = &self.parameter_table;
 

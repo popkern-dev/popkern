@@ -21,7 +21,7 @@ new_key_type! {
 ///
 /// Multi-body workflows (e.g. Boolean tool bodies) assign each discrete solid
 /// its own `BodyId`.  The main solid starts at `BodyId(0)`.
-#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Hash, Eq, PartialEq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BodyId(pub u32);
 
 /// A single node in the parametric feature timeline.

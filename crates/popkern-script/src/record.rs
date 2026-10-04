@@ -11,15 +11,11 @@ use crate::error::ScriptError;
 /// Append `feature`, replay the document, and roll the append back on
 /// failure. Returns the new feature's id.
 ///
-/// `geometry_current` is the recorder's freshness bit for the append
-/// fast path ([`FeatureTree::replay_appended`]): true means the
-/// tree's stored body snapshots reflect a completed replay of the
-/// whole timeline with no parameter/config/timeline mutation since.
-/// Recording appends preserve it; the parameter and configuration
-/// setters clear it; every full replay a recorder verb performs
-/// restores it. When it is false (or the record inserts at a
-/// rollback bar) the record replays the full document exactly as
-/// before.
+/// The replay executes only the new feature: every earlier step's
+/// inputs are unchanged, so it is served from the step cache
+/// ([`FeatureTree::replay`] resumes after the longest unchanged
+/// prefix). `geometry_current` — whether the model's current bodies
+/// reflect the whole timeline — is restored by the replay.
 pub(crate) fn record_feature(
     tree: &mut FeatureTree,
     tolerance: popkern_core::tolerance::Tolerance,
@@ -42,11 +38,7 @@ pub(crate) fn record_feature(
         .feature(id)
         .map(|n| n.label.clone())
         .unwrap_or_default();
-    let outcome = if *geometry_current && !at_bar {
-        tree.replay_appended(tolerance)
-    } else {
-        tree.replay(tolerance)
-    };
+    let outcome = tree.replay(tolerance);
     *geometry_current = tree.rollback_position().is_none();
     let failure = match outcome {
         Ok(result) => match result.feature_results.get(&id) {

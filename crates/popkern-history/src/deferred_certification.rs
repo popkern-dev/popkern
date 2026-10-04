@@ -36,7 +36,7 @@ use crate::node::FeatureId;
 pub struct DeferredCertification {
     pub(crate) policy: ContinuityCertification,
     /// Output BRep of each feature whose evidence has deferred seams.
-    pub(crate) bodies: HashMap<FeatureId, BRep>,
+    pub(crate) bodies: HashMap<FeatureId, std::sync::Arc<BRep>>,
 }
 
 /// One deferred seam certified by
@@ -126,6 +126,21 @@ impl FeatureTree {
         if certified.remaining == 0 {
             self.deferred.bodies.remove(&feature);
         }
+        // The step cache republishes this row when a later replay
+        // resumes past the feature: keep the certified evidence there.
+        let row = self
+            .last_report
+            .features
+            .iter()
+            .find(|row| row.feature == feature)
+            .cloned();
+        let kept = self.deferred.bodies.get(&feature).cloned();
+        if let Some(record) = self.cache.chain_record_mut(feature) {
+            if row.is_some() && record.row.is_some() {
+                record.row = row;
+            }
+            record.deferred = kept;
+        }
         Ok(Some(DeferredSeamProgress {
             feature,
             edge: certified.edge,
@@ -153,7 +168,9 @@ impl FeatureTree {
             .and_then(|b| b.continuity.as_ref())
             .is_some_and(|e| e.deferred_seams > 0);
         if deferred {
-            self.deferred.bodies.insert(feature, brep.clone());
+            self.deferred
+                .bodies
+                .insert(feature, std::sync::Arc::new(brep.clone()));
         }
     }
 }

@@ -15,7 +15,7 @@
 //!   ├── features: SlotMap<FeatureId, FeatureNode>
 //!   ├── timeline: Vec<FeatureId>          // ordered evaluation sequence
 //!   ├── rollback_index: Option<usize>     // Some(n) → replay only [0..n]
-//!   └── cache: BRepCache                  // intermediate BRep snapshots
+//!   └── cache: StepCache                  // per-step document states
 //! ```
 
 pub(crate) mod auto_merge;
@@ -29,6 +29,7 @@ pub mod csv;
 pub mod deferred_certification;
 pub mod delete;
 mod document;
+pub mod document_state;
 pub mod error;
 pub mod expression;
 pub mod failure;
@@ -71,8 +72,10 @@ mod tree_state;
 pub(crate) use replay_report::ReplayRangeOutput;
 pub(crate) mod resolve;
 pub mod serialize;
+mod step_key;
 pub mod timeline;
 mod tree_replay;
+mod tree_scrub;
 pub(crate) mod undo;
 pub(crate) mod undo_command;
 pub(crate) mod undo_config;
@@ -110,7 +113,7 @@ pub use replay_report::{
 };
 pub use serialize::{CURRENT_VERSION, MIN_SUPPORTED_VERSION};
 pub use unit::{DimensionKind, Unit};
-pub use {cache::CacheStrategy, csv::CsvImportResult};
+pub use {cache::CacheStrategy, csv::CsvImportResult, document_state::DocumentState};
 pub use {feature_draft::NeutralPlaneDesc, feature_transform::RigidMotionDesc};
 pub use {
     feature_sketch::AnalyticSketchDesc, feature_sketch::ScalarBinding,
@@ -126,7 +129,7 @@ use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
 use crate::body::BodyManager;
-use crate::cache::BRepCache;
+use crate::cache::StepCache;
 use crate::undo::TreeCommand;
 
 /// The parametric feature tree.
@@ -177,11 +180,12 @@ pub struct FeatureTree {
     /// replay (transient; rebuilt by every replay).
     #[serde(skip)]
     pub(crate) merged_into: HashMap<FeatureId, BodyId>,
-    /// Cache of intermediate BRep snapshots.
+    /// The step cache: every replayed step's document state and
+    /// published outputs, content-addressed (see [`cache`]).
     ///
     /// Not serialized — rebuilt on demand after loading.
     #[serde(skip)]
-    pub(crate) cache: BRepCache,
+    pub(crate) cache: StepCache,
     /// Tracks the mapping from [`BodyId`]s to features and BRep snapshots.
     ///
     /// Not serialized — rebuilt from features on replay after loading.
@@ -241,7 +245,7 @@ impl FeatureTree {
             last_report: ReplayReport::default(),
 
             merged_into: HashMap::new(),
-            cache: BRepCache::new(CacheStrategy::EveryStep),
+            cache: StepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
             deferred: Default::default(),
             op_index: HashMap::new(),
@@ -267,210 +271,6 @@ impl FeatureTree {
     /// etc.) for mutations that should be reversible.
     pub fn parameters_mut(&mut self) -> &mut ParameterTable {
         &mut self.parameter_table
-    }
-
-    // -- Replay ---------------------------------------------------------------
-
-    /// Replay the entire feature tree from scratch.
-    ///
-    /// Evaluates features in timeline order up to the rollback index (or the
-    /// end of the timeline). Suppressed features are skipped. Failed features
-    /// record an error but do not abort the replay -- the BRep continues from
-    /// the last good state.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReplayError`] only for fatal infrastructure failures.
-    /// Individual feature failures are recorded in
-    /// [`ReplayResult::feature_results`].
-    pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
-        let start = popkern_core::time::Stopwatch::start();
-
-        // Evaluate parameters — config-aware when a config is active.
-        let eval_warnings = if self.active_config.is_some() {
-            self.apply_config_and_evaluate()
-        } else {
-            self.restore_config_pinned_base();
-            expression::evaluate_all(
-                &mut self.parameter_table,
-                &measure_query::MeasureContext::empty(),
-            )
-        };
-
-        let end = self.rollback_index.unwrap_or(self.timeline.len());
-
-        // If frozen, try to start from the cached BRep at the freeze point.
-        let (start_bodies, from) = if let Some(frozen) = self.frozen_index {
-            let frozen = frozen.min(end);
-            if frozen > 0 {
-                let freeze_id = self.timeline[frozen - 1];
-                if let Some(cached) = self.cache.get(self.active_config, freeze_id) {
-                    let body = self.features[freeze_id].body;
-                    let mut bodies = HashMap::new();
-                    bodies.insert(body, cached.clone());
-                    (bodies, frozen)
-                } else {
-                    // No cache at freeze point — replay from scratch.
-                    (HashMap::new(), 0)
-                }
-            } else {
-                (HashMap::new(), 0)
-            }
-        } else {
-            (HashMap::new(), 0)
-        };
-
-        let out = self.replay_range(start_bodies, from, end, &tolerance)?;
-        self.store_body_breps(&out.bodies);
-        self.last_report.absorb(out.report.clone(), &self.timeline);
-        Ok(ReplayResult {
-            feature_results: out.results,
-            elapsed: start.elapsed(),
-            eval_warnings,
-            report: out.report,
-            tolerance,
-        })
-    }
-
-    /// Replay starting from a specific feature.
-    ///
-    /// If a cached BRep is available for any ancestor of `id`, replay resumes
-    /// from the nearest such ancestor rather than from scratch.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReplayError`] if `id` is not in the timeline.
-    pub fn replay_from(
-        &mut self,
-        id: FeatureId,
-        tolerance: Tolerance,
-    ) -> Result<ReplayResult, ReplayError> {
-        let pos = self
-            .timeline
-            .iter()
-            .position(|&fid| fid == id)
-            .ok_or(HistoryError::FeatureNotFound)?;
-
-        // Find the nearest cached BRep at or before `pos`.
-        let mut start_pos = 0;
-        let mut start_bodies: HashMap<BodyId, BRep> = HashMap::new();
-        for i in (0..pos).rev() {
-            let fid = self.timeline[i];
-            if let Some(cached) = self.cache.get(self.active_config, fid) {
-                start_pos = i + 1;
-                let body = self.features[fid].body;
-                start_bodies.insert(body, cached.clone());
-                break;
-            }
-        }
-
-        let timer = popkern_core::time::Stopwatch::start();
-        if self.active_config.is_none() {
-            self.restore_config_pinned_base();
-        }
-        let eval_warnings = expression::evaluate_all(
-            &mut self.parameter_table,
-            &measure_query::MeasureContext::empty(),
-        );
-        let end = self.rollback_index.unwrap_or(self.timeline.len());
-        let out = self.replay_range(start_bodies, start_pos, end, &tolerance)?;
-        self.store_body_breps(&out.bodies);
-        self.last_report.absorb(out.report.clone(), &self.timeline);
-        Ok(ReplayResult {
-            feature_results: out.results,
-            elapsed: timer.elapsed(),
-            eval_warnings,
-            report: out.report,
-            tolerance,
-        })
-    }
-
-    // -- Rollback / scrubbing -------------------------------------------------
-
-    /// Move the rollback bar to `index`.
-    ///
-    /// After this call the timeline is logically "rolled back" to just before
-    /// the feature at `index`.  The next [`replay`](Self::replay) will stop at
-    /// that point.
-    ///
-    /// Returns the cached BRep for the feature immediately *before* the bar
-    /// (i.e. the BRep state at `index − 1`) if one exists in the cache.
-    pub fn rollback_to(&mut self, index: usize) -> Option<&BRep> {
-        let old = self.rollback_index;
-        self.rollback_index = Some(index);
-        self.record_undo(TreeCommand::MoveRollback {
-            old,
-            new: Some(index),
-        });
-        if index > 0 {
-            let id = self.timeline[index - 1];
-            self.cache.get(self.active_config, id)
-        } else {
-            None
-        }
-    }
-
-    /// Remove the rollback bar, making all features in the timeline active.
-    pub fn rollback_to_end(&mut self) {
-        let old = self.rollback_index;
-        self.rollback_index = None;
-        self.record_undo(TreeCommand::MoveRollback { old, new: None });
-    }
-
-    /// Return the current rollback position, or `None` if no bar is set.
-    pub fn rollback_position(&self) -> Option<usize> {
-        self.rollback_index
-    }
-
-    /// Return the BRep state after the feature at `index` in the timeline.
-    ///
-    /// If the snapshot is cached it is returned instantly; otherwise a
-    /// partial replay is executed from the nearest cached ancestor and the
-    /// new snapshot is stored.
-    ///
-    /// `index` is one-based (i.e. `brep_at(1)` returns the BRep after the
-    /// first feature).  Pass `0` to get an empty BRep.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReplayError`] if any feature in the required range fails
-    /// fatally, or if `index` exceeds the timeline length.
-    pub fn brep_at(&mut self, index: usize, tolerance: Tolerance) -> Result<&BRep, ReplayError> {
-        if index > self.timeline.len() {
-            return Err(ReplayError::HistoryError(HistoryError::InvalidPosition(
-                index,
-            )));
-        }
-
-        // Fast path: already cached.
-        if index > 0 {
-            let id = self.timeline[index - 1];
-            if self.cache.get(self.active_config, id).is_some() {
-                // SAFETY: we just checked `is_some()`. The two-step pattern
-                // (check then re-borrow) is required to avoid holding an
-                // immutable borrow on `self.cache` across the mutable
-                // `self.replay()` call below.
-                return self
-                    .cache
-                    .get(self.active_config, id)
-                    .ok_or(HistoryError::FeatureNotFound.into());
-            }
-        }
-
-        // Slow path: replay up to `index` (preserving the caller's rollback
-        // setting afterwards).
-        let saved_rollback = self.rollback_index;
-        self.rollback_index = Some(index);
-        self.replay(tolerance)?;
-        self.rollback_index = saved_rollback;
-
-        // replay() sets current_brep; return it.
-        self.current_brep
-            .as_ref()
-            .ok_or_else(|| ReplayError::FeatureFailed {
-                label: "brep_at".into(),
-                error: "replay did not produce a BRep".into(),
-            })
     }
 
     // -- BRep accessor --------------------------------------------------------

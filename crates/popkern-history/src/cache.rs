@@ -1,188 +1,310 @@
-//! BRep intermediate-state cache for the parametric feature tree.
+//! The step cache: what every timeline step of a replay published,
+//! content-addressed by [`StepKey`].
 //!
-//! [`BRepCache`] stores cloned [`BRep`] snapshots keyed by
-//! `(Option<ConfigId>, FeatureId)`, allowing [`crate::FeatureTree::brep_at`]
-//! and [`crate::FeatureTree::replay_from`] to resume replays from the nearest
-//! already-computed ancestor rather than from scratch.  Each configuration
-//! maintains its own independent set of snapshots so that switching between
-//! design variants never serves stale BReps from a different config.
+//! Each [`StepRecord`] holds a step's [`DocumentState`] (every alive
+//! body, shared with neighbouring steps) and everything the step
+//! published besides geometry — its feature result, report row,
+//! deferred-certification body and auto-merge host — so a replay that
+//! resumes after the step republishes it exactly as a fresh replay
+//! would. Keys chain every input a step reads (see `step_key`), so a
+//! record can never serve stale geometry: an edit changes the keys
+//! from the first affected step on, and those steps miss.
+//!
+//! The cache also remembers the CHAIN of the last published replay
+//! (one key per timeline position), which is what the history scrubber
+//! and the in-place parameter route read.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
 
-use crate::config::ConfigId;
-use crate::node::FeatureId;
+use crate::document_state::DocumentState;
+use crate::error::FeatureResult;
+use crate::node::{BodyId, FeatureId};
+use crate::replay_report::FeatureReport;
+use crate::step_key::StepKey;
 
 // ---------------------------------------------------------------------------
 // CacheStrategy
 // ---------------------------------------------------------------------------
 
-/// Controls which intermediate BRep states are retained in memory.
+/// Controls which intermediate document states are retained in memory.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum CacheStrategy {
-    /// Cache the BRep after every feature — instant scrubbing at the cost of
-    /// higher memory usage.
+    /// Keep the document state after every feature — instant scrubbing at
+    /// the cost of higher memory usage.
     EveryStep,
-    /// Cache the BRep after every *N*th feature — balanced trade-off between
+    /// Keep the state after every *N*th feature — balanced trade-off between
     /// memory and replay latency.
     EveryNth(usize),
-    /// Never cache automatically; snapshots can still be stored explicitly via
-    /// [`BRepCache::store_explicit`].
+    /// Never keep states automatically; one can still be pinned at a
+    /// step of the last replay (the in-place parameter route does).
     OnDemand,
-    /// Cache until the estimated memory footprint exceeds `max_bytes`, then
-    /// evict the oldest entry (LRU eviction by insertion order).
+    /// Keep states until their estimated footprint exceeds `max_bytes`,
+    /// then drop the least recently used (shared bodies count once).
     MemoryBudget {
-        /// Maximum estimated cache size in bytes before eviction begins.
+        /// Maximum estimated size of the kept states in bytes.
         max_bytes: usize,
     },
 }
 
-// ---------------------------------------------------------------------------
-// BRepCache
-// ---------------------------------------------------------------------------
-
-/// Cache of intermediate BRep states, keyed by `(config, feature_id)`.
-///
-/// Using a compound key means each named configuration stores its own
-/// independent snapshots, so switching configs never serves stale BReps built
-/// under a different set of parameter overrides.  `config = None` represents
-/// the default (no-override) state.
+/// What one executed step published (see the module docs).
 #[derive(Debug, Clone)]
-pub(crate) struct BRepCache {
-    cache: HashMap<(Option<ConfigId>, FeatureId), BRep>,
-    strategy: CacheStrategy,
-    /// Tracks insertion order, oldest entry first, for LRU eviction.
-    insertion_order: VecDeque<(Option<ConfigId>, FeatureId)>,
+pub(crate) struct StepRecord {
+    /// The timeline feature the step executed.
+    pub(crate) feature: FeatureId,
+    /// The document after the step, when the strategy keeps it.
+    pub(crate) state: Option<DocumentState>,
+    /// The step's entry in the replay's per-feature results.
+    pub(crate) result: FeatureResult,
+    /// What the step wrote to the node's `last_result` (`None`: the
+    /// step left it untouched, as suppression does).
+    pub(crate) last_result: Option<FeatureResult>,
+    /// The step's report row; `None` for a state pinned without an
+    /// execution (the in-place route), which a replay cannot resume
+    /// past because it has no evidence to republish.
+    pub(crate) row: Option<FeatureReport>,
+    /// The BRep a deferred-certification feature keeps.
+    pub(crate) deferred: Option<Arc<BRep>>,
+    /// The body a Boss/Cut feature merged into.
+    pub(crate) merged_into: Option<BodyId>,
+    /// Whether the step evaluated a Reference feature. Reference
+    /// values and the stale-input warnings they propagate live in the
+    /// parameter table, not here, so a replay never resumes past one.
+    pub(crate) reference: bool,
+    used: u64,
 }
 
-impl Default for BRepCache {
+impl StepRecord {
+    /// A record of an executed step.
+    pub(crate) fn executed(feature: FeatureId, result: FeatureResult, row: FeatureReport) -> Self {
+        StepRecord {
+            feature,
+            state: None,
+            result,
+            last_result: None,
+            row: Some(row),
+            deferred: None,
+            merged_into: None,
+            reference: false,
+            used: 0,
+        }
+    }
+
+    /// A state pinned without an execution (no row to republish).
+    pub(crate) fn state_only(feature: FeatureId, state: DocumentState) -> Self {
+        StepRecord {
+            feature,
+            state: Some(state),
+            result: FeatureResult::Suppressed,
+            last_result: None,
+            row: None,
+            deferred: None,
+            merged_into: None,
+            reference: false,
+            used: 0,
+        }
+    }
+
+    /// Whether a replay may resume after this step: it executed (has a
+    /// row to republish) and is not a Reference evaluation.
+    pub(crate) fn resumable(&self) -> bool {
+        self.row.is_some() && !self.reference
+    }
+}
+
+/// The step cache (see the module docs).
+#[derive(Debug, Clone)]
+pub(crate) struct StepCache {
+    records: HashMap<StepKey, StepRecord>,
+    strategy: CacheStrategy,
+    tick: u64,
+    /// The last published replay's keys, one per timeline position.
+    chain: Vec<(FeatureId, Option<StepKey>)>,
+    /// The state at the freeze point, pinned when a replay passes it.
+    frozen: Option<(usize, DocumentState)>,
+}
+
+impl Default for StepCache {
     fn default() -> Self {
         Self::new(CacheStrategy::EveryStep)
     }
 }
 
-#[allow(dead_code)] // Several methods are used only in tests or future tasks.
-impl BRepCache {
-    /// Create a new, empty cache with the given strategy.
+impl StepCache {
+    /// A new, empty cache with the given strategy.
     pub(crate) fn new(strategy: CacheStrategy) -> Self {
         Self {
-            cache: HashMap::new(),
+            records: HashMap::new(),
             strategy,
-            insertion_order: VecDeque::new(),
+            tick: 0,
+            chain: Vec::new(),
+            frozen: None,
         }
     }
 
-    /// Return a reference to the cached BRep produced after `id` under `config`,
-    /// or `None` if no snapshot exists for that `(config, feature)` pair.
-    pub(crate) fn get(&self, config: Option<ConfigId>, id: FeatureId) -> Option<&BRep> {
-        self.cache.get(&(config, id))
+    /// The record stored under `key`, marked as used.
+    pub(crate) fn get(&mut self, key: StepKey) -> Option<&StepRecord> {
+        self.tick += 1;
+        let tick = self.tick;
+        self.records.get_mut(&key).map(|r| {
+            r.used = tick;
+            &*r
+        })
     }
 
-    /// Store a snapshot according to the current [`CacheStrategy`].
-    ///
-    /// `timeline_index` is the zero-based position of this feature in the
-    /// timeline; it is used to decide whether to cache for `EveryNth`.
-    /// The snapshot is stored under the `(config, id)` compound key so that
-    /// different configurations never share cached BReps.
-    pub(crate) fn store(
-        &mut self,
-        config: Option<ConfigId>,
-        id: FeatureId,
-        brep: BRep,
-        timeline_index: usize,
-    ) {
-        let should_store = match self.strategy {
-            CacheStrategy::EveryStep => true,
-            CacheStrategy::EveryNth(n) => n > 0 && timeline_index.is_multiple_of(n),
+    /// Store `record` for the step at timeline `index`; the strategy
+    /// decides whether its state is kept.
+    pub(crate) fn insert(&mut self, key: StepKey, index: usize, mut record: StepRecord) {
+        let keep = match self.strategy {
+            CacheStrategy::EveryStep | CacheStrategy::MemoryBudget { .. } => true,
+            CacheStrategy::EveryNth(n) => n > 0 && index.is_multiple_of(n),
             CacheStrategy::OnDemand => false,
-            CacheStrategy::MemoryBudget { .. } => true,
         };
+        if !keep {
+            record.state = None;
+        }
+        self.tick += 1;
+        record.used = self.tick;
+        self.records.insert(key, record);
+    }
 
-        if !should_store {
+    /// Publish the chain of the replay that just completed, then trim
+    /// records the strategy no longer keeps.
+    pub(crate) fn set_chain(&mut self, chain: Vec<(FeatureId, Option<StepKey>)>) {
+        self.chain = chain;
+        self.trim();
+    }
+
+    /// The last published chain.
+    pub(crate) fn chain(&self) -> &[(FeatureId, Option<StepKey>)] {
+        &self.chain
+    }
+
+    /// The record of `feature` in the last published chain.
+    pub(crate) fn chain_record_mut(&mut self, feature: FeatureId) -> Option<&mut StepRecord> {
+        let key = self
+            .chain
+            .iter()
+            .find(|(id, _)| *id == feature)
+            .and_then(|(_, key)| *key)?;
+        self.records.get_mut(&key)
+    }
+
+    /// The state after timeline position `index` of the last published
+    /// chain, when it is kept.
+    pub(crate) fn chain_state(&self, index: usize) -> Option<&DocumentState> {
+        let key = self.chain.get(index)?.1?;
+        self.records.get(&key)?.state.as_ref()
+    }
+
+    /// Pin `state` at position `index` of the last published chain
+    /// (the in-place parameter route's refreshed state, which has no
+    /// report row and so ends any resume there).
+    pub(crate) fn pin_chain_state(&mut self, index: usize, key: StepKey, state: DocumentState) {
+        let Some(&(feature, _)) = self.chain.get(index) else {
             return;
-        }
-
-        self.insert(config, id, brep);
-
-        // For MemoryBudget, evict oldest entries until we are under budget.
-        if let CacheStrategy::MemoryBudget { max_bytes } = self.strategy {
-            while self.memory_bytes() > max_bytes && self.insertion_order.len() > 1 {
-                if let Some(oldest) = self.insertion_order.pop_front() {
-                    self.cache.remove(&oldest);
-                }
-            }
-        }
+        };
+        self.chain[index].1 = Some(key);
+        self.chain.truncate(index + 1);
+        let mut record = StepRecord::state_only(feature, state);
+        self.tick += 1;
+        record.used = self.tick;
+        self.records.insert(key, record);
     }
 
-    /// Store a snapshot unconditionally, regardless of the current strategy.
-    ///
-    /// Use this to manually pin a snapshot when using [`CacheStrategy::OnDemand`].
-    /// The snapshot is keyed by `(config, id)`.
-    pub(crate) fn store_explicit(&mut self, config: Option<ConfigId>, id: FeatureId, brep: BRep) {
-        self.insert(config, id, brep);
+    /// The state pinned at the freeze point, when its position is `index`.
+    pub(crate) fn frozen(&self, index: usize) -> Option<&DocumentState> {
+        self.frozen
+            .as_ref()
+            .filter(|(at, _)| *at == index)
+            .map(|(_, state)| state)
     }
 
-    /// Remove cached BReps for every feature at or after `index` in
-    /// `timeline`, across **all** configurations.
-    ///
-    /// This is called after editing a feature so that stale downstream
-    /// snapshots are evicted for every config, while snapshots for unaffected
-    /// ancestors are retained.
-    pub(crate) fn invalidate_from(&mut self, index: usize, timeline: &[FeatureId]) {
-        let to_remove: Vec<FeatureId> = timeline[index..].to_vec();
-        // Remove entries for ANY config that match these feature ids.
-        self.cache.retain(|&(_, fid), _| !to_remove.contains(&fid));
-        self.insertion_order
-            .retain(|&(_, fid)| !to_remove.contains(&fid));
+    /// Pin the freeze point's state.
+    pub(crate) fn set_frozen(&mut self, index: usize, state: DocumentState) {
+        self.frozen = Some((index, state));
     }
 
-    /// Remove all cached snapshots.
+    /// Forget the pinned freeze-point state.
+    pub(crate) fn clear_frozen(&mut self) {
+        self.frozen = None;
+    }
+
+    /// Remove every record, the chain and the frozen state.
     pub(crate) fn clear(&mut self) {
-        self.cache.clear();
-        self.insertion_order.clear();
+        self.records.clear();
+        self.chain.clear();
+        self.frozen = None;
     }
 
-    /// Estimate the memory occupied by all cached BReps, in bytes.
-    ///
-    /// Uses a simple heuristic: each entity contributes a fixed number of
-    /// bytes (vertices: 64, edges: 96, faces: 256).  The result is suitable
-    /// for budget enforcement but is not exact.
+    /// Estimated bytes of every kept state, shared bodies counted once.
     pub(crate) fn memory_bytes(&self) -> usize {
-        self.cache.values().map(estimate_brep_bytes).sum()
+        let mut seen = HashSet::new();
+        self.records
+            .values()
+            .filter_map(|r| r.state.as_ref())
+            .map(|s| s.unique_bytes(&mut seen))
+            .sum()
     }
 
-    /// Return the current caching strategy.
-    pub(crate) fn strategy(&self) -> CacheStrategy {
-        self.strategy
+    /// The record under `key` without marking it used.
+    #[cfg(test)]
+    pub(crate) fn peek(&self, key: StepKey) -> Option<&StepRecord> {
+        self.records.get(&key)
     }
 
-    /// Replace the current caching strategy and clear all cached snapshots.
+    /// Replace the chain with hand-authored state-only steps.
+    #[cfg(test)]
+    pub(crate) fn plant_chain(&mut self, steps: Vec<(FeatureId, StepKey, DocumentState)>) {
+        self.chain = steps.iter().map(|(id, key, _)| (*id, Some(*key))).collect();
+        for (id, key, state) in steps {
+            self.records.insert(key, StepRecord::state_only(id, state));
+        }
+    }
+
+    /// Replace the strategy and clear the cache.
     pub(crate) fn set_strategy(&mut self, strategy: CacheStrategy) {
         self.strategy = strategy;
         self.clear();
     }
 
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
-
-    /// Insert an entry, maintaining `insertion_order`.
-    fn insert(&mut self, config: Option<ConfigId>, id: FeatureId, brep: BRep) {
-        let key = (config, id);
-        if !self.cache.contains_key(&key) {
-            self.insertion_order.push_back(key);
+    /// Keep the published chain's records plus, off the chain, at most
+    /// as many recently used records as the chain is long (an earlier
+    /// variant a user toggles back to stays warm). Under a memory
+    /// budget, drop least-recently-used states until the kept states
+    /// fit; their records stay (rows and results are small).
+    fn trim(&mut self) {
+        let on_chain: HashSet<StepKey> = self.chain.iter().filter_map(|(_, k)| *k).collect();
+        let mut off_chain: Vec<(u64, StepKey)> = self
+            .records
+            .iter()
+            .filter(|(k, _)| !on_chain.contains(k))
+            .map(|(k, r)| (r.used, *k))
+            .collect();
+        off_chain.sort_unstable_by_key(|(used, _)| std::cmp::Reverse(*used));
+        for (_, key) in off_chain.iter().skip(self.chain.len().max(1)) {
+            self.records.remove(key);
         }
-        self.cache.insert(key, brep);
+        if let CacheStrategy::MemoryBudget { max_bytes } = self.strategy {
+            let mut by_age: Vec<(u64, StepKey)> = self
+                .records
+                .iter()
+                .filter(|(_, r)| r.state.is_some())
+                .map(|(k, r)| (r.used, *k))
+                .collect();
+            by_age.sort_unstable_by_key(|(used, _)| *used);
+            let mut oldest = by_age.into_iter();
+            while self.memory_bytes() > max_bytes {
+                let Some((_, key)) = oldest.next() else { break };
+                if let Some(r) = self.records.get_mut(&key) {
+                    r.state = None;
+                }
+            }
+        }
     }
-}
-
-/// Estimate the heap memory consumed by a single BRep snapshot, in bytes.
-///
-/// The heuristic is: vertices × 64 + edges × 96 + faces × 256.
-fn estimate_brep_bytes(brep: &BRep) -> usize {
-    brep.vertices.len() * 64 + brep.edges.len() * 96 + brep.faces.len() * 256
 }
 
 // ---------------------------------------------------------------------------

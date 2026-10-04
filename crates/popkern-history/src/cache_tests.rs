@@ -8,6 +8,15 @@ use crate::cache::CacheStrategy;
 use crate::error::FeatureResult;
 use crate::feature::{ExtrudeEnd, Feature, OperationMode, SketchPlaneDesc, Vec3Desc};
 use crate::node::FeatureId;
+
+/// Whether the last replay's chain holds a state after `id`.
+fn cached(tree: &FeatureTree, id: FeatureId) -> bool {
+    tree.timeline()
+        .iter()
+        .position(|&f| f == id)
+        .and_then(|pos| tree.cache.chain_state(pos))
+        .is_some()
+}
 use crate::parameter::ParameterId;
 use crate::unit::Unit;
 use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
@@ -98,14 +107,8 @@ fn every_step_caches_all_features() {
     tree.replay(Tolerance::default()).expect("replay");
 
     // Both feature positions should be cached now.
-    assert!(
-        tree.cache.get(None, sketch_id).is_some(),
-        "sketch BRep should be cached"
-    );
-    assert!(
-        tree.cache.get(None, extrude_id).is_some(),
-        "extrude BRep should be cached"
-    );
+    assert!(cached(&tree, sketch_id), "sketch BRep should be cached");
+    assert!(cached(&tree, extrude_id), "extrude BRep should be cached");
 }
 
 // ---------------------------------------------------------------------------
@@ -194,33 +197,38 @@ fn memory_budget_evicts_oldest() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 4: invalidate_from — clears downstream cache, keeps upstream
+// Test 4: a parameter edit re-addresses the edited step and everything
+// after it; the steps before keep their records
 // ---------------------------------------------------------------------------
 
 #[test]
-fn invalidate_from_clears_downstream() {
-    let (mut tree, sketch_id, extrude_id) = build_sketch_extrude_tree();
+fn parameter_edit_rekeys_downstream_keeps_upstream() {
+    let (mut tree, _sketch_id, extrude_id) = build_sketch_extrude_tree();
     tree.set_cache_strategy(CacheStrategy::EveryStep);
     tree.replay(Tolerance::default()).expect("replay");
+    let before = tree.step_keys(2, &Tolerance::default());
 
-    // Both should be cached before invalidation.
-    assert!(tree.cache.get(None, sketch_id).is_some());
-    assert!(tree.cache.get(None, extrude_id).is_some());
+    let Some(Feature::Extrude {
+        end_condition: ExtrudeEnd::Blind { distance: dist },
+        ..
+    }) = tree.feature(extrude_id).map(|n| n.feature.clone())
+    else {
+        panic!("blind extrude");
+    };
+    tree.set_parameter_value(dist, 2.0, Unit::Meters)
+        .expect("edit");
+    let after = tree.step_keys(2, &Tolerance::default());
+    assert_eq!(before[0], after[0], "the sketch's inputs did not change");
+    assert_ne!(before[1], after[1], "the extrude's distance changed");
 
-    // Invalidate from index 1 (the extrude is at position 1 in the timeline).
-    let timeline: Vec<FeatureId> = tree.timeline().to_vec();
-    tree.cache.invalidate_from(1, &timeline);
-
-    // Sketch (index 0) should still be cached.
-    assert!(
-        tree.cache.get(None, sketch_id).is_some(),
-        "sketch cache should be retained"
-    );
-    // Extrude (index 1) should be evicted.
-    assert!(
-        tree.cache.get(None, extrude_id).is_none(),
-        "extrude cache should be invalidated"
-    );
+    // The stale extrude state is never served: brep_at re-executes it.
+    let brep = tree.brep_at(2, Tolerance::default()).expect("brep_at");
+    let top = brep
+        .vertices
+        .values()
+        .map(|v| v.position.z)
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!((top - 2.0).abs() < 1e-9, "edited height served: {top}");
 }
 
 // ---------------------------------------------------------------------------
@@ -281,22 +289,10 @@ fn every_nth_caches_only_matching_indices() {
 
     // Indices 0 and 2 should be cached (0 % 2 == 0, 2 % 2 == 0).
     // Indices 1 and 3 should not be cached.
-    assert!(
-        tree.cache.get(None, s1).is_some(),
-        "index 0 should be cached"
-    );
-    assert!(
-        tree.cache.get(None, e1).is_none(),
-        "index 1 should NOT be cached"
-    );
-    assert!(
-        tree.cache.get(None, s2).is_some(),
-        "index 2 should be cached"
-    );
-    assert!(
-        tree.cache.get(None, e2).is_none(),
-        "index 3 should NOT be cached"
-    );
+    assert!(cached(&tree, s1), "index 0 should be cached");
+    assert!(!cached(&tree, e1), "index 1 should NOT be cached");
+    assert!(cached(&tree, s2), "index 2 should be cached");
+    assert!(!cached(&tree, e2), "index 3 should NOT be cached");
 }
 
 // ---------------------------------------------------------------------------
@@ -310,11 +306,11 @@ fn on_demand_does_not_cache_automatically() {
     tree.replay(Tolerance::default()).expect("replay");
 
     assert!(
-        tree.cache.get(None, sketch_id).is_none(),
+        !cached(&tree, sketch_id),
         "OnDemand: sketch should not be cached"
     );
     assert!(
-        tree.cache.get(None, extrude_id).is_none(),
+        !cached(&tree, extrude_id),
         "OnDemand: extrude should not be cached"
     );
 }
@@ -359,17 +355,17 @@ fn clear_cache_removes_all_entries() {
     tree.set_cache_strategy(CacheStrategy::EveryStep);
     tree.replay(Tolerance::default()).expect("replay");
 
-    assert!(tree.cache.get(None, sketch_id).is_some());
-    assert!(tree.cache.get(None, extrude_id).is_some());
+    assert!(cached(&tree, sketch_id));
+    assert!(cached(&tree, extrude_id));
 
     tree.clear_cache();
 
     assert!(
-        tree.cache.get(None, sketch_id).is_none(),
+        !cached(&tree, sketch_id),
         "cache should be empty after clear"
     );
     assert!(
-        tree.cache.get(None, extrude_id).is_none(),
+        !cached(&tree, extrude_id),
         "cache should be empty after clear"
     );
 }
@@ -384,13 +380,13 @@ fn set_strategy_clears_cache() {
     tree.set_cache_strategy(CacheStrategy::EveryStep);
     tree.replay(Tolerance::default()).expect("replay");
 
-    assert!(tree.cache.get(None, sketch_id).is_some());
+    assert!(cached(&tree, sketch_id));
 
     // Switching strategy should evict all cached entries.
     tree.set_cache_strategy(CacheStrategy::OnDemand);
 
     assert!(
-        tree.cache.get(None, sketch_id).is_none(),
+        !cached(&tree, sketch_id),
         "cache should be cleared after set_strategy"
     );
 }

@@ -56,7 +56,7 @@ fn g2_box(policy: ContinuityCertification) -> (FeatureTree, FeatureId) {
         .parameters_mut()
         .add_global("height", 1.0, Unit::Meters)
         .expect("height param");
-    let extrude = tree.add_feature(
+    let _extrude = tree.add_feature(
         Feature::Extrude {
             face: entity_name(1, RoleCategory::Generated, 0),
             direction: Some(Vec3Desc::Literal([0.0, 0.0, 1.0])),
@@ -68,7 +68,11 @@ fn g2_box(policy: ContinuityCertification) -> (FeatureTree, FeatureId) {
         "extrude",
     );
     tree.replay(Tolerance::default()).expect("base replay");
-    let edge = sharp_edge_name(tree.cache.get(None, extrude).expect("extrude cached"));
+    let edge = sharp_edge_name(
+        &tree
+            .brep_at(2, Tolerance::default())
+            .expect("extrude state"),
+    );
     let r = tree
         .parameters_mut()
         .add_global("r", 0.2, Unit::Meters)

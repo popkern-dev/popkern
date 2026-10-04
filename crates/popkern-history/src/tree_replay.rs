@@ -1,6 +1,6 @@
-//! Private replay helpers for [`FeatureTree`].
-//!
-//! Extracted from `lib.rs` to stay within the 500-line structural limit.
+//! The replay core of [`FeatureTree`]: execute a range of timeline
+//! steps, record each in the step cache, and resume a replay after the
+//! longest cached prefix (see `cache` and `step_key`).
 
 use std::collections::{HashMap, HashSet};
 
@@ -22,23 +22,24 @@ mod reference_replay_tests;
 #[path = "tree_replay_helpers.rs"]
 mod helpers;
 
-use popkern_core::history::TrackingContext;
+#[path = "tree_replay_step.rs"]
+mod step;
+
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::auto_merge;
-use crate::config_eval;
+use crate::FeatureTree;
+use crate::ReplayRangeOutput;
+use crate::cache::StepRecord;
+use crate::document_state::{DocumentState, Touched};
 use crate::error::{FeatureResult, ReplayError};
-use crate::feature::{Feature, OperationMode};
+use crate::feature::Feature;
 use crate::measure_cache::MeasureCache;
-use crate::measure_query::MeasureContext;
 use crate::node::{BodyId, FeatureId};
-use crate::parameter::{EvaluationWarning, ParamScope, ParameterId};
-use crate::replay_report::{
-    FeatureEvidence, FeatureReport, ReplayOutcome, ReplayReport, SuppressionReason,
-};
-use crate::{FeatureTree, ReplayRangeOutput, replay};
-use helpers::{dimension_kind_to_unit, is_pattern_feature};
+use crate::parameter::{EvaluationWarning, ParameterId};
+use crate::replay_report::ReplayReport;
+use crate::step_key::StepKey;
+use step::{RangeCarry, StepTouched};
 
 impl FeatureTree {
     /// Persist replay results: update body_manager and current_brep.
@@ -61,438 +62,196 @@ impl FeatureTree {
         });
     }
 
-    /// Execute features `from..to` using per-body BRep maps, caching results
-    /// and returning the final body BReps together with per-feature outcomes.
+    /// Execute timeline steps `from..to` on `start`, recording every
+    /// step under its key (`keys` is indexed by timeline position), and
+    /// return the final bodies and state with the per-feature outcomes.
     ///
-    /// This is the shared core used by both [`replay`](FeatureTree::replay) and
-    /// [`replay_from`](FeatureTree::replay_from).
-    ///
-    /// Each feature's body BRep is temporarily removed from the map before
-    /// calling [`replay::execute_feature`] so that Boolean features can freely
-    /// access (and consume) the tool body's BRep without borrow conflicts.
+    /// The shared core of every replay entry point. Each feature's body
+    /// BRep is temporarily removed from the working map while it
+    /// executes so Boolean features can freely access (and consume)
+    /// the tool body's BRep without borrow conflicts.
     pub(crate) fn replay_range(
         &mut self,
-        body_breps: HashMap<BodyId, BRep>,
+        start: DocumentState,
         from: usize,
         to: usize,
+        keys: &[Option<StepKey>],
         tolerance: &Tolerance,
     ) -> Result<ReplayRangeOutput, ReplayError> {
-        let mut body_breps = body_breps;
+        let mut body_breps = start.to_working();
+        let mut state = start;
         let mut results = HashMap::new();
         let mut report = ReplayReport::default();
-        let mut measure_cache = MeasureCache::new();
-
-        // Collect seed features of all pattern features in the replay range.
-        // Seed features should NOT be auto-merged — the pattern handles that.
-        let seed_feature_ids: HashSet<FeatureId> = self.timeline[from..to]
-            .iter()
-            .filter_map(|&fid| {
-                if let Some(node) = self.features.get(fid) {
-                    match &node.feature {
-                        Feature::LinearPattern { seed_features, .. }
-                        | Feature::CircularPattern { seed_features, .. }
-                        | Feature::CurvePattern { seed_features, .. }
-                        | Feature::Mirror { seed_features, .. } => {
-                            Some(seed_features.iter().copied())
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-            .flatten()
-            .collect();
-
-        // Track stale reference parameter IDs for StaleInput propagation.
-        let mut stale_param_ids: HashSet<ParameterId> = HashSet::new();
-        // Track failed (never-valid) reference feature IDs for suppression cascade.
-        let mut failed_ref_ids: HashSet<FeatureId> = HashSet::new();
-
+        let mut carry = RangeCarry {
+            seed_feature_ids: self.pattern_seed_ids(to),
+            stale_param_ids: HashSet::new(),
+            failed_ref_ids: HashSet::new(),
+            measure_cache: MeasureCache::new(),
+        };
+        let none = HashSet::new();
         for i in from..to {
             let id = self.timeline[i];
-            // This execution's evidence replaces the feature's report
-            // row, so its kept deferred-certification BRep goes too.
-            self.forget_deferred_body(id);
-            let node = &self.features[id];
-            let label = node.label.clone();
-            let operation = node.feature.operation_label();
-            let suppressed_report = |reason: SuppressionReason| {
-                FeatureReport::new(id, &label, operation, ReplayOutcome::Suppressed { reason })
+            let published = self.replay_step(id, &mut body_breps, &mut carry, tolerance)?;
+            let touched = match &published.touched {
+                StepTouched::Nothing => Touched::Bodies(&none),
+                StepTouched::Bodies(set) => Touched::Bodies(set),
+                StepTouched::All => Touched::All,
             };
-
-            // Config suppression overrides take priority over the node default.
-            let config_suppressed =
-                config_eval::resolve_suppression(id, self.active_config, &self.configs);
-            let base_suppressed = config_suppressed.unwrap_or(node.suppressed);
-
-            if base_suppressed {
-                results.insert(id, FeatureResult::Suppressed);
-                report
-                    .features
-                    .push(suppressed_report(if config_suppressed.is_some() {
-                        SuppressionReason::Configuration
-                    } else {
-                        SuppressionReason::Explicit
-                    }));
-                continue;
+            state = state.advanced(&body_breps, touched, id);
+            if self.frozen_index == Some(i + 1) {
+                self.cache.set_frozen(i + 1, state.clone());
             }
-
-            // Evaluate conditional suppression. Clone suppress_if first to
-            // release the immutable borrow on `node` before we need `self`
-            // mutably below.
-            let suppress_if = node.suppress_if.clone();
-            let auto_suppressed = suppress_if
-                .as_ref()
-                .and_then(|expr| {
-                    crate::expression::evaluate(
-                        expr,
-                        &self.parameter_table,
-                        &crate::measure_query::MeasureContext::empty(),
-                    )
-                    .ok()
-                })
-                .map(|v| v != 0.0)
-                .unwrap_or(false);
-
-            if auto_suppressed {
-                results.insert(id, FeatureResult::Suppressed);
-                report
-                    .features
-                    .push(suppressed_report(SuppressionReason::Conditional));
-                continue;
+            if let Some(Some(key)) = keys.get(i) {
+                let mut record =
+                    StepRecord::executed(id, published.result.clone(), published.row.clone());
+                record.state = Some(state.clone());
+                record.last_result = published.last_result;
+                record.deferred = self.kept_deferred_body(id);
+                record.merged_into = published.merged_into;
+                record.reference = published.reference;
+                self.cache.insert(*key, i, record);
             }
-
-            // Suppress features that depend on a failed (never-valid) Reference.
-            // Check both entity-level deps and parameter expression refs.
-            if !failed_ref_ids.is_empty() {
-                let depends_on_failed = node
-                    .depends_on
-                    .iter()
-                    .any(|dep| failed_ref_ids.contains(dep));
-                let params_depend_on_failed = self.parameter_table.feature_params(id).iter().any(|&pid| {
-                    self.parameter_table.get(pid)
-                        .and_then(|p| p.expression.as_ref())
-                        .map(|expr| {
-                            crate::expression::expression_param_refs(expr).iter().any(|ref_id| {
-                                self.parameter_table.get(*ref_id)
-                                    .map(|rp| matches!(rp.scope, ParamScope::Feature(fid) if failed_ref_ids.contains(&fid)))
-                                    .unwrap_or(false)
-                            })
-                        })
-                        .unwrap_or(false)
-                });
-
-                if depends_on_failed || params_depend_on_failed {
-                    results.insert(id, FeatureResult::Suppressed);
-                    failed_ref_ids.insert(id); // cascade
-                    report.features.push(suppressed_report(
-                        SuppressionReason::DependsOnFailedReference,
-                    ));
-                    continue;
-                }
-            }
-
-            // Propagate StaleInput warnings to parameters that reference stale measures.
-            if !stale_param_ids.is_empty() {
-                for param_id in self.parameter_table.feature_params(id) {
-                    let refs = self
-                        .parameter_table
-                        .get(param_id)
-                        .and_then(|p| p.expression.as_ref())
-                        .map(crate::expression::expression_param_refs)
-                        .unwrap_or_default();
-                    for ref_id in refs {
-                        if stale_param_ids.contains(&ref_id) {
-                            let source = self
-                                .parameter_table
-                                .qualified_name(ref_id)
-                                .unwrap_or_else(|| "unknown".to_string());
-                            if let Some(p) = self.parameter_table.get_mut(param_id) {
-                                p.eval_warning = Some(EvaluationWarning::StaleInput { source });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Reference features are evaluated at the tree level — they
-            // don't modify the BRep, so we skip execute_feature entirely.
-            if let Feature::Reference { name: _, query } = &node.feature.clone() {
-                let timer = popkern_core::time::Stopwatch::start();
-                let body = node.body;
-                let ctx = MeasureContext {
-                    bodies: &body_breps,
-                    active_body: body,
-                    tolerance,
-                };
-                let eval_result = measure_cache.get_or_evaluate(query, &ctx);
-                let label = node.label.clone();
-                let qname = format!("{}.value", crate::labels::qualified_prefix(&label));
-                let dim_unit = dimension_kind_to_unit(query.dimension_kind());
-                let fr = match eval_result {
-                    Ok(value) => {
-                        self.upsert_reference_param(id, &qname, value, dim_unit);
-                        FeatureResult::Success {
-                            history: popkern_core::history::HistoryMap::default(),
-                        }
-                    }
-                    Err(e) => {
-                        let stale = self.parameter_table.resolve_name(&qname).and_then(|pid| {
-                            self.parameter_table.get(pid).and_then(|p| p.last_known)
-                        });
-                        if let Some(sv) = stale {
-                            self.upsert_reference_param(id, &qname, sv, dim_unit);
-                            if let Some(pid) = self.parameter_table.resolve_name(&qname) {
-                                if let Some(p) = self.parameter_table.get_mut(pid) {
-                                    p.eval_warning = Some(EvaluationWarning::MeasureStale {
-                                        message: e.to_string(),
-                                    });
-                                }
-                                stale_param_ids.insert(pid);
-                            }
-                            FeatureResult::Success {
-                                history: popkern_core::history::HistoryMap::default(),
-                            }
-                        } else {
-                            failed_ref_ids.insert(id);
-                            FeatureResult::Failed {
-                                error: crate::failure::FeatureFailure::from(e),
-                            }
-                        }
-                    }
-                };
-                let mut fr_report = FeatureReport::new(id, &label, operation, outcome_of(&fr));
-                fr_report.elapsed = timer.elapsed();
-                report.features.push(fr_report);
-                results.insert(id, fr.clone());
-                self.features[id].last_result = Some(fr);
-                continue;
-            }
-
-            // Pattern features are executed by the pattern_execute module.
-            if is_pattern_feature(&node.feature) {
-                let timer = popkern_core::time::Stopwatch::start();
-                let (fr, evidence) =
-                    match self.execute_pattern_feature(id, &mut body_breps, tolerance) {
-                        Ok(pattern_result) => {
-                            measure_cache.invalidate();
-                            let h = popkern_core::history::HistoryMap::default();
-                            (
-                                FeatureResult::Success { history: h },
-                                FeatureEvidence::pattern(&pattern_result),
-                            )
-                        }
-                        Err(e) => (
-                            FeatureResult::Failed {
-                                error: crate::failure::FeatureFailure::from(e),
-                            },
-                            FeatureEvidence::empty(),
-                        ),
-                    };
-                let mut fr_report = FeatureReport::new(id, &label, operation, outcome_of(&fr))
-                    .with_evidence(evidence);
-                fr_report.elapsed = timer.elapsed();
-                report.features.push(fr_report);
-                results.insert(id, fr.clone());
-                self.features[id].last_result = Some(fr);
-                continue;
-            }
-
-            let mut ctx = TrackingContext::new(node.operation_id);
-            let feature = node.feature.clone();
-            let body = node.body;
-
-            // Take this body's BRep out of the map so we can pass both
-            // `&mut brep` and `&mut body_breps` to execute_feature.
-            let mut brep = body_breps
-                .remove(&body)
-                .unwrap_or_else(|| BRep::new(*tolerance));
-
-            // Snapshot BRep before execution for atomic rollback on failure.
-            let brep_backup = brep.clone();
-
-            let timer = popkern_core::time::Stopwatch::start();
-            // The body carrying the face this feature's sketch was placed
-            // on (detected through the on-face reference): the Boss/Cut
-            // merge host, and the BRep an on-face sketch plane or an
-            // up-to / offset target resolves against — a tool body's own
-            // BRep never carries them.
-            // (Pattern seeds detect their host too — their planes and
-            // targets live there — but the pattern owns their merge.)
-            let merge_host = auto_merge::detect_host_body(id, &self.features, &body_breps)
-                .or_else(|| auto_merge::host_for_extrude_target(&feature, body, &body_breps));
-            let exact_profiles = crate::replay_exact_extrude::exact_profile_set(
-                &feature,
-                self.features.values().map(|n| (&n.feature, n.operation_id)),
-                merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
-                &self.parameter_table,
-            );
-            let exec_result = replay::execute_feature(
-                &mut brep,
-                &feature,
-                &mut ctx,
-                tolerance,
-                &mut body_breps,
-                &self.parameter_table,
-                &exact_profiles,
-                merge_host,
-                self.deferred.policy,
-            );
-
-            match exec_result {
-                Ok(side_effects) => {
-                    let mut evidence = side_effects.evidence;
-                    // Apply deferred side effects only on success.
-                    for consumed in &side_effects.consumed_bodies {
-                        body_breps.remove(consumed);
-                    }
-                    let history = ctx.finish();
-                    results.insert(
-                        id,
-                        FeatureResult::Success {
-                            history: history.clone(),
-                        },
-                    );
-                    self.features[id].last_result = Some(FeatureResult::Success { history });
-                    self.cache.store(self.active_config, id, brep.clone(), i);
-                    self.keep_deferred_body(id, &evidence, &brep);
-                    measure_cache.invalidate();
-
-                    // Put the BRep back before auto-merge so detect_host_body can
-                    // search all body BReps including this one.
-                    body_breps.insert(body, brep);
-
-                    // Auto-merge: Boss/Cut modes merge the tool body into the host.
-                    let mode = auto_merge::feature_mode(&feature);
-                    if !matches!(mode, OperationMode::NewBody)
-                        && !seed_feature_ids.contains(&id)
-                        && let Some(host) = merge_host
-                        && host != body
-                    {
-                        let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
-                        let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
-                        auto_merge::execute_auto_merge(
-                            mode,
-                            body,
-                            host,
-                            &mut body_breps,
-                            &mut merge_ctx,
-                            tolerance,
-                        )?;
-                        self.merged_into.insert(id, host);
-                        evidence.record_boolean_fallbacks(
-                            popkern_bool::merge_fallback::take_merge_fallback_events(),
-                        );
-                    }
-
-                    let mut fr_report =
-                        FeatureReport::new(id, &label, operation, ReplayOutcome::Served)
-                            .with_evidence(evidence);
-                    fr_report.elapsed = timer.elapsed();
-                    report.features.push(fr_report);
-
-                    // Skip the normal BRep re-insert below — already handled above.
-                    continue;
-                }
-                Err(e) => {
-                    // Atomically restore the pre-execution BRep so the body
-                    // remains in a consistent state for subsequent features.
-                    // Side effects NOT applied — tool body remains in the map.
-                    brep = brep_backup;
-                    let error_msg = crate::failure::FeatureFailure::from(e);
-                    let mut fr_report = FeatureReport::new(
-                        id,
-                        &label,
-                        operation,
-                        ReplayOutcome::Failed {
-                            error: error_msg.clone(),
-                        },
-                    );
-                    fr_report.elapsed = timer.elapsed();
-                    report.features.push(fr_report);
-                    results.insert(
-                        id,
-                        FeatureResult::Failed {
-                            error: error_msg.clone(),
-                        },
-                    );
-                    self.features[id].last_result =
-                        Some(FeatureResult::Failed { error: error_msg });
-                }
-            }
-
-            // Put the BRep back (restored to backup on failure, or updated on success).
-            body_breps.insert(body, brep);
+            results.insert(id, published.result);
+            report.features.push(published.row);
         }
-
         Ok(ReplayRangeOutput {
             bodies: body_breps,
+            state,
             results,
             report,
         })
     }
-}
 
-/// The report outcome matching a feature result.
-fn outcome_of(result: &FeatureResult) -> ReplayOutcome {
-    match result {
-        FeatureResult::Success { .. } => ReplayOutcome::Served,
-        FeatureResult::Failed { error } => ReplayOutcome::Failed {
-            error: error.clone(),
-        },
-        FeatureResult::Suppressed => ReplayOutcome::Suppressed {
-            reason: SuppressionReason::Explicit,
-        },
+    /// Seed features of the patterns in steps `0..to`: a seed does not
+    /// auto-merge (its pattern owns the merge), so whether a step is a
+    /// seed depends on LATER steps — the step key hashes this same set.
+    pub(crate) fn pattern_seed_ids(&self, to: usize) -> HashSet<FeatureId> {
+        self.timeline[..to.min(self.timeline.len())]
+            .iter()
+            .filter_map(|&fid| match &self.features.get(fid)?.feature {
+                Feature::LinearPattern { seed_features, .. }
+                | Feature::CircularPattern { seed_features, .. }
+                | Feature::CurvePattern { seed_features, .. }
+                | Feature::Mirror { seed_features, .. } => Some(seed_features.iter().copied()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
     }
-}
 
-impl FeatureTree {
-    /// Replay ONLY the final timeline feature, seeding every body's
-    /// state from the last completed replay's stored snapshots.
-    ///
-    /// This is the append fast path of the record loop: recording is
-    /// append-only and each record ends with a completed replay, so
-    /// the stored per-body BReps ARE the exact state the new feature
-    /// executes against — replaying the whole prefix again is O(n²)
-    /// across a session (measured: a 63-feature gallery script spent
-    /// 0.9 s executing features and 23 s re-executing prefixes).
-    ///
-    /// CONTRACT (the caller guarantees, or the call falls back to
-    /// [`FeatureTree::replay`]): the stored body snapshots reflect a
-    /// completed replay of the timeline minus its final feature, with
-    /// no parameter/config/timeline mutation since. The method itself
-    /// falls back on: an empty timeline, a rollback bar, an active
-    /// configuration, a frozen index, or no stored snapshots. The
-    /// incremental result is gated identical to a full replay by the
-    /// recorder's equivalence tests; PK-422 replaces this contract
-    /// with tree-diff invalidation.
-    pub fn replay_appended(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
-        let n = self.timeline.len();
-        let snapshots = self.body_manager.all_breps();
-        if n == 0
-            || self.rollback_index.is_some()
-            || self.active_config.is_some()
-            || self.frozen_index.is_some()
-            || (n > 1 && snapshots.is_empty())
-        {
-            return self.replay(tolerance);
+    /// Evaluate every parameter the way a replay sees them: under the
+    /// active configuration's overrides, or with pinned base values
+    /// restored when none is active.
+    pub(crate) fn evaluate_parameters_for_replay(
+        &mut self,
+    ) -> Vec<(ParameterId, EvaluationWarning)> {
+        if self.active_config.is_some() {
+            self.apply_config_and_evaluate()
+        } else {
+            self.restore_config_pinned_base();
+            expression::evaluate_all(
+                &mut self.parameter_table,
+                &measure_query::MeasureContext::empty(),
+            )
         }
+    }
+
+    /// The longest cached prefix a replay to `end` may skip, at most
+    /// `limit` steps: the position to execute from and the state there.
+    /// Every skipped step must have a resumable record (see
+    /// [`StepRecord::resumable`]) and the last one a kept state.
+    pub(crate) fn resume_point(
+        &mut self,
+        keys: &[Option<StepKey>],
+        limit: usize,
+    ) -> (usize, DocumentState) {
+        let mut best = (0, DocumentState::empty());
+        for (i, key) in keys.iter().enumerate().take(limit) {
+            let Some(record) = key.and_then(|k| self.cache.get(k)) else {
+                break;
+            };
+            if !record.resumable() || record.feature != self.timeline[i] {
+                break;
+            }
+            if let Some(state) = &record.state {
+                best = (i + 1, state.clone());
+            }
+        }
+        best
+    }
+
+    /// Republish skipped steps `0..from` from their records exactly as
+    /// executing them would have: results, node results, deferred-
+    /// certification bodies, auto-merge hosts, and their report rows
+    /// (returned in timeline order).
+    pub(crate) fn republish_prefix(
+        &mut self,
+        keys: &[Option<StepKey>],
+        from: usize,
+        results: &mut HashMap<FeatureId, FeatureResult>,
+    ) -> ReplayReport {
+        let mut rows = ReplayReport::default();
+        for key in keys.iter().take(from).flatten() {
+            let Some(record) = self.cache.get(*key).cloned() else {
+                continue;
+            };
+            let id = record.feature;
+            results.insert(id, record.result);
+            if let Some(last) = record.last_result {
+                self.features[id].last_result = Some(last);
+            }
+            self.forget_deferred_body(id);
+            if let Some(body) = record.deferred {
+                self.deferred.bodies.insert(id, body);
+            }
+            if let Some(host) = record.merged_into {
+                self.merged_into.insert(id, host);
+            }
+            rows.features.extend(record.row);
+        }
+        rows
+    }
+
+    /// Replay steps `0..end`, resuming after the longest cached prefix
+    /// of at most `limit` steps (`limit = 0` executes everything), and
+    /// publish the result: bodies, report, and the cache chain. The
+    /// returned report carries the republished rows too when
+    /// `report_cached` is set (a whole-document replay reports every
+    /// feature); otherwise only the executed steps' rows.
+    pub(crate) fn replay_resuming(
+        &mut self,
+        end: usize,
+        limit: usize,
+        report_cached: bool,
+        tolerance: Tolerance,
+    ) -> Result<ReplayResult, ReplayError> {
         let start = popkern_core::time::Stopwatch::start();
-        self.restore_config_pinned_base();
-        let eval_warnings = expression::evaluate_all(
-            &mut self.parameter_table,
-            &measure_query::MeasureContext::empty(),
-        );
-        let out = self.replay_range(snapshots, n - 1, n, &tolerance)?;
+        let eval_warnings = self.evaluate_parameters_for_replay();
+        let keys = self.step_keys(end, &tolerance);
+        let (from, state) = match self.frozen_index.map(|f| f.min(end)) {
+            Some(f) if f > 0 && self.cache.frozen(f).is_some() => {
+                (f, self.cache.frozen(f).cloned().unwrap_or_default())
+            }
+            _ => self.resume_point(&keys, limit.min(end)),
+        };
+        let mut out = self.replay_range(state, from, end, &keys, &tolerance)?;
+        let mut cached = self.republish_prefix(&keys, from, &mut out.results);
         self.store_body_breps(&out.bodies);
+        self.last_report.absorb(cached.clone(), &self.timeline);
         self.last_report.absorb(out.report.clone(), &self.timeline);
+        if report_cached {
+            cached.features.append(&mut out.report.features);
+            out.report = cached;
+        }
+        let chain = self.timeline[..end].iter().copied().zip(keys).collect();
+        self.cache.set_chain(chain);
         Ok(ReplayResult {
             feature_results: out.results,
             elapsed: start.elapsed(),
             eval_warnings,
             report: out.report,
             tolerance,
+            cached_steps: from,
         })
     }
 }

@@ -203,8 +203,20 @@ impl Model {
             let mut new_feature = node.feature.clone();
             let mut records = node.selections.clone();
             if edit.continuity.is_some() || edit.edges.is_some() || edit.faces.is_some() {
-                // Selections resolve against the body the feature sees.
-                let before = m.tree.brep_at(index, m.tolerance)?.clone();
+                // Selections resolve against the body the feature runs
+                // on, as it stands just before the feature.
+                let before = m
+                    .tree
+                    .state_at(index, m.tolerance)?
+                    .body(node.body)
+                    .cloned()
+                    .ok_or_else(|| ScriptError::Argument {
+                        argument: "edit".into(),
+                        reason: format!(
+                            "feature '{}' has no body to select on before it runs",
+                            node.label
+                        ),
+                    })?;
                 let labels = |r: EntityRef| m.resolve_entity_ref(r);
                 match (&mut new_feature, &edit.edges, &edit.faces) {
                     (Feature::Fillet { edges, recipe, .. }, sel, _) => {

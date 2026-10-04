@@ -36,7 +36,8 @@ pub struct Model {
     pub(crate) unit: Unit,
     pub(crate) active: Option<BodyId>,
     pub(crate) pending_counter: u64,
-    /// Append fast-path freshness bit — see `record::record_feature`.
+    /// Whether the tree's current bodies reflect the whole timeline
+    /// (cleared by parameter and configuration edits until a replay).
     pub(crate) geometry_current: bool,
 }
 

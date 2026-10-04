@@ -340,22 +340,15 @@ impl Model {
         crate::selection::resolve_faces(brep, selector, &resolve)
     }
 
-    /// The bodies as they stood before the feature at `index` ran:
-    /// replay up to that point and read `body`. Costs a partial
-    /// replay; intended for emission and verification, not hot paths.
+    /// `body` as it stood before the feature at `index` ran, read from
+    /// the step cache (steps the cache does not hold execute without
+    /// touching the model's current bodies or report).
     pub fn body_before(
         &mut self,
         index: usize,
         body: popkern_history::node::BodyId,
     ) -> Result<Option<BRep>, ScriptError> {
-        let tolerance = self.tolerance;
-        let tree = self.tree_mut();
-        tree.rollback_to(index);
-        let outcome = tree.replay(tolerance);
-        let brep = tree.body_brep(body).cloned();
-        tree.rollback_to_end();
-        let _ = tree.replay(tolerance);
-        outcome?;
-        Ok(brep)
+        let state = self.tree.state_at(index, self.tolerance)?;
+        Ok(state.body(body).cloned())
     }
 }

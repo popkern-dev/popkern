@@ -68,21 +68,28 @@ pub struct ReplayResult {
     pub elapsed: Option<Duration>,
     /// Warnings from expression evaluation (math errors, bounds clamping).
     pub eval_warnings: Vec<(ParameterId, EvaluationWarning)>,
-    /// Per-feature evidence for the features this replay executed, in
-    /// timeline order. Features served from the cache (a
-    /// [`replay_from`](crate::FeatureTree::replay_from) resume point)
-    /// are not re-reported here; the tree's
-    /// [`last_report`](crate::FeatureTree::last_report) keeps their
-    /// most recent record.
+    /// Per-feature evidence in timeline order. A whole-document
+    /// [`replay`](crate::FeatureTree::replay) reports every feature
+    /// (steps served from the step cache republish their recorded
+    /// rows); [`replay_from`](crate::FeatureTree::replay_from) reports
+    /// only the steps it executed, and the tree's
+    /// [`last_report`](crate::FeatureTree::last_report) keeps the rest.
     pub report: ReplayReport,
     /// The tolerance this replay built under.
     pub tolerance: popkern_core::tolerance::Tolerance,
+    /// How many leading timeline steps were served from the step cache
+    /// (their inputs were unchanged) instead of executing; the replay
+    /// executed every step after them.
+    pub cached_steps: usize,
 }
 
 /// Per-body BReps, per-feature outcomes, and the report from a replay pass.
 pub(crate) struct ReplayRangeOutput {
     /// Final BRep per body.
     pub bodies: HashMap<crate::node::BodyId, BRep>,
+    /// The document after the last executed step (bodies shared with
+    /// the step cache).
+    pub state: crate::document_state::DocumentState,
     /// Per-feature outcomes.
     pub results: HashMap<FeatureId, FeatureResult>,
     /// Per-feature evidence, timeline order.

@@ -28,14 +28,12 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
                 reverse_command(tree, c);
             }
         }
-        TreeCommand::AddFeature { id, index, .. } => {
+        TreeCommand::AddFeature { id, .. } => {
             // Remove from timeline only; leave the slotmap entry intact so that
             // redo can re-insert it without needing to generate a new key.
             if let Some(pos) = tree.timeline.iter().position(|&fid| fid == *id) {
                 tree.timeline.remove(pos);
             }
-            // Invalidate any cached state that depended on this feature.
-            tree.cache.invalidate_from(*index, &tree.timeline.clone());
         }
 
         TreeCommand::DeleteFeature { snapshots } => {
@@ -54,11 +52,6 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         TreeCommand::ModifyFeature { id, old, .. } => {
             if let Some(node) = tree.features.get_mut(*id) {
                 node.feature = old.clone();
-            }
-            // Invalidate cache from this feature onward.
-            if let Some(pos) = tree.timeline.iter().position(|&fid| fid == *id) {
-                let timeline_snap = tree.timeline.clone();
-                tree.cache.invalidate_from(pos, &timeline_snap);
             }
         }
 
@@ -227,10 +220,6 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
         TreeCommand::ModifyFeature { id, new, .. } => {
             if let Some(node) = tree.features.get_mut(*id) {
                 node.feature = new.clone();
-            }
-            if let Some(pos) = tree.timeline.iter().position(|&fid| fid == *id) {
-                let timeline_snap = tree.timeline.clone();
-                tree.cache.invalidate_from(pos, &timeline_snap);
             }
         }
 

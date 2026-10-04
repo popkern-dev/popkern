@@ -1,11 +1,10 @@
-//! The record loop's append fast path (`FeatureTree::replay_appended`)
-//! must be observationally identical to full replay: the recorder
-//! builds each feature against the stored end-of-timeline state, and
-//! a final full replay of the same document must reproduce every
-//! body's state exactly. A parameter edit between records invalidates
-//! the fast path (the freshness bit) — the staleness hazard this
-//! suite pins is recording after `set_param` against pre-edit
-//! geometry.
+//! Recording replays incrementally — each record resumes from the step
+//! cache and executes only the new feature — and must be
+//! observationally identical to full replay: a final full replay of the
+//! same document must reproduce every body's state exactly. A
+//! parameter edit between records changes the edited step's key, so
+//! the next record cannot build against pre-edit geometry (the
+//! staleness hazard this suite pins).
 
 use popkern_script::prelude::*;
 use popkern_script::scalar::p;

@@ -88,9 +88,10 @@ fn fillet_radius_tweak_refreshes_cached_state() {
         recipe: Default::default(),
     };
     let fillet_id = tree.add_feature(old_feature.clone(), "fillet");
-    tree.cache
-        .store_explicit(None, anchor, state_before.clone());
-    tree.cache.store_explicit(None, fillet_id, state_at.clone());
+    tree.plant_test_chain(&[
+        (anchor, state_before.clone()),
+        (fillet_id, state_at.clone()),
+    ]);
 
     let new_feature = Feature::Fillet {
         edges: vec![edge_name],
@@ -178,7 +179,7 @@ fn edge_set_change_falls_back_to_full_replay() {
         },
     );
     assert!(
-        tree.cache.get(None, fillet).is_none(),
+        tree.current_cached_state(fillet).is_none(),
         "a non-tweak edit must fall back to full invalidation"
     );
 }
@@ -215,20 +216,24 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
     );
     tree.replay(Tolerance::default()).expect("base replay");
     {
-        let timeline = tree.timeline().to_vec();
-        let sketch_state = tree.cache.get(None, timeline[0]).expect("sketch cached");
+        let sketch_state = tree
+            .brep_at(1, Tolerance::default())
+            .expect("sketch cached");
         sketch_state
             .validate()
             .expect("replay-built sketch sheet validates (PK-317)");
     }
-    let extruded = tree.cache.get(None, extrude).expect("extrude cached");
+    let extruded = tree
+        .brep_at(2, Tolerance::default())
+        .expect("extrude cached");
+    let _ = extrude;
     extruded
         .validate()
         .expect("replay-built extrude body validates (PK-316)");
 
     // A named lateral edge with a genuine dihedral.
     let edge_name = {
-        let state = extruded;
+        let state = &extruded;
         state
             .name_pool
             .names
@@ -298,7 +303,7 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
         },
     );
     assert!(
-        tree.cache.get(None, fillet).is_some(),
+        tree.current_cached_state(fillet).is_some(),
         "radius tweak takes the in-place route through modify_feature"
     );
     tree.replay(Tolerance::default())
@@ -354,9 +359,10 @@ fn fillet_recipe_change_declines_in_place_route() {
         recipe: Default::default(),
     };
     let fillet_id = tree.add_feature(old_feature.clone(), "fillet");
-    tree.cache
-        .store_explicit(None, anchor, state_before.clone());
-    tree.cache.store_explicit(None, fillet_id, state_at.clone());
+    tree.plant_test_chain(&[
+        (anchor, state_before.clone()),
+        (fillet_id, state_at.clone()),
+    ]);
 
     let g2 = Feature::Fillet {
         edges: vec![edge_name.clone()],
@@ -475,7 +481,7 @@ fn literal_plane_draft_angle_tweak_routes_in_place() {
         },
     );
     assert!(
-        tree.cache.get(None, draft).is_some(),
+        tree.current_cached_state(draft).is_some(),
         "literal-plane angle tweak takes the in-place route"
     );
     tree.replay(Tolerance::default())

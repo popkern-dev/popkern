@@ -316,8 +316,8 @@ impl FeatureTree {
 
     /// Modify a feature's parameters.
     ///
-    /// Records an undo command, re-infers dependencies, and invalidates the
-    /// cache from this feature onward.
+    /// Records an undo command and re-infers dependencies. The step
+    /// cache needs no invalidation: its keys change with the edit.
     pub fn modify_feature(&mut self, id: FeatureId, feature: Feature) {
         // Check existence first; bail early if not found.
         if !self.features.contains_key(id) {
@@ -345,14 +345,20 @@ impl FeatureTree {
             new: feature,
         });
 
-        // Invalidate cache from this feature onward — then, when the
-        // in-place route served, restore the refreshed snapshot at
-        // the feature itself so evaluation resumes downstream of it.
-        if let Some(pos) = self.timeline.iter().position(|&fid| fid == id) {
-            let timeline_snap = self.timeline.clone();
-            self.cache.invalidate_from(pos, &timeline_snap);
-            if let Some(refreshed) = in_place {
-                self.cache.store_explicit(None, id, refreshed);
+        // Cached states are content-addressed, so the edit cannot be
+        // served stale ones. When the in-place route served, pin its
+        // refreshed state at the feature under the edited step's key:
+        // scrubbing shows it at once; the next replay still executes
+        // the feature, because a pinned state carries no evidence.
+        if let (Some(refreshed), Some(pos)) =
+            (in_place, self.timeline.iter().position(|&fid| fid == id))
+        {
+            let tolerance = self.effective_build_tolerance();
+            let keys = self.step_keys(pos + 1, &tolerance);
+            let body = self.features[id].body;
+            if let (Some(Some(key)), Some(before)) = (keys.get(pos), self.cached_state_at(pos)) {
+                let state = before.with_body(body, refreshed, id);
+                self.cache.pin_chain_state(pos, *key, state);
             }
         }
     }
