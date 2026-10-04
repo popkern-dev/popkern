@@ -222,7 +222,12 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
     if let Some((p, transposed)) = wrapped_period {
-        rings.extend(join_wrapped_rings(
+        // The joined band polygon is the face's OUTER boundary: ring 0
+        // by convention (hole-sheet alignment and the lattice's bbox
+        // read it). Appended after the holes, a cross-drilled wall's
+        // holes stayed a period off the band and their region meshed
+        // as material (bracket1: facets 2.11 off; PK-652).
+        let joined = join_wrapped_rings(
             face_handle,
             &wrapped_rings,
             p,
@@ -230,7 +235,8 @@ pub(crate) fn tessellate_face_boundary_first(
             orientation,
             options.chord_height,
             transposed,
-        )?);
+        )?;
+        rings.splice(0..0, joined);
     }
     if rings.is_empty() {
         return None;
