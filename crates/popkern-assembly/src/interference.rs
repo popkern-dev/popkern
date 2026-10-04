@@ -294,16 +294,30 @@ impl Assembly {
                 let size = mesh_a.bounds.diagonal().max(mesh_b.bounds.diagonal());
                 let exact = la.eps[mesh_a.local[c.tri_here]] <= 1e-12 * size
                     && lb.eps[mesh_b.local[c.tri_there]] <= 1e-12 * size;
+                // A closest mesh point on a mesh edge or vertex belongs to
+                // every face meeting there: refinement tries each pair and
+                // keeps the nearest feasible one (coaxial pin and bore tie
+                // along the bore's rim, where the plate's top face cannot
+                // carry the clearance and the bore wall can; PK-651).
                 let refined = if exact {
-                    Some((c.here, c.there))
+                    Some((c.here, c.there, fa, fb))
                 } else {
-                    refine(
-                        brep_a, fa, mesh_a, la, brep_b, fb, mesh_b, lb, c.here, c.there,
-                    )
+                    let faces_a = faces_at(mesh_a, la, &c.here, fa, size);
+                    let faces_b = faces_at(mesh_b, lb, &c.there, fb, size);
+                    faces_a
+                        .iter()
+                        .flat_map(|&x| faces_b.iter().map(move |&y| (x, y)))
+                        .filter_map(|(x, y)| {
+                            refine(
+                                brep_a, x, mesh_a, la, brep_b, y, mesh_b, lb, c.here, c.there,
+                            )
+                            .map(|(p, q)| (p, q, x, y))
+                        })
+                        .min_by(|l, r| (l.0 - l.1).length().total_cmp(&(r.0 - r.1).length()))
                 };
-                let (distance, here, there, is_refined) = match refined {
-                    Some((p, q)) => ((p - q).length(), p, q, true),
-                    None => (c.distance, c.here, c.there, false),
+                let (distance, here, there, is_refined, fa, fb) = match refined {
+                    Some((p, q, x, y)) => ((p - q).length(), p, q, true, x, y),
+                    None => (c.distance, c.here, c.there, false, fa, fb),
                 };
                 if best.as_ref().is_none_or(|b| distance < b.0) {
                     let names = [
@@ -412,6 +426,28 @@ fn refine(
         nearest <= eps + 1e-9 * size
     };
     (on_face(mesh_a, la, fa, &p) && on_face(mesh_b, lb, fb, &q)).then_some((p, q))
+}
+
+/// The faces whose triangles hold mesh point `x` (within `1e-9` of
+/// `size`), `own` first: more than one when `x` lies on a mesh edge or
+/// vertex between faces.
+fn faces_at(
+    mesh: &WorldMesh,
+    local: &LocalMesh,
+    x: &Point3,
+    own: FaceHandle,
+    size: f64,
+) -> Vec<FaceHandle> {
+    let mut faces = vec![own];
+    for (k, tri) in mesh.tris.iter().enumerate() {
+        let face = local.faces[mesh.local[k]];
+        if !faces.contains(&face)
+            && (crate::tri_geometry::closest_on_triangle(x, tri) - *x).length() <= 1e-9 * size
+        {
+            faces.push(face);
+        }
+    }
+    faces
 }
 
 fn bounds_diagonal(brep: &BRep) -> f64 {

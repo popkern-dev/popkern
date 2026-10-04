@@ -58,7 +58,7 @@ crates/popkern-blend/src/g2_cross_section.rs 597
 crates/popkern-blend/src/g2_cross_section_tests.rs 540
 crates/popkern-blend/tests/support/kp_gate_shared_trims.rs 501
 crates/popkern-io/src/step/export_topology_tests.rs 572
-crates/popkern-mesh/src/boundary_first.rs 1064
+crates/popkern-mesh/src/boundary_first.rs 954
 crates/popkern-mesh/src/integration_tests/mod.rs 509
 crates/popkern-mesh/src/tessellate.rs 1162
 crates/popkern-mesh/src/trim_clip.rs 537

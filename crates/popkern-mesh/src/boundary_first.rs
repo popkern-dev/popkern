@@ -26,8 +26,12 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 use crate::TessellationOptions;
 use crate::mesh::{FaceMesh, MeshVertex};
 
+#[path = "boundary_first_cdt.rs"]
+mod boundary_first_cdt;
 #[path = "boundary_first_delaunay.rs"]
 mod boundary_first_delaunay;
+#[path = "boundary_first_deviation.rs"]
+mod boundary_first_deviation;
 #[path = "boundary_first_fidelity.rs"]
 mod boundary_first_fidelity;
 #[path = "boundary_first_fold.rs"]
@@ -47,6 +51,8 @@ mod boundary_first_revolution_bipolar;
 mod boundary_first_ring_condition;
 #[path = "boundary_first_ring_index.rs"]
 mod boundary_first_ring_index;
+#[path = "boundary_first_ruled_lattice.rs"]
+mod boundary_first_ruled_lattice;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
 #[path = "boundary_first_slit.rs"]
@@ -330,81 +336,65 @@ pub(crate) fn tessellate_face_boundary_first(
         let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
         (du.max(1e-9), dv.max(1e-9))
     };
-    // Cell for the clearance band and segment refinement: the SMALLER
-    // per-direction spacing on directional lattices (an anisotropic
-    // band's clearance derived from its long direction evacuated the
-    // whole interior); the tuned max formula elsewhere.
-    let cell = if n_u != n || n_v != n {
-        ((su * (u1 - u0)) / n_u as f64)
-            .min((sv * (v1 - v0)) / n_v as f64)
-            .max(1e-12)
-    } else {
-        ((su * (u1 - u0)) / n as f64)
-            .max((sv * (v1 - v0)) / n as f64)
-            .max(1e-12)
-    };
+    // Per-direction lattice spacings (metric).
+    let cells = ((su * (u1 - u0)) / n_u as f64, (sv * (v1 - v0)) / n_v as f64);
+    // Lattice cell (diagnostics): the finer per-direction spacing.
+    let cell = ((su * (u1 - u0)) / n_u as f64)
+        .min((sv * (v1 - v0)) / n_v as f64)
+        .max(1e-12);
     let clearance = cell / 3.0;
-    // LONG boundary segments on CURVED charts must be refined before
-    // the grid: the diametral-disk exclusion below evacuates every
-    // grid point within a segment's protecting disk, and a 2-sample
-    // straight edge (a cylinder ruling or seam — zero 3D chord
-    // height, so adaptive edge sampling never subdivides it) owns a
-    // disk covering much of the chart. The boundary-only Delaunay
-    // that results is legal in UV but its triangles are 3D CHORDS
-    // through the solid (measured: the breached-bore wall's vertical
-    // trim anchored a membrane capping the void, mesh volume +0.7%;
-    // the column wall's seam evacuated its ENTIRE 2π×60 chart).
-    // Ruppert's protection is split-the-segment, not evacuate-the-
-    // interior: request splits until segments are ~cell-sized; the
-    // rounds in `tessellate` re-run all faces with the shared
-    // refined samples, so watertightness is preserved. Planar charts
-    // skip this — their chords lie on the surface.
+    // LONG boundary segments on curved charts are split toward the
+    // lattice spacing along them (requests feed the next tessellation
+    // round, shared by both faces of the edge, so the mesh stays
+    // watertight). Boundary samples graded like the interior keep the
+    // triangles beside a seam well shaped: without this pass the
+    // display mesh's seam normals roughened up to 5x (zebra
+    // attribution, cube corner cap-cap slope 4.0e-3 -> 2.0e-2; PK-651).
+    // It once also kept segments' diametral disks small enough not to
+    // evacuate the interior; constrained recovery has retired that
+    // role. The threshold follows the segment's DOMINANT direction on
+    // directional lattices: judged by the much smaller u-cell, a
+    // v-running seam split to half the row spacing and Bowyer–Watson
+    // fanned long-u chords between the rows (the PK-146 class:
+    // ground-spring volume 0.0502 -> 0.0456). Planar charts skip it.
     if !matches!(
         surface,
         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
     ) {
+        let square_cell = ((su * (u1 - u0)) / n as f64)
+            .max((sv * (v1 - v0)) / n as f64)
+            .max(1e-12);
         for ring in &rings {
             let m = ring.uv.len();
             for k in 0..m {
                 let a = ring.uv[k];
                 let b = ring.uv[(k + 1) % m];
                 let (du, dv) = (su * (b.0 - a.0), sv * (b.1 - a.1));
-                let len2 = du.powi(2) + dv.powi(2);
-                // Threshold against the lattice spacing along the
-                // segment's DOMINANT direction: on an anisotropic
-                // directional lattice, judging a v-running seam
-                // segment by the (much smaller) u-cell refined it to
-                // HALF the interior row spacing, the refined rail sat
-                // exactly midway between rows as one near-cocircular
-                // family, and Bowyer–Watson fanned long-u chords
-                // through the inter-row band (the PK-146 class —
-                // measured: ground-spring volume fell from 0.0502 to
-                // 0.0456 at default options). Square grids keep the
-                // single cell.
                 let thr = if n_u != n || n_v != n {
-                    let cell_u = (su * (u1 - u0)) / n_u as f64;
-                    let cell_v = (sv * (v1 - v0)) / n_v as f64;
-                    if du.abs() > dv.abs() { cell_u } else { cell_v }
+                    if du.abs() > dv.abs() {
+                        cells.0
+                    } else {
+                        cells.1
+                    }
                 } else {
-                    cell
+                    square_cell
                 };
-                if len2 > (1.5 * thr) * (1.5 * thr) {
+                if du.powi(2) + dv.powi(2) > (1.5 * thr) * (1.5 * thr) {
                     let (eh, f_lo, f_hi) = ring.sources[k];
                     split_requests.push((eh, 0.5 * (f_lo + f_hi)));
                 }
             }
         }
     }
-    // A boundary segment survives unconstrained Delaunay if its
-    // DIAMETRAL disk is point-free (the classic protecting-ball
-    // condition); a plain distance clearance admits grid points that
-    // sit outside the clearance band yet inside the diametral disk
-    // of a diagonal segment, and the coverage check then rejects the
-    // whole face (measured on a plate face with a circular hole
-    // ring). The ring index answers containment, clearance and disk
-    // queries by bucket, identically to scanning every segment
-    // (PK-589: the scans made the lattice filter O(points × segments)).
-    let ring_index = boundary_first_ring_index::RingIndex::new(&rings, su, sv, clearance);
+    // Lattice points are filtered by region and a per-segment
+    // clearance band (a third of the lattice spacing across the
+    // segment). Points inside a segment's diametral disk are KEPT: the
+    // triangulation recovers every ring segment by constrained flips
+    // (`boundary_first_cdt`), where the unconstrained Delaunay used to
+    // need disk-free segments and so evacuated the interior beside
+    // every long one (PK-651). The ring index answers by bucket,
+    // identically to scanning every segment (PK-589).
+    let ring_index = boundary_first_ring_index::RingIndex::new(&rings, su, sv, cells);
     // RULED charts (v-midline deviation below chord height: cylinder
     // and cone walls, extruded NURBS) skip the interior grid: full-
     // height boundary strips are EXACT along the ruling, and the
@@ -432,126 +422,24 @@ pub(crate) fn tessellate_face_boundary_first(
         );
         pm.distance_to(&chord_mid) <= options.chord_height
     };
+    // Delaunay metric: the surface metric, v compressed on ruled lattices.
+    let mut tri_scale = (su, sv);
     if ruled_v {
-        // RULED charts (cylinder/cone walls, extruded NURBS): the
-        // interior lattice reuses the BOUNDARY's u-stations — the
-        // adaptive edge sampling already made those as dense as the
-        // curvature demands, while the bbox grid is capped at
-        // max_subdivisions and its coarser u-spacing carries 16× the
-        // chord error (measured: 4.6e-3 vs a 2e-3 volume gate on the
-        // chamfered column). Along the ruling v is STRAIGHT, so a few
-        // rows cost no accuracy and give the Delaunay interior
-        // support against trim bites (measured: the breached-bore
-        // wall membraned with boundary-only triangulation even after
-        // the trim splits).
-        let mut u_stations: Vec<f64> = rings
-            .iter()
-            .flat_map(|r| r.uv.iter().map(|&(u, _)| u))
-            .collect();
-        u_stations.sort_by(f64::total_cmp);
-        // Dedup PROPORTIONALLY to the chart span: the two rims invert
-        // to near-identical u (differing ~1e-8 from independent
-        // atan2 of separately-sampled 3D points), and near-duplicate
-        // interior points corrupt the Bowyer-Watson cavity
-        // (measured: non-Delaunay 0.63-rad chords beside the seam
-        // with a dense kept lattice — the PK-146 seam band).
-        let station_merge = ((u1 - u0).abs() * 1.0e-7).max(1e-9);
-        u_stations.dedup_by(|a, b| (*a - *b).abs() < station_merge);
-        if u_stations.len() > 512 {
-            let step = u_stations.len() as f64 / 512.0;
-            u_stations = (0..512)
-                .map(|i| u_stations[(i as f64 * step) as usize])
-                .collect();
-        }
-        let n_v = options.min_subdivisions.max(4);
-        let seam_trace =
-            popkern_core::trace::trace_enabled("boundary-first-seam") && u_stations.len() > 100;
-        let mut kill = [0usize; 4]; // region, clearance, disk, kept — seam band only
-        // Interior v-stations CONFORM to the boundary's v-cadence:
-        // with a fixed sparse row count, ruling-side boundary samples
-        // (a refined seam at half the row spacing) sit exactly midway
-        // between rows and the whole seam neighborhood becomes one
-        // near-cocircular family — every triangulation is legal and
-        // Bowyer-Watson picks long-u fans through the empty inter-row
-        // band (measured: 0.63-rad chords beside the bore seam,
-        // volume +1.3e-3 at any chord tolerance, ZERO circumcircle
-        // violations — the fans are legal). Taking the rows from the
-        // ring's own interior v-values tiles the lattice conformally
-        // with the boundary; the fixed grid remains the fallback for
-        // boundaries with no interior v-samples.
-        let mut v_stations: Vec<f64> = rings
-            .iter()
-            .flat_map(|r| r.uv.iter().map(|&(_, v)| v))
-            .filter(|&v| v > v0 + 1e-9 && v < v1 - 1e-9)
-            .collect();
-        v_stations.sort_by(f64::total_cmp);
-        let v_merge = ((v1 - v0).abs() * 1.0e-7).max(1e-9);
-        v_stations.dedup_by(|a, b| (*a - *b).abs() < v_merge);
-        if v_stations.len() < n_v - 1 {
-            v_stations = (1..n_v)
-                .map(|j| v0 + (v1 - v0) * j as f64 / n_v as f64)
-                .collect();
-        } else if v_stations.len() > 64 {
-            let step = v_stations.len() as f64 / 64.0;
-            v_stations = (0..64)
-                .map(|i| v_stations[(i as f64 * step) as usize])
-                .collect();
-        }
-        for &u in &u_stations {
-            if u <= u0 || u >= u1 {
-                continue;
-            }
-            for &v in &v_stations {
-                let in_band = u - u0 < 0.8 || u1 - u < 0.8;
-                let detail = seam_trace && u1 - u < 0.9 && (v - 1.0).abs() < 0.01;
-                if !ring_index.inside((u, v)) {
-                    if seam_trace && in_band {
-                        kill[0] += 1;
-                    }
-                    if detail {
-                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED region");
-                    }
-                } else if ring_index.within_clearance((u, v)) {
-                    if seam_trace && in_band {
-                        kill[1] += 1;
-                    }
-                    if detail {
-                        eprintln!(
-                            "    [bf-seam] ({u:.3},{v:.3}) KILLED clearance d={:.4}",
-                            dist_to_rings((u, v), &rings, su, sv)
-                        );
-                    }
-                } else if ring_index.in_diametral_disk(u, v) {
-                    if seam_trace && in_band {
-                        kill[2] += 1;
-                    }
-                    if detail {
-                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED disk");
-                    }
-                } else {
-                    if seam_trace && in_band {
-                        kill[3] += 1;
-                    }
-                    if detail {
-                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KEPT");
-                    }
-                    uv_pts.push((u, v));
-                    pos_pts.push(None);
-                }
-            }
-        }
-        if seam_trace {
-            eprintln!(
-                "  [bf-seam] stations={} n_v={n_v} cell={cell:.4} clearance={clearance:.4} band kills: region={} clearance={} disk={} kept={}",
-                u_stations.len(),
-                kill[0],
-                kill[1],
-                kill[2],
-                kill[3]
-            );
+        let compress = boundary_first_ruled_lattice::ruled_lattice(
+            &rings,
+            &ring_index,
+            (u0, u1, v0, v1),
+            (su, sv),
+            cells,
+            options,
+            &mut uv_pts,
+            &mut pos_pts,
+        );
+        if boundary_first_ruled_lattice::ruled_everywhere(surface, (u0, u1, v0, v1), chord) {
+            tri_scale.1 *= compress;
         }
     } else {
-        let mut census = [0usize; 4]; // region, clearance, disk, kept
+        let mut census = [0usize; 3]; // region, clearance, kept
         for i in 1..n_u {
             for j in 1..n_v {
                 let u = u0 + (u1 - u0) * i as f64 / n_u as f64;
@@ -560,10 +448,8 @@ pub(crate) fn tessellate_face_boundary_first(
                     census[0] += 1;
                 } else if ring_index.within_clearance((u, v)) {
                     census[1] += 1;
-                } else if ring_index.in_diametral_disk(u, v) {
-                    census[2] += 1;
                 } else {
-                    census[3] += 1;
+                    census[2] += 1;
                     uv_pts.push((u, v));
                     pos_pts.push(None);
                 }
@@ -593,11 +479,10 @@ pub(crate) fn tessellate_face_boundary_first(
             let med = seg_lens.get(seg_lens.len() / 2).copied().unwrap_or(0.0);
             let long = seg_lens.iter().filter(|&&l| l > 3.0 * cell).count();
             eprintln!(
-                "    [bf-census] face {face_handle:?} n_u={n_u} n_v={n_v}: region={} clearance={} disk={} kept={} | segs {} med {med:.4} max {:.4} at ({:.4},{:.4})->({:.4},{:.4}) long(>3cell) {long}",
+                "    [bf-census] face {face_handle:?} n_u={n_u} n_v={n_v}: region={} clearance={} kept={} | segs {} med {med:.4} max {:.4} at ({:.4},{:.4})->({:.4},{:.4}) long(>3cell) {long}",
                 census[0],
                 census[1],
                 census[2],
-                census[3],
                 seg_lens.len(),
                 worst.2,
                 worst.0.0,
@@ -620,9 +505,25 @@ pub(crate) fn tessellate_face_boundary_first(
     let mut triangles = boundary_first_triangulate::triangulate_region(
         face_handle,
         &uv_pts,
-        (su, sv),
+        tri_scale,
         &ring_index,
+        &ring_ranges,
     )?;
+    let chart = boundary_first_deviation::Chart {
+        face: face_handle,
+        surface,
+        scale: (su, sv),
+        tri_scale,
+        ring_index: &ring_index,
+        ring_ranges: &ring_ranges,
+    };
+    boundary_first_deviation::refine_by_deviation(
+        &chart,
+        &mut uv_pts,
+        &mut pos_pts,
+        &mut triangles,
+        chord,
+    );
     if popkern_core::trace::trace_enabled("boundary-first-ring") {
         let mut areas: Vec<f64> = triangles
             .iter()

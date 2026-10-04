@@ -1,16 +1,18 @@
 //! Spatial index over a face's boundary-ring segments for the lattice
 //! filter and the trim filter of the boundary-first builder (PK-589).
 //!
-//! Each interior lattice point asks three questions of the rings: is it
-//! inside the trim region, is it within the clearance band, and is it
-//! inside some segment's diametral disk. Answered by scanning every
+//! Each interior lattice point asks two questions of the rings: is it
+//! inside the trim region, and is it within the clearance band. (The
+//! third, diametral-disk exclusion, is retired: ring segments survive
+//! by constrained recovery, so lattice points beside a long segment no
+//! longer evacuate — PK-651.) Answered by scanning every
 //! segment, that was O(points × segments). Both grow as the facet bound
 //! tightens, so a coil wall at 3° paid about 8× its 6° cost per halving
 //! (0.4 s per build at 6°, repeated per encroachment round). Here each
 //! query visits only the segments that can decide it. The per-segment
 //! arithmetic is the scan's, verbatim, so every answer is identical:
-//! crossing parity is order-independent, and the clearance and disk
-//! tests are "any segment passes", which candidate completeness
+//! crossing parity is order-independent, and the clearance test is
+//! "any segment passes", which candidate completeness
 //! preserves.
 
 use super::BoundaryRing;
@@ -20,7 +22,7 @@ use super::BoundaryRing;
 const GRID_CELLS: f64 = 262_144.0;
 
 /// Relative padding on registered extents, so a segment whose computed
-/// distance or disk test passes by a rounding hair is still a
+/// distance test passes by a rounding hair is still a
 /// candidate in the queried cell.
 const PAD: f64 = 1e-9;
 
@@ -111,19 +113,30 @@ pub(super) struct RingIndex {
     segments: Vec<((f64, f64), (f64, f64))>,
     su: f64,
     sv: f64,
-    clearance: f64,
+    /// Per-segment clearance band (metric units).
+    clearance: Vec<f64>,
     slab: Axis,
     slabs: Buckets,
     gx: Axis,
     gy: Axis,
     near: Buckets,
-    disks: Buckets,
 }
 
 impl RingIndex {
-    /// Index `rings` for queries in the metric `(su, sv)` with the
-    /// clearance band `clearance` (metric units).
-    pub(super) fn new(rings: &[BoundaryRing], su: f64, sv: f64, clearance: f64) -> Self {
+    /// Index `rings` for queries in the metric `(su, sv)`. Each
+    /// segment's clearance band (metric units) is a third of the
+    /// interior lattice spacing ACROSS it (from the per-direction
+    /// spacings `(cell_u, cell_v)`), and at most a third of its length: on an anisotropic lattice one band
+    /// width sized by the coarse direction exceeded a thin strip's
+    /// half-width and evacuated its interior (a quarter-turn cylinder
+    /// strip 0.54 wide, band 0.27: rail-to-rail chords 0.088 off the
+    /// surface; PK-651).
+    pub(super) fn new(
+        rings: &[BoundaryRing],
+        su: f64,
+        sv: f64,
+        (cell_u, cell_v): (f64, f64),
+    ) -> Self {
         let mut segments = Vec::new();
         for ring in rings {
             let n = ring.uv.len();
@@ -151,14 +164,29 @@ impl RingIndex {
             .collect();
         let slabs = Buckets::build(1, slab.n, &slab_ranges);
 
-        // Metric grid over every segment's clearance band and disk.
+        // Metric grid over every segment's clearance band.
         let metric = |p: (f64, f64)| (p.0 * su, p.1 * sv);
-        let disk = |a: (f64, f64), b: (f64, f64)| {
-            let (a, b) = (metric(a), metric(b));
-            let c = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
-            let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
-            (c, (r2 * 1.0201).sqrt())
-        };
+        let clearance: Vec<f64> = segments
+            .iter()
+            .map(|&(a, b)| {
+                let (pa, pb) = (metric(a), metric(b));
+                let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+                let l = dx.hypot(dy);
+                // Lattice spacing along the segment's unit normal.
+                let (nx, ny) = if l > 1e-300 {
+                    (-dy / l, dx / l)
+                } else {
+                    (0.0, 1.0)
+                };
+                let inv = (nx / cell_u.max(1e-300)).hypot(ny / cell_v.max(1e-300));
+                let across = if inv > 1e-300 { 1.0 / inv } else { 0.0 };
+                // A point at distance d beside a segment of length l is a
+                // sliver apex only when d << l: the band never exceeds a
+                // third of the segment either (a cylinder rim's short
+                // segments under a sparse ruling-direction lattice).
+                across.min(l) / 3.0
+            })
+            .collect();
         let mut boxes = Vec::with_capacity(segments.len());
         let (mut x0, mut x1, mut y0, mut y1) = (
             f64::INFINITY,
@@ -166,24 +194,20 @@ impl RingIndex {
             f64::INFINITY,
             f64::NEG_INFINITY,
         );
-        for &(a, b) in &segments {
+        for (&(a, b), &reach) in segments.iter().zip(clearance.iter()) {
             let (pa, pb) = (metric(a), metric(b));
-            let reach = clearance.max(0.0);
+            let reach = reach.max(0.0);
             let near = (
                 pa.0.min(pb.0) - reach,
                 pa.0.max(pb.0) + reach,
                 pa.1.min(pb.1) - reach,
                 pa.1.max(pb.1) + reach,
             );
-            let (c, r) = disk(a, b);
-            let round = (c.0 - r, c.0 + r, c.1 - r, c.1 + r);
-            for bx in [near, round] {
-                x0 = x0.min(bx.0);
-                x1 = x1.max(bx.1);
-                y0 = y0.min(bx.2);
-                y1 = y1.max(bx.3);
-            }
-            boxes.push((near, round));
+            x0 = x0.min(near.0);
+            x1 = x1.max(near.1);
+            y0 = y0.min(near.2);
+            y1 = y1.max(near.3);
+            boxes.push(near);
         }
         if !(x0.is_finite() && x1.is_finite() && y0.is_finite() && y1.is_finite()) {
             (x0, x1, y0, y1) = (0.0, 1.0, 0.0, 1.0);
@@ -201,11 +225,9 @@ impl RingIndex {
                 gy.span(b.2 - grow, b.3 + grow),
             )
         };
-        let near_ranges: Vec<_> = boxes.iter().map(|&(n, _)| range(n)).collect();
-        let disk_ranges: Vec<_> = boxes.iter().map(|&(_, d)| range(d)).collect();
+        let near_ranges: Vec<_> = boxes.iter().map(|&n| range(n)).collect();
         Self {
             near: Buckets::build(gx.n, gy.n, &near_ranges),
-            disks: Buckets::build(gx.n, gy.n, &disk_ranges),
             segments,
             su,
             sv,
@@ -245,6 +267,7 @@ impl RingIndex {
             return false;
         };
         self.near.get(cy * self.gx.n + cx).iter().any(|&s| {
+            let clearance = self.clearance[s as usize];
             let (ra, rb) = self.segments[s as usize];
             let a = (ra.0 * su, ra.1 * sv);
             let b = (rb.0 * su, rb.1 * sv);
@@ -256,26 +279,7 @@ impl RingIndex {
                 (((q.0 - a.0) * dx + (q.1 - a.1) * dy) / l2).clamp(0.0, 1.0)
             };
             let (qx, qy) = (a.0 + dx * t, a.1 + dy * t);
-            ((q.0 - qx).powi(2) + (q.1 - qy).powi(2)).sqrt() <= self.clearance
-        })
-    }
-
-    /// Whether `(u, v)` lies inside some segment's (slightly inflated)
-    /// diametral disk.
-    pub(super) fn in_diametral_disk(&self, u: f64, v: f64) -> bool {
-        let (su, sv) = (self.su, self.sv);
-        let (x, y) = (u * su, v * sv);
-        let (Some(cx), Some(cy)) = (self.gx.cell(x), self.gy.cell(y)) else {
-            return false;
-        };
-        self.disks.get(cy * self.gx.n + cx).iter().any(|&s| {
-            let (ra, rb) = self.segments[s as usize];
-            let a = (ra.0 * su, ra.1 * sv);
-            let b = (rb.0 * su, rb.1 * sv);
-            let cx = 0.5 * (a.0 + b.0);
-            let cy = 0.5 * (a.1 + b.1);
-            let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
-            (x - cx).powi(2) + (y - cy).powi(2) < r2 * 1.0201
+            ((q.0 - qx).powi(2) + (q.1 - qy).powi(2)).sqrt() <= clearance
         })
     }
 }
@@ -298,8 +302,7 @@ mod tests {
 
     /// Every index answer equals the full scan's, on a thin anisotropic
     /// chart (coil-wall-like metric) with a dense outer ring, a circular
-    /// hole, a long diagonal segment whose disk covers much of the
-    /// chart, and query points on the lattice rows, on ring vertices
+    /// hole, a long diagonal segment, and query points on the lattice rows, on ring vertices
     /// and outside the chart.
     #[test]
     fn index_answers_equal_the_segment_scans() {
@@ -315,21 +318,10 @@ mod tests {
             })
             .collect();
         let rings = vec![ring(outer), ring(hole)];
-        let (su, sv, clearance) = (0.23, 7.27, 0.004);
-        let index = RingIndex::new(&rings, su, sv, clearance);
-        let scan_disk = |u: f64, v: f64| {
-            let (x, y) = (u * su, v * sv);
-            rings.iter().any(|r| {
-                let m = r.uv.len();
-                (0..m).any(|k| {
-                    let a = (r.uv[k].0 * su, r.uv[k].1 * sv);
-                    let b = (r.uv[(k + 1) % m].0 * su, r.uv[(k + 1) % m].1 * sv);
-                    let (cx, cy) = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
-                    let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
-                    (x - cx).powi(2) + (y - cy).powi(2) < r2 * 1.0201
-                })
-            })
-        };
+        // Below a third of every segment's metric length, so the
+        // length cap never binds and one isotropic band is the reference.
+        let (su, sv, clearance) = (0.23, 7.27, 0.0005);
+        let index = RingIndex::new(&rings, su, sv, (3.0 * clearance, 3.0 * clearance));
         let mut queries: Vec<(f64, f64)> = Vec::new();
         for i in -5..=210 {
             for j in -5..=70 {
@@ -337,23 +329,39 @@ mod tests {
             }
         }
         queries.extend(rings.iter().flat_map(|r| r.uv.iter().copied()));
-        let mut hits = [0usize; 3];
+        let mut hits = [0usize; 2];
         for &(u, v) in &queries {
             let inside = point_in_region((u, v), &rings);
             let near = dist_to_rings((u, v), &rings, su, sv) <= clearance;
-            let disk = scan_disk(u, v);
             assert_eq!(index.inside((u, v)), inside, "inside at ({u}, {v})");
             assert_eq!(
                 index.within_clearance((u, v)),
                 near,
                 "clearance at ({u}, {v})"
             );
-            assert_eq!(index.in_diametral_disk(u, v), disk, "disk at ({u}, {v})");
             hits[0] += inside as usize;
             hits[1] += near as usize;
-            hits[2] += disk as usize;
         }
         // The fixture exercises every answer both ways.
         assert!(hits.iter().all(|&h| h > 0 && h < queries.len()), "{hits:?}");
+    }
+
+    /// On an anisotropic lattice each segment's clearance is a third of
+    /// the spacing ACROSS it (at most a third of its length): beside a v-running rail it follows the
+    /// u-cell, beside a u-running rim the v-cell, so a thin strip keeps
+    /// interior points that one coarse band would have evacuated.
+    #[test]
+    fn clearance_follows_the_lattice_spacing_across_each_segment() {
+        // A 0.5 x 6 metric strip (unit metric); u-cell 0.06, v-cell 0.9.
+        let strip = ring(vec![(0.0, 0.0), (0.5, 0.0), (0.5, 6.0), (0.0, 6.0)]);
+        let index = RingIndex::new(&[strip], 1.0, 1.0, (0.06, 0.9));
+        // Beside a rail: band 0.02.
+        assert!(index.within_clearance((0.015, 3.0)));
+        assert!(!index.within_clearance((0.03, 3.0)));
+        assert!(!index.within_clearance((0.25, 3.0)));
+        // Beside a rim: the v-cell's band (0.3) capped at a third of the
+        // rim's own length (0.5 / 3).
+        assert!(index.within_clearance((0.25, 0.15)));
+        assert!(!index.within_clearance((0.25, 0.2)));
     }
 }

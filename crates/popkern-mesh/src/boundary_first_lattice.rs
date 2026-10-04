@@ -33,6 +33,17 @@ pub(super) fn lattice_counts(
             let (n_u, n_v) = directional_stations(surface, u_span, v_span, options);
             (n_u.max(n), n_v.max(n))
         }
+        // Cylinders and cones: u (around the axis) by iso-line sag with
+        // the grid as floor; v runs along the rulings, where the square
+        // grid's floor only multiplied rows (and, through the boundary
+        // split threshold, ruling samples) on a straight direction: a
+        // large wall went 4k -> 66k triangles (PK-651). The square grid
+        // read the diagonal by phase luck and left a 0.54-wide quarter
+        // strip's interior to one coarse clearance band (0.088 facets).
+        SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. } => {
+            let (n_u, n_v) = directional_stations(surface, u_span, v_span, options);
+            (n_u.max(n), n_v)
+        }
         _ => (n, n),
     }
 }

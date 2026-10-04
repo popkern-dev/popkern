@@ -106,11 +106,11 @@ fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
         0,
         "n {n:?} d {d}: watertight"
     );
-    // Facets on the sphere sit within the lattice's design bound:
-    // iso-line chords meet the chord height, so a cell's diagonal facet
-    // sags up to about twice it (bounding facet deviation itself is
-    // PK-650). The chart lattice capped at max_subdivisions left 1.7e-2
-    // (3.4x) on faces covering most of the sphere (PK-647).
+    // Facets on the sphere sit within the chord height: deviation
+    // refinement bounds the facet itself, where the lattice alone
+    // bounded only iso-line chords and left cell diagonals sagging up to
+    // twice it (PK-651). The chart lattice capped at max_subdivisions
+    // left 1.7e-2 (3.4x) on faces covering most of the sphere (PK-647).
     let chord = popkern_mesh::TessellationOptions::default().chord_height;
     let worst_sag = mesh
         .triangles
@@ -131,7 +131,7 @@ fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
         })
         .fold(0.0_f64, f64::max);
     assert!(
-        worst_sag <= 2.0 * chord,
+        worst_sag <= chord,
         "n {n:?} d {d}: a facet sags {worst_sag} off the sphere"
     );
     let h = r - d;
