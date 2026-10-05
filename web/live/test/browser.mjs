@@ -573,6 +573,9 @@ try {
     const block = 'let m = model();\\nlet block = m.profile(xy()).rect(2.0, 2.0).sketch("block_sketch").extrude(blind(1.0));\\nlet bore = m.tool(|m| m.profile(xy()).circle(0.4).sketch("bore_sketch").extrude(blind(1.0)));\\nblock.subtract(bore);\\nm.active().fillet(edges().circular().at_height(1.0), 0.05);\\nm\\n';
     await page.projects.create("Insert test", block);
     await page.runDone;
+    // This project's own build (a baked page may still be finishing
+    // another), and its timeline.
+    await page.run({ live: true });
     const s = page.scrubber;
     await s.loading;
     const hiddenAtEnd = document.getElementById("scrubber-insert").hidden;
@@ -582,6 +585,7 @@ try {
     const shown = !document.getElementById("scrubber-insert").hidden;
     document.getElementById("scrubber-insert").click();
     await s.inserting;
+    const statusAfterInsert = document.getElementById("status").textContent;
     const path = page.projects.path;
     const template = page.editor.value;
     page.editor.textarea.value = template.replace("    body\\n", "    body.chamfer(edges().straight().at_height(1.0), 0.05)\\n");
@@ -599,6 +603,7 @@ try {
       anchored: template.includes('m.feature("' + anchor.label + '")'),
       statuses: (built?.envelope?.project?.versions ?? []).map((v) => v.status),
       after_anchor: labels[anchor.index] ?? null,
+      status_after_insert: statusAfterInsert,
       anchor: anchor.label,
     };
     await page.projects.openStored("scratch");
@@ -679,6 +684,9 @@ try {
     const script = 'let a = assembly("pins");\\nlet pin = a.part("pin", |m| {\\n    m.profile(xy()).circle(0.1).sketch("pin").extrude(blind(1.0));\\n    m.active().fillet(edges().circular().at_height(0.0), 0.02);\\n});\\na.place(pin, "left");\\na.place(pin, "right").translate(0.5, 0.0, 0.0);\\na\\n';
     await page.projects.create("Part insert", script);
     await page.runDone;
+    // This project's own build (a baked page may still be finishing
+    // another), and its timeline.
+    await page.run({ live: true });
     await s.loading;
     page.assembly.open("pin");
     await s.loading;
