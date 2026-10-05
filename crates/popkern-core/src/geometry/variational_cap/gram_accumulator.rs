@@ -8,9 +8,6 @@
 //! degree-9 fit: 0.7 s per energy refresh, 17% of the fit, with the
 //! scalar loop.
 
-use faer::linalg::matmul::matmul;
-use faer::mat::{from_column_major_slice, from_column_major_slice_mut};
-
 /// Columns held before they are folded into the Gram.
 const BATCH: usize = 256;
 
@@ -57,21 +54,23 @@ impl GramAccumulator {
         if self.count == 0 {
             return;
         }
+        // block += W Wᵀ, each entry summed over the columns in order
+        // (one multiply and one add per term: the same bits on every
+        // target, PK-676). Column-major on both sides.
         let size = self.size;
-        let w = from_column_major_slice::<f64, _, _>(
-            &self.columns[..size * self.count],
-            size,
-            self.count,
-        );
-        let acc = from_column_major_slice_mut::<f64, _, _>(block, size, size);
-        matmul(
-            acc,
-            w,
-            w.transpose(),
-            Some(1.0),
-            1.0,
-            faer::Parallelism::None,
-        );
+        let w = &self.columns[..size * self.count];
+        for c in 0..self.count {
+            let column = &w[c * size..(c + 1) * size];
+            for (j, &wj) in column.iter().enumerate() {
+                if wj == 0.0 {
+                    continue;
+                }
+                let target = &mut block[j * size..(j + 1) * size];
+                for (t, &wi) in target.iter_mut().zip(column) {
+                    *t += wi * wj;
+                }
+            }
+        }
         self.columns[..size * self.count].fill(0.0);
         self.count = 0;
     }

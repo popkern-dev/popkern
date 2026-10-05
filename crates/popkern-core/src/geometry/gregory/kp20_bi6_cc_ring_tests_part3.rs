@@ -3584,6 +3584,7 @@ fn stam_appendix_a_scaled_pr08_q13_q2_dyadic_level_sweep_closes_finite_level() {
                 regularization_weight: 1e-10,
             })
             .unwrap();
+        assert!(solved.max_constraint_residual < 1.0e-12, "{level_exponent}");
         if solved.max_constraint_residual < finite_level_best.residual {
             finite_level_best = StamAppendixADyadicLevelDiagnostic {
                 residual: solved.max_constraint_residual,
@@ -3591,13 +3592,12 @@ fn stam_appendix_a_scaled_pr08_q13_q2_dyadic_level_sweep_closes_finite_level() {
             };
         }
     }
-
     assert!(
         finite_level_best.residual < 1.0e-10,
-        "finite dyadic level sweep should expose pre-solved §4.2/§4.3 closure, got {finite_level_best:?}"
-    );
-    // Near-tie (macOS libm picks 2); class pin = closure bound above.
-    assert!(cfg!(not(target_os = "linux")) || finite_level_best.level_exponent == 4);
+        "§4.2/§4.3 closure: {:e} at level {}",
+        finite_level_best.residual,
+        finite_level_best.level_exponent
+    ); // Every level closes (1.9e-15..3.9e-14); the argmin is a last-bits tie (PK-676).
 
     let collapsed_rows = scale_tensor_border_rows(&base_rows, ring.lambda.powi(12));
     let collapsed_tensor_border =

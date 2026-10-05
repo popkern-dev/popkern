@@ -119,10 +119,6 @@ pub(super) fn fair_interior(
     b: [[f64; 3]; 2],
     tau: &super::kp20_bi6_cap::Kp20MacroPatch,
 ) -> Option<()> {
-    use faer::dyn_stack::{GlobalPodBuffer, PodStack};
-    use faer::sparse::SparseColMat;
-    use faer::sparse::linalg::lu::{NumericLu, factorize_symbolic_lu};
-    use faer::{Conj, Parallelism};
     let space = super::kp20_bi9_relations::relation_space(n, b)?;
     let (count, m) = (space.count, space.rows.len());
     let grams: Vec<Vec<Vec<f64>>> = tau.pieces.iter().map(metric_third_order_gram).collect();
@@ -134,7 +130,12 @@ pub(super) fn fair_interior(
     // The Gram is normalised by its mean diagonal so the relation block
     // (unit-norm rows) and the −εI regularisation share one O(1) scale.
     let scale = 1.0 / trace.max(1e-300);
-    let (ridge, eps) = (1e-12, 1e-12);
+    // The quasi-definite system is factored by L D Lᵀ without pivoting
+    // (PK-676: a fixed operation order on every machine), so the
+    // relation block is regularised as the coupled curvature solve's is
+    // (ε = 1e-8, PK-601 measured 1e-12 unrefined going wrong) and the
+    // solution is refined against the unregularised system.
+    let (ridge, eps) = (1e-12, 1e-8);
     let mut triplets: Vec<(usize, usize, f64)> = Vec::new();
     let mut rhs = Mat::<f64>::zeros(count + m, 3);
     for s in 0..n {
@@ -166,40 +167,44 @@ pub(super) fn fair_interior(
             }
         }
     }
-    for x in 0..count {
-        triplets.push((x, x, ridge));
-    }
     for (r, row) in space.rows.iter().enumerate() {
         for &(x, w) in row {
             triplets.push((count + r, x, w));
-            triplets.push((x, count + r, w));
         }
-        triplets.push((count + r, count + r, -eps));
     }
     let size = count + m;
-    let a = SparseColMat::<usize, f64>::try_new_from_triplets(size, size, &triplets).ok()?;
-    let symbolic = factorize_symbolic_lu(a.symbolic(), Default::default()).ok()?;
-    let mut numeric = NumericLu::new();
-    let req = symbolic
-        .factorize_numeric_lu_req::<f64>(Parallelism::None)
-        .ok()?;
-    let lu = symbolic
-        .factorize_numeric_lu(
-            &mut numeric,
-            a.as_ref(),
-            Parallelism::None,
-            PodStack::new(&mut GlobalPodBuffer::new(req)),
-        )
-        .ok()?;
-    let solve_req = symbolic
-        .solve_in_place_req::<f64>(3, Parallelism::None)
-        .ok()?;
-    lu.solve_in_place_with_conj(
-        Conj::No,
-        rhs.as_mut(),
-        Parallelism::None,
-        PodStack::new(&mut GlobalPodBuffer::new(solve_req)),
-    );
+    let system = super::kp20_bi9_ldlt::LowerSystem::from_entries(size, &triplets);
+    let ldlt = super::kp20_bi9_ldlt::analyse(size, &system.col_ptr, &system.row_idx)?;
+    let mut regularised = system.values.clone();
+    for x in 0..count {
+        regularised[system.diagonal(x)] += ridge;
+    }
+    for r in 0..m {
+        regularised[system.diagonal(count + r)] -= eps;
+    }
+    let factor = ldlt.factor(&regularised)?;
+    for axis in 0..3 {
+        let target: Vec<f64> = (0..size).map(|i| rhs.read(i, axis)).collect();
+        let norm = target.iter().map(|v| v * v).sum::<f64>().sqrt().max(1e-300);
+        let (mut x, mut residual) = (vec![0.0f64; size], target.clone());
+        let mut relative = 1.0;
+        for _ in 0..3 {
+            let mut step = residual.clone();
+            ldlt.solve(&factor, &mut step);
+            for (xi, si) in x.iter_mut().zip(&step) {
+                *xi += si;
+            }
+            let product = system.product(&system.values, &x);
+            residual = (0..size).map(|i| target[i] - product[i]).collect();
+            relative = residual.iter().map(|v| v * v).sum::<f64>().sqrt() / norm;
+        }
+        if relative.is_nan() || relative > 1e-9 {
+            return None;
+        }
+        for (i, xi) in x.into_iter().enumerate() {
+            rhs.write(i, axis, xi);
+        }
+    }
     for s in 0..n {
         for k in 0..4 {
             for i in 0..10 {

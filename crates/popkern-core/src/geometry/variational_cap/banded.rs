@@ -396,11 +396,10 @@ fn back_substitute(rows: &Mat<f64>, w: usize, known: &[usize], y: &[f64]) -> Opt
                 .map(|(t, &col)| rows.read(i, w + t) * y[col])
                 .sum::<f64>()
     });
-    faer::linalg::triangular_solve::solve_upper_triangular_in_place(
-        rows.submatrix(0, 0, w, w),
-        x.as_mut(),
-        faer::Parallelism::None,
-    );
+    let r = popkern_math::linalg::DenseMat::from_fn(w, w, |i, j| rows.read(i, j));
+    let mut xd = crate::geometry::dense::dense(&x);
+    popkern_math::linalg::solve_upper_in_place(&r, &mut xd);
+    x = crate::geometry::dense::mat(&xd);
     Some((0..w).map(|i| x.read(i, 0)).collect())
 }
 

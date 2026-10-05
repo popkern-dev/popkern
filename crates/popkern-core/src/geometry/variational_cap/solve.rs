@@ -48,18 +48,13 @@ fn solve_ridged(
     rows: &Mat<f64>,
     rhs: &[f64],
 ) -> Option<[Vec<f64>; 3]> {
-    use faer::linalg::matmul::matmul;
     let k = energy.k;
     let dim = 3 * k;
-    let mut h = energy.dense_gram();
-    matmul(
-        h.as_mut(),
-        rows.transpose(),
-        rows.as_ref(),
-        Some(lambda),
-        1.0,
-        faer::Parallelism::None,
-    );
+    // h = λ G + rowsᵀ rows.
+    let rd = crate::geometry::dense::dense(rows);
+    let mut hd = crate::geometry::dense::dense(&energy.dense_gram());
+    popkern_math::linalg::matmul(&mut hd, Some(lambda), &rd.transpose(), &rd, 1.0);
+    let h = crate::geometry::dense::mat(&hd);
     let mut g = vec![0.0; dim];
     for (j, gj) in g.iter_mut().enumerate() {
         // Aᵀb − λ L r, with L r = h.

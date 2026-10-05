@@ -26,8 +26,7 @@
 // Coefficient nets are addressed by (i, j) index pairs throughout.
 #![allow(clippy::needless_range_loop)]
 
-use faer::linalg::matmul::triangular::{BlockStructure, matmul};
-use faer::{Mat, Parallelism};
+use faer::Mat;
 
 use super::kp20_bi9_seams::{Net, b9};
 use crate::geometry::Vec3;
@@ -236,20 +235,11 @@ pub(super) fn curvature_piece_grams(
             point += 1;
         }
     }
+    // The upper triangle of Q Qᵀ (PK-676: a fixed summation order).
     let gram = |q: &Mat<f64>| {
-        let mut g = Mat::<f64>::zeros(PIECE_DIM, PIECE_DIM);
-        matmul(
-            g.as_mut(),
-            BlockStructure::TriangularUpper,
-            q.as_ref(),
-            BlockStructure::Rectangular,
-            q.transpose(),
-            BlockStructure::Rectangular,
-            None,
-            1.0,
-            Parallelism::None,
-        );
-        g
+        let g = popkern_math::linalg::syrk_upper(&crate::geometry::dense::dense(q));
+        debug_assert_eq!(g.nrows(), PIECE_DIM);
+        crate::geometry::dense::mat(&g)
     };
     Some((gram(&q_variation), gram(&q_anchor)))
 }

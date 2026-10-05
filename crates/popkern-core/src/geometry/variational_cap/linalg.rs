@@ -1,11 +1,12 @@
-//! Dense linear algebra for the fit, strictly single-threaded
-//! (`Parallelism::None`): the result must be bit-identical run to run,
-//! and faer's global parallelism hands work to a rayon pool whose
-//! partitioning is not part of the contract (see `gregory::direct_linalg`
-//! for the stack-depth reason as well).
+//! Dense linear algebra for the fit. The results must be bit-identical
+//! run to run and machine to machine, so every product, factorisation
+//! and solve is a `popkern_math::linalg` kernel (fixed operation order,
+//! no runtime SIMD dispatch, PK-676); faer `Mat` is only the container.
 
 use faer::Mat;
-use faer::dyn_stack::{GlobalPodBuffer, PodStack};
+use popkern_math::linalg::{self, DenseMat, HouseholderQr};
+
+use crate::geometry::dense::{dense, mat};
 
 /// Singular value decomposition `A = U Σ Vᵀ`.
 pub(crate) struct Svd {
@@ -36,16 +37,11 @@ fn factor_checked(a: &Mat<f64>) -> Option<Svd> {
         v,
     };
     // A − U Σ Vᵀ, entrywise against A's largest entry.
-    let us = Mat::from_fn(rows, dim, |i, t| d.u.read(i, t) * d.s[t]);
-    let mut residual = a.clone();
-    faer::linalg::matmul::matmul(
-        residual.as_mut(),
-        us.as_ref(),
-        d.v.submatrix(0, 0, cols, dim).transpose(),
-        Some(1.0),
-        -1.0,
-        faer::Parallelism::None,
-    );
+    let us = DenseMat::from_fn(rows, dim, |i, t| d.u.read(i, t) * d.s[t]);
+    let vt = DenseMat::from_fn(dim, cols, |t, j| d.v.read(j, t));
+    let mut residual = dense(a);
+    linalg::matmul(&mut residual, Some(1.0), &us, &vt, -1.0);
+    let residual = mat(&residual);
     let largest = |m: &Mat<f64>| {
         (0..m.ncols())
             .flat_map(|j| m.col_as_slice(j).iter().copied())
@@ -82,48 +78,23 @@ pub(crate) fn lstsq(a: Mat<f64>, b: Mat<f64>, rank_tol: f64) -> Option<Mat<f64>>
 /// [`lstsq`] with the rank test against given column norms (a reduced
 /// system's columns, measured in the system it was reduced from).
 pub(crate) fn lstsq_with_norms(
-    mut a: Mat<f64>,
-    mut b: Mat<f64>,
+    a: Mat<f64>,
+    b: Mat<f64>,
     rank_tol: f64,
     col_norms: &[f64],
 ) -> Option<Mat<f64>> {
-    use faer::linalg::qr::no_pivoting::compute::{
-        QrComputeParams, qr_in_place, qr_in_place_req, recommended_blocksize,
-    };
-    use faer::linalg::qr::no_pivoting::solve::{solve_in_place, solve_in_place_req};
     let (rows, cols) = (a.nrows(), a.ncols());
     if rows < cols || b.nrows() != rows || cols == 0 || col_norms.len() != cols {
         return None;
     }
-    let blocksize = recommended_blocksize::<f64>(rows, cols);
-    let mut householder = Mat::<f64>::zeros(blocksize, cols);
-    let params = QrComputeParams::default();
-    let req = qr_in_place_req::<f64>(rows, cols, blocksize, faer::Parallelism::None, params)
-        .ok()?
-        .or(solve_in_place_req::<f64>(cols, blocksize, b.ncols()).ok()?);
-    let mut buffer = GlobalPodBuffer::new(req);
-    qr_in_place(
-        a.as_mut(),
-        householder.as_mut(),
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-        params,
-    );
+    let qr = HouseholderQr::factor_left(dense(&a), cols);
     if (0..cols).any(|i| {
-        let d = a.read(i, i).abs();
+        let d = qr.r_diag(i).abs();
         d.is_nan() || d <= rank_tol * col_norms[i]
     }) {
         return None;
     }
-    solve_in_place(
-        a.as_ref(),
-        householder.as_ref(),
-        faer::Conj::No,
-        b.as_mut(),
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-    );
-    Some(Mat::from_fn(cols, b.ncols(), |i, j| b.read(i, j)))
+    Some(mat(&qr.solve(dense(&b))))
 }
 
 /// Householder QR of `m`'s first `left` columns, applied to the rest:
@@ -137,65 +108,32 @@ pub(crate) fn qr_eliminate(
     left: usize,
     rank: Option<(&[f64], f64)>,
 ) -> Option<()> {
-    use faer::linalg::householder::{
-        apply_block_householder_sequence_transpose_on_the_left_in_place_req,
-        apply_block_householder_sequence_transpose_on_the_left_in_place_with_conj,
-    };
-    use faer::linalg::qr::no_pivoting::compute::{
-        QrComputeParams, qr_in_place, qr_in_place_req, recommended_blocksize,
-    };
     let rows = m.nrows();
-    let right = m.ncols() - left;
     if rows < left {
         return None;
     }
     if left == 0 {
         return Some(());
     }
-    let blocksize = recommended_blocksize::<f64>(rows, left);
-    let mut householder = Mat::<f64>::zeros(blocksize, left);
-    let params = QrComputeParams::default();
-    let req = qr_in_place_req::<f64>(rows, left, blocksize, faer::Parallelism::None, params)
-        .ok()?
-        .or(
-            apply_block_householder_sequence_transpose_on_the_left_in_place_req::<f64>(
-                rows, blocksize, right,
-            )
-            .ok()?,
-        );
-    let mut buffer = GlobalPodBuffer::new(req);
-    let (mut a, mut rest) = m.as_mut().split_at_col_mut(left);
-    qr_in_place(
-        a.as_mut(),
-        householder.as_mut(),
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-        params,
-    );
+    let qr = HouseholderQr::factor_left(dense(m), left);
     if let Some((col_norms, rank_tol)) = rank
         && (col_norms.len() != left
             || (0..left).any(|i| {
-                let d = a.read(i, i).abs();
+                let d = qr.r_diag(i).abs();
                 d.is_nan() || d <= rank_tol * col_norms[i]
             }))
     {
         return None;
     }
-    apply_block_householder_sequence_transpose_on_the_left_in_place_with_conj(
-        a.as_ref(),
-        householder.as_ref(),
-        faer::Conj::No,
-        rest.as_mut(),
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-    );
     // The QR leaves its Householder vectors below the diagonal; the
     // caller reads the transformed rows, where they are zero.
-    for j in 0..left {
-        for i in j + 1..rows {
-            a.write(i, j, 0.0);
+    *m = Mat::from_fn(rows, m.ncols(), |i, j| {
+        if j < left && i > j {
+            0.0
+        } else {
+            qr.qr.get(i, j)
         }
-    }
+    });
     Some(())
 }
 
@@ -216,27 +154,8 @@ pub(super) fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -
 /// Lower Cholesky factor `L` of the symmetric positive definite `a`
 /// (`a = L Lᵀ`, lower triangle only); `None` when a pivot is not
 /// positive.
-pub(super) fn cholesky(mut a: Mat<f64>) -> Option<Mat<f64>> {
-    use faer::linalg::cholesky::llt::compute::{
-        LltParams, LltRegularization, cholesky_in_place, cholesky_in_place_req,
-    };
-    let n = a.nrows();
-    let params = LltParams::default();
-    let req = cholesky_in_place_req::<f64>(n, faer::Parallelism::None, params).ok()?;
-    let mut buffer = GlobalPodBuffer::new(req);
-    cholesky_in_place(
-        a.as_mut(),
-        LltRegularization::default(),
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-        params,
-    )
-    .ok()?;
-    Some(Mat::from_fn(
-        n,
-        n,
-        |i, j| if j <= i { a.read(i, j) } else { 0.0 },
-    ))
+pub(super) fn cholesky(a: Mat<f64>) -> Option<Mat<f64>> {
+    linalg::cholesky(&dense(&a)).map(|l| mat(&l))
 }
 
 /// Solve `L x = b` for lower-triangular `L`.
@@ -280,7 +199,11 @@ mod tests {
                 ((i * 7 + j * 13) as f64 * 0.37).sin() + if i == j { 0.5 } else { 0.0 }
             });
             let f = Mat::from_fn(rank, c, |i, j| ((i * 3 + j * 5) as f64 * 0.71).cos());
-            let mut a = &b * &f;
+            let mut a = mat(&{
+                let mut p = DenseMat::zeros(r, c);
+                linalg::matmul(&mut p, None, &dense(&b), &dense(&f), 1.0);
+                p
+            });
             for j in 0..c {
                 a.write(0, j, 0.0);
             }

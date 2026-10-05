@@ -9,7 +9,6 @@ use crate::error::{SolveResult, SolveStatus};
 use crate::jacobian::assemble_component;
 use crate::rigid_set;
 use faer::Mat;
-use faer::prelude::{SpSolver, SpSolverLstsq};
 
 /// Solve a single connected component of the constraint graph.
 ///
@@ -79,8 +78,7 @@ fn newton_loop_component(
         }
 
         let dx: Vec<f64> = if m >= n {
-            let qr = j_mat.col_piv_qr();
-            let dx_mat = qr.solve_lstsq(&rhs);
+            let dx_mat = crate::dense_solve::lstsq(&j_mat, &rhs);
             (0..n).map(|i| dx_mat.read(i, 0)).collect()
         } else {
             super::solve_underdetermined(&j_mat, &rhs, n)
@@ -168,13 +166,13 @@ fn try_levenberg_marquardt_component(
         .collect();
 
     let jt = j_mat.transpose().to_owned();
-    let jtj = &jt * j_mat;
+    let jtj = crate::dense_solve::mul(&jt, j_mat);
 
     let mut neg_f = Mat::<f64>::zeros(m, 1);
     for (i, &r) in residuals.iter().enumerate() {
         neg_f.write(i, 0, -r);
     }
-    let jtf = jt * &neg_f;
+    let jtf = crate::dense_solve::mul(&jt, &neg_f);
 
     let mut lambda = options.lm_lambda_init;
     while lambda <= options.lm_lambda_max {
@@ -184,8 +182,7 @@ fn try_levenberg_marquardt_component(
             damped.write(i, i, existing + lambda);
         }
 
-        let lu = damped.partial_piv_lu();
-        let dx_mat = lu.solve(&jtf);
+        let dx_mat = crate::dense_solve::lu(&damped, &jtf);
         let dx: Vec<f64> = (0..n).map(|i| dx_mat.read(i, 0)).collect();
 
         for (local_i, &global_i) in component.global_indices.iter().enumerate() {

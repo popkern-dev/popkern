@@ -2,6 +2,7 @@
 
 pub mod analytic_curves;
 pub mod apex_blend;
+pub(crate) mod dense;
 pub mod transform;
 pub use transform::Transform3;
 pub mod analytic_surfaces;

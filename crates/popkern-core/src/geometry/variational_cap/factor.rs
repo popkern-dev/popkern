@@ -29,8 +29,9 @@
 use std::sync::Arc;
 
 use faer::Mat;
-use faer::linalg::matmul::matmul;
-use faer::linalg::triangular_solve::solve_lower_triangular_in_place;
+use popkern_math::linalg;
+
+use crate::geometry::dense::{dense, mat};
 
 use super::VariationalCapError;
 use super::energy::{Anchor, Integrand, energy_gram};
@@ -99,16 +100,8 @@ impl EnergyFactor {
     pub fn dense_gram(&self) -> Mat<f64> {
         let mut g = Mat::<f64>::zeros(3 * self.k, 3 * self.k);
         for sector in &self.sectors {
-            let n = sector.cols.len();
-            let mut ata = Mat::<f64>::zeros(n, n);
-            matmul(
-                ata.as_mut(),
-                sector.a.transpose(),
-                sector.a.as_ref(),
-                None,
-                1.0,
-                faer::Parallelism::None,
-            );
+            let a = dense(&sector.a);
+            let ata = mat(&linalg::matmul_tn(&a, &a));
             for (a, &ca) in sector.cols.iter().enumerate() {
                 for (b, &cb) in sector.cols.iter().enumerate() {
                     g.write(ca, cb, g.read(ca, cb) + ata.read(a, b));
@@ -251,15 +244,10 @@ fn sector_energy(
         .collect();
     // tr(Z_sᵀ E_s Z_s) = Σ_c tr(E_cc P), P = Z_s Z_sᵀ.
     let z = &hs.sector_z[s];
-    let mut p = Mat::<f64>::zeros(nf, nf);
-    matmul(
-        p.as_mut(),
-        z.as_ref(),
-        z.transpose(),
-        None,
-        1.0,
-        faer::Parallelism::None,
-    );
+    let zd = dense(z);
+    let mut pd = linalg::DenseMat::zeros(nf, nf);
+    linalg::matmul(&mut pd, None, &zd, &zd.transpose(), 1.0);
+    let p = mat(&pd);
     let mut trace = 0.0;
     for cc in 0..3 {
         for a in 0..nf {
@@ -294,18 +282,12 @@ fn sector_rows(level: &Level, raw: &SectorEnergy, s: usize, mean_diag: f64) -> O
             0.0
         }
     });
-    let mut a = Mat::<f64>::zeros(3 * nf, 3 * nc);
-    matmul(
-        a.as_mut(),
-        f.transpose(),
-        zhat.as_ref(),
-        None,
-        1.0,
-        faer::Parallelism::None,
-    );
+    let fd = dense(&f);
+    let a = mat(&linalg::matmul_tn(&fd, &dense(&zhat)));
     // F⁻¹ ĉ, then + Fᵀ x_p.
-    let mut fc = Mat::from_fn(3 * nf, 1, |i, _| raw.c[i] * scale);
-    solve_lower_triangular_in_place(f.as_ref(), fc.as_mut(), faer::Parallelism::None);
+    let mut fcd = linalg::DenseMat::from_fn(3 * nf, 1, |i, _| raw.c[i] * scale);
+    linalg::solve_lower_in_place(&fd, &mut fcd);
+    let fc = mat(&fcd);
     let xp: Vec<f64> = (0..3 * nf)
         .map(|i| level.xp[i / nf][rows[i % nf]])
         .collect();

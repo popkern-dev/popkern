@@ -9,63 +9,38 @@
 //! in one place.
 //!
 //! All helpers are deterministic partial-pivoting Gaussian
-//! elimination. The module originally served per-spoke constraint
-//! systems (≤ ~30×36); the KP20 scalar KKT systems now push order
-//! ~500–800 matrices through [`solve_dense`], which dispatches on
-//! size (PK-291): small systems keep the scalar elimination loop
-//! whose arithmetic order is pinned bit-for-bit by the clone-based
-//! reference oracle in the test module, while large systems take
-//! faer's blocked partial-pivot LU — the same elimination on the
-//! same system, adopted through the battery-wide ranking/verdict
-//! identity check (`tools/battery-ranking-diff.py` over the
-//! `battery-audit` nextest profile). Any future rework of either
-//! branch must preserve its contract the same way: bit-identity for
-//! the scalar branch, a fresh battery-wide identity audit for the
-//! blocked branch.
+//! elimination whose arithmetic order is a contract (pinned bit-for-bit
+//! by the clone-based reference oracle in the test module). Every size
+//! takes the scalar loop: faer's blocked LU (PK-291 adopted it from
+//! n = 96 for speed) chose SIMD kernels by runtime CPU detection, so the
+//! KP20 KKT solves differed in their last bits between machines and
+//! between the native and wasm builds (PK-676).
 
 use crate::geometry::Vec3;
 use faer::Mat;
 
-/// Singular values of a dense matrix, in nonincreasing order,
-/// computed strictly on the calling thread.
-///
-/// `Mat::singular_values()` runs under faer's global parallelism,
-/// which hands the divide-and-conquer bidiagonal SVD to rayon's
-/// global worker pool. Those workers keep the default ~2 MiB stack,
-/// and the debug-profile recursion overflows it (PK-120) even when
-/// the caller runs on a deliberately roomy thread. Pinning
-/// `Parallelism::None` keeps every frame on the caller's stack; the
-/// matrices here are small enough that parallel SVD buys nothing.
-///
-/// Returns `None` only if the workspace size computation overflows
-/// (not reachable for our systems — the largest are the ~800×800
-/// KKT matrices measured by the `*_diagnosed` solve entry points).
+/// Singular values of a dense matrix, in nonincreasing order, by the
+/// deterministic kernels of `popkern_math::linalg` (PK-676): for a
+/// symmetric matrix (every KKT and normal-equation caller) the absolute
+/// eigenvalues from tridiagonalisation and implicit QL, robust on badly
+/// conditioned systems; otherwise the one-sided Jacobi SVD. `None` when
+/// the iteration does not converge.
 fn sequential_singular_values(mat: &Mat<f64>) -> Option<Vec<f64>> {
-    use faer::dyn_stack::{GlobalPodBuffer, PodStack};
-    use faer::linalg::svd::{ComputeVectors, SvdParams, compute_svd, compute_svd_req};
-    let dim = usize::min(mat.nrows(), mat.ncols());
-    let params = SvdParams::default();
-    let req = compute_svd_req::<f64>(
-        mat.nrows(),
-        mat.ncols(),
-        ComputeVectors::No,
-        ComputeVectors::No,
-        faer::Parallelism::None,
-        params,
-    )
-    .ok()?;
-    let mut buffer = GlobalPodBuffer::new(req);
-    let mut s = faer::Col::<f64>::zeros(dim);
-    compute_svd(
-        mat.as_ref(),
-        s.as_mut(),
-        None,
-        None,
-        faer::Parallelism::None,
-        PodStack::new(&mut buffer),
-        params,
-    );
-    Some((0..dim).map(|i| s.read(i)).collect())
+    let (rows, cols) = (mat.nrows(), mat.ncols());
+    let dense = crate::geometry::dense::dense(mat);
+    let symmetric =
+        rows == cols && (0..rows).all(|i| (0..i).all(|j| dense.get(i, j) == dense.get(j, i)));
+    if symmetric {
+        let mut values: Vec<f64> = popkern_math::linalg::symmetric_eigenvalues(&dense)?
+            .into_iter()
+            .map(f64::abs)
+            .collect();
+        values.sort_by(|a, b| b.total_cmp(a));
+        return Some(values);
+    }
+    let dim = rows.min(cols);
+    let svd = popkern_math::linalg::jacobi_svd(&dense)?;
+    Some(svd.sigma[..dim].to_vec())
 }
 
 /// Singular-value condition report for a dense matrix.
@@ -119,44 +94,18 @@ pub(crate) fn condition_number_dense(m: &[Vec<f64>]) -> Option<DenseConditionRep
     })
 }
 
-/// Dimension at or above which [`solve_dense`] routes through the
-/// faer blocked LU instead of the scalar elimination loop. Measured
-/// crossover (PK-291, dev reference machine, opt-2): scalar wins
-/// through n=48 (faer fixed overhead), parity lands between 48 and
-/// 96, faer is ahead from n=96 (1.3×) and dominates once the scalar
-/// working set falls out of cache (6.5× at n=256, ~7–10× at the
-/// ~800² KKT sizes). 96 is deliberately conservative: it keeps every
-/// direct-construction system (per-spoke constraint systems,
-/// ≤ ~30×36, and the 2×2/row-1 KKT min-norm solves) on the
-/// bit-identical scalar branch with headroom, while the KP20
-/// scalar-τ KKT systems (~500–800) take the blocked path.
-const FAER_LU_DISPATCH_DIM: usize = 96;
-
 /// Solves `M · x = b` for a dense square system with partial
 /// pivoting. Returns `None` if the matrix is singular to machine
 /// precision (any chosen pivot with magnitude below `1e-14` — an
 /// absolute threshold, kept from the original solver because
 /// callers treat `None` as their decline/fallback signal).
 ///
-/// Dispatches on size (PK-291):
-/// - below [`FAER_LU_DISPATCH_DIM`]: scalar Gaussian elimination
-///   whose floating-point operation order is a contract — results
-///   are bit-identical to the pre-PK-289 clone-based loop (see the
-///   reference-oracle test), so every direct-construction consumer
-///   is unchanged.
-/// - at or above: faer's blocked partial-pivot LU. Partial-pivot LU
-///   performs the same elimination on the same system, so the
-///   solution is exact-arithmetic-identical; only the blocked/SIMD
-///   summation order differs (ULP-level drift). Adopted after a
-///   battery-wide ranking/verdict identity check against the scalar
-///   solver (`tools/battery-ranking-diff.py` over the
-///   `battery-audit` nextest profile).
+/// Scalar Gaussian elimination at every size: its floating-point
+/// operation order is a contract, bit-identical to the pre-PK-289
+/// clone-based loop (see the reference-oracle test) and the same on
+/// every machine (PK-676 retired the faer blocked branch).
 pub(crate) fn solve_dense(m: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
-    if m.len() >= FAER_LU_DISPATCH_DIM {
-        solve_dense_faer_lu(m, b)
-    } else {
-        solve_dense_scalar(m, b)
-    }
+    solve_dense_scalar(m, b)
 }
 
 /// Scalar-elimination branch of [`solve_dense`]. The elimination's
@@ -204,59 +153,7 @@ fn solve_dense_scalar(mut m: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>>
     Some(x)
 }
 
-/// Blocked partial-pivot LU branch of [`solve_dense`], via faer's
-/// low-level in-place API so the `U` diagonal (the chosen pivots)
-/// stays inspectable for the `1e-14` singularity decline that the
-/// scalar branch applies during elimination.
-///
-/// `Parallelism::None` for the same reason as
-/// [`sequential_singular_values`]: rayon's global workers keep the
-/// default ~2 MiB stack (PK-120), and the test suite already runs
-/// many-way parallel, so nested parallelism buys nothing.
-fn solve_dense_faer_lu(m: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
-    use faer::dyn_stack::{GlobalPodBuffer, PodStack};
-    use faer::linalg::lu::partial_pivoting::{compute, solve};
-    let n = m.len();
-    let parallelism = faer::Parallelism::None;
-    let params = compute::PartialPivLuComputeParams::default();
-    let factor_req = compute::lu_in_place_req::<usize, f64>(n, n, parallelism, params).ok()?;
-    let solve_req = solve::solve_in_place_req::<usize, f64>(n, n, 1, parallelism).ok()?;
-    let mut buffer = GlobalPodBuffer::new(factor_req.or(solve_req));
-
-    let mut factors = Mat::from_fn(n, n, |r, c| m[r][c]);
-    let mut perm = vec![0usize; n];
-    let mut perm_inv = vec![0usize; n];
-    let (_, row_perm) = compute::lu_in_place(
-        factors.as_mut(),
-        &mut perm,
-        &mut perm_inv,
-        parallelism,
-        PodStack::new(&mut buffer),
-        params,
-    );
-    for i in 0..n {
-        // The NaN arm declines pivots poisoned by a singular
-        // factorization (0/0 propagating into later columns), which
-        // an ordinary `< 1e-14` comparison would let through.
-        let pivot = factors.read(i, i).abs();
-        if pivot.is_nan() || pivot < 1e-14 {
-            return None;
-        }
-    }
-
-    let mut rhs = Mat::from_fn(n, 1, |r, _| b[r]);
-    solve::solve_in_place(
-        factors.as_ref(),
-        faer::Conj::No,
-        row_perm,
-        rhs.as_mut(),
-        parallelism,
-        PodStack::new(&mut buffer),
-    );
-    Some((0..n).map(|i| rhs.read(i, 0)).collect())
-}
-
-/// Finite-guarded dense solve: faer partial-pivot LU first, falling
+/// Finite-guarded dense solve: partial-pivot LU first, falling
 /// back to a normalized Gauss–Jordan elimination when the LU
 /// solution carries non-finite entries. Returns `None` on any
 /// non-finite input or intermediate, or when a pivot falls below
@@ -266,7 +163,7 @@ fn solve_dense_faer_lu(m: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
 /// assembly (normal equations of campaign-diagnostic fits), moved
 /// here verbatim (PK-289) so the dense primitives live in one
 /// auditable place. It intentionally differs from [`solve_dense`]:
-/// the faer LU fast path and the explicit finiteness guards suit
+/// the LU fast path and the explicit finiteness guards suit
 /// normal-equation systems that may carry non-finite contamination,
 /// while `solve_dense`'s fixed elimination order is the
 /// bit-identity contract for the KKT solves.
@@ -274,26 +171,21 @@ pub(crate) fn solve_dense_finite_guarded(
     mut matrix: Vec<Vec<f64>>,
     mut rhs: Vec<f64>,
 ) -> Option<Vec<f64>> {
-    use faer::prelude::SpSolver;
     let n = rhs.len();
     if matrix.iter().flatten().any(|value| !value.is_finite())
         || rhs.iter().any(|value| !value.is_finite())
     {
         return None;
     }
-    let mut faer_matrix = Mat::<f64>::zeros(n, n);
-    let mut faer_rhs = Mat::<f64>::zeros(n, 1);
-    for row in 0..n {
-        faer_rhs.write(row, 0, rhs[row]);
-        for (column, &value) in matrix[row][..n].iter().enumerate() {
-            faer_matrix.write(row, column, value);
+    let lu = popkern_math::linalg::lu_solve(
+        popkern_math::linalg::DenseMat::from_fn(n, n, |row, column| matrix[row][column]),
+        popkern_math::linalg::DenseMat::from_fn(n, 1, |row, _| rhs[row]),
+    );
+    if let Some(solution) = lu {
+        let out = solution.as_slice().to_vec();
+        if out.iter().all(|value| value.is_finite()) {
+            return Some(out);
         }
-    }
-    let lu = faer_matrix.partial_piv_lu();
-    let solution = lu.solve(&faer_rhs);
-    let out = (0..n).map(|row| solution.read(row, 0)).collect::<Vec<_>>();
-    if out.iter().all(|value| value.is_finite()) {
-        return Some(out);
     }
 
     for pivot in 0..n {

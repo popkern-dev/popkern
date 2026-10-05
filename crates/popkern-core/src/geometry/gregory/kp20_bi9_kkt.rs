@@ -21,13 +21,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use faer::dyn_stack::{GlobalPodBuffer, PodStack};
-use faer::sparse::linalg::cholesky::{
-    CholeskySymbolicParams, LdltRegularization, SymbolicCholesky, SymmetricOrdering,
-    factorize_symbolic_cholesky,
-};
-use faer::sparse::{SparseColMatRef, SymbolicSparseColMat};
-use faer::{Conj, Mat, Parallelism, Side};
+use faer::Mat;
+use faer::sparse::SymbolicSparseColMat;
+use popkern_math::linalg::LdltSymbolic;
 
 use super::kp20_bi9_fair_curvature::PIECE_DIM;
 use super::kp20_bi9_relations::RelationSpace;
@@ -74,7 +70,8 @@ struct Pattern {
     /// Diagonal positions of the unknowns and of the relation rows.
     unknown_diagonals: Vec<usize>,
     relation_diagonals: Vec<usize>,
-    cholesky: SymbolicCholesky<usize>,
+    /// AMD order and `L D Lᵀ` analysis of the pattern.
+    ldlt: LdltSymbolic,
 }
 
 type Key = (usize, [u64; 6]);
@@ -148,14 +145,8 @@ fn build_pattern(n: usize, space: &RelationSpace) -> Option<Pattern> {
     for c in 0..size {
         col_ptr[c + 1] += col_ptr[c];
     }
+    let ldlt = super::kp20_bi9_ldlt::analyse(size, &col_ptr, &row_idx)?;
     let symbolic = SymbolicSparseColMat::new_checked(size, size, col_ptr, None, row_idx);
-    let cholesky = factorize_symbolic_cholesky(
-        symbolic.as_ref(),
-        Side::Lower,
-        SymmetricOrdering::Amd,
-        CholeskySymbolicParams::default(),
-    )
-    .ok()?;
     let mut unknown_diagonals = Vec::new();
     let mut relation_diagonals = Vec::new();
     for (t, &(_, _, source)) in generated.iter().enumerate() {
@@ -172,7 +163,7 @@ fn build_pattern(n: usize, space: &RelationSpace) -> Option<Pattern> {
         positions,
         unknown_diagonals,
         relation_diagonals,
-        cholesky,
+        ldlt,
     })
 }
 
@@ -253,25 +244,10 @@ pub(super) fn solve_coupled(
     for &d in &pattern.relation_diagonals {
         regularised[d] -= RELATION_REGULARISATION;
     }
-    let matrix = SparseColMatRef::<usize, f64>::new(pattern.symbolic.as_ref(), &regularised);
-    let mut factor = vec![0.0f64; pattern.cholesky.len_values()];
-    let factor_req = pattern
-        .cholesky
-        .factorize_numeric_ldlt_req::<f64>(false, Parallelism::None)
-        .map_err(|_| KktDecline::Structure)?;
-    let ldlt = pattern.cholesky.factorize_numeric_ldlt(
-        factor.as_mut_slice(),
-        matrix,
-        Side::Lower,
-        LdltRegularization::default(),
-        Parallelism::None,
-        PodStack::new(&mut GlobalPodBuffer::new(factor_req)),
-    );
-    let solve_req = pattern
-        .cholesky
-        .solve_in_place_req::<f64>(1)
-        .map_err(|_| KktDecline::Structure)?;
-    let mut stack = GlobalPodBuffer::new(solve_req);
+    let factor = pattern
+        .ldlt
+        .factor(&regularised)
+        .ok_or(KktDecline::NonFinite)?;
     let size = pattern.size;
     let mut target = vec![0.0f64; size];
     target[..rhs.len()].copy_from_slice(rhs);
@@ -279,15 +255,10 @@ pub(super) fn solve_coupled(
     let (mut x, mut residual) = (vec![0.0f64; size], target.clone());
     let mut relative = 1.0;
     for _ in 0..REFINEMENT_PASSES {
-        let mut step = Mat::<f64>::from_fn(size, 1, |i, _| residual[i]);
-        ldlt.solve_in_place_with_conj(
-            Conj::No,
-            step.as_mut(),
-            Parallelism::None,
-            PodStack::new(&mut stack),
-        );
-        for (xi, i) in x.iter_mut().zip(0..size) {
-            *xi += step.read(i, 0);
+        let mut step = residual.clone();
+        pattern.ldlt.solve(&factor, &mut step);
+        for (xi, si) in x.iter_mut().zip(&step) {
+            *xi += si;
         }
         let mut product = vec![0.0f64; size];
         symmetric_product(&pattern, &exact, &x, &mut product);

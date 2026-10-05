@@ -5,7 +5,6 @@
 //! parameterization and the knot averaging method.
 
 use faer::Mat;
-use faer::prelude::SpSolver;
 
 /// Result of B-spline interpolation: (control_points, knot_vector, parameter_values).
 type InterpResult = Result<(Vec<(f64, f64)>, Vec<f64>, Vec<f64>), String>;
@@ -87,7 +86,6 @@ pub(crate) fn interpolate_cubic_periodic(through_points: &[(f64, f64)]) -> Inter
     }
 
     // Solve M * Px = Dx, M * Py = Dy.
-    let lu = mat.partial_piv_lu();
 
     let mut rhs_x = Mat::<f64>::zeros(n, 1);
     let mut rhs_y = Mat::<f64>::zeros(n, 1);
@@ -96,8 +94,8 @@ pub(crate) fn interpolate_cubic_periodic(through_points: &[(f64, f64)]) -> Inter
         rhs_y.write(i, 0, py);
     }
 
-    let sol_x = lu.solve(&rhs_x);
-    let sol_y = lu.solve(&rhs_y);
+    let sol_x = crate::dense_solve::lu(&mat, &rhs_x);
+    let sol_y = crate::dense_solve::lu(&mat, &rhs_y);
 
     let mut control_points = Vec::with_capacity(n);
     for i in 0..n {
@@ -174,8 +172,6 @@ fn solve_interpolation(
     through_points: &[(f64, f64)],
     n: usize,
 ) -> Result<Vec<(f64, f64)>, String> {
-    let lu = mat.partial_piv_lu();
-
     let mut rhs_x = Mat::<f64>::zeros(n, 1);
     let mut rhs_y = Mat::<f64>::zeros(n, 1);
     for (i, &(px, py)) in through_points.iter().enumerate() {
@@ -183,8 +179,8 @@ fn solve_interpolation(
         rhs_y.write(i, 0, py);
     }
 
-    let sol_x = lu.solve(&rhs_x);
-    let sol_y = lu.solve(&rhs_y);
+    let sol_x = crate::dense_solve::lu(mat, &rhs_x);
+    let sol_y = crate::dense_solve::lu(mat, &rhs_y);
 
     let mut control_points = Vec::with_capacity(n);
     for i in 0..n {

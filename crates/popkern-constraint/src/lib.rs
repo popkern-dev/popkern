@@ -2,6 +2,7 @@ pub(crate) mod analysis;
 pub mod config;
 pub mod constraint;
 pub(crate) mod decompose;
+pub(crate) mod dense_solve;
 pub mod elements;
 pub(crate) mod equations;
 pub mod error;

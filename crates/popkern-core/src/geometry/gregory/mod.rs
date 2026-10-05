@@ -131,6 +131,7 @@ mod kp20_bi9_fair;
 mod kp20_bi9_fair_curvature;
 mod kp20_bi9_interior;
 mod kp20_bi9_kkt;
+mod kp20_bi9_ldlt;
 mod kp20_bi9_relations;
 mod kp20_bi9_resample;
 mod kp20_bi9_seams;

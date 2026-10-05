@@ -43,17 +43,19 @@ pub(crate) fn analyze_dof(sketch: &Sketch) -> Vec<FreedomInfo> {
         j_mat.write(row, col, existing + val);
     }
 
-    // Thin SVD: U (m×k) S (k) V (n×k) where k = min(m, n).
-    let svd = j_mat.thin_svd();
-    let s = svd.s_diagonal();
-    let v = svd.v(); // n × k
+    // Thin SVD: S (k) V (n×k) where k = min(m, n). A Jacobi SVD that
+    // does not converge leaves nothing proven fixed: every parameter is
+    // reported free.
+    let Some((s, v)) = crate::dense_solve::thin_svd(&j_mat) else {
+        return params_to_freedoms(sketch, n);
+    };
 
-    let k = s.nrows();
+    let k = s.len();
 
     // Collect null-space column indices (singular value ≈ 0).
     let mut null_cols: Vec<usize> = Vec::new();
-    for i in 0..k {
-        if s.read(i).abs() < SV_THRESHOLD {
+    for (i, sigma) in s.iter().enumerate() {
+        if sigma.abs() < SV_THRESHOLD {
             null_cols.push(i);
         }
     }
@@ -165,11 +167,11 @@ pub(crate) fn analyze_constraints(sketch: &mut Sketch, tolerance: f64) -> Vec<Co
         j_mat.write(row, col, existing + val);
     }
 
-    let svd = j_mat.thin_svd();
-    let s = svd.s_diagonal();
-    let rank = (0..s.nrows())
-        .filter(|&i| s.read(i).abs() >= SV_THRESHOLD)
-        .count();
+    // A Jacobi SVD that does not converge reports no conflict.
+    let rank = match crate::dense_solve::thin_svd(&j_mat) {
+        Some((s, _)) => s.iter().filter(|sigma| sigma.abs() >= SV_THRESHOLD).count(),
+        None => m,
+    };
 
     if m <= rank {
         return Vec::new();
@@ -242,11 +244,11 @@ fn matrix_rank(rows: &[Vec<f64>], ncols: usize) -> usize {
             mat.write(i, j, val);
         }
     }
-    let svd = mat.thin_svd();
-    let s = svd.s_diagonal();
-    (0..s.nrows())
-        .filter(|&i| s.read(i).abs() >= SV_THRESHOLD)
-        .count()
+    // A Jacobi SVD that does not converge counts every row.
+    match crate::dense_solve::thin_svd(&mat) {
+        Some((s, _)) => s.iter().filter(|sigma| sigma.abs() >= SV_THRESHOLD).count(),
+        None => m,
+    }
 }
 
 #[path = "analysis_freedoms.rs"]
