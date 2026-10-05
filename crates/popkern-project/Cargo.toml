@@ -1,0 +1,20 @@
+[package]
+name = "popkern-project"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Projects: a folder of ordered migration scripts built into one document, with applied-migration records (popkern build, popkern live)"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-history = { path = "../popkern-history" }
+popkern-script = { path = "../popkern-script" }
+popkern-assembly = { path = "../popkern-assembly" }
+popkern-rhai = { path = "../popkern-rhai" }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+
+[dev-dependencies]
+popkern-measure = { path = "../popkern-measure" }

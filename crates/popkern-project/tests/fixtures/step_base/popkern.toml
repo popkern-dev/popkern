@@ -1,0 +1,3 @@
+[project]
+name = "Imported cube"
+base = "imports/cube.step"

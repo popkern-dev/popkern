@@ -44,6 +44,11 @@ impl ScriptModel {
         std::mem::replace(&mut *self.0.borrow_mut(), Model::new())
     }
 
+    /// Whether two handles share one document.
+    pub fn same_document(&self, other: &ScriptModel) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
     fn feature(&self, handle: popkern_script::FeatureHandle) -> ScriptFeature {
         ScriptFeature::new(self.clone(), handle)
     }

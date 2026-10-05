@@ -255,6 +255,32 @@ m.replay();
 m
 </code></pre>
 <p><code>insert_before(anchor, |m, b| ...)</code> hands the closure the model and the body as it was <strong>before</strong> the anchor; the closure records exactly one feature there. Names are the truth: a feature inserted earlier keeps every later selection valid because later features reference entities by stable name, not by index.</p>
+<h3>Projects: a part built by a series of scripts</h3>
+<p>A real part often grows in steps. A <strong>project</strong> keeps those steps as ordered scripts, the way a database keeps migrations:</p>
+<pre class="lang-text"><code>my-bracket/
+  popkern.toml            [project] name = "Bracket"
+  migrations/
+    001_plate.rhai        let m = model(); … m
+    002_boss.rhai         let m = previous(); … m
+    003_rounds.rhai       let m = previous(); … m
+</code></pre>
+<p><strong>The first migration</strong> builds the document as any script does.</p>
+<p><strong>Every later migration</strong> starts from <code>previous()</code>, the document the earlier migrations built, and edits it:</p>
+<ul>
+<li>it can add features;</li>
+<li>it can change parameters;</li>
+<li>it can insert before, reorder or suppress earlier features.</li>
+</ul>
+<p>It must end with that same document (return it, or nothing). Starting over with <code>model()</code> is refused (<code>DocumentError</code>, reason <code>document_replaced</code>). Other models a migration creates are tools.</p>
+<p><strong>Building:</strong></p>
+<ul>
+<li><code>popkern build my-bracket</code> runs the migrations in order and reports one line per migration: the features it recorded and the earlier ones it edited.</li>
+<li><code>popkern build my-bracket --pkn bracket.pkn</code> saves the document with a record of the migrations it applied. Building against that file later runs only the new migrations.</li>
+<li>If an applied migration changed since, the document is rebuilt from the folder (<code>--strict</code> refuses instead).</li>
+<li><code>popkern new my-bracket</code> creates a project to start from.</li>
+</ul>
+<p><strong>When an upstream edit breaks a later migration</strong> (a label it selects no longer exists, say), the failure names that migration's line and lists the upstream migrations that changed since it last built.</p>
+<p><strong>Paths.</strong> File paths in a project (<code>open</code>, <code>save</code>, <code>to_step</code>) stay inside the project folder.</p>
 <h2>10. When it goes wrong: the error classes</h2>
 <p>Every failure is a map with a <code>kind</code> and the fields below; the host prints it as <code>Kind at file:line:column: message</code> plus one remediation line per hint. In a script, <code>try</code>/<code>catch</code> receives the same map.</p>
 <table>

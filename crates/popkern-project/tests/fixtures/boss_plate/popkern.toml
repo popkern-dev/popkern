@@ -1,0 +1,4 @@
+# The boss plate as three migrations (PK-660 fixture).
+[project]
+name = "Boss plate"
+format = 1

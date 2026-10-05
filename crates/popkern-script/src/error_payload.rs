@@ -82,6 +82,11 @@ impl ScriptError {
                 "path": path,
                 "detail": detail,
             }),
+            ScriptError::Project { reason, path, .. } => json!({
+                "kind": "DocumentError",
+                "reason": reason.as_str(),
+                "path": path,
+            }),
             ScriptError::History(e) => history_payload(e),
             ScriptError::Replay(e) => replay_payload(e),
             ScriptError::Part(e) => part_payload(e),

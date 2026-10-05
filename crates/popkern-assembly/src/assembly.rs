@@ -14,6 +14,7 @@ use crate::placement::Placement;
 pub struct DefinitionId(pub u32);
 
 /// What a definition holds.
+#[derive(Clone)]
 pub enum DefinitionContent {
     /// A part: one recorded document; every alive body is the part.
     Part(Box<Model>),
@@ -22,6 +23,7 @@ pub enum DefinitionContent {
 }
 
 /// A part or sub-assembly that instances place.
+#[derive(Clone)]
 pub struct Definition {
     /// Unique among the assembly's definitions; the STEP product name.
     pub name: String,
@@ -103,6 +105,7 @@ pub struct TreeRow {
 }
 
 /// A product structure: definitions and the top-level instances.
+#[derive(Clone)]
 pub struct Assembly {
     pub(crate) name: String,
     pub(crate) definitions: Vec<Definition>,

@@ -378,6 +378,50 @@ one feature there. Names are the truth: a feature inserted earlier
 keeps every later selection valid because later features reference
 entities by stable name, not by index.
 
+### Projects: a part built by a series of scripts
+
+A real part often grows in steps. A **project** keeps those steps as
+ordered scripts, the way a database keeps migrations:
+
+```text
+my-bracket/
+  popkern.toml            [project] name = "Bracket"
+  migrations/
+    001_plate.rhai        let m = model(); … m
+    002_boss.rhai         let m = previous(); … m
+    003_rounds.rhai       let m = previous(); … m
+```
+
+**The first migration** builds the document as any script does.
+
+**Every later migration** starts from `previous()`, the document the
+earlier migrations built, and edits it:
+- it can add features;
+- it can change parameters;
+- it can insert before, reorder or suppress earlier features.
+
+It must end with that same document (return it, or nothing). Starting
+over with `model()` is refused (`DocumentError`, reason
+`document_replaced`). Other models a migration creates are tools.
+
+**Building:**
+- `popkern build my-bracket` runs the migrations in order and reports
+  one line per migration: the features it recorded and the earlier
+  ones it edited.
+- `popkern build my-bracket --pkn bracket.pkn` saves the document with
+  a record of the migrations it applied. Building against that file
+  later runs only the new migrations.
+- If an applied migration changed since, the document is rebuilt from
+  the folder (`--strict` refuses instead).
+- `popkern new my-bracket` creates a project to start from.
+
+**When an upstream edit breaks a later migration** (a label it selects
+no longer exists, say), the failure names that migration's line and
+lists the upstream migrations that changed since it last built.
+
+**Paths.** File paths in a project (`open`, `save`, `to_step`) stay
+inside the project folder.
+
 ## 10. When it goes wrong: the error classes
 
 Every failure is a map with a `kind` and the fields below; the host

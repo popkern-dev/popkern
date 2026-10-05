@@ -115,6 +115,26 @@ impl LiveSession {
         json
     }
 
+    /// Build a project from `files_json` (`{"files": {path: text},
+    /// "base64": {path: data}}`); the envelope as JSON, with a
+    /// `project` member holding one row per migration. Checkpoints
+    /// persist across calls; buffers readable by index as after `run`.
+    pub fn run_project(&mut self, files_json: &str) -> String {
+        let envelope = match crate::session_project::decode_project_files(files_json) {
+            Ok(files) => self.session.run_project(files),
+            Err(detail) => {
+                return serde_json::json!({
+                    "outcome": "gate_failure", "step": "project", "detail": detail,
+                })
+                .to_string();
+            }
+        };
+        let json = envelope.to_json().to_string();
+        self.bodies = envelope.bodies;
+        self.analysis.clear();
+        json
+    }
+
     /// Set a declared parameter and replay; the envelope as JSON.
     pub fn set_param(&mut self, name: &str, value: f64) -> String {
         let envelope = self.session.set_param(name, value);

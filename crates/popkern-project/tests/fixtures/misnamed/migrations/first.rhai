@@ -1,0 +1,2 @@
+let m = model();
+m

@@ -29,7 +29,9 @@ pub struct FeatureHandle {
     pub operation: String,
 }
 
-/// A recording session over one document.
+/// A recording session over one document. Cloning copies the tree
+/// with its step cache (cached states share their bodies).
+#[derive(Clone)]
 pub struct Model {
     pub(crate) tree: FeatureTree,
     pub(crate) tolerance: Tolerance,

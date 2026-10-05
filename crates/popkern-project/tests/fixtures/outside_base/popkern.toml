@@ -1,0 +1,3 @@
+[project]
+name = "Escaping base"
+base = "../boss_plate/popkern.toml"

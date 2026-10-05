@@ -104,6 +104,20 @@ pub enum ScriptError {
         /// The error text.
         detail: String,
     },
+    /// A project migration broke its contract or its sandboxed file
+    /// access (live-projects-and-history.md §5.2); projected as a
+    /// `DocumentError` with `reason`.
+    #[error("{detail}")]
+    Project {
+        /// Why: `no_previous_document`, `document_replaced`,
+        /// `path_outside_project`, `file_not_found`, or
+        /// `no_document`.
+        reason: ProjectReason,
+        /// The file involved, when the reason concerns one.
+        path: Option<String>,
+        /// A plain-language explanation.
+        detail: String,
+    },
     /// A document/label/parameter/timeline error from the tree.
     #[error(transparent)]
     History(Box<HistoryError>),
@@ -140,5 +154,35 @@ impl From<ReplayError> for ScriptError {
 impl From<popkern_part::PartError> for ScriptError {
     fn from(e: popkern_part::PartError) -> Self {
         ScriptError::Part(Box::new(e))
+    }
+}
+
+/// Why a project migration was refused (see [`ScriptError::Project`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectReason {
+    /// `previous()` in a first migration with no base, or outside a
+    /// project.
+    NoPreviousDocument,
+    /// A later migration ended with a document other than the one
+    /// `previous()` returned.
+    DocumentReplaced,
+    /// The first migration authored no document.
+    NoDocument,
+    /// A path resolves outside the project folder.
+    PathOutsideProject,
+    /// A project file does not exist.
+    FileNotFound,
+}
+
+impl ProjectReason {
+    /// The payload's `reason` string.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProjectReason::NoPreviousDocument => "no_previous_document",
+            ProjectReason::DocumentReplaced => "document_replaced",
+            ProjectReason::NoDocument => "no_document",
+            ProjectReason::PathOutsideProject => "path_outside_project",
+            ProjectReason::FileNotFound => "file_not_found",
+        }
     }
 }

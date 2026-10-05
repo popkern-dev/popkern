@@ -122,6 +122,9 @@ pub struct Envelope {
     pub bodies: Vec<BodyMesh>,
     /// The product structure, when the document is an assembly.
     pub assembly: Option<AssemblyView>,
+    /// The project build, when the envelope answers a project run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<crate::session_project::ProjectView>,
 }
 
 /// An assembly as the page's tree and instanced renderer see it
@@ -182,6 +185,7 @@ impl Envelope {
             params: Vec::new(),
             bodies: Vec::new(),
             assembly: None,
+            project: None,
         }
     }
 

@@ -32,6 +32,7 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         &["name"],
     ),
     b("open", "open", &["path"], &[], &[]),
+    b("previous", "previous", &[], &[], &[]),
     b("save", "save", &["path"], &[], &[]),
     b("replay", "replay", &[], &[], &[]),
     b("to_brep", "to_step", &[], &[], &[]),

@@ -50,11 +50,13 @@ impl RunOptions {
 
 /// A session over one document (a part or an assembly).
 pub struct Session {
-    options: HostOptions,
-    document: Option<Document>,
+    pub(crate) options: HostOptions,
+    pub(crate) document: Option<Document>,
     /// Display-mesh triangles of the last described model (the analysis
     /// mesh's budget estimate).
     last_display_triangles: usize,
+    /// The project runner and store, once a project has been built.
+    pub(crate) project: Option<crate::session_project::ProjectState>,
 }
 
 impl Session {
@@ -64,6 +66,7 @@ impl Session {
             options,
             document: None,
             last_display_triangles: 0,
+            project: None,
         }
     }
 
@@ -76,6 +79,9 @@ impl Session {
     /// control). The retained model is kept.
     pub fn set_options(&mut self, options: HostOptions) {
         self.options = options;
+        if let Some(project) = self.project.as_mut() {
+            project.set_options(options);
+        }
     }
 
     /// The model the last successful run left, when it authored a part
@@ -110,7 +116,7 @@ impl Session {
         WallBudget::describe(self.options.timeout.is_some(), monotonic_clock_available())
     }
 
-    fn bare(&self, outcome: Outcome) -> Envelope {
+    pub(crate) fn bare(&self, outcome: Outcome) -> Envelope {
         Envelope::bare(outcome, monotonic_clock_available(), self.wall_budget())
     }
 
@@ -364,7 +370,7 @@ impl Session {
         }
     }
 
-    fn describe(
+    pub(crate) fn describe(
         &mut self,
         outcome: Outcome,
         printed: Vec<String>,
@@ -400,6 +406,7 @@ impl Session {
             params: document_params(document),
             bodies,
             assembly,
+            project: None,
         }
     }
 }

@@ -32,6 +32,7 @@ use crate::names::validate_name;
 pub const FIRST_ASSEMBLY_VERSION: u32 = 5;
 
 /// An opened `.pkn`: one part document or one assembly.
+#[derive(Clone)]
 pub enum Document {
     /// A single feature tree.
     Part(Box<Model>),

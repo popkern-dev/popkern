@@ -382,6 +382,49 @@ fn cli_sits_above_rhai() {
     }
 }
 
+/// `popkern-project` runs project migrations over the Rhai skin: it
+/// depends on the skin and the assembly document, never on a host
+/// (command, browser engine, viewer), and nothing at or below the skin
+/// depends on it.
+#[test]
+fn project_sits_above_rhai() {
+    let cargo_toml = fs::read_to_string(workspace_root().join("crates/popkern-project/Cargo.toml"))
+        .expect("Could not read popkern-project/Cargo.toml");
+    for dep in ["popkern-rhai", "popkern-assembly"] {
+        assert!(
+            declares_dependency(&cargo_toml, dep),
+            "popkern-project must depend on {dep}"
+        );
+    }
+    for above in [
+        "popkern-cli",
+        "popkern-live",
+        "popkern-viz",
+        "popkern-examples",
+    ] {
+        assert!(
+            !declares_dependency(&cargo_toml, above),
+            "popkern-project must not depend on {above}"
+        );
+    }
+    for below in [
+        "popkern-core",
+        "popkern-mesh",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+        "popkern-assembly",
+        "popkern-rhai",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-project"),
+            "{below} must not depend on popkern-project (projects sit above the skin)"
+        );
+    }
+}
+
 /// `popkern-live` is the browser engine over the Rhai skin: it
 /// may depend on the skin, the recorder and the mesher; never on the
 /// native viewer (browsers render kernel triangles in JS) and nothing

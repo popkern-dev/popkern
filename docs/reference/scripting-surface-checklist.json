@@ -79,6 +79,13 @@
       ]
     },
     {
+      "name": "previous",
+      "section": "2",
+      "mark": "preview",
+      "signature": "previous() -> Model | Assembly",
+      "parameters": []
+    },
+    {
       "name": "replay",
       "section": "2",
       "mark": "stable",

@@ -41,7 +41,7 @@ pub use body_fastener::{
 };
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
 pub use body_sweep::{HelixParams, LoftOptions};
-pub use error::{ScriptError, SelectionKind};
+pub use error::{ProjectReason, ScriptError, SelectionKind};
 pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;

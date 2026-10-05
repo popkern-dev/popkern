@@ -6,11 +6,17 @@
 //! Exit codes distinguish what went wrong: `0` served; `2` the script
 //! itself (usage, syntax, argument errors, budget exceeded); `3` a
 //! kernel decline (a feature failed); `4` a gate or export failure
-//! (not watertight, validation, I/O).
+//! (not watertight, validation, I/O); `5` a malformed project folder;
+//! `6` a saved document whose applied history diverged, under
+//! `--strict`.
+//!
+//! `popkern build <dir>` builds a project folder of migration scripts
+//! (live-projects-and-history.md); `popkern new <dir>` scaffolds one.
 
 #![forbid(unsafe_code)]
 
 pub mod args;
+pub mod project;
 pub mod render;
 pub mod report;
 pub mod run;
@@ -37,6 +43,8 @@ pub fn main_with(args: &[String]) -> ExitCode {
             println!("{}", args::USAGE);
             ExitCode::SUCCESS
         }
+        Command::Build => ExitCode::from(project::build_command(&cli)),
+        Command::New => ExitCode::from(project::new_command(&cli)),
         Command::Run => {
             if cli.watch {
                 return watch::watch_loop(&cli);

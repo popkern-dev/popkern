@@ -3334,6 +3334,7 @@ dependencies = [
  "popkern-live",
  "popkern-mesh",
  "popkern-part",
+ "popkern-project",
  "popkern-rhai",
  "popkern-script",
  "popkern-viz",
@@ -3459,6 +3460,7 @@ dependencies = [
  "popkern-measure",
  "popkern-mesh",
  "popkern-part",
+ "popkern-project",
  "popkern-rhai",
  "popkern-script",
  "serde",
@@ -3513,6 +3515,22 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "ttf-parser",
+]
+
+[[package]]
+name = "popkern-project"
+version = "0.1.0"
+dependencies = [
+ "popkern-assembly",
+ "popkern-core",
+ "popkern-history",
+ "popkern-measure",
+ "popkern-rhai",
+ "popkern-script",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

@@ -7,6 +7,17 @@ use std::time::Duration;
 /// Usage text.
 pub const USAGE: &str = "\
 usage: popkern run <script.rhai> [options]
+       popkern build <project-dir> [--pkn <path>] [--step <path>] [--json]
+                     [--strict] [--rebuild] [--max-ops <n>] [--timeout <s>]
+       popkern new <project-dir> [--name <text>]
+
+popkern build runs a project's migrations (migrations/NNN_name.rhai) in
+order into one document. With --pkn naming an existing document, only
+the migrations it has not applied run; a document whose applied history
+differs from the folder is rebuilt (--strict: refused, exit 6).
+--rebuild always rebuilds from the folder.
+
+run options:
 
   --step <path>        export the model as STEP (every body)
   --png <path>         render the active body to PNG
@@ -28,13 +39,18 @@ usage: popkern run <script.rhai> [options]
   --stripes <n>        zebra stripe count (default 16)
   --facet-angle <deg>  zebra mesh facet bound (default 12, the display bound)
 
-exit codes: 0 served, 2 script error, 3 kernel decline, 4 gate or export failure";
+exit codes: 0 served, 2 script error, 3 kernel decline, 4 gate or export failure,
+            5 project structure error, 6 diverged history under --strict";
 
 /// The subcommand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     /// `popkern run`.
     Run,
+    /// `popkern build <dir>`.
+    Build,
+    /// `popkern new <dir>`.
+    New,
     /// `popkern help` / `--help`.
     Help,
 }
@@ -44,7 +60,7 @@ pub enum Command {
 pub struct Cli {
     /// The subcommand.
     pub command: Command,
-    /// The script path.
+    /// The script path (`run`) or project folder (`build`, `new`).
     pub script: PathBuf,
     /// STEP export path.
     pub step: Option<PathBuf>,
@@ -76,6 +92,12 @@ pub struct Cli {
     pub stripes: u32,
     /// Zebra mesh angular facet bound (degrees).
     pub facet_angle_deg: f64,
+    /// `build`: refuse a saved document whose history diverged.
+    pub strict: bool,
+    /// `build`: rebuild from the folder whatever the saved document says.
+    pub rebuild: bool,
+    /// `new`: the project's display name.
+    pub name: Option<String>,
 }
 
 impl Default for Cli {
@@ -98,6 +120,9 @@ impl Default for Cli {
             zebra: None,
             stripes: 16,
             facet_angle_deg: popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees(),
+            strict: false,
+            rebuild: false,
+            name: None,
         }
     }
 }
@@ -126,6 +151,8 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     let mut iter = args.iter();
     match iter.next().map(String::as_str) {
         Some("run") => {}
+        Some("build") => cli.command = Command::Build,
+        Some("new") => cli.command = Command::New,
         Some("help") | Some("--help") | Some("-h") => {
             cli.command = Command::Help;
             return Ok(cli);
@@ -140,6 +167,9 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
             "--png" => cli.png = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--pkn" => cli.pkn = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--json" => cli.json = true,
+            "--strict" => cli.strict = true,
+            "--rebuild" => cli.rebuild = true,
+            "--name" => cli.name = Some(value(arg, &mut iter)?.clone()),
             "--watch" => cli.watch = true,
             "--no-edges" => cli.edges = false,
             "--param" => {
@@ -167,11 +197,15 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
             }
             path => {
                 if script.replace(PathBuf::from(path)).is_some() {
-                    return Err(UsageError("only one script may be given".into()));
+                    return Err(UsageError("only one script or folder may be given".into()));
                 }
             }
         }
     }
-    cli.script = script.ok_or_else(|| UsageError("missing script path".into()))?;
+    let what = match cli.command {
+        Command::Build | Command::New => "missing project folder",
+        _ => "missing script path",
+    };
+    cli.script = script.ok_or_else(|| UsageError(what.into()))?;
     Ok(cli)
 }

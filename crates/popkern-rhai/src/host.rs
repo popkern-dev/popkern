@@ -169,9 +169,9 @@ impl ScriptRunError {
 
 /// An engine configured for the popkern dialect.
 pub struct ScriptHost {
-    engine: Engine,
-    printed: Rc<RefCell<Vec<String>>>,
-    options: HostOptions,
+    pub(crate) engine: Engine,
+    pub(crate) printed: Rc<RefCell<Vec<String>>>,
+    pub(crate) options: HostOptions,
 }
 
 impl ScriptHost {
@@ -223,6 +223,19 @@ impl ScriptHost {
 
     /// Run a compiled script.
     pub fn run_ast(&mut self, ast: &AST, script: &str) -> Result<RunOutcome, ScriptRunError> {
+        let run = self.eval(ast, script)?;
+        let (model, assembly) = authored(run.returned, run.in_scope);
+        Ok(RunOutcome {
+            model,
+            assembly,
+            printed: self.printed.borrow().clone(),
+            elapsed: run.elapsed,
+        })
+    }
+
+    /// Evaluate `ast` under the host budgets: the returned value and
+    /// every variable left in scope.
+    pub(crate) fn eval(&mut self, ast: &AST, script: &str) -> Result<RawRun, ScriptRunError> {
         self.printed.borrow_mut().clear();
         let watch = Stopwatch::start();
         if let Some(timeout) = self.options.timeout {
@@ -243,20 +256,24 @@ impl ScriptHost {
             .eval_ast_with_scope::<Dynamic>(&mut scope, ast)
             .map_err(|e| ScriptRunError::from_eval(&e, script))?;
         let in_scope: Vec<Dynamic> = scope.iter().map(|(_, _, value)| value).collect();
-        drop(scope);
-        let (model, assembly) = authored(returned, in_scope);
-        Ok(RunOutcome {
-            model,
-            assembly,
-            printed: self.printed.borrow().clone(),
+        Ok(RawRun {
+            returned,
+            in_scope,
             elapsed: watch.elapsed(),
         })
     }
 }
 
+/// One evaluation before the authored document is chosen.
+pub(crate) struct RawRun {
+    pub(crate) returned: Dynamic,
+    pub(crate) in_scope: Vec<Dynamic>,
+    pub(crate) elapsed: Option<Duration>,
+}
+
 /// The document a run authored (design §7: the returned value wins;
 /// with none, the last assembly in scope, then the last model).
-fn authored(
+pub(crate) fn authored(
     returned: Dynamic,
     in_scope: Vec<Dynamic>,
 ) -> (
