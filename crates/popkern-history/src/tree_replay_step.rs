@@ -211,8 +211,8 @@ impl FeatureTree {
             });
         }
 
-        let mut ctx = TrackingContext::new(node.operation_id);
-        let feature = node.feature.clone();
+        let mut ctx =
+            TrackingContext::new(node.operation_id).with_naming_scheme(self.naming_scheme);
         let body = node.body;
 
         // Take this body's BRep out of the map so we can pass both
@@ -222,6 +222,14 @@ impl FeatureTree {
             .unwrap_or_else(|| BRep::new(*tolerance));
         // Snapshot BRep before execution for atomic rollback on failure.
         let brep_backup = brep.clone();
+        // References an upstream edit renumbered rebind by their
+        // recorded provenance; an ambiguous one declines (PK-677).
+        let node = &self.features[id];
+        let rebound = crate::reference_rebind::rebind(&node.feature, &node.provenance, &brep);
+        let (feature, rebind_fallbacks) = match &rebound {
+            Ok((feature, fallbacks)) => (feature.clone(), fallbacks.clone()),
+            Err(_) => (node.feature.clone(), Vec::new()),
+        };
 
         let timer = popkern_core::time::Stopwatch::start();
         // The body carrying the face this feature's sketch was placed
@@ -239,21 +247,31 @@ impl FeatureTree {
             merge_host.and_then(|h| body_breps.get(&h)).unwrap_or(&brep),
             &self.parameter_table,
         );
-        let exec_result = replay::execute_feature(
-            &mut brep,
-            &feature,
-            &mut ctx,
-            tolerance,
-            body_breps,
-            &self.parameter_table,
-            &exact_profiles,
-            merge_host,
-            self.deferred.policy,
-        );
+        let exec_result = match rebound {
+            Err(error) => Err(error),
+            Ok(_) => replay::execute_feature(
+                &mut brep,
+                &feature,
+                &mut ctx,
+                tolerance,
+                body_breps,
+                &self.parameter_table,
+                &exact_profiles,
+                merge_host,
+                self.deferred.policy,
+            ),
+        };
 
         match exec_result {
             Ok(side_effects) => {
                 let mut evidence = side_effects.evidence;
+                evidence.fallbacks.extend(rebind_fallbacks);
+                let recorded = self.features[id].feature.clone();
+                crate::reference_rebind::refresh(
+                    &mut self.features[id].provenance,
+                    &recorded,
+                    &brep_backup,
+                );
                 let mut touched: HashSet<BodyId> = HashSet::from([body]);
                 // Apply deferred side effects only on success.
                 for consumed in &side_effects.consumed_bodies {
@@ -277,7 +295,8 @@ impl FeatureTree {
                     && let Some(host) = merge_host
                     && host != body
                 {
-                    let mut merge_ctx = TrackingContext::new(self.features[id].operation_id);
+                    let mut merge_ctx = TrackingContext::new(self.features[id].operation_id)
+                        .with_naming_scheme(self.naming_scheme);
                     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
                     auto_merge::execute_auto_merge(
                         mode,

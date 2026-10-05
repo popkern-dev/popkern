@@ -30,6 +30,7 @@ fn add_dummy_feature(tree: &mut FeatureTree, label: &str) -> crate::node::Featur
         instance_op_ids: std::collections::HashMap::new(),
         last_result: None,
         selections: Vec::new(),
+        provenance: Vec::new(),
     };
     let fid = tree.features.insert(node);
     tree.timeline.push(fid);

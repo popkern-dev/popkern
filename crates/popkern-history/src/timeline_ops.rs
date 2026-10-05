@@ -79,6 +79,7 @@ impl FeatureTree {
             instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
             selections: Vec::new(),
+            provenance: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();
@@ -178,6 +179,7 @@ impl FeatureTree {
             instance_op_ids: std::collections::HashMap::new(),
             last_result: None,
             selections: Vec::new(),
+            provenance: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();

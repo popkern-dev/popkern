@@ -36,6 +36,7 @@ fn insert(
         instance_op_ids: std::collections::HashMap::new(),
         last_result: None,
         selections: Vec::new(),
+        provenance: Vec::new(),
     };
     let id = features.insert(node);
     timeline.push(id);
@@ -138,6 +139,7 @@ fn missing_feature_id_is_rejected() {
         instance_op_ids: std::collections::HashMap::new(),
         last_result: None,
         selections: Vec::new(),
+        provenance: Vec::new(),
     });
     features.remove(ghost_id);
 

@@ -53,6 +53,10 @@ pub struct TrackingContext {
     pub enabled: bool,
     /// Accumulated history (internal; extracted via [`finish`]).
     pub(crate) history: HistoryMap,
+    /// The naming scheme the operation mints under
+    /// ([`crate::naming::NAMING_SCHEME_VERSION`] unless the document
+    /// was recorded under an older one).
+    pub naming_scheme: u32,
 }
 
 impl TrackingContext {
@@ -65,7 +69,15 @@ impl TrackingContext {
                 operation,
                 ..Default::default()
             },
+            naming_scheme: crate::naming::NAMING_SCHEME_VERSION,
         }
+    }
+
+    /// The same context minting under naming scheme `scheme`.
+    #[must_use]
+    pub fn with_naming_scheme(mut self, scheme: u32) -> Self {
+        self.naming_scheme = scheme;
+        self
     }
 
     /// Record that `old` was modified and produced `new`.

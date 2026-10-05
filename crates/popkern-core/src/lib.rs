@@ -19,6 +19,7 @@ pub mod history;
 pub mod naming;
 pub mod naming_criteria;
 pub mod naming_lineage;
+pub mod naming_provenance;
 pub mod naming_resolve;
 pub mod precision;
 pub mod progress;

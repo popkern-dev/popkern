@@ -39,6 +39,7 @@ pub mod feature_blend;
 pub mod feature_draft;
 pub mod feature_extrude;
 pub mod feature_fastener;
+pub(crate) mod feature_names;
 mod feature_params;
 pub mod feature_sketch;
 pub mod feature_snapshot;
@@ -62,6 +63,7 @@ pub(crate) mod pattern_replay;
 pub(crate) mod pattern_transform;
 pub(crate) mod pattern_validate;
 pub mod queries;
+pub mod reference_rebind;
 pub(crate) mod replay;
 mod replay_exact_extrude;
 mod replay_exact_extrude_names;
@@ -230,6 +232,16 @@ pub struct FeatureTree {
     /// attributes); `None` means [`Tolerance::default`].
     #[serde(default)]
     pub(crate) build_tolerance: Option<Tolerance>,
+    /// The naming scheme this tree's references were minted under, and
+    /// the rules its replays mint with (PK-677). A new tree mints under
+    /// [`popkern_core::naming::NAMING_SCHEME_VERSION`]; a tree saved
+    /// before the field existed was scheme 1.
+    #[serde(default = "scheme_one")]
+    pub(crate) naming_scheme: u32,
+}
+
+fn scheme_one() -> u32 {
+    1
 }
 
 impl FeatureTree {
@@ -257,6 +269,7 @@ impl FeatureTree {
             labels: LabelTable::default(),
             build_tolerance: None,
             config_pinned_base: HashMap::new(),
+            naming_scheme: popkern_core::naming::NAMING_SCHEME_VERSION,
         }
     }
 
@@ -280,6 +293,11 @@ impl FeatureTree {
     /// Returns `None` if the tree has not been replayed yet.
     pub fn last_report(&self) -> &ReplayReport {
         &self.last_report
+    }
+
+    /// The naming scheme this tree mints under (PK-677).
+    pub fn naming_scheme(&self) -> u32 {
+        self.naming_scheme
     }
 
     /// The current BRep after the last replay.

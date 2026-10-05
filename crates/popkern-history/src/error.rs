@@ -136,6 +136,18 @@ pub enum ReplayError {
     /// A stable name reference could not be resolved in the current BRep.
     #[error("reference resolution failed: {0:?}")]
     ResolutionFailed(EntityName),
+    /// A reference's recorded provenance matches several entities: the
+    /// edit upstream left it ambiguous, and replay declines rather than
+    /// pick one by index (PK-677).
+    #[error(
+        "reference {name:?} is ambiguous after an upstream change: {candidates} entities match its recorded provenance"
+    )]
+    AmbiguousReference {
+        /// The reference as recorded.
+        name: EntityName,
+        /// How many entities match.
+        candidates: usize,
+    },
     /// A core geometry or topology error occurred.
     #[error("core error: {0}")]
     CoreError(#[from] popkern_core::error::CoreError),

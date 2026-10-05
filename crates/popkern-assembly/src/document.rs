@@ -17,7 +17,7 @@
 //! document, read through the same loader (index rebuild, label
 //! normalisation), so a part moved into an assembly keeps its meaning.
 
-use popkern_core::naming::NAMING_SCHEME_VERSION;
+use popkern_core::naming::{NAMING_SCHEME_VERSION, OLDEST_NAMING_SCHEME};
 use popkern_history::{CURRENT_VERSION, FeatureTree};
 use popkern_script::Model;
 use serde::{Deserialize, Serialize};
@@ -66,9 +66,12 @@ impl Document {
                         envelope.version
                     )));
                 }
-                if envelope.naming_scheme != NAMING_SCHEME_VERSION {
+                // Each part tree carries its own scheme (PK-677); the
+                // envelope bounds them.
+                if !(OLDEST_NAMING_SCHEME..=NAMING_SCHEME_VERSION).contains(&envelope.naming_scheme)
+                {
                     return Err(AssemblyError::Document(format!(
-                        "naming scheme {} not supported (this build mints scheme {NAMING_SCHEME_VERSION})",
+                        "naming scheme {} not supported (reads {OLDEST_NAMING_SCHEME}..={NAMING_SCHEME_VERSION})",
                         envelope.naming_scheme
                     )));
                 }

@@ -128,6 +128,7 @@ impl FeatureTree {
             seed_body: body,
             features: &self.features,
             seed_feature_ids: &seed_ids,
+            naming_scheme: self.naming_scheme,
         };
         let r = crate::pattern_execute::execute_pattern(&mut ctx);
         self.features[id].instance_op_ids = inst_ops;

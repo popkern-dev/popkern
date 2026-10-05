@@ -237,22 +237,33 @@ fn build_tolerance_round_trips_and_reaches_replay() {
 
 #[test]
 fn naming_scheme_rides_the_envelope() {
+    // A new tree mints under the current scheme (2, PK-677) and says so
+    // in the envelope and in the tree.
     let tree = FeatureTree::new();
+    assert_eq!(tree.naming_scheme(), 2);
     let json = String::from_utf8(tree.save().expect("save")).expect("utf8");
-    assert!(json.contains("\"naming_scheme\":1"), "{json}");
+    assert!(json.contains("\"naming_scheme\":2"), "{json}");
 
-    let newer = json.replace("\"naming_scheme\":1", "\"naming_scheme\":99");
+    let newer = json.replace("\"naming_scheme\":2", "\"naming_scheme\":99");
     assert!(matches!(
         FeatureTree::load(newer.as_bytes()),
         Err(HistoryError::UnsupportedNamingScheme {
             file_scheme: 99,
-            supported: 1
+            supported: 2
         })
     ));
 
-    let unrecorded = json.replace("\"naming_scheme\":1,", "");
-    assert!(!unrecorded.contains("naming_scheme"));
-    FeatureTree::load(unrecorded.as_bytes()).expect("documents without the field are scheme 1");
+    // A document written before either field existed is scheme 1, keeps
+    // scheme 1's rules, and saves back as scheme 1.
+    let unrecorded = json
+        .replace("\"naming_scheme\":2,", "")
+        .replace(",\"naming_scheme\":2", "");
+    assert!(!unrecorded.contains("naming_scheme"), "{unrecorded}");
+    let old =
+        FeatureTree::load(unrecorded.as_bytes()).expect("documents without the field are scheme 1");
+    assert_eq!(old.naming_scheme(), 1);
+    let resaved = String::from_utf8(old.save().expect("save")).expect("utf8");
+    assert!(resaved.contains("\"naming_scheme\":1"), "{resaved}");
 }
 
 #[test]

@@ -263,6 +263,13 @@ fn replay_payload(error: &ReplayError) -> Value {
             "resolved": 0,
             "expected": 1,
         }),
+        ReplayError::AmbiguousReference { name, candidates } => json!({
+            "kind": "ResolutionFailed",
+            "name": format!("{name:?}"),
+            "selection": Value::Null,
+            "resolved": candidates,
+            "expected": 1,
+        }),
         ReplayError::CoreError(e) => json!({ "kind": "CoreError", "detail": e.to_string() }),
         ReplayError::HistoryError(e) => history_payload(e),
     }

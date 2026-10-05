@@ -25,7 +25,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use popkern_core::naming::NAMING_SCHEME_VERSION;
+use popkern_core::naming::{NAMING_SCHEME_VERSION, OLDEST_NAMING_SCHEME};
 
 use crate::FeatureTree;
 use crate::error::HistoryError;
@@ -61,7 +61,7 @@ struct PknDocumentOut<'a> {
     /// Format version — currently always [`CURRENT_VERSION`].
     version: u32,
     /// Entity-naming scheme the stored references were minted under —
-    /// always [`NAMING_SCHEME_VERSION`] when writing.
+    /// the tree's own scheme when writing.
     naming_scheme: u32,
     /// The feature tree payload.
     tree: &'a FeatureTree,
@@ -90,11 +90,11 @@ fn unrecorded_naming_scheme() -> u32 {
 
 /// Check that the file's naming scheme is one this build reads.
 ///
-/// Only scheme 1 has ever been minted, so there is no migration to run;
-/// when a scheme 2 arrives this is where the scheme-1 → scheme-2 name
-/// migration dispatches.
+/// Every scheme since [`OLDEST_NAMING_SCHEME`] is read: a tree keeps
+/// the scheme its names were minted under and replays with that
+/// scheme's rules (PK-677), so no stored reference is migrated.
 fn check_naming_scheme(file_scheme: u32) -> Result<(), HistoryError> {
-    if file_scheme == NAMING_SCHEME_VERSION {
+    if (OLDEST_NAMING_SCHEME..=NAMING_SCHEME_VERSION).contains(&file_scheme) {
         Ok(())
     } else {
         Err(HistoryError::UnsupportedNamingScheme {
@@ -118,7 +118,7 @@ impl FeatureTree {
     pub fn save(&self) -> Result<Vec<u8>, HistoryError> {
         let doc = PknDocumentOut {
             version: CURRENT_VERSION,
-            naming_scheme: NAMING_SCHEME_VERSION,
+            naming_scheme: self.naming_scheme,
             tree: self,
         };
         serde_json::to_vec(&doc).map_err(|e| HistoryError::SerializeError(e.to_string()))
@@ -166,6 +166,9 @@ impl FeatureTree {
                 ));
             }
         };
+        // The envelope speaks for a tree written before the tree held
+        // its own scheme.
+        tree.naming_scheme = tree.naming_scheme.min(doc.naming_scheme);
         tree.rebuild_indices();
         tree.enforce_unique_feature_labels();
         Ok(tree)

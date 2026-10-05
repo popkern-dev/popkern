@@ -49,6 +49,7 @@ pub(crate) fn replay_seed_chain(
     tolerance: &Tolerance,
     param_table: &ParameterTable,
     body_breps: &mut HashMap<BodyId, BRep>,
+    naming_scheme: u32,
 ) -> Result<BRep, ReplayError> {
     let mut brep = BRep::new(*tolerance);
     // The chain's on-face sketch names its host; the chain replays into
@@ -61,7 +62,7 @@ pub(crate) fn replay_seed_chain(
         _ => None,
     });
     for (feature, op_id) in seed_features {
-        let mut ctx = TrackingContext::new(*op_id);
+        let mut ctx = TrackingContext::new(*op_id).with_naming_scheme(naming_scheme);
         let exact_profiles = crate::replay_exact_extrude::exact_profile_set(
             feature,
             seed_features.iter().map(|(f, op)| (f, *op)),
@@ -94,226 +95,9 @@ pub(crate) fn replay_seed_chain(
 /// For each `EntityName` whose `operation` field appears in `op_remap`, the
 /// operation is replaced with the mapped value.
 fn remap_feature_entity_names(feature: &mut Feature, op_remap: &HashMap<OperationId, OperationId>) {
-    match feature {
-        Feature::Sketch { plane, .. } => {
-            remap_sketch_plane(plane, op_remap);
+    crate::feature_names::for_each_entity_name_mut(feature, &mut |name| {
+        if let Some(new_op) = op_remap.get(&name.operation) {
+            name.operation = *new_op;
         }
-        Feature::Extrude {
-            face,
-            direction,
-            end_condition,
-            second_direction,
-            ..
-        } => {
-            remap_name(face, op_remap);
-            if let Some(d) = direction {
-                remap_vec3_desc(d, op_remap);
-            }
-            remap_extrude_end(end_condition, op_remap);
-            if let Some(sd) = second_direction {
-                remap_vec3_desc(&mut sd.direction, op_remap);
-                remap_extrude_end(&mut sd.end_condition, op_remap);
-            }
-        }
-        Feature::Fillet { edges, .. } => {
-            for name in edges.iter_mut() {
-                remap_name(name, op_remap);
-            }
-        }
-        Feature::Chamfer { edges, kind, .. } => {
-            for name in edges.iter_mut() {
-                remap_name(name, op_remap);
-            }
-            match kind {
-                crate::feature_blend::ChamferKindDesc::Equal => {}
-                crate::feature_blend::ChamferKindDesc::TwoDistance { face, .. }
-                | crate::feature_blend::ChamferKindDesc::DistanceAngle { face, .. } => {
-                    remap_name(face, op_remap);
-                }
-            }
-        }
-        Feature::Boolean { .. }
-        | Feature::Thicken { .. }
-        | Feature::OffsetSolid { .. }
-        | Feature::RawBody { .. } => {}
-        Feature::Transform { motion } => {
-            if let Some(name) = motion.entity_name_mut() {
-                remap_name(name, op_remap);
-            }
-        }
-        Feature::Shell {
-            faces_to_remove, ..
-        } => {
-            for name in faces_to_remove.iter_mut() {
-                remap_name(name, op_remap);
-            }
-        }
-        Feature::Draft {
-            faces,
-            neutral_plane,
-            ..
-        } => {
-            for name in faces.iter_mut() {
-                remap_name(name, op_remap);
-            }
-            if let Some(name) = neutral_plane.entity_name_mut() {
-                remap_name(name, op_remap);
-            }
-        }
-        Feature::Sweep {
-            face, path_edge, ..
-        } => {
-            remap_name(face, op_remap);
-            remap_name(path_edge, op_remap);
-        }
-        Feature::Loft { sections, .. } => {
-            for name in sections.iter_mut() {
-                remap_name(name, op_remap);
-            }
-        }
-        Feature::Pipe { path_edge, .. } => {
-            remap_name(path_edge, op_remap);
-        }
-        Feature::Fastener { .. } => {}
-        Feature::TappedHole { axis, .. } | Feature::ClearanceHole { axis, .. } => {
-            remap_axis_desc(axis, op_remap);
-        }
-        Feature::HelicalSweep { face, axis, .. } => {
-            remap_name(face, op_remap);
-            remap_axis_desc(axis, op_remap);
-        }
-        Feature::Revolve {
-            face,
-            axis,
-            end_condition,
-            ..
-        } => {
-            remap_name(face, op_remap);
-            remap_axis_desc(axis, op_remap);
-            remap_revolve_end(end_condition, op_remap);
-        }
-        Feature::Reference { query, .. } => {
-            remap_measure_query(query, op_remap);
-        }
-        Feature::LinearPattern { .. }
-        | Feature::CircularPattern { .. }
-        | Feature::CurvePattern { .. }
-        | Feature::Mirror { .. } => {
-            // Pattern features reference seed FeatureIds, not entity names
-            // that need remapping.
-        }
-    }
-}
-
-/// Remap a single [`popkern_core::naming::EntityName`].
-fn remap_name(
-    name: &mut popkern_core::naming::EntityName,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    if let Some(new_op) = op_remap.get(&name.operation) {
-        name.operation = *new_op;
-    }
-}
-
-/// Remap entity names inside a [`crate::feature::SketchPlaneDesc`].
-fn remap_sketch_plane(
-    plane: &mut crate::feature::SketchPlaneDesc,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    match plane {
-        crate::feature::SketchPlaneDesc::OnFace(name) => remap_name(name, op_remap),
-        crate::feature::SketchPlaneDesc::OnFaceOffset(name, _) => remap_name(name, op_remap),
-        crate::feature::SketchPlaneDesc::XY
-        | crate::feature::SketchPlaneDesc::XZ
-        | crate::feature::SketchPlaneDesc::YZ
-        | crate::feature::SketchPlaneDesc::Custom { .. }
-        | crate::feature::SketchPlaneDesc::BaseOffset { .. } => {}
-    }
-}
-
-/// Remap entity names inside a [`crate::feature::Vec3Desc`].
-fn remap_vec3_desc(
-    desc: &mut crate::feature::Vec3Desc,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    match desc {
-        crate::feature::Vec3Desc::Literal(_) => {}
-        crate::feature::Vec3Desc::FaceNormal(name)
-        | crate::feature::Vec3Desc::EdgeDirection(name) => remap_name(name, op_remap),
-        crate::feature::Vec3Desc::Negated(inner) => remap_vec3_desc(inner, op_remap),
-    }
-}
-
-/// Remap entity names inside an [`crate::feature::ExtrudeEnd`].
-fn remap_extrude_end(
-    end: &mut crate::feature::ExtrudeEnd,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    match end {
-        crate::feature::ExtrudeEnd::UpToSurface { face } => remap_name(face, op_remap),
-        crate::feature::ExtrudeEnd::OffsetFromSurface { face, .. } => {
-            remap_name(face, op_remap);
-        }
-        crate::feature::ExtrudeEnd::UpToVertex { vertex } => remap_name(vertex, op_remap),
-        crate::feature::ExtrudeEnd::Blind { .. }
-        | crate::feature::ExtrudeEnd::ThroughAll
-        | crate::feature::ExtrudeEnd::MidPlane { .. } => {}
-    }
-}
-
-/// Remap entity names inside an [`crate::feature::AxisDesc`].
-fn remap_axis_desc(
-    axis: &mut crate::feature::AxisDesc,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    match axis {
-        crate::feature::AxisDesc::Edge(name) => remap_name(name, op_remap),
-        crate::feature::AxisDesc::Literal { .. } => {}
-    }
-}
-
-/// Remap entity names inside a [`crate::feature::RevolveEnd`].
-fn remap_revolve_end(
-    end: &mut crate::feature::RevolveEnd,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    match end {
-        crate::feature::RevolveEnd::UpToSurface { face } => remap_name(face, op_remap),
-        crate::feature::RevolveEnd::Blind { .. }
-        | crate::feature::RevolveEnd::FullCircle
-        | crate::feature::RevolveEnd::MidPlane { .. } => {}
-    }
-}
-
-/// Remap entity names inside a [`crate::measure_query::MeasureQuery`].
-fn remap_measure_query(
-    query: &mut crate::measure_query::MeasureQuery,
-    op_remap: &HashMap<OperationId, OperationId>,
-) {
-    use crate::measure_query::MeasureQuery;
-    match query {
-        MeasureQuery::EdgeLength(n)
-        | MeasureQuery::EdgeTangent(n, _)
-        | MeasureQuery::FaceArea(n)
-        | MeasureQuery::FacePerimeter(n)
-        | MeasureQuery::FaceNormal(n, _)
-        | MeasureQuery::FaceCentroid(n, _)
-        | MeasureQuery::FaceRadius(n)
-        | MeasureQuery::FaceMinCurvature(n)
-        | MeasureQuery::FaceMaxCurvature(n)
-        | MeasureQuery::VertexPosition(n, _) => {
-            remap_name(n, op_remap);
-        }
-        MeasureQuery::MinDistance(a, b)
-        | MeasureQuery::DihedralAngle(a, b)
-        | MeasureQuery::EdgeAngle(a, b) => {
-            remap_name(a, op_remap);
-            remap_name(b, op_remap);
-        }
-        MeasureQuery::BodyVolume
-        | MeasureQuery::BodySurfaceArea
-        | MeasureQuery::BodyCentroid(_)
-        | MeasureQuery::BodyBound(_)
-        | MeasureQuery::BodyMomentOfInertia(_) => {}
-    }
+    });
 }

@@ -19,10 +19,20 @@ use crate::naming_criteria::GeometricCriteria;
 /// Documents record the scheme they were written under next to their
 /// format version. Changing how any operation mints names — role
 /// categories, index order, ancestor recording — is a scheme change:
-/// bump this constant and ship a document migration for the previous
-/// scheme, because every stored reference is an [`EntityName`] minted
-/// under the old rules.
-pub const NAMING_SCHEME_VERSION: u32 = 1;
+/// bump this constant and keep the previous scheme's rules reachable
+/// (or ship a document migration), because every stored reference is
+/// an [`EntityName`] minted under the old rules.
+///
+/// - **1**: the original rules.
+/// - **2** (PK-677): a boolean imports each operand's names into the
+///   result pool by value ([`NamePool::import`]), so a tool-side name's
+///   ancestor ids are the result pool's. Scheme 1 interned them as-is,
+///   leaving ancestor ids that pointed into the tool's pool. A tree
+///   keeps the scheme it was recorded under and replays with its rules.
+pub const NAMING_SCHEME_VERSION: u32 = 2;
+
+/// The oldest naming scheme this kernel still replays.
+pub const OLDEST_NAMING_SCHEME: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Primitive handles

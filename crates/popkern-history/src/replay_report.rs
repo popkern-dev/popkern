@@ -289,6 +289,9 @@ pub enum RecordSource {
     Boolean,
     /// Pattern and mirror instancing (this crate).
     Pattern,
+    /// Reference resolution: a recorded name rebound by provenance
+    /// (this crate, PK-677).
+    Naming,
 }
 
 /// A non-fatal kernel warning that is neither a fallback nor a skip.

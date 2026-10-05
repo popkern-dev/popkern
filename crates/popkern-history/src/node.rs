@@ -69,6 +69,11 @@ pub struct FeatureNode {
     /// re-evaluates the text.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub selections: Vec<SelectionRecord>,
+    /// By-value snapshots of the references this feature resolved in
+    /// its own body (PK-677): what replay rebinds a reference to when
+    /// an upstream edit renumbered its name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provenance: Vec<crate::reference_rebind::ReferenceProvenance>,
 }
 
 /// The authored form of one selection argument of a feature.

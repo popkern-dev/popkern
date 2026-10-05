@@ -62,7 +62,11 @@ where
             let mut tracking = tracking;
             let worker_tracking: Option<TrackingContext> = tracking.as_mut().map(|ctx| {
                 let operation = ctx.operation;
-                std::mem::replace(&mut **ctx, TrackingContext::new(operation))
+                let scheme = ctx.naming_scheme;
+                std::mem::replace(
+                    &mut **ctx,
+                    TrackingContext::new(operation).with_naming_scheme(scheme),
+                )
             });
             let worker = make_worker(token.clone(), worker_tracking);
             match run_detach_on_cancel_with_events(token, worker, |event| {

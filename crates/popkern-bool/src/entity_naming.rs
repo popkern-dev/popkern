@@ -8,7 +8,7 @@
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;
-use popkern_core::naming::EntityName;
+use popkern_core::naming::{EntityName, NamePool};
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 /// Collect face names, centroids, and normals from a BRep for ancestry matching.
@@ -52,6 +52,21 @@ pub(crate) fn collect_face_data(brep: &BRep) -> Vec<(EntityName, Point3, Vec3)> 
         result.push((name, fc.centroid, fc.normal));
     }
     result
+}
+
+/// Naming scheme 2 (PK-677): replace `name` (a name of `source`'s pool)
+/// with its copy imported by value into `target`, so its ancestor ids
+/// are `target`'s. A placeholder for an unnamed entity is not in the
+/// pool and stays as it is.
+pub(crate) fn import_name(name: &mut EntityName, source: &BRep, target: &mut NamePool) {
+    let Some(id) = source.name_pool.find(name) else {
+        return;
+    };
+    if let Some(copied) = target.import(&source.name_pool, id)
+        && let Some(value) = target.get(copied)
+    {
+        *name = value.clone();
+    }
 }
 
 /// Assign stable names to faces in a boolean result by matching against inputs.

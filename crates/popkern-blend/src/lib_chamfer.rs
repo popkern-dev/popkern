@@ -32,7 +32,11 @@ pub fn chamfer_edges_cancellable(
     let mut tracking = tracking;
     let worker_tracking: Option<TrackingContext> = tracking.as_deref_mut().map(|ctx| {
         let operation = ctx.operation;
-        std::mem::replace(ctx, TrackingContext::new(operation))
+        let scheme = ctx.naming_scheme;
+        std::mem::replace(
+            ctx,
+            TrackingContext::new(operation).with_naming_scheme(scheme),
+        )
     });
     let worker_brep = brep.clone();
     let worker_specs = specs.to_vec();

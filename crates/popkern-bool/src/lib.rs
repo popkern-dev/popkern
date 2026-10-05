@@ -151,26 +151,31 @@ pub fn boolean(
     }
 
     // Collect input face data before the boolean consumes the inputs.
-    let input_a_faces = if tracking.is_some() {
+    let mut input_a_faces = if tracking.is_some() {
         entity_naming::collect_face_data(&a)
     } else {
         Vec::new()
     };
-    let input_b_faces = if tracking.is_some() {
+    let mut input_b_faces = if tracking.is_some() {
         entity_naming::collect_face_data(&b)
     } else {
         Vec::new()
     };
     // Edges and vertices too (PK-386): a dress-up after a boolean is
     // recorded by stable name, so the survivors must keep theirs.
-    let (input_edges, input_vertices) = if tracking.is_some() {
+    // Where operand b's entries start in the combined edge / vertex
+    // lists (their names come from b's pool).
+    let (mut input_edges, mut input_vertices, b_edges_from, b_vertices_from) = if tracking.is_some()
+    {
         let mut edges = entity_naming_edges::collect_edge_data(&a);
+        let b_edges_from = edges.len();
         edges.extend(entity_naming_edges::collect_edge_data(&b));
         let mut vertices = entity_naming_edges::collect_vertex_data(&a);
+        let b_vertices_from = vertices.len();
         vertices.extend(entity_naming_edges::collect_vertex_data(&b));
-        (edges, vertices)
+        (edges, vertices, b_edges_from, b_vertices_from)
     } else {
-        (Vec::new(), Vec::new())
+        (Vec::new(), Vec::new(), 0, 0)
     };
 
     let mut result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
@@ -194,6 +199,26 @@ pub fn boolean(
         }
     })?;
     if let Some(ctx) = tracking {
+        if ctx.naming_scheme >= 2 {
+            // Naming scheme 2 (PK-677): each operand name comes into the
+            // result pool by value, ancestors first, so a tool-side
+            // name's ancestor ids are this pool's (scheme 1 interned the
+            // tool's ids as they were).
+            let pool = &mut result.name_pool;
+            for (name, ..) in &mut input_a_faces {
+                entity_naming::import_name(name, &a, pool);
+            }
+            for (name, ..) in &mut input_b_faces {
+                entity_naming::import_name(name, &b, pool);
+            }
+            for (i, (name, ..)) in input_edges.iter_mut().enumerate() {
+                entity_naming::import_name(name, if i < b_edges_from { &a } else { &b }, pool);
+            }
+            for (i, (name, _)) in input_vertices.iter_mut().enumerate() {
+                let source = if i < b_vertices_from { &a } else { &b };
+                entity_naming::import_name(name, source, pool);
+            }
+        }
         entity_naming::assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
         // Lineage beside the names (PK-633): which input faces each
         // output face is a piece of, so labels follow trimmed faces.

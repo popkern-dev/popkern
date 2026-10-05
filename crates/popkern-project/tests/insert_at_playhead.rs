@@ -192,3 +192,64 @@ fn an_assembly_part_takes_an_insert_from_a_migration() {
     assert_eq!(labels, ["pin", "extrude-1", "chamfer-1"]);
     assert_eq!(assembly.leaves().len(), 2, "both instances still placed");
 }
+
+/// PK-677: a chamfer inserted before the bore subtraction renumbers the
+/// subtraction's names; `rim_round`'s reference rebinds by provenance
+/// to the same rim edge, and the part equals the one recorded with the
+/// chamfer there from the start.
+#[test]
+fn an_insert_upstream_of_the_boolean_keeps_the_rim_reference() {
+    let fs = memory("labelled_rim");
+    let mut runner = runner(&fs);
+    assert!(build(&mut runner, &fs).error.is_none());
+    let chamfer = "    body.chamfer(edges().at_height(1.0), 0.05)\n";
+    let source = insert_after_source("extrude-1", 2, true).replace("    body\n", chamfer);
+    insert(&fs, "extrude-1", &source);
+    let mut inserted = build(&mut runner, &fs);
+    assert!(inserted.error.is_none(), "{:?}", inserted.error);
+    let document = inserted.document.as_mut().expect("doc");
+    assert_eq!(
+        labels(document),
+        [
+            "block_sketch",
+            "extrude-1",
+            "chamfer-1",
+            "bore_sketch",
+            "extrude-2",
+            "boolean-1",
+            "rim_round"
+        ]
+    );
+    let Document::Part(model) = &*document else {
+        panic!("part document expected");
+    };
+    let report = model.tree().last_report();
+    let rim = report
+        .features
+        .iter()
+        .find(|r| r.label == "rim_round")
+        .expect("rim_round row");
+    assert!(
+        rim.fallbacks
+            .iter()
+            .any(|f| f.mechanism.contains("provenance rebind")),
+        "the rebind is recorded on the row: {:?}",
+        rim.fallbacks
+    );
+    let rebound_volume = volume(document);
+
+    // The same part recorded with the chamfer in place from the start.
+    let fresh = popkern_rhai::ScriptHost::new()
+        .run(
+            "let m = model();\nlet block = m.profile(xy()).rect(2.0, 2.0).sketch(\"block_sketch\").extrude(blind(1.0));\nblock.chamfer(edges().at_height(1.0), 0.05);\nlet bore = m.tool(|m| m.profile(xy()).circle(0.4).sketch(\"bore_sketch\").extrude(blind(1.0)));\nm.active().subtract(bore);\nm.active().fillet(edges().circular().at_height(1.0), 0.05);\nm\n",
+            "fresh.rhai",
+        )
+        .map(|mut out| out.take_document())
+        .expect("fresh model runs");
+    let mut fresh = fresh.expect("a document");
+    let fresh_volume = volume(&mut fresh);
+    assert!(
+        (rebound_volume - fresh_volume).abs() <= 1e-9 * fresh_volume,
+        "the rebound fillet is the rim fillet: {rebound_volume} vs {fresh_volume}"
+    );
+}

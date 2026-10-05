@@ -48,6 +48,8 @@ pub(crate) struct PatternContext<'a> {
     pub features: &'a slotmap::SlotMap<FeatureId, FeatureNode>,
     /// FeatureIds of the seed features.
     pub seed_feature_ids: &'a [FeatureId],
+    /// The naming scheme the tree mints under (PK-677).
+    pub naming_scheme: u32,
 }
 
 /// Execute a pattern feature, producing geometry for all instances.
@@ -130,6 +132,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
                 ctx.body_breps,
                 ctx.pattern_op_id,
                 ctx.tolerance,
+                ctx.naming_scheme,
             ) {
                 Ok(()) => outcomes.push((inst_idx, InstanceOutcome::Replayed)),
                 Err(e) => outcomes.push((
@@ -159,6 +162,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
                 host_target,
                 bool_op,
                 ctx.pattern_op_id,
+                ctx.naming_scheme,
             ) {
                 Ok(()) => {
                     outcomes.push((inst_idx, InstanceOutcome::Replayed));
@@ -179,7 +183,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
                 ctx.body_breps,
                 host_target,
                 bool_op,
-                ctx.pattern_op_id,
+                TrackingContext::new(ctx.pattern_op_id).with_naming_scheme(ctx.naming_scheme),
                 ctx.tolerance,
             ) {
                 Ok(()) => {
@@ -263,12 +267,13 @@ fn boolean_into_host(
     body_breps: &mut HashMap<BodyId, BRep>,
     op_id: OperationId,
     tolerance: &Tolerance,
+    naming_scheme: u32,
 ) -> Result<(), ReplayError> {
     let host = match host_body {
         Some(h) if h != tool_body => h,
         _ => return Ok(()),
     };
-    let mut ctx = TrackingContext::new(op_id);
+    let mut ctx = TrackingContext::new(op_id).with_naming_scheme(naming_scheme);
     auto_merge::execute_auto_merge(
         match bool_op {
             popkern_bool::BoolOperation::Union => OperationMode::Boss,
@@ -296,6 +301,7 @@ fn try_feature_replay(
     host_body: BodyId,
     bool_op: popkern_bool::BoolOperation,
     pattern_op_id: OperationId,
+    naming_scheme: u32,
 ) -> Result<(), ReplayError> {
     let mut op_remap = HashMap::new();
     for (seed_idx, seed_op) in seed_op_ids.iter().enumerate() {
@@ -325,8 +331,13 @@ fn try_feature_replay(
             })
             .collect::<Result<Vec<_>, ReplayError>>()?;
 
-    let tool_brep =
-        pattern_replay::replay_seed_chain(&remapped, tolerance, param_table, body_breps)?;
+    let tool_brep = pattern_replay::replay_seed_chain(
+        &remapped,
+        tolerance,
+        param_table,
+        body_breps,
+        naming_scheme,
+    )?;
 
     let host_brep = body_breps
         .remove(&host_body)
@@ -335,7 +346,7 @@ fn try_feature_replay(
             error: format!("host body {host_body:?} has no BRep").into(),
         })?;
 
-    let mut ctx = TrackingContext::new(pattern_op_id);
+    let mut ctx = TrackingContext::new(pattern_op_id).with_naming_scheme(naming_scheme);
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(&mut ctx))
         .map_err(|e| ReplayError::FeatureFailed {
         label: "pattern".into(),
@@ -356,7 +367,7 @@ fn try_geometry_fallback(
     body_breps: &mut HashMap<BodyId, BRep>,
     host_body: BodyId,
     bool_op: popkern_bool::BoolOperation,
-    pattern_op_id: OperationId,
+    mut ctx: TrackingContext,
     tolerance: &Tolerance,
 ) -> Result<(), ReplayError> {
     let snapshot = tool_snapshot
@@ -380,7 +391,6 @@ fn try_geometry_fallback(
             error: format!("host body {host_body:?} has no BRep for geometry fallback").into(),
         })?;
 
-    let mut ctx = TrackingContext::new(pattern_op_id);
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(&mut ctx))
         .map_err(|e| ReplayError::FeatureFailed {
         label: "pattern".into(),
