@@ -6,10 +6,23 @@
 
 use popkern_core::topology::{BRep, FaceHandle};
 
+/// Polygon stations per CURVED pcurve in [`uv_point_in_loop`]: a full
+/// circle at 64 stations has sagitta r·(1 − cos(π/64)) ≈ 0.0012·r,
+/// the same density the outer-loop gate uses.
+const CURVED_LOOP_STATIONS: usize = 64;
+
 /// Sample a loop's pcurves into a UV polygon and even-odd test
 /// `(u, v)` against it. Returns `None` when the loop has no usable
 /// pcurve polygon (fewer than 3 samples) — the caller must treat
 /// that as "no verdict", not "outside".
+///
+/// Linear pcurves are exact at their stations; CURVED pcurves are
+/// sampled at [`CURVED_LOOP_STATIONS`] so the polygon's sagitta stays
+/// a small fraction of the rim (PK-669: at 8 stations a bore circle
+/// of radius 2.61 sampled to an octagon whose apothem is 2.41, so
+/// ray hits up to 0.2 inside the M6 nut's bore read as hits ON the
+/// holed end face, every ray rising through the bore void flipped
+/// parity, and a tool fragment 0.01 below the nut classified Inside).
 pub(crate) fn uv_point_in_loop(
     brep: &BRep,
     lh: popkern_core::topology::LoopHandle,
@@ -28,8 +41,18 @@ pub(crate) fn uv_point_in_loop(
         let d = &brep.half_edges[he];
         if let Some(pc) = d.pcurve.as_ref() {
             let (t0, t1) = pc.parameter_range();
-            for i in 0..8 {
-                let t = t0 + (t1 - t0) * i as f64 / 8.0;
+            let linear_content = match &pc.geometry {
+                popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => true,
+                popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(c) => c.degree == 1,
+                _ => false,
+            };
+            let stations = if linear_content {
+                8
+            } else {
+                CURVED_LOOP_STATIONS
+            };
+            for i in 0..stations {
+                let t = t0 + (t1 - t0) * i as f64 / stations as f64;
                 let p = pc.point_at(t);
                 ring.push((p.x, p.y));
             }

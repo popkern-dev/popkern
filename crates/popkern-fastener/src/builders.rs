@@ -19,7 +19,7 @@ use crate::thread_form::{self, external_groove, internal_bore_radius, internal_r
 use crate::{FastenerError, standards};
 
 /// Hexagon corner points for a width across flats, one flat facing +Y.
-fn hexagon(across_flats: f64) -> ProfileShape<f64> {
+pub(crate) fn hexagon(across_flats: f64) -> ProfileShape<f64> {
     let circumradius = across_flats / 3.0_f64.sqrt();
     ProfileShape::Polygon {
         points: (0..6)
@@ -63,24 +63,55 @@ pub(crate) fn tip_chamfer(
     chamfer_circular_rims_at(body, z, distance, "tip chamfer", tolerance)
 }
 
+/// Diameter of the hex corner-chamfer circle on the exposed face, as
+/// a fraction of the width across flats.
+///
+/// ISO 4014/4017/4032 draw the 15°–30° top chamfer with its circle
+/// at roughly the across-flats width. Exactly `1.0` would make the
+/// cone TANGENT to every flat along the face edge (a graze contact
+/// the boolean must classify at six points); `0.95` keeps the cone
+/// transversal to the face plane (a circle), to each flat (an arc
+/// crowning the flat) and to each corner edge, which is also the
+/// conventional modelled look of a chamfered hex.
+const HEX_CHAMFER_CIRCLE_RATIO: f64 = 0.95;
+
+/// Angle between the chamfer cone and the exposed face (30°).
+const HEX_CHAMFER_ANGLE_DEG: f64 = 30.0;
+
 /// The 30° corner-chamfer ring for a hex prism: a revolved cutter
-/// whose cone rises from the across-flats radius at the exposed face,
+/// whose cone meets the exposed face on the chamfer circle
+/// ([`HEX_CHAMFER_CIRCLE_RATIO`]) and rises at 30° INTO the material,
 /// trimming the hexagon corners the way a facing cut does.
 /// `outward = -1.0` for a face looking down −Z, `+1.0` for +Z.
-fn hex_corner_ring(
+///
+/// The cutter's base sits `eps` outside the face so no tool face is
+/// coplanar with the prism's. The base point is slid down the SAME
+/// cone line (radially inward by `eps / tan 30°`), so the cone still
+/// passes through the chamfer circle at the face: offsetting the
+/// base only axially (the PK-669 defect) tilted the cone to 34.1°
+/// and moved its face circle to 0.5738·s against the 0.5774·s
+/// circumradius, leaving six near-graze slivers 0.0024·s high in
+/// place of the chamfer (0.013 mm on M3, where the cellular boolean
+/// declined on them).
+pub(crate) fn hex_corner_ring(
     across_flats: f64,
     z_face: f64,
     outward: f64,
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
-    let r_flat = across_flats / 2.0;
-    let r_out = across_flats; // beyond the circumradius (2/√3·r_flat)
-    let rise = (r_out - r_flat) * (30.0_f64).to_radians().tan();
+    let slope = HEX_CHAMFER_ANGLE_DEG.to_radians().tan();
+    let r_face = HEX_CHAMFER_CIRCLE_RATIO * across_flats / 2.0;
+    // Just beyond the corners (circumradius s/√3): the cutter reaches
+    // only 0.076·s into the material, so thin heads/nuts keep their
+    // opposite face clear of it.
+    let r_out = 1.05 * across_flats / 3.0_f64.sqrt();
     let eps = across_flats * 0.05;
+    let r_base = r_face - eps / slope;
+    let rise = (r_out - r_face) * slope;
     // Base edge just OUTSIDE the exposed face, cone rising INTO the
-    // material from the across-flats radius.
+    // material through the chamfer circle.
     let points = [
-        (r_flat, z_face + outward * eps),
+        (r_base, z_face + outward * eps),
         (r_out, z_face + outward * eps),
         (r_out, z_face - outward * rise),
     ];

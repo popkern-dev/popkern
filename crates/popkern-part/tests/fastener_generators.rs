@@ -213,3 +213,118 @@ fn m4_socket_cap_with_short_thread_serves_watertight() {
         .expect("socket cap screw");
     assert_eq!(screw.open_edge_count().expect("mesh"), 0, "watertight");
 }
+
+/// Signed-tetrahedron volume of the display tessellation.
+fn mesh_volume(part: &Part) -> f64 {
+    let mesh = part
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("tessellate");
+    let mut v6 = 0.0;
+    for t in &mesh.triangles {
+        let a = mesh.vertices[t[0]].position;
+        let b = mesh.vertices[t[1]].position;
+        let c = mesh.vertices[t[2]].position;
+        v6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x);
+    }
+    (v6 / 6.0).abs()
+}
+
+/// OpenCASCADE volumes of the exported STEP (`tools/occ-oracle/
+/// occ_solids.py`, 2026-10-04), mm³.
+const M3_HEX_OCC_VOLUME: f64 = 128.399_742_906;
+const M2P5_SOCKET_OCC_VOLUME: f64 = 76.490_519_671;
+/// Display-tessellation chord error budget against the exact volume.
+const VOLUME_REL_TOL: f64 = 5.0e-3;
+
+/// PK-669: two of the commonest small ISO screws declined.
+///
+/// * M3 hex (`hex head chamfer` stage): the corner-chamfer cutter's
+///   base was offset only AXIALLY off the face, tilting its cone to
+///   34.1° and moving its face circle to 0.5738·s against the
+///   0.5774·s circumradius — six near-graze slivers 0.013 mm high
+///   instead of a 30° chamfer, which the cellular boolean read as a
+///   non-manifold edge. The cone now meets the face on the 0.95·s
+///   chamfer circle at a true 30°.
+/// * M2.5 socket (`external thread` stage, every M2.5 × thread 6):
+///   splitting the 13.9-turn root edge, the pcurve image search's
+///   64-sample scan aliased onto the adjacent helix turn, the split
+///   pieces lost their pcurves, the root face never split at the
+///   shank's end planes and the merge stranded 16 half-claimed
+///   record sides.
+///
+/// Both serve watertight through the cellular pipeline with the
+/// volume OpenCASCADE measures on their exported STEP, within the
+/// display tessellation's chord error.
+#[test]
+fn m3_hex_and_m2p5_socket_screws_serve_cellular_with_occ_volume() {
+    let mut failures = Vec::new();
+    for (size, hex, occ_volume) in [
+        ("M3", true, M3_HEX_OCC_VOLUME),
+        ("M2.5", false, M2P5_SOCKET_OCC_VOLUME),
+    ] {
+        let label = format!("{size} {}", if hex { "hex" } else { "socket" });
+        let spec = ThreadSpec::parse(size).expect("spec");
+        let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+        let built = if hex {
+            HexBolt::new(spec, 12.0)
+                .thread_length(6.0)
+                .build(Tolerance::default())
+        } else {
+            SocketCapScrew::new(spec, 12.0)
+                .thread_length(6.0)
+                .build(Tolerance::default())
+        };
+        let screw = match built {
+            Ok(s) => s,
+            Err(e) => {
+                failures.push(format!("{label}: declined: {e}"));
+                continue;
+            }
+        };
+        let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+        if !fallbacks.is_empty() {
+            failures.push(format!("{label}: graph-merge fallbacks {fallbacks:?}"));
+        }
+        let open = screw.open_edge_count().expect("mesh");
+        if open != 0 {
+            failures.push(format!("{label}: {open} open mesh edges"));
+        }
+        let volume = mesh_volume(&screw);
+        let rel = (volume - occ_volume).abs() / occ_volume;
+        if rel > VOLUME_REL_TOL {
+            failures.push(format!(
+                "{label}: mesh volume {volume:.4} vs OCC {occ_volume:.4} ({:.3}% off)",
+                rel * 100.0
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "small ISO screws: {failures:?}");
+}
+
+/// PK-669: the hex corner chamfer meets the exposed head face on the
+/// chamfer circle (0.95 × across flats) — the face's boundary is that
+/// circle, not the hexagon nicked at its corners.
+#[test]
+fn hex_head_chamfer_meets_the_face_on_its_circle() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let bolt = HexBolt::new(spec, 8.0)
+        .thread_length(5.0)
+        .build(Tolerance::default())
+        .expect("hex bolt");
+    let mesh = bolt
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("tessellate");
+    // ISO 4017 M6: s = 10, k = 4; the exposed face is z = −4.
+    let r_face = mesh
+        .vertices
+        .iter()
+        .map(|v| v.position)
+        .filter(|p| (p.z + 4.0).abs() < 1e-9)
+        .map(|p| (p.x * p.x + p.y * p.y).sqrt())
+        .fold(0.0_f64, f64::max);
+    assert!(
+        (r_face - 0.95 * 10.0 / 2.0).abs() < 1e-6,
+        "exposed face reaches r = {r_face}, chamfer circle 4.75"
+    );
+}

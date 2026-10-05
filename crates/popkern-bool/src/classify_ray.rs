@@ -5,6 +5,8 @@
 
 use super::*;
 
+#[path = "classify_ray_cone_trim.rs"]
+mod cone_trim;
 #[path = "classify_ray_gates.rs"]
 mod gates;
 use gates::HitGate;
@@ -231,7 +233,7 @@ pub(super) fn ray_crossing_count(
                     // aborts the ray. Each gate returns Accept immediately
                     // for non-matching surface types.
                     let verdict = if skip_hole_hits {
-                        let mut v = gates::cylinder_angular_gate(
+                        let mut gate = gates::cylinder_angular_gate(
                             brep,
                             *face_handle,
                             surface,
@@ -239,8 +241,8 @@ pub(super) fn ray_crossing_count(
                             direction,
                             *t,
                         );
-                        if matches!(v, HitGate::Accept) {
-                            v = gates::sphere_cap_gate(
+                        if matches!(gate, HitGate::Accept) {
+                            gate = gates::sphere_cap_gate(
                                 brep,
                                 *face_handle,
                                 surface,
@@ -250,8 +252,8 @@ pub(super) fn ray_crossing_count(
                                 tolerance,
                             );
                         }
-                        if matches!(v, HitGate::Accept) {
-                            v = gates::axial_span_gate(
+                        if matches!(gate, HitGate::Accept) {
+                            gate = gates::axial_span_gate(
                                 brep,
                                 *face_handle,
                                 surface,
@@ -261,7 +263,17 @@ pub(super) fn ray_crossing_count(
                                 tolerance,
                             );
                         }
-                        v
+                        if matches!(gate, HitGate::Accept) {
+                            gate = cone_trim::cone_trim_gate(
+                                brep,
+                                *face_handle,
+                                surface,
+                                (*u, *v),
+                                &(*origin + *direction * *t),
+                                tolerance,
+                            );
+                        }
+                        gate
                     } else {
                         HitGate::Accept
                     };

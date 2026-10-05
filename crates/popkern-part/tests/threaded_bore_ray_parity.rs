@@ -74,5 +74,24 @@ fn threaded_bore_void_and_wall_points_classify_correctly() {
             }
         }
     }
+    // PK-669: void points just OUTSIDE the end faces, between the
+    // bore rim (2.6087) and the apothem (2.41) of an 8-station
+    // octagon. Rays rising through the bore cross both holed end
+    // faces; the hole test sampled the bore circle at 8 stations, so
+    // these hits read as ON the face and flipped the parity (a tool
+    // fragment sampled at r 2.563, z −0.01 classified Inside and the
+    // thread cut fell back to graph-merge).
+    for r in [2.45, 2.55, 2.59] {
+        for z in [-0.01, 5.21] {
+            for k in 0..16 {
+                let a = std::f64::consts::TAU * (k as f64 + 0.5) / 16.0;
+                let p = Point3::new(r * a.cos(), r * a.sin(), z);
+                let got = point_in_solid_final(&p, nut, &aabbs, &tol).expect("classifies");
+                if got != PointClassification::Outside {
+                    wrong.push(format!("end-plane r={r} z={z} k={k}: {got:?}"));
+                }
+            }
+        }
+    }
     assert!(wrong.is_empty(), "misclassified: {wrong:?}");
 }

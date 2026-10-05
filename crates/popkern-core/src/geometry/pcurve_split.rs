@@ -119,6 +119,23 @@ impl Pcurve {
 /// `split_pos` within `10 × tolerance` or the cut would be an
 /// endpoint (callers keep the unsplit pcurve, or drop it, on their
 /// own policy).
+///
+/// The image search is a coarse scan refined by golden section. A
+/// pcurve whose image WINDS many times (a thread tool's root edge on
+/// its swept chart: 13.9 turns of helix) has one distance basin per
+/// winding, so the coarse grid must resolve every basin and the
+/// refinement must not trust only the globally-nearest SAMPLE: on the
+/// M2.5 × 6 rod (PK-669) 64 samples spaced 78° along a 0.98-radius
+/// helix put an adjacent turn's sample (0.45 = one pitch away) nearer
+/// than the true turn's (up to 0.65 away), the refinement converged
+/// one pitch off, the split declined, both pieces lost their pcurves,
+/// and the 16-sample projection fallback could not follow 13 turns —
+/// the root face never split and the boolean declined. The scan is
+/// therefore densified per chart span ([`image_scan_count`]) and
+/// every local minimum of it is a refinement candidate, nearest
+/// first. The global-best candidate is still tried first, so a split
+/// whose nearest sample already sat in the right basin resolves in
+/// that same basin.
 pub fn split_pcurve_at_image(
     pcurve: &Pcurve,
     surface: &SurfaceGeometry,
@@ -134,37 +151,105 @@ pub fn split_pcurve_at_image(
         let uv = pcurve.point_at(p_start + f * span);
         surface.point_at(uv.x, uv.y).distance_to(split_pos)
     };
-    const COARSE: usize = 64;
-    let mut best = (0.0, image_distance(0.0));
-    for i in 1..=COARSE {
-        let f = i as f64 / COARSE as f64;
-        let d = image_distance(f);
-        if d < best.1 {
-            best = (f, d);
+    let count = image_scan_count(pcurve, surface);
+    let scan: Vec<f64> = (0..=count)
+        .map(|i| image_distance(i as f64 / count as f64))
+        .collect();
+    let window = 1.0 / count as f64;
+    let refine = |center: f64| {
+        let (mut lo, mut hi) = (
+            (center - window).clamp(0.0, 1.0),
+            (center + window).clamp(0.0, 1.0),
+        );
+        for _ in 0..48 {
+            let m1 = lo + (hi - lo) * 0.382;
+            let m2 = lo + (hi - lo) * 0.618;
+            if image_distance(m1) < image_distance(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
         }
+        0.5 * (lo + hi)
+    };
+    // Bounded: the candidates are ordered nearest-first, so a decline
+    // costs at most MAX_BASINS refinements however noisy the scan.
+    const MAX_BASINS: usize = 64;
+    for index in scan_basins(&scan).into_iter().take(MAX_BASINS) {
+        let refined = refine(index as f64 / count as f64);
+        if image_distance(refined) > tolerance * 10.0 {
+            continue;
+        }
+        if refined <= 1e-9 || refined >= 1.0 - 1e-9 {
+            return None;
+        }
+        return pcurve.split_at_fraction(refined);
     }
-    let window = 1.0 / COARSE as f64;
-    let (mut lo, mut hi) = (
-        (best.0 - window).clamp(0.0, 1.0),
-        (best.0 + window).clamp(0.0, 1.0),
+    None
+}
+
+/// Coarse scan sample count for an image search: 64, raised to two
+/// samples per chart span the pcurve's image crosses — knot spans of
+/// a NURBS host (a rational helix sweep carries one per quarter
+/// turn), eight per period of a periodic analytic host — so every
+/// winding's distance basin is resolved. Capped at 4096.
+fn image_scan_count(pcurve: &Pcurve, surface: &SurfaceGeometry) -> usize {
+    const BASE: usize = 64;
+    let (mut u_lo, mut u_hi, mut v_lo, mut v_hi) = (
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
     );
-    for _ in 0..48 {
-        let m1 = lo + (hi - lo) * 0.382;
-        let m2 = lo + (hi - lo) * 0.618;
-        if image_distance(m1) < image_distance(m2) {
-            hi = m2;
-        } else {
-            lo = m1;
+    for i in 0..=BASE {
+        let uv = pcurve
+            .point_at(pcurve.t_start + (pcurve.t_end - pcurve.t_start) * i as f64 / BASE as f64);
+        u_lo = u_lo.min(uv.x);
+        u_hi = u_hi.max(uv.x);
+        v_lo = v_lo.min(uv.y);
+        v_hi = v_hi.max(uv.y);
+    }
+    let spans_in = |knots: &[f64], lo: f64, hi: f64| {
+        let mut count = 0usize;
+        let mut last = f64::NEG_INFINITY;
+        for &k in knots {
+            if k > lo && k < hi && k > last {
+                count += 1;
+                last = k;
+            }
         }
-    }
-    let refined = 0.5 * (lo + hi);
-    if image_distance(refined) > tolerance * 10.0 {
-        return None;
-    }
-    if refined <= 1e-9 || refined >= 1.0 - 1e-9 {
-        return None;
-    }
-    pcurve.split_at_fraction(refined)
+        count + 1
+    };
+    let wanted = match surface {
+        SurfaceGeometry::Nurbs(s) => {
+            2 * (spans_in(&s.knots_u, u_lo, u_hi) + spans_in(&s.knots_v, v_lo, v_hi))
+        }
+        _ => {
+            let (pu, pv) = surface.parameter_periodicity();
+            let wraps = |period: Option<f64>, extent: f64| match period {
+                Some(p) if p > 0.0 && extent.is_finite() => (extent / p).ceil() as usize,
+                _ => 0,
+            };
+            8 * (wraps(pu, u_hi - u_lo) + wraps(pv, v_hi - v_lo))
+        }
+    };
+    wanted.clamp(BASE, 4096)
+}
+
+/// Refinement candidates of a coarse distance scan: the global
+/// nearest sample first (the historical single candidate), then every
+/// other local minimum in increasing sampled distance.
+fn scan_basins(scan: &[f64]) -> Vec<usize> {
+    let n = scan.len();
+    let mut minima: Vec<usize> = (0..n)
+        .filter(|&i| {
+            let left = i == 0 || scan[i] <= scan[i - 1];
+            let right = i + 1 == n || scan[i] <= scan[i + 1];
+            left && right
+        })
+        .collect();
+    minima.sort_by(|&a, &b| scan[a].total_cmp(&scan[b]).then(a.cmp(&b)));
+    minima
 }
 
 #[cfg(test)]

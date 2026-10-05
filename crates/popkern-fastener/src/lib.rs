@@ -41,6 +41,9 @@ pub mod standards;
 mod thread_form;
 
 #[cfg(test)]
+#[path = "builders_tests.rs"]
+mod builders_tests;
+#[cfg(test)]
 #[path = "engine_tests.rs"]
 mod engine_tests;
 #[cfg(test)]
