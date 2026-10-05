@@ -267,6 +267,7 @@ impl AssemblyIn {
         // Stored part parameters already carry the driven values.
         assembly.params = self.params;
         assembly.drives = self.drives;
+        assembly.mark_history_unrecorded();
         Ok(assembly)
     }
 }

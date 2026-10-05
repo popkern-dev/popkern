@@ -59,6 +59,10 @@ pub struct VersionReport {
     pub features: Vec<FeatureRef>,
     /// Earlier features it changed.
     pub edited: Vec<FeatureRef>,
+    /// For an assembly document, its construction steps after this
+    /// migration (the migration authored those past the previous
+    /// version's count); `None` for a part or a failed migration.
+    pub assembly_steps: Option<usize>,
 }
 
 /// The result of a build.
@@ -281,6 +285,10 @@ impl ProjectRunner {
                         printed: out.printed,
                         features: features.clone(),
                         edited: edited.clone(),
+                        assembly_steps: match &out.document {
+                            Document::Assembly(assembly) => Some(assembly.history().steps.len()),
+                            Document::Part(_) => None,
+                        },
                     };
                     let applied = MigrationRecord {
                         name: migration.name.clone(),
@@ -318,6 +326,7 @@ impl ProjectRunner {
                         printed: Vec::new(),
                         features: Vec::new(),
                         edited: Vec::new(),
+                        assembly_steps: None,
                     });
                     for later in &project.migrations[i + 1..] {
                         versions.push(VersionReport {
@@ -328,6 +337,7 @@ impl ProjectRunner {
                             printed: Vec::new(),
                             features: Vec::new(),
                             edited: Vec::new(),
+                            assembly_steps: None,
                         });
                     }
                     return Ok(ProjectBuild {

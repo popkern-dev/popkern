@@ -311,6 +311,26 @@ impl LiveSession {
         }
     }
 
+    /// The assembly's construction timeline as JSON (`{steps: [{index,
+    /// kind, label, instances, migration, source}], recorded}`), `null`
+    /// for a part document, or `{"outcome": …}` without a model.
+    pub fn assembly_timeline(&self) -> String {
+        match self.session.assembly_timeline() {
+            Ok(timeline) => serde_json::to_string(&timeline).unwrap_or_default(),
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
+    /// The occurrences after the first `index` construction steps as
+    /// JSON rows (the run's `assembly.instances` shape), or
+    /// `{"outcome": …}`.
+    pub fn assembly_step(&self, index: usize) -> String {
+        match self.session.assembly_step(index) {
+            Ok(rows) => serde_json::to_string(&rows).unwrap_or_default(),
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
     /// The bodies after the first `index` features of `part` (`""` for
     /// a part document) as JSON rows `{key, body, created_faces,
     /// buffers, mesh}`. `known_json` lists keys the page already holds

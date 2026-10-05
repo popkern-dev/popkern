@@ -61,6 +61,8 @@ impl Assembly {
             ..StepImportReport::default()
         };
         let assembly = build(&imported.document, name, &mut report)?;
+        let mut assembly = assembly;
+        assembly.mark_history_unrecorded();
         Ok((assembly, report))
     }
 }

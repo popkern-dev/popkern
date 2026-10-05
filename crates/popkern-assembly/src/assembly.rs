@@ -118,6 +118,8 @@ pub struct Assembly {
     pub(crate) params: Vec<crate::params::AssemblyParam>,
     /// Assembly parameters driving part parameters.
     pub(crate) drives: Vec<crate::params::Drive>,
+    /// The construction steps (PK-666).
+    pub(crate) history: crate::history::AssemblyHistory,
 }
 
 impl Assembly {
@@ -131,6 +133,7 @@ impl Assembly {
             ground: None,
             params: Vec::new(),
             drives: Vec::new(),
+            history: crate::history::AssemblyHistory::default(),
         }
     }
 
@@ -301,7 +304,7 @@ impl Assembly {
         }
     }
 
-    fn parent_name(&self, parent: Parent) -> String {
+    pub(crate) fn parent_name(&self, parent: Parent) -> String {
         match parent {
             Parent::Root => "<root>".to_string(),
             Parent::Definition(id) => self
@@ -365,10 +368,12 @@ impl Assembly {
             placement,
             visible: true,
         });
-        Ok(InstanceRef {
+        let at = InstanceRef {
             parent,
             index: instances.len() - 1,
-        })
+        };
+        self.record_place(at, placement);
+        Ok(at)
     }
 
     /// Refuse placing `definition` into `container` when `definition`
@@ -443,6 +448,7 @@ impl Assembly {
         placement: Placement,
     ) -> Result<(), AssemblyError> {
         self.instance_mut(at)?.placement = placement;
+        self.record_move(at, placement);
         Ok(())
     }
 

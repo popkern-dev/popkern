@@ -483,6 +483,27 @@ try {
     return result;
   })()`);
 
+  // Assembly history (PK-666): the construction steps scrub — the first
+  // step draws one occurrence glowing, the last is the live assembly.
+  out.assembly_history = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const s = page.scrubber;
+    await page.run({ live: true });
+    for (let i = 0; i < 100 && s.steps.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    const visible = !document.getElementById("scrubber").hidden;
+    const kinds = s.steps.map((x) => x.kind);
+    await s.go(1);
+    const first = {
+      meshes: page.viewer.bodies.length,
+      glows: page.viewer.glows.length,
+      label: document.getElementById("scrubber-label").textContent,
+      insert_hidden: document.getElementById("scrubber-insert").hidden,
+    };
+    await s.go(s.steps.length);
+    const last = { meshes: page.viewer.bodies.length, scrubbed: s.scrubbed };
+    return { visible, kinds, first, last, recorded: s.assembly?.recorded ?? null };
+  })()`);
+
   // Open STEP (PK-631): a third-party writer's assembly (OpenCASCADE
   // XCAF, tools/occ-oracle/occ_write_assembly.py) opens with its tree,
   // names and shared parts.
@@ -541,6 +562,49 @@ try {
       return { bar, theirs_kept: theirsKept, loaded_theirs: page.editor.value.startsWith("// the other tab"), bar_after: !document.getElementById("conflict-bar").hidden };
     })()`);
   }
+
+  // Insert a feature here (PK-666): on a scrubbed-back step of an
+  // editable project the scrubber offers an insert; it adds a migration
+  // anchored on that step, which — once its closure records a feature —
+  // builds with the new feature right after the anchor.
+  out.insert_here = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const wait = () => new Promise((r) => setTimeout(r, 50));
+    const block = 'let m = model();\\nlet block = m.profile(xy()).rect(2.0, 2.0).sketch("block_sketch").extrude(blind(1.0));\\nlet bore = m.tool(|m| m.profile(xy()).circle(0.4).sketch("bore_sketch").extrude(blind(1.0)));\\nblock.subtract(bore);\\nm.active().fillet(edges().circular().at_height(1.0), 0.05);\\nm\\n';
+    await page.projects.create("Insert test", block);
+    await page.runDone;
+    const s = page.scrubber;
+    for (let i = 0; i < 100 && s.steps.length === 0; i++) await wait();
+    const hiddenAtEnd = document.getElementById("scrubber-insert").hidden;
+    const anchor = s.steps.find((x) => x.operation === "boolean");
+    await s.go(anchor.index - 1);
+    await s.go(anchor.index);
+    const shown = !document.getElementById("scrubber-insert").hidden;
+    document.getElementById("scrubber-insert").click();
+    for (let i = 0; i < 100 && page.projects.path === "migrations/001_base.rhai"; i++) await wait();
+    const path = page.projects.path;
+    const template = page.editor.value;
+    page.editor.textarea.value = template.replace("    body\\n", "    body.chamfer(edges().straight().at_height(1.0), 0.05)\\n");
+    page.editor.textarea.dispatchEvent(new Event("input"));
+    await page.projects.flush();
+    clearTimeout(page.idleTimer);
+    await page.runDone;
+    const built = await page.run({ live: true });
+    for (let i = 0; i < 100 && s.steps.length <= anchor.index + 1; i++) await wait();
+    const labels = s.steps.map((x) => x.label);
+    const result = {
+      hidden_at_end: hiddenAtEnd,
+      shown,
+      path,
+      anchored: template.includes('m.feature("' + anchor.label + '")'),
+      statuses: (built?.envelope?.project?.versions ?? []).map((v) => v.status),
+      after_anchor: labels[anchor.index] ?? null,
+      anchor: anchor.label,
+    };
+    await page.projects.openStored("scratch");
+    await page.runDone;
+    return result;
+  })()`);
 
   // Migrations (PK-664): add, rename and reorder files through the
   // rail; an upstream edit that drops a label breaks the downstream

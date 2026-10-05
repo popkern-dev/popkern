@@ -214,6 +214,11 @@ impl Session {
                     .map(move |f| ((f.part.clone(), f.id), m.name.clone()))
             })
             .collect();
+        self.assembly_migrations = build
+            .versions
+            .iter()
+            .filter_map(|v| Some((v.name.clone(), v.assembly_steps?)))
+            .collect();
         if build.document.is_some() {
             self.document = build.document;
         }

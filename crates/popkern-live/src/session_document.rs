@@ -63,25 +63,26 @@ fn mesh_assembly(
             features,
         });
     }
-    let instances = assembly
-        .tree()
-        .into_iter()
-        .map(|row| InstanceView {
-            name: row.path.0.last().cloned().unwrap_or_default(),
-            depth: row.path.depth(),
-            path: row.path.to_string(),
-            definition: row.definition.0,
-            world: row.world.column_major_f32(),
-            visible: row.visible,
-            is_part: row.is_part,
-        })
-        .collect();
+    let instances = assembly.tree().iter().map(instance_view).collect();
     let view = AssemblyView {
         name: assembly.name().to_string(),
         definitions,
         instances,
     };
     (bodies, view, error)
+}
+
+/// One tree row as the page's tree and instanced renderer see it.
+pub(crate) fn instance_view(row: &popkern_assembly::TreeRow) -> InstanceView {
+    InstanceView {
+        name: row.path.0.last().cloned().unwrap_or_default(),
+        depth: row.path.depth(),
+        path: row.path.to_string(),
+        definition: row.definition.0,
+        world: row.world.column_major_f32(),
+        visible: row.visible,
+        is_part: row.is_part,
+    }
 }
 
 /// Mesh every live body of `model` for `purpose`: the buffers, and the

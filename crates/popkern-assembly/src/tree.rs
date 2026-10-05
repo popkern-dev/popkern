@@ -1,10 +1,23 @@
 //! Walking the instance tree: path resolution, the expanded tree a
 //! viewer lists, and the part (leaf) occurrences.
 
+use std::collections::HashMap;
+
 use crate::assembly::{Assembly, DefinitionContent, Instance, InstanceRef, Parent, TreeRow};
 use crate::error::AssemblyError;
 use crate::names::InstancePath;
 use crate::placement::Placement;
+
+/// Where an instance sits while walking (`None`: not placed yet).
+type PlacementOf<'a> = dyn Fn(InstanceRef, &Instance) -> Option<Placement> + 'a;
+
+/// The parent being expanded.
+struct Frame {
+    parent: Parent,
+    prefix: InstancePath,
+    world: Placement,
+    visible: bool,
+}
 
 impl Assembly {
     /// Resolve a path from the root to the instance it names.
@@ -39,32 +52,51 @@ impl Assembly {
     /// The expanded tree, depth-first in insertion order: every
     /// occurrence with its world placement and effective visibility.
     pub fn tree(&self) -> Vec<TreeRow> {
+        self.expand_root(&|_, instance| Some(instance.placement))
+    }
+
+    /// The expanded tree after the first `count` construction steps
+    /// ([`Assembly::history`]): only the instances placed by then, at
+    /// their placements then. Visibility is the document's.
+    pub fn tree_after(&self, count: usize) -> Vec<TreeRow> {
+        let placed: HashMap<InstanceRef, Placement> =
+            self.placements_after(count).into_iter().collect();
+        self.expand_root(&|at, _| placed.get(&at).copied())
+    }
+
+    fn expand_root(&self, placement_of: &PlacementOf) -> Vec<TreeRow> {
         let mut rows = Vec::new();
-        self.expand(
-            &self.root,
-            &InstancePath(Vec::new()),
-            &Placement::identity(),
-            true,
-            &mut rows,
-        );
+        let top = Frame {
+            parent: Parent::Root,
+            prefix: InstancePath(Vec::new()),
+            world: Placement::identity(),
+            visible: true,
+        };
+        self.expand(&self.root, &top, placement_of, &mut rows);
         rows
     }
 
     fn expand(
         &self,
         instances: &[Instance],
-        prefix: &InstancePath,
-        parent_world: &Placement,
-        parent_visible: bool,
+        frame: &Frame,
+        placement_of: &PlacementOf,
         rows: &mut Vec<TreeRow>,
     ) {
-        for instance in instances {
+        for (index, instance) in instances.iter().enumerate() {
+            let at = InstanceRef {
+                parent: frame.parent,
+                index,
+            };
+            let Some(placement) = placement_of(at, instance) else {
+                continue;
+            };
             let Ok(definition) = self.definition(instance.definition) else {
                 continue;
             };
-            let path = prefix.child(&instance.name);
-            let world = instance.placement.then(parent_world);
-            let visible = parent_visible && instance.visible;
+            let path = frame.prefix.child(&instance.name);
+            let world = placement.then(&frame.world);
+            let visible = frame.visible && instance.visible;
             rows.push(TreeRow {
                 path: path.clone(),
                 definition: instance.definition,
@@ -73,7 +105,13 @@ impl Assembly {
                 is_part: matches!(definition.content, DefinitionContent::Part(_)),
             });
             if let DefinitionContent::Assembly(children) = &definition.content {
-                self.expand(children, &path, &world, visible, rows);
+                let inner = Frame {
+                    parent: Parent::Definition(instance.definition),
+                    prefix: path,
+                    world,
+                    visible,
+                };
+                self.expand(children, &inner, placement_of, rows);
             }
         }
     }

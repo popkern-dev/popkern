@@ -359,3 +359,50 @@ pub fn assert_migrations(out: &serde_json::Value) {
         "{m}"
     );
 }
+
+/// PK-666: an assembly scrubs its construction steps.
+pub fn assert_assembly_history(out: &serde_json::Value) {
+    let h = &out["assembly_history"];
+    assert_eq!(h["visible"], true, "{h}");
+    assert_eq!(
+        h["kinds"],
+        serde_json::json!(vec!["place"; 7]),
+        "four pins, the pair's two, the pair: {h}"
+    );
+    assert_eq!(h["recorded"], true, "{h}");
+    assert_eq!(h["first"]["meshes"], 1, "only pin_0 is placed: {h}");
+    assert_eq!(h["first"]["glows"], 1, "the placed occurrence glows: {h}");
+    assert!(
+        h["first"]["label"]
+            .as_str()
+            .is_some_and(|l| l.contains("place pin_0 (pin)")),
+        "{h}"
+    );
+    assert_eq!(
+        h["first"]["insert_hidden"], true,
+        "no insert on an assembly: {h}"
+    );
+    assert_eq!(h["last"]["meshes"], 6, "every occurrence: {h}");
+    assert_eq!(h["last"]["scrubbed"], false, "{h}");
+}
+
+/// PK-666: "insert a feature here" adds a migration that builds the new
+/// feature right after the step on screen.
+pub fn assert_insert_here(out: &serde_json::Value) {
+    let i = &out["insert_here"];
+    assert_eq!(i["hidden_at_end"], true, "{i}");
+    assert_eq!(i["shown"], true, "offered on a scrubbed-back step: {i}");
+    assert_eq!(
+        i["path"], "migrations/010_insert_after_boolean-1.rhai",
+        "{i}"
+    );
+    assert_eq!(i["anchored"], true, "{i}");
+    assert_eq!(
+        i["statuses"][1], "built",
+        "the insert migration builds: {i}"
+    );
+    assert_eq!(
+        i["after_anchor"], "chamfer-1",
+        "right after the anchor: {i}"
+    );
+}

@@ -95,3 +95,32 @@ fn exports_attach_bytes_and_failures_answer_outcomes() {
     let doc: Value = serde_json::from_slice(&bytes).expect("pkn json");
     assert!(doc.get("tree").is_some());
 }
+
+#[test]
+fn an_assembly_timeline_and_its_steps_answer_over_the_protocol() {
+    let mut p = init();
+    let source = "let a = assembly(\"pair\");\nlet b = a.part(\"b\", |m| { m.profile(xy()).rect(1.0, 1.0).sketch(\"s\").extrude(blind(0.1)); });\na.place(b, \"one\");\na.place(b, \"two\").translate(2.0, 0.0, 0.0);\na\n";
+    let run = p.handle(&json!({ "id": 2, "type": "run", "source": source, "name": "pair.rhai" }));
+    assert_eq!(run.json["envelope"]["outcome"], "served");
+    let timeline = p.handle(&json!({ "id": 3, "type": "timeline" }));
+    let steps = timeline.json["assembly"]["steps"]
+        .as_array()
+        .expect("steps")
+        .clone();
+    assert_eq!(steps.len(), 2);
+    assert_eq!(steps[1]["kind"], "place");
+    assert_eq!(timeline.json["assembly"]["recorded"], true);
+    let one = p.handle(&json!({ "id": 4, "type": "assembly_step", "index": 1 }));
+    assert_eq!(one.json["instances"].as_array().map(Vec::len), Some(1));
+    let both = p.handle(&json!({ "id": 5, "type": "assembly_step", "index": 2 }));
+    assert_eq!(
+        both.json["instances"],
+        run.json["envelope"]["assembly"]["instances"]
+    );
+    // A part document has no assembly timeline and refuses steps.
+    p.handle(&json!({ "id": 6, "type": "run", "source": PLATE, "name": "plate.rhai" }));
+    let part = p.handle(&json!({ "id": 7, "type": "timeline" }));
+    assert_eq!(part.json["assembly"], Value::Null);
+    let refused = p.handle(&json!({ "id": 8, "type": "assembly_step", "index": 1 }));
+    assert_eq!(refused.json["ok"], false);
+}

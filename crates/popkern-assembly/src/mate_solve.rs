@@ -28,6 +28,7 @@ use serde::Serialize;
 
 use crate::assembly::Assembly;
 use crate::error::AssemblyError;
+use crate::history::AssemblyStepKind;
 use crate::mate_linalg::{Svd, rank_of};
 use crate::mates::{Mate, MateKind, Primitive, Resolved};
 use crate::placement::Placement;
@@ -88,10 +89,14 @@ impl Assembly {
     /// [`AssemblyError::MateConflict`] (with the report) when the mates
     /// cannot all hold.
     pub fn add_mate(&mut self, mate: Mate) -> Result<MateReport, AssemblyError> {
+        let before = self.root_placements();
         self.mates.push(mate);
-        let solved = self.solve_mates();
-        if solved.is_err() {
-            self.mates.pop();
+        let solved = self.solve_in_place();
+        match solved {
+            Ok(_) => self.record_solve(AssemblyStepKind::Mate(self.mates.len() - 1), &before),
+            Err(_) => {
+                self.mates.pop();
+            }
         }
         solved
     }
@@ -102,6 +107,17 @@ impl Assembly {
     ///
     /// As [`Assembly::add_mate`].
     pub fn solve_mates(&mut self) -> Result<MateReport, AssemblyError> {
+        let before = self.root_placements();
+        let solved = self.solve_in_place()?;
+        self.record_solve(AssemblyStepKind::Solve, &before);
+        Ok(solved)
+    }
+
+    fn root_placements(&self) -> Vec<Placement> {
+        self.root.iter().map(|i| i.placement).collect()
+    }
+
+    fn solve_in_place(&mut self) -> Result<MateReport, AssemblyError> {
         let ground = self
             .ground
             .clone()

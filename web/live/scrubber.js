@@ -8,7 +8,12 @@
 // editor and its report row highlighted. The camera is never refitted
 // while scrubbing. A scrubbed-back view is read-only: any edit, slider
 // or build returns the playhead to the end. `#step=N` (and `#v=K`, the
-// K-th migration's last step) deep-links a step.
+// K-th migration's last step) deep-links a step. An assembly scrubs its
+// construction steps instead (PK-666): each place, move and mate, the
+// occurrences placed by then at their placements then, the step's
+// occurrences glowing — placements only, the definition meshes are the
+// run's. On a part, "insert a feature here" adds a migration that
+// inserts one feature after the step on screen.
 
 const $ = (id) => document.getElementById(id);
 // Play advances one step this often.
@@ -28,6 +33,8 @@ export class Scrubber {
     this.visited = new Map();
     this.playing = null;
     this.drawToken = 0;
+    // The assembly timeline (`{ steps, recorded }`) when scrubbing one.
+    this.assembly = null;
     this.strip = $("scrubber-ticks");
     $("scrubber-play").addEventListener("click", () => (this.playing ? this.stop() : this.play()));
     $("scrubber-range").addEventListener("input", (e) => this.go(Number(e.target.value)));
@@ -38,6 +45,10 @@ export class Scrubber {
       else if (e.key === "End") this.go(this.steps.length);
       else return;
       e.preventDefault();
+    });
+    $("scrubber-insert").addEventListener("click", () => {
+      const step = this.steps[this.at - 1];
+      if (step && !this.assembly) this.page.rail.insertAt(step, this.steps);
     });
   }
 
@@ -51,20 +62,27 @@ export class Scrubber {
     this.stop();
     this.steps = [];
     this.at = 0;
+    this.assembly = null;
     this.cache.clear();
     this.visited.clear();
     $("scrubber").hidden = true;
   }
 
-  /** Load the live model's timeline (part documents only; an assembly
-   *  scrubs per part in a later stage) and put the playhead at the end
-   *  — or at the deep-linked step. */
+  /** Load the live model's timeline — a part's features, or an
+   *  assembly's construction steps — and put the playhead at the end,
+   *  or at the deep-linked step. */
   async load(envelope) {
     this.reset();
-    if (!this.page.live || envelope.assembly) return;
+    if (!this.page.live) return;
     const reply = await this.page.host.request({ type: "timeline" });
     if (!reply.ok) return;
-    this.steps = reply.parts?.[0]?.steps ?? [];
+    if (envelope.assembly) {
+      if (!reply.assembly) return;
+      this.assembly = reply.assembly;
+      this.steps = reply.assembly.steps.map((s) => ({ ...s, operation: s.kind }));
+    } else {
+      this.steps = reply.parts?.[0]?.steps ?? [];
+    }
     if (this.steps.length < 2) return;
     this.render();
     $("scrubber").hidden = false;
@@ -114,9 +132,9 @@ export class Scrubber {
       if (s.suppressed) tick.classList.add("suppressed");
       tick.style.left = `${((s.index - 1) / Math.max(1, n - 1)) * 100}%`;
       tick.title = `${s.index}. ${s.label} (${s.operation})`;
-      if (!AUTO_LABEL.test(s.label) && !MINOR.has(s.operation)) {
+      if (this.assembly ? s.kind === "mate" : !AUTO_LABEL.test(s.label) && !MINOR.has(s.operation)) {
         tick.classList.add("named");
-        tick.dataset.label = s.label;
+        tick.dataset.label = this.assembly ? "mate" : s.label;
       }
       this.strip.append(tick);
     }
@@ -140,9 +158,13 @@ export class Scrubber {
     const s = this.steps[this.at - 1];
     if (!s) return;
     const where = s.migration ? ` · ${s.migration}` : "";
-    $("scrubber-label").textContent = `${this.at}/${this.steps.length} · ${s.label} (${s.operation})${where}`;
+    const what = this.assembly ? s.label : `${s.label} (${s.operation})`;
+    const opened = this.assembly && !this.assembly.recorded ? " · opened file: placements only" : "";
+    $("scrubber-label").textContent = `${this.at}/${this.steps.length} · ${what}${where}${opened}`;
     $("scrubber-range").value = String(this.at);
     document.body.classList.toggle("scrubbed", this.scrubbed);
+    const editable = this.page.projects?.current && !this.page.projects.current.readOnly;
+    $("scrubber-insert").hidden = !(this.scrubbed && !this.assembly && editable);
   }
 
   /** Show the document after step `index`. Resolves to the redraw time
@@ -156,6 +178,7 @@ export class Scrubber {
     this.at = index;
     this.showLabel();
     this.updateLink(link ?? (index === n ? null : `step=${index}`));
+    if (this.assembly) return this.goAssembly(index, token, started);
     const rows = await this.stepRows(index);
     if (token !== this.drawToken || !rows) return null;
     const live = this.page.lastGood;
@@ -178,6 +201,29 @@ export class Scrubber {
     this.page.viewer.glowFaces(created);
     this.markSource(this.steps[index - 1]);
     if (index < n) this.warmNext(index + 1);
+    return performance.now() - started;
+  }
+
+  /** An assembly after construction step `index`: the run's meshes at
+   *  the step's occurrences, the step's own occurrences glowing. */
+  async goAssembly(index, token, started) {
+    const live = this.page.lastGood;
+    let instances = this.visited.get(index);
+    if (!instances) {
+      const reply = await this.page.host.request({ type: "assembly_step", index });
+      if (!reply.ok) {
+        this.page.status(`step ${index}: ${reply.outcome?.detail ?? "unavailable"}`, true);
+        return null;
+      }
+      instances = reply.instances;
+      this.visited.set(index, instances);
+    }
+    if (token !== this.drawToken || !live?.envelope.assembly) return null;
+    if (index === this.steps.length) this.page.showModel(live.envelope, live.buffers);
+    else this.page.viewer.show(live.envelope.bodies, live.buffers, { ...live.envelope.assembly, instances });
+    const step = this.steps[index - 1];
+    this.page.viewer.glowFaces(new Map(), step.instances);
+    this.markSource(step);
     return performance.now() - started;
   }
 

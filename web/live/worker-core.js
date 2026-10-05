@@ -158,7 +158,15 @@ export function createHandler(pkg, loadModule) {
         case "timeline": {
           const parts = JSON.parse(session.timeline());
           if (!Array.isArray(parts)) return { reply: { id, ok: false, outcome: parts.outcome }, transfer: [] };
-          return { reply: { id, ok: true, parts }, transfer: [] };
+          const assembly = JSON.parse(session.assembly_timeline());
+          return { reply: { id, ok: true, parts, assembly }, transfer: [] };
+        }
+        case "assembly_step": {
+          // The occurrences after `index` construction steps (placements
+          // only: the page holds every definition's meshes).
+          const instances = JSON.parse(session.assembly_step(Number(message.index ?? 0)));
+          if (!Array.isArray(instances)) return { reply: { id, ok: false, outcome: instances.outcome }, transfer: [] };
+          return { reply: { id, ok: true, instances }, transfer: [] };
         }
         case "step_meshes": {
           // The bodies after `index` features of `part`; rows whose key

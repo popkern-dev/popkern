@@ -26,6 +26,62 @@ pub fn next_migration_source() -> String {
     "// Edits the document the earlier migrations built.\nlet m = previous();\n\nm\n".to_string()
 }
 
+/// A Rhai string literal for `text`.
+fn rhai_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// The source of a migration that inserts one feature right after the
+/// feature labelled `label` — "insert a feature here" at the history
+/// playhead (live-projects-and-history.md §12, PK-666). The anchor is
+/// found by label; when the label is not `unique` in the tree, by its
+/// 1-based timeline `position` instead (exact for the tree it was made
+/// from). The closure must record exactly one feature on `body`;
+/// features after the anchor replay after it.
+pub fn insert_after_source(label: &str, position: usize, unique: bool) -> String {
+    let anchor = if unique {
+        format!("m.feature({})", rhai_string(label))
+    } else {
+        format!("m.features()[{}]", position.saturating_sub(1))
+    };
+    format!(
+        "// Inserts one feature after {} (step {position} of the history).\n\
+         // Record exactly one feature on `body`, for example\n\
+         //   body.chamfer(edges().at_height(1.0), 0.05)\n\
+         // The features after it replay after the new one.\n\
+         let m = previous();\n\
+         m.insert_after({anchor}, |m, body| {{\n    body\n}});\n\
+         m\n",
+        rhai_string(label)
+    )
+}
+
+/// The file stem for an insert-after migration (`insert_after_<label>`,
+/// letters, digits, `_` and `-` only).
+pub fn insert_after_name(label: &str) -> String {
+    let cleaned: String = label
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_whitespace() { '_' } else { c })
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if cleaned.is_empty() {
+        "insert_feature".to_string()
+    } else {
+        format!("insert_after_{cleaned}")
+    }
+}
+
 /// Write a new project called `name` into `fs`.
 ///
 /// # Errors

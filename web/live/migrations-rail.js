@@ -6,6 +6,7 @@
 // (renaming and reordering rename files: the number orders them). The
 // rail stays hidden for a one-migration project until a second
 // migration is added, so a single script looks as it always did.
+import { NEXT_MIGRATION, insertAfterMigration, insertAfterName } from "./migration-templates.js";
 import { migrationPaths } from "./project-store.js";
 
 const $ = (id) => document.getElementById(id);
@@ -26,8 +27,6 @@ export function cleanName(text) {
   return text.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_-]/g, "") || "step";
 }
 
-/** The source of a new later migration. */
-export const NEXT_MIGRATION = "// Edits the document the earlier migrations built.\nlet m = previous();\n\nm\n";
 
 export class MigrationsRail {
   constructor(page) {
@@ -111,6 +110,21 @@ export class MigrationsRail {
     const number = last ? Math.floor(last.number / 10) * 10 + 10 : 1;
     const path = migrationPath(number, cleanName(name));
     await this.page.projects.replaceFiles({ ...p.files, [path]: NEXT_MIGRATION }, path);
+    this.render();
+  }
+
+  /** "Insert a feature here" (design §12): a new last migration that
+   *  inserts one feature right after history step `step` of the final
+   *  tree `steps`, opened in the editor. */
+  async insertAt(step, steps) {
+    const p = this.page.projects.current;
+    if (!p || p.readOnly) return this.page.status("make a copy to edit before inserting a feature", true);
+    const unique = steps.filter((s) => s.label === step.label).length === 1;
+    const last = migrationPaths(p.files).map(parseMigration).at(-1);
+    const number = last ? Math.floor(last.number / 10) * 10 + 10 : 1;
+    const path = migrationPath(number, insertAfterName(step.label));
+    if (path in p.files) return this.page.status(`a migration named ${path} exists`, true);
+    await this.page.projects.replaceFiles({ ...p.files, [path]: insertAfterMigration(step.label, step.index, unique) }, path);
     this.render();
   }
 

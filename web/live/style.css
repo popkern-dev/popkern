@@ -202,6 +202,7 @@ button.danger:hover { border-color: #c45b5b; color: #f0a0a0; }
 .scrubber-ticks .tick.suppressed { opacity: 0.25; }
 .scrubber-chapters { position: absolute; left: 0.45rem; right: 0.45rem; top: 0; height: 0.9rem; }
 .scrubber-chapters .chapter { position: absolute; padding: 0 0.3rem; font-size: 0.7rem; line-height: 0.9rem; border-left: 2px solid var(--accent); background: none; border-radius: 0; color: var(--muted); }
+#scrubber-insert { white-space: nowrap; }
 .scrubber-label { min-width: 14em; color: var(--muted); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .editor-line-step { background: rgba(245, 158, 11, 0.16); }
 .report tr.step-current td { background: rgba(245, 158, 11, 0.16); }

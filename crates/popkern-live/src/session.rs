@@ -81,6 +81,8 @@ pub struct Session {
     pub(crate) project: Option<crate::session_project::ProjectState>,
     /// Which project migration recorded each feature (last project build).
     pub(crate) migrations: HashMap<(Option<String>, FeatureId), String>,
+    /// Each migration with the assembly's step count after it.
+    pub(crate) assembly_migrations: Vec<(String, usize)>,
     /// Step meshes already built (see `session_timeline`).
     pub(crate) step_meshes: crate::session_timeline::StepMeshCache,
 }
@@ -94,6 +96,7 @@ impl Session {
             last_display_triangles: 0,
             project: None,
             migrations: HashMap::new(),
+            assembly_migrations: Vec::new(),
             step_meshes: HashMap::new(),
         }
     }
@@ -153,6 +156,7 @@ impl Session {
     /// model is kept and the envelope carries no bodies.
     pub fn run(&mut self, source: &str, name: &str) -> Envelope {
         self.migrations.clear();
+        self.assembly_migrations.clear();
         let mut host = ScriptHost::with_options(self.options);
         match host.run(source, name) {
             Err(error) => self.bare(from_run_error(&error)),
@@ -182,6 +186,7 @@ impl Session {
     /// failure the previous document is kept.
     pub fn open_step(&mut self, bytes: &[u8], name: &str) -> Envelope {
         self.migrations.clear();
+        self.assembly_migrations.clear();
         match popkern_assembly::Assembly::from_step_bytes(bytes, name) {
             Err(error) => self.bare(from_assembly_error(&error, "open_step")),
             Ok((assembly, report)) => {

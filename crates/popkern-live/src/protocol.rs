@@ -273,10 +273,24 @@ impl Protocol {
             }
             "stats" => Reply::plain(json!({ "id": id, "ok": true, "wasm_memory_bytes": null,
                 "body_count": self.last_bodies })),
-            "timeline" => match session.timeline() {
-                Ok(parts) => Reply::plain(json!({ "id": id, "ok": true, "parts": parts })),
+            "timeline" => match session
+                .timeline()
+                .and_then(|parts| Ok((parts, session.assembly_timeline()?)))
+            {
+                Ok((parts, assembly)) => Reply::plain(
+                    json!({ "id": id, "ok": true, "parts": parts, "assembly": assembly }),
+                ),
                 Err(outcome) => failed(outcome),
             },
+            "assembly_step" => {
+                let index = message.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
+                match session.assembly_step(index) {
+                    Ok(instances) => {
+                        Reply::plain(json!({ "id": id, "ok": true, "instances": instances }))
+                    }
+                    Err(outcome) => failed(outcome),
+                }
+            }
             "step_meshes" => {
                 let part = text("part", "");
                 let known: Vec<String> = message

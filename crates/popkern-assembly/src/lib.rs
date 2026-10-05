@@ -37,6 +37,7 @@ pub mod document_ops;
 pub mod error;
 pub mod family;
 pub mod flatten;
+pub mod history;
 pub mod interference;
 pub mod mate_linalg;
 pub mod mate_solve;

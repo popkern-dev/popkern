@@ -371,19 +371,23 @@ export class Viewer {
   }
 
   /** Glow the faces a history step created and fade them out:
-   *  `created` maps a drawn body index to its face indices. */
-  glowFaces(created) {
+   *  `created` maps a drawn body index to its face indices; every face
+   *  of the `occurrences` (assembly paths, with what lies under them)
+   *  glows whole. */
+  glowFaces(created, occurrences = []) {
     for (const glow of this.glows ?? []) this.group.remove(glow);
     this.glows = [];
     cancelAnimationFrame(this.glowFrame);
     for (const mesh of this.bodies) {
+      const path = mesh.userData.instance;
+      const whole = path != null && occurrences.some((p) => path === p || path.startsWith(`${p}/`));
       const faces = created.get(mesh.userData.index);
-      if (!faces?.size) continue;
+      if (!whole && !faces?.size) continue;
       const { faceIds } = mesh.userData;
       const index = mesh.geometry.index.array;
       const picked = [];
       for (let t = 0; t < faceIds.length; t++) {
-        if (faces.has(faceIds[t])) picked.push(index[t * 3], index[t * 3 + 1], index[t * 3 + 2]);
+        if (whole || faces.has(faceIds[t])) picked.push(index[t * 3], index[t * 3 + 1], index[t * 3 + 2]);
       }
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute("position", mesh.geometry.getAttribute("position"));
