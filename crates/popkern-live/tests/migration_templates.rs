@@ -6,7 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use popkern_project::scaffold::{insert_after_name, insert_after_source, next_migration_source};
+use popkern_project::scaffold::{
+    first_migration_source, insert_after_name, insert_after_source, next_migration_source,
+};
 use serde_json::{Value, json};
 
 fn root() -> PathBuf {
@@ -18,7 +20,7 @@ fn javascript(cases: &Value) -> Value {
     let module = root().join("web/live/migration-templates.js");
     let script = format!(
         "import({:?}).then((m) => console.log(JSON.stringify({{ next: m.NEXT_MIGRATION, \
-         inserts: {cases}.map(([l, p, u]) => [m.insertAfterMigration(l, p, u), m.insertAfterName(l)]) }})))",
+         first: m.firstMigration(\"Bracket \\\"B\\\"\"), inserts: {cases}.map(([l, p, u]) => [m.insertAfterMigration(l, p, u), m.insertAfterName(l)]) }})))",
         format!("file://{}", module.display())
     );
     let out = Command::new("node")
@@ -45,6 +47,7 @@ fn the_page_writes_the_templates_popkern_project_writes() {
     ]);
     let js = javascript(&cases);
     assert_eq!(js["next"], next_migration_source());
+    assert_eq!(js["first"], first_migration_source("Bracket \"B\""));
     for (i, case) in cases.as_array().expect("cases").iter().enumerate() {
         let label = case[0].as_str().expect("label");
         let position = case[1].as_u64().expect("position") as usize;

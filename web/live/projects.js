@@ -5,6 +5,7 @@
 // "make a copy to edit", the Scratch project a visitor types into, and
 // project export/import as a .zip of the folder.
 import { ExampleStore } from "./example-store.js";
+import { FolderStore, RoutedStore } from "./folder-store.js";
 import { ServerStore } from "./host-mode.js";
 import { BrowserStore, ConflictError, manifestName, manifestText, migrationPaths, singleScriptProject } from "./project-store.js";
 import { saveBytes } from "./exports.js";
@@ -31,8 +32,13 @@ export class Projects {
   async init() {
     const mode = await this.page.modeReady;
     const store = mode?.storage === "server" ? Promise.resolve(new ServerStore()) : BrowserStore.open();
-    [this.store, this.examples] = await Promise.all([store, ExampleStore.open()]);
+    const [primary, folders, examples] = await Promise.all([store, FolderStore.open(), ExampleStore.open()]);
+    this.store = new RoutedStore(primary, folders);
+    this.examples = examples;
     $("storage-note").hidden = this.store.persistent;
+    // A folder edited elsewhere (an editor, `git pull`) is noticed when
+    // the page comes back to the front.
+    window.addEventListener("focus", () => this.checkFolder());
     return this;
   }
 
@@ -104,6 +110,44 @@ export class Projects {
   async openStored(id) {
     const project = await this.store.get(id);
     if (project) await this.open(project);
+  }
+
+  /** Pick a project folder on this computer and open it (Chromium);
+   *  elsewhere say why not and what to do instead. */
+  async openFolder() {
+    const folders = await this.store.ensureFolders();
+    if (!folders) {
+      this.page.status("this browser cannot open folders (Chrome and Edge can); projects stay in this browser — export one as a .zip to take it elsewhere", true);
+      return null;
+    }
+    let project;
+    try {
+      project = await folders.pick();
+    } catch (error) {
+      this.page.status(`cannot open the folder: ${error.message}`, true);
+      return null;
+    }
+    if (project) await this.open(project);
+    return project;
+  }
+
+  /** The open folder project changed on disk: reload it when nothing
+   *  is pending here, show the conflict bar when edits are. */
+  async checkFolder() {
+    const p = this.current;
+    if (p?.kind !== "folder" || !this.store.folders) return;
+    await this.saving;
+    const revision = await this.store.folders.revision(p.id);
+    if (revision == null || revision === this.current?.revision) return;
+    const theirs = await this.store.folders.get(p.id, { ask: false });
+    if (!p.unsaved) {
+      await this.open(theirs);
+      this.page.status(`reloaded ${p.name}: its folder changed on disk`);
+      return;
+    }
+    this.conflict = theirs;
+    $("conflict-text").textContent = `"${p.name}" changed on disk (another editor, or git) while you were editing it here`;
+    $("conflict-bar").hidden = false;
   }
 
   /** Open example `id` (`example:<file>`) read-only. */
@@ -229,6 +273,7 @@ export class Projects {
     const file = p.path ? p.path.split("/").pop() : "";
     const mark = p.readOnly ? " (example, read only)" : p.unsaved ? " ●" : "";
     $("doc-name").textContent = `${p.name} · ${file}${mark}`;
-    $("doc-name").title = p.readOnly ? "make a copy to edit" : p.unsaved ? "saving…" : "saved in this browser";
+    const where = p.kind === "folder" ? `saved in the folder ${p.folder}` : this.store.kind === "server" ? "saved on the server" : "saved in this browser";
+    $("doc-name").title = p.readOnly ? "make a copy to edit" : p.unsaved ? "saving…" : where;
   }
 }

@@ -3,6 +3,18 @@
 // `popkern` tools would write (tests/migration_templates.rs compares
 // them under node).
 
+/** The first migration of a new project called `name`. */
+export function firstMigration(name) {
+  return (
+    `// ${name}: the first migration builds the document. Later\n` +
+    "// migrations (002_<name>.rhai, …) start with `let m = previous();`\n" +
+    "// and edit it.\n" +
+    "let m = model();\n" +
+    'm.profile(xy()).rect(0.08, 0.05).sketch("plate").extrude(blind(0.01));\n' +
+    "m\n"
+  );
+}
+
 /** The source of a new later migration. */
 export const NEXT_MIGRATION = "// Edits the document the earlier migrations built.\nlet m = previous();\n\nm\n";
 

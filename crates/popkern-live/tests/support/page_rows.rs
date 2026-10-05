@@ -406,3 +406,37 @@ pub fn assert_insert_here(out: &serde_json::Value) {
         "right after the anchor: {i}"
     );
 }
+
+/// PK-668: a project folder opened, edited and saved in place; changes
+/// on disk reload or conflict; forgetting keeps the files; browsers
+/// without the File System Access API get a message.
+pub fn assert_folder(out: &serde_json::Value) {
+    let f = &out["folder"];
+    assert_eq!(f["opened"], "Bracket", "{f}");
+    assert_eq!(f["kind"], "folder", "{f}");
+    assert_eq!(f["outcome"], "served", "{f}");
+    assert_eq!(f["listed"], true, "{f}");
+    assert_eq!(f["written"], true, "saved into the folder: {f}");
+    assert_eq!(f["reloaded"], true, "a clean editor follows the disk: {f}");
+    assert_eq!(f["conflict_shown"], true, "{f}");
+    assert!(
+        f["conflict_text"]
+            .as_str()
+            .is_some_and(|t| t.contains("changed on disk") || t.contains("folder changed")),
+        "{f}"
+    );
+    assert_eq!(
+        f["disk_untouched"], true,
+        "a conflict never overwrites: {f}"
+    );
+    assert_eq!(f["theirs"], true, "{f}");
+    assert_eq!(f["forgotten"], true, "{f}");
+    assert_eq!(f["files_kept"], true, "forget never deletes files: {f}");
+    assert_eq!(f["unsupported_opened"], serde_json::Value::Null, "{f}");
+    assert!(
+        f["unsupported_status"]
+            .as_str()
+            .is_some_and(|t| t.contains("cannot open folders")),
+        "{f}"
+    );
+}

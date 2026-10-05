@@ -10,8 +10,8 @@
 
 /** A write named a revision the store has moved past. */
 export class ConflictError extends Error {
-  constructor(project) {
-    super(`"${project.name}" changed elsewhere (another tab saved it) since it was opened here`);
+  constructor(project, where = "another tab saved it") {
+    super(`"${project.name}" changed elsewhere (${where}) since it was opened here`);
     this.project = project;
   }
 }

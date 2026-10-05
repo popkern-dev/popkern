@@ -52,12 +52,14 @@ redirect pages pointing here.
 | `controls.js` | Wires the top bar, viewer bar, Scratch notice and dialogs to the controller |
 | `local-store.js` | Everything kept in `localStorage` behind one guarded accessor: the time limit, the pre-project draft keys (read once to seed Scratch), and the one-time `popkern-playground-*` key adoption |
 | `drafts.js` | Which project a visit opens: Scratch when pre-built, else the pre-built default with a notice offering Scratch back; adopts the pre-project draft without loss |
-| `projects.js` | The open project: autosave in this browser with revision-checked writes (a conflict shows both versions), read-only examples and copy-to-edit, Scratch, .zip export/import |
+| `projects.js` | The open project: autosave with revision-checked writes (a conflict shows both versions), read-only examples and copy-to-edit, Scratch, .zip export/import, open a folder, a folder changed on disk reloaded or shown as a conflict |
 | `project-store.js` | Project stores: IndexedDB (`BrowserStore`), the in-memory fallback when storage is blocked, `ConflictError`, manifest helpers |
+| `folder-store.js` | Project folders on this computer through the File System Access API (Chromium): remembered handles, in-place saves checked against the files on disk (SHA-256 revisions), forget-never-deletes; `RoutedStore` puts them beside the page's own store |
 | `example-store.js` | The examples as read-only projects: one-script entries and project folders from `examples.json` |
-| `projects-dialog.js` | The projects dialog: projects in this browser (open, delete, new, import) and the examples |
-| `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete |
-| `scrubber.js` | The history scrubber: ticks per feature, migration chapters, step meshes cached by key, created-face glow, editor line and report row, play, `#step=` / `#v=` links |
+| `projects-dialog.js` | The projects dialog: your projects (open, delete, new, import, open a folder; forget a folder) and the examples |
+| `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete, insert a feature at the history playhead |
+| `migration-templates.js` | Migration templates (first, next, insert-after) — the text `popkern_project::scaffold` writes |
+| `scrubber.js` | The history scrubber: ticks per feature (an assembly: per place, move and mate), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line and report row, play, `#step=` / `#v=` links, insert a feature here |
 | `host-mode.js` | Which deployment the page is in (`host.json`: storage and compute) and the `ServerStore` for `popkern serve` |
 | `socket-worker.js` | The worker protocol over `popkern serve`'s session socket (same origin only), Worker-shaped, with in-place `cancelRun()` |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |

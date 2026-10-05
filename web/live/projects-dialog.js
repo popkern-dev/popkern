@@ -53,7 +53,15 @@ export async function showProjects(page) {
         },
       ],
     ];
-    if (p.id !== SCRATCH) {
+    if (p.kind === "folder") {
+      actions.push([
+        "forget",
+        async () => {
+          await projects.remove(p.id);
+          await showProjects(page);
+        },
+      ]);
+    } else if (p.id !== SCRATCH) {
       actions.push([
         "delete",
         async () => {
@@ -64,7 +72,8 @@ export async function showProjects(page) {
         "danger",
       ]);
     }
-    mine.append(row(p.name, when(p.updated), actions));
+    const detail = p.kind === "folder" ? "folder on this computer" : when(p.updated);
+    mine.append(row(p.name, detail, actions));
   }
   const examples = $("examples-list");
   examples.replaceChildren();
@@ -96,6 +105,10 @@ export function wireProjects(page) {
     await page.projects.create(name.trim() || "My part", await page.defaultScript());
   });
   $("project-import").addEventListener("click", () => $("project-import-file").click());
+  $("project-folder").addEventListener("click", async () => {
+    $("projects-dialog").hidden = true;
+    await page.projects.openFolder();
+  });
   $("project-import-file").addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";

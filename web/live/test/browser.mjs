@@ -606,6 +606,69 @@ try {
     return result;
   })()`);
 
+  // Folders (PK-668): a project folder opened through the File System
+  // Access API — an origin-private folder stands in for the user's pick
+  // (headless Chrome shows no picker) — edited and saved in place; a
+  // change on disk reloads a clean editor and conflicts with a dirty
+  // one; forgetting keeps the files; a browser without the API says so.
+  out.folder = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const root = await navigator.storage.getDirectory();
+    try { await root.removeEntry("bracket", { recursive: true }); } catch {}
+    const dir = await root.getDirectoryHandle("bracket", { create: true });
+    const at = async (path, create) => {
+      const parts = path.split("/");
+      let d = dir;
+      for (const p of parts.slice(0, -1)) d = await d.getDirectoryHandle(p, { create });
+      return d.getFileHandle(parts.at(-1), { create });
+    };
+    const put = async (path, text) => { const w = await (await at(path, true)).createWritable(); await w.write(text); await w.close(); };
+    const read = async (path) => (await (await at(path, false)).getFile()).text();
+    const base = "migrations/001_base.rhai";
+    await put("popkern.toml", '[project]\\nname = "Bracket"\\n');
+    await put(base, 'let m = model();\\nm.profile(xy()).rect(1.0, 0.5).sketch("plate").extrude(blind(0.1));\\nm\\n');
+    window.showDirectoryPicker = async () => dir;
+    const opened = await page.projects.openFolder();
+    await page.runDone;
+    const result = {
+      opened: opened?.name ?? null,
+      kind: page.projects.current?.kind ?? null,
+      outcome: page.lastGood?.envelope?.outcome ?? null,
+      listed: (await page.projects.store.list()).some((p) => p.id === opened?.id && p.kind === "folder"),
+    };
+    const edit = (from, to) => {
+      page.editor.textarea.value = page.editor.value.replace(from, to);
+      page.editor.textarea.dispatchEvent(new Event("input"));
+    };
+    edit("blind(0.1)", "blind(0.2)");
+    await page.projects.flush();
+    result.written = (await read(base)).includes("blind(0.2)");
+    await put(base, (await read(base)).replace("blind(0.2)", "blind(0.3)"));
+    await page.projects.checkFolder();
+    await page.runDone;
+    result.reloaded = page.editor.value.includes("blind(0.3)");
+    edit("blind(0.3)", "blind(0.4)");
+    await put(base, (await read(base)).replace("blind(0.3)", "blind(0.5)"));
+    await page.projects.flush();
+    result.conflict_shown = !document.getElementById("conflict-bar").hidden;
+    result.conflict_text = document.getElementById("conflict-text").textContent;
+    result.disk_untouched = (await read(base)).includes("blind(0.5)");
+    await page.projects.loadTheirs();
+    await page.runDone;
+    result.theirs = page.editor.value.includes("blind(0.5)");
+    await page.projects.remove(opened.id);
+    result.forgotten = !(await page.projects.store.list()).some((p) => p.id === opened.id);
+    result.files_kept = (await read("popkern.toml")).includes("Bracket");
+    window.showDirectoryPicker = undefined;
+    page.projects.store.folders = null;
+    result.unsupported_opened = await page.projects.openFolder();
+    result.unsupported_status = document.getElementById("status").textContent;
+    delete window.showDirectoryPicker;
+    await page.projects.openStored("scratch");
+    await page.runDone;
+    return result;
+  })()`);
+
   // Migrations (PK-664): add, rename and reorder files through the
   // rail; an upstream edit that drops a label breaks the downstream
   // migration, which the overlay names with its line and the upstream
