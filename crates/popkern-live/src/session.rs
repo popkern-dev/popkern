@@ -1,12 +1,14 @@
 //! One popkern live session: the model the last successful script
 //! authored, the host budgets, and the verbs the page speaks.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use popkern_assembly::{Document, InstancePath};
 use popkern_core::time::{Stopwatch, monotonic_clock_available};
+use popkern_history::node::FeatureId;
 use popkern_rhai::outcome::from_run_error;
 use popkern_rhai::{
     HostOptions, Outcome, ScriptHost, document_feature_count, document_first_failure,
@@ -20,7 +22,7 @@ use crate::mesh_buffers::MeshPurpose;
 use crate::session_document::{document_params, mesh_document};
 
 /// The budgets as the page spells them (JSON).
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct RunOptions {
     /// Maximum Rhai operations (`null` = unlimited).
     #[serde(default)]
@@ -32,6 +34,25 @@ pub struct RunOptions {
     /// their seams during the run or later through [`Session::certify`].
     #[serde(default)]
     pub continuity_certification: ContinuityCertification,
+    /// Note each feature's script position (the history scrubber's
+    /// editor link); `true` unless the page opts out.
+    #[serde(default = "track_sources_default")]
+    pub track_sources: bool,
+}
+
+fn track_sources_default() -> bool {
+    true
+}
+
+impl Default for RunOptions {
+    fn default() -> RunOptions {
+        RunOptions {
+            max_operations: None,
+            timeout_ms: None,
+            continuity_certification: ContinuityCertification::default(),
+            track_sources: true,
+        }
+    }
 }
 
 impl RunOptions {
@@ -44,6 +65,7 @@ impl RunOptions {
                 .filter(|ms| ms.is_finite() && *ms >= 0.0)
                 .map(|ms| Duration::from_secs_f64(ms / 1000.0)),
             continuity_certification: self.continuity_certification,
+            track_sources: self.track_sources,
         }
     }
 }
@@ -57,6 +79,10 @@ pub struct Session {
     last_display_triangles: usize,
     /// The project runner and store, once a project has been built.
     pub(crate) project: Option<crate::session_project::ProjectState>,
+    /// Which project migration recorded each feature (last project build).
+    pub(crate) migrations: HashMap<(Option<String>, FeatureId), String>,
+    /// Step meshes already built (see `session_timeline`).
+    pub(crate) step_meshes: crate::session_timeline::StepMeshCache,
 }
 
 impl Session {
@@ -67,6 +93,8 @@ impl Session {
             document: None,
             last_display_triangles: 0,
             project: None,
+            migrations: HashMap::new(),
+            step_meshes: HashMap::new(),
         }
     }
 
@@ -124,6 +152,7 @@ impl Session {
     /// session adopts the script's model; on failure the previous
     /// model is kept and the envelope carries no bodies.
     pub fn run(&mut self, source: &str, name: &str) -> Envelope {
+        self.migrations.clear();
         let mut host = ScriptHost::with_options(self.options);
         match host.run(source, name) {
             Err(error) => self.bare(from_run_error(&error)),
@@ -152,6 +181,7 @@ impl Session {
     /// envelope's `printed` carries the import report's summary; on
     /// failure the previous document is kept.
     pub fn open_step(&mut self, bytes: &[u8], name: &str) -> Envelope {
+        self.migrations.clear();
         match popkern_assembly::Assembly::from_step_bytes(bytes, name) {
             Err(error) => self.bare(from_assembly_error(&error, "open_step")),
             Ok((assembly, report)) => {
@@ -378,6 +408,9 @@ impl Session {
     ) -> Envelope {
         let clock_available = monotonic_clock_available();
         let wall_budget = self.wall_budget();
+        // Every describe follows a document change: step meshes keyed
+        // by (body, step) may now hold other geometry.
+        self.step_meshes.clear();
         let Some(document) = self.document.as_mut() else {
             return Envelope::bare(outcome, clock_available, wall_budget);
         };
@@ -435,7 +468,7 @@ impl CertifyStep {
     }
 }
 
-fn no_model() -> Outcome {
+pub(crate) fn no_model() -> Outcome {
     Outcome::GateFailure {
         step: "model".into(),
         detail: "no model in this session: run a script first".into(),

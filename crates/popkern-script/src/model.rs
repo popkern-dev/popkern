@@ -41,6 +41,9 @@ pub struct Model {
     /// Whether the tree's current bodies reflect the whole timeline
     /// (cleared by parameter and configuration edits until a replay).
     pub(crate) geometry_current: bool,
+    /// Where in a tracked script each feature was recorded.
+    pub(crate) sources:
+        std::collections::HashMap<popkern_history::node::FeatureId, crate::source::SourceSpan>,
 }
 
 impl Model {
@@ -60,6 +63,7 @@ impl Model {
             active: None,
             pending_counter: 0,
             geometry_current: true,
+            sources: Default::default(),
         }
     }
 
@@ -113,7 +117,39 @@ impl Model {
             active,
             pending_counter: 0,
             geometry_current: true,
+            sources: Default::default(),
         })
+    }
+
+    /// Where in a tracked script `feature` was recorded (see
+    /// [`crate::source`]); `None` for features recorded untracked or
+    /// loaded from a document.
+    pub fn source_of(
+        &self,
+        feature: popkern_history::node::FeatureId,
+    ) -> Option<&crate::source::SourceSpan> {
+        self.sources.get(&feature)
+    }
+
+    /// The document after the first `index` timeline features (every
+    /// alive body), from the step cache or executed without disturbing
+    /// the model's current bodies (see
+    /// [`popkern_history::FeatureTree::state_at`]).
+    pub fn step_state(
+        &mut self,
+        index: usize,
+    ) -> Result<popkern_history::DocumentState, ScriptError> {
+        if let Some(state) = self.tree.cached_state_at(index) {
+            return Ok(state.clone());
+        }
+        Ok(self.tree.state_at(index, self.tolerance)?)
+    }
+
+    /// Note the tracked script position against a just-recorded feature.
+    pub(crate) fn note_source(&mut self, feature: popkern_history::node::FeatureId) {
+        if let Some(span) = crate::source::current() {
+            self.sources.insert(feature, span);
+        }
     }
 
     /// The document's build tolerance.

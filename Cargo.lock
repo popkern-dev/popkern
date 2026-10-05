@@ -3456,7 +3456,9 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "popkern-assembly",
+ "popkern-constraint",
  "popkern-core",
+ "popkern-history",
  "popkern-measure",
  "popkern-mesh",
  "popkern-part",
@@ -3465,6 +3467,7 @@ dependencies = [
  "popkern-script",
  "serde",
  "serde_json",
+ "slotmap",
  "thiserror 2.0.18",
  "wasm-bindgen",
 ]

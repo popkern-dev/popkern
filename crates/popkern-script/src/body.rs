@@ -112,6 +112,7 @@ impl Body {
             selections,
             &mut model.geometry_current,
         )?;
+        model.note_source(id);
         let recorded = model.tree.feature(id).map(|n| n.body).unwrap_or(self.id);
         // A Boss/Cut feature's own body is consumed by the auto-merge;
         // the served body is the host it merged into.

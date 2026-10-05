@@ -60,6 +60,7 @@ pub mod profile_api;
 pub mod project_host;
 pub mod recipe_api;
 pub mod selection_api;
+mod source_tracking;
 pub mod values;
 
 pub use conformance::{Checklist, checklist_from_spec};

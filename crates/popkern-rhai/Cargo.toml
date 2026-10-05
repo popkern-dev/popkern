@@ -17,7 +17,9 @@ popkern-sketch = { path = "../popkern-sketch" }
 # dependency (browser build needs no backend) and hashing is fixed-seed
 # deterministic. `serde` carries reports/errors into script values,
 # `metadata` lets the purity gate enumerate every registered function.
-rhai = { version = "1.26", default-features = false, features = ["std", "serde", "metadata"] }
+# `debugging` steps evaluation so the host can note each feature's
+# script position (HostOptions::track_sources, PK-661).
+rhai = { version = "1.26", default-features = false, features = ["std", "serde", "metadata", "debugging"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

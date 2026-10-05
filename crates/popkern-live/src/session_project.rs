@@ -204,6 +204,16 @@ impl Session {
             .map(|d| d.as_secs_f64() * 1000.0)
             .reduce(|a, b| a + b);
         let outcome = build.error.as_ref().map_or(Outcome::Served, outcome_of);
+        self.migrations = build
+            .record
+            .migrations
+            .iter()
+            .flat_map(|m| {
+                m.features
+                    .iter()
+                    .map(move |f| ((f.part.clone(), f.id), m.name.clone()))
+            })
+            .collect();
         if build.document.is_some() {
             self.document = build.document;
         }

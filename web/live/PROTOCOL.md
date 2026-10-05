@@ -30,6 +30,9 @@ its budgets, and a hostile script must not be able to wedge the page.
 | `interference` | `clearance: number` | `{ ok: true, report: { pairs: [{ a, b, status: "clear" \| "touching" \| "interfering", distance?, lower_bound?, refined?, volume?, decline?, closest?, faces? }], occurrences, candidate_pairs, tolerance, clearance } }` or `{ ok: false, outcome }` — every pair of assembly part occurrences within `clearance` (assemblies.md §8.1): certified clearances, contact, overlap volumes (null with `decline` when the boolean declined) |
 | `set_visible` | `path: string`, `visible: boolean` | `{ ok: true }` or `{ ok: false, outcome }` — show or hide an assembly occurrence (`stage/planet_1`) in the document (saved with `.pkn`); no geometry changes, nothing is re-meshed |
 | `analysis_mesh` | — | `{ ok: true, stats: { facet_deg, triangles, mesh_ms }, buffers }` or `{ ok: false, outcome }` — the live bodies re-meshed at the zebra analysis bound (6°), one `{ positions, normals, indices, face_ids }` per body in envelope order; cached until the next `run`/`set_param` |
+| `run_project` | `files: { [path]: string }`, `base64?: { [path]: string }` | envelope reply with `project: { name, versions: [{ name, status: "built" \| "cached" \| "failed" \| "stale", elapsed_ms, features, edited, printed }], error }` — builds a project folder (live-projects-and-history.md §5.4) held in the page: text files by path, binary files (a STEP base) base64; checkpoints persist across calls, so only migrations from the first changed one rerun |
+| `timeline` | — | `{ ok: true, parts: [{ part, steps: [{ index, feature, label, operation, migration, suppressed, failed, bodies_changed, source: { script, line, column } \| null }] }] }` or `{ ok: false, outcome }` — the document's history, one row per timeline feature of every part (`part` is null for a part document) |
+| `step_meshes` | `part: string` (`""` for a part document), `index: number`, `known?: string[]` | `{ ok: true, rows: [{ key, body, created_faces, buffers, mesh, positions?, normals?, indices?, face_ids? }] }` or `{ ok: false, outcome }` — the bodies alive after the first `index` features; `key` (`body:feature`, the step that last changed the body) names identical meshes, so rows whose key is in `known` carry no buffers; `created_faces` indexes `mesh.face_labels` for the faces this step created |
 | `stats` | — | `{ ok: true, wasm_memory_bytes: number \| null, body_count }` — the module's linear memory size (grows, never shrinks) |
 
 `init` must be the first message; it loads the wasm module, registers
@@ -109,4 +112,5 @@ engine gate failure, so the page has one error path.
 
 `protocol_version` is the engine's `PROTOCOL_VERSION`. The page refuses
 to speak to a worker whose version it does not know. Bumped when a
-request or reply shape changes; additive fields do not bump.
+request or reply shape changes; additive fields and new requests
+(`run_project`, `timeline`, `step_meshes`, PK-660/661) do not bump.

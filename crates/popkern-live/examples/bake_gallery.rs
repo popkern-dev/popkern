@@ -32,6 +32,7 @@ fn bake_one(out: &Path, file: &str, source: &str) -> Value {
         max_operations: None,
         timeout: None,
         continuity_certification: ContinuityCertification::Deferred,
+        track_sources: false,
     });
     let run = Stopwatch::start();
     let envelope = session.run(source, file);

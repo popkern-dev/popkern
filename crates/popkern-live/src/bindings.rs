@@ -53,6 +53,9 @@ pub struct LiveSession {
     /// The zebra analysis meshes of the current model (PK-577), built on
     /// the first `analysis_mesh` request after a run.
     analysis: Vec<BodyMesh>,
+    /// The bodies of the last `step_meshes` answer, by row (`None`: the
+    /// page already holds that key).
+    step: Vec<Option<BodyMesh>>,
 }
 
 #[wasm_bindgen]
@@ -72,6 +75,7 @@ impl LiveSession {
             session: Session::new(options.host()),
             bodies: Vec::new(),
             analysis: Vec::new(),
+            step: Vec::new(),
         })
     }
 
@@ -87,6 +91,7 @@ impl LiveSession {
             max_operations: host.max_operations,
             timeout: host.timeout,
             continuity_certification: self.session.options().continuity_certification,
+            track_sources: self.session.options().track_sources,
         });
         Ok(serde_json::json!({
             "max_operations": options.max_operations,
@@ -102,6 +107,7 @@ impl LiveSession {
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
         self.analysis.clear();
+        self.step.clear();
         json
     }
 
@@ -112,6 +118,7 @@ impl LiveSession {
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
         self.analysis.clear();
+        self.step.clear();
         json
     }
 
@@ -132,6 +139,7 @@ impl LiveSession {
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
         self.analysis.clear();
+        self.step.clear();
         json
     }
 
@@ -141,6 +149,7 @@ impl LiveSession {
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
         self.analysis.clear();
+        self.step.clear();
         json
     }
 
@@ -286,6 +295,61 @@ impl LiveSession {
     pub fn analysis_u32(&self, index: usize, field: &str) -> Vec<u32> {
         self.analysis
             .get(index)
+            .map(|b| match field {
+                "indices" => b.indices.clone(),
+                "face_ids" => b.face_ids.clone(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// The document's history timeline as JSON: `[{part, steps: [{index,
+    /// feature, label, operation, migration, suppressed, failed,
+    /// bodies_changed, source}]}]`, or `{"outcome": …}` without a model.
+    pub fn timeline(&mut self) -> String {
+        match self.session.timeline() {
+            Ok(parts) => serde_json::to_string(&parts).unwrap_or_default(),
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
+    /// The bodies after the first `index` features of `part` (`""` for
+    /// a part document) as JSON rows `{key, body, created_faces,
+    /// buffers, mesh}`. `known_json` lists keys the page already holds
+    /// (their rows carry no mesh). Buffers of row `i` are then readable
+    /// through `step_f32` / `step_u32`.
+    pub fn step_meshes(&mut self, part: &str, index: usize, known_json: &str) -> String {
+        let known: Vec<String> = serde_json::from_str(known_json).unwrap_or_default();
+        let part = (!part.is_empty()).then_some(part);
+        match self.session.step_bodies(part, index, &known) {
+            Ok(rows) => {
+                self.step = rows.iter().map(|r| r.mesh.clone()).collect();
+                serde_json::to_string(&rows).unwrap_or_default()
+            }
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
+    /// Step-mesh buffers of row `index`, by `field`: `"positions"`,
+    /// `"normals"` (`Float32Array`). Empty for a row without a mesh.
+    pub fn step_f32(&self, index: usize, field: &str) -> Vec<f32> {
+        self.step
+            .get(index)
+            .and_then(Option::as_ref)
+            .map(|b| match field {
+                "positions" => b.positions.clone(),
+                "normals" => b.normals.clone(),
+                _ => Vec::new(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// Step-mesh buffers of row `index`, by `field`: `"indices"`,
+    /// `"face_ids"` (`Uint32Array`). Empty for a row without a mesh.
+    pub fn step_u32(&self, index: usize, field: &str) -> Vec<u32> {
+        self.step
+            .get(index)
+            .and_then(Option::as_ref)
             .map(|b| match field {
                 "indices" => b.indices.clone(),
                 "face_ids" => b.face_ids.clone(),

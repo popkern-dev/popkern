@@ -34,6 +34,7 @@ mod record;
 pub mod scalar;
 pub mod selection;
 pub mod selection_parse;
+pub mod source;
 
 pub use body::{Body, End, RevolveEnd};
 pub use body_fastener::{

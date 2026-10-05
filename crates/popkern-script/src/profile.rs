@@ -189,6 +189,7 @@ impl<'m> ProfileBuilder<'m> {
             records,
             &mut model.geometry_current,
         )?;
+        model.note_source(id);
         let body = model
             .tree
             .feature(id)

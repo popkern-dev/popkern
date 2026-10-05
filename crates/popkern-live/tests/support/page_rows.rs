@@ -230,3 +230,39 @@ pub fn network_violations(source: &str) -> Vec<String> {
     }
     found
 }
+
+/// PK-661 timeline and PK-660 project requests through the node worker.
+pub fn assert_history_rows(out: &serde_json::Value) {
+    // PK-661 timeline through the worker: lines, then key reuse.
+    let timeline = &out["timeline"];
+    assert_eq!(timeline["ok"], true, "{timeline}");
+    assert_eq!(
+        timeline["labels"].as_array().map(Vec::len),
+        Some(6),
+        "{timeline}"
+    );
+    assert_eq!(
+        timeline["lines"][0], 5,
+        "plate sketch on line 5: {timeline}"
+    );
+    assert_eq!(timeline["plate_buffers"], true, "{timeline}");
+    let boss_rows = timeline["boss_rows"].as_array().expect("rows");
+    let plate = boss_rows
+        .iter()
+        .find(|r| r["key"] == timeline["plate_key"])
+        .expect("the plate keeps its key");
+    assert_eq!(plate["buffers"], false, "known key not re-sent: {timeline}");
+    assert_eq!(plate["sent"], false);
+    assert!(
+        boss_rows
+            .iter()
+            .any(|r| r["buffers"] == true && r["sent"] == true)
+    );
+    // PK-660 project through the worker.
+    let project = &out["project"];
+    assert_eq!(project["outcome"], "served", "{project}");
+    assert_eq!(
+        project["versions"],
+        serde_json::json!([["001_plate", "built", 2], ["002_pin", "built", 2]])
+    );
+}

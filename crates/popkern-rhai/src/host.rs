@@ -29,6 +29,11 @@ pub struct HostOptions {
     /// has shown the part (see
     /// [`popkern_history::deferred_certification`]).
     pub continuity_certification: ContinuityCertification,
+    /// Note where in the script every feature is recorded
+    /// ([`popkern_script::source`]): the evaluator steps each
+    /// expression and publishes its position (PK-661; the history
+    /// scrubber's editor link).
+    pub track_sources: bool,
 }
 
 /// What a finished run produced.
@@ -190,6 +195,9 @@ impl ScriptHost {
         }
         crate::model_api::register_constructors(&mut engine, options.continuity_certification);
         crate::assembly_api::register_constructors(&mut engine, options.continuity_certification);
+        if options.track_sources {
+            crate::source_tracking::enable(&mut engine);
+        }
         ScriptHost {
             engine,
             printed,
@@ -251,10 +259,14 @@ impl ScriptHost {
             });
         }
         let mut scope = Scope::new();
-        let returned = self
-            .engine
-            .eval_ast_with_scope::<Dynamic>(&mut scope, ast)
-            .map_err(|e| ScriptRunError::from_eval(&e, script))?;
+        if self.options.track_sources {
+            popkern_script::source::set_script(Some(script));
+        }
+        let returned = self.engine.eval_ast_with_scope::<Dynamic>(&mut scope, ast);
+        if self.options.track_sources {
+            popkern_script::source::set_script(None);
+        }
+        let returned = returned.map_err(|e| ScriptRunError::from_eval(&e, script))?;
         let in_scope: Vec<Dynamic> = scope.iter().map(|(_, _, value)| value).collect();
         Ok(RawRun {
             returned,

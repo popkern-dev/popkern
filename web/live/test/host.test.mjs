@@ -58,6 +58,23 @@ out.analysis = {
   indices_fnv: (analysis.buffers ?? []).map((b) => fnv1a(bytesOf(b.indices))),
 };
 
+// History timeline (PK-661): rows with script lines, then step meshes
+// where the plate untouched by the boss sketch keeps its key and is not
+// re-sent.
+const timeline = await host.request({ type: "timeline" });
+const steps = timeline.parts?.[0]?.steps ?? [];
+const afterPlate = await host.request({ type: "step_meshes", part: "", index: 2, known: [] });
+const plateKey = afterPlate.rows?.[0]?.key ?? null;
+const afterBoss = await host.request({ type: "step_meshes", part: "", index: 3, known: [plateKey] });
+out.timeline = {
+  ok: timeline.ok,
+  labels: steps.map((s) => s.label),
+  lines: steps.map((s) => s.source?.line ?? null),
+  plate_buffers: afterPlate.rows?.[0]?.positions instanceof Float32Array,
+  boss_rows: (afterBoss.rows ?? []).map((r) => ({ key: r.key, buffers: r.buffers, sent: r.positions instanceof Float32Array })),
+  plate_key: plateKey,
+};
+
 const edited = await host.setParam("extrude-1.distance", 0.5);
 out.set_param = {
   outcome: edited.envelope.outcome,
@@ -120,6 +137,22 @@ out.cancel = {
   runaway_step: runawayReply.outcome?.step ?? null,
   restarted: cancelled.ok === true && host.restarts === 1,
   recovered: recovered.ok && recovered.envelope.outcome === "served",
+};
+
+// A project (PK-660): two migrations; the second edits the first's
+// document through previous().
+const project = await host.request({
+  type: "run_project",
+  files: {
+    "popkern.toml": '[project]\nname = "Two steps"\n',
+    "migrations/001_plate.rhai": 'let m = model();\nm.profile(xy()).rect(1.0, 1.0).sketch("plate").extrude(blind(0.2));\nm\n',
+    "migrations/002_pin.rhai": 'let m = previous();\nm.profile(xy()).circle(0.1).sketch("pin").extrude(blind(0.5));\nm\n',
+  },
+});
+out.project = {
+  ok: project.ok,
+  outcome: project.envelope?.outcome ?? null,
+  versions: (project.envelope?.project?.versions ?? []).map((v) => [v.name, v.status, v.features.length]),
 };
 
 await host.worker.terminate();

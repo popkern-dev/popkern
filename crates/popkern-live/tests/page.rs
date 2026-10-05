@@ -77,6 +77,7 @@ fn worker_protocol_round_trips_under_node_and_cancel_replaces_a_wedged_worker() 
     assert_eq!(out["run"]["ok"], true, "{out}");
     assert_eq!(out["run"]["outcome"], "served");
     assert_eq!(out["run"]["features"], 6);
+    page_rows::assert_history_rows(&out);
     assert_eq!(out["run"]["bodies"], 1);
     assert_eq!(
         out["run"]["transferred"][0], true,

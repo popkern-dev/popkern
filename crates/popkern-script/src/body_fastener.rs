@@ -188,6 +188,7 @@ impl Model {
             Vec::new(),
             &mut self.geometry_current,
         )?;
+        self.note_source(id);
         let body = self
             .tree
             .feature(id)

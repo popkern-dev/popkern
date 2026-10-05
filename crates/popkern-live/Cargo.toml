@@ -19,6 +19,8 @@ popkern-project = { path = "../popkern-project" }
 popkern-assembly = { path = "../popkern-assembly" }
 popkern-script = { path = "../popkern-script" }
 serde = { workspace = true }
+slotmap = { workspace = true }
+popkern-history = { path = "../popkern-history" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
@@ -30,3 +32,4 @@ js-sys = "0.3.91"
 
 [dev-dependencies]
 popkern-part = { path = "../popkern-part" }
+popkern-constraint = { path = "../popkern-constraint" }

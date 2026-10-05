@@ -151,6 +151,31 @@ export function createHandler(pkg, loadModule) {
           delete stats.ok;
           return { reply: { id, ok: true, stats, buffers }, transfer };
         }
+        case "run_project":
+          // A project (live-projects-and-history.md): text files by
+          // path in `files`, binary ones base64 in `base64`.
+          return envelopeReply(id, session.run_project(JSON.stringify({ files: message.files ?? {}, base64: message.base64 ?? {} })));
+        case "timeline": {
+          const parts = JSON.parse(session.timeline());
+          if (!Array.isArray(parts)) return { reply: { id, ok: false, outcome: parts.outcome }, transfer: [] };
+          return { reply: { id, ok: true, parts }, transfer: [] };
+        }
+        case "step_meshes": {
+          // The bodies after `index` features of `part`; rows whose key
+          // the page lists in `known` carry no buffers.
+          const rows = JSON.parse(session.step_meshes(String(message.part ?? ""), Number(message.index ?? 0), JSON.stringify(message.known ?? [])));
+          if (!Array.isArray(rows)) return { reply: { id, ok: false, outcome: rows.outcome }, transfer: [] };
+          const transfer = [];
+          rows.forEach((row, i) => {
+            if (!row.buffers) return;
+            row.positions = session.step_f32(i, "positions");
+            row.normals = session.step_f32(i, "normals");
+            row.indices = session.step_u32(i, "indices");
+            row.face_ids = session.step_u32(i, "face_ids");
+            transfer.push(row.positions.buffer, row.normals.buffer, row.indices.buffer, row.face_ids.buffer);
+          });
+          return { reply: { id, ok: true, rows }, transfer };
+        }
         case "stats":
           return {
             reply: {
