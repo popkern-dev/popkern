@@ -7,8 +7,7 @@
 //! Head proportions default from [`standards`](crate::standards) and
 //! can be overridden per parameter struct.
 
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::{tolerance::Tolerance, topology::BRep};
 use popkern_math::PortableMath;
 use popkern_sketch::ProfileShape;
 
