@@ -131,3 +131,92 @@ fn a_residue_on_one_side_of_the_other_operand_is_left_whole() {
     let inside = split(&cube, residue_along(&cube, 0.2, 0.8));
     assert_eq!(inside.len(), 1);
 }
+
+/// The M6 nut's thread-cut workpiece, built from kernel primitives:
+/// a hex prism (s = 10, m = 5.2) chamfered at 30° on both faces to
+/// the 0.95·s circle (as `hex_corner_ring` cuts it) and bored through
+/// at the clearance-0.15 minor radius 2.6087.
+fn m6_nut_workpiece(tol: Tolerance) -> BRep {
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::transform::Transform3;
+    let (s, m) = (10.0_f64, 5.2_f64);
+    let circumradius = s / 3.0_f64.sqrt();
+    let hexagon: Vec<Point3> = (0..6)
+        .map(|i| {
+            let a = std::f64::consts::FRAC_PI_6 + f64::from(i) * std::f64::consts::FRAC_PI_3;
+            Point3::new(circumradius * a.cos(), circumradius * a.sin(), 0.0)
+        })
+        .collect();
+    let blank = BRep::prism(&hexagon, Vec3::new(0.0, 0.0, 1.0), m, tol).expect("hex prism");
+    // Chamfer cone: 30° to the face, through r = 0.95·s/2 on it; its
+    // apex sits r·tan30° beyond the face, its base past the far one.
+    let r_face = 0.95 * s / 2.0;
+    let rise = r_face / 3.0_f64.sqrt();
+    let height = m + rise + 1.0;
+    let cone = || BRep::cone(height * 3.0_f64.sqrt(), height, tol).expect("cone");
+    let top = cone()
+        .transform(&Transform3::translation(0.0, 0.0, -1.0))
+        .expect("place");
+    let bottom = cone()
+        .transform(&Transform3 {
+            matrix: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, -1.0, m + 1.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+        })
+        .expect("place");
+    let bore = BRep::cylinder(2.608_734, 2.0 * m, tol)
+        .expect("cylinder")
+        .transform(&Transform3::translation(0.0, 0.0, -0.5 * m))
+        .expect("place");
+    let mut body = blank;
+    for (op, tool) in [
+        (crate::BoolOperation::Intersection, top),
+        (crate::BoolOperation::Intersection, bottom),
+        (crate::BoolOperation::Subtraction, bore),
+    ] {
+        body = crate::boolean(op, body, tool, tol, None).expect("workpiece boolean");
+    }
+    body
+}
+
+/// PK-672: residue verdicts classify against the other operand, a
+/// FINAL body, with the final-body classifier (hole, outer-loop and
+/// cylinder/cone trim gates). PK-669 measured the mid-split
+/// classifier reading this workpiece's bore void Inside at (0, 0,
+/// 2.6), (0.26, −2.55, −0.01) and (0.367, −2.536, 0); PK-669's own
+/// hole-loop sampling fix happens to close those rays, so the pin is
+/// the contract itself: bore-void residue points (and points just off
+/// the end faces) read Outside, nut material Inside.
+#[test]
+fn residue_verdicts_read_the_nut_bore_void_outside() {
+    let tol = Tolerance::default();
+    let nut = m6_nut_workpiece(tol);
+    let aabbs = compute_face_aabbs(&nut);
+    let other = OtherOperand {
+        brep_a: &nut,
+        brep_b: &nut,
+        aabbs_a: &aabbs,
+        aabbs_b: &aabbs,
+    };
+    for p in [
+        Point3::new(0.0, 0.0, 2.6),
+        Point3::new(0.0, 0.0, 1.0),
+        Point3::new(1.0, 0.5, 4.0),
+        Point3::new(0.0, 0.0, -0.01),
+        Point3::new(0.26, -2.55, -0.01),
+    ] {
+        assert_eq!(
+            other.verdict(true, &p, &tol),
+            Some(false),
+            "bore-void residue point {p:?} must read Outside"
+        );
+    }
+    assert_eq!(
+        other.verdict(true, &Point3::new(3.5, 0.0, 2.6), &tol),
+        Some(true),
+        "nut material reads Inside"
+    );
+}

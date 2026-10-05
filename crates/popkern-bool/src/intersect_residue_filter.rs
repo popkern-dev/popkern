@@ -197,10 +197,15 @@ pub(crate) fn drop_kept_flank_residues(
             }
             return false;
         }
+        // The other operand is a FINAL body (a boolean input, never a
+        // mid-split state): classify with the final-body gates — hole,
+        // outer-loop and cylinder/cone trim — so a ray from a void
+        // (a bore centre) cannot count phantom hits on a face's
+        // surface extension (PK-672).
         let verdict = if owner_is_a {
-            crate::classify::point_in_solid(&mid, brep_b, aabbs_b, tolerance)
+            crate::classify::point_in_solid_final(&mid, brep_b, aabbs_b, tolerance)
         } else {
-            crate::classify::point_in_solid(&mid, brep_a, aabbs_a, tolerance)
+            crate::classify::point_in_solid_final(&mid, brep_a, aabbs_a, tolerance)
         };
         let keeps = match verdict {
             Ok(PointClassification::Inside) => match (op, owner_is_a) {

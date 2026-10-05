@@ -78,7 +78,8 @@ impl OtherOperand<'_> {
         if on_operand_boundary(point, brep, aabbs, 100.0 * tolerance.linear(), tolerance) {
             return None;
         }
-        match crate::classify::point_in_solid(point, brep, aabbs, tolerance) {
+        // A FINAL operand: final-body gates (see drop_kept_flank_residues).
+        match crate::classify::point_in_solid_final(point, brep, aabbs, tolerance) {
             Ok(PointClassification::Inside) => Some(true),
             Ok(PointClassification::Outside) => Some(false),
             _ => None,
