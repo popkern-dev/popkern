@@ -226,6 +226,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     );
     assert_eq!(out["set_param"]["outcome"], "served");
     assert_eq!(out["set_param"]["value"], 0.5);
+    page_rows::assert_scrubber(&out);
     page_rows::assert_time_limit_and_bakes(&out);
     page_rows::assert_assembly(&out);
     page_rows::assert_open_step(&out);
@@ -350,10 +351,11 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     assert_eq!(out["foreign_requests"], serde_json::json!([]));
     assert_eq!(out["exceptions"], serde_json::json!([]));
     eprintln!(
-        "[pk411] headless chrome: kernel ready {} ms, first render {} ms, cancel {} ms; screenshot {}",
+        "[pk411] headless chrome: kernel ready {} ms, first render {} ms, cancel {} ms, history revisit {} ms; screenshot {}",
         out["kernel_ready_ms"],
         out["first_render_ms"],
         out["cancel"]["elapsed_ms"],
+        out["scrubber"]["revisit_ms"],
         shot.display()
     );
 }

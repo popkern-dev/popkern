@@ -43,6 +43,8 @@ export async function showServed(page, envelope, buffers) {
   page.servedText = `served: ${envelope.features} feature(s), ${modelContents(envelope)}${ms}${meshClosure(envelope)}${firstRenderNote(page)}`;
   page.status(page.servedText);
   page.certify(envelope);
+  // The history of the model now live (scrubber.js).
+  page.scrubber.load(envelope);
 }
 
 /** Show a pre-built example: the certified report, parameters and
@@ -50,6 +52,7 @@ export async function showServed(page, envelope, buffers) {
  *  model is not the one on screen until something rebuilds it). */
 export function showBake(page, bake, source) {
   page.live = false;
+  page.scrubber.reset();
   page.certifyGeneration += 1;
   const { envelope, buffers } = bake;
   page.lastGood = { envelope, buffers, bakedSource: source };

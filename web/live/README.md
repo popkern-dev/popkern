@@ -56,6 +56,7 @@ redirect pages pointing here.
 | `project-store.js` | Project stores: IndexedDB (`BrowserStore`), the in-memory fallback when storage is blocked, `ConflictError`, manifest helpers |
 | `example-store.js` | The examples as read-only projects: one-script entries and project folders from `examples.json` |
 | `projects-dialog.js` | The projects dialog: projects in this browser (open, delete, new, import) and the examples |
+| `scrubber.js` | The history scrubber: ticks per feature, migration chapters, step meshes cached by key, created-face glow, editor line and report row, play, `#step=` / `#v=` links |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |
 | `document-tab.js` | The open document: its title, file stem and edited mark; an imported STEP placeholder |
 | `gallery.js` | The default script (`default.rhai`) fetch |

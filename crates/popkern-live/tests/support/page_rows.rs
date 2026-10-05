@@ -290,3 +290,36 @@ pub fn assert_history_rows(out: &serde_json::Value) {
         serde_json::json!([["001_plate", "built", 2], ["002_pin", "built", 2]])
     );
 }
+
+/// PK-663: the history scrubber over the live boss plate.
+pub fn assert_scrubber(out: &serde_json::Value) {
+    let s = &out["scrubber"];
+    assert_eq!(s["visible"], true, "{s}");
+    assert_eq!(s["ticks"], 6, "one tick per feature: {s}");
+    assert_eq!(s["first"]["bodies"], 1, "the plate sketch: {s}");
+    assert_eq!(
+        s["first"]["line"], 3,
+        "plate sketch on line 3 of default.rhai: {s}"
+    );
+    assert_eq!(s["middle"]["bodies"], 2, "plate + the boss tool body: {s}");
+    assert!(
+        s["middle"]["glows"].as_u64().unwrap_or(0) >= 1,
+        "created faces glow: {s}"
+    );
+    assert_eq!(s["middle"]["row"], "boss_sketch", "{s}");
+    assert_eq!(s["middle"]["hash"], "#step=3", "{s}");
+    assert!(
+        s["revisit_ms"].as_f64().is_some_and(|ms| ms <= 50.0),
+        "a visited step redraws from cache within 50 ms: {s}"
+    );
+    assert_eq!(s["last"]["bodies"], 1, "{s}");
+    assert_eq!(s["last"]["scrubbed"], false, "{s}");
+    assert_eq!(s["last"]["hash"], "", "{s}");
+    assert_eq!(s["played"]["at"], 6, "play runs to the end: {s}");
+    assert_eq!(s["played"]["playing"], false, "{s}");
+    assert_eq!(s["linked"], 2, "#step=2 restores step 2: {s}");
+    assert_eq!(
+        s["camera_kept"], true,
+        "the camera never refits while scrubbing: {s}"
+    );
+}

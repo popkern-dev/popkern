@@ -24,6 +24,7 @@ import { drawModel, showBake, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
 import { renderParams } from "./params-panel.js";
 import { Projects } from "./projects.js";
+import { Scrubber } from "./scrubber.js";
 import { wireProjects } from "./projects-dialog.js";
 import { renderReport } from "./report-table.js";
 import { reportPageErrors, setStatus, showPick } from "./status-line.js";
@@ -76,6 +77,8 @@ class Page {
     // Bumped by anything that replaces the report (run, parameter
     // edit, stop): a certify loop from an older generation stops.
     this.certifyGeneration = 0;
+    // The history scrubber under the viewport (live models only).
+    this.scrubber = new Scrubber(this);
     wireControls(this);
     wireProjects(this);
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
@@ -102,6 +105,8 @@ class Page {
   }
 
   changed(text) {
+    // An edit always builds at the end of the history.
+    this.scrubber.toEnd();
     this.tab.show();
     this.projects.edited(text);
     clearTimeout(this.idleTimer);
@@ -256,6 +261,7 @@ class Page {
   async setParam(name, value) {
     if (!this.live && !(await this.ensureLive())) return { ok: false, outcome: { outcome: "gate_failure", step: "live", detail: "the live model could not be built" } };
     if (this.running) return { ok: false, outcome: { outcome: "gate_failure", step: "busy", detail: "a run is in progress" } };
+    await this.scrubber.toEnd();
     this.running = true;
     this.certifyGeneration += 1;
     this.status(`replaying with ${name} = ${value}…`);

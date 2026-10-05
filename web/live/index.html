@@ -76,11 +76,21 @@
         </select></label>
         <label class="check"><input id="edges" type="checkbox" checked> edges</label>
         <label id="explode-row" class="explode" hidden title="Pull the assembly's parts apart (view only)"><span class="tool-label">explode</span><input id="explode" type="range" min="0" max="1" step="0.01" value="0" aria-label="Explode the assembly"></label>
+        <button id="history" type="button" title="Step through the model's history (builds it live first)">History</button>
         <button id="fit" type="button" title="Fit the model to the view">Fit</button>
       </div>
     </div>
     <div class="viewer-wrap">
       <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel to zoom, right-drag or shift-drag to pan, arrow keys to orbit"></canvas>
+      <div id="scrubber" class="scrubber" hidden tabindex="0" aria-label="History: step through the features (arrow keys)">
+        <button id="scrubber-play" type="button" title="Re-watch the model being built">play</button>
+        <div class="scrubber-track">
+          <div id="scrubber-chapters" class="scrubber-chapters" hidden></div>
+          <div id="scrubber-ticks" class="scrubber-ticks"></div>
+          <input id="scrubber-range" type="range" min="1" max="1" value="1" aria-label="History step">
+        </div>
+        <span id="scrubber-label" class="scrubber-label"></span>
+      </div>
       <div id="overlay" class="overlay" hidden role="alert">
         <div class="overlay-head"><span id="overlay-class" class="overlay-class"></span><button id="overlay-goto" type="button" hidden>go to line</button></div>
         <pre id="overlay-text"></pre>

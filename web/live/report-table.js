@@ -14,6 +14,7 @@ export function renderReport(envelope, part) {
   for (const f of features) {
     const row = document.createElement("tr");
     const label = f.feature?.label ?? f.label ?? "?";
+    row.dataset.feature = label;
     const operation = f.feature?.operation ?? f.operation ?? "?";
     const outcome = typeof f.outcome === "string" ? f.outcome : Object.keys(f.outcome ?? {})[0] ?? "?";
     const elapsed = typeof f.elapsed_ms === "number" ? `${f.elapsed_ms.toFixed(1)} ms` : "";

@@ -14,6 +14,10 @@ export function wireControls(page) {
   $("time-limit").addEventListener("change", (e) => page.setTimeLimit(e.target.value === "none" ? null : Number(e.target.value)));
   $("cancel").addEventListener("click", () => page.cancel("cancelled by the user"));
   $("fit").addEventListener("click", () => page.viewer.fitAgain());
+  // History needs the live model: a pre-built one is rebuilt first.
+  $("history").addEventListener("click", async () => {
+    if (await page.ensureLive()) $("scrubber").focus();
+  });
   $("view-mode").addEventListener("change", async (e) => {
     const mode = e.target.value;
     if (mode === "zebra") await page.ensureAnalysisMesh();

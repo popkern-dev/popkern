@@ -238,6 +238,35 @@ try {
     out.screenshot = screenshotPath;
   }
 
+  // History scrubber (PK-663): first, middle and last steps of the live
+  // boss plate, a visited step redrawn from cache, play to the end, a
+  // deep link; the camera never refits while scrubbing.
+  out.scrubber = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const s = page.scrubber;
+    for (let i = 0; i < 100 && s.steps.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    const camera = () => page.viewer.camera.position.toArray().map((v) => v.toFixed(6)).join(",");
+    const before = camera();
+    const ticks = document.querySelectorAll("#scrubber-ticks .tick").length;
+    const visible = !document.getElementById("scrubber").hidden;
+    await s.go(1);
+    const first = { bodies: page.viewer.bodies.length, label: document.getElementById("scrubber-label").textContent, line: page.editor.stepLine };
+    await s.go(3);
+    const middle = { bodies: page.viewer.bodies.length, glows: page.viewer.glows.length, row: document.querySelector("#report tr.step-current")?.dataset.feature ?? null, hash: location.hash };
+    await s.go(5);
+    const revisit = await s.go(3);
+    await s.go(s.steps.length);
+    const last = { bodies: page.viewer.bodies.length, scrubbed: s.scrubbed, hash: location.hash };
+    s.play();
+    for (let i = 0; i < 200 && s.playing; i++) await new Promise((r) => setTimeout(r, 50));
+    const played = { at: s.at, playing: Boolean(s.playing) };
+    location.hash = "step=2";
+    await s.load(page.lastGood.envelope);
+    const linked = s.at;
+    await s.go(s.steps.length);
+    return { visible, ticks, first, middle, revisit_ms: revisit, last, played, linked, camera_kept: camera() === before };
+  })()`);
+
   // A parameter edit through the page's own path.
   const edited = await evaluate(`window.popkernLive.setParam("extrude-1.distance", 0.5).then((r) => ({ outcome: r.envelope?.outcome ?? r.outcome?.outcome, value: r.envelope?.params?.find((p) => p.name === "extrude-1.distance")?.value ?? null }))`);
   out.set_param = edited;

@@ -17,6 +17,9 @@ import { ZEBRA_FRAGMENT, ZEBRA_VERTEX, divergingColor, faceColor, robustHalfRang
 const CAD_FACE = 0xb4b8be;
 const CAD_EDGE = 0x000000;
 const HOVER = 0x3b82f6;
+// History scrubber: the faces a step created glow, then settle.
+const GLOW = 0xf59e0b;
+const GLOW_MS = 1200;
 // Pointer slack for edge hover and pick, and the hovered edge's
 // width, in CSS pixels.
 const EDGE_PICK_PX = 5;
@@ -114,6 +117,7 @@ export class Viewer {
     const buffers =
       this.mode === "zebra" && this.analysis?.length === bodies.length ? this.analysis : displayBuffers;
     this.group.clear();
+    this.glows = [];
     this.bodies = [];
     this.edgeLines = [];
     this.highlight = null;
@@ -364,6 +368,52 @@ export class Viewer {
     if (this.highlight) this.group.add(this.highlight);
     this.canvas.style.cursor = hit ? "pointer" : "";
     this.render();
+  }
+
+  /** Glow the faces a history step created and fade them out:
+   *  `created` maps a drawn body index to its face indices. */
+  glowFaces(created) {
+    for (const glow of this.glows ?? []) this.group.remove(glow);
+    this.glows = [];
+    cancelAnimationFrame(this.glowFrame);
+    for (const mesh of this.bodies) {
+      const faces = created.get(mesh.userData.index);
+      if (!faces?.size) continue;
+      const { faceIds } = mesh.userData;
+      const index = mesh.geometry.index.array;
+      const picked = [];
+      for (let t = 0; t < faceIds.length; t++) {
+        if (faces.has(faceIds[t])) picked.push(index[t * 3], index[t * 3 + 1], index[t * 3 + 2]);
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", mesh.geometry.getAttribute("position"));
+      geometry.setAttribute("normal", mesh.geometry.getAttribute("normal"));
+      geometry.setIndex(picked);
+      const material = new THREE.MeshStandardMaterial({
+        color: GLOW,
+        emissive: GLOW,
+        emissiveIntensity: 0.35,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        polygonOffset: true,
+        polygonOffsetFactor: HOVER_OFFSET,
+        polygonOffsetUnits: HOVER_OFFSET,
+      });
+      const glow = new THREE.Mesh(geometry, material);
+      if (!mesh.matrixAutoUpdate) placeAt(glow, mesh.matrix);
+      this.group.add(glow);
+      this.glows.push(glow);
+    }
+    if (!this.glows.length) return this.render();
+    const started = performance.now();
+    const fade = () => {
+      const t = Math.min(1, (performance.now() - started) / GLOW_MS);
+      for (const glow of this.glows) glow.material.opacity = 0.85 * (1 - t) + 0.25 * t;
+      this.render();
+      if (t < 1) this.glowFrame = requestAnimationFrame(fade);
+    };
+    fade();
   }
 
   /** The triangles of `face` on `mesh`, over the mesh's own vertices. */

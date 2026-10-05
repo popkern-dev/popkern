@@ -89,6 +89,18 @@ export class Editor {
     this.root.classList.toggle("editor-readonly", value);
   }
 
+  /** Mark the history scrubber's step line (1-based); `null` clears.
+   *  Scrolls it into view without moving the caret. */
+  markStep(line) {
+    this.stepLine = line;
+    this.refresh();
+    if (line != null) {
+      const height = this.textarea.scrollHeight / Math.max(1, this.value.split("\n").length);
+      this.textarea.scrollTop = Math.max(0, (line - 4) * height);
+      this.sync();
+    }
+  }
+
   /** Mark a 1-based line (an error position); `null` clears. */
   mark(line) {
     this.markedLine = line;
@@ -108,7 +120,7 @@ export class Editor {
   refresh() {
     const lines = this.value.split("\n");
     this.mirror.innerHTML = lines
-      .map((l, i) => `<div class="editor-line${this.markedLine === i + 1 ? " editor-line-error" : ""}">${highlight(l)}</div>`)
+      .map((l, i) => `<div class="editor-line${this.markedLine === i + 1 ? " editor-line-error" : ""}${this.stepLine === i + 1 ? " editor-line-step" : ""}">${highlight(l)}</div>`)
       .join("");
     this.gutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join("");
     this.sync();

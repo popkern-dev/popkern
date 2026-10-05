@@ -188,3 +188,21 @@ body.busy .statusbar { background: #1d3157; border-top-color: var(--accent-stron
 .project-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .project-text .muted { font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.danger:hover { border-color: #c45b5b; color: #f0a0a0; }
+
+/* History scrubber (PK-663): a strip along the bottom of the viewport. */
+.scrubber { position: absolute; left: 0.75rem; right: 0.75rem; bottom: 0.6rem; display: flex; gap: 0.6rem; align-items: center; padding: 0.35rem 0.6rem; background: rgba(15, 17, 21, 0.86); border: 1px solid var(--line); border-radius: 6px; }
+.scrubber:focus { outline: 1px solid var(--accent); }
+.scrubber-track { position: relative; flex: 1; height: 2.1rem; }
+.scrubber-track input[type="range"] { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; margin: 0; }
+.scrubber-ticks { position: absolute; left: 0.45rem; right: 0.45rem; top: 0.95rem; height: 0.5rem; }
+.scrubber-ticks .tick { position: absolute; width: 2px; height: 0.55rem; background: var(--muted); transform: translateX(-1px); }
+.scrubber-ticks .tick.minor { height: 0.3rem; opacity: 0.6; }
+.scrubber-ticks .tick.named { background: var(--accent); }
+.scrubber-ticks .tick.failed { background: #e06c6c; }
+.scrubber-ticks .tick.suppressed { opacity: 0.25; }
+.scrubber-chapters { position: absolute; left: 0.45rem; right: 0.45rem; top: 0; height: 0.9rem; }
+.scrubber-chapters .chapter { position: absolute; padding: 0 0.3rem; font-size: 0.7rem; line-height: 0.9rem; border-left: 2px solid var(--accent); background: none; border-radius: 0; color: var(--muted); }
+.scrubber-label { min-width: 14em; color: var(--muted); font-size: 0.85em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.editor-line-step { background: rgba(245, 158, 11, 0.16); }
+.report tr.step-current td { background: rgba(245, 158, 11, 0.16); }
+body.scrubbed .pane-viewer .pane-title::after { content: " · history (read only)"; color: var(--warn); }
