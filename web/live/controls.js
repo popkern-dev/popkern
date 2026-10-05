@@ -1,12 +1,12 @@
 // The page's controls wired to the page controller: the top bar
-// (build, time limit, stop, examples, reset, open STEP, downloads,
-// show-as-code), the viewer bar (fit, view mode, edges, explode,
+// (build, time limit, stop, open STEP, downloads, show-as-code; the
+// projects controls are wired in projects-dialog.js), the viewer bar (fit, view mode, edges, explode,
 // clearance), the draft notice and the dialogs.
-import { dismissDraft, openExample, resetToDefault, restoreDraft } from "./drafts.js";
+import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
 
 const $ = (id) => document.getElementById(id);
-const DIALOGS = ["about-dialog", "code-dialog"];
+const DIALOGS = ["about-dialog", "code-dialog", "projects-dialog"];
 
 /** Wire every control to `page` (the Page in app.js). */
 export function wireControls(page) {
@@ -33,12 +33,13 @@ export function wireControls(page) {
   $("show-code").addEventListener("click", () => showModelCode(page));
   $("code-close").addEventListener("click", () => ($("code-dialog").hidden = true));
   $("code-use").addEventListener("click", () => {
+    if (page.editor.readOnly) return;
     page.editor.value = $("code-text").textContent;
     page.tab.show();
+    page.projects.edited(page.editor.value);
     $("code-dialog").hidden = true;
     page.run();
   });
-  $("examples").addEventListener("change", (e) => openExample(page, e.target.value));
   $("draft-restore").addEventListener("click", () => restoreDraft(page));
   $("about").addEventListener("click", () => ($("about-dialog").hidden = false));
   $("about-close").addEventListener("click", () => ($("about-dialog").hidden = true));
@@ -52,5 +53,4 @@ export function wireControls(page) {
     if (e.key === "Escape") for (const dialog of DIALOGS) $(dialog).hidden = true;
   });
   $("draft-dismiss").addEventListener("click", () => dismissDraft());
-  $("reset").addEventListener("click", () => resetToDefault(page));
 }

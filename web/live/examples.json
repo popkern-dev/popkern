@@ -183,6 +183,19 @@
       "file": "angled_fitting.rhai",
       "thumbnail": "examples/angled_fitting.png",
       "title": "Angled fitting"
+    },
+    {
+      "blurb": "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
+      "demonstrates": "projects, previous(), migrations",
+      "features": 6,
+      "files": [
+        "popkern.toml",
+        "migrations/001_plate.rhai",
+        "migrations/002_boss.rhai",
+        "migrations/003_rounds.rhai"
+      ],
+      "project": "boss_plate_in_steps",
+      "title": "Boss plate in three steps"
     }
   ]
 }

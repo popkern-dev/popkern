@@ -79,6 +79,16 @@ export class Editor {
     this.refresh();
   }
 
+  /** Whether typing is refused (a read-only example). */
+  get readOnly() {
+    return this.textarea.readOnly;
+  }
+
+  set readOnly(value) {
+    this.textarea.readOnly = value;
+    this.root.classList.toggle("editor-readonly", value);
+  }
+
   /** Mark a 1-based line (an error position); `null` clears. */
   mark(line) {
     this.markedLine = line;

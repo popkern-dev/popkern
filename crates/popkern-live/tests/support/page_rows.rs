@@ -61,6 +61,30 @@ pub fn assert_time_limit_and_bakes(out: &Value) {
         assert_eq!(returning["editor_is_default"], true, "{returning}");
         assert_eq!(returning["editor_restored"], true, "{returning}");
         assert_eq!(returning["notice_after"], false, "{returning}");
+        assert_eq!(returning["scratch_open"], true, "{returning}");
+        // PK-662: a read-only example, its editable copy, a conflict.
+        assert_eq!(prebuilt["read_only"], true, "{prebuilt}");
+        let copy = &out["copy_to_edit"];
+        assert_eq!(copy["copy_editable"], true, "{copy}");
+        assert_eq!(copy["copy_saved"], true, "{copy}");
+        assert_eq!(copy["example_unchanged"], true, "{copy}");
+        let project = &out["project_example"];
+        assert_eq!(project["outcome"], "served", "{project}");
+        assert_eq!(project["features"], 6, "{project}");
+        assert_eq!(
+            project["versions"],
+            serde_json::json!(["001_plate", "002_boss", "003_rounds"]),
+            "{project}"
+        );
+        assert_eq!(project["read_only"], true, "{project}");
+        let conflict = &out["conflict"];
+        assert_eq!(conflict["bar"], true, "{conflict}");
+        assert_eq!(
+            conflict["theirs_kept"], true,
+            "nothing overwritten: {conflict}"
+        );
+        assert_eq!(conflict["loaded_theirs"], true, "{conflict}");
+        assert_eq!(conflict["bar_after"], false, "{conflict}");
         let cheap = &out["prebuilt_cheap"];
         assert_eq!(cheap["made_live"], true, "{cheap}");
         assert!(

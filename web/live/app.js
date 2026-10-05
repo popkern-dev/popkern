@@ -18,11 +18,13 @@ import { DocumentTab } from "./document-tab.js";
 import * as drafts from "./drafts.js";
 import { Editor } from "./editor.js";
 import { downloadModel, showModelCode } from "./exports.js";
-import { fetchDefaultScript, loadGallery } from "./gallery.js";
-import { adoptPlaygroundKeys, writeDraft } from "./local-store.js";
+import { fetchDefaultScript } from "./gallery.js";
+import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
 import { renderParams } from "./params-panel.js";
+import { Projects } from "./projects.js";
+import { wireProjects } from "./projects-dialog.js";
 import { renderReport } from "./report-table.js";
 import { reportPageErrors, setStatus, showPick } from "./status-line.js";
 import { openStepAssembly } from "./step-import.js";
@@ -64,6 +66,9 @@ class Page {
       onRun: () => this.run(),
     });
     this.tab = new DocumentTab(this.editor);
+    // The open project (projects.js): autosaved in this browser.
+    this.projects = new Projects(this);
+    this.projectsReady = this.projects.init();
     this.idleTimer = null;
     this.cancelTimer = null;
     this.lastGood = null;
@@ -72,8 +77,8 @@ class Page {
     // edit, stop): a certify loop from an older generation stops.
     this.certifyGeneration = 0;
     wireControls(this);
+    wireProjects(this);
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
-    this.examplesReady = loadGallery();
     this.status("loading the kernel…");
     drafts.openFirstScript(this);
     this.host
@@ -97,8 +102,8 @@ class Page {
   }
 
   changed(text) {
-    writeDraft(text);
     this.tab.show();
+    this.projects.edited(text);
     clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.run(), IDLE_RUN_MS);
   }
@@ -144,7 +149,10 @@ class Page {
     if (this.timeLimit != null) {
       this.cancelTimer = setTimeout(() => this.cancel(`no answer within the ${describeLimit(this.timeLimit)} time limit: the worker was stopped`), this.timeLimit * 1000);
     }
-    const reply = await this.host.run(source, "script.rhai");
+    const request = this.projects.buildRequest(source);
+    const reply = request?.kind === "project"
+      ? await this.host.request({ type: "run_project", files: request.files })
+      : await this.host.run(source, request?.name ?? "script.rhai");
     clearTimeout(this.cancelTimer);
     clearInterval(this.clockTimer);
     this.running = false;
@@ -277,6 +285,7 @@ class Page {
   showDraftNotice() { drafts.showDraftNotice(); }
   restoreDraft() { drafts.restoreDraft(this); }
   loadExample(file) { return drafts.openExample(this, file); }
+  copyToEdit() { return this.projects.copyToEdit(); }
 }
 
 reportPageErrors();

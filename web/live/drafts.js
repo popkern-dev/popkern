@@ -1,68 +1,75 @@
-// Which document the page opens, and the draft behind it. A refresh
-// reopens the working draft; a visit opens on something pre-built so it
-// never waits on the kernel, holding an edited script from last time
-// aside with a notice offering to restore it. Choosing an example or
-// resetting replaces the draft.
-import { DEFAULT_TITLE, UNTITLED } from "./document-tab.js";
-import { fetchExample } from "./gallery.js";
-import { clearSavedDraft, readDraft, readSavedDraft, writeDraft, writeSavedDraft } from "./local-store.js";
+// Which project the page opens (live-projects-and-history.md §12). A
+// visitor types into the Scratch project, saved in this browser. A
+// fresh visit opens Scratch when it is still pre-built (the default, or
+// an example it was set to) so nothing waits on the kernel; a Scratch
+// with edits from last time stays in the store while the page opens on
+// the pre-built default, with a notice offering it back. The draft
+// kept by pages before projects existed seeds Scratch once.
+import { DEFAULT_TITLE } from "./document-tab.js";
+import { clearLegacyDrafts, readLegacyDraft } from "./local-store.js";
+import { migrationPaths, singleScriptProject } from "./project-store.js";
+import { SCRATCH } from "./projects.js";
 
 const $ = (id) => document.getElementById(id);
 
-/** The page opens on something pre-built: the last script when it has
- *  a bake (the default or an example), else the default — and an
- *  edited script from last time is held aside. */
+/** The default script as a read-only project. */
+function defaultProject(source) {
+  return {
+    id: "example:default",
+    name: DEFAULT_TITLE,
+    files: singleScriptProject(DEFAULT_TITLE, "boss_plate", source),
+    revision: 0,
+    readOnly: true,
+  };
+}
+
+/** Open the first project of a visit. */
 export async function openFirstScript(page) {
-  const draft = readDraft();
+  const projects = await page.projectsReady;
   const fallback = await page.defaultScript();
-  const prebuilt = draft ? await page.bakes.find(draft) : null;
-  if (draft && !prebuilt && draft !== fallback) writeSavedDraft(draft);
-  const name = prebuilt ? await page.bakes.nameOf(draft) : null;
-  const titles = await page.examplesReady;
-  page.tab.open(titles?.get(name) ?? DEFAULT_TITLE, prebuilt ? draft : fallback);
-  showDraftNotice();
-  page.run();
+  const legacy = readLegacyDraft();
+  let scratch = await projects.scratch(legacy ?? fallback);
+  if (legacy != null) {
+    // The pre-project draft fills an unedited Scratch, else becomes a
+    // project of its own — never silently dropped.
+    const path = migrationPaths(scratch.files).at(-1);
+    if (scratch.files[path] === fallback && legacy !== fallback) {
+      scratch = await projects.store.save(SCRATCH, { ...scratch.files, [path]: legacy }, scratch.revision);
+    } else if (scratch.files[path] !== legacy) {
+      await projects.store.create("Recovered draft", singleScriptProject("Recovered draft", "draft", legacy));
+    }
+    // Forget the pre-project keys (unless storage forgets everything
+    // anyway; then they seed the next visit too).
+    if (projects.store.persistent) clearLegacyDrafts();
+  }
+  const source = scratch.files[migrationPaths(scratch.files).at(-1)] ?? "";
+  if (source === fallback || (await page.bakes.find(source))) {
+    $("draft-notice").hidden = true;
+    await projects.open(scratch);
+    return;
+  }
+  $("draft-notice").hidden = false;
+  await projects.open(defaultProject(fallback));
 }
 
-/** Show the restore notice while a held-aside script exists. */
+/** Show the notice while Scratch waits to be reopened. */
 export function showDraftNotice() {
-  $("draft-notice").hidden = !readSavedDraft();
+  return !$("draft-notice").hidden;
 }
 
-/** Put the held-aside script back as the working draft and build it. */
-export function restoreDraft(page) {
-  const saved = readSavedDraft();
-  clearSavedDraft();
-  showDraftNotice();
-  if (!saved) return;
-  page.tab.open(UNTITLED, saved);
-  writeDraft(saved);
-  page.viewer.fitted = false;
-  page.run();
+/** Open Scratch with its edits and build it. */
+export async function restoreDraft(page) {
+  $("draft-notice").hidden = true;
+  await page.projects.openStored(SCRATCH);
 }
 
-/** Forget the held-aside script. */
+/** Hide the notice (Scratch is kept; the projects dialog opens it). */
 export function dismissDraft() {
-  clearSavedDraft();
-  showDraftNotice();
+  $("draft-notice").hidden = true;
 }
 
-/** Back to the default script, remembered as the draft. */
-export async function resetToDefault(page) {
-  page.tab.open(DEFAULT_TITLE, await page.defaultScript());
-  writeDraft(page.editor.value);
-  page.run();
-}
-
-/** Open a gallery example (`file` in examples/) under its title. */
+/** Open a gallery example (`file` in examples/) read-only. */
 export async function openExample(page, file) {
   if (!file) return;
-  const text = await fetchExample(file);
-  if (text == null) return;
-  const titles = await page.examplesReady;
-  page.tab.open(titles?.get(file) ?? file.replace(/\.rhai$/, ""), text);
-  // A refresh reopens the chosen example (pre-built, so instant).
-  writeDraft(page.editor.value);
-  page.viewer.fitted = false;
-  page.run();
+  await page.projects.openExample(file);
 }

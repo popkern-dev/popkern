@@ -27,8 +27,8 @@
       <label class="time-limit" title="How long a build may run before it is stopped. Remembered in this browser."><span class="tool-label">limit</span><select id="time-limit" aria-label="Build time limit"></select></label>
     </div>
     <div class="tool-group">
-      <label id="examples-row" hidden><span class="tool-label">open</span><select id="examples" aria-label="Open an example"><option value="">example…</option></select></label>
-      <button id="reset" type="button" title="Restore the default document">Reset</button>
+      <button id="projects-open" type="button" title="Your projects in this browser, and the examples">Projects…</button>
+      <button id="export-zip" type="button" title="Download the project folder as a .zip">Export project</button>
       <button id="open-step" type="button" title="Open a STEP file as a view-only assembly (it stays in this tab)">Open STEP…</button>
       <input id="open-step-file" type="file" accept=".step,.stp,.STEP,.STP" hidden>
     </div>
@@ -47,9 +47,18 @@
   <section class="pane pane-editor" aria-label="Script">
     <div class="pane-head"><span id="doc-name" class="pane-tab">document.rhai</span><span class="pane-hint">Ctrl/Cmd+Enter builds</span></div>
     <div id="draft-notice" class="draft-notice" hidden role="status">
-      <span>Your edited script from last time is saved.</span>
-      <button id="draft-restore" type="button" title="Put it back in the editor and build it">Restore</button>
-      <button id="draft-dismiss" type="button" title="Forget it">Dismiss</button>
+      <span>Your Scratch project has edits from last time.</span>
+      <button id="draft-restore" type="button" title="Open Scratch and build it">Open it</button>
+      <button id="draft-dismiss" type="button" title="Keep it for later (Projects… opens it)">Later</button>
+    </div>
+    <div id="readonly-bar" class="draft-notice" hidden role="status">
+      <span>An example: read only.</span>
+      <button id="copy-to-edit" type="button" title="Copy it into your projects and edit the copy">Make a copy to edit</button>
+    </div>
+    <div id="conflict-bar" class="draft-notice conflict" hidden role="alert">
+      <span id="conflict-text">This project changed in another tab.</span>
+      <button id="conflict-theirs" type="button" title="Show the other tab's version (your edits here are dropped)">Load theirs</button>
+      <button id="conflict-mine" type="button" title="Save this tab's version over the other one">Keep mine</button>
     </div>
     <div id="editor"></div>
   </section>
@@ -102,12 +111,25 @@
 <footer class="statusbar">
   <span id="status" class="status" role="status" aria-live="polite">starting…</span>
   <span id="pick" class="pick">click a face or edge to see its stable name</span>
+  <span id="storage-note" class="status-item" hidden title="This browser blocks site storage (a private window?): projects are kept only until the page closes. Export a project to keep it.">not saved</span>
   <span class="status-item" title="Everything runs in this tab: your script and your model never leave the browser, nothing is uploaded, and no analytics are loaded.">local only</span>
 </footer>
 <div id="code-dialog" class="dialog" hidden role="dialog" aria-label="Document as code">
   <div class="dialog-box">
     <div class="dialog-head"><strong>document as canonical Rhai</strong><span><button id="code-use" type="button">use as script</button> <button id="code-close" type="button">close</button></span></div>
     <pre id="code-text"></pre>
+  </div>
+</div>
+<div id="projects-dialog" class="dialog" hidden role="dialog" aria-label="Projects">
+  <div class="dialog-box">
+    <div class="dialog-head"><strong>projects</strong><span><button id="project-new" type="button">new project</button> <button id="project-import" type="button" title="Import a project folder exported as a .zip">import .zip…</button> <button id="projects-close" type="button">close</button></span></div>
+    <input id="project-import-file" type="file" accept=".zip,application/zip" hidden>
+    <div class="dialog-body">
+      <h2>In this browser</h2>
+      <ul id="projects-list" class="project-list"></ul>
+      <h2>Examples</h2>
+      <ul id="examples-list" class="project-list"></ul>
+    </div>
   </div>
 </div>
 <div id="about-dialog" class="dialog" hidden role="dialog" aria-label="About popkern live">

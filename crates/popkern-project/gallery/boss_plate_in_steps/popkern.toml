@@ -1,0 +1,5 @@
+# The boss plate built as a project: three migrations, each starting
+# from the document the earlier ones left.
+[project]
+name = "Boss plate in three steps"
+format = 1

@@ -20,6 +20,11 @@ export async function openStepAssembly(page, fileName, bytes) {
   if (reply.ok && reply.envelope?.outcome === "served") {
     // The editor shows a placeholder the run path recognises (and
     // declines to build) until the user picks or writes a script.
+    // Not a project: edits to the placeholder are not saved anywhere.
+    await page.projects.flush();
+    page.projects.current = null;
+    page.editor.readOnly = false;
+    document.getElementById("readonly-bar").hidden = true;
     page.tab.importedSource = `// ${fileName}: an imported STEP assembly — view only (no script).\n// Pick an example or write a script to build.\n`;
     page.tab.open(stem, page.tab.importedSource);
     page.viewer.fitted = false;

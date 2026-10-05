@@ -1,6 +1,7 @@
-// What the page remembers in this browser: the working draft, an
-// edited script held aside from an earlier visit, and the build time
-// limit. Everything lives in `localStorage` on this origin (design §7:
+// What the page keeps in localStorage: the build time limit, and the
+// draft keys pages used before projects existed (read once to seed the
+// Scratch project; projects themselves live in IndexedDB,
+// project-store.js). Everything lives in `localStorage` on this origin (design §7:
 // nothing leaves the tab), and every access is guarded — a browser
 // that blocks storage (private mode, a sandboxed frame) gets a page
 // that simply forgets.
@@ -36,29 +37,19 @@ export function adoptPlaygroundKeys() {
   });
 }
 
-/** The working draft (the script a refresh reopens), or null. */
-export function readDraft() {
-  return storage((s) => s.getItem(DRAFT_KEY));
+/** The script pages kept before projects existed (the held-aside
+ *  edited script, else the working draft), or null. It seeds the
+ *  Scratch project once. */
+export function readLegacyDraft() {
+  return storage((s) => s.getItem(SAVED_DRAFT_KEY) ?? s.getItem(DRAFT_KEY));
 }
 
-/** Remember `text` as the working draft. */
-export function writeDraft(text) {
-  storage((s) => s.setItem(DRAFT_KEY, text));
-}
-
-/** The edited script held aside from an earlier visit, or null. */
-export function readSavedDraft() {
-  return storage((s) => s.getItem(SAVED_DRAFT_KEY));
-}
-
-/** Hold `text` aside as the edited script a restore puts back. */
-export function writeSavedDraft(text) {
-  storage((s) => s.setItem(SAVED_DRAFT_KEY, text));
-}
-
-/** Forget the held-aside script. */
-export function clearSavedDraft() {
-  storage((s) => s.removeItem(SAVED_DRAFT_KEY));
+/** Forget the pre-project draft keys (adopted into Scratch). */
+export function clearLegacyDrafts() {
+  storage((s) => {
+    s.removeItem(DRAFT_KEY);
+    s.removeItem(SAVED_DRAFT_KEY);
+  });
 }
 
 /** The stored time-limit choice: "none", a number of seconds as text,

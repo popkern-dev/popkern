@@ -260,7 +260,10 @@ fn wasm_bundle_serves_every_gallery_script() {
     let entries = manifest["examples"].as_array().expect("examples");
     assert!(entries.len() >= 8);
     for entry in entries {
-        let file = entry["file"].as_str().expect("file");
+        // Project examples build through run_project (project_parity.rs).
+        let Some(file) = entry["file"].as_str() else {
+            continue;
+        };
         let script = root().join("crates/popkern-rhai/examples").join(file);
         let out = smoke(&pkg, &script, None, None);
         assert_eq!(out["outcome"], "served", "[{file}] {out}");

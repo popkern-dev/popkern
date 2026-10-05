@@ -207,6 +207,75 @@ const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     ),
 ];
 
+/// Project examples (live-projects-and-history.md §12): folder name in
+/// crates/popkern-project/gallery, title, blurb, expected feature count,
+/// and what it demonstrates. The page lists them beside the scripts and
+/// builds them with `run_project`.
+const GALLERY_PROJECTS: &[(&str, &str, &str, usize, &str)] = &[(
+    "boss_plate_in_steps",
+    "Boss plate in three steps",
+    "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
+    6,
+    "projects, previous(), migrations",
+)];
+
+fn project_gallery_dir() -> PathBuf {
+    root().join("crates/popkern-project/gallery")
+}
+
+/// The files of project folder `dir`, project-relative, sorted.
+fn project_files(dir: &Path) -> Vec<String> {
+    let mut out = vec!["popkern.toml".to_string()];
+    let mut migrations: Vec<String> = std::fs::read_dir(dir.join("migrations"))
+        .expect("migrations")
+        .filter_map(|e| {
+            e.ok()?
+                .file_name()
+                .to_str()
+                .map(|n| format!("migrations/{n}"))
+        })
+        .collect();
+    migrations.sort();
+    out.extend(migrations);
+    out
+}
+
+/// Build every project example; its manifest entry.
+fn project_entries() -> Vec<Value> {
+    let mut entries = Vec::new();
+    for (dir, title, blurb, features, demonstrates) in GALLERY_PROJECTS {
+        let folder = project_gallery_dir().join(dir);
+        let files: Vec<(String, Vec<u8>)> = project_files(&folder)
+            .into_iter()
+            .map(|p| {
+                let bytes = std::fs::read(folder.join(&p)).expect("project file");
+                (p, bytes)
+            })
+            .collect();
+        let mut session = Session::new(HostOptions::default());
+        let envelope = session.run_project(files.clone());
+        assert!(
+            envelope.outcome.is_served(),
+            "[{dir}] {:?}",
+            envelope.outcome
+        );
+        assert_eq!(envelope.features, *features, "[{dir}] feature count");
+        assert!(
+            envelope.bodies.iter().all(|b| b.open_edges == 0),
+            "[{dir}] watertight"
+        );
+        entries.push(json!({
+            "project": dir,
+            "files": files.iter().map(|(p, _)| p).collect::<Vec<_>>(),
+            "title": title,
+            "blurb": blurb,
+            "features": features,
+            "demonstrates": demonstrates,
+        }));
+    }
+    entries
+}
+
 /// f32 buffer rounding on unit normals: ~1e-7 rad per component.
 const FACET_SPREAD_SLACK: f64 = 1.0e-4;
 
@@ -353,6 +422,7 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
             "thumbnail": format!("examples/{stem}.png"),
         }));
     }
+    entries.extend(project_entries());
     // The manifest and the script copies the page serves.
     let manifest = json!({ "examples": entries });
     let manifest_text = format!(
@@ -370,6 +440,13 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
                 copies.join(format!("{stem}.rhai")),
             )
             .expect("copy");
+        }
+        for (dir, ..) in GALLERY_PROJECTS {
+            for path in project_files(&project_gallery_dir().join(dir)) {
+                let target = copies.join(dir).join(&path);
+                std::fs::create_dir_all(target.parent().expect("parent")).expect("dir");
+                std::fs::copy(project_gallery_dir().join(dir).join(&path), target).expect("copy");
+            }
         }
         return;
     }
@@ -392,8 +469,18 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
             "[{stem}] thumbnail missing: run with POPKERN_UPDATE_GALLERY=1"
         );
     }
+    for (dir, ..) in GALLERY_PROJECTS {
+        for path in project_files(&project_gallery_dir().join(dir)) {
+            let source = std::fs::read(project_gallery_dir().join(dir).join(&path)).expect("read");
+            let copy = std::fs::read(copies.join(dir).join(&path)).unwrap_or_default();
+            assert_eq!(
+                source, copy,
+                "[{dir}/{path}] web/live/examples copy drifted: run with POPKERN_UPDATE_GALLERY=1"
+            );
+        }
+    }
     assert_eq!(
         committed["examples"].as_array().map(Vec::len),
-        Some(GALLERY.len())
+        Some(GALLERY.len() + GALLERY_PROJECTS.len())
     );
 }

@@ -163,6 +163,7 @@ check "v/$STAMP/pkg/popkern_live_bg.wasm" "application/wasm"
 check "v/$STAMP/pkg/popkern_live.js" "text/javascript"
 check "v/$STAMP/examples.json" "application/json"
 check "v/$STAMP/examples/boss_plate.rhai" ""
+check "v/$STAMP/examples/boss_plate_in_steps/migrations/001_plate.rhai" ""
 check "v/$STAMP/guide.html" "text/html"
 
 # The root entry pages must reference the version that was just deployed.

@@ -39,12 +39,7 @@ export class Bakes {
     }
   }
 
-  /** The gallery file name a script text was baked from (index
-   *  lookup by key only: a label, never trusted for content). */
-  async nameOf(source) {
-    await this.ready;
-    return this.entries.get(sourceKey(source))?.file ?? null;
-  }
+
 
   /** The bake of exactly `source`: `{ envelope, buffers, native }`,
    *  or null when there is none (or it cannot be read). */

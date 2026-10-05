@@ -312,17 +312,56 @@ try {
     const choose = async (file) => {
       const before = await statusText();
       const started = Date.now();
-      await evaluate(`(() => { const s = document.getElementById("examples"); s.value = "${file}"; s.dispatchEvent(new Event("change")); })()`);
+      await evaluate(`window.popkernLive.loadExample("${file}")`);
       const status = await waitFor(`(() => { const s = document.getElementById("status").textContent; return s.startsWith("served (pre-built)") && s !== ${JSON.stringify(before)} ? s : null; })()`, 30000, `the ${file} example`);
       return { status, wall_ms: Date.now() - started, live: await evaluate(`window.popkernLive.live`) };
     };
     out.prebuilt = await choose("pyramid_apex.rhai");
     out.prebuilt.report_text = await evaluate(`[...document.querySelectorAll("#report tr")].map((r) => r.textContent.trim()).join(" | ")`);
     out.prebuilt.bodies_on_screen = await evaluate(`window.popkernLive.viewer.bodies.length`);
+    out.prebuilt.read_only = await evaluate(`window.popkernLive.editor.readOnly && !document.getElementById("readonly-bar").hidden`);
     out.prebuilt_cheap = await choose("revolved_knob.rhai");
     out.prebuilt_cheap.made_live = await evaluate(`window.popkernLive.ensureLive()`);
     out.prebuilt_cheap.status_after_live = await statusText();
+
+    // Projects (PK-662): copy the read-only example to edit it; the
+    // copy saves in this browser and the example stays as it was.
+    out.copy_to_edit = await evaluate(`(async () => {
+      const page = window.popkernLive;
+      const example = page.editor.value;
+      await page.copyToEdit();
+      const copy = page.projects.current;
+      page.editor.textarea.value = "// my edit\\n" + example;
+      page.editor.textarea.dispatchEvent(new Event("input"));
+      await page.projects.flush();
+      const stored = await page.projects.store.get(copy.id);
+      const path = copy.path;
+      await page.loadExample("revolved_knob.rhai");
+      return {
+        copy_editable: !copy.readOnly,
+        copy_saved: stored.files[path].startsWith("// my edit"),
+        example_unchanged: page.editor.value === example && page.editor.readOnly,
+        projects: (await page.projects.store.list()).length,
+      };
+    })()`);
   }
+
+  // A project example (three migrations) builds through run_project.
+  out.project_example = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    await page.projects.openExample("boss_plate_in_steps");
+    await page.runDone;
+    const reply = await page.run({ live: true });
+    return {
+      outcome: reply?.envelope?.outcome ?? null,
+      features: reply?.envelope?.features ?? null,
+      versions: (reply?.envelope?.project?.versions ?? []).map((v) => v.name),
+      read_only: page.editor.readOnly,
+      tab: document.getElementById("doc-name").textContent,
+    };
+  })()`);
+  // Later rows build one script: back to Scratch.
+  await evaluate(`window.popkernLive.projects.openStored("scratch").then(() => window.popkernLive.runDone)`);
 
   // The time limit: presets up to none, remembered, applied to the
   // worker's budgets.
@@ -454,6 +493,23 @@ try {
     out.returning.restored = await waitFor(`(() => { const s = document.getElementById("status").textContent; return /^served: /.test(s) ? s : null; })()`, 60000, "the restored draft");
     out.returning.editor_restored = await evaluate(`window.popkernLive.editor.value.startsWith("// edited last time")`);
     out.returning.notice_after = await evaluate(`!document.getElementById("draft-notice").hidden`);
+    out.returning.scratch_open = await evaluate(`window.popkernLive.projects.current?.id === "scratch"`);
+
+    // Another tab saves Scratch first: this tab's next save is refused
+    // and the conflict bar offers both versions; nothing is overwritten.
+    out.conflict = await evaluate(`(async () => {
+      const page = window.popkernLive;
+      const p = page.projects.current;
+      await page.projects.store.save(p.id, { ...p.files, [p.path]: "// the other tab\\n" + p.files[p.path] }, p.revision);
+      page.editor.textarea.value = "// this tab\\n" + page.editor.value;
+      page.editor.textarea.dispatchEvent(new Event("input"));
+      await page.projects.flush();
+      const bar = !document.getElementById("conflict-bar").hidden;
+      const stored = await page.projects.store.get(p.id);
+      const theirsKept = stored.files[p.path].startsWith("// the other tab");
+      await page.projects.loadTheirs();
+      return { bar, theirs_kept: theirsKept, loaded_theirs: page.editor.value.startsWith("// the other tab"), bar_after: !document.getElementById("conflict-bar").hidden };
+    })()`);
   }
 
   if (process.env.POPKERN_LAUNCH === "1") {
