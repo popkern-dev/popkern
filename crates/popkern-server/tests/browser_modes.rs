@@ -55,6 +55,8 @@ fn harness(compute: Compute) -> Option<Value> {
             String::from_utf8_lossy(&output.stderr)
         )
     });
+    // A harness that stopped early says why before anything else.
+    assert!(out["error"].is_null(), "harness error: {}", out["error"]);
     // Projects the page made live in the server's folder.
     assert!(
         projects.join("scratch/popkern.toml").is_file(),
