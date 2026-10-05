@@ -100,6 +100,12 @@ unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
 [[licenses.exceptions]]
+crate = "popkern-assembly"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-fastener"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
 crate = "popkern-script"
 allow = ["AGPL-3.0-only"]
 [[licenses.exceptions]]
@@ -107,6 +113,9 @@ crate = "popkern-rhai"
 allow = ["AGPL-3.0-only"]
 [[licenses.exceptions]]
 crate = "popkern-project"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-server"
 allow = ["AGPL-3.0-only"]
 [[licenses.exceptions]]
 crate = "popkern-cli"

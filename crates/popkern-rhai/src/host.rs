@@ -131,6 +131,18 @@ impl ScriptRunError {
                 (kind, payload)
             }
             EvalAltResult::ErrorParsing(..) => ("SyntaxError".to_string(), Value::Null),
+            EvalAltResult::ErrorTerminated(token, _)
+                if token.clone().into_string().ok().as_deref()
+                    == Some(crate::cancel::CANCELLED) =>
+            {
+                (
+                    "Cancelled".to_string(),
+                    serde_json::json!({
+                        "kind": "Cancelled",
+                        "message": "the build was cancelled",
+                    }),
+                )
+            }
             EvalAltResult::ErrorTerminated(token, _) => {
                 let detail = token
                     .clone()
@@ -246,18 +258,20 @@ impl ScriptHost {
     pub(crate) fn eval(&mut self, ast: &AST, script: &str) -> Result<RawRun, ScriptRunError> {
         self.printed.borrow_mut().clear();
         let watch = Stopwatch::start();
-        if let Some(timeout) = self.options.timeout {
-            let budget = watch;
-            self.engine.on_progress(move |_| {
-                if budget.elapsed().is_some_and(|elapsed| elapsed > timeout) {
-                    Some(Dynamic::from(format!(
-                        "wall-clock budget of {timeout:?} exceeded"
-                    )))
-                } else {
-                    None
-                }
-            });
-        }
+        crate::cancel::clear();
+        let cancel = crate::cancel::cancel_handle();
+        let timeout = self.options.timeout;
+        self.engine.on_progress(move |_| {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                return Some(Dynamic::from(crate::cancel::CANCELLED.to_string()));
+            }
+            match timeout {
+                Some(timeout) if watch.elapsed().is_some_and(|elapsed| elapsed > timeout) => Some(
+                    Dynamic::from(format!("wall-clock budget of {timeout:?} exceeded")),
+                ),
+                _ => None,
+            }
+        });
         let mut scope = Scope::new();
         if self.options.track_sources {
             popkern_script::source::set_script(Some(script));

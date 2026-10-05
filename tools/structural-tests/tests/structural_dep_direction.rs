@@ -425,6 +425,41 @@ fn project_sits_above_rhai() {
     }
 }
 
+/// `popkern-server` hosts the page and native sessions over the
+/// browser engine: it depends on popkern-live and popkern-project and on
+/// no viewer, and only the command depends on it.
+#[test]
+fn server_sits_above_live() {
+    let cargo_toml = fs::read_to_string(workspace_root().join("crates/popkern-server/Cargo.toml"))
+        .expect("Could not read popkern-server/Cargo.toml");
+    for dep in ["popkern-live", "popkern-project"] {
+        assert!(
+            declares_dependency(&cargo_toml, dep),
+            "popkern-server must depend on {dep}"
+        );
+    }
+    assert!(
+        !declares_dependency(&cargo_toml, "popkern-viz"),
+        "popkern-server must not depend on popkern-viz"
+    );
+    for below in [
+        "popkern-core",
+        "popkern-history",
+        "popkern-script",
+        "popkern-assembly",
+        "popkern-rhai",
+        "popkern-project",
+        "popkern-live",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-server"),
+            "{below} must not depend on popkern-server (the server hosts them)"
+        );
+    }
+}
+
 /// `popkern-live` is the browser engine over the Rhai skin: it
 /// may depend on the skin, the recorder and the mesher; never on the
 /// native viewer (browsers render kernel triangles in JS) and nothing

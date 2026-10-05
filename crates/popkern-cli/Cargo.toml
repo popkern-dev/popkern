@@ -16,6 +16,7 @@ popkern-script = { path = "../popkern-script" }
 popkern-rhai = { path = "../popkern-rhai" }
 popkern-assembly = { path = "../popkern-assembly" }
 popkern-project = { path = "../popkern-project" }
+popkern-server = { path = "../popkern-server" }
 # CPU software renderer only: no GPU or window stack behind the CLI.
 popkern-viz = { path = "../popkern-viz", default-features = false }
 # Zebra renders pick their analysis mesh's facet bound.

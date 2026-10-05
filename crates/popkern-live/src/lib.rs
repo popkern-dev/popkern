@@ -16,9 +16,14 @@
 
 #![forbid(unsafe_code)]
 
+/// The worker protocol's version (`web/live/PROTOCOL.md`). Bumped when
+/// a verb's shape changes; the page checks it before speaking.
+pub const PROTOCOL_VERSION: &str = "1";
+
 pub mod bake;
 pub mod envelope;
 pub mod mesh_buffers;
+pub mod protocol;
 pub mod session;
 mod session_document;
 pub mod session_project;

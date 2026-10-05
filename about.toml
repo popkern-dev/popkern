@@ -32,6 +32,15 @@ accepted = ["AGPL-3.0-only"]
 [popkern-project]
 accepted = ["AGPL-3.0-only"]
 
+[popkern-server]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-assembly]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-fastener]
+accepted = ["AGPL-3.0-only"]
+
 [popkern-cli]
 accepted = ["AGPL-3.0-only"]
 

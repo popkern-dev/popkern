@@ -10,9 +10,7 @@ use popkern_core::time::{monotonic_clock_available, register_monotonic_clock};
 use crate::envelope::BodyMesh;
 use crate::session::{RunOptions, Session};
 
-/// The boundary's protocol version. Bumped when a verb's shape
-/// changes; the page checks it before speaking.
-pub const PROTOCOL_VERSION: &str = "1";
+pub use crate::PROTOCOL_VERSION;
 
 /// `performance.now()` through the global object (window, worker or
 /// node all expose it); falls back to `Date.now()` — still monotonic

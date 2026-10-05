@@ -23,7 +23,9 @@ import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
 import { renderParams } from "./params-panel.js";
+import { hostMode } from "./host-mode.js";
 import { Projects } from "./projects.js";
+import { SocketWorker } from "./socket-worker.js";
 import { Scrubber } from "./scrubber.js";
 import { MigrationsRail } from "./migrations-rail.js";
 import { wireProjects } from "./projects-dialog.js";
@@ -43,7 +45,14 @@ class Page {
   constructor() {
     adoptPlaygroundKeys();
     this.timeLimit = storedLimit();
-    this.host = new WorkerHost(() => new Worker("./worker.js", { type: "module" }), budgetFor(this.timeLimit));
+    // Where the kernel runs and projects live (host-mode.js): the
+    // public page has no host.json; `popkern serve` names server
+    // storage and (by default) native compute.
+    this.modeReady = hostMode();
+    this.host = new WorkerHost(
+      () => (this.mode?.compute === "native" ? new SocketWorker() : new Worker("./worker.js", { type: "module" })),
+      budgetFor(this.timeLimit),
+    );
     this.bakes = new Bakes();
     // Whether the worker's model is the one on screen. A pre-built
     // example is shown without the kernel; anything that needs the
@@ -87,8 +96,20 @@ class Page {
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
     this.status("loading the kernel…");
     drafts.openFirstScript(this);
-    this.host
-      .start()
+    this.modeReady
+      .then((mode) => {
+        this.mode = mode;
+        document.body.dataset.host = `${mode.storage}-${mode.compute}`;
+        if (mode.storage === "server") {
+          // Self-hosted: say where things actually go.
+          const note = $("privacy-note");
+          note.textContent = mode.compute === "native" ? "your server" : "projects on your server";
+          note.title = mode.compute === "native"
+            ? "popkern serve: projects are folders on the machine serving this page, and the kernel runs there too. Nothing goes anywhere else."
+            : "popkern serve: projects are folders on the machine serving this page; the kernel runs in this tab. Nothing goes anywhere else.";
+        }
+        return this.host.start();
+      })
       .then((info) => {
         this.kernelReadyMs = performance.now();
         if (!this.lastGood) this.status(`kernel ready in ${this.kernelReadyMs.toFixed(0)} ms (protocol ${info.protocol_version}${info.clock_available ? "" : ", no clock: wall budget off"})`);
@@ -211,12 +232,17 @@ class Page {
   async cancel(reason) {
     clearTimeout(this.cancelTimer);
     clearInterval(this.clockTimer);
-    this.live = false;
     this.certifyGeneration += 1;
-    this.status("stopping the worker…", true);
-    await this.host.cancel(reason);
+    this.status("stopping the build…", true);
+    const result = await this.host.cancel(reason);
     this.running = false;
     this.setBusy(false);
+    if (result?.in_place) {
+      // A native session stopped the script and kept its model.
+      this.status(`${reason} — the session kept its model`, true);
+      return;
+    }
+    this.live = false;
     this.status(`${reason} — kernel restarted`, true);
   }
 

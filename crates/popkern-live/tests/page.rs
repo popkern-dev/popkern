@@ -386,7 +386,10 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
                 source.contains(r#"new URL("./api/session", location.href)"#),
                 "socket-worker.js must build its URL from the page's own origin"
             );
-            assert!(!source.contains("ws://") && !source.contains("wss://"), "no absolute socket URLs");
+            assert!(
+                !source.contains("ws://") && !source.contains("wss://"),
+                "no absolute socket URLs"
+            );
             violations.retain(|v| !v.ends_with(": WebSocket"));
         }
         assert!(violations.is_empty(), "{file}: {violations:?}");

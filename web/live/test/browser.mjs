@@ -203,6 +203,7 @@ try {
   out.webgl = await evaluate(`!!document.getElementById("viewer").getContext("webgl2") || !!document.getElementById("viewer").getContext("webgl")`);
   out.bodies_on_screen = await evaluate(`window.popkernLive.viewer.bodies.length`);
   out.first_run_live = await evaluate(`window.popkernLive.live`);
+  out.host = await evaluate(`document.body.dataset.host ?? null`);
   // The default script is pre-built where the bundle was baked; build
   // it live too, so the kernel run and its deferred certification are
   // what the rows below measure.

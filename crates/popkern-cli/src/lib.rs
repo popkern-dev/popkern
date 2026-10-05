@@ -45,6 +45,7 @@ pub fn main_with(args: &[String]) -> ExitCode {
         }
         Command::Build => ExitCode::from(project::build_command(&cli)),
         Command::New => ExitCode::from(project::new_command(&cli)),
+        Command::Serve => ExitCode::from(serve_command(&cli)),
         Command::Run => {
             if cli.watch {
                 return watch::watch_loop(&cli);
@@ -52,6 +53,49 @@ pub fn main_with(args: &[String]) -> ExitCode {
             let summary = execute(&cli);
             report::print(&cli, &summary);
             ExitCode::from(exit_code(&summary))
+        }
+    }
+}
+
+/// `popkern serve`: bind, report the URL, serve until killed.
+fn serve_command(cli: &Cli) -> u8 {
+    let bind: std::net::SocketAddr = match format!("{}:{}", cli.bind, cli.port)
+        .parse()
+        .or_else(|_| format!("[{}]:{}", cli.bind, cli.port).parse())
+    {
+        Ok(addr) => addr,
+        Err(_) => {
+            eprintln!("popkern: --bind '{}' is not an IP address", cli.bind);
+            return 2;
+        }
+    };
+    let options = popkern_server::ServeOptions {
+        root: cli.script.clone(),
+        page: cli.page.clone().unwrap_or_else(|| "web/live".into()),
+        bind,
+        compute: if cli.compute == "browser" {
+            popkern_server::Compute::Browser
+        } else {
+            popkern_server::Compute::Native
+        },
+    };
+    let compute = options.compute.as_str();
+    match popkern_server::bind(options) {
+        Ok((listener, handle)) => {
+            let addr = listener
+                .local_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_default();
+            println!(
+                "popkern live on http://{addr}/ (projects in {}, kernel: {compute})",
+                cli.script.display()
+            );
+            handle.run(listener);
+            0
+        }
+        Err(error) => {
+            eprintln!("popkern: {error}");
+            5
         }
     }
 }

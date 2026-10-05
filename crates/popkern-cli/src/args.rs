@@ -10,12 +10,20 @@ usage: popkern run <script.rhai> [options]
        popkern build <project-dir> [--pkn <path>] [--step <path>] [--json]
                      [--strict] [--rebuild] [--max-ops <n>] [--timeout <s>]
        popkern new <project-dir> [--name <text>]
+       popkern serve <projects-dir> [--page <dir>] [--port <n>] [--bind <addr>]
+                     [--compute native|browser]
 
 popkern build runs a project's migrations (migrations/NNN_name.rhai) in
 order into one document. With --pkn naming an existing document, only
 the migrations it has not applied run; a document whose applied history
 differs from the folder is rebuilt (--strict: refused, exit 6).
 --rebuild always rebuilds from the folder.
+
+popkern serve runs popkern live self-hosted: projects are the folders
+under <projects-dir>, and the kernel runs natively (--compute browser
+keeps it in the page). --page names the page folder (default web/live,
+built with tools/build-live.sh). Local only: --bind must be a loopback
+address (default 127.0.0.1, port 7690).
 
 run options:
 
@@ -51,6 +59,8 @@ pub enum Command {
     Build,
     /// `popkern new <dir>`.
     New,
+    /// `popkern serve <dir>`.
+    Serve,
     /// `popkern help` / `--help`.
     Help,
 }
@@ -98,6 +108,14 @@ pub struct Cli {
     pub rebuild: bool,
     /// `new`: the project's display name.
     pub name: Option<String>,
+    /// `serve`: the page folder.
+    pub page: Option<PathBuf>,
+    /// `serve`: the port.
+    pub port: u16,
+    /// `serve`: the address to bind.
+    pub bind: String,
+    /// `serve`: where the kernel runs (`native` or `browser`).
+    pub compute: String,
 }
 
 impl Default for Cli {
@@ -123,6 +141,10 @@ impl Default for Cli {
             strict: false,
             rebuild: false,
             name: None,
+            page: None,
+            port: 7690,
+            bind: "127.0.0.1".into(),
+            compute: "native".into(),
         }
     }
 }
@@ -153,6 +175,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         Some("run") => {}
         Some("build") => cli.command = Command::Build,
         Some("new") => cli.command = Command::New,
+        Some("serve") => cli.command = Command::Serve,
         Some("help") | Some("--help") | Some("-h") => {
             cli.command = Command::Help;
             return Ok(cli);
@@ -170,6 +193,18 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
             "--strict" => cli.strict = true,
             "--rebuild" => cli.rebuild = true,
             "--name" => cli.name = Some(value(arg, &mut iter)?.clone()),
+            "--page" => cli.page = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--port" => cli.port = number(arg, value(arg, &mut iter)?)?,
+            "--bind" => cli.bind = value(arg, &mut iter)?.clone(),
+            "--compute" => {
+                let v = value(arg, &mut iter)?;
+                if v != "native" && v != "browser" {
+                    return Err(UsageError(format!(
+                        "--compute is native or browser, not '{v}'"
+                    )));
+                }
+                cli.compute = v.clone();
+            }
             "--watch" => cli.watch = true,
             "--no-edges" => cli.edges = false,
             "--param" => {
@@ -204,6 +239,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     }
     let what = match cli.command {
         Command::Build | Command::New => "missing project folder",
+        Command::Serve => "missing projects folder",
         _ => "missing script path",
     };
     cli.script = script.ok_or_else(|| UsageError(what.into()))?;

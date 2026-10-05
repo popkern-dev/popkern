@@ -1,0 +1,17 @@
+[package]
+name = "popkern-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "popkern serve: popkern live self-hosted — projects in a folder you own, the kernel running natively behind the page's worker protocol"
+
+[dependencies]
+popkern-live = { path = "../popkern-live" }
+popkern-project = { path = "../popkern-project" }
+popkern-rhai = { path = "../popkern-rhai" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+httparse = "1"
+tungstenite = "0.24"
+

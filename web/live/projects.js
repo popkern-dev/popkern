@@ -5,6 +5,7 @@
 // "make a copy to edit", the Scratch project a visitor types into, and
 // project export/import as a .zip of the folder.
 import { ExampleStore } from "./example-store.js";
+import { ServerStore } from "./host-mode.js";
 import { BrowserStore, ConflictError, manifestName, manifestText, migrationPaths, singleScriptProject } from "./project-store.js";
 import { saveBytes } from "./exports.js";
 import { fileStem } from "./document-tab.js";
@@ -28,7 +29,9 @@ export class Projects {
   /** Open both stores; the page shows a "not saved" mark when the
    *  browser blocks persistent storage. */
   async init() {
-    [this.store, this.examples] = await Promise.all([BrowserStore.open(), ExampleStore.open()]);
+    const mode = await this.page.modeReady;
+    const store = mode?.storage === "server" ? Promise.resolve(new ServerStore()) : BrowserStore.open();
+    [this.store, this.examples] = await Promise.all([store, ExampleStore.open()]);
     $("storage-note").hidden = this.store.persistent;
     return this;
   }

@@ -58,6 +58,8 @@ redirect pages pointing here.
 | `projects-dialog.js` | The projects dialog: projects in this browser (open, delete, new, import) and the examples |
 | `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete |
 | `scrubber.js` | The history scrubber: ticks per feature, migration chapters, step meshes cached by key, created-face glow, editor line and report row, play, `#step=` / `#v=` links |
+| `host-mode.js` | Which deployment the page is in (`host.json`: storage and compute) and the `ServerStore` for `popkern serve` |
+| `socket-worker.js` | The worker protocol over `popkern serve`'s session socket (same origin only), Worker-shaped, with in-place `cancelRun()` |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |
 | `document-tab.js` | The open document: its title, file stem and edited mark; an imported STEP placeholder |
 | `gallery.js` | The default script (`default.rhai`) fetch |

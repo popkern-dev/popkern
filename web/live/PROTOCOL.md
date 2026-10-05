@@ -108,6 +108,22 @@ the worker answers `{ id, ok: false, outcome: { outcome:
 "gate_failure", step: "worker", detail } }` — the same shape as an
 engine gate failure, so the page has one error path.
 
+## Socket transport (popkern serve, PK-665)
+
+Under `popkern serve` with native compute, `host.json` says
+`{ "compute": "native" }` and the page speaks this protocol to
+`./api/session` on its own origin, through `socket-worker.js`, which is
+shaped like a Worker.
+- Requests are the same JSON with two differences: `open_step` sends
+  `bytes_b64` (base64) instead of an ArrayBuffer, and there is one more
+  request, `{ "type": "cancel" }`. Cancel has no reply. It stops the
+  running request's script at its next step: that request answers with
+  the `Cancelled` class, and the session keeps its document.
+- Each reply is a text frame (the reply JSON plus `attachments: [{ path,
+  kind: "f32" | "u32" | "u8" }]`), followed by one binary frame per
+  attachment, in order. The page puts each typed array at its dotted
+  path (`buffers.0.positions`, `rows.2.indices`, `bytes`).
+
 ## Versioning
 
 `protocol_version` is the engine's `PROTOCOL_VERSION`. The page refuses

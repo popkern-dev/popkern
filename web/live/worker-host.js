@@ -4,6 +4,9 @@
 // budgets). Transport-agnostic: the page passes a `spawn` that returns
 // a browser `Worker`; the node harness passes worker_threads.
 
+// How long an in-place cancel may take before the session is replaced.
+const CANCEL_GRACE_MS = 5000;
+
 export class WorkerHost {
   /**
    * @param {() => {postMessage, terminate, onmessage|on}} spawn creates a worker
@@ -83,6 +86,16 @@ export class WorkerHost {
    */
   async cancel(reason = "cancelled by the page") {
     const worker = this.worker;
+    // A native session (socket-worker.js) stops the running script and
+    // keeps its document; only a session that does not answer within
+    // the grace is replaced.
+    if (worker?.cancelRun && this.pending.size > 0) {
+      worker.cancelRun();
+      for (let waited = 0; waited < CANCEL_GRACE_MS && this.pending.size > 0; waited += 50) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      if (this.pending.size === 0) return { ok: true, in_place: true };
+    }
     const pending = [...this.pending.values()];
     this.pending.clear();
     if (worker) {
