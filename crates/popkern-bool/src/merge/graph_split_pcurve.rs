@@ -100,14 +100,7 @@ pub(super) fn curve_co_directed_with_fwd(
     let t_mid = 0.5 * (t0 + t1);
     let p_mid = curve.geometry.point_at(t_mid);
     let tan_curve = curve.geometry.point_at(t_mid + (t1 - t0) * 1e-3) - p_mid;
-    let mut best = (f64::INFINITY, pc.t_start);
-    for k in 0..=64 {
-        let t = pc.t_start + span * k as f64 / 64.0;
-        let d = image(t).distance_to(&p_mid);
-        if d < best.0 {
-            best = (d, t);
-        }
-    }
+    let best = pcurve_station_near(pc, surface, &p_mid, p_near_start.distance_to(&p_mid));
     // The pcurve must actually pass the reference point.
     let curve_len_scale = p_near_start.distance_to(&p_mid).max(1e-9);
     if best.0 > curve_len_scale * 0.2 {
@@ -261,4 +254,54 @@ pub(super) fn distribute_split_pcurves(
         graph.half_edges[new_twin_idx].pcurve = Some(end_side);
         graph.half_edges[twin_idx].pcurve = Some(origin_side);
     }
+}
+
+/// `(distance, parameter)` of the pcurve station whose image on
+/// `surface` is nearest `p` (`scale` = the reference curve's own
+/// length scale, setting the early-exit "on the curve" gate).
+///
+/// Winding-aware (PK-670): on a many-turn pcurve a fixed 64-station
+/// scan can rank an adjacent turn's image nearest; every basin of a
+/// winding-scaled scan is refined and the nearest kept
+/// ([`nearest_param_all_basins`](super::param_basin_search::nearest_param_all_basins)).
+pub(super) fn pcurve_station_near(
+    pc: &Pcurve,
+    surface: &SurfaceGeometry,
+    p: &Point3,
+    scale: f64,
+) -> (f64, f64) {
+    use super::param_basin_search::{nearest_param_all_basins, pcurve_image_scan_count};
+    const LEGACY_STATIONS: usize = 64;
+    let dist = |t: f64| {
+        let uv = pc.point_at(t);
+        surface.point_at(uv.x, uv.y).distance_to(p)
+    };
+    let w = (pc.t_start.min(pc.t_end), pc.t_start.max(pc.t_end));
+    let golden = |center: f64, half: f64| {
+        let (mut lo, mut hi) = (
+            (center - half.abs()).max(w.0),
+            (center + half.abs()).min(w.1),
+        );
+        for _ in 0..48 {
+            let m1 = lo + (hi - lo) * 0.382;
+            let m2 = lo + (hi - lo) * 0.618;
+            if dist(m1) < dist(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        0.5 * (lo + hi)
+    };
+    let dense = pcurve_image_scan_count(pc, surface, LEGACY_STATIONS);
+    // Only the turn matters to the callers (a tangent sign): stop at
+    // the first basin within a thousandth of the curve's own scale.
+    let (t, d) = nearest_param_all_basins(
+        &dist,
+        (pc.t_start, pc.t_end),
+        (LEGACY_STATIONS, dense),
+        scale * 1e-3,
+        &golden,
+    );
+    (d, t)
 }

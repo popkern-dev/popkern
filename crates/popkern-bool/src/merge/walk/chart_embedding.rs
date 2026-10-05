@@ -70,7 +70,7 @@ pub(crate) struct ChartEmbedding {
 
 /// A sampled run beside its endpoint-refined δ-samples (see
 /// [`ChartEmbedding::refined_first`]).
-type RunWithRefinedEnds = (Vec<(f64, f64)>, Option<(f64, f64)>, Option<(f64, f64)>);
+pub(crate) type RunWithRefinedEnds = (Vec<(f64, f64)>, Option<(f64, f64)>, Option<(f64, f64)>);
 
 /// Acceptance cone for endpoint-refined directions: the chord error
 /// the refinement corrects is ≤ ~0.06 rad, so a refined direction more
@@ -417,7 +417,7 @@ fn pcurve_run(
 /// to the period branch nearest its already-projected neighbour —
 /// measured on the breached-bore mouth arc, whose seam-node endpoint
 /// projected to the principal border and put the run two periods wide.
-fn projection_run(
+pub(crate) fn projection_run(
     c: &CurveOnEdge,
     curve_is_own: bool,
     surface: &SurfaceGeometry,
@@ -460,13 +460,31 @@ fn projection_run(
         }
         Some((u, v))
     };
+    // Continuation steps scale with the curve's winding (PK-670): a
+    // 13.9-turn root edge at 16 stations stepped most of a turn per
+    // projection and continued onto the adjacent turn (embedded
+    // diagonally across its strip, uv (0,0.18)->(1,0.82)). Between
+    // stations the projection walks `sub` steps of at most two per
+    // knot span; `sub = 1` is the historical station-to-station walk.
+    let sub = crate::merge::param_basin_search::curve_scan_count(&c.geometry, t0, t1, N_SAMPLES)
+        .div_ceil(N_SAMPLES);
+    let walk = |from: usize, to: usize, seed: (f64, f64)| -> Option<(f64, f64)> {
+        let mut uv = seed;
+        for k in 1..=sub {
+            let t = if k == sub {
+                ts[to]
+            } else {
+                ts[from] + (ts[to] - ts[from]) * k as f64 / sub as f64
+            };
+            uv = proj_near(&c.geometry.point_at(t), uv)?;
+        }
+        Some(uv)
+    };
     for i in (mid + 1)..ts.len() {
-        let p = c.geometry.point_at(ts[i]);
-        run[i] = proj_near(&p, run[i - 1])?;
+        run[i] = walk(i - 1, i, run[i - 1])?;
     }
     for i in (0..mid).rev() {
-        let p = c.geometry.point_at(ts[i]);
-        run[i] = proj_near(&p, run[i + 1])?;
+        run[i] = walk(i + 1, i, run[i + 1])?;
     }
     // Endpoint-refined direction samples (same rationale as
     // `pcurve_run`), carried BESIDE the run (see

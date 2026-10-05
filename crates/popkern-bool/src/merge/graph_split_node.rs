@@ -21,34 +21,44 @@ pub(super) fn split_at_existing_node(
 /// Closest curve-window parameter to `pos`, or `None` when the
 /// minimizer sits ON the window boundary (relative slop 1e-9) — a
 /// split there would produce a zero-span half.
-fn curve_window_interior_split(
+///
+/// Winding-aware (PK-670): the historical 128-station scan refined
+/// around its single nearest station aliases onto an adjacent turn of
+/// a many-turn edge (past ~25 turns at radius/pitch 2.2 the stations
+/// fall below about two per turn), splitting the edge one pitch away
+/// from the node. The search refines every scan basin at a density
+/// scaled to the curve's knot spans and keeps the nearest
+/// ([`nearest_param_all_basins`]); the historical answer stands
+/// whenever it is already on the curve or no basin is nearer.
+pub(super) fn curve_window_interior_split(
     curve: &popkern_core::geometry::CurveOnEdge,
     pos: &popkern_core::geometry::Point3,
 ) -> Option<f64> {
+    use super::param_basin_search::{curve_scan_count, nearest_param_all_basins};
+    const LEGACY_STATIONS: usize = 128;
     let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
     let (t0, t1) = (curve.t_start, curve.t_end);
-    let mut best = (f64::INFINITY, t0);
-    for k in 0..=128 {
-        let t = t0 + (t1 - t0) * k as f64 / 128.0;
-        let d = eval.point_at(t).distance_to(pos);
-        if d < best.0 {
-            best = (d, t);
+    let (w_lo, w_hi) = (t0.min(t1), t0.max(t1));
+    let dist = |t: f64| eval.point_at(t).distance_to(pos);
+    let refine = |center: f64, half: f64| {
+        let (mut lo, mut hi) = ((center - half).max(w_lo), (center + half).min(w_hi));
+        for _ in 0..40 {
+            let m1 = lo + (hi - lo) / 3.0;
+            let m2 = hi - (hi - lo) / 3.0;
+            if dist(m1) < dist(m2) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
         }
-    }
-    let (mut lo, mut hi) = (
-        (best.1 - (t1 - t0) / 128.0).max(t0.min(t1)),
-        (best.1 + (t1 - t0) / 128.0).min(t0.max(t1)),
-    );
-    for _ in 0..40 {
-        let m1 = lo + (hi - lo) / 3.0;
-        let m2 = hi - (hi - lo) / 3.0;
-        if eval.point_at(m1).distance_to(pos) < eval.point_at(m2).distance_to(pos) {
-            hi = m2;
-        } else {
-            lo = m1;
-        }
-    }
-    let t_split = 0.5 * (lo + hi);
+        0.5 * (lo + hi)
+    };
+    let dense = curve_scan_count(&curve.geometry, t0, t1, LEGACY_STATIONS);
+    // "On the curve" for the early exit: far below any turn spacing,
+    // above the evaluation noise of the window.
+    let exact = 1.0e-9 * (1.0 + pos.x.abs() + pos.y.abs() + pos.z.abs());
+    let (t_split, _) =
+        nearest_param_all_basins(&dist, (t0, t1), (LEGACY_STATIONS, dense), exact, &refine);
     let span = (t1 - t0).abs().max(f64::MIN_POSITIVE);
     if (t_split - t0).abs() < span * 1.0e-9 || (t_split - t1).abs() < span * 1.0e-9 {
         return None;
