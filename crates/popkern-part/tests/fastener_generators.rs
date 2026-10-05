@@ -214,11 +214,17 @@ fn m4_socket_cap_with_short_thread_serves_watertight() {
     assert_eq!(screw.open_edge_count().expect("mesh"), 0, "watertight");
 }
 
-/// Signed-tetrahedron volume of the display tessellation.
+/// Signed-tetrahedron volume of a fine tessellation. The default
+/// 0.005 chord height under-reads the M2 threads' volume by 0.74–0.81%
+/// (thread depth 0.25 over most of the shank); at 0.0005 every size
+/// lands within the 0.5% budget of the exact OCC volume (PK-671).
 fn mesh_volume(part: &Part) -> f64 {
-    let mesh = part
-        .mesh(&popkern_mesh::TessellationOptions::default())
-        .expect("tessellate");
+    let options = popkern_mesh::TessellationOptions {
+        chord_height: 5.0e-4,
+        max_subdivisions: 512,
+        ..Default::default()
+    };
+    let mesh = part.mesh(&options).expect("tessellate");
     let mut v6 = 0.0;
     for t in &mesh.triangles {
         let a = mesh.vertices[t[0]].position;
@@ -231,10 +237,12 @@ fn mesh_volume(part: &Part) -> f64 {
 }
 
 /// OpenCASCADE volumes of the exported STEP (`tools/occ-oracle/
-/// occ_solids.py`, 2026-10-04), mm³.
+/// occ_solids.py`), mm³: M3 hex 2026-10-04; M2.5 socket re-measured
+/// 2026-10-05 for the ISO 4762 head row and the full 0.55·k socket
+/// depth (PK-671).
 const M3_HEX_OCC_VOLUME: f64 = 128.399_742_906;
-const M2P5_SOCKET_OCC_VOLUME: f64 = 76.490_519_671;
-/// Display-tessellation chord error budget against the exact volume.
+const M2P5_SOCKET_OCC_VOLUME: f64 = 87.682_763_417;
+/// Tessellation chord error budget against the exact volume.
 const VOLUME_REL_TOL: f64 = 5.0e-3;
 
 /// PK-669: two of the commonest small ISO screws declined.
@@ -258,11 +266,35 @@ const VOLUME_REL_TOL: f64 = 5.0e-3;
 /// display tessellation's chord error.
 #[test]
 fn m3_hex_and_m2p5_socket_screws_serve_cellular_with_occ_volume() {
-    let mut failures = Vec::new();
-    for (size, hex, occ_volume) in [
+    assert_screws_serve(&[
         ("M3", true, M3_HEX_OCC_VOLUME),
         ("M2.5", false, M2P5_SOCKET_OCC_VOLUME),
-    ] {
+    ]);
+}
+
+/// PK-671: M1.6, M2 and M2.5 heads come from the ISO 4017 / ISO 4762
+/// tables (the derived proportions gave M2.5 hex s = 4.0 against the
+/// standard 5, M2.5 socket dk = 3.75 against 4.5). Each serves
+/// watertight through the cellular pipeline with the OCC volume of
+/// its exported STEP (`popkern run` + `occ_solids.py`, 2026-10-05;
+/// 12 mm under head, 6 mm of thread).
+#[test]
+fn smallest_iso_hex_and_socket_screws_serve_cellular_with_occ_volume() {
+    assert_screws_serve(&[
+        ("M1.6", true, 30.750_368_751),
+        ("M1.6", false, 30.682_636_290),
+        ("M2", true, 52.741_125_668),
+        ("M2", false, 54.073_291_468),
+        ("M2.5", true, 89.131_024_958),
+    ]);
+}
+
+/// Build each `(size, hex?, OCC volume)` screw (12 under head, 6 of
+/// thread) and require a cellular, watertight serve whose mesh volume
+/// matches OCC within the tessellation budget.
+fn assert_screws_serve(cases: &[(&str, bool, f64)]) {
+    let mut failures = Vec::new();
+    for &(size, hex, occ_volume) in cases {
         let label = format!("{size} {}", if hex { "hex" } else { "socket" });
         let spec = ThreadSpec::parse(size).expect("spec");
         let _ = popkern_bool::merge_fallback::take_merge_fallback_events();

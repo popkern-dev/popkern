@@ -308,12 +308,16 @@ pub fn socket_cap_screw(
         tolerance,
     )?;
     let head = subtract(&head_cyl, &recess, "hex socket recess", tolerance)?;
+    // Shank end midway through the web under the recess floor: at k/2
+    // it refilled the recess to k/2 deep and, past M1.6's socket
+    // corners (0.866 vs shank r 0.8), left six floor slivers (PK-671).
+    let web = dims.height - socket_depth;
     headed_screw(
         head,
         &params.spec,
         params.length,
         params.thread_length,
-        -dims.height / 2.0,
+        -web / 2.0,
         0.0,
         params.tip_chamfer,
         tolerance,

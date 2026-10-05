@@ -37,8 +37,13 @@ const ISO_COARSE: &[(f64, f64)] = &[
     (36.0, 4.0),
 ];
 
-/// (major, across flats, head height) — ISO 4017 hex heads.
+/// (major, across flats, head height) — ISO 4017 hex heads
+/// (nominal s and k; M1.6–M2.5 per ISO 4017:2014 Table 1: s = 3.2 /
+/// 4 / 5, k = 1.1 / 1.4 / 1.7).
 const HEX_HEAD: &[(f64, f64, f64)] = &[
+    (1.6, 3.2, 1.1),
+    (2.0, 4.0, 1.4),
+    (2.5, 5.0, 1.7),
     (3.0, 5.5, 2.0),
     (4.0, 7.0, 2.8),
     (5.0, 8.0, 3.5),
@@ -52,8 +57,13 @@ const HEX_HEAD: &[(f64, f64, f64)] = &[
     (24.0, 36.0, 15.0),
 ];
 
-/// (major, head diameter, head height, socket across flats) — ISO 4762.
+/// (major, head diameter, head height, socket across flats) — ISO 4762
+/// (nominal dk max, k max, s nominal; M1.6–M2.5 per ISO 4762:2004
+/// Table 1: dk = 3.0 / 3.8 / 4.5, k = 1.6 / 2 / 2.5, s = 1.5 / 1.5 / 2).
 const SOCKET_HEAD: &[(f64, f64, f64, f64)] = &[
+    (1.6, 3.0, 1.6, 1.5),
+    (2.0, 3.8, 2.0, 1.5),
+    (2.5, 4.5, 2.5, 2.0),
     (3.0, 5.5, 3.0, 2.5),
     (4.0, 7.0, 4.0, 3.0),
     (5.0, 8.5, 5.0, 4.0),
@@ -78,8 +88,12 @@ const COUNTERSUNK_HEAD: &[(f64, f64)] = &[
 ];
 
 /// (major, nut thickness) — ISO 4032 style-1 hex nuts (across flats
-/// as [`hex_head`]).
+/// as [`hex_head`]; M1.6–M2.5 per ISO 4032:2012 Table 1: m = 1.3 /
+/// 1.6 / 2).
 const HEX_NUT: &[(f64, f64)] = &[
+    (1.6, 1.3),
+    (2.0, 1.6),
+    (2.5, 2.0),
     (3.0, 2.4),
     (4.0, 3.2),
     (5.0, 4.7),

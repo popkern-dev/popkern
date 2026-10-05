@@ -101,3 +101,27 @@ fn standards_tables_and_derivations() {
     assert!((standards::clearance_diameter(7.0, ClearanceFit::Loose) - 8.4).abs() < 1e-9);
     assert!((standards::clearance_diameter(6.0, ClearanceFit::Custom(6.9)) - 6.9).abs() < 1e-12);
 }
+
+/// PK-671: the small ISO sizes read their standard rows instead of
+/// derived proportions (which gave M2.5 hex s = 4.0, k = 1.625 and
+/// M2.5 socket dk = 3.75). Values: ISO 4017:2014, ISO 4762:2004 and
+/// ISO 4032:2012, Table 1 nominal dimensions.
+#[test]
+fn small_iso_sizes_use_standard_head_rows() {
+    // (d, hex s, hex k, socket dk, socket k, socket s, nut m)
+    for (d, s, k, dk, ks, ss, m) in [
+        (1.6, 3.2, 1.1, 3.0, 1.6, 1.5, 1.3),
+        (2.0, 4.0, 1.4, 3.8, 2.0, 1.5, 1.6),
+        (2.5, 5.0, 1.7, 4.5, 2.5, 2.0, 2.0),
+    ] {
+        let hex = standards::hex_head(d);
+        assert_eq!((hex.across_flats, hex.height), (s, k), "M{d} hex");
+        let socket = standards::socket_head(d);
+        assert_eq!(
+            (socket.diameter, socket.height, socket.socket_across_flats),
+            (dk, ks, ss),
+            "M{d} socket"
+        );
+        assert_eq!(standards::hex_nut_thickness(d), m, "M{d} nut");
+    }
+}
