@@ -16,6 +16,7 @@
 use crate::geometry::Point3;
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_math::PortableMath;
 
 /// Subdivision budget: pairs examined before giving up (→ `false`).
 const MAX_BOXES: usize = 50_000;
@@ -260,7 +261,7 @@ pub(super) fn analytic_separation_lower_bound(
             let dv = *center - *apex;
             let zeta = dv.dot(axis);
             let rho = (dv - *axis * zeta).length();
-            let (sin_a, cos_a) = half_angle.sin_cos();
+            let (sin_a, cos_a) = half_angle.psin_cos();
             let d1 = (rho * cos_a - zeta * sin_a).abs();
             let d2 = (rho * cos_a + zeta * sin_a).abs();
             Some(d1.min(d2) - radius)
@@ -414,7 +415,7 @@ pub(super) fn coaxial_cone_same_nappe_lower_bound(
     let dv = *p2 - *p1;
     let along = dv.dot(x1);
     let radial = (dv - *x1 * along).length();
-    Some(along.abs() * h1.sin() - radial)
+    Some(along.abs() * h1.psin() - radial)
 }
 
 /// True when the free-form surface's signed distance to the analytic

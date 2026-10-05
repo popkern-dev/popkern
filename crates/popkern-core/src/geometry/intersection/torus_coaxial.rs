@@ -38,6 +38,7 @@ use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Try to analytically intersect a torus with a coaxial surface of
 /// revolution (cylinder, cone, axis-centred sphere, or torus).
@@ -147,7 +148,7 @@ fn intersect_impl(
             let h_apex_gate = (*apex - *center).dot(&axis_n);
             let extent = major_radius.abs() + minor_radius + h_apex_gate.abs();
             coaxial_gates(*center, axis_n, *apex, Some(pa_n), extent, tolerance)?;
-            let tan_h = half_angle.tan();
+            let tan_h = half_angle.ptan();
             if tan_h.abs() < tolerance.angular() {
                 // Degenerate cone (≈ cylinder about its own axis with
                 // zero radius growth): no transversal circle class to

@@ -7,6 +7,7 @@
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 use crate::analysis::EdgeAnalysis;
 use crate::types::ChamferKind;
@@ -56,7 +57,7 @@ pub(super) fn compute_offset_distances(
             distance,
             angle,
         } => {
-            let other_dist = distance * angle.tan();
+            let other_dist = distance * angle.ptan();
             if *ref_face == analysis.face_1 {
                 Ok((*distance, other_dist))
             } else if *ref_face == analysis.face_2 {

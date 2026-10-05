@@ -32,6 +32,7 @@ use crate::geometry::intersection::surface_surface::{
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[path = "radial_level_curve_emit.rs"]
 mod radial_level_curve_emit;
@@ -75,7 +76,7 @@ impl CylinderFrame {
     /// Principal-branch angle in (-π, π] and axial chart coordinate.
     fn theta_v(&self, p: &Point3) -> (f64, f64) {
         let rel = *p - self.origin;
-        let theta = rel.dot(&self.e2).atan2(rel.dot(&self.e1));
+        let theta = rel.dot(&self.e2).patan2(rel.dot(&self.e1));
         let v = rel.dot(&self.axis_raw) / self.axis_raw.length_squared();
         (theta, v)
     }

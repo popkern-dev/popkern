@@ -4,6 +4,7 @@ use super::{check_jacobian_fd, entry};
 use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::equations::{equation_count, evaluate_constraint};
+use popkern_math::PortableMath;
 
 // ── PointOnEllipse ────────────────────────────────────────────────────────
 
@@ -100,8 +101,8 @@ fn point_on_hyperbola_satisfied() {
 fn point_on_hyperbola_satisfied_off_axis() {
     let mut sk = Sketch::new();
     // a=1, b=1: u^2 - v^2 = 1. At u=cosh(1), v=sinh(1)
-    let u = 1.0_f64.cosh();
-    let v = 1.0_f64.sinh();
+    let u = 1.0_f64.pcosh();
+    let v = 1.0_f64.psinh();
     let p = sk.add_point(u, v);
     let h = sk.add_hyperbola(0.0, 0.0, 1.0, 1.0, 0.0);
     let ce = entry(Constraint::PointOnHyperbola(p, h), vec![]);
@@ -389,10 +390,10 @@ fn tangent_line_hyperbola_satisfied() {
     // Hyperbola u^2 - v^2 = 1 (a=1, b=1). At point (cosh(t), sinh(t)).
     // Take t=1: u=cosh(1), v=sinh(1).
     // Tangent direction: (sinh(1), cosh(1)).
-    let u0 = 1.0_f64.cosh();
-    let v0 = 1.0_f64.sinh();
-    let du = 1.0_f64.sinh();
-    let dv = 1.0_f64.cosh();
+    let u0 = 1.0_f64.pcosh();
+    let v0 = 1.0_f64.psinh();
+    let du = 1.0_f64.psinh();
+    let dv = 1.0_f64.pcosh();
     let p1 = sk.add_point(u0, v0);
     let p2 = sk.add_point(u0 + du, v0 + dv);
     let l = sk.add_line(p1, p2);

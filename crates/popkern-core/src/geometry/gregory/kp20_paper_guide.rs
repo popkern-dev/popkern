@@ -35,7 +35,7 @@ use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::hermite_to_bi5_corner_block;
 use super::kp20_border_degree::elevate_bi3_rows_to_sextic;
 pub use super::kp20_paper_border_piece::Kp20PaperGuideBorderPiece;
-use crate::geometry::Point3;
+use crate::geometry::{Point3, PortableMath};
 
 const TRI6_CP_COUNT: usize = 28;
 
@@ -279,7 +279,7 @@ fn solve_paper_guide_inner(
 /// power; the shared boundary between sectors `s` and `s+1` is
 /// sector s's `q = 0` edge and sector s+1's `r = 0` edge.
 pub(crate) fn kp18_guide_constraint_rows(n: usize) -> Vec<LinearRow> {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let (w0, w1, w2) = (-1.0, 2.0 * c, 2.0 * (1.0 - c));
     let flat = |q: usize, r: usize| super::tri6_flat_index(6, q, r);
     let mut rows = Vec::new();
@@ -605,8 +605,8 @@ fn composed_corner_block_weights(
     let alpha = core::f64::consts::TAU / n as f64;
     let a0 = sector as f64 * alpha;
     let a1 = (sector + 1) as f64 * alpha;
-    let spoke0 = [a0.cos(), a0.sin()];
-    let spoke1 = [a1.cos(), a1.sin()];
+    let spoke0 = [a0.pcos(), a0.psin()];
+    let spoke1 = [a1.pcos(), a1.psin()];
     let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
     // (guide-u, guide-v) = (component along spoke0, along spoke1).
     let to_local = |g: [f64; 2]| -> [f64; 2] {

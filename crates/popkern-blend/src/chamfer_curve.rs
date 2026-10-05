@@ -5,7 +5,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, PortableMath, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -140,7 +140,7 @@ pub fn compute_chamfer(
         // start then names a different point on the circle.
         let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
         let d = *anchor - *c;
-        let a0 = d.dot(&p2).atan2(d.dot(&p1));
+        let a0 = d.dot(&p2).patan2(d.dot(&p1));
         if popkern_core::trace::trace_enabled("rim") {
             use popkern_core::geometry::curve::CurveEval as _;
             let probe = popkern_core::geometry::curve::CurveGeometry::Arc {
@@ -168,7 +168,7 @@ pub fn compute_chamfer(
             a0 + std::f64::consts::TAU
         } else {
             let de = *end_anchor - *c;
-            let mut a = de.dot(&p2).atan2(de.dot(&p1));
+            let mut a = de.dot(&p2).patan2(de.dot(&p1));
             while a <= a0 + 1e-12 {
                 a += std::f64::consts::TAU;
             }
@@ -250,8 +250,8 @@ pub fn compute_chamfer(
                 if amp < 1e-12 || rhs.abs() > amp {
                     continue;
                 }
-                let base = b_c.atan2(a_c);
-                let delta = (rhs / amp).acos();
+                let base = b_c.patan2(a_c);
+                let delta = (rhs / amp).pacos();
                 for theta in [base + delta, base - delta] {
                     // Unwrap near the target angle.
                     let mut t = theta;
@@ -263,9 +263,9 @@ pub fn compute_chamfer(
                     }
                     if popkern_core::trace::trace_enabled("bevel") {
                         let cp = Point3::new(
-                            c.x + *r * (p1.x * t.cos() + p2.x * t.sin()),
-                            c.y + *r * (p1.y * t.cos() + p2.y * t.sin()),
-                            c.z + *r * (p1.z * t.cos() + p2.z * t.sin()),
+                            c.x + *r * (p1.x * t.pcos() + p2.x * t.psin()),
+                            c.y + *r * (p1.y * t.pcos() + p2.y * t.psin()),
+                            c.z + *r * (p1.z * t.pcos() + p2.z * t.psin()),
                         );
                         eprintln!(
                             "  [bevel]   cand face={f:?} t={t:.4} target={target_angle:.4} pt=({:.3},{:.3},{:.3})",
@@ -274,9 +274,9 @@ pub fn compute_chamfer(
                     }
                     if (t - target_angle).abs() < 0.5 {
                         let cross_pt = Point3::new(
-                            c.x + *r * (p1.x * t.cos() + p2.x * t.sin()),
-                            c.y + *r * (p1.y * t.cos() + p2.y * t.sin()),
-                            c.z + *r * (p1.z * t.cos() + p2.z * t.sin()),
+                            c.x + *r * (p1.x * t.pcos() + p2.x * t.psin()),
+                            c.y + *r * (p1.y * t.pcos() + p2.y * t.psin()),
+                            c.z + *r * (p1.z * t.pcos() + p2.z * t.psin()),
                         );
                         let rank = v_pos
                             .map(|vp| cross_pt.distance_to(&vp))
@@ -306,12 +306,12 @@ pub fn compute_chamfer(
         let (c, axis, r) = circle;
         let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
         let d = *anchor - *c;
-        let a0 = d.dot(&p2).atan2(d.dot(&p1));
+        let a0 = d.dot(&p2).patan2(d.dot(&p1));
         let a1 = if anchor.distance_to(end_anchor) < 1e-9 {
             a0 + std::f64::consts::TAU
         } else {
             let de = *end_anchor - *c;
-            let mut a = de.dot(&p2).atan2(de.dot(&p1));
+            let mut a = de.dot(&p2).patan2(de.dot(&p1));
             while a <= a0 + 1e-12 {
                 a += std::f64::consts::TAU;
             }
@@ -667,7 +667,7 @@ fn recognize_conical_bevel(
     } else {
         a1 * -1.0
     };
-    let half_angle = (dr / along).abs().atan();
+    let half_angle = (dr / along).abs().patan();
     Some((
         SurfaceGeometry::Cone {
             apex,

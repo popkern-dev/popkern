@@ -1,6 +1,7 @@
 //! Seam intent classification for the continuity evidence (PK-592):
 //! which live seams are gated for G1/G2 and which are designed creases.
 
+use popkern_math::PortableMath;
 use std::collections::BTreeSet;
 
 use popkern_core::topology::{BRep, FaceHandle};
@@ -54,7 +55,7 @@ pub(super) fn smooth_intent(
             if worst.best_g1 <= gates.g1_normal {
                 return true;
             }
-            let best_angle_deg = worst.best_g1.min(1.0).asin().to_degrees();
+            let best_angle_deg = worst.best_g1.min(1.0).pasin().to_degrees();
             let sweep = worst.angle_deg - best_angle_deg;
             within_bound && !blend_side_planar && sweep < END_PROFILE_SWEEP_DEG
         }

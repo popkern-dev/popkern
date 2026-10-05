@@ -5,6 +5,7 @@
 //! edge and surface stay co-parameterised (`line_or_nurbs_curve`).
 
 use crate::surface::canonical::recognize_circle;
+use popkern_math::PortableMath;
 
 /// Recognize a straight NURBS curve: every control point collinear
 /// with the endpoint chord (relative 1e-9). Returns the origin, unit
@@ -79,7 +80,7 @@ pub(crate) fn analytic_or_nurbs_curve(
         // rims whose trim start landed 90° from the vertex).
         let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(normal);
         let d = start - center;
-        let theta0 = d.dot(&e2).atan2(d.dot(&e1));
+        let theta0 = d.dot(&e2).patan2(d.dot(&e1));
         return popkern_core::geometry::CurveOnEdge {
             geometry: popkern_core::geometry::curve::CurveGeometry::Arc {
                 center,

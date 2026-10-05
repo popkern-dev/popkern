@@ -51,6 +51,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use super::terminal_arc_trim::{CornerCandidate, StripCylinder, incident_edge_count};
 use super::terminal_obstructed_crossing::find_arc_crossing;
@@ -172,7 +173,7 @@ pub(super) fn try_repair_obstructed_end(
     let u_basis = foot_pos - center;
     let mut v_basis = cyl.axis.cross(&u_basis);
     let d = foot_a - center;
-    let mut sweep = d.dot(&v_basis).atan2(d.dot(&u_basis));
+    let mut sweep = d.dot(&v_basis).patan2(d.dot(&u_basis));
     if sweep < 0.0 {
         v_basis = -v_basis;
         sweep = -sweep;
@@ -189,7 +190,7 @@ pub(super) fn try_repair_obstructed_end(
         None => return Err(TerminalArcTrimDeclineReason::ObstructedEnd),
     };
     let arc_at = |theta: f64| -> Point3 {
-        center + (u_hat * theta.cos() + v_hat * theta.sin()) * cyl.radius
+        center + (u_hat * theta.pcos() + v_hat * theta.psin()) * cyl.radius
     };
 
     // Find the single crossing of the open arc with the cap

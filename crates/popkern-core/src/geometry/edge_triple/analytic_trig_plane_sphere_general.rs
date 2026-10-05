@@ -31,6 +31,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Plane × sphere intersection for any plane orientation. Returns
 /// `None` for the tangent / non-intersecting cases (plane farther
@@ -80,7 +81,7 @@ pub(super) fn try_plane_sphere_general(
                 distance: r - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -141,11 +142,11 @@ pub(super) fn try_plane_sphere_general(
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let theta = theta_start + frac * span;
         let p3 = circle_center
-            + arc_basis_u * (circle_radius * theta.cos())
-            + arc_basis_v * (circle_radius * theta.sin());
+            + arc_basis_u * (circle_radius * theta.pcos())
+            + arc_basis_v * (circle_radius * theta.psin());
         let dp = p3 - sphere_center;
-        let lon = dp.y.atan2(dp.x);
-        let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).acos();
+        let lon = dp.y.patan2(dp.x);
+        let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).pacos();
         sphere_pts.push(Point3::new(lon, colat, 0.0));
         params.push(frac);
     }

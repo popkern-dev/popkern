@@ -9,6 +9,7 @@
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsSurface, Point3};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::build_clamped_uniform_knots;
 
@@ -75,11 +76,11 @@ pub(crate) fn extend_loft_rows(
         let f2 = project(surface2, centre)?;
         let na = (f0 - centre).normalized()?;
         let nb = (f2 - centre).normalized()?;
-        let theta = na.dot(&nb).clamp(-1.0, 1.0).acos();
+        let theta = na.dot(&nb).clamp(-1.0, 1.0).pacos();
         if !(1e-9..=std::f64::consts::PI * 0.9).contains(&theta) {
             return None;
         }
-        let w = (theta * 0.5).cos();
+        let w = (theta * 0.5).pcos();
         let bis = (na + nb).normalized()?;
         let mid = centre + bis * (radius / w);
         Some(([f0, mid, f2], w))
@@ -110,12 +111,12 @@ pub(crate) fn extend_loft_rows(
             else {
                 return (Vec::new(), Vec::new());
             };
-            let theta = u1.dot(&u2).clamp(-1.0, 1.0).acos();
+            let theta = u1.dot(&u2).clamp(-1.0, 1.0).pacos();
             let Some(bis) = (u1 + u2).normalized() else {
                 return (Vec::new(), Vec::new());
             };
             let arc_mid = centre + bis * radius;
-            let wq = (theta * 0.25).cos();
+            let wq = (theta * 0.25).pcos();
             let (Some(m1d), Some(m2d)) = ((u1 + bis).normalized(), (u2 + bis).normalized()) else {
                 return (Vec::new(), Vec::new());
             };

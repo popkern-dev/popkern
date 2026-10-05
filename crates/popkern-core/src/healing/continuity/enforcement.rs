@@ -14,6 +14,7 @@ use crate::healing::curvature::surface_curvature::surface_curvature_at;
 use crate::healing::quality::ContinuityLevel;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_math::PortableMath;
 
 /// Result of a continuity enforcement operation.
 #[derive(Debug, Clone)]
@@ -451,7 +452,7 @@ fn measure_normal_angle(
             continue;
         }
         let cos = (na.dot(&nb) / (la * lb)).clamp(-1.0, 1.0);
-        worst = worst.max(cos.acos());
+        worst = worst.max(cos.pacos());
     }
     worst
 }

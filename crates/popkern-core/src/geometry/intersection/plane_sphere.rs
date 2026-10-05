@@ -5,6 +5,7 @@
 //! Computing this analytically is far cheaper than the general NURBS marching
 //! pipeline.
 
+use popkern_math::PortableMath;
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use crate::geometry::curve_on_surface::CurveOnSurface;
@@ -206,12 +207,12 @@ fn fit_sphere_uv_curve(
     let gate = tolerance.linear().max(1.0e-9);
     let chart = |p: Point3, prev_u: Option<f64>| -> (f64, f64) {
         let d = (p - sphere_center) * (1.0 / sphere_radius);
-        let v = d.z.clamp(-1.0, 1.0).acos();
+        let v = d.z.clamp(-1.0, 1.0).pacos();
         let planar = (d.x * d.x + d.y * d.y).sqrt();
         let mut u = if planar < 1.0e-12 {
             prev_u.unwrap_or(0.0)
         } else {
-            let raw = d.y.atan2(d.x);
+            let raw = d.y.patan2(d.x);
             if raw < 0.0 { raw + TAU } else { raw }
         };
         if let Some(prev) = prev_u {
@@ -244,9 +245,9 @@ fn fit_sphere_uv_curve(
             );
             let on_sphere = sphere_center
                 + Vec3::new(
-                    sphere_radius * v.sin() * u.cos(),
-                    sphere_radius * v.sin() * u.sin(),
-                    sphere_radius * v.cos(),
+                    sphere_radius * v.psin() * u.pcos(),
+                    sphere_radius * v.psin() * u.psin(),
+                    sphere_radius * v.pcos(),
                 );
             worst = worst.max(on_sphere.distance_to(&curve_3d.point_at(t_mid)));
         }

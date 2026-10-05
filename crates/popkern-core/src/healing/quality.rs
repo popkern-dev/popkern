@@ -4,6 +4,7 @@
 //! General) and a custom profile mechanism. Models are validated against
 //! a profile to produce per-dimension pass/fail results.
 
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::curve::CurveEval;
@@ -281,7 +282,7 @@ fn measure_max_normal_angle(brep: &BRep) -> f64 {
             continue;
         }
         let cos_angle = (n1.dot(&n2) / (len1 * len2)).clamp(-1.0, 1.0);
-        let angle_deg = cos_angle.acos().to_degrees();
+        let angle_deg = cos_angle.pacos().to_degrees();
         worst = worst.max(angle_deg);
     }
 

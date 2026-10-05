@@ -11,6 +11,7 @@ use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::error::{BlendError, BlendFailure};
 
@@ -272,7 +273,7 @@ pub(crate) fn setback_from_corner(
 
             let (u, v) = circle_basis_like_core(*normal);
             let target_rel = target - *center;
-            let target_angle_raw = target_rel.dot(&v).atan2(target_rel.dot(&u));
+            let target_angle_raw = target_rel.dot(&v).patan2(target_rel.dot(&u));
             let target_angle = wrap_nearest_to(t_corner, target_angle_raw);
 
             let sweep_sign = (t_far - t_corner).signum();
@@ -363,8 +364,8 @@ pub(crate) fn rebuild_edge_curve_clipped(
             let (u_basis, v_basis) = circle_basis_like_core(*normal);
             let rel_from = p_from - *center;
             let rel_to = p_to - *center;
-            let t_from_raw = rel_from.dot(&v_basis).atan2(rel_from.dot(&u_basis));
-            let t_to_raw = rel_to.dot(&v_basis).atan2(rel_to.dot(&u_basis));
+            let t_from_raw = rel_from.dot(&v_basis).patan2(rel_from.dot(&u_basis));
+            let t_to_raw = rel_to.dot(&v_basis).patan2(rel_to.dot(&u_basis));
             let t_from_new = wrap_nearest_to(existing.t_start, t_from_raw);
             let t_to_new = wrap_nearest_to(existing.t_end, t_to_raw);
             brep.edges[edge].curve = Some(CurveOnEdge {

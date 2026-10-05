@@ -4,6 +4,7 @@
 //! named view presets (front, back, top, bottom, left, right, iso).
 
 use glam::{Mat4, Quat, Vec3};
+use popkern_math::PortableMath;
 
 /// Named orthographic view directions plus isometric.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,7 +198,7 @@ impl Camera {
 
         // Distance so the sphere fits in the vertical FOV
         let half_fov = self.fov_y * 0.5;
-        let sin_half = half_fov.sin();
+        let sin_half = half_fov.psin();
         let distance = if sin_half.abs() < f32::EPSILON {
             radius * 10.0
         } else {

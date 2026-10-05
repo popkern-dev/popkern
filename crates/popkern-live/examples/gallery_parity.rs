@@ -41,11 +41,11 @@ fn volume(positions: &[f32], indices: &[u32]) -> f64 {
         / 6.0
 }
 
-fn read_f32(path: &Path) -> Vec<f32> {
+fn read_words(path: &Path) -> Vec<[u8; 4]> {
     std::fs::read(path)
         .unwrap_or_default()
         .chunks_exact(4)
-        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .map(|b| [b[0], b[1], b[2], b[3]])
         .collect()
 }
 
@@ -104,9 +104,19 @@ fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
             if w["positions_fnv"].as_str() == Some(fnv1a_f32(&n.positions).to_string().as_str()) {
                 equal += 1;
             }
-            let wasm_positions = read_f32(&dump.join(format!("body{i}.positions.f32")));
+            // Each platform's volume from its own buffers: with a
+            // differing triangulation, crossing them measures nothing.
+            let dumped = |kind: &str| read_words(&dump.join(format!("body{i}.{kind}")));
+            let wasm_positions: Vec<f32> = dumped("positions.f32")
+                .into_iter()
+                .map(f32::from_le_bytes)
+                .collect();
+            let wasm_indices: Vec<u32> = dumped("indices.u32")
+                .into_iter()
+                .map(u32::from_le_bytes)
+                .collect();
             let (vw, vn) = (
-                volume(&wasm_positions, &n.indices),
+                volume(&wasm_positions, &wasm_indices),
                 volume(&n.positions, &n.indices),
             );
             let rel = (vw - vn).abs() / vn.abs().max(1e-12);

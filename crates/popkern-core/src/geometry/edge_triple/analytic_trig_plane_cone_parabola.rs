@@ -23,6 +23,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Oblique plane-cone slice — parabola sub-case (`B² − 4AC ≈ 0`).
 /// Returns `None` for ellipse / hyperbola / degenerate cases so the
@@ -53,7 +54,7 @@ pub(super) fn try_plane_cone_oblique_parabola(
     let delta_a = delta.dot(&cone_axis);
     let mu = plane_u.dot(&cone_axis);
     let nu = plane_v.dot(&cone_axis);
-    let ch = half_angle.cos();
+    let ch = half_angle.pcos();
     let ch2 = ch * ch;
     let pu2 = plane_u.dot(&plane_u);
     let pv2 = plane_v.dot(&plane_v);
@@ -202,7 +203,7 @@ pub(super) fn try_plane_cone_oblique_parabola(
         let dp = p3 - cone_apex;
         let v_cone = dp.dot(&cone_axis);
         let perp_vec = dp - cone_axis * v_cone;
-        let u_cone = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u_cone = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         cone_pts.push(Point3::new(u_cone, v_cone, 0.0));
         let dp_plane = p3 - plane_origin;
         let u_plane = dp_plane.dot(&plane_u) / pu2;

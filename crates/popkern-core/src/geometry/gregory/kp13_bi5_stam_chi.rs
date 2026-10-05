@@ -95,6 +95,7 @@
 #![allow(dead_code)]
 
 use super::kp13_bi5_chi::{CatmullClarkChi, ChiCorner, ChiJet};
+use popkern_math::PortableMath;
 
 /// Cap on the recursion depth for near-star queries. Each level
 /// multiplies the result by `λ ∈ (0, 1)`, so after 50 levels any
@@ -173,7 +174,7 @@ impl StamChi {
             return MAX_DEPTH;
         }
         // Smallest k such that 2^k · max(u, v) > STAR_BOUNDARY.
-        let k = (STAR_BOUNDARY / mx).log2().ceil() as u32;
+        let k = (STAR_BOUNDARY / mx).plog2().ceil() as u32;
         k.min(MAX_DEPTH)
     }
 

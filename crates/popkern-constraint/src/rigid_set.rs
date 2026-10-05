@@ -8,6 +8,7 @@
 use crate::Sketch;
 use crate::elements::ElementHandle;
 use crate::elements::PointHandle;
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 
 slotmap::new_key_type! {
@@ -68,7 +69,7 @@ pub(crate) fn sync_rigid_sets(sketch: &mut Sketch) {
         let tx = sketch.params[rs.param_start];
         let ty = sketch.params[rs.param_start + 1];
         let theta = sketch.params[rs.param_start + 2];
-        let (sin_t, cos_t) = theta.sin_cos();
+        let (sin_t, cos_t) = theta.psin_cos();
 
         // Write point positions.
         for (i, &ph) in rs.points.iter().enumerate() {

@@ -9,6 +9,7 @@ use popkern_core::{
     tolerance::Tolerance,
     topology::{BRep, FaceHandle},
 };
+use popkern_math::PortableMath;
 
 use crate::error::BoolDiagnostics;
 use crate::intersect_edge_face::{EdgeFaceHit, detect_edge_face_intersections};
@@ -276,7 +277,7 @@ pub(crate) fn conservative_curve_extent(
                 (semi_major.z, semi_minor.z),
             ] {
                 if a.abs() > 1e-30 && (b / a).abs() < 1.0 {
-                    let t = (-b / a).atanh();
+                    let t = (-b / a).patanh();
                     if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
                         points.push(c.geometry.point_at(t));
                     }

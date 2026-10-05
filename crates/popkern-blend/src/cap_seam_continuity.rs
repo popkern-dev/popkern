@@ -38,6 +38,7 @@
 //! [`seam_normal_profile`] and look at where along the seam it sits.
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::cap_seam_measure::{
     edge_seam_faces, measure_edge_seam, resolve_edge_seam, side_b_at, side_b_reference,
@@ -182,7 +183,7 @@ pub fn seam_normal_profile(
                 continue;
             };
             let cos = n_a.dot(&n_b).abs().clamp(0.0, 1.0);
-            out.push((f, cos.acos().to_degrees()));
+            out.push((f, cos.pacos().to_degrees()));
         }
         return Some(out);
     }

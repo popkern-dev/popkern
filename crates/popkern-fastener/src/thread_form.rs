@@ -19,6 +19,7 @@
 
 use super::FastenerError;
 use super::spec::ThreadSpec;
+use popkern_math::PortableMath;
 
 /// A closed convex tool cross-section in absolute
 /// `(radial, axial)` coordinates (radial > 0; axial measured from
@@ -58,7 +59,7 @@ pub(crate) fn embed_margin(spec: &ThreadSpec) -> f64 {
 pub(crate) fn external_groove(spec: &ThreadSpec) -> Result<ToolProfile, FastenerError> {
     spec.validate()?;
     let p = spec.pitch();
-    let tan_a = (spec.flank_angle() / 2.0).tan();
+    let tan_a = (spec.flank_angle() / 2.0).ptan();
     let r_major = spec.major_diameter() / 2.0;
     let r_minor = spec.minor_diameter() / 2.0;
     let embed = embed_margin(spec);
@@ -123,8 +124,8 @@ pub(crate) fn internal_ridge(
     }
     let p = spec.pitch();
     let half = spec.flank_angle() / 2.0;
-    let (sin_a, cos_a) = half.sin_cos();
-    let tan_a = half.tan();
+    let (sin_a, cos_a) = half.psin_cos();
+    let tan_a = half.ptan();
     let r_major = spec.major_diameter() / 2.0;
     let r_minor = spec.minor_diameter() / 2.0;
     let embed = embed_margin(spec);

@@ -36,6 +36,7 @@
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::cap::CapEndpoint;
 
@@ -65,7 +66,7 @@ pub(crate) fn tangent_match_surface(endpoint: &CapEndpoint) -> Option<NurbsSurfa
     if e_a.cross(&e_b).dot(&t) < 0.0 {
         std::mem::swap(&mut e_a, &mut e_b);
     }
-    let span = e_a.dot(&e_b).clamp(-1.0, 1.0).acos();
+    let span = e_a.dot(&e_b).clamp(-1.0, 1.0).pacos();
     if !(MIN_ARC_SPAN..std::f64::consts::PI - MIN_ARC_SPAN).contains(&span) {
         return None;
     }
@@ -95,7 +96,7 @@ pub(crate) fn tangent_match_surface(endpoint: &CapEndpoint) -> Option<NurbsSurfa
 /// counter-clockwise about `axis`: its control directions, weights and
 /// knots. One segment up to 90°, two beyond.
 fn unit_arc(e_a: Vec3, axis: Vec3, span: f64) -> (Vec<Vec3>, Vec<f64>, Vec<f64>) {
-    let rotate = |angle: f64| e_a * angle.cos() + axis.cross(&e_a) * angle.sin();
+    let rotate = |angle: f64| e_a * angle.pcos() + axis.cross(&e_a) * angle.psin();
     let segments = if span > std::f64::consts::FRAC_PI_2 {
         2
     } else {
@@ -106,8 +107,8 @@ fn unit_arc(e_a: Vec3, axis: Vec3, span: f64) -> (Vec<Vec3>, Vec<f64>, Vec<f64>)
     let mut weights = vec![1.0];
     for k in 0..segments {
         let (d0, d1) = (rotate(k as f64 * step), rotate((k + 1) as f64 * step));
-        directions.push((d0 + d1) * (1.0 / (1.0 + step.cos())));
-        weights.push((0.5 * step).cos());
+        directions.push((d0 + d1) * (1.0 / (1.0 + step.pcos())));
+        weights.push((0.5 * step).pcos());
         directions.push(d1);
         weights.push(1.0);
     }

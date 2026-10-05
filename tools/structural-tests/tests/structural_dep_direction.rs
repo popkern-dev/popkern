@@ -35,6 +35,19 @@ fn declares_dependency(cargo_toml: &str, dep: &str) -> bool {
     })
 }
 
+/// popkern-math is below everything: every crate may use it, it uses
+/// no popkern crate.
+#[test]
+fn math_depends_on_no_popkern_crate() {
+    let cargo_toml = fs::read_to_string(workspace_root().join("crates/popkern-math/Cargo.toml"))
+        .expect("Could not read popkern-math/Cargo.toml");
+    let deps = cargo_toml.split("[dependencies]").nth(1).unwrap_or("");
+    assert!(
+        !deps.contains("popkern-"),
+        "popkern-math must stay a leaf (pure-Rust libm only)"
+    );
+}
+
 #[test]
 fn core_has_no_internal_crate_dependencies() {
     let cargo_toml_path = workspace_root().join("crates/popkern-core/Cargo.toml");

@@ -12,6 +12,7 @@ use crate::error::SketchWarning;
 use popkern_constraint::ElementHandle;
 use popkern_constraint::Sketch;
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// A graph of 2D nodes and edges extracted from a solved sketch.
 ///
@@ -97,7 +98,7 @@ pub(crate) fn build_edge_graph(
                     && let Some((cx, cy, r, start_angle, end_angle)) = sketch.arc_params(*ah)
                 {
                     let mid_angle = start_angle + (end_angle - start_angle) * 0.5;
-                    let mid_pos = (cx + r * mid_angle.cos(), cy + r * mid_angle.sin());
+                    let mid_pos = (cx + r * mid_angle.pcos(), cy + r * mid_angle.psin());
 
                     let start_node = find_or_insert_node(&mut nodes, start, tolerance);
                     let mid_node = find_or_insert_node(&mut nodes, mid_pos, tolerance);
@@ -127,12 +128,12 @@ pub(crate) fn build_edge_graph(
                 if let ElementHandle::Ellipse(eh) = &element
                     && let Some((cx, cy, semi_a, semi_b, rotation)) = sketch.ellipse_params(*eh)
                 {
-                    let cos_r = rotation.cos();
-                    let sin_r = rotation.sin();
+                    let cos_r = rotation.pcos();
+                    let sin_r = rotation.psin();
                     // Evaluate ellipse at t=0, PI/2, PI, 3*PI/2.
                     let eval_ellipse = |t: f64| -> (f64, f64) {
-                        let lx = semi_a * t.cos();
-                        let ly = semi_b * t.sin();
+                        let lx = semi_a * t.pcos();
+                        let ly = semi_b * t.psin();
                         (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
                     };
                     use std::f64::consts::PI;
@@ -257,8 +258,8 @@ fn element_endpoints(sketch: &Sketch, element: &ElementHandle) -> Option<((f64, 
         }
         ElementHandle::Arc(h) => {
             let (cx, cy, r, start_angle, end_angle) = sketch.arc_params(*h)?;
-            let start = (cx + r * start_angle.cos(), cy + r * start_angle.sin());
-            let end = (cx + r * end_angle.cos(), cy + r * end_angle.sin());
+            let start = (cx + r * start_angle.pcos(), cy + r * start_angle.psin());
+            let end = (cx + r * end_angle.pcos(), cy + r * end_angle.psin());
             Some((start, end))
         }
         ElementHandle::Ellipse(h) => {
@@ -266,8 +267,8 @@ fn element_endpoints(sketch: &Sketch, element: &ElementHandle) -> Option<((f64, 
             // Ellipse is a full closed curve. Return coincident start/end at
             // the t=0 point on the major axis so the build_edge_graph loop
             // detects dist ≈ 0 and routes into the full-ellipse splitting path.
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
             let x0 = cx + semi_a * cos_r;
             let y0 = cy + semi_a * sin_r;
             Some(((x0, y0), (x0, y0)))
@@ -276,8 +277,8 @@ fn element_endpoints(sketch: &Sketch, element: &ElementHandle) -> Option<((f64, 
             let (vx, vy, focal_dist, rotation) = sketch.parabola_params(*h)?;
             // Parabola in local frame: y^2 = 4*f*x, parameterized as
             // (f*t^2, 2*f*t). Use t in [-1, 1] as a finite segment.
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
             let t_start = -1.0;
             let t_end = 1.0;
             let local_start = (focal_dist * t_start * t_start, 2.0 * focal_dist * t_start);
@@ -290,12 +291,12 @@ fn element_endpoints(sketch: &Sketch, element: &ElementHandle) -> Option<((f64, 
             let (cx, cy, semi_a, semi_b, rotation) = sketch.hyperbola_params(*h)?;
             // Hyperbola parameterized as (semi_a * cosh(t), semi_b * sinh(t)).
             // Use t in [-1, 1] as a finite segment.
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
             let t_start: f64 = -1.0;
             let t_end: f64 = 1.0;
-            let local_start = (semi_a * t_start.cosh(), semi_b * t_start.sinh());
-            let local_end = (semi_a * t_end.cosh(), semi_b * t_end.sinh());
+            let local_start = (semi_a * t_start.pcosh(), semi_b * t_start.psinh());
+            let local_end = (semi_a * t_end.pcosh(), semi_b * t_end.psinh());
             let start = rotate_and_translate(local_start, cos_r, sin_r, cx, cy);
             let end = rotate_and_translate(local_end, cos_r, sin_r, cx, cy);
             Some((start, end))

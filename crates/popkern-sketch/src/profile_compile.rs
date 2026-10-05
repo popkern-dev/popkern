@@ -27,6 +27,7 @@ use popkern_constraint::Sketch;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 use crate::error::SketchError;
 use crate::exact_arc::{
@@ -63,9 +64,9 @@ fn three_point_arc(a: (f64, f64), via: (f64, f64), b: (f64, f64)) -> Result<Arc2
     let cx = (aa * (vy - by) + vv * (by - ay) + bb * (ay - vy)) / d;
     let cy = (aa * (bx - vx) + vv * (ax - bx) + bb * (vx - ax)) / d;
     let r = ((ax - cx).powi(2) + (ay - cy).powi(2)).sqrt();
-    let a0 = (ay - cy).atan2(ax - cx);
-    let a_v = (vy - cy).atan2(vx - cx);
-    let a1 = (by - cy).atan2(bx - cx);
+    let a0 = (ay - cy).patan2(ax - cx);
+    let a_v = (vy - cy).patan2(vx - cx);
+    let a1 = (by - cy).patan2(bx - cx);
     let norm = |t: f64| t.rem_euclid(std::f64::consts::TAU);
     let ccw_v = norm(a_v - a0);
     let ccw_1 = norm(a1 - a0);

@@ -40,6 +40,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
+use popkern_math::PortableMath;
 
 use super::closed_fillet_seam;
 use crate::construct::EdgeGeometry;
@@ -288,7 +289,7 @@ pub(crate) fn apply_closed_fillet(
                 // anchor note in chamfer_curve.rs.
                 let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
                 let d = start_at - *center;
-                let theta0 = d.dot(&e2).atan2(d.dot(&e1));
+                let theta0 = d.dot(&e2).patan2(d.dot(&e1));
                 if popkern_core::trace::trace_enabled("rim") {
                     eprintln!(
                         "  [rim-anchor] closed_fillet start_at=({:.3},{:.3},{:.3}) theta0={theta0:.4}",

@@ -7,6 +7,7 @@
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 /// Whether a query window covers at least one full period of its
@@ -155,7 +156,7 @@ pub(super) fn find_tangent_march_direction(
 
     for i in 0..8usize {
         let angle = TAU * i as f64 / 8.0;
-        let dir = tu * angle.cos() + tv * angle.sin();
+        let dir = tu * angle.pcos() + tv * angle.psin();
         let test_point = *point + dir * delta;
         let dist = (test_point - surface2.point_at(u2, v2)).length();
         if dist < min_dist {

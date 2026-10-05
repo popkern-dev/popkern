@@ -1,4 +1,5 @@
 //! Cone constructor — proper 2-face BRep.
+use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
 use crate::error::CoreError;
@@ -272,7 +273,7 @@ impl BRep {
         // =====================================================================
 
         // -- Surface geometry --
-        let half_angle = (radius / height).atan();
+        let half_angle = (radius / height).patan();
         brep.faces[f_lateral].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Cone {
                 apex: Point3::new(0.0, 0.0, h),

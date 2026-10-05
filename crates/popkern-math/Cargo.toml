@@ -1,0 +1,9 @@
+[package]
+name = "popkern-math"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Portable transcendental functions: the same bits on every target"
+
+[dependencies]
+libm = "0.2.16"

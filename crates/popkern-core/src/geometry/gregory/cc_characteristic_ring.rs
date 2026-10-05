@@ -33,6 +33,7 @@
 //!   the sector-0 data rotated by `e^{2πij/n}`.
 
 use super::direct_linalg::solve_dense;
+use popkern_math::PortableMath;
 
 /// Complex scalar stored as `[re, im]`.
 pub type CcComplex = [f64; 2];
@@ -62,7 +63,7 @@ pub fn cc_subdominant_lambda(n: usize) -> Result<f64, String> {
     if n < 3 {
         return Err(format!("CC characteristic ring requires n >= 3; got {n}"));
     }
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     Ok((c + 5.0 + ((c + 9.0) * (c + 1.0)).sqrt()) / 16.0)
 }
 
@@ -140,11 +141,11 @@ pub fn cc_characteristic_ring(n: usize) -> Result<CcCharacteristicRing, String> 
 fn cc_ring_seed(n: usize, lambda: f64) -> Vec<CcComplex> {
     let alpha = core::f64::consts::TAU / n as f64;
     let edge_mag = 4.0 * lambda - 1.0;
-    let face = [1.0 + alpha.cos(), alpha.sin()];
+    let face = [1.0 + alpha.pcos(), alpha.psin()];
     let mut seed = vec![[0.0_f64; 2]; 2 * n + 1];
     for j in 1..=n {
         let phase = (j as f64 - 1.0) * alpha;
-        let rot = [phase.cos(), phase.sin()];
+        let rot = [phase.pcos(), phase.psin()];
         seed[2 * j - 1] = [edge_mag * rot[0], edge_mag * rot[1]];
         seed[2 * j] = complex_mul(face, rot);
     }

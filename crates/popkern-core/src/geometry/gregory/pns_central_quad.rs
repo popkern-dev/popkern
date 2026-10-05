@@ -42,6 +42,7 @@
 
 use super::pns_sigma::SigmaCenterJet;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Jet of the undetermined quadratic map `a: R² → R³` used to build
 /// the cap's central quadratic expansion.
@@ -83,7 +84,7 @@ pub struct CentralSixBB {
 /// Used to map sector-0's canonical σ jet to any sector `k`'s jet
 /// via `θ = 2π·k/n`.
 pub fn rotate_sigma_jet(jet: &SigmaCenterJet, theta: f64) -> SigmaCenterJet {
-    let (sin_t, cos_t) = theta.sin_cos();
+    let (sin_t, cos_t) = theta.psin_cos();
     let rot =
         |v: [f64; 2]| -> [f64; 2] { [cos_t * v[0] - sin_t * v[1], sin_t * v[0] + cos_t * v[1]] };
     SigmaCenterJet {

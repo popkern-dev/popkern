@@ -11,6 +11,7 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 use crate::types::TerminalArcTrimDeclineReason;
 
@@ -69,7 +70,7 @@ pub(super) fn compute_stub_arc(
     let u_basis = p_start - center;
     let mut v_basis = cyl.axis.cross(&u_basis);
     let d = p_end - center;
-    let mut raw = d.dot(&v_basis).atan2(d.dot(&u_basis));
+    let mut raw = d.dot(&v_basis).patan2(d.dot(&u_basis));
     if raw < 0.0 {
         v_basis = -v_basis;
         raw = -raw;
@@ -152,7 +153,7 @@ pub(super) fn compute_stub_arc(
     let (cap_from, cap_to) = (end_pos, start_pos);
     let angle_of = |p: Point3| -> f64 {
         let (u, v) = uv_of(p);
-        (v - center_uv.1).atan2(u - center_uv.0)
+        (v - center_uv.1).patan2(u - center_uv.0)
     };
     let cap_start = angle_of(cap_from);
     let mut cap_end = angle_of(cap_to);

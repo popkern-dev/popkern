@@ -5,6 +5,8 @@
 //! linear values to `Rgba8UnormSrgb` (hardware gamma); the CPU
 //! path applies sRGB conversion explicitly.
 
+use popkern_math::PortableMath;
+
 /// Normalized light direction (approximately `[1,1,1] / sqrt(3)`).
 const LIGHT_DIR: [f32; 3] = [0.577, 0.577, 0.577];
 
@@ -19,7 +21,7 @@ pub fn linear_to_srgb(linear: f32) -> f32 {
     if linear <= 0.0031308 {
         linear * 12.92
     } else {
-        1.055 * linear.powf(1.0 / 2.4) - 0.055
+        1.055 * linear.ppowf(1.0 / 2.4) - 0.055
     }
 }
 

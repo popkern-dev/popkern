@@ -18,6 +18,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use super::boundary::{BlendBoundary, BoundarySegment, FilletEndArcParams};
 use super::sphere_fit_centre::{
@@ -178,7 +179,7 @@ fn apply_sphere_fit_substitution_inner(
                 let v_const = (cap_centre_k - *cyl_origin).dot(&axis_unit);
                 let project = |p: Point3| -> (f64, f64) {
                     let d = p - *cyl_origin;
-                    let mut theta = (d.dot(&perp2)).atan2(d.dot(&perp1));
+                    let mut theta = (d.dot(&perp2)).patan2(d.dot(&perp1));
                     if theta < 0.0 {
                         theta += std::f64::consts::TAU;
                     }
@@ -417,7 +418,7 @@ fn sample_arc_at_uniform_angles_and_fit_deg9(
     for i in 0..10 {
         let s = (i as f64) / 9.0;
         let theta = arc.start_angle + s * (arc.end_angle - arc.start_angle);
-        let p = arc.center + arc.u_basis * theta.cos() + arc.v_basis * theta.sin();
+        let p = arc.center + arc.u_basis * theta.pcos() + arc.v_basis * theta.psin();
         samples.push(p);
         params.push(s);
     }

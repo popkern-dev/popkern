@@ -71,6 +71,7 @@
 
 #![allow(dead_code)]
 
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 /// Returns the list of singular DFT-mode indices `j ∈ 0..n` at
@@ -82,11 +83,11 @@ use std::f64::consts::PI;
 /// for valence-specific invariants.
 pub fn singular_modes(n: usize) -> Vec<usize> {
     assert!(n >= 3, "singular_modes: need n ≥ 3, got {n}");
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     let alpha = 2.0 * PI / n as f64;
     let mut out = Vec::new();
     for j in 0..n {
-        let denom = 2.0 * c + (j as f64 * alpha).cos();
+        let denom = 2.0 * c + (j as f64 * alpha).pcos();
         if denom.abs() < 1e-12 {
             out.push(j);
         }

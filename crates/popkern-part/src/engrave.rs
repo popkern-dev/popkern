@@ -6,6 +6,7 @@
 //! back to the surface. Everything stays planes and lines.
 
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::error::PartError;
 use crate::poly::PolyFace;
@@ -181,7 +182,7 @@ pub fn engrave_polygons(
                 let l2 = (dx * dx + dy * dy).max(1e-300);
                 let t = (((pt.0 - a.0) * dx + (pt.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
                 let (qx, qy) = (a.0 + dx * t, a.1 + dy * t);
-                min_edge_dist = min_edge_dist.min((pt.0 - qx).hypot(pt.1 - qy));
+                min_edge_dist = min_edge_dist.min((pt.0 - qx).phypot(pt.1 - qy));
             }
             in_poly && min_edge_dist >= margin
         };

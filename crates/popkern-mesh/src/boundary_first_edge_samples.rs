@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{Point3, PortableMath};
 
 #[path = "boundary_first_edge_seed.rs"]
 mod boundary_first_edge_seed;
@@ -441,7 +441,7 @@ pub(super) fn refine_boundary_uv(
     if let popkern_core::geometry::SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
         let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
         let d = *target - *origin;
-        (uu, vv) = (d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis));
+        (uu, vv) = (d.dot(&perp2).patan2(d.dot(&perp1)), d.dot(axis));
     } else if surface.point_at(uu, vv).distance_to(target) > 1.0e-9
         && let Some((ru, rv)) =
             popkern_core::geometry::uv_projection::project_point_to_uv_near(surface, target, uu, vv)

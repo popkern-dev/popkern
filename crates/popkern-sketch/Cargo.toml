@@ -6,6 +6,7 @@ license.workspace = true
 description = "Sketch-to-BRep bridge for the popkern CAD kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-constraint = { path = "../popkern-constraint" }
 thiserror.workspace = true

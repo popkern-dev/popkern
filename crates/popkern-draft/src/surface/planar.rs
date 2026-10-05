@@ -7,6 +7,7 @@ use crate::error::DraftError;
 use crate::neutral::NeutralLine;
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 
 /// Draft a planar face by rotating its normal about the neutral line.
 ///
@@ -64,8 +65,8 @@ pub fn draft_planar(
 
 /// Rodrigues rotation: rotate vector `v` about unit axis `k` by angle `a` (radians).
 fn rodrigues_rotate(v: &Vec3, k: &Vec3, a: f64) -> Vec3 {
-    let cos_a = a.cos();
-    let sin_a = a.sin();
+    let cos_a = a.pcos();
+    let sin_a = a.psin();
     let k_cross_v = k.cross(v);
     let k_dot_v = k.dot(v);
     *v * cos_a + k_cross_v * sin_a + *k * k_dot_v * (1.0 - cos_a)

@@ -20,6 +20,7 @@
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Solve a Line-Arc fillet via offset-line-offset-circle
 /// intersection. Returns `(line_tp, arc_tp, fillet_center)`.
@@ -256,7 +257,7 @@ pub(crate) fn solve_generic_fillet(
     let t_corner_b = corner_parameter_hint(curve_b, corner_pos);
 
     let half_angle = corner_angle * 0.5;
-    let sin_half = half_angle.sin().max(1.0e-6);
+    let sin_half = half_angle.psin().max(1.0e-6);
     let initial_offset = radius / sin_half;
     let mut f = corner_pos + bisector * initial_offset;
 

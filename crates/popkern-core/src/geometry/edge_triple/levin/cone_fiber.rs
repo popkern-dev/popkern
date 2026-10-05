@@ -40,6 +40,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 const N_SAMPLES: usize = 129;
 const FIT_DEGREE: usize = 5;
@@ -118,7 +119,7 @@ pub(crate) fn try_rank3_cone_fiber(
     let amp_perp2 = (lam_axis / lam_perp2).sqrt();
 
     let null_dir = |tau: f64| -> Vec3 {
-        e_axis + e_perp1 * (amp_perp1 * tau.cos()) + e_perp2 * (amp_perp2 * tau.sin())
+        e_axis + e_perp1 * (amp_perp1 * tau.pcos()) + e_perp2 * (amp_perp2 * tau.psin())
     };
 
     let (start, end) = match anchors {
@@ -143,7 +144,7 @@ pub(crate) fn try_rank3_cone_fiber(
         let c_coord = d.dot(&e_perp2);
         let cos_t = b_coord / (sigma * amp_perp1);
         let sin_t = c_coord / (sigma * amp_perp2);
-        Some((sin_t.atan2(cos_t), sigma))
+        Some((sin_t.patan2(cos_t), sigma))
     };
     let (tau_start, sigma_start) = to_tau_sigma(start)?;
     let (tau_end, _sigma_end) = to_tau_sigma(end)?;
@@ -404,13 +405,13 @@ fn invert_uv_on_surface(surf: &SurfaceGeometry, p: Point3) -> Option<(f64, f64)>
             let v = d.dot(axis);
             let perp = d - *axis * v;
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
-            let u = perp.dot(&perp2).atan2(perp.dot(&perp1));
+            let u = perp.dot(&perp2).patan2(perp.dot(&perp1));
             Some((u, v))
         }
         Sphere { center, radius } => {
             let d = p - *center;
-            let u = d.y.atan2(d.x);
-            let v = (d.z / radius).clamp(-1.0, 1.0).acos();
+            let u = d.y.patan2(d.x);
+            let v = (d.z / radius).clamp(-1.0, 1.0).pacos();
             Some((u, v))
         }
         Cone { apex, axis, .. } => {
@@ -418,7 +419,7 @@ fn invert_uv_on_surface(surf: &SurfaceGeometry, p: Point3) -> Option<(f64, f64)>
             let v = d.dot(axis);
             let perp = d - *axis * v;
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
-            let u = perp.dot(&perp2).atan2(perp.dot(&perp1));
+            let u = perp.dot(&perp2).patan2(perp.dot(&perp1));
             Some((u, v))
         }
         Torus {
@@ -431,11 +432,11 @@ fn invert_uv_on_surface(surf: &SurfaceGeometry, p: Point3) -> Option<(f64, f64)>
             let v_axis = d.dot(axis);
             let perp = d - *axis * v_axis;
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
-            let u = perp.dot(&perp2).atan2(perp.dot(&perp1));
+            let u = perp.dot(&perp2).patan2(perp.dot(&perp1));
             let perp_len = perp.length();
             let cos_v = ((perp_len - major_radius) / minor_radius).clamp(-1.0, 1.0);
             let sin_v = (v_axis / minor_radius).clamp(-1.0, 1.0);
-            let v = sin_v.atan2(cos_v);
+            let v = sin_v.patan2(cos_v);
             Some((u, v))
         }
         _ => None,

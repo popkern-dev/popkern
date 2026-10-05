@@ -7,6 +7,7 @@
 use crate::error::DraftError;
 use crate::neutral::NeutralLine;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 /// Draft a cylindrical face by converting it to a cone.
 ///
 /// The cone's half-angle equals the draft angle, and the apex is positioned
@@ -42,7 +43,7 @@ pub fn draft_cylindrical(
         return Ok(surface.clone());
     }
 
-    let tan_a = abs_angle.tan();
+    let tan_a = abs_angle.ptan();
     if tan_a < 1e-12 {
         // Extremely small angle, effectively zero.
         return Ok(surface.clone());

@@ -12,6 +12,7 @@
 use crate::error::CoreError;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 impl BRep {
     /// Build a unit open box — a `[0, 1]³` cube with one face
@@ -66,7 +67,7 @@ impl BRep {
         let profile: Vec<crate::geometry::Point3> = (0..n)
             .map(|k| {
                 let angle = std::f64::consts::TAU * (k as f64) / (n as f64);
-                crate::geometry::Point3::new(radius * angle.cos(), radius * angle.sin(), 0.0)
+                crate::geometry::Point3::new(radius * angle.pcos(), radius * angle.psin(), 0.0)
             })
             .collect();
         let mut brep = Self::prism(

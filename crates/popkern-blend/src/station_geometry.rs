@@ -10,6 +10,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 
 /// Re-solve one station's support contacts exactly: alternating
 /// offset projection to the centre equidistant `radius` from both
@@ -94,14 +95,14 @@ pub(crate) fn bi_rational_arc_row(
     let u1 = v1 * (1.0 / r1);
     let u2 = v2 * (1.0 / r2);
     let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
+    let theta = cos_theta.pacos();
     if !(1e-9..=3.0).contains(&theta) {
         return None;
     }
     let r = 0.5 * (r1 + r2);
     let bis = (u1 + u2).normalized()?;
     let mid = *center + bis * r;
-    let w = (theta * 0.25).cos();
+    let w = (theta * 0.25).pcos();
     let m1 = *center + (u1 + bis).normalized()? * (r / w);
     let m2 = *center + (u2 + bis).normalized()? * (r / w);
     Some(([*start, m1, mid, m2, *end], w))

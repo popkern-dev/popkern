@@ -8,6 +8,7 @@
 use crate::arc_length;
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
+use popkern_math::PortableMath;
 
 /// Default number of arc-length samples for path parameterization.
 pub(crate) const ARC_LENGTH_SAMPLES: usize = 100;
@@ -104,7 +105,7 @@ fn turning_frames(path: &NurbsCurve) -> usize {
         let d = path.derivative_at(t, 1);
         let Some(dir) = d.normalized() else { continue };
         if let Some(p) = prev {
-            turning += p.dot(&dir).clamp(-1.0, 1.0).acos();
+            turning += p.dot(&dir).clamp(-1.0, 1.0).pacos();
         }
         prev = Some(dir);
     }

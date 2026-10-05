@@ -5,13 +5,15 @@ use crate::geometry::curve::CurveGeometry;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 /// Rotate a point around an axis using Rodrigues' rotation formula.
 pub fn rotate_point(point: &Point3, axis_origin: &Point3, axis_dir: &Vec3, angle: f64) -> Point3 {
     let v = *point - *axis_origin;
     let k = axis_dir.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-    let rotated = v * angle.cos() + k.cross(&v) * angle.sin() + k * k.dot(&v) * (1.0 - angle.cos());
+    let rotated =
+        v * angle.pcos() + k.cross(&v) * angle.psin() + k * k.dot(&v) * (1.0 - angle.pcos());
     *axis_origin + rotated
 }
 
@@ -68,7 +70,7 @@ fn arc_control_points_for_revolution(
     };
 
     let d_angle = angle / n_arcs as f64;
-    let w_mid = (d_angle / 2.0).cos(); // weight for the mid control point of each arc
+    let w_mid = (d_angle / 2.0).pcos(); // weight for the mid control point of each arc
 
     let mut points = Vec::with_capacity(2 * n_arcs + 1);
     let mut weights = Vec::with_capacity(2 * n_arcs + 1);

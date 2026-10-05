@@ -5,6 +5,7 @@
 //! so shared-edge closure is unaffected.
 
 use super::BoundaryRing;
+use popkern_math::PortableMath;
 
 /// Nudge strictly-collinear boundary points INWARD by an invisible
 /// epsilon in UV. Collinear boundary runs (straight edges sampled at
@@ -76,8 +77,8 @@ pub(super) fn jitter_cocircular(rings: &mut [BoundaryRing]) {
                 .wrapping_mul(6364136223846793005)
                 .wrapping_add(1442695040888963407);
             let angle = (k >> 11) as f64 / (1u64 << 53) as f64 * std::f64::consts::TAU;
-            uv.0 += eps * angle.cos();
-            uv.1 += eps * angle.sin();
+            uv.0 += eps * angle.pcos();
+            uv.1 += eps * angle.psin();
         }
     }
 }

@@ -27,6 +27,7 @@
 use super::super::kp20_bi6_tau::Kp20TauMap;
 use super::super::kp20_bi6_tau_solve_assemble::Kp20PlanarTauPaperSolveError;
 use super::super::kp20_paper_tau::{Kp20PaperTauReport, solve_kp20_paper_tau};
+use popkern_math::PortableMath;
 
 /// Monomial order for total-degree-3 2D jets: coefficients of
 /// `a^i b^j` for the listed `(i, j)`.
@@ -196,7 +197,7 @@ pub struct Kp20Eq21MuFit {
 /// Residual vector: composed solved jet minus the eq (22) template
 /// with the given µ.
 fn eq23_mu(n: usize, mu0: f64) -> [f64; 4] {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     [
         mu0,
         1.0 / 3.0,

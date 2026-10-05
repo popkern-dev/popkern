@@ -4,6 +4,7 @@
 //! [`case_oblique`] for the shoulder-point construction notes.
 
 use super::*;
+use popkern_math::PortableMath;
 
 // ── Oblique (ellipse) ───────────────────────────────────────────────────
 
@@ -33,10 +34,10 @@ fn oblique_point(
     d: f64,
     u: f64,
 ) -> Point3 {
-    let denom = a + b * u.cos() + d * u.sin();
+    let denom = a + b * u.pcos() + d * u.psin();
     let v = c / denom;
     let r = v * tan_ha;
-    apex + ca * v + perp1 * (r * u.cos()) + perp2 * (r * u.sin())
+    apex + ca * v + perp1 * (r * u.pcos()) + perp2 * (r * u.psin())
 }
 
 /// General oblique case: intersection is an ellipse on the cone.
@@ -69,7 +70,7 @@ pub(super) fn case_oblique(
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     let (perp1, perp2) = orthonormal_basis(ca);
-    let tan_ha = half_angle.tan();
+    let tan_ha = half_angle.ptan();
 
     let c = (po - apex).dot(&pn);
     let a = ca.dot(&pn);
@@ -101,11 +102,12 @@ pub(super) fn case_oblique(
     // dP/du = dv/du * (axis + perp1*tan_ha*cos(u) + perp2*tan_ha*sin(u))
     //       + v * (perp1*(-tan_ha*sin(u)) + perp2*(tan_ha*cos(u)))
     let tang = |u: f64| -> Vec3 {
-        let denom = a + b * u.cos() + d * u.sin();
+        let denom = a + b * u.pcos() + d * u.psin();
         let v = c / denom;
-        let dv_du = c * (b * u.sin() - d * u.cos()) / (denom * denom);
-        let from_v_change = (ca + perp1 * (tan_ha * u.cos()) + perp2 * (tan_ha * u.sin())) * dv_du;
-        let from_u_change = (perp1 * (-tan_ha * u.sin()) + perp2 * (tan_ha * u.cos())) * v;
+        let dv_du = c * (b * u.psin() - d * u.pcos()) / (denom * denom);
+        let from_v_change =
+            (ca + perp1 * (tan_ha * u.pcos()) + perp2 * (tan_ha * u.psin())) * dv_du;
+        let from_u_change = (perp1 * (-tan_ha * u.psin()) + perp2 * (tan_ha * u.pcos())) * v;
         from_v_change + from_u_change
     };
 
@@ -121,7 +123,7 @@ pub(super) fn case_oblique(
         (r.dot(&e1), r.dot(&e2))
     };
 
-    let cos2 = half_angle.cos() * half_angle.cos();
+    let cos2 = half_angle.pcos() * half_angle.pcos();
     // One root of the double-cone quadratic along X(s) = m + s·dir,
     // s ∈ (0, 1): f > 0 inside the section, f < 0 outside, so the
     // bracketed sign change has exactly one root.

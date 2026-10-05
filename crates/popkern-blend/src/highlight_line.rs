@@ -34,6 +34,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::healing::{Isophote, compute_highlight_lines};
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::geometry_compute::face_param_range;
 
@@ -208,7 +209,7 @@ pub fn highlight_boundary_kink(
                     // align the tangents or anti-align them; we
                     // treat both as "zero angle."
                     let angle = (1.0 - cos.abs()).max(0.0).sqrt(); // chord approximation for small θ
-                    let angle_rad = 2.0 * angle.asin(); // exact for |cos| ≤ 1
+                    let angle_rad = 2.0 * angle.pasin(); // exact for |cos| ≤ 1
                     let _ = angle;
                     let current = match max_angle {
                         Some(m) => m.max(angle_rad),

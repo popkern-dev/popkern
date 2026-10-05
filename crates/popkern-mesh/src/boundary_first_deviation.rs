@@ -20,6 +20,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_math::PortableMath;
 
 use super::boundary_first_cdt::ConstrainedMesh;
 use super::boundary_first_ring_index::RingIndex;
@@ -184,7 +185,7 @@ fn steiner_candidates(
         let spacing = 0.25
             * [(ua, ub), (ub, uc), (uc, ua)]
                 .iter()
-                .map(|(p, q)| (su * (p.0 - q.0)).hypot(sv * (p.1 - q.1)))
+                .map(|(p, q)| (su * (p.0 - q.0)).phypot(sv * (p.1 - q.1)))
                 .fold(f64::INFINITY, f64::min);
         if spacing.is_nan() || spacing <= 0.0 {
             continue;
@@ -197,7 +198,7 @@ fn steiner_candidates(
                 buckets.get(&(i, j)).is_some_and(|ks| {
                     ks.iter().any(|&k| {
                         let q = added[k];
-                        (su * q.0 - m.0).hypot(sv * q.1 - m.1) < spacing
+                        (su * q.0 - m.0).phypot(sv * q.1 - m.1) < spacing
                     })
                 })
             })

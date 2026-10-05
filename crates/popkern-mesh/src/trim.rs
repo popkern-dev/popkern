@@ -10,6 +10,7 @@ use crate::trim_sampling::sample_loop_with_samples;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 /// A closed polyline in UV space representing a face boundary loop.
 pub(crate) struct TrimLoop {
@@ -222,12 +223,12 @@ pub(crate) fn unwrap_periodic(
 fn circular_mean(angles: impl Iterator<Item = f64>, period: f64) -> f64 {
     let (sin_sum, cos_sum, count) = angles.fold((0.0, 0.0, 0usize), |(s, c, n), a| {
         let theta = a * std::f64::consts::TAU / period;
-        (s + theta.sin(), c + theta.cos(), n + 1)
+        (s + theta.psin(), c + theta.pcos(), n + 1)
     });
     if count == 0 {
         return 0.0;
     }
-    let mean_theta = (sin_sum / count as f64).atan2(cos_sum / count as f64);
+    let mean_theta = (sin_sum / count as f64).patan2(cos_sum / count as f64);
     mean_theta * period / std::f64::consts::TAU
 }
 

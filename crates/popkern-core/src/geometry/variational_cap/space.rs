@@ -16,6 +16,7 @@ use crate::geometry::gregory::GregoryPatch;
 use crate::geometry::nurbs_ops::{basis::basis_funs_and_two_derivs, find_span};
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// A sparse linear functional over one coordinate's coefficients.
 pub(super) type Functional = Vec<(usize, f64)>;
@@ -325,7 +326,7 @@ pub(crate) fn gauss_legendre(count: usize) -> Vec<(f64, f64)> {
     let n = count.max(1);
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
-        let mut x = (std::f64::consts::PI * (i as f64 + 0.75) / (n as f64 + 0.5)).cos();
+        let mut x = (std::f64::consts::PI * (i as f64 + 0.75) / (n as f64 + 0.5)).pcos();
         let mut dp = 1.0;
         for _ in 0..100 {
             let (mut p0, mut p1) = (1.0, x);

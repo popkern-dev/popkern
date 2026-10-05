@@ -5,6 +5,7 @@ use super::kp20_bi6_local_constraint::{kp20_eq8_jacobian_dense, kp20_eq9_jacobia
 use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
 use super::kp20_paper_cap::Kp20PaperCapReport;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
 const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
@@ -18,7 +19,7 @@ pub(crate) fn measure_paper_cap(
     guide_fit_residual: f64,
     max_strip_movement: f64,
 ) -> Kp20PaperCapReport {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let mut max_c0 = 0.0_f64;
     let mut max_g1 = 0.0_f64;
     let mut max_g2 = 0.0_f64;

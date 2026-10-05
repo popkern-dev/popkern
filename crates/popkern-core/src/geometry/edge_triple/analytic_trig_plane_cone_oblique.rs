@@ -31,6 +31,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Oblique plane-cone slice. Returns `None` for the perpendicular
 /// case (handled elsewhere), the apex-passing case (degenerate
@@ -68,7 +69,7 @@ pub(super) fn try_plane_cone_oblique_ellipse(
     let delta_a = delta.dot(&cone_axis);
     let mu = plane_u.dot(&cone_axis);
     let nu = plane_v.dot(&cone_axis);
-    let ch = half_angle.cos();
+    let ch = half_angle.pcos();
     let ch2 = ch * ch;
     let pu2 = plane_u.dot(&plane_u);
     let pv2 = plane_v.dot(&plane_v);
@@ -171,7 +172,7 @@ pub(super) fn try_plane_cone_oblique_ellipse(
                 distance: r2.sqrt() - 1.0,
             });
         }
-        Ok(sin_part.atan2(cos_part))
+        Ok(sin_part.patan2(cos_part))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -212,13 +213,13 @@ pub(super) fn try_plane_cone_oblique_ellipse(
     for i in 0..n_samples {
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let theta = theta_start + frac * span;
-        let p3 = centre_3d + u_basis * theta.cos() + v_basis * theta.sin();
+        let p3 = centre_3d + u_basis * theta.pcos() + v_basis * theta.psin();
         // Cone uv: u = atan2(perp_proj·perp2, perp_proj·perp1),
         //           v = (p3 − apex) · axis.
         let dp = p3 - cone_apex;
         let v_cone = dp.dot(&cone_axis);
         let perp_vec = dp - cone_axis * v_cone;
-        let u_cone = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u_cone = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         cone_pts.push(Point3::new(u_cone, v_cone, 0.0));
         // Plane uv: u_plane = (p3 − po) · pu / |pu|², v similarly.
         let dp_plane = p3 - plane_origin;

@@ -37,6 +37,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_torus_torus_coaxial(
@@ -130,11 +131,11 @@ pub(super) fn try_torus_torus_coaxial(
     let sign_b = axis_align.signum();
     let cos_v_a = ((sol_x - big_r_a) / r_a).clamp(-1.0, 1.0);
     let sin_v_a = (sol_y / r_a).clamp(-1.0, 1.0);
-    let v_a = sin_v_a.atan2(cos_v_a);
+    let v_a = sin_v_a.patan2(cos_v_a);
     let y_b_local = sign_b * (sol_y - h_axis);
     let cos_v_b = ((sol_x - big_r_b) / r_b).clamp(-1.0, 1.0);
     let sin_v_b = (y_b_local / r_b).clamp(-1.0, 1.0);
-    let v_b = sin_v_b.atan2(cos_v_b);
+    let v_b = sin_v_b.patan2(cos_v_b);
     let canon = |v: f64| -> f64 {
         if v < 0.0 {
             v + std::f64::consts::TAU
@@ -159,7 +160,7 @@ pub(super) fn try_torus_torus_coaxial(
                 distance: r_real - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -183,14 +184,14 @@ pub(super) fn try_torus_torus_coaxial(
         end_angle: theta_end,
     };
 
-    let a_u_offset = arc_basis_u.dot(&perp2_a).atan2(arc_basis_u.dot(&perp1_a));
+    let a_u_offset = arc_basis_u.dot(&perp2_a).patan2(arc_basis_u.dot(&perp1_a));
     let pcurve_a = Pcurve::linear(
         (theta_start + a_u_offset, v_a_canon),
         (theta_end + a_u_offset, v_a_canon),
         theta_start,
         theta_end,
     );
-    let b_u_offset = arc_basis_u.dot(&perp2_b).atan2(arc_basis_u.dot(&perp1_b));
+    let b_u_offset = arc_basis_u.dot(&perp2_b).patan2(arc_basis_u.dot(&perp1_b));
     let pcurve_b = Pcurve::linear(
         (theta_start + b_u_offset, v_b_canon),
         (theta_end + b_u_offset, v_b_canon),

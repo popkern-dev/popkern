@@ -7,6 +7,7 @@ use crate::geometry::curve::CurveEval;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::uv_projection::project_point_to_uv;
 use crate::topology::{BRep, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 /// Attach pcurves to all half-edges on the torus.
 ///
@@ -159,9 +160,9 @@ pub(super) fn attach_torus_edge_curves(brep: &mut BRep, major_radius: f64) {
             // face, breaking the pcurve ring's exact-multiple
             // chaining (faces at that sector lost cell resolution).
             let snap = |x: f64| if x.abs() < 1.0e-12 { 0.0 } else { x };
-            let u = snap(a.y).atan2(snap(a.x));
-            let center = Point3::new(major_radius * u.cos(), major_radius * u.sin(), 0.0);
-            let normal = Vec3::new(-u.sin(), u.cos(), 0.0);
+            let u = snap(a.y).patan2(snap(a.x));
+            let center = Point3::new(major_radius * u.pcos(), major_radius * u.psin(), 0.0);
+            let normal = Vec3::new(-u.psin(), u.pcos(), 0.0);
             let radius = {
                 let d = a - center;
                 d.length()
@@ -171,7 +172,7 @@ pub(super) fn attach_torus_edge_curves(brep: &mut BRep, major_radius: f64) {
         let (bu, bv) = circle_basis(normal);
         let angle_of = |p: &Point3| -> f64 {
             let d = *p - center;
-            d.dot(&bv).atan2(d.dot(&bu))
+            d.dot(&bv).patan2(d.dot(&bu))
         };
         let theta_a = angle_of(&a);
         let mut theta_b = angle_of(&b);

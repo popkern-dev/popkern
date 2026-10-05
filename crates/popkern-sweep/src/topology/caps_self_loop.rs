@@ -1,6 +1,7 @@
 //! Half-edge direction along cap curves and the self-loop (full
 //! circle) cap pcurve — split from `caps.rs` under the 500-line cap.
 
+use popkern_math::PortableMath;
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use popkern_core::constructors::builder::BRepBuilder;
@@ -89,7 +90,7 @@ pub(super) fn attach_self_loop_pcurve(
             a.0 * b.1 - b.0 * a.1
         })
         .sum();
-    let pcurve = cap_circle_pcurve(radius, (cu, cv), dv.atan2(du), signed_area >= 0.0);
+    let pcurve = cap_circle_pcurve(radius, (cu, cv), dv.patan2(du), signed_area >= 0.0);
     builder.set_half_edge_pcurve(he, pcurve);
 }
 
@@ -105,7 +106,7 @@ pub(super) fn cap_circle_pcurve(
     start_angle: f64,
     ccw: bool,
 ) -> NurbsCurve {
-    let (s, c) = start_angle.sin_cos();
+    let (s, c) = start_angle.psin_cos();
     let w = FRAC_1_SQRT_2;
     let unit = [
         (1.0, 0.0),

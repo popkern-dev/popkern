@@ -4,6 +4,7 @@
 //! creating construction geometry that can be used as reference
 //! for constraining new sketch elements.
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use popkern_constraint::{Constraint, ElementHandle, PointHandle};
@@ -113,7 +114,7 @@ impl SketchOnPlane {
                         let (sx, sy) = self
                             .plane
                             .to_2d(curve_on_edge.geometry.point_at(*start_angle));
-                        let a0 = (sy - cy).atan2(sx - cx);
+                        let a0 = (sy - cy).patan2(sx - cx);
                         let sense = if normal.dot(&self.plane.normal) < 0.0 {
                             -1.0
                         } else {

@@ -1,5 +1,6 @@
 //! `SurfaceEval` implementations for analytic surface types.
 
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::geometry::intersection::surface_subdivision::Aabb;
@@ -58,7 +59,7 @@ impl SurfaceEval for SurfaceGeometry {
                 radius,
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let radial = perp1 * (radius * u.cos()) + perp2 * (radius * u.sin());
+                let radial = perp1 * (radius * u.pcos()) + perp2 * (radius * u.psin());
                 *origin + radial + *axis * v
             }
             SurfaceGeometry::Cone {
@@ -67,16 +68,16 @@ impl SurfaceEval for SurfaceGeometry {
                 half_angle,
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let r = v * half_angle.tan();
-                let radial = perp1 * (r * u.cos()) + perp2 * (r * u.sin());
+                let r = v * half_angle.ptan();
+                let radial = perp1 * (r * u.pcos()) + perp2 * (r * u.psin());
                 *apex + *axis * v + radial
             }
             SurfaceGeometry::Sphere { center, radius } => {
                 // Standard spherical: u = longitude [0, 2π), v = colatitude [0, π]
                 // (0,0,1) is north pole at v=0
-                let x = radius * v.sin() * u.cos();
-                let y = radius * v.sin() * u.sin();
-                let z = radius * v.cos();
+                let x = radius * v.psin() * u.pcos();
+                let y = radius * v.psin() * u.psin();
+                let z = radius * v.pcos();
                 *center + Vec3::new(x, y, z)
             }
             SurfaceGeometry::Torus {
@@ -87,9 +88,9 @@ impl SurfaceEval for SurfaceGeometry {
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
                 let tube_center_offset =
-                    perp1 * (major_radius * u.cos()) + perp2 * (major_radius * u.sin());
-                let tube_radial = (perp1 * u.cos() + perp2 * u.sin()) * (minor_radius * v.cos());
-                let tube_axial = *axis * (minor_radius * v.sin());
+                    perp1 * (major_radius * u.pcos()) + perp2 * (major_radius * u.psin());
+                let tube_radial = (perp1 * u.pcos() + perp2 * u.psin()) * (minor_radius * v.pcos());
+                let tube_axial = *axis * (minor_radius * v.psin());
                 *center + tube_center_offset + tube_radial + tube_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.point_at(u, v),
@@ -103,18 +104,22 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Plane { u_axis, .. } => *u_axis,
             SurfaceGeometry::Cylinder { axis, radius, .. } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                perp1 * (-radius * u.sin()) + perp2 * (radius * u.cos())
+                perp1 * (-radius * u.psin()) + perp2 * (radius * u.pcos())
             }
             SurfaceGeometry::Cone {
                 axis, half_angle, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let r = v * half_angle.tan();
-                perp1 * (-r * u.sin()) + perp2 * (r * u.cos())
+                let r = v * half_angle.ptan();
+                perp1 * (-r * u.psin()) + perp2 * (r * u.pcos())
             }
             SurfaceGeometry::Sphere { radius, .. } => {
                 // d/du: (-sin(u)*sin(v), cos(u)*sin(v), 0)
-                Vec3::new(-radius * v.sin() * u.sin(), radius * v.sin() * u.cos(), 0.0)
+                Vec3::new(
+                    -radius * v.psin() * u.psin(),
+                    radius * v.psin() * u.pcos(),
+                    0.0,
+                )
             }
             SurfaceGeometry::Torus {
                 axis,
@@ -124,8 +129,9 @@ impl SurfaceEval for SurfaceGeometry {
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
                 // d/du of tube_center_offset + tube_radial
-                let d_center = perp1 * (-major_radius * u.sin()) + perp2 * (major_radius * u.cos());
-                let d_radial = (perp1 * (-u.sin()) + perp2 * u.cos()) * (minor_radius * v.cos());
+                let d_center =
+                    perp1 * (-major_radius * u.psin()) + perp2 * (major_radius * u.pcos());
+                let d_radial = (perp1 * (-u.psin()) + perp2 * u.pcos()) * (minor_radius * v.pcos());
                 d_center + d_radial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_u(u, v),
@@ -142,15 +148,15 @@ impl SurfaceEval for SurfaceGeometry {
                 axis, half_angle, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let tan_ha = half_angle.tan();
-                perp1 * (tan_ha * u.cos()) + perp2 * (tan_ha * u.sin()) + *axis
+                let tan_ha = half_angle.ptan();
+                perp1 * (tan_ha * u.pcos()) + perp2 * (tan_ha * u.psin()) + *axis
             }
             SurfaceGeometry::Sphere { radius, .. } => {
                 // d/dv: (cos(u)*cos(v), sin(u)*cos(v), -sin(v))
                 Vec3::new(
-                    radius * u.cos() * v.cos(),
-                    radius * u.sin() * v.cos(),
-                    -radius * v.sin(),
+                    radius * u.pcos() * v.pcos(),
+                    radius * u.psin() * v.pcos(),
+                    -radius * v.psin(),
                 )
             }
             SurfaceGeometry::Torus {
@@ -158,8 +164,8 @@ impl SurfaceEval for SurfaceGeometry {
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
                 // d/dv of tube_radial + tube_axial
-                let d_radial = (perp1 * u.cos() + perp2 * u.sin()) * (-minor_radius * v.sin());
-                let d_axial = *axis * (minor_radius * v.cos());
+                let d_radial = (perp1 * u.pcos() + perp2 * u.psin()) * (-minor_radius * v.psin());
+                let d_axial = *axis * (minor_radius * v.pcos());
                 d_radial + d_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_v(u, v),
@@ -220,18 +226,18 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Plane { .. } => Vec3::zero(),
             SurfaceGeometry::Cylinder { axis, radius, .. } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                perp1 * (-radius * u.cos()) + perp2 * (-radius * u.sin())
+                perp1 * (-radius * u.pcos()) + perp2 * (-radius * u.psin())
             }
             SurfaceGeometry::Cone {
                 axis, half_angle, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let r = v * half_angle.tan();
-                perp1 * (-r * u.cos()) + perp2 * (-r * u.sin())
+                let r = v * half_angle.ptan();
+                perp1 * (-r * u.pcos()) + perp2 * (-r * u.psin())
             }
             SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
-                -radius * v.sin() * u.cos(),
-                -radius * v.sin() * u.sin(),
+                -radius * v.psin() * u.pcos(),
+                -radius * v.psin() * u.psin(),
                 0.0,
             ),
             SurfaceGeometry::Torus {
@@ -242,9 +248,9 @@ impl SurfaceEval for SurfaceGeometry {
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
                 let d2_center =
-                    perp1 * (-major_radius * u.cos()) + perp2 * (-major_radius * u.sin());
+                    perp1 * (-major_radius * u.pcos()) + perp2 * (-major_radius * u.psin());
                 let d2_radial =
-                    (perp1 * (-u.cos()) + perp2 * (-u.sin())) * (minor_radius * v.cos());
+                    (perp1 * (-u.pcos()) + perp2 * (-u.psin())) * (minor_radius * v.pcos());
                 d2_center + d2_radial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_uu(u, v),
@@ -272,17 +278,19 @@ impl SurfaceEval for SurfaceGeometry {
                 axis, half_angle, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let tan_ha = half_angle.tan();
-                perp1 * (-tan_ha * u.sin()) + perp2 * (tan_ha * u.cos())
+                let tan_ha = half_angle.ptan();
+                perp1 * (-tan_ha * u.psin()) + perp2 * (tan_ha * u.pcos())
             }
-            SurfaceGeometry::Sphere { radius, .. } => {
-                Vec3::new(-radius * u.sin() * v.cos(), radius * u.cos() * v.cos(), 0.0)
-            }
+            SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
+                -radius * u.psin() * v.pcos(),
+                radius * u.pcos() * v.pcos(),
+                0.0,
+            ),
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                (perp1 * (-u.sin()) + perp2 * u.cos()) * (-minor_radius * v.sin())
+                (perp1 * (-u.psin()) + perp2 * u.pcos()) * (-minor_radius * v.psin())
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_uv(u, v),
             SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
@@ -300,16 +308,16 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Cylinder { .. } => Vec3::zero(),
             SurfaceGeometry::Cone { .. } => Vec3::zero(),
             SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
-                -radius * u.cos() * v.sin(),
-                -radius * u.sin() * v.sin(),
-                -radius * v.cos(),
+                -radius * u.pcos() * v.psin(),
+                -radius * u.psin() * v.psin(),
+                -radius * v.pcos(),
             ),
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
             } => {
                 let (perp1, perp2) = orthonormal_basis(*axis);
-                let d2_radial = (perp1 * u.cos() + perp2 * u.sin()) * (-minor_radius * v.cos());
-                let d2_axial = *axis * (-minor_radius * v.sin());
+                let d2_radial = (perp1 * u.pcos() + perp2 * u.psin()) * (-minor_radius * v.pcos());
+                let d2_axial = *axis * (-minor_radius * v.psin());
                 d2_radial + d2_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_vv(u, v),
@@ -373,7 +381,7 @@ pub fn analytic_signed_distance(surface: &SurfaceGeometry, p: &Point3) -> Option
             let d = *p - *apex;
             let along = d.dot(axis);
             let radial = (d - *axis * along).length();
-            Some(radial * half_angle.cos() - along * half_angle.sin())
+            Some(radial * half_angle.pcos() - along * half_angle.psin())
         }
         SurfaceGeometry::Torus {
             center,
@@ -384,7 +392,7 @@ pub fn analytic_signed_distance(surface: &SurfaceGeometry, p: &Point3) -> Option
             let d = *p - *center;
             let along = d.dot(axis);
             let radial = (d - *axis * along).length();
-            let in_plane = (radial - major_radius).hypot(along);
+            let in_plane = (radial - major_radius).phypot(along);
             Some(in_plane - minor_radius)
         }
         _ => None,

@@ -4,6 +4,7 @@ use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Intersect a line `P + t*D` with a cone defined by apex, unit axis `A`, and half-angle `α`.
 ///
@@ -30,7 +31,7 @@ pub(crate) fn intersect_line_cone(
     let d = *line_dir;
     let a = *cone_axis;
 
-    let cos_alpha = cone_half_angle.cos();
+    let cos_alpha = cone_half_angle.pcos();
     let cos2 = cos_alpha * cos_alpha;
 
     // Quadratic coefficients from expanding (Q·A)² - cos²(α)*|Q|² = 0
@@ -99,7 +100,7 @@ pub(crate) fn intersect_line_cone(
         // Compute azimuth u from projection onto the orthonormal basis
         let q_perp1 = q.dot(&perp1);
         let q_perp2 = q.dot(&perp2);
-        let u_raw = q_perp2.atan2(q_perp1);
+        let u_raw = q_perp2.patan2(q_perp1);
         // Normalise u to [0, 2π)
         let u = ((u_raw % tau) + tau) % tau;
 

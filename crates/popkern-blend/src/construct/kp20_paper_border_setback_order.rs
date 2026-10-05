@@ -4,6 +4,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -41,7 +42,7 @@ pub(super) fn angular_order(fillet_surfaces: &[FilletSurfaceResult]) -> Result<V
     let v0 = axis.cross(&u0);
     let angle_of = |p: Point3| -> f64 {
         let d = p - centroid;
-        d.dot(&v0).atan2(d.dot(&u0))
+        d.dot(&v0).patan2(d.dot(&u0))
     };
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &b| {

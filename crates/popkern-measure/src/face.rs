@@ -5,6 +5,7 @@ use popkern_core::geometry::uv_projection::tight_bounded_parameter_range;
 use popkern_core::geometry::{CurveEval, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 use popkern_mesh::TessellationOptions;
 
 use crate::MeasureError;
@@ -112,7 +113,7 @@ pub fn face_area(
         // Sphere: area element = r^2*sin(v) du dv -> r^2*|du|*|cos(v0)-cos(v1)|.
         SurfaceGeometry::Sphere { radius, .. } if face_data.inner_loops.is_empty() => {
             if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
-                Ok(radius * radius * (u1 - u0).abs() * (v0.cos() - v1.cos()).abs())
+                Ok(radius * radius * (u1 - u0).abs() * (v0.pcos() - v1.pcos()).abs())
             } else {
                 tessellate_area(brep, face, tolerance)
             }
@@ -122,7 +123,7 @@ pub fn face_area(
         SurfaceGeometry::Cone { half_angle, .. } if face_data.inner_loops.is_empty() => {
             if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
                 let delta_v_sq = (v1 * v1 - v0 * v0).abs() / 2.0;
-                Ok(half_angle.tan() / half_angle.cos() * (u1 - u0).abs() * delta_v_sq)
+                Ok(half_angle.ptan() / half_angle.pcos() * (u1 - u0).abs() * delta_v_sq)
             } else {
                 tessellate_area(brep, face, tolerance)
             }
@@ -143,7 +144,7 @@ pub fn face_area(
                 if du <= std::f64::consts::PI && dv <= std::f64::consts::PI {
                     let r = *minor_radius;
                     let big_r = *major_radius;
-                    let integral = (big_r * dv + r * (v1.sin() - v0.sin())).abs();
+                    let integral = (big_r * dv + r * (v1.psin() - v0.psin())).abs();
                     Ok(r * du * integral)
                 } else {
                     tessellate_area(brep, face, tolerance)

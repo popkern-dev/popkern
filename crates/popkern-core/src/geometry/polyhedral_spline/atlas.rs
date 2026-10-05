@@ -1,5 +1,6 @@
 use super::types::{PatchEdge, PolyhedralPatch, PolyhedralSpline, PolyhedralSplineError};
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeamOrientation {
@@ -227,7 +228,7 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
         return 0.0;
     }
     let cos = (a.dot(&b) / (an * bn)).clamp(-1.0, 1.0).abs();
-    cos.acos()
+    cos.pacos()
 }
 
 fn edge_u(edge: PatchEdge) -> f64 {

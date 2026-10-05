@@ -12,6 +12,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Perpendicular plane-cylinder slice: plane normal ≈ cylinder
 /// axis. Returns `None` for oblique slices so the caller falls back
@@ -52,7 +53,7 @@ pub(super) fn try_plane_cylinder_perpendicular(
         crate::geometry::analytic_surfaces::orthonormal_basis(cyl_axis);
     let cyl_u_offset = arc_basis_u
         .dot(&cyl_basis_v)
-        .atan2(arc_basis_u.dot(&cyl_basis_u));
+        .patan2(arc_basis_u.dot(&cyl_basis_u));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -67,7 +68,7 @@ pub(super) fn try_plane_cylinder_perpendicular(
         if (r - cyl_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let theta_start = match theta_of(start) {
         Some(t) => t,

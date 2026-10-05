@@ -27,6 +27,7 @@ use super::kp20_bi9_seams::{
     Net, Side, fit_band_side, fit_internal_seam, fit_sector_seam, sector_seam_residual, slot,
 };
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Piece indices in [`super::Kp20PieceId::all`] order.
 const P1: usize = 0;
@@ -115,7 +116,7 @@ fn relation_gates(scale: f64) -> [f64; 3] {
 
 /// The worst sector-seam residuals `[C⁰, eq (8), eq (9)]` over all pairs.
 fn seam_residuals(n: usize, nets: &[[Net; 4]]) -> Vec<(usize, [f64; 3])> {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     (0..n)
         .map(|s| {
             let (prev, curr) = (&nets[s], &nets[(s + 1) % n]);
@@ -328,7 +329,7 @@ pub fn resample_kp20_cap_bi9(
     let deviation_before = deviation(&start9, &nets);
     // 4. Sector seams: minimal movement from T₉ onto C⁰ + eq (8)/(9).
     let target = nets.clone();
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     for s in 0..n {
         let t = (s + 1) % n;
         for (pair, (a, b, coeffs)) in [

@@ -14,6 +14,7 @@
 //! chart) at a relative gate and returns `None` otherwise; the caller
 //! verifies whatever pcurve it receives before rewriting topology.
 
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
@@ -67,7 +68,7 @@ pub fn iso_circle_pcurve(
         } => {
             let axial = axis.normalized()?;
             let station = (*center - *apex).dot(&axial);
-            let chart_radius = (station * half_angle.tan()).abs();
+            let chart_radius = (station * half_angle.ptan()).abs();
             arc.latitude(curve, range, *apex, axial, station, chart_radius)
         }
         SurfaceGeometry::Sphere {
@@ -76,8 +77,8 @@ pub fn iso_circle_pcurve(
         } => {
             let axial = Vec3::new(0.0, 0.0, 1.0);
             let d = *center - *sc;
-            let polar = (d.dot(&axial) / sr).clamp(-1.0, 1.0).acos();
-            let chart_radius = sr * polar.sin();
+            let polar = (d.dot(&axial) / sr).clamp(-1.0, 1.0).pacos();
+            let chart_radius = sr * polar.psin();
             arc.latitude(curve, range, *sc, axial, polar, chart_radius)
                 .or_else(|| arc.sphere_meridian(curve, range, surface, *sc, *sr))
         }
@@ -93,9 +94,9 @@ pub fn iso_circle_pcurve(
             // A latitude circle's radius is its distance from the
             // axis; its tube angle follows from the offset along the
             // axis and the excess over the major radius.
-            let v = axial_offset.atan2(*radius - *major_radius);
-            let on_tube = (*major_radius + minor_radius * v.cos() - *radius).abs() <= gate
-                && (minor_radius * v.sin() - axial_offset).abs() <= gate;
+            let v = axial_offset.patan2(*radius - *major_radius);
+            let on_tube = (*major_radius + minor_radius * v.pcos() - *radius).abs() <= gate
+                && (minor_radius * v.psin() - axial_offset).abs() <= gate;
             let latitude = if on_tube {
                 arc.latitude(curve, range, *tc, axial, v, *radius)
             } else {
@@ -147,7 +148,7 @@ impl ArcClass {
         }
         let (e1, e2) = orthonormal_basis(axial);
         let start = curve.point_at(range.0) - origin;
-        let u0 = start.dot(&e2).atan2(start.dot(&e1));
+        let u0 = start.dot(&e2).patan2(start.dot(&e1));
         let sense = if self.normal.dot(&axial) >= 0.0 {
             1.0
         } else {
@@ -180,7 +181,7 @@ impl ArcClass {
         let polar = |t: f64| {
             ((curve.point_at(t) - center).z / radius)
                 .clamp(-1.0, 1.0)
-                .acos()
+                .pacos()
         };
         let mid = 0.5 * (range.0 + range.1);
         let (v0, v1, vm) = (polar(range.0), polar(range.1), polar(mid));
@@ -188,7 +189,7 @@ impl ArcClass {
             return None; // crosses a pole: v folds
         }
         let m = curve.point_at(mid) - center;
-        let u = azimuth(m.y.atan2(m.x));
+        let u = azimuth(m.y.patan2(m.x));
         let sense = sense_along_v(curve, mid, surface, u, vm)?;
         Some(linear(
             (u, v0),
@@ -223,12 +224,12 @@ impl ArcClass {
             return None;
         }
         let (e1, e2) = orthonormal_basis(axial);
-        let u = azimuth(radial.dot(&e2).atan2(radial.dot(&e1)));
+        let u = azimuth(radial.dot(&e2).patan2(radial.dot(&e1)));
         let s = curve.point_at(range.0) - self.center;
-        let v0 = s.dot(&axial).atan2(s.dot(&radial_dir));
+        let v0 = s.dot(&axial).patan2(s.dot(&radial_dir));
         let mid = 0.5 * (range.0 + range.1);
         let sm = curve.point_at(mid) - self.center;
-        let vm = sm.dot(&axial).atan2(sm.dot(&radial_dir));
+        let vm = sm.dot(&axial).patan2(sm.dot(&radial_dir));
         let sense = sense_along_v(curve, mid, surface, u, vm)?;
         Some(linear(
             (u, v0),

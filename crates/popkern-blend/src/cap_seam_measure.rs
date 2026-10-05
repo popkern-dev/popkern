@@ -7,6 +7,7 @@
 //! measurement semantics and their rationale live on the items.
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
+use popkern_math::PortableMath;
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
@@ -358,7 +359,7 @@ pub(crate) fn sample_edge_seam(
         };
         reading.g1 = Some(n_a.cross(&n_b).length());
         let cos = n_a.dot(&n_b).abs().clamp(0.0, 1.0);
-        reading.angle_deg = cos.acos().to_degrees();
+        reading.angle_deg = cos.pacos().to_degrees();
 
         // Seam direction from side A's own image (no curve-parameter
         // correspondence needed).

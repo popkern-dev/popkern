@@ -6,6 +6,7 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use super::EdgeAnalysis;
 
@@ -158,7 +159,7 @@ fn check_tangent_continuity(
     // One tangent points toward the vertex, the other away.
     // Compare by taking the absolute value of the dot product.
     let dot = tangent_a.dot(&tangent_b).abs();
-    let angle = dot.clamp(-1.0, 1.0).acos();
+    let angle = dot.clamp(-1.0, 1.0).pacos();
 
     Some(angle < angular_tolerance)
 }

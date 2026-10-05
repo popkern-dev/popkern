@@ -18,6 +18,7 @@ use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::uv_projection::project_point_to_uv;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Try to analytically intersect a cylinder and a cone.
 ///
@@ -117,7 +118,7 @@ fn intersect_impl(
     if (d - ca_n * d.dot(&ca_n)).length() > tolerance.linear() {
         return None; // parallel-offset → marching
     }
-    let tan_h = half_angle.tan();
+    let tan_h = half_angle.ptan();
     if tan_h.abs() < tolerance.angular() {
         // Degenerate cone (≈ cylinder): no transversal circle; the
         // coincident detector owns the tangent/coincident cases.

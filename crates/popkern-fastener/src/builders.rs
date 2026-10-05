@@ -9,6 +9,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 use popkern_sketch::ProfileShape;
 
 use crate::engine::{
@@ -25,7 +26,7 @@ pub(crate) fn hexagon(across_flats: f64) -> ProfileShape<f64> {
         points: (0..6)
             .map(|i| {
                 let a = std::f64::consts::FRAC_PI_6 + f64::from(i) * std::f64::consts::FRAC_PI_3;
-                [circumradius * a.cos(), circumradius * a.sin()]
+                [circumradius * a.pcos(), circumradius * a.psin()]
             })
             .collect(),
     }
@@ -99,7 +100,7 @@ pub(crate) fn hex_corner_ring(
     outward: f64,
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
-    let slope = HEX_CHAMFER_ANGLE_DEG.to_radians().tan();
+    let slope = HEX_CHAMFER_ANGLE_DEG.to_radians().ptan();
     let r_face = HEX_CHAMFER_CIRCLE_RATIO * across_flats / 2.0;
     // Just beyond the corners (circumradius s/√3): the cutter reaches
     // only 0.076·s into the material, so thin heads/nuts keep their

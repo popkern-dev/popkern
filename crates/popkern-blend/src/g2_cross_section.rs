@@ -73,7 +73,7 @@
 //! for the broader phase-1 roadmap.
 
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, PortableMath, Vec3};
 use thiserror::Error;
 
 use crate::contact::ContactSolution;
@@ -229,11 +229,11 @@ pub fn g2_cross_section_bezier(request: &G2Request) -> Result<G2CrossSection, G2
     // and concentrates curvature mid-span (measured 22% over the
     // circular value on a pentagonal-pyramid edge).
     let cos_turn = t0_unit.dot(&t1_unit).clamp(-1.0, 1.0);
-    let half_turn = 0.5 * cos_turn.acos();
+    let half_turn = 0.5 * cos_turn.pacos();
     let magnitude = if half_turn < 1.0e-9 {
         chord_length
     } else {
-        chord_length * half_turn / half_turn.sin()
+        chord_length * half_turn / half_turn.psin()
     };
     let p_prime_0 = t0_unit * magnitude;
     let p_prime_1 = t1_unit * magnitude;

@@ -11,6 +11,7 @@ use popkern_core::geometry::{
     Point3, Vec3,
     curve::{CurveGeometry, CurveOnEdge},
 };
+use popkern_math::PortableMath;
 
 /// Split a [`CurveOnEdge`] at parameter `t_split` into two sub-curves.
 ///
@@ -104,7 +105,7 @@ fn split_line(
 fn angle_in_circle_frame(point: Point3, center: Point3, normal: Vec3) -> f64 {
     let (u, v) = circle_basis(normal);
     let d = point - center;
-    d.dot(&v).atan2(d.dot(&u))
+    d.dot(&v).patan2(d.dot(&u))
 }
 
 /// Compute an orthonormal basis (u, v) for a plane with the given normal.

@@ -3,6 +3,7 @@
 use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Intersect a line `P + t*D` with a sphere of given center `C` and radius `R`.
 ///
@@ -65,10 +66,10 @@ pub(crate) fn intersect_line_sphere(
 
         // Colatitude v = acos(q.z / R), clamped to handle floating-point noise
         let cos_v = (q.z / r).clamp(-1.0, 1.0);
-        let v = cos_v.acos(); // in [0, π]
+        let v = cos_v.pacos(); // in [0, π]
 
         // Longitude u = atan2(q.y, q.x), normalised to [0, 2π)
-        let u_raw = q.y.atan2(q.x);
+        let u_raw = q.y.patan2(q.x);
         let u = ((u_raw % tau) + tau) % tau;
 
         // Filter by surface v_range

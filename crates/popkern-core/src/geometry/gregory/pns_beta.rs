@@ -43,6 +43,8 @@
 
 #![allow(dead_code)]
 
+use popkern_math::PortableMath;
+
 /// β reparameterization for one sector boundary. Evaluates `(β_x,
 /// β_y)` given `(u, v)` ∈ `[0, 1]²`.
 #[derive(Debug, Clone, Copy)]
@@ -65,7 +67,7 @@ impl BetaReparam {
     /// the formula is ill-defined at `n = 2` (sector angle π).
     pub fn bi4(n: usize) -> Self {
         debug_assert!(n >= 3, "β bi-4: n must be ≥ 3, got {n}");
-        let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+        let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
         let a_2 = (n as f64 - 2.0) / (0.55 * (n as f64) - 0.2);
         let a_1 = (2.0 - c) / 2.0 * a_2;
         let a_0 = 1.0;
@@ -97,7 +99,7 @@ impl BetaReparam {
             n == 3 || n == 5,
             "β bi-3: only n ∈ {{3, 5}} supported, got {n}"
         );
-        let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+        let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
         let inv = 1.0 / (1.0 - c);
 
         // a(u) = (1 − c·(1 − u))·inv, a polynomial of degree 1 in u:

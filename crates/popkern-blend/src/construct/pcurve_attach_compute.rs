@@ -6,6 +6,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_math::PortableMath;
 
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
@@ -31,7 +32,7 @@ pub(super) fn analytic_cylinder_uv(surface: &SurfaceGeometry, p: &Point3) -> Opt
     };
     let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
     let d = *p - *origin;
-    Some((d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis)))
+    Some((d.dot(&perp2).patan2(d.dot(&perp1)), d.dot(axis)))
 }
 
 pub(super) fn compute_halfedge_pcurve(

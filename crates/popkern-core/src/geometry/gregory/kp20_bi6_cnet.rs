@@ -10,6 +10,7 @@ use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp_polar_shared::weighted_sum;
 use super::kp20_bi6_math::{Kp20CharacteristicScalars, kp20_limit_weights};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Uniform cubic B-spline to Bezier conversion matrix for one knot span.
 pub const CUBIC_BSPLINE_TO_BEZIER: [[f64; 4]; 4] = [
@@ -152,7 +153,7 @@ pub fn kp20_characteristic_cap_net(n: usize) -> Result<Kp20CapNet, String> {
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
         let theta = core::f64::consts::TAU * k as f64 / n as f64;
-        let (s, c) = theta.sin_cos();
+        let (s, c) = theta.psin_cos();
         let mut sector = [Point3::new(0.0, 0.0, 0.0); 6];
         for (m, cp) in sector.iter_mut().enumerate() {
             let value = scalars.eigenvector[m];

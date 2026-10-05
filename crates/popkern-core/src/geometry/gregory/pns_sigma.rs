@@ -56,6 +56,8 @@
 
 #![allow(dead_code)]
 
+use popkern_math::PortableMath;
+
 /// Order-≤2 Taylor jet of σ at `(u, v) = (0, 0)` — the central
 /// quadratic expansion of the sector-local σ reparameterization.
 ///
@@ -202,8 +204,8 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> Result<SigmaCenterJet, Si
         return Err(SigmaJetError::ValenceTooSmall(n));
     }
     let alpha = 2.0 * std::f64::consts::PI / (n as f64);
-    let c = alpha.cos();
-    let (ha_sin, ha_cos) = (alpha * 0.5).sin_cos();
+    let c = alpha.pcos();
+    let (ha_sin, ha_cos) = (alpha * 0.5).psin_cos();
 
     // σ_{10} = (d_1, 0)
     let s10 = [d1, 0.0];
@@ -234,7 +236,7 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> Result<SigmaCenterJet, Si
         d1 + (4.0 / (3.0 * c)) * residue
     };
     let s20 = [s20_x, 0.0];
-    let alpha_sin = alpha.sin();
+    let alpha_sin = alpha.psin();
     let s01 = [d1 * c, d1 * alpha_sin];
     let s02 = [s20_x * c, s20_x * alpha_sin];
     // σ_{00} = (0, 0)

@@ -55,6 +55,7 @@
 //! the whole-seam value.
 
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::cap_seam_continuity::seam_normal_profile;
 
@@ -80,7 +81,7 @@ pub(crate) fn worst_mid_seam_misalignment(brep: &BRep, cap_faces: &[FaceHandle])
                 continue;
             };
             for (_f, angle_deg) in profile {
-                let sin = angle_deg.to_radians().sin().abs();
+                let sin = angle_deg.to_radians().psin().abs();
                 worst = Some(worst.map_or(sin, |w: f64| w.max(sin)));
             }
         }

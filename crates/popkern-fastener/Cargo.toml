@@ -6,6 +6,7 @@ license.workspace = true
 description = "Parametric fastener generation (threads, screws, nuts, tapped holes) for the popkern BRep kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-sketch = { path = "../popkern-sketch" }
 popkern-sweep = { path = "../popkern-sweep" }

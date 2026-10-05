@@ -15,6 +15,7 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-blend = { path = "../popkern-blend" }
 popkern-bool = { path = "../popkern-bool" }

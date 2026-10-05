@@ -24,6 +24,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -283,11 +284,11 @@ fn exact_cylinder_station_arc(
     let a_hat = a.normalized()?;
     let b_hat = b.normalized()?;
     let cos_theta = a_hat.dot(&b_hat).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
+    let theta = cos_theta.pacos();
     if !(1.0e-9..std::f64::consts::PI - 1.0e-6).contains(&theta) {
         return None; // degenerate or major arc
     }
-    let half_cos = (0.5 * theta).cos();
+    let half_cos = (0.5 * theta).pcos();
     let bisector = (a_hat + b_hat).normalized()?;
     let apex = center + bisector * (*radius / half_cos);
     Some(NurbsCurve {

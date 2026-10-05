@@ -42,6 +42,7 @@
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::types::CapKind;
 
@@ -272,7 +273,7 @@ fn sample_spherical_arc(a: &Point3, b: &Point3, center: &Point3, r: f64, n: usiz
         .normalized()
         .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
     let cos_angle = va.dot(&vb).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos();
+    let angle = cos_angle.pacos();
 
     // Orthonormal basis {va, perp} in the arc plane.
     let perp = (vb - va * cos_angle).normalized().unwrap_or_else(|| {
@@ -293,8 +294,8 @@ fn sample_spherical_arc(a: &Point3, b: &Point3, center: &Point3, r: f64, n: usiz
     for i in 0..n {
         let t = (i as f64) / ((n - 1) as f64);
         let theta = angle * t;
-        let cos_t = theta.cos();
-        let sin_t = theta.sin();
+        let cos_t = theta.pcos();
+        let sin_t = theta.psin();
         let dir = va * cos_t + perp * sin_t;
         out.push(Point3::new(
             center.x + dir.x * r,

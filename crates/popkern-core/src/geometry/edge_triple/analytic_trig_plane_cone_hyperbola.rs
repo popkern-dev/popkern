@@ -27,6 +27,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Oblique plane-cone slice — hyperbola sub-case (`B² − 4AC > 0`).
 /// Returns `None` for ellipse / parabola / degenerate cases.
@@ -55,7 +56,7 @@ pub(super) fn try_plane_cone_oblique_hyperbola(
     let delta_a = delta.dot(&cone_axis);
     let mu = plane_u.dot(&cone_axis);
     let nu = plane_v.dot(&cone_axis);
-    let ch = half_angle.cos();
+    let ch = half_angle.pcos();
     let ch2 = ch * ch;
     let pu2 = plane_u.dot(&plane_u);
     let pv2 = plane_v.dot(&plane_v);
@@ -197,7 +198,7 @@ pub(super) fn try_plane_cone_oblique_hyperbola(
             });
         }
         // τ = asinh(sinh_tau) — preserves sign and magnitude exactly.
-        Ok(sinh_tau.asinh())
+        Ok(sinh_tau.pasinh())
     };
     let tau_start = match tau_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -239,11 +240,11 @@ pub(super) fn try_plane_cone_oblique_hyperbola(
     for i in 0..n_samples {
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let tau = tau_start + frac * span;
-        let p3 = center_3d + semi_major * tau.cosh() + semi_minor * tau.sinh();
+        let p3 = center_3d + semi_major * tau.pcosh() + semi_minor * tau.psinh();
         let dp = p3 - cone_apex;
         let v_cone = dp.dot(&cone_axis);
         let perp_vec = dp - cone_axis * v_cone;
-        let u_cone = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u_cone = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         cone_pts.push(Point3::new(u_cone, v_cone, 0.0));
         let dp_plane = p3 - plane_origin;
         let u_plane = dp_plane.dot(&plane_u) / pu2;

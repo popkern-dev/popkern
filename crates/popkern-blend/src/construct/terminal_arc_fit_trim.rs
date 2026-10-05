@@ -20,7 +20,9 @@
 
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, SurfaceEval, Vec3};
+use popkern_core::geometry::{
+    CurveEval, CurveGeometry, CurveOnEdge, Point3, PortableMath, SurfaceEval,
+};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
@@ -409,7 +411,7 @@ fn compute_swept_stub_arc(
     let u_basis = p_start - center;
     let mut v_basis = axis.cross(&u_basis);
     let d = p_end - center;
-    let mut raw = d.dot(&v_basis).atan2(d.dot(&u_basis));
+    let mut raw = d.dot(&v_basis).patan2(d.dot(&u_basis));
     if raw < 0.0 {
         v_basis = -v_basis;
         raw = -raw;
@@ -452,7 +454,7 @@ fn compute_swept_stub_arc(
     let (cap_from, cap_to) = (end_pos, start_pos);
     let angle_of = |p: Point3| -> f64 {
         let (u, v) = uv_of(p);
-        (v - center_uv.1).atan2(u - center_uv.0)
+        (v - center_uv.1).patan2(u - center_uv.0)
     };
     let cap_start = angle_of(cap_from);
     let mut cap_end = angle_of(cap_to);
@@ -494,7 +496,3 @@ fn compute_swept_stub_arc(
         cap_pcurve,
     })
 }
-
-const _: fn() = || {
-    let _ = Vec3::new;
-};

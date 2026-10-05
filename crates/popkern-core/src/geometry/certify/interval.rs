@@ -12,6 +12,7 @@
 //! NaN, a division by an interval containing zero) yields
 //! [`Iv::ENTIRE`], which consumers treat as inconclusive.
 
+use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -216,7 +217,7 @@ impl Iv {
     pub fn sin(self) -> Iv {
         // sin x = cos(x − π/2); the shift is exact enough only as an
         // interval, so do it outward-rounded.
-        (self - Iv::point(FRAC_PI_2).hull(Iv::point(FRAC_PI_2.next_up()))).cos()
+        Iv::cos(self - Iv::point(FRAC_PI_2).hull(Iv::point(FRAC_PI_2.next_up())))
     }
 
     /// `cos x`, enclosing every extremum the interval may contain.
@@ -229,7 +230,7 @@ impl Iv {
         if !self.is_finite() || self.width() >= TAU {
             return Iv::new(-1.0, 1.0);
         }
-        let (a, b) = (self.lo.cos(), self.hi.cos());
+        let (a, b) = (self.lo.pcos(), self.hi.pcos());
         let mut enc = Iv::widen_libm(a.min(b), a.max(b));
         let slack = 1e-12 * (1.0 + self.mag());
         let first = ((self.lo - slack) / PI).ceil() as i64;
@@ -249,7 +250,7 @@ impl Iv {
         if self.lo.is_nan() || self.hi.is_nan() {
             return Iv::ENTIRE;
         }
-        let enc = Iv::widen_libm(self.lo.atan(), self.hi.atan());
+        let enc = Iv::widen_libm(self.lo.patan(), self.hi.patan());
         Iv::new(
             enc.lo.max(-FRAC_PI_2.next_up()),
             enc.hi.min(FRAC_PI_2.next_up()),
@@ -258,7 +259,7 @@ impl Iv {
 
     /// `tan x` for a point argument (used on constant half-angles).
     pub fn tan_point(x: f64) -> Iv {
-        let t = x.tan();
+        let t = x.ptan();
         Iv::widen_libm(t, t)
     }
 }

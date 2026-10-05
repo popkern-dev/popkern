@@ -57,6 +57,7 @@ pub mod host;
 pub mod migration_api;
 pub mod model_api;
 pub mod outcome;
+mod portable_math;
 pub mod profile_api;
 pub mod project_host;
 pub mod recipe_api;

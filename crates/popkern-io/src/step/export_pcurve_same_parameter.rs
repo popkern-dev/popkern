@@ -19,6 +19,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
 use popkern_core::topology::{BRep, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 use super::export_pcurve_synthesis::step_export_pcurve_association_tolerance;
 use super::same_parameter::same_parameter_repair;
@@ -90,7 +91,10 @@ fn written_parameter_range(curve: &CurveOnEdge) -> Option<(f64, f64)> {
             let x = super::export_nurbs::compute_perpendicular(normal);
             let y = normal.normalized()?.cross(&x);
             let d = curve.geometry.point_at(t0) - *center;
-            let s0 = d.dot(&y).atan2(d.dot(&x)).rem_euclid(std::f64::consts::TAU);
+            let s0 = d
+                .dot(&y)
+                .patan2(d.dot(&x))
+                .rem_euclid(std::f64::consts::TAU);
             Some((s0, s0 + (t1 - t0)))
         }
         _ => None,

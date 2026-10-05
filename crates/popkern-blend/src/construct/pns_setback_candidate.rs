@@ -27,7 +27,7 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, PortableMath, Vec3};
 
 use super::kp20_paper_border_extract::kp20_paper_border_from_fillet_setback;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -321,7 +321,7 @@ pub fn try_pns_setback_candidate(
             let sn = su.cross(&sv);
             if let (Some(a), Some(b)) = (cap_n.normalized(), sn.normalized()) {
                 let cosang = a.dot(&b).abs().clamp(-1.0, 1.0);
-                g1_angle_after = g1_angle_after.max(cosang.acos());
+                g1_angle_after = g1_angle_after.max(cosang.pacos());
             }
         }
     }

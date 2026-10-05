@@ -30,6 +30,7 @@
 
 use super::cc_characteristic_ring::{CcCharacteristicRing, cc_characteristic_ring};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// One bi-3 tensor-border piece: rows `[depth][along]`, depth 0 on the
 /// cap boundary, along running with the sector's counterclockwise
@@ -126,7 +127,7 @@ pub fn cc_characteristic_tensor_border(n: usize) -> Result<CcCharacteristicTenso
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
         let phase = k as f64 * alpha;
-        let rot = [phase.cos(), phase.sin()];
+        let rot = [phase.pcos(), phase.psin()];
         sectors.push(CcSectorBorder {
             near_c: CcBorderPiece {
                 rows: rotate_block(&near_c_rows, rot),
@@ -253,7 +254,7 @@ pub fn cc_lifted_ring_border_pieces(
 
     let alpha = core::f64::consts::TAU / n as f64;
     let rotate3 = |rows: &[[Point3; 4]; 3], k: usize| -> [[Point3; 4]; 3] {
-        let rot = [(k as f64 * alpha).cos(), (k as f64 * alpha).sin()];
+        let rot = [(k as f64 * alpha).pcos(), (k as f64 * alpha).psin()];
         let mut out = *rows;
         for row in out.iter_mut() {
             for cp in row.iter_mut() {

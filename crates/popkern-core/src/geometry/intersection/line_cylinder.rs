@@ -4,6 +4,7 @@ use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Intersect a parametric line `P + t*D` with an infinite cylinder.
 ///
@@ -102,7 +103,7 @@ pub(crate) fn intersect_line_cylinder(
         // Azimuthal angle: u = atan2((Q-O)·perp2, (Q-O)·perp1)
         let local_perp1 = q_rel.dot(&perp1);
         let local_perp2 = q_rel.dot(&perp2);
-        let u_param = local_perp2.atan2(local_perp1);
+        let u_param = local_perp2.patan2(local_perp1);
 
         // Normalise u into the u_range window (same pattern as line_circle).
         let u_norm = normalise_angle(u_param, u_range);

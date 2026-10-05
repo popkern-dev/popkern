@@ -7,6 +7,7 @@
 #![allow(dead_code)]
 
 use popkern_core::geometry::Vec3;
+use popkern_math::PortableMath;
 
 use super::graph::IntersectionGraph;
 
@@ -82,7 +83,7 @@ pub(crate) fn sort_radial_at_node(graph: &mut IntersectionGraph, node_idx: usize
         .map(|&(he_idx, t)| {
             let cos_val = t.dot(&ref_dir);
             let sin_val = t.cross(&ref_dir).dot(&normal);
-            let angle = sin_val.atan2(cos_val);
+            let angle = sin_val.patan2(cos_val);
             (he_idx, angle)
         })
         .collect();

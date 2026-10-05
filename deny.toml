@@ -33,6 +33,9 @@ confidence-threshold = 0.8
 # The workspace itself is AGPL-3.0-only (+ LICENSE-EXCEPTION); the
 # allowlist above is for *third-party* code only.
 [[licenses.exceptions]]
+crate = "popkern-math"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
 crate = "popkern-core"
 allow = ["AGPL-3.0-only"]
 [[licenses.exceptions]]

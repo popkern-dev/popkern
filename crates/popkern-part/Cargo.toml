@@ -6,6 +6,7 @@ license.workspace = true
 description = "Code-first part modeling API over the popkern BRep kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-blend = { path = "../popkern-blend" }

@@ -29,6 +29,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 use crate::types::TerminalArcTrimDeclineReason as Reason;
 
@@ -75,20 +76,20 @@ impl ObliqueSection {
     }
 
     fn v_at(&self, u: f64) -> f64 {
-        self.v0 + self.v_cos * u.cos() + self.v_sin * u.sin()
+        self.v0 + self.v_cos * u.pcos() + self.v_sin * u.psin()
     }
 
     fn point(&self, u: f64) -> Point3 {
         self.origin
-            + self.e1 * (self.radius * u.cos())
-            + self.e2 * (self.radius * u.sin())
+            + self.e1 * (self.radius * u.pcos())
+            + self.e2 * (self.radius * u.psin())
             + self.axis * self.v_at(u)
     }
 
     /// Chart angle of `p`'s radial direction.
     pub(super) fn angle_of(&self, p: Point3) -> f64 {
         let d = p - self.origin;
-        d.dot(&self.e2).atan2(d.dot(&self.e1))
+        d.dot(&self.e2).patan2(d.dot(&self.e1))
     }
 
     /// Distance from `p` to the section point at its own angle: zero
@@ -231,16 +232,16 @@ pub(super) fn compute_oblique_stub_arc(
     let dot = big_u.0 * big_v.0 + big_u.1 * big_v.1;
     let nu = big_u.0 * big_u.0 + big_u.1 * big_u.1;
     let nv = big_v.0 * big_v.0 + big_v.1 * big_v.1;
-    let t0 = 0.5 * (2.0 * dot).atan2(nu - nv);
-    let (c0, s0) = (t0.cos(), t0.sin());
+    let t0 = 0.5 * (2.0 * dot).patan2(nu - nv);
+    let (c0, s0) = (t0.pcos(), t0.psin());
     let major = (big_u.0 * c0 + big_v.0 * s0, big_u.1 * c0 + big_v.1 * s0);
     let minor = (-big_u.0 * s0 + big_v.0 * c0, -big_u.1 * s0 + big_v.1 * c0);
-    let a = major.0.hypot(major.1);
-    let b = minor.0.hypot(minor.1);
+    let a = major.0.phypot(major.1);
+    let b = minor.0.phypot(minor.1);
     if a < 1e-12 || b < 1e-12 {
         return Err(Reason::ArcBranchUnresolved);
     }
-    let rotation = major.1.atan2(major.0);
+    let rotation = major.1.patan2(major.0);
     // Point(u) = c + major·cos(u − t0) + minor·sin(u − t0); `minor`
     // is ±b along the rotated v axis, and a negative orientation
     // mirrors the angle.

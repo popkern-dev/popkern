@@ -15,6 +15,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, SurfaceEval, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 use crate::types::BlendSeamCornerDeclineReason as Reason;
 
@@ -129,7 +130,7 @@ pub(super) fn seam_angle(
     if (alpha * alpha + beta * beta - 1.0).abs() > 1e-6 {
         return Err(Reason::AnchorsOffSeam);
     }
-    Ok(beta.atan2(alpha))
+    Ok(beta.patan2(alpha))
 }
 
 /// Author the seam 3-D curve from `p_start` to `p_end` along the
@@ -162,8 +163,8 @@ pub(super) fn author_seam_curve(
     }
     let at = |psi: f64| {
         frame.center
-            + frame.major_dir * (frame.semi_major * psi.cos())
-            + minor * (frame.radius * psi.sin())
+            + frame.major_dir * (frame.semi_major * psi.pcos())
+            + minor * (frame.radius * psi.psin())
     };
     // Branch witness: the seam is the arc through the stale corner's
     // side of the ellipse, so the short arc's midpoint must be nearer
@@ -242,7 +243,7 @@ pub(super) fn author_side_pcurve(
     let u_of = |p: Point3| -> f64 {
         let d = p - *origin;
         let radial = d - *axis * d.dot(axis);
-        radial.dot(&perp2).atan2(radial.dot(&perp1))
+        radial.dot(&perp2).patan2(radial.dot(&perp1))
     };
     let unwrap_near = |mut u: f64, target: f64| -> f64 {
         while u - target > std::f64::consts::PI {
@@ -253,7 +254,7 @@ pub(super) fn author_side_pcurve(
         }
         u
     };
-    let v_at = |u: f64| -> f64 { v_const + v_cos * u.cos() + v_sin * u.sin() };
+    let v_at = |u: f64| -> f64 { v_const + v_cos * u.pcos() + v_sin * u.psin() };
     // Endpoint chart stations, unwrapped to the neighbour's branch
     // and closure-checked against it when a neighbour chart anchor
     // exists (u compared as arc length, v as axial length).

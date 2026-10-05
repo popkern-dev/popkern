@@ -22,7 +22,7 @@
 //! and the caller continues on the Delaunay path.
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, PortableMath, Vec3};
 use popkern_core::topology::FaceHandle;
 
 use super::BoundaryRing;
@@ -163,7 +163,7 @@ pub(super) fn try_tessellate(
         let dv = eval(um, vm + eps_v).distance_to(&p) / eps_v;
         (du.max(1e-9), dv.max(1e-9))
     };
-    let diag = (su * (u1 - u0)).hypot(sv * (v1 - v0)).max(1e-12);
+    let diag = (su * (u1 - u0)).phypot(sv * (v1 - v0)).max(1e-12);
     // Doubly curved: anisotropic only (a near-square wavy face meshed
     // 1.03% short on tensor diagonals vs 0.73% on Delaunay; PK-650).
     let (ext_u, ext_v) = (su * (u1 - u0), sv * (v1 - v0));

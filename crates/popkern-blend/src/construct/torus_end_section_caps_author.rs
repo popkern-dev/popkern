@@ -4,6 +4,7 @@
 //! class and the repair contract).
 
 use super::*;
+use popkern_math::PortableMath;
 
 /// Re-anchor every edge at `vertex` whose curve endpoints no longer
 /// match its vertex positions (the kve repair contract). Straight
@@ -131,14 +132,15 @@ pub(super) fn author_circle_arc(
     }
     let mut v_basis = normal.cross(&u_basis);
     let d = p_to - center;
-    let mut sweep = d.dot(&v_basis).atan2(d.dot(&u_basis));
+    let mut sweep = d.dot(&v_basis).patan2(d.dot(&u_basis));
     if sweep < 0.0 {
         v_basis = -v_basis;
         sweep = -sweep;
     }
     // Two arcs join the endpoints; pick the one through the hint.
     if let Some(hint) = mid_hint {
-        let arc_mid = |u: Vec3, v: Vec3, s: f64| center + u * (s * 0.5).cos() + v * (s * 0.5).sin();
+        let arc_mid =
+            |u: Vec3, v: Vec3, s: f64| center + u * (s * 0.5).pcos() + v * (s * 0.5).psin();
         let mid = arc_mid(u_basis, v_basis, sweep);
         let other_sweep = std::f64::consts::TAU - sweep;
         let other_mid = arc_mid(u_basis, v_basis * -1.0, other_sweep);

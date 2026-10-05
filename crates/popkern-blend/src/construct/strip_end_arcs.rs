@@ -45,6 +45,7 @@
 //! acceptance. Both are local to this pass.
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_math::PortableMath;
 
 #[path = "strip_end_section_curves.rs"]
 mod strip_end_section_curves;
@@ -345,7 +346,7 @@ fn arcify_runout_boundaries(
                     let (f1, f2) =
                         popkern_core::geometry::analytic_surfaces::orthonormal_basis(axis);
                     let d = *p - origin;
-                    d.dot(&f2).atan2(d.dot(&f1))
+                    d.dot(&f2).patan2(d.dot(&f1))
                 };
                 let mut da = (ang(&p_o) - ang(&p_d)).abs();
                 if da > std::f64::consts::PI {

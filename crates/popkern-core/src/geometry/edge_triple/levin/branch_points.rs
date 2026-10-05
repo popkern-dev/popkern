@@ -21,6 +21,7 @@
 
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Solve `a·t² + b·t + c = 0` over the reals. Returns the roots in
 /// arbitrary order, or empty if there are no real roots. Handles the
@@ -120,7 +121,7 @@ pub(crate) fn line_meets_quadric_surface(
             half_angle,
         } => {
             // ((p − apex)·a)² = cos²θ · |p − apex|²
-            let cos2 = half_angle.cos().powi(2);
+            let cos2 = half_angle.pcos().powi(2);
             let q = origin - *apex;
             let q_a = q.dot(axis);
             let d_a = dir.dot(axis);

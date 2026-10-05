@@ -27,6 +27,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_sphere_cone_axial(
@@ -53,8 +54,8 @@ pub(super) fn try_sphere_cone_axial(
 
     let axis_sign = cone_axis.dot(&polar).signum();
     let d = cap.dot(&cone_axis); // signed offset apex → sphere centre, along cone axis
-    let cos_t = half_angle.cos();
-    let sin_t = half_angle.sin();
+    let cos_t = half_angle.pcos();
+    let sin_t = half_angle.psin();
     let r = sphere_radius;
     // Quadratic: v² − 2d·cos²θ·v + (d² − r²)·cos²θ = 0
     // discriminant / 4 = cos²θ · (r² − d²·sin²θ)
@@ -76,8 +77,8 @@ pub(super) fn try_sphere_cone_axial(
         let proj = dp - cone_axis * dp.dot(&cone_axis);
         proj.length()
     };
-    let r_outer = v_outer * half_angle.tan();
-    let r_inner = v_inner * half_angle.tan();
+    let r_outer = v_outer * half_angle.ptan();
+    let r_inner = v_inner * half_angle.ptan();
     let r_at_start = radial_at(start);
     let (v_branch, circle_radius) = if (r_at_start - r_outer).abs() <= (r_at_start - r_inner).abs()
     {
@@ -93,7 +94,7 @@ pub(super) fn try_sphere_cone_axial(
     // colat on sphere: z-component of (circle_center − sphere_center)
     // divided by sphere radius. Result is in [0, π].
     let z_offset = (circle_center.z - sphere_center.z) / sphere_radius;
-    let colat = z_offset.clamp(-1.0, 1.0).acos();
+    let colat = z_offset.clamp(-1.0, 1.0).pacos();
     // axis_sign sanity: surface evaluation only depends on z;
     // non-positive axis_sign means cone is upside-down relative to
     // popkern's sphere v=0 == +z convention. Skip for safety.
@@ -104,12 +105,14 @@ pub(super) fn try_sphere_cone_axial(
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(cone_axis);
     let cone_u_offset = arc_basis_u
         .dot(&cone_perp_b)
-        .atan2(arc_basis_u.dot(&cone_perp_a));
+        .patan2(arc_basis_u.dot(&cone_perp_a));
     // Sphere u-coordinate = atan2(y, x). Sphere uses global (x, y)
     // for u, equivalent to using `(1, 0, 0), (0, 1, 0)` basis.
     let global_x = Vec3::new(1.0, 0.0, 0.0);
     let global_y = Vec3::new(0.0, 1.0, 0.0);
-    let sphere_u_offset = arc_basis_u.dot(&global_y).atan2(arc_basis_u.dot(&global_x));
+    let sphere_u_offset = arc_basis_u
+        .dot(&global_y)
+        .patan2(arc_basis_u.dot(&global_x));
 
     let theta_of = |p: Point3, side: SurfaceSide| -> Result<f64, EdgeTripleError> {
         let dp = p - circle_center;
@@ -122,7 +125,7 @@ pub(super) fn try_sphere_cone_axial(
                 distance: r - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,

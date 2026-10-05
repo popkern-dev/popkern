@@ -60,6 +60,7 @@ use super::kp20_paper_tau_measure::{
     kp20_paper_tau_affine_seed, kp20_paper_tau_jet_delta, kp20_paper_tau_orientation_summary,
 };
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
 const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
@@ -167,7 +168,7 @@ fn kp20_paper_tau_border_pin_rows(
     n: usize,
     sector: &super::cc_characteristic_tensor_border::CcSectorBorder,
 ) -> Vec<Kp20PlanarTauLinearConstraint> {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     kp20_paper_tau_border_pin_rows_with_d1_3(n, sector, 2.0 * c / 3.0)
 }
 
@@ -221,7 +222,7 @@ pub(crate) fn kp20_paper_border_band_placements(
     near_m_rows: &[[Point3; 7]; 3],
     d1_3: f64,
 ) -> Vec<(Kp20PieceId, usize, usize, Point3)> {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let (d0, d1) = kp20_eq14_border_d_profiles(c, d1_3);
 
     // Edge A: [c -> m^0] = reverse of the near_c piece ([m^0 -> c]);
@@ -282,7 +283,7 @@ pub fn kp20_paper_border_corner_mismatch(
     near_m_rows: &[[Point3; 7]; 3],
     d1_3: f64,
 ) -> f64 {
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let (d0, _) = kp20_eq14_border_d_profiles(c, d1_3);
     let edge_a = reverse_sextic_rows(near_c_rows);
     let (a_c_half, _) = split_sextic_rows(&edge_a);
@@ -379,9 +380,9 @@ fn scalar(piece: Kp20PieceId, i: usize, j: usize, axis: usize) -> Kp20PlanarTauS
 /// `b̲ ~ [c,0,0]` (value `c` at the macro seam, 0 at `m`).
 fn kp20_paper_tau_rotational_g1_g2_rows(n: usize) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
     let alpha = core::f64::consts::TAU / n as f64;
-    let c = alpha.cos();
+    let c = alpha.pcos();
     // R^{-1}: rotation by −alpha applied to previous-side values.
-    let (rc, rs) = (alpha.cos(), -alpha.sin());
+    let (rc, rs) = (alpha.pcos(), -alpha.psin());
     let mut rows = Vec::new();
 
     let mut add_pair = |prev_piece: Kp20PieceId, curr_piece: Kp20PieceId, b: [f64; 3]| {
@@ -454,7 +455,7 @@ fn kp20_paper_tau_rotational_g1_g2_rows(n: usize) -> Vec<Kp20PlanarTauScalarLine
 /// P1→P1, P3→P3, P2↔P4.
 fn kp20_paper_tau_diagonal_symmetry_rows(n: usize) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
     let alpha = core::f64::consts::TAU / n as f64;
-    let (wx, wy) = (alpha.cos(), alpha.sin());
+    let (wx, wy) = (alpha.pcos(), alpha.psin());
     let mut rows = Vec::new();
     // S(x, y) = (wx·x + wy·y, wy·x − wx·y).
     let mut add = |target: Kp20PieceId, source: Kp20PieceId| {

@@ -6,6 +6,7 @@
 //! - **Two lines** (plane parallel to cylinder axis and within radius)
 //! - **Empty** (plane parallel to axis but beyond radius, or tangent)
 
+use popkern_math::PortableMath;
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
@@ -176,8 +177,8 @@ fn case_parallel(
     // u = base ± acos(ratio). (The previous π ± δ − base form placed
     // the lines up to a diameter off the plane — the trim-honesty
     // gate rejected them and the real intersection went missing.)
-    let base = f64::atan2(n2, n1);
-    let delta = ratio.clamp(-1.0, 1.0).acos();
+    let base = f64::patan2(n2, n1);
+    let delta = ratio.clamp(-1.0, 1.0).pacos();
 
     let angles = [norm_angle(base + delta), norm_angle(base - delta)];
 
@@ -190,7 +191,7 @@ fn case_parallel(
     angles
         .iter()
         .map(|&u_ang| {
-            let lp = co + p1 * (cr * u_ang.cos()) + p2 * (cr * u_ang.sin());
+            let lp = co + p1 * (cr * u_ang.pcos()) + p2 * (cr * u_ang.psin());
             let a = lp + ca * v_lo;
             let b = lp + ca * v_hi;
             let curve_3d = nurbs_line(a, b);
@@ -230,8 +231,8 @@ fn oblique_point(
     nd: f64,
     u: f64,
 ) -> Point3 {
-    let h = (d0 - cr * u.cos() * n1 - cr * u.sin() * n2) / nd;
-    co + perp1 * (cr * u.cos()) + perp2 * (cr * u.sin()) + ca * h
+    let h = (d0 - cr * u.pcos() * n1 - cr * u.psin() * n2) / nd;
+    co + perp1 * (cr * u.pcos()) + perp2 * (cr * u.psin()) + ca * h
 }
 
 /// General oblique case: intersection is an ellipse on the cylinder.
@@ -276,8 +277,8 @@ fn case_oblique(
     // radial part: perp1*(-cr*sin u) + perp2*(cr*cos u)
     // height part: ca * (cr*sin(u)*n1 - cr*cos(u)*n2) / nd
     let tang = |u: f64| -> Vec3 {
-        let dr = perp1 * (-cr * u.sin()) + perp2 * (cr * u.cos());
-        let dh = ca * ((cr * u.sin() * n1 - cr * u.cos() * n2) / nd);
+        let dr = perp1 * (-cr * u.psin()) + perp2 * (cr * u.pcos());
+        let dh = ca * ((cr * u.psin() * n1 - cr * u.pcos() * n2) / nd);
         dr + dh
     };
 

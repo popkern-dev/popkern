@@ -23,6 +23,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_sphere_sphere_polar(
@@ -61,7 +62,9 @@ pub(super) fn try_sphere_sphere_polar(
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(polar);
     let global_x = Vec3::new(1.0, 0.0, 0.0);
     let global_y = Vec3::new(0.0, 1.0, 0.0);
-    let sphere_u_offset = arc_basis_u.dot(&global_y).atan2(arc_basis_u.dot(&global_x));
+    let sphere_u_offset = arc_basis_u
+        .dot(&global_y)
+        .patan2(arc_basis_u.dot(&global_x));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -76,7 +79,7 @@ pub(super) fn try_sphere_sphere_polar(
         if (r - circle_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let theta_start = match theta_of(start) {
         Some(t) => t,
@@ -104,7 +107,7 @@ pub(super) fn try_sphere_sphere_polar(
 
     // Sphere A pcurve.
     let h_a = (circle_center - center_a).dot(&polar);
-    let v_sphere_a = (h_a / radius_a).clamp(-1.0, 1.0).acos();
+    let v_sphere_a = (h_a / radius_a).clamp(-1.0, 1.0).pacos();
     let pcurve_a = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere_a),
         (theta_end + sphere_u_offset, v_sphere_a),
@@ -113,7 +116,7 @@ pub(super) fn try_sphere_sphere_polar(
     );
     // Sphere B pcurve.
     let h_b = (circle_center - center_b).dot(&polar);
-    let v_sphere_b = (h_b / radius_b).clamp(-1.0, 1.0).acos();
+    let v_sphere_b = (h_b / radius_b).clamp(-1.0, 1.0).pacos();
     let pcurve_b = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere_b),
         (theta_end + sphere_u_offset, v_sphere_b),

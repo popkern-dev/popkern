@@ -87,7 +87,7 @@ impl<const M: usize> Taylor<M> {
         let one_plus = Self::constant(Iv::point(1.0)) + self.sqr();
         let rate = derivative / one_plus;
         let mut c = [Iv::point(0.0); M];
-        c[0] = self.c[0].atan();
+        c[0] = Iv::atan(self.c[0]);
         for k in 1..M {
             c[k] = rate.c[k - 1] / Iv::point(k as f64);
         }

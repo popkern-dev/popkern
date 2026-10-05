@@ -3,6 +3,7 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::types::EntityId;
@@ -285,5 +286,5 @@ fn resolve_rational_bspline_surface_weights(
 /// The distance along a STEP cone's axis from its placement (where its
 /// radius is `radius`) back to the apex.
 pub(super) fn cone_apex_distance(radius: f64, half_angle: f64) -> f64 {
-    radius / half_angle.tan()
+    radius / half_angle.ptan()
 }

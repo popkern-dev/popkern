@@ -8,6 +8,7 @@
 //! `A' + â·d·cos²β/sinβ`, radius `d·cosβ`, and every circle point
 //! sits at distance d from the original apex (|C−A|² + r² = d²).
 
+use popkern_math::PortableMath;
 use std::collections::{BTreeSet, HashMap};
 
 use crate::arc_join::cap_orientation;
@@ -73,7 +74,7 @@ pub(crate) fn construct_cone_apex_caps(
             continue;
         };
         let s = offset_apex.distance_to(&orig_apex);
-        let d = s * half_angle.sin();
+        let d = s * half_angle.psin();
         if d <= tolerance.linear() * 10.0 {
             continue;
         }
@@ -155,7 +156,7 @@ fn construct_one_apex_cap(
 
     // Tangency point on the seam: slant distance d/tanβ from the
     // OFFSET apex.
-    let slant = d / half_angle.tan();
+    let slant = d / half_angle.ptan();
     let p0 = curve.geometry.point_at(curve.t_start);
     let p1 = curve.geometry.point_at(curve.t_end);
     let (apex_end_t, far_end_t, far_p) =
@@ -256,11 +257,11 @@ fn construct_one_apex_cap(
 
     // Exact tangency circle, authored from v_t's angle so the closed
     // parameter range starts at the vertex.
-    let center = *offset_apex + a_hat * (slant * half_angle.cos());
-    let radius = d * half_angle.cos();
+    let center = *offset_apex + a_hat * (slant * half_angle.pcos());
+    let radius = d * half_angle.pcos();
     let (u, v) = circle_basis(a_hat);
     let rvec = t_exact - center;
-    let theta = rvec.dot(&v).atan2(rvec.dot(&u));
+    let theta = rvec.dot(&v).patan2(rvec.dot(&u));
     let circle = CurveOnEdge {
         geometry: CurveGeometry::Arc {
             center,

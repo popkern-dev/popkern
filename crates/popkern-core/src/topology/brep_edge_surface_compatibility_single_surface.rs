@@ -14,6 +14,7 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
     proposed_vertex_incident_endpoint_gap,
 };
 use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle, edge_segment};
+use popkern_math::PortableMath;
 
 pub(super) fn commit_single_surface_edge(
     brep: &mut BRep,
@@ -207,8 +208,8 @@ fn cylinder_surface_curve(
     }
     let center = start_center;
     let (u_axis, v_axis) = circle_basis_for_normal(axis);
-    let start_angle = start_radial.dot(&v_axis).atan2(start_radial.dot(&u_axis));
-    let mut end_angle = end_radial.dot(&v_axis).atan2(end_radial.dot(&u_axis));
+    let start_angle = start_radial.dot(&v_axis).patan2(start_radial.dot(&u_axis));
+    let mut end_angle = end_radial.dot(&v_axis).patan2(end_radial.dot(&u_axis));
     while end_angle - start_angle > std::f64::consts::PI {
         end_angle -= std::f64::consts::TAU;
     }

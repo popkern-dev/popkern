@@ -15,6 +15,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Sample fractions used for rail fitting and verification.
 const RAIL_FRACTIONS: [f64; 9] = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0];
@@ -347,8 +348,8 @@ pub(crate) fn great_arc(
     let rb = b - center;
     let normal = ra.cross(&rb).normalized()?;
     let (u, v) = circle_basis(normal);
-    let theta_a = ra.dot(&v).atan2(ra.dot(&u));
-    let mut theta_b = rb.dot(&v).atan2(rb.dot(&u));
+    let theta_a = ra.dot(&v).patan2(ra.dot(&u));
+    let mut theta_b = rb.dot(&v).patan2(rb.dot(&u));
     while theta_b <= theta_a {
         theta_b += std::f64::consts::TAU;
     }

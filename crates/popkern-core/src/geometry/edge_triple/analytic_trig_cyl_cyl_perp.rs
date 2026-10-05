@@ -38,6 +38,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_cyl_perpendicular(
@@ -131,8 +132,8 @@ pub(super) fn try_cyl_cyl_perpendicular(
     }
 
     // Parameterise by cyl A's u-angle: u = atan2(y_local, x_local).
-    let u_start = sy.atan2(sx);
-    let u_end_raw = ey.atan2(ex);
+    let u_start = sy.patan2(sx);
+    let u_end_raw = ey.patan2(ex);
     let u_end = if u_end_raw < u_start {
         u_end_raw + std::f64::consts::TAU
     } else {
@@ -158,8 +159,8 @@ pub(super) fn try_cyl_cyl_perpendicular(
     for i in 0..n_samples {
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let u = u_start + frac * span;
-        let x = radius_a * u.cos();
-        let y = radius_a * u.sin();
+        let x = radius_a * u.pcos();
+        let y = radius_a * u.psin();
         let z_sq = radius_b * radius_b - y * y;
         if z_sq < -tol.linear() {
             return None; // segment crosses out of the real-z region
@@ -248,7 +249,7 @@ fn cyl_uv(p: Point3, origin: Point3, axis: Vec3) -> (f64, f64) {
     let dp = p - origin;
     let v = dp.dot(&axis);
     let perp_vec = dp - axis * v;
-    let u = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+    let u = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
     (u, v)
 }
 

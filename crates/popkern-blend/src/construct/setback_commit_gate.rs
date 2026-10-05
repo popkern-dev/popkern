@@ -45,6 +45,7 @@ use popkern_core::geometry::gregory::{Kp20PaperCapReport, Kp20PaperGuideBorder};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -164,7 +165,7 @@ fn worst_section_fullness(surface: &popkern_core::geometry::SurfaceGeometry) -> 
         let (Some(a), Some(b)) = ((pm - p0).normalized(), (p1 - pm).normalized()) else {
             return 0.0;
         };
-        a.dot(&b).clamp(-1.0, 1.0).acos()
+        a.dot(&b).clamp(-1.0, 1.0).pacos()
     };
     let v_is_section = turning(true) >= turning(false);
     let mut worst: Option<(f64, f64)> = None;
@@ -228,8 +229,8 @@ fn section_fullness(section: impl Fn(f64) -> Point3) -> Option<(f64, f64)> {
     // Opening angle from the end tangents: the section turns by
     // pi - theta between its ends.
     let cos_turn = t0.dot(&(t1 * -1.0)).clamp(-1.0, 1.0);
-    let half = 0.5 * cos_turn.acos();
-    let c_half = half.cos();
+    let half = 0.5 * cos_turn.pacos();
+    let c_half = half.pcos();
     let rho_circular = c_half / (1.0 + c_half);
     Some((rho, rho_circular))
 }

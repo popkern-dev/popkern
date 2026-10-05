@@ -14,6 +14,7 @@ use crate::geometry::intersection::starting_points::StartingPoint;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Push closest-approach seeds when the scan found none and the two
 /// tori's tubes measurably penetrate.
@@ -88,7 +89,7 @@ fn torus_tube_centre_closest_approach(
         } = s
         {
             let (p1, p2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
-            Some(*center + (p1 * u.cos() + p2 * u.sin()) * *major_radius)
+            Some(*center + (p1 * u.pcos() + p2 * u.psin()) * *major_radius)
         } else {
             None
         }

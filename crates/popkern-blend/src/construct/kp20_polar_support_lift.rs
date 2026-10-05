@@ -9,6 +9,7 @@ use popkern_core::geometry::gregory::{
     sample_kp20_macro_patch_from_default_maps,
 };
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 const MAX_SUPPORT_LIFT_CANDIDATES: usize = 64;
 type Kp20SupportLiftSelection = (
     Vec<Kp20MacroPatch>,
@@ -463,7 +464,7 @@ fn can_lift_coefficient(id: Kp20PieceId, i: usize, j: usize) -> bool {
 fn lift_weight(i: usize, j: usize) -> f64 {
     let u = i as f64 / 6.0;
     let v = j as f64 / 6.0;
-    (core::f64::consts::PI * u).sin().max(0.0) * (core::f64::consts::PI * v).sin().max(0.0)
+    (core::f64::consts::PI * u).psin().max(0.0) * (core::f64::consts::PI * v).psin().max(0.0)
 }
 
 fn local_lift_weight(

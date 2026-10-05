@@ -12,6 +12,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Plane × sphere when the plane normal is parallel to the sphere's
 /// UV polar axis `(0, 0, 1)` (popkern's sphere parameterisation).
@@ -50,7 +51,9 @@ pub(super) fn try_plane_sphere_polar(
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(polar);
     let global_x = Vec3::new(1.0, 0.0, 0.0);
     let global_y = Vec3::new(0.0, 1.0, 0.0);
-    let sphere_u_offset = arc_basis_u.dot(&global_y).atan2(arc_basis_u.dot(&global_x));
+    let sphere_u_offset = arc_basis_u
+        .dot(&global_y)
+        .patan2(arc_basis_u.dot(&global_x));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -65,7 +68,7 @@ pub(super) fn try_plane_sphere_polar(
         if (r - circle_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let theta_start = match theta_of(start) {
         Some(t) => t,
@@ -93,7 +96,7 @@ pub(super) fn try_plane_sphere_polar(
 
     // Sphere pcurve: u = θ + offset (longitude), v = colatitude
     // = acos(h/r_sphere). Linear in (u, v) since v is constant.
-    let v_sphere = (h / sphere_radius).clamp(-1.0, 1.0).acos();
+    let v_sphere = (h / sphere_radius).clamp(-1.0, 1.0).pacos();
     let pcurve_sphere = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere),
         (theta_end + sphere_u_offset, v_sphere),

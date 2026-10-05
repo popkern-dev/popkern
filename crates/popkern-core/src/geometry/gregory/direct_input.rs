@@ -22,6 +22,7 @@
 
 use crate::geometry::gregory::RectangularGregoryTwoStripe;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// The geometric data direct-construction needs to build the
 /// two-stripe patches for an N-sided vertex blend.
@@ -300,8 +301,8 @@ impl DirectBoundaryInput {
             let end = spoke.boundary_cps[7];
             let c = self.central_vertex;
             let v = self.outer_corners[k].position;
-            let to_c = (start.x - c.x).hypot(start.y - c.y).hypot(start.z - c.z);
-            let to_v = (end.x - v.x).hypot(end.y - v.y).hypot(end.z - v.z);
+            let to_c = (start.x - c.x).phypot(start.y - c.y).phypot(start.z - c.z);
+            let to_v = (end.x - v.x).phypot(end.y - v.y).phypot(end.z - v.z);
             // Permissive — just sanity; math layer doesn't rely
             // on exact endpoint matching (only on the Bezier CPs
             // themselves).

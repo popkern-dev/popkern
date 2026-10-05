@@ -43,6 +43,7 @@ pub fn build_engine(print: impl Fn(&str) + 'static) -> Engine {
     engine.register_global_module(BasicArrayPackage::new().as_shared_module());
     engine.register_global_module(BasicMapPackage::new().as_shared_module());
     engine.register_global_module(MoreStringPackage::new().as_shared_module());
+    crate::portable_math::register(&mut engine);
     // `eval` is a keyword-level built-in, not a package function.
     engine.disable_symbol("eval");
     let print = std::rc::Rc::new(print);

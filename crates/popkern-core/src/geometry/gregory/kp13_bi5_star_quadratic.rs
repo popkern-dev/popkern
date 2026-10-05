@@ -85,6 +85,7 @@
 
 use super::kp13_bi5_gtri5::{Gtri5, sector_corner};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Flat indices of the 6 near-star tri-5 CPs.
 /// Order aligns with `tri2_coefs`:
@@ -309,8 +310,8 @@ pub fn tri5_near_star_to_tri2(b: &[Point3; 6]) -> [Point3; 6] {
 /// Recover `Q`'s monomial coefs from sector-0 tri-2 BB-coefs.
 /// `q` is in the same order as [`tri2_to_tri5_near_star`] inputs.
 fn tri2_coefs_to_quadratic(q: &[Point3; 6], n: usize) -> StarQuadratic {
-    let c = (2.0 * std::f64::consts::PI / n as f64).cos();
-    let s = (2.0 * std::f64::consts::PI / n as f64).sin();
+    let c = (2.0 * std::f64::consts::PI / n as f64).pcos();
+    let s = (2.0 * std::f64::consts::PI / n as f64).psin();
     debug_assert!(s.abs() > 1e-12, "sin(2π/n) ≈ 0 for n = {n}");
 
     let q002 = q[0];

@@ -6,6 +6,7 @@ use super::kp20_bi6_cap::{Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_tau::Kp20TauMap;
 use super::kp20_bi6_tau_solve_assemble::Kp20PlanarTauPaperSolveError;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
 const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
@@ -19,7 +20,7 @@ const P4: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
 pub(crate) fn kp20_paper_tau_affine_seed(n: usize) -> Kp20MacroPatch {
     let alpha = core::f64::consts::TAU / n as f64;
     let spoke0 = [1.0, 0.0];
-    let spoke1 = [alpha.cos(), alpha.sin()];
+    let spoke1 = [alpha.pcos(), alpha.psin()];
     let mut patch = Kp20MacroPatch::zero();
     let offsets: [(Kp20PieceId, f64, f64); 4] = [
         (P1, 0.0, 0.0),

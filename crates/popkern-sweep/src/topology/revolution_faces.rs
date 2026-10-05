@@ -27,6 +27,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, HalfEdgeHandle};
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::error::SweepError;
@@ -51,8 +52,8 @@ fn planar_circle(center: (f64, f64), radius: f64, phi0: f64, sense: f64) -> Nurb
     let w = std::f64::consts::FRAC_1_SQRT_2;
     let at = |angle: f64, scale: f64| {
         Point3::new(
-            center.0 + scale * radius * angle.cos(),
-            center.1 + scale * radius * angle.sin(),
+            center.0 + scale * radius * angle.pcos(),
+            center.1 + scale * radius * angle.psin(),
             0.0,
         )
     };
@@ -111,7 +112,7 @@ fn vertex_circle(point: &Point3, axis_origin: &Point3, axis_dir: &Vec3, sense: f
     let radius = (d - *axis_dir * along).length();
     let (e1, e2) = circle_basis(normal);
     let r = *point - center;
-    let theta0 = r.dot(&e2).atan2(r.dot(&e1));
+    let theta0 = r.dot(&e2).patan2(r.dot(&e1));
     CurveOnEdge {
         geometry: CurveGeometry::Arc {
             center,
@@ -166,7 +167,7 @@ fn canonical_pcurves(chart: &RevolutionChart) -> (NurbsCurve, NurbsCurve, NurbsC
             r_a,
             r_b,
         } => {
-            let at = |r: f64| (center.0 + r * phi0.cos(), center.1 + r * phi0.sin());
+            let at = |r: f64| (center.0 + r * phi0.pcos(), center.1 + r * phi0.psin());
             let (a, b) = (at(*r_a), at(*r_b));
             (
                 uv_line(a.0, a.1, b.0, b.1),

@@ -7,6 +7,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::error::SweepError;
 use crate::types::SweepProfile;
@@ -285,7 +286,7 @@ fn angle_between(a: &Vec3, b: &Vec3) -> f64 {
         return 0.0;
     }
     let cos_theta = a.dot(b) / (la * lb);
-    cos_theta.clamp(-1.0, 1.0).acos()
+    cos_theta.clamp(-1.0, 1.0).pacos()
 }
 
 /// Reverse a NURBS curve's direction: mirrored knot vector, reversed

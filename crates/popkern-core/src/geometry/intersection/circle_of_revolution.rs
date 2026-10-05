@@ -22,6 +22,7 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_1_SQRT_2, TAU};
 
 /// Exact rational-quadratic full circle (parameter 0..1) centred at
@@ -242,7 +243,7 @@ pub(crate) fn station_in_window(x: f64, window: (f64, f64), period: Option<f64>)
 /// matching the kernel torus chart convention (`project_point_to_uv`).
 /// `rho` is the point's UNSIGNED distance from the axis.
 pub(crate) fn torus_tube_station(rho: f64, h: f64, major_radius: f64) -> f64 {
-    let mut v = h.atan2(rho - major_radius);
+    let mut v = h.patan2(rho - major_radius);
     if v < 0.0 {
         v += TAU;
     }

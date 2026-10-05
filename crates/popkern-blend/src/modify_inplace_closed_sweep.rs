@@ -32,6 +32,7 @@ use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{CurveOnEdge, NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::error::BlendError;
 use crate::modify_inplace::{ClosedLayout, collect_closed_layout};
@@ -201,7 +202,7 @@ pub(crate) fn build_closed_plane_cylinder_sweep(inputs: &ClosedSweepInputs) -> C
     for i in 0..total_sections {
         let t = i as f64 / n_sec as f64;
         let theta = t * std::f64::consts::TAU;
-        let (cos_t, sin_t) = (theta.cos(), theta.sin());
+        let (cos_t, sin_t) = (theta.pcos(), theta.psin());
         let dir = Vec3::new(
             u.x * cos_t + v.x * sin_t,
             u.y * cos_t + v.y * sin_t,
@@ -337,12 +338,12 @@ fn emit_cross_section_arc(
     let w_basis = Vec3::new(w_raw.x / w_len, w_raw.y / w_len, w_raw.z / w_len);
     let cos_alpha = d / r_bp;
     let sin_alpha = w_len / r_bp;
-    let alpha = sin_alpha.atan2(cos_alpha);
+    let alpha = sin_alpha.patan2(cos_alpha);
     for j in 0..n_arc {
         let s = j as f64 / (n_arc - 1) as f64;
         let phi = s * alpha;
-        let cos_phi = phi.cos();
-        let sin_phi = phi.sin();
+        let cos_phi = phi.pcos();
+        let sin_phi = phi.psin();
         out.push(Point3::new(
             ball_centre.x + r_i * (cos_phi * u_basis.x + sin_phi * w_basis.x),
             ball_centre.y + r_i * (cos_phi * u_basis.y + sin_phi * w_basis.y),

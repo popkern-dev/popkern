@@ -2,6 +2,7 @@
 
 use super::solve_3x3;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 #[derive(Clone, Copy)]
 pub(super) struct PlaneEquation {
@@ -95,8 +96,8 @@ pub(super) fn line_cone_intersections(
     let hd = line.direction.dot(&cone.axis);
     let radial0 = from_apex - cone.axis * h0;
     let radial_direction = line.direction - cone.axis * hd;
-    let sin = cone.half_angle.sin();
-    let cos2 = cone.half_angle.cos().powi(2);
+    let sin = cone.half_angle.psin();
+    let cos2 = cone.half_angle.pcos().powi(2);
     let base = offset_delta + sin * h0;
     let a = cos2 * radial_direction.dot(&radial_direction) - (sin * hd).powi(2);
     let b = 2.0 * (cos2 * radial0.dot(&radial_direction) - base * sin * hd);

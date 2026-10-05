@@ -8,6 +8,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 /// Data collected about one boundary half-edge of a candidate face.
 #[derive(Debug, Clone, Copy)]
@@ -150,7 +151,7 @@ pub(crate) fn dihedral_angle(
     // Numerically robust angle between unit-ish vectors, folded to
     // the acute range.
     let cos_theta = (n_a.dot(&n_b) / (n_a.length() * n_b.length())).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
+    let theta = cos_theta.pacos();
     Some(theta.min(std::f64::consts::PI - theta))
 }
 

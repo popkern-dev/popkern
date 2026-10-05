@@ -9,6 +9,7 @@ use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::*;
+use popkern_math::PortableMath;
 
 impl BRep {
     /// Build an axis-aligned square pyramid with base side `side`
@@ -281,7 +282,7 @@ impl BRep {
         let base_pts: Vec<Point3> = (0..n)
             .map(|i| {
                 let theta = 2.0 * std::f64::consts::PI * i as f64 / n as f64;
-                Point3::new(base_radius * theta.cos(), base_radius * theta.sin(), 0.0)
+                Point3::new(base_radius * theta.pcos(), base_radius * theta.psin(), 0.0)
             })
             .collect();
         let apex_pt = Point3::new(0.0, 0.0, height);

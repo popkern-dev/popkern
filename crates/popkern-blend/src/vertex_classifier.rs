@@ -14,6 +14,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::analysis::{Convexity, analyze_edges};
 
@@ -263,7 +264,7 @@ fn is_edge_tangent(brep: &BRep, edge: EdgeHandle, tolerance: &Tolerance) -> bool
     // Dihedral at π means n_a · n_b ≈ -1 (normals opposite because
     // faces fold back to near-coplanar). The angular tolerance in
     // cosine terms: cos(π - tol) = -cos(tol) ≈ -(1 - tol²/2).
-    let cos_tol = tolerance.angular().cos();
+    let cos_tol = tolerance.angular().pcos();
     n_a.dot(&n_b) < -cos_tol
 }
 

@@ -9,6 +9,7 @@
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_math::PortableMath;
 
 use super::error::OffsetError;
 
@@ -121,8 +122,8 @@ pub fn offset_analytic_classified(
             axis,
             half_angle,
         } => {
-            let sin_a = half_angle.sin();
-            let cos_a = half_angle.cos();
+            let sin_a = half_angle.psin();
+            let cos_a = half_angle.pcos();
             let axis_n = axis
                 .normalized()
                 .filter(|_| sin_a > 0.0 && cos_a > 0.0)
@@ -264,8 +265,8 @@ pub fn corresponding_offset_window(
     v_range: (f64, f64),
 ) -> ((f64, f64), (f64, f64)) {
     if let SurfaceGeometry::Cone { half_angle, .. } = surface {
-        let sin_a = half_angle.sin();
-        let cos_a = half_angle.cos();
+        let sin_a = half_angle.psin();
+        let cos_a = half_angle.pcos();
         if sin_a > 0.0 {
             let sign = if inward { -1.0 } else { 1.0 };
             let shift = sign * distance * cos_a * cos_a / sin_a;

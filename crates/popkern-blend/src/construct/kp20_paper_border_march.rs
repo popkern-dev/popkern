@@ -6,6 +6,7 @@
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use super::{
     ChiEndCalibration, ChiPieceCalibration, CornerJet, CrossFieldSamples, OrientedSegment,
@@ -103,7 +104,7 @@ impl OrientedSegment {
             side = -side;
         }
         let side = side.normalized().unwrap_or(side);
-        (t_hat * cal.angle.cos() + side * cal.angle.sin()) * (cal.ratio * rim_len)
+        (t_hat * cal.angle.pcos() + side * cal.angle.psin()) * (cal.ratio * rim_len)
     }
 
     /// Sample the cap-side cross-jet and cross-curvature fields along

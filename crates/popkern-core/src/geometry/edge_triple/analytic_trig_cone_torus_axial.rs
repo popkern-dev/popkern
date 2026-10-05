@@ -39,6 +39,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cone_torus_axial(
@@ -73,13 +74,13 @@ pub(super) fn try_cone_torus_axial(
     let big_r = major_radius;
     let r = minor_radius;
     let theta = half_angle;
-    let st = theta.sin();
-    let ct = theta.cos();
+    let st = theta.psin();
+    let ct = theta.pcos();
     let rhs = (st * h_axis - big_r * ct) / r;
     if !(-1.0..=1.0).contains(&rhs) {
         return None;
     }
-    let arc_acos = rhs.acos();
+    let arc_acos = rhs.pacos();
     // v_± = -θ ± acos. Note: derivation assumed cone axis = torus
     // axis (sign = +1). If sign = -1, the cone surface in the
     // canonical frame uses v_cone = -(h_axis + r·sin v) — pick the
@@ -94,7 +95,7 @@ pub(super) fn try_cone_torus_axial(
         let tube_r = perp_vec.length();
         let sin_v = (v_axis / r).clamp(-1.0, 1.0);
         let cos_v = ((tube_r - big_r) / r).clamp(-1.0, 1.0);
-        sin_v.atan2(cos_v)
+        sin_v.patan2(cos_v)
     };
     let dist_v = |a: f64, b: f64| -> f64 {
         let d = (a - b).abs();
@@ -110,16 +111,16 @@ pub(super) fn try_cone_torus_axial(
     } else {
         v_minus
     };
-    let circle_radius = big_r + r * v_branch.cos();
+    let circle_radius = big_r + r * v_branch.pcos();
     if circle_radius <= tol.linear() {
         return None;
     }
-    let axial_offset_from_torus = r * v_branch.sin();
+    let axial_offset_from_torus = r * v_branch.psin();
     let circle_center = torus_center + torus_axis * axial_offset_from_torus;
     // v_cone = signed axial distance from apex along cone_axis. With
     // sign = +1 (cone axis = torus axis): v_cone = h_axis + r·sin v.
     // With sign = -1: v_cone = -(h_axis + r·sin v).
-    let v_cone = sign * (h_axis + r * v_branch.sin());
+    let v_cone = sign * (h_axis + r * v_branch.psin());
     if v_cone <= tol.linear() {
         return None; // intersection lies on the negative-v half (other nappe)
     }
@@ -138,7 +139,7 @@ pub(super) fn try_cone_torus_axial(
                 distance: r_real - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -167,14 +168,14 @@ pub(super) fn try_cone_torus_axial(
     } else {
         v_branch
     };
-    let torus_u_offset = arc_basis_u.dot(&perp2_t).atan2(arc_basis_u.dot(&perp1_t));
+    let torus_u_offset = arc_basis_u.dot(&perp2_t).patan2(arc_basis_u.dot(&perp1_t));
     let pcurve_torus = Pcurve::linear(
         (theta_start + torus_u_offset, v_branch_canon),
         (theta_end + torus_u_offset, v_branch_canon),
         theta_start,
         theta_end,
     );
-    let cone_u_offset = arc_basis_u.dot(&perp2_c).atan2(arc_basis_u.dot(&perp1_c));
+    let cone_u_offset = arc_basis_u.dot(&perp2_c).patan2(arc_basis_u.dot(&perp1_c));
     let pcurve_cone = Pcurve::linear(
         (theta_start + cone_u_offset, v_cone),
         (theta_end + cone_u_offset, v_cone),

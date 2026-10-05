@@ -39,6 +39,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_sphere_cone_general(
@@ -57,7 +58,7 @@ pub(super) fn try_sphere_cone_general(
     let a_dot_p1 = big_a.dot(&perp1);
     let a_dot_p2 = big_a.dot(&perp2);
     let a_len_sq = big_a.dot(&big_a);
-    let t = half_angle.tan();
+    let t = half_angle.ptan();
     let sec_sq = 1.0 + t * t;
     let r_sq = sphere_radius * sphere_radius;
     let c0 = a_len_sq - r_sq; // constant term in v²·sec²θ − 2v·B(u) + c0 = 0
@@ -65,7 +66,7 @@ pub(super) fn try_sphere_cone_general(
     // Helper: at a given cone-u angle, compute the linear-in-v
     // coefficient B(u) and the discriminant. Solve the quadratic.
     let v_at = |u: f64, branch_sign: f64| -> Option<f64> {
-        let b = a_dot_axis + t * (a_dot_p1 * u.cos() + a_dot_p2 * u.sin());
+        let b = a_dot_axis + t * (a_dot_p1 * u.pcos() + a_dot_p2 * u.psin());
         let disc = b * b - sec_sq * c0;
         if disc < 0.0 {
             return None;
@@ -82,7 +83,7 @@ pub(super) fn try_sphere_cone_general(
         let dp = p - cone_apex;
         let v_axis = dp.dot(&cone_axis);
         let perp_vec = dp - cone_axis * v_axis;
-        let u = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         Some((u, v_axis))
     };
     let (start, end) = match anchors {
@@ -99,7 +100,7 @@ pub(super) fn try_sphere_cone_general(
 
     // Pick branch by checking which sign of `disc.sqrt()` reproduces
     // the start anchor's v.
-    let b_start = a_dot_axis + t * (a_dot_p1 * u_start.cos() + a_dot_p2 * u_start.sin());
+    let b_start = a_dot_axis + t * (a_dot_p1 * u_start.pcos() + a_dot_p2 * u_start.psin());
     let disc_start = b_start * b_start - sec_sq * c0;
     if disc_start < -tol.linear() {
         return None;
@@ -154,12 +155,12 @@ pub(super) fn try_sphere_cone_general(
         let u = u_start + frac * span;
         let v = v_at(u, branch_sign)?;
         let r = v * t;
-        let p3 = cone_apex + cone_axis * v + perp1 * (r * u.cos()) + perp2 * (r * u.sin());
+        let p3 = cone_apex + cone_axis * v + perp1 * (r * u.pcos()) + perp2 * (r * u.psin());
         pts_3d.push(p3);
         // Sphere uv: (lon, colat) of (p3 − sphere_centre).
         let dp_s = p3 - sphere_center;
-        let lon = dp_s.y.atan2(dp_s.x);
-        let colat = (dp_s.z / sphere_radius).clamp(-1.0, 1.0).acos();
+        let lon = dp_s.y.patan2(dp_s.x);
+        let colat = (dp_s.z / sphere_radius).clamp(-1.0, 1.0).pacos();
         pts_sphere.push(Point3::new(lon, colat, 0.0));
         // Cone uv: (u, v).
         pts_cone.push(Point3::new(u, v, 0.0));

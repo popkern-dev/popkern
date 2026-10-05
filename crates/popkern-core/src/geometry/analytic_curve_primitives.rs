@@ -1,6 +1,7 @@
 use crate::geometry::curve::{CurveEval, closest_point_on_curve, curve_bounding_box_by_sampling};
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Returns an arbitrary vector perpendicular to `normal` (assumed non-zero).
 pub(crate) fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
@@ -115,15 +116,15 @@ impl Circle {
 
 impl CurveEval for Circle {
     fn point_at(&self, t: f64) -> Point3 {
-        self.center + self.u * (self.radius * t.cos()) + self.v * (self.radius * t.sin())
+        self.center + self.u * (self.radius * t.pcos()) + self.v * (self.radius * t.psin())
     }
 
     fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
         match order % 4 {
-            0 => self.u * (self.radius * t.cos()) + self.v * (self.radius * t.sin()),
-            1 => self.u * (-self.radius * t.sin()) + self.v * (self.radius * t.cos()),
-            2 => self.u * (-self.radius * t.cos()) + self.v * (-self.radius * t.sin()),
-            3 => self.u * (self.radius * t.sin()) + self.v * (-self.radius * t.cos()),
+            0 => self.u * (self.radius * t.pcos()) + self.v * (self.radius * t.psin()),
+            1 => self.u * (-self.radius * t.psin()) + self.v * (self.radius * t.pcos()),
+            2 => self.u * (-self.radius * t.pcos()) + self.v * (-self.radius * t.psin()),
+            3 => self.u * (self.radius * t.psin()) + self.v * (-self.radius * t.pcos()),
             _ => unreachable!(),
         }
     }
@@ -185,15 +186,15 @@ impl Arc {
 
 impl CurveEval for Arc {
     fn point_at(&self, t: f64) -> Point3 {
-        self.center + self.u * (self.radius * t.cos()) + self.v * (self.radius * t.sin())
+        self.center + self.u * (self.radius * t.pcos()) + self.v * (self.radius * t.psin())
     }
 
     fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
         match order % 4 {
-            0 => self.u * (self.radius * t.cos()) + self.v * (self.radius * t.sin()),
-            1 => self.u * (-self.radius * t.sin()) + self.v * (self.radius * t.cos()),
-            2 => self.u * (-self.radius * t.cos()) + self.v * (-self.radius * t.sin()),
-            3 => self.u * (self.radius * t.sin()) + self.v * (-self.radius * t.cos()),
+            0 => self.u * (self.radius * t.pcos()) + self.v * (self.radius * t.psin()),
+            1 => self.u * (-self.radius * t.psin()) + self.v * (self.radius * t.pcos()),
+            2 => self.u * (-self.radius * t.pcos()) + self.v * (-self.radius * t.psin()),
+            3 => self.u * (self.radius * t.psin()) + self.v * (-self.radius * t.pcos()),
             _ => unreachable!(),
         }
     }
@@ -256,15 +257,15 @@ impl Ellipse {
 
 impl CurveEval for Ellipse {
     fn point_at(&self, t: f64) -> Point3 {
-        self.center + self.u_basis * t.cos() + self.v_basis * t.sin()
+        self.center + self.u_basis * t.pcos() + self.v_basis * t.psin()
     }
 
     fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
         match order % 4 {
-            0 => self.u_basis * t.cos() + self.v_basis * t.sin(),
-            1 => self.u_basis * (-t.sin()) + self.v_basis * t.cos(),
-            2 => self.u_basis * (-t.cos()) + self.v_basis * (-t.sin()),
-            3 => self.u_basis * t.sin() + self.v_basis * (-t.cos()),
+            0 => self.u_basis * t.pcos() + self.v_basis * t.psin(),
+            1 => self.u_basis * (-t.psin()) + self.v_basis * t.pcos(),
+            2 => self.u_basis * (-t.pcos()) + self.v_basis * (-t.psin()),
+            3 => self.u_basis * t.psin() + self.v_basis * (-t.pcos()),
             _ => unreachable!(),
         }
     }
@@ -416,7 +417,7 @@ impl Hyperbola {
 
 impl CurveEval for Hyperbola {
     fn point_at(&self, t: f64) -> Point3 {
-        self.center + self.semi_major * t.cosh() + self.semi_minor * t.sinh()
+        self.center + self.semi_major * t.pcosh() + self.semi_minor * t.psinh()
     }
 
     fn derivative_at(&self, t: f64, order: usize) -> Vec3 {
@@ -424,12 +425,12 @@ impl CurveEval for Hyperbola {
         // derivatives cycle with period 2: even orders give back the
         // (cosh, sinh) pair, odd orders swap them.
         if order == 0 {
-            return self.semi_major * t.cosh() + self.semi_minor * t.sinh();
+            return self.semi_major * t.pcosh() + self.semi_minor * t.psinh();
         }
         if order % 2 == 1 {
-            self.semi_major * t.sinh() + self.semi_minor * t.cosh()
+            self.semi_major * t.psinh() + self.semi_minor * t.pcosh()
         } else {
-            self.semi_major * t.cosh() + self.semi_minor * t.sinh()
+            self.semi_major * t.pcosh() + self.semi_minor * t.psinh()
         }
     }
 

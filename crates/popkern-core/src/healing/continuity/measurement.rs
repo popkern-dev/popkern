@@ -8,6 +8,7 @@ use crate::geometry::surface::SurfaceEval;
 use crate::healing::curvature::surface_curvature::gaussian_curvature;
 use crate::healing::quality::ContinuityLevel;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// A pair of corresponding UV parameters on two surfaces along a shared boundary.
 #[derive(Debug, Clone, Copy)]
@@ -142,7 +143,7 @@ pub fn cross_boundary_continuity(
             let cos_angle = na.dot(&nb) / (len_a * len_b);
             // Use |cos| because normals may point in opposite directions
             // (opposite face orientations).
-            let angle = cos_angle.abs().clamp(0.0, 1.0).acos();
+            let angle = cos_angle.abs().clamp(0.0, 1.0).pacos();
             g1_values.push(angle);
         }
 
@@ -347,7 +348,7 @@ fn check_adjacent_continuity(
     let n1_unit = n1 * (1.0 / n1_len);
     let n2_unit = n2 * (1.0 / n2_len);
     let dot = n1_unit.dot(&n2_unit).clamp(-1.0, 1.0);
-    let angle = dot.abs().acos();
+    let angle = dot.abs().pacos();
 
     if target_level >= ContinuityLevel::G1 && angle > tolerance.angular() {
         return Some(DiscontinuityRecord {

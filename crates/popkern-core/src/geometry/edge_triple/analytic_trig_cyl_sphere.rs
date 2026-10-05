@@ -24,6 +24,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_sphere_axial(
@@ -80,12 +81,14 @@ pub(super) fn try_cyl_sphere_axial(
         crate::geometry::analytic_surfaces::orthonormal_basis(cyl_axis);
     let cyl_u_offset = arc_basis_u
         .dot(&cyl_basis_v)
-        .atan2(arc_basis_u.dot(&cyl_basis_u));
+        .patan2(arc_basis_u.dot(&cyl_basis_u));
     // Sphere u-axis = global X for points on a constant-z circle
     // (since sphere polar is (0,0,1) and we need cyl_axis aligned).
     let global_x = Vec3::new(1.0, 0.0, 0.0);
     let global_y = Vec3::new(0.0, 1.0, 0.0);
-    let sphere_u_offset = arc_basis_u.dot(&global_y).atan2(arc_basis_u.dot(&global_x));
+    let sphere_u_offset = arc_basis_u
+        .dot(&global_y)
+        .patan2(arc_basis_u.dot(&global_x));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -99,7 +102,7 @@ pub(super) fn try_cyl_sphere_axial(
         if (r - cyl_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let theta_start = match theta_of(start) {
         Some(t) => t,
@@ -134,7 +137,7 @@ pub(super) fn try_cyl_sphere_axial(
     );
 
     // Sphere pcurve: u = θ + sphere offset, v = colatitude(sphere_h).
-    let v_sphere = (sphere_h / sphere_radius).clamp(-1.0, 1.0).acos();
+    let v_sphere = (sphere_h / sphere_radius).clamp(-1.0, 1.0).pacos();
     let pcurve_sphere = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere),
         (theta_end + sphere_u_offset, v_sphere),

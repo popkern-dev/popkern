@@ -16,6 +16,7 @@ use crate::geometry::analytic_curves::circle_basis;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// A circle fitted to a curve's samples.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -203,7 +204,7 @@ pub fn arc_on_edge_oriented(
     let (e1, e2) = circle_basis(normal);
     let angle = |p: Point3| {
         let d = p - fit.center;
-        d.dot(&e2).atan2(d.dot(&e1))
+        d.dot(&e2).patan2(d.dot(&e1))
     };
     let same_way = normal.dot(&fit.normal) >= 0.0;
     let (start_point, end_point) = if same_way {

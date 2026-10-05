@@ -5,6 +5,7 @@
 
 use super::super::chart_subdivision::FaceChartSubdivision;
 use crate::merge::graph::IntersectionGraph;
+use popkern_math::PortableMath;
 
 /// The rotational successor of `h` on this face's chart.
 ///
@@ -72,7 +73,7 @@ pub(crate) fn next_in_chart(
     let bp_key = *bp;
     let psi = |d: (f64, f64)| -> f64 {
         (sub.sigma * d.1)
-            .atan2(d.0)
+            .patan2(d.0)
             .rem_euclid(std::f64::consts::TAU)
     };
     // Slots: (angle, is_departure, he). Tie order in the clockwise

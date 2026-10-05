@@ -6,6 +6,7 @@
 //! self-check (`derived_span_residual`) and the cell-anisotropy
 //! probe (`transverse_extent`) feeding the worst-sample anatomy.
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
@@ -186,7 +187,7 @@ pub(super) fn predict_worst_trim_g1(
                             if denom <= 1.0e-300 {
                                 return -1.0;
                             }
-                            (leg.dot(&chain_leg) / denom).clamp(-1.0, 1.0).acos() * 180.0
+                            (leg.dot(&chain_leg) / denom).clamp(-1.0, 1.0).pacos() * 180.0
                                 / std::f64::consts::PI
                         };
                     let transverse_a = transverse_extent(patch_a, trim.row_a.side);

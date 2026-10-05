@@ -11,6 +11,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// The transversal intersection arc between two join/offset surfaces,
 /// from `a` to `b` (PK-326 mixed corners): the connector edge of the
@@ -92,7 +93,7 @@ fn plane_cylinder_arc(
         if r_len < 1.0e-12 {
             return None;
         }
-        Some(radial.dot(&e2).atan2(radial.dot(&e1)))
+        Some(radial.dot(&e2).patan2(radial.dot(&e1)))
     };
     let theta_a = angle_of(a)?;
     let theta_b = angle_of(b)?;

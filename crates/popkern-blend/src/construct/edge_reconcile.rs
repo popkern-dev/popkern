@@ -35,6 +35,7 @@ use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, comput
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_math::PortableMath;
 
 #[path = "edge_reconcile_fit.rs"]
 mod edge_reconcile_fit;
@@ -144,7 +145,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                     let d = *p - *apex;
                     let station = d.dot(&an);
                     let radial = (d - an * station).length();
-                    (radial - station.abs() * half_angle.tan().abs()).abs() < gate
+                    (radial - station.abs() * half_angle.ptan().abs()).abs() < gate
                 }
                 _ => false,
             }

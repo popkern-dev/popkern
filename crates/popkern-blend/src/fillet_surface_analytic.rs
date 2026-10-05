@@ -31,6 +31,7 @@
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -48,9 +49,9 @@ pub(crate) fn try_plane_plane_analytic(
     radius: f64,
 ) -> Option<FilletSurfaceResult> {
     let cos_angle = n1.dot(n2).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos();
+    let angle = cos_angle.pacos();
     let half_angle = angle * 0.5;
-    let sin_half = half_angle.sin();
+    let sin_half = half_angle.psin();
     if sin_half.abs() < 1e-10 {
         return None;
     }
@@ -302,8 +303,8 @@ pub(crate) fn try_circular_center_torus(
                         // Circle plane on the empty side of the apex.
                         continue;
                     }
-                    let rho = t_axis * half_angle.tan();
-                    let major = rho + s_curved * radius / half_angle.cos();
+                    let rho = t_axis * half_angle.ptan();
+                    let major = rho + s_curved * radius / half_angle.pcos();
                     if major > 0.0 {
                         candidates.push((*apex + a * t_axis, major, s_plane));
                     }

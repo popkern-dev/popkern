@@ -6,6 +6,7 @@ license.workspace = true
 description = "Embedded Rhai front-end for the popkern scripting surface: scripts record into the feature tree"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-history = { path = "../popkern-history" }
 popkern-part = { path = "../popkern-part" }

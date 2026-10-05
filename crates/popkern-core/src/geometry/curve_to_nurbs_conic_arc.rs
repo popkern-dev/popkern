@@ -14,6 +14,7 @@
 
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Angular window (radians) for the quarter-grid collision tests.
 /// Well above the ~1e-8 atan2 noise class carried by upstream angle
@@ -54,17 +55,17 @@ pub(super) fn uniform_segmented_conic_arc(
     let segments = ((span / quarter).ceil() as usize).max(1);
     let piece = span / segments as f64;
     let point_at_angle = |angle: f64, scale: f64| -> Point3 {
-        center + u_basis * (scale * angle.cos()) + v_basis * (scale * angle.sin())
+        center + u_basis * (scale * angle.pcos()) + v_basis * (scale * angle.psin())
     };
     let shoulder_scale = {
         let half = 0.5 * piece;
-        if half.cos().abs() > 1.0e-300 {
-            1.0 / half.cos()
+        if half.pcos().abs() > 1.0e-300 {
+            1.0 / half.pcos()
         } else {
             1.0
         }
     };
-    let weight = (0.5 * piece).cos();
+    let weight = (0.5 * piece).pcos();
     let mut control_points = Vec::with_capacity(2 * segments + 1);
     let mut weights = Vec::with_capacity(2 * segments + 1);
     let mut knots = Vec::with_capacity(2 * segments + 4);

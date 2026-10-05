@@ -30,6 +30,7 @@
 //! the acceptance gate is slider consistency on the corpus — serve at
 //! the reported max, decline or trim at `1.05 ×` it.
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -342,7 +343,7 @@ fn surface_vanish_bound(brep: &BRep, fh: FaceHandle, m: f64) -> Option<f64> {
             if m >= 0.0 {
                 return None;
             }
-            let sin_a = half_angle.sin();
+            let sin_a = half_angle.psin();
             let axis_n = axis.normalized()?;
             if sin_a <= 0.0 {
                 return None;

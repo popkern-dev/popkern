@@ -27,6 +27,7 @@
 //! work. Triangles left over the bound after the pass are boundary-
 //! limited or guard-limited, never silently dropped.
 
+use popkern_math::PortableMath;
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -51,7 +52,7 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
     if la < 1e-300 || lb < 1e-300 {
         return 0.0;
     }
-    (a.dot(&b) / (la * lb)).clamp(-1.0, 1.0).acos()
+    (a.dot(&b) / (la * lb)).clamp(-1.0, 1.0).pacos()
 }
 
 /// Refine `mesh` in place until every triangle's vertex-normal spread

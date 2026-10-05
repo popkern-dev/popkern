@@ -14,6 +14,8 @@
 //! These are **f64** implementations; stage 2b.36 lifts to `Q[√d]`
 //! with exact discriminants.
 
+use popkern_math::PortableMath;
+
 const EPS_LEAD: f64 = 1e-14;
 const EPS_DISC: f64 = 1e-12;
 const EPS_DEDUP: f64 = 1e-9;
@@ -64,10 +66,10 @@ pub(crate) fn solve_cubic(coef: [f64; 4]) -> Vec<f64> {
         // Three distinct real roots — trigonometric form.
         let r = (-p / 3.0).sqrt();
         let arg = ((-q / 2.0) / r.powi(3)).clamp(-1.0, 1.0);
-        let theta = arg.acos();
+        let theta = arg.pacos();
         for k in 0..3 {
             let angle = (theta + std::f64::consts::TAU * (k as f64)) / 3.0;
-            let y = 2.0 * r * angle.cos();
+            let y = 2.0 * r * angle.pcos();
             roots.push(y - bn / 3.0);
         }
     } else if disc.abs() <= EPS_DISC {
@@ -163,5 +165,5 @@ pub(crate) fn solve_quartic(coef: [f64; 5]) -> Vec<f64> {
 /// Sign-preserving cube root (`f64::cbrt` already handles this on
 /// stable Rust, but we wrap for clarity at call sites).
 fn cbrt_signed(x: f64) -> f64 {
-    x.cbrt()
+    x.pcbrt()
 }

@@ -39,6 +39,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, Edge};
+use popkern_math::PortableMath;
 
 /// Angle (radians) between two vectors; zero when either is null.
 fn angle_between(a: Vec3, b: Vec3) -> f64 {
@@ -46,7 +47,7 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
     if la < 1e-300 || lb < 1e-300 {
         return 0.0;
     }
-    (a.dot(&b) / (la * lb)).clamp(-1.0, 1.0).acos()
+    (a.dot(&b) / (la * lb)).clamp(-1.0, 1.0).pacos()
 }
 
 /// Tangent turn (radians) across the curve interval sampled at

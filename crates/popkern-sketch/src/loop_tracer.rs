@@ -10,6 +10,7 @@
 
 use crate::edge_graph::EdgeGraph;
 use popkern_constraint::{ElementHandle, Sketch};
+use popkern_math::PortableMath;
 use std::collections::HashSet;
 
 /// A sketch edge with its traversal direction.
@@ -102,7 +103,7 @@ fn build_adjacency(graph: &EdgeGraph) -> Vec<Vec<AdjEntry>> {
         let e_pos = graph.nodes[e];
 
         // Forward half-edge: leaves from start_node toward end_node.
-        let angle_fwd = (e_pos.1 - s_pos.1).atan2(e_pos.0 - s_pos.0);
+        let angle_fwd = (e_pos.1 - s_pos.1).patan2(e_pos.0 - s_pos.0);
         adj[s].push(AdjEntry {
             edge_index: idx,
             forward: true,
@@ -111,7 +112,7 @@ fn build_adjacency(graph: &EdgeGraph) -> Vec<Vec<AdjEntry>> {
         });
 
         // Reverse half-edge: leaves from end_node toward start_node.
-        let angle_rev = (s_pos.1 - e_pos.1).atan2(s_pos.0 - e_pos.0);
+        let angle_rev = (s_pos.1 - e_pos.1).patan2(s_pos.0 - e_pos.0);
         adj[e].push(AdjEntry {
             edge_index: idx,
             forward: false,
@@ -193,7 +194,7 @@ fn trace_one_loop(
         // The "incoming angle" at cur_to is the angle from cur_from to cur_to.
         let from_pos = graph.nodes[cur_from];
         let to_pos = graph.nodes[cur_to];
-        let incoming_angle = (to_pos.1 - from_pos.1).atan2(to_pos.0 - from_pos.0);
+        let incoming_angle = (to_pos.1 - from_pos.1).patan2(to_pos.0 - from_pos.0);
 
         // The twin of our incoming half-edge arrives at cur_to with
         // outgoing_angle = incoming_angle + PI (pointing back to cur_from).
@@ -317,8 +318,8 @@ fn compute_signed_area(edges: &[DirectedEdge], sketch: &Sketch) -> f64 {
             ElementHandle::Arc(ah) => {
                 if let Some((cx, cy, r, _sa, _ea)) = sketch.arc_params(*ah) {
                     // Derive angles from the directed edge's positions.
-                    let theta1 = (y_i - cy).atan2(x_i - cx);
-                    let theta2 = (y_next - cy).atan2(x_next - cx);
+                    let theta1 = (y_i - cy).patan2(x_i - cx);
+                    let theta2 = (y_next - cy).patan2(x_next - cx);
                     let mut d_theta = theta2 - theta1;
                     // Arc edges in the graph follow the CCW direction of
                     // the arc when not reversed. Use the reversed flag to
@@ -340,7 +341,8 @@ fn compute_signed_area(edges: &[DirectedEdge], sketch: &Sketch) -> f64 {
                     // Green's theorem integral for a circular arc:
                     // integral = r*(cx*(sin(θ2)-sin(θ1)) -
                     //               cy*(cos(θ2)-cos(θ1)) + r*dθ)
-                    r * (cx * (theta2.sin() - theta1.sin()) - cy * (theta2.cos() - theta1.cos())
+                    r * (cx * (theta2.psin() - theta1.psin())
+                        - cy * (theta2.pcos() - theta1.pcos())
                         + r * d_theta)
                 } else {
                     chord

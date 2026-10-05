@@ -12,6 +12,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Draft a general (NURBS) face by sampling, rotating, and skinning.
 ///
@@ -126,8 +127,8 @@ fn interpolate_angle(t: f64, t0: f64, t1: f64, pairs: &[(f64, f64)], default: f6
 
 /// Rodrigues rotation: rotate vector `v` about unit axis `k` by angle `a` (radians).
 fn rodrigues_rotate(v: &Vec3, k: &Vec3, a: f64) -> Vec3 {
-    let cos_a = a.cos();
-    let sin_a = a.sin();
+    let cos_a = a.pcos();
+    let sin_a = a.psin();
     let k_cross_v = k.cross(v);
     let k_dot_v = k.dot(v);
     *v * cos_a + k_cross_v * sin_a + *k * k_dot_v * (1.0 - cos_a)

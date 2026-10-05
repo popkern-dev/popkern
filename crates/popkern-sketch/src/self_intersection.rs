@@ -12,6 +12,7 @@ use crate::error::SketchError;
 use crate::loop_tracer::{DirectedEdge, TracedLoop};
 use popkern_constraint::{ElementHandle, Sketch};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Number of sample points for polyline approximation of curves.
 const CURVE_SAMPLES: usize = 20;
@@ -129,7 +130,7 @@ fn sample_arc(cx: f64, cy: f64, r: f64, a0: f64, a1: f64) -> Vec<(f64, f64)> {
     for i in 0..=CURVE_SAMPLES {
         let t = i as f64 / CURVE_SAMPLES as f64;
         let angle = a0 + t * (a1 - a0);
-        pts.push((cx + r * angle.cos(), cy + r * angle.sin()));
+        pts.push((cx + r * angle.pcos(), cy + r * angle.psin()));
     }
     pts
 }

@@ -19,6 +19,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::pcurve::Pcurve;
+use popkern_math::PortableMath;
 
 /// Number of sample points used when approximating conics as NURBS.
 const CONIC_SAMPLE_COUNT: usize = 20;
@@ -100,8 +101,8 @@ fn directed_arc(
         .arc_params(handle)
         .ok_or_else(|| SketchError::InvalidTopology("arc handle is invalid".into()))?;
     let ccw = (elem_end >= elem_start) != directed.reversed;
-    let start_angle = (directed.start.1 - cy).atan2(directed.start.0 - cx);
-    let end_angle = (directed.end.1 - cy).atan2(directed.end.0 - cx);
+    let start_angle = (directed.start.1 - cy).patan2(directed.start.0 - cx);
+    let end_angle = (directed.end.1 - cy).patan2(directed.end.0 - cx);
     let forward = (end_angle - start_angle).rem_euclid(TAU);
     let magnitude = if ccw { forward } else { TAU - forward };
     // Coincident endpoints on an arc element mean a full turn (a
@@ -202,7 +203,7 @@ fn arc_frame_angle(plane: &SketchPlane, arc: &DirectedArc, p: (f64, f64)) -> f64
     use popkern_core::geometry::analytic_curves::circle_basis;
     let (u, v) = circle_basis(plane.normal);
     let d = plane.to_3d(p.0, p.1) - plane.to_3d(arc.cx, arc.cy);
-    d.dot(&v).atan2(d.dot(&u))
+    d.dot(&v).patan2(d.dot(&u))
 }
 
 /// Convert an arc directed edge to an EXACT rational-quadratic pcurve
@@ -309,8 +310,8 @@ fn sample_element_2d(
             let (cx, cy, semi_a, semi_b, rotation) = sketch
                 .ellipse_params(*h)
                 .ok_or_else(|| SketchError::InvalidTopology("ellipse handle is invalid".into()))?;
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
 
             // Use angle as parameter for sampling.
             let start_angle =
@@ -321,8 +322,8 @@ fn sample_element_2d(
             Ok((0..=n)
                 .map(|i| {
                     let t = start_angle + (end_angle - start_angle) * (i as f64 / n as f64);
-                    let lx = semi_a * t.cos();
-                    let ly = semi_b * t.sin();
+                    let lx = semi_a * t.pcos();
+                    let ly = semi_b * t.psin();
                     (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
                 })
                 .collect())
@@ -331,8 +332,8 @@ fn sample_element_2d(
             let (vx, vy, focal_dist, rotation) = sketch
                 .parabola_params(*h)
                 .ok_or_else(|| SketchError::InvalidTopology("parabola handle is invalid".into()))?;
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
 
             // Parabola: local (f*t^2, 2*f*t), t in [-1, 1]
             let t_start = -1.0;
@@ -352,8 +353,8 @@ fn sample_element_2d(
                 sketch.hyperbola_params(*h).ok_or_else(|| {
                     SketchError::InvalidTopology("hyperbola handle is invalid".into())
                 })?;
-            let cos_r = rotation.cos();
-            let sin_r = rotation.sin();
+            let cos_r = rotation.pcos();
+            let sin_r = rotation.psin();
 
             // Hyperbola: local (semi_a*cosh(t), semi_b*sinh(t)), t in [-1, 1]
             let t_start: f64 = -1.0;
@@ -362,8 +363,8 @@ fn sample_element_2d(
             Ok((0..=n)
                 .map(|i| {
                     let t = t_start + (t_end - t_start) * (i as f64 / n as f64);
-                    let lx = semi_a * t.cosh();
-                    let ly = semi_b * t.sinh();
+                    let lx = semi_a * t.pcosh();
+                    let ly = semi_b * t.psinh();
                     (cx + lx * cos_r - ly * sin_r, cy + lx * sin_r + ly * cos_r)
                 })
                 .collect())
@@ -390,7 +391,7 @@ fn angle_from_ellipse_point(
     let lx = dx * cos_r + dy * sin_r;
     let ly = -dx * sin_r + dy * cos_r;
     // atan2(ly / semi_b, lx / semi_a)
-    (ly / semi_b).atan2(lx / semi_a)
+    (ly / semi_b).patan2(lx / semi_a)
 }
 
 // ---------------------------------------------------------------------------

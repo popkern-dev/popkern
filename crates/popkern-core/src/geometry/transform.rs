@@ -1,6 +1,7 @@
 //! 4x4 affine transformation matrix for 3D geometry.
 
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 
 /// A 4x4 affine transformation matrix (row-major storage).
@@ -69,7 +70,7 @@ impl Transform3 {
 
     /// Rotation about the X axis by `angle` radians.
     pub fn rotation_x(angle: f64) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s, c) = angle.psin_cos();
         Self {
             matrix: [
                 [1.0, 0.0, 0.0, 0.0],
@@ -82,7 +83,7 @@ impl Transform3 {
 
     /// Rotation about the Y axis by `angle` radians.
     pub fn rotation_y(angle: f64) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s, c) = angle.psin_cos();
         Self {
             matrix: [
                 [c, 0.0, s, 0.0],
@@ -95,7 +96,7 @@ impl Transform3 {
 
     /// Rotation about the Z axis by `angle` radians.
     pub fn rotation_z(angle: f64) -> Self {
-        let (s, c) = angle.sin_cos();
+        let (s, c) = angle.psin_cos();
         Self {
             matrix: [
                 [c, -s, 0.0, 0.0],
@@ -300,7 +301,7 @@ impl Transform3 {
             )
         })?;
         let (ux, uy, uz) = (u.x, u.y, u.z);
-        let (sin_a, cos_a) = angle.sin_cos();
+        let (sin_a, cos_a) = angle.psin_cos();
         let c = 1.0 - cos_a;
         let r = [
             [

@@ -1,5 +1,6 @@
 #![cfg(test)]
 use super::*;
+use popkern_math::PortableMath;
 
 fn build_flat_hex() -> (BRep, FaceHandle, [Point3; 6]) {
     let (brep, face, pts) = build_flat_ngon(6);
@@ -13,7 +14,7 @@ fn build_flat_ngon(n_he: usize) -> (BRep, FaceHandle, Vec<Point3>) {
     let points: Vec<Point3> = (0..n_he)
         .map(|k| {
             let a = 2.0 * std::f64::consts::PI * (k as f64) / (n_he as f64);
-            pt(a.cos(), a.sin(), 0.0)
+            pt(a.pcos(), a.psin(), 0.0)
         })
         .collect();
     let mvfs = brep.mvfs(points[0]).expect("mvfs");

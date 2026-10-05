@@ -11,6 +11,7 @@ use popkern_core::{
     tolerance::Tolerance,
     topology::{BRep, FaceHandle},
 };
+use popkern_math::PortableMath;
 
 /// Verdict of a per-hit geometric gate.
 pub(super) enum HitGate {
@@ -68,7 +69,7 @@ pub(super) fn cylinder_angular_gate(
     let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*cyl_axis);
     let ang = |p: &Point3| -> f64 {
         let d = *p - *cyl_origin;
-        d.dot(&perp2).atan2(d.dot(&perp1))
+        d.dot(&perp2).patan2(d.dot(&perp1))
     };
     let mut angs: Vec<f64> = samples.iter().map(&ang).collect();
     angs.sort_by(|a, b| a.total_cmp(b));

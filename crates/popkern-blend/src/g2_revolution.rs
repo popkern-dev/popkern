@@ -22,6 +22,7 @@ use crate::contact::ContactSolution;
 use crate::g2_cross_section::{G2Request, g2_cross_section_bezier};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Rotation axis of a circular-spine pair: a point on the axis and
 /// the unit direction. `None` when the pair is not a coaxial plane ×
@@ -65,7 +66,7 @@ fn meridian(p: &Point3, origin: &Point3, axis: &Vec3) -> (f64, f64, Option<Vec3>
 
 /// Signed angle of `dir` in the (e1, e2) frame.
 fn angle_of(dir: &Vec3, e1: &Vec3, e2: &Vec3) -> f64 {
-    dir.dot(e2).atan2(dir.dot(e1))
+    dir.dot(e2).patan2(dir.dot(e1))
 }
 
 /// Build the exact revolved G2 surface, or `None` when the pair or
@@ -133,7 +134,7 @@ pub(crate) fn g2_revolution_from_contact_solutions(
         if own.curve.control_points.len() != 6 {
             return None;
         }
-        let (c, s) = (theta.cos(), theta.sin());
+        let (c, s) = (theta.pcos(), theta.psin());
         for (k, (h, rho)) in profile.iter().enumerate() {
             let expected = origin + axis * *h + (e1 * c + e2 * s) * *rho;
             if own.curve.control_points[k].distance_to(&expected) > 1.0e-7 * scale {
@@ -155,13 +156,13 @@ pub(crate) fn g2_revolution_from_contact_solutions(
         .ceil()
         .max(1.0) as usize;
     let delta = sweep / segments as f64;
-    let w_mid = (delta / 2.0).cos();
+    let w_mid = (delta / 2.0).pcos();
     let num_u = 2 * segments + 1;
     let num_v = 6;
     let mut control_points = Vec::with_capacity(num_u * num_v);
     let mut weights = Vec::with_capacity(num_u * num_v);
     let place = |theta: f64, h: f64, rho: f64| {
-        origin + axis * h + (e1 * theta.cos() + e2 * theta.sin()) * rho
+        origin + axis * h + (e1 * theta.pcos() + e2 * theta.psin()) * rho
     };
     for iu in 0..num_u {
         let seg = iu / 2;

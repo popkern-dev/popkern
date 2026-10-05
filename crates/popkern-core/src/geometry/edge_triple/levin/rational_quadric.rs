@@ -1,5 +1,6 @@
 use num_rational::BigRational;
 use num_traits::{One, Zero};
+use popkern_math::PortableMath;
 
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
@@ -127,7 +128,7 @@ fn cylinder_quadric_rat(origin: Point3, axis: Vec3, radius: f64) -> Option<Mat4S
 }
 
 fn cone_quadric_rat(apex: Point3, axis: Vec3, half_angle: f64) -> Option<Mat4SymRat> {
-    let cos2 = rat_from_f64(half_angle.cos().powi(2))?;
+    let cos2 = rat_from_f64(half_angle.pcos().powi(2))?;
     let ax = rat_from_f64(axis.x)?;
     let ay = rat_from_f64(axis.y)?;
     let az = rat_from_f64(axis.z)?;

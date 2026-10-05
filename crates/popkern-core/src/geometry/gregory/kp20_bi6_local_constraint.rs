@@ -67,7 +67,7 @@ use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
 use crate::geometry::bernstein_poly::{
     BernsteinPoly, PolyCoeff, bernstein_product_scalar, bernstein_product_scalar_vec3,
 };
-use crate::geometry::{Point3, Vec3};
+use crate::geometry::{Point3, PortableMath, Vec3};
 
 /// Build `∂_v p(u, 0)` as a Bernstein polynomial of degree 6 in
 /// `u`, from a piece's bi-6 BB grid. BB coefficients are
@@ -865,7 +865,7 @@ pub fn measure_kp20_assembly_constraints(
     cap: &Kp20Bi6MacroCapOutput,
 ) -> Kp20MacroCapResidualReport {
     let n = cap.n;
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let b_near_o = kp20_b_coeffs_near_o(c);
     let b_near_m = kp20_b_coeffs_near_m(c);
 
@@ -1412,7 +1412,7 @@ fn global_col(
 pub fn kp20_global_constraint_matrix(n: usize) -> (Kp20ConstraintMatrixLayout, Vec<Vec<f64>>) {
     let layout = kp20_constraint_matrix_layout(n);
     let mut m = vec![vec![0.0_f64; layout.cols]; layout.rows()];
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let b_near_o = kp20_b_coeffs_near_o(c);
     let b_near_m = kp20_b_coeffs_near_m(c);
     let eq8_jac_o = kp20_eq8_jacobian_dense(b_near_o);

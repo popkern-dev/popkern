@@ -8,6 +8,7 @@ use crate::euler::DiagnosticTolerance;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_math::PortableMath;
 use tangency_lines::{
     ConeEquation, CylinderEquation, PlaneEquation, line_cone_intersections,
     line_cylinder_intersections, line_sphere_intersections, plane_plane_offset_line,
@@ -62,9 +63,9 @@ impl TangencySupport {
                 let axial_distance = from_apex.dot(&axis);
                 let radial = from_apex - axis * axial_distance;
                 let radial_direction = radial.normalized()?;
-                let normal = radial_direction * half_angle.cos() - axis * half_angle.sin();
+                let normal = radial_direction * half_angle.pcos() - axis * half_angle.psin();
                 Some((
-                    radial.length() * half_angle.cos() - axial_distance * half_angle.sin(),
+                    radial.length() * half_angle.pcos() - axial_distance * half_angle.psin(),
                     normal,
                 ))
             }

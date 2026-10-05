@@ -22,6 +22,7 @@ use super::kp20_bi6_cap::{Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::hermite_to_bi6_corner_block;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Truncated bivariate Taylor jet through order (3, 3): entry
 /// `[p][q]` is the Taylor coefficient of `s^p t^q`.
@@ -120,8 +121,8 @@ fn guide_local(n: usize, sector: usize, global: [f64; 2]) -> [f64; 2] {
     let alpha = core::f64::consts::TAU / n as f64;
     let a0 = sector as f64 * alpha;
     let a1 = (sector + 1) as f64 * alpha;
-    let spoke0 = [a0.cos(), a0.sin()];
-    let spoke1 = [a1.cos(), a1.sin()];
+    let spoke0 = [a0.pcos(), a0.psin()];
+    let spoke1 = [a1.pcos(), a1.psin()];
     let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
     [
         (spoke1[0] * global[1] - spoke1[1] * global[0]) / det,

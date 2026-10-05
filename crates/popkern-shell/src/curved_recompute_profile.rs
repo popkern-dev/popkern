@@ -9,6 +9,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 use super::{map_similarity_geometry, verify_candidate};
 
@@ -109,7 +110,7 @@ fn revolution_profile(
             Some(RevolutionProfile {
                 t_ref: on_axis(apex)?,
                 kind: ProfileKind::Cone {
-                    tan_half: half_angle.tan(),
+                    tan_half: half_angle.ptan(),
                     dir,
                 },
             })

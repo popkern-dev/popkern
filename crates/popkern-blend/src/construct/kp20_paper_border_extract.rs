@@ -24,6 +24,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};
 use popkern_core::geometry::{NurbsCurve, Point3, SurfaceGeometry, Vec3};
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::blend::{BlendBoundary, BoundarySegment};
 use crate::fillet_surface::FilletSurfaceResult;
@@ -514,7 +515,7 @@ fn chi_march_calibration(n: usize) -> Option<[ChiPieceCalibration; 2]> {
         }
         let t_hat = rim * (1.0 / rim_len);
         let side = plane_normal.cross(&t_hat);
-        let angle = cross.dot(&side).atan2(cross.dot(&t_hat));
+        let angle = cross.dot(&side).patan2(cross.dot(&t_hat));
         Some(ChiEndCalibration {
             ratio: cross_len / rim_len,
             angle,

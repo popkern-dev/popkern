@@ -13,6 +13,7 @@
 use crate::Sketch;
 use crate::config::{get_constraint_value, set_constraint_value_on};
 use crate::constraint::ConstraintHandle;
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -94,9 +95,9 @@ pub(crate) fn evaluate(expr: &Expression, sketch: &Sketch) -> Result<f64, String
         Expression::Func(func, inner) => {
             let v = evaluate(inner, sketch)?;
             match func {
-                UnaryFunc::Sin => Ok(v.sin()),
-                UnaryFunc::Cos => Ok(v.cos()),
-                UnaryFunc::Tan => Ok(v.tan()),
+                UnaryFunc::Sin => Ok(v.psin()),
+                UnaryFunc::Cos => Ok(v.pcos()),
+                UnaryFunc::Tan => Ok(v.ptan()),
                 UnaryFunc::Sqrt => {
                     if v < 0.0 {
                         return Err("square root of negative number in expression".to_owned());

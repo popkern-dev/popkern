@@ -7,6 +7,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::FaceHandle;
+use popkern_math::PortableMath;
 
 use crate::blend::surface_bridge::point_on_surface_distance;
 
@@ -219,7 +220,7 @@ pub(super) fn angular_arc_ordering(
     let v0 = axis.cross(&u0);
     let angle_of = |p: Point3| -> f64 {
         let d = p - centroid;
-        d.dot(&v0).atan2(d.dot(&u0))
+        d.dot(&v0).patan2(d.dot(&u0))
     };
     let mut keyed: Vec<(f64, usize)> = (0..n)
         .map(|k| {

@@ -20,6 +20,7 @@
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Round-trip acceptance for a verified section candidate.
 const SECTION_ACCEPT: f64 = 1.0e-9;
@@ -49,8 +50,8 @@ pub(super) fn verified_circle_section(
     let b = s2 - c0;
     for arc_normal in [*axis, *axis * -1.0] {
         let (f1, f2) = popkern_core::geometry::analytic_curves::circle_basis(arc_normal);
-        let theta1 = a.dot(&f2).atan2(a.dot(&f1));
-        let mut theta2 = b.dot(&f2).atan2(b.dot(&f1));
+        let theta1 = a.dot(&f2).patan2(a.dot(&f1));
+        let mut theta2 = b.dot(&f2).patan2(b.dot(&f1));
         while theta2 <= theta1 {
             theta2 += std::f64::consts::TAU;
         }
@@ -123,8 +124,8 @@ pub(super) fn verified_ellipse_section(
     let s2 = c0 + u_basis * cu2 + minor_dir * (radius * cv2);
     for flip in [1.0, -1.0] {
         let v_basis = minor_dir * (radius * flip);
-        let theta1 = (cv1 * flip).atan2(cu1);
-        let mut theta2 = (cv2 * flip).atan2(cu2);
+        let theta1 = (cv1 * flip).patan2(cu1);
+        let mut theta2 = (cv2 * flip).patan2(cu2);
         while theta2 <= theta1 {
             theta2 += std::f64::consts::TAU;
         }

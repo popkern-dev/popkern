@@ -10,6 +10,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::contact::ContactSolution;
 use crate::error::BlendError;
@@ -201,6 +202,6 @@ fn dominant_extent_direction(points: &[Point3], normal: Vec3) -> Option<Vec3> {
         sab += pa * pb;
         sbb += pb * pb;
     }
-    let theta = 0.5 * (2.0 * sab).atan2(saa - sbb);
-    (e1 * theta.cos() + e2 * theta.sin()).normalized()
+    let theta = 0.5 * (2.0 * sab).patan2(saa - sbb);
+    (e1 * theta.pcos() + e2 * theta.psin()).normalized()
 }

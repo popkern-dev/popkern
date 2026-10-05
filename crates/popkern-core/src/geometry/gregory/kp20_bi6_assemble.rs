@@ -16,6 +16,7 @@ use super::kp20_bi6_cnet::{Kp20RegularCNet, kp20_tensor_border_from_regular_cnet
 use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, build_kp20_guide_ring};
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::kp20_b_coeffs_near_o;
+use super::kp20_bi6_math::{global_to_local_planar, local_to_global_planar};
 use super::kp20_bi6_piece_maps::{
     Kp20PlanarTauDomainReport, Kp20TauFamily, kp20_paper_quadrant_sector_piece_maps,
     sample_kp20_macro_patch_from_default_maps,
@@ -29,6 +30,7 @@ use super::kp20_bi6_tau_solve_assemble::{
 };
 use super::tri6_flat_index;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 type Kp20Lemma4OverlayBlock = [[Point3; 4]; 4];
 type Kp20Bi6ControlGrid = [[Point3; 7]; 7];
@@ -337,20 +339,6 @@ fn local_planar_patch_to_global(
     out
 }
 
-fn local_to_global_planar(valence: usize, sector: usize, local: [f64; 2]) -> Point3 {
-    let alpha = core::f64::consts::TAU / valence as f64;
-    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
-    let spoke1 = [
-        ((sector + 1) as f64 * alpha).cos(),
-        ((sector + 1) as f64 * alpha).sin(),
-    ];
-    Point3::new(
-        local[0] * spoke1[0] + local[1] * spoke0[0],
-        local[0] * spoke1[1] + local[1] * spoke0[1],
-        0.0,
-    )
-}
-
 fn global_planar_patch_to_local(
     valence: usize,
     sector: usize,
@@ -366,20 +354,6 @@ fn global_planar_patch_to_local(
         }
     }
     patch
-}
-
-fn global_to_local_planar(valence: usize, sector: usize, point: Point3) -> [f64; 2] {
-    let alpha = core::f64::consts::TAU / valence as f64;
-    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
-    let spoke1 = [
-        ((sector + 1) as f64 * alpha).cos(),
-        ((sector + 1) as f64 * alpha).sin(),
-    ];
-    let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
-    [
-        (point.x * spoke0[1] - point.y * spoke0[0]) / det,
-        (spoke1[0] * point.y - spoke1[1] * point.x) / det,
-    ]
 }
 
 /// Assemble a KP20 2x2 bi-6 macro cap from guide-sampled patches.
@@ -757,7 +731,7 @@ fn apply_g2_strip_projection_to_all(
     macro_patches: &mut [Kp20MacroPatch],
 ) -> Result<Vec<Kp20S0Projection>, Kp20Bi6AssembleError> {
     let n = macro_patches.len();
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let b0 = kp20_b_coeffs_near_o(c)[0];
     let mut out = Vec::with_capacity(n);
     for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {

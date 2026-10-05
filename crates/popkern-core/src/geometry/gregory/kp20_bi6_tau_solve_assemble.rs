@@ -9,6 +9,7 @@ use super::bernstein_bi6::bernstein_bi6_all;
 use super::direct_linalg::solve_dense_finite_guarded;
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
+use super::kp20_bi6_math::{global_to_local_planar, local_to_global_planar};
 use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
 use super::kp20_bi6_piece_maps::{
     Kp20PlanarTauValidityReport, kp20_planar_bi6_tau_validity_report,
@@ -27,6 +28,7 @@ use super::kp20_bi6_tau_f3_solve::{
     solve_kp20_planar_tau_f3_with_scalar_constraints_diagnosed,
 };
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Secondary source-movement penalty for the §4.2 equation (14) projection.
 ///
@@ -258,7 +260,7 @@ pub fn kp20_planar_tau_paper_row_set(
     if valence < 3 {
         return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
     }
-    let c = (core::f64::consts::TAU / valence as f64).cos();
+    let c = (core::f64::consts::TAU / valence as f64).pcos();
     let mut vector_constraints = kp20_planar_tau_internal_c2_constraints();
     vector_constraints.extend(kp20_planar_tau_fig8_indicated_averaging_constraints());
     vector_constraints.extend(
@@ -300,7 +302,7 @@ pub fn kp20_planar_tau_rotational_paper_row_set(
         return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
     }
     let angle = core::f64::consts::TAU / valence as f64;
-    let c = angle.cos();
+    let c = angle.pcos();
     let mut vector_constraints = kp20_planar_tau_internal_c2_constraints();
     vector_constraints.extend(kp20_planar_tau_fig8_indicated_averaging_constraints());
     let tensor_constraints =
@@ -392,7 +394,7 @@ pub fn kp20_planar_tau_rotational_section42_source_projection_report(
         return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
     }
     let angle = core::f64::consts::TAU / valence as f64;
-    let c = angle.cos();
+    let c = angle.pcos();
     let mut vector_constraints = kp20_planar_tau_internal_c2_constraints();
     vector_constraints.extend(kp20_planar_tau_fig8_indicated_averaging_constraints());
     let tensor_constraints =
@@ -458,12 +460,7 @@ fn sector_local_spoke_components(
     if valence < 3 {
         return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
     }
-    let alpha = core::f64::consts::TAU / valence as f64;
-    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
-    let spoke1 = [
-        ((sector + 1) as f64 * alpha).cos(),
-        ((sector + 1) as f64 * alpha).sin(),
-    ];
+    let [spoke0, spoke1] = super::kp20_bi6_math::planar_sector_spokes(valence, sector);
     let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
     let local0 = [spoke0[1] / det, -spoke0[0] / det];
     let local1 = [-spoke1[1] / det, spoke1[0] / det];
@@ -887,34 +884,6 @@ fn local_planar_patch_to_global(
     Ok(patch)
 }
 
-fn local_to_global_planar(valence: usize, sector: usize, local: [f64; 2]) -> Point3 {
-    let alpha = core::f64::consts::TAU / valence as f64;
-    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
-    let spoke1 = [
-        ((sector + 1) as f64 * alpha).cos(),
-        ((sector + 1) as f64 * alpha).sin(),
-    ];
-    Point3::new(
-        local[0] * spoke1[0] + local[1] * spoke0[0],
-        local[0] * spoke1[1] + local[1] * spoke0[1],
-        0.0,
-    )
-}
-
-fn global_to_local_planar(valence: usize, sector: usize, point: Point3) -> [f64; 2] {
-    let alpha = core::f64::consts::TAU / valence as f64;
-    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
-    let spoke1 = [
-        ((sector + 1) as f64 * alpha).cos(),
-        ((sector + 1) as f64 * alpha).sin(),
-    ];
-    let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
-    [
-        (point.x * spoke0[1] - point.y * spoke0[0]) / det,
-        (spoke1[0] * point.y - spoke1[1] * point.x) / det,
-    ]
-}
-
 /// Evaluate the rotational KP20 §4.2 row set against each accepted paper family.
 #[cfg(test)]
 pub fn kp20_planar_tau_rotational_paper_family_residuals(
@@ -1204,7 +1173,7 @@ fn kp20_section42_presolved_strip_basis_rows(
 fn kp20_fig6c_full_paper_direction_rows(
     map: Kp20Section42Fig6cSymbolMap,
 ) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
-    let b0_near_origin = 2.0 * map.previous_sector_rotation_radians.cos();
+    let b0_near_origin = 2.0 * map.previous_sector_rotation_radians.pcos();
     let mut rows = Vec::new();
     add_kp20_fig6c_c0_rows(&mut rows, map);
     add_kp20_fig6c_eq11_degree5_rows(&mut rows, map);
@@ -1809,7 +1778,7 @@ fn add_kp20_fig6c_vector_rows(
         let coeff = Kp20PlanarTauCoeff::new(strip.mapped.piece, i, j);
         if strip.sector_rotation_steps != 0 {
             let angle = map.previous_sector_rotation_radians * strip.sector_rotation_steps as f64;
-            let (sin_theta, cos_theta) = angle.sin_cos();
+            let (sin_theta, cos_theta) = angle.psin_cos();
             x_terms.push((
                 Kp20PlanarTauScalarCoeff::new(coeff, 0),
                 term.weight * cos_theta,
@@ -2125,7 +2094,7 @@ fn apply_kp20_fig6c_eq13_strip_construction(
     patch: &mut Kp20MacroPatch,
     map: Kp20Section42Fig6cSymbolMap,
 ) {
-    let b0_near_origin = 2.0 * map.previous_sector_rotation_radians.cos();
+    let b0_near_origin = 2.0 * map.previous_sector_rotation_radians.pcos();
     let w1 = -b0_near_origin / 100.0;
     let w2 = -w1;
     let w3 = (0.5 * b0_near_origin) / 30.0;
@@ -2656,7 +2625,7 @@ fn max_dense_row_residual(design: &[Vec<f64>], solution: &[f64], rhs: &[f64]) ->
 }
 
 fn rotate_xy(point: Point3, angle: f64) -> Point3 {
-    let (sin_theta, cos_theta) = angle.sin_cos();
+    let (sin_theta, cos_theta) = angle.psin_cos();
     Point3::new(
         cos_theta * point.x - sin_theta * point.y,
         sin_theta * point.x + cos_theta * point.y,

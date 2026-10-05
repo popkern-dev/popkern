@@ -3,6 +3,7 @@
 //! `radial_level_curve.rs` under the 500-line file budget. The
 //! mechanism rationale lives in the parent module's header.
 
+use popkern_math::PortableMath;
 use std::f64::consts::{PI, TAU};
 
 use super::radial_level_curve_trace::{bisect_radial, branch_angle};
@@ -257,8 +258,8 @@ pub(super) fn record_on_surfaces(
         worst_wall_drift = worst_wall_drift.max(wall.point_at(wuv.x, wuv.y).distance_to(&p));
         let cuv = cyl_uv_curve.point_at(t);
         let cyl_point = frame.origin
-            + frame.e1 * (frame.radius * cuv.x.cos())
-            + frame.e2 * (frame.radius * cuv.x.sin())
+            + frame.e1 * (frame.radius * cuv.x.pcos())
+            + frame.e2 * (frame.radius * cuv.x.psin())
             + frame.axis_raw * cuv.y;
         worst_cyl_drift = worst_cyl_drift.max(cyl_point.distance_to(&p));
     }

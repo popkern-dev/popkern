@@ -34,6 +34,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_torus_axial(
@@ -92,7 +93,7 @@ pub(super) fn try_cyl_torus_axial(
     // cos v_torus = (r_cyl − R)/r).
     let sin_v_torus = ((h_offset + v_branch) / r).clamp(-1.0, 1.0);
     let cos_v_torus = (radial_diff / r).clamp(-1.0, 1.0);
-    let v_torus = sin_v_torus.atan2(cos_v_torus);
+    let v_torus = sin_v_torus.patan2(cos_v_torus);
     let v_torus_canon = if v_torus < 0.0 {
         v_torus + std::f64::consts::TAU
     } else {
@@ -113,7 +114,7 @@ pub(super) fn try_cyl_torus_axial(
                 distance: r_real - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -137,14 +138,14 @@ pub(super) fn try_cyl_torus_axial(
         end_angle: theta_end,
     };
 
-    let cyl_u_offset = arc_basis_u.dot(&perp2_c).atan2(arc_basis_u.dot(&perp1_c));
+    let cyl_u_offset = arc_basis_u.dot(&perp2_c).patan2(arc_basis_u.dot(&perp1_c));
     let pcurve_cyl = Pcurve::linear(
         (theta_start + cyl_u_offset, v_branch),
         (theta_end + cyl_u_offset, v_branch),
         theta_start,
         theta_end,
     );
-    let torus_u_offset = arc_basis_u.dot(&perp2_t).atan2(arc_basis_u.dot(&perp1_t));
+    let torus_u_offset = arc_basis_u.dot(&perp2_t).patan2(arc_basis_u.dot(&perp1_t));
     let pcurve_torus = Pcurve::linear(
         (theta_start + torus_u_offset, v_torus_canon),
         (theta_end + torus_u_offset, v_torus_canon),

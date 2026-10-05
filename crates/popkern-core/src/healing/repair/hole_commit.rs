@@ -15,6 +15,7 @@ use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, SurfaceOnFace, Vec3};
 use crate::topology::BRep;
 use crate::topology::coherence::CoherenceValidationScope;
+use popkern_math::PortableMath;
 
 use super::hole_commit_geometry::{HoleCapChart, HoleCapGeometry};
 use super::hole_fill::DetectedHole;
@@ -400,8 +401,8 @@ fn snap_pole_pcurve_endpoints(
                     .iter()
                     .copied()
                     .min_by(|a, b| {
-                        let da = (a.0 - current.x).hypot(a.1 - current.y);
-                        let db = (b.0 - current.x).hypot(b.1 - current.y);
+                        let da = (a.0 - current.x).phypot(a.1 - current.y);
+                        let db = (b.0 - current.x).phypot(b.1 - current.y);
                         da.total_cmp(&db)
                     })
                     .unwrap_or(pole_corners[0]);

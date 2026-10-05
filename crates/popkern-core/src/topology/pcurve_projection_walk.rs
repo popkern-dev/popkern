@@ -25,6 +25,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
+use popkern_math::PortableMath;
 
 /// Sample `curve_on_edge` at the curve `fractions` of `[t_lo, t_hi]`
 /// (ascending from 0 to 1; the end samples pinned to the half-edge's
@@ -143,7 +144,7 @@ fn anchored_walk(
         };
         let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
         let d = *p - *origin;
-        Some((d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis)))
+        Some((d.dot(&perp2).patan2(d.dot(&perp1)), d.dot(axis)))
     };
     let is_cylinder = matches!(surface, SurfaceGeometry::Cylinder { .. });
 

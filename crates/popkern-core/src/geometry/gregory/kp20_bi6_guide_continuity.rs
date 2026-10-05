@@ -12,6 +12,8 @@
 //! `docs/decisions/2026-06-23-kp20-bi6-paper-grade-guide-from-kp18.md`
 //! Step 4 for the audit.
 
+use popkern_math::PortableMath;
+
 /// KP18 equation (1) join weights for adjacent sector wedges.
 pub fn kp18_guide_join_weights(n: usize) -> Result<(f64, f64, f64), String> {
     if n < 3 {
@@ -19,7 +21,7 @@ pub fn kp18_guide_join_weights(n: usize) -> Result<(f64, f64, f64), String> {
             "KP18/KP20 guide join weights require n >= 3; got {n}"
         ));
     }
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     Ok((-1.0, 2.0 * c, 2.0 * (1.0 - c)))
 }
 

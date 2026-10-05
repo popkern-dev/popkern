@@ -10,6 +10,7 @@
 use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use super::StripCylinder;
 
@@ -80,7 +81,7 @@ pub(super) fn chart_point_near(
     let (perp1, perp2) = orthonormal_basis(*axis);
     let d = p - *origin;
     let radial = d - *axis * d.dot(axis);
-    let mut u = radial.dot(&perp2).atan2(radial.dot(&perp1));
+    let mut u = radial.dot(&perp2).patan2(radial.dot(&perp1));
     while u - near.0 > std::f64::consts::PI {
         u -= std::f64::consts::TAU;
     }

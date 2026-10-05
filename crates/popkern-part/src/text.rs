@@ -8,6 +8,7 @@
 
 use crate::engrave::HoledPolygon;
 use crate::error::PartError;
+use popkern_math::PortableMath;
 
 /// A loaded font.
 pub struct Font {
@@ -116,7 +117,7 @@ fn clean_contour(mut scaled: Vec<(f64, f64)>) -> Option<Vec<(f64, f64)>> {
     for p in scaled.drain(..) {
         if cleaned
             .last()
-            .map(|q| (p.0 - q.0).hypot(p.1 - q.1) >= MIN_EDGE)
+            .map(|q| (p.0 - q.0).phypot(p.1 - q.1) >= MIN_EDGE)
             .unwrap_or(true)
         {
             cleaned.push(p);
@@ -124,7 +125,7 @@ fn clean_contour(mut scaled: Vec<(f64, f64)>) -> Option<Vec<(f64, f64)>> {
     }
     while cleaned.len() > 3 {
         let (first, last) = (cleaned[0], *cleaned.last()?);
-        if (first.0 - last.0).hypot(first.1 - last.1) < MIN_EDGE {
+        if (first.0 - last.0).phypot(first.1 - last.1) < MIN_EDGE {
             cleaned.pop();
         } else {
             break;
@@ -255,11 +256,11 @@ impl ttf_parser::OutlineBuilder for OutlineCollector {
     fn close(&mut self) {
         let mut contour = std::mem::take(&mut self.current);
         if let (Some(&first), Some(&last)) = (contour.first(), contour.last())
-            && (first.0 - last.0).hypot(first.1 - last.1) < 1e-6
+            && (first.0 - last.0).phypot(first.1 - last.1) < 1e-6
         {
             contour.pop();
         }
-        contour.dedup_by(|a, b| (a.0 - b.0).hypot(a.1 - b.1) < 1e-6);
+        contour.dedup_by(|a, b| (a.0 - b.0).phypot(a.1 - b.1) < 1e-6);
         if contour.len() >= 3 {
             self.contours.push(contour);
         }

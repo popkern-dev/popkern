@@ -20,6 +20,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::analysis::EdgeAnalysis;
 use crate::degeneracy::{DegeneracyKind, SupportSide};
@@ -241,7 +242,7 @@ pub(crate) fn check_nearly_tangent_supports(
 
     let threshold = -(1.0 - 2.0 * tolerance.angular() * tolerance.angular());
     if face_dot < threshold {
-        let angle_between_face_normals = face_dot.clamp(-1.0, 1.0).acos();
+        let angle_between_face_normals = face_dot.clamp(-1.0, 1.0).pacos();
         let dihedral = std::f64::consts::PI - angle_between_face_normals;
         return Err(DegeneracyKind::NearlyTangentSupports {
             angle_rad: dihedral,

@@ -3,6 +3,7 @@
 use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::{CurveGeometry, Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 pub(super) fn relocate_vertex_with_curve_coherence(
     brep: &mut BRep,
@@ -158,8 +159,8 @@ fn arc_endpoint_angles(center: Point3, normal: Vec3, p0: Point3, p1: Point3) -> 
     let (u, v) = in_plane_basis(normal);
     let pa = Vec3::new(p0.x - center.x, p0.y - center.y, p0.z - center.z);
     let pb = Vec3::new(p1.x - center.x, p1.y - center.y, p1.z - center.z);
-    let a0 = pa.dot(&v).atan2(pa.dot(&u));
-    let a1 = pb.dot(&v).atan2(pb.dot(&u));
+    let a0 = pa.dot(&v).patan2(pa.dot(&u));
+    let a1 = pb.dot(&v).patan2(pb.dot(&u));
     (a0, a1)
 }
 
@@ -174,8 +175,8 @@ fn ellipse_endpoint_angles(
     let pb = Vec3::new(p1.x - center.x, p1.y - center.y, p1.z - center.z);
     let u_len2 = u_basis.dot(&u_basis);
     let v_len2 = v_basis.dot(&v_basis);
-    let a0 = (pa.dot(&v_basis) / v_len2.sqrt()).atan2(pa.dot(&u_basis) / u_len2.sqrt());
-    let a1 = (pb.dot(&v_basis) / v_len2.sqrt()).atan2(pb.dot(&u_basis) / u_len2.sqrt());
+    let a0 = (pa.dot(&v_basis) / v_len2.sqrt()).patan2(pa.dot(&u_basis) / u_len2.sqrt());
+    let a1 = (pb.dot(&v_basis) / v_len2.sqrt()).patan2(pb.dot(&u_basis) / u_len2.sqrt());
     (a0, a1)
 }
 

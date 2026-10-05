@@ -20,6 +20,7 @@ gpu = ["dep:wgpu", "dep:eframe", "dep:egui", "dep:pollster", "dep:env_logger"]
 window = ["dep:winit", "dep:softbuffer"]
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }

@@ -37,6 +37,7 @@ use crate::geometry::edge_triple::types::{
 };
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 pub(crate) use super::dispatch_nested::try_levin_pair_nested;
 
@@ -372,7 +373,7 @@ fn invert_curve_param(
         CurveGeometry::Arc { center, normal, .. } => {
             let d = p - *center;
             let (u_dir, v_dir) = crate::geometry::analytic_curves::circle_basis(*normal);
-            Some(d.dot(&v_dir).atan2(d.dot(&u_dir)))
+            Some(d.dot(&v_dir).patan2(d.dot(&u_dir)))
         }
         CurveGeometry::Ellipse {
             center,
@@ -382,7 +383,7 @@ fn invert_curve_param(
         } => {
             // Solve d = α·u + β·v with α=cos t, β=sin t.
             let (alpha, beta) = solve_2basis(*center, *u_basis, *v_basis, p)?;
-            Some(beta.atan2(alpha))
+            Some(beta.patan2(alpha))
         }
         CurveGeometry::Hyperbola {
             center,
@@ -394,7 +395,7 @@ fn invert_curve_param(
             let (alpha, beta) = solve_2basis(*center, *semi_major, *semi_minor, p)?;
             // t = asinh(β) (sign carries the branch); cosh(asinh β) = √(1+β²)
             // matches α up to sign, indicating which nappe.
-            Some(beta.asinh().copysign(alpha))
+            Some(beta.pasinh().copysign(alpha))
         }
         CurveGeometry::Parabola {
             vertex,

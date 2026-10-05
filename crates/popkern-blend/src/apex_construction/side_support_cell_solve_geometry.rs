@@ -5,6 +5,7 @@
 use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveGeometry, Point3};
+use popkern_math::PortableMath;
 
 pub(super) fn same_carrier(a: &SurfaceGeometry, b: &SurfaceGeometry) -> bool {
     match (a, b) {
@@ -119,7 +120,7 @@ pub(super) fn closing_curve(
             let w = end - center;
             let cos = u.dot(&w) / (u.length() * w.length()).max(1.0e-300);
             let sin = v.dot(&w) / (v.length() * w.length()).max(1.0e-300);
-            let mut sweep = sin.atan2(cos);
+            let mut sweep = sin.patan2(cos);
             if sweep < 0.0 {
                 sweep += std::f64::consts::TAU;
             }

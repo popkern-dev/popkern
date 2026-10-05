@@ -41,6 +41,7 @@
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsSurface, Point3, SurfaceGeometry, Vec3};
+use popkern_math::PortableMath;
 
 /// Weight spread below which a rational form counts as
 /// ill-conditioned for interchange: `min / max` of its weights.
@@ -133,7 +134,7 @@ fn clustered(a: f64, b: f64, count: usize) -> Vec<f64> {
     (0..count)
         .map(|k| {
             let x = k as f64 / (count - 1) as f64;
-            a + (b - a) * (0.5 - 0.5 * (std::f64::consts::PI * x).cos())
+            a + (b - a) * (0.5 - 0.5 * (std::f64::consts::PI * x).pcos())
         })
         .collect()
 }
@@ -185,7 +186,7 @@ fn boundary_samples(
     let fractions: Vec<f64> = (0..=BOUNDARY_SAMPLES)
         .map(|k| k as f64 / BOUNDARY_SAMPLES as f64)
         .chain((0..CORNER_SAMPLES).flat_map(|k| {
-            let d = 10f64.powf(-6.0 + 5.0 * k as f64 / CORNER_SAMPLES as f64);
+            let d = 10f64.ppowf(-6.0 + 5.0 * k as f64 / CORNER_SAMPLES as f64);
             [d, 1.0 - d]
         }))
         .collect();

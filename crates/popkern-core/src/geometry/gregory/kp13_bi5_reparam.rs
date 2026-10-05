@@ -55,6 +55,7 @@
 
 #![allow(dead_code)]
 
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 /// Per-valence parameters for the KP13 bi-5 construction.
@@ -77,7 +78,7 @@ impl Bi5Reparams {
     /// construction in `kp13_bi5_cap_n3` but still needs `c`.)
     pub fn for_valence(n: usize) -> Self {
         assert!(n >= 3, "KP13 bi-5 needs valence ≥ 3; got {n}");
-        let c = (2.0 * PI / n as f64).cos();
+        let c = (2.0 * PI / n as f64).pcos();
         Self { n, c }
     }
 

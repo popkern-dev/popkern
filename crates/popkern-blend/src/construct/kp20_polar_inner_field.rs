@@ -5,6 +5,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
 };
+use popkern_math::PortableMath;
 
 use super::super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
@@ -307,7 +308,7 @@ fn constrained_control_delta(
     if numerator == 0.0 {
         None
     } else {
-        let boundary_fade = (core::f64::consts::PI * u).sin() * (core::f64::consts::PI * v).sin();
+        let boundary_fade = (core::f64::consts::PI * u).psin() * (core::f64::consts::PI * v).psin();
         Some(direction * (scale * boundary_fade.max(0.0) * numerator / denominator))
     }
 }
@@ -492,7 +493,7 @@ fn support_field_weight(i: usize, j: usize, sites: &[Kp20FoldSite]) -> f64 {
     if fold_locality == 0.0 {
         0.0
     } else {
-        let boundary_fade = (core::f64::consts::PI * u).sin() * (core::f64::consts::PI * v).sin();
+        let boundary_fade = (core::f64::consts::PI * u).psin() * (core::f64::consts::PI * v).psin();
         (fold_locality * boundary_fade.max(0.0)).clamp(0.0, 1.0)
     }
 }

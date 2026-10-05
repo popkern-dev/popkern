@@ -6,6 +6,7 @@ license.workspace = true
 description = "Parametric feature tree for the popkern CAD kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-constraint = { path = "../popkern-constraint" }

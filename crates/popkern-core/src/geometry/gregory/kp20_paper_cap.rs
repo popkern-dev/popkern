@@ -31,6 +31,7 @@ use super::kp20_paper_cap_strip::{Kp20StripEnforcement, project_strip};
 use super::kp20_paper_guide::Kp20PaperGuideBorder;
 use super::kp20_paper_tau::{kp20_paper_border_band_placements, solve_kp20_paper_tau};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Assembled paper cap with measured postconditions.
 #[derive(Debug, Clone)]
@@ -181,7 +182,7 @@ pub fn assemble_kp20_paper_cap_conditioned(
     let alpha = core::f64::consts::TAU / n as f64;
     let mut sectors: Vec<Kp20MacroPatch> = (0..n)
         .map(|s| {
-            let rot = [(s as f64 * alpha).cos(), (s as f64 * alpha).sin()];
+            let rot = [(s as f64 * alpha).pcos(), (s as f64 * alpha).psin()];
             let mut tau_sector = tau.tau;
             for piece_id in Kp20PieceId::all() {
                 let piece = tau_sector.piece_mut(piece_id);
@@ -203,7 +204,7 @@ pub fn assemble_kp20_paper_cap_conditioned(
 
     // Step (ii): overwrite the gray rows from the reparameterized
     // split input border.
-    let c = alpha.cos();
+    let c = alpha.pcos();
     let mut placements_per_sector = Vec::with_capacity(n);
     let mut input_corner_mismatch = 0.0_f64;
     for sector_border in border.sectors.iter() {

@@ -24,6 +24,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_cone_coaxial(
@@ -52,7 +53,7 @@ pub(super) fn try_cyl_cone_coaxial(
 
     // Intersection circle radius = cyl_radius. Cone v at this radius
     // satisfies v · tan(half_angle) = cyl_radius.
-    let t = half_angle.tan();
+    let t = half_angle.ptan();
     if t.abs() < tol.solver() {
         return None; // degenerate cone (zero half-angle)
     }
@@ -68,7 +69,7 @@ pub(super) fn try_cyl_cone_coaxial(
 
     let (perp_a, perp_b) = crate::geometry::analytic_surfaces::orthonormal_basis(cyl_axis);
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(cyl_axis);
-    let cyl_u_offset = arc_basis_u.dot(&perp_b).atan2(arc_basis_u.dot(&perp_a));
+    let cyl_u_offset = arc_basis_u.dot(&perp_b).patan2(arc_basis_u.dot(&perp_a));
     // Cone uses orthonormal_basis(cone_axis); since cone_axis_eff is
     // parallel to cyl_axis (same or opposite sign), the cone's
     // perpendicular basis MAY differ. Compute its frame-phase offset
@@ -77,7 +78,7 @@ pub(super) fn try_cyl_cone_coaxial(
         crate::geometry::analytic_surfaces::orthonormal_basis(cone_axis);
     let cone_u_offset = arc_basis_u
         .dot(&cone_perp_b)
-        .atan2(arc_basis_u.dot(&cone_perp_a));
+        .patan2(arc_basis_u.dot(&cone_perp_a));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -95,7 +96,7 @@ pub(super) fn try_cyl_cone_coaxial(
                 distance: r - cyl_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,

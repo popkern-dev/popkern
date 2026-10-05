@@ -247,8 +247,8 @@ impl PcurveJetSource {
                 let sweep = pt(angles.1) - pt(angles.0);
                 let alpha = pt(angles.0) + s * sweep;
                 let da = sweep * ds;
-                let (ca, sa) = (alpha.cos(), alpha.sin());
-                let (cr, sr) = (pt(*rotation).cos(), pt(*rotation).sin());
+                let (ca, sa) = (Iv::cos(alpha), Iv::sin(alpha));
+                let (cr, sr) = (Iv::cos(pt(*rotation)), Iv::sin(pt(*rotation)));
                 let (ru, rv) = (pt(radii.0), pt(radii.1));
                 let mut rate = pt(1.0);
                 for (k, slot) in d.iter_mut().enumerate() {
@@ -269,7 +269,7 @@ impl PcurveJetSource {
                 v_cos,
                 v_sin,
             } => {
-                let (c, s) = (t.cos(), t.sin());
+                let (c, s) = (Iv::cos(t), Iv::sin(t));
                 let (kc, ks) = (pt(*v_cos), pt(*v_sin));
                 for (k, slot) in d.iter_mut().enumerate() {
                     let v = kc * cos_deriv(k, c, s) + ks * sin_deriv(k, c, s);
@@ -337,7 +337,7 @@ fn arc_via_rational_quad(
 ) -> [IvVec2; PCURVE_JET_TERMS] {
     let alpha = (pt(theta.1) - pt(theta.0)).scale(0.5);
     let theta_m = (pt(theta.0) + pt(theta.1)).scale(0.5);
-    let (sa, ca) = (alpha.sin(), alpha.cos());
+    let (sa, ca) = (Iv::sin(alpha), Iv::cos(alpha));
     let one_minus_c = pt(1.0) - ca;
     // x(s+δ) = x + x′δ + ½x″δ², y(s+δ) = y + y′δ.
     let d = (s * (pt(1.0) - s)).scale(2.0);
@@ -348,7 +348,7 @@ fn arc_via_rational_quad(
     let mut y = [pt(0.0); PCURVE_JET_TERMS];
     y[0] = sa * (s.scale(2.0) - pt(1.0));
     y[1] = sa.scale(2.0);
-    let angle = (Taylor::new(y) / Taylor::new(x)).atan();
+    let angle = Taylor::atan(Taylor::new(y) / Taylor::new(x));
     let mut out = [IvVec2::new(pt(0.0), pt(0.0)); PCURVE_JET_TERMS];
     let (mut factorial, mut rate) = (1.0, pt(1.0));
     for (k, slot) in out.iter_mut().enumerate() {

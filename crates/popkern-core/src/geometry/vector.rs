@@ -1,5 +1,6 @@
 //! 3D vector type for directions, normals, and displacements.
 
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -70,7 +71,7 @@ impl Vec3 {
     /// Angle between two vectors in radians.
     pub fn angle_to(&self, other: &Self) -> f64 {
         let cos = self.dot(other) / (self.length() * other.length());
-        cos.clamp(-1.0, 1.0).acos()
+        cos.clamp(-1.0, 1.0).pacos()
     }
 }
 

@@ -7,6 +7,7 @@ use super::conics::{el, hyp, par};
 use super::{EquationOutput, ln};
 use crate::Sketch;
 use crate::elements::{EllipseHandle, HyperbolaHandle, LineHandle, ParabolaHandle};
+use popkern_math::PortableMath;
 
 /// TangentLineEllipse(L, E): dual conic tangency condition.
 ///
@@ -21,8 +22,8 @@ pub(crate) fn eval_tangent_line_ellipse(
 ) -> EquationOutput {
     let (x1, y1, ix1, iy1, x2, y2, ix2, iy2) = ln(sketch, line);
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = el(sketch, ellipse);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     // Line direction in global frame
     let gdx = x2 - x1;
@@ -78,8 +79,8 @@ pub(crate) fn eval_tangent_line_parabola(
 ) -> EquationOutput {
     let (x1, y1, ix1, iy1, x2, y2, ix2, iy2) = ln(sketch, line);
     let (vx, vy, f, theta, ivx, ivy, if_, itheta) = par(sketch, parabola);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     let gdx = x2 - x1;
     let gdy = y2 - y1;
@@ -130,8 +131,8 @@ pub(crate) fn eval_tangent_line_hyperbola(
 ) -> EquationOutput {
     let (x1, y1, ix1, iy1, x2, y2, ix2, iy2) = ln(sketch, line);
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = hyp(sketch, hyperbola);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     let gdx = x2 - x1;
     let gdy = y2 - y1;

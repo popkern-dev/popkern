@@ -3,6 +3,7 @@
 //! Projects 3D points onto surface UV spaces and computes bounded parameter
 //! ranges for faces with infinite parameter domains.
 
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::geometry::Point3;
@@ -43,7 +44,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
         } => {
             let (perp1, perp2) = orthonormal_basis(*axis);
             let d = *point - *origin;
-            let mut u = f64::atan2(d.dot(&perp2), d.dot(&perp1));
+            let mut u = f64::patan2(d.dot(&perp2), d.dot(&perp1));
             if u < 0.0 {
                 u += TAU;
             }
@@ -57,7 +58,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
         } => {
             let (perp1, perp2) = orthonormal_basis(*axis);
             let d = *point - *apex;
-            let mut u = f64::atan2(d.dot(&perp2), d.dot(&perp1));
+            let mut u = f64::patan2(d.dot(&perp2), d.dot(&perp1));
             if u < 0.0 {
                 u += TAU;
             }
@@ -73,8 +74,8 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             }
             let dz = d.z / r;
             // Clamp to avoid NaN from acos outside [-1, 1].
-            let v = dz.clamp(-1.0, 1.0).acos();
-            let mut u = f64::atan2(d.y, d.x);
+            let v = dz.clamp(-1.0, 1.0).pacos();
+            let mut u = f64::patan2(d.y, d.x);
             if u < 0.0 {
                 u += TAU;
             }
@@ -92,7 +93,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             // Project onto the equatorial plane to find the major angle u.
             let radial_1 = d.dot(&perp1);
             let radial_2 = d.dot(&perp2);
-            let mut u = f64::atan2(radial_2, radial_1);
+            let mut u = f64::patan2(radial_2, radial_1);
             if u < 0.0 {
                 u += TAU;
             }
@@ -100,7 +101,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             // to the actual point, decomposed into (radial, axial).
             let h = d.dot(axis);
             let radial_dist = (radial_1 * radial_1 + radial_2 * radial_2).sqrt();
-            let mut v = f64::atan2(h, radial_dist - major_radius);
+            let mut v = f64::patan2(h, radial_dist - major_radius);
             if v < 0.0 {
                 v += TAU;
             }
@@ -448,7 +449,7 @@ fn project_point_to_uv_analytic_unverified(
         SurfaceGeometry::Cylinder { origin, axis, .. } => {
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
             let d = *p - *origin;
-            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            let mut u = d.dot(&perp2).patan2(d.dot(&perp1));
             if let Some((hu, _)) = hint {
                 let tau = std::f64::consts::TAU;
                 while u - hu > 0.5 * tau {
@@ -468,10 +469,10 @@ fn project_point_to_uv_analytic_unverified(
         } => {
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
             let d = *p - *center;
-            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            let mut u = d.dot(&perp2).patan2(d.dot(&perp1));
             let radial = d - *axis * d.dot(axis);
             let r_len = radial.length();
-            let mut v = (d.dot(axis)).atan2(r_len - major_radius);
+            let mut v = (d.dot(axis)).patan2(r_len - major_radius);
             if let Some((hu, hv)) = hint {
                 let tau = std::f64::consts::TAU;
                 while u - hu > 0.5 * tau {

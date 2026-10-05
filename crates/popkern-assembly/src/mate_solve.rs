@@ -20,6 +20,7 @@
 //!   residual will not vanish, the conflicting mates. A conflict leaves
 //!   every placement as it was.
 
+use popkern_math::PortableMath;
 use std::collections::BTreeMap;
 
 use popkern_core::geometry::{Point3, Transform3, Vec3};
@@ -387,13 +388,13 @@ fn mate_rows(
             let theta = degrees.to_radians();
             match about.and_then(|k| k.direction()) {
                 Some(k) => {
-                    let signed = ua.cross(&ub).dot(&k).atan2(ua.dot(&ub));
+                    let signed = ua.cross(&ub).dot(&k).patan2(ua.dot(&ub));
                     let mut d = signed - theta;
                     d = (d + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU)
                         - std::f64::consts::PI;
                     vec![d]
                 }
-                None => vec![ua.dot(&ub) - theta.cos()],
+                None => vec![ua.dot(&ub) - theta.pcos()],
             }
         }
         (MateKind::Concentric, _, _) => {

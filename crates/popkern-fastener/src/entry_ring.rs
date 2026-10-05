@@ -37,6 +37,7 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::FastenerError;
 
@@ -170,8 +171,8 @@ pub(crate) fn entry_ring_profile(
     if probe.tilt_tan > MAX_ENTRY_TILT_TAN {
         return Err(FastenerError::EntryTooSteep {
             stage: stage.to_string(),
-            tilt_deg: probe.tilt_tan.atan().to_degrees(),
-            limit_deg: MAX_ENTRY_TILT_TAN.atan().to_degrees(),
+            tilt_deg: probe.tilt_tan.patan().to_degrees(),
+            limit_deg: MAX_ENTRY_TILT_TAN.patan().to_degrees(),
         });
     }
     let plunge = r_rim * probe.tilt_tan;

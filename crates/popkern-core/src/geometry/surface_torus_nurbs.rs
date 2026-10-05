@@ -24,6 +24,7 @@
 
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// One axis's rational-arc pattern: control-point plane coordinates
 /// `(cos·scale, sin·scale)`, weights, and the clamped quadratic knot
@@ -44,19 +45,19 @@ fn axis_arc_pattern(range: (f64, f64)) -> AxisArcPattern {
         .ceil()
         .max(1.0) as usize;
     let step = span / arcs as f64;
-    let w_mid = (step * 0.5).cos();
+    let w_mid = (step * 0.5).pcos();
     let mid_scale = 1.0 / w_mid;
     let mut plane = Vec::with_capacity(2 * arcs + 1);
     let mut weights = Vec::with_capacity(2 * arcs + 1);
     for m in 0..arcs {
         let start = a + step * m as f64;
-        plane.push((start.cos(), start.sin()));
+        plane.push((start.pcos(), start.psin()));
         weights.push(1.0);
         let mid = start + step * 0.5;
-        plane.push((mid.cos() * mid_scale, mid.sin() * mid_scale));
+        plane.push((mid.pcos() * mid_scale, mid.psin() * mid_scale));
         weights.push(w_mid);
     }
-    plane.push((b.cos(), b.sin()));
+    plane.push((b.pcos(), b.psin()));
     weights.push(1.0);
 
     let mut knots = Vec::with_capacity(2 * arcs + 4);

@@ -8,6 +8,7 @@
 //! Degenerate cases (plane through apex, parabola, hyperbola) return `None`
 //! from the top-level `try_plane_cone` so that the marching fallback is used.
 
+use popkern_math::PortableMath;
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
@@ -160,7 +161,7 @@ fn case_perpendicular(
         return vec![];
     }
 
-    let radius = v * half_angle.tan();
+    let radius = v * half_angle.ptan();
     let center = apex + ca * v;
     let (p1, p2) = orthonormal_basis(ca);
 

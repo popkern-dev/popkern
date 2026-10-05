@@ -10,6 +10,7 @@ use super::splines::merge_or_push;
 use crate::Sketch;
 use crate::constraint::ConstraintHandle;
 use crate::elements::{EllipseHandle, HyperbolaHandle, ParabolaHandle, SplineHandle};
+use popkern_math::PortableMath;
 
 // ── 1. SplineTangentToEllipse ────────────────────────────────────────────
 
@@ -36,10 +37,10 @@ pub(crate) fn eval_spline_tangent_to_ellipse(
     let t_s = sketch.params[aux_start];
     let t_e = sketch.params[aux_start + 1];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
-    let cos_te = t_e.cos();
-    let sin_te = t_e.sin();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
+    let cos_te = t_e.pcos();
+    let sin_te = t_e.psin();
 
     // Spline point and tangent
     let spos = eval_point(sp, t_s, sketch);
@@ -173,8 +174,8 @@ pub(crate) fn eval_spline_tangent_to_parabola(
     let t_s = sketch.params[aux_start];
     let t_p = sketch.params[aux_start + 1];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
 
     // Parabola point and tangent at t_p
     let u = t_p * t_p / (4.0 * f);
@@ -299,10 +300,10 @@ pub(crate) fn eval_spline_tangent_to_hyperbola(
     let t_s = sketch.params[aux_start];
     let t_h = sketch.params[aux_start + 1];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
-    let cosh_t = t_h.cosh();
-    let sinh_t = t_h.sinh();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
+    let cosh_t = t_h.pcosh();
+    let sinh_t = t_h.psinh();
 
     // Hyperbola point and tangent at t_h
     let hx = cx + a * cosh_t * cos_th - b * sinh_t * sin_th;

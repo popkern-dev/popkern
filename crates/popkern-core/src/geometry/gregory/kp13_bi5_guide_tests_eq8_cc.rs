@@ -1,6 +1,7 @@
 #![cfg(test)]
 use super::tests_support::*;
 use super::*;
+use popkern_math::PortableMath;
 
 // ---- CC-χ eq (8) variant ----
 
@@ -133,7 +134,7 @@ fn outer_hessian_finite_diff_first_partials() {
     for p in 0..6 {
         for q in 0..6 {
             sector.cps[p][q] = Point3::new(
-                (p as f64).sin() + (q as f64).cos(),
+                (p as f64).psin() + (q as f64).pcos(),
                 (p + q) as f64 * 0.1,
                 0.0,
             );

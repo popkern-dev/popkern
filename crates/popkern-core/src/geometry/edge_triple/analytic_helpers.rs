@@ -9,6 +9,7 @@ use crate::geometry::edge_triple::options::{BranchPolicy, EdgeTripleOptions};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 // ─── Branch disambiguation (ADR §4) ───────────────────────────────
 
@@ -194,7 +195,7 @@ pub(super) fn project_to_uv_clamped(surf: &SurfaceGeometry, p: Point3) -> (f64, 
             let radial = d - (*axis) * v;
             let u_basis = pick_u_basis(axis);
             let v_basis = axis.cross(&u_basis);
-            let u = radial.dot(&v_basis).atan2(radial.dot(&u_basis));
+            let u = radial.dot(&v_basis).patan2(radial.dot(&u_basis));
             let two_pi = std::f64::consts::TAU;
             let u = ((u % two_pi) + two_pi) % two_pi;
             let _ = radius;
@@ -202,8 +203,8 @@ pub(super) fn project_to_uv_clamped(surf: &SurfaceGeometry, p: Point3) -> (f64, 
         }
         Sphere { center, radius } => {
             let d = p - *center;
-            let v = (d.z / *radius).clamp(-1.0, 1.0).asin();
-            let u = d.y.atan2(d.x);
+            let v = (d.z / *radius).clamp(-1.0, 1.0).pasin();
+            let u = d.y.patan2(d.x);
             let two_pi = std::f64::consts::TAU;
             let u = ((u % two_pi) + two_pi) % two_pi;
             (u, v)
@@ -218,7 +219,7 @@ pub(super) fn project_to_uv_clamped(surf: &SurfaceGeometry, p: Point3) -> (f64, 
             let u_basis = pick_u_basis(axis);
             let v_basis = axis.cross(&u_basis);
             let radial = d - (*axis) * v;
-            let u = radial.dot(&v_basis).atan2(radial.dot(&u_basis));
+            let u = radial.dot(&v_basis).patan2(radial.dot(&u_basis));
             let two_pi = std::f64::consts::TAU;
             let u = ((u % two_pi) + two_pi) % two_pi;
             let _ = half_angle;

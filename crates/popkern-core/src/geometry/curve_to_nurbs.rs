@@ -8,6 +8,7 @@
 
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 #[path = "curve_to_nurbs_conic_arc.rs"]
 mod conic_arc;
@@ -44,7 +45,7 @@ fn param_at_angle(
     let raw_angle = |t: f64| -> f64 {
         let p = curve.point_at(t);
         let d = p - center;
-        d.dot(&v).atan2(d.dot(&u))
+        d.dot(&v).patan2(d.dot(&u))
     };
     let a_start = raw_angle(t_lo);
     // Angle relative to the curve start, unwrapped into [0, TAU).
@@ -264,7 +265,7 @@ pub(super) fn hyperbola_to_nurbs(
     for i in 0..n_samples {
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let t = t_start + frac * (t_end - t_start);
-        let p = center + semi_major * t.cosh() + semi_minor * t.sinh();
+        let p = center + semi_major * t.pcosh() + semi_minor * t.psinh();
         points.push(p);
         params.push(frac);
     }
@@ -396,7 +397,7 @@ pub(super) fn arc_to_nurbs(
     if quarter_grid_collides(a0, a0, a1) {
         return uniform_segmented_conic_arc(center, u * radius, v * radius, a0, a1);
     }
-    let (cs, sn) = (a0.cos(), a0.sin());
+    let (cs, sn) = (a0.pcos(), a0.psin());
     let u0 = u * cs + v * sn;
     let v0 = v * cs - u * sn;
     let w = 1.0_f64 / 2.0_f64.sqrt();

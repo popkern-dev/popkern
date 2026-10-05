@@ -6,6 +6,9 @@
 //! formulas can be verified independently before the full cap
 //! assembler exists.
 
+use crate::geometry::Point3;
+use popkern_math::PortableMath;
+
 /// KP20 equation (23) reparameterisation coefficients.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Kp20TauParams {
@@ -58,7 +61,7 @@ impl Kp20TauParams {
     pub fn for_valence(n: usize) -> Result<Self, String> {
         let kappa = kappa_for_valence(n)
             .ok_or_else(|| format!("KP20 tau table is defined for n = 3, 5..=10; got {n}"))?;
-        let c = (core::f64::consts::TAU / n as f64).cos();
+        let c = (core::f64::consts::TAU / n as f64).pcos();
         let mu0 = 1.0 + kappa / 1.0e5;
         let mu1 = 1.0 / 3.0;
         let mu2 = 2.0 / 3.0 - 61.0 * c / 135.0 + 4.0 * c * mu0 / 9.0;
@@ -83,7 +86,7 @@ impl Kp20CharacteristicScalars {
                 "KP20 characteristic-ring scalars require n >= 3; got {n}"
             ));
         }
-        let c = (core::f64::consts::TAU / n as f64).cos();
+        let c = (core::f64::consts::TAU / n as f64).pcos();
         let lambda = (c + 5.0 + ((c + 1.0) * (c + 9.0)).sqrt()) / 16.0;
         let a = (1.0 + c) / 4.0;
         let b = (1.0 + c) / 8.0;
@@ -302,3 +305,35 @@ pub fn hermite_to_bi6_corner_block(h: [[f64; 4]; 4]) -> [[f64; 4]; 4] {
 #[cfg(test)]
 #[path = "kp20_bi6_math_tests.rs"]
 mod tests;
+
+/// The unit spokes `[e_k, e_(k+1)]` bounding sector `k` of the regular
+/// planar `valence`-star the KP20 τ construction works in.
+pub(crate) fn planar_sector_spokes(valence: usize, sector: usize) -> [[f64; 2]; 2] {
+    let alpha = core::f64::consts::TAU / valence as f64;
+    let spoke = |k: usize| {
+        let angle = k as f64 * alpha;
+        [angle.pcos(), angle.psin()]
+    };
+    [spoke(sector), spoke(sector + 1)]
+}
+
+/// Sector-local coordinates (`local[0]` along `e_(k+1)`, `local[1]`
+/// along `e_k`) to the plane.
+pub(crate) fn local_to_global_planar(valence: usize, sector: usize, local: [f64; 2]) -> Point3 {
+    let [spoke0, spoke1] = planar_sector_spokes(valence, sector);
+    Point3::new(
+        local[0] * spoke1[0] + local[1] * spoke0[0],
+        local[0] * spoke1[1] + local[1] * spoke0[1],
+        0.0,
+    )
+}
+
+/// Inverse of [`local_to_global_planar`].
+pub(crate) fn global_to_local_planar(valence: usize, sector: usize, point: Point3) -> [f64; 2] {
+    let [spoke0, spoke1] = planar_sector_spokes(valence, sector);
+    let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
+    [
+        (point.x * spoke0[1] - point.y * spoke0[0]) / det,
+        (spoke1[0] * point.y - spoke1[1] * point.x) / det,
+    ]
+}

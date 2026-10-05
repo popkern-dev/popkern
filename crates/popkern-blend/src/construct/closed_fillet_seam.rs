@@ -5,6 +5,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 /// Seam-consistent anchor on a contact circle (PK-285): the point on
 /// the exact contact circle radially nearest `v_old_pos` — NOT the
@@ -217,7 +218,7 @@ pub(super) fn exact_torus_seam_arc(
         let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(n);
         let ang = |p: Point3| -> f64 {
             let q = p - c;
-            q.dot(&e2).atan2(q.dot(&e1))
+            q.dot(&e2).patan2(q.dot(&e1))
         };
         let a0 = ang(p_out);
         let mut sweep = ang(p_in) - a0;

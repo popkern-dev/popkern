@@ -6,6 +6,7 @@ license.workspace = true
 description = "2D geometric constraint solver for parametric sketch modeling"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 faer = "0.20"
 slotmap.workspace = true
 serde.workspace = true

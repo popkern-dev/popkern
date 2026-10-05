@@ -12,6 +12,7 @@
 //! See ADR `docs/decisions/2026-04-25-edge-triple-factory.md` for
 //! the design rationale (B1: analytic pcurve types, commercial-style).
 
+use popkern_math::PortableMath;
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::nurbs_curve::NurbsCurve;
@@ -237,10 +238,10 @@ impl Pcurve {
             } => {
                 let s = self.normalised_t(t);
                 let alpha = start_angle + s * (end_angle - start_angle);
-                let local_u = u_radius * alpha.cos();
-                let local_v = v_radius * alpha.sin();
-                let cr = rotation.cos();
-                let sr = rotation.sin();
+                let local_u = u_radius * alpha.pcos();
+                let local_v = v_radius * alpha.psin();
+                let cr = rotation.pcos();
+                let sr = rotation.psin();
                 let u = center.0 + local_u * cr - local_v * sr;
                 let v = center.1 + local_u * sr + local_v * cr;
                 Point3::new(u, v, 0.0)
@@ -252,7 +253,7 @@ impl Pcurve {
                 v_sin,
             } => {
                 let u = u_offset + t;
-                let v = v_const + v_cos * t.cos() + v_sin * t.sin();
+                let v = v_const + v_cos * t.pcos() + v_sin * t.psin();
                 Point3::new(u, v, 0.0)
             }
             PcurveGeometry::Nurbs(n) => {
@@ -267,12 +268,12 @@ impl Pcurve {
                 let s = self.normalised_t(t);
                 let alpha = 0.5 * (theta_b - theta_a);
                 let theta_m = 0.5 * (theta_a + theta_b);
-                let s_alpha = alpha.sin();
-                let c_alpha = alpha.cos();
+                let s_alpha = alpha.psin();
+                let c_alpha = alpha.pcos();
                 let denom_factor = 2.0 * s * (1.0 - s);
                 let sin_off = s_alpha * (2.0 * s - 1.0);
                 let cos_off = c_alpha * (1.0 - denom_factor) + denom_factor;
-                let u = theta_m + sin_off.atan2(cos_off);
+                let u = theta_m + sin_off.patan2(cos_off);
                 Point3::new(u, *v_const, 0.0)
             }
         }
@@ -304,10 +305,10 @@ impl Pcurve {
                 } else {
                     0.0
                 };
-                let dlocal_u = -u_radius * alpha.sin() * dalpha_dt;
-                let dlocal_v = v_radius * alpha.cos() * dalpha_dt;
-                let cr = rotation.cos();
-                let sr = rotation.sin();
+                let dlocal_u = -u_radius * alpha.psin() * dalpha_dt;
+                let dlocal_v = v_radius * alpha.pcos() * dalpha_dt;
+                let cr = rotation.pcos();
+                let sr = rotation.psin();
                 Vec3::new(
                     dlocal_u * cr - dlocal_v * sr,
                     dlocal_u * sr + dlocal_v * cr,
@@ -316,7 +317,7 @@ impl Pcurve {
             }
             PcurveGeometry::Sinusoidal { v_cos, v_sin, .. } => {
                 let du_dt = 1.0;
-                let dv_dt = -v_cos * t.sin() + v_sin * t.cos();
+                let dv_dt = -v_cos * t.psin() + v_sin * t.pcos();
                 Vec3::new(du_dt, dv_dt, 0.0)
             }
             PcurveGeometry::Nurbs(n) => {
@@ -338,8 +339,8 @@ impl Pcurve {
                 let ds_dt = if span.abs() > 0.0 { 1.0 / span } else { 0.0 };
                 let s = self.normalised_t(t);
                 let alpha = 0.5 * (theta_b - theta_a);
-                let s_alpha = alpha.sin();
-                let c_alpha = alpha.cos();
+                let s_alpha = alpha.psin();
+                let c_alpha = alpha.pcos();
                 let n_t = s_alpha * (2.0 * s - 1.0);
                 let denom_factor = 2.0 * s * (1.0 - s);
                 let d_t = c_alpha * (1.0 - denom_factor) + denom_factor;

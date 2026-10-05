@@ -26,6 +26,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_plane_torus_perpendicular(
@@ -56,7 +57,7 @@ pub(super) fn try_plane_torus_perpendicular(
     // Two branches: v₁ = arcsin(h/r), v₂ = π − v₁. Same axial height,
     // different tube radius (R ± |r·cos v|).
     let sin_v = (h / minor_radius).clamp(-1.0, 1.0);
-    let v_branch_inner = sin_v.asin(); // |cos v| · r  pointing toward the axis side
+    let v_branch_inner = sin_v.pasin(); // |cos v| · r  pointing toward the axis side
     let v_branch_outer = std::f64::consts::PI - v_branch_inner;
 
     // Pick the branch whose tube radius matches the start anchor.
@@ -74,8 +75,8 @@ pub(super) fn try_plane_torus_perpendicular(
         proj.length()
     };
     let r_at_start = radial_at(start);
-    let r_outer = major_radius + minor_radius * v_branch_outer.cos();
-    let r_inner = major_radius + minor_radius * v_branch_inner.cos();
+    let r_outer = major_radius + minor_radius * v_branch_outer.pcos();
+    let r_inner = major_radius + minor_radius * v_branch_inner.pcos();
     // Choose the closer branch.
     let (v_branch, circle_radius) = if (r_at_start - r_outer).abs() <= (r_at_start - r_inner).abs()
     {
@@ -92,7 +93,7 @@ pub(super) fn try_plane_torus_perpendicular(
     // torus pcurve's u-coords so `surf_torus(pcurve_u(t), v_branch) ≡
     // arc(t)`.
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(torus_axis);
-    let torus_u_offset = arc_basis_u.dot(&perp2).atan2(arc_basis_u.dot(&perp1));
+    let torus_u_offset = arc_basis_u.dot(&perp2).patan2(arc_basis_u.dot(&perp1));
 
     let theta_of = |p: Point3, side: SurfaceSide| -> Result<f64, EdgeTripleError> {
         let dp = p - circle_center;
@@ -105,7 +106,7 @@ pub(super) fn try_plane_torus_perpendicular(
                 distance: r - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,

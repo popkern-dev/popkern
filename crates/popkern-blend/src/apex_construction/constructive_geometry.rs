@@ -6,6 +6,7 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -176,8 +177,8 @@ pub(super) fn cylinder_arc_through_edge_endpoints(
     if (radial0 - *radius).abs() > radius * 0.05 || (radial1 - *radius).abs() > radius * 0.05 {
         return None;
     }
-    let theta_start = start_rel.dot(&perp2).atan2(start_rel.dot(&perp1));
-    let mut theta_end = end_rel.dot(&perp2).atan2(end_rel.dot(&perp1));
+    let theta_start = start_rel.dot(&perp2).patan2(start_rel.dot(&perp1));
+    let mut theta_end = end_rel.dot(&perp2).patan2(end_rel.dot(&perp1));
     while theta_end - theta_start > std::f64::consts::PI {
         theta_end -= std::f64::consts::TAU;
     }

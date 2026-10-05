@@ -5,6 +5,7 @@
 
 use super::FastenerError;
 use super::standards;
+use popkern_math::PortableMath;
 
 /// Thread winding direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,7 +189,7 @@ impl ThreadSpec {
     /// Fundamental triangle height `H = P / (2·tan(flank/2))`
     /// (`≈ 0.866·P` at 60°).
     pub fn fundamental_height(&self) -> f64 {
-        self.pitch / (2.0 * (self.flank_angle / 2.0).tan())
+        self.pitch / (2.0 * (self.flank_angle / 2.0).ptan())
     }
 
     /// Basic thread depth `5H/8`: radial distance between the major

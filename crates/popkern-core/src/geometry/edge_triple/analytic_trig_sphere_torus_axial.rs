@@ -43,6 +43,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_sphere_torus_axial(
@@ -75,8 +76,8 @@ pub(super) fn try_sphere_torus_axial(
     if !(-1.0..=1.0).contains(&rhs) {
         return None; // no real intersection (sphere too big or too small)
     }
-    let psi = h.atan2(big_r); // tan ψ = h / R
-    let arc_acos = rhs.acos();
+    let psi = h.patan2(big_r); // tan ψ = h / R
+    let arc_acos = rhs.pacos();
     let v_plus = -psi + arc_acos;
     let v_minus = -psi - arc_acos;
 
@@ -89,7 +90,7 @@ pub(super) fn try_sphere_torus_axial(
         let tube_r = perp_vec.length();
         let sin_v = (v_axis / r).clamp(-1.0, 1.0);
         let cos_v = ((tube_r - big_r) / r).clamp(-1.0, 1.0);
-        sin_v.atan2(cos_v)
+        sin_v.patan2(cos_v)
     };
     let dist_v = |a: f64, b: f64| -> f64 {
         let d = (a - b).abs();
@@ -105,11 +106,11 @@ pub(super) fn try_sphere_torus_axial(
     } else {
         v_minus
     };
-    let circle_radius = big_r + r * v_branch.cos();
+    let circle_radius = big_r + r * v_branch.pcos();
     if circle_radius <= tol.linear() {
         return None; // degenerate (zero-radius circle)
     }
-    let axial_height = r * v_branch.sin();
+    let axial_height = r * v_branch.psin();
     let circle_center = torus_center + torus_axis * axial_height;
 
     // Curve is a circle in the plane perpendicular to torus axis
@@ -126,7 +127,7 @@ pub(super) fn try_sphere_torus_axial(
                 distance: r_real - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -152,7 +153,7 @@ pub(super) fn try_sphere_torus_axial(
 
     // Torus pcurve: Linear (constant v_branch, linear u with frame
     // phase offset). Same machinery as `try_plane_torus_perpendicular`.
-    let torus_u_offset = arc_basis_u.dot(&perp2).atan2(arc_basis_u.dot(&perp1));
+    let torus_u_offset = arc_basis_u.dot(&perp2).patan2(arc_basis_u.dot(&perp1));
     let v_branch_canon = if v_branch < 0.0 {
         v_branch + std::f64::consts::TAU
     } else {
@@ -173,10 +174,12 @@ pub(super) fn try_sphere_torus_axial(
     let pcurve_sphere = if torus_axis.dot(&polar).abs() >= 1.0 - tol.angular() {
         // Linear case. dp.z constant = circle_center.z − sphere_center.z.
         let z_offset = (circle_center.z - sphere_center.z) / sphere_radius;
-        let colat = z_offset.clamp(-1.0, 1.0).acos();
+        let colat = z_offset.clamp(-1.0, 1.0).pacos();
         let global_x = Vec3::new(1.0, 0.0, 0.0);
         let global_y = Vec3::new(0.0, 1.0, 0.0);
-        let sphere_u_offset = arc_basis_u.dot(&global_y).atan2(arc_basis_u.dot(&global_x));
+        let sphere_u_offset = arc_basis_u
+            .dot(&global_y)
+            .patan2(arc_basis_u.dot(&global_x));
         Pcurve::linear(
             (theta_start + sphere_u_offset, colat),
             (theta_end + sphere_u_offset, colat),
@@ -193,11 +196,11 @@ pub(super) fn try_sphere_torus_axial(
             let frac = i as f64 / (n_samples as f64 - 1.0);
             let theta = theta_start + frac * span;
             let p3 = circle_center
-                + arc_basis_u * (circle_radius * theta.cos())
-                + arc_basis_v * (circle_radius * theta.sin());
+                + arc_basis_u * (circle_radius * theta.pcos())
+                + arc_basis_v * (circle_radius * theta.psin());
             let dp = p3 - sphere_center;
-            let lon = dp.y.atan2(dp.x);
-            let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).acos();
+            let lon = dp.y.patan2(dp.x);
+            let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).pacos();
             pts.push(Point3::new(lon, colat, 0.0));
             params.push(frac);
         }

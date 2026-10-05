@@ -7,6 +7,7 @@
 use crate::geometry::Transform3;
 use crate::geometry::curve::CurveGeometry;
 use crate::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 
 #[path = "brep_transform_gregory.rs"]
 mod brep_transform_gregory;
@@ -166,7 +167,7 @@ pub(crate) fn transform_curve_on_edge(
     let tu0 = t.apply_direction(&u0);
     let tv0 = t.apply_direction(&v0);
     let (c, s) = (tu0.dot(&u1), tu0.dot(&v1));
-    let delta = s.atan2(c);
+    let delta = s.patan2(c);
     // Proper rotations map v0 to (−sinδ·u1 + cosδ·v1); reflections
     // land on the opposite handedness and the sweep direction flips.
     let flipped = tv0.dot(&v1) * c - tv0.dot(&u1) * s < 0.0;
@@ -348,7 +349,7 @@ impl crate::topology::BRep {
             let (e1_old, _) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_old);
             let (f1, f2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_new);
             let e1_img = t.apply_direction(&e1_old);
-            let delta = e1_img.dot(&f2).atan2(e1_img.dot(&f1));
+            let delta = e1_img.dot(&f2).patan2(e1_img.dot(&f1));
             if delta.abs() > 1.0e-14 {
                 face_u_shift.push((fh, delta));
             }

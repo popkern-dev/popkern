@@ -46,6 +46,7 @@
 //! corner). **Tolerance:** the caller's blend tolerance; arc
 //! postconditions gate at `linear × 10` (the PK-148 gate).
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use popkern_core::geometry::curve::CurveEval;
@@ -262,7 +263,7 @@ fn carve_disc(
     let u_basis = q1 - center;
     let mut v_basis = axis_hat.cross(&u_basis);
     let d = q2 - center;
-    let mut sweep = d.dot(&v_basis).atan2(d.dot(&u_basis));
+    let mut sweep = d.dot(&v_basis).patan2(d.dot(&u_basis));
     if sweep < 0.0 {
         v_basis = -v_basis;
         sweep = -sweep;

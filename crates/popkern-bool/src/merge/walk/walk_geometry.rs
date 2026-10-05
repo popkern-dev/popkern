@@ -7,6 +7,7 @@
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{CurveEval, Vec3};
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::merge::graph::{FaceRef, IntersectionGraph, Operand};
 
@@ -189,7 +190,7 @@ pub(super) fn pick_by_angle_ext(
             Some(out_unit) => {
                 let cos_val = out_unit.dot(&ref_dir);
                 let sin_val = ref_dir.cross(&out_unit).dot(&normal);
-                let a = sin_val.atan2(cos_val);
+                let a = sin_val.patan2(cos_val);
                 // A candidate nearly COLLINEAR with the arrival edge
                 // (angle at the 0/2π boundary, cos ≈ +1 against the
                 // backward reference) is a double-back along a

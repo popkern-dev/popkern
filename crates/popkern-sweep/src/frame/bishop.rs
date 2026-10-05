@@ -5,6 +5,7 @@ use crate::error::SweepError;
 use crate::frame::{FrameSequence, PathFrame};
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Vec3};
+use popkern_math::PortableMath;
 
 /// Compute Bishop rotation-minimizing frames along a curve.
 ///
@@ -193,8 +194,8 @@ fn rotate_around_axis(normal: Vec3, binormal: Vec3, tangent: Vec3, angle: f64) -
     if angle.abs() < 1e-15 {
         return (normal, binormal);
     }
-    let cos_a = angle.cos();
-    let sin_a = angle.sin();
+    let cos_a = angle.pcos();
+    let sin_a = angle.psin();
     let n = normal * cos_a + binormal * sin_a;
     let b = binormal * cos_a - normal * sin_a;
     let n = n.normalized().unwrap_or(normal);
@@ -223,7 +224,7 @@ fn compute_holonomy_correction(normals: &[Vec3], tangents: &[Vec3]) -> f64 {
     // Signed angle from n_end_proj to n_start in the tangent plane.
     let cos_h = n_start.dot(&n_end_proj).clamp(-1.0, 1.0);
     let sin_h = n_start.cross(&n_end_proj).dot(&t_start);
-    let holonomy = sin_h.atan2(cos_h);
+    let holonomy = sin_h.patan2(cos_h);
 
     // We want to distribute -holonomy so that the final frame matches the start.
     -holonomy

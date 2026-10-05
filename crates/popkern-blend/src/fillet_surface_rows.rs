@@ -4,6 +4,7 @@
 //! (500-line cap).
 
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// One EXACT rational-quadratic arc row from `start` to `end` about
 /// `center`: control points [start, tangent-intersection, end] with
@@ -25,12 +26,12 @@ pub(crate) fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) ->
     let u1 = v1 * (1.0 / r1);
     let u2 = v2 * (1.0 / r2);
     let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
+    let theta = cos_theta.pacos();
     if !(1e-9..=2.0).contains(&theta) {
         return None;
     }
     let half = 0.5 * theta;
-    let w_mid = half.cos();
+    let w_mid = half.pcos();
     let mid_dir = (u1 + u2).normalized()?;
     let r = 0.5 * (r1 + r2);
     let mid = *center + mid_dir * (r / w_mid);
@@ -82,7 +83,7 @@ pub(crate) fn sample_arc(
 
     // Compute sweep angle.
     let cos_theta = (v1.dot(&v2) / (r1 * r2)).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
+    let theta = cos_theta.pacos();
 
     // Use average radius for the arc.
     let r = (r1 + r2) * 0.5;
@@ -91,8 +92,8 @@ pub(crate) fn sample_arc(
     for i in 0..n {
         let t = i as f64 / (n - 1).max(1) as f64;
         let angle = theta * t;
-        let x = r * angle.cos();
-        let y = r * angle.sin();
+        let x = r * angle.pcos();
+        let y = r * angle.psin();
         pts.push(Point3::new(
             center.x + u.x * x + v.x * y,
             center.y + u.y * x + v.y * y,

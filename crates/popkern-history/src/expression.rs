@@ -5,6 +5,7 @@
 //! against a [`ParameterTable`] and support cycle detection, dimensional type
 //! checking, and topological ordering.
 
+use popkern_math::PortableMath;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
@@ -151,12 +152,12 @@ pub fn evaluate(
         Expression::Func(func, arg) => {
             let a = evaluate(arg, table, ctx)?;
             let result = match func {
-                UnaryFunc::Sin => a.sin(),
-                UnaryFunc::Cos => a.cos(),
-                UnaryFunc::Tan => a.tan(),
-                UnaryFunc::Asin => a.asin(),
-                UnaryFunc::Acos => a.acos(),
-                UnaryFunc::Atan => a.atan(),
+                UnaryFunc::Sin => a.psin(),
+                UnaryFunc::Cos => a.pcos(),
+                UnaryFunc::Tan => a.ptan(),
+                UnaryFunc::Asin => a.pasin(),
+                UnaryFunc::Acos => a.pacos(),
+                UnaryFunc::Atan => a.patan(),
                 UnaryFunc::Sqrt => {
                     if a < 0.0 {
                         return Err("sqrt of negative number".into());
@@ -179,7 +180,7 @@ pub fn evaluate(
                     if a <= 0.0 {
                         return Err("ln of non-positive number".into());
                     }
-                    a.ln()
+                    a.pln()
                 }
             };
             check_finite(result)

@@ -15,6 +15,7 @@ use crate::pattern_geo_helpers::{
     sync_phantom_positions,
 };
 use crate::sketch_pattern::add_pin_constraints;
+use popkern_math::PortableMath;
 
 impl Sketch {
     /// Create a circular pattern replicating `seed` elements `count` times
@@ -48,8 +49,8 @@ impl Sketch {
 
         for k in 1..count {
             let angle_k = k as f64 * angle / (count - 1) as f64;
-            let cos_a = angle_k.cos();
-            let sin_a = angle_k.sin();
+            let cos_a = angle_k.pcos();
+            let sin_a = angle_k.psin();
 
             let (cloned_elems, remap, phantom_points) = clone_elements(self, seed, 0.0, 0.0);
 

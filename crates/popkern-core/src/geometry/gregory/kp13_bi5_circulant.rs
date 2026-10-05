@@ -76,6 +76,7 @@
 
 use super::kp13_bi5_gtri5::Gtri5;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 use super::kp13_bi5_connect::paper_flat;
@@ -110,7 +111,7 @@ impl std::error::Error for CirculantError {}
 /// star-quadratic for the near-star four, and via `g^i_{30}` /
 /// `g^{i+1}_{30}` for the edge-layer two).
 pub fn compute_r_i(sector: &super::kp13_bi5_gtri5::Gtri5Sector, n: usize) -> Point3 {
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     let c_bar = 1.0 - c;
     let g_30 = sector.cps[paper_flat(3, 0)];
     let g_03 = sector.cps[paper_flat(0, 3)];
@@ -178,7 +179,7 @@ pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
         return Err(CirculantError::UnsupportedValence(n));
     }
 
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     let alpha = 2.0 * PI / n as f64;
     // Threshold below which we treat `2c + cos(jα)` as a zero
     // (null-mode) eigenvalue. At n = 6 the zero is exact; other
@@ -201,11 +202,11 @@ pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
             let mut z = 0.0;
             for (l, r_l) in r.iter().enumerate() {
                 for j in 0..n {
-                    let denom = 2.0 * c + (j as f64 * alpha).cos();
+                    let denom = 2.0 * c + (j as f64 * alpha).pcos();
                     if denom.abs() < zero_tol {
                         continue;
                     }
-                    let coef = ((i as f64 - l as f64) * j as f64 * alpha).cos() / denom;
+                    let coef = ((i as f64 - l as f64) * j as f64 * alpha).pcos() / denom;
                     x += r_l.x * coef;
                     y += r_l.y * coef;
                     z += r_l.z * coef;
@@ -238,7 +239,7 @@ pub fn solve_g21_circulant(gtri5: &mut Gtri5) -> Result<(), CirculantError> {
 /// with the n = 6 circulant" rather than a solver bug.
 pub fn circulant_residual(gtri5: &Gtri5, i: usize) -> Point3 {
     let n = gtri5.n;
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     let idx_21 = paper_flat(2, 1);
     let prev = (i + n - 1) % n;
     let next = (i + 1) % n;
@@ -263,7 +264,7 @@ pub fn circulant_residual(gtri5: &Gtri5, i: usize) -> Point3 {
 /// Assumes `g^i_{02}`, `g^i_{03}`, `g^{i+1}_{21}` already populated.
 pub fn fill_g12_from_g21(gtri5: &mut Gtri5) {
     let n = gtri5.n;
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     let c_bar = 1.0 - c;
     let nu0 = 2.0 * c_bar;
     let nu1 = 2.0 * c;

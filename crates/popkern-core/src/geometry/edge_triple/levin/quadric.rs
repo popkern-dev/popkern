@@ -21,6 +21,7 @@
 
 use crate::geometry::Vec3;
 use crate::geometry::surface::SurfaceGeometry;
+use popkern_math::PortableMath;
 
 /// 4×4 symmetric matrix in row-major layout.
 ///
@@ -143,7 +144,7 @@ fn cone_quadric(apex: crate::geometry::Point3, axis: Vec3, half_angle: f64) -> M
     // Q3 = cos²θ · I − a·aᵀ
     // (p − V·w)ᵀ·Q3·(p − V·w) = 0
     // = pᵀ Q3 p − 2w·VᵀQ3p + w²·VᵀQ3V
-    let cos2 = half_angle.cos().powi(2);
+    let cos2 = half_angle.pcos().powi(2);
     let mut q3 = [[0.0; 3]; 3];
     let a_arr = [axis.x, axis.y, axis.z];
     for i in 0..3 {

@@ -43,6 +43,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_plane_torus_villarceau(
@@ -128,7 +129,7 @@ pub(super) fn try_plane_torus_villarceau(
                 distance: r - major_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -186,13 +187,13 @@ pub(super) fn try_plane_torus_villarceau(
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let theta = theta_start + frac * span;
         let p3 = circle_center
-            + arc_basis_u * (major_radius * theta.cos())
-            + arc_basis_v * (major_radius * theta.sin());
+            + arc_basis_u * (major_radius * theta.pcos())
+            + arc_basis_v * (major_radius * theta.psin());
         let dp = p3 - torus_center;
         let v_axis = dp.dot(&torus_axis);
         let perp_vec = dp - torus_axis * v_axis;
         // u_torus = atan2 of perp coords.
-        let u_t = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u_t = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         // v_torus from sin v = v_axis / r.
         let sin_v = (v_axis / minor_radius).clamp(-1.0, 1.0);
         // cos v has sign determined by tube radius vs. major: if
@@ -203,7 +204,7 @@ pub(super) fn try_plane_torus_villarceau(
         } else {
             -((major_radius - tube_radius) / minor_radius).clamp(-1.0, 1.0)
         };
-        let v_t = sin_v.atan2(cos_v);
+        let v_t = sin_v.patan2(cos_v);
         let v_t = if v_t < 0.0 {
             v_t + std::f64::consts::TAU
         } else {

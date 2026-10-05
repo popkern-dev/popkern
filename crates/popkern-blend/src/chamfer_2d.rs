@@ -39,6 +39,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::corner_2d_helpers::{
     edge_arc_length, point_at_arc_length_from_corner, rebuild_edge_curve_clipped,
@@ -207,7 +208,7 @@ fn chamfer_plan(
     // is the straight-line direction; for Arc edges it's the
     // tangent at the corner endpoint.
     let cos_angle = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos();
+    let angle = cos_angle.pacos();
     if angle < 1.0e-4 {
         return Err("edges are nearly colinear (no meaningful corner)".into());
     }

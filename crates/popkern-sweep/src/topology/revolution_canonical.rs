@@ -15,6 +15,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::surface::canonical::recognize_circle;
@@ -76,7 +77,7 @@ fn axial_radial(p: &Point3, origin: &Point3, axis: &Vec3) -> (f64, f64) {
 fn azimuth(p: &Point3, origin: &Point3, axis: &Vec3, basis: (Vec3, Vec3)) -> f64 {
     let d = *p - *origin;
     let radial = d - *axis * d.dot(axis);
-    radial.dot(&basis.1).atan2(radial.dot(&basis.0))
+    radial.dot(&basis.1).patan2(radial.dot(&basis.0))
 }
 
 /// Shortest signed angular step from `a` to `b`.
@@ -200,7 +201,7 @@ pub(crate) fn recognize_revolved_span(
         let z_apex = z_a - r_a * dz / dr;
         let apex = *axis_origin + axis * z_apex;
         let cone_axis = if dz * dr > 0.0 { axis } else { -axis };
-        let half_angle = (dr / dz).abs().atan();
+        let half_angle = (dr / dz).abs().patan();
         let geometry = SurfaceGeometry::Cone {
             apex,
             axis: cone_axis,
@@ -239,7 +240,7 @@ pub(crate) fn recognize_revolved_span(
             }
             let polar = |p: &Point3| {
                 let d = *p - center;
-                (d.z / radius).clamp(-1.0, 1.0).acos()
+                (d.z / radius).clamp(-1.0, 1.0).pacos()
             };
             let world_z = Vec3::new(0.0, 0.0, 1.0);
             let basis = (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
@@ -274,7 +275,7 @@ pub(crate) fn recognize_revolved_span(
             let sense = azimuth_sense(nurbs, axis_origin, &axis, basis);
             let minor = |p: &Point3| {
                 let (z, r) = axial_radial(p, axis_origin, &axis);
-                (z - z_c).atan2(r - r_c)
+                (z - z_c).patan2(r - r_c)
             };
             // Follow the span's direction through its interior so v_b
             // sits on the correct side of the ±π cut. A FULL circle

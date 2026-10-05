@@ -6,6 +6,7 @@ use crate::geometry::analytic_curves::circle_basis;
 use crate::geometry::intersection::CurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Compute the angle parameter for `point` on a circle defined by
 /// `center`, basis vectors `(u, v)`, and `radius`.
@@ -13,7 +14,7 @@ fn angle_on_circle(point: &Point3, center: &Point3, u: &Vec3, v: &Vec3) -> f64 {
     let d = *point - *center;
     let x = d.dot(u);
     let y = d.dot(v);
-    let angle = y.atan2(x);
+    let angle = y.patan2(x);
     if angle < 0.0 {
         angle + std::f64::consts::TAU
     } else {

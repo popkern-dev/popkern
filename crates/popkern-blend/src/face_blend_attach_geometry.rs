@@ -7,6 +7,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
+use popkern_math::PortableMath;
 
 use crate::contact::ContactSolution;
 use crate::error::BlendError;
@@ -151,13 +152,13 @@ pub(crate) fn arc_departure(
             if at_first_side {
                 v.normalized()
             } else {
-                let sweep = to_end.dot(&v).atan2(to_end.dot(&u));
+                let sweep = to_end.dot(&v).patan2(to_end.dot(&u));
                 let sweep = if sweep >= 0.0 {
                     sweep
                 } else {
                     sweep + std::f64::consts::TAU
                 };
-                (u * sweep.sin() - v * sweep.cos()).normalized()
+                (u * sweep.psin() - v * sweep.pcos()).normalized()
             }
         }
     }

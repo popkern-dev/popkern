@@ -27,6 +27,7 @@
 #![allow(dead_code)]
 
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Compute the G¹ -enforced j = 0 row of a bi-4 sector from its
 /// j = 1 row and the central point (eq 2 of `14bi234.pdf`).
@@ -77,7 +78,7 @@ pub fn bi4_g1_row_from_row1(
     if n == 4 {
         return Err(Bi4G1SolveError::UnderdeterminedAtN4);
     }
-    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
     let [cur01, cur11, cur21, cur31, cur41] = cur_row1;
     let [nxt01, nxt11, _nxt21, nxt31, nxt41] = nxt_row1;
 
@@ -180,7 +181,7 @@ pub fn bi4_g1_residuals(
     nxt_row1: [Point3; 5],
     n: usize,
 ) -> [[f64; 3]; 5] {
-    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
     let [_cur00_dup, cur10, cur20, cur30, cur40] = cur_row0;
     let [cur01, cur11, cur21, cur31, cur41] = cur_row1;
     let [nxt01, nxt11, nxt21, nxt31, nxt41] = nxt_row1;
@@ -274,7 +275,7 @@ pub fn bi3_g1_row20(
         n == 3 || n == 5,
         "PnS bi-3 G¹: only n ∈ {{3, 5}} supported, got {n}"
     );
-    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
     scale_add(
         &[(3.0, cur21), (3.0, nxt21), (-c, cur31), (-c, nxt31)],
         1.0 / (2.0 * (3.0 - c)),

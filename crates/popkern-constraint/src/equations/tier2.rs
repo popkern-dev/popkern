@@ -5,6 +5,7 @@
 use super::{EquationOutput, ar, ln, pt};
 use crate::Sketch;
 use crate::elements::{ArcHandle, LineHandle, PointHandle};
+use popkern_math::PortableMath;
 
 /// PointOnArc(P, A): F = (px-cx)^2 + (py-cy)^2 - r^2
 pub(crate) fn eval_point_on_arc(
@@ -98,7 +99,7 @@ pub(crate) fn eval_angle(
     let dy2 = y22 - y21;
     let cross = dx1 * dy2 - dy1 * dx2;
     let dot = dx1 * dx2 + dy1 * dy2;
-    let f = cross.atan2(dot) - theta;
+    let f = cross.patan2(dot) - theta;
     let denom = cross * cross + dot * dot;
 
     // d(cross)/dv and d(dot)/dv for each variable:

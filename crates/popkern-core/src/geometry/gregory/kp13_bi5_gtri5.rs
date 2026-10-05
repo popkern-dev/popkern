@@ -52,6 +52,7 @@
 #![allow(dead_code)]
 
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 use super::bernstein_tri5::{
@@ -103,7 +104,7 @@ pub const fn free_bb_indices() -> [usize; 7] {
 #[inline]
 pub fn sector_corner(n: usize, k: usize) -> (f64, f64) {
     let t = (k as f64) * 2.0 * PI / (n as f64);
-    (t.cos(), t.sin())
+    (t.pcos(), t.psin())
 }
 
 /// `n`-piece auxiliary tri-5 map `g△ : Ω → R³`. One sector per

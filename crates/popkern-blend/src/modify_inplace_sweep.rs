@@ -5,6 +5,7 @@
 use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::{build_clamped_uniform_knots, rational_arc_row};
 
@@ -73,8 +74,8 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
     // rolling ball at radius R sits on the bisector at distance
     // R / sin(half_angle) from the sharp edge.
     let cos_angle = plane_a_normal.dot(&plane_b_normal).clamp(-1.0, 1.0);
-    let half_angle = cos_angle.acos() * 0.5;
-    let sin_half = half_angle.sin().max(1e-12);
+    let half_angle = cos_angle.pacos() * 0.5;
+    let sin_half = half_angle.psin().max(1e-12);
 
     let bisector_raw = Vec3::new(
         signed_perp_a.x + signed_perp_b.x,
@@ -161,12 +162,12 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
         let w_basis = Vec3::new(w_raw.x / w_len, w_raw.y / w_len, w_raw.z / w_len);
         let cos_alpha = dot / r1;
         let sin_alpha = w_len / r1;
-        let alpha = sin_alpha.atan2(cos_alpha);
+        let alpha = sin_alpha.patan2(cos_alpha);
         for j in 0..n_arc {
             let s = j as f64 / (n_arc - 1) as f64;
             let theta = s * alpha;
-            let cos_t = theta.cos();
-            let sin_t = theta.sin();
+            let cos_t = theta.pcos();
+            let sin_t = theta.psin();
             control_points.push(Point3::new(
                 center_i.x + r_i * (cos_t * u_basis.x + sin_t * w_basis.x),
                 center_i.y + r_i * (cos_t * u_basis.y + sin_t * w_basis.y),

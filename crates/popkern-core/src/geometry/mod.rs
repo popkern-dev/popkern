@@ -46,6 +46,10 @@ pub use intersection::{CurveIntersection, CurveIntersectionResult, intersect_cur
 pub use nurbs_curve::NurbsCurve;
 pub use nurbs_surface::NurbsSurface;
 pub use point::Point3;
+/// Portable transcendentals (`x.psin()`, `y.patan2(x)`): the same bits
+/// on every target. Kernel code calls these, never the inherent
+/// `f64::sin` family (see `popkern_math`).
+pub use popkern_math::PortableMath;
 pub use surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
 pub use vector::Vec3;
 

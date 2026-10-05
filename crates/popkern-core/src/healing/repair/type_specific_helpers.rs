@@ -5,6 +5,7 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_math::PortableMath;
 
 use super::{SurfaceType, TypeDetectionResult};
 
@@ -320,7 +321,7 @@ fn sample_boundary_normal_angle(
             let lb = nb.length();
             if la > 1e-15 && lb > 1e-15 {
                 let cos = (na.dot(&nb) / (la * lb)).abs().clamp(0.0, 1.0);
-                let angle = cos.acos();
+                let angle = cos.pacos();
                 best_angle = best_angle.min(angle);
             }
         }

@@ -5,6 +5,7 @@ use popkern_core::geometry::intersection::{SurfaceSurfaceIntersection, intersect
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use super::super::error::ApexBuildError;
 use super::partition_cylinder_geometry::{CylinderTrimSurface, point_lies_on_cylinder_face};
@@ -173,8 +174,8 @@ pub(super) fn exact_cylinder_arc_trim_curve_between(
     let (u_axis, v_axis) = circle_basis_for_normal(axis_unit);
     let start_radial = start_point - center;
     let end_radial = end_point - center;
-    let start_angle = start_radial.dot(&v_axis).atan2(start_radial.dot(&u_axis));
-    let mut end_angle = end_radial.dot(&v_axis).atan2(end_radial.dot(&u_axis));
+    let start_angle = start_radial.dot(&v_axis).patan2(start_radial.dot(&u_axis));
+    let mut end_angle = end_radial.dot(&v_axis).patan2(end_radial.dot(&u_axis));
     while end_angle - start_angle > std::f64::consts::PI {
         end_angle -= std::f64::consts::TAU;
     }
@@ -212,8 +213,8 @@ fn cylinder_uv_line_trim_curve_between(
     let end_center = origin + axis_unit * end_axis;
     let start_radial = start_point - start_center;
     let end_radial = end_point - end_center;
-    let start_angle = start_radial.dot(&v_axis).atan2(start_radial.dot(&u_axis));
-    let mut end_angle = end_radial.dot(&v_axis).atan2(end_radial.dot(&u_axis));
+    let start_angle = start_radial.dot(&v_axis).patan2(start_radial.dot(&u_axis));
+    let mut end_angle = end_radial.dot(&v_axis).patan2(end_radial.dot(&u_axis));
     while end_angle - start_angle > std::f64::consts::PI {
         end_angle -= std::f64::consts::TAU;
     }
@@ -229,7 +230,7 @@ fn cylinder_uv_line_trim_curve_between(
         let angle = start_angle + t * (end_angle - start_angle);
         let station = start_axis + t * (end_axis - start_axis);
         let center = origin + axis_unit * station;
-        points.push(center + u_axis * (radius * angle.cos()) + v_axis * (radius * angle.sin()));
+        points.push(center + u_axis * (radius * angle.pcos()) + v_axis * (radius * angle.psin()));
         params.push(t);
     }
     let nurbs =

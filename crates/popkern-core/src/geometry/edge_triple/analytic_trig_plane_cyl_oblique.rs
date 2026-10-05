@@ -29,6 +29,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Oblique plane-cylinder slice. Returns `None` when the plane is
 /// either perpendicular to the cylinder axis (handled by the
@@ -93,7 +94,7 @@ pub(super) fn try_plane_cylinder_oblique(
         if (r - cyl_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let s_start = match s_of(start) {
         Some(s) => s,

@@ -68,6 +68,7 @@
 
 #![allow(dead_code)]
 
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 use super::kp13_bi5_jet::TaylorJet2;
@@ -143,8 +144,8 @@ pub fn tri3_star_jet(s: &Gtri3SixCps) -> TaylorJet2 {
 /// tensor. The scalar value is invariant.
 pub fn rotate_star_jet_to_sector(jet: &TaylorJet2, k: usize, n: usize) -> TaylorJet2 {
     let theta = 2.0 * PI * k as f64 / n as f64;
-    let c = theta.cos();
-    let s = theta.sin();
+    let c = theta.pcos();
+    let s = theta.psin();
     let c2 = c * c;
     let s2 = s * s;
     let cs = c * s;

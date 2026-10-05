@@ -31,6 +31,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cone_cone_coaxial(
@@ -59,8 +60,8 @@ pub(super) fn try_cone_cone_coaxial(
     let axis_b_sign = axis_b.dot(&axis_a).signum();
     let _ = axis_b_sign;
 
-    let t_a = half_angle_a.tan();
-    let t_b = half_angle_b.tan();
+    let t_a = half_angle_a.ptan();
+    let t_b = half_angle_b.ptan();
     if (t_a - t_b).abs() < tol.solver() {
         return None; // matching half-angles ⇒ coincident or parallel
     }
@@ -81,8 +82,12 @@ pub(super) fn try_cone_cone_coaxial(
     let (perp_a_a, perp_a_b) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_a);
     let (perp_b_a, perp_b_b) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_b);
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(axis);
-    let cone_a_u_offset = arc_basis_u.dot(&perp_a_b).atan2(arc_basis_u.dot(&perp_a_a));
-    let cone_b_u_offset = arc_basis_u.dot(&perp_b_b).atan2(arc_basis_u.dot(&perp_b_a));
+    let cone_a_u_offset = arc_basis_u
+        .dot(&perp_a_b)
+        .patan2(arc_basis_u.dot(&perp_a_a));
+    let cone_b_u_offset = arc_basis_u
+        .dot(&perp_b_b)
+        .patan2(arc_basis_u.dot(&perp_b_a));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -100,7 +105,7 @@ pub(super) fn try_cone_cone_coaxial(
                 distance: r - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,

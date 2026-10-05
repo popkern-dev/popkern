@@ -14,6 +14,7 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
 use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
+use popkern_math::PortableMath;
 
 /// STEP→popkern pcurve coordinate transform for one basis surface.
 #[derive(Debug, Clone, Copy)]
@@ -127,5 +128,5 @@ pub(super) fn analytic_u_frame_offset(axis: Vec3, step_ref_direction: Vec3) -> O
     let axis = axis.normalized()?;
     let step_u = (step_ref_direction - axis * step_ref_direction.dot(&axis)).normalized()?;
     let (kernel_u, kernel_v) = orthonormal_basis(axis);
-    Some(step_u.dot(&kernel_v).atan2(step_u.dot(&kernel_u)))
+    Some(step_u.dot(&kernel_v).patan2(step_u.dot(&kernel_u)))
 }

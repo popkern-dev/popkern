@@ -8,6 +8,7 @@
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 /// FNV-fold one geometry value into the hash.
 #[inline]
@@ -154,7 +155,7 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
                 v.position.z.abs() < 1e-6
                     && targets
                         .iter()
-                        .any(|(x, y)| (v.position.x - x).hypot(v.position.y - y) < 5e-2)
+                        .any(|(x, y)| (v.position.x - x).phypot(v.position.y - y) < 5e-2)
             })
             .map(|(h, v)| format!("{h:?}({:.4},{:.4})", v.position.x, v.position.y))
             .collect();

@@ -1,5 +1,7 @@
 //! Shared helpers for the trig-pair analytic dispatch.
 
+use popkern_math::PortableMath;
+
 /// Decompose a 2×2 matrix `M = [[a, b], [c, d]]` such that
 ///
 /// ```text
@@ -84,8 +86,8 @@ pub(crate) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64, f
     } else {
         (1.0, 0.0)
     };
-    let rotation = u1.1.atan2(u1.0);
-    let phase = v1.1.atan2(v1.0);
+    let rotation = u1.1.patan2(u1.0);
+    let phase = v1.1.patan2(v1.0);
 
     // Determinant sign of M: positive ⇒ proper rotation U; negative
     // ⇒ U is a reflection. Since `Pcurve::elliptical` only takes a

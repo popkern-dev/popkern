@@ -13,6 +13,7 @@ use helpers::{
     estimate_axis, estimate_axis_from_positions, estimate_center_from_rays,
     estimate_cone_axis_from_normals, fit_circle_2d,
 };
+use popkern_math::PortableMath;
 
 /// Check if all sampled normals are parallel and all points lie on a plane.
 pub(super) fn try_detect_plane(
@@ -185,10 +186,10 @@ fn try_fit_cone_with_axis(
         return None;
     }
     // Geometry-based half-angle from the linear fit slope, with normal-based fallback.
-    let geo_ha = slope.abs().atan();
+    let geo_ha = slope.abs().patan();
     let un: Vec<Vec3> = normals.iter().filter_map(|nn| nn.normalized()).collect();
     let mean_dot = un.iter().map(|nn| nn.dot(&axis).abs()).sum::<f64>() / (un.len().max(1) as f64);
-    let normal_ha = mean_dot.clamp(0.0, 1.0).asin();
+    let normal_ha = mean_dot.clamp(0.0, 1.0).pasin();
     let half_angle = if (1e-6..=std::f64::consts::FRAC_PI_2 - 1e-6).contains(&geo_ha) {
         geo_ha
     } else if (1e-6..=std::f64::consts::FRAC_PI_2 - 1e-6).contains(&normal_ha) {
@@ -196,7 +197,7 @@ fn try_fit_cone_with_axis(
     } else {
         return None;
     };
-    let tan_ha = half_angle.tan();
+    let tan_ha = half_angle.ptan();
     let h_apex = -intercept / slope;
     // Axis 2D position: extrapolate each point's radial direction to R=0.
     let (mut ax, mut ay) = (0.0_f64, 0.0_f64);

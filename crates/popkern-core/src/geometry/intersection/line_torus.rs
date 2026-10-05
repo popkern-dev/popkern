@@ -7,6 +7,7 @@ use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Evaluate a quartic polynomial `a4*t^4 + a3*t^3 + a2*t^2 + a1*t + a0` using
 /// Horner's method for numerical stability.
@@ -305,11 +306,11 @@ pub(crate) fn intersect_line_torus(
 
         // Compute torus surface parameters
         // u = angle around major circle = atan2(y_local, x_local)
-        let u = normalize_angle(local_pt.y.atan2(local_pt.x));
+        let u = normalize_angle(local_pt.y.patan2(local_pt.x));
 
         // v = angle around tube cross-section
         // v = atan2(z_local, dist_to_axis - R)
-        let v = normalize_angle(local_pt.z.atan2(dist_xy - big_r));
+        let v = normalize_angle(local_pt.z.patan2(dist_xy - big_r));
 
         // Filter to u and v ranges
         if !angle_in_range(u, u_range.0, u_range.1) {

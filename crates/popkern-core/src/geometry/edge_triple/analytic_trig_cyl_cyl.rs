@@ -23,6 +23,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_cyl_parallel(
@@ -127,7 +128,7 @@ pub(super) fn try_cyl_cyl_parallel(
         crate::geometry::analytic_surfaces::orthonormal_basis(cyl_a_axis);
     let u_a = (line_origin - cyl_a_origin)
         .dot(&cyl_a_basis_v)
-        .atan2((line_origin - cyl_a_origin).dot(&cyl_a_basis_u));
+        .patan2((line_origin - cyl_a_origin).dot(&cyl_a_basis_u));
     // For cyl B, account for direction sign: if cyl_b_axis points
     // opposite to cyl_a_axis, the v-axis direction flips for cyl B.
     let cyl_b_axis_oriented = if same_direction {
@@ -138,7 +139,7 @@ pub(super) fn try_cyl_cyl_parallel(
     let (cyl_b_basis_u, cyl_b_basis_v) =
         crate::geometry::analytic_surfaces::orthonormal_basis(cyl_b_axis_oriented);
     let off_b = line_origin - cyl_b_origin;
-    let u_b = off_b.dot(&cyl_b_basis_v).atan2(off_b.dot(&cyl_b_basis_u));
+    let u_b = off_b.dot(&cyl_b_basis_v).patan2(off_b.dot(&cyl_b_basis_u));
 
     // Pcurve on each cyl: u = constant, v varies linearly along
     // the line. Since the line is parallel to common_axis, v on

@@ -60,6 +60,7 @@
 //! border `b` into the reparameterised row-2 CP at position `k`.
 //! The full `γ^k_{ij}` table is tabulated inside [`gamma`].
 
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 /// Per-valence and per-input parameters used throughout the K-P
@@ -89,7 +90,7 @@ impl Bi6Reparams {
     /// Panics if `n < 3`.
     pub fn for_valence(n: usize) -> Self {
         assert!(n >= 3, "K-P bi-6 needs valence ≥ 3; got {n}");
-        let c = (2.0 * PI / n as f64).cos();
+        let c = (2.0 * PI / n as f64).pcos();
         let tau = tau_for_valence(n);
         let d2 = if n == 3 {
             0.1

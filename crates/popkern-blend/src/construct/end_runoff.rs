@@ -26,6 +26,7 @@ use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 /// One applied runoff, for diagnostics.
 #[derive(Debug)]
@@ -111,7 +112,7 @@ fn face_parameter_box(
         let mut v1 = f64::NEG_INFINITY;
         for p in &positions {
             let d = *p - *origin;
-            us.push(d.dot(&perp2).atan2(d.dot(&perp1)));
+            us.push(d.dot(&perp2).patan2(d.dot(&perp1)));
             let v = d.dot(axis);
             v0 = v0.min(v);
             v1 = v1.max(v);
@@ -272,7 +273,7 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
             let (perp1, perp2) =
                 popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
             let d = *p - *origin;
-            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            let mut u = d.dot(&perp2).patan2(d.dot(&perp1));
             let mid = 0.5 * (bu0 + bu1);
             let tau = std::f64::consts::TAU;
             while u - mid > 0.5 * tau {

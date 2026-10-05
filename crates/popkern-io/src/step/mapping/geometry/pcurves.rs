@@ -1,6 +1,7 @@
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
+use popkern_math::PortableMath;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
@@ -159,7 +160,7 @@ impl GeometryCache<'_> {
             (center.x, center.y),
             a,
             b,
-            x_axis.y.atan2(x_axis.x),
+            x_axis.y.patan2(x_axis.x),
             0.0,
             tau,
             0.0,

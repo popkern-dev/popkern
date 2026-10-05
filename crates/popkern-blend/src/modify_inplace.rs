@@ -11,6 +11,7 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::error::BlendError;
 use crate::modify_inplace_geometry::{
@@ -465,8 +466,8 @@ fn constant_plane_plane_cylinder(
     radius: f64,
 ) -> SurfaceGeometry {
     let cos_angle = n_a.dot(n_b).clamp(-1.0, 1.0);
-    let half_angle = cos_angle.acos() * 0.5;
-    let sin_half = half_angle.sin().max(1e-12);
+    let half_angle = cos_angle.pacos() * 0.5;
+    let sin_half = half_angle.psin().max(1e-12);
     let bisector = (*signed_perp_a + *signed_perp_b)
         .normalized()
         .unwrap_or(*n_a);

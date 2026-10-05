@@ -2,6 +2,7 @@ use super::{CircularArcParams, circle_basis_for};
 use crate::geometry::curve::{CurveEval, CurveGeometry};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 // ---------------------------------------------------------------------------
 // CurveGeometry::as_circular_arc — sample-based detector
@@ -48,8 +49,8 @@ impl CurveGeometry {
             } => {
                 let n = normal.normalized()?;
                 let (u, v) = circle_basis_for(n);
-                let start_dir = u * start_angle.cos() + v * start_angle.sin();
-                let end_dir = u * end_angle.cos() + v * end_angle.sin();
+                let start_dir = u * start_angle.pcos() + v * start_angle.psin();
+                let end_dir = u * end_angle.pcos() + v * end_angle.psin();
                 Some(CircularArcParams {
                     center: *center,
                     radius: *radius,
@@ -105,13 +106,13 @@ fn detect_circular_arc_from_samples(
     let (u, v) = circle_basis_for(normal);
     let start_vec = samples[0] - center;
     let end_vec = samples[4] - center;
-    let start_angle = start_vec.dot(&v).atan2(start_vec.dot(&u));
-    let end_angle = end_vec.dot(&v).atan2(end_vec.dot(&u));
+    let start_angle = start_vec.dot(&v).patan2(start_vec.dot(&u));
+    let end_angle = end_vec.dot(&v).patan2(end_vec.dot(&u));
 
     // Determine sweep direction by checking which sense puts the midpoint
     // of the parameter range close to the midpoint of the arc.
     let mid_vec = samples[2] - center;
-    let mid_angle = mid_vec.dot(&v).atan2(mid_vec.dot(&u));
+    let mid_angle = mid_vec.dot(&v).patan2(mid_vec.dot(&u));
 
     let sweep_ccw = signed_arc_sweep(start_angle, end_angle, mid_angle);
 

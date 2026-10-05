@@ -7,6 +7,7 @@ use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_local_constraint::{kp20_eq8_jacobian_dense, kp20_eq9_jacobian_dense};
 use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
 const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
@@ -170,7 +171,7 @@ pub(crate) fn project_strip(
     // (along = i, across = j), current side transposed. Under SoftG
     // these become objective rows instead of constraints.
     let hard_row_count_before_g = rows.len();
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     for (prev_piece, curr_piece, b) in [
         (P1, P1, kp20_b_coeffs_near_o(c)),
         (P2, P4, kp20_b_coeffs_near_m(c)),

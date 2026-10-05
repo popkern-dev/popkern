@@ -3,6 +3,7 @@
 //! Generates helical path curves from a [`HelixSpec`] and detects when a
 //! helix combined with a circular profile produces an analytic torus surface.
 
+use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 
 use popkern_core::geometry::curve::CurveEval;
@@ -175,8 +176,8 @@ fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, Swee
         let z = frac * total_height;
 
         // On-curve point.
-        let x = radius * angle.cos();
-        let y = radius * angle.sin();
+        let x = radius * angle.pcos();
+        let y = radius * angle.psin();
         let pos = spec.axis_origin + u_dir * x + v_dir * y + axis * z;
         control_points.push(pos);
         weights.push(1.0);
@@ -191,8 +192,8 @@ fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, Swee
             // point lies at radius * sqrt(2) from the center in the
             // bisector direction (radius / cos(pi/4)).
             let scale = 1.0 / FRAC_1_SQRT_2; // = sqrt(2)
-            let x_mid2 = radius * scale * angle_mid.cos();
-            let y_mid2 = radius * scale * angle_mid.sin();
+            let x_mid2 = radius * scale * angle_mid.pcos();
+            let y_mid2 = radius * scale * angle_mid.psin();
             let pos_mid = spec.axis_origin + u_dir * x_mid2 + v_dir * y_mid2 + axis * z_mid;
             control_points.push(pos_mid);
             weights.push(FRAC_1_SQRT_2);
@@ -254,8 +255,8 @@ fn build_variable_helix(spec: &HelixSpec) -> Result<NurbsCurve, SweepError> {
             cumulative_height += current_pitch * dt * spec.turns;
         }
 
-        let x = radius * angle.cos();
-        let y = radius * angle.sin();
+        let x = radius * angle.pcos();
+        let y = radius * angle.psin();
         let pos = spec.axis_origin + u_dir * x + v_dir * y + axis * cumulative_height;
         points.push(pos);
         params.push(frac);

@@ -6,5 +6,6 @@ license.workspace = true
 description = "Draft/taper operations for the popkern BRep kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 thiserror.workspace = true

@@ -11,6 +11,8 @@
 //! sectors satisfy the cocycle condition at the centre, which is what
 //! makes the spoke conditions of [`super::spoke`] consistent there.
 
+use popkern_math::PortableMath;
+
 /// φ_n for one valence.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct CharacteristicMap {
@@ -25,9 +27,9 @@ impl CharacteristicMap {
     pub fn new(n: usize) -> Self {
         let angle = 2.0 * std::f64::consts::PI / n as f64;
         CharacteristicMap {
-            c: angle.cos(),
-            s: angle.sin(),
-            tau: (std::f64::consts::PI / n as f64).tan(),
+            c: angle.pcos(),
+            s: angle.psin(),
+            tau: (std::f64::consts::PI / n as f64).ptan(),
         }
     }
 

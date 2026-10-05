@@ -1,5 +1,6 @@
 use super::tests_support::*;
 use super::*;
+use popkern_math::PortableMath;
 
 // ---- tri5_to_bi5_degree_raise: polynomial equivalence ----
 
@@ -11,7 +12,7 @@ fn degree_raise_preserves_polynomial_inside_simplex() {
     let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
     for i in 0..TRI5_CP_COUNT {
         let t = i as f64 * 0.37;
-        cps[i] = Point3::new(t.sin(), t.cos(), 0.5 * t.sin() * t.cos());
+        cps[i] = Point3::new(t.psin(), t.pcos(), 0.5 * t.psin() * t.pcos());
     }
     let bi5 = tri5_to_bi5_degree_raise(&cps);
     let sector = Bi5GuideSector { cps: bi5 };
@@ -44,7 +45,7 @@ fn degree_raise_preserves_polynomial_outside_simplex() {
     let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI5_CP_COUNT];
     for i in 0..TRI5_CP_COUNT {
         let t = i as f64 * 0.123;
-        cps[i] = Point3::new(t.cos(), -t.sin(), t.sin() + 0.2);
+        cps[i] = Point3::new(t.pcos(), -t.psin(), t.psin() + 0.2);
     }
     let bi5 = tri5_to_bi5_degree_raise(&cps);
     let sector = Bi5GuideSector { cps: bi5 };

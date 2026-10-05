@@ -9,6 +9,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 use crate::error::{SweepError, SweepWarning};
 
@@ -280,7 +281,7 @@ fn control_point_weight(
 
     // Gaussian-like falloff: weight = exp(-k * dist^2)
     // With k = 10, a control point 0.3 away in parameter space gets ~0.4 weight.
-    (-10.0 * param_dist * param_dist).exp()
+    (-10.0 * param_dist * param_dist).pexp()
 }
 
 /// Compute maximum deviation across all guides.

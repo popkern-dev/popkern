@@ -21,6 +21,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_math::PortableMath;
 
 use crate::cap_seam_measure::{edge_seam_faces, resolve_edge_seam, sample_edge_seam};
 
@@ -84,7 +85,7 @@ pub fn second_form_jump(along: f64, transverse: f64, diagonal: f64) -> (f64, f64
     } else {
         (0.0, 1.0)
     };
-    let mut deg = y.atan2(x).to_degrees();
+    let mut deg = y.patan2(x).to_degrees();
     if deg <= -90.0 {
         deg += 180.0;
     } else if deg > 90.0 {

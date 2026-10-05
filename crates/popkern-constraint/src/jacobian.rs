@@ -8,6 +8,7 @@ use crate::Sketch;
 use crate::constraint::ConstraintKind;
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::rigid_set;
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 /// Assembled equation system: residuals F(x) and sparse Jacobian dF/dx.
@@ -94,7 +95,7 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
         for &(row, col, val) in &output.jacobian {
             if let Some(&(rs_param_start, rx, ry)) = rigid_lookup.get(&col) {
                 let theta = theta_map.get(&rs_param_start).copied().unwrap_or(0.0);
-                let (sin_t, cos_t) = theta.sin_cos();
+                let (sin_t, cos_t) = theta.psin_cos();
                 let pt_param = sketch.points.values().find(|p| {
                     let [ix, _] = p.param_indices();
                     ix == col || ix + 1 == col
@@ -173,7 +174,7 @@ pub(crate) fn assemble_component(
         for &(row, col, val) in &output.jacobian {
             if let Some(&(rs_param_start, rx, ry)) = rigid_lookup.get(&col) {
                 let theta = theta_map.get(&rs_param_start).copied().unwrap_or(0.0);
-                let (sin_t, cos_t) = theta.sin_cos();
+                let (sin_t, cos_t) = theta.psin_cos();
                 let pt_param = sketch.points.values().find(|p| {
                     let [ix, _] = p.param_indices();
                     ix == col || ix + 1 == col

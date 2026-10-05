@@ -32,7 +32,7 @@ use super::kp20_bi6_cnet::{
     Kp20RegularTensorBorderCNet, kp20_tensor_border_from_regular_cnet_rows,
 };
 use super::kp20_bi6_math::Kp20CharacteristicScalars;
-use crate::geometry::Point3;
+use crate::geometry::{Point3, PortableMath};
 
 #[derive(Debug, Clone, PartialEq)]
 /// PR08 frequency-one Catmull-Clark characteristic ring.
@@ -1145,7 +1145,7 @@ fn stam_appendix_b_subpatch_full_grid_from_labels(
         }
     };
     let theta = core::f64::consts::TAU * sector_index as f64 / valence as f64;
-    let (sin_theta, cos_theta) = theta.sin_cos();
+    let (sin_theta, cos_theta) = theta.psin_cos();
     let mut grid = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
     for row in 0..4 {
         for col in 0..4 {
@@ -1260,8 +1260,8 @@ fn stam_appendix_a_subdivided_extended_characteristic_labels(
     for sector in 0..valence {
         let theta = core::f64::consts::TAU * sector as f64 / valence as f64;
         let next_theta = core::f64::consts::TAU * (sector + 1) as f64 / valence as f64;
-        let (sin_theta, cos_theta) = theta.sin_cos();
-        let (sin_next, cos_next) = next_theta.sin_cos();
+        let (sin_theta, cos_theta) = theta.psin_cos();
+        let (sin_next, cos_next) = next_theta.psin_cos();
         u0_x[1 + 2 * sector] = gain * cos_theta;
         u0_y[1 + 2 * sector] = gain * sin_theta;
         u0_x[2 + 2 * sector] = cos_theta + cos_next;
@@ -1839,7 +1839,7 @@ impl Complex {
     }
 
     fn from_angle(theta: f64) -> Self {
-        let (im, re) = theta.sin_cos();
+        let (im, re) = theta.psin_cos();
         Self::new(re, im)
     }
 

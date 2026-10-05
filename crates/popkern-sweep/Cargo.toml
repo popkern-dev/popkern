@@ -6,6 +6,7 @@ license.workspace = true
 description = "Sweep and loft operations for the popkern BRep kernel"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 thiserror.workspace = true

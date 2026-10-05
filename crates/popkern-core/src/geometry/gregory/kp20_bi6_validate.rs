@@ -7,6 +7,7 @@ use super::kp20_bi6_cap::{
     kp20_apply_g2_strip,
 };
 use super::kp20_bi6_math::kp20_b_coeffs_near_o;
+use popkern_math::PortableMath;
 
 /// Maximum residuals for the KP20 identities enforced by assembly.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -152,7 +153,7 @@ fn measure_c2_pair(
 fn measure_sector_g2(sector: &Kp20MacroPatch, n: usize, report: &mut Kp20Bi6ValidationReport) {
     let mut left = *sector.piece(Kp20PieceId::NearOriginLeft);
     let mut right = *sector.piece(Kp20PieceId::NearOriginRight);
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let b0 = kp20_b_coeffs_near_o(c)[0];
     kp20_apply_g2_strip(&mut left, &mut right, b0);
     let actual_left = sector.piece(Kp20PieceId::NearOriginLeft);

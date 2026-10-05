@@ -16,6 +16,7 @@ use crate::geometry::uv_projection::{
     bounded_parameter_range, exact_bounded_parameter_range, project_point_to_uv,
 };
 use crate::geometry::{Point3, SurfaceEval};
+use popkern_math::PortableMath;
 
 type UvBox = ((f64, f64), (f64, f64));
 
@@ -122,7 +123,7 @@ fn sampled_face_box(
         if let SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
             let d = *p - *origin;
-            Some((d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis)))
+            Some((d.dot(&perp2).patan2(d.dot(&perp1)), d.dot(axis)))
         } else {
             project_point_to_uv(surface, p)
         }

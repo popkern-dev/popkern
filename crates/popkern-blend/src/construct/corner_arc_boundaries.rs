@@ -15,6 +15,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 /// For each corner patch whose face is a rolling-ball Sphere,
 /// replace chord boundary edges whose endpoints lie (within the
@@ -109,8 +110,8 @@ pub(super) fn arcify_corner_cap_boundaries(
                 // two conventions differ and a reflected frame
                 // traces the wrong sweep.
                 let (f1, f2) = popkern_core::geometry::analytic_curves::circle_basis(arc_normal);
-                let theta1 = a.dot(&f2).atan2(a.dot(&f1));
-                let mut theta2 = b.dot(&f2).atan2(b.dot(&f1));
+                let theta1 = a.dot(&f2).patan2(a.dot(&f1));
+                let mut theta2 = b.dot(&f2).patan2(b.dot(&f1));
                 while theta2 <= theta1 {
                     theta2 += std::f64::consts::TAU;
                 }
@@ -415,7 +416,7 @@ pub(super) fn rebuild_incident_straight_edges(
                     popkern_core::geometry::analytic_surfaces::orthonormal_basis(*normal);
                 let ang = |p: Point3| {
                     let d = p - *center;
-                    d.dot(&f2).atan2(d.dot(&f1))
+                    d.dot(&f2).patan2(d.dot(&f1))
                 };
                 let ta = ang(a);
                 let mut tb = ang(b);

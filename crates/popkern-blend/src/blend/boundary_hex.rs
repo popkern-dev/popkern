@@ -18,6 +18,7 @@
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use super::boundary::BoundarySegment;
 #[path = "boundary_hex_ordering.rs"]
@@ -256,9 +257,9 @@ pub(super) fn fit_hermite_cubic_arc_on_surface(
         if t0_mag > 1e-12 {
             let t0_unit = Vec3::new(t_start.x / t0_mag, t_start.y / t0_mag, t_start.z / t0_mag);
             let dot = t0_unit.dot(&chord_unit).abs().clamp(0.0, 1.0);
-            let theta = 2.0 * dot.acos();
+            let theta = 2.0 * dot.pacos();
             if theta > 1e-6 {
-                (4.0 * (theta / 4.0).tan()) / theta
+                (4.0 * (theta / 4.0).ptan()) / theta
             } else {
                 1.0
             }

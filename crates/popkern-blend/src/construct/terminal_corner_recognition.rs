@@ -7,6 +7,7 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use super::terminal_arc_trim::{CornerCandidate, PlanarStubRecognition};
 
@@ -174,7 +175,7 @@ fn recognize_corner_pair(
             let d = corner_pos - *apex;
             let station = d.dot(&an);
             let radial = (d - an * station).length();
-            (radial - station.abs() * half_angle.tan().abs()).abs() > tolerance.linear() * 10.0
+            (radial - station.abs() * half_angle.ptan().abs()).abs() > tolerance.linear() * 10.0
         }
         SurfaceGeometry::Nurbs(_) => {
             // Swept (variable-radius) strips: the chart + surface are

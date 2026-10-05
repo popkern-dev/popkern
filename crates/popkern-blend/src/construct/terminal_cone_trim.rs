@@ -17,6 +17,7 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 use crate::types::TerminalArcTrimDeclineReason;
 
@@ -46,7 +47,7 @@ pub(super) fn repair_corner_conic(
         .axis
         .normalized()
         .ok_or(TerminalArcTrimDeclineReason::NonCylinderStrip)?;
-    let tan_h = cone.half_angle.tan();
+    let tan_h = cone.half_angle.ptan();
     if tan_h.abs() < 1e-12 {
         return Err(TerminalArcTrimDeclineReason::NonCylinderStrip);
     }
@@ -138,12 +139,12 @@ pub(super) fn repair_corner_conic(
         if amp < 1e-300 || rhs.abs() > amp {
             return None;
         }
-        let base = b.atan2(a);
-        let delta = (rhs / amp).acos();
+        let base = b.patan2(a);
+        let delta = (rhs / amp).pacos();
         let chord_ref = anchor_in + (anchor_out - anchor_in) * f;
         let mut best: Option<(f64, Point3)> = None;
         for theta in [base + delta, base - delta] {
-            let p = center + bu * (radius * theta.cos()) + bv * (radius * theta.sin());
+            let p = center + bu * (radius * theta.pcos()) + bv * (radius * theta.psin());
             let d = p.distance_to(&chord_ref);
             if best.map(|(bd, _)| d < bd).unwrap_or(true) {
                 best = Some((d, p));

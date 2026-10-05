@@ -6,6 +6,7 @@
 use super::{EquationOutput, ln, pt};
 use crate::Sketch;
 use crate::elements::{ArcHandle, ElementHandle, LineHandle, PointHandle};
+use popkern_math::PortableMath;
 
 // ── Position primitives ────────────────────────────────────────────────────
 
@@ -50,8 +51,8 @@ pub(crate) fn eval_rotated_position(
     let (p2x, p2y, ip2x, ip2y) = pt(sketch, p2);
     let (cx, cy, icx, icy) = pt(sketch, center);
 
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
     let dx = p1x - cx;
     let dy = p1y - cy;
 
@@ -368,7 +369,7 @@ pub(crate) fn eval_mirror_angles_arc(
     let (lx1, ly1, ilx1, ily1, lx2, ly2, ilx2, ily2) = ln(sketch, l);
     let ldx = lx2 - lx1;
     let ldy = ly2 - ly1;
-    let line_angle = ldy.atan2(ldx);
+    let line_angle = ldy.patan2(ldx);
 
     let arc1 = &sketch.arcs[a1];
     let arc2 = &sketch.arcs[a2];
@@ -434,7 +435,7 @@ pub(crate) fn eval_mirror_angles_conic(
     let (lx1, ly1, ilx1, ily1, lx2, ly2, ilx2, ily2) = ln(sketch, l);
     let ldx = lx2 - lx1;
     let ldy = ly2 - ly1;
-    let line_angle = ldy.atan2(ldx);
+    let line_angle = ldy.patan2(ldx);
 
     let (rot1, ir1) = element_rotation(sketch, e1);
     let (rot2, ir2) = element_rotation(sketch, e2);

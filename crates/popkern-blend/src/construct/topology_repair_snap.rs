@@ -2,6 +2,7 @@
 
 use super::topology_repair_geometry::{remap_to_unit_range, slice_curve};
 use super::*;
+use popkern_math::PortableMath;
 
 /// For every edge incident to `vh`, snap the 3D curve's endpoint
 /// (the one matching v's t_start or t_end) to `new_position`.
@@ -215,7 +216,7 @@ fn analytic_retrim(curve: &CurveOnEdge, new_position: Point3) -> Option<CurveOnE
         } => {
             let (bu, bv) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
             let d = new_position - *center;
-            let theta = d.dot(&bv).atan2(d.dot(&bu));
+            let theta = d.dot(&bv).patan2(d.dot(&bu));
             let radial = (d - *normal * d.dot(normal)).length();
             if (radial - radius).abs() > radius.max(1.0) * 1e-6 {
                 return None;

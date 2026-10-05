@@ -5,6 +5,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use super::clip_uv::UvCrossing;
 
@@ -150,7 +151,7 @@ pub(super) fn sampled_uv_crossings(
                 let tb2 = bp0 + (bp1 - bp0) * i as f64 / NB as f64;
                 let p = pc.point_at(tb2);
                 let du = norm_u(phu - p.x + b_center_u) - b_center_u;
-                let d = du.hypot(phv - p.y);
+                let d = du.phypot(phv - p.y);
                 if best.map(|(bd, _, _)| d < bd).unwrap_or(true) {
                     best = Some((d, *he, tb2));
                 }

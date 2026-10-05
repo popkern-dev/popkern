@@ -44,6 +44,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_cyl_cone_general(
@@ -67,7 +68,7 @@ pub(super) fn try_cyl_cone_general(
     let alpha_axial = cone_axis.dot(&cyl_axis);
     let beta_p1 = perp1.dot(&cyl_axis);
     let beta_p2 = perp2.dot(&cyl_axis);
-    let t = half_angle.tan();
+    let t = half_angle.ptan();
     let sec_sq = 1.0 + t * t;
     let r_sq = cyl_radius * cyl_radius;
     let c = e_len_sq - e_axial * e_axial - r_sq;
@@ -78,8 +79,8 @@ pub(super) fn try_cyl_cone_general(
     let b_sin = 2.0 * t * (e_p2 - e_axial * beta_p2);
 
     let v_at = |u: f64, branch_sign: f64| -> Option<f64> {
-        let cu = u.cos();
-        let su = u.sin();
+        let cu = u.pcos();
+        let su = u.psin();
         let inner = alpha_axial + t * (beta_p1 * cu + beta_p2 * su);
         let a_u = sec_sq - inner * inner;
         if a_u.abs() < tol.solver() {
@@ -103,7 +104,7 @@ pub(super) fn try_cyl_cone_general(
         let dp = p - cone_apex;
         let v_axis = dp.dot(&cone_axis);
         let perp_vec = dp - cone_axis * v_axis;
-        let u = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         Some((u, v_axis))
     };
     let validate_anchor = |p: Point3, side: SurfaceSide| -> Result<(), EdgeTripleError> {
@@ -149,8 +150,8 @@ pub(super) fn try_cyl_cone_general(
     };
 
     // Branch sign by which root reproduces the start anchor's v.
-    let cu = u_start.cos();
-    let su = u_start.sin();
+    let cu = u_start.pcos();
+    let su = u_start.psin();
     let inner = alpha_axial + t * (beta_p1 * cu + beta_p2 * su);
     let a_u = sec_sq - inner * inner;
     if a_u.abs() < tol.solver() {
@@ -182,14 +183,14 @@ pub(super) fn try_cyl_cone_general(
         let u = u_start + frac * span;
         let v = v_at(u, branch_sign)?;
         let r = v * t;
-        let p3 = cone_apex + cone_axis * v + perp1 * (r * u.cos()) + perp2 * (r * u.sin());
+        let p3 = cone_apex + cone_axis * v + perp1 * (r * u.pcos()) + perp2 * (r * u.psin());
         pts_3d.push(p3);
         // Cyl uv.
         let dp_cyl = p3 - cyl_origin;
         let v_cyl_coord = dp_cyl.dot(&cyl_axis);
         let (cyl_p1, cyl_p2) = crate::geometry::analytic_surfaces::orthonormal_basis(cyl_axis);
         let perp_vec = dp_cyl - cyl_axis * v_cyl_coord;
-        let u_cyl = perp_vec.dot(&cyl_p2).atan2(perp_vec.dot(&cyl_p1));
+        let u_cyl = perp_vec.dot(&cyl_p2).patan2(perp_vec.dot(&cyl_p1));
         pts_cyl.push(Point3::new(u_cyl, v_cyl_coord, 0.0));
         // Cone uv.
         pts_cone.push(Point3::new(u, v, 0.0));

@@ -10,6 +10,7 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{CurveEval, NurbsCurve, NurbsSurface, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::contact::ContactSolution;
 use crate::error::BlendError;
@@ -232,7 +233,7 @@ pub(crate) fn section_arc_points(
                 let v = v_dir * u.length();
                 for k in 0..ARC_SAMPLES {
                     let theta = std::f64::consts::PI * k as f64 / (ARC_SAMPLES - 1) as f64;
-                    points.push(sol.center + u * theta.cos() + v * theta.sin());
+                    points.push(sol.center + u * theta.pcos() + v * theta.psin());
                 }
                 let _ = radius;
                 return points;
@@ -248,7 +249,7 @@ pub(crate) fn section_arc_points(
         }
         Some(n) => {
             let v = n.cross(&u);
-            let sweep = to_end.dot(&v).atan2(to_end.dot(&u));
+            let sweep = to_end.dot(&v).patan2(to_end.dot(&u));
             let sweep = if sweep >= 0.0 {
                 sweep
             } else {
@@ -256,7 +257,7 @@ pub(crate) fn section_arc_points(
             };
             for k in 0..ARC_SAMPLES {
                 let t = sweep * k as f64 / (ARC_SAMPLES - 1) as f64;
-                points.push(sol.center + u * t.cos() + v * t.sin());
+                points.push(sol.center + u * t.pcos() + v * t.psin());
             }
         }
     }

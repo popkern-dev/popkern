@@ -4,6 +4,7 @@ use crate::geometry::analytic_curves::circle_basis;
 use crate::geometry::intersection::CurveIntersection;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Intersect a line with a circle in 3D space.
 /// Circle is defined by center, normal (to its plane), and radius.
@@ -64,7 +65,7 @@ pub(crate) fn intersect_line_circle(
         let local = pierce_pt - *circle_center;
         let local_u = local.dot(&u);
         let local_v = local.dot(&v);
-        let angle = local_v.atan2(local_u);
+        let angle = local_v.patan2(local_u);
         let angle = normalise_angle(angle, angle_range);
 
         if !angle_in_range(angle, angle_range, tolerance) {
@@ -184,7 +185,7 @@ fn make_intersection(
     let local = pt - *circle_center;
     let local_u = local.dot(u);
     let local_v = local.dot(v);
-    let angle = local_v.atan2(local_u);
+    let angle = local_v.patan2(local_u);
     let angle = normalise_angle(angle, angle_range);
 
     if !angle_in_range(angle, angle_range, tolerance) {

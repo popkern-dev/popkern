@@ -12,6 +12,7 @@ use super::kp_polar_shared::weighted_sum;
 use super::kp20_bi6_math::kp20_g2_strip_weights;
 use super::kp20_border_degree::{elevate_bi3_rows_to_sextic, scalar_cubic_times_sextic_reduced};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// KP20 sector quadrant in canonical paper order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,7 +126,7 @@ pub fn split_kp20_tensor_border(
             "KP20 tensor-border needs at least 3 sectors, got {n}"
         ));
     }
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     split_kp20_tensor_border_with_d1_3(input, 2.0 * c / 3.0)
 }
 
@@ -146,7 +147,7 @@ pub fn split_kp20_tensor_border_with_d1_3(
             "KP20 tensor-border d1_3 must be finite, got {d1_3}"
         ));
     }
-    let c = (core::f64::consts::TAU / n as f64).cos();
+    let c = (core::f64::consts::TAU / n as f64).pcos();
     let (d0, d1) = kp20_eq14_d_profiles(c, d1_3);
 
     let mut out = Vec::with_capacity(n);

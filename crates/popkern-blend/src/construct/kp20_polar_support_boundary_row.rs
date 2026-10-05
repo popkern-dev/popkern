@@ -4,6 +4,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
 };
+use popkern_math::PortableMath;
 
 use super::super::super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
@@ -161,7 +162,7 @@ fn support_boundary_row_weight(i: usize, j: usize, sites: &[Kp20FoldSite]) -> f6
     let u = i as f64 / 6.0;
     let v = j as f64 / 6.0;
     let row_fade = if j == 1 { 1.0 } else { 0.35 };
-    let boundary_fade = (core::f64::consts::PI * u).sin().max(0.0);
+    let boundary_fade = (core::f64::consts::PI * u).psin().max(0.0);
     sites
         .iter()
         .map(|site| {

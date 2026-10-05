@@ -3,6 +3,7 @@
 //! geometric authority; endpoint vertices and parameter ranges are
 //! reconciled onto them here.
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use crate::error::DraftWarning;
@@ -99,12 +100,12 @@ pub fn snap_vertices_to_recomputed_curves(
             CurveGeometry::Circle { center, normal, .. } => {
                 let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
                 let d = origin - *center;
-                let a0 = d.dot(&p2).atan2(d.dot(&p1));
+                let a0 = d.dot(&p2).patan2(d.dot(&p1));
                 if closed {
                     (a0, a0 + std::f64::consts::TAU)
                 } else {
                     let de = end - *center;
-                    let mut a1 = de.dot(&p2).atan2(de.dot(&p1));
+                    let mut a1 = de.dot(&p2).patan2(de.dot(&p1));
                     while a1 <= a0 {
                         a1 += std::f64::consts::TAU;
                     }

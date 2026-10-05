@@ -8,6 +8,7 @@ use crate::constraint::{ConstraintKind, ConstraintStatus};
 use crate::elements::{ElementHandle, LineHandle, PointHandle, SplineHandle};
 use crate::error::ConstraintError;
 use crate::{DragState, Sketch, equations};
+use popkern_math::PortableMath;
 
 impl Sketch {
     /// Return the current geometric value that a driven constraint measures.
@@ -57,7 +58,7 @@ impl Sketch {
         let dy2 = y22 - y21;
         let cross = dx1 * dy2 - dy1 * dx2;
         let dot = dx1 * dx2 + dy1 * dy2;
-        Some(cross.atan2(dot))
+        Some(cross.patan2(dot))
     }
 
     /// Compute the perpendicular distance from a point to a line.

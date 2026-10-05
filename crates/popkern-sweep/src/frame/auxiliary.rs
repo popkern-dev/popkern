@@ -5,6 +5,7 @@ use crate::error::SweepError;
 use crate::frame::{FrameSequence, PathFrame};
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Vec3};
+use popkern_math::PortableMath;
 
 /// Compute frames using an auxiliary (spine) curve to define the up-direction.
 ///
@@ -69,8 +70,8 @@ pub fn auxiliary_frames(
         // Apply twist.
         let angle = twist * fraction;
         let (n_twisted, b_twisted) = if angle.abs() > 1e-15 {
-            let cos_a = angle.cos();
-            let sin_a = angle.sin();
+            let cos_a = angle.pcos();
+            let sin_a = angle.psin();
             (
                 normal * cos_a + binormal * sin_a,
                 binormal * cos_a - normal * sin_a,

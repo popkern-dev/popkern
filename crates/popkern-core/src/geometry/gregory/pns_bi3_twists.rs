@@ -33,6 +33,7 @@
 #![allow(dead_code)]
 
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// Solve eq (7) of `14bi234.pdf` for the N twist CPs
 /// `p_{11}^k, k = 0..n` of a bi-3 n ∈ {3, 5} cap.
@@ -72,7 +73,7 @@ pub fn solve_bi3_twists(
     assert_eq!(p21.len(), n, "p21 length mismatch");
     assert_eq!(p31.len(), n, "p31 length mismatch");
 
-    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
 
     // Per-boundary RHS: eq (7) rearranged as
     //   x_k + x_{k+1} = rhs_k

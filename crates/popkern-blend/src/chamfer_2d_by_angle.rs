@@ -38,6 +38,7 @@
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::chamfer_2d::{ChamferPlan, apply_chamfer_plan};
 use crate::chamfer_2d_ray::{
@@ -146,7 +147,7 @@ fn chamfer_plan_by_angle(
     }
 
     let cos_corner = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
-    let corner_angle = cos_corner.acos();
+    let corner_angle = cos_corner.pacos();
     if corner_angle < 1.0e-4 {
         return Err("edges are nearly colinear (no meaningful corner)".into());
     }
@@ -181,8 +182,8 @@ fn chamfer_plan_by_angle(
     // to get the chamfer ray direction. Rodrigues formula for a
     // vector in the plane (so the parallel component is zero):
     //    v_rot = v · cos(α) + (n × v) · sin(α)
-    let cos_a = angle_rad.cos();
-    let sin_a = angle_rad.sin();
+    let cos_a = angle_rad.pcos();
+    let sin_a = angle_rad.psin();
     let chamfer_dir = tangent_at_t1 * cos_a + arc_normal.cross(&tangent_at_t1) * sin_a;
     let chamfer_dir = chamfer_dir
         .normalized()

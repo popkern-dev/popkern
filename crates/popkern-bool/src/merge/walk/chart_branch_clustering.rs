@@ -4,6 +4,7 @@
 //!
 //! Split from `chart_branches.rs` to honour the 500-line budget.
 
+use popkern_math::PortableMath;
 use std::collections::BTreeMap;
 
 use super::super::chart_subdivision::{BranchPoint, FaceChartSubdivision, SubdivisionIssue};
@@ -371,8 +372,8 @@ pub(crate) fn stored_ring_sigma(
         // that would need re-orientation means the pcurve directions
         // are not loop-faithful and the shoelace sign is untrustworthy.
         if let (Some(&prev), Some(&s0), Some(&s1)) = (pts.last(), seg.first(), seg.last()) {
-            let d_fwd = (s0.0 - prev.0).hypot(s0.1 - prev.1);
-            let d_rev = (s1.0 - prev.0).hypot(s1.1 - prev.1);
+            let d_fwd = (s0.0 - prev.0).phypot(s0.1 - prev.1);
+            let d_rev = (s1.0 - prev.0).phypot(s1.1 - prev.1);
             if d_rev < d_fwd {
                 return None;
             }

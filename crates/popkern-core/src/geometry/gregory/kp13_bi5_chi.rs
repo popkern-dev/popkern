@@ -82,6 +82,7 @@
 #![allow(dead_code)]
 
 use super::kp13_bi5_gtri5::sector_corner;
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 /// Catmull-Clark subdominant eigenvalue at valence `n`:
@@ -96,7 +97,7 @@ use std::f64::consts::PI;
 /// Panics if `n < 3`.
 pub fn cc_subdominant_eigenvalue(n: usize) -> f64 {
     assert!(n >= 3, "CC subdominant eigenvalue needs n ≥ 3, got {n}");
-    let c = (2.0 * PI / n as f64).cos();
+    let c = (2.0 * PI / n as f64).pcos();
     (c + 5.0 + ((c + 1.0) * (c + 9.0)).sqrt()) / 16.0
 }
 

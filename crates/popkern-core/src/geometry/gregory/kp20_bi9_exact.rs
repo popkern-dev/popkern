@@ -22,6 +22,7 @@
 use super::kp20_bi6_cap::Kp20Bi6Patch;
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Value and derivatives through order two at one parameter point.
 #[derive(Debug, Clone, Copy)]
@@ -86,9 +87,12 @@ impl<'a> ExactPiece<'a> {
         tau_piece: &Kp20Bi6Patch,
     ) -> Self {
         let alpha = core::f64::consts::TAU / n as f64;
-        let (ca, sa) = ((sector as f64 * alpha).cos(), (sector as f64 * alpha).sin());
+        let (ca, sa) = (
+            (sector as f64 * alpha).pcos(),
+            (sector as f64 * alpha).psin(),
+        );
         let (a0, a1) = (sector as f64 * alpha, (sector + 1) as f64 * alpha);
-        let (s0, s1) = ([a0.cos(), a0.sin()], [a1.cos(), a1.sin()]);
+        let (s0, s1) = ([a0.pcos(), a0.psin()], [a1.pcos(), a1.psin()]);
         let det = s1[0] * s0[1] - s1[1] * s0[0];
         // L: [a; b] = [[-s1y, s1x], [s0y, -s0x]] / det · [x; y].
         let l = [[-s1[1] / det, s1[0] / det], [s0[1] / det, -s0[0] / det]];

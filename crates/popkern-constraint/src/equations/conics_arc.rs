@@ -13,6 +13,7 @@ use super::conics::{el, hyp, par};
 use super::{EquationOutput, ar};
 use crate::Sketch;
 use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle};
+use popkern_math::PortableMath;
 
 /// TangentArcEllipse: arc tangent to ellipse via auxiliary parameter `t`.
 ///
@@ -35,10 +36,10 @@ pub(crate) fn eval_tangent_arc_ellipse(
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = el(sketch, ellipse_h);
     let t = sketch.params[aux_idx];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
-    let cos_t = t.cos();
-    let sin_t = t.sin();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
+    let cos_t = t.pcos();
+    let sin_t = t.psin();
 
     // Conic point
     let ex = cx + a * cos_t * cos_th - b * sin_t * sin_th;
@@ -152,8 +153,8 @@ pub(crate) fn eval_tangent_arc_parabola(
     let (vx, vy, f, theta, ivx, ivy, if_, itheta) = par(sketch, parabola_h);
     let t = sketch.params[aux_idx];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
 
     let u = t * t / (4.0 * f);
     let du_dt = t / (2.0 * f);
@@ -252,10 +253,10 @@ pub(crate) fn eval_tangent_arc_hyperbola(
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = hyp(sketch, hyperbola_h);
     let t = sketch.params[aux_idx];
 
-    let cos_th = theta.cos();
-    let sin_th = theta.sin();
-    let cosh_t = t.cosh();
-    let sinh_t = t.sinh();
+    let cos_th = theta.pcos();
+    let sin_th = theta.psin();
+    let cosh_t = t.pcosh();
+    let sinh_t = t.psinh();
 
     // Conic point
     let ex = cx + a * cosh_t * cos_th - b * sinh_t * sin_th;

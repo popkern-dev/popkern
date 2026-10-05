@@ -6,6 +6,7 @@ license.workspace = true
 description = "Assemblies: part definitions built once and placed as named rigid instances (product structure above the scripting recorder)"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-history = { path = "../popkern-history" }
 popkern-part = { path = "../popkern-part" }

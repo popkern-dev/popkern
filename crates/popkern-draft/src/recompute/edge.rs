@@ -8,6 +8,7 @@
 //! its r-of-cylinder rim circle while the cone flared past it, and the
 //! inconsistent body meshed with 638 cracked seam edges).
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use crate::error::{DraftError, DraftWarning};
@@ -162,7 +163,7 @@ fn cone_seam_ruling(
     let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
     let sample = old.geometry.point_at(0.5 * (old.t_start + old.t_end));
     let d = sample - *apex;
-    let phi = d.dot(&p2).atan2(d.dot(&p1));
+    let phi = d.dot(&p2).patan2(d.dot(&p1));
     let station = d.dot(axis);
     if station.abs() <= 0.0 {
         return None; // sample at the apex — azimuth undefined
@@ -171,8 +172,8 @@ fn cone_seam_ruling(
     // is apex → that point. Deriving it from the surface makes the
     // direction correct for either apex-side convention (draft's
     // cone need not point its axis toward growing radius).
-    let radial = p1 * phi.cos() + p2 * phi.sin();
-    let on_cone = *apex + *axis * station + radial * (station.abs() * half_angle.tan());
+    let radial = p1 * phi.pcos() + p2 * phi.psin();
+    let on_cone = *apex + *axis * station + radial * (station.abs() * half_angle.ptan());
     let direction = (on_cone - *apex).normalized()?;
     // Preserve the old parameter direction.
     let old_dir = old.geometry.point_at(old.t_end) - old.geometry.point_at(old.t_start);
@@ -300,7 +301,7 @@ fn compute_edge_curve(
                 return Ok(EdgeCurveOutcome::Degenerate);
             }
             let t_axis = (*po - *apex).dot(&n) / denom;
-            let radius = t_axis.abs() * half_angle.tan();
+            let radius = t_axis.abs() * half_angle.ptan();
             if radius < tolerance.linear() {
                 return Ok(EdgeCurveOutcome::Degenerate);
             }
@@ -323,13 +324,13 @@ fn compute_edge_curve(
             // azimuth (azimuth survives the draft; radius does not).
             let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(normal);
             let d = start_pos - center;
-            let a0 = d.dot(&p2).atan2(d.dot(&p1));
+            let a0 = d.dot(&p2).patan2(d.dot(&p1));
             let closed = he.origin == twin.origin;
             let a1 = if closed {
                 a0 + std::f64::consts::TAU
             } else {
                 let d_end = end_pos - center;
-                let mut a = d_end.dot(&p2).atan2(d_end.dot(&p1));
+                let mut a = d_end.dot(&p2).patan2(d_end.dot(&p1));
                 while a <= a0 {
                     a += std::f64::consts::TAU;
                 }

@@ -110,8 +110,8 @@ impl AnalyticJetSource {
     /// Enclosure of every partial up to order 6 over the box.
     pub fn jet(&self, u: Iv, v: Iv) -> SurfaceJet {
         let mut jet = SurfaceJet::zero();
-        let (cu, su) = (u.cos(), u.sin());
-        let (cv, sv) = (v.cos(), v.sin());
+        let (cu, su) = (Iv::cos(u), Iv::sin(u));
+        let (cv, sv) = (Iv::cos(v), Iv::sin(v));
         for &(k, l) in JET_ORDERS.iter() {
             let value = match *self {
                 AnalyticJetSource::Plane {

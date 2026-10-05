@@ -16,6 +16,7 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 use popkern_sweep::arc_length::ArcLengthTable;
 
 /// Look up a parameter value by ID.
@@ -301,7 +302,7 @@ fn alignment_rotation(from: Vec3, to: Vec3) -> Option<(Vec3, f64)> {
         return None;
     }
     let dot = from.dot(&to).clamp(-1.0, 1.0);
-    let angle = dot.acos();
+    let angle = dot.pacos();
     let axis = cross.normalized()?;
     Some((axis, angle))
 }

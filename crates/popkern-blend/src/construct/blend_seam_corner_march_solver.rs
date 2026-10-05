@@ -8,6 +8,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::types::BlendSeamCornerDeclineReason as Reason;
 
@@ -59,12 +60,12 @@ pub(super) fn march_seam(
         return Err(Reason::ParallelAxes);
     }
     let point_on = |u: f64, t: f64| -> Point3 {
-        cyl_on.origin + p1 * (r * u.cos()) + p2 * (r * u.sin()) + a_on * t
+        cyl_on.origin + p1 * (r * u.pcos()) + p2 * (r * u.psin()) + a_on * t
     };
     // The strip_off membership constraint is quadratic in the axial
     // coordinate t at fixed chart angle u.
     let solve_roots = |u: f64| -> Option<(f64, f64)> {
-        let base = cyl_on.origin + p1 * (r * u.cos()) + p2 * (r * u.sin());
+        let base = cyl_on.origin + p1 * (r * u.pcos()) + p2 * (r * u.psin());
         let d0 = base - cyl_off.origin;
         let a_ = 1.0 - c * c;
         let b_ = d0.dot(&a_on) - c * d0.dot(&a_off);
@@ -91,7 +92,7 @@ pub(super) fn march_seam(
     // step toward the corner region instead.
     let solve_t_first = |u: f64| -> Option<f64> {
         let (t1, t2) = solve_roots(u)?;
-        let base = |t: f64| cyl_on.origin + p1 * (r * u.cos()) + p2 * (r * u.sin()) + a_on * t;
+        let base = |t: f64| cyl_on.origin + p1 * (r * u.pcos()) + p2 * (r * u.psin()) + a_on * t;
         Some(
             if (base(t1) - toward).length() <= (base(t2) - toward).length() {
                 t1
@@ -102,7 +103,7 @@ pub(super) fn march_seam(
     };
     let d_start = start - cyl_on.origin;
     let radial_start = d_start - a_on * d_start.dot(&a_on);
-    let u0 = radial_start.dot(&p2).atan2(radial_start.dot(&p1));
+    let u0 = radial_start.dot(&p2).patan2(radial_start.dot(&p1));
     let t0 = d_start.dot(&a_on);
     let s_of = |p: Point3| -> f64 { (p - plane.origin).dot(&plane.normal) };
     let s_start = s_of(start);
@@ -140,7 +141,7 @@ pub(super) fn march_seam(
             // Tangent support: exit at the rail generator's angle,
             // unwrapped in the march direction.
             let d_t = -n_perp * s_axis.signum();
-            let u_rail = d_t.dot(&p2).atan2(d_t.dot(&p1));
+            let u_rail = d_t.dot(&p2).patan2(d_t.dot(&p1));
             let mut du = (u_rail - u0) % std::f64::consts::TAU;
             if du < 0.0 {
                 du += std::f64::consts::TAU;

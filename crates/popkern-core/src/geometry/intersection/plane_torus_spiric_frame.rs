@@ -6,6 +6,7 @@
 use crate::geometry::curve::CurveEval;
 use crate::geometry::intersection::marching::MarchSample;
 use crate::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use super::plane_torus_spiric::SCAN_SAMPLES;
@@ -72,7 +73,7 @@ impl SpiricFrame {
     }
 
     fn m_at(&self, u: f64) -> f64 {
-        self.n1 * u.cos() + self.n2 * u.sin()
+        self.n1 * u.pcos() + self.n2 * u.psin()
     }
 
     pub(super) fn f_at(&self, u: f64) -> f64 {
@@ -84,7 +85,7 @@ impl SpiricFrame {
 
     fn f_deriv_at(&self, u: f64) -> f64 {
         let m = self.m_at(u);
-        let m_prime = -self.n1 * u.sin() + self.n2 * u.cos();
+        let m_prime = -self.n1 * u.psin() + self.n2 * u.pcos();
         let a = self.d0 - self.big_r * m;
         -2.0 * m_prime * (self.big_r * a + self.r * self.r * m)
     }
@@ -172,8 +173,8 @@ impl SpiricFrame {
         } else {
             1.0
         };
-        let phi = self.na.atan2(m);
-        let mut v = phi + sign * ratio.acos();
+        let phi = self.na.patan2(m);
+        let mut v = phi + sign * ratio.pacos();
         if let Some(p) = prev {
             v -= TAU * ((v - p) / TAU).round();
         }
@@ -181,11 +182,11 @@ impl SpiricFrame {
     }
 
     fn sample_at(&self, u: f64, v: f64, swapped: bool) -> MarchSample {
-        let rho = self.big_r + self.r * v.cos();
+        let rho = self.big_r + self.r * v.pcos();
         let point = self.center
-            + self.p1 * (rho * u.cos())
-            + self.p2 * (rho * u.sin())
-            + self.axis_n * (self.r * v.sin());
+            + self.p1 * (rho * u.pcos())
+            + self.p2 * (rho * u.psin())
+            + self.axis_n * (self.r * v.psin());
         let d = point - self.plane_origin;
         let ul = self.plane_u.dot(&self.plane_u);
         let vl = self.plane_v.dot(&self.plane_v);
@@ -251,7 +252,7 @@ impl SpiricFrame {
     pub(super) fn arc_loop(&self, ua: f64, ub: f64, n: usize, swapped: bool) -> Vec<MarchSample> {
         let u_at = |i: usize| {
             let s = i as f64 / (n - 1) as f64;
-            ua + (ub - ua) * 0.5 * (1.0 - (std::f64::consts::PI * s).cos())
+            ua + (ub - ua) * 0.5 * (1.0 - (std::f64::consts::PI * s).pcos())
         };
         let mut samples = Vec::with_capacity(2 * n);
         let mut prev_v: Option<f64> = None;
@@ -308,11 +309,11 @@ impl SpiricFrame {
             } else {
                 (curve.curve_uv2.point_at(t), curve.curve_uv1.point_at(t))
             };
-            let rho_t = self.big_r + self.r * uv_torus.y.cos();
+            let rho_t = self.big_r + self.r * uv_torus.y.pcos();
             let torus_point = self.center
-                + self.p1 * (rho_t * uv_torus.x.cos())
-                + self.p2 * (rho_t * uv_torus.x.sin())
-                + self.axis_n * (self.r * uv_torus.y.sin());
+                + self.p1 * (rho_t * uv_torus.x.pcos())
+                + self.p2 * (rho_t * uv_torus.x.psin())
+                + self.axis_n * (self.r * uv_torus.y.psin());
             let plane_point =
                 self.plane_origin + self.plane_u * uv_plane.x + self.plane_v * uv_plane.y;
             if torus_point.distance_to(&p) > gate || plane_point.distance_to(&p) > gate {

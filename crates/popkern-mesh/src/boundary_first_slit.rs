@@ -30,6 +30,7 @@
 //! recorded fallback boundary, not silent incompleteness.
 
 use super::BoundaryRing;
+use popkern_math::PortableMath;
 
 /// Split `ring` at every coincident double-traversal (slit) into its
 /// genuine boundary components. Rings without slits — and rings on
@@ -84,7 +85,7 @@ fn find_and_cut_slit(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
         v0 = v0.min(v);
         v1 = v1.max(v);
     }
-    let eps_uv = ((u1 - u0).hypot(v1 - v0)).max(1e-12) * 1e-6;
+    let eps_uv = ((u1 - u0).phypot(v1 - v0)).max(1e-12) * 1e-6;
     let scale = ring
         .pos
         .iter()
@@ -128,7 +129,7 @@ fn find_and_cut_slit(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
                 let q = (s2 + k - t) % n;
                 let (pu, pv) = ring.uv[p];
                 let (qu, qv) = ring.uv[q];
-                (pu - qu).hypot(pv - qv) <= eps_uv
+                (pu - qu).phypot(pv - qv) <= eps_uv
                     && ring.pos[p].distance_to(&ring.pos[q]) <= eps_pos
             });
             if !coincident {
@@ -234,7 +235,7 @@ fn find_and_cut_pinch(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
         v0 = v0.min(v);
         v1 = v1.max(v);
     }
-    let eps_uv = ((u1 - u0).hypot(v1 - v0)).max(1e-12) * 1e-6;
+    let eps_uv = ((u1 - u0).phypot(v1 - v0)).max(1e-12) * 1e-6;
     let scale = ring
         .pos
         .iter()
@@ -249,7 +250,7 @@ fn find_and_cut_pinch(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
             }
             let (pu, pv) = ring.uv[i];
             let (qu, qv) = ring.uv[j];
-            if (pu - qu).hypot(pv - qv) > eps_uv || ring.pos[i].distance_to(&ring.pos[j]) > eps_pos
+            if (pu - qu).phypot(pv - qv) > eps_uv || ring.pos[i].distance_to(&ring.pos[j]) > eps_pos
             {
                 continue;
             }

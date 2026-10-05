@@ -10,6 +10,7 @@
 //! u_axis, so STEP export needs no sense compensation), recomputes
 //! pcurves, and validates.
 
+use popkern_math::PortableMath;
 use std::collections::HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
@@ -102,8 +103,8 @@ pub fn convex_hull_faces(points: &[Point3]) -> Vec<Vec<usize>> {
             ordered.sort_by(|&a, &b| {
                 let pa = points[a] - origin() - centroid;
                 let pb = points[b] - origin() - centroid;
-                let ta = pa.dot(&e2).atan2(pa.dot(&e1));
-                let tb = pb.dot(&e2).atan2(pb.dot(&e1));
+                let ta = pa.dot(&e2).patan2(pa.dot(&e1));
+                let tb = pb.dot(&e2).patan2(pb.dot(&e1));
                 ta.partial_cmp(&tb).unwrap_or(std::cmp::Ordering::Equal)
             });
             ordered

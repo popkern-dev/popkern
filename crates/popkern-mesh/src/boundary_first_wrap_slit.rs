@@ -23,6 +23,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_math::PortableMath;
 
 use super::BoundaryRing;
 
@@ -61,7 +62,7 @@ pub(super) fn collapse_stubs(ring: &mut BoundaryRing) {
                 let j = (i + dj) % n;
                 let (pu, pv) = ring.uv[i];
                 let (qu, qv) = ring.uv[j];
-                if (pu - qu).hypot(pv - qv) < 1.0e-9 {
+                if (pu - qu).phypot(pv - qv) < 1.0e-9 {
                     cut = Some((i, dj));
                     break 'scan;
                 }

@@ -13,6 +13,7 @@
 //! stays positive (full pierce), tangent-joined loops per
 //! positive-discriminant interval otherwise.
 
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::error::CoreError;
@@ -95,7 +96,7 @@ pub(crate) fn try_cylinder_cylinder(
     // Quadratic along the ruling at angle θ:
     //   |dp_perp(θ) + t·d_perp|² = tr²
     let quad = |theta: f64| -> (f64, f64, f64) {
-        let origin = so + sp1 * (sr * theta.cos()) + sp2 * (sr * theta.sin());
+        let origin = so + sp1 * (sr * theta.pcos()) + sp2 * (sr * theta.psin());
         let dp = origin - to;
         let dp_perp = dp - ta * dp.dot(&ta);
         let b = 2.0 * dp_perp.dot(&d_perp);
@@ -103,7 +104,7 @@ pub(crate) fn try_cylinder_cylinder(
         (b * b - 4.0 * a_coef * c, b, c)
     };
     let point_at = |theta: f64, t: f64| -> Point3 {
-        so + sp1 * (sr * theta.cos()) + sp2 * (sr * theta.sin()) + sa * t
+        so + sp1 * (sr * theta.pcos()) + sp2 * (sr * theta.psin()) + sa * t
     };
 
     // Scan the discriminant over one period.
@@ -218,7 +219,7 @@ pub(crate) fn try_cylinder_cylinder(
         // point_at is origin + axis·v (raw axis): invert with the
         // squared length so non-unit stored axes stay exact.
         let v = rel.dot(axis) / axis.length_squared();
-        let mut u = rel.dot(&p2).atan2(rel.dot(&p1));
+        let mut u = rel.dot(&p2).patan2(rel.dot(&p1));
         if let Some(pu) = prev_u {
             while u - pu > std::f64::consts::PI {
                 u -= TAU;
@@ -349,9 +350,9 @@ fn try_parallel_axes(
     for sign in [1.0, -1.0] {
         let q = mid + perp * (sign * h);
         let radial1 = q - o1;
-        let u1 = norm_angle(f64::atan2(radial1.dot(&p1b), radial1.dot(&p1a)));
+        let u1 = norm_angle(f64::patan2(radial1.dot(&p1b), radial1.dot(&p1a)));
         let radial2 = (q - o2) - a2n * (q - o2).dot(&a2n);
-        let u2 = norm_angle(f64::atan2(radial2.dot(&p2b), radial2.dot(&p2a)));
+        let u2 = norm_angle(f64::patan2(radial2.dot(&p2b), radial2.dot(&p2a)));
         let a = q + a1n * t_lo;
         let b = q + a1n * t_hi;
         // Chart v satisfies point = origin + … + axis·v, so

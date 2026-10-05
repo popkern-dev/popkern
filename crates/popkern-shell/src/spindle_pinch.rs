@@ -14,6 +14,7 @@
 //! vertices with exact meridian ellipse arcs (`u_basis = radial·r'`,
 //! `v_basis = axis·r'` — the tube angle is the parameter).
 
+use popkern_math::PortableMath;
 use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::geometry::analytic_surfaces::orthonormal_basis;
@@ -122,7 +123,7 @@ pub(crate) fn serve_spindle_group(
     tolerance: &Tolerance,
 ) -> Result<usize, ShellError> {
     let (rr, r_minor) = (group.major, group.minor);
-    let theta0 = (-rr / r_minor).acos();
+    let theta0 = (-rr / r_minor).pacos();
     let dead_lo = theta0;
     let dead_hi = 2.0 * std::f64::consts::PI - theta0;
     let w = (r_minor * r_minor - rr * rr).sqrt();
@@ -187,7 +188,7 @@ pub(crate) fn serve_spindle_group(
         let z_loc = rel.dot(&group.axis);
         let radial = rel - group.axis * z_loc;
         let rho = radial.length();
-        let v_ring = normalize_angle(z_loc.atan2(rho - rr));
+        let v_ring = normalize_angle(z_loc.patan2(rho - rr));
         // Pole side: caps on the upper half close at v = θ₀, lower at
         // v = 2π − θ₀.
         let (v_pole, pole) = if v_ring < std::f64::consts::PI {
@@ -302,7 +303,7 @@ fn author_fan_geometry(
     // Azimuth of a ring vertex.
     let azimuth = |p: Point3| -> f64 {
         let rel = p - group.center;
-        normalize_angle(rel.dot(&perp2).atan2(rel.dot(&perp1)))
+        normalize_angle(rel.dot(&perp2).patan2(rel.dot(&perp1)))
     };
 
     // Spoke curves: exact meridian ellipse arcs, ranged ring → pole in
@@ -319,7 +320,7 @@ fn author_fan_geometry(
         };
         let p_ring = body.vertices[ring_vertex].position;
         let phi = azimuth(p_ring);
-        let radial_dir = perp1 * phi.cos() + perp2 * phi.sin();
+        let radial_dir = perp1 * phi.pcos() + perp2 * phi.psin();
         let geometry = CurveGeometry::Ellipse {
             center: group.center + radial_dir * group.major,
             u_basis: radial_dir * group.minor,

@@ -20,6 +20,7 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 /// Result of a sphere-fit termination computation.
@@ -319,9 +320,9 @@ fn solve_circle_plane_intersection(
     // Identity: cu·cos(θ) + cv·sin(θ) = R·cos(θ − φ) where
     // R = sqrt(cu² + cv²) and φ = atan2(cv, cu). Solving for θ:
     //   R·cos(θ − φ) = −c0  ⟹  θ = φ ± acos(−c0 / R).
-    let phi = cv.atan2(cu);
+    let phi = cv.patan2(cu);
     let arg = (-c0 / amplitude).clamp(-1.0, 1.0);
-    let alpha = arg.acos();
+    let alpha = arg.pacos();
     let theta1 = phi + alpha;
     let theta2 = phi - alpha;
     // Pick the solution in `[0, TAU)`.
@@ -333,8 +334,8 @@ fn solve_circle_plane_intersection(
 }
 
 fn circle_eval(centre: Point3, radius: f64, u_axis: Vec3, v_axis: Vec3, theta: f64) -> Point3 {
-    let c = theta.cos();
-    let s = theta.sin();
+    let c = theta.pcos();
+    let s = theta.psin();
     Point3::new(
         centre.x + radius * (c * u_axis.x + s * v_axis.x),
         centre.y + radius * (c * u_axis.y + s * v_axis.y),
@@ -376,8 +377,8 @@ fn arc_as_nurbs(
     // standard rational-quadratic-on-circle construction, this
     // is the point at angle θ_m on a circle of radius r/cos(α)
     // (the "shoulder" radius).
-    let shoulder_radius = if half_angle.cos().abs() > 1e-300 {
-        radius / half_angle.cos()
+    let shoulder_radius = if half_angle.pcos().abs() > 1e-300 {
+        radius / half_angle.pcos()
     } else {
         radius
     };
@@ -385,7 +386,7 @@ fn arc_as_nurbs(
     NurbsCurve {
         degree: 2,
         control_points: vec![p0, p1, p2],
-        weights: vec![1.0, half_angle.cos(), 1.0],
+        weights: vec![1.0, half_angle.pcos(), 1.0],
         knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
     }
 }

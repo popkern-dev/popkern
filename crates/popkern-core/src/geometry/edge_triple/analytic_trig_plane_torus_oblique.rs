@@ -51,6 +51,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_plane_torus_oblique(
@@ -85,8 +86,8 @@ pub(super) fn try_plane_torus_oblique(
     let big_r = major_radius;
 
     let v_at = |u: f64, branch_sign: f64| -> Option<f64> {
-        let cu = u.cos();
-        let su = u.sin();
+        let cu = u.pcos();
+        let su = u.psin();
         let x = p1n * cu + p2n * su;
         let m = (x * x + cn * cn).sqrt();
         if m < tol.solver() {
@@ -96,8 +97,8 @@ pub(super) fn try_plane_torus_oblique(
         if !(-1.0..=1.0).contains(&arg) {
             return None;
         }
-        let phi = cn.atan2(x);
-        Some(phi + branch_sign * arg.acos())
+        let phi = cn.patan2(x);
+        Some(phi + branch_sign * arg.pacos())
     };
 
     // Recover (u, v) in torus-surface coords from a 3-D anchor.
@@ -105,13 +106,13 @@ pub(super) fn try_plane_torus_oblique(
         let dp = p - torus_center;
         let v_axis = dp.dot(&torus_axis);
         let perp_vec = dp - torus_axis * v_axis;
-        let u = perp_vec.dot(&perp2).atan2(perp_vec.dot(&perp1));
+        let u = perp_vec.dot(&perp2).patan2(perp_vec.dot(&perp1));
         let tube_r = perp_vec.length();
         // sin v = v_axis / r
         let sin_v = (v_axis / r).clamp(-1.0, 1.0);
         // cos v = (tube_r − R) / r — sign from which side of the major circle
         let cos_v = ((tube_r - big_r) / r).clamp(-1.0, 1.0);
-        let v_t = sin_v.atan2(cos_v);
+        let v_t = sin_v.patan2(cos_v);
         let v = if v_t < 0.0 {
             v_t + std::f64::consts::TAU
         } else {
@@ -195,9 +196,9 @@ pub(super) fn try_plane_torus_oblique(
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let u = u_start + frac * span;
         let v = v_at(u, branch_sign)?;
-        let cv = v.cos();
-        let sv = v.sin();
-        let radial = perp1 * u.cos() + perp2 * u.sin();
+        let cv = v.pcos();
+        let sv = v.psin();
+        let radial = perp1 * u.pcos() + perp2 * u.psin();
         let p3 = torus_center + radial * (big_r + r * cv) + torus_axis * (r * sv);
         pts_3d.push(p3);
         // Plane uv.

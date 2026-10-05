@@ -11,6 +11,7 @@
 //! angle-linear).
 
 use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_math::PortableMath;
 
 /// One quadratic span `(P0, Pm, P2, w_mid)` with its `[t0, t1]` knot
 /// labels; end weights are `1`.
@@ -52,9 +53,9 @@ pub(crate) fn arc_spans(cx: f64, cy: f64, r: f64, a0: f64, a1: f64, z: f64) -> V
         .ceil()
         .max(1.0) as usize;
     let step = sweep / n_sub as f64;
-    let w = (step / 2.0).cos();
+    let w = (step / 2.0).pcos();
     let on = |ang: f64, scale: f64| {
-        Point3::new(cx + scale * r * ang.cos(), cy + scale * r * ang.sin(), z)
+        Point3::new(cx + scale * r * ang.pcos(), cy + scale * r * ang.psin(), z)
     };
     (0..n_sub)
         .map(|i| {

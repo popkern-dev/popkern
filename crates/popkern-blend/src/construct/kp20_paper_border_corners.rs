@@ -27,6 +27,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_math::PortableMath;
 
 use crate::fillet_surface::FilletSurfaceResult;
 
@@ -192,7 +193,7 @@ pub(super) fn cap_corner_turn(
     if leaving.length() < 1.0e-15 {
         return None;
     }
-    Some((-leaving.dot(&side)).atan2(leaving.dot(&t_hat)))
+    Some((-leaving.dot(&side)).patan2(leaving.dot(&t_hat)))
 }
 
 /// Whether the cap boundary turns CONVEXLY at a corner, as a
@@ -207,7 +208,7 @@ pub(super) fn cap_corner_is_convex(
     sin_floor: f64,
 ) -> bool {
     cap_corner_turn(bisector, rim_out, station_march, corner_march)
-        .is_none_or(|turn| turn.sin() > sin_floor)
+        .is_none_or(|turn| turn.psin() > sin_floor)
 }
 
 /// Per corner `c_s`, the eq (14) corner-block disagreement between
@@ -219,7 +220,7 @@ pub(super) fn corner_block_mismatches(
     trace: bool,
 ) -> Vec<f64> {
     let n = grouped.len();
-    let d1_3 = 2.0 * (core::f64::consts::TAU / n as f64).cos() / 3.0;
+    let d1_3 = 2.0 * (core::f64::consts::TAU / n as f64).pcos() / 3.0;
     grouped
         .iter()
         .enumerate()

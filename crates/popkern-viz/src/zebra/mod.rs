@@ -25,6 +25,7 @@
 
 use popkern_core::geometry::surface::SurfaceEval as _;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 use popkern_mesh::TriMesh;
 
 use crate::camera::Camera;
@@ -178,7 +179,7 @@ pub(crate) fn angle_between(a: [f64; 3], b: [f64; 3]) -> f64 {
         a[2] * b[0] - a[0] * b[2],
         a[0] * b[1] - a[1] * b[0],
     ];
-    dot(c, c).sqrt().atan2(dot(a, b))
+    dot(c, c).sqrt().patan2(dot(a, b))
 }
 
 /// Rasterize `mesh` into a deferred [`ZebraFrame`] seen by `camera`.

@@ -13,6 +13,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::BRep;
+use popkern_math::PortableMath;
 
 use crate::error::PointClassification;
 
@@ -103,7 +104,7 @@ fn triangle_solid_angle(point: &Point3, v0: &Point3, v1: &Point3, v2: &Point3) -
 
     let denom = la * lb * lc + ab * lc + bc * la + ca * lb;
 
-    2.0 * det.atan2(denom)
+    2.0 * det.patan2(denom)
 }
 
 #[cfg(test)]

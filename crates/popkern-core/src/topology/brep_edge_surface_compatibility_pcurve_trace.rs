@@ -16,6 +16,7 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
 use crate::topology::{
     BRep, EdgeHandle, HalfEdgeHandle, SharedTrimEdgeInput, commit_shared_trim_edge_transactionally,
 };
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_commit_pcurve_trace_edge(
@@ -203,8 +204,8 @@ fn cylinder_curve_between(
     let end_center = *origin + axis_unit * end_axis;
     let start_radial = start - start_center;
     let end_radial = end - end_center;
-    let start_angle = start_radial.dot(&v_axis).atan2(start_radial.dot(&u_axis));
-    let mut end_angle = end_radial.dot(&v_axis).atan2(end_radial.dot(&u_axis));
+    let start_angle = start_radial.dot(&v_axis).patan2(start_radial.dot(&u_axis));
+    let mut end_angle = end_radial.dot(&v_axis).patan2(end_radial.dot(&u_axis));
     while end_angle - start_angle > std::f64::consts::PI {
         end_angle -= std::f64::consts::TAU;
     }
@@ -232,7 +233,7 @@ fn cylinder_curve_between(
         let angle = start_angle + (end_angle - start_angle) * fraction;
         let station = start_axis + (end_axis - start_axis) * fraction;
         let center = *origin + axis_unit * station;
-        points.push(center + u_axis * (*radius * angle.cos()) + v_axis * (*radius * angle.sin()));
+        points.push(center + u_axis * (*radius * angle.pcos()) + v_axis * (*radius * angle.psin()));
         parameters.push(fraction);
     }
     let degree = 5.min(points.len().saturating_sub(1));

@@ -14,6 +14,7 @@ default = ["parallel"]
 parallel = ["dep:rayon"]
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 rayon = { workspace = true, optional = true }
 thiserror.workspace = true
 serde.workspace = true

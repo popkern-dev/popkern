@@ -13,6 +13,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Exact closest point on an analytic surface, `None` for classes
 /// without a closed form here or at parametrically ambiguous inputs
@@ -48,7 +49,7 @@ pub(crate) fn project_to_analytic_surface(surface: &SurfaceGeometry, p: &Point3)
             let radial_n = radial.normalized()?;
             // In (axial, radial) coordinates the ruling is the ray
             // s·(cosα, sinα), s ≥ 0; project onto it.
-            let (sin_a, cos_a) = half_angle.sin_cos();
+            let (sin_a, cos_a) = half_angle.psin_cos();
             let s = t * cos_a + r * sin_a;
             if s <= 0.0 {
                 // Nearest surface point is the apex — parametrically
@@ -109,7 +110,7 @@ pub(crate) fn analytic_residual(surface: &SurfaceGeometry, p: &Point3) -> Option
             let rel = *p - *apex;
             let t = rel.dot(&a);
             let r = (rel - a * t).length();
-            let (sin_a, cos_a) = half_angle.sin_cos();
+            let (sin_a, cos_a) = half_angle.psin_cos();
             let s = t * cos_a + r * sin_a;
             if s <= 0.0 {
                 // Nearest surface point is the apex itself.
@@ -335,7 +336,7 @@ pub(crate) fn coaxial_circle_edge_curve(
             if t_axis <= lin {
                 return None; // plane at/behind the apex
             }
-            t_axis * half_angle.tan()
+            t_axis * half_angle.ptan()
         }
     };
     if r1 <= lin {

@@ -16,6 +16,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::body_distance::FaceTrimEntry;
 use crate::classify::classify_faces;
@@ -214,7 +215,7 @@ pub fn shell_preview(
             // Slerp the two displaced directions around the station.
             let (ua, ub) = (da * (1.0 / da.length()), db * (1.0 / db.length()));
             let dot = ua.dot(&ub).clamp(-1.0, 1.0);
-            let angle = dot.acos();
+            let angle = dot.pacos();
             let ring: Vec<usize> = (0..=STRIP_ARC)
                 .map(|k| {
                     let f = k as f64 / STRIP_ARC as f64;
@@ -222,8 +223,8 @@ pub fn shell_preview(
                         ua
                     } else {
                         let (wa, wb) = (
-                            ((1.0 - f) * angle).sin() / angle.sin(),
-                            (f * angle).sin() / angle.sin(),
+                            ((1.0 - f) * angle).psin() / angle.psin(),
+                            (f * angle).psin() / angle.psin(),
                         );
                         let v = ua * wa + ub * wb;
                         v * (1.0 / v.length().max(1e-12))

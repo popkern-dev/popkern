@@ -16,6 +16,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_math::PortableMath;
 
 #[cfg(test)]
 #[path = "three_quad_planned_seam_authoring_tests.rs"]
@@ -283,7 +284,7 @@ fn build_sphere_plane_intersection_triple(
     let end_unit = end_vec
         .normalized()
         .ok_or_else(|| "sphere-plane seam end is at circle centre".to_string())?;
-    let mut end_angle = end_unit.dot(&v_dir).atan2(end_unit.dot(&u_dir));
+    let mut end_angle = end_unit.dot(&v_dir).patan2(end_unit.dot(&u_dir));
     while end_angle > std::f64::consts::PI {
         end_angle -= std::f64::consts::TAU;
     }
@@ -298,8 +299,8 @@ fn build_sphere_plane_intersection_triple(
         let angle = s * end_angle;
         points.push(
             circle_center
-                + u_dir * (circle_radius * angle.cos())
-                + v_dir * (circle_radius * angle.sin()),
+                + u_dir * (circle_radius * angle.pcos())
+                + v_dir * (circle_radius * angle.psin()),
         );
         params.push(s);
     }

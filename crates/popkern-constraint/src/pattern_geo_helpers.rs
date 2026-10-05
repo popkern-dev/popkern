@@ -6,6 +6,7 @@
 
 use crate::Sketch;
 use crate::elements::{ArcHandle, ElementHandle, PointHandle};
+use popkern_math::PortableMath;
 
 /// Rotate a point around a centre.
 pub(crate) fn rotate_point(
@@ -185,7 +186,7 @@ pub(crate) fn reflect_cloned_centres(
     lx2: f64,
     ly2: f64,
 ) {
-    let line_angle = (ly2 - ly1).atan2(lx2 - lx1);
+    let line_angle = (ly2 - ly1).patan2(lx2 - lx1);
     for elem in seed {
         match elem {
             ElementHandle::Arc(ah) => {

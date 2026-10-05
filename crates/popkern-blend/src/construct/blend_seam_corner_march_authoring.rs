@@ -9,6 +9,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::types::BlendSeamCornerDeclineReason as Reason;
 
@@ -30,7 +31,7 @@ pub(super) fn chart_polyline(
     for p in pts {
         let d = *p - cyl.origin;
         let radial = d - cyl.axis * d.dot(&cyl.axis);
-        let mut u = radial.dot(&p2).atan2(radial.dot(&p1));
+        let mut u = radial.dot(&p2).patan2(radial.dot(&p1));
         if let Some(pu) = prev_u {
             while u - pu > std::f64::consts::PI {
                 u -= std::f64::consts::TAU;
@@ -89,7 +90,7 @@ pub(super) fn cylinder_plane_arc(
     let angle_of = |p: Point3| -> f64 {
         let d = p - cyl.origin;
         let radial = d - cyl.axis * d.dot(&cyl.axis);
-        radial.dot(&p2).atan2(radial.dot(&p1))
+        radial.dot(&p2).patan2(radial.dot(&p1))
     };
     let th_from = angle_of(from);
     let mut th_to = angle_of(to);
@@ -277,7 +278,7 @@ pub(super) fn author_rail(
                 (
                     radial
                         .dot(&orthonormal_basis(cyl_on.axis).1)
-                        .atan2(radial.dot(&orthonormal_basis(cyl_on.axis).0)),
+                        .patan2(radial.dot(&orthonormal_basis(cyl_on.axis).0)),
                     d.dot(&cyl_on.axis),
                 )
             } else {

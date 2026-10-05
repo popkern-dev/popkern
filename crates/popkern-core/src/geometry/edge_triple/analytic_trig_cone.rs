@@ -12,6 +12,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Plane × cone when the plane normal is aligned with the cone's
 /// axis (axis-perpendicular slice). The intersection is a circle
@@ -44,7 +45,7 @@ pub(super) fn try_plane_cone_perpendicular(
     if height <= tol.linear() {
         return None; // at or below apex — degenerate
     }
-    let circle_radius = height * half_angle.tan();
+    let circle_radius = height * half_angle.ptan();
     let circle_center = cone_apex + cone_axis * height;
 
     let (arc_basis_u, arc_basis_v) = crate::geometry::analytic_curves::circle_basis(cone_axis);
@@ -52,7 +53,7 @@ pub(super) fn try_plane_cone_perpendicular(
         crate::geometry::analytic_surfaces::orthonormal_basis(cone_axis);
     let cone_u_offset = arc_basis_u
         .dot(&cone_basis_v)
-        .atan2(arc_basis_u.dot(&cone_basis_u));
+        .patan2(arc_basis_u.dot(&cone_basis_u));
 
     let (start, end) = match anchors {
         EdgeAnchors::Open { start, end } => (*start, *end),
@@ -67,7 +68,7 @@ pub(super) fn try_plane_cone_perpendicular(
         if (r - circle_radius).abs() > tol.linear() {
             return None;
         }
-        Some(cv.atan2(cu))
+        Some(cv.patan2(cu))
     };
     let theta_start = match theta_of(start) {
         Some(t) => t,

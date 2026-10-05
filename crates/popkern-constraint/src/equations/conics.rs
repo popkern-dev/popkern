@@ -7,6 +7,7 @@
 use super::{EquationOutput, ar, pt};
 use crate::Sketch;
 use crate::elements::{ArcHandle, EllipseHandle, HyperbolaHandle, ParabolaHandle, PointHandle};
+use popkern_math::PortableMath;
 
 // ── Conic helper functions ────────────────────────────────────────────────
 
@@ -84,8 +85,8 @@ pub(crate) fn hyp(
 /// - `u = (px - cx) * cos(theta) + (py - cy) * sin(theta)`
 /// - `v = -(px - cx) * sin(theta) + (py - cy) * cos(theta)`
 fn to_local(px: f64, py: f64, cx: f64, cy: f64, theta: f64) -> (f64, f64) {
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
     let dx = px - cx;
     let dy = py - cy;
     (dx * cos_t + dy * sin_t, -dx * sin_t + dy * cos_t)
@@ -103,8 +104,8 @@ pub(crate) fn eval_point_on_ellipse(
     let (px, py, ipx, ipy) = pt(sketch, p);
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = el(sketch, e);
     let (u, v) = to_local(px, py, cx, cy, theta);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     let ua2 = 2.0 * u / (a * a);
     let vb2 = 2.0 * v / (b * b);
@@ -135,8 +136,8 @@ pub(crate) fn eval_point_on_parabola(
     let (px, py, ipx, ipy) = pt(sketch, p);
     let (vx, vy, f, theta, ivx, ivy, if_, itheta) = par(sketch, pa);
     let (u, v) = to_local(px, py, vx, vy, theta);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     let residual = v * v - 4.0 * f * u;
 
@@ -170,8 +171,8 @@ pub(crate) fn eval_point_on_hyperbola(
     let (px, py, ipx, ipy) = pt(sketch, p);
     let (cx, cy, a, b, theta, icx, icy, ia, ib, itheta) = hyp(sketch, h);
     let (u, v) = to_local(px, py, cx, cy, theta);
-    let cos_t = theta.cos();
-    let sin_t = theta.sin();
+    let cos_t = theta.pcos();
+    let sin_t = theta.psin();
 
     let ua2 = 2.0 * u / (a * a);
     let vb2 = 2.0 * v / (b * b);

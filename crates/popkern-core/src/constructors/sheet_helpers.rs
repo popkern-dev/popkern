@@ -6,6 +6,7 @@
 use crate::error::CoreError;
 use crate::geometry::{Point3, Vec3};
 use crate::topology::BRep;
+use popkern_math::PortableMath;
 
 /// Locate the edge whose canonical half-edge runs from `p_from`
 /// to `p_to` (within linear tolerance) and replace its `Line`
@@ -81,7 +82,7 @@ fn find_edge_between_points(
 }
 
 fn angle_in_basis(rel: Vec3, u: Vec3, v: Vec3) -> f64 {
-    rel.dot(&v).atan2(rel.dot(&u))
+    rel.dot(&v).patan2(rel.dot(&u))
 }
 
 /// Wrap `t` so it's within `±π` of `anchor`. Used to pick the

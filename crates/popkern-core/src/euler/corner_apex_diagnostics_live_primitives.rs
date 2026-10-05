@@ -11,6 +11,7 @@ use crate::geometry::curve::{CurveEval, CurveGeometry};
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 pub(super) struct LivePrimitiveAssessment {
     pub trial_interaction: TrialInteractionFact,
@@ -54,7 +55,7 @@ fn assess_mutual_trim_probe(
     let trial_interaction = if missing.is_none() && selected.len() == 2 {
         let angle = edge_tangent_angle_at_vertex(brep, request.scope.vertex, selected);
         match angle {
-            Some(angle) if angle.sin().abs() > angle_tolerance(tolerance) => {
+            Some(angle) if angle.psin().abs() > angle_tolerance(tolerance) => {
                 classify_trial_interaction(BlendValence::ThroughVertex, true, Some(0), tolerance)
             }
             Some(_) => TrialInteractionFact {

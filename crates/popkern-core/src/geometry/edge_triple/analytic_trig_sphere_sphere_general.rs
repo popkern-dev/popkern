@@ -32,6 +32,7 @@ use crate::geometry::edge_triple::types::{
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn try_sphere_sphere_general(
@@ -76,7 +77,7 @@ pub(super) fn try_sphere_sphere_general(
                 distance: r - circle_radius,
             });
         }
-        Ok(cv.atan2(cu))
+        Ok(cv.patan2(cu))
     };
     let theta_start = match theta_of(start, SurfaceSide::A) {
         Ok(t) => t,
@@ -116,15 +117,15 @@ pub(super) fn try_sphere_sphere_general(
         let frac = i as f64 / (n_samples as f64 - 1.0);
         let theta = theta_start + frac * span;
         let p3 = circle_center
-            + arc_basis_u * (circle_radius * theta.cos())
-            + arc_basis_v * (circle_radius * theta.sin());
+            + arc_basis_u * (circle_radius * theta.pcos())
+            + arc_basis_v * (circle_radius * theta.psin());
         let dp_a = p3 - center_a;
-        let lon_a = dp_a.y.atan2(dp_a.x);
-        let colat_a = (dp_a.z / radius_a).clamp(-1.0, 1.0).acos();
+        let lon_a = dp_a.y.patan2(dp_a.x);
+        let colat_a = (dp_a.z / radius_a).clamp(-1.0, 1.0).pacos();
         pts_a.push(Point3::new(lon_a, colat_a, 0.0));
         let dp_b = p3 - center_b;
-        let lon_b = dp_b.y.atan2(dp_b.x);
-        let colat_b = (dp_b.z / radius_b).clamp(-1.0, 1.0).acos();
+        let lon_b = dp_b.y.patan2(dp_b.x);
+        let colat_b = (dp_b.z / radius_b).clamp(-1.0, 1.0).pacos();
         pts_b.push(Point3::new(lon_b, colat_b, 0.0));
         params.push(frac);
     }

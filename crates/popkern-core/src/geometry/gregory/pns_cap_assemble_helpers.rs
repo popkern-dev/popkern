@@ -4,6 +4,7 @@ use super::super::pns_gram::{bi4_flat_index, gram_bi4_f_kappa};
 use super::super::pns_sigma::SigmaCenterJet;
 use super::{CapAssembleError, CapAssembleInput};
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 
 /// The 4 "free" CPs per sector, in fixed order for DOF indexing.
 /// **Canonical** `(u_c, v_c)` indexing. These are the deep-interior
@@ -131,7 +132,7 @@ pub(super) fn build_coef_map(
     //     → p^k_{3, 1} = [2·(4-c)·p^{k-1}_{0, 3}
     //                    + c·(p^{k-1}_{1, 4} + p^k_{4, 1})
     //                    - 4·p^{k-1}_{1, 3}] / 4
-    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).pcos();
     let two_minus_c = 2.0 - c;
     let four_minus_c = 4.0 - c;
     for k in 0..n {

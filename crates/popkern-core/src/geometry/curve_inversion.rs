@@ -25,6 +25,7 @@
 use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 pub use crate::geometry::curve_nearest_param::nearest_param_on_curve;
 
@@ -320,7 +321,7 @@ fn invert_arc_general(
     // Compute angle in (u, v) basis.
     let cos_t = in_plane.dot(&u);
     let sin_t = in_plane.dot(&v);
-    let raw_angle = sin_t.atan2(cos_t);
+    let raw_angle = sin_t.patan2(cos_t);
     let in_plane_radius = (cos_t * cos_t + sin_t * sin_t).sqrt();
 
     // Verify on circle: in-plane radius matches AND off-plane component is 0.

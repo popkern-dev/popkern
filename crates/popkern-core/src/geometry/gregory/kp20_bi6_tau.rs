@@ -11,7 +11,7 @@ use super::kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20GuideJet3, Kp20Tri6GuideSector, kp20_corner_block_from_jet,
 };
 use super::kp20_bi6_math::Kp20TauParams;
-use crate::geometry::Point3;
+use crate::geometry::{Point3, PortableMath};
 
 /// Number of total-degree-3 triangular BB coefficients in a τ map.
 pub const KP20_TAU_CP_COUNT: usize = 10;
@@ -35,8 +35,8 @@ impl Kp20TauMap {
         let alpha = core::f64::consts::TAU / n as f64;
         let a0 = k as f64 * alpha;
         let a1 = (k + 1) as f64 * alpha;
-        let v_dot = [a0.cos(), a0.sin()];
-        let v_ddot = [a1.cos(), a1.sin()];
+        let v_dot = [a0.pcos(), a0.psin()];
+        let v_ddot = [a1.pcos(), a1.psin()];
         let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
 
         cps[flat_index(3, 0, 0)] = [0.0, 0.0];
@@ -105,8 +105,8 @@ impl Kp20TauMap {
         let alpha = core::f64::consts::TAU / n as f64;
         let a0 = k as f64 * alpha;
         let a1 = (k + 1) as f64 * alpha;
-        let v_dot = [a0.cos(), a0.sin()];
-        let v_ddot = [a1.cos(), a1.sin()];
+        let v_dot = [a0.pcos(), a0.psin()];
+        let v_ddot = [a1.pcos(), a1.psin()];
 
         // Origin `o = (0, 0)`; the o column of eq (22) vanishes.
         let combine = |c_dot: f64, c_ddot: f64| -> [f64; 2] {
@@ -161,8 +161,8 @@ impl Kp20TauMap {
         let alpha = core::f64::consts::TAU / n as f64;
         let a0 = k as f64 * alpha;
         let a1 = (k + 1) as f64 * alpha;
-        let spoke0 = [a0.cos(), a0.sin()];
-        let spoke1 = [a1.cos(), a1.sin()];
+        let spoke0 = [a0.pcos(), a0.psin()];
+        let spoke1 = [a1.pcos(), a1.psin()];
         let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
         if det.abs() <= 1.0e-14 {
             return Err(format!("KP20 sector {k} has singular local τ basis"));

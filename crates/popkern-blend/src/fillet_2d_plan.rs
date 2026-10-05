@@ -28,6 +28,7 @@
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_math::PortableMath;
 
 use crate::corner_2d_helpers::{
     circle_basis_like_core, edge_arc_length, setback_from_corner, tangent_at_corner_outgoing,
@@ -108,7 +109,7 @@ pub(crate) fn corner_plan(
     }
 
     let cos_angle = dir_a.dot(&dir_b).clamp(-1.0, 1.0);
-    let angle = cos_angle.acos();
+    let angle = cos_angle.pacos();
     if angle < 1.0e-4 {
         return Err("edges are nearly colinear (no meaningful corner)".into());
     }
@@ -166,8 +167,8 @@ pub(crate) fn corner_plan(
         match (&curve_a.geometry, &curve_b.geometry) {
             (CurveGeometry::Line { .. }, CurveGeometry::Line { .. }) => {
                 let half_angle = angle * 0.5;
-                let tan_half = half_angle.tan();
-                let sin_half = half_angle.sin();
+                let tan_half = half_angle.ptan();
+                let sin_half = half_angle.psin();
                 let setback = radius / tan_half;
                 let offset = radius / sin_half;
                 if setback >= len_a || setback >= len_b {
@@ -254,8 +255,8 @@ pub(crate) fn corner_plan(
     let (u_basis, v_basis) = circle_basis_like_core(arc_normal);
     let t1_rel = t1 - arc_center;
     let t2_rel = t2 - arc_center;
-    let start_angle = t1_rel.dot(&v_basis).atan2(t1_rel.dot(&u_basis));
-    let end_angle = t2_rel.dot(&v_basis).atan2(t2_rel.dot(&u_basis));
+    let start_angle = t1_rel.dot(&v_basis).patan2(t1_rel.dot(&u_basis));
+    let end_angle = t2_rel.dot(&v_basis).patan2(t2_rel.dot(&u_basis));
 
     Ok(CornerPlan {
         he_out_a: outgoing[0],

@@ -3310,6 +3310,7 @@ dependencies = [
  "popkern-core",
  "popkern-history",
  "popkern-io",
+ "popkern-math",
  "popkern-measure",
  "popkern-mesh",
  "popkern-part",
@@ -3328,6 +3329,7 @@ dependencies = [
  "popkern-bool",
  "popkern-core",
  "popkern-io",
+ "popkern-math",
  "popkern-mesh",
  "rayon",
  "serde",
@@ -3341,6 +3343,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-blend",
  "popkern-core",
+ "popkern-math",
  "rayon",
  "slotmap",
  "thiserror 2.0.18",
@@ -3371,6 +3374,7 @@ name = "popkern-constraint"
 version = "0.1.0"
 dependencies = [
  "faer",
+ "popkern-math",
  "serde",
  "serde_json",
  "slotmap",
@@ -3386,6 +3390,7 @@ dependencies = [
  "num-integer",
  "num-rational",
  "num-traits",
+ "popkern-math",
  "rayon",
  "serde",
  "serde_json",
@@ -3398,6 +3403,7 @@ name = "popkern-draft"
 version = "0.1.0"
 dependencies = [
  "popkern-core",
+ "popkern-math",
  "thiserror 2.0.18",
 ]
 
@@ -3432,6 +3438,7 @@ dependencies = [
  "popkern-blend",
  "popkern-bool",
  "popkern-core",
+ "popkern-math",
  "popkern-sketch",
  "popkern-sweep",
  "thiserror 2.0.18",
@@ -3448,6 +3455,7 @@ dependencies = [
  "popkern-core",
  "popkern-draft",
  "popkern-fastener",
+ "popkern-math",
  "popkern-measure",
  "popkern-shell",
  "popkern-sketch",
@@ -3464,6 +3472,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-blend",
  "popkern-core",
+ "popkern-math",
  "popkern-mesh",
  "thiserror 2.0.18",
  "winnow 0.7.15",
@@ -3496,12 +3505,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-math"
+version = "0.1.0"
+dependencies = [
+ "libm",
+]
+
+[[package]]
 name = "popkern-measure"
 version = "0.1.0"
 dependencies = [
  "popkern-blend",
  "popkern-bool",
  "popkern-core",
+ "popkern-math",
  "popkern-mesh",
  "popkern-sweep",
  "serde",
@@ -3515,6 +3532,7 @@ dependencies = [
  "popkern-blend",
  "popkern-bool",
  "popkern-core",
+ "popkern-math",
  "popkern-shell",
  "popkern-sweep",
  "rayon",
@@ -3534,6 +3552,7 @@ dependencies = [
  "popkern-draft",
  "popkern-fastener",
  "popkern-io",
+ "popkern-math",
  "popkern-mesh",
  "popkern-shell",
  "popkern-sketch",
@@ -3567,6 +3586,7 @@ dependencies = [
  "popkern-core",
  "popkern-fastener",
  "popkern-history",
+ "popkern-math",
  "popkern-measure",
  "popkern-mesh",
  "popkern-part",
@@ -3618,6 +3638,7 @@ dependencies = [
  "popkern-blend",
  "popkern-bool",
  "popkern-core",
+ "popkern-math",
  "rayon",
  "serde_json",
  "thiserror 2.0.18",
@@ -3630,6 +3651,7 @@ dependencies = [
  "popkern-blend",
  "popkern-constraint",
  "popkern-core",
+ "popkern-math",
  "popkern-sweep",
  "serde",
  "serde_json",
@@ -3649,6 +3671,7 @@ version = "0.1.0"
 dependencies = [
  "popkern-bool",
  "popkern-core",
+ "popkern-math",
  "serde_json",
  "thiserror 2.0.18",
 ]
@@ -3666,6 +3689,7 @@ dependencies = [
  "log",
  "pollster",
  "popkern-core",
+ "popkern-math",
  "popkern-measure",
  "popkern-mesh",
  "serde",

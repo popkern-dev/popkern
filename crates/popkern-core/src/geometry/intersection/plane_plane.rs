@@ -12,6 +12,7 @@ use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 
 /// Try to analytically intersect two planes.
 ///
@@ -42,7 +43,7 @@ pub(crate) fn try_plane_plane(
     let d_len_sq = d.length_squared();
 
     // Check for parallel planes: |d|² < sin²(angular_tol) ≈ angular_tol² for small angles.
-    let sin_tol = tolerance.angular().sin();
+    let sin_tol = tolerance.angular().psin();
     if d_len_sq < sin_tol * sin_tol {
         // Planes are parallel (or anti-parallel). Measure the signed distance
         // from origin2 to plane 1: dist = (origin2 - origin1) · n1.

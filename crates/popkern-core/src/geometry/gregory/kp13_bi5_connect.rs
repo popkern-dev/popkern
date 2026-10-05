@@ -62,6 +62,7 @@
 use super::bernstein_tri5::flat_index;
 use super::kp13_bi5_gtri5::Gtri5Sector;
 use crate::geometry::Point3;
+use popkern_math::PortableMath;
 use std::f64::consts::PI;
 
 /// KP09a eq (5) weights `(ν₀, ν₁, ν₂)` for valence `n`.
@@ -77,7 +78,7 @@ impl ConnectWeights {
     /// Default weights from [KP09a eq (5)].
     pub fn for_valence(n: usize) -> Self {
         assert!(n >= 3, "KP09a connectivity needs n ≥ 3; got {n}");
-        let c = (2.0 * PI / n as f64).cos();
+        let c = (2.0 * PI / n as f64).pcos();
         let c_bar = 1.0 - c;
         Self {
             nu0: 2.0 * c_bar,

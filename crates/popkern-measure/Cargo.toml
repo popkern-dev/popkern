@@ -6,6 +6,7 @@ license.workspace = true
 description = "Geometric measurement queries for popkern BRep solids"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
 thiserror.workspace = true

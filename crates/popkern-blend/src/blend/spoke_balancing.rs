@@ -34,6 +34,7 @@
 //! straight-spoke path.
 
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Natural sector span (radians) above which balancing engages.
 /// The guided rung's fold class was measured from 173.6° down to
@@ -92,7 +93,7 @@ pub(super) fn balanced_spoke_plan(
         if (x * x + y * y).sqrt() < 1e-12 {
             return None;
         }
-        theta.push(y.atan2(x));
+        theta.push(y.patan2(x));
     }
 
     let tau = std::f64::consts::TAU;
@@ -119,10 +120,10 @@ pub(super) fn balanced_spoke_plan(
     let (mut sin_sum, mut cos_sum) = (0.0_f64, 0.0_f64);
     for (k, &th) in theta.iter().enumerate() {
         let dev = th - k as f64 * delta;
-        sin_sum += dev.sin();
-        cos_sum += dev.cos();
+        sin_sum += dev.psin();
+        cos_sum += dev.pcos();
     }
-    let phi = sin_sum.atan2(cos_sum);
+    let phi = sin_sum.patan2(cos_sum);
 
     // Interpolate each tangent from its natural angle toward the
     // regular target by `strength`, through the short way around.
@@ -157,7 +158,7 @@ pub(super) fn balanced_spoke_plan(
         .fold(0.0_f64, f64::max);
     let mut dirs = Vec::with_capacity(n);
     for &angle in &psi {
-        dirs.push(t1 * angle.cos() + t2 * angle.sin());
+        dirs.push(t1 * angle.pcos() + t2 * angle.psin());
     }
     Some(BalancedSpokePlan {
         dirs,

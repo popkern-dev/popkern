@@ -26,6 +26,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::healing::{ReflectionLine, compute_reflection_lines};
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 use crate::geometry_compute::face_param_range;
 
@@ -186,10 +187,20 @@ pub fn reflection_line_boundary_kink(
         // that vertex itself within tolerance).
         let pa = geom_a.point_at(ua, va);
         let pb = geom_b.point_at(ub, vb);
-        if (pa.x - pt.x).hypot(pa.y - pt.y).hypot(pa.z - pt.z).powi(2) > tol_sq {
+        if (pa.x - pt.x)
+            .phypot(pa.y - pt.y)
+            .phypot(pa.z - pt.z)
+            .powi(2)
+            > tol_sq
+        {
             continue;
         }
-        if (pb.x - pt.x).hypot(pb.y - pt.y).hypot(pb.z - pt.z).powi(2) > tol_sq {
+        if (pb.x - pt.x)
+            .phypot(pb.y - pt.y)
+            .phypot(pb.z - pt.z)
+            .powi(2)
+            > tol_sq
+        {
             continue;
         }
         let Some(tan_a) = reflection_tangent_at(&geom_a, ua, va, view_dir, stripe_dir) else {
@@ -201,7 +212,7 @@ pub fn reflection_line_boundary_kink(
         let cos = tan_a.dot(&tan_b).clamp(-1.0, 1.0);
         // Tangents may be parallel OR anti-parallel across the
         // boundary (orientation is per-face-arbitrary).
-        let angle = cos.abs().acos();
+        let angle = cos.abs().pacos();
         max_angle = Some(match max_angle {
             Some(m) => m.max(angle),
             None => angle,

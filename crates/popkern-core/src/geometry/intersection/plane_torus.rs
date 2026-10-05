@@ -30,6 +30,7 @@ use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 /// Try to analytically intersect a plane and a torus.
@@ -228,7 +229,7 @@ fn villarceau_circles(
         let samples = 16;
         for i in 0..samples {
             let theta = TAU * (i as f64) / (samples as f64);
-            let p = c + m_hat * (big_r * theta.cos()) + w_hat * (big_r * theta.sin());
+            let p = c + m_hat * (big_r * theta.pcos()) + w_hat * (big_r * theta.psin());
             let d = p - center;
             let h = d.dot(&axis_n);
             let rho = (d - axis_n * h).length();

@@ -10,6 +10,7 @@
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
+use popkern_math::PortableMath;
 
 /// Affine map from the swept surface's `[0,1]²` chart to the
 /// recognized surface's native chart (cylinder: `u` = angle in
@@ -170,7 +171,7 @@ pub(crate) fn recognize_extruded_cylinder(
     let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(axis);
     let angle_of = |p: &Point3| -> f64 {
         let d = *p - center;
-        d.dot(&perp2).atan2(d.dot(&perp1))
+        d.dot(&perp2).patan2(d.dot(&perp1))
     };
     let theta0 = angle_of(&row0[0]);
     // Unwrap the end angle to the branch reached by walking the row.

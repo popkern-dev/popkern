@@ -5,6 +5,7 @@ use popkern_core::geometry::gregory::{
     kp20_apply_g2_strip, kp20_b_coeffs_near_o, kp20_propagate_c2_upper_from_lower,
 };
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 pub(super) fn support_owner_piece(piece: Kp20PieceId) -> Kp20PieceId {
     match piece {
@@ -31,7 +32,7 @@ pub(super) fn propagate_support_pole_interfaces(
     support_changed: Vec<[bool; 2]>,
 ) {
     let n = macro_patches.len();
-    let b0 = kp20_b_coeffs_near_o((core::f64::consts::TAU / n as f64).cos())[0];
+    let b0 = kp20_b_coeffs_near_o((core::f64::consts::TAU / n as f64).pcos())[0];
     for (sector, changed) in support_changed.into_iter().enumerate() {
         if changed[0] {
             let lower = *macro_patches[sector].piece(Kp20PieceId::NearMidpointLeft);

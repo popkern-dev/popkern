@@ -16,6 +16,7 @@
 //! preserves.
 
 use super::BoundaryRing;
+use popkern_math::PortableMath;
 
 /// Target cell count of the metric grid (memory bound for thin charts
 /// whose long segments cover many cells).
@@ -171,14 +172,14 @@ impl RingIndex {
             .map(|&(a, b)| {
                 let (pa, pb) = (metric(a), metric(b));
                 let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
-                let l = dx.hypot(dy);
+                let l = dx.phypot(dy);
                 // Lattice spacing along the segment's unit normal.
                 let (nx, ny) = if l > 1e-300 {
                     (-dy / l, dx / l)
                 } else {
                     (0.0, 1.0)
                 };
-                let inv = (nx / cell_u.max(1e-300)).hypot(ny / cell_v.max(1e-300));
+                let inv = (nx / cell_u.max(1e-300)).phypot(ny / cell_v.max(1e-300));
                 let across = if inv > 1e-300 { 1.0 / inv } else { 0.0 };
                 // A point at distance d beside a segment of length l is a
                 // sliver apex only when d << l: the band never exceeds a

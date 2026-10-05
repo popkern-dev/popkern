@@ -4,6 +4,8 @@
 //! construction preference (PK-603) and the user corner setback
 //! (PK-623).
 
+use popkern_math::PortableMath;
+
 /// Cross-section profile of a blend (requirements 2.2, PK-189).
 ///
 /// The rolling-ball contact curves and end tangents are identical
@@ -53,7 +55,7 @@ impl BlendProfile {
     /// circular arc for a station with opening angle
     /// `theta` (radians): `cos(θ/2) / (1 + cos(θ/2))`.
     pub fn circular_rho(theta: f64) -> f64 {
-        let w = (0.5 * theta).cos();
+        let w = (0.5 * theta).pcos();
         w / (1.0 + w)
     }
 }

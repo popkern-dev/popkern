@@ -1,5 +1,6 @@
 #![cfg(test)]
 use super::*;
+use popkern_math::PortableMath;
 
 #[test]
 fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
@@ -18,8 +19,8 @@ fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
     };
 
     let arc_sample = |axis_pt: Point3, perp1: Vec3, perp2: Vec3, theta: f64, dtheta_dt: f64| {
-        let cos = theta.cos();
-        let sin = theta.sin();
+        let cos = theta.pcos();
+        let sin = theta.psin();
         let p = Point3::new(
             axis_pt.x + r * cos * perp1.x + r * sin * perp2.x,
             axis_pt.y + r * cos * perp1.y + r * sin * perp2.y,
@@ -130,7 +131,7 @@ fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
         assert!(nl > 1e-9, "sector {k}: degenerate cap normal");
         let cap_unit = Vec3::new(cap_n.x / nl, cap_n.y / nl, cap_n.z / nl);
         let dot = cap_unit.x * support_n.x + cap_unit.y * support_n.y + cap_unit.z * support_n.z;
-        let angle_deg = dot.abs().acos().to_degrees();
+        let angle_deg = dot.abs().pacos().to_degrees();
         assert!(
             dot.abs() > 0.998,
             "sector {k} u=0.5: cap normal {cap_unit:?} should track \

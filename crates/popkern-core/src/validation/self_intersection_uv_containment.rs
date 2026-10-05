@@ -5,6 +5,7 @@
 //! Split out of `self_intersection_trim.rs` to keep it under the
 //! 500-line structural cap.
 
+use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +51,7 @@ pub(super) fn unwrap_uv_for_query(
 pub(super) fn push_distinct_uv(polygon: &mut Vec<UvPoint>, uv: UvPoint) {
     let duplicate = polygon
         .last()
-        .is_some_and(|last| (last.u - uv.u).hypot(last.v - uv.v) < 1.0e-12);
+        .is_some_and(|last| (last.u - uv.u).phypot(last.v - uv.v) < 1.0e-12);
     if !duplicate {
         polygon.push(uv);
     }
@@ -157,7 +158,7 @@ fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
     let ap_v = point.v - a.v;
     let len_sq = ab_u * ab_u + ab_v * ab_v;
     if len_sq <= f64::EPSILON {
-        return ap_u.hypot(ap_v);
+        return ap_u.phypot(ap_v);
     }
 
     let t = ((ap_u * ab_u + ap_v * ab_v) / len_sq).clamp(0.0, 1.0);
@@ -165,7 +166,7 @@ fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
         u: a.u + ab_u * t,
         v: a.v + ab_v * t,
     };
-    (point.u - closest.u).hypot(point.v - closest.v)
+    (point.u - closest.u).phypot(point.v - closest.v)
 }
 
 /// A raw (un-unwrapped) loop boundary sample, flagged when the loop
