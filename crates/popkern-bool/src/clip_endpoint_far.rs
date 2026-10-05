@@ -7,177 +7,17 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-use popkern_core::geometry::intersection::{SurfaceCurveIntersection, intersect_surface_curve};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv_near;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::clip_endpoint_refine::{clone_curve_geometry, endpoint, trim_boundary_edges};
+use super::clip_endpoint_refine::{endpoint, trim_boundary_edges};
+use crate::closed_source_window::{SourceWindow, fold_toward};
+use popkern_core::geometry::surface::SurfaceEval as _;
 
+pub(crate) use crate::clip_far_junction::far_junction;
 pub(crate) use crate::curve_projection::project_onto_curve_dense;
-
-/// FAR-TIER junction search (see the call site): the nearest exact
-/// boundary-edge × other-surface junction that lies ON the record's
-/// source curve, unambiguous by 2×. Returns the junction point and
-/// its parameter on the source curve.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn far_junction(
-    brep_a: &BRep,
-    face_a: FaceHandle,
-    surf_a: &SurfaceGeometry,
-    windows_a: ((f64, f64), (f64, f64)),
-    brep_b: &BRep,
-    face_b: FaceHandle,
-    surf_b: &SurfaceGeometry,
-    windows_b: ((f64, f64), (f64, f64)),
-    p: &Point3,
-    source: &CurveOnSurface,
-    t_end: f64,
-    tolerance: &Tolerance,
-) -> Option<Vec<(Point3, f64)>> {
-    let (s0, s1) = source.curve_3d.parameter_range();
-    let chord = source
-        .curve_3d
-        .point_at(s0)
-        .distance_to(&source.curve_3d.point_at(s1))
-        .max(
-            source
-                .curve_3d
-                .point_at(s0)
-                .distance_to(&source.curve_3d.point_at(0.5 * (s0 + s1))),
-        );
-    let far_cap = 0.25 * chord;
-    let fit_gate = tolerance.linear() * 2000.0;
-    let mut cands: Vec<(f64, Point3, f64)> = Vec::new();
-    let mut exact_here = false;
-    for (brep, face, other_surface, other_windows) in [
-        (brep_a, face_a, surf_b, windows_b),
-        (brep_b, face_b, surf_a, windows_a),
-    ] {
-        for eh in trim_boundary_edges(brep, face) {
-            let Some(edge) = brep.edges.get(eh) else {
-                continue;
-            };
-            let Some(c) = edge.curve.as_ref() else {
-                continue;
-            };
-            let (t0, t1) = (c.t_start, c.t_end);
-            // Prune edges whose curve never comes near the endpoint
-            // at far-cap scale.
-            let near = (&c.geometry as &dyn CurveEval)
-                .closest_point(p)
-                .map(|t| {
-                    let tc = t.clamp(t0.min(t1), t0.max(t1));
-                    c.geometry.point_at(tc).distance_to(p) < far_cap
-                })
-                .unwrap_or(false);
-            if !near {
-                continue;
-            }
-            let range = (t0.min(t1), t0.max(t1));
-            let Ok(result) = intersect_surface_curve(
-                other_surface,
-                other_windows.0,
-                other_windows.1,
-                &clone_curve_geometry(&c.geometry),
-                range,
-                tolerance,
-            ) else {
-                continue;
-            };
-            let far_trace = popkern_core::trace::trace_enabled("clip-far");
-            for isect in &result.intersections {
-                let SurfaceCurveIntersection::Point { point, .. } = isect else {
-                    continue;
-                };
-                // TRIPLE-POINT REFINEMENT (PK-480): remove the
-                // along-edge 1/sin(crossing angle) slide of the 1D
-                // solve (see `clip_triple_junction`).
-                let point = &crate::clip_triple_junction::refine_to_triple_point(
-                    brep,
-                    eh,
-                    other_surface,
-                    *point,
-                    tolerance,
-                );
-                let d = point.distance_to(p);
-                if d <= tolerance.linear() {
-                    // The endpoint IS an exact junction: nothing was
-                    // mislocated, so no far correction applies (the
-                    // next junction along the curve is a different
-                    // crossing — PK-632).
-                    exact_here = true;
-                    continue;
-                }
-                if d > far_cap {
-                    continue;
-                }
-                // The junction must lie ON the source curve. Dense
-                // projection — the trait `closest_point` clamps to
-                // the seam basin on closed sources (measured,
-                // PK-472: the mirrored mouth chamfer's crest circle
-                // junction projected to t=0 with dj=2.73 and the
-                // stop-short retrim never armed).
-                let Some(t_star) = project_onto_curve_dense(&source.curve_3d, point) else {
-                    if far_trace {
-                        eprintln!(
-                            "    [clip-far] p ({:.4},{:.4},{:.4}) junction ({:.4},{:.4},{:.4}) d {d:.3e}: no curve projection",
-                            p.x, p.y, p.z, point.x, point.y, point.z
-                        );
-                    }
-                    continue;
-                };
-                let t_star = t_star.clamp(s0.min(s1), s0.max(s1));
-                let dj = source.curve_3d.point_at(t_star).distance_to(point);
-                if far_trace {
-                    eprintln!(
-                        "    [clip-far] p ({:.4},{:.4},{:.4}) junction ({:.4},{:.4},{:.4}) d {d:.3e} t* {t_star:.4} dj {dj:.3e} gate {fit_gate:.3e}",
-                        p.x, p.y, p.z, point.x, point.y, point.z
-                    );
-                }
-                if dj > fit_gate {
-                    continue;
-                }
-                cands.push((d, *point, t_star));
-            }
-        }
-    }
-    if exact_here {
-        return Some(Vec::new());
-    }
-    // Among boundary junctions ON the source curve, the clip's sloppy
-    // crossing belongs to the one nearest in PARAMETER — the crossing
-    // it mislocated. 3D-nearest is the wrong discriminator in a
-    // junction cluster (the angled tap's runout wedge has six
-    // junctions within 0.15, and a 2× spatial-ambiguity gate refused
-    // every correction there).
-    cands.sort_by(|x, y| {
-        (x.2 - t_end)
-            .abs()
-            .total_cmp(&(y.2 - t_end).abs())
-            .then(x.0.total_cmp(&y.0))
-    });
-    // Arc-consistency guard instead of a parameter-fraction cap: the
-    // correction's midpoint must stay within the same spatial cap as
-    // the junction itself — a fold-back or a junction far along the
-    // curve in arc terms is never the mislocated-crossing class.
-    let n_before = cands.len();
-    cands.retain(|c| {
-        let tm = 0.5 * (c.2 + t_end);
-        source.curve_3d.point_at(tm).distance_to(p) <= far_cap
-    });
-    if popkern_core::trace::trace_enabled("clip-far") && n_before > 0 {
-        eprintln!(
-            "    [clip-far] p ({:.4},{:.4},{:.4}) t_end {t_end:.4} src [{s0:.4},{s1:.4}] far_cap {far_cap:.3}: {} of {n_before} kept",
-            p.x,
-            p.y,
-            p.z,
-            cands.len()
-        );
-    }
-    Some(cands.into_iter().map(|c| (c.1, c.2)).collect())
-}
 
 /// Re-trim `piece` along its SOURCE curve so the given end lands at
 /// the exact junction: all three curves (3D + both uv charts) are
@@ -224,15 +64,25 @@ pub(crate) fn retrim_piece_to_junction(
         piece.curve_3d.point_at(0.5 * (p0 + p1))
     };
     let t_mid = project_onto_curve_dense(&source.curve_3d, &mid_p);
-    if !on_source(t_this, &this_p)
-        || !on_source(t_other, &other_p)
-        || !t_mid.is_some_and(|t| on_source(t, &mid_p))
-    {
+    let Some(t_mid) = t_mid.filter(|&t| on_source(t, &mid_p)) else {
+        if far_trace {
+            eprintln!("    [clip-far] retrim refused: piece does not lie on the source curve");
+        }
+        return false;
+    };
+    if !on_source(t_this, &this_p) || !on_source(t_other, &other_p) {
         if far_trace {
             eprintln!("    [clip-far] retrim refused: piece does not lie on the source curve");
         }
         return false;
     }
+    // A CLOSED source's window may run through its parameter seam
+    // (see `closed_source_window`): unwrap the ends along the piece's
+    // own traversal and lift the junction next to this end. Open
+    // sources and seam-free pieces keep their raw parameters.
+    let window = SourceWindow::of(source);
+    let (t_this, t_other) = window.unwrap_piece(t_this, t_other, t_mid);
+    let t_star = window.lift_near(t_star, t_this);
     // Corrected window in source parameters, oriented the way the
     // piece traverses: the far end stays, this end moves to the
     // junction's parameter. SHORTENING ONLY — pulling an overshot end
@@ -300,7 +150,7 @@ pub(crate) fn retrim_piece_to_junction(
                         .distance_to(&source.curve_3d.point_at(0.5 * (s0 + s1))),
                 )
         };
-        let dj = source.curve_3d.point_at(t_star).distance_to(&j);
+        let dj = window.point_at(&source.curve_3d, t_star).distance_to(&j);
         let added = j.distance_to(&this_p);
         // Both gates are bounded by the source's own scale so a
         // coarse-tolerance corpus (multicurve cubes at linear = 1e-3)
@@ -331,7 +181,7 @@ pub(crate) fn retrim_piece_to_junction(
         let mut all_ride = true;
         for k in 1..=3 {
             let t = added_lo + (added_hi - added_lo) * k as f64 / 4.0;
-            let q = source.curve_3d.point_at(t);
+            let q = window.point_at(&source.curve_3d, t);
             // The graze deviation grows FROM the junction (zero
             // there, sin(theta) x arc elsewhere) — the gate scales
             // with distance-to-junction alone (measured on the
@@ -420,19 +270,19 @@ pub(crate) fn retrim_piece_to_junction(
         let mut inside_votes = 0;
         for k in 1..=3 {
             let t = t_star + (t_this - t_star) * k as f64 / 4.0;
-            if rides_boundary(&source.curve_3d.point_at(t)) {
+            if rides_boundary(&window.point_at(&source.curve_3d, t)) {
                 continue;
             }
             let in_a = crate::split_inner_loop::point_inside_face_region_uv(
                 brep_a,
                 face_a,
-                source.curve_uv1.point_at(t),
+                window.point_at(&source.curve_uv1, t),
                 &brep_a.tolerance,
             );
             let in_b = crate::split_inner_loop::point_inside_face_region_uv(
                 brep_b,
                 face_b,
-                source.curve_uv2.point_at(t),
+                window.point_at(&source.curve_uv2, t),
                 &brep_b.tolerance,
             );
             if in_a && in_b {
@@ -445,6 +295,19 @@ pub(crate) fn retrim_piece_to_junction(
             }
             return false;
         }
+    }
+    // A window through a CLOSED source's seam re-trims exactly.
+    if window.exact_seam_retrim(
+        piece,
+        source,
+        (n0, n1),
+        end,
+        j,
+        other_p,
+        (surf_a, surf_b),
+        tolerance,
+    ) {
+        return true;
     }
     let (idx_this, idx_other) = if end {
         (16usize, 0usize)
@@ -460,7 +323,7 @@ pub(crate) fn retrim_piece_to_junction(
     // junction), the near end lands exactly on the junction.
     let mut pts: Vec<Point3> = params
         .iter()
-        .map(|&t| source.curve_3d.point_at(t))
+        .map(|&t| window.point_at(&source.curve_3d, t))
         .collect();
     pts[idx_this] = j;
     pts[idx_other] = other_p;
@@ -469,11 +332,19 @@ pub(crate) fn retrim_piece_to_junction(
     };
     let mut fitted_uv = Vec::with_capacity(2);
     for (src_uv, surf) in [(&source.curve_uv1, surf_a), (&source.curve_uv2, surf_b)] {
-        let mut uv_pts: Vec<Point3> = params.iter().map(|&t| src_uv.point_at(t)).collect();
+        let mut uv_pts: Vec<Point3> = params.iter().map(|&t| window.point_at(src_uv, t)).collect();
+        window.unwrap_chart_run(&mut uv_pts, surf);
+        // Analytic projections return the canonical period branch;
+        // pin each end on the branch of the sample it replaces.
+        let (pu, pv) = surf.parameter_periodicity();
         for (idx, q) in [(idx_this, &j), (idx_other, &other_p)] {
             let near = uv_pts[idx];
             if let Some((nu, nv)) = project_point_to_uv_near(surf, q, near.x, near.y) {
-                uv_pts[idx] = Point3::new(nu, nv, 0.0);
+                uv_pts[idx] = Point3::new(
+                    fold_toward(nu, near.x, pu),
+                    fold_toward(nv, near.y, pv),
+                    0.0,
+                );
             }
         }
         let Ok(f) = popkern_core::geometry::fitting::fit_curve(&uv_pts, &params, 3, n) else {

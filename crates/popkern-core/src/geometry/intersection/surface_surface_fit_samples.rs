@@ -68,7 +68,17 @@ pub(crate) fn fit_march_samples(
         if worst <= target || n_cp >= m {
             break c;
         }
-        n_cp = (n_cp * 2).min(m);
+        // Past half the sample count, least squares leaves knot spans
+        // holding barely one sample each: the clamped end spans are
+        // then nearly unconstrained and the curve RINGS between its
+        // first samples while every sample residual stays under the
+        // target (measured, PK-673: the M3 nut's crest × flank
+        // records at 204 control points for 258 exact samples bowed
+        // 1.0e-4 off the flank inside their first interval — ten
+        // times the curve-surface band — against 4.1e-7 for the
+        // interpolant). The next rung is full interpolation, whose
+        // knot averaging satisfies Schoenberg–Whitney.
+        n_cp = if n_cp * 2 > m / 2 { m } else { n_cp * 2 };
     };
 
     // UV1 curve (using Point3(u1, v1, 0.0) convention)
@@ -139,3 +149,7 @@ pub(crate) fn weld_closed_loop(samples: &[MarchSample]) -> Vec<MarchSample> {
     });
     out
 }
+
+#[cfg(test)]
+#[path = "surface_surface_fit_samples_tests.rs"]
+mod tests;
