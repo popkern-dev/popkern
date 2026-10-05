@@ -47,8 +47,14 @@ mod builders_tests;
 #[path = "engine_tests.rs"]
 mod engine_tests;
 #[cfg(test)]
+#[path = "helicoid_fidelity_tests.rs"]
+mod helicoid_fidelity_tests;
+#[cfg(test)]
 #[path = "spec_tests.rs"]
 mod spec_tests;
+#[cfg(test)]
+#[path = "thread_edge_fidelity_tests.rs"]
+mod thread_edge_fidelity_tests;
 #[cfg(test)]
 #[path = "thread_form_tests.rs"]
 mod thread_form_tests;

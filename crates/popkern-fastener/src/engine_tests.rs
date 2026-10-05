@@ -103,11 +103,17 @@ fn frame_convention_left_handed() {
     assert_convention(true);
 }
 
-/// The finished tool lands the authored ABSOLUTE radial coordinates:
-/// vertex radii span [minor radius, major radius + embed] to within
-/// the lead-angle second-order effects.
+/// The finished tool lands the authored ABSOLUTE radial coordinates.
+/// The cross-section is perpendicular to the helix, so its binormal
+/// leans off the axis by the lead angle λ (tan λ = lead / 2π r_helix)
+/// and a profile corner at axial offset y lands at radius
+/// √(r² + (y sin λ)²): 1.05e-4 past the authored outer radius on M6.
+/// The pin holds that exact model, which only true helix tangents at
+/// the sweep's end stations satisfy; the quadratic-arc path's ends
+/// were 23% shallow in lead and read inside a loose 1e-4 band (PK-675).
 #[test]
 fn helical_tool_lands_absolute_radii() {
+    use popkern_core::geometry::PortableMath;
     let spec = ThreadSpec::parse("M6").expect("M6");
     let profile = thread_form::external_groove(&spec).expect("groove profile");
     let (z0, turns) = plan_turns(0.0, 3.0, spec.lead());
@@ -116,22 +122,35 @@ fn helical_tool_lands_absolute_radii() {
     let radii: Vec<f64> = tool
         .vertices
         .iter()
-        .map(|(_, v)| {
-            let p = v.position;
-            (p.x * p.x + p.y * p.y).sqrt()
-        })
+        .map(|(_, v)| v.position.x.phypot(v.position.y))
         .collect();
     let r_min = radii.iter().cloned().fold(f64::MAX, f64::min);
     let r_max = radii.iter().cloned().fold(f64::MIN, f64::max);
+    // The helix radius the engine places the profile centroid on.
+    let points: Vec<[f64; 2]> = profile.points.iter().map(|&(r, y)| [-r, y]).collect();
+    let (cx, _) = sampled_centroid(&polygon_wire(&points, "pin").expect("wire"));
+    let sin_lead = spec.lead().patan2(2.0 * std::f64::consts::PI * -cx).psin();
+    let lands = |r: f64, y: f64| r.phypot(y * sin_lead);
+    let half_width = |r: f64| {
+        profile
+            .points
+            .iter()
+            .filter(|p| (p.0 - r).abs() < 1e-12)
+            .fold(0.0f64, |m, p| m.max(p.1.abs()))
+    };
     let want_min = spec.minor_diameter() / 2.0;
     let want_max = spec.major_diameter() / 2.0 + thread_form::embed_margin(&spec);
-    assert!(
-        (r_min - want_min).abs() < 1e-4,
-        "tool inner radius {r_min} != minor radius {want_min}"
+    let (expect_min, expect_max) = (
+        lands(want_min, half_width(want_min)),
+        lands(want_max, half_width(want_max)),
     );
     assert!(
-        (r_max - want_max).abs() < 1e-4,
-        "tool outer radius {r_max} != embed radius {want_max}"
+        (r_min - expect_min).abs() < 1e-6,
+        "tool inner radius {r_min} != {expect_min} (minor radius {want_min})"
+    );
+    assert!(
+        (r_max - expect_max).abs() < 1e-6,
+        "tool outer radius {r_max} != {expect_max} (embed radius {want_max})"
     );
 }
 

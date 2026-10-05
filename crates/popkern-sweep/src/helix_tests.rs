@@ -70,7 +70,7 @@ fn variable_helix_emits_warning() {
 }
 
 fn circle_nurbs(r: f64) -> NurbsCurve {
-    let w = FRAC_1_SQRT_2;
+    let w = std::f64::consts::FRAC_1_SQRT_2;
     NurbsCurve {
         degree: 2,
         knots: vec![

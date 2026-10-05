@@ -17,9 +17,15 @@ pub(crate) const ARC_LENGTH_SAMPLES: usize = 100;
 pub(crate) const MIN_FRAMES: usize = 10;
 
 /// Arc-length table resolution for a path: the floor is
-/// [`ARC_LENGTH_SAMPLES`], raised to two samples per knot span so the
-/// piecewise-linear `s ↔ t` interpolation always resolves the path's
-/// own parameterization. A fixed 100 was a silent aliasing defect on
+/// [`ARC_LENGTH_SAMPLES`], raised to 32 samples per knot span so the
+/// piecewise-linear `s ↔ t` interpolation resolves the path's own
+/// parameterization *within* each span. Two per span only located the
+/// spans: on the degree-5 helix arcs (PK-675) the speed varies inside
+/// each arc, the table's chord error misplaced frames along the coil,
+/// and the skinned thread tool walls left their helicoids by 8.7e-5
+/// to 2.3e-4 axially (M3..M10). At 8 per span the error is 2.3e-5 to
+/// 6.3e-5, at 32 it is 2.0e-6 to 5.5e-6, and 128 buys about a factor
+/// of three more (measured, `helicoid_fidelity_tests`). A fixed 100 was a silent aliasing defect on
 /// long coils: on a 102-turn thread helix each table cell spanned
 /// 1.02 turns, the cell boundaries' phase drifted 2% of a turn per
 /// cell against the helix period, and the interpolated frame
@@ -28,11 +34,11 @@ pub(crate) const MIN_FRAMES: usize = 10;
 /// level-curve SSI arm's station scans found zero crossings at
 /// exactly the beat phases, period 25.5 turns per flank, the two
 /// flanks in antiphase). The cap bounds table cost on pathologically
-/// knotted paths (~16k helix turns at 4 spans/turn — far past any
-/// served class; beyond it placement degrades smoothly, it does not
-/// fail).
+/// knotted paths: it binds past 512 helix turns (4 spans per turn),
+/// beyond the served thread classes, and past it the in-span
+/// resolution thins smoothly; placement does not fail.
 pub(crate) fn arc_length_samples(path: &NurbsCurve) -> usize {
-    ARC_LENGTH_SAMPLES.max(2 * knot_spans(path)).min(65_536)
+    ARC_LENGTH_SAMPLES.max(32 * knot_spans(path)).min(65_536)
 }
 
 /// Compute sweep frame count from path arc length and complexity.
@@ -181,8 +187,22 @@ mod tests {
             .windows(2)
             .filter(|w| w[1] > w[0] + 1e-12)
             .count();
-        assert!(arc_length_samples(&long) >= 2 * spans);
+        assert!(arc_length_samples(&long) >= 32 * spans);
+        // A short coil still resolves within its spans (PK-675): the
+        // span rule, not the fixed floor, sets its table.
         let short = helix_path(2.0);
-        assert_eq!(arc_length_samples(&short), ARC_LENGTH_SAMPLES);
+        let short_spans = knot_spans(&short);
+        assert_eq!(
+            arc_length_samples(&short),
+            ARC_LENGTH_SAMPLES.max(32 * short_spans)
+        );
+        // A path with few spans keeps the floor.
+        let line = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        assert_eq!(arc_length_samples(&line), ARC_LENGTH_SAMPLES);
     }
 }

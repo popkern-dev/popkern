@@ -10,6 +10,7 @@ pub mod error;
 pub mod frame;
 pub(crate) mod frame_budget;
 pub mod helix;
+pub(crate) mod helix_arcs;
 pub mod interactive;
 pub mod pipe;
 pub(crate) mod pipeline;

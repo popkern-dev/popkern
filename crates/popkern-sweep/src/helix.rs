@@ -4,7 +4,7 @@
 //! helix combined with a circular profile produces an analytic torus surface.
 
 use popkern_math::PortableMath;
-use std::f64::consts::{FRAC_1_SQRT_2, PI};
+use std::f64::consts::PI;
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -18,8 +18,9 @@ const SAMPLES_PER_TURN: usize = 36;
 
 /// Generate a helical path curve from a [`HelixSpec`].
 ///
-/// For constant pitch and constant radius, produces an exact rational
-/// degree-2 NURBS curve using quarter-arc decomposition. For variable
+/// For constant pitch and constant radius, produces exact circular arcs
+/// whose rise tracks the angle to ~1e-8 of the pitch (see
+/// [`crate::helix_arcs`]). For variable
 /// pitch or radius, samples the parametric helix and fits a NURBS curve.
 pub fn build_helix_path(spec: &HelixSpec) -> Result<(NurbsCurve, Vec<SweepWarning>), SweepError> {
     validate_spec(spec)?;
@@ -32,7 +33,7 @@ pub fn build_helix_path(spec: &HelixSpec) -> Result<(NurbsCurve, Vec<SweepWarnin
             HelixPitch::Constant(p) => *p,
             HelixPitch::Variable(_) => unreachable!(),
         };
-        let curve = build_constant_helix(spec, pitch)?;
+        let curve = crate::helix_arcs::build_constant_helix(spec, pitch)?;
         Ok((curve, vec![]))
     } else {
         let curve = build_variable_helix(spec)?;
@@ -139,86 +140,6 @@ fn validate_spec(spec: &HelixSpec) -> Result<(), SweepError> {
     Ok(())
 }
 
-/// Build an exact rational NURBS helix with constant pitch and radius.
-///
-/// Decomposes each turn into 4 quarter arcs. Each quarter arc uses 3
-/// control points: start, weighted midpoint (w = 1/sqrt(2)), end.
-fn build_constant_helix(spec: &HelixSpec, pitch: f64) -> Result<NurbsCurve, SweepError> {
-    let axis = spec
-        .axis_dir
-        .normalized()
-        .ok_or_else(|| SweepError::InvalidPath("helix axis is zero-length".into()))?;
-    let radius = spec.start_radius;
-
-    // Build a local coordinate system.
-    let (u_dir, v_dir) = orthonormal_pair(&axis);
-
-    let n_quarters = (spec.turns * 4.0).ceil() as usize;
-    if n_quarters == 0 {
-        return Err(SweepError::InvalidPath("helix has no turns".into()));
-    }
-    // A left-hand helix winds clockwise about the axis while still
-    // advancing along it; phase and winding are rigid transforms of
-    // the same exact quarter arcs (each still subtends 90°, so the
-    // rational midpoint weight is unchanged).
-    let winding = if spec.left_handed { -1.0 } else { 1.0 };
-    let total_angle = winding * spec.turns * 2.0 * PI;
-    let total_height = spec.turns * pitch;
-
-    // Each quarter arc has 3 control points; shared endpoints → 2*n + 1 total.
-    let n_cp = 2 * n_quarters + 1;
-    let mut control_points = Vec::with_capacity(n_cp);
-    let mut weights = Vec::with_capacity(n_cp);
-
-    for i in 0..=n_quarters {
-        let frac = i as f64 / n_quarters as f64;
-        let angle = spec.start_angle + frac * total_angle;
-        let z = frac * total_height;
-
-        // On-curve point.
-        let x = radius * angle.pcos();
-        let y = radius * angle.psin();
-        let pos = spec.axis_origin + u_dir * x + v_dir * y + axis * z;
-        control_points.push(pos);
-        weights.push(1.0);
-
-        // Midpoint (weighted) — except after the last on-curve point.
-        if i < n_quarters {
-            let frac_mid = (i as f64 + 0.5) / n_quarters as f64;
-            let angle_mid = spec.start_angle + frac_mid * total_angle;
-            let z_mid = frac_mid * total_height;
-
-            // For a rational quarter-arc, the weighted midpoint control
-            // point lies at radius * sqrt(2) from the center in the
-            // bisector direction (radius / cos(pi/4)).
-            let scale = 1.0 / FRAC_1_SQRT_2; // = sqrt(2)
-            let x_mid2 = radius * scale * angle_mid.pcos();
-            let y_mid2 = radius * scale * angle_mid.psin();
-            let pos_mid = spec.axis_origin + u_dir * x_mid2 + v_dir * y_mid2 + axis * z_mid;
-            control_points.push(pos_mid);
-            weights.push(FRAC_1_SQRT_2);
-        }
-    }
-
-    // Knot vector: degree 2, clamped, with double knots at quarter boundaries.
-    let mut knots = vec![0.0, 0.0, 0.0];
-    for i in 1..n_quarters {
-        let k = i as f64 / n_quarters as f64;
-        knots.push(k);
-        knots.push(k);
-    }
-    knots.push(1.0);
-    knots.push(1.0);
-    knots.push(1.0);
-
-    Ok(NurbsCurve {
-        degree: 2,
-        knots,
-        control_points,
-        weights,
-    })
-}
-
 /// Build an approximate NURBS helix for variable pitch or radius.
 ///
 /// Samples the parametric helix at many points and fits a NURBS curve.
@@ -309,7 +230,7 @@ fn interpolate_pairs(pairs: &[(f64, f64)], t: f64) -> f64 {
 /// Build an orthonormal pair perpendicular to a given axis.
 ///
 /// The axis must be a unit vector (pre-normalized by the caller).
-fn orthonormal_pair(axis: &Vec3) -> (Vec3, Vec3) {
+pub(crate) fn orthonormal_pair(axis: &Vec3) -> (Vec3, Vec3) {
     let candidate = if axis.x.abs() < 0.9 {
         Vec3::new(1.0, 0.0, 0.0)
     } else {
