@@ -6,7 +6,7 @@
 // (renaming and reordering rename files: the number orders them). The
 // rail stays hidden for a one-migration project until a second
 // migration is added, so a single script looks as it always did.
-import { NEXT_MIGRATION, insertAfterMigration, insertAfterName } from "./migration-templates.js";
+import { NEXT_MIGRATION, insertAfterMigration, insertAfterName, insertAfterPartMigration } from "./migration-templates.js";
 import { migrationPaths } from "./project-store.js";
 
 const $ = (id) => document.getElementById(id);
@@ -115,16 +115,18 @@ export class MigrationsRail {
 
   /** "Insert a feature here" (design §12): a new last migration that
    *  inserts one feature right after history step `step` of the final
-   *  tree `steps`, opened in the editor. */
-  async insertAt(step, steps) {
+   *  tree `steps` (of assembly part `part`, when given), opened in the
+   *  editor. */
+  async insertAt(step, steps, part = null) {
     const p = this.page.projects.current;
     if (!p || p.readOnly) return this.page.status("make a copy to edit before inserting a feature", true);
     const unique = steps.filter((s) => s.label === step.label).length === 1;
     const last = migrationPaths(p.files).map(parseMigration).at(-1);
     const number = last ? Math.floor(last.number / 10) * 10 + 10 : 1;
-    const path = migrationPath(number, insertAfterName(step.label));
+    const path = migrationPath(number, insertAfterName(part ? `${part} ${step.label}` : step.label));
     if (path in p.files) return this.page.status(`a migration named ${path} exists`, true);
-    await this.page.projects.replaceFiles({ ...p.files, [path]: insertAfterMigration(step.label, step.index, unique) }, path);
+    const source = part ? insertAfterPartMigration(part, step.label, step.index, unique) : insertAfterMigration(step.label, step.index, unique);
+    await this.page.projects.replaceFiles({ ...p.files, [path]: source }, path);
     this.render();
   }
 

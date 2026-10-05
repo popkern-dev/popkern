@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use popkern_project::scaffold::{
-    first_migration_source, insert_after_name, insert_after_source, next_migration_source,
+    first_migration_source, insert_after_name, insert_after_part_source, insert_after_source,
+    next_migration_source,
 };
 use serde_json::{Value, json};
 
@@ -20,7 +21,7 @@ fn javascript(cases: &Value) -> Value {
     let module = root().join("web/live/migration-templates.js");
     let script = format!(
         "import({:?}).then((m) => console.log(JSON.stringify({{ next: m.NEXT_MIGRATION, \
-         first: m.firstMigration(\"Bracket \\\"B\\\"\"), inserts: {cases}.map(([l, p, u]) => [m.insertAfterMigration(l, p, u), m.insertAfterName(l)]) }})))",
+         first: m.firstMigration(\"Bracket \\\"B\\\"\"), inserts: {cases}.map(([l, p, u]) => [m.insertAfterMigration(l, p, u), m.insertAfterName(l), m.insertAfterPartMigration(\"pin \\\"x\\\"\", l, p, u)]) }})))",
         format!("file://{}", module.display())
     );
     let out = Command::new("node")
@@ -61,6 +62,11 @@ fn the_page_writes_the_templates_popkern_project_writes() {
             js["inserts"][i][1],
             insert_after_name(label),
             "name for {label:?}"
+        );
+        assert_eq!(
+            js["inserts"][i][2],
+            insert_after_part_source("pin \"x\"", label, position, unique),
+            "part source for {label:?}"
         );
     }
 }

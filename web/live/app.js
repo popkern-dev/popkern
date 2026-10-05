@@ -70,7 +70,10 @@ class Page {
     this.assembly = new AssemblyPanel({
       select: (path) => this.viewer.select(path),
       visible: (path, visible) => this.viewer.setVisible(path, visible),
-      open: () => this.renderInspector(),
+      open: (part) => {
+        this.renderInspector();
+        this.scrubber.scopePart(part);
+      },
     });
     this.editor = new Editor($("editor"), {
       onChange: (text) => this.changed(text),

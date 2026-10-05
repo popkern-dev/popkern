@@ -9,7 +9,7 @@ mod support;
 use std::rc::Rc;
 
 use popkern_assembly::Document;
-use popkern_project::scaffold::{insert_after_name, insert_after_source};
+use popkern_project::scaffold::{insert_after_name, insert_after_part_source, insert_after_source};
 use popkern_project::{MemoryFs, ProjectError, ProjectFs};
 use support::{build, feature_count, memory, runner, statuses, volume};
 
@@ -149,4 +149,46 @@ fn labels_are_quoted_and_names_are_file_safe() {
     assert!(insert_after_source("x", 4, false).contains("m.features()[3]"));
     assert_eq!(insert_after_name("Rim round!"), "insert_after_rim_round");
     assert_eq!(insert_after_name("***"), "insert_feature");
+}
+
+#[test]
+fn an_assembly_part_takes_an_insert_from_a_migration() {
+    let files = vec![
+        (
+            "popkern.toml".to_string(),
+            b"[project]\nname = \"Pins\"\n".to_vec(),
+        ),
+        (
+            "migrations/001_pins.rhai".to_string(),
+            b"let a = assembly(\"pins\");\nlet pin = a.part(\"pin\", |m| { m.profile(xy()).circle(0.1).sketch(\"pin\").extrude(blind(1.0)); });\na.place(pin, \"left\");\na.place(pin, \"right\").translate(0.5, 0.0, 0.0);\na\n".to_vec(),
+        ),
+    ];
+    let fs = Rc::new(MemoryFs::new(files).expect("files"));
+    let mut runner = runner(&fs);
+    assert!(build(&mut runner, &fs).error.is_none());
+    let source = insert_after_part_source("pin", "extrude-1", 2, true).replace(
+        "        body\n",
+        "        body.chamfer(edges().circular().at_height(1.0), 0.02)\n",
+    );
+    fs.write(
+        &format!("migrations/010_{}.rhai", insert_after_name("pin extrude-1")),
+        source.as_bytes(),
+    )
+    .expect("write");
+    let mut built = build(&mut runner, &fs);
+    assert!(built.error.is_none(), "{:?}", built.error);
+    assert_eq!(statuses(&built), ["cached", "built"]);
+    let Some(Document::Assembly(assembly)) = built.document.as_mut() else {
+        panic!("assembly document expected");
+    };
+    let id = assembly.definition_named("pin").expect("pin");
+    let labels: Vec<String> = assembly
+        .part_model_mut(id)
+        .expect("part")
+        .features()
+        .into_iter()
+        .map(|f| f.label)
+        .collect();
+    assert_eq!(labels, ["pin", "extrude-1", "chamfer-1"]);
+    assert_eq!(assembly.leaves().len(), 2, "both instances still placed");
 }

@@ -12,8 +12,10 @@
 // construction steps instead (PK-666): each place, move and mate, the
 // occurrences placed by then at their placements then, the step's
 // occurrences glowing — placements only, the definition meshes are the
-// run's. On a part, "insert a feature here" adds a migration that
-// inserts one feature after the step on screen.
+// run's. A part opened in the assembly panel scrubs its own features
+// (a step before the end shows the part's bodies alone). On a part, "insert a feature here" adds a
+// migration that inserts one feature after the step on screen (inside
+// `a.edit_part` for an assembly's part).
 
 const $ = (id) => document.getElementById(id);
 // Play advances one step this often.
@@ -35,6 +37,9 @@ export class Scrubber {
     this.drawToken = 0;
     // The assembly timeline (`{ steps, recorded }`) when scrubbing one.
     this.assembly = null;
+    // The assembly part whose features are scrubbed (opened in the
+    // assembly panel), or null.
+    this.part = null;
     this.strip = $("scrubber-ticks");
     $("scrubber-play").addEventListener("click", () => (this.playing ? this.stop() : this.play()));
     $("scrubber-range").addEventListener("input", (e) => this.go(Number(e.target.value)));
@@ -48,7 +53,8 @@ export class Scrubber {
     });
     $("scrubber-insert").addEventListener("click", () => {
       const step = this.steps[this.at - 1];
-      if (step && !this.assembly) this.page.rail.insertAt(step, this.steps);
+      // Kept so a caller (the harness) can await the new migration.
+      if (step && !this.assembly) this.inserting = this.page.rail.insertAt(step, this.steps, this.part);
     });
   }
 
@@ -71,16 +77,27 @@ export class Scrubber {
   /** Load the live model's timeline — a part's features, or an
    *  assembly's construction steps — and put the playhead at the end,
    *  or at the deep-linked step. */
-  async load(envelope) {
+  load(envelope) {
+    // Kept so a caller (the harness) can await the timeline.
+    this.loading = this.loadTimeline(envelope);
+    return this.loading;
+  }
+
+  async loadTimeline(envelope) {
     this.reset();
     if (!this.page.live) return;
     const reply = await this.page.host.request({ type: "timeline" });
     if (!reply.ok) return;
-    if (envelope.assembly) {
+    const scoped = envelope.assembly && this.part ? reply.parts?.find((p) => p.part === this.part) : null;
+    if (scoped) {
+      this.steps = scoped.steps;
+    } else if (envelope.assembly) {
+      this.part = null;
       if (!reply.assembly) return;
       this.assembly = reply.assembly;
       this.steps = reply.assembly.steps.map((s) => ({ ...s, operation: s.kind }));
     } else {
+      this.part = null;
       this.steps = reply.parts?.[0]?.steps ?? [];
     }
     if (this.steps.length < 2) return;
@@ -90,6 +107,19 @@ export class Scrubber {
     this.at = this.steps.length;
     this.showLabel();
     if (target != null && target !== this.steps.length) await this.go(target);
+  }
+
+  /** Scrub assembly part `name`'s own features (null: back to the
+   *  assembly's construction steps). The playhead starts at the end,
+   *  which is the live assembly: opening a part never changes the
+   *  view until a step is chosen. */
+  async scopePart(name) {
+    const live = this.page.lastGood;
+    if (!live?.envelope.assembly || name === this.part) return;
+    const wasScrubbed = this.scrubbed;
+    this.part = name;
+    await this.load(live.envelope);
+    if (wasScrubbed) this.page.showModel(live.envelope, live.buffers);
   }
 
   /** The step a `#step=N` / `#v=K` link asks for. */
@@ -232,7 +262,7 @@ export class Scrubber {
   async stepRows(index) {
     if (this.visited.has(index)) return this.visited.get(index);
     const known = [...this.cache.keys()];
-    const reply = await this.page.host.request({ type: "step_meshes", part: "", index, known });
+    const reply = await this.page.host.request({ type: "step_meshes", part: this.part ?? "", index, known });
     if (!reply.ok) {
       this.page.status(`step ${index}: ${reply.outcome?.detail ?? "unavailable"}`, true);
       return null;

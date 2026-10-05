@@ -397,8 +397,9 @@ pub fn assert_insert_here(out: &serde_json::Value) {
         "{i}"
     );
     assert_eq!(i["anchored"], true, "{i}");
-    assert_eq!(
-        i["statuses"][1], "built",
+    // Built by the idle rebuild that followed the edit, or by the run.
+    assert!(
+        matches!(i["statuses"][1].as_str(), Some("built" | "cached")),
         "the insert migration builds: {i}"
     );
     assert_eq!(
@@ -438,5 +439,28 @@ pub fn assert_folder(out: &serde_json::Value) {
             .as_str()
             .is_some_and(|t| t.contains("cannot open folders")),
         "{f}"
+    );
+}
+
+/// PK-678: insert-here on an assembly part's own timeline.
+pub fn assert_part_insert(out: &serde_json::Value) {
+    let p = &out["part_insert"];
+    assert_eq!(p["scoped"], "pin", "{p}");
+    assert_eq!(p["meshes"], 1, "the part alone, not its instances: {p}");
+    assert_eq!(p["shown"], true, "{p}");
+    assert_eq!(
+        p["path"], "migrations/010_insert_after_pin_extrude-1.rhai",
+        "{p}"
+    );
+    assert_eq!(p["edits_part"], true, "{p}");
+    assert!(
+        matches!(p["statuses"][1].as_str(), Some("built" | "cached")),
+        "{p}"
+    );
+    assert_eq!(p["occurrences"], 2, "both instances drawn: {p}");
+    assert_eq!(
+        p["labels"],
+        serde_json::json!(["pin", "extrude-1", "chamfer-1", "fillet-1"]),
+        "the chamfer sits after the anchor in the part: {p}"
     );
 }

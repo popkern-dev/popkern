@@ -59,7 +59,7 @@ redirect pages pointing here.
 | `projects-dialog.js` | The projects dialog: your projects (open, delete, new, import, open a folder; forget a folder) and the examples |
 | `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete, insert a feature at the history playhead |
 | `migration-templates.js` | Migration templates (first, next, insert-after) — the text `popkern_project::scaffold` writes |
-| `scrubber.js` | The history scrubber: ticks per feature (an assembly: per place, move and mate), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line and report row, play, `#step=` / `#v=` links, insert a feature here |
+| `scrubber.js` | The history scrubber: ticks per feature (an assembly: per place, move and mate; a part opened in the assembly panel: its own features), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line and report row, play, `#step=` / `#v=` links, insert a feature here |
 | `host-mode.js` | Which deployment the page is in (`host.json`: storage and compute) and the `ServerStore` for `popkern serve` |
 | `socket-worker.js` | The worker protocol over `popkern serve`'s session socket (same origin only), Worker-shaped, with in-place `cancelRun()` |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |

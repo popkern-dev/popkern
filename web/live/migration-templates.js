@@ -34,7 +34,7 @@ export function rhaiString(text) {
  *  after the step labelled `label` (by label when it is `unique` in
  *  the tree, else by its 1-based `position`). */
 export function insertAfterMigration(label, position, unique) {
-  const anchor = unique ? `m.feature(${rhaiString(label)})` : `m.features()[${Math.max(0, position - 1)}]`;
+  const anchor = anchorOf(label, position, unique);
   return (
     `// Inserts one feature after ${rhaiString(label)} (step ${position} of the history).\n` +
     "// Record exactly one feature on `body`, for example\n" +
@@ -43,6 +43,25 @@ export function insertAfterMigration(label, position, unique) {
     "let m = previous();\n" +
     `m.insert_after(${anchor}, |m, body| {\n    body\n});\n` +
     "m\n"
+  );
+}
+
+/** The anchor feature: by label, or by position when not unique. */
+function anchorOf(label, position, unique) {
+  return unique ? `m.feature(${rhaiString(label)})` : `m.features()[${Math.max(0, position - 1)}]`;
+}
+
+/** As insertAfterMigration, into part `part` of an assembly (inside
+ *  `a.edit_part`: every instance follows, the mates re-solve). */
+export function insertAfterPartMigration(part, label, position, unique) {
+  return (
+    `// Inserts one feature into part ${rhaiString(part)} after ${rhaiString(label)} (step ${position} of its history).\n` +
+    "// Record exactly one feature on `body`, for example\n" +
+    "//   body.chamfer(edges().at_height(1.0), 0.05)\n" +
+    "// Every instance of the part follows; its later features replay after it.\n" +
+    "let a = previous();\n" +
+    `a.edit_part(${rhaiString(part)}, |m| {\n    m.insert_after(${anchorOf(label, position, unique)}, |m, body| {\n        body\n    });\n});\n` +
+    "a\n"
   );
 }
 

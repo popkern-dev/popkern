@@ -34,6 +34,7 @@
 
 pub mod args;
 pub mod assembly_api;
+mod assembly_edit_api;
 mod assembly_family_api;
 pub mod assembly_mate_api;
 pub mod assembly_param_api;

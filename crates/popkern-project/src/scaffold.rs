@@ -41,6 +41,16 @@ fn rhai_string(text: &str) -> String {
     out
 }
 
+/// The anchor feature: by label, or by 1-based timeline position when
+/// the label is not unique.
+fn anchor(label: &str, position: usize, unique: bool) -> String {
+    if unique {
+        format!("m.feature({})", rhai_string(label))
+    } else {
+        format!("m.features()[{}]", position.saturating_sub(1))
+    }
+}
+
 /// The source of a migration that inserts one feature right after the
 /// feature labelled `label` — "insert a feature here" at the history
 /// playhead (live-projects-and-history.md §12, PK-666). The anchor is
@@ -49,11 +59,7 @@ fn rhai_string(text: &str) -> String {
 /// from). The closure must record exactly one feature on `body`;
 /// features after the anchor replay after it.
 pub fn insert_after_source(label: &str, position: usize, unique: bool) -> String {
-    let anchor = if unique {
-        format!("m.feature({})", rhai_string(label))
-    } else {
-        format!("m.features()[{}]", position.saturating_sub(1))
-    };
+    let anchor = anchor(label, position, unique);
     format!(
         "// Inserts one feature after {} (step {position} of the history).\n\
          // Record exactly one feature on `body`, for example\n\
@@ -63,6 +69,25 @@ pub fn insert_after_source(label: &str, position: usize, unique: bool) -> String
          m.insert_after({anchor}, |m, body| {{\n    body\n}});\n\
          m\n",
         rhai_string(label)
+    )
+}
+
+/// As [`insert_after_source`] for part `part` of an assembly: the
+/// insert runs inside `a.edit_part(part, |m| …)`, so every instance of
+/// the part follows and the assembly's mates re-solve.
+pub fn insert_after_part_source(part: &str, label: &str, position: usize, unique: bool) -> String {
+    let anchor = anchor(label, position, unique);
+    format!(
+        "// Inserts one feature into part {} after {} (step {position} of its history).\n\
+         // Record exactly one feature on `body`, for example\n\
+         //   body.chamfer(edges().at_height(1.0), 0.05)\n\
+         // Every instance of the part follows; its later features replay after it.\n\
+         let a = previous();\n\
+         a.edit_part({}, |m| {{\n    m.insert_after({anchor}, |m, body| {{\n        body\n    }});\n}});\n\
+         a\n",
+        rhai_string(part),
+        rhai_string(label),
+        rhai_string(part)
     )
 }
 

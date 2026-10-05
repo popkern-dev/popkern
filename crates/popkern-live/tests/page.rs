@@ -231,6 +231,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     page_rows::assert_assembly_history(&out);
     page_rows::assert_insert_here(&out);
     page_rows::assert_folder(&out);
+    page_rows::assert_part_insert(&out);
     page_rows::assert_time_limit_and_bakes(&out);
     page_rows::assert_assembly(&out);
     page_rows::assert_open_step(&out);

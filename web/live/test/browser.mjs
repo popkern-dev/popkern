@@ -489,7 +489,7 @@ try {
     const page = window.popkernLive;
     const s = page.scrubber;
     await page.run({ live: true });
-    for (let i = 0; i < 100 && s.steps.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    await s.loading;
     const visible = !document.getElementById("scrubber").hidden;
     const kinds = s.steps.map((x) => x.kind);
     await s.go(1);
@@ -574,14 +574,14 @@ try {
     await page.projects.create("Insert test", block);
     await page.runDone;
     const s = page.scrubber;
-    for (let i = 0; i < 100 && s.steps.length === 0; i++) await wait();
+    await s.loading;
     const hiddenAtEnd = document.getElementById("scrubber-insert").hidden;
     const anchor = s.steps.find((x) => x.operation === "boolean");
     await s.go(anchor.index - 1);
     await s.go(anchor.index);
     const shown = !document.getElementById("scrubber-insert").hidden;
     document.getElementById("scrubber-insert").click();
-    for (let i = 0; i < 100 && page.projects.path === "migrations/001_base.rhai"; i++) await wait();
+    await s.inserting;
     const path = page.projects.path;
     const template = page.editor.value;
     page.editor.textarea.value = template.replace("    body\\n", "    body.chamfer(edges().straight().at_height(1.0), 0.05)\\n");
@@ -590,7 +590,7 @@ try {
     clearTimeout(page.idleTimer);
     await page.runDone;
     const built = await page.run({ live: true });
-    for (let i = 0; i < 100 && s.steps.length <= anchor.index + 1; i++) await wait();
+    await s.loading;
     const labels = s.steps.map((x) => x.label);
     const result = {
       hidden_at_end: hiddenAtEnd,
@@ -664,6 +664,51 @@ try {
     result.unsupported_opened = await page.projects.openFolder();
     result.unsupported_status = document.getElementById("status").textContent;
     delete window.showDirectoryPicker;
+    await page.projects.openStored("scratch");
+    await page.runDone;
+    return result;
+  })()`);
+
+  // Insert into an assembly part (PK-678): a part opened in the
+  // assembly panel scrubs its own features (its bodies alone); insert
+  // there adds an edit_part migration that builds into every instance.
+  out.part_insert = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const s = page.scrubber;
+    const wait = () => new Promise((r) => setTimeout(r, 50));
+    const script = 'let a = assembly("pins");\\nlet pin = a.part("pin", |m| {\\n    m.profile(xy()).circle(0.1).sketch("pin").extrude(blind(1.0));\\n    m.active().fillet(edges().circular().at_height(0.0), 0.02);\\n});\\na.place(pin, "left");\\na.place(pin, "right").translate(0.5, 0.0, 0.0);\\na\\n';
+    await page.projects.create("Part insert", script);
+    await page.runDone;
+    await s.loading;
+    page.assembly.open("pin");
+    await s.loading;
+    const anchor = s.steps.find((x) => x.operation === "extrude");
+    await s.go(anchor.index);
+    const result = {
+      scoped: s.part,
+      meshes: page.viewer.bodies.length,
+      shown: !document.getElementById("scrubber-insert").hidden,
+    };
+    document.getElementById("scrubber-insert").click();
+    await s.inserting;
+    result.path = page.projects.path;
+    const template = page.editor.value;
+    result.edits_part = template.includes('a.edit_part("pin"');
+    page.editor.textarea.value = template.replace("        body\\n", "        body.chamfer(edges().circular().at_height(1.0), 0.02)\\n");
+    page.editor.textarea.dispatchEvent(new Event("input"));
+    await page.projects.flush();
+    clearTimeout(page.idleTimer);
+    await page.runDone;
+    const built = await page.run({ live: true });
+    result.statuses = (built?.envelope?.project?.versions ?? []).map((v) => v.status);
+    result.occurrences = page.viewer.bodies.length;
+    await s.loading;
+    page.assembly.open(null);
+    await s.loading;
+    page.assembly.open("pin");
+    await s.loading;
+    result.labels = s.steps.map((x) => x.label);
+    page.assembly.open(null);
     await page.projects.openStored("scratch");
     await page.runDone;
     return result;

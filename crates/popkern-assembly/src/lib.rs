@@ -45,6 +45,7 @@ pub mod mates;
 pub mod mesh_bvh;
 pub mod names;
 pub mod params;
+pub mod part_edit;
 pub mod placement;
 pub mod step;
 pub mod step_import;
