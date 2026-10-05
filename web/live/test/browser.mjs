@@ -541,6 +541,60 @@ try {
     })()`);
   }
 
+  // Migrations (PK-664): add, rename and reorder files through the
+  // rail; an upstream edit that drops a label breaks the downstream
+  // migration, which the overlay names with its line and the upstream
+  // change, opening that file.
+  out.migrations = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    window.prompt = () => "rim_round";
+    window.confirm = () => true;
+    const block = 'let m = model();\\nlet block = m.profile(xy()).rect(2.0, 2.0).sketch("block_sketch").extrude(blind(1.0));\\nlet bore = m.tool(|m| m.profile(xy()).circle(0.4).sketch("bore_sketch").extrude(blind(1.0)));\\nblock.subtract(bore);\\nm.label_edge("bore_rim", edges().circular().at_height(1.0));\\nm\\n';
+    await page.projects.create("Rail test", block);
+    await page.runDone;
+    const single = { rail_hidden: document.getElementById("migrations-rail").hidden, add_shown: !document.getElementById("migration-add").hidden };
+    await page.rail.add();
+    const added = page.projects.path;
+    page.editor.textarea.value = 'let m = previous();\\nm.active().fillet(edges().labeled("bore_rim"), 0.05, #{ label: "rim_round" });\\nm\\n';
+    page.editor.textarea.dispatchEvent(new Event("input"));
+    await page.projects.flush();
+    clearTimeout(page.idleTimer);
+    await page.runDone;
+    const built = await page.run({ live: true });
+    const statuses = (built?.envelope?.project?.versions ?? []).map((v) => [v.name, v.status]);
+    window.prompt = () => "fillet the rim";
+    await page.rail.rename(added);
+    const renamed = page.projects.path;
+    // Drop the label upstream: the fillet migration fails on its line.
+    page.rail.open("migrations/001_base.rhai");
+    page.editor.textarea.value = page.editor.value.split("\\n").filter((l) => !l.includes("label_edge")).join("\\n");
+    page.editor.textarea.dispatchEvent(new Event("input"));
+    await page.projects.flush();
+    clearTimeout(page.idleTimer);
+    await page.runDone;
+    const broken = await page.run({ live: true });
+    const overlay = document.getElementById("overlay-text").textContent;
+    const failedBadge = document.querySelector("#migrations-list li[data-path='" + renamed + "'] .badge")?.textContent ?? null;
+    const result = {
+      single,
+      added,
+      statuses,
+      renamed,
+      broken_outcome: broken?.envelope?.outcome ?? null,
+      overlay_names_file: overlay.includes("in 010_fillet_the_rim.rhai, line 2"),
+      overlay_names_upstream: overlay.includes("changed upstream since it last built: 001_base"),
+      editor_on_failing_file: page.projects.path === renamed,
+      marked_line: [...document.querySelectorAll(".editor-line-error")].length === 1,
+      failed_badge: failedBadge,
+    };
+    // Reorder: the fillet migration moves first (numbers swap).
+    await page.rail.move(renamed, -1);
+    result.reordered = Object.keys(page.projects.current.files).filter((p) => p.startsWith("migrations/")).sort();
+    await page.projects.openStored("scratch");
+    await page.runDone;
+    return result;
+  })()`);
+
   if (process.env.POPKERN_LAUNCH === "1") {
     out.launch = await launchRows();
   }

@@ -227,6 +227,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     assert_eq!(out["set_param"]["outcome"], "served");
     assert_eq!(out["set_param"]["value"], 0.5);
     page_rows::assert_scrubber(&out);
+    page_rows::assert_migrations(&out);
     page_rows::assert_time_limit_and_bakes(&out);
     page_rows::assert_assembly(&out);
     page_rows::assert_open_step(&out);
@@ -377,7 +378,17 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
     }
     for file in &own {
         let source = read(page().join(file));
-        let violations = page_rows::network_violations(&source);
+        let mut violations = page_rows::network_violations(&source);
+        if file == "socket-worker.js" {
+            // The self-hosted session socket (PK-665): same origin only,
+            // and only when `popkern serve`'s host.json asks for it.
+            assert!(
+                source.contains(r#"new URL("./api/session", location.href)"#),
+                "socket-worker.js must build its URL from the page's own origin"
+            );
+            assert!(!source.contains("ws://") && !source.contains("wss://"), "no absolute socket URLs");
+            violations.retain(|v| !v.ends_with(": WebSocket"));
+        }
         assert!(violations.is_empty(), "{file}: {violations:?}");
     }
     let html = read(page().join("index.html"));

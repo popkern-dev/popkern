@@ -67,8 +67,34 @@ export class Projects {
     $("readonly-bar").hidden = !this.current.readOnly;
     $("conflict-bar").hidden = true;
     this.showName();
+    this.page.rail?.setVersions(null);
     this.page.viewer.fitted = false;
     if (build) this.page.run();
+  }
+
+  /** Show migration `path` of the open project in the editor (the
+   *  project builds as a whole, so nothing rebuilds). */
+  select(path) {
+    const p = this.current;
+    if (!p || !(path in p.files)) return;
+    p.path = path;
+    this.page.tab.open(p.name, p.files[path]);
+    this.showName();
+    this.page.rail?.render();
+  }
+
+  /** Replace the open project's files (migrations added, renamed,
+   *  reordered or deleted), save at once, and show `openPath`. */
+  async replaceFiles(files, openPath) {
+    const p = this.current;
+    if (!p || p.readOnly) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    await this.saving;
+    p.files = files;
+    p.unsaved = true;
+    this.select(openPath in files ? openPath : migrationPaths(files).at(-1));
+    await this.save();
   }
 
   /** Open a browser project by id. */

@@ -323,3 +323,39 @@ pub fn assert_scrubber(out: &serde_json::Value) {
         "the camera never refits while scrubbing: {s}"
     );
 }
+
+/// PK-664: the migrations rail and a downstream failure.
+pub fn assert_migrations(out: &serde_json::Value) {
+    let m = &out["migrations"];
+    assert_eq!(
+        m["single"]["rail_hidden"], true,
+        "one migration: no rail: {m}"
+    );
+    assert_eq!(m["single"]["add_shown"], true, "{m}");
+    assert_eq!(m["added"], "migrations/010_rim_round.rhai", "{m}");
+    assert_eq!(
+        m["statuses"],
+        // 001 may already be cached by the idle rebuild that followed
+        // the edit; the new migration is built.
+        serde_json::json!([
+            ["001_base", m["statuses"][0][1]],
+            ["010_rim_round", "built"]
+        ]),
+        "{m}"
+    );
+    assert_eq!(m["renamed"], "migrations/010_fillet_the_rim.rhai", "{m}");
+    assert_ne!(m["broken_outcome"], "served", "{m}");
+    assert_eq!(m["overlay_names_file"], true, "{m}");
+    assert_eq!(m["overlay_names_upstream"], true, "{m}");
+    assert_eq!(m["editor_on_failing_file"], true, "{m}");
+    assert_eq!(m["marked_line"], true, "{m}");
+    assert_eq!(m["failed_badge"], "failed", "{m}");
+    assert_eq!(
+        m["reordered"],
+        serde_json::json!([
+            "migrations/001_fillet_the_rim.rhai",
+            "migrations/010_base.rhai"
+        ]),
+        "{m}"
+    );
+}

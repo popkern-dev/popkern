@@ -288,8 +288,12 @@ impl ProjectRunner {
                         features,
                         edited,
                     };
+                    // Remembered by name and by content, so a renamed
+                    // migration keeps its history.
                     self.built_after
                         .insert(migration.name.clone(), keys.clone());
+                    self.built_after
+                        .insert(migration.sha256.clone(), keys.clone());
                     if start.is_none() {
                         self.checkpoints.push(Checkpoint {
                             key: key.clone(),
@@ -304,7 +308,8 @@ impl ProjectRunner {
                     keys.push((migration.name.clone(), migration.sha256.clone()));
                 }
                 Err(error) => {
-                    let upstream_changed = self.upstream_changed(&migration.name, &keys);
+                    let upstream_changed =
+                        self.upstream_changed(&migration.name, &migration.sha256, &keys);
                     versions.push(VersionReport {
                         name: migration.name.clone(),
                         sha256: migration.sha256.clone(),
@@ -347,18 +352,21 @@ impl ProjectRunner {
     }
 
     /// The upstream migrations (and base) whose content differs from
-    /// when `name` last built successfully.
-    fn upstream_changed(&self, name: &str, now: &[(String, String)]) -> Vec<String> {
-        let Some(then) = self.built_after.get(name) else {
+    /// when this migration (by content, else by name) last built
+    /// successfully. Upstream steps compare by position and content,
+    /// so renaming an upstream file is not a change.
+    fn upstream_changed(&self, name: &str, sha256: &str, now: &[(String, String)]) -> Vec<String> {
+        let Some(then) = self
+            .built_after
+            .get(sha256)
+            .or_else(|| self.built_after.get(name))
+        else {
             return Vec::new();
         };
         now.iter()
-            .filter(|(upstream, sha)| {
-                then.iter()
-                    .find(|(n, _)| n == upstream)
-                    .is_none_or(|(_, old)| old != sha)
-            })
-            .map(|(upstream, _)| upstream.clone())
+            .enumerate()
+            .filter(|(k, (_, sha))| then.get(*k).is_none_or(|(_, old)| old != sha))
+            .map(|(_, (upstream, _))| upstream.clone())
             .collect()
     }
 }

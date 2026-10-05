@@ -258,3 +258,39 @@ fn a_native_project_builds_from_disk() {
             .all(|v| v.status == VersionStatus::Built)
     );
 }
+
+#[test]
+fn attribution_survives_renaming_the_failing_migration() {
+    let fs = memory("labelled_rim");
+    let mut runner = runner(&fs);
+    assert!(build(&mut runner, &fs).complete());
+    // Rename the downstream migration (same content), then drop the
+    // label upstream.
+    let mut files = fs.files();
+    let round = files.remove("migrations/002_round.rhai").expect("002");
+    files.insert("migrations/002_fillet_the_rim.rhai".into(), round);
+    let block = String::from_utf8(files["migrations/001_block.rhai"].clone()).expect("utf8");
+    files.insert(
+        "migrations/001_block.rhai".into(),
+        block
+            .lines()
+            .filter(|l| !l.contains("label_edge"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes(),
+    );
+    let edited = std::rc::Rc::new(popkern_project::MemoryFs::new(files).expect("files"));
+    let project = Project::load(edited.as_ref()).expect("load");
+    let broken = runner.build(&project).expect("build");
+    match &broken.error {
+        Some(ProjectError::MigrationFailed {
+            migration,
+            upstream_changed,
+            ..
+        }) => {
+            assert_eq!(migration, "002_fillet_the_rim.rhai");
+            assert_eq!(upstream_changed, &["001_block".to_string()]);
+        }
+        other => panic!("expected MigrationFailed, got {other:?}"),
+    }
+}

@@ -25,6 +25,7 @@ import { showOutcome } from "./outcome-overlay.js";
 import { renderParams } from "./params-panel.js";
 import { Projects } from "./projects.js";
 import { Scrubber } from "./scrubber.js";
+import { MigrationsRail } from "./migrations-rail.js";
 import { wireProjects } from "./projects-dialog.js";
 import { renderReport } from "./report-table.js";
 import { reportPageErrors, setStatus, showPick } from "./status-line.js";
@@ -79,6 +80,8 @@ class Page {
     this.certifyGeneration = 0;
     // The history scrubber under the viewport (live models only).
     this.scrubber = new Scrubber(this);
+    // A project's migration files beside the editor.
+    this.rail = new MigrationsRail(this);
     wireControls(this);
     wireProjects(this);
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
@@ -223,6 +226,7 @@ class Page {
       return;
     }
     const { envelope, buffers } = reply;
+    if (envelope.project) this.rail.setVersions(envelope);
     // A run that raised carries no report: the panels keep describing
     // the last good model, like the viewer does.
     if (envelope.report) {
@@ -239,7 +243,16 @@ class Page {
 
   /** The overlay for a build that did not serve (outcome-overlay.js). */
   showOutcome(outcome) {
-    showOutcome(outcome, { editor: this.editor, timeLimit: this.timeLimit, keptModel: this.lastGood != null });
+    showOutcome(outcome, {
+      editor: this.editor,
+      timeLimit: this.timeLimit,
+      keptModel: this.lastGood != null,
+      // A project failure names its migration: show that file first.
+      openScript: (file) => {
+        const path = `migrations/${file}`;
+        if (this.projects.current?.files?.[path] != null && this.projects.path !== path) this.projects.select(path);
+      },
+    });
   }
 
   /** The feature tree and parameters for the model on screen, scoped

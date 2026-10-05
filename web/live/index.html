@@ -45,7 +45,8 @@
 </header>
 <main class="workbench">
   <section class="pane pane-editor" aria-label="Script">
-    <div class="pane-head"><span id="doc-name" class="pane-tab">document.rhai</span><span class="pane-hint">Ctrl/Cmd+Enter builds</span></div>
+    <div class="pane-head"><span id="doc-name" class="pane-tab">document.rhai</span><button id="migration-add" class="pane-button" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document">+ migration</button><span class="pane-hint">Ctrl/Cmd+Enter builds</span></div>
+    <div id="migrations-rail" class="migrations-rail" hidden aria-label="Migrations"><ul id="migrations-list" class="migrations-list"></ul></div>
     <div id="draft-notice" class="draft-notice" hidden role="status">
       <span>Your Scratch project has edits from last time.</span>
       <button id="draft-restore" type="button" title="Open Scratch and build it">Open it</button>

@@ -11,7 +11,7 @@ const $ = (id) => document.getElementById(id);
  *  over the viewport, mark its line in `editor`, and state it on the
  *  status line. `timeLimit` words the budget remediation;
  *  `keptModel` says the last good model is still on screen. */
-export function showOutcome(outcome, { editor, timeLimit, keptModel }) {
+export function showOutcome(outcome, { editor, timeLimit, keptModel, openScript = null }) {
   const overlay = $("overlay");
   overlay.hidden = false;
   const lines = [];
@@ -20,11 +20,21 @@ export function showOutcome(outcome, { editor, timeLimit, keptModel }) {
   } else {
     lines.push(outcome.rendered ?? `${outcome.kind}`);
   }
+  // A project migration that failed: name it, and the upstream
+  // migrations changed since it last built (where a vanished label
+  // usually comes from).
+  const failed = outcome.project?.error;
+  if (failed?.migration) {
+    lines.push("", `in ${failed.migration}${failed.line ? `, line ${failed.line}` : ""}`);
+    if (failed.upstream_changed?.length) lines.push(`changed upstream since it last built: ${failed.upstream_changed.join(", ")}`);
+  }
   if (outcome.kind === "BudgetExceeded" || outcome.step === "cancelled") {
     lines.push("", timeLimit == null ? "Press run to try again." : `The time limit is ${describeLimit(timeLimit)}: raise it in the top bar and run again.`);
   }
   $("overlay-text").textContent = lines.join("\n");
   $("overlay-class").textContent = outcome.outcome.replace("_", " ");
+  const script = /at ([A-Za-z0-9_.-]+\.rhai):\d+:\d+:/.exec(outcome.rendered ?? "");
+  if (script && openScript) openScript(script[1]);
   const position = /:(\d+):(\d+):/.exec(outcome.rendered ?? "");
   if (position) {
     editor.mark(Number(position[1]));

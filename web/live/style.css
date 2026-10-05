@@ -206,3 +206,17 @@ button.danger:hover { border-color: #c45b5b; color: #f0a0a0; }
 .editor-line-step { background: rgba(245, 158, 11, 0.16); }
 .report tr.step-current td { background: rgba(245, 158, 11, 0.16); }
 body.scrubbed .pane-viewer .pane-title::after { content: " · history (read only)"; color: var(--warn); }
+
+/* Migrations rail (PK-664). */
+.pane-button { margin-left: 0.5rem; padding: 0.1rem 0.45rem; font-size: 0.8em; }
+.migrations-rail { border-bottom: 1px solid var(--line); max-height: 9.5rem; overflow-y: auto; }
+.migrations-list { list-style: none; margin: 0; padding: 0.2rem 0.4rem; }
+.migration { display: flex; align-items: center; gap: 0.3rem; }
+.migration.open .migration-name { color: var(--accent); font-weight: 600; }
+.migration-name { flex: 1; text-align: left; background: none; border: none; padding: 0.1rem 0.2rem; font-family: var(--mono, monospace); }
+.migration-tool { padding: 0 0.3rem; background: none; border: none; color: var(--muted); }
+.migration-tool:hover { color: var(--text, #fff); }
+.badge { font-size: 0.72em; padding: 0 0.35rem; border-radius: 3px; background: #2a3140; color: var(--muted); }
+.badge-built, .badge-cached { color: #8fd18f; }
+.badge-failed { background: #4a2626; color: #f0a0a0; }
+.badge-stale { opacity: 0.55; }
