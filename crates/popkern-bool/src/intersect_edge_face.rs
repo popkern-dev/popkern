@@ -75,7 +75,8 @@ fn detect_edges_vs_faces(
     hits: &mut Vec<EdgeFaceHit>,
 ) {
     use popkern_core::geometry::CurveEval;
-    use popkern_core::geometry::intersection::{SurfaceCurveIntersection, intersect_surface_curve};
+    use popkern_core::geometry::intersection::SurfaceCurveIntersection;
+    use popkern_core::geometry::intersection::surface_curve::intersect_surface_curve_dense;
 
     use popkern_core::geometry::curve::CurveGeometry;
 
@@ -204,7 +205,18 @@ fn detect_edges_vs_faces(
                 }
             }
 
-            let result = intersect_surface_curve(
+            // COMPLETE crossing enumeration (PK-679): the tuned grid's
+            // 48-per-axis cap gives a 111-turn thread wall cells ~2.3
+            // turns wide whose 3x3-station boxes alias to a few
+            // azimuths and do not contain their patch — the rod
+            // cylinder's seam line found 56 of its 110 flank pierces,
+            // the tip cone's seam pierce none, and the cone's record
+            // crossed its seam without a node (ChartOverwrap 7.854).
+            // The dense budget enumerates every crossing; the full
+            // workspace suite (9622) is unchanged under it, so the
+            // PK-461 note that extra hits re-wire the M5 seam-pinch
+            // serve no longer holds.
+            let result = intersect_surface_curve_dense(
                 surface_on_face,
                 (u_min, u_max),
                 (v_min, v_max),
@@ -260,6 +272,10 @@ fn detect_edges_vs_faces(
                 None
             };
             let uv_margin = tolerance.linear();
+            let u_period = {
+                use popkern_core::geometry::SurfaceEval as _;
+                surface_on_face.parameter_periodicity().0
+            };
 
             if let Ok(result) = result {
                 for isect in &result.intersections {
@@ -320,9 +336,27 @@ fn detect_edges_vs_faces(
                                 continue;
                             }
                         }
+                        // The box is in the principal chart; on a
+                        // u-periodic surface the hit's u is tested
+                        // modulo the period (measured, PK-681: the
+                        // mouth-chamfer cone's seam edge pierced the
+                        // nut's crest band at u = −0.0 against a box of
+                        // [1.84, 2π] — the same azimuth as its upper
+                        // edge — and the rejected pierce left the crest
+                        // record seam-crossing without a node; the
+                        // cone's chart walk declined ChartOverwrap).
+                        let u_in_box = |lo: f64, hi: f64| {
+                            let inside = |uu: f64| uu >= lo - uv_margin && uu <= hi + uv_margin;
+                            match u_period {
+                                Some(p) => {
+                                    let k = ((lo - u) / p).ceil();
+                                    inside(u + k * p) || inside(u + (k - 1.0) * p)
+                                }
+                                None => inside(u),
+                            }
+                        };
                         if let Some(((eu_min, eu_max), (ev_min, ev_max))) = trim_box
-                            && (u < eu_min - uv_margin
-                                || u > eu_max + uv_margin
+                            && (!u_in_box(eu_min, eu_max)
                                 || v < ev_min - uv_margin
                                 || v > ev_max + uv_margin)
                         {

@@ -27,6 +27,9 @@ fn mesh_volume(part: &Part) -> f64 {
 /// occ_solids.py` on `popkern run` exports, 2026-10-05), mm³.
 const M3_NUT_OCC_VOLUME: f64 = 47.678_503_501;
 const M5_NUT_OCC_VOLUME: f64 = 179.998_062_835;
+/// M2: measured after PK-681 (its threaded section's OCC slab volumes
+/// are uniform, 1.14110 per 0.1 mm, and sum to this whole-body value).
+const M2_NUT_OCC_VOLUME: f64 = 17.695_515_551;
 /// Display-tessellation chord error budget against the exact volume.
 const VOLUME_REL_TOL: f64 = 5.0e-3;
 
@@ -54,8 +57,35 @@ const VOLUME_REL_TOL: f64 = 5.0e-3;
 ///   full interpolation past half the sample count.
 #[test]
 fn m3_and_m5_default_nuts_serve_cellular_with_occ_volume() {
+    assert_nuts_serve(&[("M3", M3_NUT_OCC_VOLUME), ("M5", M5_NUT_OCC_VOLUME)]);
+}
+
+/// PK-681: the default M2 nut declined at BOTH mouth chamfers. Two
+/// clip-substrate defects, neither M2-specific:
+///
+/// * Bottom mouth: the cone's circle on the crest band is one full
+///   period at u ∈ [2π, 4π]; the clip query's single-period branch
+///   landing folded each control point by rem_euclid, sending the
+///   closing point from 2π to 0. No crossing with the band's boundary
+///   was found, the record dropped, the uncut band read Inside and
+///   vanished (14 single-use edges). The landing is now a rigid
+///   whole-period translation.
+/// * Top mouth: the cutter's seam edge pierced the crest band at
+///   u = −0.0 and the edge-face trim-box prefilter rejected it against
+///   [1.84, 2π] — the same azimuth. The crest arc then crossed the
+///   cone's seam without a node and the cone's chart walk declined
+///   (ChartOverwrap 6.53 > 2π) to a 3D-Newell walk that cannot cut the
+///   winding separator. The prefilter now tests u modulo the period.
+#[test]
+fn m2_default_nut_serves_cellular_with_occ_volume() {
+    assert_nuts_serve(&[("M2", M2_NUT_OCC_VOLUME)]);
+}
+
+/// Build each default nut and require a cellular, watertight serve
+/// whose mesh volume matches OCC within the tessellation budget.
+fn assert_nuts_serve(cases: &[(&str, f64)]) {
     let mut failures = Vec::new();
-    for (size, occ_volume) in [("M3", M3_NUT_OCC_VOLUME), ("M5", M5_NUT_OCC_VOLUME)] {
+    for &(size, occ_volume) in cases {
         let spec = ThreadSpec::parse(size).expect("spec");
         let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
         let nut = match HexNut::new(spec).build(Tolerance::default()) {

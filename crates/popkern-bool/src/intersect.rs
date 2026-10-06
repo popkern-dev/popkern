@@ -509,7 +509,7 @@ pub(crate) fn find_intersections_with_aabbs(
     // ~1e-3 of marching slop. Every downstream consumer (split-stage
     // face splitting, the cellular graph's endpoint snapping) needs
     // deduplicated fragments with welded junctions.
-    consolidate_records(&mut records, tolerance);
+    consolidate_records(&mut records, a, b, tolerance);
 
     if popkern_core::trace::trace_enabled("uv-scramble") {
         use popkern_core::geometry::curve::CurveEval as _;

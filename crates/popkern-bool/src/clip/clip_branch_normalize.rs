@@ -4,8 +4,6 @@
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::clip_seam_shift::shift_curve_u;
-
 /// Shift the query curve by whole periods so it addresses the same
 /// chart branch as the face's boundary pcurves. See the block
 /// comments inline — the multi-turn/plain-translation split and the
@@ -162,13 +160,35 @@ pub(super) fn normalize_query_branch(
                     p.x += k * period;
                 }
             } else {
-                // Single-period charts keep the tuned fold: for a
-                // query already inside the principal range a k≠0
-                // fold is a NO-OP, and tuned fixtures depend on
-                // exactly that (measured: the filleted-torus
-                // boolean canary stranded under an honored
-                // translation).
-                normalized = shift_curve_u(&normalized, k * period);
+                // Single-period charts keep the tuned per-point fold
+                // for SUB-period queries: a query already on the
+                // principal branch stays put even when k≠0 (measured:
+                // the filleted-torus boolean canary stranded under an
+                // honored k-translation), and the tear a fold puts in
+                // a seam-straddling query is healed by the ±π seam
+                // dance in the crossing search (measured: a rigid
+                // landing of a query at u ∈ [−0.45, 0.2] broke the
+                // filleted-operand subtraction, loop gap 0.87). A
+                // FULL-period query is the exception: every fold of it
+                // tears and no ±π shift can heal it (measured, PK-681:
+                // the M2 nut's mouth-chamfer circle on the crest band,
+                // u ∈ [2π, 4π], folded its closing control point from
+                // 2π to 0; the circle ran backwards, no crossing with
+                // the band's boundary was found, the record dropped,
+                // and the uncut band classified Inside and vanished).
+                // It lands rigidly.
+                let (q_lo, q_hi) = normalized
+                    .control_points
+                    .iter()
+                    .map(|p| p.x)
+                    .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+                        (lo.min(u), hi.max(u))
+                    });
+                normalized = if q_hi - q_lo >= period * (1.0 - 1e-6) {
+                    translate_onto_principal_branch(&normalized, period)
+                } else {
+                    super::clip_seam_shift::shift_curve_u(&normalized, k * period)
+                };
             }
             if popkern_core::trace::trace_enabled("clip") {
                 eprintln!("    [uvclip-branch] {face:?} query curve shifted by {k:+.0} period(s)");
@@ -178,3 +198,46 @@ pub(super) fn normalize_query_branch(
 
     normalized
 }
+
+/// Translate `curve` by the whole number of periods that puts the
+/// most of its u-extent on the principal branch `[0, period]`: the
+/// principal branch, reached rigidly. A curve already mostly on it
+/// stays put (a seam-anchored circle whose lowest control point dips
+/// a hair below 0 keeps its place), and a curve ending exactly on the
+/// seam keeps its end at `period` instead of folding it to 0. Ties go
+/// to the smaller shift.
+pub(super) fn translate_onto_principal_branch(curve: &NurbsCurve, period: f64) -> NurbsCurve {
+    let (lo, hi) = curve
+        .control_points
+        .iter()
+        .map(|p| p.x)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+            (lo.min(u), hi.max(u))
+        });
+    if !(lo.is_finite() && hi.is_finite()) || period <= 0.0 {
+        return curve.clone();
+    }
+    let overlap = |k: f64| (hi + k * period).min(period) - (lo + k * period).max(0.0);
+    let k_lo = (-hi / period).floor();
+    let k_hi = (-lo / period).ceil();
+    let mut best: (f64, f64) = (0.0, overlap(0.0));
+    let mut k = k_lo;
+    while k <= k_hi {
+        let o = overlap(k);
+        if o > best.1 + 1e-12 * period || (o > best.1 - 1e-12 * period && k.abs() < best.0.abs()) {
+            best = (k, o);
+        }
+        k += 1.0;
+    }
+    let mut translated = curve.clone();
+    if best.0 != 0.0 {
+        for p in &mut translated.control_points {
+            p.x += best.0 * period;
+        }
+    }
+    translated
+}
+
+#[cfg(test)]
+#[path = "clip_branch_normalize_tests.rs"]
+mod tests;

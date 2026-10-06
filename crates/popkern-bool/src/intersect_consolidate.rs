@@ -4,14 +4,22 @@
 
 use super::{IntersectionRecord, endpoint_of, set_endpoint};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::FaceHandle;
+use popkern_core::topology::{BRep, FaceHandle};
+
+#[path = "intersect_consolidate_gap.rs"]
+mod gap;
 
 /// Consolidate marching output per face pair: drop geometric
 /// duplicates of the same curve piece and weld junction endpoints of
 /// pieces that chain (endpoint slop up to the marching class,
 /// measured 3.5e-4..1.2e-3 — far above the linear tolerance, far
 /// below any fragment's own extent).
-pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, tolerance: &Tolerance) {
+pub(super) fn consolidate_records(
+    records: &mut Vec<IntersectionRecord>,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+) {
     use popkern_core::geometry::curve::CurveEval as _;
     use std::collections::HashMap;
     if records.len() < 2 {
@@ -382,7 +390,18 @@ pub(super) fn consolidate_records(records: &mut Vec<IntersectionRecord>, toleran
                     let pa = endpoint_of(&records[ia], a_end);
                     let pb = endpoint_of(&records[ib], b_end);
                     let d = pa.distance_to(&pb);
-                    if d > tolerance.linear() && d < pair_gate {
+                    if d > tolerance.linear()
+                        && d < pair_gate
+                        && !gap::gap_leaves_a_face(
+                            a,
+                            b,
+                            &records[ia],
+                            a_end,
+                            &records[ib],
+                            b_end,
+                            tolerance,
+                        )
+                    {
                         // KEPT-END AUTHORITY (PK-480): a kept record's
                         // ends are junction-refined at clip time (near
                         // pin, far re-trim, triple-point junctions); a

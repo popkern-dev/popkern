@@ -57,12 +57,12 @@ pub fn intersect_surface_curve(
 /// [`intersect_surface_curve`] with COMPLETE crossing enumeration on
 /// multi-wrap NURBS charts (PK-494): the general solver's AABB grid
 /// spends a total cell budget on the denser knot axis instead of the
-/// tuned 48-per-axis clamp. For parity consumers ONLY — point-in-solid
-/// classification rays, where a missed crossing on a >40-turn coil
-/// flips an in/out verdict. Imprint/edge-hit discovery must keep the
-/// tuned entry: the split stage's junction graph is calibrated to its
-/// hit set, and enumerating extra near-graze hits there re-wired the
-/// M5 seam-pinch serve into a shell-gap decline (measured, PK-461).
+/// tuned 48-per-axis clamp. Used wherever a missed crossing is a
+/// wrong answer: point-in-solid classification rays (a missed
+/// crossing on a >40-turn coil flips an in/out verdict) and boolean
+/// edge-hit discovery (a missed seam pierce leaves a record crossing
+/// its face's chart seam without a node — PK-679, where the tuned
+/// grid found 56 of 110 pierces on a 111-turn wall).
 pub fn intersect_surface_curve_dense(
     surface: &SurfaceGeometry,
     u_range: (f64, f64),

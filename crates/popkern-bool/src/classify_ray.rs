@@ -121,8 +121,25 @@ pub(super) fn ray_crossing_count(
                     // different direction decides.
                     if is_nurbs {
                         let (du, dv) = (u_max - u_min, v_max - v_min);
-                        let band_u = 0.005 * du;
-                        let band_v = 0.005 * dv;
+                        // The band is 0.5% of the window, capped at a
+                        // quarter of the local knot span (PK-679): on
+                        // a 112-turn thread wall 0.5% of v is over
+                        // half a turn, and every ray from the coil's
+                        // first partial turn crossed the wall's
+                        // pre-start extension (v = −0.0009, ~36° of
+                        // azimuth before the coil begins) inside the
+                        // band — the vote went inconclusive and the
+                        // vertex-fan winding fallback mislabelled
+                        // in-groove points Outside. Knot spans measure
+                        // where the surface actually bends; faces with
+                        // few spans keep the tuned band.
+                        let (band_u, band_v) = match surface {
+                            popkern_core::geometry::surface::SurfaceGeometry::Nurbs(n) => (
+                                (0.005 * du).min(0.25 * knot_span_width(&n.knots_u, *u)),
+                                (0.005 * dv).min(0.25 * knot_span_width(&n.knots_v, *v)),
+                            ),
+                            _ => (0.005 * du, 0.005 * dv),
+                        };
                         let near_edge = (*u - u_min).abs() < band_u
                             || (*u - u_max).abs() < band_u
                             || (*v - v_min).abs() < band_v
@@ -442,3 +459,27 @@ pub(super) fn ray_crossing_count(
 
     Ok(count)
 }
+
+/// Width of the distinct knot span containing `x` (clamped into the
+/// knot range; at the last knot, the last span); infinite for a
+/// degenerate knot vector.
+fn knot_span_width(knots: &[f64], x: f64) -> f64 {
+    let mut distinct: Vec<f64> = Vec::new();
+    for &k in knots {
+        if distinct.last().is_none_or(|&last| k > last + 1e-15) {
+            distinct.push(k);
+        }
+    }
+    if distinct.len() < 2 {
+        return f64::INFINITY;
+    }
+    let i = distinct
+        .windows(2)
+        .position(|w| x < w[1])
+        .unwrap_or(distinct.len() - 2);
+    distinct[i + 1] - distinct[i]
+}
+
+#[cfg(test)]
+#[path = "classify_ray_band_tests.rs"]
+mod band_tests;

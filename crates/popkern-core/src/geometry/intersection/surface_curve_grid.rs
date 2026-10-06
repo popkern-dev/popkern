@@ -32,11 +32,9 @@ pub(super) struct SurfaceCell {
 /// TOTAL cell count (48²) spent on the denser knot axis: the flat
 /// 48-per-axis clamp starves >40-turn coils to ~1.2 cells per turn,
 /// Newton seeds land up to half a turn from the crossing, and rays
-/// miss wall crossings (even parity for interior points). Without
-/// `dense` (imprint/edge-hit discovery) the historical 48-per-axis
-/// clamp stands: the split stage's junction graph is calibrated to
-/// that hit set, and enumerating extra near-graze hits re-wired the
-/// M5 seam-pinch serve into a shell-gap decline (measured, PK-461).
+/// miss wall crossings (even parity for interior points); boolean
+/// edge-hit discovery takes it too (PK-679). Without `dense` the
+/// historical 48-per-axis clamp stands for the remaining callers.
 pub(super) fn grid_density(surface: &SurfaceGeometry, base: usize, dense: bool) -> (usize, usize) {
     match surface {
         SurfaceGeometry::Nurbs(s) => {

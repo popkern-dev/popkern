@@ -44,6 +44,9 @@ mod thread_form;
 #[path = "builders_tests.rs"]
 mod builders_tests;
 #[cfg(test)]
+#[path = "coil_pierce_tests.rs"]
+mod coil_pierce_tests;
+#[cfg(test)]
 #[path = "engine_tests.rs"]
 mod engine_tests;
 #[cfg(test)]
