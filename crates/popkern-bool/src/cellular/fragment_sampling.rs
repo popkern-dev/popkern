@@ -269,6 +269,34 @@ pub(crate) fn loop_uv_runs(
         if h != raw {
             run.reverse();
         }
+        // GEOMETRIC DIRECTION CHECK: whatever the window bookkeeping
+        // above concluded, a run in loop order starts at its
+        // half-edge's ORIGIN node. The own/twin window rule and the
+        // substitution reversal can compound on shared record pairs
+        // (measured, PK-684: on the mirrored bottom cap of a flush
+        // two-cylinder union, four of a crescent's seven runs came
+        // back reversed, the scanline polygon zigzagged, and the
+        // crescent sampled inside the other disk and was dropped).
+        // Decided by the run's chart ends against the node positions;
+        // a closed self-loop edge (origin == end) has no direction to
+        // check.
+        if run.len() >= 2 {
+            let origin = graph.nodes[graph.half_edges[raw].origin].position;
+            let end = graph.nodes[graph.half_edges[graph.half_edges[raw].twin].origin].position;
+            let chord = origin.distance_to(&end);
+            if chord > 0.0 {
+                let at = |uv: (f64, f64)| surface.point_at(uv.0, uv.1);
+                let (first, last) = (at(run[0]), at(run[run.len() - 1]));
+                let forward = first.distance_to(&origin) + last.distance_to(&end);
+                let backward = first.distance_to(&end) + last.distance_to(&origin);
+                // 2x margin: runs stop at 7/8 of the edge, so a
+                // near-closed arc compares ambiguous ends; a reversed
+                // run is unambiguous (its first sample sits ON `end`).
+                if 2.0 * backward < forward {
+                    run.reverse();
+                }
+            }
+        }
         // Stored pcurves may live on ANY period branch of a periodic
         // chart (a cylinder pcurve at u−2π is the same geometry),
         // while projected samples come back on the principal branch.

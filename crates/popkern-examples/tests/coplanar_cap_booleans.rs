@@ -79,18 +79,18 @@ fn flush_cylinder_intersection_serves_the_lens_prism() {
 }
 
 #[test]
-fn flush_cylinder_union_never_serves_a_wrong_volume() {
+fn flush_cylinder_union_serves_both_disks_minus_one_lens() {
     let disk = std::f64::consts::PI * R * R;
     for linear in [1e-4, 1e-6] {
         let tol = Tolerance::default().with_linear(linear);
         let (a, b) = operands(tol);
-        // A decline is honest; a served body must be the true union.
-        if let Ok(r) = union(a, b, tol, None) {
-            assert_volume(
+        match union(a, b, tol, None) {
+            Ok(r) => assert_volume(
                 "union",
                 served_volume(&r, &tol),
                 (2.0 * disk - lens_area()) * H,
-            );
+            ),
+            Err(e) => panic!("union declined at {linear:e}: {e}"),
         }
     }
 }
