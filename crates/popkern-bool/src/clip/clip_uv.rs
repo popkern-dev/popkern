@@ -40,14 +40,45 @@ pub(crate) fn clip_curve_wrapped(
         return clip_curve_to_crossings(curve, t_enter, t_max);
     }
     let head = clip_curve_to_crossings(curve, t_enter, t_max)?;
-    let tail = clip_curve_to_crossings(curve, t_min, t_wrap)?;
-    let join_tol = {
+    let mut tail = clip_curve_to_crossings(curve, t_min, t_wrap)?;
+    // Re-anchor the tail by the curve's CLOSURE OFFSET: zero (to
+    // round-off) on a closed 3D curve, one whole chart period on a
+    // periodic pcurve, whose start sits a period below its end. The
+    // splice previously accepted that period jump (its join gate
+    // was the closure distance itself), folding every seam-crossing
+    // pcurve back across the chart (measured: a cap circle's cylinder
+    // pcurve ran 2π → 1.03 the wrong way and the face split's rim
+    // crossings came out by luck).
+    // A closed curve's round-off closure gap is NOT a period: only a
+    // closure comparable to the curve's own extent re-anchors
+    // (relative, so millimetre parts stored in metres behave alike).
+    let closure = {
         use popkern_core::geometry::curve::CurveEval as _;
-        let p0 = curve.point_at(t_min);
-        let p1 = curve.point_at(t_max);
-        p0.distance_to(&p1) + 1e-6
+        curve.point_at(t_max) - curve.point_at(t_min)
     };
-    head.concatenate_clamped(&tail, join_tol).ok()
+    let extent = control_extent(curve);
+    if closure.length() > 1e-3 * extent {
+        for p in &mut tail.control_points {
+            *p = *p + closure;
+        }
+        return head.concatenate_clamped(&tail, 1e-9 * extent).ok();
+    }
+    head.concatenate_clamped(&tail, closure.length() + 1e-6)
+        .ok()
+}
+
+/// Bounding-box diagonal of a curve's control net.
+fn control_extent(curve: &NurbsCurve) -> f64 {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for p in &curve.control_points {
+        for (k, x) in [p.x, p.y, p.z].into_iter().enumerate() {
+            lo[k] = lo[k].min(x);
+            hi[k] = hi[k].max(x);
+        }
+    }
+    let d: f64 = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum();
+    if d.is_finite() { d.sqrt() } else { 0.0 }
 }
 
 pub(crate) fn clip_curve_to_crossings(
@@ -551,3 +582,7 @@ pub(super) fn uv_clip_one_face(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "clip_wrapped_tests.rs"]
+mod wrapped_tests;

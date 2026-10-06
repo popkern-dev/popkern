@@ -12,6 +12,7 @@
 //! construction.
 
 use popkern_history::feature_fastener::FastenerKind;
+use popkern_history::unit::Unit;
 use popkern_script::body_fastener::{
     ClearanceFitArg, ClearanceHoleArgs, FastenerOptions, TapHoleOptions, ThreadSpecArg,
 };
@@ -45,14 +46,27 @@ const CLEARANCE_OPTIONS: &[&str] = &[
 ];
 
 /// Parse a thread spec argument: a designation string (millimetre
-/// dimensions) or a `#{ major, pitch }` map (model units).
-fn thread_spec(value: &Dynamic, options: &Options) -> Result<ThreadSpecArg, Box<EvalAltResult>> {
+/// dimensions, converted into the model's length `unit`) or a
+/// `#{ major, pitch }` map (model units). A metre (default-unit)
+/// model keeps the convention that fastener sizes are millimetre
+/// MAGNITUDES (an "M6" records 6.0); a mm, cm or inch model records
+/// the true length — an M6 in an inch model is 0.236 in, not 6 in
+/// (PK-462).
+fn thread_spec(
+    value: &Dynamic,
+    options: &Options,
+    unit: Unit,
+) -> Result<ThreadSpecArg, Box<EvalAltResult>> {
+    let per_mm = match unit {
+        Unit::Millimeters | Unit::Centimeters | Unit::Inches => 1.0e-3 / unit.to_si(1.0),
+        _ => 1.0,
+    };
     let mut arg = if let Ok(text) = value.clone().into_string() {
         let parsed = popkern_fastener::ThreadSpec::parse(&text)
             .map_err(|e| argument_error("spec", &e.to_string()[..]))?;
         ThreadSpecArg {
-            major: Scalar::Literal(parsed.major_diameter()),
-            pitch: Scalar::Literal(parsed.pitch()),
+            major: Scalar::Literal(parsed.major_diameter() * per_mm),
+            pitch: Scalar::Literal(parsed.pitch() * per_mm),
             left_handed: false,
             starts: 1,
         }
@@ -130,7 +144,8 @@ fn fastener_body(
     options: &Dynamic,
 ) -> Result<ScriptBody, Box<EvalAltResult>> {
     let options = Options::parse(op, options, allowed)?;
-    let thread = thread_spec(spec, &options)?;
+    let unit = m.borrow_mut().length_unit();
+    let thread = thread_spec(spec, &options, unit)?;
     let length = match length {
         Some(v) => args::scalar("length", v)?,
         // A nut's `length` drives its thickness; 0 keeps the
@@ -226,7 +241,8 @@ fn tapped_hole(
     options: &Dynamic,
 ) -> Result<ScriptBody, Box<EvalAltResult>> {
     let options = Options::parse("tapped_hole", options, TAPPED_OPTIONS)?;
-    let thread = thread_spec(&spec, &options)?;
+    let unit = sb.model.borrow_mut().length_unit();
+    let thread = thread_spec(&spec, &options, unit)?;
     let depth = hole_depth(&depth)?;
     let tap = TapHoleOptions {
         clearance: options.with("clearance", args::scalar)?,
@@ -255,7 +271,8 @@ fn clearance_hole(
     options: &Dynamic,
 ) -> Result<ScriptBody, Box<EvalAltResult>> {
     let options = Options::parse("clearance_hole", options, CLEARANCE_OPTIONS)?;
-    let thread = thread_spec(&spec, &options)?;
+    let unit = sb.model.borrow_mut().length_unit();
+    let thread = thread_spec(&spec, &options, unit)?;
     let depth = hole_depth(&depth)?;
     #[derive(Clone, Copy)]
     enum FitSeries {

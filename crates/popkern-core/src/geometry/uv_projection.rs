@@ -6,9 +6,9 @@
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
-use crate::geometry::Point3;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::{Point3, uv_projection_padding::scaled_padding_floor};
 
 /// Project a 3D point onto a surface's UV parameter space.
 ///
@@ -237,7 +237,7 @@ pub fn project_point_to_uv_near(
 /// If the surface's native parameter range is already finite in both u and v,
 /// returns it unchanged. Otherwise, projects the given vertex positions into UV
 /// space, computes the axis-aligned bounding box, and adds 50 % padding
-/// (minimum 1.0 in each direction) for intersection-solver headroom.
+/// (minimum 1.0, scaled down for faces under 0.5) for solver headroom.
 pub fn bounded_parameter_range(
     vertices: &[Point3],
     surface: &SurfaceGeometry,
@@ -287,10 +287,9 @@ pub fn bounded_parameter_range(
         return ((u_min, u_max), (v_min, v_max));
     }
 
-    // 50 % padding (minimum 1.0) so downstream intersection solvers have
-    // enough room; precise 3-D trimming happens later.
-    let u_pad = ((uv_hi.0 - uv_lo.0) * 0.5).max(1.0);
-    let v_pad = ((uv_hi.1 - uv_lo.1) * 0.5).max(1.0);
+    // 50 % padding for solver headroom, floor scaled to the face (PK-462).
+    let u_pad = ((uv_hi.0 - uv_lo.0) * 0.5).max(scaled_padding_floor(1.0, vertices, surface));
+    let v_pad = ((uv_hi.1 - uv_lo.1) * 0.5).max(scaled_padding_floor(1.0, vertices, surface));
 
     // Only override dimensions that were infinite.
     let u_range = if u_min.is_finite() && u_max.is_finite() {
@@ -382,8 +381,9 @@ fn vertex_bounded_parameter_range(
         return ((u_min, u_max), (v_min, v_max));
     }
 
-    let u_pad = ((uv_hi.0 - uv_lo.0) * padding_fraction).max(padding_minimum);
-    let v_pad = ((uv_hi.1 - uv_lo.1) * padding_fraction).max(padding_minimum);
+    let floor = scaled_padding_floor(padding_minimum, vertices, surface);
+    let u_pad = ((uv_hi.0 - uv_lo.0) * padding_fraction).max(floor);
+    let v_pad = ((uv_hi.1 - uv_lo.1) * padding_fraction).max(floor);
 
     let projected_u = (uv_lo.0 - u_pad, uv_hi.0 + u_pad);
     let projected_v = (uv_lo.1 - v_pad, uv_hi.1 + v_pad);

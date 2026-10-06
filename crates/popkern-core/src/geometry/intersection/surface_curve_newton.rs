@@ -31,6 +31,18 @@ pub(crate) fn newton_surface_curve(
     let mut t = t_approx;
     let mut u = u_approx;
     let mut v = v_approx;
+    // Once inside the tolerance the iteration POLISHES to the Newton
+    // fixpoint instead of stopping at the first in-tolerance iterate
+    // (PK-462): a residual just under tolerance leaves the point up to
+    // tolerance / sin(crossing angle) along the curve, so two seeds of
+    // one shallow crossing stopped at two points 12x tolerance apart
+    // (rim circle x thread flank, sin 0.08) — past the 10x dedupe —
+    // and which seeds coincided decided whether a junction was found.
+    // Quadratic convergence makes the polish a few cheap steps; it
+    // stops when the residual stops shrinking and returns the best.
+    let mut converged: Option<(f64, f64, f64, Point3, f64)> = None;
+    const POLISH_STEPS: usize = 4;
+    let mut polish = 0;
 
     for _ in 0..max_iter {
         let pc = curve.point_at(t);
@@ -46,7 +58,17 @@ pub(crate) fn newton_surface_curve(
             (ps.x, ps.y, ps.z),
             tolerance.linear() * tolerance.linear(),
         ) {
-            return Some((t, u, v, pc));
+            let r = f.length();
+            match converged {
+                Some((.., best)) if r >= best => break,
+                _ => converged = Some((t, u, v, pc, r)),
+            }
+            polish += 1;
+            if polish > POLISH_STEPS || r == 0.0 {
+                break;
+            }
+        } else if converged.is_some() {
+            break;
         }
 
         // Jacobian columns:
@@ -62,7 +84,7 @@ pub(crate) fn newton_surface_curve(
         let det = dc.dot(&su_cross_sv);
 
         if det.abs() < 1e-30 {
-            return None;
+            break;
         }
 
         let inv = 1.0 / det;
@@ -76,7 +98,7 @@ pub(crate) fn newton_surface_curve(
         v -= dc.dot(&su.cross(&f)) * inv;
     }
 
-    None
+    converged.map(|(t, u, v, pc, _)| (t, u, v, pc))
 }
 
 #[cfg(test)]

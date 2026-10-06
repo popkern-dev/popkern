@@ -53,9 +53,15 @@ pub(crate) fn fit_march_samples(
     // intersection and the imprinted edge failed the curve-surface
     // band (PK-440). Double the control count until the worst sample
     // residual is far inside any serving band (1e-7 of the curve's
-    // own scale), up to full interpolation.
+    // own scale), up to full interpolation. Relative to the curve's
+    // length with no unit floor (PK-462): the former `max(1.0)` made
+    // the target 1e-7 ABSOLUTE for every curve shorter than one unit,
+    // so a mm-unit thread's 0.01-long crest records stopped refining
+    // at 100x their 1e-9 tolerance and served 1.08e-8 off the flank
+    // (13x worse, relative to the band, than the same part authored
+    // at millimetre magnitudes).
     let pts_3d: Vec<Point3> = samples.iter().map(|s| s.point).collect();
-    let target = 1.0e-7 * total_length.max(1.0);
+    let target = 1.0e-7 * total_length;
     let mut n_cp = (m / 5).clamp(degree + 1, m);
     let curve_3d = loop {
         use crate::geometry::curve::CurveEval as _;

@@ -20,6 +20,12 @@ use super::face_uv_boundary;
 /// NURBS form may deviate from it, in model space.
 const BOUNDARY_CONVERSION_FRACTION: f64 = 1e-3;
 
+/// Multiple of the linear tolerance within which a crossing's query
+/// and boundary chart points must agree. Generous — real crossings
+/// agree to the intersector's tolerance; the gate only rejects
+/// grossly separated (collinear-artifact) reports.
+const COINCIDENCE_BAND: f64 = 100.0;
+
 pub(crate) fn find_uv_crossings(
     brep: &BRep,
     face: FaceHandle,
@@ -97,6 +103,10 @@ pub(crate) fn find_uv_crossings(
             )
         })
         .unwrap_or(false);
+    // The query as the record authored it — continuous in the chart.
+    // Both crossing passes judge tears against it (see TEAR
+    // CONSISTENCY below).
+    let query_authored = curve_uv;
     let curve_uv = &clip_branch_normalize::normalize_query_branch(
         brep,
         face,
@@ -189,7 +199,7 @@ pub(crate) fn find_uv_crossings(
                 );
             }
             let result = intersect_curves(
-                &CurveGeometry::Nurbs(working_boundary),
+                &CurveGeometry::Nurbs(working_boundary.clone()),
                 boundary_range,
                 &CurveGeometry::Nurbs(working_curve.clone()),
                 curve_range,
@@ -209,52 +219,62 @@ pub(crate) fn find_uv_crossings(
                 }
             }
 
+            // TEAR CONSISTENCY: a per-control-point rem_euclid fold
+            // TEARS a query spanning the wrap — its evaluation then
+            // sweeps spurious bridge paths, and a hit on a bridge has
+            // a t-parameter pointing at unrelated geometry (measured:
+            // the gusset-web ellipse's dance crossings landed on the
+            // extended cylinder's phantom re-crossing). A hit is
+            // honest only where the working query evaluates to a
+            // whole-period translate of the AUTHORED query (continuous
+            // from the marcher; a rigid translate always passes). The
+            // check is query-only: BOUNDARY pcurves may encode a
+            // seam-spanning edge "the long way", and tearing them is
+            // the healing the dance exists for. It judges BOTH passes:
+            // branch normalization folds sub-period queries too
+            // (measured: a cap circle's cylinder pcurve u ∈ [5.24,
+            // 7.33] folded onto the [0, 1.05] strip claimed the strip's
+            // u = 1.05 edge at the u = 6.28 seam parameter).
+            // COINCIDENCE: a hit puts query and boundary at ONE chart
+            // point (to a period), in the frame it was found in —
+            // collinear pieces on one iso-line made the intersector
+            // report points 2 rad apart (a B-side cap circle claimed a
+            // strip's rim edge at u = 3.11 against the edge's u = 1.07).
+            let applied = if shifted { shift } else { 0.0 };
+            let dishonest = |t1: f64, t2: f64| -> Option<&'static str> {
+                use popkern_core::geometry::curve::CurveEval;
+                let wrap = |du: f64| {
+                    if surface_is_periodic {
+                        du - TWO_PI * (du / TWO_PI).round()
+                    } else {
+                        du
+                    }
+                };
+                let w = working_curve.point_at(t2);
+                if surface_is_periodic {
+                    let o = query_authored.point_at(t2);
+                    if wrap(w.x - (o.x + applied)).abs() >= 1e-6
+                        || (w.y - o.y).abs() >= 1e-6 * (1.0 + o.y.abs())
+                    {
+                        return Some("torn");
+                    }
+                }
+                let b = working_boundary.point_at(t1);
+                let gap = (wrap(w.x - b.x).powi(2) + (w.y - b.y).powi(2)).sqrt();
+                (gap > COINCIDENCE_BAND * tolerance.linear()).then_some("apart")
+            };
             if let Ok(result) = result {
                 use popkern_core::geometry::intersection::CurveIntersection;
                 for hit in &result.intersections {
                     match hit {
                         CurveIntersection::Point { t1, t2, .. } => {
-                            // TEAR CONSISTENCY: the fold wraps each
-                            // control point by rem_euclid, which
-                            // TEARS a curve spanning the wrap — its
-                            // NURBS evaluation then sweeps spurious
-                            // bridge paths, and a crossing found on a
-                            // bridge has a t-parameter pointing at
-                            // unrelated geometry (measured: the
-                            // gusset-web ellipse's dance crossings
-                            // landed on the extended cylinder's
-                            // phantom re-crossing half a period from
-                            // the boundary they claimed to cross). A
-                            // fold-found crossing is honest only
-                            // where the folded QUERY evaluation
-                            // equals the per-point fold of the
-                            // original evaluation. The check is
-                            // query-only: BOUNDARY pcurves may
-                            // legitimately encode a seam-spanning
-                            // edge "the long way" in the chart, and
-                            // tearing them is precisely the healing
-                            // the dance exists for; query records
-                            // come from the marcher continuously
-                            // unwrapped, so a torn query is always a
-                            // bridge artifact.
-                            if shifted {
-                                use popkern_core::geometry::curve::CurveEval;
-                                let untorn = |orig: &NurbsCurve, work: &NurbsCurve, t: f64| {
-                                    let o = orig.point_at(t);
-                                    let w = work.point_at(t);
-                                    let fold = (o.x + shift).rem_euclid(TWO_PI);
-                                    let du = w.x - fold;
-                                    (du - TWO_PI * (du / TWO_PI).round()).abs() < 1e-6
-                                        && (w.y - o.y).abs() < 1e-6 * (1.0 + o.y.abs())
-                                };
-                                if !untorn(curve_uv, &working_curve, *t2) {
-                                    if popkern_core::trace::trace_enabled("ring-crossing") {
-                                        eprintln!(
-                                            "      [xing-torn] he {he_handle:?} t2={t2:.4} rejected"
-                                        );
-                                    }
-                                    continue;
+                            if let Some(why) = dishonest(*t1, *t2) {
+                                if popkern_core::trace::trace_enabled("ring-crossing") {
+                                    eprintln!(
+                                        "      [xing-{why}] he {he_handle:?} t2={t2:.4} rejected"
+                                    );
                                 }
+                                continue;
                             }
                             if popkern_core::trace::trace_enabled("ring-crossing") {
                                 use popkern_core::geometry::curve::CurveEval;
@@ -272,6 +292,12 @@ pub(crate) fn find_uv_crossings(
                             });
                         }
                         CurveIntersection::Overlap { t1_range, t2_range } => {
+                            if dishonest(t1_range.0, t2_range.0)
+                                .or(dishonest(t1_range.1, t2_range.1))
+                                .is_some()
+                            {
+                                continue;
+                            }
                             // A COLLINEAR overlap with a boundary
                             // edge means the curve runs ALONG the
                             // face's rim for that stretch. The

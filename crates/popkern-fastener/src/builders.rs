@@ -11,12 +11,12 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 use popkern_math::PortableMath;
 use popkern_sketch::ProfileShape;
 
+use crate::FastenerError;
 use crate::engine::{
     chamfer_circular_rims_at, cut_thread, extrude_shape, revolved_tool, subtract, union,
 };
 use crate::spec::ThreadSpec;
 use crate::thread_form::{self, external_groove, internal_bore_radius, internal_ridge};
-use crate::{FastenerError, standards};
 
 /// Hexagon corner points for a width across flats, one flat facing +Y.
 pub(crate) fn hexagon(across_flats: f64) -> ProfileShape<f64> {
@@ -240,7 +240,7 @@ pub fn hex_bolt(params: &HexBoltParams, tolerance: Tolerance) -> Result<BRep, Fa
     let stage = "hex bolt";
     params.spec.validate()?;
     positive(stage, "length", params.length)?;
-    let dims = standards::hex_head(params.spec.major_diameter());
+    let dims = params.spec.iso_hex_head();
     let s = params.across_flats.unwrap_or(dims.across_flats);
     let k = params.head_height.unwrap_or(dims.height);
     positive(stage, "across_flats", s)?;
@@ -287,7 +287,7 @@ pub fn socket_cap_screw(
     let stage = "socket cap screw";
     params.spec.validate()?;
     positive(stage, "length", params.length)?;
-    let dims = standards::socket_head(params.spec.major_diameter());
+    let dims = params.spec.iso_socket_head();
     let head_cyl = extrude_shape(
         ProfileShape::Circle {
             radius: dims.diameter / 2.0,
@@ -350,7 +350,7 @@ pub fn countersunk_screw(
     let stage = "countersunk screw";
     params.spec.validate()?;
     positive(stage, "length", params.length)?;
-    let r_head = standards::countersunk_head_diameter(params.spec.major_diameter()) / 2.0;
+    let r_head = params.spec.iso_countersunk_head_diameter() / 2.0;
     let r_shank = params.spec.major_diameter() / 2.0;
     let head_depth = r_head - r_shank; // 90° cone: 1:1
     if params.length <= head_depth + params.spec.lead() {
@@ -414,10 +414,10 @@ pub fn hex_nut(params: &NutParams, tolerance: Tolerance) -> Result<BRep, Fastene
     params.spec.validate()?;
     let m = params
         .thickness
-        .unwrap_or_else(|| standards::hex_nut_thickness(params.spec.major_diameter()));
+        .unwrap_or_else(|| params.spec.iso_hex_nut_thickness());
     let s = params
         .across_flats
-        .unwrap_or_else(|| standards::hex_head(params.spec.major_diameter()).across_flats);
+        .unwrap_or_else(|| params.spec.iso_hex_head().across_flats);
     positive(stage, "thickness", m)?;
     positive(stage, "across_flats", s)?;
     let ridge = internal_ridge(&params.spec, params.clearance)?;

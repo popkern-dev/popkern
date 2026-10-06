@@ -24,11 +24,27 @@ fn thread_spec(
         resolve_param(param_table, thread.major_diameter)?,
         resolve_param(param_table, thread.pitch)?,
     )
-    .with_starts(thread.starts);
+    .with_starts(thread.starts)
+    .with_millimetre(millimetre_of(param_table, thread));
     if thread.left_handed {
         spec = spec.left_handed();
     }
     Ok(spec)
+}
+
+/// Builder length units per millimetre for this thread's document
+/// (PK-462). Parameters are stored in SI. A major diameter bound in a
+/// real length unit (mm, cm, in) is a true SI length, so a millimetre
+/// is 0.001; one bound in metres follows the default-unit convention
+/// that fastener sizes are millimetre MAGNITUDES (an "M6" records 6.0),
+/// so a millimetre is 1.0. The ISO size tables are looked up in
+/// millimetres through this scale.
+fn millimetre_of(param_table: &ParameterTable, thread: &ThreadDesc) -> f64 {
+    use crate::unit::Unit;
+    match param_table.get(thread.major_diameter).map(|p| p.unit) {
+        Some(Unit::Millimeters | Unit::Centimeters | Unit::Inches) => 1.0e-3,
+        _ => 1.0,
+    }
 }
 
 fn fastener_failed(label: &'static str, e: &popkern_fastener::FastenerError) -> ReplayError {

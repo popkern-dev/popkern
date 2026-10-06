@@ -106,8 +106,27 @@ pub(super) fn sample_and_classify(
             Operand::A => &aabbs_a,
             Operand::B => &aabbs_b,
         };
-        let Some(n0) = planar_outward_normal(own_brep_ref, fragment.face.face) else {
-            return true; // no planar normal — pre-calibration path, no opinion
+        // The probe axis the classifier will use: the planar outward
+        // normal, else the chart normal at `p` (a closed-rim cap has
+        // one loop vertex and no Newell normal — answering "no
+        // opinion" there let a sample ON the cap's own rim through,
+        // where the +ε probe grazes the wall and calibration is a
+        // parity coin flip: one of two mirror-image lens fragments
+        // lost its coorientation and the subtraction kept it).
+        // Decisiveness is sign-free, so the chart normal's arbitrary
+        // sign is harmless here.
+        let Some(n0) = planar_outward_normal(own_brep_ref, fragment.face.face).or_else(|| {
+            use popkern_core::geometry::surface::SurfaceEval;
+            let sof = own_brep_ref
+                .faces
+                .get(fragment.face.face)?
+                .surface
+                .as_ref()?;
+            let (u, v) =
+                popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, p)?;
+            sof.geometry.normal_at(u, v).normalized()
+        }) else {
+            return true; // no probe axis — pre-calibration path, no opinion
         };
         for e in [eps_probe, probe_eps_coarse] {
             let a =

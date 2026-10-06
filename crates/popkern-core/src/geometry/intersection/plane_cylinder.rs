@@ -11,6 +11,7 @@ use std::f64::consts::FRAC_1_SQRT_2;
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve_on_surface::CurveOnSurface;
+use crate::geometry::intersection::plane_cylinder_pcurve::cylinder_conic_pcurve;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::SurfaceGeometry;
@@ -121,7 +122,10 @@ fn case_perpendicular(
 
     let curve_3d = nurbs_ellipse(center, p1, p2, cr, cr);
     let uv_plane = plane_uv_conic(center, p1, p2, cr, cr, po, pu, pv);
-    let uv_cyl = nurbs_hline(t);
+    // Co-parameterized with the rational circle (the linear-in-t
+    // `nurbs_hline` is the fallback only).
+    let uv_cyl =
+        cylinder_conic_pcurve(&curve_3d, co, ca, cr, tol).unwrap_or_else(|| nurbs_hline(t));
 
     let (uv1, uv2) = if swapped {
         (uv_cyl, uv_plane)
@@ -319,7 +323,8 @@ fn case_oblique(
         }
     };
 
-    let uv_cyl = cylinder_uv_curve(&curve_3d, co, ca, cr);
+    let uv_cyl = cylinder_conic_pcurve(&curve_3d, co, ca, cr, tol)
+        .unwrap_or_else(|| cylinder_uv_curve(&curve_3d, co, ca, cr));
 
     let (uv1, uv2) = if swapped {
         (uv_cyl, uv_plane)

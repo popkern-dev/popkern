@@ -23,6 +23,7 @@ mod nurbs_nurbs;
 mod overlap;
 pub(crate) mod plane_cone;
 pub(crate) mod plane_cylinder;
+mod plane_cylinder_pcurve;
 pub(crate) mod plane_plane;
 pub(crate) mod plane_sphere;
 pub(crate) mod plane_torus;

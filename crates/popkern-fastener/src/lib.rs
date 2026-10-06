@@ -37,6 +37,7 @@ pub mod holes;
 #[cfg(test)]
 mod serve_cost_probe_tests;
 mod spec;
+mod spec_standards;
 pub mod standards;
 mod thread_form;
 

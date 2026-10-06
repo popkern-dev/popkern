@@ -10,8 +10,8 @@ use super::assemble::assemble_result;
 use super::fragment_classify::classify_and_select_fragments;
 use super::graph::IntersectionGraph;
 use super::graph_build::insert_operand_topology;
+use super::graph_duplicates::remove_collinear_duplicates;
 use super::graph_intersect::insert_intersection_curves;
-use super::graph_split::remove_collinear_duplicates;
 use super::graph_split_shared::{
     split_edges_at_shared_nodes, split_shared_edges_at_interior_nodes,
 };

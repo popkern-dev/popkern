@@ -73,7 +73,32 @@ pub fn closest_point_on_curve(curve: &dyn CurveEval, point: &Point3) -> Option<f
         }
     }
 
-    best.map(|(t, _)| t)
+    // A closed curve's Newton can settle outside the curve's range: an
+    // analytic circle on another period branch (the same point at
+    // t ± period), a clamped NURBS circle past its end (evaluated at
+    // the end). Callers clamp the result into the curve's window, and
+    // an off-branch t clamped to a window END misreads the point —
+    // measured, PK-462: a rim circle's closest t came back as −6.672 =
+    // −0.389 − 2π, clamped to −π/2, and a point ON the rim read 3.3e-3
+    // away. Return an in-range parameter that evaluates to the SAME
+    // point — wrapped when the parameterization repeats, clamped when
+    // evaluation clamps — and the raw one when neither does.
+    best.map(|(t, _)| {
+        if (t0..=t1).contains(&t) || !(t0.is_finite() && t1.is_finite() && t1 > t0) {
+            return t;
+        }
+        let at = curve.point_at(t);
+        let same = |c: f64| {
+            curve.point_at(c).distance_to(&at)
+                <= 1e-12 * (1.0 + at.distance_to(&curve.point_at(t0)))
+        };
+        let wrapped = t0 + (t - t0).rem_euclid(t1 - t0);
+        if same(wrapped) {
+            return wrapped;
+        }
+        let clamped = t.clamp(t0, t1);
+        if same(clamped) { clamped } else { t }
+    })
 }
 
 /// Compute AABB by sampling a curve at evenly-spaced parameters.

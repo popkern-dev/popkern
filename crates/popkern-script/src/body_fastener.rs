@@ -7,10 +7,11 @@
 //! resolve to millimetre-magnitude numbers at record time via
 //! [`popkern_fastener::ThreadSpec::parse`] and bind in the model
 //! unit, so the thread stays sliderable in the parameter table.
-//! Author fastener models in a default-unit session with
-//! millimetre-magnitude numbers: the kernel's robust scale envelope
-//! for helical thread booleans is the ~1..100 range today (the
-//! millimetre-in-SI scale campaign is a recorded follow-up).
+//! A default-unit (metre) session keeps the convention that fastener
+//! sizes are millimetre MAGNITUDES; a mm, cm or inch session records
+//! true lengths, and the same part builds identically at either scale
+//! (PK-462: the tolerance follows the unit, ISO tables resolve in
+//! millimetres, and the kernel's absolute floors were made relative).
 
 use popkern_history::feature::Feature;
 use popkern_history::feature_fastener::{ClearanceFitDesc, FastenerKind, ThreadDesc};

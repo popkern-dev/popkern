@@ -37,6 +37,11 @@ pub struct ThreadSpec {
     flank_angle: f64,
     handedness: Handedness,
     starts: u32,
+    /// Builder length units per millimetre (PK-462): the ISO tables
+    /// and their derived proportions are in millimetres. 1.0 when
+    /// lengths are millimetre magnitudes (designations, default-unit
+    /// documents); 0.001 when they are SI metres (a mm-unit document).
+    millimetre: f64,
 }
 
 impl ThreadSpec {
@@ -53,6 +58,7 @@ impl ThreadSpec {
             flank_angle: Self::ISO_FLANK_ANGLE,
             handedness: Handedness::Right,
             starts: 1,
+            millimetre: 1.0,
         }
     }
 
@@ -147,6 +153,21 @@ impl ThreadSpec {
     pub fn with_starts(mut self, starts: u32) -> ThreadSpec {
         self.starts = starts;
         self
+    }
+
+    /// Set how many of this spec's length units make one millimetre
+    /// (default 1.0: lengths are millimetre magnitudes). The ISO size
+    /// tables are looked up in millimetres and their dimensions come
+    /// back in the spec's unit, so the same M6 gets the same ISO head
+    /// whether its lengths are millimetres or SI metres (0.001).
+    pub fn with_millimetre(mut self, units_per_millimetre: f64) -> ThreadSpec {
+        self.millimetre = units_per_millimetre;
+        self
+    }
+
+    /// Length units per millimetre (see [`ThreadSpec::with_millimetre`]).
+    pub fn millimetre(&self) -> f64 {
+        self.millimetre
     }
 
     /// Set the full included flank angle in radians (default 60°).

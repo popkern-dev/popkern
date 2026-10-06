@@ -17,7 +17,7 @@ use crate::FastenerError;
 use crate::engine::{cut_thread, extrude_shape, revolved_tool, subtract};
 use crate::entry_ring::{entry_ring_profile, probe_entry};
 use crate::spec::ThreadSpec;
-use crate::standards::{self, ClearanceFit};
+use crate::standards::ClearanceFit;
 use crate::thread_form::{self, external_groove, internal_bore_radius, internal_ridge};
 
 /// How deep a hole goes, measured along its axis from the origin.
@@ -248,7 +248,7 @@ pub fn clearance_hole(
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
     let stage = "clearance hole";
-    let hole_d = standards::clearance_diameter(spec.major_diameter(), options.fit);
+    let hole_d = spec.iso_clearance_diameter(options.fit);
     let up = entry_headroom(spec);
     let bore_depth = match depth {
         HoleDepth::Blind(d) => {
@@ -278,7 +278,7 @@ pub fn clearance_hole(
     let mut result = subtract_placed(body, &bore, &placement, stage, tolerance)?;
     let r_hole = hole_d / 2.0;
     if let Some(extra) = options.countersink {
-        let r_head = standards::countersunk_head_diameter(spec.major_diameter()) / 2.0 + extra;
+        let r_head = spec.iso_countersunk_head_diameter() / 2.0 + extra;
         let eps = 0.25 * spec.pitch();
         // 90° cone from the head radius at the surface down to the
         // hole wall; hypotenuse on the line r + z = r_head.
@@ -287,7 +287,7 @@ pub fn clearance_hole(
         let ring = revolved_tool(&profile, "countersink", tolerance)?;
         result = subtract_placed(&result, &ring, &placement, stage, tolerance)?;
     } else if let Some(extra) = options.counterbore {
-        let dims = standards::socket_head(spec.major_diameter());
+        let dims = spec.iso_socket_head();
         let r_cb = dims.diameter / 2.0 + extra;
         let cb = extrude_shape(
             ProfileShape::Circle { radius: r_cb },

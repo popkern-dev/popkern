@@ -67,12 +67,6 @@ impl Model {
         }
     }
 
-    /// Set the length unit new literals are recorded in.
-    pub fn unit(mut self, unit: Unit) -> Model {
-        self.unit = unit;
-        self
-    }
-
     /// Open a `.pkn` document. No replay runs until requested.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Model, ScriptError> {
         let path = path.as_ref();
@@ -428,24 +422,6 @@ impl Model {
             parts.push(Part::from_brep(brep, self.tolerance, "popkern-script")?);
         }
         Ok(parts)
-    }
-
-    /// Export the whole model as STEP: every alive body as its own
-    /// solid in one product (a gearbox's six gears, not the active
-    /// one). A single-body model writes exactly what
-    /// [`Part::export_step`] writes for that body.
-    pub fn to_step(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
-        let parts = self.to_parts_all()?;
-        Ok(popkern_part::export_step_of(&parts, path)?)
-    }
-
-    /// The whole model as STEP Part 21 bytes with `name` as the
-    /// product name — what [`Model::to_step`] writes for a path whose
-    /// file stem is `name`. Hosts without a filesystem (popkern
-    /// live) hand these to a download.
-    pub fn to_step_bytes(&mut self, name: &str) -> Result<Vec<u8>, ScriptError> {
-        let parts = self.to_parts_all()?;
-        Ok(popkern_part::step_bytes_of(&parts, name)?)
     }
 
     /// The current BRep of `body` (replaying first when the tree

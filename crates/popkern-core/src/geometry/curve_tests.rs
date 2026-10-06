@@ -298,3 +298,30 @@ fn arc_to_nurbs_boundary_split_fallback() {
     let nurbs = arc.to_nurbs();
     assert!(nurbs.degree >= 2);
 }
+
+/// PK-462: a closed curve's closest parameter comes back inside the
+/// curve's own range. Newton can settle a whole period off (−0.389 −
+/// 2π on a rim circle), and a caller clamping that into the window
+/// read a point ON the curve as 3.3e-3 away.
+#[test]
+fn closest_point_on_a_closed_curve_stays_in_its_range() {
+    use crate::geometry::curve::closest_point_on_curve;
+    let circle = CurveGeometry::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.003,
+    };
+    let (t0, t1) = (&circle as &dyn CurveEval).parameter_range();
+    for k in 0..64 {
+        let a = std::f64::consts::TAU * k as f64 / 64.0 + 0.0123;
+        let p = Point3::new(0.003 * a.cos(), 0.003 * a.sin(), 1e-12);
+        let Some(t) = closest_point_on_curve(&circle, &p) else {
+            panic!("no closest point at {a}");
+        };
+        assert!(t >= t0 && t <= t1, "t {t} outside [{t0}, {t1}]");
+        assert!(
+            circle.point_at(t).distance_to(&p) < 1e-11,
+            "point at {a} misplaced"
+        );
+    }
+}

@@ -64,6 +64,23 @@ impl Part {
 /// [`PartError::NotApplicable`] for no parts; [`PartError::Io`] when
 /// the STEP writer declines a body.
 pub fn step_bytes_of(parts: &[Part], name: &str) -> Result<Vec<u8>, PartError> {
+    step_bytes_of_in(parts, name, popkern_io::RepresentationContext::default())
+}
+
+/// [`step_bytes_of`] under an explicit representation context: the
+/// length unit the coordinates are declared in and the geometric
+/// uncertainty. A document storing true SI lengths (a mm, cm or inch
+/// model) declares metres; the default context declares millimetres,
+/// the millimetre-magnitude convention of default-unit documents.
+///
+/// # Errors
+///
+/// As [`step_bytes_of`].
+pub fn step_bytes_of_in(
+    parts: &[Part],
+    name: &str,
+    context: popkern_io::RepresentationContext,
+) -> Result<Vec<u8>, PartError> {
     if parts.is_empty() {
         return Err(PartError::NotApplicable(
             "STEP export of no parts: the document has no body".into(),
@@ -78,13 +95,14 @@ pub fn step_bytes_of(parts: &[Part], name: &str) -> Result<Vec<u8>, PartError> {
             shapes: vec![std::sync::Arc::new(popkern_io::ShapeRep {
                 kind: popkern_io::ShapeRepKind::AdvancedBrep,
                 solids,
-                context: popkern_io::RepresentationContext::default(),
+                context: context.clone(),
                 non_brep_items: vec![],
             })],
             metadata: popkern_io::ProductMetadata::default(),
         }],
         roots: vec![0],
-        units: popkern_io::UnitContext::default(),
+        // The writer declares units from the document context.
+        units: popkern_io::UnitContext { context },
         opaque_bag: popkern_io::OpaqueBag::default(),
     };
     popkern_io::export_step(&doc, &popkern_io::StepExportOptions::default()).map_err(|source| {
@@ -102,12 +120,26 @@ pub fn step_bytes_of(parts: &[Part], name: &str) -> Result<Vec<u8>, PartError> {
 /// As [`step_bytes_of`], and [`PartError::Io`] when the file cannot
 /// be written.
 pub fn export_step_of(parts: &[Part], path: impl AsRef<std::path::Path>) -> Result<(), PartError> {
+    export_step_of_in(parts, path, popkern_io::RepresentationContext::default())
+}
+
+/// [`export_step_of`] under an explicit representation context (see
+/// [`step_bytes_of_in`]).
+///
+/// # Errors
+///
+/// As [`export_step_of`].
+pub fn export_step_of_in(
+    parts: &[Part],
+    path: impl AsRef<std::path::Path>,
+    context: popkern_io::RepresentationContext,
+) -> Result<(), PartError> {
     let path = path.as_ref();
     let name = path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| "part".into());
-    let bytes = step_bytes_of(parts, &name)?;
+    let bytes = step_bytes_of_in(parts, &name, context)?;
     std::fs::write(path, bytes).map_err(|e| PartError::Io {
         path: path.display().to_string(),
         source: popkern_io::error::IoError::Io(e),

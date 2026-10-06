@@ -314,8 +314,15 @@ fn swapped_order_works() {
 
     if let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] {
         assert!(cos.is_closed);
-        // UV1 should be cylinder UV (linear u sweep at constant v)
-        assert_eq!(cos.curve_uv1.degree, 1);
+        // UV1 should be cylinder UV: a u sweep at constant v,
+        // co-parameterized with the rational circle (cubic Hermite).
+        assert_eq!(cos.curve_uv1.degree, 3);
+        assert!(
+            cos.curve_uv1
+                .control_points
+                .iter()
+                .all(|p| (p.y - 1.0).abs() < 1e-12)
+        );
         // UV2 should be plane UV (circle)
         assert_eq!(cos.curve_uv2.degree, 2);
     } else {

@@ -123,6 +123,30 @@ pub(super) fn try_uv_split(
         }
     }
 
+    // The PIECE the split would insert — first to last crossing —
+    // running along the boundary partitions nothing either, even when
+    // the trim continues past it into a neighbouring face (measured:
+    // a cap circle duplicating a cylinder rim across the seam crossed
+    // the strip face at the seam vertex and the strip corner, both
+    // interior to the whole trim; splitting along the rim minted a
+    // zero-area sliver and the two-cylinder union lost its shell).
+    // Sampled at interior fractions, period-aware on periodic charts.
+    if crossings.len() >= 2 {
+        let (te, tx) = (crossings[0].t_curve, crossings[crossings.len() - 1].t_curve);
+        let span = (t1_orig - t0_orig).abs().max(1e-30);
+        if (tx - te) > span * 1e-6
+            && [1.0, 2.0, 3.0, 4.0, 5.0].iter().all(|k| {
+                let p = curve_uv.point_at(te + (tx - te) * k / 6.0);
+                uv_point_on_face_boundary_periodic(brep, face_handle, &p, tolerance)
+            })
+        {
+            if popkern_core::trace::trace_enabled("face-split") {
+                eprintln!("  [split1] {face_handle:?} boundary-running piece — consumed as no-op");
+            }
+            return Ok(true);
+        }
+    }
+
     // Sub-problem A: curve crosses boundary (>= 2 crossings).
     // Clip to the interior segment and split the face.
     if crossings.len() >= 2 {
@@ -296,6 +320,30 @@ pub(super) fn try_uv_split(
 /// True when the UV point lies within tolerance of the face's outer
 /// boundary, sampled through the boundary pcurves (16-station chords
 /// per edge — exact for linear pcurves).
+/// [`uv_point_on_face_boundary`] on every whole-period image of `p`
+/// that can reach the chart's principal branch (`p` itself on
+/// non-periodic charts).
+fn uv_point_on_face_boundary_periodic(
+    brep: &BRep,
+    face: FaceHandle,
+    p: &Point3,
+    tolerance: &Tolerance,
+) -> bool {
+    use popkern_core::geometry::SurfaceEval as _;
+    let period = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .and_then(|s| s.geometry.parameter_periodicity().0);
+    match period {
+        Some(period) if period > 0.0 => (-2..=2).any(|k| {
+            let q = Point3::new(p.x + k as f64 * period, p.y, p.z);
+            uv_point_on_face_boundary(brep, face, &q, tolerance)
+        }),
+        _ => uv_point_on_face_boundary(brep, face, p, tolerance),
+    }
+}
+
 pub(crate) fn uv_point_on_face_boundary(
     brep: &BRep,
     face: FaceHandle,
