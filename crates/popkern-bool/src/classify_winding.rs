@@ -20,9 +20,20 @@ use crate::error::PointClassification;
 /// Classify a point relative to a solid using the winding number.
 ///
 /// Returns `Inside` if winding number > 0.5, `Outside` if < 0.5.
-/// Falls back to `OnBoundary` if the computation is inconclusive
-/// (e.g., the point is very close to the surface).
+/// Returns `OnBoundary` when the computation is inconclusive (the
+/// point is very close to the surface) AND whenever the solid is not
+/// a polyhedron: the solid angle is summed over each face's VERTEX
+/// FAN, which is exact only for straight-edged planar faces without
+/// holes. On anything else it is not an approximation but an
+/// arbitrary number (measured, PK-683: on a 112-turn thread tool, whose
+/// four-vertex walls fan into two triangles joining the coil's ends,
+/// every in-groove point read Outside), and callers fall back to this
+/// verdict exactly when their rays were inconclusive — a fabricated
+/// answer there is worse than an honest `OnBoundary`.
 pub fn point_in_solid_winding(point: &Point3, solid: &BRep) -> PointClassification {
+    if !is_straight_edged_polyhedron(solid) {
+        return PointClassification::OnBoundary;
+    }
     let winding = compute_winding_number(point, solid);
 
     if winding > 0.5 {
@@ -36,6 +47,51 @@ pub fn point_in_solid_winding(point: &Point3, solid: &BRep) -> PointClassificati
         // Ambiguous — near the boundary
         PointClassification::OnBoundary
     }
+}
+
+/// Whether every face is planar, has no holes, and is bounded by
+/// straight edges only — the solids on which the vertex-fan winding
+/// number is exact.
+fn is_straight_edged_polyhedron(solid: &BRep) -> bool {
+    use popkern_core::geometry::curve::CurveGeometry;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let straight = |edge: popkern_core::topology::EdgeHandle| {
+        solid
+            .edges
+            .get(edge)
+            .and_then(|e| e.curve.as_ref())
+            .is_none_or(|c| match &c.geometry {
+                CurveGeometry::Line { .. } => true,
+                CurveGeometry::Nurbs(n) => n.degree == 1,
+                _ => false,
+            })
+    };
+    solid.faces.iter().all(|(_, face)| {
+        let planar = face
+            .surface
+            .as_ref()
+            .is_none_or(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }));
+        if !planar || !face.inner_loops.is_empty() {
+            return false;
+        }
+        let Some(start) = solid.loops.get(face.outer_loop).map(|l| l.half_edge) else {
+            return false;
+        };
+        let mut current = start;
+        for _ in 0..=solid.half_edges.len() {
+            let Some(he) = solid.half_edges.get(current) else {
+                return false;
+            };
+            if !straight(he.edge) {
+                return false;
+            }
+            current = he.next;
+            if current == start {
+                return true;
+            }
+        }
+        false
+    })
 }
 
 /// Compute the generalized winding number of `point` with respect to `solid`.
@@ -185,5 +241,25 @@ mod tests {
             w.is_finite(),
             "winding on cylinder should be finite, got {w}"
         );
+    }
+
+    /// PK-683: the vertex fan is exact only for straight-edged planar
+    /// faces; a cylinder's caps (one circular edge each) and wall
+    /// would be skipped or fanned into nonsense, so the winding test
+    /// answers OnBoundary rather than inventing a verdict — for points
+    /// on either side.
+    #[test]
+    fn curved_solids_are_not_given_fabricated_verdicts() {
+        let cylinder = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+        for p in [Point3::new(0.0, 0.0, 1.0), Point3::new(5.0, 0.0, 1.0)] {
+            assert_eq!(
+                point_in_solid_winding(&p, &cylinder),
+                PointClassification::OnBoundary,
+                "{p:?}"
+            );
+        }
+        assert!(!is_straight_edged_polyhedron(&cylinder));
+        let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+        assert!(is_straight_edged_polyhedron(&cube));
     }
 }

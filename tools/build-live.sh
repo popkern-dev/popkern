@@ -54,7 +54,11 @@ if [[ $OPT == 1 ]] && ! command -v wasm-opt >/dev/null; then
 fi
 
 cargo build --profile live --target wasm32-unknown-unknown -p popkern-live
-WASM=target/wasm32-unknown-unknown/live/popkern_live.wasm
+# Cargo honours CARGO_TARGET_DIR; so must the packaging step, or a
+# relocated build silently re-packages a stale ./target wasm (measured
+# 2026-10-06: two gallery_parity runs compared new native code against
+# a days-old bundle and reported phantom native/wasm divergence).
+WASM=${CARGO_TARGET_DIR:-target}/wasm32-unknown-unknown/live/popkern_live.wasm
 
 emit() { # target out-dir
   mkdir -p "$2"

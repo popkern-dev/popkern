@@ -46,6 +46,8 @@ const STATIONS: usize = 64;
 const EDGE_BAND_FRACTION: f64 = 0.002;
 /// Edge-band floor, in linear tolerances.
 const EDGE_BAND_FLOOR_PER_LINEAR: f64 = 100.0;
+/// Edge-band ceiling as a fraction of the boundary-sample extent.
+const EDGE_BAND_CEILING_FRACTION: f64 = 0.05;
 /// Image-honesty bound, in linear tolerances, between a boundary
 /// pcurve's midpoint image and its edge's 3D curve.
 const IMAGE_HONESTY_PER_LINEAR: f64 = 1.0e3;
@@ -107,7 +109,15 @@ pub(super) fn cone_trim_gate(
         },
     );
     let extent = (hi.x - lo.x) + (hi.y - lo.y) + (hi.z - lo.z);
-    let band = (EDGE_BAND_FRACTION * extent).max(tolerance.linear() * EDGE_BAND_FLOOR_PER_LINEAR);
+    // Ceiling (PK-683): at a coarse tolerance the floor alone exceeds
+    // the face (1e-2 x 100 = 1.0 on a radius-0.4 cone), every hit read
+    // as an edge graze, and points inside the cone could not be
+    // classified at all — the vertex-fan winding fallback had been
+    // inventing their verdicts. A band past a few percent of the face
+    // no longer separates edge grazes from interior crossings.
+    let band = (EDGE_BAND_FRACTION * extent)
+        .max(tolerance.linear() * EDGE_BAND_FLOOR_PER_LINEAR)
+        .min(EDGE_BAND_CEILING_FRACTION * extent);
     let near_edge = boundary
         .windows(2)
         .any(|w| segment_distance(hit, &w[0], &w[1]) < band);
