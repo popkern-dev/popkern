@@ -98,7 +98,6 @@ fn slotted_m2p5_rod_serves_cellular() {
 
 /// PK-679: the 50 mm rod cut at mid-length by a planar box.
 #[test]
-#[ignore = "heavy: two 112-turn booleans (~3 min release); PK-679 acceptance row"]
 fn m2p5_fifty_mm_rod_cut_at_mid_length_serves_cellular() {
     let part = rod(50.0);
     let cut = Profile::on(Plane::xy_at(25.3))
