@@ -30,6 +30,10 @@ const M5_NUT_OCC_VOLUME: f64 = 179.998_062_835;
 /// M2: measured after PK-681 (its threaded section's OCC slab volumes
 /// are uniform, 1.14110 per 0.1 mm, and sum to this whole-body value).
 const M2_NUT_OCC_VOLUME: f64 = 17.695_515_551;
+/// M1.6 and M2.5 (2026-10-06; OCC BRepGProp and OCC's tessellation
+/// agree within 0.003%, and PK-671 measured 9.238 / 34.434).
+const M1P6_NUT_OCC_VOLUME: f64 = 9.235_450_145;
+const M2P5_NUT_OCC_VOLUME: f64 = 34.435_227_921;
 /// Display-tessellation chord error budget against the exact volume.
 const VOLUME_REL_TOL: f64 = 5.0e-3;
 
@@ -77,8 +81,12 @@ fn m3_and_m5_default_nuts_serve_cellular_with_occ_volume() {
 ///   (ChartOverwrap 6.53 > 2π) to a 3D-Newell walk that cannot cut the
 ///   winding separator. The prefilter now tests u modulo the period.
 #[test]
-fn m2_default_nut_serves_cellular_with_occ_volume() {
-    assert_nuts_serve(&[("M2", M2_NUT_OCC_VOLUME)]);
+fn smallest_default_nuts_serve_cellular_with_occ_volume() {
+    assert_nuts_serve(&[
+        ("M1.6", M1P6_NUT_OCC_VOLUME),
+        ("M2", M2_NUT_OCC_VOLUME),
+        ("M2.5", M2P5_NUT_OCC_VOLUME),
+    ]);
 }
 
 /// Build each default nut and require a cellular, watertight serve

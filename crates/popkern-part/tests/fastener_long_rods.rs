@@ -90,6 +90,10 @@ fn slotted_m2p5_rod_serves_cellular() {
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
     let slotted = part.subtract(&slot).expect("slotted rod serves");
     assert_cellular_watertight(&slotted, "M2.5 x 12 slotted rod");
+    // OCC tessellated 45.815; the unslotted rod's 46.869 less the
+    // material inside the slot box (~1.05 by the strip integral).
+    // OCC BRepGProp read 45.29 and OCC's box-Common of the slot 0.
+    assert_volume(&slotted, 45.815, "M2.5 x 12 slotted rod");
 }
 
 /// PK-679: the 50 mm rod cut at mid-length by a planar box.
