@@ -14,7 +14,9 @@ use crate::tolerance::Tolerance;
 
 #[path = "surface_curve_grid.rs"]
 mod surface_curve_grid;
-use surface_curve_grid::{GRID_N, SurfaceCell, build_surface_grid, interior_knots_in, padded_cell};
+use surface_curve_grid::{
+    GRID_N, SurfaceCell, interior_knots_in, padded_cell_memo, surface_grid_cached,
+};
 
 // ---------------------------------------------------------------------------
 // Curve AABB
@@ -59,6 +61,38 @@ fn curve_aabb(nurbs: &NurbsCurve, t_range: (f64, f64)) -> (Point3, Point3) {
 }
 
 /// Check AABB overlap with a tolerance margin.
+/// Whether the straight segment `a`→`b` meets the box `[lo, hi]`
+/// grown by `margin` (slab test). Exact for a segment, where the
+/// segment's own AABB is a gross over-approximation: a diagonal
+/// classification ray spans a box that overlaps EVERY cell of a
+/// thread face, and each overlap paid span refinement and Newton
+/// seeding (PK-513).
+fn segment_meets_box(a: &Point3, b: &Point3, lo: &Point3, hi: &Point3, margin: f64) -> bool {
+    let (mut t0, mut t1) = (0.0_f64, 1.0_f64);
+    for (p, d, l, h) in [
+        (a.x, b.x - a.x, lo.x - margin, hi.x + margin),
+        (a.y, b.y - a.y, lo.y - margin, hi.y + margin),
+        (a.z, b.z - a.z, lo.z - margin, hi.z + margin),
+    ] {
+        if d.abs() < 1e-300 {
+            if p < l || p > h {
+                return false;
+            }
+            continue;
+        }
+        let (mut ta, mut tb) = ((l - p) / d, (h - p) / d);
+        if ta > tb {
+            std::mem::swap(&mut ta, &mut tb);
+        }
+        t0 = t0.max(ta);
+        t1 = t1.min(tb);
+        if t0 > t1 {
+            return false;
+        }
+    }
+    true
+}
+
 fn aabb_overlap(
     a_min: &Point3,
     a_max: &Point3,
@@ -192,7 +226,7 @@ pub(crate) fn intersect_surface_curve_general(
         .collect();
 
     // --- Step 3: build surface bbox grid ---
-    let surface_cells = build_surface_grid(surface, u_range, v_range, GRID_N, dense_grid);
+    let surface_cells = surface_grid_cached(surface, u_range, v_range, GRID_N, dense_grid);
 
     // --- Step 4: AABB culling + Newton polish ---
     let margin = tolerance.linear() * 10.0; // small margin for AABB overlap test
@@ -206,13 +240,29 @@ pub(crate) fn intersect_surface_curve_general(
     // thread coil at 4-span cells). Hit cells refine to single-span
     // sub-cells (padded boxes, re-culled) before seeding; only the
     // ray's corridor pays.
+    let fingerprint = match surface {
+        SurfaceGeometry::Nurbs(s) => Some(s.content_fingerprint()),
+        _ => None,
+    };
     let (knots_u, knots_v): (&[f64], &[f64]) = match surface {
         SurfaceGeometry::Nurbs(s) => (&s.knots_u, &s.knots_v),
         _ => (&[], &[]),
     };
+    // Straight curves (classification rays) cull by the exact segment
+    // instead of its AABB.
+    let straight = matches!(curve, CurveGeometry::Line { .. });
+    let straight_meets = |cseg: &CurveSegment, lo: &Point3, hi: &Point3| -> bool {
+        !straight || {
+            let a = curve.point_at(cseg.t_range.0);
+            let b = curve.point_at(cseg.t_range.1);
+            segment_meets_box(&a, &b, lo, hi, margin)
+        }
+    };
     for cseg in &curve_segments {
-        for cell in &surface_cells {
-            if !aabb_overlap(&cseg.min, &cseg.max, &cell.min, &cell.max, margin) {
+        for cell in surface_cells.iter() {
+            if !aabb_overlap(&cseg.min, &cseg.max, &cell.min, &cell.max, margin)
+                || !straight_meets(cseg, &cell.min, &cell.max)
+            {
                 if crate::trace::trace_enabled("scg-cull") {
                     eprintln!(
                         "  [scg-cull] u({:.4},{:.4}) v({:.4},{:.4}) box ({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2}) vs seg ({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
@@ -246,8 +296,9 @@ pub(crate) fn intersect_surface_curve_general(
             for ui in 0..u_edges.len() - 1 {
                 for vi in 0..v_edges.len() - 1 {
                     let sub = if refined {
-                        padded_cell(
+                        padded_cell_memo(
                             surface,
+                            fingerprint,
                             (u_edges[ui], u_edges[ui + 1]),
                             (v_edges[vi], v_edges[vi + 1]),
                         )
@@ -259,7 +310,10 @@ pub(crate) fn intersect_surface_curve_general(
                             max: cell.max,
                         }
                     };
-                    if refined && !aabb_overlap(&cseg.min, &cseg.max, &sub.min, &sub.max, margin) {
+                    if refined
+                        && (!aabb_overlap(&cseg.min, &cseg.max, &sub.min, &sub.max, margin)
+                            || !straight_meets(cseg, &sub.min, &sub.max))
+                    {
                         continue;
                     }
                     let (sub_u, sub_v) = (sub.u_range, sub.v_range);

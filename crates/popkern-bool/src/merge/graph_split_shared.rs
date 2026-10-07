@@ -234,9 +234,14 @@ pub(crate) fn split_edges_at_shared_nodes(
         f64,
     )>,
 ) {
-    // Collect shared edge endpoint node indices.
+    // Collect shared edge endpoint node indices, in ASCENDING order:
+    // the split order below decides every new graph index, and a
+    // HashSet's per-process seed made the same boolean mint its split
+    // pieces in different orders run to run (measured: a torus-groove
+    // cut's output swapped edge handles 6/7 between runs, and the
+    // follow-on drill served or declined by run — the PK-512 class).
     let shared_nodes: Vec<usize> = {
-        let set: std::collections::HashSet<usize> = graph
+        let set: std::collections::BTreeSet<usize> = graph
             .half_edges
             .iter()
             .filter(|he| matches!(he.source, EdgeSource::Shared { .. }))

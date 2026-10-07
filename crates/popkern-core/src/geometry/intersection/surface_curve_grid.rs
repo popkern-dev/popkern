@@ -12,6 +12,7 @@ pub(super) const GRID_N: usize = 8;
 // Surface AABB grid
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy)]
 pub(super) struct SurfaceCell {
     pub(super) u_range: (f64, f64),
     pub(super) v_range: (f64, f64),
@@ -167,6 +168,108 @@ pub(super) fn build_surface_grid(
         }
     }
     cells
+}
+
+/// Entry bound for the per-thread NURBS grid memo (a dense coil grid
+/// is ~100 KB).
+const GRID_CACHE_CAPACITY: usize = 32;
+
+type GridKey = ((u64, u64, u64), [u64; 4], usize, bool);
+
+thread_local! {
+    static GRID_CACHE: std::cell::RefCell<
+        std::collections::HashMap<GridKey, std::rc::Rc<Vec<SurfaceCell>>>,
+    > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// [`build_surface_grid`], memoized for NURBS surfaces by exact
+/// content and window bits (PK-513): every classification ray against
+/// a thread face rebuilt the same padded-cell grid — the binding cost
+/// of a nut's cellular classification. Analytic surfaces build
+/// directly (their cells are cheap). Thread-local, cleared when full
+/// (deterministic); cells are identical to an uncached build.
+pub(super) fn surface_grid_cached(
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    base_n: usize,
+    dense: bool,
+) -> std::rc::Rc<Vec<SurfaceCell>> {
+    let SurfaceGeometry::Nurbs(ns) = surface else {
+        return std::rc::Rc::new(build_surface_grid(surface, u_range, v_range, base_n, dense));
+    };
+    let key: GridKey = (
+        ns.content_fingerprint(),
+        [
+            u_range.0.to_bits(),
+            u_range.1.to_bits(),
+            v_range.0.to_bits(),
+            v_range.1.to_bits(),
+        ],
+        base_n,
+        dense,
+    );
+    if let Some(hit) = GRID_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let cells = std::rc::Rc::new(build_surface_grid(surface, u_range, v_range, base_n, dense));
+    GRID_CACHE.with(|c| {
+        let mut map = c.borrow_mut();
+        if map.len() >= GRID_CACHE_CAPACITY {
+            map.clear();
+        }
+        map.insert(key, cells.clone());
+    });
+    cells
+}
+
+/// Entry bound for the per-thread padded sub-cell memo (~80 bytes an
+/// entry).
+const CELL_CACHE_CAPACITY: usize = 1 << 15;
+
+type CellKey = ((u64, u64, u64), [u64; 4]);
+
+thread_local! {
+    static CELL_CACHE: std::cell::RefCell<std::collections::HashMap<CellKey, SurfaceCell>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// [`padded_cell`], memoized by the surface's content fingerprint
+/// (computed ONCE per solve by the caller — hashing per cell would
+/// cost what the 9 evaluations do) and the exact range bits (PK-513):
+/// a hit cell refines into span-aligned sub-cells, the same few
+/// hundred for every classification ray through a thread face.
+/// `fingerprint = None` (analytic surfaces) builds directly.
+pub(super) fn padded_cell_memo(
+    surface: &SurfaceGeometry,
+    fingerprint: Option<(u64, u64, u64)>,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+) -> SurfaceCell {
+    let Some(fp) = fingerprint else {
+        return padded_cell(surface, u_range, v_range);
+    };
+    let key: CellKey = (
+        fp,
+        [
+            u_range.0.to_bits(),
+            u_range.1.to_bits(),
+            v_range.0.to_bits(),
+            v_range.1.to_bits(),
+        ],
+    );
+    if let Some(hit) = CELL_CACHE.with(|c| c.borrow().get(&key).copied()) {
+        return hit;
+    }
+    let cell = padded_cell(surface, u_range, v_range);
+    CELL_CACHE.with(|c| {
+        let mut map = c.borrow_mut();
+        if map.len() >= CELL_CACHE_CAPACITY {
+            map.clear();
+        }
+        map.insert(key, cell);
+    });
+    cell
 }
 
 /// Interior distinct knot values strictly inside `(a, b)` — the

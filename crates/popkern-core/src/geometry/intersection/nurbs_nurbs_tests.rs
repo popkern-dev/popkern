@@ -279,3 +279,26 @@ fn the_converged_collapse_quadrant_still_finds_its_crossing() {
     );
     assert_eq!(hits.len(), 1, "the quadrant's crossing: {hits:?}");
 }
+
+// PK-513: whole-curve hull rejection.
+#[test]
+fn far_apart_curves_are_rejected_by_their_hulls() {
+    use super::hulls_disjoint;
+    let a = line(Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0));
+    let far = line(Point3::new(0.0, 5.0, 0.0), Point3::new(1.0, 5.0, 0.0));
+    let crossing = line(Point3::new(0.5, -1.0, 0.0), Point3::new(0.5, 1.0, 0.0));
+    assert!(hulls_disjoint(&a, &far, 1e-4));
+    assert!(!hulls_disjoint(&a, &crossing, 1e-4));
+    // The pad keeps a near-touching pair in the solver's hands.
+    let near = line(Point3::new(0.0, 1e-5, 0.0), Point3::new(1.0, 1e-5, 0.0));
+    assert!(!hulls_disjoint(&a, &near, 1e-4));
+}
+
+fn line(a: Point3, b: Point3) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![a, b],
+        weights: vec![1.0, 1.0],
+    }
+}

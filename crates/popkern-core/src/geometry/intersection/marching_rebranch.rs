@@ -75,6 +75,18 @@ pub(crate) fn rebranch_out_of_window(
         if !far(*u, ur, periodic.0) && !far(*v, vr, periodic.1) {
             return true;
         }
+        // HULL PROOF (PK-513): a NURBS surface lies in the union of
+        // its span control-net boxes, and adoption below requires a
+        // preimage within 10x linear. A point farther than that from
+        // every span box can never re-branch — reject it without the
+        // multi-start projection (phantom seeds on a thread wall's
+        // extended basis paid one each, ~18k per chamfer cut).
+        if let SurfaceGeometry::Nurbs(ns) = surface
+            && let Some(field) = ns.projection_seed_field()
+            && !field.may_reach(p, tolerance.linear() * 10.0)
+        {
+            return false;
+        }
         // The multi-sheet projector (PK-446/PK-452): a window-centre
         // seeded local walk lands on the adjacent coil turn of a
         // helical basis; the multi-start projector picks the true

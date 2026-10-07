@@ -39,9 +39,14 @@ pub(crate) fn newton_surface_curve(
     // (rim circle x thread flank, sin 0.08) — past the 10x dedupe —
     // and which seeds coincided decided whether a junction was found.
     // Quadratic convergence makes the polish a few cheap steps; it
-    // stops when the residual stops shrinking and returns the best.
+    // stops when the residual stops shrinking, or once it is below
+    // POLISH_TARGET of the tolerance (two seeds then agree to
+    // 1e-3·tol / sin(angle), far inside the dedupe band — polishing
+    // further only cost: the steps doubled the per-solve work of every
+    // classification ray, PK-513), and returns the best.
     let mut converged: Option<(f64, f64, f64, Point3, f64)> = None;
     const POLISH_STEPS: usize = 4;
+    const POLISH_TARGET: f64 = 1e-3;
     let mut polish = 0;
 
     for _ in 0..max_iter {
@@ -64,7 +69,7 @@ pub(crate) fn newton_surface_curve(
                 _ => converged = Some((t, u, v, pc, r)),
             }
             polish += 1;
-            if polish > POLISH_STEPS || r == 0.0 {
+            if polish > POLISH_STEPS || r <= POLISH_TARGET * tolerance.linear() {
                 break;
             }
         } else if converged.is_some() {

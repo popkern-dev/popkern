@@ -24,6 +24,15 @@ pub(crate) fn intersect_nurbs_nurbs(
 ) -> Vec<CurveIntersection> {
     let mut results: Vec<CurveIntersection> = Vec::new();
 
+    // 0. Whole-curve hull rejection (PK-513): with positive weights a
+    // curve lies in its control hull, so disjoint control AABBs (padded
+    // past the overlap band) cannot meet. Skips the overlap scan and
+    // both Bezier decompositions — the clip's crossing search queries
+    // every boundary pcurve of a multi-turn thread face per record.
+    if hulls_disjoint(curve1, curve2, tolerance.linear() * 100.0) {
+        return results;
+    }
+
     // 1. Overlap detection
     let overlaps = overlap::detect_overlaps(curve1, t1_range, curve2, t2_range, tolerance);
     if !overlaps.is_empty() {
@@ -339,3 +348,26 @@ fn is_duplicate(a: &CurveIntersection, b: &CurveIntersection, tolerance: &Tolera
 #[cfg(test)]
 #[path = "nurbs_nurbs_tests.rs"]
 mod tests;
+
+/// Whether the two curves' control-point AABBs, each padded by `pad`,
+/// are disjoint. `false` (no claim) when a weight is not positive.
+fn hulls_disjoint(c1: &NurbsCurve, c2: &NurbsCurve, pad: f64) -> bool {
+    let bbox = |c: &NurbsCurve| -> Option<([f64; 3], [f64; 3])> {
+        if !c.weights.iter().all(|w| *w > 0.0) || c.control_points.is_empty() {
+            return None;
+        }
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for p in &c.control_points {
+            for (k, x) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[k] = lo[k].min(x);
+                hi[k] = hi[k].max(x);
+            }
+        }
+        Some((lo, hi))
+    };
+    let (Some((lo1, hi1)), Some((lo2, hi2))) = (bbox(c1), bbox(c2)) else {
+        return false;
+    };
+    (0..3).any(|k| lo1[k] - pad > hi2[k] || lo2[k] - pad > hi1[k])
+}

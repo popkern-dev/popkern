@@ -165,10 +165,16 @@ fn intersect_surfaces_inner(
     // Seeds too are accepted unclamped and can carry a wrong-preimage
     // registration on self-overlapping extended bases — re-branch
     // them into the query windows (same rationale as the march's
-    // `rebranch_out_of_window`).
+    // `rebranch_out_of_window`). A seed the re-branch REJECTS is an
+    // extrapolation phantom (far outside a window, no in-window
+    // preimage) and is dropped (PK-513): every such march failed on
+    // its first step after re-paying the rejected projections
+    // (measured: ~18k phantom seeds at u2 in [-7, 16] for a [0, 1]
+    // thread-wall window, 36k dead march directions, in one M10 stud
+    // tip-chamfer build — the bulk of the cut's cost).
     let mut seed_phantom_cache = Vec::new();
-    for sp in &mut starting_points {
-        let _ = crate::geometry::intersection::marching::rebranch_sample_pub(
+    starting_points.retain_mut(|sp| {
+        crate::geometry::intersection::marching::rebranch_sample_pub(
             surface1,
             u1_range,
             v1_range,
@@ -178,8 +184,8 @@ fn intersect_surfaces_inner(
             &mut sp.sample,
             tolerance,
             &mut seed_phantom_cache,
-        );
-    }
+        )
+    });
     // CLOSEST-APPROACH seeding fallback for torus pairs (PK-310) —
     // mechanics and measured rationale in
     // `surface_surface_torus_seed.rs`.

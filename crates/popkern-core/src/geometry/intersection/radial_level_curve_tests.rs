@@ -263,25 +263,25 @@ fn tangent_level_radius_declines() {
 }
 
 #[test]
-fn radius_beyond_control_hull_declines_cheaply() {
+fn radius_beyond_control_hull_answers_empty_without_marching() {
     let _guard = env_lock();
     let wall = helical_band(2.0, 4.0, 3.0, 1.0);
-    // The mid-arc control points reach r·√2; beyond that the hull
-    // prescreen rejects without sampling.
+    // The mid-arc control points reach r·√2; beyond that the convex
+    // hull bound PROVES the wall never reaches the cylinder (PK-513):
+    // the arm answers "no intersection" instead of handing the pair
+    // to a seed hunt over the multi-turn chart.
     let cyl = shank_cylinder(8.0);
     let tol = Tolerance::default();
-    assert!(
-        try_radial_level_curve(
-            &wall,
-            (0.0, 1.0),
-            (0.0, 1.0),
-            &cyl,
-            (0.0, TAU),
-            (-1.0, 4.0),
-            &tol,
-        )
-        .is_none()
+    let answer = try_radial_level_curve(
+        &wall,
+        (0.0, 1.0),
+        (0.0, 1.0),
+        &cyl,
+        (0.0, TAU),
+        (-1.0, 4.0),
+        &tol,
     );
+    assert!(answer.is_some_and(|curves| curves.is_empty()));
 }
 
 #[test]

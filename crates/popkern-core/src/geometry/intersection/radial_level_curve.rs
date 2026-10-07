@@ -132,6 +132,33 @@ pub(crate) fn try_radial_level_curve(
     if !arm_enabled {
         return None;
     }
+    // NO-CROSSING CERTIFICATE (PK-513): a wall provably clear of the
+    // cylinder — wholly inside its radius, or outside it span by span
+    // — has no intersection at all; the marcher would only learn that
+    // by hunting seeds over a multi-turn chart (4.8 s per pair on an
+    // M6 tap). Exact, so it answers before any chart-topology gate.
+    if let (
+        SurfaceGeometry::Nurbs(ns),
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        },
+    ) = (wall, cyl)
+        && let Some(axis_unit) = axis.normalized()
+        && super::radial_separation::wall_clear_of_cylinder(
+            ns,
+            *origin,
+            axis_unit,
+            *radius,
+            GRAZE_BAND_FACTOR * tolerance.linear(),
+        )
+    {
+        if crate::trace::trace_enabled("ssi") {
+            eprintln!("  [rlc] wall clear of cylinder r={radius:.4}: no intersection");
+        }
+        return Some(Vec::new());
+    }
     // Geometrically closed wall charts (coiled spring walls, closed
     // loft sections) keep their tuned seam machinery (PK-443/444):
     // their level sets can be chart-wrapping loops, not graphs.

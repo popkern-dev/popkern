@@ -76,6 +76,33 @@ pub fn closest_point_from_seeds(
     gauss_newton_over_starts(surface, point, &starts, periodic)
 }
 
+/// [`closest_point_from_seeds`] with the seeds' 3D points supplied
+/// (index-aligned with `seeds`) instead of evaluated per call — the
+/// memoized seed field of a coiled NURBS wall (PK-513). Same ranking,
+/// same refinement: bit-identical to the evaluating form whenever
+/// `seed_points[i] == surface.point_at(seeds[i])`.
+pub fn closest_point_from_seed_points(
+    surface: &dyn SurfaceEval,
+    point: &Point3,
+    seeds: &[(f64, f64)],
+    seed_points: &[Point3],
+    periodic: (bool, bool),
+    refine: usize,
+) -> Option<(f64, f64)> {
+    if seeds.len() != seed_points.len() {
+        return closest_point_from_seeds(surface, point, seeds, periodic, refine);
+    }
+    let mut ranked: Vec<(f64, (f64, f64))> = seeds
+        .iter()
+        .zip(seed_points)
+        .map(|(&(u, v), q)| (q.distance_to(point), (u, v)))
+        .collect();
+    ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    ranked.truncate(refine.max(1));
+    let starts: Vec<(f64, f64)> = ranked.into_iter().map(|(_, s)| s).collect();
+    gauss_newton_over_starts(surface, point, &starts, periodic)
+}
+
 fn closest_point_gauss_newton_impl(
     surface: &dyn SurfaceEval,
     point: &Point3,

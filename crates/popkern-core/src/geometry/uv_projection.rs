@@ -161,20 +161,20 @@ mod uv_projection_clamped;
 /// 6.5-turn coiled wall and reported a 0.4168 phantom deviation for
 /// an on-seam point, PK-446/PK-449) and the clamped 5-start grid
 /// (broad exploration where coarse seed ranking cuts the right span
-/// from the refined few). Construction paths keep
-/// [`project_point_to_uv`]: they depend on its basin behavior, and a
-/// closer preimage on ANOTHER FOLD is the wrong answer there.
+/// from the refined few). Construction paths keep [`project_point_to_uv`]
+/// (basin behavior; a closer preimage on ANOTHER FOLD is wrong there).
 pub fn project_point_to_uv_multisheet(
     surface: &SurfaceGeometry,
     point: &Point3,
 ) -> Option<(f64, f64)> {
     if let SurfaceGeometry::Nurbs(nurbs) = surface
-        && let Some(seeds) = nurbs.projection_seeds()
+        && let Some(field) = nurbs.projection_seed_field()
     {
-        let seeded = crate::geometry::surface::closest_point_from_seeds(
+        let seeded = crate::geometry::surface::closest_point_from_seed_points(
             nurbs,
             point,
-            &seeds,
+            &field.seeds,
+            &field.points,
             (false, false),
             6,
         );

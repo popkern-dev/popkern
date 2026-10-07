@@ -251,3 +251,75 @@ fn padded_cell_contains_off_center_bulge() {
         }
     }
 }
+
+// --- PK-513: straight-segment culling and grid memoization -------------
+
+#[test]
+fn a_diagonal_segment_misses_a_box_its_aabb_contains() {
+    use super::segment_meets_box;
+    let a = Point3::new(0.0, 0.0, 0.0);
+    let b = Point3::new(10.0, 10.0, 10.0);
+    // The segment's AABB is [0,10]^3 and contains this box, but the
+    // diagonal passes far from it.
+    let (lo, hi) = (Point3::new(8.0, 0.0, 0.0), Point3::new(9.0, 1.0, 1.0));
+    assert!(!segment_meets_box(&a, &b, &lo, &hi, 1e-6));
+    // A box on the diagonal is met, and the margin admits a near miss.
+    let (lo, hi) = (Point3::new(4.0, 4.0, 4.0), Point3::new(5.0, 5.0, 5.0));
+    assert!(segment_meets_box(&a, &b, &lo, &hi, 0.0));
+    let (lo, hi) = (Point3::new(5.1, 5.0, 5.0), Point3::new(6.0, 5.05, 6.0));
+    assert!(segment_meets_box(&a, &b, &lo, &hi, 0.06));
+    // Axis-parallel segment: a zero direction component is a slab
+    // containment test.
+    let c = Point3::new(0.5, 0.5, -3.0);
+    let d = Point3::new(0.5, 0.5, 3.0);
+    let (lo, hi) = (Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 1.0, 1.0));
+    assert!(segment_meets_box(&c, &d, &lo, &hi, 0.0));
+    let c2 = Point3::new(1.5, 0.5, -3.0);
+    let d2 = Point3::new(1.5, 0.5, 3.0);
+    assert!(!segment_meets_box(&c2, &d2, &lo, &hi, 0.0));
+}
+
+#[test]
+fn the_memoized_grid_equals_a_fresh_build() {
+    use super::surface_curve_grid::{build_surface_grid, surface_grid_cached};
+    let surface = nurbs_plane_z(0.25);
+    let fresh = build_surface_grid(&surface, (0.0, 1.0), (0.0, 1.0), 8, true);
+    for _ in 0..2 {
+        let cached = surface_grid_cached(&surface, (0.0, 1.0), (0.0, 1.0), 8, true);
+        assert_eq!(cached.len(), fresh.len());
+        for (c, f) in cached.iter().zip(&fresh) {
+            assert_eq!(c.u_range, f.u_range);
+            assert_eq!(c.v_range, f.v_range);
+            assert_eq!(c.min, f.min);
+            assert_eq!(c.max, f.max);
+        }
+    }
+}
+
+/// A bicubic NURBS patch over the unit square at height `z` (two spans
+/// per axis, so the grid refines on interior knots).
+fn nurbs_plane_z(z: f64) -> SurfaceGeometry {
+    use crate::geometry::nurbs_surface::NurbsSurface;
+    let n = 5;
+    let mut control_points = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            control_points.push(Point3::new(
+                i as f64 / (n - 1) as f64,
+                j as f64 / (n - 1) as f64,
+                z + 0.05 * ((i + j) % 2) as f64,
+            ));
+        }
+    }
+    let knots = vec![0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0];
+    SurfaceGeometry::Nurbs(NurbsSurface {
+        degree_u: 3,
+        degree_v: 3,
+        knots_u: knots.clone(),
+        knots_v: knots,
+        control_points,
+        num_u: n,
+        num_v: n,
+        weights: vec![1.0; n * n],
+    })
+}

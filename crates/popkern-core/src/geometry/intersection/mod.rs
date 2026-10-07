@@ -30,6 +30,7 @@ pub(crate) mod plane_torus;
 mod plane_torus_spiric;
 mod plane_torus_spiric_frame;
 pub(crate) mod radial_level_curve;
+mod radial_separation;
 mod rational_bezier;
 pub mod starting_points;
 pub mod surface_curve;

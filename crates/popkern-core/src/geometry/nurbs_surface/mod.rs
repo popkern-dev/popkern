@@ -9,6 +9,8 @@ mod degree_and_split;
 mod eval_derivs;
 mod iso_curve;
 mod knot_ops;
+mod projection_seed_cache;
+pub use projection_seed_cache::ProjectionSeedField;
 
 /// A Non-Uniform Rational B-Spline surface.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -21,7 +23,8 @@ pub struct NurbsSurface {
     pub knots_u: Vec<f64>,
     /// Knot vector in the v direction.
     pub knots_v: Vec<f64>,
-    /// Control point grid, stored row-major (u varies within each row).
+    /// Control point grid, stored u-major: the flat index of grid
+    /// position `(i_u, i_v)` is `i_u * num_v + i_v` (v varies fastest).
     /// Length = num_u * num_v.
     pub control_points: Vec<Point3>,
     /// Number of control points in the u direction.

@@ -280,7 +280,15 @@ pub(crate) fn loop_uv_runs(
         // Decided by the run's chart ends against the node positions;
         // a closed self-loop edge (origin == end) has no direction to
         // check.
-        if run.len() >= 2 {
+        // CONTAINMENT (PK-685): DOUBLY periodic charts (tori) keep the
+        // bookkeeping orientation. Their interior sampler cannot use
+        // exact ray parity (a non-contractible band's loops cross any
+        // full-period ray an even number of times), and its material
+        // vote's operand handedness was measured on these runs;
+        // oriented runs flipped a torus-groove fragment to Inside and
+        // the follow-on drill declined. Recalibrating that vote on
+        // oriented runs is PK-685.
+        if run.len() >= 2 && !(u_period.is_some() && v_period.is_some()) {
             let origin = graph.nodes[graph.half_edges[raw].origin].position;
             let end = graph.nodes[graph.half_edges[graph.half_edges[raw].twin].origin].position;
             let chord = origin.distance_to(&end);

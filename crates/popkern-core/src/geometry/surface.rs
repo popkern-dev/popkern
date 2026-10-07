@@ -74,8 +74,8 @@ pub trait SurfaceEval {
 // `sample_to_nurbs` are private helpers used by
 // `SurfaceGeometry::to_nurbs_in_range` below.
 pub use super::surface_helpers::{
-    bounding_box_by_sampling, closest_point_from_seeds, closest_point_gauss_newton,
-    closest_point_gauss_newton_bounded,
+    bounding_box_by_sampling, closest_point_from_seed_points, closest_point_from_seeds,
+    closest_point_gauss_newton, closest_point_gauss_newton_bounded,
 };
 use super::surface_helpers::{crop_nurbs_surface_to_range, sample_to_nurbs};
 
@@ -228,7 +228,7 @@ impl SurfaceGeometry {
                 ..
             } => {
                 // Degree (1,1) bilinear patch with 4 control points at corners.
-                // Control points stored row-major (u varies within each row, i.e. index = i_u*2 + i_v):
+                // Control points stored u-major (v varies fastest, i.e. index = i_u*2 + i_v):
                 //   (i_u=0,i_v=0)=p00, (i_u=0,i_v=1)=p01, (i_u=1,i_v=0)=p10, (i_u=1,i_v=1)=p11
                 let p00 = *origin + *u_axis * u_range.0 + *v_axis * v_range.0;
                 let p01 = *origin + *u_axis * u_range.0 + *v_axis * v_range.1;
