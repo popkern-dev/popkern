@@ -222,48 +222,27 @@ fn build_outer_loop(
 
     let map_err = |e| SketchError::InvalidTopology(format!("Euler op failed: {e}"));
 
-    // 1. mvfs at first vertex.
-    let first_pos = ctx
-        .plane
-        .to_3d(traced.edges[0].start.0, traced.edges[0].start.1);
-    let mvfs = brep.mvfs(first_pos).map_err(map_err)?;
-
-    // 2. mev_at_vertex to create the second vertex.
-    let second_pos = ctx
-        .plane
-        .to_3d(traced.edges[1].start.0, traced.edges[1].start.1);
-    let mev1 = brep
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, second_pos)
-        .map_err(map_err)?;
-
+    // One verified Euler transaction: mvfs, an mev per further vertex,
+    // the closing mef (core `closed_lamina`, PK-709 — per-step checks
+    // made a 1000-edge profile quadratic).
+    //
     // Vertex k is traced edge k's start; edge k runs vertex k → k+1
     // and IS traced edge k. Recorded here so geometry attaches by
     // construction — never by matching endpoints, which is ambiguous
     // for a bigon (a split circle's two halves share both endpoints;
     // endpoint matching handed both edges the SAME half, validate red
     // with a √2 loop gap on every circle sketch).
-    let mut vertices = vec![mvfs.vertex, mev1.vertex];
-    let mut edges = vec![mev1.edge];
-
-    // 3. mev chain for remaining vertices.
-    let mut last_twin = mev1.half_edge_twin;
-    for i in 2..n {
-        let pos = ctx
-            .plane
-            .to_3d(traced.edges[i].start.0, traced.edges[i].start.1);
-        let mev = brep.mev(last_twin, pos).map_err(map_err)?;
-        last_twin = mev.half_edge_twin;
-        vertices.push(mev.vertex);
-        edges.push(mev.edge);
-    }
-
-    // 4. mef to close the loop and create the face.
-    let mef = brep.mef(last_twin, mev1.half_edge).map_err(map_err)?;
-    edges.push(mef.edge);
+    let points: Vec<_> = traced
+        .edges
+        .iter()
+        .map(|e| ctx.plane.to_3d(e.start.0, e.start.1))
+        .collect();
+    let lamina = brep.closed_lamina(&points).map_err(map_err)?;
+    let (vertices, edges) = (lamina.vertices, lamina.edges);
 
     attach_edge_geometry(brep, traced, ctx, &vertices, &edges)?;
 
-    Ok((mef.face, mvfs.face))
+    Ok((lamina.mef_face, lamina.mvfs_face))
 }
 
 /// Attach the 3-D curve and both half-edge pcurves of every outer-loop

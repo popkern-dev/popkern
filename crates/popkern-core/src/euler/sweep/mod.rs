@@ -8,6 +8,7 @@ mod extrude_geometry;
 #[cfg(test)]
 #[path = "extrude_geometry_tests.rs"]
 mod extrude_geometry_tests;
+mod extrude_names;
 mod revolve;
 
 pub use extrude::ExtrudeResult;

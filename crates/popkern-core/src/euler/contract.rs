@@ -188,6 +188,34 @@ impl EulerDelta {
         }
     }
 
+    /// This delta applied `times` times.
+    pub(crate) const fn times(self, times: isize) -> Self {
+        Self {
+            vertices: self.vertices * times,
+            edges: self.edges * times,
+            half_edges: self.half_edges * times,
+            loops: self.loops * times,
+            faces: self.faces * times,
+            shells: self.shells * times,
+            solids: self.solids * times,
+            boundary_edges: self.boundary_edges * times,
+        }
+    }
+
+    /// This delta followed by `other`.
+    pub(crate) const fn then(self, other: Self) -> Self {
+        Self {
+            vertices: self.vertices + other.vertices,
+            edges: self.edges + other.edges,
+            half_edges: self.half_edges + other.half_edges,
+            loops: self.loops + other.loops,
+            faces: self.faces + other.faces,
+            shells: self.shells + other.shells,
+            solids: self.solids + other.solids,
+            boundary_edges: self.boundary_edges + other.boundary_edges,
+        }
+    }
+
     pub(crate) fn verify(
         op: &'static str,
         before: EulerTopologyCounts,

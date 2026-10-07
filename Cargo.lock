@@ -3470,6 +3470,7 @@ dependencies = [
  "popkern-core",
  "popkern-draft",
  "popkern-fastener",
+ "popkern-hinge",
  "popkern-math",
  "popkern-measure",
  "popkern-shell",

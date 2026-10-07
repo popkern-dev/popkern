@@ -34,6 +34,8 @@ mod weld_boundary_edges;
 pub use kve::KveResult;
 pub use remove_face_region::RegionRemovalResult;
 mod kfmrh;
+mod lamina;
+pub use lamina::LaminaResult;
 mod loop_bridge;
 mod loop_bridge_apply;
 mod mef;

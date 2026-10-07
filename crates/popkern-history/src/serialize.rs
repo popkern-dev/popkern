@@ -171,6 +171,15 @@ impl FeatureTree {
         tree.naming_scheme = tree.naming_scheme.min(doc.naming_scheme);
         tree.rebuild_indices();
         tree.enforce_unique_feature_labels();
+        // The body manager is not serialized: every feature node records
+        // its body, so the assignments come back from the timeline
+        // (PK-710 — a loaded document reported no bodies).
+        let assignments: Vec<_> = tree
+            .timeline
+            .iter()
+            .filter_map(|&id| tree.features.get(id).map(|n| (n.body, id)))
+            .collect();
+        tree.body_manager.rebuild(assignments);
         Ok(tree)
     }
 }

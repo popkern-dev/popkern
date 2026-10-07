@@ -57,6 +57,18 @@ impl BodyManager {
         self.bodies.entry(body).or_default().push(feature);
     }
 
+    /// Rebuild the feature assignments from `(body, feature)` pairs in
+    /// timeline order (after loading a document, whose body manager is
+    /// not serialized); new bodies continue past the largest id.
+    pub fn rebuild(&mut self, assignments: impl IntoIterator<Item = (BodyId, FeatureId)>) {
+        self.bodies.clear();
+        self.body_breps.clear();
+        for (body, feature) in assignments {
+            self.assign_feature(body, feature);
+            self.next_id = self.next_id.max(body.0 + 1);
+        }
+    }
+
     /// Store the current BRep for a body (called during replay).
     #[allow(dead_code)]
     pub fn set_brep(&mut self, body: BodyId, brep: BRep) {

@@ -65,8 +65,9 @@ impl BRep {
         Ok(result)
     }
 
+    /// [`BRep::mef`] unverified, for compound operators (extrude).
     #[track_caller]
-    fn apply_mef(
+    pub(crate) fn apply_mef(
         &mut self,
         he1: HalfEdgeHandle,
         he2: HalfEdgeHandle,

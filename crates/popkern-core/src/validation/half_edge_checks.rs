@@ -29,42 +29,54 @@ impl BRep {
 
     /// Check 3: Following `next` from any half-edge must return to the start
     /// within a bounded number of steps.
+    ///
+    /// Each cycle is walked once: a walk that returns to its start proves
+    /// every half-edge on it, and those are not walked again (PK-709 — a
+    /// walk from every half-edge cost O(Σ loop length²), and the Euler
+    /// operators run this check after every step, which made extruding a
+    /// 1000-edge profile cubic). `next` is a function, so a walk that
+    /// meets a half-edge already proven to lie on another cycle can never
+    /// return to its start: that start is reported, as the exhaustive
+    /// walk would report it once past the bound. The first failing
+    /// half-edge in arena order is the one reported, as before.
     pub fn validate_half_edge_cycles(&self) -> Result<(), ValidationError> {
         let bound = self.half_edges.len();
+        let mut on_cycle: std::collections::HashSet<crate::topology::HalfEdgeHandle> =
+            std::collections::HashSet::with_capacity(bound);
+        let mut members = Vec::new();
 
         for (he_handle, he_data) in &self.half_edges {
-            if self.half_edge_is_construction_residual_for_cycle_validation(he_data) {
+            if self.half_edge_is_construction_residual_for_cycle_validation(he_data)
+                || on_cycle.contains(&he_handle)
+            {
                 continue;
             }
+            let broken = || ValidationError::BrokenCycle {
+                half_edge: he_handle,
+                loop_: he_data.loop_,
+            };
+            members.clear();
+            members.push(he_handle);
             let mut cursor = he_data.next;
             let mut steps = 0;
 
             while cursor != he_handle {
                 steps += 1;
-                if steps > bound {
-                    return Err(ValidationError::BrokenCycle {
-                        half_edge: he_handle,
-                        loop_: he_data.loop_,
-                    });
+                if steps > bound || on_cycle.contains(&cursor) {
+                    return Err(broken());
                 }
                 match self.half_edges.get(cursor) {
                     Some(next_he) => {
                         if self.half_edge_is_construction_residual_for_cycle_validation(next_he) {
-                            return Err(ValidationError::BrokenCycle {
-                                half_edge: he_handle,
-                                loop_: he_data.loop_,
-                            });
+                            return Err(broken());
                         }
+                        members.push(cursor);
                         cursor = next_he.next;
                     }
-                    None => {
-                        return Err(ValidationError::BrokenCycle {
-                            half_edge: he_handle,
-                            loop_: he_data.loop_,
-                        });
-                    }
+                    None => return Err(broken()),
                 }
             }
+            on_cycle.extend(members.iter().copied());
         }
         Ok(())
     }
@@ -261,5 +273,66 @@ mod tests {
         brep.half_edges[mev1.half_edge_twin].twin = mev2.half_edge;
         let result = brep.validate_half_edge_pairing();
         assert!(result.is_err());
+    }
+
+    /// The exhaustive walk the one-walk-per-cycle check replaced: the
+    /// first half-edge in arena order whose `next` walk does not return
+    /// within the bound (residual half-edges aside — the cube has none).
+    fn first_broken_exhaustively(brep: &BRep) -> Option<crate::topology::HalfEdgeHandle> {
+        let bound = brep.half_edges.len();
+        brep.half_edges.iter().find_map(|(h, data)| {
+            let mut cursor = data.next;
+            let mut steps = 0;
+            while cursor != h {
+                steps += 1;
+                let next = brep.half_edges.get(cursor)?;
+                if steps > bound {
+                    return Some(h);
+                }
+                cursor = next.next;
+            }
+            None
+        })
+    }
+
+    #[test]
+    fn a_walk_leading_into_another_cycle_reports_the_same_half_edge_as_the_exhaustive_walk() {
+        use crate::error::ValidationError;
+        let cube = make_cube();
+        assert!(cube.validate_half_edge_cycles().is_ok());
+        let handles: Vec<_> = cube.half_edges.keys().collect();
+        // Redirect each half-edge in turn into a cycle of another loop
+        // (a rho shape: its walk never comes back) and compare.
+        for &h in &handles {
+            let mut brep = cube.clone();
+            let own_loop = brep.half_edges[h].loop_;
+            let Some(other) = handles
+                .iter()
+                .copied()
+                .find(|&o| brep.half_edges[o].loop_ != own_loop)
+            else {
+                continue;
+            };
+            brep.half_edges[h].next = other;
+            let expected = first_broken_exhaustively(&brep);
+            match brep.validate_half_edge_cycles() {
+                Err(ValidationError::BrokenCycle { half_edge, .. }) => {
+                    assert_eq!(Some(half_edge), expected, "redirected {h:?}");
+                }
+                other => panic!("redirected {h:?}: expected a broken cycle, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_dangling_next_is_a_broken_cycle() {
+        use crate::error::ValidationError;
+        let mut brep = make_cube();
+        let h = brep.half_edges.keys().next().expect("a half-edge");
+        brep.half_edges[h].next = crate::topology::HalfEdgeHandle::default();
+        assert!(matches!(
+            brep.validate_half_edge_cycles(),
+            Err(ValidationError::BrokenCycle { .. })
+        ));
     }
 }

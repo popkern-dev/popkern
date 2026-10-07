@@ -53,7 +53,7 @@ impl BRep {
         Ok(result)
     }
 
-    fn apply_mev_at_vertex(
+    pub(crate) fn apply_mev_at_vertex(
         &mut self,
         vertex: VertexHandle,
         loop_: LoopHandle,
@@ -164,8 +164,9 @@ impl BRep {
         Ok(result)
     }
 
+    /// [`BRep::mev`] unverified, for compound operators (extrude).
     #[track_caller]
-    fn apply_mev(
+    pub(crate) fn apply_mev(
         &mut self,
         half_edge: HalfEdgeHandle,
         position: Point3,
