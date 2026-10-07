@@ -185,6 +185,46 @@
       "title": "Angled fitting"
     },
     {
+      "blurb": "A 76 butt hinge: two leaves with five knuckles, a separate pin, and three countersunk M3 screw holes a leaf, opened to 150°.",
+      "demonstrates": "hinge generators (butt), screw holes from a designation, sizes that follow the length, the open angle",
+      "features": 3,
+      "file": "door_hinge.rhai",
+      "thumbnail": "examples/door_hinge.png",
+      "title": "Door hinge"
+    },
+    {
+      "blurb": "A continuous hinge: 25 knuckles along 200, one comb cut a leaf whatever the count.",
+      "demonstrates": "hinge generators at high knuckle counts",
+      "features": 3,
+      "file": "piano_hinge.rhai",
+      "thumbnail": "examples/piano_hinge.png",
+      "title": "Piano hinge"
+    },
+    {
+      "blurb": "A straight flexure with rounded roots for flexible plastics, and a slotted serpentine that lets a rigid plate bend.",
+      "demonstrates": "living_hinge styles, single-profile construction",
+      "features": 3,
+      "file": "living_hinges.rhai",
+      "thumbnail": "examples/living_hinges.png",
+      "title": "Living hinges"
+    },
+    {
+      "blurb": "A shelled box and its lid joined by a print-in-place hinge grown out of their back walls along the seam.",
+      "demonstrates": "hinge_bodies on existing bodies, print-in-place pins, shells",
+      "features": 9,
+      "file": "hinged_box.rhai",
+      "thumbnail": "examples/hinged_box.png",
+      "title": "Hinged box"
+    },
+    {
+      "blurb": "A print-in-place hinge as an assembly: the leaves mated about the pin axis, the open angle a slider, and a swing check for the first collision.",
+      "demonstrates": "assembly hinges, mates driven by a parameter, limits, swing",
+      "features": 2,
+      "file": "hinge_assembly.rhai",
+      "thumbnail": "examples/hinge_assembly.png",
+      "title": "Hinge assembly"
+    },
+    {
       "blurb": "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
       "demonstrates": "projects, previous(), migrations",
       "features": 6,
