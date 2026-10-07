@@ -141,6 +141,15 @@ pub(crate) fn validated(brep: BRep, stage: &str) -> Result<BRep, HingeError> {
     };
     brep.validate().map_err(invalid)?;
     brep.validate_curve_surface().map_err(invalid)?;
+    // The curve-surface gate skips edges with no curve; a served body
+    // has none (the mesher would chord them and open the mesh).
+    let bare = brep.edges.values().filter(|e| e.curve.is_none()).count();
+    if bare > 0 {
+        return Err(construction(
+            stage,
+            format!("{bare} edge(s) carry no curve geometry"),
+        ));
+    }
     Ok(brep)
 }
 

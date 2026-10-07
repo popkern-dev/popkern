@@ -196,3 +196,68 @@ fn leaf_b_turns_to_the_open_angle() {
     assert!((max_y - 15.0).abs() < 1e-9, "max y {max_y}");
     assert!(max_x <= 4.0 + 1e-9, "max x {max_x}");
 }
+
+#[test]
+fn print_in_place_sweep_builds_every_combination() {
+    // Clearance 0.15..0.6 × knuckles 3..9 on a 60 hinge; leaf A carries
+    // the pin through leaf B's bores.
+    let mut worst: f64 = 0.0;
+    let mut built = 0;
+    for n in [3, 4, 5, 6, 7, 9] {
+        for c in [0.15, 0.3, 0.45, 0.6] {
+            let p = HingeParams {
+                knuckles: n,
+                clearance: c,
+                gap: c,
+                ..HingeParams::print_in_place(60.0)
+            };
+            worst = worst.max(check(HingeKind::PrintInPlace, &p));
+            built += 1;
+        }
+    }
+    assert_eq!(built, 24);
+    eprintln!("print-in-place sweep: {built} hinges, worst volume deviation {worst:.2e}");
+}
+
+#[test]
+fn print_in_place_has_no_separate_pin() {
+    let err = hinge_component(
+        HingeKind::PrintInPlace,
+        HingeComponent::Pin,
+        &HingeParams::print_in_place(60.0),
+        tol(),
+    )
+    .expect_err("no pin");
+    assert!(err.to_string().contains("part of leaf A"), "{err}");
+}
+
+#[test]
+fn print_in_place_leaf_a_pin_runs_through_every_b_zone() {
+    // The pin reaches from inside A's first knuckle to inside its last
+    // (odd count) or out to the end (even count, B owns the last).
+    for n in [5_u32, 6] {
+        let p = HingeParams {
+            knuckles: n,
+            ..HingeParams::print_in_place(60.0)
+        };
+        let a = hinge_component(HingeKind::PrintInPlace, HingeComponent::LeafA, &p, tol())
+            .expect("leaf A");
+        let max_z = a
+            .vertices
+            .values()
+            .map(|v| v.position.z)
+            .fold(f64::MIN, f64::max);
+        assert!(
+            (max_z - 60.0).abs() < 1e-9,
+            "n {n}: A reaches the end, max z {max_z}"
+        );
+        // Even count: the pin's end disc is the only A material in the
+        // last segment, so A has a vertex on the pin circle at z = 60.
+        let pin_r = p.pin_diameter / 2.0;
+        let on_pin_at_end = a.vertices.values().any(|v| {
+            (v.position.z - 60.0).abs() < 1e-9
+                && ((v.position.x.powi(2) + v.position.y.powi(2)).sqrt() - pin_r).abs() < 1e-9
+        });
+        assert_eq!(on_pin_at_end, n % 2 == 0, "n {n}");
+    }
+}

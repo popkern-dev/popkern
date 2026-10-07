@@ -86,6 +86,21 @@ fn build_leaf(
         stage,
         tolerance,
     )?;
+    let integral_pin = kind == HingeKind::PrintInPlace && component == HingeComponent::LeafA;
+    if !integral_pin {
+        // Bore first, through the whole extrusion (two end faces), then
+        // notch: measured 2026-10-07, boring an already notched piano
+        // leaf (20 knuckles) left one bore rim with no curve after the
+        // boolean's gore weld (PK-706); this order has none.
+        let bore = z_cylinder(
+            layout.bore_radius,
+            -margin,
+            p.length + margin,
+            "bore tool",
+            tolerance,
+        )?;
+        leaf = subtract(&leaf, &bore, "bore", tolerance)?;
+    }
     let other = if component == HingeComponent::LeafA {
         HingeComponent::LeafB
     } else {
@@ -103,38 +118,33 @@ fn build_leaf(
         tolerance,
     )?;
     leaf = subtract(&leaf, &comb, "comb notch", tolerance)?;
-    if kind == HingeKind::PrintInPlace && component == HingeComponent::LeafA {
-        let own = layout.owned(component);
-        let (first, last) = match (own.first(), own.last()) {
-            (Some(f), Some(l)) => (*f, *l),
-            _ => {
-                return Err(crate::construct::construction(
-                    "integral pin",
-                    "leaf A owns no knuckle".into(),
-                ));
+    if integral_pin {
+        // The pin goes in one piece per B zone, each reaching halfway
+        // into the A knuckles either side (or out to the end when B owns
+        // the last knuckle) — never flush with an A knuckle face, and
+        // abutting its neighbour inside A's material.
+        //
+        // TEMPORARY CONTAINMENT (PK-705): one full-length pin crossing
+        // several B zones makes the union keep a band of the pin buried
+        // in A's last knuckle (the 5-knuckle hinge served a body whose
+        // mesh had 125 open edges). One piece per zone is the crossing
+        // pattern the boolean serves; return to a single pin when
+        // PK-705 lands.
+        let segments = &layout.segments;
+        for (i, &(z0, z1)) in segments.iter().enumerate() {
+            if i % 2 == 0 {
+                continue;
             }
-        };
-        // From inside A's first knuckle to inside its last, or out to
-        // the end when B owns the last knuckle — never flush with an A
-        // knuckle face.
-        let a_owns_last = layout.segments.len() % 2 == 1;
-        let z0 = 0.5 * (first.0 + first.1);
-        let z1 = if a_owns_last {
-            0.5 * (last.0 + last.1)
-        } else {
-            p.length
-        };
-        let pin = z_cylinder(p.pin_diameter / 2.0, z0, z1, "integral pin tool", tolerance)?;
-        leaf = union(&leaf, &pin, "integral pin", tolerance)?;
-    } else {
-        let bore = z_cylinder(
-            layout.bore_radius,
-            -margin,
-            p.length + margin,
-            "bore tool",
-            tolerance,
-        )?;
-        leaf = subtract(&leaf, &bore, "bore", tolerance)?;
+            let (before, after) = (segments[i - 1], segments.get(i + 1));
+            let lo = 0.5 * (before.0 + before.1);
+            let hi = match after {
+                Some(next) => 0.5 * (next.0 + next.1),
+                None => p.length,
+            };
+            debug_assert!(lo < z0 && hi >= z1);
+            let pin = z_cylinder(p.pin_diameter / 2.0, lo, hi, "integral pin tool", tolerance)?;
+            leaf = union(&leaf, &pin, "integral pin", tolerance)?;
+        }
     }
     if let Some(holes) = &p.holes {
         let options = ClearanceHoleOptions {

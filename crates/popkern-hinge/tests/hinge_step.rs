@@ -103,7 +103,19 @@ fn countersunk_hinge_matches_occ() {
     check("hinge_butt_holes", HingeKind::Butt, &holed(), &OCC_HOLES);
 }
 
+#[test]
+fn print_in_place_hinge_matches_occ() {
+    check(
+        "hinge_print_in_place",
+        HingeKind::PrintInPlace,
+        &HingeParams::print_in_place(60.0),
+        &OCC_PRINT,
+    );
+}
+
 /// OCC volumes (mm³) per body: leaf A, leaf B, pin.
 const OCC_DEFAULT: [f64; 3] = [2_773.307_641_854, 2_288.631_761_235, 753.982_236_862];
 const OCC_NINE: [f64; 3] = [2_735.730_494_520, 2_438.184_395_615, 753.982_236_862];
 const OCC_HOLES: [f64; 3] = [2_698.502_393_794, 2_213.826_513_174, 753.982_236_862];
+/// OCC volumes (mm³): leaf A with its pin, leaf B.
+const OCC_PRINT: [f64; 2] = [3_751.708_822_519, 2_319.165_956_054];
