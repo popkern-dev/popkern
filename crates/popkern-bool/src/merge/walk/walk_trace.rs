@@ -103,3 +103,31 @@ pub(super) fn dump_election_loops(
         }
     }
 }
+
+/// One chart-role region's loops (the `loop-dump-all` trace topic):
+/// region `ri`'s outer loop (`outer` for region 0, `separate` after)
+/// and its `holes` (indices into `loops`), half-edge by half-edge.
+pub(super) fn dump_region_loops(
+    graph: &super::super::graph::IntersectionGraph,
+    face_ref: &super::super::graph::FaceRef,
+    ri: usize,
+    outer: &[usize],
+    holes: &[usize],
+    loops: &[Vec<usize>],
+) {
+    let tag = if ri == 0 { "outer" } else { "separate" };
+    for (tag, lp) in
+        std::iter::once((tag, outer)).chain(holes.iter().map(|&h| ("inner", loops[h].as_slice())))
+    {
+        let hes: Vec<String> = lp
+            .iter()
+            .map(|&h| {
+                let n = graph.half_edges[h].origin;
+                let e = graph.half_edges[graph.half_edges[h].twin].origin;
+                let p = graph.nodes[n].position;
+                format!("{h}:n{n}->n{e}({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+            })
+            .collect();
+        eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
+    }
+}

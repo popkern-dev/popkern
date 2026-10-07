@@ -17,11 +17,13 @@ pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]
 mod chart_walk_tests;
+mod fragment_chart;
 mod hole_nesting;
 mod next_edge;
 mod region_filter;
 pub(crate) mod walk_geometry;
 mod walk_loop_measures;
+pub(crate) use fragment_chart::FragmentChart;
 mod walk_trace;
 
 use std::collections::HashSet;
@@ -42,6 +44,10 @@ pub(crate) struct Fragment {
     pub outer_loop: Vec<usize>,
     /// Half-edge indices forming inner loops (CW holes).
     pub inner_loops: Vec<Vec<usize>>,
+    /// The chart walk's own view of this fragment, when the chart
+    /// permutation walk produced it. `None` for 3D-Newell fallback
+    /// walks, whose loops carry no chart handedness guarantee.
+    pub chart: Option<FragmentChart>,
 }
 
 /// Walk all face fragments in the graph (graph-merge pipeline entry).
@@ -98,7 +104,7 @@ pub(crate) fn walk_all_fragments_ext(
     walk_fallbacks: &mut Vec<(FaceRef, String)>,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Vec<Fragment> {
-    let mut fragments = Vec::new();
+    let (mut fragments, mut chart_views) = (Vec::new(), std::collections::HashMap::new());
 
     // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion).
     let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b);
@@ -276,6 +282,7 @@ pub(crate) fn walk_all_fragments_ext(
                     }
                     loops = orbits;
                     walked_by_chart = true;
+                    chart_views.insert(*face_ref, fragment_chart::walk_view(&sub, &loops));
                     if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
                             "  [walk] {face_ref:?}: chart orbits {} (sigma {}) filtered {:?}",
@@ -494,26 +501,13 @@ pub(crate) fn walk_all_fragments_ext(
             }
             for (ri, (oi, holes)) in asm.regions.iter().enumerate() {
                 if dump {
-                    for (tag, lp) in
-                        std::iter::once((if ri == 0 { "outer" } else { "separate" }, &loops[*oi]))
-                            .chain(holes.iter().map(|&h| ("inner", &loops[h])))
-                    {
-                        let hes: Vec<String> = lp
-                            .iter()
-                            .map(|&h| {
-                                let n = graph.half_edges[h].origin;
-                                let e = graph.half_edges[graph.half_edges[h].twin].origin;
-                                let p = graph.nodes[n].position;
-                                format!("{h}:n{n}->n{e}({:.2},{:.2},{:.2})", p.x, p.y, p.z)
-                            })
-                            .collect();
-                        eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
-                    }
+                    walk_trace::dump_region_loops(graph, face_ref, ri, &loops[*oi], holes, &loops);
                 }
                 fragments.push(Fragment {
                     face: *face_ref,
                     outer_loop: loops[*oi].clone(),
                     inner_loops: holes.iter().map(|&h| loops[h].clone()).collect(),
+                    chart: None,
                 });
             }
             continue;
@@ -810,12 +804,14 @@ pub(crate) fn walk_all_fragments_ext(
         for lp in promoted.into_iter().chain(exterior_promoted) {
             fragments.push(Fragment {
                 face: *face_ref,
+                chart: None,
                 outer_loop: lp,
                 inner_loops: Vec::new(),
             });
         }
         fragments.push(Fragment {
             face: *face_ref,
+            chart: None,
             outer_loop,
             inner_loops: inner_loops_out,
         });
@@ -823,12 +819,14 @@ pub(crate) fn walk_all_fragments_ext(
         for (lp, inners) in separate_outers.into_iter().zip(separate_inners) {
             fragments.push(Fragment {
                 face: *face_ref,
+                chart: None,
                 outer_loop: lp,
                 inner_loops: inners,
             });
         }
     }
 
+    fragment_chart::attach(&mut fragments, &chart_views);
     fragments
 }
 

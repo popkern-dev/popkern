@@ -76,6 +76,29 @@ pub(super) fn fragment_interior_sample(
         xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         xs
     };
+    // DOUBLY periodic charts (tori) decide material exactly, by parity
+    // from a reference known to lie in the region — a slit of the
+    // loops, else the chart walk's handedness (`fragment_torus_sample`):
+    // ray parity
+    // has no escape there, and the nearest-boundary vote below is a
+    // local guess. Fragments with neither reference, and loop sets that
+    // bound no region, keep the vote, recorded under `face-selection`.
+    if let (Some(pu), Some(pv)) = surface.parameter_periodicity() {
+        match super::fragment_torus_sample::exact_torus_sample(
+            graph,
+            fragment,
+            surface,
+            cv,
+            (pu, pv),
+        ) {
+            Ok((u, v)) => return Some(surface.point_at(u, v)),
+            Err(reason) => {
+                if popkern_core::trace::trace_enabled("face-selection") {
+                    eprintln!("      [selpoly-torus] exact decision declined: {reason}");
+                }
+            }
+        }
+    }
     let outer_x = crossings_at(&outer, cv);
     if outer_x.len() < 2 {
         return None;
@@ -220,18 +243,17 @@ pub(super) fn fragment_interior_sample(
             if interior_dir.length_squared() < 1e-30 {
                 return None;
             }
-            let left = (pt - *q).dot(&interior_dir) > 0.0;
-            // Walk-order handedness is OPERAND-dependent: A fragments
-            // walk region-LEFT of travel under the oriented normal, B
-            // fragments region-RIGHT (B topology enters the graph
-            // mirror-wound; measured on three fold cases — prism A
-            // wall interior arc votes left-true, straight-bore B band
-            // full-circle arc and breached-bore B outside region vote
-            // left-false on their true interiors).
-            Some(match fragment.face.operand {
-                crate::merge::graph::Operand::A => left,
-                crate::merge::graph::Operand::B => !left,
-            })
+            // FALLBACK ONLY (PK-685): reached on doubly periodic charts
+            // where the exact decision (`fragment_torus_sample`) had no
+            // reference. Runs are geometrically oriented, so region-LEFT
+            // of travel under the oriented normal is the rule for both
+            // operands — measured on oriented runs against exact parity
+            // (u-periodic open-v fold arcs, bool + examples + fastener
+            // suites): left agrees on 95% of A arcs and 84% of B arcs.
+            // The retired operand rule ("B right") compensated for runs
+            // left in bookkeeping order and agreed on 16% of B arcs
+            // once they were oriented.
+            Some((pt - *q).dot(&interior_dir) > 0.0)
         };
         if popkern_core::trace::trace_enabled("face-selection") {
             eprintln!("      [selpoly-fold] orientation={orientation}");

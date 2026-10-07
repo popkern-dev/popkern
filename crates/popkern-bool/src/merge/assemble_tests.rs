@@ -31,6 +31,7 @@ fn assemble_single_triangle() {
         face: face_ref,
         outer_loop: vec![fwd01, fwd12, fwd20],
         inner_loops: vec![],
+        chart: None,
     };
 
     let selection = FragmentSelection {
@@ -134,6 +135,7 @@ fn unselected_fragments_are_skipped() {
         face: face_ref,
         outer_loop: vec![fwd01, fwd12, fwd20],
         inner_loops: vec![],
+        chart: None,
     };
 
     let selection = FragmentSelection {

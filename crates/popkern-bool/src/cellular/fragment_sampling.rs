@@ -232,13 +232,32 @@ pub(crate) fn loop_uv_runs(
                 let p = pc.point_at(t);
                 run.push((p.x, p.y));
             }
-        } else if let Some(c) = graph.half_edges[h].curve.as_ref() {
+        } else if let Some((c, own)) = graph.half_edges[h]
+            .curve
+            .as_ref()
+            .map(|c| (c, true))
+            .or_else(|| {
+                graph.half_edges[graph.half_edges[h].twin]
+                    .curve
+                    .as_ref()
+                    .map(|c| (c, false))
+            })
+        {
             // No pcurve (split edges): project curve samples, with
-            // continuation to stay on one branch.
+            // continuation to stay on one branch. The 3D curve may live
+            // on the twin only, which runs opposite: sample it from its
+            // end. Two projected endpoints alone carry no lift — a seam
+            // piece of half a period came back spanning almost a whole
+            // one, and a torus band's loops wound odd (PK-685).
             kind = "CURVE";
             let ceval: &dyn CurveEval = &c.geometry;
+            let (t0, t1) = if own {
+                (c.t_start, c.t_end)
+            } else {
+                (c.t_end, c.t_start)
+            };
             for i in 0..8 {
-                let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                let t = t0 + (t1 - t0) * i as f64 / 8.0;
                 let p = ceval.point_at(t);
                 let uv = match run.last().or(last_uv.as_ref()) {
                     Some(&(pu, pv)) => project_point_to_uv_near(surface, &p, pu, pv)
@@ -278,31 +297,32 @@ pub(crate) fn loop_uv_runs(
         // back reversed, the scanline polygon zigzagged, and the
         // crescent sampled inside the other disk and was dropped).
         // Decided by the run's chart ends against the node positions;
-        // a closed self-loop edge (origin == end) has no direction to
-        // check.
-        // CONTAINMENT (PK-685): DOUBLY periodic charts (tori) keep the
-        // bookkeeping orientation. Their interior sampler cannot use
-        // exact ray parity (a non-contractible band's loops cross any
-        // full-period ray an even number of times), and its material
-        // vote's operand handedness was measured on these runs;
-        // oriented runs flipped a torus-groove fragment to Inside and
-        // the follow-on drill declined. Recalibrating that vote on
-        // oriented runs is PK-685.
-        if run.len() >= 2 && !(u_period.is_some() && v_period.is_some()) {
+        // where those cannot decide (a closed self-loop edge, origin ==
+        // end, or a near-closed arc), by where the run's SECOND sample
+        // lies along the half-edge's own 3D curve: 1/8 of the way
+        // forward or 1/8 back. A closed ring left in bookkeeping order
+        // walked both rims of a band the same way round (measured on a
+        // cone band's chart polygon, PK-685), and the doubly periodic
+        // sampler's handedness reads that as no region at all.
+        if run.len() >= 2 {
             let origin = graph.nodes[graph.half_edges[raw].origin].position;
             let end = graph.nodes[graph.half_edges[graph.half_edges[raw].twin].origin].position;
-            let chord = origin.distance_to(&end);
-            if chord > 0.0 {
-                let at = |uv: (f64, f64)| surface.point_at(uv.0, uv.1);
-                let (first, last) = (at(run[0]), at(run[run.len() - 1]));
-                let forward = first.distance_to(&origin) + last.distance_to(&end);
-                let backward = first.distance_to(&end) + last.distance_to(&origin);
-                // 2x margin: runs stop at 7/8 of the edge, so a
-                // near-closed arc compares ambiguous ends; a reversed
-                // run is unambiguous (its first sample sits ON `end`).
-                if 2.0 * backward < forward {
-                    run.reverse();
-                }
+            let at = |uv: (f64, f64)| surface.point_at(uv.0, uv.1);
+            let (first, last) = (at(run[0]), at(run[run.len() - 1]));
+            let forward = first.distance_to(&origin) + last.distance_to(&end);
+            let backward = first.distance_to(&end) + last.distance_to(&origin);
+            // 2x margin: runs stop at 7/8 of the edge, so a
+            // near-closed arc compares ambiguous ends; a reversed
+            // run is unambiguous (its first sample sits ON `end`).
+            let reversed = if origin.distance_to(&end) > 0.0 && 2.0 * backward < forward {
+                Some(true)
+            } else if origin.distance_to(&end) > 0.0 && 2.0 * forward < backward {
+                Some(false)
+            } else {
+                run_reversed_along_curve(graph, raw, at(run[1]))
+            };
+            if reversed == Some(true) {
+                run.reverse();
             }
         }
         // Stored pcurves may live on ANY period branch of a periodic
@@ -345,6 +365,34 @@ pub(crate) fn loop_uv_runs(
         runs.push((raw, run));
     }
     Some(runs)
+}
+
+/// Whether a run whose second sample images to `second` traverses the
+/// half-edge `raw` against its direction: `second` lies nearer the
+/// point 1/8 BACK along the half-edge's 3D curve than 1/8 forward
+/// (2x margin). The curve may live on the twin, which runs opposite.
+/// `None` when no 3D curve exists or the comparison is ambiguous.
+fn run_reversed_along_curve(graph: &IntersectionGraph, raw: usize, second: Point3) -> Option<bool> {
+    use popkern_core::geometry::curve::CurveEval;
+    let twin = graph.half_edges[raw].twin;
+    let (curve, own) = match graph.half_edges[raw].curve.as_ref() {
+        Some(c) => (c, true),
+        None => (graph.half_edges[twin].curve.as_ref()?, false),
+    };
+    // Parameter at fraction `f` of the half-edge's own traversal.
+    let t_at = |f: f64| {
+        let f = if own { f } else { 1.0 - f };
+        curve.t_start + (curve.t_end - curve.t_start) * f
+    };
+    let ahead = curve.geometry.point_at(t_at(0.125)).distance_to(&second);
+    let behind = curve.geometry.point_at(t_at(0.875)).distance_to(&second);
+    if 2.0 * behind < ahead {
+        Some(true)
+    } else if 2.0 * ahead < behind {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// Sample a point ε off the intersection curve, on the fragment's own
@@ -414,11 +462,24 @@ pub(crate) fn fragment_cut_offset_sample(
         }
         inside
     };
+    // Chart even-odd is no containment test on a doubly periodic chart
+    // (no ray escapes); there the fragment's region decides exactly
+    // (PK-685), and a region it cannot decide keeps even-odd.
+    let torus = match surface.parameter_periodicity() {
+        (Some(pu), Some(pv)) => {
+            super::fragment_torus_sample::TorusRegion::of(graph, fragment, surface, (pu, pv)).ok()
+        }
+        _ => None,
+    };
+    let inside = |u: f64, v: f64| match &torus {
+        Some(region) => region.contains((u, v)),
+        None => even_odd_inside(u, v),
+    };
     for eps in [1e-3, 3e-3, 1e-2] {
         for dir in [first_dir, -first_dir] {
             let u = mu + dir * left.0 * eps * diag;
             let v = mv + dir * left.1 * eps * diag;
-            if even_odd_inside(u, v) {
+            if inside(u, v) {
                 if popkern_core::trace::trace_enabled("face-selection") {
                     eprintln!(
                         "      [cut-offset] uv=({u:.4},{v:.4}) eps={eps} dir={dir} area2={area2:.3}"
