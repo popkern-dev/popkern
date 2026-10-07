@@ -12,22 +12,42 @@
 //! midpoint, and the next tessellation round meshes both faces of each
 //! edge on the refined samples. Splitting every spanning segment keeps
 //! the rails paired station for station.
+//!
+//! The same mechanism enforces the angular facet bound
+//! ([`crate::TessellationOptions::max_facet_angle`]) by construction:
+//! a triangle whose vertex normals spread past the bound marks its
+//! spanning segments too. Left to the conforming angular refine pass,
+//! an over-bound tensor cell is bisected across its DIAGONAL (the
+//! Gauss-map-longest edge of a cell square in angle), which staggers
+//! half-step rows into the lattice; those thin triangles tilt off the
+//! surface by the long chord's sagitta, so neighbours crease by twice
+//! that tilt while every vertex-normal spread passes (measured: the
+//! boss plate's 0.08 torus round, 33x9 stations of 11.25° cells, 96
+//! in-face creases of 25-29° after refinement; PK-626). Refined here
+//! the strip stays a tensor lattice whose facet-to-facet crease is one
+//! cell's normal turn.
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::{Point3, Vec3};
+use popkern_math::PortableMath;
 
 use super::boundary_first_deviation::normal_gap;
 use super::{BoundaryRing, SplitRequest};
-use crate::mesh::FaceMesh;
+use crate::mesh::{FaceMesh, MeshVertex};
+use crate::vertex_normal::singular_without_unique_normal;
 
 /// Request splits of the ring segments that span any triangle of `fm`
 /// whose centroid lies farther than `chord_height` from `surface`
-/// (measured along the surface normal). Returns the request count.
+/// (measured along the surface normal), or, under an angular bound
+/// `max_angle`, whose vertex normals spread past it (chart-singular
+/// vertices, whose normal is undefined, do not vote). Returns the
+/// request count.
 pub(super) fn request_deviation_splits(
     fm: &FaceMesh,
     surface: &SurfaceGeometry,
     ring: &BoundaryRing,
     chord_height: f64,
+    max_angle: Option<f64>,
     split_requests: &mut Vec<SplitRequest>,
 ) -> usize {
     let n = ring.uv.len();
@@ -66,7 +86,8 @@ pub(super) fn request_deviation_splits(
             (a.uv.0 + b.uv.0 + c.uv.0) / 3.0,
             (a.uv.1 + b.uv.1 + c.uv.1) / 3.0,
         );
-        if normal_gap(surface, cuv, centroid) <= chord_height {
+        let over_angle = max_angle.is_some_and(|bound| normal_spread([a, b, c], surface) > bound);
+        if !over_angle && normal_gap(surface, cuv, centroid) <= chord_height {
             continue;
         }
         for (k, flag) in spanning.iter_mut().enumerate() {
@@ -91,4 +112,25 @@ pub(super) fn request_deviation_splits(
         }
     }
     count
+}
+
+/// Largest pairwise angle (radians) between a triangle's vertex
+/// normals, or zero when any vertex is chart-singular.
+fn normal_spread(vertices: [&MeshVertex; 3], surface: &SurfaceGeometry) -> f64 {
+    if vertices
+        .iter()
+        .any(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
+    {
+        return 0.0;
+    }
+    let angle = |p: Vec3, q: Vec3| {
+        let (lp, lq) = (p.length(), q.length());
+        if lp < 1e-300 || lq < 1e-300 {
+            return 0.0;
+        }
+        (p.dot(&q) / (lp * lq)).clamp(-1.0, 1.0).pacos()
+    };
+    (0..3)
+        .map(|k| angle(vertices[k].normal, vertices[(k + 1) % 3].normal))
+        .fold(0.0, f64::max)
 }

@@ -55,6 +55,18 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
             let (i, j) = (regular[k], regular[(k + 1) % regular.len()]);
             let d = wrap(ring.uv[j].0 - ring.uv[i].0);
             let (vi, vj) = (ring.uv[i].1, ring.uv[j].1);
+            // A pole VERTEX between the pair (two rims meeting at the
+            // pole: a corner patch's meridians) always runs the pole
+            // row, whatever the azimuth gap: its chart corner IS that
+            // row. Gating it on the over-the-pole test below decided
+            // a quarter-sphere corner (gap exactly pi/2) by 1e-8 of
+            // inversion noise, and the losing side charted the pole as
+            // one point that cut the corner (a 25.8° in-face fold on
+            // the boss plate; PK-626).
+            if let Some(m) = degenerate_between(degenerate, i, j) {
+                let pole = if ring.uv[m].1 < FRAC_PI_2 { 0.0 } else { PI };
+                return (i, j, d, (d.abs() > POLE_VERTEX_GAP).then_some(pole));
+            }
             let pole = if vi < FRAC_PI_4 && vj < FRAC_PI_4 {
                 Some(0.0)
             } else if vi > PI - FRAC_PI_4 && vj > PI - FRAC_PI_4 {
@@ -125,22 +137,17 @@ fn assemble(
             (Some(v_pole), Some(bit)) => {
                 let long = mask & (1 << bit) != 0;
                 let step = if long { d - d.signum() * TAU } else { d };
-                // Segment i → pole, the pole row, pole → j; the pair's
-                // span is shared at its midpoint parameter.
-                let (edge, t_i, t_j) = ring.sources[i];
-                let t_mid = 0.5 * (t_i + t_j);
-                out.sources.push((edge, t_i, t_mid));
+                // Segment i → pole, the pole row, pole → j.
+                let (into_pole, row, out_of_pole) = pole_run_sources(ring, degenerate, i, j);
+                out.sources.push(into_pole);
                 let point: Point3 = surface.point_at(u, v_pole);
                 let stations = (step.abs() / (TAU / 128.0)).ceil().max(1.0) as usize;
                 for s in 0..=stations {
                     out.uv.push((u + step * s as f64 / stations as f64, v_pole));
                     out.pos.push(point);
                     degen.push(false);
-                    out.sources.push(if s == stations {
-                        (edge, t_mid, t_j)
-                    } else {
-                        (edge, t_mid, t_mid)
-                    });
+                    out.sources
+                        .push(if s == stations { out_of_pole } else { row });
                 }
                 step
             }
@@ -164,6 +171,65 @@ fn assemble(
     }
     (out, degen, total)
 }
+
+/// Azimuth gap (radians) below which a pole vertex's two rims count
+/// as one meridian: no pole row is needed between them.
+const POLE_VERTEX_GAP: f64 = 1e-6;
+
+/// The last chart-degenerate ring sample strictly between regular
+/// samples `i` and `j` (cyclic), if any: a pole vertex.
+fn degenerate_between(degenerate: &[bool], i: usize, j: usize) -> Option<usize> {
+    let n = degenerate.len();
+    let mut last = None;
+    let mut m = (i + 1) % n;
+    while m != j {
+        if degenerate[m] {
+            last = Some(m);
+        }
+        m = (m + 1) % n;
+    }
+    last
+}
+
+/// Canonical spans of a pole crossing's three chart pieces — regular
+/// sample `i` to the pole, the pole row, the pole to regular sample
+/// `j` — as `(into_pole, row, out_of_pole)`. The row's span is empty
+/// (every row point is the pole), so it never requests a split.
+///
+/// - A curve passing OVER the pole (no ring sample at it) carries one
+///   span `i → j`, shared at its midpoint parameter.
+/// - A pole VERTEX (chart-degenerate samples between `i` and `j`,
+///   where two boundary edges meet at the pole, e.g. the two meridian
+///   rims of a sphere corner patch) has two spans, usually of two
+///   different edges: `i`'s own span runs into the pole, and the last
+///   degenerate sample's span runs out of it. Sharing `i`'s span on
+///   both sides labelled the outgoing segment with the INCOMING edge,
+///   so its long-segment splits landed on the incoming edge at the
+///   pole and halved it every encroachment round, never refining the
+///   outgoing one (PK-626: 4x-graded meridian samples to 3e-5 of the
+///   edge, 1e-13-area slivers at the boss plate's corner patches).
+fn pole_run_sources(
+    ring: &BoundaryRing,
+    degenerate: &[bool],
+    i: usize,
+    j: usize,
+) -> (Span, Span, Span) {
+    match degenerate_between(degenerate, i, j) {
+        Some(p) => {
+            let out_of_pole = ring.sources[p];
+            let at_pole = (out_of_pole.0, out_of_pole.1, out_of_pole.1);
+            (ring.sources[i], at_pole, out_of_pole)
+        }
+        None => {
+            let (edge, t_i, t_j) = ring.sources[i];
+            let t_mid = 0.5 * (t_i + t_j);
+            ((edge, t_i, t_mid), (edge, t_mid, t_mid), (edge, t_mid, t_j))
+        }
+    }
+}
+
+/// One ring segment's canonical span (see `BoundaryRing::sources`).
+type Span = (popkern_core::topology::EdgeHandle, f64, f64);
 
 fn signed_area(uv: &[(f64, f64)]) -> f64 {
     let n = uv.len();

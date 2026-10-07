@@ -55,6 +55,8 @@ mod boundary_first_ring_index;
 mod boundary_first_ruled_lattice;
 #[path = "boundary_first_ruled_strip.rs"]
 mod boundary_first_ruled_strip;
+#[path = "boundary_first_segment_split.rs"]
+mod boundary_first_segment_split;
 #[path = "boundary_first_slit.rs"]
 mod boundary_first_slit;
 #[path = "boundary_first_strip_refine.rs"]
@@ -267,7 +269,14 @@ pub(crate) fn tessellate_face_boundary_first(
         options,
     ) {
         let refine = boundary_first_strip_refine::request_deviation_splits;
-        refine(&fm, surface, &rings[0], chord, split_requests);
+        refine(
+            &fm,
+            surface,
+            &rings[0],
+            chord,
+            options.angular_bound(),
+            split_requests,
+        );
         return Some(fm);
     }
 
@@ -351,48 +360,21 @@ pub(crate) fn tessellate_face_boundary_first(
         .min((sv * (v1 - v0)) / n_v as f64)
         .max(1e-12);
     let clearance = cell / 3.0;
-    // LONG boundary segments on curved charts are split toward the
-    // lattice spacing along them (requests feed the next tessellation
-    // round, shared by both faces of the edge, so the mesh stays
-    // watertight). Boundary samples graded like the interior keep the
-    // triangles beside a seam well shaped: without this pass the
-    // display mesh's seam normals roughened up to 5x (zebra
-    // attribution, cube corner cap-cap slope 4.0e-3 -> 2.0e-2; PK-651).
-    // It once also kept segments' diametral disks small enough not to
-    // evacuate the interior; constrained recovery has retired that
-    // role. The threshold follows the segment's DOMINANT direction on
-    // directional lattices: judged by the much smaller u-cell, a
-    // v-running seam split to half the row spacing and Bowyer–Watson
-    // fanned long-u chords between the rows (the PK-146 class:
-    // ground-spring volume 0.0502 -> 0.0456). Planar charts skip it.
+    // Long boundary segments split toward the lattice spacing
+    // (`boundary_first_segment_split`). Planar charts skip it.
     if !matches!(
         surface,
         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
     ) {
-        let square_cell = ((su * (u1 - u0)) / n as f64)
-            .max((sv * (v1 - v0)) / n as f64)
-            .max(1e-12);
-        for ring in &rings {
-            let m = ring.uv.len();
-            for k in 0..m {
-                let a = ring.uv[k];
-                let b = ring.uv[(k + 1) % m];
-                let (du, dv) = (su * (b.0 - a.0), sv * (b.1 - a.1));
-                let thr = if n_u != n || n_v != n {
-                    if du.abs() > dv.abs() {
-                        cells.0
-                    } else {
-                        cells.1
-                    }
-                } else {
-                    square_cell
-                };
-                if du.powi(2) + dv.powi(2) > (1.5 * thr) * (1.5 * thr) {
-                    let (eh, f_lo, f_hi) = ring.sources[k];
-                    split_requests.push((eh, 0.5 * (f_lo + f_hi)));
-                }
-            }
-        }
+        let lattice = boundary_first_segment_split::SegmentLattice {
+            scale: (su, sv),
+            cells,
+            square_cell: ((su * (u1 - u0)) / n as f64)
+                .max((sv * (v1 - v0)) / n as f64)
+                .max(1e-12),
+            directional: n_u != n || n_v != n,
+        };
+        boundary_first_segment_split::request_long_segment_splits(&rings, &lattice, split_requests);
     }
     // Lattice points are filtered by region and a per-segment
     // clearance band (a third of the lattice spacing across the

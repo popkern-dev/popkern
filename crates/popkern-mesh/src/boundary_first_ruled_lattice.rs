@@ -86,7 +86,16 @@ pub(super) fn ruled_lattice(
         .filter(|&v| v > v0 + 1e-9 && v < v1 - 1e-9)
         .collect();
     v_stations.sort_by(f64::total_cmp);
-    let v_merge = ((v1 - v0).abs() * 1.0e-7).max(1e-9);
+    // Rows merge at a thousandth of the lattice row cell: the two
+    // rails' paired stations invert from independently sampled 3D
+    // points and differ by inversion noise, which a 1e-7-of-span merge
+    // did not always absorb — a 0.32 fillet wall's mid-rail stations
+    // read v 1.15999998 / 1.16000002 (3.4e-8 apart) and the lattice
+    // emitted two coincident rows, 30 zero-area slivers (PK-626).
+    // Genuine row clusters (a skew rim's 0.009 cadence) sit far above.
+    let v_merge = ((v1 - v0).abs() * 1.0e-7)
+        .max(1e-9)
+        .max(1.0e-3 * cells.1 / sv);
     v_stations.dedup_by(|a, b| (*a - *b).abs() < v_merge);
     if v_stations.len() < n_v - 1 {
         v_stations = (1..n_v)
@@ -194,4 +203,55 @@ pub(super) fn ruled_everywhere(
             p.distance_to(&on_chord) <= chord_height
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::topology::EdgeHandle;
+
+    /// A quarter-turn r 0.08 wall strip, u in [0, pi/2], v in [1, 1.32],
+    /// whose two rails carry their mid stations at v 1.16 -+ 1.7e-8 —
+    /// the inversion noise of independently sampled rails (PK-626).
+    fn noisy_rail_strip() -> BoundaryRing {
+        let (u1, r) = (std::f64::consts::FRAC_PI_2, 0.08);
+        let mut uv = Vec::new();
+        for k in 0..=8 {
+            uv.push((u1 * k as f64 / 8.0, 1.0));
+        }
+        uv.extend([(u1, 1.08), (u1, 1.16 - 1.7e-8), (u1, 1.24)]);
+        for k in (0..=8).rev() {
+            uv.push((u1 * k as f64 / 8.0, 1.32));
+        }
+        uv.extend([(0.0, 1.24), (0.0, 1.16 + 1.7e-8), (0.0, 1.08)]);
+        let pos = uv
+            .iter()
+            .map(|&(u, v)| Point3::new(r * u.cos(), r * u.sin(), v))
+            .collect();
+        let sources = vec![(EdgeHandle::default(), 0.0, 1.0); uv.len()];
+        BoundaryRing { uv, pos, sources }
+    }
+
+    #[test]
+    fn paired_rail_stations_within_inversion_noise_make_one_row() {
+        let rings = vec![noisy_rail_strip()];
+        let (su, sv) = (0.08, 1.0);
+        let cells = (su * std::f64::consts::FRAC_PI_2 / 8.0, 0.08);
+        let index = RingIndex::new(&rings, su, sv, cells);
+        let (mut uv_pts, mut pos_pts) = (Vec::new(), Vec::new());
+        ruled_lattice(
+            &rings,
+            &index,
+            (0.0, std::f64::consts::FRAC_PI_2, 1.0, 1.32),
+            (su, sv),
+            cells,
+            &TessellationOptions::default(),
+            &mut uv_pts,
+            &mut pos_pts,
+        );
+        let mut rows: Vec<f64> = uv_pts.iter().map(|&(_, v)| v).collect();
+        rows.sort_by(f64::total_cmp);
+        rows.dedup();
+        assert_eq!(rows.len(), 3, "one interior row per rail station: {rows:?}");
+    }
 }
