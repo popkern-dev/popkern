@@ -34,7 +34,15 @@ const BOLT_OPTIONS: &[&str] = &[
     "tip_chamfer",
 ];
 const ROD_OPTIONS: &[&str] = &["label", "left_hand", "starts", "tip_chamfer"];
-const NUT_OPTIONS: &[&str] = &["label", "clearance", "thickness", "left_hand", "starts"];
+const NUT_OPTIONS: &[&str] = &[
+    "label",
+    "clearance",
+    "thickness",
+    "left_hand",
+    "starts",
+    "corner_chamfer",
+    "mouth_chamfer",
+];
 const TAPPED_OPTIONS: &[&str] = &["label", "clearance", "left_hand", "starts", "entry_chamfer"];
 const CLEARANCE_OPTIONS: &[&str] = &[
     "label",
@@ -169,6 +177,10 @@ fn fastener_body(
         },
         no_tip_chamfer: allowed.contains(&"tip_chamfer")
             && matches!(options.with("tip_chamfer", args::boolean)?, Some(false)),
+        no_corner_chamfer: allowed.contains(&"corner_chamfer")
+            && matches!(options.with("corner_chamfer", args::boolean)?, Some(false)),
+        no_mouth_chamfer: allowed.contains(&"mouth_chamfer")
+            && matches!(options.with("mouth_chamfer", args::boolean)?, Some(false)),
     };
     let body = m
         .borrow_mut()

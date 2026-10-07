@@ -80,3 +80,7 @@ pub enum ClearanceFitDesc {
     /// An explicit hole diameter.
     Custom(ParameterId),
 }
+
+#[cfg(test)]
+#[path = "feature_fastener_tests.rs"]
+mod tests;

@@ -41,6 +41,7 @@ pub mod feature_extrude;
 pub mod feature_fastener;
 pub(crate) mod feature_names;
 mod feature_params;
+mod feature_shell_kinds;
 pub mod feature_sketch;
 pub mod feature_snapshot;
 pub mod feature_transform;

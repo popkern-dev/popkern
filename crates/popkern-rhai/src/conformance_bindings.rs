@@ -220,7 +220,15 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         "nut",
         "nut",
         &["spec"],
-        &["label", "clearance", "thickness", "left_hand", "starts"],
+        &[
+            "label",
+            "clearance",
+            "thickness",
+            "left_hand",
+            "starts",
+            "corner_chamfer",
+            "mouth_chamfer",
+        ],
         &[],
     ),
     b(

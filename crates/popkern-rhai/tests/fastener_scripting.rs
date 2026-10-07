@@ -108,3 +108,21 @@ m.assert_watertight();
 m
 "#);
 }
+
+/// PK-686: the nut verb exposes the part builder's chamfer toggles,
+/// records them, and emits them back to script.
+#[test]
+fn nut_chamfer_toggles_serve_and_emit() {
+    let outcome = run(r#"
+let m = model();
+let n = m.nut("M6", #{ label: "nut", corner_chamfer: false, mouth_chamfer: false });
+m.assert_watertight();
+m
+"#);
+    let mut model = outcome.model.expect("model");
+    let emitted = to_rhai(&mut model).expect("emit");
+    assert!(
+        emitted.contains("corner_chamfer: false") && emitted.contains("mouth_chamfer: false"),
+        "emits both toggles: {emitted}"
+    );
+}

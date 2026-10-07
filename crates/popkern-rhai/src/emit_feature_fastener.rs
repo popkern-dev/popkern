@@ -45,6 +45,8 @@ pub(super) fn fastener_statement(
         thread_length,
         clearance,
         tip_chamfer,
+        corner_chamfer,
+        mouth_chamfer,
     } = feature
     else {
         return Err(EmitError::not_applicable(
@@ -69,6 +71,14 @@ pub(super) fn fastener_statement(
     thread_pairs(thread, &mut pairs);
     if !tip_chamfer && !matches!(kind, FastenerKind::HexNut) {
         pairs.push(("tip_chamfer", "false".to_string()));
+    }
+    if matches!(kind, FastenerKind::HexNut) {
+        if !corner_chamfer {
+            pairs.push(("corner_chamfer", "false".to_string()));
+        }
+        if !mouth_chamfer {
+            pairs.push(("mouth_chamfer", "false".to_string()));
+        }
     }
     let call = match kind {
         FastenerKind::HexNut => {

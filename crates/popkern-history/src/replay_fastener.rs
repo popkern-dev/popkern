@@ -78,6 +78,8 @@ pub(super) fn execute_any(
             thread_length,
             clearance,
             tip_chamfer,
+            corner_chamfer,
+            mouth_chamfer,
         } => execute_fastener(
             brep,
             *kind,
@@ -85,7 +87,11 @@ pub(super) fn execute_any(
             *length,
             *thread_length,
             *clearance,
-            *tip_chamfer,
+            FastenerChamfers {
+                tip: *tip_chamfer,
+                corner: *corner_chamfer,
+                mouth: *mouth_chamfer,
+            },
             tolerance,
             param_table,
         ),
@@ -137,6 +143,15 @@ pub(super) fn execute_any(
 
 /// The `Feature::Fastener` arm: build a fastener body in the
 /// insertion frame (new body — the incoming brep is replaced).
+/// The chamfer toggles a fastener feature records: tip (screws,
+/// rods), hex corners and thread mouths (nuts).
+#[derive(Clone, Copy)]
+struct FastenerChamfers {
+    tip: bool,
+    corner: bool,
+    mouth: bool,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn execute_fastener(
     brep: &mut BRep,
@@ -145,10 +160,11 @@ fn execute_fastener(
     length: ParameterId,
     thread_length: Option<ParameterId>,
     clearance: Option<ParameterId>,
-    tip_chamfer: bool,
+    chamfers: FastenerChamfers,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
 ) -> Result<ExecuteSideEffects, ReplayError> {
+    let tip_chamfer = chamfers.tip;
     let spec = thread_spec(thread, param_table)?;
     let length = resolve_param(param_table, length)?;
     let thread_length = optional_param(param_table, thread_length)?;
@@ -199,8 +215,8 @@ fn execute_fastener(
                 thickness: (length > 0.0).then_some(length),
                 across_flats: None,
                 clearance,
-                corner_chamfer: true,
-                mouth_chamfer: true,
+                corner_chamfer: chamfers.corner,
+                mouth_chamfer: chamfers.mouth,
             },
             *tolerance,
         ),

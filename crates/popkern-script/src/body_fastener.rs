@@ -59,6 +59,10 @@ pub struct FastenerOptions {
     pub clearance: Option<Scalar>,
     /// Suppress the 45° tip lead-in chamfer.
     pub no_tip_chamfer: bool,
+    /// Suppress a nut's 30° hex corner chamfers.
+    pub no_corner_chamfer: bool,
+    /// Suppress a nut's 45° thread-mouth lead-in chamfers.
+    pub no_mouth_chamfer: bool,
 }
 
 /// Options for [`Body::tapped_hole`].
@@ -179,6 +183,8 @@ impl Model {
             thread_length,
             clearance,
             tip_chamfer: !options.no_tip_chamfer,
+            corner_chamfer: !options.no_corner_chamfer,
+            mouth_chamfer: !options.no_mouth_chamfer,
         };
         let id = record_feature(
             &mut self.tree,

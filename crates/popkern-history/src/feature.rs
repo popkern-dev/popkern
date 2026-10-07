@@ -235,6 +235,14 @@ pub enum Feature {
         /// 45° lead-in chamfer on the threaded tip (screws/rods).
         #[serde(default = "crate::feature_fastener::default_true")]
         tip_chamfer: bool,
+        /// 30° hex corner chamfers on both nut faces (nuts only;
+        /// documents written before PK-686 read `true`).
+        #[serde(default = "crate::feature_fastener::default_true")]
+        corner_chamfer: bool,
+        /// 45° thread-mouth lead-in chamfers on both nut faces (nuts
+        /// only; documents written before PK-686 read `true`).
+        #[serde(default = "crate::feature_fastener::default_true")]
+        mouth_chamfer: bool,
     },
     /// A tapped (threaded) hole cut into the body: bore at the
     /// internal minor diameter plus a real modeled internal thread
@@ -432,46 +440,7 @@ pub enum BoolOpKind {
     Subtraction,
 }
 
-/// Shell offset direction.
-///
-/// This mirrors [`popkern_shell::types::ShellDirection`] but adds
-/// `Serialize`/`Deserialize` so the feature tree can be persisted.
-/// Convert to/from `ShellDirection` at the replay boundary.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum ShellDirectionKind {
-    /// Offset inward (remove material from the inside).
-    Inward,
-    /// Offset outward (add material to the outside).
-    Outward,
-    /// Split the thickness equally: half inward, half outward.
-    Midplane,
-}
-
-/// How gap edges of an offset skin are closed (PK-328).
-///
-/// Mirrors [`popkern_shell::types::JoinStyle`] with serde; converted
-/// at the replay boundary.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub enum JoinStyleKind {
-    /// Rolling-ball fills (Minkowski-faithful; the default).
-    #[default]
-    Arc,
-    /// Extend and intersect the adjacent offsets; sharp result.
-    Intersection,
-}
-
-/// How globally self-intersecting offset regions are handled (PK-328).
-///
-/// Mirrors [`popkern_shell::types::TrimPolicy`] with serde; converted
-/// at the replay boundary.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub enum TrimPolicyKind {
-    /// Trim the colliding regions and re-close (the default).
-    #[default]
-    Trim,
-    /// Decline with diagnostics instead of trimming.
-    Decline,
-}
+pub use crate::feature_shell_kinds::{JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
 
 /// Controls whether an operation creates new geometry or merges with the
 /// active body.
