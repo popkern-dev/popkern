@@ -114,9 +114,16 @@
       <h2>Feature tree</h2>
       <p id="report-summary" class="muted">no build yet</p>
       <table class="report"><thead><tr><th>feature</th><th>op</th><th>outcome</th><th>time</th></tr></thead><tbody id="report"></tbody></table>
-      <h2>Parameters</h2>
+      <div class="params-head">
+        <h2>Parameters</h2>
+        <span class="params-filters" role="group" aria-label="Which parameters to show">
+          <label title="Parameters the script declares by name: param(&quot;wall&quot;, …)"><input id="params-show-named" type="checkbox" checked> named</label>
+          <label title="Feature arguments the history exposes without a name in the script (fillet-3.radius)"><input id="params-show-implicit" type="checkbox" checked> implicit</label>
+        </span>
+      </div>
       <p id="params-empty" class="muted">declared parameters appear here as sliders</p>
       <div id="params" class="params"></div>
+      <p id="params-hidden" class="muted" hidden></p>
     </div>
   </section>
 </main>
@@ -134,10 +141,11 @@
 </div>
 <div id="projects-dialog" class="dialog" hidden role="dialog" aria-label="Projects">
   <div class="dialog-box">
-    <div class="dialog-head"><strong>projects</strong><span><button id="project-new" type="button">new project</button> <button id="project-import" type="button" title="Import a project folder exported as a .zip">import .zip…</button> <button id="project-folder" type="button" title="Open a project folder on this computer and edit it in place (Chrome, Edge)">open folder…</button> <button id="projects-close" type="button">close</button></span></div>
+    <div class="dialog-head"><strong>projects</strong><span class="dialog-head-actions"><button id="project-new" type="button">new project</button><button id="project-import" type="button" title="Import a project folder exported as a .zip">import .zip…</button><button id="project-folder" type="button" title="Open a project folder on this computer and edit it in place (Chrome, Edge)">open folder…</button><button id="projects-close" type="button">close</button></span></div>
     <input id="project-import-file" type="file" accept=".zip,application/zip" hidden>
     <div class="dialog-body">
-      <h2>Your projects</h2>
+      <h2 id="projects-heading">Your projects</h2>
+      <p id="projects-where" class="muted projects-where" hidden></p>
       <ul id="projects-list" class="project-list"></ul>
       <h2>Examples</h2>
       <ul id="examples-list" class="project-list"></ul>

@@ -26,6 +26,8 @@ pub struct StoredProject {
     pub revision: String,
     /// Last modification time (RFC 3339 UTC).
     pub updated: String,
+    /// The project folder on the serving machine.
+    pub path: String,
 }
 
 /// Why a store operation failed.
@@ -169,6 +171,7 @@ impl ProjectsRoot {
             revision: revision(&files),
             files,
             updated: rfc3339(newest),
+            path: folder.display().to_string(),
         })
     }
 

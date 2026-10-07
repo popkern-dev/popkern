@@ -75,7 +75,7 @@ certification could not continue. Without the option the default is
     wall_budget: "none" | "armed" | "unavailable",
     report: ReplayReport | null,       // spec §11 + is_clean/failures/downgraded_blends
     features: number,
-    params: [{ name, value, unit, expression, bounds: [lo, hi] | null, read_only }],
+    params: [{ name, value, unit, expression, bounds: [lo, hi] | null, read_only, explicit }],   // explicit: declared by name, not a feature argument
     bodies: [{ id, label, vertex_count, triangle_count, face_count,
                face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }],
     assembly: null | {                 // an assembly document (assemblies.md §6.5)

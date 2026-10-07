@@ -29,6 +29,10 @@ pub struct ParamInfo {
     pub bounds: Option<(f64, f64)>,
     /// Read-only (published by a `reference`).
     pub read_only: bool,
+    /// Declared by name in the script (`param("wall", …)`), as opposed
+    /// to a feature argument the tree exposes implicitly
+    /// (`fillet-3.radius`).
+    pub explicit: bool,
 }
 
 impl Model {
@@ -422,6 +426,7 @@ impl Model {
                         .map(|e| popkern_history::format_expression(e, table)),
                     bounds: p.bounds,
                     read_only: p.read_only,
+                    explicit: matches!(p.scope, popkern_history::ParamScope::Global),
                 })
             })
             .collect()

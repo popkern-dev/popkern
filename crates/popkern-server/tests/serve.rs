@@ -23,6 +23,14 @@ fn root(name: &str) -> PathBuf {
     dir
 }
 
+/// Where `root(name)` lives, as the server reports it.
+fn root_path(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("serve-{name}"))
+        .canonicalize()
+        .expect("root")
+}
+
 fn start(name: &str, compute: Compute) -> SocketAddr {
     let (listener, handle) = bind(ServeOptions {
         root: root(name),
@@ -84,7 +92,14 @@ fn the_page_and_host_json() {
     assert_eq!(status, 200);
     assert_eq!(
         json_body(&body),
-        json!({ "storage": "server", "compute": "native", "version": env!("CARGO_PKG_VERSION") })
+        json!({
+            "storage": "server",
+            "compute": "native",
+            "version": env!("CARGO_PKG_VERSION"),
+            // Absolute, so the page can say where projects live.
+            "root": root_path("page").display().to_string(),
+            "mcp": "/mcp",
+        })
     );
     assert_eq!(http(addr, "GET", "/../Cargo.toml", None).0, 404);
     assert_eq!(http(addr, "GET", "/%2e%2e/Cargo.toml", None).0, 404);

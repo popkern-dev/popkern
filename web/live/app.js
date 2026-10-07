@@ -22,7 +22,7 @@ import { fetchDefaultScript } from "./gallery.js";
 import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
-import { renderParams } from "./params-panel.js";
+import { renderParams, wireParamFilter } from "./params-panel.js";
 import { hostMode } from "./host-mode.js";
 import { Projects } from "./projects.js";
 import { SocketWorker } from "./socket-worker.js";
@@ -96,6 +96,7 @@ class Page {
     this.rail = new MigrationsRail(this);
     wireControls(this);
     wireProjects(this);
+    wireParamFilter();
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
     this.status("loading the kernel…");
     drafts.openFirstScript(this);

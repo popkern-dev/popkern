@@ -23,7 +23,9 @@ popkern serve runs popkern live self-hosted: projects are the folders
 under <projects-dir>, and the kernel runs natively (--compute browser
 keeps it in the page). --page names the page folder (default web/live,
 built with tools/build-live.sh). Local only: --bind must be a loopback
-address (default 127.0.0.1, port 7690).
+address (default 127.0.0.1, port 7690). The same server answers MCP at
+/mcp (JSON-RPC over HTTP): agents list, edit, build and export the same
+projects, e.g.  claude mcp add --transport http popkern http://127.0.0.1:7690/mcp
 
 run options:
 

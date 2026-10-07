@@ -12,6 +12,10 @@
 //!   connection, real cancel (`{"type": "cancel"}` stops the running
 //!   script at its next step and keeps the session's document).
 //!
+//! - **`/mcp`**: a Model Context Protocol endpoint (JSON-RPC over HTTP
+//!   POST) whose tools list, read, write and build the same projects on
+//!   the native kernel, whatever `compute` the page uses.
+//!
 //! Local only until the security fork (PK-667) lands: binding anything
 //! but a loopback address is refused ([`ServeError::NonLoopback`]).
 //! There is no authentication; anyone who can reach the port can read
@@ -20,6 +24,8 @@
 #![forbid(unsafe_code)]
 
 mod http;
+mod mcp;
+mod mcp_tools;
 mod socket;
 pub mod store;
 
@@ -84,6 +90,14 @@ pub enum ServeError {
         /// The path.
         path: PathBuf,
     },
+    /// The root is one project's folder, not a folder of projects.
+    #[error(
+        "{path} is a project folder (it holds popkern.toml): serve the folder that contains it"
+    )]
+    ProjectFolder {
+        /// The folder.
+        path: PathBuf,
+    },
     /// Binding failed.
     #[error("cannot listen on {addr}: {detail}")]
     Bind {
@@ -118,6 +132,18 @@ pub fn bind(options: ServeOptions) -> Result<(TcpListener, ServeHandle), ServeEr
         return Err(ServeError::NoRoot {
             path: options.root.clone(),
         });
+    }
+    // A project folder itself is not a projects root: its migrations
+    // would never list. Say which folder to serve instead.
+    if options.root.join(popkern_project::MANIFEST).is_file() {
+        return Err(ServeError::ProjectFolder {
+            path: options.root.clone(),
+        });
+    }
+    // Absolute, so the page and MCP clients see where projects live.
+    let mut options = options;
+    if let Ok(root) = options.root.canonicalize() {
+        options.root = root;
     }
     let listener = TcpListener::bind(options.bind).map_err(|e| ServeError::Bind {
         addr: options.bind,

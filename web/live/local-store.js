@@ -62,3 +62,16 @@ export function readTimeLimit() {
 export function writeTimeLimit(limit) {
   storage((s) => s.setItem(TIME_LIMIT_KEY, limit == null ? "none" : String(limit)));
 }
+
+const PARAM_FILTER_KEY = "popkern-live-param-filter";
+
+/** Which parameter kinds the panel shows: `{ named, implicit }`, both
+ *  shown unless the visitor turned one off. */
+export function readParamFilter() {
+  const stored = storage((s) => JSON.parse(s.getItem(PARAM_FILTER_KEY) ?? "null"));
+  return { named: stored?.named !== false, implicit: stored?.implicit !== false };
+}
+
+export function writeParamFilter(filter) {
+  storage((s) => s.setItem(PARAM_FILTER_KEY, JSON.stringify(filter)));
+}

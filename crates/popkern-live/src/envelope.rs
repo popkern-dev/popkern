@@ -94,6 +94,10 @@ pub struct ParamRow {
     pub bounds: Option<[f64; 2]>,
     /// Published by a reference; not editable.
     pub read_only: bool,
+    /// Declared by name (`param("wall", …)`, an assembly parameter);
+    /// false for a feature argument exposed implicitly
+    /// (`fillet-3.radius`).
+    pub explicit: bool,
 }
 
 /// The answer to every session verb that changes the model.

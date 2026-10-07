@@ -60,7 +60,7 @@ redirect pages pointing here.
 | `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete, insert a feature at the history playhead |
 | `migration-templates.js` | Migration templates (first, next, insert-after) — the text `popkern_project::scaffold` writes |
 | `scrubber.js` | The history scrubber: ticks per feature (an assembly: per place, move and mate; a part opened in the assembly panel: its own features), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line and report row, play, `#step=` / `#v=` links, insert a feature here |
-| `host-mode.js` | Which deployment the page is in (`host.json`: storage and compute) and the `ServerStore` for `popkern serve` |
+| `host-mode.js` | Which deployment the page is in (`host.json`: storage, compute, the projects root and the MCP endpoint) and the `ServerStore` for `popkern serve` (projects are folders on the serving machine; their revisions are polled so edits made on disk or over MCP reload) |
 | `socket-worker.js` | The worker protocol over `popkern serve`'s session socket (same origin only), Worker-shaped, with in-place `cancelRun()` |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |
 | `document-tab.js` | The open document: its title, file stem and edited mark; an imported STEP placeholder |
@@ -69,7 +69,7 @@ redirect pages pointing here.
 | `status-line.js` | The status line, the pick readout, served-model wording, page-error reporting |
 | `outcome-overlay.js` | The viewport overlay for a build that did not serve, with the line jump |
 | `report-table.js` | The feature tree rows (blend continuity measured vs requested) and its summary |
-| `params-panel.js` | Parameter sliders and number boxes, scoped to an opened assembly part |
+| `params-panel.js` | Parameter sliders and number boxes, scoped to an opened assembly part; toggles show or hide named (`param("wall", …)`) and implicit (feature-argument) parameters, kept in this browser |
 | `model-display.js` | A served model or pre-built bake landing on screen (viewer, overlay, status) |
 | `continuity-certification.js` | Deferred seam certification in slices after a served build |
 | `analysis-mesh.js` | The zebra view's finer analysis mesh, fetched once per served model |

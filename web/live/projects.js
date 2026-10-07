@@ -18,6 +18,8 @@ const $ = (id) => document.getElementById(id);
 export const SCRATCH = "scratch";
 // An edit is saved once typing pauses this long.
 const SAVE_MS = 400;
+// How often the open server project's revision is checked.
+const DISK_POLL_MS = 2000;
 
 export class Projects {
   constructor(page) {
@@ -36,9 +38,16 @@ export class Projects {
     this.store = new RoutedStore(primary, folders);
     this.examples = examples;
     $("storage-note").hidden = this.store.persistent;
-    // A folder edited elsewhere (an editor, `git pull`) is noticed when
-    // the page comes back to the front.
+    // A folder edited elsewhere (an editor, `git pull`, an agent over
+    // MCP) is noticed when the page comes back to the front; a project
+    // on the server is also polled while the page is visible, so an
+    // agent's edit shows up as it lands.
     window.addEventListener("focus", () => this.checkFolder());
+    if (this.store.kind === "server") {
+      setInterval(() => {
+        if (document.visibilityState === "visible") this.checkFolder();
+      }, DISK_POLL_MS);
+    }
     return this;
   }
 
@@ -65,10 +74,10 @@ export class Projects {
 
   /** Show `project` (from either store) in the editor and build it.
    *  Pending edits of the project being left are saved first. */
-  async open(project, { build = true } = {}) {
+  async open(project, { build = true, path: keep = null } = {}) {
     await this.flush();
     const migrations = migrationPaths(project.files);
-    const path = migrations.at(-1) ?? null;
+    const path = keep && keep in project.files ? keep : migrations.at(-1) ?? null;
     this.current = { ...project, path, readOnly: Boolean(project.readOnly), unsaved: false };
     this.page.tab.importedSource = null;
     this.page.tab.open(project.name, path ? project.files[path] : "");
@@ -135,18 +144,34 @@ export class Projects {
    *  is pending here, show the conflict bar when edits are. */
   async checkFolder() {
     const p = this.current;
-    if (p?.kind !== "folder" || !this.store.folders) return;
-    await this.saving;
-    const revision = await this.store.folders.revision(p.id);
-    if (revision == null || revision === this.current?.revision) return;
-    const theirs = await this.store.folders.get(p.id, { ask: false });
-    if (!p.unsaved) {
-      await this.open(theirs);
-      this.page.status(`reloaded ${p.name}: its folder changed on disk`);
-      return;
+    const source = p?.kind === "folder" ? this.store.folders : p?.kind === "server" ? this.store.primary : null;
+    if (!source || this.checking || this.conflict) return;
+    this.checking = true;
+    try {
+      await this.saving;
+      // While typing, the next save's revision check decides.
+      if (this.current !== p || this.saveTimer) return;
+      const saves = this.saves;
+      const revision = await source.revision(p.id).catch(() => null);
+      // A save that started meanwhile moved the revision itself.
+      if (saves !== this.saves || this.current !== p) return;
+      if (revision == null || revision === p.revision) return;
+      const theirs = await source.get(p.id, { ask: false });
+      if (!theirs) return;
+      if (!p.unsaved) {
+        await this.open(theirs, { path: p.path });
+        this.page.status(`reloaded ${p.name}: its folder changed on disk`);
+        return;
+      }
+      this.showConflict(theirs, p);
+    } finally {
+      this.checking = false;
     }
+  }
+
+  showConflict(theirs, p) {
     this.conflict = theirs;
-    $("conflict-text").textContent = `"${p.name}" changed on disk (another editor, or git) while you were editing it here`;
+    $("conflict-text").textContent = `"${p.name}" changed on disk (another editor, git, or an agent) while you were editing it here`;
     $("conflict-bar").hidden = false;
   }
 
@@ -182,6 +207,7 @@ export class Projects {
     const p = this.current;
     this.saveTimer = null;
     if (!p || p.readOnly || !p.unsaved) return this.saving;
+    this.saves = (this.saves ?? 0) + 1;
     this.saving = this.store
       .save(p.id, p.files, p.revision)
       .then((saved) => {
@@ -273,7 +299,7 @@ export class Projects {
     const file = p.path ? p.path.split("/").pop() : "";
     const mark = p.readOnly ? " (example, read only)" : p.unsaved ? " ●" : "";
     $("doc-name").textContent = `${p.name} · ${file}${mark}`;
-    const where = p.kind === "folder" ? `saved in the folder ${p.folder}` : this.store.kind === "server" ? "saved on the server" : "saved in this browser";
+    const where = p.kind === "folder" ? `saved in the folder ${p.folder}` : p.kind === "server" ? `saved in ${p.path ?? "the server's projects folder"}` : "saved in this browser";
     $("doc-name").title = p.readOnly ? "make a copy to edit" : p.unsaved ? "saving…" : where;
   }
 }

@@ -1,7 +1,9 @@
-// The projects dialog: the visitor's projects in this browser (open,
-// delete, new, import a .zip) and the examples (opened read-only).
+// The projects dialog: the visitor's projects — in this browser, or
+// under `popkern serve` the folders in its projects root (open, delete,
+// new, import a .zip, open a folder) — and the examples (read-only).
 // Replaces the example dropdown (live-projects-and-history.md §12).
 import { SCRATCH } from "./projects.js";
+import { foldersSupported } from "./folder-store.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,6 +43,11 @@ function when(iso) {
 export async function showProjects(page) {
   const projects = page.projects;
   const close = () => ($("projects-dialog").hidden = true);
+  const root = page.mode?.storage === "server" ? page.mode.root : null;
+  $("projects-heading").textContent = page.mode?.storage === "server" ? "Projects on this machine" : "Your projects";
+  $("projects-where").hidden = !root;
+  $("projects-where").textContent = root ? `folders in ${root} — edit them with any editor or git, or through the MCP endpoint (${new URL(page.mode.mcp ?? "./mcp", location.href)}); the page reloads what changes` : "";
+  $("project-folder").hidden = !foldersSupported();
   const mine = $("projects-list");
   mine.replaceChildren();
   for (const p of await projects.store.list()) {
@@ -65,14 +72,17 @@ export async function showProjects(page) {
       actions.push([
         "delete",
         async () => {
-          if (!window.confirm(`Delete "${p.name}" from this browser? This cannot be undone (export it first to keep a copy).`)) return;
+          const question = p.kind === "server"
+            ? `Move "${p.name}" out of the projects folder? Its folder goes to ${root ?? "the root"}/.trash, from where it can be moved back.`
+            : `Delete "${p.name}" from this browser? This cannot be undone (export it first to keep a copy).`;
+          if (!window.confirm(question)) return;
           await projects.remove(p.id);
           await showProjects(page);
         },
         "danger",
       ]);
     }
-    const detail = p.kind === "folder" ? "folder on this computer" : when(p.updated);
+    const detail = p.kind === "folder" ? "folder on this computer" : p.kind === "server" ? [p.path, when(p.updated)].filter(Boolean).join(" · ") : when(p.updated);
     mine.append(row(p.name, detail, actions));
   }
   const examples = $("examples-list");

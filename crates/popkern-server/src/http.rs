@@ -70,9 +70,12 @@ fn respond(stream: &mut TcpStream, status: u16, content_type: &str, body: &[u8])
     let reason = match status {
         200 => "OK",
         201 => "Created",
+        202 => "Accepted",
         204 => "No Content",
         400 => "Bad Request",
+        403 => "Forbidden",
         404 => "Not Found",
+        405 => "Method Not Allowed",
         409 => "Conflict",
         413 => "Payload Too Large",
         _ => "Error",
@@ -176,8 +179,14 @@ pub(crate) fn connection(mut stream: TcpStream, context: &Context) {
             "storage": "server",
             "compute": context.options.compute.as_str(),
             "version": env!("CARGO_PKG_VERSION"),
+            "root": context.options.root.display().to_string(),
+            "mcp": "/mcp",
         });
         json_reply(&mut stream, 200, &value);
+        return;
+    }
+    if path == "/mcp" {
+        mcp(&mut stream, &request, &body, context);
         return;
     }
     if let Some(rest) = path.strip_prefix("/api/projects") {
@@ -194,6 +203,36 @@ pub(crate) fn connection(mut stream: TcpStream, context: &Context) {
             Err(_) => respond(&mut stream, 404, "text/plain", b"not found"),
         },
         None => respond(&mut stream, 404, "text/plain", b"not found"),
+    }
+}
+
+/// `/mcp`: JSON-RPC over POST; a foreign `Origin` is refused.
+fn mcp(stream: &mut TcpStream, request: &Request, body: &[u8], context: &Context) {
+    if request
+        .header("origin")
+        .is_some_and(|o| !crate::mcp::loopback_origin(o))
+    {
+        respond(
+            stream,
+            403,
+            "text/plain",
+            b"cross-origin MCP requests are refused",
+        );
+        return;
+    }
+    if request.method != "POST" {
+        respond(
+            stream,
+            405,
+            "text/plain",
+            b"POST JSON-RPC messages to /mcp (this server opens no event stream)",
+        );
+        return;
+    }
+    let reply = crate::mcp::post(body, context);
+    match reply.body {
+        Some(value) => json_reply(stream, reply.status, &value),
+        None => respond(stream, reply.status, "text/plain", b""),
     }
 }
 

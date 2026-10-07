@@ -138,6 +138,7 @@ pub(crate) fn document_params(doc: &mut Document) -> Vec<ParamRow> {
                 expression: None,
                 bounds: None,
                 read_only: false,
+                explicit: true,
             });
         }
         driven = assembly
@@ -164,6 +165,7 @@ pub(crate) fn document_params(doc: &mut Document) -> Vec<ParamRow> {
                 expression: by.or(p.expression),
                 bounds: p.bounds.map(|(lo, hi)| [lo, hi]),
                 read_only: p.read_only,
+                explicit: p.explicit,
             });
         }
     }
