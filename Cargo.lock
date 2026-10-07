@@ -3445,6 +3445,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "popkern-hinge"
+version = "0.1.0"
+dependencies = [
+ "popkern-bool",
+ "popkern-core",
+ "popkern-fastener",
+ "popkern-io",
+ "popkern-math",
+ "popkern-measure",
+ "popkern-mesh",
+ "popkern-sketch",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "popkern-history"
 version = "0.1.0"
 dependencies = [

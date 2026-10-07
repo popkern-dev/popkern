@@ -519,3 +519,45 @@ fn live_sits_above_rhai() {
         );
     }
 }
+
+/// popkern-hinge (PK-693) sits in the operations tier beside fastener:
+/// it may use math, core, sketch, sweep, bool and fastener (its screw
+/// holes), and nothing above; only history and the layers above it use
+/// hinges.
+#[test]
+fn hinge_sits_in_the_operations_tier() {
+    let cargo_toml = fs::read_to_string(workspace_root().join("crates/popkern-hinge/Cargo.toml"))
+        .expect("Could not read popkern-hinge/Cargo.toml");
+    let deps = cargo_toml.split("[dev-dependencies]").next().unwrap_or("");
+    for above in [
+        "popkern-mesh",
+        "popkern-io",
+        "popkern-measure",
+        "popkern-viz",
+        "popkern-part",
+        "popkern-history",
+        "popkern-script",
+        "popkern-assembly",
+        "popkern-rhai",
+        "popkern-live",
+    ] {
+        assert!(
+            !declares_dependency(deps, above),
+            "popkern-hinge must not depend on {above} (it is an operations-tier crate)"
+        );
+    }
+    for below in [
+        "popkern-math",
+        "popkern-core",
+        "popkern-sketch",
+        "popkern-bool",
+        "popkern-fastener",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-hinge"),
+            "{below} must not depend on popkern-hinge"
+        );
+    }
+}

@@ -1,0 +1,19 @@
+[package]
+name = "popkern-hinge"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Parametric hinges (butt, print-in-place, piano, living) for the popkern BRep kernel"
+
+[dependencies]
+popkern-math = { path = "../popkern-math" }
+popkern-core = { path = "../popkern-core" }
+popkern-sketch = { path = "../popkern-sketch" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-fastener = { path = "../popkern-fastener" }
+thiserror.workspace = true
+
+[dev-dependencies]
+popkern-measure = { path = "../popkern-measure" }
+popkern-mesh = { path = "../popkern-mesh" }
+popkern-io = { path = "../popkern-io" }
