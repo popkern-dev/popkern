@@ -30,4 +30,5 @@ if [[ ! -f $WASM ]]; then
 fi
 KERNEL=$(sha256sum "$WASM" | cut -c1-64)
 cargo build --profile live -p popkern-live --example bake_gallery
-target/live/examples/bake_gallery "$KERNEL" $JOBS
+# Cargo honours CARGO_TARGET_DIR; so must the run step (as build-live.sh).
+"${CARGO_TARGET_DIR:-target}"/live/examples/bake_gallery "$KERNEL" $JOBS
