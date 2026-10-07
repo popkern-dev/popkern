@@ -120,7 +120,8 @@ impl Model {
         )
     }
 
-    fn bind(
+    /// Bind `s` as a pending parameter of the next recorded feature.
+    pub(crate) fn bind(
         &mut self,
         role: &str,
         s: &Scalar,

@@ -16,6 +16,7 @@
 
 use popkern_assembly::{Datum, Mate, MateEntity, MateKind, MateRef, Parent};
 use popkern_script::FaceSelector;
+use popkern_script::scalar::Scalar;
 use rhai::{Dynamic, Engine, EvalAltResult};
 
 use crate::args::{self, Options};
@@ -134,6 +135,7 @@ fn add(
             kind,
             a: x.0,
             b: y.0,
+            drive: None,
         })
         .assembly()?;
     rhai::serde::to_dynamic(&report).map_err(|e| argument_error("mate", e.to_string()))
@@ -178,15 +180,61 @@ fn angle(
             None => None,
         }
     };
-    add(
-        a,
-        MateKind::Angle {
-            degrees: args::float("degrees", &degrees)?,
-            about,
-        },
-        x,
-        y,
-    )
+    match args::scalar("degrees", &degrees)? {
+        Scalar::Literal(v) => add(a, MateKind::Angle { degrees: v, about }, x, y),
+        // `p("name")`: the assembly parameter drives the angle (PK-701).
+        Scalar::Param(param) => {
+            let v = param_value(a, &param)?;
+            let report = add(a, MateKind::Angle { degrees: v, about }, x, y)?;
+            drive_last(a, &param)?;
+            Ok(report)
+        }
+        Scalar::Expr(_) => Err(argument_error(
+            "degrees",
+            "a mate angle is a number or p(\"assembly parameter\")",
+        )),
+    }
+}
+
+/// A distance mate, its value a number or `p("assembly parameter")`.
+fn distance(
+    a: &mut ScriptAssembly,
+    x: ScriptMateRef,
+    y: ScriptMateRef,
+    d: &Dynamic,
+    aligned: bool,
+) -> Result<Dynamic, Box<EvalAltResult>> {
+    match args::scalar("distance", d)? {
+        Scalar::Literal(distance) => add(a, MateKind::Distance { distance, aligned }, x, y),
+        Scalar::Param(param) => {
+            let distance = param_value(a, &param)?;
+            let report = add(a, MateKind::Distance { distance, aligned }, x, y)?;
+            drive_last(a, &param)?;
+            Ok(report)
+        }
+        Scalar::Expr(_) => Err(argument_error(
+            "distance",
+            "a mate distance is a number or p(\"assembly parameter\")",
+        )),
+    }
+}
+
+/// The display value of assembly parameter `name`.
+fn param_value(a: &ScriptAssembly, name: &str) -> Result<f64, Box<EvalAltResult>> {
+    a.borrow_mut()
+        .assembly
+        .params()
+        .iter()
+        .find(|p| p.name == name)
+        .map(|p| p.display_value())
+        .ok_or_else(|| argument_error("p", format!("no assembly parameter '{name}'")))
+}
+
+/// Bind the mate just added to assembly parameter `name`.
+fn drive_last(a: &mut ScriptAssembly, name: &str) -> Result<(), Box<EvalAltResult>> {
+    let mut state = a.borrow_mut();
+    let index = state.assembly.mates().len().saturating_sub(1);
+    state.assembly.drive_mate(name, index, 1.0, 0.0).assembly()
 }
 
 /// Register the mate verbs.
@@ -250,29 +298,14 @@ pub fn register(engine: &mut Engine) {
         .register_fn(
             "distance",
             |a: &mut ScriptAssembly, x: ScriptMateRef, y: ScriptMateRef, d: Dynamic| {
-                add(
-                    a,
-                    MateKind::Distance {
-                        distance: args::float("distance", &d)?,
-                        aligned: false,
-                    },
-                    x,
-                    y,
-                )
+                distance(a, x, y, &d, false)
             },
         )
         .register_fn(
             "distance",
             |a: &mut ScriptAssembly, x: ScriptMateRef, y: ScriptMateRef, d: Dynamic, o: Dynamic| {
-                add(
-                    a,
-                    MateKind::Distance {
-                        distance: args::float("distance", &d)?,
-                        aligned: aligned("distance", &o)?,
-                    },
-                    x,
-                    y,
-                )
+                let aligned = aligned("distance", &o)?;
+                distance(a, x, y, &d, aligned)
             },
         )
         .register_fn(

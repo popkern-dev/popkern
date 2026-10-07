@@ -20,6 +20,8 @@ mod replay_blend;
 mod replay_fastener;
 #[path = "replay_fns.rs"]
 pub(crate) mod replay_fns;
+#[path = "replay_hinge.rs"]
+mod replay_hinge;
 #[path = "replay_sweep.rs"]
 mod replay_sweep;
 use replay_fns::{
@@ -387,6 +389,9 @@ pub(crate) fn execute_feature(
         | Feature::TappedHole { .. }
         | Feature::ClearanceHole { .. }) => {
             replay_fastener::execute_any(f, brep, tolerance, param_table)
+        }
+        f @ (Feature::Hinge { .. } | Feature::SeamHinge { .. } | Feature::LivingHinge { .. }) => {
+            replay_hinge::execute_any(f, brep, tolerance, param_table)
         }
         Feature::Revolve {
             face,

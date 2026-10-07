@@ -21,6 +21,8 @@ use crate::emit_spelling::{Speller, float, plane, quoted, scalar, shape, vec3};
 
 #[path = "emit_feature_fastener.rs"]
 mod emit_feature_fastener;
+#[path = "emit_feature_hinge.rs"]
+mod emit_feature_hinge;
 
 /// The receiver expression and the statement's right-hand side for a
 /// feature, plus whether the served body is a new one.
@@ -366,6 +368,15 @@ pub fn statement(
         }
         Feature::Fastener { .. } => {
             return emit_feature_fastener::fastener_statement(tree, context, label, &node.feature);
+        }
+        Feature::Hinge { .. } | Feature::LivingHinge { .. } => {
+            return emit_feature_hinge::hinge_statement(tree, context, label, &node.feature);
+        }
+        Feature::SeamHinge { .. } => {
+            match emit_feature_hinge::seam_hinge_call(tree, context, label, &node.feature)? {
+                Ok(call) => call,
+                Err(statement) => return Ok(statement),
+            }
         }
         Feature::TappedHole { .. } | Feature::ClearanceHole { .. } => {
             emit_feature_fastener::hole_call(tree, context, label, spell, &node.feature)?

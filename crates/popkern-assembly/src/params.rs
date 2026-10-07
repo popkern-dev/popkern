@@ -26,6 +26,11 @@ pub struct AssemblyParam {
     pub value: f64,
     /// The unit it is shown and set in.
     pub unit: Unit,
+    /// Limits `[min, max]` in the display unit: values outside are
+    /// refused (PK-701 — a hinge's open angle stops where it physically
+    /// can).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[f64; 2]>,
 }
 
 impl AssemblyParam {
@@ -78,6 +83,7 @@ impl Assembly {
             name: name.to_string(),
             value: unit.to_si(value),
             unit,
+            bounds: None,
         });
         Ok(())
     }
@@ -144,8 +150,23 @@ impl Assembly {
         let Some(index) = self.params.iter().position(|p| p.name == name) else {
             return Err(param_error(name, "no assembly parameter with this name"));
         };
+        if let Some([lo, hi]) = self.params[index].bounds
+            && !(lo..=hi).contains(&value)
+        {
+            return Err(param_error(
+                name,
+                &format!("{value} is outside its limits [{lo}, {hi}]"),
+            ));
+        }
+        let previous = self.params[index].value;
         let si = self.params[index].unit.to_si(value);
         self.params[index].value = si;
+        // Mates it drives move occurrences; nothing replays. A solve that
+        // fails restores the value (and the solve leaves placements).
+        if let Err(error) = self.apply_mate_drives(name) {
+            self.params[index].value = previous;
+            return Err(error);
+        }
         let drives: Vec<Drive> = self
             .drives
             .iter()
@@ -210,7 +231,7 @@ fn apply(
     Ok(())
 }
 
-fn param_error(name: &str, detail: &str) -> AssemblyError {
+pub(crate) fn param_error(name: &str, detail: &str) -> AssemblyError {
     AssemblyError::Param {
         name: name.to_string(),
         detail: detail.to_string(),

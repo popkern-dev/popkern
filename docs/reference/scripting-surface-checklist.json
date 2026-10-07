@@ -1138,6 +1138,90 @@
       ]
     },
     {
+      "name": "hinge",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.hinge(kind, length, leaf_width?, thickness?, knuckles?, pin?, knuckle_diameter?, clearance?, gap?, angle?, holes?, screw?, countersink?, only?)",
+      "parameters": [
+        {
+          "name": "kind",
+          "optional": false
+        },
+        {
+          "name": "length",
+          "optional": false
+        },
+        {
+          "name": "leaf_width",
+          "optional": true
+        },
+        {
+          "name": "thickness",
+          "optional": true
+        },
+        {
+          "name": "knuckles",
+          "optional": true
+        },
+        {
+          "name": "pin",
+          "optional": true
+        },
+        {
+          "name": "knuckle_diameter",
+          "optional": true
+        },
+        {
+          "name": "clearance",
+          "optional": true
+        },
+        {
+          "name": "gap",
+          "optional": true
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "holes",
+          "optional": true
+        },
+        {
+          "name": "screw",
+          "optional": true
+        },
+        {
+          "name": "countersink",
+          "optional": true
+        },
+        {
+          "name": "only",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "hinge_component",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.hinge_component(owner, component, label?)",
+      "parameters": [
+        {
+          "name": "owner",
+          "optional": false
+        },
+        {
+          "name": "component",
+          "optional": false
+        },
+        {
+          "name": "label",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "intersect",
       "section": "5",
       "mark": "stable",
@@ -1168,6 +1252,54 @@
         },
         {
           "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "living_hinge",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.living_hinge(style, span, length, panel_width?, thickness?, web?, root_radius?, slot_pitch?, slot_width?, bridge?)",
+      "parameters": [
+        {
+          "name": "style",
+          "optional": false
+        },
+        {
+          "name": "span",
+          "optional": false
+        },
+        {
+          "name": "length",
+          "optional": false
+        },
+        {
+          "name": "panel_width",
+          "optional": true
+        },
+        {
+          "name": "thickness",
+          "optional": true
+        },
+        {
+          "name": "web",
+          "optional": true
+        },
+        {
+          "name": "root_radius",
+          "optional": true
+        },
+        {
+          "name": "slot_pitch",
+          "optional": true
+        },
+        {
+          "name": "slot_width",
+          "optional": true
+        },
+        {
+          "name": "bridge",
           "optional": true
         }
       ]

@@ -128,7 +128,10 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         } => vec![face, path_edge],
         Feature::Loft { sections, .. } => sections.iter().collect(),
         Feature::Pipe { path_edge, .. } => vec![path_edge],
-        Feature::Fastener { .. } => Vec::new(),
+        Feature::Fastener { .. }
+        | Feature::Hinge { .. }
+        | Feature::SeamHinge { .. }
+        | Feature::LivingHinge { .. } => Vec::new(),
         Feature::TappedHole { axis, .. } | Feature::ClearanceHole { axis, .. } => {
             axis_desc_entity_names(axis)
         }
@@ -246,6 +249,12 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
             | Feature::RawBody { .. }
             | Feature::Pipe { .. }
             | Feature::Fastener { .. }
+            | Feature::Hinge { .. }
+            | Feature::SeamHinge {
+                component: crate::feature_hinge::HingeComponentDesc::Pin,
+                ..
+            }
+            | Feature::LivingHinge { .. }
     )
 }
 

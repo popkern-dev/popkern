@@ -18,7 +18,9 @@
 pub mod bodies;
 pub mod body;
 pub mod body_fastener;
+pub mod body_hinge;
 pub mod body_recipes;
+pub mod body_seam_hinge;
 pub mod body_sweep;
 pub mod configs;
 pub mod entity_spelling;

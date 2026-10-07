@@ -91,7 +91,10 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
         Feature::Pipe { path_edge, .. } => {
             f(path_edge);
         }
-        Feature::Fastener { .. } => {}
+        Feature::Fastener { .. }
+        | Feature::Hinge { .. }
+        | Feature::SeamHinge { .. }
+        | Feature::LivingHinge { .. } => {}
         Feature::TappedHole { axis, .. } | Feature::ClearanceHole { axis, .. } => {
             visit_axis_desc(axis, f);
         }

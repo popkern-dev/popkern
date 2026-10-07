@@ -60,7 +60,7 @@ const CLEARANCE_OPTIONS: &[&str] = &[
 /// MAGNITUDES (an "M6" records 6.0); a mm, cm or inch model records
 /// the true length — an M6 in an inch model is 0.236 in, not 6 in
 /// (PK-462).
-fn thread_spec(
+pub(crate) fn thread_spec(
     value: &Dynamic,
     options: &Options,
     unit: Unit,

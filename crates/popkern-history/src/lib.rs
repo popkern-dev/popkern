@@ -39,6 +39,7 @@ pub mod feature_blend;
 pub mod feature_draft;
 pub mod feature_extrude;
 pub mod feature_fastener;
+pub mod feature_hinge;
 pub(crate) mod feature_names;
 mod feature_params;
 mod feature_shell_kinds;
@@ -191,7 +192,7 @@ pub struct FeatureTree {
     pub(crate) cache: StepCache,
     /// Tracks the mapping from [`BodyId`]s to features and BRep snapshots.
     ///
-    /// Not serialized — rebuilt from features on replay after loading.
+    /// Not serialized — rebuilt from the feature nodes' bodies on load.
     #[serde(skip)]
     pub(crate) body_manager: BodyManager,
     /// Session-local deferred seam certification (never serialized).

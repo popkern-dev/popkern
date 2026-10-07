@@ -136,7 +136,7 @@ pub(crate) fn document_params(doc: &mut Document) -> Vec<ParamRow> {
                 value: p.display_value(),
                 unit: serde_json::to_value(p.unit).unwrap_or(serde_json::Value::Null),
                 expression: None,
-                bounds: None,
+                bounds: p.bounds,
                 read_only: false,
                 explicit: true,
             });

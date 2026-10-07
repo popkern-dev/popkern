@@ -17,6 +17,7 @@ popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-sweep = { path = "../popkern-sweep" }
 popkern-fastener = { path = "../popkern-fastener" }
+popkern-hinge = { path = "../popkern-hinge" }
 slotmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

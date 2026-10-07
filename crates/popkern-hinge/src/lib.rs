@@ -20,19 +20,26 @@
 
 mod construct;
 mod leaf;
+mod living;
 mod params;
+mod seam;
 
 #[cfg(test)]
 #[path = "leaf_tests.rs"]
 mod leaf_tests;
 #[cfg(test)]
+#[path = "living_tests.rs"]
+mod living_tests;
+#[cfg(test)]
 #[path = "params_tests.rs"]
 mod params_tests;
 
 pub use leaf::hinge_component;
+pub use living::{LivingHingeParams, LivingHingeStyle, check_living_hinge, living_hinge};
 pub use params::{
     HingeComponent, HingeHoles, HingeKind, HingeLayout, HingeParams, HolePosition, hinge_layout,
 };
+pub use seam::{Seam, seam_hinge_component};
 
 /// Why a hinge cannot be specified or built.
 ///
@@ -101,6 +108,19 @@ pub enum HingeError {
         needed: f64,
         /// What the leaf has.
         available: f64,
+    },
+    /// A seam hinge's knuckle web would not be buried in its body's wall.
+    #[error(
+        "body {body}'s wall at the seam is too thin for the knuckle web: the web reaches {depth} \
+         into the wall, {band:?} from the seam — use a smaller knuckle or a thicker wall"
+    )]
+    SeamWall {
+        /// `"A"` or `"B"`.
+        body: &'static str,
+        /// How far the web reaches into the wall.
+        depth: f64,
+        /// The web's distance band from the seam.
+        band: [f64; 2],
     },
     /// A print-in-place hinge needs real gaps or it prints fused.
     #[error(

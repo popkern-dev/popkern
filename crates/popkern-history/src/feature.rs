@@ -284,6 +284,38 @@ pub enum Feature {
         #[serde(default)]
         entry_chamfer: bool,
     },
+    /// One body of a hinge (PK-693); components share `spec`.
+    Hinge {
+        /// Butt or print-in-place.
+        kind: crate::feature_hinge::HingeKindDesc,
+        /// Leaf A, leaf B or the pin.
+        component: crate::feature_hinge::HingeComponentDesc,
+        /// The shared dimensions.
+        spec: crate::feature_hinge::HingeDesc,
+        /// Whether this feature owns the shared parameters.
+        owner: bool,
+    },
+    /// A hinge grown on two bodies along their seam (PK-702): `LeafA` /
+    /// `LeafB` knuckle the receiving body, `Pin` is a new body.
+    SeamHinge {
+        /// Butt or print-in-place.
+        kind: crate::feature_hinge::HingeKindDesc,
+        /// Which body's knuckles, or the pin.
+        component: crate::feature_hinge::HingeComponentDesc,
+        /// The seam, resolved at record time.
+        seam: crate::feature_hinge::SeamDesc,
+        /// The shared dimensions.
+        spec: crate::feature_hinge::SeamHingeDesc,
+        /// Whether this feature owns the shared parameters.
+        owner: bool,
+    },
+    /// A living hinge body (PK-698); always a new body.
+    LivingHinge {
+        /// Straight web or slotted serpentine.
+        style: crate::feature_hinge::LivingHingeStyleDesc,
+        /// The dimensions.
+        spec: crate::feature_hinge::LivingHingeDesc,
+    },
     /// Revolve a face around an axis.
     Revolve {
         /// The face to revolve.

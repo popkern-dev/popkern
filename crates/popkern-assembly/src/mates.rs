@@ -132,6 +132,30 @@ pub struct Mate {
     pub a: MateRef,
     /// The second entity.
     pub b: MateRef,
+    /// An assembly parameter driving the mate's value (an angle's
+    /// degrees, a distance), when one does (PK-701).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drive: Option<MateDrive>,
+}
+
+/// An assembly parameter driving a mate's value:
+/// `value = offset + scale × parameter` (the parameter in its display
+/// unit). Setting the parameter re-solves the mates; no part replays.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MateDrive {
+    /// The assembly parameter.
+    pub param: String,
+    /// Multiplier on the parameter.
+    pub scale: f64,
+    /// Added after scaling.
+    pub offset: f64,
+}
+
+impl MateDrive {
+    /// The mate value for parameter value `p`.
+    pub fn value(&self, p: f64) -> f64 {
+        self.offset + self.scale * p
+    }
 }
 
 impl Mate {
@@ -144,7 +168,11 @@ impl Mate {
             MateKind::Distance { distance, .. } => format!("distance {distance}"),
             MateKind::Angle { degrees, .. } => format!("angle {degrees}°"),
         };
-        format!("{kind} {} with {}", spell(&self.a), spell(&self.b))
+        let driven = match &self.drive {
+            Some(d) => format!(" (driven by {})", d.param),
+            None => String::new(),
+        };
+        format!("{kind} {} with {}{driven}", spell(&self.a), spell(&self.b))
     }
 }
 

@@ -101,7 +101,12 @@ pub struct ClearanceHoleArgs {
     pub no_entry_chamfer: bool,
 }
 
-fn bind_thread(model: &mut Model, thread: &ThreadSpecArg) -> Result<ThreadDesc, ScriptError> {
+/// Bind a thread spec's scalars as parameters (shared with the hinge
+/// verbs' screw holes).
+pub(crate) fn bind_thread_desc(
+    model: &mut Model,
+    thread: &ThreadSpecArg,
+) -> Result<ThreadDesc, ScriptError> {
     let unit = model.unit;
     if thread.starts == 0 {
         return Err(ScriptError::Argument {
@@ -144,7 +149,7 @@ impl Model {
         label: &str,
     ) -> Result<Body, ScriptError> {
         let unit = self.unit;
-        let thread = bind_thread(self, &thread)?;
+        let thread = bind_thread_desc(self, &thread)?;
         let length = bind_scalar(
             &mut self.tree,
             &mut self.pending_counter,
@@ -220,7 +225,7 @@ impl Body {
         label: &str,
     ) -> Result<Body, ScriptError> {
         let unit = model.unit;
-        let thread = bind_thread(model, &thread)?;
+        let thread = bind_thread_desc(model, &thread)?;
         let mut records = Vec::new();
         let axis = self.axis(model, axis, &mut records)?;
         let depth = depth
@@ -255,7 +260,7 @@ impl Body {
         label: &str,
     ) -> Result<Body, ScriptError> {
         let unit = model.unit;
-        let thread = bind_thread(model, &thread)?;
+        let thread = bind_thread_desc(model, &thread)?;
         let mut records = Vec::new();
         let axis = self.axis(model, axis, &mut records)?;
         let depth = depth

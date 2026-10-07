@@ -140,6 +140,9 @@ least `label`.
 | `nut(spec)` | as `bolt` (no length) | `label`, `clearance`, `thickness`, `left_hand`, `starts`, `corner_chamfer`, `mouth_chamfer` | `clearance` grows the internal form for printed fits (0.15–0.3 typical); `thickness` overrides the ISO 4032 nominal; `corner_chamfer: false` / `mouth_chamfer: false` drop the 30° hex corner and 45° thread-mouth chamfers (both on by default). |
 | `tapped_hole(axis, spec, depth)` | `axis_at(origin, direction)` with the direction pointing INTO the material; `spec` as above; `depth`: `blind(d)` or `through_all()` | `label`, `clearance`, `left_hand`, `starts`, `entry_chamfer` | Bore at the internal minor diameter plus a modeled internal thread; a fastener on the same axis mates by construction. Blind taps thread to ¾ lead above the bottom (the tap-relief shoulder). |
 | `clearance_hole(axis, spec, depth)` | as `tapped_hole` | `label`, `fit` (`"close"`, `"normal"` default, `"loose"`), `diameter`, `countersink`, `counterbore`, `entry_chamfer` | ISO 273 hole series, or an explicit `diameter`; `countersink`/`counterbore` sink the matching head standard plus the given extra room. |
+| `hinge(kind, length)` | on `Model`: `kind` is `"butt"` (two leaves and a pin; many knuckles make a piano hinge) or `"print_in_place"` (the pin is part of leaf A, gaps printed open); `length` along the pin axis | `label`, `leaf_width`, `thickness`, `knuckles`, `pin`, `knuckle_diameter`, `clearance`, `gap`, `angle`, `holes`, `screw`, `countersink`, `only` | Returns `#{ leaf_a, leaf_b, pin }` built in the hinge frame — pin axis +Z from z = 0, leaf A toward −X, leaf B at `angle` (180 flat, 0 folded shut). Unset sizes follow the length; `screw: "M3"` adds countersunk holes (`holes:` per leaf, default 2); `only: "leaf_b"` records one leaf (an assembly part). One parameter set per hinge. |
+| `hinge_component(owner, component)` | `owner` is the label of a hinge's first component; `component` `"leaf_a"`, `"leaf_b"` or `"pin"` | `label` | Another component of that hinge, sharing its parameters. |
+| `living_hinge(style, span, length)` | `style` `"straight"` (a thin web with rounded roots) or `"slotted"` (serpentine kerf slots, for rigid materials); `span` is the flex zone's width, `length` along the bend axis (+Z) | `label`, `panel_width`, `thickness`, `web`, `root_radius`, `slot_pitch`, `slot_width`, `bridge` | One body: two panels and the flexure, mounting face y = 0. The style's own sizes only (`web`/`root_radius` straight, `slot_*`/`bridge` slotted). |
 | `helical_sweep(axis, radius, pitch, turns)` | `axis_at([o], [d])` or `axis(edges()...)`; then helix radius, pitch (advance per turn), turns (fractional allowed) | `label`, `mode`, `taper_to`, `start_angle`, `left_hand` | Springs, coils, auger flights, thread forms. `taper_to` is the end radius of a conical helix; `start_angle` (degrees) phases multiple helical bodies apart — multi-start threads, blades; `left_hand: true` mirrors the winding. The profile contributes its shape; placement comes from the helix. |
 
 ```rhai
@@ -235,6 +238,19 @@ let s0 = m.profile(xy_at(2.0)).circle(0.3).sketch("horn_base");
 let s1 = m.profile(xy_at(2.35)).circle(0.18).sketch("horn_waist");
 let s2 = m.profile(xy_at(2.7)).circle(0.26).sketch("horn_lip");
 let horn = m.loft([s0, s1, s2], #{ label: "horn" });
+m.assert_watertight();
+m
+```
+
+Hinges, like fasteners, are one call. A butt hinge with countersunk
+screw holes, and a slotted living hinge beside it:
+
+```rhai
+let m = model();
+let h = m.hinge("butt", 60.0, #{ knuckles: 5, screw: "M3", label: "door_hinge" });
+let flex = m.living_hinge("slotted", 12.0, 40.0, #{ label: "flex" });
+flex = flex.translate(0.0, 30.0, 0.0);
+print(h.leaf_a.is_alive() && h.leaf_b.is_alive() && h.pin.is_alive());
 m.assert_watertight();
 m
 ```
@@ -588,6 +604,22 @@ a.drive("t", [thin, wide]);       // both parts' own "t" now follow it
 a
 ```
 
+A hinge is an assembly of its leaves and pin, mated about the pin
+axis, with its open angle as an assembly parameter (a slider in popkern
+live); `a.swing` sweeps it and reports where the motion first collides:
+
+```rhai
+let a = assembly("lid_box");
+let h = a.hinge("lid", "print_in_place", 60.0, #{ angle: 110.0 });
+a.limits("lid_angle", 0.0, 270.0);
+let swing = a.swing("lid_angle", #{ from: 180.0, to: 270.0, step: 15.0 });
+print(swing.first_contact);
+a
+```
+
+Any angle or distance mate can follow an assembly parameter the same
+way: `a.angle(x, y, p("turn"), #{ about: base.datum("z") })`.
+
 - STEP export writes the product structure: a product per part, an
   occurrence per instance with its placement and name, each part's
   solids once.
@@ -630,6 +662,7 @@ body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mod
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
+m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})
 body.tapped_hole(AXIS, SPEC, DEPTH, #{label, clearance, left_hand, starts, entry_chamfer})
 body.clearance_hole(AXIS, SPEC, DEPTH, #{label, fit, diameter, countersink, counterbore, entry_chamfer})
@@ -648,6 +681,7 @@ m.add_config add_derived_config duplicate_config delete_config rename_config set
 assembly(name)   a.part(name, |m| …)   a.part(name, #{defaults}, |m, p| …)   def.variant(#{…})
 a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).hide()
 a.param(name, v, unit)   a.drive(name, [defs])   a.drive(name, def, part_param)   a.set_param(name, v)
+a.hinge(name, KIND, len, #{angle, …})   a.limits(name, min, max)   a.swing(name, #{from, to, step})
 a.assert_watertight()   a.save(path)   a.to_step(path)
 ```
 

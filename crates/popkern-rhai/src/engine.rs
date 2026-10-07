@@ -58,11 +58,14 @@ pub fn build_engine(print: impl Fn(&str) + 'static) -> Engine {
     crate::project_host::register_outside_project(&mut engine);
     crate::body_api::register(&mut engine);
     crate::fastener_api::register(&mut engine);
+    crate::hinge_api::register(&mut engine);
+    crate::seam_hinge_api::register(&mut engine);
     crate::feature_api::register(&mut engine);
     crate::assembly_api::register(&mut engine);
     crate::assembly_mate_api::register(&mut engine);
     crate::assembly_param_api::register(&mut engine);
     crate::assembly_edit_api::register(&mut engine);
+    crate::assembly_hinge_api::register(&mut engine);
     engine
 }
 

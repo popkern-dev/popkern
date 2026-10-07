@@ -117,7 +117,7 @@ impl Assembly {
         self.root.iter().map(|i| i.placement).collect()
     }
 
-    fn solve_in_place(&mut self) -> Result<MateReport, AssemblyError> {
+    pub(crate) fn solve_in_place(&mut self) -> Result<MateReport, AssemblyError> {
         let ground = self
             .ground
             .clone()

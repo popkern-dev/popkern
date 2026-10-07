@@ -46,6 +46,7 @@ fn hanging() -> Assembly {
         kind: MateKind::Coincident { aligned: false },
         a: face("moving", "extrude-1/Cap/0"),
         b: face("base", "extrude-1/Modified/0@0"),
+        drive: None,
     })
     .expect("flush");
     asm

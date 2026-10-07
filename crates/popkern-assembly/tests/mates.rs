@@ -41,7 +41,12 @@ fn datum(instance: &str, datum: Datum) -> MateRef {
 }
 
 fn mate(kind: MateKind, a: MateRef, b: MateRef) -> Mate {
-    Mate { kind, a, b }
+    Mate {
+        kind,
+        a,
+        b,
+        drive: None,
+    }
 }
 
 fn moving(asm: &Assembly) -> Placement {

@@ -58,6 +58,7 @@ fn authored() -> Assembly {
         kind: MateKind::Coincident { aligned: true },
         a: datum("moving", Datum::Xy),
         b: datum("base", Datum::Xy),
+        drive: None,
     })
     .expect("flush");
     asm
@@ -112,6 +113,7 @@ fn a_refused_mate_and_a_no_op_solve_record_nothing() {
         },
         a: datum("base", Datum::Xy),
         b: datum("moving", Datum::Xy),
+        drive: None,
     });
     assert!(refused.is_err());
     asm.solve_mates().expect("solve");

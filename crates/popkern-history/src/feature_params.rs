@@ -110,6 +110,23 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
             }
             v
         }
+        // A hinge's components share one parameter set; only the owning
+        // component lists it (one slider set per hinge).
+        Feature::Hinge { spec, owner, .. } => {
+            if *owner {
+                spec.param_ids()
+            } else {
+                Vec::new()
+            }
+        }
+        Feature::SeamHinge { spec, owner, .. } => {
+            if *owner {
+                spec.param_ids()
+            } else {
+                Vec::new()
+            }
+        }
+        Feature::LivingHinge { spec, .. } => spec.param_ids(),
         Feature::TappedHole {
             thread,
             depth,
@@ -237,6 +254,17 @@ impl Feature {
                 crate::feature_fastener::FastenerKind::ThreadedRod => "threaded_rod",
                 crate::feature_fastener::FastenerKind::HexNut => "hex_nut",
             },
+            Feature::Hinge { component, .. } => match component {
+                crate::feature_hinge::HingeComponentDesc::LeafA => "hinge_leaf_a",
+                crate::feature_hinge::HingeComponentDesc::LeafB => "hinge_leaf_b",
+                crate::feature_hinge::HingeComponentDesc::Pin => "hinge_pin",
+            },
+            Feature::SeamHinge { component, .. } => match component {
+                crate::feature_hinge::HingeComponentDesc::LeafA => "seam_hinge_a",
+                crate::feature_hinge::HingeComponentDesc::LeafB => "seam_hinge_b",
+                crate::feature_hinge::HingeComponentDesc::Pin => "seam_hinge_pin",
+            },
+            Feature::LivingHinge { .. } => "living_hinge",
             Feature::TappedHole { .. } => "tapped_hole",
             Feature::ClearanceHole { .. } => "clearance_hole",
             Feature::Revolve { .. } => "revolve",

@@ -16,7 +16,7 @@ use crate::replay::replay_fns::resolve_param;
 use crate::replay_side_effects::ExecuteSideEffects;
 use crate::resolve::resolve_axis;
 
-fn thread_spec(
+pub(super) fn thread_spec(
     thread: &ThreadDesc,
     param_table: &ParameterTable,
 ) -> Result<ThreadSpec, ReplayError> {
