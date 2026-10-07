@@ -138,6 +138,25 @@ fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f
                 &positions, cone,
             );
         }
+        SurfaceGeometry::Cylinder { origin, axis, .. } => {
+            // The historical ±100 window, WIDENED (never narrowed) to
+            // the face's own axial extent (PK-707): a cylinder reaching
+            // past |v| = 100 had every hit beyond it filtered, so points
+            // inside a long bore classified Outside (measured: a 300
+            // piano hinge's bore). Faces within ±100 keep exactly the
+            // window the tuned fixtures were measured on.
+            let (mut v_lo, mut v_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for p in brep.face_outer_loop_sample_positions(face_handle, 8) {
+                let v = (p - *origin).dot(axis);
+                v_lo = v_lo.min(v);
+                v_hi = v_hi.max(v);
+            }
+            let pad = (v_hi - v_lo).max(1.0);
+            return (
+                (-100.0, 100.0),
+                ((v_lo - pad).min(-100.0), (v_hi + pad).max(100.0)),
+            );
+        }
         _ => {
             // Other non-plane infinite surfaces — historical default.
             return ((-100.0, 100.0), (-100.0, 100.0));

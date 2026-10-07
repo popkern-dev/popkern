@@ -71,3 +71,17 @@ fn piano_hinges_build_watertight_within_budget_and_linearly() {
         times[0]
     );
 }
+
+/// PK-707: the leaves' coaxial bore through a 300-long knuckle prism
+/// serves on the cellular pipeline (ray classification once filtered
+/// every cylinder hit beyond |v| = 100, so the cap's bore disc read as
+/// kept and the boolean fell back to graph merge).
+#[test]
+fn a_long_piano_leaf_bores_without_fallback() {
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    for c in [HingeComponent::LeafA, HingeComponent::LeafB] {
+        hinge_component(HingeKind::Butt, c, &piano(10), Tolerance::default()).expect("leaf");
+    }
+    let events = popkern_bool::merge_fallback::take_merge_fallback_events();
+    assert!(events.is_empty(), "{events:?}");
+}
