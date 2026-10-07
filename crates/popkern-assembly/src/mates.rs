@@ -77,6 +77,21 @@ pub enum MateEntity {
         /// Which datum.
         datum: Datum,
     },
+    /// A line in the part's frame (PK-712: a seam hinge's pin axis,
+    /// which no face or origin datum carries).
+    Axis {
+        /// A point on it.
+        origin: [f64; 3],
+        /// Its direction (unit).
+        direction: [f64; 3],
+    },
+    /// A plane in the part's frame.
+    Plane {
+        /// A point on it.
+        origin: [f64; 3],
+        /// Its normal (unit).
+        normal: [f64; 3],
+    },
 }
 
 /// An entity of one occurrence.
@@ -180,6 +195,8 @@ fn spell(r: &MateRef) -> String {
     match &r.entity {
         MateEntity::Face { name } => format!("{}:{name}", r.instance),
         MateEntity::Datum { datum } => format!("{}:{datum:?}", r.instance).to_lowercase(),
+        MateEntity::Axis { .. } => format!("{}:axis", r.instance),
+        MateEntity::Plane { .. } => format!("{}:plane", r.instance),
     }
 }
 
@@ -255,6 +272,14 @@ impl Assembly {
         let definition = row.definition;
         let local = match &r.entity {
             MateEntity::Datum { datum } => datum.local(),
+            MateEntity::Axis { origin, direction } => Primitive::Axis(
+                Point3::new(origin[0], origin[1], origin[2]),
+                literal_unit(direction, &r.instance)?,
+            ),
+            MateEntity::Plane { origin, normal } => Primitive::Plane(
+                Point3::new(origin[0], origin[1], origin[2]),
+                literal_unit(normal, &r.instance)?,
+            ),
             MateEntity::Face { name } => {
                 let model = self
                     .part_model_mut(definition)
@@ -331,4 +356,14 @@ fn face_primitive(model: &mut popkern_script::Model, name: &str) -> Result<Primi
             other.kind_name()
         )),
     }
+}
+
+/// A literal entity's direction, normalized; zero is refused.
+fn literal_unit(v: &[f64; 3], instance: &str) -> Result<Vec3, AssemblyError> {
+    Vec3::new(v[0], v[1], v[2])
+        .normalized()
+        .ok_or_else(|| AssemblyError::Mate {
+            mate: instance.to_string(),
+            detail: "a literal axis or plane needs a non-zero direction".into(),
+        })
 }

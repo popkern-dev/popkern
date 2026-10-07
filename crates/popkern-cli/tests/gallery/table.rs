@@ -233,4 +233,14 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         2,
         "assembly hinges, mates driven by a parameter, limits, swing",
     ),
+    (
+        "hinged_case",
+        "Hinged case",
+        "The hinged box as an assembly: box and lid are separate parts \
+         hinged along their seam, and the lid opens on a slider without \
+         rebuilding either part.",
+        9,
+        "assembly seam hinges (a.hinge_bodies), mates on a literal axis, \
+         a driven open angle, swing",
+    ),
 ];

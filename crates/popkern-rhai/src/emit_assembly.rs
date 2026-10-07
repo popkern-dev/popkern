@@ -41,6 +41,14 @@ pub fn assembly_to_rhai(assembly: &mut Assembly) -> Result<String, EmitError> {
             float(param.display_value()),
             quoted(crate::args::unit_name(param.unit))
         ));
+        if let Some([lo, hi]) = param.bounds {
+            out.push_str(&format!(
+                "a.limits({}, {}, {});\n",
+                quoted(&param.name),
+                float(lo),
+                float(hi)
+            ));
+        }
     }
     let count = assembly.definitions().len();
     // Parts first (definition order), then sub-assemblies children
@@ -122,6 +130,15 @@ pub fn assembly_to_rhai(assembly: &mut Assembly) -> Result<String, EmitError> {
     for instance in &root {
         out.push_str(&format!("{};\n", place("a", instance)));
     }
+    // The placements above already satisfy the mates, so declaring them
+    // moves nothing; they come back for the solver and the sliders
+    // (PK-711).
+    if let Some(ground) = assembly.ground() {
+        out.push_str(&format!("a.ground(a.occurrence({}));\n", quoted(ground)));
+    }
+    for mate in assembly.mates() {
+        out.push_str(&mate_statement(mate));
+    }
     out.push_str("a\n");
     Ok(out)
 }
@@ -184,4 +201,95 @@ fn placement(p: &Placement) -> String {
         float(x.y),
         float(x.z)
     )
+}
+
+/// `a.occurrence("path").datum("z")` / `.face("name")`.
+fn mate_ref(r: &popkern_assembly::MateRef) -> String {
+    let entity = match &r.entity {
+        popkern_assembly::MateEntity::Datum { datum } => {
+            let d = match datum {
+                popkern_assembly::Datum::Xy => "xy",
+                popkern_assembly::Datum::Yz => "yz",
+                popkern_assembly::Datum::Zx => "zx",
+                popkern_assembly::Datum::X => "x",
+                popkern_assembly::Datum::Y => "y",
+                popkern_assembly::Datum::Z => "z",
+            };
+            format!("datum({})", quoted(d))
+        }
+        popkern_assembly::MateEntity::Face { name } => format!("face({})", quoted(name)),
+        popkern_assembly::MateEntity::Axis { origin, direction } => {
+            format!("axis({}, {})", triple(origin), triple(direction))
+        }
+        popkern_assembly::MateEntity::Plane { origin, normal } => {
+            format!("plane({}, {})", triple(origin), triple(normal))
+        }
+    };
+    format!("a.occurrence({}).{entity}", quoted(&r.instance))
+}
+
+/// One mate as its verb; a driven value as `p("param")` with its scale
+/// and offset when they are not the identity.
+fn mate_statement(mate: &popkern_assembly::Mate) -> String {
+    use popkern_assembly::MateKind;
+    let (a, b) = (mate_ref(&mate.a), mate_ref(&mate.b));
+    let value = |v: f64| match &mate.drive {
+        Some(d) => format!("p({})", quoted(&d.param)),
+        None => float(v),
+    };
+    let mut pairs: Vec<String> = Vec::new();
+    if let Some(d) = &mate.drive {
+        if d.scale != 1.0 {
+            pairs.push(format!("scale: {}", float(d.scale)));
+        }
+        if d.offset != 0.0 {
+            pairs.push(format!("offset: {}", float(d.offset)));
+        }
+    }
+    let opts = |mut extra: Vec<String>, pairs: &[String]| {
+        extra.extend(pairs.iter().cloned());
+        if extra.is_empty() {
+            String::new()
+        } else {
+            format!(", #{{ {} }}", extra.join(", "))
+        }
+    };
+    match &mate.kind {
+        MateKind::Concentric => format!("a.concentric({a}, {b});\n"),
+        MateKind::Coincident { aligned } => {
+            let extra = if *aligned {
+                vec!["aligned: true".to_string()]
+            } else {
+                vec![]
+            };
+            format!("a.coincident({a}, {b}{});\n", opts(extra, &[]))
+        }
+        MateKind::Distance { distance, aligned } => {
+            let extra = if *aligned {
+                vec!["aligned: true".to_string()]
+            } else {
+                vec![]
+            };
+            format!(
+                "a.distance({a}, {b}, {}{});\n",
+                value(*distance),
+                opts(extra, &pairs)
+            )
+        }
+        MateKind::Angle { degrees, about } => {
+            let extra = about
+                .as_ref()
+                .map(|r| vec![format!("about: {}", mate_ref(r))])
+                .unwrap_or_default();
+            format!(
+                "a.angle({a}, {b}, {}{});\n",
+                value(*degrees),
+                opts(extra, &pairs)
+            )
+        }
+    }
+}
+
+fn triple(v: &[f64; 3]) -> String {
+    format!("[{}, {}, {}]", float(v[0]), float(v[1]), float(v[2]))
 }

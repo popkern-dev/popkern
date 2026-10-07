@@ -618,7 +618,12 @@ a
 ```
 
 Any angle or distance mate can follow an assembly parameter the same
-way: `a.angle(x, y, p("turn"), #{ about: base.datum("z") })`.
+way: `a.angle(x, y, p("turn"), #{ about: base.datum("z") })` (with
+`scale:` / `offset:` to map the parameter). A box and its lid placed as
+separate parts hinge along their seam with
+`a.hinge_bodies("lid", "print_in_place", box, lid, axis_at([x, y, z], [1.0, 0.0, 0.0]), #{ length: 50.0 })`:
+the lid then opens by `lid_angle`. Mates can also take a line or plane
+given in a part's own frame: `box.axis([o], [d])`, `box.plane([o], [n])`.
 
 - STEP export writes the product structure: a product per part, an
   occurrence per instance with its placement and name, each part's

@@ -65,6 +65,11 @@ impl Assembly {
         &self.mates
     }
 
+    /// The root instance the solve holds fixed, when one was set.
+    pub fn ground(&self) -> Option<&str> {
+        self.ground.as_deref()
+    }
+
     /// Fix `name` (a root instance) as the solve's ground.
     ///
     /// # Errors

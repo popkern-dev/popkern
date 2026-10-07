@@ -225,6 +225,14 @@
       "title": "Hinge assembly"
     },
     {
+      "blurb": "The hinged box as an assembly: box and lid are separate parts hinged along their seam, and the lid opens on a slider without rebuilding either part.",
+      "demonstrates": "assembly seam hinges (a.hinge_bodies), mates on a literal axis, a driven open angle, swing",
+      "features": 9,
+      "file": "hinged_case.rhai",
+      "thumbnail": "examples/hinged_case.png",
+      "title": "Hinged case"
+    },
+    {
       "blurb": "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
       "demonstrates": "projects, previous(), migrations",
       "features": 6,

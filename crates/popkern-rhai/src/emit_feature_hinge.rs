@@ -387,16 +387,28 @@ pub(super) fn seam_hinge_call(
             spec.gap,
             context,
         )?;
+        if *component != HingeComponentDesc::LeafA {
+            pairs.push(("component", quoted(component.spelling())));
+        }
         pairs.push(label_option(label));
         let kind_text = if print { "print_in_place" } else { "butt" };
-        return Ok(Ok(format!(
-            ".seam_hinge({}, axis_at({}, {}), {}{})",
+        let call = format!(
+            "seam_hinge({}, axis_at({}, {}), {}{})",
             quoted(kind_text),
             vec3_text(seam.origin),
             vec3_text(seam.axis),
             scalar(tree, l, context)?,
             options(pairs)
-        )));
+        );
+        // A pin that owns its parameters is a new body: model level.
+        return Ok(if *component == HingeComponentDesc::Pin {
+            Err(Statement {
+                call: format!("m.{call}"),
+                starts_body: true,
+            })
+        } else {
+            Ok(format!(".{call}"))
+        });
     }
     let owner_label = seam_owner_label(tree, spec).ok_or_else(|| {
         EmitError::not_applicable(label, "seam_hinge", "the hinge's owning component is gone")

@@ -74,6 +74,45 @@ fn datum(o: ScriptOccurrence, which: &str) -> Result<ScriptMateRef, Box<EvalAltR
     }))
 }
 
+/// `instance.axis([o], [d])` / `instance.plane([o], [n])`: a line or a
+/// plane in the part's own frame (PK-712).
+fn literal(
+    o: ScriptOccurrence,
+    point: &Dynamic,
+    direction: &Dynamic,
+    axis: bool,
+) -> Result<ScriptMateRef, Box<EvalAltResult>> {
+    let triple = |name: &str, v: &Dynamic| -> Result<[f64; 3], Box<EvalAltResult>> {
+        let a = v
+            .clone()
+            .try_cast::<rhai::Array>()
+            .filter(|a| a.len() == 3)
+            .ok_or_else(|| argument_error(name, "expected [x, y, z]"))?;
+        Ok([
+            args::float(name, &a[0])?,
+            args::float(name, &a[1])?,
+            args::float(name, &a[2])?,
+        ])
+    };
+    let origin = triple("origin", point)?;
+    let dir = triple("direction", direction)?;
+    let entity = if axis {
+        MateEntity::Axis {
+            origin,
+            direction: dir,
+        }
+    } else {
+        MateEntity::Plane {
+            origin,
+            normal: dir,
+        }
+    };
+    Ok(ScriptMateRef(MateRef {
+        instance: o.path,
+        entity,
+    }))
+}
+
 fn face_named(o: ScriptOccurrence, name: &str) -> ScriptMateRef {
     ScriptMateRef(MateRef {
         instance: o.path,
@@ -161,8 +200,11 @@ fn angle(
             .try_cast::<rhai::Map>()
             .ok_or_else(|| argument_error("options", "expected #{ about: entity }"))?;
         for key in map.keys() {
-            if key.as_str() != "about" {
-                return Err(argument_error(key, "unknown option (angle takes: about)"));
+            if !["about", "scale", "offset"].contains(&key.as_str()) {
+                return Err(argument_error(
+                    key,
+                    "unknown option (angle takes: about, scale, offset)",
+                ));
             }
         }
         match map.get("about") {
@@ -180,13 +222,18 @@ fn angle(
             None => None,
         }
     };
+    let (scale, offset) = drive_map(&options)?;
     match args::scalar("degrees", &degrees)? {
-        Scalar::Literal(v) => add(a, MateKind::Angle { degrees: v, about }, x, y),
-        // `p("name")`: the assembly parameter drives the angle (PK-701).
+        Scalar::Literal(v) => {
+            no_drive(scale, offset)?;
+            add(a, MateKind::Angle { degrees: v, about }, x, y)
+        }
+        // `p("name")`: the assembly parameter drives the angle (PK-701),
+        // as offset + scale × parameter.
         Scalar::Param(param) => {
-            let v = param_value(a, &param)?;
+            let v = offset + scale * param_value(a, &param)?;
             let report = add(a, MateKind::Angle { degrees: v, about }, x, y)?;
-            drive_last(a, &param)?;
+            drive_last(a, &param, scale, offset)?;
             Ok(report)
         }
         Scalar::Expr(_) => Err(argument_error(
@@ -202,14 +249,21 @@ fn distance(
     x: ScriptMateRef,
     y: ScriptMateRef,
     d: &Dynamic,
-    aligned: bool,
+    options: &Dynamic,
 ) -> Result<Dynamic, Box<EvalAltResult>> {
+    let o = Options::parse("distance", options, &["aligned", "scale", "offset"])?;
+    let aligned = o.with("aligned", args::boolean)?.unwrap_or(false);
+    let scale = o.with("scale", args::float)?.unwrap_or(1.0);
+    let offset = o.with("offset", args::float)?.unwrap_or(0.0);
     match args::scalar("distance", d)? {
-        Scalar::Literal(distance) => add(a, MateKind::Distance { distance, aligned }, x, y),
+        Scalar::Literal(distance) => {
+            no_drive(scale, offset)?;
+            add(a, MateKind::Distance { distance, aligned }, x, y)
+        }
         Scalar::Param(param) => {
-            let distance = param_value(a, &param)?;
+            let distance = offset + scale * param_value(a, &param)?;
             let report = add(a, MateKind::Distance { distance, aligned }, x, y)?;
-            drive_last(a, &param)?;
+            drive_last(a, &param, scale, offset)?;
             Ok(report)
         }
         Scalar::Expr(_) => Err(argument_error(
@@ -231,10 +285,41 @@ fn param_value(a: &ScriptAssembly, name: &str) -> Result<f64, Box<EvalAltResult>
 }
 
 /// Bind the mate just added to assembly parameter `name`.
-fn drive_last(a: &mut ScriptAssembly, name: &str) -> Result<(), Box<EvalAltResult>> {
+fn drive_last(
+    a: &mut ScriptAssembly,
+    name: &str,
+    scale: f64,
+    offset: f64,
+) -> Result<(), Box<EvalAltResult>> {
     let mut state = a.borrow_mut();
     let index = state.assembly.mates().len().saturating_sub(1);
-    state.assembly.drive_mate(name, index, 1.0, 0.0).assembly()
+    state
+        .assembly
+        .drive_mate(name, index, scale, offset)
+        .assembly()
+}
+
+/// `scale` / `offset` from an angle's option map (defaults 1, 0).
+fn drive_map(options: &Dynamic) -> Result<(f64, f64), Box<EvalAltResult>> {
+    let Some(map) = options.clone().try_cast::<rhai::Map>() else {
+        return Ok((1.0, 0.0));
+    };
+    let get = |key: &str, default: f64| match map.get(key) {
+        Some(v) => args::float(key, v),
+        None => Ok(default),
+    };
+    Ok((get("scale", 1.0)?, get("offset", 0.0)?))
+}
+
+/// `scale` / `offset` only make sense on a mate a parameter drives.
+fn no_drive(scale: f64, offset: f64) -> Result<(), Box<EvalAltResult>> {
+    if scale != 1.0 || offset != 0.0 {
+        return Err(argument_error(
+            "scale",
+            "scale and offset map a driving parameter: give the value as p(\"name\")",
+        ));
+    }
+    Ok(())
 }
 
 /// Register the mate verbs.
@@ -266,9 +351,26 @@ pub fn register(engine: &mut Engine) {
         .register_fn("face", |o: &mut ScriptOccurrence, s: FaceSelector| {
             face_selected(o.clone(), s)
         })
+        .register_fn("axis", |i: &mut ScriptInstance, p: Dynamic, d: Dynamic| {
+            literal(occurrence_of(i)?, &p, &d, true)
+        })
+        .register_fn(
+            "axis",
+            |o: &mut ScriptOccurrence, p: Dynamic, d: Dynamic| literal(o.clone(), &p, &d, true),
+        )
+        .register_fn("plane", |i: &mut ScriptInstance, p: Dynamic, n: Dynamic| {
+            literal(occurrence_of(i)?, &p, &n, false)
+        })
+        .register_fn(
+            "plane",
+            |o: &mut ScriptOccurrence, p: Dynamic, n: Dynamic| literal(o.clone(), &p, &n, false),
+        )
         .register_fn("ground", |a: &mut ScriptAssembly, i: ScriptInstance| {
             let name = occurrence_of(&i)?.path;
             a.borrow_mut().assembly.set_ground(&name).assembly()
+        })
+        .register_fn("ground", |a: &mut ScriptAssembly, o: ScriptOccurrence| {
+            a.borrow_mut().assembly.set_ground(&o.path).assembly()
         })
         .register_fn(
             "concentric",
@@ -298,14 +400,13 @@ pub fn register(engine: &mut Engine) {
         .register_fn(
             "distance",
             |a: &mut ScriptAssembly, x: ScriptMateRef, y: ScriptMateRef, d: Dynamic| {
-                distance(a, x, y, &d, false)
+                distance(a, x, y, &d, &Dynamic::UNIT)
             },
         )
         .register_fn(
             "distance",
             |a: &mut ScriptAssembly, x: ScriptMateRef, y: ScriptMateRef, d: Dynamic, o: Dynamic| {
-                let aligned = aligned("distance", &o)?;
-                distance(a, x, y, &d, aligned)
+                distance(a, x, y, &d, &o)
             },
         )
         .register_fn(

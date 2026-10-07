@@ -46,6 +46,7 @@ const BODIES_OPTIONS: &[&str] = &[
 ];
 const SEAM_OPTIONS: &[&str] = &[
     "label",
+    "component",
     "outward",
     "up",
     "knuckles",
@@ -163,10 +164,14 @@ fn vec3(argument: &str, value: &Dynamic) -> Result<[f64; 3], Box<EvalAltResult>>
     Ok(out)
 }
 
-/// `a.seam_hinge(kind, axis_at(origin, direction), length, #{ outward, up, … })`:
-/// body A's knuckles with the seam spelled out (show-as-code).
-fn seam_hinge(
-    a: &mut ScriptBody,
+/// `a.seam_hinge(kind, axis_at(origin, direction), length, #{ outward,
+/// up, component?, … })` on a body (body A's knuckles, or with
+/// `component: "leaf_b"` body B's owning their own parameters), and
+/// `m.seam_hinge(…, #{ component: "pin", … })` for a pin that owns them:
+/// the seam spelled out (show-as-code).
+fn seam_owned(
+    model: &ScriptModel,
+    body: Option<popkern_script::body::Body>,
     kind_text: &str,
     axis: ScriptAxis,
     length: Dynamic,
@@ -186,6 +191,17 @@ fn seam_hinge(
     let up = o
         .with("up", vec3)?
         .ok_or_else(|| argument_error("up", "seam_hinge needs up: [x, y, z]"))?;
+    let component = match o.with("component", args::text)?.as_deref() {
+        None | Some("leaf_a") => HingeComponentDesc::LeafA,
+        Some("leaf_b") => HingeComponentDesc::LeafB,
+        Some("pin") => HingeComponentDesc::Pin,
+        Some(other) => {
+            return Err(argument_error(
+                "component",
+                format!("'{other}': components are \"leaf_a\", \"leaf_b\" and \"pin\""),
+            ));
+        }
+    };
     let seam = SeamDesc {
         origin,
         axis: direction,
@@ -193,12 +209,19 @@ fn seam_hinge(
         up,
     };
     let length = args::scalar("length", &length)?;
-    let body = a
-        .model
+    let made = model
         .borrow_mut()
-        .seam_hinge(kind, a.body, seam, length, &sizes(&o)?, &o.label()?)
+        .seam_hinge_owned(
+            kind,
+            component,
+            body,
+            seam,
+            length,
+            &sizes(&o)?,
+            &o.label()?,
+        )
         .script()?;
-    Ok(ScriptBody::new(a.model.clone(), body))
+    Ok(ScriptBody::new(model.clone(), made))
 }
 
 fn component(text: &str) -> Result<HingeComponentDesc, Box<EvalAltResult>> {
@@ -252,7 +275,13 @@ pub fn register(engine: &mut Engine) {
         .register_fn(
             "seam_hinge",
             |a: &mut ScriptBody, k: &str, axis: ScriptAxis, length: Dynamic, o: Dynamic| {
-                seam_hinge(a, k, axis, length, &o)
+                seam_owned(&a.model.clone(), Some(a.body), k, axis, length, &o)
+            },
+        )
+        .register_fn(
+            "seam_hinge",
+            |m: &mut ScriptModel, k: &str, axis: ScriptAxis, length: Dynamic, o: Dynamic| {
+                seam_owned(m, None, k, axis, length, &o)
             },
         )
         .register_fn(

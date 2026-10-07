@@ -405,7 +405,7 @@ let swing = a.swing("lid_angle", #{ from: 180.0, to: 270.0, step: 15.0 });
 print(swing.first_contact);
 a
 </code></pre>
-<p>Any angle or distance mate can follow an assembly parameter the same way: <code>a.angle(x, y, p("turn"), #{ about: base.datum("z") })</code>.</p>
+<p>Any angle or distance mate can follow an assembly parameter the same way: <code>a.angle(x, y, p("turn"), #{ about: base.datum("z") })</code> (with <code>scale:</code> / <code>offset:</code> to map the parameter). A box and its lid placed as separate parts hinge along their seam with <code>a.hinge_bodies("lid", "print_in_place", box, lid, axis_at([x, y, z], [1.0, 0.0, 0.0]), #{ length: 50.0 })</code>: the lid then opens by <code>lid_angle</code>. Mates can also take a line or plane given in a part's own frame: <code>box.axis([o], [d])</code>, <code>box.plane([o], [n])</code>.</p>
 <ul>
 <li>STEP export writes the product structure: a product per part, an occurrence per instance with its placement and name, each part's solids once.</li>
 <li><code>.pkn</code> saves the whole tree.</li>

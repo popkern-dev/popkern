@@ -151,6 +151,88 @@ fn limits(
         .assembly()
 }
 
+const SEAM_OPTIONS: &[&str] = &[
+    "length",
+    "knuckles",
+    "pin",
+    "wall",
+    "knuckle_diameter",
+    "clearance",
+    "gap",
+    "angle",
+];
+
+/// `a.hinge_bodies(name, kind, box, lid, axis_at(origin, direction),
+/// #{ length, … })` (PK-712): two placed parts hinged along their seam,
+/// the lid opening by `<name>_angle`.
+fn hinge_bodies(
+    a: &mut ScriptAssembly,
+    name: &str,
+    kind: &str,
+    box_: ScriptInstance,
+    lid: ScriptInstance,
+    axis: crate::profile_api::ScriptAxis,
+    options: &Dynamic,
+) -> Result<Map, Box<EvalAltResult>> {
+    let kind = match kind {
+        "butt" => HingeKindDesc::Butt,
+        "print_in_place" => HingeKindDesc::PrintInPlace,
+        other => {
+            return Err(argument_error(
+                "kind",
+                format!("'{other}' is not a hinge kind; kinds are \"butt\" and \"print_in_place\""),
+            ));
+        }
+    };
+    let o = Options::parse("hinge_bodies", options, SEAM_OPTIONS)?;
+    let popkern_script::AxisSpec::Literal { origin, direction } = axis.spec() else {
+        return Err(argument_error(
+            "axis",
+            "an assembly seam hinge takes axis_at(origin, direction) in assembly coordinates",
+        ));
+    };
+    let length = o
+        .with("length", args::scalar)?
+        .ok_or_else(|| argument_error("length", "an assembly seam hinge needs length: …"))?;
+    let sizes = popkern_script::body_seam_hinge::SeamHingeOptions {
+        knuckles: o.with("knuckles", args::scalar)?,
+        pin: o.with("pin", args::scalar)?,
+        wall: o.with("wall", args::scalar)?,
+        knuckle_diameter: o.with("knuckle_diameter", args::scalar)?,
+        clearance: o.with("clearance", args::scalar)?,
+        gap: o.with("gap", args::scalar)?,
+    };
+    let start = o.with("angle", args::float)?.unwrap_or(0.0);
+    let parts = a
+        .borrow_mut()
+        .assembly
+        .add_seam_hinge(
+            name,
+            kind,
+            box_.at,
+            lid.at,
+            popkern_core::geometry::Point3::new(origin[0], origin[1], origin[2]),
+            popkern_core::geometry::Vec3::new(direction[0], direction[1], direction[2]),
+            length,
+            &sizes,
+            start,
+        )
+        .assembly()?;
+    let mut map = Map::new();
+    map.insert("angle".into(), Dynamic::from(parts.angle));
+    map.insert(
+        "pin".into(),
+        match parts.pin {
+            Some(at) => Dynamic::from(ScriptInstance {
+                owner: a.clone(),
+                at,
+            }),
+            None => Dynamic::UNIT,
+        },
+    );
+    Ok(map)
+}
+
 /// Register the assembly hinge verbs.
 pub fn register(engine: &mut Engine) {
     engine
@@ -173,5 +255,15 @@ pub fn register(engine: &mut Engine) {
             "swing",
             |a: &mut ScriptAssembly, param: &str, o: Dynamic| swing(a, param, &o),
         )
-        .register_fn("limits", limits);
+        .register_fn("limits", limits)
+        .register_fn(
+            "hinge_bodies",
+            |a: &mut ScriptAssembly,
+             name: &str,
+             kind: &str,
+             b: ScriptInstance,
+             l: ScriptInstance,
+             axis: crate::profile_api::ScriptAxis,
+             o: Dynamic| { hinge_bodies(a, name, kind, b, l, axis, &o) },
+        );
 }

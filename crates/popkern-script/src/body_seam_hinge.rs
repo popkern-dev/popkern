@@ -179,6 +179,45 @@ impl Model {
         options: &SeamHingeOptions,
         label: &str,
     ) -> Result<Body, ScriptError> {
+        self.seam_hinge_owned(
+            kind,
+            HingeComponentDesc::LeafA,
+            Some(body),
+            seam,
+            length,
+            options,
+            label,
+        )
+    }
+
+    /// Record seam hinge component `component` as the owner of its own
+    /// parameters: what an assembly needs, where each part's document
+    /// holds one component (PK-712). Leaves take their `body`; the pin
+    /// takes none (a new body).
+    ///
+    /// # Errors
+    ///
+    /// [`ScriptError::Argument`] for a leaf without a body, a pin with
+    /// one, or a print-in-place pin; binding errors.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seam_hinge_owned(
+        &mut self,
+        kind: HingeKindDesc,
+        component: HingeComponentDesc,
+        body: Option<Body>,
+        seam: SeamDesc,
+        length: impl Into<Scalar>,
+        options: &SeamHingeOptions,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        if (component == HingeComponentDesc::Pin) != body.is_none()
+            || (component == HingeComponentDesc::Pin && kind == HingeKindDesc::PrintInPlace)
+        {
+            return Err(ScriptError::Argument {
+                argument: "component".into(),
+                reason: "the leaves grow on a body; a butt hinge's pin is a new body".into(),
+            });
+        }
         let unit = self.unit;
         let o = options;
         let print = kind == HingeKindDesc::PrintInPlace;
@@ -215,12 +254,12 @@ impl Model {
         };
         let feature = Feature::SeamHinge {
             kind,
-            component: HingeComponentDesc::LeafA,
+            component,
             seam,
             spec,
             owner: true,
         };
-        self.record_seam(feature, Some(body), label)
+        self.record_seam(feature, body, label)
     }
 
     /// Record another component of the seam hinge whose owning feature is
