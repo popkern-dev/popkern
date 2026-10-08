@@ -30,3 +30,6 @@ rayon.workspace = true
 # fillet crate. The library dependency graph stays acyclic —
 # popkern-blend's lib depends only on popkern-core.
 popkern-blend = { path = "../popkern-blend" }
+# Test-only (PK-704): profile sheets with arcs placed against the
+# cylinder chart seam; popkern-sketch depends only on core/constraint.
+popkern-sketch = { path = "../popkern-sketch" }

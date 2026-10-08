@@ -1,4 +1,6 @@
-//! Lifted-loop crossings for MULTI-TURN periodic charts (PK-673).
+//! Lifted-loop crossings for periodic charts whose trim leaves the
+//! loop's u-window: multi-turn charts (PK-673) and single-turn trims
+//! straddling the window end (PK-704).
 //!
 //! A closed query that winds exactly once around a u-periodic
 //! surface (a coaxial circle on a cylinder or cone) is a LOOP on the
@@ -51,12 +53,35 @@ pub(super) fn is_once_winding_loop(curve_uv: &NurbsCurve, period: f64) -> bool {
 
 /// Whether the boundary pcurves unroll more than one period in u
 /// (a multi-turn chart).
-pub(super) fn boundary_is_multi_turn(
-    boundary: &[(HalfEdgeHandle, NurbsCurve)],
-    period: f64,
-) -> bool {
+#[cfg(test)]
+fn boundary_is_multi_turn(boundary: &[(HalfEdgeHandle, NurbsCurve)], period: f64) -> bool {
     let (lo, hi) = boundary_u_range(boundary);
     hi - lo > period * (1.0 + 1e-9)
+}
+
+/// Whether the boundary pcurves reach outside the u-window the loop
+/// `curve_uv` occupies — some of the trim lives only on another lift.
+/// A multi-turn chart always does (its trim is wider than the
+/// window); so does a single-turn face whose trim STRADDLES the
+/// window's end (PK-704: a cylinder piece u ∈ [−0.262, 1.047] against
+/// a plane circle on [0, 2π] — its u = −0.262 side met the query only
+/// on the k = −1 lift, the plain pass saw one crossing and the record
+/// dropped as Outside). The window gate is relative to the period.
+pub(super) fn boundary_leaves_loop_window(
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    period: f64,
+) -> bool {
+    let (b_lo, b_hi) = boundary_u_range(boundary);
+    let (q_lo, q_hi) = curve_uv
+        .control_points
+        .iter()
+        .map(|p| p.x)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+            (lo.min(u), hi.max(u))
+        });
+    let gate = LOOP_CLOSURE_FRACTION * period;
+    b_lo < q_lo - gate || b_hi > q_hi + gate
 }
 
 fn boundary_u_range(boundary: &[(HalfEdgeHandle, NurbsCurve)]) -> (f64, f64) {
@@ -158,9 +183,11 @@ pub(super) fn lifted_loop_crossings(
 }
 
 /// Add the loop's lifted crossings (see the module docs) to the plain
-/// pass's `crossings` when `curve_uv` is a once-winding loop on a
-/// multi-turn chart; a no-op otherwise, so single-period charts keep
-/// their tuned crossing sets. A lifted crossing at the boundary point
+/// pass's `crossings` when `curve_uv` is a once-winding loop whose
+/// face trim reaches outside the loop's u-window (a multi-turn chart,
+/// or a single-turn trim straddling the window end); a no-op when the
+/// trim lies within the window, where the plain pass already sees
+/// every crossing and the tuned crossing sets stand. A lifted crossing at the boundary point
 /// an existing crossing already reports (same half-edge, same
 /// boundary parameter within the intersector's agreement) is the same
 /// crossing seen from the next branch and is not added twice.
@@ -172,7 +199,9 @@ pub(super) fn extend_with_lifted_loop_crossings(
     period: f64,
     tolerance: &Tolerance,
 ) {
-    if !(is_once_winding_loop(curve_uv, period) && boundary_is_multi_turn(boundary, period)) {
+    if !(is_once_winding_loop(curve_uv, period)
+        && boundary_leaves_loop_window(boundary, curve_uv, period))
+    {
         return;
     }
     for c in lifted_loop_crossings(brep, boundary, curve_uv, period, tolerance) {
@@ -197,7 +226,7 @@ pub(super) fn extend_with_lifted_loop_crossings(
 
 #[cfg(test)]
 mod tests {
-    use super::{boundary_is_multi_turn, is_once_winding_loop};
+    use super::{boundary_is_multi_turn, boundary_leaves_loop_window, is_once_winding_loop};
     use popkern_core::geometry::Point3;
     use popkern_core::geometry::nurbs_curve::NurbsCurve;
     use popkern_core::topology::HalfEdgeHandle;
@@ -227,5 +256,13 @@ mod tests {
         assert!(boundary_is_multi_turn(&band, TAU));
         let single = vec![(HalfEdgeHandle::default(), line((0.0, 1.0), (6.0, 1.0)))];
         assert!(!boundary_is_multi_turn(&single, TAU));
+        // A single-turn trim inside the loop's window: nothing on other
+        // lifts. One straddling the window end (PK-704): its far side
+        // meets the loop only on the k = -1 lift.
+        let circle = line((0.0, 10.0), (TAU, 10.0));
+        assert!(!boundary_leaves_loop_window(&single, &circle, TAU));
+        let straddle = vec![(HalfEdgeHandle::default(), line((-0.262, 0.0), (1.047, 0.0)))];
+        assert!(boundary_leaves_loop_window(&straddle, &circle, TAU));
+        assert!(boundary_leaves_loop_window(&band, &circle, TAU));
     }
 }

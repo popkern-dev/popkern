@@ -3344,6 +3344,7 @@ dependencies = [
  "popkern-blend",
  "popkern-core",
  "popkern-math",
+ "popkern-sketch",
  "rayon",
  "slotmap",
  "thiserror 2.0.18",

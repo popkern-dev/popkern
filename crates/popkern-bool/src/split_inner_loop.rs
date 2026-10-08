@@ -171,9 +171,33 @@ pub(crate) fn point_inside_face_uv_with_density(
     // (measured on the recess mouth ellipse and the cone through-
     // circles). Seam edges are constant-U and can never cross the
     // axial line; rims cross it exactly once per period image.
+    // Every whole-period lift of the query that lands within the
+    // boundary runs' u-extent (a lift outside it crosses no run and
+    // counts nothing, so this is the old u, u ± p probe set wherever
+    // that reached the trim): a chart sitting two or more periods from
+    // the query — the angled tap's entry cone charted on [−2π, 0]
+    // against a cone×plane conic authored on [2π, 4π] — read every
+    // sample Outside, and the closed-record wrap test kept the wrong
+    // side of the conic once its crossings were found (PK-704).
     let u_probe: Vec<f64> = match periodicity.0 {
-        Some(p) => vec![uv_point.x, uv_point.x + p, uv_point.x - p],
-        None => vec![uv_point.x],
+        Some(p) if p > 0.0 => {
+            let (lo, hi) = runs
+                .iter()
+                .flatten()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
+                    (lo.min(q.x), hi.max(q.x))
+                });
+            let k_lo = ((lo - uv_point.x) / p).floor().max(-64.0) as i64;
+            let k_hi = ((hi - uv_point.x) / p).ceil().min(64.0) as i64;
+            if k_lo <= k_hi {
+                (k_lo.min(-1)..=k_hi.max(1))
+                    .map(|k| uv_point.x + k as f64 * p)
+                    .collect()
+            } else {
+                vec![uv_point.x, uv_point.x + p, uv_point.x - p]
+            }
+        }
+        _ => vec![uv_point.x],
     };
     let mut crossings_above = 0usize;
     let mut has_u_extent = false;
