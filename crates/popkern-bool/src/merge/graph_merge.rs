@@ -215,7 +215,6 @@ mod tests {
             aabbs_a: aabbs.clone(),
             aabbs_b: aabbs,
             edge_face_hits: vec![],
-            hierarchy: Default::default(),
             coincidence: Default::default(),
         };
 

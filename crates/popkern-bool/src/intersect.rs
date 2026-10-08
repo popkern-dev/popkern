@@ -97,9 +97,6 @@ pub(crate) struct IntersectionResult {
     /// Edge-face intersection hits (diagnostic only, not yet used by split).
     #[allow(dead_code)]
     pub edge_face_hits: Vec<EdgeFaceHit>,
-    /// Sub-FF intersection hierarchy results (VV/VE/EE/VF/EF).
-    #[allow(dead_code)]
-    pub hierarchy: crate::intersect_hierarchy::HierarchyResult,
     /// Coincidence map: vertex merges, edge overlaps, and face overlaps.
     #[allow(dead_code)]
     pub coincidence: crate::coincidence::CoincidenceMap,
@@ -201,52 +198,20 @@ pub(crate) fn conservative_curve_extent(
     use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
     match &c.geometry {
         CurveGeometry::Line { .. } => {} // endpoints suffice
-        CurveGeometry::Circle {
-            center,
-            normal,
-            radius,
-        }
-        | CurveGeometry::Arc {
-            center,
-            normal,
-            radius,
-            ..
-        } => {
-            let amp = |n: f64| radius * (1.0 - n * n).max(0.0).sqrt();
-            let (ax, ay, az) = (amp(normal.x), amp(normal.y), amp(normal.z));
-            points.push(popkern_core::geometry::Point3::new(
-                center.x - ax,
-                center.y - ay,
-                center.z - az,
-            ));
-            points.push(popkern_core::geometry::Point3::new(
-                center.x + ax,
-                center.y + ay,
-                center.z + az,
-            ));
-        }
-        CurveGeometry::Ellipse {
-            center,
-            u_basis,
-            v_basis,
-            ..
-        } => {
-            let amp = |u: f64, v: f64| (u * u + v * v).sqrt();
-            let (ax, ay, az) = (
-                amp(u_basis.x, v_basis.x),
-                amp(u_basis.y, v_basis.y),
-                amp(u_basis.z, v_basis.z),
-            );
-            points.push(popkern_core::geometry::Point3::new(
-                center.x - ax,
-                center.y - ay,
-                center.z - az,
-            ));
-            points.push(popkern_core::geometry::Point3::new(
-                center.x + ax,
-                center.y + ay,
-                center.z + az,
-            ));
+        CurveGeometry::Circle { center, .. }
+        | CurveGeometry::Arc { center, .. }
+        | CurveGeometry::Ellipse { center, .. } => {
+            // p(t) = centre + U cos t + V sin t for all three (U, V
+            // read back through the curve's own evaluator). The extent
+            // over the EDGE's range, not the full sweep (PK-731): a
+            // plane nearly parallel to a hole's axis cuts it in an
+            // ellipse a thousand times longer than the arc the edge
+            // uses, and the full-sweep box made the hole's face box
+            // span the whole housing — every later tool paired with
+            // it in the SSI and every ray tested it.
+            let u = c.geometry.point_at(0.0) - *center;
+            let v = c.geometry.point_at(std::f64::consts::FRAC_PI_2) - *center;
+            conic_arc_extent(*center, u, v, c.t_start, c.t_end, points);
         }
         CurveGeometry::Parabola {
             linear, quadratic, ..
@@ -286,6 +251,45 @@ pub(crate) fn conservative_curve_extent(
         }
         CurveGeometry::Nurbs(n) => {
             points.extend(n.control_points.iter().copied());
+        }
+    }
+}
+
+/// Push the extreme points of `centre + u cos t + v sin t` over
+/// `t ∈ [t0, t1]` (either order): both ends, and on each axis the
+/// angles where that coordinate peaks (`atan2(v_w, u_w)` and its
+/// antipode) when they fall inside the range. Their box CONTAINS the
+/// arc; a range of a full turn or more yields the full-sweep extremes.
+fn conic_arc_extent(
+    center: popkern_core::geometry::Point3,
+    u: popkern_core::geometry::Vec3,
+    v: popkern_core::geometry::Vec3,
+    t0: f64,
+    t1: f64,
+    points: &mut Vec<popkern_core::geometry::Point3>,
+) {
+    use popkern_core::geometry::PortableMath as _;
+    let at = |t: f64| center + u * t.pcos() + v * t.psin();
+    let (lo, hi) = (t0.min(t1), t0.max(t1));
+    let tau = std::f64::consts::TAU;
+    if !(lo.is_finite() && hi.is_finite()) || hi - lo >= tau {
+        for (uw, vw) in [(u.x, v.x), (u.y, v.y), (u.z, v.z)] {
+            let peak = vw.patan2(uw);
+            points.push(at(peak));
+            points.push(at(peak + std::f64::consts::PI));
+        }
+        return;
+    }
+    points.push(at(lo));
+    points.push(at(hi));
+    for (uw, vw) in [(u.x, v.x), (u.y, v.y), (u.z, v.z)] {
+        let peak = vw.patan2(uw);
+        for base in [peak, peak + std::f64::consts::PI] {
+            // The representative of `base` at or above `lo`.
+            let t = base + ((lo - base) / tau).ceil() * tau;
+            if t <= hi {
+                points.push(at(t));
+            }
         }
     }
 }
@@ -498,11 +502,6 @@ pub(crate) fn find_intersections_with_aabbs(
         }
     }
 
-    // Compute the sub-FF intersection hierarchy.
-    let bool_tol = crate::tolerance::BoolTolerance::from(*tolerance);
-    let hierarchy =
-        crate::intersect_hierarchy::compute_hierarchy(a, b, aabbs_a, aabbs_b, &bool_tol);
-
     // Consolidate the marching output: the walker can deliver the
     // same intersection curve several times (different walk seeds,
     // split at different offsets) and fragment junctions carry up to
@@ -552,7 +551,6 @@ pub(crate) fn find_intersections_with_aabbs(
         aabbs_a: aabbs_a.to_vec(),
         aabbs_b: aabbs_b.to_vec(),
         edge_face_hits,
-        hierarchy,
         coincidence,
     })
 }

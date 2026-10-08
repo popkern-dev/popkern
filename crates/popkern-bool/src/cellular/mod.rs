@@ -22,6 +22,7 @@ pub mod cell;
 pub(crate) mod classify_fragments;
 pub mod decompose;
 pub(crate) mod fragment_classify_one;
+mod fragment_far;
 pub(crate) mod fragment_interior;
 pub(crate) mod fragment_propagation;
 pub(crate) mod fragment_sample_helpers;

@@ -55,7 +55,6 @@ pub mod imprint;
 pub mod instancing;
 pub(crate) mod intersect;
 pub(crate) mod intersect_edge_face;
-pub(crate) mod intersect_hierarchy;
 pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
 pub(crate) mod merge;

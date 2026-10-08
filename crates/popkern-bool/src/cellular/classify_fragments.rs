@@ -194,14 +194,28 @@ pub(super) fn classify_fragments_cellular(
     // a component verdict (seeds and audits are NOT deferred).
     let mut results: Vec<Option<(Point3, PointClassification, Option<bool>)>> =
         (0..n).map(|_| None).collect();
+    let far = super::fragment_far::FarGate::new(
+        &aabbs_a,
+        &aabbs_b,
+        probe_eps_coarse + tolerance.linear() * 10.0,
+    );
     for i in 0..n {
         if degenerate[i] || deferred[i].is_some() {
             continue;
         }
-        results[i] = Some(super::fragment_classify_one::sample_and_classify(
-            &ctx,
-            &fragments[i],
-        ));
+        let own_boxes = match fragments[i].face.operand {
+            Operand::A => &aabbs_a,
+            Operand::B => &aabbs_b,
+        };
+        results[i] = Some(if far.is_far(graph, &fragments[i], own_boxes) {
+            let anchor = super::fragment_sample_helpers::sample_fragment_point(
+                graph,
+                &fragments[i].outer_loop,
+            );
+            (anchor, PointClassification::Outside, None)
+        } else {
+            super::fragment_classify_one::sample_and_classify(&ctx, &fragments[i])
+        });
     }
 
     // Pass 2: resolve components. A seed that is not plain In/Out, or

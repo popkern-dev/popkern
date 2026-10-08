@@ -436,3 +436,30 @@ fn repair_closes_small_gap() {
     // This test validates the repair path executes without panic.
     assert!(report.fully_repaired() || report.vertices_adjusted > 0);
 }
+
+#[test]
+fn post_check_gates_report_exactly_the_gating_findings() {
+    // The serve path reads only the gates (PK-731): same Error/Critical
+    // findings as the full post-check, no warning-only diagnostics.
+    for body in [
+        BRep::unit_cube(tol()).unwrap(),
+        BRep::cylinder(1.0, 2.0, tol()).unwrap(),
+    ] {
+        let full = super::post_check::post_check(&body, &tol(), false);
+        let gates = super::post_check::post_check_gates(&body, &tol());
+        let errors = |r: &super::post_check::PostCheckReport| -> Vec<String> {
+            r.findings
+                .iter()
+                .filter(|f| {
+                    matches!(
+                        f.severity,
+                        crate::error::Severity::Error | crate::error::Severity::Critical
+                    )
+                })
+                .map(|f| f.message.clone())
+                .collect()
+        };
+        assert_eq!(errors(&full), errors(&gates));
+        assert_eq!(gates.findings.len(), errors(&gates).len(), "no warnings");
+    }
+}

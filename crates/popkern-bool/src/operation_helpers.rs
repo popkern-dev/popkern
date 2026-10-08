@@ -420,13 +420,13 @@ pub(super) fn validate_with_junction_reconcile_retry(
             .map(|f| f.message.clone())
             .collect()
     };
-    let pc_report = crate::validate::post_check::post_check(result, tolerance, false);
+    let pc_report = crate::validate::post_check::post_check_gates(result, tolerance);
     let pc_errors = collect_errors(&pc_report);
     if pc_errors.is_empty() {
         return pc_errors;
     }
     crate::postprocess::junction_reconcile::reconcile_junction_cluster_geometry(result, tolerance);
-    let retry = crate::validate::post_check::post_check(result, tolerance, false);
+    let retry = crate::validate::post_check::post_check_gates(result, tolerance);
     let retry_errors = collect_errors(&retry);
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(

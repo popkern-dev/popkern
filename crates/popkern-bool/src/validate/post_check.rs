@@ -74,6 +74,27 @@ pub fn post_check(
     tolerance: &Tolerance,
     check_self_intersection: bool,
 ) -> PostCheckReport {
+    post_check_scoped(result, tolerance, check_self_intersection, true)
+}
+
+/// [`post_check`]'s GATES only: every Error/Critical check, none of the
+/// Warning-only diagnostics (vertex consistency, the watertightness
+/// gap measurement, face orientation, self-intersection). The serve
+/// path reads only the gates; the watertightness diagnostic alone
+/// sampled every edge of the result per boolean, so a body carrying
+/// earlier tapped holes paid for re-measuring all of them on every
+/// later boolean (PK-731: +43 ms per earlier tap, per boolean).
+/// The gating findings are exactly [`post_check`]'s.
+pub(crate) fn post_check_gates(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
+    post_check_scoped(result, tolerance, false, false)
+}
+
+fn post_check_scoped(
+    result: &BRep,
+    tolerance: &Tolerance,
+    check_self_intersection: bool,
+    diagnostics: bool,
+) -> PostCheckReport {
     let mut report = PostCheckReport {
         face_count: result.faces.len(),
         edge_count: result.edges.len(),
@@ -207,6 +228,10 @@ pub fn post_check(
             error: Some(e),
             measured_value: None,
         });
+    }
+
+    if !diagnostics {
+        return report;
     }
 
     // 5. Vertex consistency

@@ -344,3 +344,53 @@ fn branch_point_labeling_skips_disjoint_records() {
     let result = find_intersections(&cube_a, &cube_b, &tol()).unwrap();
     assert!(result.records.is_empty());
 }
+
+// ── Conic arc extents (PK-731) ─────────────────────────────────────────
+
+fn arc_box(u: Vec3, v: Vec3, t0: f64, t1: f64) -> Aabb {
+    let mut pts = Vec::new();
+    super::conic_arc_extent(Point3::new(1.0, -2.0, 3.0), u, v, t0, t1, &mut pts);
+    Aabb::from_points(&pts).expect("extent points")
+}
+
+#[test]
+fn conic_arc_extent_contains_every_arc_point() {
+    let (u, v) = (Vec3::new(3.0, 1.0, -2.0), Vec3::new(-1.0, 2.5, 0.5));
+    for (t0, t1) in [
+        (0.3, 1.9),
+        (2.0, 5.5),
+        (5.9, 6.9),
+        (-4.0, -0.2),
+        (1.0, 1.0 + 7.0),
+    ] {
+        let bb = arc_box(u, v, t0, t1);
+        for k in 0..=2000 {
+            let t = t0 + (t1 - t0) * k as f64 / 2000.0;
+            let p = Point3::new(1.0, -2.0, 3.0) + u * t.cos() + v * t.sin();
+            let pad = 1e-12;
+            assert!(
+                p.x >= bb.min.x - pad
+                    && p.x <= bb.max.x + pad
+                    && p.y >= bb.min.y - pad
+                    && p.y <= bb.max.y + pad
+                    && p.z >= bb.min.z - pad
+                    && p.z <= bb.max.z + pad,
+                "arc [{t0}, {t1}] point t={t} escapes its extent"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_short_arc_of_a_long_ellipse_gets_a_short_box() {
+    // A plane nearly parallel to a hole's axis: semi-axes 600 and 2.5,
+    // the edge a 0.1-radian arc across the minor vertex.
+    let (u, v) = (Vec3::new(600.0, 0.0, 0.0), Vec3::new(0.0, 2.5, 0.0));
+    let bb = arc_box(u, v, 1.52, 1.62);
+    assert!(bb.max.x - bb.min.x < 61.0, "arc box {bb:?}");
+    let full = arc_box(u, v, 0.0, std::f64::consts::TAU);
+    assert!(
+        (full.max.x - full.min.x - 1200.0).abs() < 1e-9,
+        "full sweep {full:?}"
+    );
+}
