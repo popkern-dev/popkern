@@ -166,6 +166,9 @@ pub(super) fn partition_shells(
 
     // Component AABBs from wired half-edge origins.
     let mut aabbs: Vec<([f64; 3], [f64; 3])> = vec![([f64::MAX; 3], [f64::MIN; 3]); roots.len()];
+    // Vertex sums per component (each wired origin once per outgoing
+    // half-edge — a weighting that keeps the mean inside the hull).
+    let mut vertex_sums: Vec<([f64; 3], f64)> = vec![([0.0; 3], 0.0); roots.len()];
     for (_, he) in brep.half_edges.iter() {
         let Some(lp) = brep.loops.get(he.loop_) else {
             continue;
@@ -179,7 +182,9 @@ pub(super) fn partition_shells(
         for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
             aabbs[c].0[k] = aabbs[c].0[k].min(v);
             aabbs[c].1[k] = aabbs[c].1[k].max(v);
+            vertex_sums[c].0[k] += v;
         }
+        vertex_sums[c].1 += 1.0;
     }
     let tol = tolerance_linear.max(1e-12);
     let nested = |a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])| -> bool {
@@ -210,10 +215,14 @@ pub(super) fn partition_shells(
                 .collect()
         };
         // Interior point of each nested component's ENCLOSED region:
-        // the AABB center when its parity against the component's own
-        // faces reads Inside (compact pieces and voids); no candidate
-        // → decline (a nested ring-shaped component is out of scope,
-        // recorded).
+        // the AABB center, else the vertex centroid, whichever first
+        // reads Inside against the component's own faces. The centroid
+        // is a convex combination of the vertices, so it is interior
+        // to every convex piece — a corner tetrahedron's box center is
+        // not (PK-705: a yawed slab cut left a corner lump of a plate
+        // nested in the plate's box; the center missed it and the
+        // partition declined). No candidate → decline (a nested
+        // ring-shaped component is out of scope, recorded).
         let interior_point = |c: usize| -> Option<popkern_core::geometry::Point3> {
             let (lo, hi) = &aabbs[c];
             let center = popkern_core::geometry::Point3::new(
@@ -221,11 +230,16 @@ pub(super) fn partition_shells(
                 0.5 * (lo[1] + hi[1]),
                 0.5 * (lo[2] + hi[2]),
             );
+            let (sum, n) = vertex_sums[c];
+            let centroid = (n > 0.0)
+                .then(|| popkern_core::geometry::Point3::new(sum[0] / n, sum[1] / n, sum[2] / n));
             let own = comp_aabbs(c);
-            match point_in_solid_final(&center, brep, &own, tolerance) {
-                Ok(PointClassification::Inside) => Some(center),
-                _ => None,
-            }
+            std::iter::once(center).chain(centroid).find(|q| {
+                matches!(
+                    point_in_solid_final(q, brep, &own, tolerance),
+                    Ok(PointClassification::Inside)
+                )
+            })
         };
         // Enclosure depth by parity against each AABB-containing
         // component's face subset; immediate encloser = the smallest

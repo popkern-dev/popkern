@@ -119,29 +119,12 @@ fn build_leaf(
     )?;
     leaf = subtract(&leaf, &comb, "comb notch", tolerance)?;
     if integral_pin {
-        // The pin goes in one piece per B zone, each reaching halfway
-        // into the A knuckles either side (or out to the end when B owns
-        // the last knuckle) — never flush with an A knuckle face, and
-        // abutting its neighbour inside A's material.
-        //
-        // TEMPORARY CONTAINMENT (PK-705): one full-length pin crossing
-        // several B zones makes the union keep a band of the pin buried
-        // in A's last knuckle (the 5-knuckle hinge served a body whose
-        // mesh had 125 open edges). One piece per zone is the crossing
-        // pattern the boolean serves; return to a single pin when
-        // PK-705 lands.
-        let segments = &layout.segments;
-        for (i, &(z0, z1)) in segments.iter().enumerate() {
-            if i % 2 == 0 {
-                continue;
-            }
-            let (before, after) = (segments[i - 1], segments.get(i + 1));
-            let lo = 0.5 * (before.0 + before.1);
-            let hi = match after {
-                Some(next) => 0.5 * (next.0 + next.1),
-                None => p.length,
-            };
-            debug_assert!(lo < z0 && hi >= z1);
+        // One pin, from the middle of the first A knuckle to the middle
+        // of the last (or out to the end when B owns the last knuckle):
+        // never flush with an A knuckle face. It crosses every B zone
+        // in one union — PK-705 made a cylinder through several
+        // disjoint regions of the other operand serve.
+        if let Some((lo, hi)) = integral_pin_span(&layout.segments, p.length) {
             let pin = z_cylinder(p.pin_diameter / 2.0, lo, hi, "integral pin tool", tolerance)?;
             leaf = union(&leaf, &pin, "integral pin", tolerance)?;
         }
@@ -174,6 +157,21 @@ fn build_leaf(
         )?;
     }
     Ok(leaf)
+}
+
+/// The integral pin's span along the axis for knuckle `segments`
+/// (leaf A owns the even ones): from the middle of the first A
+/// knuckle to the middle of the last, or out to `length` when B owns
+/// the last knuckle. `None` with no B zone to cross.
+pub(crate) fn integral_pin_span(segments: &[(f64, f64)], length: f64) -> Option<(f64, f64)> {
+    let mid = |(a, b): (f64, f64)| 0.5 * (a + b);
+    let first = *segments.first()?;
+    let last = *segments.last()?;
+    match segments.len() {
+        0 | 1 => None,
+        n if n % 2 == 0 => Some((mid(first), length)),
+        _ => Some((mid(first), mid(last))),
+    }
 }
 
 /// The leaf's cross-section: the mounting line from the outer edge to

@@ -1680,8 +1680,10 @@ fn holder_v3_block_chain_is_watertight_and_chi_clean() {
 /// Holder v3 ARM (identical piece ×2): ONE plan outline (root body +
 /// dovetail tab + plate run) extruded, +tilt rest wedge, tool-shaped
 /// lower thinning cut, smooth arc swoop gusset union, THROUGH dovetail
-/// lip slot. The through slot makes the arm genus 1 — χ' == 0 is
-/// the honest final value.
+/// lip slot. The slot runs side to side across the lip — a groove, so
+/// the arm stays genus 0: χ' == 2, matching the welded display mesh's
+/// V − E + F (measured 2026-10-08). The 0 asserted before PK-705 was
+/// read off a face carrying a disjoint region as an "inner loop".
 #[test]
 fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
     let chi = |p: &Part| {
@@ -1780,7 +1782,12 @@ fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
         .expect("place");
     part = part.subtract(&slot).expect("lip slot");
     assert_eq!(part.open_edge_count().expect("mesh"), 0, "slot");
-    assert_eq!(chi(&part), 0, "slot χ");
+    // The slot prism (44 long) spans the 40-wide lip side to side: a
+    // groove, genus 0. It splits the lip's top face into the arm side
+    // and the tip side; until PK-705 the fragment election filed the
+    // tip side as an "inner loop" of the arm side although it lies
+    // outside it, and this ring-aware χ read 0 off that invalid face.
+    assert_eq!(chi(&part), 2, "slot χ");
 }
 
 /// PIN → GATE (double-pilot peg): a second smaller-star boss union

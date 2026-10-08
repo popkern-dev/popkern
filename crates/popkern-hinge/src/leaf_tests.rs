@@ -261,3 +261,19 @@ fn print_in_place_leaf_a_pin_runs_through_every_b_zone() {
         assert_eq!(on_pin_at_end, n % 2 == 0, "n {n}");
     }
 }
+
+#[test]
+fn the_integral_pin_runs_from_the_first_a_knuckle_through_every_b_zone() {
+    use crate::leaf::integral_pin_span;
+    let five = [
+        (0.0, 11.88),
+        (12.03, 23.91),
+        (24.06, 35.94),
+        (36.09, 47.97),
+        (48.12, 60.0),
+    ];
+    assert_eq!(integral_pin_span(&five, 60.0), Some((5.94, 54.06)));
+    // B owns the last knuckle: the pin runs out to the end.
+    assert_eq!(integral_pin_span(&five[..4], 47.97), Some((5.94, 47.97)));
+    assert_eq!(integral_pin_span(&five[..1], 11.88), None);
+}

@@ -65,6 +65,11 @@ impl ChartLoop {
         }
         Self { points, run_start }
     }
+
+    /// The loop's chart samples, in walk order.
+    pub(crate) fn points(&self) -> &[(f64, f64)] {
+        &self.points
+    }
 }
 
 /// The loops' segments, each starting at its sample as stored: as-is

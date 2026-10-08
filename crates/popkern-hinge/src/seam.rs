@@ -187,17 +187,8 @@ pub fn seam_hinge_component(
         }
     }
     if integral_pin {
-        // One pin piece per B zone, from the middle of the A knuckle
-        // before it to the middle of the one after (or to the end):
-        // the PK-705 containment, as in the plate hinge.
-        let segments = &layout.segments;
-        for (i, &(_, _)) in segments.iter().enumerate().filter(|(i, _)| i % 2 == 1) {
-            let before = segments[i - 1];
-            let lo = 0.5 * (before.0 + before.1);
-            let hi = segments
-                .get(i + 1)
-                .map(|n| 0.5 * (n.0 + n.1))
-                .unwrap_or(params.length);
+        // One pin through every B zone, as in the plate hinge.
+        if let Some((lo, hi)) = crate::leaf::integral_pin_span(&layout.segments, params.length) {
             let pin = segment_cylinder(seam, a, params.pin_diameter / 2.0, lo, hi, tolerance)?;
             result = union(&result, &pin, "seam integral pin", tolerance)?;
         }

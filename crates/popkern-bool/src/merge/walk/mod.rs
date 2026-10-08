@@ -19,6 +19,7 @@ pub(crate) mod chart_walk;
 mod chart_walk_tests;
 mod fragment_chart;
 mod hole_nesting;
+mod hole_nesting_chart;
 mod next_edge;
 mod region_filter;
 pub(crate) mod walk_geometry;
@@ -135,6 +136,7 @@ pub(crate) fn walk_all_fragments_ext(
         // the reason observable under the boolean trace topic and recorded in
         // `walk_fallbacks`.
         let mut walked_by_chart = false;
+        let mut chart_period: Option<f64> = None;
         // Chart polylines + σ + chart u-period for the role assembly
         // below (present only when the chart walk produced the orbit
         // partition).
@@ -282,6 +284,7 @@ pub(crate) fn walk_all_fragments_ext(
                     }
                     loops = orbits;
                     walked_by_chart = true;
+                    chart_period = sub.u_period;
                     chart_views.insert(*face_ref, fragment_chart::walk_view(&sub, &loops));
                     if popkern_core::trace::trace_enabled("boolean") {
                         eprintln!(
@@ -801,7 +804,17 @@ pub(crate) fn walk_all_fragments_ext(
             &opposite_aabbs,
             tolerance,
         );
-        for lp in promoted.into_iter().chain(exterior_promoted) {
+        let chart_promoted = hole_nesting_chart::promote_chart_exterior_holes(
+            &mut inner_loops_out,
+            &outer_loop,
+            chart_views.get(face_ref).map(|(_, polylines)| polylines),
+            chart_period,
+        );
+        for lp in promoted
+            .into_iter()
+            .chain(exterior_promoted)
+            .chain(chart_promoted)
+        {
             fragments.push(Fragment {
                 face: *face_ref,
                 chart: None,
