@@ -89,9 +89,9 @@ fn build_leaf(
     let integral_pin = kind == HingeKind::PrintInPlace && component == HingeComponent::LeafA;
     if !integral_pin {
         // Bore first, through the whole extrusion (two end faces), then
-        // notch: measured 2026-10-07, boring an already notched piano
-        // leaf (20 knuckles) left one bore rim with no curve after the
-        // boolean's gore weld (PK-706); this order has none.
+        // notch. (Boring an already notched 300-long piano leaf once hit
+        // PK-706's gore weld; its root was PK-707's ray window, fixed —
+        // both orders now serve, this one is the simpler boolean.)
         let bore = z_cylinder(
             layout.bore_radius,
             -margin,

@@ -1,6 +1,7 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod collinear_vertex;
+pub(crate) mod curveless_edge;
 pub mod exact_rims;
 pub mod face_simplify;
 pub(crate) mod junction_reconcile;

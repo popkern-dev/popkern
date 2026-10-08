@@ -234,6 +234,7 @@ fn serve(
 
     run_output_postprocess(&mut result, tolerance);
     super::postprocess::decline_on_unrepairable_stubs(&mut result, tolerance)?;
+    crate::postprocess::curveless_edge::repair_or_decline_curveless_edges(&mut result, tolerance)?;
 
     // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
     // mechanics and rationale in `operation_pcurve_coherence.rs`.
