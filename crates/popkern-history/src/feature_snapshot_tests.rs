@@ -75,7 +75,7 @@ fn snapshot_materialises_as_a_new_body_owning_every_name() {
             .all(|n| n.operation == op && n.ancestors.is_empty())
     );
     assert!(
-        body.name_pool.names.iter().all(|n| n.operation == op),
+        body.name_pool.names().all(|(_, n)| n.operation == op),
         "inherited names are discarded"
     );
     let faces: Vec<u32> = names

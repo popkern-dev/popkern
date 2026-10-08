@@ -21,6 +21,7 @@ pub mod naming_criteria;
 pub mod naming_lineage;
 pub mod naming_provenance;
 pub mod naming_resolve;
+mod naming_store;
 pub mod precision;
 pub mod progress;
 pub mod time;

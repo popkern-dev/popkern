@@ -96,8 +96,8 @@ fn g2_box(policy: ContinuityCertification) -> (FeatureTree, FeatureId) {
 fn sharp_edge_name(state: &BRep) -> EntityName {
     state
         .name_pool
-        .names
-        .iter()
+        .names()
+        .map(|(_, n)| n)
         .find(|n| {
             crate::resolve::resolve_edge(n, state).is_ok_and(|eh| {
                 let ed = &state.edges[eh];

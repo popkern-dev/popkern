@@ -200,24 +200,39 @@ pub fn boolean(
         }
     })?;
     if let Some(ctx) = tracking {
+        // Naming scheme 3 (PK-731): the result pool starts as the
+        // target operand's (a shared clone), as every other operation's
+        // result carries its input's pool: the target's names keep
+        // their ids, so importing them is the identity. Scheme 2 built
+        // the pool by importing every operand name, ancestors first,
+        // which re-interned the target's whole history on every
+        // boolean (49k names at the 64th slot of a disc).
+        let seeded = ctx.naming_scheme >= 3;
+        if seeded {
+            result.name_pool = a.name_pool.clone();
+        }
         if ctx.naming_scheme >= 2 {
             // Naming scheme 2 (PK-677): each operand name comes into the
             // result pool by value, ancestors first, so a tool-side
             // name's ancestor ids are this pool's (scheme 1 interned the
             // tool's ids as they were).
             let pool = &mut result.name_pool;
-            for (name, ..) in &mut input_a_faces {
+            for (name, ..) in input_a_faces.iter_mut().filter(|_| !seeded) {
                 entity_naming::import_name(name, &a, pool);
             }
             for (name, ..) in &mut input_b_faces {
                 entity_naming::import_name(name, &b, pool);
             }
             for (i, (name, ..)) in input_edges.iter_mut().enumerate() {
-                entity_naming::import_name(name, if i < b_edges_from { &a } else { &b }, pool);
+                if i >= b_edges_from || !seeded {
+                    entity_naming::import_name(name, if i < b_edges_from { &a } else { &b }, pool);
+                }
             }
             for (i, (name, _)) in input_vertices.iter_mut().enumerate() {
-                let source = if i < b_vertices_from { &a } else { &b };
-                entity_naming::import_name(name, source, pool);
+                if i >= b_vertices_from || !seeded {
+                    let source = if i < b_vertices_from { &a } else { &b };
+                    entity_naming::import_name(name, source, pool);
+                }
             }
         }
         entity_naming::assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
@@ -232,6 +247,7 @@ pub fn boolean(
             &tol,
         );
         entity_lineage::record_edge_lineage(&mut result, &a, &b, &tol);
+        popkern_core::naming_lineage::prune_unreadable_lineage(&mut result);
     }
     Ok(result)
 }

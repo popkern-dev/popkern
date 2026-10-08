@@ -5,7 +5,7 @@
 //! `popkern-history`) or `assembly`:
 //!
 //! ```json
-//! { "version": 5, "naming_scheme": 2,
+//! { "version": 5, "naming_scheme": 3,
 //!   "assembly": { "name": "gearbox",
 //!     "definitions": [ { "name": "planet", "part": <FeatureTree> },
 //!                      { "name": "stage", "instances": [ … ] } ],

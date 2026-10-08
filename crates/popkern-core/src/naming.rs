@@ -7,10 +7,12 @@
 //! (used by the resolver when structural names collide).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
 use crate::naming_criteria::GeometricCriteria;
+use crate::naming_store::ChunkedVec;
 
 /// Version of the entity-naming scheme this kernel mints: the rule set
 /// that decides which [`EntityName`] (operation, role category, index,
@@ -29,7 +31,11 @@ use crate::naming_criteria::GeometricCriteria;
 ///   ancestor ids are the result pool's. Scheme 1 interned them as-is,
 ///   leaving ancestor ids that pointed into the tool's pool. A tree
 ///   keeps the scheme it was recorded under and replays with its rules.
-pub const NAMING_SCHEME_VERSION: u32 = 2;
+/// - **3** (PK-731): a boolean's result pool starts as the target
+///   operand's pool, so the target's names keep their ids (scheme 2
+///   rebuilt the result pool by importing every operand name, which
+///   renumbered them and cost the whole history per boolean).
+pub const NAMING_SCHEME_VERSION: u32 = 3;
 
 /// The oldest naming scheme this kernel still replays.
 pub const OLDEST_NAMING_SCHEME: u32 = 1;
@@ -131,17 +137,20 @@ pub struct OperationLabels {
 /// Central store for all [`EntityName`]s in a model.
 ///
 /// Deduplicates names on insertion — interning the same name twice returns
-/// the same [`NameId`]. The reverse index (`index`) is rebuilt from `names`
-/// when needed (e.g. after deserialization).
+/// the same [`NameId`]. The reverse index is rebuilt from the names when
+/// needed (e.g. after deserialization).
+///
+/// Storage is copy-on-write in shared chunks (PK-731,
+/// `naming_store`): a clone costs one pointer per chunk, not a copy of
+/// every name, because a body's pool carries its whole history and
+/// every BRep clone carries the pool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NamePool {
-    /// Names stored in insertion order. `NameId(i)` indexes this vec.
-    pub names: Vec<EntityName>,
-    /// Optional geometric criteria stored parallel to `names`.
-    ///
-    /// `criteria[i]` corresponds to `names[i]`. May be `None` when no
-    /// geometric hint is available or relevant.
-    pub criteria: Vec<Option<GeometricCriteria>>,
+    /// Names stored in insertion order. `NameId(i)` indexes this.
+    names: ChunkedVec<EntityName>,
+    /// Optional geometric criteria stored parallel to `names`: `None`
+    /// when no geometric hint is available or relevant.
+    criteria: ChunkedVec<Option<GeometricCriteria>>,
     /// Provenance beside each name (PK-633): the names (as VALUES, so
     /// they stay comparable across pools) of the entities this one was
     /// cut, trimmed or carried from, transitively. NOT part of a name's
@@ -151,10 +160,14 @@ pub struct NamePool {
     /// (shorter in documents written before it existed: missing entries
     /// are empty). See [`NamePool::add_lineage`].
     #[serde(default)]
-    pub lineage: Vec<Vec<EntityName>>,
-    /// Reverse index: name → id. Rebuilt after deserialization.
+    pub(crate) lineage: ChunkedVec<Vec<EntityName>>,
+    /// Reverse index: name hash → the first id with that hash. Rebuilt
+    /// after deserialization.
     #[serde(skip)]
-    index: HashMap<EntityName, NameId>,
+    index: Arc<HashMap<u64, NameId>>,
+    /// Ids whose name hash collides with an earlier, different name's.
+    #[serde(skip)]
+    collisions: Arc<HashMap<u64, Vec<NameId>>>,
 }
 
 impl Default for NamePool {
@@ -163,14 +176,23 @@ impl Default for NamePool {
     }
 }
 
+/// The index key of a name (deterministic: SipHash with fixed keys).
+fn name_hash(name: &EntityName) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::new();
+    name.hash(&mut hasher);
+    hasher.finish()
+}
+
 impl NamePool {
     /// Create an empty pool.
     pub fn new() -> Self {
         Self {
-            names: Vec::new(),
-            criteria: Vec::new(),
-            lineage: Vec::new(),
-            index: HashMap::new(),
+            names: ChunkedVec::default(),
+            criteria: ChunkedVec::default(),
+            lineage: ChunkedVec::default(),
+            index: Arc::new(HashMap::new()),
+            collisions: Arc::new(HashMap::new()),
         }
     }
 
@@ -179,16 +201,54 @@ impl NamePool {
     /// `criteria` is stored alongside the name and replaces the existing
     /// criteria if the name was already in the pool.
     pub fn intern(&mut self, name: EntityName, criteria: Option<GeometricCriteria>) -> NameId {
-        if let Some(&id) = self.index.get(&name) {
+        let hash = name_hash(&name);
+        if let Some(id) = self.find_hashed(&name, hash) {
             // Update criteria even if the name is already present.
-            self.criteria[id.0 as usize] = criteria;
+            if self.criteria.get(id.0 as usize) != Some(&criteria)
+                && let Some(slot) = self.criteria.get_mut(id.0 as usize)
+            {
+                *slot = criteria;
+            }
             return id;
         }
         let id = NameId(self.names.len() as u32);
-        self.index.insert(name.clone(), id);
+        self.index_insert(hash, id);
         self.names.push(name);
         self.criteria.push(criteria);
+        self.pad_lineage();
         id
+    }
+
+    /// Record `id` under `hash` in the reverse index.
+    fn index_insert(&mut self, hash: u64, id: NameId) {
+        if self.index.contains_key(&hash) {
+            Arc::make_mut(&mut self.collisions)
+                .entry(hash)
+                .or_default()
+                .push(id);
+        } else {
+            Arc::make_mut(&mut self.index).insert(hash, id);
+        }
+    }
+
+    fn find_hashed(&self, name: &EntityName, hash: u64) -> Option<NameId> {
+        let first = *self.index.get(&hash)?;
+        if self.get(first) == Some(name) {
+            return Some(first);
+        }
+        self.collisions
+            .get(&hash)?
+            .iter()
+            .copied()
+            .find(|id| self.get(*id) == Some(name))
+    }
+
+    /// Keep `lineage` as long as `names` (documents written before
+    /// lineage existed carry a shorter list).
+    fn pad_lineage(&mut self) {
+        while self.lineage.len() < self.names.len() {
+            self.lineage.push(Vec::new());
+        }
     }
 
     /// Look up a name by id.
@@ -201,19 +261,39 @@ impl NamePool {
         self.criteria.get(id.0 as usize)?.as_ref()
     }
 
-    /// Find the id for an existing name without inserting.
-    pub fn find(&self, name: &EntityName) -> Option<NameId> {
-        self.index.get(name).copied()
+    /// Every name with its id, in insertion order.
+    pub fn names(&self) -> impl Iterator<Item = (NameId, &EntityName)> {
+        self.names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (NameId(i as u32), name))
     }
 
-    /// Rebuild the reverse index from `names`.
+    /// Find the id for an existing name without inserting.
+    pub fn find(&self, name: &EntityName) -> Option<NameId> {
+        self.find_hashed(name, name_hash(name))
+    }
+
+    /// Rebuild the reverse index from the names.
     ///
     /// Call after deserialization (the index is not serialized).
     pub fn rebuild_index(&mut self) {
-        self.index.clear();
+        let mut index = HashMap::new();
+        let mut collisions: HashMap<u64, Vec<NameId>> = HashMap::new();
         for (i, name) in self.names.iter().enumerate() {
-            self.index.insert(name.clone(), NameId(i as u32));
+            let hash = name_hash(name);
+            match index.entry(hash) {
+                std::collections::hash_map::Entry::Occupied(_) => {
+                    collisions.entry(hash).or_default().push(NameId(i as u32));
+                }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(NameId(i as u32));
+                }
+            }
         }
+        self.index = Arc::new(index);
+        self.collisions = Arc::new(collisions);
+        self.pad_lineage();
     }
 
     /// Number of names in the pool.
@@ -223,7 +303,22 @@ impl NamePool {
 
     /// True if the pool is empty.
     pub fn is_empty(&self) -> bool {
-        self.names.is_empty()
+        self.names.len() == 0
+    }
+
+    /// Whether this pool begins with every entry of `prefix` — names
+    /// and lineage, at the same ids — so each of `prefix`'s names is
+    /// already this pool's name of the same id with the same ancestry.
+    /// Cheap for a pool grown from a clone of `prefix` (shared chunks
+    /// compare by pointer).
+    pub fn extends(&self, prefix: &NamePool) -> bool {
+        self.keeps_names_of(prefix) && self.lineage.extends(&prefix.lineage)
+    }
+
+    /// Whether every name of `prefix` is this pool's name of the same
+    /// id (lineage aside: a later operation may prune it).
+    pub fn keeps_names_of(&self, prefix: &NamePool) -> bool {
+        self.names.extends(&prefix.names)
     }
 
     /// Import all names from `other` into `self`.
@@ -237,8 +332,7 @@ impl NamePool {
     pub fn merge(&mut self, other: &NamePool) -> HashMap<NameId, NameId> {
         let mut remap: HashMap<NameId, NameId> = HashMap::new();
 
-        for (i, name) in other.names.iter().enumerate() {
-            let old_id = NameId(i as u32);
+        for (old_id, name) in other.names() {
             // Remap ancestors using what we've mapped so far.
             let new_ancestors: Vec<NameId> = name
                 .ancestors
@@ -250,7 +344,7 @@ impl NamePool {
                 role: name.role,
                 ancestors: new_ancestors,
             };
-            let criteria = other.criteria[i].clone();
+            let criteria = other.criteria.get(old_id.0 as usize).cloned().flatten();
             let new_id = self.intern(remapped, criteria);
             self.add_lineage(new_id, other.lineage(old_id).iter().cloned());
             remap.insert(old_id, new_id);
@@ -272,15 +366,14 @@ impl NamePool {
         let mut new_criteria: Vec<Option<GeometricCriteria>> = Vec::new();
         let mut new_lineage: Vec<Vec<EntityName>> = Vec::new();
 
-        for (i, name) in self.names.iter().enumerate() {
-            let old_id = NameId(i as u32);
+        for (old_id, name) in self.names() {
             if !referenced.contains(&old_id) {
                 continue;
             }
-            let new_id = NameId(new_names.len() as u32);
-            remap.insert(old_id, new_id);
+            let i = old_id.0 as usize;
+            remap.insert(old_id, NameId(new_names.len() as u32));
             new_names.push(name.clone());
-            new_criteria.push(self.criteria[i].clone());
+            new_criteria.push(self.criteria.get(i).cloned().flatten());
             new_lineage.push(self.lineage.get(i).cloned().unwrap_or_default());
         }
 
@@ -293,182 +386,14 @@ impl NamePool {
             }
         }
 
-        self.names = new_names;
-        self.criteria = new_criteria;
-        self.lineage = new_lineage;
+        self.names = ChunkedVec::from_vec(new_names);
+        self.criteria = ChunkedVec::from_vec(new_criteria);
+        self.lineage = ChunkedVec::from_vec(new_lineage);
         self.rebuild_index();
         remap
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_name(op: u64, cat: RoleCategory, idx: u32) -> EntityName {
-        EntityName {
-            operation: OperationId(op),
-            role: EntityRole {
-                category: cat,
-                index: idx,
-            },
-            ancestors: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn intern_and_get_round_trip() {
-        let mut pool = NamePool::new();
-        let name = make_name(1, RoleCategory::Generated, 0);
-        let id = pool.intern(name.clone(), None);
-        let retrieved = pool.get(id).expect("name should be present");
-        assert_eq!(*retrieved, name);
-    }
-
-    #[test]
-    fn dedup_same_name_same_id() {
-        let mut pool = NamePool::new();
-        let name = make_name(1, RoleCategory::Cap, 0);
-        let id1 = pool.intern(name.clone(), None);
-        let id2 = pool.intern(name.clone(), None);
-        assert_eq!(id1, id2);
-        assert_eq!(pool.len(), 1);
-    }
-
-    #[test]
-    fn different_names_different_ids() {
-        let mut pool = NamePool::new();
-        let a = make_name(1, RoleCategory::Generated, 0);
-        let b = make_name(1, RoleCategory::Generated, 1);
-        let id_a = pool.intern(a, None);
-        let id_b = pool.intern(b, None);
-        assert_ne!(id_a, id_b);
-        assert_eq!(pool.len(), 2);
-    }
-
-    #[test]
-    fn find_existing_returns_some() {
-        let mut pool = NamePool::new();
-        let name = make_name(42, RoleCategory::Lateral, 3);
-        let id = pool.intern(name.clone(), None);
-        assert_eq!(pool.find(&name), Some(id));
-    }
-
-    #[test]
-    fn find_missing_returns_none() {
-        let pool = NamePool::new();
-        let name = make_name(99, RoleCategory::Modified, 0);
-        assert_eq!(pool.find(&name), None);
-    }
-
-    #[test]
-    fn rebuild_index_restores_lookups() {
-        let mut pool = NamePool::new();
-        let name = make_name(7, RoleCategory::Intersection, 0);
-        let id = pool.intern(name.clone(), None);
-
-        // Simulate what happens after serde: index is gone.
-        pool.index.clear();
-        assert_eq!(pool.find(&name), None, "index cleared");
-
-        pool.rebuild_index();
-        assert_eq!(pool.find(&name), Some(id), "index restored");
-    }
-
-    #[test]
-    fn merge_imports_names_and_remaps_ancestors() {
-        let mut pool_a = NamePool::new();
-        let mut pool_b = NamePool::new();
-
-        let base = make_name(1, RoleCategory::Cap, 0);
-        let base_id_b = pool_b.intern(base.clone(), None);
-
-        let derived = EntityName {
-            operation: OperationId(2),
-            role: EntityRole {
-                category: RoleCategory::Generated,
-                index: 0,
-            },
-            ancestors: vec![base_id_b],
-        };
-        pool_b.intern(derived.clone(), None);
-
-        let remap = pool_a.merge(&pool_b);
-
-        // Both names should now be in pool_a.
-        assert_eq!(pool_a.len(), 2);
-
-        // The base id in pool_b was remapped.
-        let new_base_id = remap[&base_id_b];
-        assert_eq!(pool_a.get(new_base_id).unwrap().operation, OperationId(1));
-
-        // Find the derived name via its new ancestor id.
-        let found_derived = pool_a.names.iter().find(|n| n.operation == OperationId(2));
-        let found_derived = found_derived.expect("derived name should be present");
-        assert_eq!(found_derived.ancestors[0], new_base_id);
-    }
-
-    #[test]
-    fn compact_removes_dead_names_and_remaps() {
-        let mut pool = NamePool::new();
-        let a = pool.intern(make_name(1, RoleCategory::Cap, 0), None);
-        let b = pool.intern(make_name(2, RoleCategory::Cap, 0), None);
-        let _c = pool.intern(make_name(3, RoleCategory::Cap, 0), None);
-
-        let mut keep = HashSet::new();
-        keep.insert(a);
-        keep.insert(b);
-
-        let remap = pool.compact(&keep);
-
-        assert_eq!(pool.len(), 2, "dead name c removed");
-        // a and b should be mapped to consecutive new ids.
-        let new_a = remap[&a];
-        let new_b = remap[&b];
-        assert!(new_a.0 < 2);
-        assert!(new_b.0 < 2);
-        assert_ne!(new_a, new_b);
-        // c is not in the remap.
-        assert!(!remap.contains_key(&_c));
-    }
-
-    #[test]
-    fn compact_remaps_ancestor_references() {
-        let mut pool = NamePool::new();
-        // Insert a to-be-dropped name at index 0, then two survivors.
-        let _dead = pool.intern(make_name(0, RoleCategory::Cap, 0), None);
-        let parent = pool.intern(make_name(1, RoleCategory::Cap, 0), None);
-        let child_name = EntityName {
-            operation: OperationId(2),
-            role: EntityRole {
-                category: RoleCategory::Generated,
-                index: 0,
-            },
-            ancestors: vec![parent],
-        };
-        let child = pool.intern(child_name, None);
-
-        let mut keep = HashSet::new();
-        keep.insert(parent);
-        keep.insert(child);
-        let remap = pool.compact(&keep);
-
-        let new_parent = remap[&parent];
-        let new_child = remap[&child];
-        let child_entry = pool.get(new_child).expect("child present");
-        assert_eq!(child_entry.ancestors[0], new_parent);
-    }
-
-    #[test]
-    fn is_empty_and_len() {
-        let mut pool = NamePool::new();
-        assert!(pool.is_empty());
-        pool.intern(make_name(1, RoleCategory::Modified, 0), None);
-        assert!(!pool.is_empty());
-        assert_eq!(pool.len(), 1);
-    }
-}
+#[path = "naming_tests.rs"]
+mod tests;

@@ -11,7 +11,10 @@
 //! number of later operations, without changing any stable name (no
 //! naming-scheme change; saved references keep resolving).
 
+use std::collections::HashSet;
+
 use crate::naming::{EntityName, NameId, NamePool};
+use crate::topology::BRep;
 
 impl NamePool {
     /// The recorded lineage of `id` (empty when none).
@@ -25,15 +28,21 @@ impl NamePool {
     /// Record that `id` descends from `from` (deduplicated).
     pub fn add_lineage(&mut self, id: NameId, from: impl IntoIterator<Item = EntityName>) {
         let i = id.0 as usize;
-        if i >= self.names.len() {
+        let Some(own) = self.get(id).cloned() else {
+            return;
+        };
+        let fresh: Vec<EntityName> = from
+            .into_iter()
+            .filter(|name| *name != own && !self.lineage(id).contains(name))
+            .collect();
+        if fresh.is_empty() {
             return;
         }
-        if self.lineage.len() < self.names.len() {
-            self.lineage.resize(self.names.len(), Vec::new());
-        }
-        for name in from {
-            if self.names[i] != name && !self.lineage[i].contains(&name) {
-                self.lineage[i].push(name);
+        if let Some(entry) = self.lineage.get_mut(i) {
+            for name in fresh {
+                if !entry.contains(&name) {
+                    entry.push(name);
+                }
             }
         }
     }
@@ -64,11 +73,51 @@ impl NamePool {
         out
     }
 
+    /// Drop the recorded lineage of every name outside `keep` (the
+    /// names themselves stay: ids and stable names never change).
+    pub fn retain_lineage(&mut self, keep: &HashSet<NameId>) {
+        self.lineage.edit_where(
+            |i, entry| !entry.is_empty() && !keep.contains(&NameId(i as u32)),
+            |_, entry| *entry = Vec::new(),
+        );
+    }
+
     /// Whether `id` is `target` or descends from it (ancestors or
     /// lineage, by value).
     pub fn descends(&self, id: NameId, target: &EntityName) -> bool {
         self.get(id) == Some(target) || self.ancestry(id).contains(target)
     }
+}
+
+/// Drop the lineage no reader of `brep` can reach (PK-731).
+///
+/// Lineage is read only through [`NamePool::ancestry`], which reads the
+/// lineage of the queried name and of its DIRECT ancestors; the queried
+/// names are live entities' (`resolve_lineage`, and the lineage a later
+/// boolean records reads its live inputs'), and every name a later
+/// operation mints takes live input entities as ancestors. So the
+/// lineage of any name that is neither a live entity's nor a live
+/// entity's direct ancestor is never read again. Each boolean records
+/// a piece's whole ancestry by value, so keeping it on every historical
+/// name made a pool's lineage grow with the cube of the operation
+/// count — and every BRep clone copied it. Resolution is unchanged by
+/// construction: every value any [`NamePool::ancestry`] of a live name
+/// returns is kept.
+pub fn prune_unreadable_lineage(brep: &mut BRep) {
+    let live = brep
+        .vertices
+        .values()
+        .filter_map(|v| v.name)
+        .chain(brep.edges.values().filter_map(|e| e.name))
+        .chain(brep.faces.values().filter_map(|f| f.name));
+    let mut keep: HashSet<NameId> = HashSet::new();
+    for id in live {
+        keep.insert(id);
+        if let Some(name) = brep.name_pool.get(id) {
+            keep.extend(name.ancestors.iter().copied());
+        }
+    }
+    brep.name_pool.retain_lineage(&keep);
 }
 
 #[cfg(test)]
@@ -100,7 +149,11 @@ mod tests {
         let again = second.intern(name(3, RoleCategory::Generated, 0), None);
         second.add_lineage(
             again,
-            std::iter::once(first.names[piece.0 as usize].clone()).chain(first.ancestry(piece)),
+            first
+                .get(piece)
+                .cloned()
+                .into_iter()
+                .chain(first.ancestry(piece)),
         );
         assert!(second.descends(again, &original), "two operations later");
         let mut merged = NamePool::new();

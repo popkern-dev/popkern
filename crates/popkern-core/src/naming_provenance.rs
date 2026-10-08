@@ -100,6 +100,14 @@ impl NamePool {
     /// ancestry deeper than any operation chain, which only a corrupt
     /// pool has).
     pub fn import(&mut self, source: &NamePool, id: NameId) -> Option<NameId> {
+        // A pool grown from `source` (a boolean's result from its
+        // target operand) already holds every one of its names at the
+        // same id with the same lineage: the import is the identity.
+        // Walking the ancestor chain instead costs the whole history
+        // per name (PK-731).
+        if self.extends(source) {
+            return source.get(id).map(|_| id);
+        }
         let mut memo = std::collections::HashMap::new();
         self.import_memo(source, id, &mut memo, 0)
     }

@@ -236,8 +236,8 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
         let state = &extruded;
         state
             .name_pool
-            .names
-            .iter()
+            .names()
+            .map(|(_, n)| n)
             .find(|n| {
                 crate::resolve::resolve_edge(n, state).is_ok_and(|eh| {
                     let ed = &state.edges[eh];

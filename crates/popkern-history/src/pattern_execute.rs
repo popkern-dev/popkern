@@ -153,6 +153,7 @@ pub(crate) fn execute_pattern(ctx: &mut PatternContext<'_>) -> Result<PatternRes
         if !geometry_pattern {
             match try_feature_replay(
                 inst_idx,
+                transform,
                 ctx.seed_features,
                 ctx.seed_op_ids,
                 ctx.instance_op_ids,
@@ -292,6 +293,7 @@ fn boolean_into_host(
 #[allow(clippy::too_many_arguments)]
 fn try_feature_replay(
     inst_idx: usize,
+    transform: &popkern_core::geometry::transform::Transform3,
     seed_features: &[Feature],
     seed_op_ids: &[OperationId],
     instance_op_ids: &HashMap<(u32, u32), OperationId>,
@@ -331,13 +333,24 @@ fn try_feature_replay(
             })
             .collect::<Result<Vec<_>, ReplayError>>()?;
 
+    // The seed chain resolves its placement (an on-face sketch's plane)
+    // where the SEED sits; the instance transform carries the replayed
+    // tool to the instance (PK-731: without it every instance landed on
+    // the seed and its boolean changed nothing — hidden until then by
+    // the face reference failing to resolve, which sent instances to
+    // the geometry fallback).
     let tool_brep = pattern_replay::replay_seed_chain(
         &remapped,
         tolerance,
         param_table,
         body_breps,
         naming_scheme,
-    )?;
+    )?
+    .transform(transform)
+    .map_err(|e| ReplayError::FeatureFailed {
+        label: "pattern".into(),
+        error: format!("transform failed: {e}").into(),
+    })?;
 
     let host_brep = body_breps
         .remove(&host_body)

@@ -24,9 +24,8 @@ use crate::replay;
 /// with the mapped instance-specific [`OperationId`].
 ///
 /// For `Sketch` features with `OnFace` planes, the face reference is kept
-/// as-is (the host face is the same for all instances; the different position
-/// comes from the auto-merge target).  This is a simplification that works
-/// for the initial implementation.
+/// as-is: the chain replays at the seed's placement and the caller moves
+/// the resulting tool by the instance transform.
 pub(crate) fn clone_seed_feature(
     feature: &Feature,
     op_remap: &HashMap<OperationId, OperationId>,
