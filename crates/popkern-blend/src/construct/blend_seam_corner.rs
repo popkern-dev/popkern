@@ -141,6 +141,12 @@ pub(crate) fn settle_blend_seam_corners(
             }
         }
     }
+    // Reflex pair corners (PK-740): a boss base's two root strips
+    // sharing a support corner leave a chain, not a flap.
+    let (built, declines) =
+        super::blend_seam_corner_reflex::settle_reflex_pair_corners(result, &created, tolerance);
+    report.seams_built += built;
+    report.declines.extend(declines);
     report
 }
 

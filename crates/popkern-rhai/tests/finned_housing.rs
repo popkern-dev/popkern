@@ -239,3 +239,59 @@ fn seam_fin_ring_unions_serve_cellular_with_honest_rims() {
         );
     }
 }
+
+/// A fin's root ARC (cap plane ⊥ housing axis × housing): a torus strip
+/// whose ends meet the housing at reflex corners and settle on terminal
+/// discs in the fin's OBLIQUE side planes, bounded by the fitted section
+/// `torus ∩ side plane` (PK-740). Its volume (0.644) sits under the
+/// housing mesh's chord noise, so this pins the structure — one torus
+/// strip, two planar discs, every edge on its faces; the OCC oracle
+/// measured the STEP exact against `∬ 2ρ·asin(w/ρ) dA` (951773.65).
+#[test]
+fn a_fin_root_arc_fillets_with_oblique_terminal_discs() {
+    let (s, c) = (30.0_f64.to_radians().sin(), 30.0_f64.to_radians().cos());
+    let x = (R * R - W * W).sqrt();
+    let corner = format!("[{}, {}, {Z0:?}]", x * c - W * s, x * s + W * c);
+    let filleted = single_fin(30.0, &[1.0]).replace(
+        &format!(
+            "edges().straight().direction(\"z\").at_vertex({})",
+            root_vertex(30.0, 1.0, Z0)
+        ),
+        &format!("edges().circular().at_vertex({corner}).at_height({Z0:?})"),
+    );
+    assert!(filleted.contains("circular()"), "selector rewrite");
+    let unfilleted: String = filleted
+        .lines()
+        .filter(|l| !l.contains(".fillet("))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let brep_of = |source: &str| {
+        let mut host = ScriptHost::new();
+        let outcome = host
+            .run(source, "arc.rhai")
+            .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
+        let mut model = outcome.model.expect("model");
+        model.to_part().expect("part").brep().clone()
+    };
+    let (before, after) = (brep_of(&unfilleted), brep_of(&filleted));
+    assert_eq!(
+        after.faces.len(),
+        before.faces.len() + 3,
+        "strip + two discs"
+    );
+    let torus = after.faces.values().filter(|f| {
+        f.surface.as_ref().is_some_and(|s| {
+            matches!(
+                s.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+            )
+        })
+    });
+    assert_eq!(torus.count(), 1, "one torus strip");
+    assert!(after.validate().is_ok(), "{:?}", after.validate());
+    assert!(
+        after.validate_curve_surface().is_ok(),
+        "{:?}",
+        after.validate_curve_surface()
+    );
+}

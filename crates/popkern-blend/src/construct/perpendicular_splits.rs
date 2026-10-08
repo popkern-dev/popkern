@@ -11,6 +11,8 @@ pub(super) struct PerpSplitData {
     /// (PK-185/PK-186) — consumed by the terminal-disc stage after
     /// The consumed-merge stage.
     pub(super) reflex_ends: Vec<helpers::ReflexEndAnchor>,
+    /// Corners anchored junction-class (no vertex blend — PK-740).
+    pub(super) junction_corners: Vec<VertexHandle>,
 }
 
 pub(super) struct PerpendicularSplitState {
@@ -19,6 +21,15 @@ pub(super) struct PerpendicularSplitState {
     /// Strip + support faces from closed-rim surgeries — protected
     /// from the post-pipeline's sliver_absorb.
     pub(super) closed_fillet_protected: Vec<popkern_core::topology::FaceHandle>,
+}
+
+impl PerpendicularSplitState {
+    /// Corners anchored junction-class by any edge (PK-740).
+    pub(super) fn junction_corners(&self) -> std::collections::HashSet<VertexHandle> {
+        let all = self.perp_data.iter().flatten();
+        all.flat_map(|pd| pd.junction_corners.iter().copied())
+            .collect()
+    }
 }
 
 /// Which corners the dispatch routes direct-apex, as the anchor-split
@@ -93,8 +104,7 @@ pub(super) fn run_perpendicular_splits(
     // All edges being blended this operation — the reflex-corner
     // anchor gate must never divert a walk along a fellow fillet
     // edge (chain/vertex-blend territory).
-    let blend_edges: std::collections::HashSet<EdgeHandle> =
-        edge_geometries.iter().map(|eg| eg.analysis.edge).collect();
+    let blend_edges = super::blend_edge_set::BlendEdgeSet::from_geometries(edge_geometries);
     // Corners the dispatch routes direct-apex. A serving-retry
     // exclusion (PK-250/PK-533) routes its corner through the
     // vertex-blend dispatch, which needs vertex-blend anchors: without
@@ -233,6 +243,8 @@ pub(super) fn run_perpendicular_splits(
                 // fights that noise (PK-171). The trim crossing IS
                 // the exact triple point.
                 | SurfaceGeometry::Cone { .. }
+                // TORUS strips: a fin root arc's reflex corner (PK-740).
+                | SurfaceGeometry::Torus { .. }
         );
         // Cylinder sweeps join the trim-crossing convention for the
         // setback path (PK-097: the G1 analytic strips carve at
@@ -264,6 +276,7 @@ pub(super) fn run_perpendicular_splits(
             SurfaceGeometry::Nurbs(_)
                 | SurfaceGeometry::Cylinder { .. }
                 | SurfaceGeometry::Cone { .. }
+                | SurfaceGeometry::Torus { .. }
         ) && !direct_apex_anchor_edge;
 
         // §28.H Session 2 — build per-anchor planner override.  For
@@ -327,6 +340,7 @@ pub(super) fn run_perpendicular_splits(
                     face_1_anchors: info.face_1_anchors,
                     face_2_anchors: info.face_2_anchors,
                     reflex_ends: info.reflex_ends,
+                    junction_corners: info.junction_corners,
                 }))
             }
             Err(e) => {

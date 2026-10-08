@@ -171,6 +171,9 @@ pub fn apply_blend_geometry(
                 }),
             );
             vertex_edges.retain(|v, _| !junctions.contains(v));
+            // Reflex pair mitres likewise: the seam pass settles them.
+            let mitres = split_state.junction_corners();
+            vertex_edges.retain(|v, _| !mitres.contains(v));
             // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
             // A-through-C). Post-modification, original edge handles are
             // stale and `classify_vertex_blend` silently defaults to

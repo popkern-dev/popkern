@@ -94,23 +94,23 @@ pub(super) fn author_reflex_end_discs(
             ));
             continue;
         };
-        let SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius,
-        } = &eg.surface
-        else {
-            failures.push(fail(
-                "hole-rim terminal disc requires a cylindrical strip (non-cylinder \
-                 reflex ends are a recorded decline)"
-                    .into(),
-                None,
-            ));
-            continue;
-        };
-        let Some(axis_hat) = axis.normalized() else {
-            failures.push(fail("hole-rim terminal disc: degenerate axis".into(), None));
-            continue;
+        // Cylinder strips end on the exact circle of their axis-normal
+        // section; any other strip (a torus root arc, PK-740) ends on
+        // its fitted section by the plane through the corner and both
+        // rail ends.
+        let cylinder = match &eg.surface {
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            } => {
+                let Some(axis_hat) = axis.normalized() else {
+                    failures.push(fail("hole-rim terminal disc: degenerate axis".into(), None));
+                    continue;
+                };
+                Some((*origin, axis_hat, *radius))
+            }
+            _ => None,
         };
         let span_sign = match eg.analysis.convexity {
             crate::analysis::Convexity::Convex => -1.0,
@@ -161,24 +161,29 @@ pub(super) fn author_reflex_end_discs(
                 ));
                 break;
             };
-            // Exact station: the arc centre is the axis foot of the
-            // rail end.
-            let center = *origin + axis_hat * (p_b - *origin).dot(&axis_hat);
-            let gate = tolerance.linear().max(1e-9) * 10.0;
-            let (ra, rb) = ((p_a - center).length(), (p_b - center).length());
-            if (ra - radius).abs() > gate || (rb - radius).abs() > gate {
-                failures.push(fail(
-                    format!(
-                        "hole-rim terminal disc: end anchors off the strip cylinder \
-                         (|C-A| = {ra:.6}, |C-B| = {rb:.6}, r = {radius:.6})"
-                    ),
-                    Some(p_v),
-                ));
-                break;
-            }
+            let end = match cylinder {
+                Some((origin, axis_hat, radius)) => {
+                    // Exact station: the arc centre is the axis foot
+                    // of the rail end.
+                    let center = origin + axis_hat * (p_b - origin).dot(&axis_hat);
+                    let gate = tolerance.linear().max(1e-9) * 10.0;
+                    let (ra, rb) = ((p_a - center).length(), (p_b - center).length());
+                    if (ra - radius).abs() > gate || (rb - radius).abs() > gate {
+                        failures.push(fail(
+                            format!(
+                                "hole-rim terminal disc: end anchors off the strip cylinder \
+                                 (|C-A| = {ra:.6}, |C-B| = {rb:.6}, r = {radius:.6})"
+                            ),
+                            Some(p_v),
+                        ));
+                        break;
+                    }
+                    EndSection::Circle { center, axis_hat }
+                }
+                None => EndSection::Fitted(&eg.surface),
+            };
             match carve_disc(
-                result, strip, re.corner, p_v, p_b, p_a, center, axis_hat, span_sign, p_far,
-                tolerance, trace,
+                result, strip, re.corner, p_v, p_b, p_a, &end, span_sign, p_far, tolerance, trace,
             ) {
                 Ok(disc) => discs.push(disc),
                 Err(reason) => {
@@ -189,6 +194,14 @@ pub(super) fn author_reflex_end_discs(
         }
     }
     discs
+}
+
+/// How a strip end's terminal curve is authored.
+enum EndSection<'a> {
+    /// Cylinder strip: exact minor arc about the axis foot.
+    Circle { center: Point3, axis_hat: Vec3 },
+    /// Any other strip: `strip ∩ plane(corner, A, B)`, fitted.
+    Fitted(&'a SurfaceGeometry),
 }
 
 /// One end's mef + arc + plane authoring. `p_b` is the spur tip
@@ -203,8 +216,7 @@ fn carve_disc(
     p_v: Point3,
     p_b: Point3,
     p_a: Point3,
-    center: Point3,
-    axis_hat: Vec3,
+    end: &EndSection,
     span_sign: f64,
     p_far: Point3,
     tolerance: &Tolerance,
@@ -259,34 +271,83 @@ fn carve_disc(
     let mef = result
         .mef(he1, he2)
         .map_err(|e| format!("hole-rim terminal disc mef failed: {e}"))?;
-    // Exact minor arc o1 → o2 (the mef edge's primary direction).
-    let u_basis = q1 - center;
-    let mut v_basis = axis_hat.cross(&u_basis);
-    let d = q2 - center;
-    let mut sweep = d.dot(&v_basis).patan2(d.dot(&u_basis));
-    if sweep < 0.0 {
-        v_basis = -v_basis;
-        sweep = -sweep;
-    }
-    if !(1e-9..=std::f64::consts::PI - 1e-9).contains(&sweep) {
-        return Err(format!(
-            "hole-rim terminal disc: arc sweep {sweep:.4} outside the minor-arc range"
-        ));
-    }
-    let arc = CurveOnEdge {
-        geometry: CurveGeometry::Ellipse {
-            center,
-            u_basis,
-            v_basis,
-            start_angle: 0.0,
-            end_angle: sweep,
-        },
-        t_start: 0.0,
-        t_end: sweep,
-    };
     let pos_gate = (tolerance.linear() * 10.0).max(1e-9);
-    let hit_start = arc.geometry.point_at(arc.t_start).distance_to(&q1);
-    let hit_end = arc.geometry.point_at(arc.t_end).distance_to(&q2);
+    let (curve, normal, u_axis, sweep) = match end {
+        EndSection::Circle { center, axis_hat } => {
+            let (center, axis_hat) = (*center, *axis_hat);
+            // Exact minor arc o1 → o2 (the mef edge's primary direction).
+            let u_basis = q1 - center;
+            let mut v_basis = axis_hat.cross(&u_basis);
+            let d = q2 - center;
+            let mut sweep = d.dot(&v_basis).patan2(d.dot(&u_basis));
+            if sweep < 0.0 {
+                v_basis = -v_basis;
+                sweep = -sweep;
+            }
+            if !(1e-9..=std::f64::consts::PI - 1e-9).contains(&sweep) {
+                return Err(format!(
+                    "hole-rim terminal disc: arc sweep {sweep:.4} outside the minor-arc range"
+                ));
+            }
+            let arc = CurveOnEdge {
+                geometry: CurveGeometry::Ellipse {
+                    center,
+                    u_basis,
+                    v_basis,
+                    start_angle: 0.0,
+                    end_angle: sweep,
+                },
+                t_start: 0.0,
+                t_end: sweep,
+            };
+            // Disc plane: through the corner, normal along the axis
+            // with the material side fixed by convexity (convex
+            // removes material within the span → normal INTO the span;
+            // concave adds it → normal OUT of the span).
+            let axial = |p: Point3| (p - center).dot(&axis_hat);
+            let toward_end = if axial(p_far) <= 0.0 { 1.0 } else { -1.0 };
+            let normal = axis_hat * (toward_end * span_sign);
+            let u_axis = (p_b - center)
+                .normalized()
+                .ok_or_else(|| "hole-rim terminal disc: degenerate radial direction".to_string())?;
+            (arc, normal, u_axis, sweep)
+        }
+        EndSection::Fitted(surface) => {
+            // The end plane holds the corner and both rail ends; the
+            // same material rule orients it against the far end.
+            let raw = (p_a - p_v).cross(&(p_b - p_v));
+            let n_e = raw
+                .normalized()
+                .ok_or_else(|| "hole-rim terminal disc: degenerate end plane".to_string())?;
+            let s = if n_e.dot(&(p_far - p_v)) * span_sign < 0.0 {
+                1.0
+            } else {
+                -1.0
+            };
+            let normal = n_e * s;
+            let section = super::hole_rim_terminal_section::strip_plane_section(
+                surface,
+                p_v,
+                normal,
+                q1,
+                q2,
+                tolerance.linear(),
+            )?;
+            let (t0, t1) = section.parameter_range();
+            let along = p_b - p_v;
+            let u_axis = (along - normal * along.dot(&normal))
+                .normalized()
+                .ok_or_else(|| "hole-rim terminal disc: degenerate in-plane axis".to_string())?;
+            let curve = CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(section),
+                t_start: t0,
+                t_end: t1,
+            };
+            (curve, normal, u_axis, f64::NAN)
+        }
+    };
+    let hit_start = curve.geometry.point_at(curve.t_start).distance_to(&q1);
+    let hit_end = curve.geometry.point_at(curve.t_end).distance_to(&q2);
     if hit_start > pos_gate || hit_end > pos_gate {
         return Err(format!(
             "hole-rim terminal disc: authored arc misses its endpoints \
@@ -294,18 +355,8 @@ fn carve_disc(
         ));
     }
     if let Some(e) = result.edges.get_mut(mef.edge) {
-        e.curve = Some(arc);
+        e.curve = Some(curve);
     }
-    // Disc plane: through the corner, normal along the axis with the
-    // material side fixed by convexity (convex removes material
-    // within the span → normal INTO the span; concave adds it →
-    // normal OUT of the span).
-    let axial = |p: Point3| (p - center).dot(&axis_hat);
-    let toward_end = if axial(p_far) <= 0.0 { 1.0 } else { -1.0 };
-    let normal = axis_hat * (toward_end * span_sign);
-    let u_axis = (p_b - center)
-        .normalized()
-        .ok_or_else(|| "hole-rim terminal disc: degenerate radial direction".to_string())?;
     let v_axis = normal.cross(&u_axis);
     if let Some(f) = result.faces.get_mut(mef.face) {
         f.surface = Some(SurfaceOnFace {

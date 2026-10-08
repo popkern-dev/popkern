@@ -7,6 +7,8 @@ use popkern_core::topology::LoopHandle;
 /// outranks every other placement (crossings are 2, walks 1, interior
 /// rail ends 0) and lands interior to the face like a rail end.
 const JUNCTION_SECTION: u8 = 3;
+/// Slot quality of a reflex pair-corner mitre point (PK-740).
+const REFLEX_MITRE: u8 = 4;
 
 /// One resolved anchor position with its placement class.
 ///
@@ -24,9 +26,10 @@ const JUNCTION_SECTION: u8 = 3;
 pub(in crate::construct) struct AnchorPlacement {
     pub(in crate::construct) position: Point3,
     pub(in crate::construct) interior_rail: bool,
-    /// A tangent-chain junction's section contact (PK-733): interior
-    /// to the face, shared by both strips of the junction, and landed
-    /// by a spur from the junction vertex — never a reflex end.
+    /// A tangent-chain junction's section contact (PK-733), or the
+    /// mitre point of two fillets sharing a reflex corner (PK-740):
+    /// interior to the face, shared by both strips, landed by a spur
+    /// from the corner — never a reflex end (no terminal disc).
     pub(in crate::construct) junction: bool,
 }
 
@@ -72,7 +75,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     anchor_on_trim: bool,
     bevel_plane: Option<(Point3, popkern_core::geometry::Vec3)>,
     _tolerance: &Tolerance,
-    blend_edges: &std::collections::HashSet<EdgeHandle>,
+    blend_edges: &crate::construct::blend_edge_set::BlendEdgeSet,
 ) -> Result<(AnchorPlacement, AnchorPlacement), String> {
     let face_data = brep
         .faces
@@ -299,18 +302,16 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     // post-carve — measured: offset_bracket 43
                     // opens), whose walk still heads TOWARD the
                     // rail.
-                    // Never divert when the walked edge is ITSELF
-                    // being filleted: chain continuations and
-                    // vertex-blend corners legitimately walk along
-                    // the neighbouring fillet edge, and the rail end
-                    // nearest the shared corner lies on the trim's
-                    // OVERHANG past the corner (measured: the
-                    // boss-on-wall seam chain diverted to a spur at
-                    // x = 1.05 outside the unit body).
-                    // Curved supports use their own trim (PK-730: the
-                    // plane-only gate let a fin root walk into the void).
+                    // A walked FELLOW fillet edge (chain continuations,
+                    // vertex-blend corners) diverts only at a strictly
+                    // reflex corner, and then to the two rails' MITRE
+                    // point, never the overhang rail end (measured: a
+                    // seam chain spurred to x = 1.05 outside the body;
+                    // a boss base loop walked into the footprint —
+                    // PK-740). Curved supports use their own trim (PK-730).
+                    let neighbour_rail = blend_edges.concave_pair_rail(fillet_edge, he.edge, face);
                     if anchor_on_trim
-                        && !blend_edges.contains(&he.edge)
+                        && (!blend_edges.contains(&he.edge) || neighbour_rail.is_some())
                         && let Some(curve) = analytic_curve.or(trim_3d_for_face)
                     {
                         let vertex_pos = if forward { p0 } else { p1 };
@@ -330,8 +331,27 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                                 < -0.1 * rail_vec.length() * walk_vec.length()
                             && distance_to_curve(curve, &candidate) > radius * 0.5;
                         if wrong_side {
-                            if slot.is_none() {
-                                *slot = Some((rail_end, 0));
+                            let gate = (_tolerance.linear() * 100.0).max(1e-7);
+                            let placed = match neighbour_rail {
+                                Some(n) => reflex_mitre(&ReflexMitreQuery {
+                                    brep,
+                                    blend_edges,
+                                    support: face,
+                                    fillet_edge,
+                                    neighbour_edge: he.edge,
+                                    own_rail: curve,
+                                    neighbour_rail: n,
+                                    seed: rail_end,
+                                    radius,
+                                    gate,
+                                })
+                                .map(|m| (m, REFLEX_MITRE)),
+                                None => Some((rail_end, 0)),
+                            };
+                            if slot.is_none()
+                                && let Some(placed) = placed
+                            {
+                                *slot = Some(placed);
                                 if trace {
                                     eprintln!(
                                         "[anchor] face={face:?} wrong-side walk (reflex corner) — interior rail end recorded"
@@ -344,44 +364,19 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     if slot_quality >= 1 {
                         return;
                     }
-                    // PLANAR-BEVEL anchor (chamfers): the strip's
-                    // true end boundary is where the BEVEL PLANE
-                    // crosses this perpendicular edge. On orthogonal
-                    // corners this equals the perp-walk position
-                    // exactly; on skewed corners the perp-walk
-                    // anchor sits OFF the bevel plane, the end
-                    // transition gets merged into the planar strip
-                    // face anyway, and the face no longer contains
-                    // its own boundary (measured: a tilted
-                    // boolean-cut bar's mitre corner 0.46 off the
-                    // recognized plane — the mesher and OCC's sewing
-                    // both cracked along both rails). Capped at 8×
-                    // the chamfer distance so a near-parallel edge
-                    // falls back to perp-walk instead of a grotesque
-                    // mitre.
-                    if let Some((po, pn)) = bevel_plane {
-                        let d = p1 - p0;
-                        let denom = pn.dot(&d);
-                        if denom.abs() > 1e-12 {
-                            let s = pn.dot(&(po - p0)) / denom;
-                            let dist_from_vertex = if forward {
-                                s * edge_len
-                            } else {
-                                (1.0 - s) * edge_len
-                            };
-                            if (0.001..0.999).contains(&s)
-                                && dist_from_vertex > 1e-9
-                                && dist_from_vertex <= radius * 8.0
-                            {
-                                if trace {
-                                    eprintln!(
-                                        "[anchor] face={face:?} bevel-plane s={s:.6} vs perp t={t_perp:.6} — using plane crossing"
-                                    );
-                                }
-                                *slot = Some((along(s), 1));
-                                return;
-                            }
+                    // PLANAR-BEVEL anchor (chamfers): where the bevel
+                    // plane crosses this perpendicular edge (see
+                    // `bevel_plane_crossing`).
+                    if let Some(s) = bevel_plane
+                        .and_then(|b| bevel_plane_crossing(b, p0, p1, forward, edge_len, radius))
+                    {
+                        if trace {
+                            eprintln!(
+                                "[anchor] face={face:?} bevel-plane s={s:.6} vs perp t={t_perp:.6} — using plane crossing"
+                            );
                         }
+                        *slot = Some((along(s), 1));
+                        return;
                     }
                     // COLLINEAR-CHAIN CONTINUATION: when the anchor
                     // distance overshoots this edge, the true anchor
@@ -484,17 +479,19 @@ pub(super) fn compute_perp_anchor_positions_for_face(
         .map(|(position, quality)| AnchorPlacement {
             position,
             interior_rail: quality == 0,
-            junction: quality == JUNCTION_SECTION,
+            junction: quality == JUNCTION_SECTION || quality == REFLEX_MITRE,
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
     let end_pos = perp_end
         .map(|(position, quality)| AnchorPlacement {
             position,
             interior_rail: quality == 0,
-            junction: quality == JUNCTION_SECTION,
+            junction: quality == JUNCTION_SECTION || quality == REFLEX_MITRE,
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
     Ok((start_pos, end_pos))
 }
 
-use super::perp_anchor_rail_proximity::{closest_point_on_curve, distance_to_curve};
+use super::perp_anchor_rail_proximity::{
+    ReflexMitreQuery, bevel_plane_crossing, closest_point_on_curve, distance_to_curve, reflex_mitre,
+};

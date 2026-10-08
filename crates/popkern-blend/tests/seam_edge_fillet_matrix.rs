@@ -263,7 +263,12 @@ fn boss_on_wall_seam_crossing_chain_measured() {
                 msg.contains("PartialFailure")
                     && (msg.contains("multi-chord")
                         || msg.contains("no descendant half-edge")
-                        || msg.contains("no edge contains anchor")),
+                        || msg.contains("no edge contains anchor")
+                        // PK-740 lands the boss base's reflex mitre
+                        // anchors; the curved-support asymmetric
+                        // mitre seam (PK-742) declines at the
+                        // curve-surface gate.
+                        || msg.contains("off their faces")),
                 "decline must name the curved-support apply classes: {}",
                 &msg[..msg.len().min(300)]
             );

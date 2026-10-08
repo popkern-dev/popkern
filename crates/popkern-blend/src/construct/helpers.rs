@@ -13,7 +13,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 mod perp_anchor_positions;
 #[path = "perp_anchor_rail_proximity.rs"]
 mod perp_anchor_rail_proximity;
-use perp_anchor_positions::compute_perp_anchor_positions_for_face;
+use perp_anchor_positions::{AnchorPlacement, compute_perp_anchor_positions_for_face};
 
 #[path = "helpers_anchor_insert.rs"]
 pub(in crate::construct) mod helpers_anchor_insert;
@@ -87,7 +87,7 @@ pub fn split_perpendicular_edges_by_radius(
         radius_at_end,
         tolerance,
         None,
-        &std::collections::HashSet::new(),
+        &crate::construct::blend_edge_set::BlendEdgeSet::default(),
     )
 }
 
@@ -135,7 +135,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     radius_at_end: f64,
     tolerance: &Tolerance,
     override_: Option<&PerpAnchorOverride>,
-    blend_edges: &std::collections::HashSet<EdgeHandle>,
+    blend_edges: &crate::construct::blend_edge_set::BlendEdgeSet,
 ) -> Result<SplitInfo, String> {
     let edge_data = brep_snapshot
         .edges
@@ -268,15 +268,31 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     // Interior-rail (reflex hole-corner) placements keep the rail
     // end verbatim — the curved-support endpoint preference and the
     // planner overrides are both anchored on the walk convention.
-    let corrected_1 = curved_correct(
-        face_1,
-        trim_3d_face_1,
-        (perp_pos_1.0.position, perp_pos_1.1.position),
+    // Junction-class placements (tangent-chain sections, reflex pair
+    // mitres) are solved points OFF the edge-bounded trim by design —
+    // never snap them to a trim endpoint (PK-740: a fin root loop's
+    // mitre was pulled back to the vertical rail's end).
+    let keep = |(a, b): (Point3, Point3), (pa, pb): (AnchorPlacement, AnchorPlacement)| {
+        (
+            if pa.junction { pa.position } else { a },
+            if pb.junction { pb.position } else { b },
+        )
+    };
+    let corrected_1 = keep(
+        curved_correct(
+            face_1,
+            trim_3d_face_1,
+            (perp_pos_1.0.position, perp_pos_1.1.position),
+        ),
+        perp_pos_1,
     );
-    let corrected_2 = curved_correct(
-        face_2,
-        trim_3d_face_2,
-        (perp_pos_2.0.position, perp_pos_2.1.position),
+    let corrected_2 = keep(
+        curved_correct(
+            face_2,
+            trim_3d_face_2,
+            (perp_pos_2.0.position, perp_pos_2.1.position),
+        ),
+        perp_pos_2,
     );
 
     // §28.H Session 2 — apply planner overrides per anchor slot.
@@ -385,6 +401,16 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         face_2_anchors: (v2_start, v2_end),
         edge_splits,
         reflex_ends,
+        junction_corners: [
+            (perp_pos_1.0, v_start),
+            (perp_pos_1.1, v_end),
+            (perp_pos_2.0, v_start),
+            (perp_pos_2.1, v_end),
+        ]
+        .into_iter()
+        .filter(|(p, _)| p.junction)
+        .map(|(_, v)| v)
+        .collect(),
     })
 }
 
@@ -407,6 +433,9 @@ pub struct SplitInfo {
     /// Reflex hole-corner ends landed with interior-rail spurs
     /// (PK-185/PK-186) — consumed by the terminal-disc stage.
     pub reflex_ends: Vec<ReflexEndAnchor>,
+    /// Corners whose anchors are junction-class (tangent-chain
+    /// sections, reflex pair mitres — PK-740): not vertex-blend corners.
+    pub junction_corners: Vec<VertexHandle>,
 }
 
 /// Extract the fillet radius from the edge geometry analysis.
