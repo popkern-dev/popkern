@@ -28,23 +28,21 @@
 //!   circle in the plane normal to the chain at the junction, shared
 //!   by the two strips that meet there.
 //!
-//! **Invariants.** V − E + F unchanged per junction and per edge
-//! (−2 half-edge pairs +… verified by the caller's validation); support
-//! faces, `t_i` and `v_i` keep their handles; each strip carries its
-//! edge's fillet surface. **Fallback.** Built on a clone: any decline
-//! (class not met, contacts disagree, a third edge off its contact,
-//! structural check failing) leaves the input untouched and returns a
-//! typed [`BlendFailure`]. **Tolerance.** Contact agreement and
-//! third-edge membership are tested at a band of 100 × the linear
-//! tolerance (the trims are fitted contact curves); positions are
-//! exact points on the trims.
+//! **Invariants.** Support faces, third edges and junction vertices
+//! keep their handles; each strip carries its edge's fillet surface;
+//! topology-reference and manifold checks run here, the pipeline's
+//! curve-surface gate after. **Fallback.** Built on a clone: any
+//! decline leaves the input untouched with a typed [`BlendFailure`].
+//! **Tolerance.** Contact seeds agree to max(100 × linear, r / 4);
+//! third edges meet their contact within 100 × linear; every position
+//! is an exact point (solved section, snapped onto the third edge).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdgeHandle, Loop, LoopHandle, Vertex,
+    BRep, Edge, Face, FaceHandle, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
 
 use super::EdgeGeometry;
@@ -55,30 +53,9 @@ use super::tangent_chain_geometry::{
     Circle, ball_center, chain_tangent, chain_tangent_at_origin, exact_section, nearest,
     orient_strip, section_arc, segment_distance, shorten_third, strip_rail, trim_piece,
 };
-use super::tangent_chain_geometry::{blank, insert_edge, substitute, verified_circle};
-
-/// One chain edge in chain order.
-struct Link<'a> {
-    eg: &'a EdgeGeometry,
-    /// The half-edge running along the chain (origin `v_{i-1}`).
-    h: HalfEdgeHandle,
-    p_trim: (&'a NurbsCurve, Circle),
-    q_trim: (&'a NurbsCurve, Circle),
-}
-
-/// The third edge at a junction and its side.
-#[derive(Clone, Copy)]
-struct Third {
-    edge: EdgeHandle,
-    on_p: bool,
-}
-
-fn decline(reason: String, at: Point3) -> BlendFailure {
-    BlendFailure::InvalidTopology {
-        reason: format!("tangent chain: {reason}"),
-        location: Some(at),
-    }
-}
+use super::tangent_chain_geometry::{
+    Link, Third, blank, decline, insert_edge, substitute, verified_circle,
+};
 
 /// Order the chain `members` (indices into `edge_geometries`) and
 /// build it. On success the strips are returned and `brep` holds the
@@ -291,13 +268,29 @@ fn build(
                 vp,
             ));
         }
+        // The kept third edge carries the vertex: land the contact
+        // exactly on it (the solved foot sits within the band, ~1e-6
+        // off a seam line — an OpenLoop at validation otherwise).
+        let snapped = t_curve
+            .as_ref()
+            .and_then(|c| {
+                c.geometry
+                    .closest_point(&on_third)
+                    .map(|s| c.geometry.point_at(s))
+            })
+            .unwrap_or(on_third);
+        let (cp, cq) = if third.on_p {
+            (snapped, cq)
+        } else {
+            (cp, snapped)
+        };
         thirds.push(third);
         contacts.push((cp, cq));
     }
 
     if popkern_core::trace::trace_enabled("tangent-chain") {
         let surfaces: Vec<_> = links.iter().map(|l| &l.eg.surface).collect();
-        super::tangent_chain_geometry::trace_sections(&surfaces, &contacts);
+        super::tangent_chain_trace::trace_sections(&surfaces, &contacts);
     }
     // Vertices: the third edge's side reuses v_i (moved), the other
     // side is new.
@@ -479,6 +472,9 @@ fn build(
     for face in faces {
         brep.recompute_face_pcurves(face)
             .map_err(|e| decline(format!("pcurves of {face:?}: {e}"), at))?;
+    }
+    if popkern_core::trace::trace_enabled("tangent-chain") {
+        super::tangent_chain_trace::trace_edge_ends(brep, &strips);
     }
     brep.validate_topology_references()
         .and_then(|()| brep.validate_manifold_edges())

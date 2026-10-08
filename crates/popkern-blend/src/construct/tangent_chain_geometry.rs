@@ -172,7 +172,7 @@ pub(super) fn strip_rail(
             None
         }
     };
-    let (curve, sa, sb) = if let (Some(fa), Some(fb)) =
+    let (curve, mut sa, mut sb) = if let (Some(fa), Some(fb)) =
         (at_bound(va, v0, v1, eps_v), at_bound(vb, v0, v1, eps_v))
         && fa == fb
     {
@@ -184,6 +184,11 @@ pub(super) fn strip_rail(
     } else {
         return None;
     };
+    // The window ends from the rail's own projection: the surface
+    // projection's parameters left the rail ends ~1e-6 off the
+    // junction vertices (an OpenLoop at validation).
+    sa = curve.closest_point(&a).unwrap_or(sa);
+    sb = curve.closest_point(&b).unwrap_or(sb);
     if sa <= sb {
         Some(CurveOnEdge {
             geometry: CurveGeometry::Nurbs(curve),
@@ -301,7 +306,20 @@ pub(super) fn section_arc(
     tangent: Vec3,
     r: f64,
 ) -> Option<CurveOnEdge> {
-    let n0 = tangent.normalized()?;
+    // The arc's plane holds the centre and both contacts (they are the
+    // feet of the centre, `r` from it): a plane normal to the chain
+    // tangent left the arc ends ~1e-6 off contacts lying a hair out of
+    // it. The tangent only orients the normal.
+    let (da, db) = (cp - center, cq - center);
+    let mut n0 = da
+        .cross(&db)
+        .normalized()
+        .or_else(|| tangent.normalized())?;
+    if let Some(t) = tangent.normalized()
+        && n0.dot(&t) < 0.0
+    {
+        n0 = n0 * -1.0;
+    }
     for n in [n0, n0 * -1.0] {
         let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(n);
         let ang = |p: Point3| {
@@ -452,25 +470,26 @@ pub(super) fn exact_foot(surface: &SurfaceGeometry, p: Point3) -> Option<Point3>
     }
 }
 
-/// `tangent-chain` trace: how far each strip's two end sections lie
-/// from its surface (strip `i` runs from junction `i − 1` to `i`).
-pub(super) fn trace_sections(surfaces: &[&SurfaceGeometry], contacts: &[(Point3, Point3)]) {
-    let k = surfaces.len();
-    for (i, surface) in surfaces.iter().enumerate() {
-        let prev = (i + k - 1) % k;
-        let off = |p: Point3| {
-            surface
-                .closest_point(&p)
-                .map(|(u, v)| surface.point_at(u, v).distance_to(&p))
-                .unwrap_or(f64::INFINITY)
-        };
-        eprintln!(
-            "[tangent-chain] strip {i} {} sections off the strip: start {:.3e}/{:.3e} end {:.3e}/{:.3e}",
-            surface.kind_name(),
-            off(contacts[prev].0),
-            off(contacts[prev].1),
-            off(contacts[i].0),
-            off(contacts[i].1)
-        );
+/// One chain edge in chain order.
+pub(super) struct Link<'a> {
+    pub(super) eg: &'a super::EdgeGeometry,
+    /// The half-edge running along the chain (origin `v_{i-1}`).
+    pub(super) h: HalfEdgeHandle,
+    pub(super) p_trim: (&'a NurbsCurve, Circle),
+    pub(super) q_trim: (&'a NurbsCurve, Circle),
+}
+
+/// The third edge at a junction and its side.
+#[derive(Clone, Copy)]
+pub(super) struct Third {
+    pub(super) edge: EdgeHandle,
+    pub(super) on_p: bool,
+}
+
+/// A typed decline of the chain construction at `at`.
+pub(super) fn decline(reason: String, at: Point3) -> crate::error::BlendFailure {
+    crate::error::BlendFailure::InvalidTopology {
+        reason: format!("tangent chain: {reason}"),
+        location: Some(at),
     }
 }

@@ -43,6 +43,7 @@ pub fn walker_based_center_curve(
     convexity: crate::analysis::Convexity,
     pcurve_seed: Option<((f64, f64), (f64, f64))>,
     n_samples: usize,
+    refine_stations: bool,
 ) -> Result<CenterCurveResult, String> {
     // Ball side depends on the edge class (PK-091): inscribed in the
     // material for convex edges, in the void for concave. The old
@@ -102,8 +103,11 @@ pub fn walker_based_center_curve(
         walk_opts.contact_options.initial_damping = 0.1;
         walk_opts.contact_options.max_iterations = 40;
     }
-    let walk = walk_spine(&request, &walk_opts, tolerance)
+    let mut walk = walk_spine(&request, &walk_opts, tolerance)
         .map_err(|e| format!("spine walker failed: {e}"))?;
+    if refine_stations {
+        walk = refine_station_density(&request, walk_opts, walk, n_samples.max(2), tolerance);
+    }
 
     if popkern_core::trace::trace_enabled("walker")
         && let (Some(first), Some(last)) = (walk.samples.first(), walk.samples.last())
@@ -152,4 +156,78 @@ pub fn walker_based_center_curve(
         footprint_2,
         contact_solutions: Some(contact_solutions),
     })
+}
+
+/// Stations to tolerance for a G1 rational-row strip (PK-734): the
+/// strip interpolates its exact station rows, so its rails sit off the
+/// supports between stations — a cylinder tee's saddle at the fixed 20
+/// stations left them 1.3e-3 off. Walk again with the nested midpoints
+/// (2n − 1 stations); while the midpoint contacts stray from a cubic
+/// through the coarser stations by more than 10 × the linear
+/// tolerance, adopt the finer walk and repeat (to 1281 stations). A
+/// walk already accurate is returned unchanged. G2 sweeps are not
+/// refined here: their cubic loft is a different construction, and
+/// denser G2 strips broke a later boolean on a filleted cylinder
+/// (measured, see the PK-734 notes).
+fn refine_station_density(
+    request: &WalkRequest<'_>,
+    walk_opts: WalkOptions,
+    mut walk: crate::walker::WalkResult,
+    mut n: usize,
+    tolerance: &Tolerance,
+) -> crate::walker::WalkResult {
+    let target = tolerance.linear().max(1e-12) * 10.0;
+    while n < 1281 {
+        let finer_n = 2 * n - 1;
+        let mut finer_opts = walk_opts;
+        finer_opts.mode = crate::walker::WalkMode::Fixed { n_samples: finer_n };
+        let Ok(finer) = walk_spine(request, &finer_opts, tolerance) else {
+            break;
+        };
+        if finer.samples.len() != finer_n || walk.samples.len() != n {
+            break;
+        }
+        let rail = |pick: fn(&crate::walker::WalkSample) -> Point3| {
+            let pts: Vec<Point3> = walk.samples.iter().map(pick).collect();
+            let mut params = Vec::with_capacity(pts.len());
+            let mut acc = 0.0;
+            params.push(acc);
+            for w in pts.windows(2) {
+                acc += w[0].distance_to(&w[1]);
+                params.push(acc);
+            }
+            if params.windows(2).any(|w| w[1] <= w[0]) {
+                return None;
+            }
+            popkern_core::geometry::fitting::interpolate_curve(&pts, &params, 3.min(pts.len() - 1))
+                .ok()
+        };
+        let (Some(r0), Some(r1)) = (rail(|s| s.solution.contact0), rail(|s| s.solution.contact1))
+        else {
+            break;
+        };
+        let off = |r: &popkern_core::geometry::NurbsCurve, p: Point3| {
+            r.closest_point(&p)
+                .map(|s| r.point_at(s).distance_to(&p))
+                .unwrap_or(f64::INFINITY)
+        };
+        let worst = finer
+            .samples
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .map(|s| off(&r0, s.solution.contact0).max(off(&r1, s.solution.contact1)))
+            .fold(0.0, f64::max);
+        if popkern_core::trace::trace_enabled("fillet") {
+            eprintln!(
+                "  [stations] walker n={n} worst rail midpoint {worst:.3e} target {target:.1e}"
+            );
+        }
+        if worst <= target {
+            break;
+        }
+        walk = finer;
+        n = finer_n;
+    }
+    walk
 }

@@ -17,13 +17,20 @@ use popkern_math::PortableMath;
 /// supports (seeded between the walker footprints), then the exact
 /// foot points. `None` when the solve does not converge or wanders
 /// more than half a radius from the seeds.
-pub(crate) fn refine_station_contacts(
+///
+/// Returns the contacts with the solved ball centre: the row
+/// built on these three is exact (both contacts `radius` from the
+/// centre). A centre sampled from the fitted centre curve instead is
+/// another station's — on a cylinder tee's saddle the rows' centres
+/// sat 6.03–6.12 from their r = 6 contacts, the exact rational row was
+/// refused, and the sampled skin left the rails 6.5e-3 off (PK-734).
+pub(crate) fn refine_station(
     s1: &SurfaceGeometry,
     s2: &SurfaceGeometry,
     fp1: &Point3,
     fp2: &Point3,
     radius: f64,
-) -> Option<(Point3, Point3)> {
+) -> Option<(Point3, Point3, Point3)> {
     use popkern_core::geometry::SurfaceEval;
     let project = |sg: &SurfaceGeometry, p: Point3| -> Option<Point3> {
         let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(sg, &p)?;
@@ -65,7 +72,7 @@ pub(crate) fn refine_station_contacts(
     if c1.distance_to(fp1) > radius * 0.5 || c2.distance_to(fp2) > radius * 0.5 {
         return None;
     }
-    Some((c1, c2))
+    Some((c1, c2, centre))
 }
 
 /// One EXACT two-segment piecewise-rational arc row from `start` to

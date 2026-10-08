@@ -94,3 +94,47 @@ m
         );
     }
 }
+
+/// The r40 × r30 cylinder tee's saddle, split into three G1 edges at
+/// the two cylinders' seam crossings, fillets as one closed chain
+/// (PK-729/PK-734): every strip row is exact (rows on their own solved
+/// ball centres) and the walker refines its stations until the rails
+/// hold the supports. No closed form for the volume; the concave
+/// fillet's added section scales as r² along a fixed saddle, so
+/// (V − V₀) / r² must agree across radii.
+#[test]
+fn cylinder_tee_saddle_fillets_as_one_chain() {
+    let tee = |fillet: Option<f64>| {
+        let line = fillet
+            .map(|r| {
+                format!(
+                    r#"b = b.fillet(edges().between("cylinder", "cylinder"), {r:?}, #{{ label: "saddle" }});"#
+                )
+            })
+            .unwrap_or_default();
+        format!(
+            r#"
+let m = model();
+let main = m.profile(xy()).circle(40.0).sketch("main").extrude(blind(120.0));
+let branch = m.tool(|t| t.profile(yz()).circle(30.0).at(0.0, 60.0).sketch("branch").extrude(blind(100.0)));
+let b = main.union(branch, #{{ label: "tee" }});
+{line}
+m.assert_watertight();
+m
+"#
+        )
+    };
+    let v0 = served_volume(&tee(None));
+    let ratios: Vec<f64> = [2.0, 6.0, 10.0]
+        .iter()
+        .map(|&r| (served_volume(&tee(Some(r))) - v0) / (r * r))
+        .collect();
+    let (lo, hi) = ratios
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    assert!(lo > 0.0, "a concave fillet adds material: {ratios:?}");
+    assert!(
+        (hi - lo) / hi < 0.03,
+        "section scaling inconsistent: {ratios:?}"
+    );
+}

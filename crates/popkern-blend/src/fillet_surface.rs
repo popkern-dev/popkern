@@ -270,17 +270,24 @@ fn build_nurbs_sweep(
 
     // Station refinement (PK-177): re-solve stations against the
     // supports (~1e-10; walker ~1e-5); declines keep walker values.
+    // Refined stations keep their solved centres (exact rows, PK-734).
+    let mut station_centres: Vec<Option<Point3>> = vec![None; n_sections];
     let refined: Option<Vec<(Point3, Point3)>> = supports.map(|(s1, s2)| {
         (0..n_sections)
             .map(|i| {
-                crate::station_geometry::refine_station_contacts(
+                match crate::station_geometry::refine_station(
                     s1,
                     s2,
                     &footprint_1[i],
                     &footprint_2[i],
                     radius,
-                )
-                .unwrap_or((footprint_1[i], footprint_2[i]))
+                ) {
+                    Some((a, b, c)) => {
+                        station_centres[i] = Some(c);
+                        (a, b)
+                    }
+                    None => (footprint_1[i], footprint_2[i]),
+                }
             })
             .collect()
     });
@@ -307,7 +314,9 @@ fn build_nurbs_sweep(
     let mut sampled_points = Vec::with_capacity(n_sections * n_arc);
     for i in 0..n_sections {
         let t = t_min + (t_max - t_min) * (i as f64) / ((n_sections - 1).max(1) as f64);
-        let center = popkern_core::geometry::curve::CurveEval::point_at(center_result_curve, t);
+        let center = station_centres[i].unwrap_or_else(|| {
+            popkern_core::geometry::curve::CurveEval::point_at(center_result_curve, t)
+        });
         let fp1 = &footprint_1[i];
         let fp2 = &footprint_2[i];
         if let Some(rows) = rational_rows.as_mut() {

@@ -212,6 +212,14 @@ pub(crate) fn compute_center_via_walker(
     // stations spread over 1.8x the span measured a 20x larger seam gap
     // on the rim+verticals box (5e-11 -> 1.02e-9).
     const EDGE_STATIONS: f64 = 20.0;
+    let analysis_edge_closed = {
+        use popkern_core::geometry::curve::CurveEval;
+        let (a, b) = (
+            curve_on_edge.geometry.point_at(curve_on_edge.t_start),
+            curve_on_edge.geometry.point_at(curve_on_edge.t_end),
+        );
+        a.distance_to(&b) <= tolerance.linear()
+    };
     let (spine_t_range, uv_pad, stations) = match extension {
         Some((fraction, pad)) => {
             // Plane charts are metric, so the pad is a length: the
@@ -249,6 +257,11 @@ pub(crate) fn compute_center_via_walker(
         analysis.convexity,
         initial_seed,
         stations,
+        // Station refinement (PK-734) for G1 strips of OPEN edges: a
+        // closed rim's strip refined to 77 stations broke a later
+        // subtraction against it ('Loop not geometrically closed', gap
+        // 0.87 — PK-738), so closed spines keep the fixed count.
+        !extend_ends && !analysis_edge_closed,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,
