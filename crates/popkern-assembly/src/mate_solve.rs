@@ -29,13 +29,12 @@ use serde::Serialize;
 use crate::assembly::Assembly;
 use crate::error::AssemblyError;
 use crate::history::AssemblyStepKind;
-use crate::mate_linalg::{Svd, rank_of};
 use crate::mates::{Mate, MateKind, Primitive, Resolved};
 use crate::placement::Placement;
 
 /// Rows within this (dimensionless) are satisfied.
 pub const MATE_TOLERANCE: f64 = 1e-10;
-const RANK_REL: f64 = 1e-9;
+pub(crate) const RANK_REL: f64 = 1e-9;
 
 /// What a solve found.
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +56,21 @@ pub struct MateReport {
     pub conflicting: Vec<usize>,
     /// The mates in words, by index.
     pub mates: Vec<String>,
+    /// The clusters solved in turn, from the ground out: a root whose
+    /// mates to already-placed roots fix it alone is its own cluster;
+    /// coupled roots (a loop) solve together.
+    pub clusters: Vec<ClusterReport>,
+}
+
+/// One cluster of the decomposed solve.
+#[derive(Debug, Clone, Serialize)]
+pub struct ClusterReport {
+    /// Its root instances.
+    pub roots: Vec<String>,
+    /// Gauss–Newton iterations taken.
+    pub iterations: usize,
+    /// Its largest residual row at the end.
+    pub residual: f64,
 }
 
 impl Assembly {
@@ -96,7 +110,7 @@ impl Assembly {
     pub fn add_mate(&mut self, mate: Mate) -> Result<MateReport, AssemblyError> {
         let before = self.root_placements();
         self.mates.push(mate);
-        let solved = self.solve_in_place();
+        let solved = self.solve_in_place(true);
         match solved {
             Ok(_) => self.record_solve(AssemblyStepKind::Mate(self.mates.len() - 1), &before),
             Err(_) => {
@@ -113,7 +127,7 @@ impl Assembly {
     /// As [`Assembly::add_mate`].
     pub fn solve_mates(&mut self) -> Result<MateReport, AssemblyError> {
         let before = self.root_placements();
-        let solved = self.solve_in_place()?;
+        let solved = self.solve_in_place(true)?;
         self.record_solve(AssemblyStepKind::Solve, &before);
         Ok(solved)
     }
@@ -122,25 +136,42 @@ impl Assembly {
         self.root.iter().map(|i| i.placement).collect()
     }
 
-    pub(crate) fn solve_in_place(&mut self) -> Result<MateReport, AssemblyError> {
+    /// Solve every mate in place. `diagnose` adds the per-cluster rank
+    /// diagnostics (free motions, redundant mates) — authoring solves
+    /// want them; a slider re-solve changes no structure and skips
+    /// them (they were 70% of a 32-root chain's re-solve). Conflicts
+    /// are found either way, from the final residual of every mate.
+    pub(crate) fn solve_in_place(&mut self, diagnose: bool) -> Result<MateReport, AssemblyError> {
         let ground = self
             .ground
             .clone()
             .or_else(|| self.root.first().map(|i| i.name.clone()));
         let mut resolved = Vec::new();
+        let rows = self.tree();
         for mate in &self.mates.clone() {
             let about = match &mate.kind {
-                MateKind::Angle { about: Some(r), .. } => Some(self.resolve_mate_ref(r)?),
+                MateKind::Angle { about: Some(r), .. } => Some(self.resolve_mate_ref_in(r, &rows)?),
                 _ => None,
             };
             resolved.push((
                 mate.clone(),
-                self.resolve_mate_ref(&mate.a)?,
-                self.resolve_mate_ref(&mate.b)?,
+                self.resolve_mate_ref_in(&mate.a, &rows)?,
+                self.resolve_mate_ref_in(&mate.b, &rows)?,
                 about,
             ));
         }
-        // Free roots in first-reference order.
+        // The root instances each mate touches; free roots in
+        // first-reference order.
+        let touches: Vec<Vec<usize>> = resolved
+            .iter()
+            .map(|(_, a, b, about)| {
+                let mut t = vec![a.root, b.root];
+                t.extend(about.as_ref().map(|r| r.root));
+                t.sort_unstable();
+                t.dedup();
+                t
+            })
+            .collect();
         let mut free: Vec<usize> = Vec::new();
         for (_, a, b, about) in &resolved {
             for r in [Some(a), Some(b), about.as_ref()].into_iter().flatten() {
@@ -150,82 +181,93 @@ impl Assembly {
                 }
             }
         }
-        let base: Vec<Placement> = self.root.iter().map(|i| i.placement).collect();
+        let mut current: Vec<Placement> = self.root.iter().map(|i| i.placement).collect();
         let size = 1.0
             + resolved
                 .iter()
                 .flat_map(|(_, a, b, _)| [a, b])
-                .map(|r| point_of(&r.local.placed(&base[r.root])).coords_max())
+                .map(|r| point_of(&r.local.placed(&current[r.root])).coords_max())
                 .fold(0.0, f64::max);
-        let problem = Problem {
-            resolved: &resolved,
-            free: &free,
-            base: &base,
+        let clusters = crate::mate_clusters::plan(
+            &resolved,
+            &touches,
+            &free,
+            &current,
             size,
-        };
-        let n = 6 * free.len();
-        let mut x = vec![0.0; n];
-        let mut r = problem.residual(&x)?;
+            self.root.len(),
+        )?;
+        let mut known: Vec<bool> = vec![true; self.root.len()];
+        for &f in &free {
+            known[f] = false;
+        }
         let mut iterations = 0;
-        while iterations < 80 && max_abs(&r) > MATE_TOLERANCE * 1e-2 && n > 0 {
-            iterations += 1;
-            let jacobian = problem.jacobian(&x)?;
-            let svd = Svd::new(&jacobian, n);
-            let minus_r: Vec<f64> = r.iter().map(|v| -v).collect();
-            let step = svd.solve(&minus_r, RANK_REL);
-            let norm = |v: &[f64]| v.iter().map(|e| e * e).sum::<f64>();
-            let mut alpha = 1.0;
-            let mut accepted = None;
-            while alpha > 1e-8 {
-                let trial: Vec<f64> = x.iter().zip(&step).map(|(a, s)| a + alpha * s).collect();
-                let tr = problem.residual(&trial)?;
-                if norm(&tr) < norm(&r) {
-                    accepted = Some((trial, tr));
-                    break;
-                }
-                alpha *= 0.5;
-            }
-            let Some((trial, tr)) = accepted else { break };
-            x = trial;
-            r = tr;
-        }
-        let residual = max_abs(&r);
-        let converged = residual <= MATE_TOLERANCE;
-        let rows = problem.rows(&x)?;
-        let jacobian = if n > 0 {
-            problem.jacobian(&x)?
-        } else {
-            Vec::new()
-        };
         let mut free_dof = BTreeMap::new();
-        if n > 0 {
-            let svd = Svd::new(&jacobian, n);
-            let null = svd.null_space(RANK_REL);
-            for (k, &root) in free.iter().enumerate() {
-                let block: Vec<Vec<f64>> =
-                    null.iter().map(|v| v[6 * k..6 * k + 6].to_vec()).collect();
-                free_dof.insert(self.root[root].name.clone(), rank_of(&block, 6, 1e-6));
-            }
-        }
         let mut redundant = Vec::new();
         let mut conflicting = Vec::new();
-        let mut so_far: Vec<Vec<f64>> = Vec::new();
-        for (index, range) in rows.iter().enumerate() {
-            let mate_rows: Vec<Vec<f64>> = jacobian
-                .get(range.clone())
-                .map(<[Vec<f64>]>::to_vec)
-                .unwrap_or_default();
-            let own = rank_of(&mate_rows, n, RANK_REL);
-            let before = rank_of(&so_far, n, RANK_REL);
-            so_far.extend(mate_rows);
-            let after = rank_of(&so_far, n, RANK_REL);
-            if after - before < own || own == 0 {
-                redundant.push(index);
+        let mut cluster_reports = Vec::new();
+        for cluster in &clusters {
+            let mate_ids: Vec<usize> = (0..resolved.len())
+                .filter(|&i| {
+                    touches[i].iter().any(|r| cluster.contains(r))
+                        && touches[i].iter().all(|r| known[*r] || cluster.contains(r))
+                })
+                .collect();
+            let sub: Vec<_> = mate_ids.iter().map(|&i| resolved[i].clone()).collect();
+            let problem = Problem {
+                resolved: &sub,
+                free: cluster,
+                base: &current,
+                size,
+            };
+            let (x, its) = crate::mate_steps::gauss_newton(&problem)?;
+            iterations += its;
+            let cluster_residual = if diagnose {
+                let d = crate::mate_steps::diagnose(&problem, &x)?;
+                for (k, &root) in cluster.iter().enumerate() {
+                    free_dof.insert(self.root[root].name.clone(), d.free_dof[k]);
+                }
+                redundant.extend(d.redundant.iter().map(|&i| mate_ids[i]));
+                conflicting.extend(d.conflicting.iter().map(|&i| mate_ids[i]));
+                d.residual
+            } else {
+                max_abs(&problem.residual(&x)?)
+            };
+            cluster_reports.push(ClusterReport {
+                roots: cluster.iter().map(|&r| self.root[r].name.clone()).collect(),
+                iterations: its,
+                residual: cluster_residual,
+            });
+            let moved: Vec<Placement> = cluster
+                .iter()
+                .enumerate()
+                .map(|(k, &root)| problem.placement(&x, k, root))
+                .collect();
+            for (&root, p) in cluster.iter().zip(moved) {
+                current[root] = p;
+                known[root] = true;
             }
+        }
+        // Every mate at the final placements (mates among held
+        // occurrences only are checked here, never solved).
+        let all = Problem {
+            resolved: &resolved,
+            free: &[],
+            base: &current,
+            size,
+        };
+        let rows = all.rows(&[])?;
+        let r = all.residual(&[])?;
+        for (index, range) in rows.iter().enumerate() {
             if r[range.clone()].iter().any(|v| v.abs() > MATE_TOLERANCE) {
                 conflicting.push(index);
             }
         }
+        redundant.sort_unstable();
+        redundant.dedup();
+        conflicting.sort_unstable();
+        conflicting.dedup();
+        let residual = max_abs(&r);
+        let converged = residual <= MATE_TOLERANCE;
         let report = MateReport {
             converged,
             iterations,
@@ -235,26 +277,26 @@ impl Assembly {
             redundant,
             conflicting,
             mates: self.mates.iter().map(Mate::describe).collect(),
+            clusters: cluster_reports,
         };
         if !converged {
             return Err(AssemblyError::MateConflict {
                 report: Box::new(report),
             });
         }
-        for (k, &root) in free.iter().enumerate() {
-            let moved = problem.placement(&x, k, root);
+        for &root in &free {
             self.root[root].placement =
-                Placement::from_matrix(*moved.transform(), &self.root[root].name)?;
+                Placement::from_matrix(*current[root].transform(), &self.root[root].name)?;
         }
         Ok(report)
     }
 }
 
-struct Problem<'a> {
-    resolved: &'a [(Mate, Resolved, Resolved, Option<Resolved>)],
-    free: &'a [usize],
-    base: &'a [Placement],
-    size: f64,
+pub(crate) struct Problem<'a> {
+    pub(crate) resolved: &'a [(Mate, Resolved, Resolved, Option<Resolved>)],
+    pub(crate) free: &'a [usize],
+    pub(crate) base: &'a [Placement],
+    pub(crate) size: f64,
 }
 
 impl Problem<'_> {
@@ -281,7 +323,7 @@ impl Problem<'_> {
     }
 
     /// Row ranges per mate (same layout as [`Problem::residual`]).
-    fn rows(&self, x: &[f64]) -> Result<Vec<std::ops::Range<usize>>, AssemblyError> {
+    pub(crate) fn rows(&self, x: &[f64]) -> Result<Vec<std::ops::Range<usize>>, AssemblyError> {
         let mut out = Vec::new();
         let mut at = 0;
         for (mate, a, b, about) in self.resolved {
@@ -299,7 +341,7 @@ impl Problem<'_> {
         Ok(out)
     }
 
-    fn residual(&self, x: &[f64]) -> Result<Vec<f64>, AssemblyError> {
+    pub(crate) fn residual(&self, x: &[f64]) -> Result<Vec<f64>, AssemblyError> {
         let mut out = Vec::new();
         for (mate, a, b, about) in self.resolved {
             out.extend(mate_rows(
@@ -313,7 +355,7 @@ impl Problem<'_> {
         Ok(out)
     }
 
-    fn jacobian(&self, x: &[f64]) -> Result<Vec<Vec<f64>>, AssemblyError> {
+    pub(crate) fn jacobian(&self, x: &[f64]) -> Result<Vec<Vec<f64>>, AssemblyError> {
         let h = 1e-7;
         let mut columns = Vec::with_capacity(x.len());
         for j in 0..x.len() {
@@ -375,6 +417,12 @@ fn mate_rows(
             rows.extend(lin((*pb - *pa).cross(da)));
             rows
         }
+        (MateKind::AxialOffset { distance }, Primitive::Axis(pa, da), Primitive::Axis(pb, _)) => {
+            vec![((*pb - *pa).dot(da) - distance) / size]
+        }
+        (MateKind::AxialOffset { .. }, _, _) => {
+            return Err(refuse("an axial offset needs two axes"));
+        }
         (MateKind::Coincident { .. }, Primitive::Point(pa), Primitive::Point(pb)) => {
             lin(*pb - *pa).to_vec()
         }
@@ -427,7 +475,7 @@ fn mate_rows(
     })
 }
 
-fn max_abs(r: &[f64]) -> f64 {
+pub(crate) fn max_abs(r: &[f64]) -> f64 {
     r.iter().map(|v| v.abs()).fold(0.0, f64::max)
 }
 

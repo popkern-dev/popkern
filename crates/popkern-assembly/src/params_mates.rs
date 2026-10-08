@@ -9,6 +9,10 @@ use crate::error::AssemblyError;
 use crate::mates::{MateDrive, MateKind};
 use crate::params::param_error;
 
+/// The widest step a driven angle takes in one solve (degrees); larger
+/// moves are continued through intermediate solutions (§5.3).
+pub(crate) const MAX_ANGLE_STEP: f64 = 30.0;
+
 impl Assembly {
     /// Bind mate `index` (an angle or distance mate) to assembly
     /// parameter `param` (`value = offset + scale × param`) and solve.
@@ -116,23 +120,51 @@ impl Assembly {
         };
         let mates = self.mates.clone();
         let placements: Vec<_> = self.root.iter().map(|i| i.placement).collect();
-        for mate in &mut self.mates {
-            let Some(drive) = mate.drive.as_ref().filter(|d| d.param == param) else {
-                continue;
-            };
-            let v = drive.value(value);
-            match &mut mate.kind {
-                MateKind::Angle { degrees, .. } => *degrees = v,
-                MateKind::Distance { distance, .. } => *distance = v,
-                _ => {}
+        // Continuation: an angle residual is an atan2 and wraps, so a
+        // large jump solved in one go can land on another branch (or
+        // not converge). Step every driven angle by at most
+        // `MAX_ANGLE_STEP` from the solution before.
+        let targets: Vec<Option<(f64, f64)>> = self
+            .mates
+            .iter()
+            .map(|mate| {
+                let drive = mate.drive.as_ref().filter(|d| d.param == param)?;
+                let from = match mate.kind {
+                    MateKind::Angle { degrees, .. } => degrees,
+                    MateKind::Distance { distance, .. } => distance,
+                    _ => return None,
+                };
+                Some((from, drive.value(value)))
+            })
+            .collect();
+        let widest = self
+            .mates
+            .iter()
+            .zip(&targets)
+            .filter_map(|(mate, t)| match (mate.kind.clone(), t) {
+                (MateKind::Angle { .. }, Some((from, to))) => Some((to - from).abs()),
+                _ => None,
+            })
+            .fold(0.0_f64, f64::max);
+        let steps = ((widest / MAX_ANGLE_STEP).ceil() as usize).max(1);
+        for k in 1..=steps {
+            let f = k as f64 / steps as f64;
+            for (mate, t) in self.mates.iter_mut().zip(&targets) {
+                let Some((from, to)) = *t else { continue };
+                let v = from + (to - from) * f;
+                match &mut mate.kind {
+                    MateKind::Angle { degrees, .. } => *degrees = v,
+                    MateKind::Distance { distance, .. } => *distance = v,
+                    _ => {}
+                }
             }
-        }
-        if let Err(error) = self.solve_in_place() {
-            self.mates = mates;
-            for (instance, placement) in self.root.iter_mut().zip(placements) {
-                instance.placement = placement;
+            if let Err(error) = self.solve_in_place(false) {
+                self.mates = mates;
+                for (instance, placement) in self.root.iter_mut().zip(placements) {
+                    instance.placement = placement;
+                }
+                return Err(error);
             }
-            return Err(error);
         }
         Ok(())
     }

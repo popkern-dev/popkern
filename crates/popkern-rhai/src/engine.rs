@@ -63,6 +63,7 @@ pub fn build_engine(print: impl Fn(&str) + 'static) -> Engine {
     crate::feature_api::register(&mut engine);
     crate::assembly_api::register(&mut engine);
     crate::assembly_mate_api::register(&mut engine);
+    crate::assembly_joint_api::register(&mut engine);
     crate::assembly_param_api::register(&mut engine);
     crate::assembly_edit_api::register(&mut engine);
     crate::assembly_hinge_api::register(&mut engine);

@@ -34,7 +34,17 @@ pub fn document_to_rhai(document: &mut Document) -> Result<String, EmitError> {
 /// As [`document_to_rhai`].
 pub fn assembly_to_rhai(assembly: &mut Assembly) -> Result<String, EmitError> {
     let mut out = format!("let a = assembly({});\n", quoted(assembly.name()));
+    // A joint's own parameter comes back with its `revolute` verb.
+    let joint_params: Vec<String> = assembly
+        .joints()
+        .iter()
+        .filter(|j| j.drive == popkern_assembly::JointDrive::Param)
+        .map(|j| j.name.clone())
+        .collect();
     for param in assembly.params() {
+        if joint_params.contains(&param.name) {
+            continue;
+        }
         out.push_str(&format!(
             "a.param({}, {}, {});\n",
             quoted(&param.name),
@@ -136,8 +146,14 @@ pub fn assembly_to_rhai(assembly: &mut Assembly) -> Result<String, EmitError> {
     if let Some(ground) = assembly.ground() {
         out.push_str(&format!("a.ground(a.occurrence({}));\n", quoted(ground)));
     }
-    for mate in assembly.mates() {
-        out.push_str(&mate_statement(mate));
+    for (index, mate) in assembly.mates().iter().enumerate() {
+        match assembly.joint_of_mate(index) {
+            Some(joint) if joint.mates[0] == index => {
+                out.push_str(&joint_statement(assembly, joint));
+            }
+            Some(_) => {}
+            None => out.push_str(&mate_statement(mate)),
+        }
     }
     out.push_str("a\n");
     Ok(out)
@@ -228,6 +244,58 @@ fn mate_ref(r: &popkern_assembly::MateRef) -> String {
     format!("a.occurrence({}).{entity}", quoted(&r.instance))
 }
 
+/// A joint as its `revolute` verb, from its three mates: the axes of
+/// the concentric, the axial offset, the angle mate's zero entities and
+/// the driving parameter's value and limits (or the follow ratio and
+/// phase).
+fn joint_statement(assembly: &Assembly, joint: &popkern_assembly::Joint) -> String {
+    use popkern_assembly::{JointDrive, MateKind};
+    let mates = assembly.mates();
+    let (Some(axes), Some(seat), Some(angle)) = (
+        mates.get(joint.mates[0]),
+        mates.get(joint.mates[1]),
+        mates.get(joint.mates[2]),
+    ) else {
+        return String::new();
+    };
+    let mut opts = vec![format!(
+        "zero: [{}, {}]",
+        mate_ref(&angle.a),
+        mate_ref(&angle.b)
+    )];
+    if let MateKind::AxialOffset { distance } = seat.kind
+        && distance != 0.0
+    {
+        opts.push(format!("offset: {}", float(distance)));
+    }
+    match &joint.drive {
+        JointDrive::Param => {
+            if let Some(param) = assembly.params().iter().find(|p| p.name == joint.name) {
+                opts.push(format!("angle: {}", float(param.display_value())));
+                if let Some([lo, hi]) = param.bounds {
+                    opts.push(format!("limits: [{}, {}]", float(lo), float(hi)));
+                }
+            }
+        }
+        JointDrive::Follow {
+            leader,
+            ratio,
+            phase,
+        } => {
+            opts.push(format!("follow: {}", quoted(leader)));
+            opts.push(format!("ratio: {}", float(*ratio)));
+            opts.push(format!("phase: {}", float(*phase)));
+        }
+    }
+    format!(
+        "a.revolute({}, {}, {}, #{{ {} }});\n",
+        quoted(&joint.name),
+        mate_ref(&axes.a),
+        mate_ref(&axes.b),
+        opts.join(", ")
+    )
+}
+
 /// One mate as its verb; a driven value as `p("param")` with its scale
 /// and offset when they are not the identity.
 fn mate_statement(mate: &popkern_assembly::Mate) -> String {
@@ -276,6 +344,9 @@ fn mate_statement(mate: &popkern_assembly::Mate) -> String {
                 opts(extra, &pairs)
             )
         }
+        // Only joints make axial offsets, and a joint is emitted whole
+        // (`joint_statement`).
+        MateKind::AxialOffset { .. } => String::new(),
         MateKind::Angle { degrees, about } => {
             let extra = about
                 .as_ref()

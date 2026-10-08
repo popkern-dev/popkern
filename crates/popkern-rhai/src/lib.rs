@@ -37,6 +37,7 @@ pub mod assembly_api;
 mod assembly_edit_api;
 mod assembly_family_api;
 mod assembly_hinge_api;
+pub mod assembly_joint_api;
 pub mod assembly_mate_api;
 pub mod assembly_param_api;
 pub mod body_api;

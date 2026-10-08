@@ -112,6 +112,15 @@ pub enum AssemblyError {
         detail: String,
     },
     /// A mate refers to something it cannot constrain.
+    #[error("joint '{joint}': the {role} entity is {found}")]
+    JointEntity {
+        /// The joint.
+        joint: String,
+        /// Which argument: `axis` or `zero`.
+        role: &'static str,
+        /// What it resolved to.
+        found: String,
+    },
     #[error("mate {mate}: {detail}")]
     Mate {
         /// The mate (or entity) in words.
@@ -214,6 +223,9 @@ impl AssemblyError {
             }
             AssemblyError::Param { name, detail } => {
                 json!({ "reason": "param", "name": name, "detail": detail })
+            }
+            AssemblyError::JointEntity { joint, role, found } => {
+                json!({ "reason": "joint_entity", "joint": joint, "role": role, "found": found })
             }
             AssemblyError::Mate { mate, detail } => {
                 json!({ "reason": "mate", "mate": mate, "detail": detail })

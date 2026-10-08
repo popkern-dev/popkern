@@ -126,6 +126,13 @@ pub enum MateKind {
         #[serde(default)]
         aligned: bool,
     },
+    /// Two axes' origins `distance` apart along the first axis — the
+    /// axial seat of a revolute joint (the axes themselves are held by
+    /// a concentric mate).
+    AxialOffset {
+        /// The signed offset of the second origin along the first axis.
+        distance: f64,
+    },
     /// The angle between two directions (plane normals or axes); signed
     /// about `about` when given, else unsigned.
     Angle {
@@ -181,6 +188,7 @@ impl Mate {
             MateKind::Coincident { aligned: true } => "coincident (aligned)".to_string(),
             MateKind::Concentric => "concentric".to_string(),
             MateKind::Distance { distance, .. } => format!("distance {distance}"),
+            MateKind::AxialOffset { distance } => format!("axial offset {distance}"),
             MateKind::Angle { degrees, .. } => format!("angle {degrees}°"),
         };
         let driven = match &self.drive {
@@ -250,6 +258,17 @@ impl Assembly {
     /// [`AssemblyError::UnknownInstance`]; [`AssemblyError::Mate`] for a
     /// face the part does not have or a free-form face.
     pub fn resolve_mate_ref(&mut self, r: &MateRef) -> Result<Resolved, AssemblyError> {
+        let rows = self.tree();
+        self.resolve_mate_ref_in(r, &rows)
+    }
+
+    /// [`Assembly::resolve_mate_ref`] against an already expanded tree
+    /// (a solve resolves every mate against one expansion).
+    pub(crate) fn resolve_mate_ref_in(
+        &mut self,
+        r: &MateRef,
+        rows: &[crate::assembly::TreeRow],
+    ) -> Result<Resolved, AssemblyError> {
         let path = InstancePath::parse(&r.instance);
         let unknown = || AssemblyError::UnknownInstance {
             path: r.instance.clone(),
@@ -260,7 +279,6 @@ impl Assembly {
             .iter()
             .position(|i| i.name == root_name)
             .ok_or_else(unknown)?;
-        let rows = self.tree();
         let row = rows
             .iter()
             .find(|row| row.path == path)

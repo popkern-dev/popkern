@@ -126,6 +126,7 @@ impl Assembly {
                 ground: self.ground.as_deref(),
                 params: &self.params,
                 drives: &self.drives,
+                joints: &self.joints,
             },
         };
         serde_json::to_vec(&out).map_err(|e| AssemblyError::Document(e.to_string()))
@@ -164,6 +165,8 @@ struct AssemblyOut<'a> {
     params: &'a [crate::params::AssemblyParam],
     #[serde(skip_serializing_if = "<[crate::params::Drive]>::is_empty")]
     drives: &'a [crate::params::Drive],
+    #[serde(skip_serializing_if = "<[crate::joints::Joint]>::is_empty")]
+    joints: &'a [crate::joints::Joint],
 }
 
 #[derive(Serialize)]
@@ -203,6 +206,8 @@ struct AssemblyIn {
     params: Vec<crate::params::AssemblyParam>,
     #[serde(default)]
     drives: Vec<crate::params::Drive>,
+    #[serde(default)]
+    joints: Vec<crate::joints::Joint>,
 }
 
 #[derive(Deserialize)]
@@ -270,6 +275,7 @@ impl AssemblyIn {
         // Stored part parameters already carry the driven values.
         assembly.params = self.params;
         assembly.drives = self.drives;
+        assembly.joints = self.joints;
         assembly.mark_history_unrecorded();
         Ok(assembly)
     }

@@ -120,6 +120,8 @@ pub struct Assembly {
     pub(crate) drives: Vec<crate::params::Drive>,
     /// The construction steps (PK-666).
     pub(crate) history: crate::history::AssemblyHistory,
+    /// Joints over the mates (six-axis-arm §4.3).
+    pub(crate) joints: Vec<crate::joints::Joint>,
 }
 
 impl Assembly {
@@ -134,6 +136,7 @@ impl Assembly {
             params: Vec::new(),
             drives: Vec::new(),
             history: crate::history::AssemblyHistory::default(),
+            joints: Vec::new(),
         }
     }
 
