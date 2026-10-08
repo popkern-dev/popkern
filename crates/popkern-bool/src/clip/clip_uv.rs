@@ -452,36 +452,7 @@ pub(super) fn uv_clip_one_face(
                     });
                     if (t_last - t_first).abs() < span * 1e-6 || clustered {
                         let inset = span * 1e-3;
-                        let boundary_ring = crate::clip::face_uv_boundary(brep, face);
-                        let banded_inside = |q: popkern_core::geometry::Point3| -> Option<bool> {
-                            let mut best = f64::INFINITY;
-                            for (_, pc) in boundary_ring.iter().flatten() {
-                                let (a, b) = pc.parameter_range();
-                                if !(a.is_finite() && b.is_finite()) {
-                                    continue;
-                                }
-                                for i in 0..=64 {
-                                    let t = a + (b - a) * i as f64 / 64.0;
-                                    let s = pc.point_at(t);
-                                    let d = ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt();
-                                    if d < best {
-                                        best = d;
-                                    }
-                                }
-                            }
-                            if best < band {
-                                return None;
-                            }
-                            Some(
-                                crate::split_inner_loop::point_inside_face_region_uv_with_density(
-                                    brep,
-                                    face,
-                                    q,
-                                    &brep.tolerance,
-                                    64,
-                                ),
-                            )
-                        };
+                        let banded_inside = |q| banded_inside(brep, face, q, band);
                         let start_in = banded_inside(curve_uv.point_at(t_min + inset));
                         let end_in = banded_inside(curve_uv.point_at(t_max - inset));
                         if trace {
@@ -510,6 +481,22 @@ pub(super) fn uv_clip_one_face(
                 }
             }
             match uv_range_from_crossings(&crossings, curve_uv, is_closed) {
+                Some((t_enter, t_exit))
+                    if !is_closed
+                        && hull_decisively_outside(brep, face, curve_uv, t_enter, t_exit) =>
+                {
+                    let ends = inside_end_windows(brep, face, curve_uv, t_enter, t_exit);
+                    if trace {
+                        eprintln!(
+                            "    [uvclip-hull-out] {face:?} open hull ({t_enter:.3},{t_exit:.3}) lies outside the face; inside ends {ends:?}"
+                        );
+                    }
+                    if ends.is_empty() {
+                        UvClipResult::Outside
+                    } else {
+                        UvClipResult::Windows(ends)
+                    }
+                }
                 Some((t_enter, t_exit)) => {
                     // CLOSED curves: the naive crossing hull can be the
                     // WRONG SIDE — when the inside span wraps through the
@@ -581,6 +568,131 @@ pub(super) fn uv_clip_one_face(
             }
         }
     }
+}
+
+/// Containment of `q` decided away from the face's uv boundary: `None`
+/// when `q` lies within `band` of the boundary (an on-boundary verdict
+/// is a coin flip), else the dense inside test.
+fn banded_inside(
+    brep: &BRep,
+    face: FaceHandle,
+    q: popkern_core::geometry::Point3,
+    band: f64,
+) -> Option<bool> {
+    let boundary_ring = crate::clip::face_uv_boundary(brep, face);
+    let mut best = f64::INFINITY;
+    for (_, pc) in boundary_ring.iter().flatten() {
+        let (a, b) = pc.parameter_range();
+        if !(a.is_finite() && b.is_finite()) {
+            continue;
+        }
+        for i in 0..=64 {
+            let t = a + (b - a) * i as f64 / 64.0;
+            let s = pc.point_at(t);
+            best = best.min(((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt());
+        }
+    }
+    if best < band {
+        return None;
+    }
+    Some(
+        crate::split_inner_loop::point_inside_face_region_uv_with_density(
+            brep,
+            face,
+            q,
+            &brep.tolerance,
+            64,
+        ),
+    )
+}
+
+/// An OPEN record's crossing hull `[t_enter, t_exit]` is kept on the
+/// premise that the span between two boundary crossings runs inside
+/// the face. That premise fails when the crossings are the record's
+/// own END points touching the boundary — the record leaves from a
+/// boundary point and comes back to another without ever entering
+/// (measured, PK-727: an equal-radius tee's off-face intersection
+/// branch runs from one singular point on the branch's end circle to
+/// the other, 40 outside the face, and its kept hull built a phantom
+/// edge). Positive proof only: a complete record (both ends within the
+/// face's uv box), every interior sample decisively outside, none
+/// abstaining on the boundary band.
+fn hull_decisively_outside(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &NurbsCurve,
+    t_enter: f64,
+    t_exit: f64,
+) -> bool {
+    if t_exit - t_enter <= 1e-12 {
+        return false;
+    }
+    let band = uv_boundary_band(brep, curve_uv);
+    // Only a COMPLETE record — both ends on or inside the face's uv box.
+    // A padded trace (a plane×plane line run out past both faces) keeps
+    // the tuned hull: on flush fixtures its hull is load-bearing even
+    // where it runs outside (measured: the flush gusset family
+    // regressed when this rule saw padded lines).
+    let (t_min, t_max) = curve_uv.parameter_range();
+    let (mut lo, mut hi) = (
+        (f64::INFINITY, f64::INFINITY),
+        (f64::NEG_INFINITY, f64::NEG_INFINITY),
+    );
+    for (_, pc) in crate::clip::face_uv_boundary(brep, face).iter().flatten() {
+        let (a, b) = pc.parameter_range();
+        if !(a.is_finite() && b.is_finite()) {
+            continue;
+        }
+        for i in 0..=64 {
+            let q = pc.point_at(a + (b - a) * i as f64 / 64.0);
+            lo = (lo.0.min(q.x), lo.1.min(q.y));
+            hi = (hi.0.max(q.x), hi.1.max(q.y));
+        }
+    }
+    let within = |t: f64| {
+        let q = curve_uv.point_at(t);
+        q.x >= lo.0 - band && q.x <= hi.0 + band && q.y >= lo.1 - band && q.y <= hi.1 + band
+    };
+    if !(within(t_min) && within(t_max)) {
+        return false;
+    }
+    [0.25, 0.5, 0.75].iter().all(|f| {
+        let q = curve_uv.point_at(t_enter + (t_exit - t_enter) * f);
+        banded_inside(brep, face, q, band) == Some(false)
+    })
+}
+
+/// With an open record's crossing hull outside the face, its in-face
+/// spans are the END spans beyond the crossings — `[t_min, t_enter]`
+/// and `[t_exit, t_max]` — each kept on decisive inside evidence at
+/// its quarter points (PK-727: an equal-radius tee's off-axis branch
+/// starts and ends inside the branch face at the singular points and
+/// dips out through the face's end rim between).
+fn inside_end_windows(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &NurbsCurve,
+    t_enter: f64,
+    t_exit: f64,
+) -> Vec<(f64, f64)> {
+    let (t_min, t_max) = curve_uv.parameter_range();
+    let band = uv_boundary_band(brep, curve_uv);
+    let span = (t_max - t_min).max(1e-12);
+    let inside = |a: f64, b: f64| {
+        b - a > span * 1e-6
+            && [0.25, 0.5, 0.75].iter().all(|f| {
+                let q = curve_uv.point_at(a + (b - a) * f);
+                banded_inside(brep, face, q, band) == Some(true)
+            })
+    };
+    let mut out = Vec::new();
+    if inside(t_min, t_enter) {
+        out.push((t_min, t_enter));
+    }
+    if inside(t_exit, t_max) {
+        out.push((t_exit, t_max));
+    }
+    out
 }
 
 #[cfg(test)]

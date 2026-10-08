@@ -16,6 +16,7 @@
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
+use super::cylinder_cylinder_singular::{crossing_branches, singular_crossings};
 use crate::error::CoreError;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve_on_surface::CurveOnSurface;
@@ -28,10 +29,18 @@ use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
-/// Samples per full pierce loop. The samples are EXACT surface
-/// points; the cubic fit through them carries interpolation error
-/// O(h⁴), far below linear tolerance at this density.
+/// Samples per full pierce loop to start from. The samples are EXACT
+/// surface points; the cubic fit through them carries interpolation
+/// error O(h⁴), which is measured and densified to tolerance.
 const LOOP_SAMPLES: usize = 512;
+
+/// Densest per-turn sampling the fit-to-tolerance loop tries.
+const MAX_LOOP_SAMPLES: usize = 16_384;
+
+/// Fitted curves must lie on both cylinders within this fraction of
+/// the linear tolerance (node-on-curve tests downstream compare at
+/// the tolerance itself).
+const FIT_BUDGET: f64 = 0.1;
 
 /// Try the analytic cylinder×cylinder path. Returns `None` only for
 /// non-cylinder pairs and for near-coincident parallel pairs (the
@@ -126,153 +135,179 @@ pub(crate) fn try_cylinder_cylinder(
         }
     };
 
-    let mut loops: Vec<Vec<(f64, f64)>> = Vec::new(); // (θ, t) sequences
-    if all_positive {
-        // Full pierce: two disjoint closed loops, one per root branch.
-        for low in [true, false] {
-            let pts: Vec<(f64, f64)> = (0..=n)
-                .map(|i| {
-                    let theta = i as f64 / n as f64 * TAU;
-                    (theta, root(theta, low))
-                })
-                .collect();
-            loops.push(pts);
-        }
-    } else {
-        // Partial pierce: one closed loop per positive-discriminant
-        // interval — out along the low root, back along the high
-        // root, joined at the tangency angles (disc = 0), refined by
-        // bisection.
-        let refine = |mut neg: f64, mut pos: f64| -> f64 {
-            for _ in 0..60 {
-                let mid = 0.5 * (neg + pos);
-                if quad(mid).0 > 0.0 {
-                    pos = mid;
-                } else {
-                    neg = mid;
-                }
-            }
-            0.5 * (neg + pos)
+    // Fit to tolerance: the samples are exact surface points, but the
+    // cubic through them is not — at millimetre scale a 512-sample
+    // r = 30 × r = 40 loop strayed 2.4e-6 from an exact seam crossing,
+    // past the 2e-6 node-on-curve test, the record was never split
+    // there and the face's chart walk tore (PK-728). Densify until the
+    // fitted curves lie on BOTH cylinders within `FIT_BUDGET` of the
+    // linear tolerance, measured against the implicit surfaces.
+    let crossings = singular_crossings(&quad, &discs, a_coef, tolerance.linear());
+    let mut density = n;
+    loop {
+        let mut worst = 0.0_f64;
+        let mut loops: Vec<Vec<(f64, f64)>> = Vec::new(); // (θ, t) sequences
+        let crossing_split = if crossings.is_empty() {
+            None
+        } else {
+            crossing_branches(&quad, &discs, &crossings, a_coef, density)
         };
-        // Find sign-change boundaries walking the scan circularly.
-        let mut intervals: Vec<(f64, f64)> = Vec::new();
-        for i in 0..n {
-            let j = (i + 1) % n;
-            if discs[i] <= 0.0 && discs[j] > 0.0 {
-                // entering positive: find matching exit
-                let theta_in = refine(i as f64 / n as f64 * TAU, j as f64 / n as f64 * TAU);
-                let mut k = j;
-                while discs[(k + 1) % n] > 0.0 {
-                    k = (k + 1) % n;
-                    if k == i {
-                        break;
+        let open_branches = crossing_split.is_some();
+        if let Some(branches) = crossing_split {
+            loops = branches;
+        } else if all_positive {
+            // Full pierce: two disjoint closed loops, one per root branch.
+            for low in [true, false] {
+                let pts: Vec<(f64, f64)> = (0..=density)
+                    .map(|i| {
+                        let theta = i as f64 / density as f64 * TAU;
+                        (theta, root(theta, low))
+                    })
+                    .collect();
+                loops.push(pts);
+            }
+        } else {
+            // Partial pierce: one closed loop per positive-discriminant
+            // interval — out along the low root, back along the high
+            // root, joined at the tangency angles (disc = 0), refined by
+            // bisection.
+            let refine = |mut neg: f64, mut pos: f64| -> f64 {
+                for _ in 0..60 {
+                    let mid = 0.5 * (neg + pos);
+                    if quad(mid).0 > 0.0 {
+                        pos = mid;
+                    } else {
+                        neg = mid;
                     }
                 }
-                let exit_neg = ((k + 1) % n) as f64 / n as f64 * TAU;
-                let exit_pos = k as f64 / n as f64 * TAU;
-                let theta_out = refine(
-                    if exit_neg > exit_pos {
-                        exit_neg
+                0.5 * (neg + pos)
+            };
+            // Find sign-change boundaries walking the scan circularly.
+            let mut intervals: Vec<(f64, f64)> = Vec::new();
+            for i in 0..n {
+                let j = (i + 1) % n;
+                if discs[i] <= 0.0 && discs[j] > 0.0 {
+                    // entering positive: find matching exit
+                    let theta_in = refine(i as f64 / n as f64 * TAU, j as f64 / n as f64 * TAU);
+                    let mut k = j;
+                    while discs[(k + 1) % n] > 0.0 {
+                        k = (k + 1) % n;
+                        if k == i {
+                            break;
+                        }
+                    }
+                    let exit_neg = ((k + 1) % n) as f64 / n as f64 * TAU;
+                    let exit_pos = k as f64 / n as f64 * TAU;
+                    let theta_out = refine(
+                        if exit_neg > exit_pos {
+                            exit_neg
+                        } else {
+                            exit_neg + TAU
+                        },
+                        if exit_pos >= theta_in {
+                            exit_pos
+                        } else {
+                            exit_pos + TAU
+                        },
+                    );
+                    let theta_out = if theta_out > theta_in {
+                        theta_out
                     } else {
-                        exit_neg + TAU
-                    },
-                    if exit_pos >= theta_in {
-                        exit_pos
-                    } else {
-                        exit_pos + TAU
-                    },
-                );
-                let theta_out = if theta_out > theta_in {
-                    theta_out
-                } else {
-                    theta_out + TAU
-                };
-                intervals.push((theta_in, theta_out));
+                        theta_out + TAU
+                    };
+                    intervals.push((theta_in, theta_out));
+                }
+            }
+            for (theta_in, theta_out) in intervals {
+                let span = theta_out - theta_in;
+                let m = ((span / TAU * density as f64).ceil() as usize).max(16);
+                let mut pts: Vec<(f64, f64)> = Vec::with_capacity(2 * m + 2);
+                for i in 0..=m {
+                    let theta = theta_in + span * i as f64 / m as f64;
+                    pts.push((theta, root(theta, true)));
+                }
+                for i in (0..=m).rev() {
+                    let theta = theta_in + span * i as f64 / m as f64;
+                    pts.push((theta, root(theta, false)));
+                }
+                // Close back to the start point (same tangency point).
+                loops.push(pts);
             }
         }
-        for (theta_in, theta_out) in intervals {
-            let span = theta_out - theta_in;
-            let m = ((span / TAU * n as f64).ceil() as usize).max(16);
-            let mut pts: Vec<(f64, f64)> = Vec::with_capacity(2 * m + 2);
-            for i in 0..=m {
-                let theta = theta_in + span * i as f64 / m as f64;
-                pts.push((theta, root(theta, true)));
-            }
-            for i in (0..=m).rev() {
-                let theta = theta_in + span * i as f64 / m as f64;
-                pts.push((theta, root(theta, false)));
-            }
-            // Close back to the start point (same tangency point).
-            loops.push(pts);
-        }
-    }
 
-    // Chart parameters for a point on each cylinder, continuously
-    // unwrapped along the sample sequence.
-    let chart = |surface: &SurfaceGeometry, p: Point3, prev_u: Option<f64>| -> (f64, f64) {
-        let SurfaceGeometry::Cylinder { origin, axis, .. } = surface else {
-            return (0.0, 0.0);
+        // Chart parameters for a point on each cylinder, continuously
+        // unwrapped along the sample sequence.
+        let chart = |surface: &SurfaceGeometry, p: Point3, prev_u: Option<f64>| -> (f64, f64) {
+            let SurfaceGeometry::Cylinder { origin, axis, .. } = surface else {
+                return (0.0, 0.0);
+            };
+            let an = axis.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+            let (p1, p2) = orthonormal_basis(an);
+            let rel = p - *origin;
+            // point_at is origin + axis·v (raw axis): invert with the
+            // squared length so non-unit stored axes stay exact.
+            let v = rel.dot(axis) / axis.length_squared();
+            let mut u = rel.dot(&p2).patan2(rel.dot(&p1));
+            if let Some(pu) = prev_u {
+                while u - pu > std::f64::consts::PI {
+                    u -= TAU;
+                }
+                while pu - u > std::f64::consts::PI {
+                    u += TAU;
+                }
+            }
+            (u, v)
         };
-        let an = axis.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-        let (p1, p2) = orthonormal_basis(an);
-        let rel = p - *origin;
-        // point_at is origin + axis·v (raw axis): invert with the
-        // squared length so non-unit stored axes stay exact.
-        let v = rel.dot(axis) / axis.length_squared();
-        let mut u = rel.dot(&p2).patan2(rel.dot(&p1));
-        if let Some(pu) = prev_u {
-            while u - pu > std::f64::consts::PI {
-                u -= TAU;
-            }
-            while pu - u > std::f64::consts::PI {
-                u += TAU;
-            }
-        }
-        (u, v)
-    };
 
-    let pad1 = (v1_range.1 - v1_range.0).abs() * 0.5 + tolerance.linear();
-    let pad2 = (v2_range.1 - v2_range.0).abs() * 0.5 + tolerance.linear();
-    let mut results = Vec::new();
-    for pts in loops {
-        if pts.len() < 4 {
-            continue;
+        let pad1 = (v1_range.1 - v1_range.0).abs() * 0.5 + tolerance.linear();
+        let pad2 = (v2_range.1 - v2_range.0).abs() * 0.5 + tolerance.linear();
+        let mut results = Vec::new();
+        for pts in loops {
+            if pts.len() < 4 {
+                continue;
+            }
+            let mut samples: Vec<MarchSample> = Vec::with_capacity(pts.len());
+            let (mut u1_prev, mut u2_prev) = (None, None);
+            for &(theta, t) in &pts {
+                let p = point_at(theta, t);
+                let (u1, v1) = chart(surface1, p, u1_prev);
+                let (u2, v2) = chart(surface2, p, u2_prev);
+                u1_prev = Some(u1);
+                u2_prev = Some(u2);
+                samples.push(MarchSample {
+                    u1,
+                    v1,
+                    u2,
+                    v2,
+                    point: p,
+                });
+            }
+            // Skip loops entirely outside both requested v-windows (the
+            // caller's clip stage owns exact trimming; this only avoids
+            // fitting curves with no chance of surviving it).
+            let v1_hit = samples
+                .iter()
+                .any(|s| s.v1 > v1_range.0 - pad1 && s.v1 < v1_range.1 + pad1);
+            let v2_hit = samples
+                .iter()
+                .any(|s| s.v2 > v2_range.0 - pad2 && s.v2 < v2_range.1 + pad2);
+            if !v1_hit || !v2_hit {
+                continue;
+            }
+            match fit_march_samples(&samples, !open_branches) {
+                Ok(curve) => {
+                    worst = worst.max(fit_deviation(&curve, surface1, surface2, samples.len()));
+                    results.push(SurfaceSurfaceIntersection::Curve(curve));
+                }
+                Err(CoreError::PreconditionFailed(_)) => continue,
+                Err(_) => continue,
+            }
         }
-        let mut samples: Vec<MarchSample> = Vec::with_capacity(pts.len());
-        let (mut u1_prev, mut u2_prev) = (None, None);
-        for &(theta, t) in &pts {
-            let p = point_at(theta, t);
-            let (u1, v1) = chart(surface1, p, u1_prev);
-            let (u2, v2) = chart(surface2, p, u2_prev);
-            u1_prev = Some(u1);
-            u2_prev = Some(u2);
-            samples.push(MarchSample {
-                u1,
-                v1,
-                u2,
-                v2,
-                point: p,
-            });
+        if worst <= FIT_BUDGET * tolerance.linear() || density >= MAX_LOOP_SAMPLES {
+            return Some(results);
         }
-        // Skip loops entirely outside both requested v-windows (the
-        // caller's clip stage owns exact trimming; this only avoids
-        // fitting curves with no chance of surviving it).
-        let v1_hit = samples
-            .iter()
-            .any(|s| s.v1 > v1_range.0 - pad1 && s.v1 < v1_range.1 + pad1);
-        let v2_hit = samples
-            .iter()
-            .any(|s| s.v2 > v2_range.0 - pad2 && s.v2 < v2_range.1 + pad2);
-        if !v1_hit || !v2_hit {
-            continue;
-        }
-        match fit_march_samples(&samples, true) {
-            Ok(curve) => results.push(SurfaceSurfaceIntersection::Curve(curve)),
-            Err(CoreError::PreconditionFailed(_)) => continue,
-            Err(_) => continue,
-        }
+        density *= 2;
     }
-    Some(results)
 }
 
 /// Parallel-axis cylinder×cylinder: the cross-section is a plain 2D
@@ -375,6 +410,42 @@ fn try_parallel_axes(
         }));
     }
     Some(results)
+}
+
+/// The largest distance from `curve` (sampled at four points per fit
+/// sample) to either cylinder, measured on the implicit surfaces.
+fn fit_deviation(
+    curve: &CurveOnSurface,
+    surface1: &SurfaceGeometry,
+    surface2: &SurfaceGeometry,
+    samples: usize,
+) -> f64 {
+    use crate::geometry::curve::CurveEval;
+    let off = |surface: &SurfaceGeometry, p: Point3| -> f64 {
+        let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } = surface
+        else {
+            return 0.0;
+        };
+        let Some(a) = axis.normalized() else {
+            return 0.0;
+        };
+        let rel = p - *origin;
+        ((rel - a * rel.dot(&a)).length() - radius).abs()
+    };
+    let (t0, t1) = curve.curve_3d.parameter_range();
+    let k = 4 * samples.max(1);
+    (0..=k)
+        .map(|i| {
+            let p = curve
+                .curve_3d
+                .point_at(t0 + (t1 - t0) * i as f64 / k as f64);
+            off(surface1, p).max(off(surface2, p))
+        })
+        .fold(0.0, f64::max)
 }
 
 /// Normalize an angle into the cylinder chart's [0, 2π) branch.

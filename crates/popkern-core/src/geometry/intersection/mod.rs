@@ -8,6 +8,7 @@ pub mod coincident;
 pub mod coincident_analytic;
 pub(crate) mod cylinder_cone;
 pub(crate) mod cylinder_cylinder;
+mod cylinder_cylinder_singular;
 pub(crate) mod cylinder_sphere;
 pub mod degeneracy;
 mod line_circle;

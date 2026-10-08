@@ -105,3 +105,89 @@ fn cross_drill_pierce_loops_exact() {
         );
     }
 }
+
+/// The worst distance of a fitted curve from two cylinders about `z`
+/// (radius `ra`) and about `x` through `(0, 0, zc)` (radius `rb`).
+fn worst_off(
+    cos: &crate::geometry::curve_on_surface::CurveOnSurface,
+    ra: f64,
+    rb: f64,
+    zc: f64,
+) -> f64 {
+    let (t0, t1) = cos.curve_3d.parameter_range();
+    (0..=2000)
+        .map(|i| {
+            let p = cos
+                .curve_3d
+                .point_at(t0 + (t1 - t0) * f64::from(i) / 2000.0);
+            let da = ((p.x * p.x + p.y * p.y).sqrt() - ra).abs();
+            let db = ((p.y * p.y + (p.z - zc) * (p.z - zc)).sqrt() - rb).abs();
+            da.max(db)
+        })
+        .fold(0.0, f64::max)
+}
+
+fn tee_pair(rb: f64) -> (SurfaceGeometry, SurfaceGeometry) {
+    (
+        SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 40.0,
+        },
+        SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 60.0),
+            axis: Vec3::new(1.0, 0.0, 0.0),
+            radius: rb,
+        },
+    )
+}
+
+#[test]
+fn equal_radius_tee_splits_at_the_singular_crossings() {
+    // PK-727: equal radii, intersecting axes — two ellipses crossing at
+    // (0, ±40, 60). The scan must return four OPEN branches, each from
+    // one crossing to the other, not one self-touching loop.
+    let (main, branch) = tee_pair(40.0);
+    let tol = Tolerance::default();
+    let curves = try_cylinder_cylinder(&main, (-60.0, 180.0), &branch, (-50.0, 150.0), &tol)
+        .expect("analytic path");
+    assert_eq!(curves.len(), 4, "two crossing ellipses = four branches");
+    for c in &curves {
+        let SurfaceSurfaceIntersection::Curve(cos) = c else {
+            panic!("expected curve");
+        };
+        assert!(!cos.is_closed, "branches between crossings are open");
+        let (t0, t1) = cos.curve_3d.parameter_range();
+        for end in [cos.curve_3d.point_at(t0), cos.curve_3d.point_at(t1)] {
+            let at_crossing = (end.x.abs() < 1e-6)
+                && ((end.y.abs() - 40.0).abs() < 1e-6)
+                && ((end.z - 60.0).abs() < 1e-6);
+            assert!(at_crossing, "branch end {end:?} is not a crossing point");
+        }
+        let off = worst_off(cos, 40.0, 40.0, 60.0);
+        assert!(off < 1e-6, "branch strays {off:.3e} from the cylinders");
+    }
+}
+
+#[test]
+fn millimetre_pierce_loops_are_fitted_to_tolerance() {
+    // PK-728: 512 fixed samples left an r = 30 × r = 40 loop 2.4e-6 off
+    // its surfaces at millimetre scale; the fit is densified until it
+    // lies within a tenth of the linear tolerance.
+    let (main, branch) = tee_pair(30.0);
+    let tol = Tolerance::default();
+    let curves = try_cylinder_cylinder(&main, (-60.0, 180.0), &branch, (-100.0, 300.0), &tol)
+        .expect("analytic path");
+    assert_eq!(curves.len(), 2, "full pierce: two loops");
+    for c in &curves {
+        let SurfaceSurfaceIntersection::Curve(cos) = c else {
+            panic!("expected curve");
+        };
+        let off = worst_off(cos, 40.0, 30.0, 60.0);
+        assert!(
+            off <= 0.1 * tol.linear() * 1.5,
+            "loop strays {off:.3e} (budget {:.1e})",
+            0.1 * tol.linear()
+        );
+    }
+}
