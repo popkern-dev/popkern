@@ -508,6 +508,85 @@ try {
   // XCAF, tools/occ-oracle/occ_write_assembly.py) opens with its tree,
   // names and shared parts.
   const stepFixture = (await readFile(join(root, "..", "..", "crates/popkern-assembly/tests/fixtures/occ_bench_assembly.step"))).toString("base64");
+  // Part appearance (six-axis-arm §4.5): a part's colour and finish
+  // are its CAD-view material (with the studio environment so a metal
+  // reads as metal); a part without one keeps the default CAD face.
+  out.appearance = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    page.editor.value = ${JSON.stringify(`let a = assembly("colours");
+let blue = a.part("housing", |m| { m.profile(xy()).circle(0.3).sketch("s").extrude(blind(0.5)); m.appearance(#{ color: "#2b5cab", metal: 0.6, rough: 0.35 }); });
+let plain = a.part("plain", |m| { m.profile(xy()).rect(0.2, 0.2).sketch("s").extrude(blind(0.2)); });
+a.place(blue, "housing_1");
+a.place(plain, "plain_1").translate(1.0, 0.0, 0.0);
+a`)};
+    const run = await page.run({ live: true });
+    const material = (instance) => {
+      const m = page.viewer.bodies.find((b) => b.userData.instance === instance).material;
+      return { color: m.color.getHexString(), metal: m.metalness, rough: m.roughness, env: !!m.envMap };
+    };
+    return {
+      outcome: run?.envelope?.outcome ?? run?.outcome?.outcome ?? null,
+      housing: material("housing_1"),
+      plain: material("plain_1"),
+    };
+  })()`);
+
+  // The section view (six-axis-arm §4.6): a clipping plane on every
+  // material, one stencil-capped cut per visible body — the caps draw
+  // real pixels — moving the cut is a transform, and "off" restores.
+  out.section = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const viewer = page.viewer;
+    const select = document.getElementById("section-axis");
+    // 0.2 of the bounds puts the cut through the housing (the other
+    // part lies wholly beyond it and is removed).
+    document.getElementById("section-at").value = "0.2";
+    select.value = "x";
+    select.dispatchEvent(new Event("change"));
+    const gl = viewer.renderer.getContext();
+    const pixels = () => {
+      viewer.renderer.render(viewer.scene, viewer.camera);
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const buf = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      return buf;
+    };
+    const visible = viewer.bodies.filter((m) => m.visible).length;
+    const result = {
+      slider_shown: !document.getElementById("section-at").hidden,
+      caps: viewer.section.caps.children.length,
+      visible,
+      clipped: viewer.bodies.every((m) => (m.material.clippingPlanes ?? []).length === 1),
+    };
+    // Look at the cut face: from the removed (+x) side.
+    const [lo, hi] = viewer.visibleBounds();
+    const centre = lo.map((v, i) => (v + hi[i]) / 2);
+    const span = Math.hypot(...hi.map((v, i) => v - lo[i]));
+    const saved = viewer.camera.position.clone();
+    const savedUp = viewer.camera.up.clone();
+    viewer.camera.up.set(0, 0, 1);
+    viewer.camera.position.set(centre[0] + 2 * span, centre[1] + 0.3 * span, centre[2] + 0.3 * span);
+    viewer.camera.lookAt(...centre);
+    viewer.camera.updateMatrixWorld();
+    const withCaps = pixels();
+    viewer.section.caps.visible = false;
+    const without = pixels();
+    viewer.section.caps.visible = true;
+    viewer.camera.position.copy(saved);
+    viewer.camera.up.copy(savedUp);
+    viewer.orbit.update();
+    let changed = 0;
+    for (let i = 0; i < withCaps.length; i += 4) if (withCaps[i] !== without[i] || withCaps[i + 1] !== without[i + 1]) changed++;
+    result.cap_pixels = changed;
+    const t0 = performance.now();
+    for (let k = 0; k < 20; k++) viewer.section.move(k / 20);
+    result.move_ms = (performance.now() - t0) / 20;
+    select.value = "";
+    select.dispatchEvent(new Event("change"));
+    result.cleared = viewer.section.caps.children.length === 0 && viewer.bodies.every((m) => !(m.material.clippingPlanes ?? []).length);
+    return result;
+  })()`);
+
   out.open_step = await evaluate(`(async () => {
     const page = window.popkernLive;
     const bytes = Uint8Array.from(atob(${JSON.stringify(stepFixture)}), (c) => c.charCodeAt(0)).buffer;

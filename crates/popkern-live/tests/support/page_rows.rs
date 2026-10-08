@@ -464,3 +464,36 @@ pub fn assert_part_insert(out: &serde_json::Value) {
         "the chamfer sits after the anchor in the part: {p}"
     );
 }
+
+/// Part appearance in the page (six-axis-arm §4.5): the coloured part
+/// draws in its own colour and finish with the studio environment; the
+/// plain part keeps the default CAD face.
+pub fn assert_appearance(out: &Value) {
+    let a = &out["appearance"];
+    assert_eq!(a["outcome"], "served", "{a}");
+    assert_eq!(a["housing"]["color"], "2b5cab", "{a}");
+    assert_eq!(a["housing"]["metal"], 0.6, "{a}");
+    assert_eq!(a["housing"]["rough"], 0.35, "{a}");
+    assert_eq!(a["housing"]["env"], true, "{a}");
+    assert_eq!(a["plain"]["env"], false, "{a}");
+    assert_ne!(a["plain"]["color"], "2b5cab", "{a}");
+}
+
+/// The section view (six-axis-arm §4.6): every material clipped, one
+/// cap per visible body that draws real pixels, a move within a frame,
+/// and "off" restoring the unclipped scene.
+pub fn assert_section(out: &Value) {
+    let s = &out["section"];
+    assert_eq!(s["slider_shown"], true, "{s}");
+    assert_eq!(s["clipped"], true, "{s}");
+    assert_eq!(s["caps"], s["visible"], "one cap per visible body: {s}");
+    assert!(
+        s["cap_pixels"].as_u64().unwrap_or(0) > 100,
+        "the caps draw: {s}"
+    );
+    assert!(
+        s["move_ms"].as_f64().unwrap_or(f64::MAX) < 16.7,
+        "a move fits a frame: {s}"
+    );
+    assert_eq!(s["cleared"], true, "{s}");
+}

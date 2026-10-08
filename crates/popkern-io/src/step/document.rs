@@ -142,6 +142,10 @@ pub struct ProductMetadata {
     pub layer: Option<String>,
     /// Arbitrary string properties.
     pub custom: HashMap<String, String>,
+    /// Import only: the file's solid representation items (entity ids)
+    /// this product took, so a `STYLED_ITEM` colours the product that
+    /// owns its target and no other.
+    pub solid_items: Vec<u64>,
 }
 
 /// Stores unrecognized entities for round-trip preservation.

@@ -77,6 +77,12 @@
         </select></label>
         <label class="check"><input id="edges" type="checkbox" checked> edges</label>
         <label id="explode-row" class="explode" hidden title="Pull the assembly's parts apart (view only)"><span class="tool-label">explode</span><input id="explode" type="range" min="0" max="1" step="0.01" value="0" aria-label="Explode the assembly"></label>
+        <label class="section" title="Cut the view through the model (view only: the model is not changed)"><span class="tool-label">section</span><select id="section-axis" aria-label="Section plane axis">
+          <option value="" selected>off</option>
+          <option value="x">x</option>
+          <option value="y">y</option>
+          <option value="z">z</option>
+        </select><input id="section-at" type="range" min="0" max="1" step="0.005" value="0.5" aria-label="Section plane position" hidden></label>
         <button id="history" type="button" title="Step through the model's history (builds it live first)">History</button>
         <button id="fit" type="button" title="Fit the model to the view">Fit</button>
       </div>

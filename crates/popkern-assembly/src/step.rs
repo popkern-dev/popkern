@@ -50,14 +50,16 @@ impl Assembly {
         for id in &order {
             let definition = self.definition(*id)?;
             let node = match &definition.content {
-                DefinitionContent::Part(_) => {
+                DefinitionContent::Part(model) => {
                     let solids = parts
                         .remove(id)
                         .unwrap_or_default()
                         .iter()
                         .map(|part| part.brep().clone())
                         .collect();
-                    product(&definition.name, Vec::new(), solids)
+                    let mut node = product(&definition.name, Vec::new(), solids);
+                    node.metadata.solid_color = model.appearance().map(|a| a.rgb_f32());
+                    node
                 }
                 DefinitionContent::Assembly(instances) => {
                     product(&definition.name, children(instances), Vec::new())

@@ -161,7 +161,8 @@ pub fn map_products(
             .filter(|(_, idx)| **idx != product_idx)
             .map(|(rep, _)| *rep)
             .collect();
-        let solids: Vec<BRep> = reach.solids(graph, geo, rep_id, &foreign, &brep_by_id, log);
+        let (solids, items) = reach.solids(graph, geo, rep_id, &foreign, &brep_by_id, log);
+        products[product_idx].metadata.solid_items.extend(items);
         let kind = if solids.is_empty() || kind == ShapeRepKind::AdvancedBrep {
             kind
         } else {

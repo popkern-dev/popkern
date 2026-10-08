@@ -42,9 +42,18 @@ impl Model {
     /// one). A single-body model writes exactly what
     /// [`Part::export_step`] writes for that body.
     pub fn to_step(&mut self, path: impl AsRef<std::path::Path>) -> Result<(), ScriptError> {
-        let parts = self.to_parts_all()?;
-        let context = self.step_context();
-        Ok(popkern_part::export_step_of_in(&parts, path, context)?)
+        let path = path.as_ref();
+        let name = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "part".into());
+        let bytes = self.to_step_bytes(&name)?;
+        std::fs::write(path, bytes).map_err(|e| {
+            ScriptError::from(popkern_part::PartError::Io {
+                path: path.display().to_string(),
+                source: popkern_io::error::IoError::Io(e),
+            })
+        })
     }
 
     /// The STEP representation context this document's lengths are
@@ -73,6 +82,9 @@ impl Model {
     pub fn to_step_bytes(&mut self, name: &str) -> Result<Vec<u8>, ScriptError> {
         let parts = self.to_parts_all()?;
         let context = self.step_context();
-        Ok(popkern_part::step_bytes_of_in(&parts, name, context)?)
+        let colour = self.appearance().map(|a| a.rgb_f32());
+        Ok(popkern_part::step_bytes_of_styled(
+            &parts, name, context, colour,
+        )?)
     }
 }

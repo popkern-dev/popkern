@@ -62,6 +62,7 @@ pub use feature::{Feature, FeatureLog};
 pub use part::Part;
 pub use part_export::{
     assert_step_roundtrip_of, export_step_of, export_step_of_in, step_bytes_of, step_bytes_of_in,
+    step_bytes_of_styled,
 };
 pub use popkern_shell::{
     JoinStyle, OffsetConstraint, PreviewMesh, SafeOffsetReport, ShellDirection, ShellOptions,

@@ -50,10 +50,7 @@ fn map_styled_items(
             .find_map(|&style_id| resolve_color_from_psa(graph, style_id, log));
 
         if let Some(rgb) = color {
-            // Try to match the styled item to a product shape
-            // The item ref typically points to MANIFOLD_SOLID_BREP or ADVANCED_FACE
-            // For now, apply to any product whose shapes contain a matching entity
-            apply_color_to_products(products, rgb);
+            apply_color_to_owner(products, si.item, rgb);
         }
     }
 }
@@ -132,10 +129,13 @@ fn predefined_colour_rgb(name: &str) -> [f32; 3] {
     }
 }
 
-/// Apply a solid color to all products (simple heuristic).
-fn apply_color_to_products(products: &mut [StepProductNode], color: [f32; 3]) {
+/// Colour the product that owns styled item `item` (a solid it took
+/// on import). A styled item naming a face or another entity no
+/// product took as a solid colours nothing: guessing would paint every
+/// product of an assembly the first colour in the file.
+fn apply_color_to_owner(products: &mut [StepProductNode], item: EntityId, color: [f32; 3]) {
     for product in products.iter_mut() {
-        if product.metadata.solid_color.is_none() {
+        if product.metadata.solid_items.contains(&item) && product.metadata.solid_color.is_none() {
             product.metadata.solid_color = Some(color);
         }
     }
@@ -261,17 +261,26 @@ mod tests {
         let mut log = DiagnosticLog::new();
         let graph = EntityGraph::build(entities, &mut log);
 
-        let mut products = vec![StepProductNode {
-            name: "test".into(),
-            id: "t".into(),
+        // The styled item names solid #100, which the first product
+        // took; the second product owns another solid and stays plain.
+        let product = |name: &str, item: u64| StepProductNode {
+            name: name.into(),
+            id: name.into(),
             children: vec![],
             shapes: vec![],
-            metadata: Default::default(),
-        }];
+            metadata: crate::step::document::ProductMetadata {
+                solid_items: vec![item],
+                ..Default::default()
+            },
+        };
+        let mut products = vec![product("owner", 100), product("other", 200)];
 
         map_presentation(&graph, &mut products, &mut log);
-        assert!(products[0].metadata.solid_color.is_some());
         let c = products[0].metadata.solid_color.unwrap();
         assert!((c[0] - 0.8).abs() < 0.01);
+        assert!(
+            products[1].metadata.solid_color.is_none(),
+            "a styled item colours only the product that owns its target"
+        );
     }
 }

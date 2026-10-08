@@ -81,6 +81,21 @@ pub fn step_bytes_of_in(
     name: &str,
     context: popkern_io::RepresentationContext,
 ) -> Result<Vec<u8>, PartError> {
+    step_bytes_of_styled(parts, name, context, None)
+}
+
+/// [`step_bytes_of_in`] with every solid coloured `colour` (RGB in
+/// `[0, 1]`; `None` writes no presentation).
+///
+/// # Errors
+///
+/// As [`step_bytes_of_in`].
+pub fn step_bytes_of_styled(
+    parts: &[Part],
+    name: &str,
+    context: popkern_io::RepresentationContext,
+    colour: Option<[f32; 3]>,
+) -> Result<Vec<u8>, PartError> {
     if parts.is_empty() {
         return Err(PartError::NotApplicable(
             "STEP export of no parts: the document has no body".into(),
@@ -98,7 +113,10 @@ pub fn step_bytes_of_in(
                 context: context.clone(),
                 non_brep_items: vec![],
             })],
-            metadata: popkern_io::ProductMetadata::default(),
+            metadata: popkern_io::ProductMetadata {
+                solid_color: colour,
+                ..popkern_io::ProductMetadata::default()
+            },
         }],
         roots: vec![0],
         // The writer declares units from the document context.

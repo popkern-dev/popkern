@@ -111,6 +111,7 @@ pub fn body_mesh(
     };
     Ok(BodyMesh {
         id,
+        appearance: None,
         label,
         vertex_count: mesh.vertices.len(),
         triangle_count: mesh.triangles.len(),

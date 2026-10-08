@@ -10,6 +10,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { boundaryEdges, fatLines } from "./edges.js";
 import { drawList, explodePlan, placeAt } from "./instances.js";
 import { Orbit } from "./orbit.js";
+import { Section } from "./section.js";
 import { ZEBRA_FRAGMENT, ZEBRA_VERTEX, divergingColor, faceColor, robustHalfRange } from "./shading.js";
 
 // The CAD view: uniform grey faces, black edges, and a blue
@@ -45,7 +46,9 @@ export class Viewer {
     this.canvas = canvas;
     this.onPick = onPick;
     this.mode = "cad";
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    // The stencil buffer carries the section caps (section.js); three.js
+    // allocates none by default since r163.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, stencil: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x16181d);
@@ -64,6 +67,7 @@ export class Viewer {
     this.fitted = false;
     this.raycaster = new THREE.Raycaster();
     this.orbit = new Orbit(this.camera, canvas, () => this.render());
+    this.section = new Section(this);
     canvas.tabIndex = 0;
     canvas.addEventListener("click", (e) => {
       if (!this.orbit.wasDrag()) this.pick(e);
@@ -145,7 +149,7 @@ export class Viewer {
     });
     for (const draw of drawList(bodies, assembly)) {
       const { geometry, lineGeometry, edges, faceIds } = shared[draw.index];
-      const mesh = new THREE.Mesh(geometry, this.material(draw.colorKey));
+      const mesh = new THREE.Mesh(geometry, this.material(draw.colorKey, bodies[draw.index].appearance));
       mesh.userData = { body: bodies[draw.index], faceIds, index: draw.index, instance: draw.instance };
       if (draw.matrix) placeAt(mesh, draw.matrix);
       mesh.userData.base = mesh.matrix.clone();
@@ -166,6 +170,7 @@ export class Viewer {
     }
     this.explodePlan = assembly ? explodePlan(this.bodies) : null;
     if (this.explode && this.explodePlan) this.setExplode(this.explode);
+    if (this.section.active) this.section.apply();
     if (!this.fitted) {
       const box = this.visibleBounds();
       if (box) {
@@ -262,7 +267,7 @@ export class Viewer {
     return new THREE.BufferAttribute(colors, 3);
   }
 
-  material(colorKey = 0) {
+  material(colorKey = 0, appearance = null) {
     if (this.mode === "zebra") {
       const material = new THREE.ShaderMaterial({
         vertexShader: ZEBRA_VERTEX,
@@ -281,6 +286,20 @@ export class Viewer {
       return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, ...offset });
     }
     if (this.mode === "cad") {
+      // A part's own appearance (six-axis-arm §4.5) is its CAD material.
+      if (appearance) {
+        const [r, g, b] = appearance.color;
+        const color = new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+        return new THREE.MeshStandardMaterial({
+          color,
+          metalness: appearance.metal,
+          roughness: appearance.rough,
+          envMap: this.studioEnvironment(),
+          envMapIntensity: 0.9,
+          side: THREE.DoubleSide,
+          ...offset,
+        });
+      }
       return new THREE.MeshStandardMaterial({ color: CAD_FACE, metalness: 0.05, roughness: 0.55, side: THREE.DoubleSide, ...offset });
     }
     if (this.mode === "parts") {
@@ -288,6 +307,31 @@ export class Viewer {
       return new THREE.MeshStandardMaterial({ color: faceColor(colorKey), metalness: 0.05, roughness: 0.55, side: THREE.DoubleSide, ...offset });
     }
     return new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.65, side: THREE.DoubleSide, ...offset });
+  }
+
+  /** A soft studio environment (built once): a metal shows only what it
+   *  reflects, so a metallic appearance under plain lights reads black.
+   *  Only appearance materials take it — the default CAD look is
+   *  unchanged. */
+  studioEnvironment() {
+    if (this.studio) return this.studio;
+    const room = new THREE.Scene();
+    const geometry = new THREE.SphereGeometry(10, 32, 16);
+    const colors = [];
+    const position = geometry.getAttribute("position");
+    for (let i = 0; i < position.count; i++) {
+      // Bright overhead, warm horizon band, dark floor.
+      const t = position.getZ(i) / 10;
+      const c = t > 0.35 ? 1.0 : t > -0.1 ? 0.55 + 0.6 * (t + 0.1) : 0.12;
+      colors.push(c, c * 0.98, c * 0.95);
+    }
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    room.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.studio = pmrem.fromScene(room, 0.02).texture;
+    pmrem.dispose();
+    geometry.dispose();
+    return this.studio;
   }
 
   /** Switch the surface view: cad | parts | shaded | zebra | gaussian | mean. */

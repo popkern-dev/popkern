@@ -240,5 +240,9 @@ fn mesh_step_body(model: &Model, body: BodyId, brep: &BRep) -> Result<BodyMesh, 
         label_face,
         MeshPurpose::Display,
     )
+    .map(|mut mesh| {
+        mesh.appearance = model.appearance();
+        mesh
+    })
     .map_err(|e| e.to_string())
 }

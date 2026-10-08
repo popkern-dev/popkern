@@ -18,6 +18,7 @@
 //!   └── cache: StepCache                  // per-step document states
 //! ```
 
+pub mod appearance;
 pub(crate) mod auto_merge;
 pub(crate) mod body;
 mod body_query;
@@ -170,6 +171,10 @@ pub struct FeatureTree {
     /// document saved under a configuration keeps its base values.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub(crate) config_pinned_base: HashMap<parameter::ParameterId, f64>,
+    /// The part's colour and finish, when set (display and exchange
+    /// only; replay ignores it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) appearance: Option<appearance::Appearance>,
     /// The BRep produced by the most recent replay, or `None` if the tree
     /// has not been replayed yet.
     ///
@@ -247,6 +252,17 @@ fn scheme_one() -> u32 {
 }
 
 impl FeatureTree {
+    /// The part's appearance, when set.
+    pub fn appearance(&self) -> Option<appearance::Appearance> {
+        self.appearance
+    }
+
+    /// Set (or clear) the part's appearance. Geometry is untouched, so
+    /// nothing replays.
+    pub fn set_appearance(&mut self, appearance: Option<appearance::Appearance>) {
+        self.appearance = appearance;
+    }
+
     /// Create an empty feature tree with the default [`CacheStrategy::EveryStep`] cache.
     pub fn new() -> Self {
         Self {
@@ -271,6 +287,7 @@ impl FeatureTree {
             labels: LabelTable::default(),
             build_tolerance: None,
             config_pinned_base: HashMap::new(),
+            appearance: None,
             naming_scheme: popkern_core::naming::NAMING_SCHEME_VERSION,
         }
     }

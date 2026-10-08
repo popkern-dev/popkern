@@ -44,6 +44,10 @@ impl WallBudget {
 pub struct BodyMesh {
     /// The body's tree id.
     pub id: u64,
+    /// The part's colour and finish (six-axis-arm §4.5), when set: the
+    /// viewer's default material.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<popkern_history::appearance::Appearance>,
     /// The body's label, when one was given.
     pub label: Option<String>,
     /// Vertex count (`positions.len() / 3`).

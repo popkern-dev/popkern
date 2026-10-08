@@ -14,6 +14,9 @@ Output: one JSON object on stdout:
                     part   the referred part's product name
                     bbox   located bounding box [[xmin,ymin,zmin],[xmax,ymax,zmax]]
                     solids solid count of the located shape
+                    color  surface colour XCAF reads for the part (on its
+                           label, its shape or its first solid), RGB in
+                           [0, 1] (sRGB), or null
 Exit code 0 when the file loaded.
 """
 
@@ -75,6 +78,35 @@ def main(path):
         return 1
     reader.Transfer(doc)
     tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+    colors = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
+
+    def part_color(label):
+        from OCP.Quantity import Quantity_Color, Quantity_TOC_sRGB
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp_Explorer
+        from OCP.XCAFDoc import XCAFDoc_ColorGen, XCAFDoc_ColorSurf, XCAFDoc_ColorTool
+
+        c = Quantity_Color()
+        shape = tool.GetShape_s(label)
+        candidates = [shape]
+        exp = TopExp_Explorer(shape, TopAbs_SOLID)
+        if exp.More():
+            candidates.append(exp.Current())
+        found = False
+        for kind in (XCAFDoc_ColorSurf, XCAFDoc_ColorGen):
+            if XCAFDoc_ColorTool.GetColor_s(label, kind, c):
+                found = True
+                break
+            for cand in candidates:
+                if colors.GetColor(cand, kind, c):
+                    found = True
+                    break
+            if found:
+                break
+        if not found:
+            return None
+        r, g, b = c.Values(Quantity_TOC_sRGB)
+        return [r, g, b]
 
     parts = set()
 
@@ -97,6 +129,7 @@ def main(path):
                     "part": label_name(label),
                     "bbox": bbox(shape),
                     "solids": solids(shape),
+                    "color": part_color(label),
                 }
             )
 

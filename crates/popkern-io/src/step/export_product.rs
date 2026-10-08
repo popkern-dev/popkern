@@ -149,6 +149,7 @@ impl ExportContext {
         }
 
         self.export_assembly_relationships(doc, &product_def_ids, &structure);
+        self.export_solid_colours(doc, shape_item_ids, ctx_id);
         Ok(())
     }
 

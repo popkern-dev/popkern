@@ -151,6 +151,17 @@ impl Model {
         self.tolerance
     }
 
+    /// The part's colour and finish, when set.
+    pub fn appearance(&self) -> Option<popkern_history::appearance::Appearance> {
+        self.tree.appearance()
+    }
+
+    /// Set (or clear) the part's colour and finish. Display and
+    /// exchange data only: nothing replays.
+    pub fn set_appearance(&mut self, appearance: Option<popkern_history::appearance::Appearance>) {
+        self.tree.set_appearance(appearance);
+    }
+
     /// The underlying feature tree (read access for migrations and tests).
     pub fn tree(&self) -> &FeatureTree {
         &self.tree

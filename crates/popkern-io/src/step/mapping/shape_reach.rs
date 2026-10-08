@@ -62,7 +62,8 @@ impl ShapeReach {
     }
 
     /// Every solid reachable from `start`, not entering `foreign`
-    /// representations (other products' own).
+    /// representations (other products' own), with the solid items
+    /// (entity ids) they came from.
     pub(crate) fn solids(
         &self,
         graph: &EntityGraph,
@@ -71,8 +72,9 @@ impl ShapeReach {
         foreign: &HashSet<EntityId>,
         brep_by_id: &HashMap<EntityId, Vec<&BRep>>,
         log: &mut DiagnosticLog,
-    ) -> Vec<BRep> {
+    ) -> (Vec<BRep>, Vec<EntityId>) {
         let mut out = Vec::new();
+        let mut items = Vec::new();
         let mut seen = HashSet::new();
         self.collect(
             graph,
@@ -83,9 +85,10 @@ impl ShapeReach {
             &Transform3::identity(),
             &mut seen,
             &mut out,
+            &mut items,
             log,
         );
-        out
+        (out, items)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -99,6 +102,7 @@ impl ShapeReach {
         placed: &Transform3,
         seen: &mut HashSet<EntityId>,
         out: &mut Vec<BRep>,
+        items_out: &mut Vec<EntityId>,
         log: &mut DiagnosticLog,
     ) {
         if !seen.insert(rep) {
@@ -114,6 +118,7 @@ impl ShapeReach {
                 for body in bodies {
                     out.push(place(body, placed, item, log));
                 }
+                items_out.push(item);
                 continue;
             }
             if let Some((mapped, transform)) = mapped_item(graph, geo, item, log) {
@@ -122,14 +127,14 @@ impl ShapeReach {
                 }
                 let inner = placed.compose(&transform);
                 self.collect(
-                    graph, geo, mapped, foreign, brep_by_id, &inner, seen, out, log,
+                    graph, geo, mapped, foreign, brep_by_id, &inner, seen, out, items_out, log,
                 );
             }
         }
         for &next in self.links.get(&rep).into_iter().flatten() {
             if !foreign.contains(&next) {
                 self.collect(
-                    graph, geo, next, foreign, brep_by_id, placed, seen, out, log,
+                    graph, geo, next, foreign, brep_by_id, placed, seen, out, items_out, log,
                 );
             }
         }

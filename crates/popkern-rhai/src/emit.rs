@@ -401,6 +401,17 @@ pub fn to_rhai(model: &mut Model) -> Result<String, EmitError> {
     emitter.features(model)?;
     emitter.labels(model)?;
     emitter.configs(model)?;
+    if let Some(a) = model.appearance() {
+        use crate::emit_spelling::float;
+        emitter.line(&format!(
+            "m.appearance(#{{ color: [{}, {}, {}], metal: {}, rough: {} }});",
+            float(a.color[0]),
+            float(a.color[1]),
+            float(a.color[2]),
+            float(a.metal),
+            float(a.rough)
+        ));
+    }
     emitter.line("m");
     Ok(emitter.out)
 }

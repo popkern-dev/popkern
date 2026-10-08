@@ -129,7 +129,13 @@ fn build(
             None
         } else {
             let label = definition_name(&mut taken, product, index);
-            record_part(&mut assembly, &label, &solids, report)?
+            record_part(
+                &mut assembly,
+                &label,
+                &solids,
+                product.metadata.solid_color,
+                report,
+            )?
         };
         if product.children.is_empty() {
             if let Some(id) = part {
@@ -305,6 +311,7 @@ fn record_part(
     assembly: &mut Assembly,
     label: &str,
     solids: &[&popkern_core::topology::BRep],
+    colour: Option<[f32; 3]>,
     report: &mut StepImportReport,
 ) -> Result<Option<DefinitionId>, AssemblyError> {
     // The part is built at the tolerance its solids were imported at
@@ -335,5 +342,16 @@ fn record_part(
     }
     report.solids += recorded;
     report.parts += 1;
+    // The file's solid colour becomes the part's appearance (finish at
+    // its defaults: STEP carries no metalness or roughness).
+    if let Some([r, g, b]) = colour
+        && let Ok(appearance) = popkern_history::appearance::Appearance::new(
+            [f64::from(r), f64::from(g), f64::from(b)],
+            0.0,
+            0.5,
+        )
+    {
+        model.set_appearance(Some(appearance));
+    }
     Ok(Some(assembly.add_part(label, model)?))
 }

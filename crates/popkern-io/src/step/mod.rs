@@ -12,6 +12,7 @@ mod export_pcurve_same_parameter;
 mod export_pcurve_synthesis;
 mod export_periodic_branches;
 mod export_periodic_chain;
+mod export_presentation;
 mod export_product;
 mod export_surface_conditioning;
 mod export_surface_curve_wrap;

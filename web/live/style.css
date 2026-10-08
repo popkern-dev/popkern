@@ -186,6 +186,8 @@ body:has(.dialog:not([hidden])) { overflow: hidden; }
 .tree button, .assembly-open button { height: auto; line-height: 1.3; }
 .explode { display: inline-flex; align-items: center; gap: 0.35rem; }
 .explode input[type="range"] { width: 7rem; }
+.section { display: inline-flex; align-items: center; gap: 0.35rem; }
+.section input[type="range"] { width: 7rem; }
 .clearance-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.2rem 0 0.4rem; }
 .clearance-row input { width: 6em; }
 .clash .tree-name { color: var(--bad, #f87171); }

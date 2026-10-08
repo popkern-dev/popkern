@@ -25,6 +25,12 @@ export function wireControls(page) {
   });
   $("edges").addEventListener("change", (e) => page.viewer.toggleEdges(e.target.checked));
   $("explode").addEventListener("input", (e) => page.viewer.setExplode(Number(e.target.value)));
+  $("section-axis").addEventListener("change", (e) => {
+    const axis = e.target.value || null;
+    $("section-at").hidden = !axis;
+    page.viewer.section.set(axis, Number($("section-at").value));
+  });
+  $("section-at").addEventListener("input", (e) => page.viewer.section.move(Number(e.target.value)));
   $("clearance-check").addEventListener("click", () => page.checkClearance());
   $("open-step").addEventListener("click", () => $("open-step-file").click());
   $("open-step-file").addEventListener("change", async (e) => {

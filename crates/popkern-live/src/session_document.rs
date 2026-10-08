@@ -110,7 +110,10 @@ pub(crate) fn mesh_bodies(
             model.spell_entity(entity).ok()
         };
         match body_mesh(&brep, body.id.0 as u64, label, label_face, purpose) {
-            Ok(mesh) => bodies.push(mesh),
+            Ok(mut mesh) => {
+                mesh.appearance = model.appearance();
+                bodies.push(mesh);
+            }
             Err(e) => {
                 error.get_or_insert_with(|| e.to_string());
             }

@@ -32,6 +32,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod appearance_api;
 pub mod args;
 pub mod assembly_api;
 mod assembly_edit_api;
