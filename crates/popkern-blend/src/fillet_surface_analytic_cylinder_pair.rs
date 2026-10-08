@@ -201,3 +201,81 @@ pub(crate) fn fit_exact_circle_center(points: &[Point3]) -> Option<(Point3, f64)
     }
     Some((center, r))
 }
+
+/// Analytic cylinder strip for a fillet between a PLANE parallel to a
+/// cylinder's axis and that cylinder, along an edge parallel to the
+/// axis (a fin or rib root on a cylindrical housing, PK-730): the
+/// ball's centre sits at a fixed cross-section position (offset plane
+/// ∩ offset cylinder is a line parallel to the axis), so the strip is
+/// the exact cylinder of the fillet radius about that line.
+///
+/// Bails unless the plane's normal is perpendicular to the axis, the
+/// centre curve is straight along the axis to 1e-9 of its span, and
+/// either operand order matches.
+fn try_plane_cylinder_axial(
+    surface1: &SurfaceGeometry,
+    surface2: &SurfaceGeometry,
+    center_result: &CenterCurveResult,
+    radius: f64,
+) -> Option<FilletSurfaceResult> {
+    let (normal, axis) = match (surface1, surface2) {
+        (SurfaceGeometry::Plane { normal, .. }, SurfaceGeometry::Cylinder { axis, .. })
+        | (SurfaceGeometry::Cylinder { axis, .. }, SurfaceGeometry::Plane { normal, .. }) => {
+            (normal.normalized()?, axis.normalized()?)
+        }
+        _ => return None,
+    };
+    if normal.dot(&axis).abs() > 1e-9 {
+        return None;
+    }
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = center_result.center_curve.parameter_range();
+    let samples: Vec<Point3> = (0..16)
+        .map(|i| {
+            center_result
+                .center_curve
+                .point_at(t0 + (t1 - t0) * f64::from(i) / 15.0)
+        })
+        .collect();
+    let p0 = samples[0];
+    let span = (samples[15] - p0).length();
+    if span < 1e-12 {
+        return None;
+    }
+    let off_line = samples
+        .iter()
+        .map(|p| {
+            let v = *p - p0;
+            (v - axis * v.dot(&axis)).length()
+        })
+        .fold(0.0_f64, f64::max);
+    if off_line > span * 1e-9 {
+        return None;
+    }
+    let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1).ok()?;
+    let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2).ok()?;
+    Some(FilletSurfaceResult {
+        surface: SurfaceGeometry::Cylinder {
+            origin: p0,
+            axis,
+            radius,
+        },
+        trim_curve_1: trim_1,
+        trim_curve_2: trim_2,
+        continuity_downgrade: None,
+    })
+}
+
+/// The analytic CYLINDER fillet arms: parallel-axes cylinder pairs,
+/// then a plane parallel to a cylinder's axis with the edge along it
+/// (a fin root on a housing, PK-730). One entry keeps the dispatcher
+/// in `fillet_surface` to a single call.
+pub(crate) fn try_cylindrical_analytic(
+    surface1: &SurfaceGeometry,
+    surface2: &SurfaceGeometry,
+    center_result: &CenterCurveResult,
+    radius: f64,
+) -> Option<FilletSurfaceResult> {
+    try_parallel_cylinder_cylinder(surface1, surface2, center_result, radius)
+        .or_else(|| try_plane_cylinder_axial(surface1, surface2, center_result, radius))
+}

@@ -18,7 +18,8 @@
 //! | plane-sphere | torus | [`try_circular_center_torus`] |
 //! | plane-cylinder (⊥ axis) | torus | [`try_circular_center_torus`] |
 //! | plane-cone (⊥ axis) | torus | [`try_circular_center_torus`] |
-//! | cylinder-cylinder (∥ axes) | cylinder | [`try_parallel_cylinder_cylinder`] |
+//! | cylinder-cylinder (∥ axes) | cylinder | [`try_cylindrical_analytic`] |
+//! | plane-cylinder (∥ axis, axial edge) | cylinder | [`try_cylindrical_analytic`] |
 //!
 //! **Plane-cone reasoning.** A plane perpendicular to a cone's axis
 //! cuts the cone in a circle; by rotational symmetry the rolling-ball
@@ -406,4 +407,4 @@ pub(crate) fn try_circular_center_torus(
 
 #[path = "fillet_surface_analytic_cylinder_pair.rs"]
 mod analytic_cylinder_pair;
-pub(crate) use analytic_cylinder_pair::{fit_exact_circle_center, try_parallel_cylinder_cylinder};
+pub(crate) use analytic_cylinder_pair::{fit_exact_circle_center, try_cylindrical_analytic};

@@ -108,10 +108,21 @@ impl BRep {
                 .map(|p| project_point_to_uv(surface, p))
                 .collect()
         };
-        // Reference winding: the outer loop's signed UV area.
-        let outer = loop_entries(face_data.outer_loop)?;
-        let outer_pts: Vec<Point3> = outer.iter().map(|(_, p)| *p).collect();
-        let outer_area = shoelace(&uv_of(&outer_pts)?);
+        // Reference winding: the outer loop's signed UV area — from its
+        // pcurves when it has them (chart-coherent across a periodic
+        // seam: a full cylinder wall's outer loop has only its two seam
+        // vertices, which project to one u and measured zero area, so a
+        // fin root's reflex-end band could never be cut — PK-730), else
+        // from its projected vertices.
+        let periods = crate::geometry::chart_periods::geometric_chart_periods(surface);
+        let outer_area = match self.loop_pcurve_polyline(face_data.outer_loop, periods) {
+            Some(poly) => shoelace(&poly),
+            None => {
+                let outer = loop_entries(face_data.outer_loop)?;
+                let outer_pts: Vec<Point3> = outer.iter().map(|(_, p)| *p).collect();
+                shoelace(&uv_of(&outer_pts)?)
+            }
+        };
         if outer_area.abs() < 1e-30 {
             return None;
         }
@@ -170,12 +181,121 @@ impl BRep {
                 // stay the hole, so the degenerate arc is the band.
                 return Some((entries[ie].0, entries[ix].0));
             }
-            let area = shoelace(&uv_of(&forward)?);
+            // Measured in the same chart as the outer loop: pcurve
+            // samples of the arc's half-edges when the outer used its
+            // pcurves (mixing pcurve and projected charts inverted the
+            // band choice on a cylinder wall — PK-730).
+            let arc_hes: Vec<HalfEdgeHandle> = {
+                let mut v = Vec::new();
+                let mut i = ie;
+                while i != ix {
+                    v.push(entries[i].0);
+                    i = (i + 1) % n;
+                }
+                v
+            };
+            let area = match (
+                self.loop_pcurve_polyline(face_data.outer_loop, periods),
+                self.half_edges_pcurve_polyline(&arc_hes, periods),
+            ) {
+                (Some(_), Some(poly)) => shoelace(&poly),
+                _ => shoelace(&uv_of(&forward)?),
+            };
             if area * outer_area >= 0.0 {
                 return Some((entries[ie].0, entries[ix].0));
             }
             return Some((entries[ix].0, entries[ie].0));
         }
         None
+    }
+
+    /// The loop's chart polyline from its half-edges' pcurves (8
+    /// samples each), each oriented to continue the previous one;
+    /// `None` when any half-edge lacks a pcurve.
+    fn loop_pcurve_polyline(
+        &self,
+        lh: LoopHandle,
+        periods: (Option<f64>, Option<f64>),
+    ) -> Option<Vec<(f64, f64)>> {
+        let start = self.loops.get(lh)?.half_edge;
+        let mut hes = Vec::new();
+        let mut cur = start;
+        for _ in 0..self.half_edges.len() + 1 {
+            hes.push(cur);
+            cur = self.half_edges.get(cur)?.next;
+            if cur == start {
+                break;
+            }
+        }
+        self.half_edges_pcurve_polyline(&hes, periods)
+    }
+
+    /// The chart polyline through consecutive half-edges' pcurves (8
+    /// samples each), each piece oriented and period-shifted to
+    /// continue the previous one; `None` when any lacks a pcurve. A
+    /// loop crossing a periodic wall's seam carries pcurves authored
+    /// in both charts (u near 0 and near 2π); chained unshifted, the
+    /// full-period jump corrupts the shoelace winding.
+    fn half_edges_pcurve_polyline(
+        &self,
+        hes: &[HalfEdgeHandle],
+        periods: (Option<f64>, Option<f64>),
+    ) -> Option<Vec<(f64, f64)>> {
+        let mut pieces: Vec<Vec<(f64, f64)>> = Vec::new();
+        for &cur in hes {
+            let he = self.half_edges.get(cur)?;
+            let pc = he.pcurve.as_ref()?;
+            let (t0, t1) = pc.parameter_range();
+            pieces.push(
+                (0..=8)
+                    .map(|k| {
+                        let p = pc.point_at(t0 + (t1 - t0) * f64::from(k) / 8.0);
+                        (p.x, p.y)
+                    })
+                    .collect(),
+            );
+        }
+        // The period image of `q` nearest `target`.
+        let unwrap = |q: (f64, f64), target: (f64, f64)| -> (f64, f64) {
+            let near = |x: f64, t: f64, period: Option<f64>| match period {
+                Some(p) if p > 0.0 => x + ((t - x) / p).round() * p,
+                _ => x,
+            };
+            (
+                near(q.0, target.0, periods.0),
+                near(q.1, target.1, periods.1),
+            )
+        };
+        let d = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+        // Chart distance from `q` to `target` modulo the periods.
+        let dp = |q: (f64, f64), target: (f64, f64)| d(unwrap(q, target), target);
+        // Orient the first piece toward the second, then chain.
+        if pieces.len() >= 2 {
+            let (f, s) = (&pieces[0], &pieces[1]);
+            let tail = f[f.len() - 1];
+            let head = f[0];
+            let near = |q: (f64, f64)| dp(s[0], q).min(dp(s[s.len() - 1], q));
+            if near(head) < near(tail) {
+                pieces[0].reverse();
+            }
+        }
+        let mut poly: Vec<(f64, f64)> = Vec::new();
+        for mut piece in pieces {
+            if let Some(&last) = poly.last() {
+                if dp(piece[piece.len() - 1], last) < dp(piece[0], last) {
+                    piece.reverse();
+                }
+                // One shift for the whole piece keeps it continuous.
+                let first = piece[0];
+                let shifted = unwrap(first, last);
+                let (du, dv) = (shifted.0 - first.0, shifted.1 - first.1);
+                for q in &mut piece {
+                    q.0 += du;
+                    q.1 += dv;
+                }
+            }
+            poly.extend(piece);
+        }
+        Some(poly)
     }
 }

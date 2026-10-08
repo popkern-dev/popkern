@@ -33,6 +33,19 @@ impl BRep {
         face_a: FaceHandle,
         face_b: FaceHandle,
     ) -> Vec<LoopHandle> {
+        self.rehome_inner_loops_except(face_a, face_b, &[])
+    }
+
+    /// [`Self::rehome_inner_loops_after_split`], leaving the loops in
+    /// `keep` where they are — the hole a split CUT keeps its owner by
+    /// construction, and its probe would sit on the new edge both
+    /// sides share.
+    pub(crate) fn rehome_inner_loops_except(
+        &mut self,
+        face_a: FaceHandle,
+        face_b: FaceHandle,
+        keep: &[LoopHandle],
+    ) -> Vec<LoopHandle> {
         let mut moved = Vec::new();
         if face_a == face_b {
             return moved;
@@ -52,6 +65,9 @@ impl BRep {
             })
             .collect();
         for (owner, hole) in holes {
+            if keep.contains(&hole) {
+                continue;
+            }
             let Some(surface) = self
                 .faces
                 .get(owner)
@@ -110,6 +126,15 @@ impl BRep {
 
     /// Even–odd containment of `query` in the face's outer-loop UV
     /// polygon; `None` when the boundary cannot be sampled.
+    ///
+    /// On a periodic chart the boundary is chained CONTINUOUSLY (each
+    /// sample on the branch nearest its predecessor — the loop lifted
+    /// to the universal cover) and tested against every period image
+    /// of the query. Unwrapping each vertex to the query's branch
+    /// instead folded a full-turn wall's seams behind the query: no
+    /// side of a split cylinder housing claimed its fin footprints
+    /// (PK-730). A loop that does not close in the cover (it winds
+    /// round the period) has no even–odd interior: `None`.
     fn outer_loop_contains_uv(
         &self,
         face: FaceHandle,
@@ -118,24 +143,21 @@ impl BRep {
     ) -> Option<bool> {
         const SAMPLES_PER_HALF_EDGE: usize = 8;
         let start = self.loops.get(self.faces.get(face)?.outer_loop)?.half_edge;
-        let (periodic_u, periodic_v) = surface.is_periodic();
         let (period_u, period_v) = surface.periodicity();
-        let unwrap = |x: f64, q: f64, periodic: bool, period: Option<f64>| -> f64 {
-            match (periodic, period) {
-                (true, Some(p)) if p > 0.0 => {
-                    let mut x = x;
-                    while x - q > p / 2.0 {
-                        x -= p;
-                    }
-                    while q - x > p / 2.0 {
-                        x += p;
-                    }
-                    x
-                }
+        let branch = |x: f64, near: f64, period: Option<f64>| -> f64 {
+            match period {
+                Some(p) if p > 0.0 => x + ((near - x) / p).round() * p,
                 _ => x,
             }
         };
         let mut polygon: Vec<(f64, f64)> = Vec::new();
+        let push = |polygon: &mut Vec<(f64, f64)>, (u, v): (f64, f64)| {
+            let q = match polygon.last() {
+                Some(&(lu, lv)) => (branch(u, lu, period_u), branch(v, lv, period_v)),
+                None => (u, v),
+            };
+            polygon.push(q);
+        };
         let mut cursor = start;
         for _ in 0..=self.half_edges.len() {
             let he = self.half_edges.get(cursor)?;
@@ -144,7 +166,7 @@ impl BRep {
                     let t = pc.t_start
                         + (pc.t_end - pc.t_start) * (k as f64 / SAMPLES_PER_HALF_EDGE as f64);
                     let p = pc.point_at(t);
-                    polygon.push((p.x, p.y));
+                    push(&mut polygon, (p.x, p.y));
                 }
             } else {
                 let edge = self.edges.get(he.edge)?;
@@ -162,7 +184,7 @@ impl BRep {
                     None => vec![self.vertices.get(he.origin)?.position],
                 };
                 for p in points {
-                    polygon.push(project_point_to_uv(surface, &p)?);
+                    push(&mut polygon, project_point_to_uv(surface, &p)?);
                 }
             }
             cursor = he.next;
@@ -173,24 +195,54 @@ impl BRep {
         if polygon.len() < 3 {
             return None;
         }
-        let (qu, qv) = query;
-        let mut inside = false;
+        // Closure in the cover: the loop's net shift must be zero.
+        let (first, last) = (polygon[0], polygon[polygon.len() - 1]);
+        let closes = |a: f64, b: f64, period: Option<f64>| match period {
+            Some(p) if p > 0.0 => (branch(a, b, Some(p)) - a).abs() < 0.5 * p,
+            _ => true,
+        };
+        if !closes(first.0, last.0, period_u) || !closes(first.1, last.1, period_v) {
+            return None;
+        }
+        // The lifted polygon is bounded, so an even–odd ray along u is
+        // sound in the cover; the query counts once per period image
+        // overlapping the polygon (parity then reads containment on
+        // the quotient chart — the torus included).
+        let (lo, hi) = polygon.iter().fold(
+            (
+                (f64::INFINITY, f64::INFINITY),
+                (f64::NEG_INFINITY, f64::NEG_INFINITY),
+            ),
+            |(lo, hi), p| {
+                (
+                    (lo.0.min(p.0), lo.1.min(p.1)),
+                    (hi.0.max(p.0), hi.1.max(p.1)),
+                )
+            },
+        );
+        let images = |q: f64, lo: f64, hi: f64, period: Option<f64>| -> Vec<f64> {
+            match period {
+                Some(p) if p > 0.0 => {
+                    let k0 = ((lo - q) / p).floor() as i64;
+                    let k1 = ((hi - q) / p).ceil() as i64;
+                    (k0..=k1).map(|k| q + k as f64 * p).collect()
+                }
+                _ => vec![q],
+            }
+        };
         let n = polygon.len();
-        for i in 0..n {
-            let (u1, v1) = polygon[i];
-            let (u2, v2) = polygon[(i + 1) % n];
-            let (u1, v1) = (
-                unwrap(u1, qu, periodic_u, period_u),
-                unwrap(v1, qv, periodic_v, period_v),
-            );
-            let (u2, v2) = (
-                unwrap(u2, qu, periodic_u, period_u),
-                unwrap(v2, qv, periodic_v, period_v),
-            );
-            if (v1 > qv) != (v2 > qv) {
-                let x = u1 + (qv - v1) / (v2 - v1) * (u2 - u1);
-                if qu < x {
-                    inside = !inside;
+        let mut inside = false;
+        for &qu in &images(query.0, lo.0, hi.0, period_u) {
+            for &qv in &images(query.1, lo.1, hi.1, period_v) {
+                for i in 0..n {
+                    let (u1, v1) = polygon[i];
+                    let (u2, v2) = polygon[(i + 1) % n];
+                    if (v1 > qv) != (v2 > qv) {
+                        let x = u1 + (qv - v1) / (v2 - v1) * (u2 - u1);
+                        if qu < x {
+                            inside = !inside;
+                        }
+                    }
                 }
             }
         }

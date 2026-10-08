@@ -4,16 +4,13 @@
 
 use popkern_core::geometry::{NurbsCurve, Point3};
 
-/// Minimum distance from `point` to the sampled trim curve.
+/// Minimum distance from `point` to the trim curve, through the
+/// refined foot of [`closest_point_on_curve`]: a bare sample grid
+/// over-reports by up to half the sample spacing, which on a trim
+/// extended far past the edge ends exceeds the gates it feeds
+/// (PK-730).
 pub(super) fn distance_to_curve(curve: &NurbsCurve, point: &Point3) -> f64 {
-    use popkern_core::geometry::CurveEval;
-    let (t0, t1) = curve.parameter_range();
-    let mut best = f64::INFINITY;
-    for k in 0..=64 {
-        let t = t0 + (t1 - t0) * f64::from(k) / 64.0;
-        best = best.min(curve.point_at(t).distance_to(point));
-    }
-    best
+    closest_point_on_curve(curve, point).distance_to(point)
 }
 
 /// Closest point on the trim curve to `point` (coarse sample plus

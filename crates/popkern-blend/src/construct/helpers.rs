@@ -241,13 +241,12 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         // legitimate setback anchors differ from the endpoints but
         // still lie ON the trim (measured: the broad endpoint
         // preference broke 9 corner fixtures).
+        // A refined projection, not a fixed sample grid: a trim
+        // extended past the edge ends (200 units on a fin root)
+        // spaced 33 samples 6.25 apart and called an on-trim walk
+        // 1.25 off (PK-730).
         let off_trim = |p: Point3| -> f64 {
-            let mut d = f64::INFINITY;
-            for k in 0..=32 {
-                let t = t0 + (t1 - t0) * f64::from(k) / 32.0;
-                d = d.min(trim.point_at(t).distance_to(&p));
-            }
-            d
+            perp_anchor_rail_proximity::closest_point_on_curve(trim, &p).distance_to(&p)
         };
         let pick = |walk: Point3, exact: Point3, label: &str| -> Point3 {
             if walk.distance_to(&exact) > gate && off_trim(walk) > gate {

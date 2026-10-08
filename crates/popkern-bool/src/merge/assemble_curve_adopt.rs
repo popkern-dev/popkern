@@ -47,3 +47,21 @@ pub(crate) fn subrange_healed_curve(
         t_end: 1.0,
     })
 }
+
+/// A CLOSED edge's direction is its canonical half-edge (PK-478): the
+/// endpoints coincide, so no endpoint swap can express it. When the
+/// curve belongs to the TWIN of the graph half-edge the edge was first
+/// created from, the twin's BRep half-edge must be canonical. Left on
+/// the first-needed side, a seam-fin union's housing claimed the top
+/// rim's curve forward: the cap served inward, the wall's loop wound
+/// 4π, and a later fillet turned the seam fin inside out (PK-730).
+pub(super) fn canonical_curve_owner(
+    brep: &mut popkern_core::topology::BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    twin_half_edge: popkern_core::topology::HalfEdgeHandle,
+    twin_owns_closed_curve: bool,
+) {
+    if twin_owns_closed_curve && let Some(e) = brep.edges.get_mut(edge) {
+        e.half_edge = twin_half_edge;
+    }
+}

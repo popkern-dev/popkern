@@ -430,7 +430,12 @@ pub(super) fn choose_side_face(
                 let off = dx * n1.x + dy * n1.y + dz * n1.z;
                 off.abs() < 1e-6
             }
-            _ => false,
+            // Curved parents (a cylinder housing carrying a fin
+            // root): split pieces inherit a clone of the parent's
+            // surface, so identity is exact equality. The plane-only
+            // match fell through to `f_a` and handed both trims the
+            // fin-side piece (PK-730: the strip kept the root edge).
+            (parent, piece) => parent == piece,
         }
     };
     if surf_matches(f_a) {

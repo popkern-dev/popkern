@@ -9,7 +9,7 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 
 use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface_analytic::{
-    try_circular_center_torus, try_parallel_cylinder_cylinder, try_plane_plane_analytic,
+    try_circular_center_torus, try_cylindrical_analytic, try_plane_plane_analytic,
 };
 use crate::types::ContinuityLevel;
 
@@ -199,10 +199,9 @@ pub fn build_fillet_surface(
         if let Some(result) = try_circular_center_torus(surface1, surface2, center_result, radius) {
             return Ok(result);
         }
-        // §11.1 analytic cylinder for parallel-axes cylinder-cylinder.
-        if let Some(result) =
-            try_parallel_cylinder_cylinder(surface1, surface2, center_result, radius)
-        {
+        // §11.1 analytic cylinder: parallel-axes cylinder pairs, and a
+        // plane parallel to a cylinder axis with the edge along it.
+        if let Some(result) = try_cylindrical_analytic(surface1, surface2, center_result, radius) {
             return Ok(result);
         }
     }
@@ -445,13 +444,9 @@ fn build_nurbs_sweep(
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
-    // Trims through refined footprints; degree-1 polylines match
-    // degree-1 lofts (trim IS the rail).
-    // PK-177 interpolating smooth loft for constant radius
-    // (gate-forced battery green; boss 1.17e-5 -> 1.01e-5).
-    // Variable radius keeps the degree-1 loft (apply anchors need
-    // its trim parameterization — 52 open edges measured on the
-    // waist otherwise).
+    // PK-177 smooth loft for constant radius (boss 1.17e-5 -> 1.01e-5);
+    // variable radius keeps the degree-1 loft, whose trims ARE its rails
+    // (apply anchors need that parameterization: 52 opens otherwise).
     if supports.is_some()
         && nurbs.degree_u == 1
         && let Some((smooth, t1, t2)) = crate::station_geometry::smooth_reloft_with_rails(&nurbs)

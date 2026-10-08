@@ -25,6 +25,7 @@ use loop_chain::reorder_into_closed_chain;
 mod assemble_claim_trace;
 #[path = "assemble_curve_adopt.rs"]
 mod curve_adopt;
+use curve_adopt::canonical_curve_owner;
 pub(crate) use curve_adopt::subrange_healed_curve;
 #[path = "assemble_strand_gate.rs"]
 mod strand_gate;
@@ -119,9 +120,8 @@ pub(crate) fn assemble_result(
             });
         }
 
-        // Create BRep edges for each graph half-edge this fragment needs.
-        // If the graph half-edge (or its twin) is already mapped, reuse
-        // the existing BRep edge — no duplicates.
+        // One BRep edge per graph half-edge pair this fragment needs:
+        // an already-mapped half-edge (or twin) reuses its edge.
         for &ghe_idx in &all_needed {
             if he_map.contains_key(&ghe_idx) {
                 // Already mapped (either directly or via twin). Skip.
@@ -142,9 +142,8 @@ pub(crate) fn assemble_result(
             let vh_end = node_to_vertex[&end_node];
             let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_start, vh_end);
 
-            // Map BOTH directions so that whichever graph half-edge a
-            // later fragment needs, it finds the correct BRep half-edge
-            // without creating a duplicate edge.
+            // Map BOTH directions: a later fragment needing either side
+            // finds its BRep half-edge without a duplicate edge.
             he_map.insert(ghe_idx, he_fwd);
             he_map.insert(twin_ghe, he_twin);
 
@@ -172,6 +171,9 @@ pub(crate) fn assemble_result(
                     std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
                 builder.set_edge_curve(edge_h, curve);
+                // Closed edge: the curve owner is canonical (PK-478/730).
+                let twin_owns = origin_node == end_node && curve_he != ghe_idx;
+                canonical_curve_owner(builder.brep_mut(), edge_h, he_twin, twin_owns);
             } else {
                 let p_start = graph.nodes[origin_node].position;
                 let p_end = graph.nodes[end_node].position;

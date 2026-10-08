@@ -425,7 +425,10 @@ impl BRep {
             eprintln!("    [split-face] entry_at_start={entry_at_start}");
         }
 
-        // Call mef to split the face topology.
+        // Call mef to split the face topology. `mef` is purely
+        // topological: the split face keeps every hole it had.
+        let cut_loop = self.half_edges[he_entry].loop_;
+        let had_holes = !self.faces[face].inner_loops.is_empty();
         let mef_result = self.mef(he_entry, he_exit)?;
 
         // Attach the trim curve geometry to the new edge, preserving analytic
@@ -465,6 +468,17 @@ impl BRep {
         if let Some(ref surface) = original_surface {
             self.faces[face].surface = Some(surface.clone());
             self.faces[mef_result.face].surface = Some(surface.clone());
+        }
+
+        // Each remaining hole belongs to the side whose outer boundary
+        // contains it. Left on the original handle, a hole rode along
+        // whenever that handle became the thin piece: on a 24-fin
+        // housing whose seam fin joins the wall's outer loop, the
+        // fillet's consumed sliver kept the opposite fin's footprint
+        // and the strip absorbed it (edges 110 off their face —
+        // PK-730). The cut hole itself keeps its owner by construction.
+        if had_holes {
+            self.rehome_inner_loops_except(face, mef_result.face, &[cut_loop]);
         }
 
         // Determine which face is face_a (original) and face_b (new).

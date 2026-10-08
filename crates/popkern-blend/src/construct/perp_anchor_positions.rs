@@ -307,9 +307,11 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     // OVERHANG past the corner (measured: the
                     // boss-on-wall seam chain diverted to a spur at
                     // x = 1.05 outside the unit body).
+                    // Curved supports use their own trim (PK-730: the
+                    // plane-only gate let a fin root walk into the void).
                     if anchor_on_trim
                         && !blend_edges.contains(&he.edge)
-                        && let Some(curve) = analytic_curve
+                        && let Some(curve) = analytic_curve.or(trim_3d_for_face)
                     {
                         let vertex_pos = if forward { p0 } else { p1 };
                         let rail_end = closest_point_on_curve(curve, &vertex_pos);
