@@ -7,10 +7,13 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
-/// Two unit tangents closer than this (sine) are one tangent line: the
-/// junctions this class sees are exact by construction (an arc tangent
-/// to a line, an analytic saddle split at a seam crossing).
-const TANGENT_SINE: f64 = 1e-6;
+/// Two unit tangents closer than this (sine) are one tangent line.
+/// Fitted intersection edges carry ~1e-6 of tangent noise at their
+/// split points (measured: an r40 × r20 tee saddle split at a seam
+/// crossing, sine 1.2e-6); a genuine corner is orders above 1e-4, and
+/// a near-tangent one is still caught by the chain construction's
+/// section-agreement check.
+const TANGENT_SINE: f64 = 1e-4;
 
 /// The unit tangent of `edge` at its endpoint `vertex` (along the
 /// stored curve, or the chord for an edge without one).
