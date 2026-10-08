@@ -196,34 +196,46 @@ fn finned_housings_fillet_every_root_edge() {
     }
 }
 
-/// The union alone: every closed rim's canonical half-edge traverses
-/// its curve forward and every face's flag agrees with its loop
-/// winding. The graph-merge assembler once created a closed edge from
-/// whichever side the first fragment needed — the housing's — while
-/// the curve belonged to the cap: the top rim lied, the cap served
-/// inward, and the wall's loop wound 4π (PK-730).
+/// The union alone, 16 and 24 seam-aligned fins: it serves on the
+/// CELLULAR pipeline (no recorded boolean fallback), every closed rim's
+/// canonical half-edge traverses its curve forward, and every face's
+/// flag agrees with its loop winding. The graph-merge assembler once
+/// created a closed edge from whichever side the first fragment needed
+/// while the curve belonged to the cap: the top rim lied, the cap
+/// served inward and the wall's loop wound 4π (PK-730). The fallback
+/// itself came from Bezier clipping bounding a root by the coefficient
+/// polygon instead of its hull — one fin side × circle crossing was
+/// clipped away (PK-739).
 #[test]
-fn the_fallback_union_keeps_closed_rims_honest() {
-    let source: String = fin_ring(16, 0.0, 1.0)
-        .lines()
-        .filter(|l| !l.contains(".fillet("))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut host = ScriptHost::new();
-    let outcome = host
-        .run(&source, "fins.rhai")
-        .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
-    let mut model = outcome.model.expect("model");
-    let part = model.to_part().expect("part");
-    let brep = part.brep();
-    let violated: Vec<_> = brep.validate_canonical_forward_all();
-    assert!(
-        violated.is_empty(),
-        "canonical-forward violations: {violated:?}"
-    );
-    let dishonest = brep.dishonest_winding_faces();
-    assert!(
-        dishonest.is_empty(),
-        "winding-dishonest faces: {dishonest:?}"
-    );
+fn seam_fin_ring_unions_serve_cellular_with_honest_rims() {
+    for fins in [16, 24] {
+        let source: String = fin_ring(fins, 0.0, 1.0)
+            .lines()
+            .filter(|l| !l.contains(".fillet("))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut host = ScriptHost::new();
+        let outcome = host
+            .run(&source, "fins.rhai")
+            .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
+        let mut model = outcome.model.expect("model");
+        let fallbacks: Vec<String> = model
+            .report()
+            .fallbacks()
+            .map(|(f, r)| format!("{}: {r:?}", f.label))
+            .collect();
+        assert!(fallbacks.is_empty(), "{fins} fins fell back: {fallbacks:?}");
+        let part = model.to_part().expect("part");
+        let brep = part.brep();
+        let violated = brep.validate_canonical_forward_all();
+        assert!(
+            violated.is_empty(),
+            "{fins} fins: canonical-forward {violated:?}"
+        );
+        let dishonest = brep.dishonest_winding_faces();
+        assert!(
+            dishonest.is_empty(),
+            "{fins} fins: dishonest faces {dishonest:?}"
+        );
+    }
 }

@@ -302,3 +302,97 @@ fn line(a: Point3, b: Point3) -> NurbsCurve {
         weights: vec![1.0, 1.0],
     }
 }
+
+/// PK-739: a fin side (line) crossing the housing circle (9-point
+/// rational quadratic, r 55) transversally in quadrant III. The top
+/// cap of a 16-fin ring missed exactly this crossing; the cellular
+/// union then lost a fin footprint and dropped the housing wall.
+#[test]
+fn fin_side_crosses_the_rational_circle() {
+    let r = 55.000000000000014;
+    let w = std::f64::consts::FRAC_1_SQRT_2;
+    let circle = NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        control_points: vec![
+            Point3::new(-8.326672684688674e-16, -55.00000000000001, 0.0),
+            Point3::new(r, -55.00000000000001, 0.0),
+            Point3::new(r, 1.0547118733938987e-14, 0.0),
+            Point3::new(r, 55.00000000000002, 0.0),
+            Point3::new(-8.326672684688674e-16, 55.00000000000002, 0.0),
+            Point3::new(-r, 55.00000000000002, 0.0),
+            Point3::new(-r, 1.0547118733938987e-14, 0.0),
+            Point3::new(-r, -55.00000000000001, 0.0),
+            Point3::new(-8.326672684688674e-16, -55.00000000000001, 0.0),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+    };
+    let side = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(-43.48706704297268, -45.608387386532314, 0.0),
+            Point3::new(-36.41599923110721, -38.53731957466684, 0.0),
+        ],
+        weights: vec![1.0, 1.0],
+    };
+    let hits = intersect_nurbs_nurbs(
+        &side,
+        (0.0, 1.0),
+        &circle,
+        (0.0, 1.0),
+        &Tolerance::default(),
+    );
+    assert_eq!(hits.len(), 1, "one transversal crossing, got {hits:?}");
+    let CurveIntersection::Point { point, .. } = &hits[0] else {
+        panic!("point hit expected");
+    };
+    assert!(point.distance_to(&Point3::new(-37.81574655517892, -39.93706689873854, 0.0)) < 1e-6);
+}
+
+/// PK-739: a square side crossing a circle TWICE inside one quarter
+/// arc's neighbourhood. Bounding the clip by the coefficient hull
+/// revisits the first root at its noise floor; those revisits once
+/// filled the candidate cap and the second crossing was never searched.
+#[test]
+fn square_side_crosses_circle_twice() {
+    let r = 0.2;
+    let w = std::f64::consts::FRAC_1_SQRT_2;
+    let circle = NurbsCurve {
+        degree: 2,
+        knots: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        control_points: vec![
+            Point3::new(r, 0.0, 0.0),
+            Point3::new(r, r, 0.0),
+            Point3::new(0.0, r, 0.0),
+            Point3::new(-r, r, 0.0),
+            Point3::new(-r, 0.0, 0.0),
+            Point3::new(-r, -r, 0.0),
+            Point3::new(0.0, -r, 0.0),
+            Point3::new(r, -r, 0.0),
+            Point3::new(r, 0.0, 0.0),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+    };
+    let side = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(-0.15, 0.15, 0.0),
+            Point3::new(-0.15, -0.15, 0.0),
+        ],
+        weights: vec![1.0, 1.0],
+    };
+    let hits = intersect_nurbs_nurbs(
+        &side,
+        (0.0, 1.0),
+        &circle,
+        (0.0, 1.0),
+        &Tolerance::default(),
+    );
+    assert_eq!(hits.len(), 2, "{hits:?}");
+}

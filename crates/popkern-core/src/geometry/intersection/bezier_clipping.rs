@@ -102,7 +102,10 @@ pub(crate) fn bezier_intersect(
     let a_h = to_homogeneous(a_points, a_weights);
     let b_h = to_homogeneous(b_points, b_weights);
 
-    let first_new = results.len();
+    // Local-domain candidates of THIS pair only: the dedupe and the
+    // candidate cap compare like with like (earlier pairs' results are
+    // already mapped to absolute ranges).
+    let mut local: Vec<(f64, f64)> = Vec::new();
     let mut budget = MAX_NODES;
     bezier_intersect_inner(
         &a_h,
@@ -111,13 +114,15 @@ pub(crate) fn bezier_intersect(
         (0.0, 1.0),
         tolerance,
         max_depth,
-        results,
+        &mut local,
         &mut budget,
     );
-    for r in results[first_new..].iter_mut() {
-        r.0 = a_range.0 + r.0 * (a_range.1 - a_range.0);
-        r.1 = b_range.0 + r.1 * (b_range.1 - b_range.0);
-    }
+    results.extend(local.into_iter().map(|r| {
+        (
+            a_range.0 + r.0 * (a_range.1 - a_range.0),
+            b_range.0 + r.1 * (b_range.1 - b_range.0),
+        )
+    }));
 }
 
 /// Maximum number of intersection candidates to prevent runaway recursion.
@@ -133,6 +138,24 @@ const MAX_CANDIDATES: usize = 100;
 /// thousand nodes; on exhaustion the node reports its midpoint like
 /// the depth fail-safe and lets Newton polishing downstream decide.
 const MAX_NODES: usize = 20_000;
+
+/// Record a candidate unless one already sits within `100 ×
+/// parametric_base` of it in both parameters. The recursion revisits a
+/// root many times at its noise floor (stall bisection splits four ways
+/// around it); counting those revisits against `MAX_CANDIDATES` starved
+/// every LATER root of the segment pair (PK-739, measured: a square
+/// side crossing a circle twice — ~100 copies of the first crossing,
+/// the second never searched). Newton polishes the survivor.
+fn push_candidate(results: &mut Vec<(f64, f64)>, c: (f64, f64), tolerance: &Tolerance) {
+    let eps = tolerance.parametric_base() * 100.0;
+    if results
+        .iter()
+        .any(|r| (r.0 - c.0).abs() < eps && (r.1 - c.1).abs() < eps)
+    {
+        return;
+    }
+    results.push(c);
+}
 
 /// Evaluate the midpoint of a Bezier curve using De Casteljau.
 fn evaluate_bezier_midpoint(points: &[Point3]) -> Point3 {
@@ -186,7 +209,7 @@ fn bezier_intersect_inner_with_stalls(
     if *budget == 0 {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
-        results.push((t1, t2));
+        push_candidate(results, (t1, t2), tolerance);
         return;
     }
     *budget -= 1;
@@ -198,7 +221,7 @@ fn bezier_intersect_inner_with_stalls(
     if a_span < tolerance.parametric_base() && b_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
-        results.push((t1, t2));
+        push_candidate(results, (t1, t2), tolerance);
         return;
     }
 
@@ -209,13 +232,13 @@ fn bezier_intersect_inner_with_stalls(
     if a_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
-        results.push((t1, t2));
+        push_candidate(results, (t1, t2), tolerance);
         return;
     }
     if b_span < tolerance.parametric_base() {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
-        results.push((t1, t2));
+        push_candidate(results, (t1, t2), tolerance);
         return;
     }
 
@@ -223,7 +246,7 @@ fn bezier_intersect_inner_with_stalls(
     if max_depth == 0 {
         let t1 = (a_range.0 + a_range.1) * 0.5;
         let t2 = (b_range.0 + b_range.1) * 0.5;
-        results.push((t1, t2));
+        push_candidate(results, (t1, t2), tolerance);
         return;
     }
 
@@ -243,7 +266,7 @@ fn bezier_intersect_inner_with_stalls(
         ) {
             let t1 = (a_range.0 + a_range.1) * 0.5;
             let t2 = (b_range.0 + b_range.1) * 0.5;
-            results.push((t1, t2));
+            push_candidate(results, (t1, t2), tolerance);
             return;
         }
     }

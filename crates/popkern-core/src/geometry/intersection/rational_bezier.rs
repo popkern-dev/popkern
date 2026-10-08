@@ -246,26 +246,34 @@ pub(crate) fn clip_against_fat_line(
         }
     }
 
-    // Check each edge of the coefficient polygons for zero crossings
-    // (f = 0 is the +d_max band edge, g = 0 the −d_max band edge).
-    for i in 0..n.saturating_sub(1) {
-        let t0 = i as f64 / n_f;
-        let t1 = (i + 1) as f64 / n_f;
-        let (f0, g0) = band[i];
-        let (f1, g1) = band[i + 1];
+    // Zero crossings of the coefficient polygons' CONVEX HULLS
+    // (f = 0 is the +d_max band edge, g = 0 the −d_max band edge). The
+    // distance function lies in the hull of its Bernstein points, not
+    // on their polygon: consecutive edges alone miss the hull's chords
+    // (first→last, …) and can return an interval that EXCLUDES the root
+    // (PK-739, measured: a fin side crossing a rational quarter circle
+    // was clipped away and the top cap of a 16-fin ring lost a crossing).
+    // A hull ∩ line is the span of all pairwise chord crossings.
+    for i in 0..n {
+        for j in i + 1..n {
+            let t0 = i as f64 / n_f;
+            let t1 = j as f64 / n_f;
+            let (f0, g0) = band[i];
+            let (f1, g1) = band[j];
 
-        if f0 * f1 < 0.0 {
-            let alpha = f0 / (f0 - f1);
-            let t_cross = t0 + alpha * (t1 - t0);
-            t_min = t_min.min(t_cross);
-            t_max = t_max.max(t_cross);
-        }
+            if f0 * f1 < 0.0 {
+                let alpha = f0 / (f0 - f1);
+                let t_cross = t0 + alpha * (t1 - t0);
+                t_min = t_min.min(t_cross);
+                t_max = t_max.max(t_cross);
+            }
 
-        if g0 * g1 < 0.0 {
-            let alpha = g0 / (g0 - g1);
-            let t_cross = t0 + alpha * (t1 - t0);
-            t_min = t_min.min(t_cross);
-            t_max = t_max.max(t_cross);
+            if g0 * g1 < 0.0 {
+                let alpha = g0 / (g0 - g1);
+                let t_cross = t0 + alpha * (t1 - t0);
+                t_min = t_min.min(t_cross);
+                t_max = t_max.max(t_cross);
+            }
         }
     }
 
