@@ -317,6 +317,14 @@ pub(in crate::construct) fn land_anchor(
     edge_splits: &mut Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
     reflex_ends: &mut Vec<ReflexEndAnchor>,
 ) -> Result<VertexHandle, String> {
+    if placement.junction {
+        // The partner strip may have landed this section contact
+        // already (vertex reuse); otherwise spur in from the junction.
+        if let Ok(v) = insert_anchor_at_position(brep, requested, edge_splits) {
+            return Ok(v);
+        }
+        return insert_interior_rail_spur(brep, face, corner, requested, tolerance);
+    }
     if placement.interior_rail {
         if let Ok(v) = insert_anchor_at_position(brep, requested, edge_splits) {
             return Ok(v);

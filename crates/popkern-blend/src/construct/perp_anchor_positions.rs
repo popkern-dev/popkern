@@ -3,6 +3,11 @@
 use super::*;
 use popkern_core::topology::LoopHandle;
 
+/// Slot quality of a tangent-chain junction's section contact: it
+/// outranks every other placement (crossings are 2, walks 1, interior
+/// rail ends 0) and lands interior to the face like a rail end.
+const JUNCTION_SECTION: u8 = 3;
+
 /// One resolved anchor position with its placement class.
 ///
 /// `interior_rail = true` marks a REFLEX hole-corner end
@@ -19,6 +24,10 @@ use popkern_core::topology::LoopHandle;
 pub(in crate::construct) struct AnchorPlacement {
     pub(in crate::construct) position: Point3,
     pub(in crate::construct) interior_rail: bool,
+    /// A tangent-chain junction's section contact (PK-733): interior
+    /// to the face, shared by both strips of the junction, and landed
+    /// by a spur from the junction vertex — never a reflex end.
+    pub(in crate::construct) junction: bool,
 }
 
 /// Compute the 3D positions of the two perpendicular anchors for
@@ -166,6 +175,27 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                 // or `None` if the edge isn't suitable.
                 let trace = popkern_core::trace::trace_enabled("anchor");
                 let place_anchor = |radius: f64, forward: bool, slot: &mut Option<(Point3, u8)>| {
+                    // Tangent-chain junction (PK-733): the section
+                    // contact, not a corner walk — see `g1_junction`.
+                    if blend_edges.contains(&he.edge)
+                        && let Some(curve) = trim_3d_for_face
+                        && let Some(contact) =
+                            crate::construct::g1_junction::junction_section_contact(
+                                brep,
+                                fillet_edge,
+                                he.edge,
+                                if forward { origin } else { dest },
+                                curve,
+                            )
+                    {
+                        *slot = Some((contact, JUNCTION_SECTION));
+                        if trace {
+                            eprintln!(
+                                "[anchor] face={face:?} tangent-chain junction — section contact {contact:?}"
+                            );
+                        }
+                        return;
+                    }
                     let slot_quality = slot.map(|(_, q)| q).unwrap_or(0);
                     if slot_quality >= 2 || edge_len <= 1e-15 {
                         return;
@@ -452,12 +482,14 @@ pub(super) fn compute_perp_anchor_positions_for_face(
         .map(|(position, quality)| AnchorPlacement {
             position,
             interior_rail: quality == 0,
+            junction: quality == JUNCTION_SECTION,
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
     let end_pos = perp_end
         .map(|(position, quality)| AnchorPlacement {
             position,
             interior_rail: quality == 0,
+            junction: quality == JUNCTION_SECTION,
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
     Ok((start_pos, end_pos))

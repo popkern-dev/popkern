@@ -152,11 +152,25 @@ pub fn apply_blend_geometry(
             // Closed edges count ONCE at their closure vertex — a
             // closure vertex is not a corner and must not enter the
             // vertex-blend dispatch as one (PK-296).
-            let vertex_edges = crate::analysis::vertex_incidences(
+            let mut vertex_edges = crate::analysis::vertex_incidences(
                 edge_geometries
                     .iter()
                     .map(|eg| (eg.analysis.vertex_start, eg.analysis.vertex_end)),
             );
+            // Tangent-chain junctions are continuations, not corners
+            // (PK-733): their strips meet on the junction section,
+            // which `g1_junction_settle` authors after the corners.
+            let junctions = super::g1_junction::junction_vertices(
+                brep,
+                edge_geometries.iter().map(|eg| {
+                    (
+                        eg.analysis.edge,
+                        eg.analysis.vertex_start,
+                        eg.analysis.vertex_end,
+                    )
+                }),
+            );
+            vertex_edges.retain(|v, _| !junctions.contains(v));
             // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
             // A-through-C). Post-modification, original edge handles are
             // stale and `classify_vertex_blend` silently defaults to

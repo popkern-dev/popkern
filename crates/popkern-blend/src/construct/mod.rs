@@ -1,6 +1,9 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep.
 mod apex_face_lift;
 mod apply_types;
+pub(crate) mod g1_junction;
+mod tangent_chain_geometry;
+mod tangent_chain_surgery;
 pub use apply_types::{ApplyBlendError, ApplyBlendResult, EdgeGeometry, apply_cancel_poll};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
