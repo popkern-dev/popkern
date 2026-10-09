@@ -126,13 +126,10 @@ fn sweep_all(step: f64) {
     });
 }
 
-/// The design asks for 2° steps (§9.6); that sweep passed in 1907 s
-/// (2026-10-09) and returns here at that resolution once PK-749
-/// localises the near-contact certification (it costs a second or more
-/// per step today).
+/// The design's resolution (§9.6): 2° steps, 540 checks.
 #[test]
 fn every_module_turns_a_full_revolution_clear_of_its_pins() {
-    sweep_all(6.0);
+    sweep_all(2.0);
 }
 
 /// The first interfering sample of the S module over a coarse sweep.

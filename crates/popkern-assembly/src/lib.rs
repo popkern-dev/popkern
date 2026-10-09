@@ -52,6 +52,7 @@ pub mod mates;
 pub mod mesh_bvh;
 mod mesh_cache;
 pub mod names;
+mod parallel_map;
 pub mod params;
 mod params_mates;
 pub mod part_edit;

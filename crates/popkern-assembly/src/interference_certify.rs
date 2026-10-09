@@ -31,6 +31,10 @@ use crate::assembly::{Assembly, DefinitionId};
 use crate::interference::{Occurrence, PairReport};
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
 
+/// Finer world meshes per occurrence path, body and level, shared by
+/// every pair (and worker) certifying against that occurrence.
+pub(crate) type WorldMeshes = std::sync::Mutex<HashMap<(String, usize, u32), Arc<WorldMesh>>>;
+
 /// Refinement levels past the base chord (each 1/8 of the last).
 pub(crate) const MAX_LEVELS: u32 = 3;
 
@@ -42,12 +46,12 @@ impl Assembly {
     /// decided one, or the finest level's.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn certify_pair(
-        &mut self,
+        &self,
         a: &Occurrence,
         b: &Occurrence,
         parts: &HashMap<DefinitionId, Vec<Part>>,
         contents: &HashMap<(DefinitionId, usize), u64>,
-        worlds: &mut HashMap<(String, usize, u32), Arc<WorldMesh>>,
+        worlds: &WorldMeshes,
         chord_fraction: f64,
         tolerance: f64,
         clearance: f64,
@@ -56,7 +60,7 @@ impl Assembly {
         for level in 1..=MAX_LEVELS {
             let fraction = chord_fraction / 8f64.powi(level as i32);
             let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
-            let meshes = &mut self.meshes;
+            let meshes = &self.meshes;
             let mut finer_occurrence = |o: &Occurrence| -> Option<Occurrence> {
                 let mut bodies = Vec::with_capacity(o.bodies.len());
                 for (brep, _, body) in &o.bodies {
@@ -74,10 +78,18 @@ impl Assembly {
                         ..base
                     };
                     let mesh = meshes.get_or_build(content, local_brep, &options).ok()?;
-                    let world = worlds
-                        .entry((o.path.clone(), *body, level))
-                        .or_insert_with(|| Arc::new(WorldMesh::new(&mesh, &o.world)))
-                        .clone();
+                    let key = (o.path.clone(), *body, level);
+                    let cached = worlds.lock().ok().and_then(|w| w.get(&key).cloned());
+                    let world = match cached {
+                        Some(w) => w,
+                        None => {
+                            let w = Arc::new(WorldMesh::new(&mesh, &o.world));
+                            if let Ok(mut all) = worlds.lock() {
+                                all.insert(key, w.clone());
+                            }
+                            w
+                        }
+                    };
                     bodies.push((brep.clone(), world, *body));
                     local.insert((o.definition, *body), mesh);
                 }

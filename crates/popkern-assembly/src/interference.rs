@@ -219,10 +219,10 @@ impl Assembly {
             }
         }
         let mut pairs = Vec::new();
-        let mut candidates = 0;
         // Finer world meshes per occurrence body and level, shared by
         // every pair that occurrence certifies against.
-        let mut worlds: HashMap<(String, usize, u32), Arc<WorldMesh>> = HashMap::new();
+        let worlds: crate::interference_certify::WorldMeshes = Default::default();
+        let mut candidate_pairs: Vec<(usize, usize)> = Vec::new();
         for i in 0..occurrences.len() {
             for j in i + 1..occurrences.len() {
                 let (a, b) = (&occurrences[i], &occurrences[j]);
@@ -232,33 +232,39 @@ impl Assembly {
                             <= options.clearance + tolerance
                     })
                 });
-                if !near {
-                    continue;
-                }
-                candidates += 1;
-                let check = self.check_pair(a, b, &local, tolerance, options.clearance, false);
-                let report = if check.settled {
-                    check.report
-                } else {
-                    let base =
-                        |s: &Self| s.check_pair(a, b, &local, tolerance, options.clearance, true);
-                    self.certify_pair(
-                        a,
-                        b,
-                        &parts,
-                        &contents,
-                        &mut worlds,
-                        options.chord_fraction,
-                        tolerance,
-                        options.clearance,
-                    )
-                    .unwrap_or_else(|| base(self).report)
-                };
-                if let Some(report) = report {
-                    pairs.push(report);
+                if near {
+                    candidate_pairs.push((i, j));
                 }
             }
         }
+        let candidates = candidate_pairs.len();
+        let this: &Self = self;
+        let check = |&(i, j): &(usize, usize)| -> Option<PairReport> {
+            let (a, b) = (&occurrences[i], &occurrences[j]);
+            let first = this.check_pair(a, b, &local, tolerance, options.clearance, false);
+            if first.settled {
+                return first.report;
+            }
+            this.certify_pair(
+                a,
+                b,
+                &parts,
+                &contents,
+                &worlds,
+                options.chord_fraction,
+                tolerance,
+                options.clearance,
+            )
+            .unwrap_or_else(|| {
+                this.check_pair(a, b, &local, tolerance, options.clearance, true)
+                    .report
+            })
+        };
+        pairs.extend(
+            crate::parallel_map::ordered(&candidate_pairs, check)
+                .into_iter()
+                .flatten(),
+        );
         pairs.sort_by(|x, y| rank(&x.status).total_cmp(&rank(&y.status)));
         Ok(InterferenceReport {
             pairs,

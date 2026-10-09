@@ -15,7 +15,7 @@
 //! tessellation never reads.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use popkern_core::topology::BRep;
 
@@ -27,10 +27,19 @@ const CAPACITY: usize = 512;
 
 type Key = (u64, u64, usize, usize, u64);
 
-/// Tessellations by body content and mesh settings.
-#[derive(Debug, Clone, Default)]
+/// Tessellations by body content and mesh settings. Shared by the
+/// interference check's worker threads.
+#[derive(Debug, Default)]
 pub(crate) struct MeshCache {
-    meshes: HashMap<Key, Arc<LocalMesh>>,
+    meshes: Mutex<HashMap<Key, Arc<LocalMesh>>>,
+}
+
+impl Clone for MeshCache {
+    fn clone(&self) -> Self {
+        MeshCache {
+            meshes: Mutex::new(self.meshes.lock().map(|m| m.clone()).unwrap_or_default()),
+        }
+    }
 }
 
 /// The content key of `brep` (see the module docs).
@@ -49,7 +58,7 @@ impl MeshCache {
     /// The tessellation of `brep` (content key `content`) under
     /// `options`, built on a miss.
     pub(crate) fn get_or_build(
-        &mut self,
+        &self,
         content: u64,
         brep: &BRep,
         options: &popkern_mesh::TessellationOptions,
@@ -61,15 +70,19 @@ impl MeshCache {
             options.min_subdivisions,
             options.max_facet_angle.to_bits(),
         );
-        if let Some(mesh) = self.meshes.get(&key) {
-            return Ok(mesh.clone());
+        if let Some(mesh) = self.meshes.lock().ok().and_then(|m| m.get(&key).cloned()) {
+            return Ok(mesh);
         }
+        // Built outside the lock: two workers may build the same mesh
+        // once each; the second insert is a no-op in effect.
         let mesh = popkern_mesh::tessellate(brep, options)?;
         let local = Arc::new(LocalMesh::new(brep, &mesh));
-        if self.meshes.len() >= CAPACITY {
-            self.meshes.clear();
+        if let Ok(mut meshes) = self.meshes.lock() {
+            if meshes.len() >= CAPACITY {
+                meshes.clear();
+            }
+            meshes.insert(key, local.clone());
         }
-        self.meshes.insert(key, local.clone());
         Ok(local)
     }
 }
