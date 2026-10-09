@@ -24,6 +24,98 @@ pub fn render(
     show_wireframe: bool,
 ) -> Vec<u8> {
     let (vertices, indices) = mesh_data::build_mesh_vertices(brep, mesh);
+    let edges = if show_wireframe {
+        mesh_data::extract_edge_pairs(brep)
+    } else {
+        Vec::new()
+    };
+    render_prepared(
+        &vertices,
+        &indices,
+        &edges,
+        camera,
+        width,
+        height,
+        show_wireframe,
+    )
+}
+
+/// Shaded vertices, triangle indices and edge lines, ready to rasterize.
+pub type Prepared = (
+    Vec<mesh_data::MeshVertex>,
+    Vec<u32>,
+    Vec<([f32; 3], [f32; 3])>,
+);
+
+/// One placed occurrence of a body for [`prepare_instances`]: its BRep
+/// and mesh in the body's own frame, and the row-major placement.
+pub struct Instance<'a> {
+    /// The body.
+    pub brep: &'a BRep,
+    /// Its tessellation (in the body's frame).
+    pub mesh: &'a TriMesh,
+    /// Body frame to world, row-major (the last row `[0, 0, 0, 1]`).
+    pub placement: [[f64; 4]; 4],
+}
+
+/// The shaded vertices, triangle indices and edge lines of `instances`,
+/// each body's prepared once and placed per occurrence: an assembly of
+/// 124 identical screws tessellates the screw once.
+pub fn prepare_instances(instances: &[Instance<'_>], show_wireframe: bool) -> Prepared {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut edges = Vec::new();
+    type Prepared = (
+        Vec<mesh_data::MeshVertex>,
+        Vec<u32>,
+        Vec<([f32; 3], [f32; 3])>,
+    );
+    let mut prepared: std::collections::HashMap<*const TriMesh, Prepared> =
+        std::collections::HashMap::new();
+    for inst in instances {
+        let (lv, li, le) = prepared
+            .entry(inst.mesh as *const TriMesh)
+            .or_insert_with(|| {
+                let (v, i) = mesh_data::build_mesh_vertices(inst.brep, inst.mesh);
+                let e = if show_wireframe {
+                    mesh_data::extract_edge_pairs(inst.brep)
+                } else {
+                    Vec::new()
+                };
+                (v, i, e)
+            });
+        let m = &inst.placement;
+        let point = |p: [f32; 3]| -> [f32; 3] {
+            let (x, y, z) = (p[0] as f64, p[1] as f64, p[2] as f64);
+            [0, 1, 2].map(|r| (m[r][0] * x + m[r][1] * y + m[r][2] * z + m[r][3]) as f32)
+        };
+        let dir = |n: [f32; 3]| -> [f32; 3] {
+            let (x, y, z) = (n[0] as f64, n[1] as f64, n[2] as f64);
+            [0, 1, 2].map(|r| (m[r][0] * x + m[r][1] * y + m[r][2] * z) as f32)
+        };
+        let base = vertices.len() as u32;
+        vertices.extend(lv.iter().map(|v| mesh_data::MeshVertex {
+            position: point(v.position),
+            normal: dir(v.normal),
+            color: v.color,
+        }));
+        indices.extend(li.iter().map(|i| base + i));
+        edges.extend(le.iter().map(|(a, b)| (point(*a), point(*b))));
+    }
+    (vertices, indices, edges)
+}
+
+/// Rasterize prepared vertices, triangles and (with `show_wireframe`)
+/// edge lines.
+pub fn render_prepared(
+    vertices: &[mesh_data::MeshVertex],
+    indices: &[u32],
+    edges: &[([f32; 3], [f32; 3])],
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    show_wireframe: bool,
+) -> Vec<u8> {
     let vp = camera.view_projection();
 
     let mut fb = Framebuffer::new(width, height);
@@ -96,7 +188,6 @@ pub fn render(
     // Wireframe overlay, depth-tested against the rasterized faces so
     // hidden edges stay hidden.
     if show_wireframe {
-        let edges = mesh_data::extract_edge_pairs(brep);
         // Bias scaled to the rasterized scene's depth spread: it must
         // exceed the facet-sagitta depth error of edges lying ON
         // their faces, while staying far below real occlusion
@@ -114,7 +205,7 @@ pub fn render(
             }
             if hi > lo { (hi - lo) * 0.01 } else { 1.0e-4 }
         };
-        for (pa, pb) in &edges {
+        for (pa, pb) in edges {
             if let (Some((x0, y0, z0)), Some((x1, y1, z1))) = (
                 project_point_depth(*pa, &vp, w, h),
                 project_point_depth(*pb, &vp, w, h),

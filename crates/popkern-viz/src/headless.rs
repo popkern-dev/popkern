@@ -247,6 +247,54 @@ pub fn render_to_png_software(
     write_png(output_path, width, height, &pixels)
 }
 
+/// Render placed body instances to PNG with the CPU rasterizer, each
+/// body's mesh prepared once (see [`crate::cpu_render::prepare_instances`]).
+/// `camera` of `None` fits the default isometric view to the placed
+/// meshes.
+pub fn render_instances_to_png(
+    instances: &[crate::cpu_render::Instance<'_>],
+    camera: Option<&Camera>,
+    width: u32,
+    height: u32,
+    output_path: &Path,
+    show_wireframe: bool,
+) -> Result<(), VizError> {
+    let (vertices, indices, edges) =
+        crate::cpu_render::prepare_instances(instances, show_wireframe);
+    let fitted;
+    let camera = match camera {
+        Some(c) => c,
+        None => {
+            let mut lo = glam::Vec3::splat(f32::INFINITY);
+            let mut hi = glam::Vec3::splat(f32::NEG_INFINITY);
+            for v in &vertices {
+                let p = glam::Vec3::from(v.position);
+                lo = lo.min(p);
+                hi = hi.max(p);
+            }
+            let mut c = Camera::default_iso();
+            c.up = glam::Vec3::Z;
+            c.eye = glam::Vec3::new(3.0, -3.0, 2.5);
+            c.aspect = width as f32 / height.max(1) as f32;
+            if lo.x.is_finite() && hi.x.is_finite() {
+                c.fit_to_bounds(lo, hi);
+            }
+            fitted = c;
+            &fitted
+        }
+    };
+    let pixels = crate::cpu_render::render_prepared(
+        &vertices,
+        &indices,
+        &edges,
+        camera,
+        width,
+        height,
+        show_wireframe,
+    );
+    write_png(output_path, width, height, &pixels)
+}
+
 /// Render a BRep to PNG, using GPU if available, software otherwise.
 pub fn render_to_png(
     brep: &BRep,

@@ -68,6 +68,57 @@ pub fn render_png(
         .map_err(|e| e.to_string())
 }
 
+/// Render every visible part occurrence of `assembly` to `path`: each
+/// definition body tessellated once and placed per occurrence (PK-759 —
+/// merging the placed bodies into one BRep re-tessellated the arm's 124
+/// identical screws one by one and validated the merge: over 20 min).
+/// Isometric view fitted to the placed meshes.
+pub fn render_assembly_png(
+    assembly: &mut popkern_assembly::Assembly,
+    path: &Path,
+    width: u32,
+    height: u32,
+    edges: bool,
+) -> Result<(), String> {
+    use std::collections::HashMap;
+    let parts = assembly.definition_parts().map_err(|e| e.to_string())?;
+    let mut meshes: HashMap<(popkern_assembly::DefinitionId, usize), popkern_mesh::TriMesh> =
+        HashMap::new();
+    for (id, bodies) in &parts {
+        for (i, part) in bodies.iter().enumerate() {
+            let mesh = popkern_mesh::tessellate(
+                part.brep(),
+                &popkern_mesh::TessellationOptions::display(),
+            )
+            .map_err(|e| format!("tessellation failed: {e}"))?;
+            meshes.insert((*id, i), mesh);
+        }
+    }
+    let rows: Vec<_> = assembly
+        .leaves()
+        .into_iter()
+        .filter(|r| r.visible && r.is_part)
+        .collect();
+    let mut instances = Vec::new();
+    for row in &rows {
+        let Some(bodies) = parts.get(&row.definition) else {
+            continue;
+        };
+        for (i, part) in bodies.iter().enumerate() {
+            if let Some(mesh) = meshes.get(&(row.definition, i)) {
+                instances.push(popkern_viz::cpu_render::Instance {
+                    brep: part.brep(),
+                    mesh,
+                    placement: row.world.transform().matrix,
+                });
+            }
+        }
+    }
+    create_parent(path)?;
+    popkern_viz::headless::render_instances_to_png(&instances, None, width, height, path, edges)
+        .map_err(|e| e.to_string())
+}
+
 /// The mesh-vs-surface normal disagreement of a zebra render (PK-503),
 /// in the units a reader compares against the display facet bound.
 #[derive(Debug, Clone, Serialize)]

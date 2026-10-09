@@ -106,9 +106,21 @@ pub fn execute(cli: &Cli) -> RunSummary {
         summary.outputs.push(path.clone());
     }
     if cli.step.is_some() || cli.png.is_some() {
-        // Whole-document view: every alive body (every visible part
-        // occurrence of an assembly, placed) for the thumbnail.
-        let part = match document.to_part_all() {
+        // An assembly validates and renders per definition: its plain
+        // thumbnail instances each body's mesh (PK-759). A part
+        // document, or a zebra view, takes the whole-document body.
+        let instanced =
+            matches!(document, popkern_assembly::Document::Assembly(_)) && cli.zebra.is_none();
+        let whole = if instanced {
+            let checked = match &mut document {
+                popkern_assembly::Document::Assembly(a) => a.definition_parts().map(|_| ()),
+                popkern_assembly::Document::Part(_) => Ok(()),
+            };
+            checked.map(|()| None)
+        } else {
+            document.to_part_all().map(Some)
+        };
+        let part = match whole {
             Ok(part) => part,
             Err(e) => {
                 summary.outcome = Outcome::GateFailure {
@@ -132,8 +144,11 @@ pub fn execute(cli: &Cli) -> RunSummary {
             summary.outputs.push(path.clone());
         }
         if let Some(path) = &cli.png {
-            let rendered = match cli.zebra {
-                Some(normals) => crate::render::render_zebra_png(
+            let rendered = match (&mut document, &part, cli.zebra) {
+                (popkern_assembly::Document::Assembly(a), None, _) => {
+                    crate::render::render_assembly_png(a, path, cli.width, cli.height, cli.edges)
+                }
+                (_, Some(part), Some(normals)) => crate::render::render_zebra_png(
                     part.brep(),
                     path,
                     cli.width,
@@ -143,9 +158,10 @@ pub fn execute(cli: &Cli) -> RunSummary {
                     cli.facet_angle_deg,
                 )
                 .map(|z| summary.zebra = Some(z)),
-                None => {
+                (_, Some(part), None) => {
                     crate::render::render_png(part.brep(), path, cli.width, cli.height, cli.edges)
                 }
+                (_, None, _) => Err("no body to render".to_string()),
             };
             if let Err(e) = rendered {
                 summary.outcome = Outcome::GateFailure {
