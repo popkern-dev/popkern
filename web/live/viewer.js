@@ -181,6 +181,25 @@ export class Viewer {
     this.render();
   }
 
+  /** Re-place the meshes on screen at `assembly`'s occurrence
+   *  matrices (a joint moved: the same bodies at new placements).
+   *  Nothing rebuilds; hidden occurrences stay hidden. */
+  place(assembly) {
+    const instances = new Map(assembly.instances.map((i) => [i.path, i]));
+    for (const object of [...this.bodies, ...this.edgeLines]) {
+      const instance = instances.get(object.userData.instance);
+      if (!instance) continue;
+      placeAt(object, instance.world);
+      object.userData.base = object.matrix.clone();
+    }
+    if (this.lastShown) this.lastShown = { ...this.lastShown, assembly };
+    this.explodePlan = explodePlan(this.bodies);
+    if (this.explode && this.explodePlan) this.setExplode(this.explode);
+    if (this.section.active) this.section.apply();
+    if (this.highlight && this.hovered) this.setHover(null);
+    this.render();
+  }
+
   /** World bounds of the drawn (visible) meshes, or null. */
   visibleBounds() {
     const box = new THREE.Box3();

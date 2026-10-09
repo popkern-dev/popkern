@@ -336,6 +336,11 @@ fn apply_params(
             break;
         }
     }
+    // A joint moves placements only and its envelope carries no bodies
+    // or report: the summary reads the whole document.
+    if last.bodies_unchanged {
+        last = session.current_envelope();
+    }
     Ok(last)
 }
 

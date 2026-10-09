@@ -15,6 +15,7 @@ use crate::mesh_buffers::{MeshPurpose, body_mesh};
 pub(crate) fn mesh_document(
     doc: &mut Document,
     purpose: MeshPurpose,
+    cache: Option<&mut DisplayCache>,
 ) -> (Vec<BodyMesh>, Option<AssemblyView>, Option<String>) {
     match doc {
         Document::Part(model) => {
@@ -22,15 +23,32 @@ pub(crate) fn mesh_document(
             (bodies, None, error)
         }
         Document::Assembly(assembly) => {
-            let (bodies, view, error) = mesh_assembly(assembly, purpose);
+            let (bodies, view, error) = mesh_assembly(assembly, purpose, cache);
             (bodies, Some(view), error)
         }
     }
 }
 
+/// An assembly's part meshes from the last describe, by definition
+/// name, with the signature they were built under (PK-725): a joint
+/// slider moves placements only, and re-meshing every part made one
+/// slider step of the six-axis arm take 30 s. The signature (feature
+/// count and parameter values) changes when a driven part parameter
+/// does; a mutable borrow of the document clears the cache.
+pub(crate) type DisplayCache = std::collections::HashMap<String, (u64, Vec<BodyMesh>)>;
+
+fn signature(model: &Model) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::hash::DefaultHasher::new();
+    model.features().len().hash(&mut h);
+    format!("{:?}", model.params()).hash(&mut h);
+    h.finish()
+}
+
 fn mesh_assembly(
     assembly: &mut Assembly,
     purpose: MeshPurpose,
+    mut cache: Option<&mut DisplayCache>,
 ) -> (Vec<BodyMesh>, AssemblyView, Option<String>) {
     let mut bodies = Vec::new();
     let mut error = None;
@@ -47,10 +65,24 @@ fn mesh_assembly(
         let mut features = 0;
         if is_part && let Ok(model) = assembly.part_model_mut(id) {
             features = model.features().len();
-            let (meshes, e) = mesh_bodies(model, purpose, Some(&name));
-            if let Some(e) = e {
-                error.get_or_insert(format!("in part '{name}': {e}"));
-            }
+            let key = signature(model);
+            let cached = cache
+                .as_deref()
+                .and_then(|c| c.get(&name))
+                .filter(|(k, _)| *k == key)
+                .map(|(_, meshes)| meshes.clone());
+            let meshes = match cached {
+                Some(meshes) => meshes,
+                None => {
+                    let (meshes, e) = mesh_bodies(model, purpose, Some(&name));
+                    if let Some(e) = e {
+                        error.get_or_insert(format!("in part '{name}': {e}"));
+                    } else if let Some(c) = cache.as_deref_mut() {
+                        c.insert(name.clone(), (key, meshes.clone()));
+                    }
+                    meshes
+                }
+            };
             for mesh in meshes {
                 indices.push(bodies.len());
                 bodies.push(mesh);
@@ -133,17 +165,7 @@ pub(crate) fn document_params(doc: &mut Document) -> Vec<ParamRow> {
     let mut rows = Vec::new();
     let mut driven: Vec<(String, String, String)> = Vec::new();
     if let Document::Assembly(assembly) = doc {
-        for p in assembly.params() {
-            rows.push(ParamRow {
-                name: p.name.clone(),
-                value: p.display_value(),
-                unit: serde_json::to_value(p.unit).unwrap_or(serde_json::Value::Null),
-                expression: None,
-                bounds: p.bounds,
-                read_only: false,
-                explicit: true,
-            });
-        }
+        rows = assembly_param_rows(assembly);
         driven = assembly
             .drives()
             .iter()
@@ -173,4 +195,21 @@ pub(crate) fn document_params(doc: &mut Document) -> Vec<ParamRow> {
         }
     }
     rows
+}
+
+/// An assembly's own parameter rows (unqualified, in declaration order).
+pub(crate) fn assembly_param_rows(assembly: &Assembly) -> Vec<ParamRow> {
+    assembly
+        .params()
+        .iter()
+        .map(|p| ParamRow {
+            name: p.name.clone(),
+            value: p.display_value(),
+            unit: serde_json::to_value(p.unit).unwrap_or(serde_json::Value::Null),
+            expression: None,
+            bounds: p.bounds,
+            read_only: false,
+            explicit: true,
+        })
+        .collect()
 }

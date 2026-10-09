@@ -20,7 +20,7 @@ import { Editor } from "./editor.js";
 import { downloadModel, showModelCode } from "./exports.js";
 import { fetchDefaultScript } from "./gallery.js";
 import { adoptPlaygroundKeys } from "./local-store.js";
-import { drawModel, showBake, showServed } from "./model-display.js";
+import { drawModel, showBake, showPlaced, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
 import { renderParams, wireParamFilter } from "./params-panel.js";
 import { hostMode } from "./host-mode.js";
@@ -256,6 +256,12 @@ class Page {
       return;
     }
     const { envelope, buffers } = reply;
+    // A joint moved placements only: the bodies and report on screen
+    // still hold.
+    if (envelope.bodies_unchanged && this.lastGood != null) {
+      showPlaced(this, envelope);
+      return;
+    }
     if (envelope.project) this.rail.setVersions(envelope);
     // A run that raised carries no report: the panels keep describing
     // the last good model, like the viewer does.

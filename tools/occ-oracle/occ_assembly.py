@@ -17,6 +17,13 @@ Output: one JSON object on stdout:
                     color  surface colour XCAF reads for the part (on its
                            label, its shape or its first solid), RGB in
                            [0, 1] (sRGB), or null
+                    volume the part's volume by BRepGProp with adaptive
+                           integration to 1e-9 relative (placement-invariant,
+                           once per part): the default Gauss rule read the
+                           arm's biarc cycloid discs 0.34% low
+                    mesh_volume the same from OCC's own tessellation
+                           (BRepMesh, signed tetrahedra): GProp diverges on
+                           multi-turn NURBS threads (PK-725)
 Exit code 0 when the file loaded.
 """
 
@@ -57,6 +64,44 @@ def solids(shape):
         n += 1
         exp.Next()
     return n
+
+
+def volumes(shape):
+    """(GProp volume, tessellated volume) of `shape`."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepGProp import BRepGProp
+    from OCP.BRepMesh import BRepMesh_IncrementalMesh
+    from OCP.GProp import GProp_GProps
+    from OCP.TopAbs import TopAbs_FACE, TopAbs_REVERSED
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+
+    props = GProp_GProps()
+    BRepGProp.VolumeProperties_s(shape, props, 1e-9)
+    BRepMesh_IncrementalMesh(shape, 0.01, False, 0.1, True)
+    total = 0.0
+    exp = TopExp_Explorer(shape, TopAbs_FACE)
+    while exp.More():
+        face = TopoDS.Face_s(exp.Current())
+        loc = TopLoc_Location()
+        tri = BRep_Tool.Triangulation_s(face, loc)
+        if tri is not None:
+            trsf = loc.Transformation()
+            pts = [tri.Node(i).Transformed(trsf) for i in range(1, tri.NbNodes() + 1)]
+            flip = face.Orientation() == TopAbs_REVERSED
+            for t in range(1, tri.NbTriangles() + 1):
+                a, b, c = tri.Triangle(t).Get()
+                if flip:
+                    b, c = c, b
+                p, q, r = pts[a - 1], pts[b - 1], pts[c - 1]
+                total += (
+                    p.X() * (q.Y() * r.Z() - q.Z() * r.Y())
+                    - p.Y() * (q.X() * r.Z() - q.Z() * r.X())
+                    + p.Z() * (q.X() * r.Y() - q.Y() * r.X())
+                ) / 6.0
+        exp.Next()
+    return props.Mass(), total
 
 
 def main(path):
@@ -109,6 +154,7 @@ def main(path):
         return [r, g, b]
 
     parts = set()
+    part_volumes = {}
 
     def walk(label, location, path):
         if tool.IsAssembly_s(label):
@@ -122,6 +168,9 @@ def main(path):
                 walk(referred, loc, path + [label_name(comp) or label_name(referred)])
         else:
             parts.add(label.Tag())
+            if label.Tag() not in part_volumes:
+                part_volumes[label.Tag()] = volumes(tool.GetShape_s(label))
+            gprop, meshed = part_volumes[label.Tag()]
             shape = tool.GetShape_s(label).Located(location)
             out["instances"].append(
                 {
@@ -130,6 +179,8 @@ def main(path):
                     "bbox": bbox(shape),
                     "solids": solids(shape),
                     "color": part_color(label),
+                    "volume": gprop,
+                    "mesh_volume": meshed,
                 }
             )
 

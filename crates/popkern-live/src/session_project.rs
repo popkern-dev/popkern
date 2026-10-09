@@ -221,6 +221,7 @@ impl Session {
             .collect();
         if build.document.is_some() {
             self.document = build.document;
+            self.display.clear();
         }
         let mut envelope = self.describe(outcome, printed, elapsed);
         envelope.project = Some(view);

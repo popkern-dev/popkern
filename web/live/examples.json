@@ -241,6 +241,14 @@
       "title": "Cycloidal joint modules"
     },
     {
+      "blurb": "A complete six-axis robot arm on its cycloidal joint modules: cast base and shoulder, tube links with flanged ends, wrist, an ISO 9409 tool flange and a parallel gripper, bolted together with real M5/M6 screws. Six joint sliders move the arm without rebuilding a part, the tube lengths rebuild their links, and the grip opens the jaws.",
+      "demonstrates": "revolute joints on sub-assembly axes, two-root links mated at a driven length, assembly-parameter drives, swing to first contact, interference, fasteners, part appearance",
+      "features": 1334,
+      "file": "six_axis_arm.rhai",
+      "thumbnail": "examples/six_axis_arm.png",
+      "title": "Six-axis arm"
+    },
+    {
       "blurb": "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
       "demonstrates": "projects, previous(), migrations",
       "features": 6,

@@ -78,6 +78,7 @@ certification could not continue. Without the option the default is
     params: [{ name, value, unit, expression, bounds: [lo, hi] | null, read_only, explicit }],   // explicit: declared by name, not a feature argument
     bodies: [{ id, label, vertex_count, triangle_count, face_count,
                face_labels: string[], bounds: [[x,y,z],[x,y,z]], open_edges }],
+    bodies_unchanged: boolean,         // true: no bodies sent, keep the last ones (below)
     assembly: null | {                 // an assembly document (assemblies.md §6.5)
       name,
       definitions: [{ name, kind: "part" | "assembly", bodies: number[], features }],
@@ -97,7 +98,13 @@ certification could not continue. Without the option the default is
 `buffers[i]` belongs to `envelope.bodies[i]`. `face_ids[t]` indexes
 `face_labels` for triangle `t`. A failed run (`ok: true`, outcome not
 `served`) carries no bodies: the page keeps the last good model on
-screen and shows the outcome beside it. The classes and payload fields
+screen and shows the outcome beside it. A `set_param` of an assembly
+parameter that drives no part parameter (a joint) only moves
+occurrences: its envelope has `bodies_unchanged: true`, empty `bodies`
+and `buffers`, `report: null`, only the assembly's own `params` rows,
+and the last served definitions; the page keeps its bodies, report and
+part rows and re-places the meshes it holds at the new `instances`
+matrices (the analysis and step meshes stay valid). The classes and payload fields
 are the scripting-surface spec §10; the partition
 (`script_error`/`kernel_decline`/`gate_failure`) is the one `popkern
 run` maps to exit codes 2/3/4.

@@ -125,7 +125,10 @@ impl Protocol {
     }
 
     fn envelope(&mut self, id: &Value, envelope: Envelope) -> Reply {
-        self.last_bodies = envelope.bodies.len();
+        // A placement-only envelope keeps the bodies the page holds.
+        if !envelope.bodies_unchanged {
+            self.last_bodies = envelope.bodies.len();
+        }
         let attachments = body_attachments("buffers", &envelope.bodies, true);
         let buffers: Vec<Value> = envelope.bodies.iter().map(|_| json!({})).collect();
         Reply {

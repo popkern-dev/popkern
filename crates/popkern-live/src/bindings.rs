@@ -145,9 +145,13 @@ impl LiveSession {
     pub fn set_param(&mut self, name: &str, value: f64) -> String {
         let envelope = self.session.set_param(name, value);
         let json = envelope.to_json().to_string();
-        self.bodies = envelope.bodies;
-        self.analysis.clear();
-        self.step.clear();
+        // A joint moves placements only: the meshes (and their analysis
+        // and step meshes) stay as they are.
+        if !envelope.bodies_unchanged {
+            self.bodies = envelope.bodies;
+            self.analysis.clear();
+            self.step.clear();
+        }
         json
     }
 

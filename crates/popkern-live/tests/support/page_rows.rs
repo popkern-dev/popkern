@@ -3,6 +3,10 @@
 
 use serde_json::Value;
 
+#[path = "arm_rows.rs"]
+mod arm_rows;
+pub use arm_rows::assert_arm_rows;
+
 /// The time limit: presets up to "no limit", default 24 s (20 s kernel
 /// budget + the page's grace), "no limit" lifts both budgets. Pre-built
 /// examples, when the bundle was baked (`tools/bake-live.sh`):
@@ -477,23 +481,4 @@ pub fn assert_appearance(out: &Value) {
     assert_eq!(a["housing"]["env"], true, "{a}");
     assert_eq!(a["plain"]["env"], false, "{a}");
     assert_ne!(a["plain"]["color"], "2b5cab", "{a}");
-}
-
-/// The section view (six-axis-arm §4.6): every material clipped, one
-/// cap per visible body that draws real pixels, a move within a frame,
-/// and "off" restoring the unclipped scene.
-pub fn assert_section(out: &Value) {
-    let s = &out["section"];
-    assert_eq!(s["slider_shown"], true, "{s}");
-    assert_eq!(s["clipped"], true, "{s}");
-    assert_eq!(s["caps"], s["visible"], "one cap per visible body: {s}");
-    assert!(
-        s["cap_pixels"].as_u64().unwrap_or(0) > 100,
-        "the caps draw: {s}"
-    );
-    assert!(
-        s["move_ms"].as_f64().unwrap_or(f64::MAX) < 16.7,
-        "a move fits a frame: {s}"
-    );
-    assert_eq!(s["cleared"], true, "{s}");
 }

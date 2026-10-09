@@ -4,6 +4,7 @@
 // (then certified in the background) and for a pre-built bake (already
 // certified natively).
 import { clearOutcome } from "./outcome-overlay.js";
+import { refreshParamValues } from "./params-panel.js";
 import { meshClosure, modelContents } from "./status-line.js";
 
 const $ = (id) => document.getElementById(id);
@@ -45,6 +46,26 @@ export async function showServed(page, envelope, buffers) {
   page.certify(envelope);
   // The history of the model now live (scrubber.js).
   page.scrubber.load(envelope);
+}
+
+/** Show a placement-only change (a joint slider; its envelope has no
+ *  bodies or report): the meshes on screen move to the envelope's
+ *  occurrence matrices and the parameter rows refresh; nothing
+ *  rebuilds. Certification resumes where the edit stopped it; the
+ *  timeline stands, only its solved step placements are forgotten. */
+export function showPlaced(page, placed) {
+  const last = page.lastGood.envelope;
+  // Only the assembly's own parameter rows come back.
+  const rows = new Map(placed.params.map((p) => [p.name, p]));
+  const params = last.params.map((p) => rows.get(p.name) ?? p);
+  const envelope = { ...placed, bodies: last.bodies, report: last.report, params };
+  page.lastGood = { envelope, buffers: page.lastGood.buffers };
+  page.reportEnvelope = envelope;
+  refreshParamValues(placed.params, params);
+  page.viewer.place(envelope.assembly);
+  page.status(page.servedText ?? "served");
+  page.certify(envelope);
+  page.scrubber.placementsMoved();
 }
 
 /** Show a pre-built example: the certified report, parameters and

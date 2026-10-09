@@ -32,11 +32,23 @@ export function renderReport(envelope, part) {
         : `${outcome} · ${continuity.achieved} ${how}`;
     }
     const shown = scoped && part == null && f.part ? `${f.part}: ${label}` : label;
-    row.innerHTML = `<td>${shown}</td><td>${operation}</td><td class="${downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad"}">${verdict}</td><td>${elapsed}</td>`;
+    // Labels and messages come from the script: text, never markup.
+    const verdictClass = downgraded ? "cell-warn" : outcome === "Served" ? "cell-ok" : "cell-bad";
+    for (const [text, className] of [[shown, ""], [operation, ""], [verdict, verdictClass], [elapsed, ""]]) {
+      const cell = document.createElement("td");
+      cell.textContent = text;
+      if (className) cell.className = className;
+      row.append(cell);
+    }
     if (Array.isArray(f.warnings) && f.warnings.length) {
       const warn = document.createElement("tr");
       warn.className = "row-warn";
-      warn.innerHTML = `<td colspan="4">${f.warnings.map((w) => (typeof w === "string" ? w : JSON.stringify(w))).join("; ")}</td>`;
+      // A structured warning reads as its message; the rest of its
+      // payload stays in the report (export, console), not the table.
+      const cell = document.createElement("td");
+      cell.colSpan = 4;
+      cell.textContent = f.warnings.map((w) => (typeof w === "string" ? w : (w?.message ?? JSON.stringify(w)))).join("; ");
+      warn.append(cell);
       table.append(row, warn);
     } else {
       table.append(row);

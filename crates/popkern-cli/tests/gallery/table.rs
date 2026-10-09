@@ -257,4 +257,17 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          the backlash), revolute joints with followers at gear ratios, \
          sub-assemblies, part appearance, finned castings with rounded roots",
     ),
+    (
+        "six_axis_arm",
+        "Six-axis arm",
+        "A complete six-axis robot arm on its cycloidal joint modules: cast base \
+         and shoulder, tube links with flanged ends, wrist, an ISO 9409 tool \
+         flange and a parallel gripper, bolted together with real M5/M6 screws. \
+         Six joint sliders move the arm without rebuilding a part, the tube \
+         lengths rebuild their links, and the grip opens the jaws.",
+        1334,
+        "revolute joints on sub-assembly axes, two-root links mated at a driven \
+         length, assembly-parameter drives, swing to first contact, \
+         interference, fasteners, part appearance",
+    ),
 ];

@@ -587,6 +587,85 @@ a`)};
     return result;
   })()`);
 
+  // A joint slider (six-axis-arm §9.8, PK-725): an assembly parameter
+  // that drives no part re-places the occurrences — the page keeps its
+  // geometries (the same objects), the link and its follower move, the
+  // ground stays — and the round trip is timed over a drag.
+  out.joint = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    page.editor.value = ${JSON.stringify(`let a = assembly("arm");
+let block = a.part("block", |m| { m.profile(xy()).rect(4.0, 1.0).sketch("s").extrude(blind(1.0)); });
+let base = a.place(block, "base");
+let link = a.place(block, "link").translate(1.0, 2.0, 0.0);
+let rotor = a.place(block, "rotor").translate(-3.0, 0.0, 0.0);
+a.ground(base);
+a.revolute("j1", base.axis([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), link.datum("z"),
+    #{ zero: [base.datum("x"), link.datum("x")], angle: 20.0, limits: [-170.0, 170.0], offset: 1.0 });
+a.revolute("j1_rotor", base.datum("z"), rotor.datum("z"),
+    #{ zero: [base.datum("x"), rotor.datum("x")], follow: "j1", ratio: -21.0 });
+a`)};
+    const run = await page.run({ live: true });
+    const at = (instance) => page.viewer.bodies.find((b) => b.userData.instance === instance).matrix.elements.slice();
+    const geometries = page.viewer.bodies.map((m) => m.geometry);
+    const sliderRow = [...document.querySelectorAll("#params .param")].find((r) => r.querySelector(".param-name").textContent === "j1");
+    const before = { base: at("base"), link: at("link"), rotor: at("rotor") };
+    const times = [];
+    let last = null;
+    for (let k = 1; k <= 20; k++) {
+      const t0 = performance.now();
+      last = await page.setParam("j1", 20 + k);
+      times.push(performance.now() - t0);
+    }
+    times.sort((x, y) => x - y);
+    const moved = (name) => at(name).some((v, i) => Math.abs(v - before[name][i]) > 1e-6);
+    return {
+      outcome: run?.envelope?.outcome ?? run?.outcome?.outcome ?? null,
+      placed: last?.envelope?.bodies_unchanged ?? null,
+      sent_buffers: last?.buffers?.length ?? null,
+      same_geometries: page.viewer.bodies.every((m, i) => m.geometry === geometries[i]),
+      base_moved: moved("base"),
+      link_moved: moved("link"),
+      rotor_moved: moved("rotor"),
+      slider_value: page.lastGood.envelope.params.find((p) => p.name === "j1")?.value ?? null,
+      // The panel row is the same element, showing the new value.
+      row_kept: sliderRow != null && sliderRow.isConnected,
+      row_value: sliderRow ? Number(sliderRow.querySelector('input[type="number"]').value) : null,
+      bodies_kept: page.lastGood.envelope.bodies.length,
+      report_kept: page.lastGood.envelope.report != null,
+      frame_ms: { fastest: times[0], median: times[10], max: times[19] },
+    };
+  })()`);
+
+  // A large model (millimetres, two metres across) fits and draws:
+  // the depth range follows the model's size.
+  out.large_fit = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    page.editor.value = ${JSON.stringify(`let m = model();
+m.profile(xy()).rect(2000.0, 600.0).sketch("s").extrude(blind(400.0));
+m`)};
+    const run = await page.run({ live: true });
+    page.viewer.fitAgain();
+    const viewer = page.viewer;
+    viewer.renderer.render(viewer.scene, viewer.camera);
+    const gl = viewer.renderer.getContext();
+    const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+    const buf = new Uint8Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    const [r0, g0, b0] = [buf[0], buf[1], buf[2]];
+    let drawn = 0;
+    for (let i = 0; i < buf.length; i += 4) if (Math.abs(buf[i] - r0) + Math.abs(buf[i + 1] - g0) + Math.abs(buf[i + 2] - b0) > 30) drawn++;
+    // The feature tree shows a structured warning by its message, and
+    // a script's label as text (never markup).
+    page.renderReport({ assembly: null, report: { failures: 0, downgraded_blends: 0, is_clean: false, features: [
+      { label: "<b>fins</b>", operation: "fillet", outcome: "Served", warnings: [{ message: "sliver retained", payload: { edge: 7 } }] },
+    ] } });
+    const warnRow = document.querySelector("#report tr.row-warn td");
+    const labelCell = document.querySelector("#report tr td");
+    const report = { warning: warnRow?.textContent ?? null, label: labelCell?.textContent ?? null, markup: document.querySelectorAll("#report b").length };
+    page.renderReport(page.lastGood.envelope);
+    return { outcome: run?.envelope?.outcome ?? run?.outcome?.outcome ?? null, drawn_fraction: drawn / (w * h), far: viewer.camera.far, report };
+  })()`);
+
   out.open_step = await evaluate(`(async () => {
     const page = window.popkernLive;
     const bytes = Uint8Array.from(atob(${JSON.stringify(stepFixture)}), (c) => c.charCodeAt(0)).buffer;

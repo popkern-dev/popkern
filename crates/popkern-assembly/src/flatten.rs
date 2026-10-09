@@ -52,6 +52,47 @@ impl Assembly {
         Ok(parts)
     }
 
+    /// The watertightness gate over every part definition: the first
+    /// definition, in definition order, whose bodies tessellate (default
+    /// quality, welded) with open edges fails with
+    /// [`ScriptError::NotWatertight`](popkern_script::ScriptError::NotWatertight).
+    /// Definitions mesh in parallel where threads exist (in sequence the
+    /// six-axis arm's took 28 s); the verdict is the sequential one.
+    ///
+    /// # Errors
+    ///
+    /// [`AssemblyError::Script`] naming the definition that failed to
+    /// build, to mesh, or to close.
+    pub fn assert_watertight(&mut self) -> Result<(), AssemblyError> {
+        let parts = self.definition_parts()?;
+        let mut ids: Vec<DefinitionId> = parts.keys().copied().collect();
+        ids.sort();
+        let work: Vec<(DefinitionId, &Part)> = ids
+            .iter()
+            .flat_map(|id| parts[id].iter().map(move |part| (*id, part)))
+            .collect();
+        let counts = crate::parallel_map::ordered(&work, |(_, part)| {
+            part.open_edge_count().map_err(Box::new)
+        });
+        for ((id, _), count) in work.iter().zip(counts) {
+            let failed = |source: popkern_script::ScriptError| AssemblyError::Script {
+                definition: self
+                    .definitions
+                    .get(id.0 as usize)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_default(),
+                source,
+            };
+            let open_edges = count.map_err(|e| failed(popkern_script::ScriptError::Part(e)))?;
+            if open_edges > 0 {
+                return Err(failed(popkern_script::ScriptError::NotWatertight {
+                    open_edges,
+                }));
+            }
+        }
+        Ok(())
+    }
+
     /// Every alive body of every part occurrence, moved to its world
     /// placement, depth-first in instance order.
     ///

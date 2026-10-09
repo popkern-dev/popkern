@@ -10,16 +10,13 @@ use popkern_assembly::{Document, InstancePath};
 use popkern_core::time::{Stopwatch, monotonic_clock_available};
 use popkern_history::node::FeatureId;
 use popkern_rhai::outcome::from_run_error;
-use popkern_rhai::{
-    HostOptions, Outcome, ScriptHost, document_feature_count, document_first_failure,
-    document_report_value, from_assembly_error,
-};
+use popkern_rhai::{HostOptions, Outcome, ScriptHost, document_report_value, from_assembly_error};
 use popkern_script::ContinuityCertification;
 use popkern_script::Model;
 
 use crate::envelope::{BodyMesh, Envelope, WallBudget};
 use crate::mesh_buffers::MeshPurpose;
-use crate::session_document::{document_params, mesh_document};
+use crate::session_document::mesh_document;
 
 /// The budgets as the page spells them (JSON).
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -76,7 +73,7 @@ pub struct Session {
     pub(crate) document: Option<Document>,
     /// Display-mesh triangles of the last described model (the analysis
     /// mesh's budget estimate).
-    last_display_triangles: usize,
+    pub(crate) last_display_triangles: usize,
     /// The project runner and store, once a project has been built.
     pub(crate) project: Option<crate::session_project::ProjectState>,
     /// Which project migration recorded each feature (last project build).
@@ -85,6 +82,8 @@ pub struct Session {
     pub(crate) assembly_migrations: Vec<(String, usize)>,
     /// Step meshes already built (see `session_timeline`).
     pub(crate) step_meshes: crate::session_timeline::StepMeshCache,
+    /// Part meshes and rows the page holds (see `DisplayState`).
+    pub(crate) display: crate::session_describe::DisplayState,
 }
 
 impl Session {
@@ -98,6 +97,7 @@ impl Session {
             migrations: HashMap::new(),
             assembly_migrations: Vec::new(),
             step_meshes: HashMap::new(),
+            display: crate::session_describe::DisplayState::new(),
         }
     }
 
@@ -140,10 +140,12 @@ impl Session {
 
     /// Mutable access to the retained document.
     pub fn document_mut(&mut self) -> Option<&mut Document> {
+        // The caller may change any part: its cached meshes are stale.
+        self.display.clear();
         self.document.as_mut()
     }
 
-    fn wall_budget(&self) -> WallBudget {
+    pub(crate) fn wall_budget(&self) -> WallBudget {
         WallBudget::describe(self.options.timeout.is_some(), monotonic_clock_available())
     }
 
@@ -170,6 +172,7 @@ impl Session {
                     });
                 };
                 self.document = Some(document);
+                self.display.clear();
                 self.describe(
                     Outcome::Served,
                     outcome.printed,
@@ -207,6 +210,7 @@ impl Session {
                         .map(|r| format!("left out: {r}")),
                 );
                 self.document = Some(Document::Assembly(Box::new(assembly)));
+                self.display.clear();
                 self.describe(Outcome::Served, printed, None)
             }
         }
@@ -216,6 +220,8 @@ impl Session {
     /// An assembly takes `part:name` and replays only that part (every
     /// instance of it updates).
     pub fn set_param(&mut self, name: &str, value: f64) -> Envelope {
+        // A joint (a parameter only mates read) re-places, not re-meshes.
+        let placements_only = self.moves_placements_only(name);
         let Some(document) = self.document.as_mut() else {
             return self.bare(no_model());
         };
@@ -244,6 +250,7 @@ impl Session {
                 let outcome = from_assembly_error(&error, &format!("set_param {name}"));
                 self.describe(outcome, Vec::new(), None)
             }
+            Ok(()) if placements_only => self.describe_placements(),
             Ok(()) => self.describe(Outcome::Served, Vec::new(), None),
         }
     }
@@ -396,55 +403,12 @@ impl Session {
             });
         }
         let document = self.document.as_mut().ok_or_else(no_model)?;
-        match mesh_document(document, MeshPurpose::ZebraAnalysis) {
+        match mesh_document(document, MeshPurpose::ZebraAnalysis, None) {
             (bodies, _, None) => Ok(bodies),
             (_, _, Some(error)) => Err(Outcome::GateFailure {
                 step: "mesh".into(),
                 detail: error,
             }),
-        }
-    }
-
-    pub(crate) fn describe(
-        &mut self,
-        outcome: Outcome,
-        printed: Vec<String>,
-        elapsed_ms: Option<f64>,
-    ) -> Envelope {
-        let clock_available = monotonic_clock_available();
-        let wall_budget = self.wall_budget();
-        // Every describe follows a document change: step meshes keyed
-        // by (body, step) may now hold other geometry.
-        self.step_meshes.clear();
-        let Some(document) = self.document.as_mut() else {
-            return Envelope::bare(outcome, clock_available, wall_budget);
-        };
-        let mut outcome = outcome;
-        if let Some(decline) = document_first_failure(document).filter(|_| outcome.is_served()) {
-            outcome = decline;
-        }
-        let (bodies, assembly, mesh_error) = mesh_document(document, MeshPurpose::Display);
-        self.last_display_triangles = bodies.iter().map(|b| b.indices.len() / 3).sum();
-        if let Some(error) = mesh_error
-            && outcome.is_served()
-        {
-            outcome = Outcome::GateFailure {
-                step: "mesh".into(),
-                detail: error,
-            };
-        }
-        Envelope {
-            outcome,
-            printed,
-            elapsed_ms,
-            clock_available,
-            wall_budget,
-            report: Some(document_report_value(document)),
-            features: document_feature_count(document),
-            params: document_params(document),
-            bodies,
-            assembly,
-            project: None,
         }
     }
 }

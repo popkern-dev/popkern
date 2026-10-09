@@ -38,7 +38,9 @@ export function createHandler(pkg, loadModule) {
     const envelope = JSON.parse(json);
     const buffers = [];
     const transfer = [];
-    for (let i = 0; i < session.body_count(); i++) {
+    // A joint moved placements only: the page keeps the meshes it has.
+    const count = envelope.bodies_unchanged ? 0 : session.body_count();
+    for (let i = 0; i < count; i++) {
       const body = {
         positions: session.body_positions(i),
         normals: session.body_normals(i),

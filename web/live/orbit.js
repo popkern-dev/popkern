@@ -118,6 +118,7 @@ export class Orbit {
     const max = new THREE.Vector3(...bounds[1]);
     this.target = min.clone().add(max).multiplyScalar(0.5);
     const size = max.clone().sub(min).length() || 1;
+    this.size = size;
     this.spherical.radius = size * 1.4;
     this.update();
   }
@@ -131,6 +132,15 @@ export class Orbit {
     this.camera.position.set(this.target.x + x, this.target.y + y, this.target.z + z);
     this.camera.up.set(0, 0, 1);
     this.camera.lookAt(this.target);
+    // The depth range follows the eye's distance and the fitted model's
+    // size (an exploded view reaches about one more model size out): a
+    // fixed far plane of 1000 clipped every model over ~700 units, and
+    // the 850 mm six-axis arm drew nothing.
+    if (this.size) {
+      this.camera.near = s.radius * 1e-3;
+      this.camera.far = s.radius + 4 * this.size;
+      this.camera.updateProjectionMatrix();
+    }
     this.onChange();
   }
 }

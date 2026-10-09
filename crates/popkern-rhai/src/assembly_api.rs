@@ -323,25 +323,10 @@ fn frame(
 }
 
 fn assert_watertight(a: &mut ScriptAssembly) -> Result<(), Box<EvalAltResult>> {
-    let mut state = a.borrow_mut();
-    let parts = state.assembly.definition_parts().assembly()?;
-    let mut ids: Vec<_> = parts.keys().copied().collect();
-    ids.sort();
-    for id in ids {
-        for part in &parts[&id] {
-            let open_edges = part.open_edge_count().map_err(|e| {
-                raise(serde_json::json!({ "kind": "GateFailure", "message": e.to_string() }))
-            })?;
-            if open_edges > 0 {
-                let name = state.assembly.definition(id).assembly()?.name.clone();
-                return Err(assembly_error(AssemblyError::Script {
-                    definition: name,
-                    source: popkern_script::ScriptError::NotWatertight { open_edges },
-                }));
-            }
-        }
-    }
-    Ok(())
+    a.borrow_mut()
+        .assembly
+        .assert_watertight()
+        .map_err(assembly_error)
 }
 
 /// `a.interference(#{ clearance, tolerance, among })`: every pair of

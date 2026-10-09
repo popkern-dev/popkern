@@ -10,6 +10,8 @@ const $ = (id) => document.getElementById(id);
 
 // The last render's arguments, so a toggle re-renders without a build.
 let last = null;
+// The last render's slider and number box per parameter name.
+const controls = new Map();
 
 /** Whether `p` was declared by name. Envelopes from before the
  *  `explicit` field (older bakes) fall back to the naming rule: a
@@ -39,6 +41,7 @@ export function renderParams(params, part, setParam) {
   const show = { named: $("params-show-named").checked, implicit: $("params-show-implicit").checked };
   const list = $("params");
   list.innerHTML = "";
+  controls.clear();
   const hidden = { named: 0, implicit: 0 };
   for (const p of params) {
     if (p.read_only || p.expression) continue;
@@ -62,6 +65,7 @@ export function renderParams(params, part, setParam) {
     name.textContent = p.name;
     name.title = kind === "named" ? `${p.name}: declared by name in the script` : `${p.name}: a feature argument, exposed implicitly`;
     const [slider, number] = row.querySelectorAll("input");
+    controls.set(p.name, { slider, number });
     slider.setAttribute("aria-label", `${p.name} slider`);
     number.setAttribute("aria-label", `${p.name} value`);
     const apply = (value) => {
@@ -80,4 +84,21 @@ export function renderParams(params, part, setParam) {
   note.hidden = off === 0;
   const kinds = [hidden.named && `${hidden.named} named`, hidden.implicit && `${hidden.implicit} implicit`].filter(Boolean);
   note.textContent = `${off} hidden (${kinds.join(", ")})`;
+}
+
+/** Set the values of the rendered rows named in `changed` in place —
+ *  a joint slider (a placement-only change) re-renders nothing, so a
+ *  dragged slider keeps its focus and ten thousand part rows are not
+ *  rebuilt per step. `params` is the full list now current. */
+export function refreshParamValues(changed, params) {
+  if (last) last = [params, last[1], last[2]];
+  for (const p of changed) {
+    const control = controls.get(p.name);
+    if (!control) continue;
+    const { slider, number } = control;
+    if (p.value < Number(slider.min)) slider.min = String(p.value);
+    if (p.value > Number(slider.max)) slider.max = String(p.value);
+    slider.value = String(p.value);
+    number.value = String(p.value);
+  }
 }

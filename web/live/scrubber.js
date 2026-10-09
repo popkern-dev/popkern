@@ -74,6 +74,13 @@ export class Scrubber {
     $("scrubber").hidden = true;
   }
 
+  /** A joint moved occurrences (a placement-only change): the steps
+   *  and every part's meshes stand, but each visited assembly step's
+   *  placements were solved at the old value. Nothing is requested. */
+  placementsMoved() {
+    if (this.assembly) this.visited.clear();
+  }
+
   /** Load the live model's timeline — a part's features, or an
    *  assembly's construction steps — and put the playhead at the end,
    *  or at the deep-linked step. */

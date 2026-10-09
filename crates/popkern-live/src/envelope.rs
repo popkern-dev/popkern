@@ -128,6 +128,10 @@ pub struct Envelope {
     /// One triangle buffer set per alive body (for an assembly: per
     /// alive body of each part definition, shared by its instances).
     pub bodies: Vec<BodyMesh>,
+    /// Whether the bodies are the previous envelope's, unchanged: a
+    /// placement-only change (a joint slider) sends none, and the page
+    /// re-places the meshes it holds by the new assembly view.
+    pub bodies_unchanged: bool,
     /// The product structure, when the document is an assembly.
     pub assembly: Option<AssemblyView>,
     /// The project build, when the envelope answers a project run.
@@ -192,6 +196,7 @@ impl Envelope {
             features: 0,
             params: Vec::new(),
             bodies: Vec::new(),
+            bodies_unchanged: false,
             assembly: None,
             project: None,
         }
