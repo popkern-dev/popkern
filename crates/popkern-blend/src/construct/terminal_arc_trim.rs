@@ -220,6 +220,11 @@ fn repair_corner(
             Some(SurfaceGeometry::Nurbs(_)) => {
                 return super::terminal_arc_fit_trim::repair_corner_swept(brep, c, tolerance);
             }
+            // A torus strip on a meridian end plane: its local section
+            // cylinder (PK-769).
+            Some(SurfaceGeometry::Torus { .. }) => {
+                super::terminal_torus_section::meridian_section_cylinder(brep, c, tolerance)?
+            }
             _ => return Err(TerminalArcTrimDeclineReason::NonCylinderStrip),
         }
     };

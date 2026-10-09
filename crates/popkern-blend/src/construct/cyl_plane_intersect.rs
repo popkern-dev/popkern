@@ -174,12 +174,76 @@ pub(crate) fn intersect_curve_with_segment(
         }
     }
 
+    refine_crossing(curve, p0, p1, t_seed)
+}
+
+/// Every crossing of `curve` with the segment `p0 → p1`, the one
+/// whose segment fraction is nearest `s_hint`. A trim can cross one
+/// boundary edge more than once — a semicircular rim's trim crosses
+/// the D profile's flat side at both ends (PK-769), and the
+/// single-seed [`intersect_curve_with_segment`] returned the same
+/// crossing for both strip ends. Each local minimum of the sampled
+/// distance seeds a refinement; exact crossings (≤ 1e-6 off the
+/// segment, inside it) compete on `|s − s_hint|`. With no exact
+/// crossing this is [`intersect_curve_with_segment`].
+pub(crate) fn intersect_curve_with_segment_nearest(
+    curve: &NurbsCurve,
+    p0: Point3,
+    p1: Point3,
+    s_hint: f64,
+) -> Option<(f64, Point3)> {
+    let dir = p1 - p0;
+    let len_sq = dir.dot(&dir);
+    if len_sq < 1e-18 {
+        return None;
+    }
+    let perp = |p: Point3| {
+        let rel = p - p0;
+        let foot = p0 + dir * (rel.dot(&dir) / len_sq);
+        p.distance_to(&foot)
+    };
+    let (t_lo, t_hi) = curve.parameter_range();
+    const N: usize = 256;
+    let ts: Vec<f64> = (0..=N)
+        .map(|i| t_lo + (t_hi - t_lo) * i as f64 / N as f64)
+        .collect();
+    let d: Vec<f64> = ts.iter().map(|&t| perp(curve.point_at(t))).collect();
+    let best = (0..=N)
+        .filter(|&i| (i == 0 || d[i] <= d[i - 1]) && (i == N || d[i] <= d[i + 1]))
+        .filter_map(|i| refine_crossing(curve, p0, p1, ts[i]))
+        .filter(|&(s, p)| (0.001..0.999).contains(&s) && perp(p) <= 1e-6)
+        .min_by(|a, b| (a.0 - s_hint).abs().total_cmp(&(b.0 - s_hint).abs()));
+    best.or_else(|| intersect_curve_with_segment(curve, p0, p1))
+}
+
+/// Newton on the distance to the segment's line from `t_seed`; the
+/// crossing as `(segment fraction, point)` when it lands inside the
+/// segment (within 1e-6, or a loose 5%-of-length seed match).
+fn refine_crossing(
+    curve: &NurbsCurve,
+    p0: Point3,
+    p1: Point3,
+    t_seed: f64,
+) -> Option<(f64, Point3)> {
+    let dir = Vec3::new(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z);
+    let len_sq = dir.dot(&dir);
+    if len_sq < 1e-18 {
+        return None;
+    }
+    let project = |p: Point3| -> (f64, f64) {
+        let rel = Vec3::new(p.x - p0.x, p.y - p0.y, p.z - p0.z);
+        let s = rel.dot(&dir) / len_sq;
+        let foot = Point3::new(p0.x + s * dir.x, p0.y + s * dir.y, p0.z + s * dir.z);
+        let perp = Vec3::new(p.x - foot.x, p.y - foot.y, p.z - foot.z);
+        (s, perp.dot(&perp).sqrt())
+    };
+    let (t_lo, t_hi) = curve.parameter_range();
     // Newton refine: minimise perp distance starting from t_seed.
     // For analytic NURBS the intersection curve is smooth; a few
     // Newton steps (with bracket clamping) converge quickly.
     let mut t = t_seed;
     let dt = (t_hi - t_lo) * 1e-6;
-    let mut converged_perp = best_perp;
+    let mut converged_perp = f64::INFINITY;
     for _ in 0..32 {
         let p_t = curve.point_at(t);
         let (_, perp_t) = project(p_t);

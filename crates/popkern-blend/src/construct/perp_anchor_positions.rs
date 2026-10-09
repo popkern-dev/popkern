@@ -237,8 +237,8 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     if anchor_on_trim
                         && let Some(curve) = analytic_curve
                         && let Some((s, _)) =
-                            crate::construct::cyl_plane_intersect::intersect_curve_with_segment(
-                                curve, p0, p1,
+                            crate::construct::cyl_plane_intersect::intersect_curve_with_segment_nearest(
+                                curve, p0, p1, t_perp,
                             )
                         && (0.001..0.999).contains(&s)
                     {

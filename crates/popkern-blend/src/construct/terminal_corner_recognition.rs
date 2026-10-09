@@ -177,6 +177,21 @@ fn recognize_corner_pair(
             let radial = (d - an * station).length();
             (radial - station.abs() * half_angle.ptan().abs()).abs() > tolerance.linear() * 10.0
         }
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let a = axis.normalized()?;
+            super::terminal_torus_section::torus_distance(
+                &corner_pos,
+                center,
+                &a,
+                *major_radius,
+                *minor_radius,
+            ) > tolerance.linear() * 10.0
+        }
         SurfaceGeometry::Nurbs(_) => {
             // Swept (variable-radius) strips: the chart + surface are
             // the construction authority; the stale signature is the

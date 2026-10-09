@@ -9,6 +9,7 @@ mod tangent_chain_geometry;
 mod tangent_chain_junction;
 mod tangent_chain_surgery;
 mod tangent_chain_trace;
+mod terminal_torus_section;
 pub use apply_types::{ApplyBlendError, ApplyBlendResult, EdgeGeometry, apply_cancel_poll};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
