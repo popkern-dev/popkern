@@ -272,9 +272,25 @@ fn detect_edges_vs_faces(
                 None
             };
             let uv_margin = tolerance.linear();
+            // A face that carries its own SEAM (an edge whose two
+            // half-edges both bound it) spans the whole u period, but
+            // its seam vertices project to u = 0 only, never 2π: the
+            // vertex box stops at the last vertex before the seam and
+            // rejects the strip beyond it. Measured (PK-746): a fin
+            // straddling a housing's seam put a root corner at
+            // u = 6.2427; a boss rod's seam edge pierced the housing
+            // at u = 6.2785, the hit was rejected, its ring carried
+            // no node at the rod's seam, the rod's chart walk fell
+            // back to 3D-Newell, and the union served without the
+            // boss wall. Such a face's u is not filtered.
             let u_period = {
                 use popkern_core::geometry::SurfaceEval as _;
                 surface_on_face.parameter_periodicity().0
+            }
+            .filter(|_| !face_has_own_seam(face_brep, *face_h));
+            let full_turn = u_period.is_none() && {
+                use popkern_core::geometry::SurfaceEval as _;
+                surface_on_face.parameter_periodicity().0.is_some()
             };
 
             if let Ok(result) = result {
@@ -356,7 +372,7 @@ fn detect_edges_vs_faces(
                             }
                         };
                         if let Some(((eu_min, eu_max), (ev_min, ev_max))) = trim_box
-                            && (!u_in_box(eu_min, eu_max)
+                            && ((!full_turn && !u_in_box(eu_min, eu_max))
                                 || v < ev_min - uv_margin
                                 || v > ev_max + uv_margin)
                         {
@@ -416,4 +432,38 @@ fn detect_edges_vs_faces(
             }
         }
     }
+}
+
+/// Whether `face` carries its own seam: an edge both of whose
+/// half-edges lie on loops of this face.
+fn face_has_own_seam(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(f) = brep.faces.get(face) else {
+        return false;
+    };
+    std::iter::once(f.outer_loop)
+        .chain(f.inner_loops.iter().copied())
+        .any(|lh| {
+            let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+                return false;
+            };
+            let mut h = start;
+            for _ in 0..=brep.half_edges.len() {
+                let Some(he) = brep.half_edges.get(h) else {
+                    return false;
+                };
+                let twin_on_face = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|tw| brep.loops.get(tw.loop_))
+                    .is_some_and(|l| l.face == face);
+                if twin_on_face && he.twin != h {
+                    return true;
+                }
+                h = he.next;
+                if h == start {
+                    break;
+                }
+            }
+            false
+        })
 }

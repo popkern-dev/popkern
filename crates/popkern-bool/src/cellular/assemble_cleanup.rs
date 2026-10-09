@@ -234,12 +234,44 @@ pub(super) fn partition_shells(
             let centroid = (n > 0.0)
                 .then(|| popkern_core::geometry::Point3::new(sum[0] / n, sum[1] / n, sum[2] / n));
             let own = comp_aabbs(c);
-            std::iter::once(center).chain(centroid).find(|q| {
-                matches!(
-                    point_in_solid_final(q, brep, &own, tolerance),
-                    Ok(PointClassification::Inside)
-                )
-            })
+            // The centre of the component's FACE boxes: a cavity bounded
+            // by a cylinder and two discs has only seam vertices, so its
+            // vertex box collapses onto the seam line and both vertex
+            // candidates sit on its boundary (PK-745: a plug sealing a
+            // cylindrical cup declined as an Euler violation).
+            let face_center = own
+                .iter()
+                .map(|(_, bb)| (bb.min, bb.max))
+                .reduce(|(a0, a1), (b0, b1)| {
+                    (
+                        popkern_core::geometry::Point3::new(
+                            a0.x.min(b0.x),
+                            a0.y.min(b0.y),
+                            a0.z.min(b0.z),
+                        ),
+                        popkern_core::geometry::Point3::new(
+                            a1.x.max(b1.x),
+                            a1.y.max(b1.y),
+                            a1.z.max(b1.z),
+                        ),
+                    )
+                })
+                .map(|(lo, hi)| {
+                    popkern_core::geometry::Point3::new(
+                        0.5 * (lo.x + hi.x),
+                        0.5 * (lo.y + hi.y),
+                        0.5 * (lo.z + hi.z),
+                    )
+                });
+            std::iter::once(center)
+                .chain(centroid)
+                .chain(face_center)
+                .find(|q| {
+                    matches!(
+                        point_in_solid_final(q, brep, &own, tolerance),
+                        Ok(PointClassification::Inside)
+                    )
+                })
         };
         // Enclosure depth by parity against each AABB-containing
         // component's face subset; immediate encloser = the smallest

@@ -7,7 +7,7 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::classify::point_in_solid;
+use crate::classify::point_in_solid_final;
 use crate::error::{BoolError, BoolOperation, PointClassification};
 use crate::operation::helpers::{combine_breps, copy_brep_into};
 
@@ -57,7 +57,12 @@ pub(super) fn handle_no_intersection(
         }
         let mut verdict = PointClassification::OnBoundary;
         for p in &probes {
-            match point_in_solid(p, outer, outer_aabbs, tolerance)? {
+            // Boolean operands are FINAL bodies: a ray hit inside one of
+            // a face's holes is a void and must not count. Counting it
+            // classified an output pin passing through a cycloid disc's
+            // window as inside the disc, and the intersection served
+            // the whole pin (PK-722).
+            match point_in_solid_final(p, outer, outer_aabbs, tolerance)? {
                 PointClassification::OnBoundary => {}
                 decisive => {
                     verdict = decisive;
