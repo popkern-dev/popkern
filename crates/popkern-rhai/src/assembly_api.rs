@@ -344,17 +344,29 @@ fn assert_watertight(a: &mut ScriptAssembly) -> Result<(), Box<EvalAltResult>> {
     Ok(())
 }
 
-/// `a.interference(#{ clearance, tolerance })`: every pair of part
-/// occurrences within `clearance` (default 0: contact and overlap
-/// only), as the report map (design §8.1).
+/// `a.interference(#{ clearance, tolerance, among })`: every pair of
+/// part occurrences within `clearance` (default 0: contact and overlap
+/// only), as the report map (design §8.1); `among` (instance paths)
+/// limits the check to those occurrences and the ones below them.
 fn interference(a: &mut ScriptAssembly, options: Dynamic) -> Result<Dynamic, Box<EvalAltResult>> {
-    let options =
-        crate::args::Options::parse("interference", &options, &["clearance", "tolerance"])?;
+    let options = crate::args::Options::parse(
+        "interference",
+        &options,
+        &["clearance", "tolerance", "among"],
+    )?;
     let mut check = popkern_assembly::InterferenceOptions::default();
     if let Some(c) = options.with("clearance", args::float)? {
         check.clearance = c;
     }
     check.tolerance = options.with("tolerance", args::float)?;
+    if let Some(paths) = options.with("among", |_, v: &Dynamic| {
+        v.clone()
+            .into_typed_array::<rhai::ImmutableString>()
+            .map(|a| a.into_iter().map(|s| s.to_string()).collect::<Vec<_>>())
+            .map_err(|_| argument_error("among", "expected an array of instance paths"))
+    })? {
+        check.among = paths;
+    }
     let report = a.borrow_mut().assembly.interference(&check).assembly()?;
     rhai::serde::to_dynamic(&report).map_err(|e| argument_error("interference", e.to_string()))
 }

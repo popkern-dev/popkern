@@ -194,3 +194,49 @@ fn a_pin_in_a_bore_reports_its_radial_clearance() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_fit_tighter_than_the_mesh_chord_is_certified_clear() {
+    // PK-747: a 100-unit plate meshes at a 0.1 chord; its r = 10 bore
+    // holds an r = 9.998 pin, a 0.002 radial gap. The coarse meshes
+    // cross and the mesh lower bound is negative: it used to read as
+    // contact. Re-meshing just that pair certifies the gap.
+    let mut plate = Model::new();
+    let body = plate
+        .profile(Plane::XY)
+        .rect(100.0, 100.0)
+        .sketch("plate")
+        .expect("sketch")
+        .extrude(&mut plate, End::Blind(10.0.into()))
+        .expect("extrude");
+    let bore = plate
+        .tool(|m| {
+            m.profile(Plane::XY)
+                .circle(10.0)
+                .sketch("bore")?
+                .extrude(m, End::Blind(10.0.into()))
+        })
+        .expect("bore");
+    body.subtract(&mut plate, bore).expect("subtract");
+    let mut asm = pair(
+        plate,
+        rod(9.998, 30.0),
+        Placement::translation(0.0, 0.0, -10.0),
+    );
+    match check(&mut asm, 0.05).as_slice() {
+        [
+            PairStatus::Clear {
+                distance,
+                lower_bound,
+                refined: true,
+            },
+        ] => {
+            assert!((distance - 0.002).abs() < 1e-6, "{distance}");
+            assert!(
+                *lower_bound > 0.0 && *lower_bound <= *distance,
+                "{lower_bound}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}

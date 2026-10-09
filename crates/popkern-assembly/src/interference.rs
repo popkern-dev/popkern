@@ -24,20 +24,20 @@
 //!    with no volume and the decline text — never an estimate.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 use serde::Serialize;
 
 use crate::assembly::{Assembly, DefinitionId};
 use crate::error::AssemblyError;
+use crate::interference_refine::{bounds_diagonal, faces_at, refine};
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
 
 /// What to check.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct InterferenceOptions {
     /// Report pairs whose distance may be below this (0 reports only
     /// touching and interfering pairs).
@@ -47,6 +47,11 @@ pub struct InterferenceOptions {
     pub tolerance: Option<f64>,
     /// Tessellation chord height as a fraction of each part's size.
     pub chord_fraction: f64,
+    /// Check only occurrences whose path is one of these or lies
+    /// below one (`"rotor_L"` takes `rotor_L/shaft`); empty checks
+    /// every occurrence. A drive-train sweep checks the parts that
+    /// move against each other, not the whole machine at every step.
+    pub among: Vec<String>,
 }
 
 impl Default for InterferenceOptions {
@@ -55,6 +60,7 @@ impl Default for InterferenceOptions {
             clearance: 0.0,
             tolerance: None,
             chord_fraction: 1e-3,
+            among: Vec::new(),
         }
     }
 }
@@ -119,10 +125,18 @@ pub struct InterferenceReport {
     pub clearance: f64,
 }
 
-struct Occurrence {
-    path: String,
-    definition: DefinitionId,
-    bodies: Vec<(BRep, WorldMesh, usize)>,
+/// One pair's check: its report (`None` beyond the clearance) and
+/// whether the mesh resolution settled it (see `interference_certify`).
+pub(crate) struct PairCheck {
+    pub(crate) report: Option<PairReport>,
+    pub(crate) settled: bool,
+}
+
+pub(crate) struct Occurrence {
+    pub(crate) path: String,
+    pub(crate) definition: DefinitionId,
+    pub(crate) world: crate::placement::Placement,
+    pub(crate) bodies: Vec<(Arc<BRep>, Arc<WorldMesh>, usize)>,
 }
 
 impl Assembly {
@@ -142,10 +156,28 @@ impl Assembly {
                 .map(|(_, m)| m.tolerance().linear())
                 .fold(0.0, f64::max)
         });
+        let selected = |path: &str| {
+            options.among.is_empty()
+                || options.among.iter().any(|p| {
+                    path == p
+                        || path
+                            .strip_prefix(p.as_str())
+                            .is_some_and(|rest| rest.starts_with('/'))
+                })
+        };
+        let leaves: Vec<_> = self
+            .flatten()?
+            .into_iter()
+            .filter(|b| selected(&b.path.to_string()))
+            .collect();
+        let wanted: std::collections::HashSet<DefinitionId> =
+            leaves.iter().map(|b| b.definition).collect();
         let parts = self.definition_parts()?;
-        // One tessellation per definition body, measured once.
-        let mut local: HashMap<(DefinitionId, usize), LocalMesh> = HashMap::new();
-        for (id, bodies) in &parts {
+        // One tessellation per definition body, kept across checks by
+        // content (a sweep moves placements, not geometry).
+        let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
+        let mut contents: HashMap<(DefinitionId, usize), u64> = HashMap::new();
+        for (id, bodies) in parts.iter().filter(|(id, _)| wanted.contains(id)) {
             for (i, part) in bodies.iter().enumerate() {
                 let brep = part.brep();
                 let size = bounds_diagonal(brep).max(1e-12);
@@ -153,36 +185,44 @@ impl Assembly {
                     chord_height: options.chord_fraction * size,
                     ..popkern_mesh::TessellationOptions::default()
                 };
-                let mesh = popkern_mesh::tessellate(brep, &chord).map_err(|e| {
-                    AssemblyError::Geometry {
+                let content = crate::mesh_cache::fingerprint(brep);
+                let mesh = self
+                    .meshes
+                    .get_or_build(content, brep, &chord)
+                    .map_err(|e| AssemblyError::Geometry {
                         instance: self
                             .definition(*id)
                             .map(|d| d.name.clone())
                             .unwrap_or_default(),
                         detail: format!("tessellation for the interference check: {e}"),
-                    }
-                })?;
-                local.insert((*id, i), LocalMesh::new(brep, &mesh));
+                    })?;
+                local.insert((*id, i), mesh);
+                contents.insert((*id, i), content);
             }
         }
         let mut occurrences: Vec<Occurrence> = Vec::new();
-        for body in self.flatten()? {
+        for body in leaves {
             let path = body.path.to_string();
             let Some(mesh) = local.get(&(body.definition, body.body)) else {
                 continue;
             };
-            let world = WorldMesh::new(mesh, &body.world);
+            let world = Arc::new(WorldMesh::new(mesh, &body.world));
+            let brep = Arc::new(body.brep);
             match occurrences.last_mut() {
-                Some(o) if o.path == path => o.bodies.push((body.brep, world, body.body)),
+                Some(o) if o.path == path => o.bodies.push((brep, world, body.body)),
                 _ => occurrences.push(Occurrence {
                     path,
                     definition: body.definition,
-                    bodies: vec![(body.brep, world, body.body)],
+                    world: body.world,
+                    bodies: vec![(brep, world, body.body)],
                 }),
             }
         }
         let mut pairs = Vec::new();
         let mut candidates = 0;
+        // Finer world meshes per occurrence body and level, shared by
+        // every pair that occurrence certifies against.
+        let mut worlds: HashMap<(String, usize, u32), Arc<WorldMesh>> = HashMap::new();
         for i in 0..occurrences.len() {
             for j in i + 1..occurrences.len() {
                 let (a, b) = (&occurrences[i], &occurrences[j]);
@@ -196,7 +236,25 @@ impl Assembly {
                     continue;
                 }
                 candidates += 1;
-                if let Some(report) = self.check_pair(a, b, &local, tolerance, options.clearance) {
+                let check = self.check_pair(a, b, &local, tolerance, options.clearance, false);
+                let report = if check.settled {
+                    check.report
+                } else {
+                    let base =
+                        |s: &Self| s.check_pair(a, b, &local, tolerance, options.clearance, true);
+                    self.certify_pair(
+                        a,
+                        b,
+                        &parts,
+                        &contents,
+                        &mut worlds,
+                        options.chord_fraction,
+                        tolerance,
+                        options.clearance,
+                    )
+                    .unwrap_or_else(|| base(self).report)
+                };
+                if let Some(report) = report {
                     pairs.push(report);
                 }
             }
@@ -211,14 +269,15 @@ impl Assembly {
         })
     }
 
-    fn check_pair(
+    pub(crate) fn check_pair(
         &self,
         a: &Occurrence,
         b: &Occurrence,
-        local: &HashMap<(DefinitionId, usize), LocalMesh>,
+        local: &HashMap<(DefinitionId, usize), Arc<LocalMesh>>,
         tolerance: f64,
         clearance: f64,
-    ) -> Option<PairReport> {
+        run_boolean: bool,
+    ) -> PairCheck {
         // Overlap first: crossing meshes or containment, then the
         // boolean decides interfering versus touching.
         for (brep_a, mesh_a, _) in &a.bodies {
@@ -237,15 +296,26 @@ impl Assembly {
                 if !crossing {
                     continue;
                 }
+                // Meshes crossing at a chord coarser than the gap prove
+                // nothing: leave the pair unsettled for finer meshes and
+                // build the overlap only where they still cross.
+                if !run_boolean {
+                    return PairCheck {
+                        report: None,
+                        settled: false,
+                    };
+                }
                 let status = match popkern_bool::intersection_ref(
                     brep_a,
                     brep_b,
                     Tolerance::default().with_linear(tolerance),
                     None,
                 ) {
-                    Ok(overlap) if overlap.faces.is_empty() => {
-                        PairStatus::Touching { distance: 0.0 }
-                    }
+                    // No overlap volume: the bodies are apart or in
+                    // contact — the distance branch below measures which
+                    // (a 0.02 mm fit reported "touching at 0" while its
+                    // coarse meshes crossed, PK-747).
+                    Ok(overlap) if overlap.faces.is_empty() => continue,
                     Ok(overlap) => {
                         match popkern_measure::body_volume(&overlap, &Tolerance::default()) {
                             Ok(volume) if volume.abs() > tolerance.powi(3) => {
@@ -254,7 +324,11 @@ impl Assembly {
                                     decline: None,
                                 }
                             }
-                            Ok(_) => PairStatus::Touching { distance: 0.0 },
+                            // A zero-volume overlap (a degenerate sheet
+                            // the boolean returns for near-contact
+                            // bodies) is no overlap either: distance
+                            // decides contact.
+                            Ok(_) => continue,
                             Err(e) => PairStatus::Interfering {
                                 volume: None,
                                 decline: Some(format!("overlap volume: {e}")),
@@ -266,13 +340,25 @@ impl Assembly {
                         decline: Some(e.to_string()),
                     },
                 };
-                return Some(PairReport {
-                    a: a.path.clone(),
-                    b: b.path.clone(),
+                // A positive overlap volume settles the pair; a decline
+                // may be a near-contact artefact of the coarse meshes.
+                let settled = matches!(
                     status,
-                    closest: None,
-                    faces: None,
-                });
+                    PairStatus::Interfering {
+                        volume: Some(_),
+                        ..
+                    }
+                );
+                return PairCheck {
+                    report: Some(PairReport {
+                        a: a.path.clone(),
+                        b: b.path.clone(),
+                        status,
+                        closest: None,
+                        faces: None,
+                    }),
+                    settled,
+                };
             }
         }
         // Apart: the closest body pair.
@@ -284,8 +370,12 @@ impl Assembly {
                     continue;
                 };
                 lower = lower.min(c.lower_bound);
-                let la = local.get(&(a.definition, *body_a))?;
-                let lb = local.get(&(b.definition, *body_b))?;
+                let (Some(la), Some(lb)) = (
+                    local.get(&(a.definition, *body_a)),
+                    local.get(&(b.definition, *body_b)),
+                ) else {
+                    continue;
+                };
                 let fa = la.faces[mesh_a.local[c.tri_here]];
                 let fb = lb.faces[mesh_b.local[c.tri_there]];
                 // Mesh points on triangles that lie ON their faces (zero
@@ -328,11 +418,23 @@ impl Assembly {
                 }
             }
         }
-        let (distance, refined, here, there, names) = best?;
+        let Some((distance, refined, here, there, names)) = best else {
+            return PairCheck {
+                report: None,
+                settled: true,
+            };
+        };
         let lower_bound = lower.min(distance);
         if lower_bound > clearance {
-            return None;
+            return PairCheck {
+                report: None,
+                settled: true,
+            };
         }
+        // Contact is certain only on refined surface points within the
+        // tolerance; a mesh distance (crossing coarse meshes measure 0)
+        // or a refined gap above it with a loose lower bound is not.
+        let settled = lower_bound > tolerance || (refined && distance <= tolerance);
         let status = if lower_bound <= tolerance {
             PairStatus::Touching { distance }
         } else {
@@ -342,13 +444,16 @@ impl Assembly {
                 refined,
             }
         };
-        Some(PairReport {
-            a: a.path.clone(),
-            b: b.path.clone(),
-            status,
-            closest: Some([[here.x, here.y, here.z], [there.x, there.y, there.z]]),
-            faces: Some(names),
-        })
+        PairCheck {
+            report: Some(PairReport {
+                a: a.path.clone(),
+                b: b.path.clone(),
+                status,
+                closest: Some([[here.x, here.y, here.z], [there.x, there.y, there.z]]),
+                faces: Some(names),
+            }),
+            settled,
+        }
     }
 
     /// `<occurrence>:<face's stable name>`, or `<occurrence>:face` when
@@ -372,97 +477,6 @@ impl Assembly {
             .unwrap_or_else(|| "face".to_string());
         format!("{path}:{spelled}")
     }
-}
-
-/// Alternating projection of the closest mesh points onto the true
-/// faces; `Some` only when both end points lie on their trimmed faces.
-#[allow(clippy::too_many_arguments)]
-fn refine(
-    brep_a: &BRep,
-    fa: FaceHandle,
-    mesh_a: &WorldMesh,
-    la: &LocalMesh,
-    brep_b: &BRep,
-    fb: FaceHandle,
-    mesh_b: &WorldMesh,
-    lb: &LocalMesh,
-    here: Point3,
-    there: Point3,
-) -> Option<(Point3, Point3)> {
-    let sa = &brep_a.faces.get(fa)?.surface.as_ref()?.geometry;
-    let sb = &brep_b.faces.get(fb)?.surface.as_ref()?.geometry;
-    let size = mesh_a
-        .bounds
-        .diagonal()
-        .max(mesh_b.bounds.diagonal())
-        .max(1e-12);
-    let project = |s: &popkern_core::geometry::surface::SurfaceGeometry, p: &Point3| {
-        let (u, v) = project_point_to_uv(s, p)?;
-        Some(s.point_at(u, v))
-    };
-    let mut p = project(sa, &here)?;
-    let mut q = project(sb, &there)?;
-    for _ in 0..64 {
-        let q_next = project(sb, &p)?;
-        let p_next = project(sa, &q_next)?;
-        let moved = (p_next - p).length() + (q_next - q).length();
-        p = p_next;
-        q = q_next;
-        if moved <= 1e-14 * size {
-            break;
-        }
-    }
-    let on_face = |mesh: &WorldMesh, local: &LocalMesh, face: FaceHandle, x: &Point3| {
-        let mut nearest = f64::INFINITY;
-        let mut eps: f64 = 0.0;
-        for (k, tri) in mesh.tris.iter().enumerate() {
-            let i = mesh.local[k];
-            if local.faces[i] != face {
-                continue;
-            }
-            eps = eps.max(local.eps[i]);
-            nearest = nearest.min((crate::tri_geometry::closest_on_triangle(x, tri) - *x).length());
-        }
-        nearest <= eps + 1e-9 * size
-    };
-    (on_face(mesh_a, la, fa, &p) && on_face(mesh_b, lb, fb, &q)).then_some((p, q))
-}
-
-/// The faces whose triangles hold mesh point `x` (within `1e-9` of
-/// `size`), `own` first: more than one when `x` lies on a mesh edge or
-/// vertex between faces.
-fn faces_at(
-    mesh: &WorldMesh,
-    local: &LocalMesh,
-    x: &Point3,
-    own: FaceHandle,
-    size: f64,
-) -> Vec<FaceHandle> {
-    let mut faces = vec![own];
-    for (k, tri) in mesh.tris.iter().enumerate() {
-        let face = local.faces[mesh.local[k]];
-        if !faces.contains(&face)
-            && (crate::tri_geometry::closest_on_triangle(x, tri) - *x).length() <= 1e-9 * size
-        {
-            faces.push(face);
-        }
-    }
-    faces
-}
-
-fn bounds_diagonal(brep: &BRep) -> f64 {
-    let mut lo = [f64::INFINITY; 3];
-    let mut hi = [f64::NEG_INFINITY; 3];
-    for v in brep.vertices.values() {
-        for (k, x) in [v.position.x, v.position.y, v.position.z]
-            .into_iter()
-            .enumerate()
-        {
-            lo[k] = lo[k].min(x);
-            hi[k] = hi[k].max(x);
-        }
-    }
-    (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>().sqrt()
 }
 
 fn rank(status: &PairStatus) -> f64 {

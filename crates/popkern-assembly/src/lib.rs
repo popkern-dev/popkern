@@ -41,6 +41,8 @@ pub mod hinge;
 pub mod hinge_seam;
 pub mod history;
 pub mod interference;
+mod interference_certify;
+mod interference_refine;
 pub mod joints;
 mod mate_clusters;
 pub mod mate_linalg;
@@ -48,6 +50,7 @@ pub mod mate_solve;
 mod mate_steps;
 pub mod mates;
 pub mod mesh_bvh;
+mod mesh_cache;
 pub mod names;
 pub mod params;
 mod params_mates;
@@ -57,6 +60,7 @@ pub mod step;
 pub mod step_import;
 pub mod tree;
 pub mod tri_geometry;
+mod trim_side;
 
 pub use assembly::{
     Assembly, Definition, DefinitionContent, DefinitionId, Instance, InstanceRef, Parent, TreeRow,

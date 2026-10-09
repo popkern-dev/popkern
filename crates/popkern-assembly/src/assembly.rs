@@ -122,6 +122,8 @@ pub struct Assembly {
     pub(crate) history: crate::history::AssemblyHistory,
     /// Joints over the mates (six-axis-arm §4.3).
     pub(crate) joints: Vec<crate::joints::Joint>,
+    /// Tessellations for the interference check, by body content.
+    pub(crate) meshes: crate::mesh_cache::MeshCache,
 }
 
 impl Assembly {
@@ -137,6 +139,7 @@ impl Assembly {
             drives: Vec::new(),
             history: crate::history::AssemblyHistory::default(),
             joints: Vec::new(),
+            meshes: crate::mesh_cache::MeshCache::default(),
         }
     }
 
