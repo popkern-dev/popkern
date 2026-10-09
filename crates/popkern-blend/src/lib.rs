@@ -116,12 +116,16 @@ pub(crate) mod unfillet_helpers;
 pub mod unfillet_plan_closed;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
+#[cfg(test)]
+#[path = "vanishing_end_tests.rs"]
+mod vanishing_end_tests;
 pub mod vertex_blend;
 pub(crate) mod vertex_blend_topology;
 pub mod vertex_classifier;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub(crate) mod walker_station;
+pub(crate) mod walker_tangent;
 pub mod zebra;
 pub use blend_continuity_certification::DeferredSeamCertified;
 pub use blend_continuity_evidence::{

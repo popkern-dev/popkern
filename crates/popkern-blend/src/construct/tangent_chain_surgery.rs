@@ -39,22 +39,20 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceOnFace;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
 
 use super::EdgeGeometry;
+use super::tangent_chain_junction::strip_rail;
 use crate::analysis::Convexity;
 use crate::error::BlendFailure;
 
 use super::tangent_chain_geometry::{
-    Circle, ball_center, chain_tangent, chain_tangent_at_origin, exact_section, nearest,
-    orient_strip, section_arc, segment_distance, shorten_third, strip_rail, trim_piece,
-};
-use super::tangent_chain_geometry::{
-    Link, Third, blank, decline, insert_edge, substitute, verified_circle,
+    ball_center, blank, chain_tangent, chain_tangent_at_origin, decline, insert_edge, orient_strip,
+    section_arc, shorten_third, substitute, trim_piece,
 };
 
 /// Order the chain `members` (indices into `edge_geometries`) and
@@ -72,7 +70,68 @@ pub(crate) fn apply_tangent_chain(
     tolerance: &Tolerance,
 ) -> Result<Vec<FaceHandle>, BlendFailure> {
     let mut work = brep.clone();
-    let strips = build(&mut work, edge_geometries, members, tolerance)?;
+    let first = edge_geometries[members[0]].analysis.edge;
+    let h0 = work.edges[first].half_edge;
+    let strips = build(&mut work, edge_geometries, members, tolerance, h0, true)?;
+    *brep = work;
+    Ok(strips)
+}
+
+/// Build every closed tangent chain (`apply_tangent_chain`), recording
+/// its members as handled and its strips and supports as protected; a
+/// declined chain's failure joins `failures`.
+pub(crate) fn apply_closed_chains(
+    result: &mut BRep,
+    edge_geometries: &[EdgeGeometry],
+    tolerance: &Tolerance,
+    chain_members: &mut std::collections::HashSet<usize>,
+    protected: &mut Vec<FaceHandle>,
+    failures: &mut Vec<(popkern_core::topology::EdgeHandle, BlendFailure)>,
+) {
+    for chain in super::g1_junction::closed_tangent_chains(result, edge_geometries) {
+        match apply_tangent_chain(result, edge_geometries, &chain, tolerance) {
+            Ok(strips) => {
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!(
+                        "  [tangent-chain] built {} strip(s) for {chain:?}",
+                        strips.len()
+                    );
+                }
+                protected.extend(strips);
+                for &i in &chain {
+                    protected.push(edge_geometries[i].analysis.face_1);
+                    protected.push(edge_geometries[i].analysis.face_2);
+                }
+            }
+            Err(failure) => {
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!("  [tangent-chain] declined {chain:?}: {failure:?}");
+                }
+                failures.push((edge_geometries[chain[0]].analysis.edge, failure));
+            }
+        }
+        chain_members.extend(chain);
+    }
+}
+
+/// Build an OPEN tangent chain whose two ends VANISH (PK-764,
+/// `docs/architecture/fillet-vanishing-ends.md`): `h0` is the first
+/// member's half-edge leaving the chain's start vertex. The junctions
+/// are built as in a closed chain; at each end the strips run out to
+/// the end vertex itself (both rails end there, no section arc).
+///
+/// # Errors
+///
+/// As [`apply_tangent_chain`].
+pub(crate) fn apply_open_tangent_chain(
+    brep: &mut BRep,
+    edge_geometries: &[EdgeGeometry],
+    members: &[usize],
+    h0: HalfEdgeHandle,
+    tolerance: &Tolerance,
+) -> Result<Vec<FaceHandle>, BlendFailure> {
+    let mut work = brep.clone();
+    let strips = build(&mut work, edge_geometries, members, tolerance, h0, false)?;
     *brep = work;
     Ok(strips)
 }
@@ -82,210 +141,43 @@ fn build(
     edge_geometries: &[EdgeGeometry],
     members: &[usize],
     tolerance: &Tolerance,
+    h0: HalfEdgeHandle,
+    closed: bool,
 ) -> Result<Vec<FaceHandle>, BlendFailure> {
-    let first = edge_geometries[members[0]].analysis.edge;
     let at = brep
         .vertices
-        .get(edge_geometries[members[0]].analysis.vertex_start)
+        .get(brep.half_edges[h0].origin)
         .map(|v| v.position)
         .unwrap_or(Point3::new(0.0, 0.0, 0.0));
-    // Chain order: follow half-edges head to tail.
-    let mut links: Vec<Link<'_>> = Vec::with_capacity(members.len());
-    let mut h = brep.edges[first].half_edge;
-    for _ in 0..members.len() {
-        let edge = brep.half_edges[h].edge;
-        let eg = members
-            .iter()
-            .map(|&i| &edge_geometries[i])
-            .find(|g| g.analysis.edge == edge)
-            .ok_or_else(|| decline(format!("edge {edge:?} left the chain"), at))?;
-        let p = brep.loops[brep.half_edges[h].loop_].face;
-        let trims = |face: FaceHandle| -> Option<(&NurbsCurve, Circle)> {
-            if face == eg.analysis.face_1 {
-                Some((&eg.trim_3d_1, eg.trim_circle_1))
-            } else if face == eg.analysis.face_2 {
-                Some((&eg.trim_3d_2, eg.trim_circle_2))
-            } else {
-                None
-            }
-        };
-        let q = brep.loops[brep.half_edges[brep.half_edges[h].twin].loop_].face;
-        let (Some(p_trim), Some(q_trim)) = (trims(p), trims(q)) else {
-            return Err(decline(
-                format!("edge {edge:?} faces are not its supports"),
-                at,
-            ));
-        };
-        // An exact trim circle is trusted only where it lies on its
-        // support (measured: a pocket-floor rim's wall circle carried
-        // the cylinder origin's height, z = 0, for contacts at z = 10).
-        let support = |face: FaceHandle| {
-            brep.faces[face]
-                .surface
-                .as_ref()
-                .map(|s| s.geometry.clone())
-        };
-        let p_trim = (
-            p_trim.0,
-            verified_circle(p_trim.1, support(p).as_ref(), tolerance),
-        );
-        let q_trim = (
-            q_trim.0,
-            verified_circle(q_trim.1, support(q).as_ref(), tolerance),
-        );
-        if matches!(eg.analysis.convexity, Convexity::Mixed) {
-            return Err(decline(format!("edge {edge:?} changes convexity"), at));
-        }
-        links.push(Link {
-            eg,
-            h,
-            p_trim,
-            q_trim,
-        });
-        // The next chain edge leaves this half-edge's destination.
-        let v = brep.half_edges[brep.half_edges[h].twin].origin;
-        let next = members
-            .iter()
-            .map(|&i| edge_geometries[i].analysis.edge)
-            .filter(|e| *e != edge)
-            .find_map(|e| {
-                let he = brep.edges[e].half_edge;
-                let tw = brep.half_edges[he].twin;
-                if brep.half_edges[he].origin == v {
-                    Some(he)
-                } else if brep.half_edges[tw].origin == v {
-                    Some(tw)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| decline("the chain does not close".into(), at))?;
-        h = next;
-    }
-    if h != links[0].h && brep.half_edges[h].twin != links[0].h {
-        return Err(decline("the chain does not close on itself".into(), at));
-    }
+    let links = super::tangent_chain_junction::chain_links(
+        brep,
+        edge_geometries,
+        members,
+        h0,
+        closed,
+        at,
+        tolerance,
+    )?;
     let k = links.len();
     let band = tolerance.linear().max(1e-9) * 100.0;
+    // Junction i joins link i to link i + 1 (cyclically when closed).
+    let nj = if closed { k } else { k - 1 };
+    // An open chain's end vertices: the strips' tips.
+    let start_vertex = brep.half_edges[links[0].h].origin;
+    let end_vertex = brep.half_edges[brep.half_edges[links[k - 1].h].twin].origin;
 
     // Junction analysis: v_i = dest(h_i), third edge, section contacts.
-    let mut thirds = Vec::with_capacity(k);
-    let mut contacts: Vec<(Point3, Point3)> = Vec::with_capacity(k);
-    for i in 0..k {
-        let (a, b) = (&links[i], &links[(i + 1) % k]);
-        let hi = &brep.half_edges[a.h];
-        let v = brep.half_edges[hi.twin].origin;
-        let vp = brep.vertices[v].position;
-        let valence = brep.half_edges.values().filter(|he| he.origin == v).count();
-        if valence != 3 {
-            return Err(decline(
-                format!("junction {v:?} has valence {valence}, not 3"),
-                vp,
-            ));
-        }
-        let next_p = hi.next;
-        let next_q = brep.half_edges[brep.half_edges[b.h].twin].next;
-        let third = if next_p != b.h {
-            Third {
-                edge: brep.half_edges[next_p].edge,
-                on_p: true,
-            }
-        } else if next_q != hi.twin {
-            Third {
-                edge: brep.half_edges[next_q].edge,
-                on_p: false,
-            }
-        } else {
-            return Err(decline(format!("junction {v:?} has no third edge"), vp));
-        };
-        // The fitted contacts seed the exact solve; they must at least
-        // agree to a fraction of the radius (a gross mismatch is a
-        // different strip geometry, not fit slack).
-        let agree = |t1: (&NurbsCurve, Circle),
-                     t2: (&NurbsCurve, Circle),
-                     r: f64|
-         -> Result<Point3, BlendFailure> {
-            let c1 = nearest(t1, vp);
-            let c2 = nearest(t2, vp);
-            if c1.distance_to(&c2) > band.max(0.25 * r) {
-                return Err(decline(
-                    format!(
-                        "strips disagree on the section at {v:?} by {:.3e} ({c1:?} vs {c2:?})",
-                        c1.distance_to(&c2)
-                    ),
-                    vp,
-                ));
-            }
-            Ok(Point3::new(
-                0.5 * (c1.x + c2.x),
-                0.5 * (c1.y + c2.y),
-                0.5 * (c1.z + c2.z),
-            ))
-        };
-        let cp0 = agree(a.p_trim, b.p_trim, a.eg.effective_radius)?;
-        let cq0 = agree(a.q_trim, b.q_trim, a.eg.effective_radius)?;
-        // The exact section, seeded by the fitted contacts' ball.
-        let surf = |he: HalfEdgeHandle| {
-            brep.faces[brep.loops[brep.half_edges[he].loop_].face]
-                .surface
-                .as_ref()
-                .map(|s| s.geometry.clone())
-        };
-        let (Some(sp), Some(sq), Some(tangent)) =
-            (surf(a.h), surf(hi.twin), chain_tangent(brep, a.h))
-        else {
-            return Err(decline(
-                format!("junction {v:?} lacks supports or a tangent"),
-                vp,
-            ));
-        };
-        let r = a.eg.radius_at_end;
-        let seed = ball_center(&sp, cp0, cq0, tangent, r).unwrap_or(vp);
-        let Some((_, cp, cq)) = exact_section(&sp, &sq, vp, tangent, r, seed) else {
-            return Err(decline(
-                format!("no ball of radius {r} sits on both supports at {v:?}"),
-                vp,
-            ));
-        };
-        // The third edge must reach its side's contact: it is kept and
-        // shortened to it.
-        let on_third = if third.on_p { cp } else { cq };
-        let t_curve = brep.edges[third.edge].curve.clone();
-        let off = match &t_curve {
-            Some(c) => c
-                .geometry
-                .closest_point(&on_third)
-                .map(|s| c.geometry.point_at(s).distance_to(&on_third))
-                .unwrap_or(f64::INFINITY),
-            None => segment_distance(brep, third.edge, on_third),
-        };
-        if off > band {
-            return Err(decline(
-                format!(
-                    "third edge {:?} misses the section contact by {off:.3e} (contacts {cp:?} / {cq:?})",
-                    third.edge
-                ),
-                vp,
-            ));
-        }
-        // The kept third edge carries the vertex: land the contact
-        // exactly on it (the solved foot sits within the band, ~1e-6
-        // off a seam line — an OpenLoop at validation otherwise).
-        let snapped = t_curve
-            .as_ref()
-            .and_then(|c| {
-                c.geometry
-                    .closest_point(&on_third)
-                    .map(|s| c.geometry.point_at(s))
-            })
-            .unwrap_or(on_third);
-        let (cp, cq) = if third.on_p {
-            (snapped, cq)
-        } else {
-            (cp, snapped)
-        };
+    let mut thirds = Vec::with_capacity(nj);
+    let mut contacts: Vec<(Point3, Point3)> = Vec::with_capacity(nj);
+    for i in 0..nj {
+        let (third, contact) = super::tangent_chain_junction::junction_section(
+            brep,
+            &links[i],
+            &links[(i + 1) % k],
+            band,
+        )?;
         thirds.push(third);
-        contacts.push((cp, cq));
+        contacts.push(contact);
     }
 
     if popkern_core::trace::trace_enabled("tangent-chain") {
@@ -294,9 +186,9 @@ fn build(
     }
     // Vertices: the third edge's side reuses v_i (moved), the other
     // side is new.
-    let mut vp_of = Vec::with_capacity(k);
-    let mut vq_of = Vec::with_capacity(k);
-    for i in 0..k {
+    let mut vp_of = Vec::with_capacity(nj);
+    let mut vq_of = Vec::with_capacity(nj);
+    for i in 0..nj {
         let v = brep.half_edges[brep.half_edges[links[i].h].twin].origin;
         let (cp, cq) = contacts[i];
         let fresh = |brep: &mut BRep, position: Point3| {
@@ -321,9 +213,9 @@ fn build(
 
     // Edges and half-edges.
     let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].shell;
-    let mut x_edges = Vec::with_capacity(k);
-    let mut centers = Vec::with_capacity(k);
-    for i in 0..k {
+    let mut x_edges = Vec::with_capacity(nj);
+    let mut centers = Vec::with_capacity(nj);
+    for i in 0..nj {
         let (cp, cq) = contacts[i];
         let tangent = chain_tangent(brep, links[i].h)
             .ok_or_else(|| decline("junction tangent undefined".into(), cp))?;
@@ -357,8 +249,8 @@ fn build(
     }
     let mut strips = Vec::with_capacity(k);
     // Half-edges of X_i: (in strip i: Q→P, in strip i+1: P→Q).
-    let mut x_hes: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = Vec::with_capacity(k);
-    for i in 0..k {
+    let mut x_hes: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = Vec::with_capacity(nj);
+    for i in 0..nj {
         let a = brep.half_edges.insert(blank(vq_of[i], x_edges[i]));
         let b = brep.half_edges.insert(blank(vp_of[i], x_edges[i]));
         brep.half_edges[a].twin = b;
@@ -366,13 +258,25 @@ fn build(
         brep.edges[x_edges[i]].half_edge = b; // curve runs P → Q
         x_hes.push((a, b));
     }
-    for i in 0..k {
-        let prev = (i + k - 1) % k;
-        let link = &links[i];
+    for (i, link) in links.iter().enumerate() {
+        // The section before link i and after it: absent at an open
+        // chain's ends, where the strip runs out to the end vertex.
+        let before = if closed || i > 0 {
+            Some((i + k - 1) % k)
+        } else {
+            None
+        };
+        let after = if closed || i + 1 < k { Some(i) } else { None };
         let h = link.h;
         let tw = brep.half_edges[h].twin;
-        let (pa, pb) = (vp_of[prev], vp_of[i]);
-        let (qa, qb) = (vq_of[prev], vq_of[i]);
+        let (pa, qa) = match before {
+            Some(j) => (vp_of[j], vq_of[j]),
+            None => (start_vertex, start_vertex),
+        };
+        let (pb, qb) = match after {
+            Some(j) => (vp_of[j], vq_of[j]),
+            None => (end_vertex, end_vertex),
+        };
         // The arcs are oriented at their START point, so take the chain
         // direction there (at the end of a quarter arc it is
         // perpendicular and picked the 270° complement — measured: three
@@ -417,10 +321,14 @@ fn build(
         brep.half_edges[fq].twin = sq;
         brep.edges[e_p].half_edge = sp; // P side runs pa → pb with the curve
         brep.edges[e_q].half_edge = fq; // strip side runs qa → qb with the curve
-        // Strip loop: P trim back, section X_prev (P→Q), Q trim, X_i (Q→P).
-        let ring = [fp, x_hes[prev].1, fq, x_hes[i].0];
+        // Strip loop: P trim back, section X_prev (P→Q), Q trim, X_i
+        // (Q→P); a vanishing end has no section — its trims meet there.
+        let mut ring = vec![fp];
+        ring.extend(before.map(|j| x_hes[j].1));
+        ring.push(fq);
+        ring.extend(after.map(|j| x_hes[j].0));
         for (j, &he) in ring.iter().enumerate() {
-            let nx = ring[(j + 1) % 4];
+            let nx = ring[(j + 1) % ring.len()];
             brep.half_edges[he].next = nx;
             brep.half_edges[nx].prev = he;
             brep.half_edges[he].loop_ = lp;
@@ -432,7 +340,12 @@ fn build(
         brep.remove_half_edge_reanchored(tw);
         brep.edges.remove(link.eg.analysis.edge);
     }
-    for v in vp_of.iter().chain(vq_of.iter()) {
+    let tips = if closed {
+        Vec::new()
+    } else {
+        vec![start_vertex, end_vertex]
+    };
+    for v in vp_of.iter().chain(vq_of.iter()).chain(tips.iter()) {
         if (!brep.half_edges.contains_key(brep.vertices[*v].outgoing)
             || brep.half_edges[brep.vertices[*v].outgoing].origin != *v)
             && let Some((he, _)) = brep.half_edges.iter().find(|(_, he)| he.origin == *v)
@@ -447,12 +360,18 @@ fn build(
     // corner cylinders read unorientable — measured in OCC).
     for (i, &face) in strips.iter().enumerate() {
         let convex = matches!(links[i].eg.analysis.convexity, Convexity::Convex);
-        let mid = brep.edges[x_edges[i]]
+        // Oriented from a section on the strip's own boundary: its
+        // following one, else (an open chain's last strip) the one
+        // before it.
+        let Some(j) = (if i < nj { Some(i) } else { i.checked_sub(1) }) else {
+            return Err(decline("a one-edge open chain has no section".into(), at));
+        };
+        let mid = brep.edges[x_edges[j]]
             .curve
             .as_ref()
             .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)))
-            .unwrap_or(contacts[i].0);
-        orient_strip(brep, face, convex, centers[i], mid);
+            .unwrap_or(contacts[j].0);
+        orient_strip(brep, face, convex, centers[j], mid);
     }
     let mut faces: Vec<FaceHandle> = strips.clone();
     for he in brep.half_edges.values() {

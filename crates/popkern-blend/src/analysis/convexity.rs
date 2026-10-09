@@ -276,6 +276,14 @@ pub(super) fn classify_convexity(
             );
         }
 
+        // A TANGENT point — the supports' normals parallel, the crease
+        // vanished (an equal-radius tee's singular point, PK-764) — has
+        // no convexity: its sign is rounding noise (a stray "convex"
+        // there read the concave saddle edge as Mixed).
+        let tangent = n1.cross(&n2).length() <= 1e-6 * n1.length() * n2.length();
+        if tangent {
+            continue;
+        }
         if dot < -MIXED_THRESHOLD {
             convex_count += 1;
         } else if dot > MIXED_THRESHOLD {

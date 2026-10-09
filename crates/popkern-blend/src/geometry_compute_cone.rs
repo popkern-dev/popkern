@@ -116,9 +116,27 @@ pub(crate) fn compute_center_via_walker(
             d(&analysis.surface_1).max(d(&analysis.surface_2))
         };
         let on_supports = tolerance.linear() * 10.0;
+        // A TANGENT contact (the supports' normals parallel: the crease
+        // vanishes, as at the singular points of an equal-radius tee)
+        // is no seed. The ball there touches both supports at the
+        // spine point itself, and the next station warm-started from
+        // that solution met a singular contact Jacobian before its
+        // first iteration (PK-764). The walk starts at the regular end
+        // and reaches the tangent end last, converging onto it.
+        let tangent_contact = |p: &Point3| -> bool {
+            let normal = |s: &popkern_core::geometry::surface::SurfaceGeometry| {
+                s.closest_point(p)
+                    .map(|(u, v)| s.normal_at(u, v))
+                    .and_then(|n| n.normalized())
+            };
+            match (normal(&analysis.surface_1), normal(&analysis.surface_2)) {
+                (Some(a), Some(b)) => a.cross(&b).length() < 1e-6,
+                _ => false,
+            }
+        };
         let best_pt = [p_start, p_end, p_mid]
             .into_iter()
-            .find(|p| dist_to_surfs(p) <= on_supports)
+            .find(|p| dist_to_surfs(p) <= on_supports && !tangent_contact(p))
             .unwrap_or_else(|| {
                 let mut best = p_mid;
                 for candidate in [p_start, p_end] {

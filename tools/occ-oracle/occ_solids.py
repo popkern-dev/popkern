@@ -3,7 +3,13 @@
 with its face count and volume (PK-649).
 
 Usage:
-    <ocp-venv>/bin/python tools/occ-oracle/occ_solids.py FILE.step
+    <ocp-venv>/bin/python tools/occ-oracle/occ_solids.py FILE.step [--adaptive]
+
+--adaptive integrates to 1e-9 relative (BRepGProp's adaptive scheme).
+The default Gauss rule is off by tens of mm^3 on B-spline fillet strips
+(PK-764: 31 mm^3 on an r = 8 saddle fillet of a 9e5 mm^3 tee), which
+swamps a fillet's added volume; it is kept as the default because the
+corpus gates were calibrated on it.
 
 Output: one JSON object on stdout:
     solids  one row per solid (placed occurrences repeat): faces, volume
@@ -15,7 +21,7 @@ import json
 import sys
 
 
-def main(path):
+def main(path, adaptive=False):
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
     from OCP.STEPControl import STEPControl_Reader
@@ -33,7 +39,10 @@ def main(path):
         while solids.More():
             solid = solids.Current()
             props = GProp_GProps()
-            BRepGProp.VolumeProperties_s(solid, props)
+            if adaptive:
+                BRepGProp.VolumeProperties_s(solid, props, 1e-9)
+            else:
+                BRepGProp.VolumeProperties_s(solid, props)
             faces = 0
             explorer = TopExp_Explorer(solid, TopAbs_FACE)
             while explorer.More():
@@ -46,4 +55,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1]))
+    sys.exit(main(sys.argv[1], "--adaptive" in sys.argv[2:]))

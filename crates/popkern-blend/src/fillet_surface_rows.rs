@@ -1,10 +1,13 @@
 //! Exact cross-section row primitives for the fillet surface sweep:
 //! the rational-quadratic arc row, the sampled arc fallback, and the
-//! clamped-uniform knot builder. Split out of `fillet_surface.rs`
-//! (500-line cap).
+//! clamped-uniform knot builder, the collapsed row and the strip row
+//! points. Split out of `fillet_surface.rs` (500-line cap).
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_math::PortableMath;
+
+use super::FilletSurfaceResult;
+use crate::center_curve::CenterCurveResult;
 
 /// One EXACT rational-quadratic arc row from `start` to `end` about
 /// `center`: control points [start, tangent-intersection, end] with
@@ -114,4 +117,57 @@ pub(crate) fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
     }
     knots.extend(std::iter::repeat_n(1.0, degree + 1));
     knots
+}
+
+/// Push the exact degenerate arc of a COLLAPSED section — both contacts
+/// one point, a strip's vanishing end at a tangent contact (PK-764):
+/// one point, unit weights. Declining it threw the whole strip onto the
+/// sampled skin, whose rows sat 6.5e-3 off the exact junction section.
+pub(crate) fn push_collapsed_row(
+    point: &Point3,
+    rational_rows: &mut Option<Vec<ArcRow>>,
+    bi_rows: &mut Option<Vec<([Point3; 5], f64)>>,
+    sampled_points: &mut Vec<Point3>,
+    n_arc: usize,
+) {
+    if let Some(rows) = rational_rows.as_mut() {
+        rows.push(([*point; 3], 1.0));
+    }
+    if let Some(rows) = bi_rows.as_mut() {
+        rows.push(([*point; 5], 1.0));
+    }
+    sampled_points.extend(std::iter::repeat_n(*point, n_arc));
+}
+
+/// The points the strip's boundary rows pass through, which the trims
+/// must follow. The G1 sweeps start their sections at the clipped
+/// centre-curve footprints. The G2 sweep (and its exact revolution)
+/// starts them at the walker's contact solutions, a different
+/// construction: footprint trims left a G2 pentagonal-pyramid base
+/// strip's rail 1.25e-2 off (PK-531). The G2 sweep ran exactly when G2
+/// was requested, the walker supplied contacts, and no downgrade was
+/// recorded.
+pub(crate) fn strip_row_points<'a>(
+    center_result: &'a CenterCurveResult,
+    fillet_result: &FilletSurfaceResult,
+    wants_g2: bool,
+) -> (
+    std::borrow::Cow<'a, [Point3]>,
+    std::borrow::Cow<'a, [Point3]>,
+) {
+    use std::borrow::Cow;
+    match center_result
+        .contact_solutions
+        .as_deref()
+        .filter(|s| wants_g2 && s.len() >= 2 && fillet_result.continuity_downgrade.is_none())
+    {
+        Some(solutions) => (
+            Cow::Owned(solutions.iter().map(|c| c.contact0).collect()),
+            Cow::Owned(solutions.iter().map(|c| c.contact1).collect()),
+        ),
+        None => (
+            Cow::Borrowed(center_result.footprint_1.as_slice()),
+            Cow::Borrowed(center_result.footprint_2.as_slice()),
+        ),
+    }
 }

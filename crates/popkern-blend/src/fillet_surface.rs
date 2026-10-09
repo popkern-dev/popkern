@@ -29,39 +29,6 @@ pub struct FilletSurfaceResult {
     pub continuity_downgrade: Option<String>,
 }
 
-/// The points the strip's boundary rows pass through, which the trims
-/// must follow. The G1 sweeps start their sections at the clipped
-/// centre-curve footprints. The G2 sweep (and its exact revolution)
-/// starts them at the walker's contact solutions, a different
-/// construction: footprint trims left a G2 pentagonal-pyramid base
-/// strip's rail 1.25e-2 off (PK-531). The G2 sweep ran exactly when G2
-/// was requested, the walker supplied contacts, and no downgrade was
-/// recorded.
-pub(crate) fn strip_row_points<'a>(
-    center_result: &'a CenterCurveResult,
-    fillet_result: &FilletSurfaceResult,
-    wants_g2: bool,
-) -> (
-    std::borrow::Cow<'a, [Point3]>,
-    std::borrow::Cow<'a, [Point3]>,
-) {
-    use std::borrow::Cow;
-    match center_result
-        .contact_solutions
-        .as_deref()
-        .filter(|s| wants_g2 && s.len() >= 2 && fillet_result.continuity_downgrade.is_none())
-    {
-        Some(solutions) => (
-            Cow::Owned(solutions.iter().map(|c| c.contact0).collect()),
-            Cow::Owned(solutions.iter().map(|c| c.contact1).collect()),
-        ),
-        None => (
-            Cow::Borrowed(center_result.footprint_1.as_slice()),
-            Cow::Borrowed(center_result.footprint_2.as_slice()),
-        ),
-    }
-}
-
 /// Build the fillet surface from center-curve data and the two adjacent surfaces.
 ///
 /// Attempts an analytic construction for the plane-plane case, falling back
@@ -318,6 +285,17 @@ fn build_nurbs_sweep(
         });
         let fp1 = &footprint_1[i];
         let fp2 = &footprint_2[i];
+        // A collapsed section is the strip's vanishing end (PK-764).
+        if fp1.distance_to(fp2) <= radius * 1e-9 {
+            push_collapsed_row(
+                fp1,
+                &mut rational_rows,
+                &mut bi_rows,
+                &mut sampled_points,
+                n_arc,
+            );
+            continue;
+        }
         if let Some(rows) = rational_rows.as_mut() {
             match rational_arc_row(&center, fp1, fp2) {
                 Some((cps, w_circular)) => {
@@ -480,7 +458,9 @@ fn build_nurbs_sweep(
 
 #[path = "fillet_surface_rows.rs"]
 mod fillet_surface_rows;
-pub(crate) use fillet_surface_rows::{build_clamped_uniform_knots, rational_arc_row, sample_arc};
+pub(crate) use fillet_surface_rows::{
+    build_clamped_uniform_knots, push_collapsed_row, rational_arc_row, sample_arc, strip_row_points,
+};
 
 #[cfg(test)]
 #[path = "fillet_surface_tests.rs"]

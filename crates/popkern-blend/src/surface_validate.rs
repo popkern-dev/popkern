@@ -196,6 +196,15 @@ fn check_twist(
     let denom = (n - 1).max(1) as f64;
     let u_at = |i: usize| u_lo + (u_hi - u_lo) * (i as f64) / denom;
     let v_at = |j: usize| v_lo + (v_hi - v_lo) * (j as f64) / denom;
+    // A DEGENERATE point — a pole, or a collapsed boundary row where a
+    // fillet strip runs out to zero width (PK-764: 1.2e-9 at a tangent
+    // end, against ~1e3 across the patch) — has no direction to
+    // compare: skipped, relative to the patch's largest normal.
+    let largest = (0..n)
+        .flat_map(|i| (0..n).map(move |j| (i, j)))
+        .map(|(i, j)| surface.normal_at(u_at(i), v_at(j)).length())
+        .fold(0.0_f64, f64::max);
+    let degenerate = (largest * 1e-6).max(1e-12);
 
     for i in 0..n {
         for j in 0..n {
@@ -203,7 +212,7 @@ fn check_twist(
             let v0 = v_at(j);
             let n0 = surface.normal_at(u0, v0);
             let n0_len = n0.length();
-            if n0_len < 1e-12 {
+            if n0_len < degenerate {
                 continue; // degenerate point; skip silently
             }
             let n0_unit = n0 * (1.0 / n0_len);
@@ -213,7 +222,7 @@ fn check_twist(
                 let u1 = u_at(i + 1);
                 let n1 = surface.normal_at(u1, v0);
                 let n1_len = n1.length();
-                if n1_len >= 1e-12 {
+                if n1_len >= degenerate {
                     let n1_unit = n1 * (1.0 / n1_len);
                     if n0_unit.dot(&n1_unit) < -0.1 {
                         return Err(SurfaceValidationIssue::Twisted {
@@ -228,7 +237,7 @@ fn check_twist(
                 let v1 = v_at(j + 1);
                 let n1 = surface.normal_at(u0, v1);
                 let n1_len = n1.length();
-                if n1_len >= 1e-12 {
+                if n1_len >= degenerate {
                     let n1_unit = n1 * (1.0 / n1_len);
                     if n0_unit.dot(&n1_unit) < -0.1 {
                         return Err(SurfaceValidationIssue::Twisted {
@@ -284,6 +293,19 @@ fn check_self_intersection(
             .distance_to(&samples[index(i, n - 1)].2)
             < distance_threshold
     });
+    // A COLLAPSED row or column — every sample one point, a strip
+    // that runs out to zero width at a tangent end (PK-764) or a pole
+    // — coincides with itself by construction, like a closed seam.
+    let collapsed_row = |i: usize| {
+        (1..n).all(|j| {
+            samples[index(i, 0)].2.distance_to(&samples[index(i, j)].2) < distance_threshold
+        })
+    };
+    let collapsed_col = |j: usize| {
+        (1..n).all(|i| {
+            samples[index(0, j)].2.distance_to(&samples[index(i, j)].2) < distance_threshold
+        })
+    };
     for i1 in 0..n {
         for j1 in 0..n {
             let (u1, v1, p1) = samples[index(i1, j1)];
@@ -291,6 +313,9 @@ fn check_self_intersection(
                 for j2 in 0..n {
                     if (i2, j2) <= (i1, j1) {
                         continue; // only unordered pairs
+                    }
+                    if (i1 == i2 && collapsed_row(i1)) || (j1 == j2 && collapsed_col(j1)) {
+                        continue;
                     }
                     // UV grid distance, in integer-cell units.
                     let mut di = (i2 as i64 - i1 as i64).unsigned_abs();

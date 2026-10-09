@@ -132,35 +132,24 @@ pub(super) fn run_perpendicular_splits(
     // construction — a loop of edges joined on one tangent line at
     // every junction has no ends for the anchor stage to place.
     let mut chain_members: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for chain in super::g1_junction::closed_tangent_chains(result, edge_geometries) {
-        match super::tangent_chain_surgery::apply_tangent_chain(
-            result,
-            edge_geometries,
-            &chain,
-            tolerance,
-        ) {
-            Ok(strips) => {
-                if popkern_core::trace::trace_enabled("fillet") {
-                    eprintln!(
-                        "  [tangent-chain] built {} strip(s) for {chain:?}",
-                        strips.len()
-                    );
-                }
-                closed_fillet_protected.extend(strips);
-                for &i in &chain {
-                    closed_fillet_protected.push(edge_geometries[i].analysis.face_1);
-                    closed_fillet_protected.push(edge_geometries[i].analysis.face_2);
-                }
-            }
-            Err(failure) => {
-                if popkern_core::trace::trace_enabled("fillet") {
-                    eprintln!("  [tangent-chain] declined {chain:?}: {failure:?}");
-                }
-                failures.push((edge_geometries[chain[0]].analysis.edge, failure));
-            }
-        }
-        chain_members.extend(chain);
-    }
+    super::tangent_chain_surgery::apply_closed_chains(
+        result,
+        edge_geometries,
+        tolerance,
+        &mut chain_members,
+        &mut closed_fillet_protected,
+        failures,
+    );
+
+    // Open tangent chains whose ends vanish (PK-764).
+    super::vanishing_ends::apply_vanishing_chains(
+        result,
+        edge_geometries,
+        tolerance,
+        &mut chain_members,
+        &mut closed_fillet_protected,
+        failures,
+    );
 
     for (idx, eg) in edge_geometries.iter().enumerate() {
         if chain_members.contains(&idx) {

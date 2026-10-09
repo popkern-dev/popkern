@@ -400,6 +400,12 @@ pub(crate) fn step_at(
     let p_spine = request.spine.point_at(t);
     let t_spine_tangent = request.spine.tangent_at(t);
     let radius = (request.radius_at)(t);
+    // A tangent station has its ball in closed form (`walker_tangent`).
+    if let Some(solution) = crate::walker_tangent::tangent_station(
+        request, p_spine, radius, prev_uv0, prev_uv1, tolerance,
+    ) {
+        return Ok(solution);
+    }
 
     let iter_uv0_range = if sample_index == 0 {
         request.uv0_range

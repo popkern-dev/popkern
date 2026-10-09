@@ -152,6 +152,17 @@ pub(crate) fn extend_loft_rows(
     ] {
         let mut outer = row(&loft.control_points, edge_index);
         let mut inner = row(&loft.control_points, inner_index);
+        // A COLLAPSED end row — both contacts at one point — is a
+        // vanishing end: the supports turn tangent there (an
+        // equal-radius tee's singular point) and the strip runs out
+        // to zero width. Past it the crease reverses, so an
+        // extrapolated row folds the chart back on itself (measured,
+        // PK-764: rows 6 mm beyond the singular point, the strip
+        // normal flipped and the fillet declined as twisted); nothing
+        // trims the strip there, so it is not extended.
+        if outer[0].distance_to(&outer[2]) <= radius * 1e-6 {
+            continue;
+        }
         let mut added = 0.0;
         for _ in 0..4 {
             let Some(contacts) = solve_row(step(outer[0], inner[0]), step(outer[2], inner[2]))
