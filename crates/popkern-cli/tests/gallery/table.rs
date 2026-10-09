@@ -243,4 +243,18 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "assembly seam hinges (a.hinge_bodies), mates on a literal axis, \
          a driven open angle, swing",
     ),
+    (
+        "cycloidal_joint",
+        "Cycloidal joint modules",
+        "The three joint sizes of a six-axis arm (L, M, S), each a motor driving a \
+         cycloidal reducer: finned housing, slotted stator and windings, a rotor \
+         with 180°-opposed cams, two biarc-fitted cycloid discs riding the cams \
+         round the ring pins, output pins, and a cross-roller bearing with its \
+         rollers at ±45°. One slider per module turns the output; rotor, discs \
+         and roller cage follow it.",
+        426,
+        "computed cycloid flanks fitted with G1 biarcs (deviation checked against \
+         the backlash), revolute joints with followers at gear ratios, \
+         sub-assemblies, part appearance, finned castings with rounded roots",
+    ),
 ];
