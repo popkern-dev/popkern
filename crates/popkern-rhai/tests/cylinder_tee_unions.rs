@@ -11,8 +11,13 @@
 //!   two singular points; the scan joined them into one self-touching
 //!   loop the clip dropped, and the union SERVED both operands
 //!   unmerged (two shells, volume = their sum). The branches now split
-//!   at the crossings; a configuration the walk cannot yet build
-//!   declines (PK-732) — never a wrong serve.
+//!   at the crossings.
+//! - PK-732: with the branch end on the main axis, its end circle
+//!   TOUCHES the main cylinder at the two singular points; the touch
+//!   arrived as two edge-face roots 6e-4 apart (the tolerance band
+//!   around a tangency), the circle split twice there and the walk
+//!   stranded the records. One contact is one root: union, subtract
+//!   and intersect serve for the axis tee and the x0 = −20 tee.
 //!
 //! Volumes are checked against the analytic value: the overlap of a
 //! branch of radius `rb` through the main cylinder is
@@ -24,42 +29,92 @@ const R: f64 = 40.0;
 const H: f64 = 120.0;
 
 fn tee(rb: f64, x0: f64, len: f64) -> String {
+    tee_op("union", rb, x0, len)
+}
+
+/// The tee under boolean `op` (`union`, `subtract` or `intersect`).
+fn tee_op(op: &str, rb: f64, x0: f64, len: f64) -> String {
     format!(
         r#"
 let m = model();
 let main = m.profile(xy()).circle({R:?}).sketch("main").extrude(blind({H:?}));
 let branch = m.tool(|t| t.profile(yz_at({x0:?})).circle({rb:?}).at(0.0, 60.0).sketch("branch").extrude(blind({len:?})));
-let b = main.union(branch, #{{ label: "tee" }});
+let b = main.{op}(branch, #{{ label: "tee" }});
 m.assert_watertight();
 m
 "#
     )
 }
 
-/// The volume of main ∪ branch for a branch spanning `x ∈ [x0, x0 + len]`
-/// with `x0 ≤ −R` (a full cross) or `x0` inside the main cylinder such
-/// that the branch end disk lies inside it.
-fn analytic(rb: f64, x0: f64, len: f64) -> f64 {
+/// The volume of main ∩ branch for a branch spanning `x ∈ [x0, x0 + len]`
+/// (`x0 + len ≥ R`): at height offset `y` the main cylinder's chord is
+/// `|x| ≤ hc`, of which the branch covers `x ≥ x0`.
+fn overlap(rb: f64, x0: f64) -> f64 {
     let n = 200_000;
-    let mut overlap = 0.0;
+    let mut sum = 0.0;
     for i in 0..n {
         let y = -rb + 2.0 * rb * (f64::from(i) + 0.5) / f64::from(n);
-        let half_chord = (R * R - y * y).sqrt();
-        let depth = if x0 <= -R {
-            2.0 * half_chord
-        } else {
-            half_chord - x0
-        };
-        overlap += depth * 2.0 * (rb * rb - y * y).sqrt() * 2.0 * rb / f64::from(n);
+        let hc = (R * R - y * y).max(0.0).sqrt();
+        let depth = (hc - x0.max(-hc)).max(0.0);
+        sum += depth * 2.0 * (rb * rb - y * y).max(0.0).sqrt() * 2.0 * rb / f64::from(n);
     }
-    std::f64::consts::PI * (R * R * H + rb * rb * len) - overlap
+    sum
+}
+
+/// The volume of main ∪ branch.
+fn analytic(rb: f64, x0: f64, len: f64) -> f64 {
+    std::f64::consts::PI * (R * R * H + rb * rb * len) - overlap(rb, x0)
 }
 
 /// Run the tee: `Some(volume)` when it serves (one watertight body),
 /// `None` when the kernel declines.
 fn served_volume(rb: f64, x0: f64, len: f64) -> Option<f64> {
+    served_volume_of(&tee(rb, x0, len))
+}
+
+/// The served body's volume by OpenCASCADE's exact integration of its
+/// STEP export (`None` when the OCP venv is absent): popkern's
+/// `body_volume` integrates a fine mesh, accurate to about 1e-5 on
+/// these tangent-cornered trims.
+fn occ_volume_of(script: &str, name: &str) -> Option<f64> {
+    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    let python = home.join("venvs/ocp/bin/python");
+    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tools/occ-oracle/occ_solids.py");
+    if !python.exists() || !oracle.exists() {
+        return None;
+    }
     let mut host = ScriptHost::new();
-    let outcome = host.run(&tee(rb, x0, len), "tee.rhai").ok()?;
+    let mut model = host.run(script, "tee.rhai").ok()?.model?;
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pk732");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let step = dir.join(format!("{name}.step"));
+    model.to_step(&step).expect("STEP export");
+    let out = std::process::Command::new(&python)
+        .arg(&oracle)
+        .arg(&step)
+        .output()
+        .expect("oracle");
+    let report: serde_json::Value = serde_json::from_slice(&out.stdout).expect("oracle json");
+    let solids = report["solids"].as_array().expect("solids");
+    assert_eq!(solids.len(), 1, "{name}: OCC reads one solid");
+    // OCC's own validity check: one shell, no free boundaries.
+    let check = std::process::Command::new(&python)
+        .arg(oracle.with_file_name("occ_check.py"))
+        .arg(&step)
+        .output()
+        .expect("occ_check");
+    let verdict: serde_json::Value = serde_json::from_slice(&check.stdout).expect("check json");
+    assert_eq!(
+        verdict["passed"], true,
+        "{name}: OCC rejects the STEP: {verdict}"
+    );
+    solids[0]["volume"].as_f64()
+}
+
+fn served_volume_of(script: &str) -> Option<f64> {
+    let mut host = ScriptHost::new();
+    let outcome = host.run(script, "tee.rhai").ok()?;
     let mut model = outcome.model.expect("model");
     let part = model.to_part().expect("part");
     let brep = part.brep();
@@ -105,16 +160,40 @@ fn equal_radius_cross_serves_the_steinmetz_volume() {
 }
 
 #[test]
-fn equal_radius_tee_never_serves_its_operands_unmerged() {
-    // The branch starting on the main axis: the PK-727 wrong serve.
-    // It may decline until PK-732 builds its pinch vertices, but a
-    // serve must carry the true volume, never the operands' sum.
-    if let Some(v) = served_volume(R, 0.0, 100.0) {
-        let sum = std::f64::consts::PI * R * R * (H + 100.0);
-        assert!((v - sum).abs() > 1.0, "served the operands unmerged");
-        // Overlap: ∫∫ √(R² − y²) over the branch disk = 2 ∫ (R² − y²) dy.
-        let want = sum - 2.0 * (2.0 * R * R * R - 2.0 * R * R * R / 3.0);
-        let rel = (v - want).abs() / want;
-        assert!(rel < 1e-4, "volume {v} vs {want}");
+fn equal_radius_tees_serve_every_boolean_with_exact_volume() {
+    // The branch end on the main axis (its end circle touches the main
+    // cylinder at the singular points; PK-727 served the operands
+    // unmerged) and inside it at x0 = −20 (the crossings lie on the
+    // branch wall).
+    let main = std::f64::consts::PI * R * R * H;
+    for x0 in [0.0, -20.0] {
+        let len = 100.0 - x0;
+        let branch = std::f64::consts::PI * R * R * len;
+        let both = overlap(R, x0);
+        for (op, want) in [
+            ("union", main + branch - both),
+            ("subtract", main - both),
+            ("intersect", both),
+        ] {
+            let script = tee_op(op, R, x0, len);
+            let got = served_volume_of(&script)
+                .unwrap_or_else(|| panic!("{op} x0 {x0}: the equal-radius tee must serve"));
+            let rel = (got - want).abs() / want;
+            assert!(
+                rel < 1e-4,
+                "{op} x0 {x0}: mesh volume {got} vs {want} (rel {rel:.2e})"
+            );
+            if let Some(exact) = occ_volume_of(&script, &format!("{op}_{}", -x0)) {
+                let rel = (exact - want).abs() / want;
+                assert!(
+                    rel < 1e-6,
+                    "{op} x0 {x0}: OCC volume {exact} vs {want} (rel {rel:.2e})"
+                );
+            }
+        }
     }
+    // The axis tee's overlap in closed form: ∫∫ √(R² − y²) over the
+    // branch disk = 2 ∫ (R² − y²) dy = 8R³/3.
+    let closed = 8.0 * R * R * R / 3.0;
+    assert!((overlap(R, 0.0) - closed).abs() / closed < 1e-6);
 }

@@ -281,8 +281,10 @@ pub(crate) fn tessellate_face_boundary_first(
     }
 
     // UV conditioning for the incircle test (`boundary_first_ring_condition`).
+    let shared = boundary_first_ring_condition::shared_points(&rings);
     boundary_first_ring_condition::nudge_collinear_runs(&mut rings);
     boundary_first_ring_condition::jitter_cocircular(&mut rings);
+    boundary_first_ring_condition::resnap_shared_points(&mut rings, &shared);
 
     // Point set: boundary points (fixed) + interior grid points.
     let mut uv_pts: Vec<(f64, f64)> = Vec::new();
@@ -492,7 +494,7 @@ pub(crate) fn tessellate_face_boundary_first(
     }
 
     // Metric-scaled Delaunay filtered to the region.
-    let mut triangles = boundary_first_triangulate::triangulate_region(
+    let (mut triangles, alias) = boundary_first_triangulate::triangulate_region(
         face_handle,
         &uv_pts,
         tri_scale,
@@ -550,7 +552,8 @@ pub(crate) fn tessellate_face_boundary_first(
         for k in 0..m {
             let a = start + k;
             let b = start + (k + 1) % m;
-            if !edge_set.contains(&(a.min(b), a.max(b))) {
+            let (ca, cb) = (alias[a], alias[b]);
+            if ca != cb && !edge_set.contains(&(ca.min(cb), ca.max(cb))) {
                 uncovered = true;
                 // Nearest OTHER point to the segment: the encroacher
                 // (or a T-point) that displaced it from the Delaunay.

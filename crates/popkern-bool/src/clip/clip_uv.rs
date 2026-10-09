@@ -325,6 +325,11 @@ pub(super) fn uv_clip_one_face(
                 } else {
                     UvClipResult::Outside
                 }
+            } else if let Some(landed) = (inside_votes > 0 && inside_votes < counted && !is_closed)
+                .then(|| super::clip_branch_normalize::land_split_vote_query(brep, face, curve_uv))
+                .flatten()
+            {
+                uv_clip_one_face(brep, face, &landed, is_closed, open_windows_allowed)
             } else if 2 * inside_votes > counted {
                 UvClipResult::Windows(vec![(t_min, t_max)])
             } else {

@@ -199,6 +199,82 @@ pub(super) fn normalize_query_branch(
     normalized
 }
 
+/// A split containment vote on a record with no boundary crossings —
+/// some samples inside the face, some outside — means the crossing
+/// search missed real crossings: the query lies on another period of
+/// a single-period chart, wholly OFF the boundary's u-extent (touching
+/// it at most at the seam), where no boundary pcurve can meet it.
+/// The query landed rigidly (no per-point fold) on the period it
+/// overlaps most, for the caller to classify again; `None` when it is
+/// not off-branch or the chart is not periodic. A rigid shift keeps
+/// the curve parameter, so windows found on the landed query are the
+/// original's. Measured (PK-732): the x0 = −20 equal-radius tee's
+/// record from the singular point S+ — on the branch cylinder's seam —
+/// ran u ∈ [−π, 0]; the 5-sample vote read 2 inside and the record
+/// dropped whole although both its ends lie in the face (its mirror
+/// twin at u ∈ [0, π] kept its two end windows). Landing every
+/// off-branch query instead re-classified a unanimous-outside record
+/// whose ends merely touch the boundary (the x0 = 0 tee's x < 0
+/// half-ellipse) as inside.
+pub(super) fn land_split_vote_query(
+    brep: &BRep,
+    face: FaceHandle,
+    query: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::SurfaceEval as _;
+    let period = brep
+        .faces
+        .get(face)?
+        .surface
+        .as_ref()?
+        .geometry
+        .parameter_periodicity()
+        .0?;
+    let extent = |points: &mut dyn Iterator<Item = f64>| {
+        points.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+            (lo.min(u), hi.max(u))
+        })
+    };
+    let ring = crate::clip::face_uv_boundary(brep, face)?;
+    let (b_lo, b_hi) = extent(&mut ring.iter().flat_map(|(_, pc)| {
+        let (a, b) = pc.parameter_range();
+        (0..=16).map(move |i| pc.point_at(a + (b - a) * i as f64 / 16.0).x)
+    }));
+    let (q_lo, q_hi) = extent(&mut query.control_points.iter().map(|p| p.x));
+    if !(q_lo.is_finite() && q_hi.is_finite() && b_lo.is_finite() && b_hi.is_finite())
+        || b_hi - b_lo > period * (1.0 + 1e-9)
+    {
+        return None;
+    }
+    let slack = 1e-9 * period;
+    let overlap = |k: f64| (q_hi + k * period).min(b_hi) - (q_lo + k * period).max(b_lo);
+    if overlap(0.0) > slack {
+        return None;
+    }
+    let mut best = (0.0, overlap(0.0));
+    let mut k = ((b_lo - q_hi) / period).floor();
+    while k <= ((b_hi - q_lo) / period).ceil() {
+        if overlap(k) > best.1 + slack {
+            best = (k, overlap(k));
+        }
+        k += 1.0;
+    }
+    if best.0 == 0.0 || best.1 <= slack {
+        return None;
+    }
+    if popkern_core::trace::trace_enabled("clip") {
+        eprintln!(
+            "    [uvclip-branch] {face:?} split vote: off-branch query landed by {:+.0} period(s)",
+            best.0
+        );
+    }
+    let mut landed = query.clone();
+    for p in &mut landed.control_points {
+        p.x += best.0 * period;
+    }
+    Some(landed)
+}
+
 /// Translate `curve` by the whole number of periods that puts the
 /// most of its u-extent on the principal branch `[0, period]`: the
 /// principal branch, reached rigidly. A curve already mostly on it

@@ -421,6 +421,11 @@ pub(crate) fn intersect_surface_curve_general(
         unique.push((t, u, v, pt));
     }
 
+    // A tangential touch arrives as roots spread over the tolerance
+    // band around it: one contact, one root.
+    let unique =
+        super::surface_curve_touch::consolidate_touches(curve, surface, unique, t_range, tolerance);
+
     // Also skip points that fall inside any overlap range.
     for (t, u, v, pt) in unique {
         let in_overlap = results.iter().any(|r| {

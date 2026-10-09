@@ -38,6 +38,7 @@ pub mod surface_curve;
 mod surface_curve_general;
 mod surface_curve_newton;
 mod surface_curve_overlap;
+mod surface_curve_touch;
 pub mod surface_subdivision;
 pub mod surface_surface;
 mod surface_surface_consumed;

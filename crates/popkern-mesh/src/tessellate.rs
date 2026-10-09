@@ -154,19 +154,27 @@ pub(crate) fn tessellate_face_with_samples(
         // bounds: past them the chart is either undefined or a mirror
         // image (a cone's v < 0 is the second nappe — the padded grid
         // meshed a tiny beyond-apex disk whose ring read as open mesh
-        // edges on every cone).
+        // edges on every cone). A PERIODIC axis has no such bound: its
+        // natural range is one chart of the wrap, and a face straddling
+        // the seam trims at negative u (measured, PK-732: a lobe of the
+        // equal-radius tee's branch wall at u ∈ [−0.52, 0.52] meshed
+        // only its u ≥ 0 half and the union read 893 open mesh edges).
         let ((nu0, nu1), (nv0, nv1)) = surface.parameter_range();
-        if nu0.is_finite() {
-            u_range.0 = u_range.0.max(nu0);
+        if pp_u.is_none() {
+            if nu0.is_finite() {
+                u_range.0 = u_range.0.max(nu0);
+            }
+            if nu1.is_finite() {
+                u_range.1 = u_range.1.min(nu1);
+            }
         }
-        if nu1.is_finite() {
-            u_range.1 = u_range.1.min(nu1);
-        }
-        if nv0.is_finite() {
-            v_range.0 = v_range.0.max(nv0);
-        }
-        if nv1.is_finite() {
-            v_range.1 = v_range.1.min(nv1);
+        if pp_v.is_none() {
+            if nv0.is_finite() {
+                v_range.0 = v_range.0.max(nv0);
+            }
+            if nv1.is_finite() {
+                v_range.1 = v_range.1.min(nv1);
+            }
         }
     }
     if popkern_core::trace::trace_enabled("trim") {
@@ -580,8 +588,9 @@ fn bounded_parameter_range(
     surface: &SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
     let positions = brep.face_boundary_sample_points(face_handle, 16);
-    let mut result =
+    let fallback =
         popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
+    let mut result = fallback;
 
     // If pcurve-based bounds are available, intersect with the fallback.
     if let Some(pc_range) = pcurve_parameter_range(brep, face_handle) {
@@ -597,14 +606,22 @@ fn bounded_parameter_range(
         // primitive's lateral face meshed with a missing seam slice
         // (~1.3% of the angle, visible as a crack on cones and
         // cylinders in any render or STL).
+        // So do axes whose PROJECTED range spans the period: boundary
+        // points of a face straddling the seam project to both ends of
+        // the principal chart, a box that knows nothing of the face's
+        // branch, and intersecting it with the unwrapped pcurve range
+        // kept only the u ≥ 0 half (measured, PK-732: the equal-radius
+        // tee's branch-wall lobe at u ∈ [−0.52, 0.52] meshed half its
+        // area and the union read 893 open mesh edges).
         let (period_u, period_v) = surface.periodicity();
+        let spans = |r: (f64, f64), p: f64| r.1 - r.0 >= 0.95 * p;
         if let Some(p) = period_u.filter(|p| *p > 0.0)
-            && pc_range.0.1 - pc_range.0.0 >= 0.95 * p
+            && (spans(pc_range.0, p) || spans(fallback.0, p))
         {
             result.0 = pc_range.0;
         }
         if let Some(p) = period_v.filter(|p| *p > 0.0)
-            && pc_range.1.1 - pc_range.1.0 >= 0.95 * p
+            && (spans(pc_range.1, p) || spans(fallback.1, p))
         {
             result.1 = pc_range.1;
         }

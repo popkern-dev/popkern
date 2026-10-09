@@ -82,3 +82,37 @@ pub(super) fn jitter_cocircular(rings: &mut [BoundaryRing]) {
         }
     }
 }
+
+/// Ring points that coincide exactly — a pinch, where a lobe cut from a
+/// ring (`dissolve_pinches`) shares its point with the ring it left —
+/// as `(ring, index)` groups, recorded before the conditioning passes.
+pub(super) fn shared_points(rings: &[BoundaryRing]) -> Vec<Vec<(usize, usize)>> {
+    let mut by_point: std::collections::BTreeMap<(u64, u64), Vec<(usize, usize)>> =
+        std::collections::BTreeMap::new();
+    for (r, ring) in rings.iter().enumerate() {
+        for (i, uv) in ring.uv.iter().enumerate() {
+            by_point
+                .entry((uv.0.to_bits(), uv.1.to_bits()))
+                .or_default()
+                .push((r, i));
+        }
+    }
+    by_point.into_values().filter(|g| g.len() > 1).collect()
+}
+
+/// Give every group of [`shared_points`] its first member's conditioned
+/// position: the nudge and the jitter move each ring point on its own,
+/// and two copies of a pinch moved apart let the lobes' first segments
+/// cross, which no constrained triangulation can recover (measured,
+/// PK-732: the equal-radius tee's main wall, the copies 3.6e-6 rad
+/// apart at the singular point; the wall fell back to a mesh off the
+/// canonical edge samples, 893 open mesh edges).
+pub(super) fn resnap_shared_points(rings: &mut [BoundaryRing], groups: &[Vec<(usize, usize)>]) {
+    for group in groups {
+        let (r0, i0) = group[0];
+        let uv = rings[r0].uv[i0];
+        for &(r, i) in &group[1..] {
+            rings[r].uv[i] = uv;
+        }
+    }
+}
