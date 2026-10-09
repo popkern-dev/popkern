@@ -23,7 +23,9 @@
 use popkern_math::PortableMath;
 use std::collections::BTreeMap;
 
-use popkern_core::geometry::{Point3, Transform3, Vec3};
+use popkern_core::geometry::{Transform3, Vec3};
+
+use crate::mate_steps::max_abs;
 use serde::Serialize;
 
 use crate::assembly::Assembly;
@@ -71,6 +73,10 @@ pub struct ClusterReport {
     pub iterations: usize,
     /// Its largest residual row at the end.
     pub residual: f64,
+    /// It started at its predicted placement: carried with the roots
+    /// fixing it (which all moved alike) or turned to its joint's angle.
+    /// An unpredicted cluster started where it was.
+    pub predicted: bool,
 }
 
 impl Assembly {
@@ -186,7 +192,7 @@ impl Assembly {
             + resolved
                 .iter()
                 .flat_map(|(_, a, b, _)| [a, b])
-                .map(|r| point_of(&r.local.placed(&current[r.root])).coords_max())
+                .map(|r| crate::mate_steps::coords_max(&r.local.placed(&current[r.root])))
                 .fold(0.0, f64::max);
         let clusters = crate::mate_clusters::plan(
             &resolved,
@@ -196,6 +202,14 @@ impl Assembly {
             size,
             self.root.len(),
         )?;
+        let predicted = crate::mate_predict::predict(
+            &self.joints,
+            &resolved,
+            &touches,
+            &clusters,
+            &mut current,
+            size,
+        );
         let mut known: Vec<bool> = vec![true; self.root.len()];
         for &f in &free {
             known[f] = false;
@@ -205,7 +219,7 @@ impl Assembly {
         let mut redundant = Vec::new();
         let mut conflicting = Vec::new();
         let mut cluster_reports = Vec::new();
-        for cluster in &clusters {
+        for (cluster, &predicted) in clusters.iter().zip(&predicted) {
             let mate_ids: Vec<usize> = (0..resolved.len())
                 .filter(|&i| {
                     touches[i].iter().any(|r| cluster.contains(r))
@@ -236,6 +250,7 @@ impl Assembly {
                 roots: cluster.iter().map(|&r| self.root[r].name.clone()).collect(),
                 iterations: its,
                 residual: cluster_residual,
+                predicted,
             });
             let moved: Vec<Placement> = cluster
                 .iter()
@@ -473,24 +488,4 @@ fn mate_rows(
         }
         _ => return Err(refuse("these two entities cannot take this mate")),
     })
-}
-
-pub(crate) fn max_abs(r: &[f64]) -> f64 {
-    r.iter().map(|v| v.abs()).fold(0.0, f64::max)
-}
-
-fn point_of(p: &Primitive) -> Point3 {
-    match *p {
-        Primitive::Plane(o, _) | Primitive::Axis(o, _) | Primitive::Point(o) => o,
-    }
-}
-
-trait CoordsMax {
-    fn coords_max(&self) -> f64;
-}
-
-impl CoordsMax for Point3 {
-    fn coords_max(&self) -> f64 {
-        self.x.abs().max(self.y.abs()).max(self.z.abs())
-    }
 }

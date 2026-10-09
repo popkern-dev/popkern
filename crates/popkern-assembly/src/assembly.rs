@@ -124,6 +124,8 @@ pub struct Assembly {
     pub(crate) joints: Vec<crate::joints::Joint>,
     /// Tessellations for the interference check, by body content.
     pub(crate) meshes: crate::mesh_cache::MeshCache,
+    /// Built part bodies for the interference check, by definition.
+    pub(crate) parts_cache: crate::parts_cache::PartsCache,
 }
 
 impl Assembly {
@@ -140,6 +142,7 @@ impl Assembly {
             history: crate::history::AssemblyHistory::default(),
             joints: Vec::new(),
             meshes: crate::mesh_cache::MeshCache::default(),
+            parts_cache: crate::parts_cache::PartsCache::default(),
         }
     }
 
@@ -179,6 +182,8 @@ impl Assembly {
     /// [`AssemblyError::UnknownDefinition`];
     /// [`AssemblyError::WrongDefinitionKind`] for a sub-assembly.
     pub fn part_model_mut(&mut self, id: DefinitionId) -> Result<&mut Model, AssemblyError> {
+        // The caller may change the model: its built bodies are stale.
+        self.parts_cache.forget(id);
         let definition = self
             .definitions
             .get_mut(id.0 as usize)

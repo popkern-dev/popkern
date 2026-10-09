@@ -192,7 +192,8 @@ fn bolt_tool(t, count, ring_r, hole_r, z, depth, pi) {
     }
     all
 }
-// The housing's outer solid: a revolved cylinder with a domed cap.
+// The housing's outer solid: a revolved cylinder with a domed cap and
+// a mounting lip at the output end (the bolt circle a casting clamps).
 fn housing_solid(m, g) {
     let ro = g.ro;
     let zc = (ro * ro - g.dome * g.dome) / (2.0 * g.dome);
@@ -200,7 +201,8 @@ fn housing_solid(m, g) {
     let vr = 0.7 * ro;
     let vz = zc - sqrt(rho * rho - vr * vr);
     let p = m.profile(xz()).path(0.0, -g.dome).arc_to([vr, vz], [ro, 0.0]);
-    p = p.line_to(ro, g.len).line_to(0.0, g.len).close();
+    p = p.line_to(ro, g.len - 8.0).line_to(ro + 9.0, g.len - 8.0).line_to(ro + 9.0, g.len);
+    p = p.line_to(0.0, g.len).close();
     p.sketch("shell").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle())
 }
 // The cavity, revolved: floor, the ring-pin seat, the bolt rim.
@@ -260,8 +262,9 @@ fn housing_body(m, g, s, pi) {
     body = body.subtract(m.tool(|t| housing_cavity(t, g)), #{ label: "cavity" });
     body = body.subtract(m.tool(|t| radial_rod(t, zb, ang, 2.5, g.ro + 8.0, "cable_bore")),
         #{ label: "cable_bore" });
-    // Bolt rim: tap-drill bores (E1 fallback), one tool.
-    let holes = m.tool(|t| bolt_tool(t, s.bolts, g.ro - 5.0, s.tap / 2.0, g.len - 9.0, 10.0, pi));
+    // Bolt circle through the mounting lip: tap-drill bores (E1
+    // fallback), one tool.
+    let holes = m.tool(|t| bolt_tool(t, s.bolts, g.ro + 4.5, s.tap / 2.0, g.len - 9.0, 10.0, pi));
     body.subtract(holes, #{ label: "tapped_" + s.screw })
 }
 // The slotted bore of the stator: bore arcs and 12 rectangular slots.

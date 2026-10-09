@@ -15,6 +15,7 @@ mod clip_crossings_rescue;
 mod clip_dispatch;
 mod clip_lift_crossings;
 mod clip_line;
+mod clip_line_exact;
 mod clip_negative_branch;
 mod clip_pierce_windows;
 mod clip_seam_shift;

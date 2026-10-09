@@ -7,6 +7,8 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use crate::assembly::{Assembly, DefinitionId};
+use crate::interference::PairStatus;
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
 
 /// Alternating projection of the closest mesh points onto the true
@@ -127,4 +129,37 @@ pub(crate) fn bounds_diagonal(brep: &BRep) -> f64 {
         }
     }
     (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>().sqrt()
+}
+
+/// Report order: interfering, touching, then by distance.
+pub(crate) fn rank(status: &PairStatus) -> f64 {
+    match status {
+        PairStatus::Interfering { .. } => -2.0,
+        PairStatus::Touching { .. } => -1.0,
+        PairStatus::Clear { distance, .. } => *distance,
+    }
+}
+
+impl Assembly {
+    /// `<occurrence>:<face's stable name>`, or `<occurrence>:face` when
+    /// the face carries no name.
+    pub(crate) fn face_path(
+        &self,
+        path: &str,
+        definition: DefinitionId,
+        brep: &BRep,
+        face: FaceHandle,
+    ) -> String {
+        let spelled = self
+            .definition(definition)
+            .ok()
+            .and_then(|d| d.model())
+            .and_then(|model| {
+                let name = brep.faces.get(face)?.name?;
+                let entity = brep.name_pool.get(name)?;
+                model.spell_entity(entity).ok()
+            })
+            .unwrap_or_else(|| "face".to_string());
+        format!("{path}:{spelled}")
+    }
 }

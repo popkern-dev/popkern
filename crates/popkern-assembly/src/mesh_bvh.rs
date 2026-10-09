@@ -9,14 +9,14 @@
 //! between triangles `ta`, `tb` bounds the true distance of the faces
 //! they sample from below by `d − eps(ta) − eps(tb)`.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::uv_projection::project_point_to_uv_near;
-use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_mesh::TriMesh;
 
 use crate::placement::Placement;
-use crate::tri_geometry::{Tri, ray_hit, triangle_distance, triangles_cross};
+use crate::tri_geometry::{Tri, triangle_distance, triangles_cross};
 
 /// An axis-aligned box.
 #[derive(Debug, Clone, Copy)]
@@ -74,6 +74,10 @@ pub struct LocalMesh {
     pub eps: Vec<f64>,
     /// Per-corner surface parameters (projection hints).
     pub uvs: Vec<[(f64, f64); 3]>,
+    /// The box of every corner.
+    pub bounds: Aabb,
+    /// The largest triangle deviation.
+    pub max_eps: f64,
 }
 
 impl LocalMesh {
@@ -84,6 +88,8 @@ impl LocalMesh {
             faces: Vec::with_capacity(mesh.triangles.len()),
             eps: Vec::with_capacity(mesh.triangles.len()),
             uvs: Vec::with_capacity(mesh.triangles.len()),
+            bounds: Aabb::empty(),
+            max_eps: 0.0,
         };
         for (t, tri) in mesh.triangles.iter().enumerate() {
             let corners = [
@@ -97,7 +103,15 @@ impl LocalMesh {
                 mesh.vertices[tri[2]].uv,
             ];
             let face = mesh.face_map[t];
-            out.eps.push(deviation(brep, face, &corners, &uvs));
+            let eps = deviation(brep, face, &corners, &uvs);
+            out.max_eps = out.max_eps.max(eps);
+            for p in &corners {
+                for (i, c) in [p.x, p.y, p.z].into_iter().enumerate() {
+                    out.bounds.lo[i] = out.bounds.lo[i].min(c);
+                    out.bounds.hi[i] = out.bounds.hi[i].max(c);
+                }
+            }
+            out.eps.push(eps);
             out.tris.push(corners);
             out.faces.push(face);
             out.uvs.push(uvs);
@@ -168,6 +182,10 @@ pub struct WorldMesh {
 
 const LEAF: usize = 4;
 
+#[path = "mesh_overlap.rs"]
+mod overlap;
+pub use overlap::certain_overlap;
+
 impl WorldMesh {
     /// Place `local` at `world` and build the hierarchy.
     pub fn new(local: &LocalMesh, world: &Placement) -> WorldMesh {
@@ -206,15 +224,28 @@ impl WorldMesh {
     /// bound subtracts both triangles' deviations at every pair, so it
     /// bounds the true face distance.
     pub fn closest(&self, other: &WorldMesh) -> Option<Closest> {
+        self.closest_within(other, f64::INFINITY)
+    }
+
+    /// [`WorldMesh::closest`] where it matters: `None` when the meshes
+    /// are certainly farther apart than `cutoff` (every node pair's gap
+    /// less both deviations exceeds it). Node pairs beyond the cutoff
+    /// are never opened, and nearer child pairs are visited first, so a
+    /// pair well clear of a swing's clearance costs a few box tests.
+    pub fn closest_within(&self, other: &WorldMesh, cutoff: f64) -> Option<Closest> {
         if self.nodes.is_empty() || other.nodes.is_empty() {
             return None;
         }
+        let gap_of = |i: usize, j: usize| self.nodes[i].bounds.distance(&other.nodes[j].bounds);
         let mut best: Option<Closest> = None;
         let mut lower = f64::INFINITY;
         let mut stack = vec![(0usize, 0usize)];
         while let Some((i, j)) = stack.pop() {
             let (a, b) = (&self.nodes[i], &other.nodes[j]);
             let gap = a.bounds.distance(&b.bounds);
+            if gap - a.eps - b.eps > cutoff {
+                continue;
+            }
             let best_d = best.as_ref().map_or(f64::INFINITY, |c| c.distance);
             // A node pair can improve neither the mesh distance nor the
             // certified lower bound once both its gaps exceed them.
@@ -240,18 +271,30 @@ impl WorldMesh {
                         }
                     }
                 }
-                (Some((l, r)), None) => stack.extend([(l, j), (r, j)]),
-                (None, Some((l, r))) => stack.extend([(i, l), (i, r)]),
-                (Some((al, ar)), Some((bl, br))) => {
-                    if a.bounds.diagonal() >= b.bounds.diagonal() {
-                        stack.extend([(al, j), (ar, j)]);
+                (Some(_), _) | (None, Some(_)) => {
+                    // Split the larger node; the nearer child pair is
+                    // pushed last, so it is opened first.
+                    let split_a = match (a.children, b.children) {
+                        (Some(_), None) => true,
+                        (None, Some(_)) => false,
+                        _ => a.bounds.diagonal() >= b.bounds.diagonal(),
+                    };
+                    let (x, y) = match (split_a, a.children, b.children) {
+                        (true, Some((l, r)), _) => ((l, j), (r, j)),
+                        (false, _, Some((l, r))) => ((i, l), (i, r)),
+                        _ => continue,
+                    };
+                    if gap_of(x.0, x.1) <= gap_of(y.0, y.1) {
+                        stack.extend([y, x]);
                     } else {
-                        stack.extend([(i, bl), (i, br)]);
+                        stack.extend([x, y]);
                     }
                 }
             }
         }
-        best.map(|mut c| {
+        // Every pruned node pair lies beyond the cutoff: the certified
+        // bound stands as `lower` while it is within it.
+        best.filter(|_| lower <= cutoff).map(|mut c| {
             c.lower_bound = lower.min(c.distance);
             c
         })
@@ -284,28 +327,6 @@ impl WorldMesh {
             }
         }
         false
-    }
-
-    /// Whether `p` is inside this closed mesh: the majority of three
-    /// ray-parity votes along fixed, axis-skew directions.
-    pub fn contains(&self, p: &Point3) -> bool {
-        let dirs = [
-            Vec3::new(0.5773, 0.5774, 0.5773),
-            Vec3::new(-0.2672, 0.5345, 0.8017),
-            Vec3::new(0.8729, -0.2182, 0.4364),
-        ];
-        let inside = dirs
-            .iter()
-            .filter(|d| {
-                self.tris
-                    .iter()
-                    .filter(|t| ray_hit(p, d, t).is_some())
-                    .count()
-                    % 2
-                    == 1
-            })
-            .count();
-        inside >= 2
     }
 }
 

@@ -19,7 +19,8 @@ use std::sync::{Arc, Mutex};
 
 use popkern_core::topology::BRep;
 
-use crate::mesh_bvh::LocalMesh;
+use crate::mesh_bvh::{LocalMesh, WorldMesh};
+use crate::placement::Placement;
 
 /// Entries kept before the cache is cleared (a long session of
 /// edits must not grow it without bound).
@@ -32,12 +33,19 @@ type Key = (u64, u64, usize, usize, u64);
 #[derive(Debug, Default)]
 pub(crate) struct MeshCache {
     meshes: Mutex<HashMap<Key, Arc<LocalMesh>>>,
+    /// Placed meshes by occurrence path and body, with the local mesh
+    /// and placement they were built from: an occurrence that has not
+    /// moved since the last check (half a swing's) reuses its BVH.
+    placed: Mutex<HashMap<(String, usize), Placed>>,
 }
+
+type Placed = (Arc<LocalMesh>, [u64; 12], Arc<WorldMesh>);
 
 impl Clone for MeshCache {
     fn clone(&self) -> Self {
         MeshCache {
             meshes: Mutex::new(self.meshes.lock().map(|m| m.clone()).unwrap_or_default()),
+            placed: Mutex::new(self.placed.lock().map(|m| m.clone()).unwrap_or_default()),
         }
     }
 }
@@ -84,5 +92,40 @@ impl MeshCache {
             meshes.insert(key, local.clone());
         }
         Ok(local)
+    }
+}
+
+impl MeshCache {
+    /// `mesh` placed at `world` for occurrence `path` (body `body`),
+    /// reused when neither changed since the last call.
+    pub(crate) fn placed(
+        &self,
+        path: &str,
+        body: usize,
+        mesh: &Arc<LocalMesh>,
+        world: &Placement,
+    ) -> Arc<WorldMesh> {
+        let m = &world.transform().matrix;
+        let mut bits = [0u64; 12];
+        for i in 0..3 {
+            for j in 0..4 {
+                bits[i * 4 + j] = m[i][j].to_bits();
+            }
+        }
+        let key = (path.to_string(), body);
+        if let Some((local, b, placed)) = self.placed.lock().ok().and_then(|p| p.get(&key).cloned())
+            && Arc::ptr_eq(&local, mesh)
+            && b == bits
+        {
+            return placed;
+        }
+        let placed = Arc::new(WorldMesh::new(mesh, world));
+        if let Ok(mut all) = self.placed.lock() {
+            if all.len() >= CAPACITY * 8 {
+                all.clear();
+            }
+            all.insert(key, (mesh.clone(), bits, placed.clone()));
+        }
+        placed
     }
 }

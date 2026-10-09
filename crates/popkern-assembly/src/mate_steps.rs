@@ -3,7 +3,8 @@
 
 use crate::error::AssemblyError;
 use crate::mate_linalg::{Svd, rank_of};
-use crate::mate_solve::{MATE_TOLERANCE, Problem, RANK_REL, max_abs};
+use crate::mate_solve::{MATE_TOLERANCE, Problem, RANK_REL};
+use crate::mates::Primitive;
 
 /// Gauss–Newton with the truncated-SVD step and a backtracking line
 /// search, from the problem's base placements: the increment and the
@@ -90,4 +91,18 @@ pub(crate) fn diagnose(problem: &Problem<'_>, x: &[f64]) -> Result<Diagnosis, As
         redundant,
         conflicting,
     })
+}
+
+/// The largest magnitude among residual rows.
+pub(crate) fn max_abs(r: &[f64]) -> f64 {
+    r.iter().map(|v| v.abs()).fold(0.0, f64::max)
+}
+
+/// The largest coordinate magnitude of a primitive's point: the
+/// assembly's size for scaling linear residuals.
+pub(crate) fn coords_max(p: &Primitive) -> f64 {
+    let o = match *p {
+        Primitive::Plane(o, _) | Primitive::Axis(o, _) | Primitive::Point(o) => o,
+    };
+    o.x.abs().max(o.y.abs()).max(o.z.abs())
 }

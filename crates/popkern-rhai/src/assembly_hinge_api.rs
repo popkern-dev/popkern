@@ -30,7 +30,7 @@ const HINGE_OPTIONS: &[&str] = &[
     "screw",
     "countersink",
 ];
-const SWING_OPTIONS: &[&str] = &["from", "to", "step", "resolution"];
+const SWING_OPTIONS: &[&str] = &["from", "to", "step", "resolution", "clearance", "exclude"];
 
 fn hinge(
     a: &mut ScriptAssembly,
@@ -130,10 +130,45 @@ fn swing(
     let to = o.with("to", args::float)?.unwrap_or(to);
     let step = o.with("step", args::float)?.unwrap_or(5.0);
     let resolution = o.with("resolution", args::float)?.unwrap_or(0.1);
+    let clearance = o.with("clearance", args::float)?;
+    let exclude = o
+        .with("exclude", |a, v| {
+            let pairs = v
+                .clone()
+                .try_cast::<rhai::Array>()
+                .ok_or_else(|| argument_error(a, "expected [[prefix, prefix], ...]"))?;
+            pairs
+                .into_iter()
+                .map(|p| {
+                    let p = p
+                        .try_cast::<rhai::Array>()
+                        .filter(|p| p.len() == 2)
+                        .ok_or_else(|| argument_error(a, "each entry is [prefix, prefix]"))?;
+                    let s = |d: &Dynamic| {
+                        d.clone()
+                            .into_immutable_string()
+                            .map(|s| s.to_string())
+                            .map_err(|_| argument_error(a, "prefixes are strings"))
+                    };
+                    Ok([s(&p[0])?, s(&p[1])?])
+                })
+                .collect::<Result<Vec<_>, Box<EvalAltResult>>>()
+        })?
+        .unwrap_or_default();
     let report = a
         .borrow_mut()
         .assembly
-        .swing(param, from, to, step, resolution)
+        .swing_with(
+            param,
+            &popkern_assembly::SwingOptions {
+                from,
+                to,
+                step,
+                resolution,
+                clearance,
+                exclude,
+            },
+        )
         .assembly()?;
     rhai::serde::to_dynamic(&report).map_err(|e| argument_error("swing", e.to_string()))
 }

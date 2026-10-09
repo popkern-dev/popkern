@@ -300,7 +300,15 @@ pub(crate) fn clip_curve_to_single_face(
         }
     }
 
-    let (s_enter, s_exit) = clip_line_to_face(brep, face_handle, &extended)?;
+    // A face bounded by curves clips against its true edges (the
+    // vertex polygon's chords put the cut's ends up to a sagitta inside
+    // the boundary, on no edge — PK-751); straight-edged faces keep the
+    // tuned polygon clip. The original segment's midpoint is s = 0.5.
+    let (s_enter, s_exit) = if crate::clip::face_has_curved_boundary(brep, face_handle) {
+        super::clip_line_exact::clip_line_to_planar_face_exact(brep, face_handle, &extended, 0.5)?
+    } else {
+        clip_line_to_face(brep, face_handle, &extended)?
+    };
 
     // Convert clipped parameters back to 3D points.
     let clipped_start = extended.point_at(s_enter);

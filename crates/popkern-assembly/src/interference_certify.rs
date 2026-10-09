@@ -25,8 +25,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use popkern_part::Part;
-
 use crate::assembly::{Assembly, DefinitionId};
 use crate::interference::{Occurrence, PairReport};
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
@@ -44,18 +42,16 @@ impl Assembly {
     /// a finer mesh could not be built (the caller decides at the base
     /// level, boolean included); `Some(report)` otherwise — the first
     /// decided one, or the finest level's.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn certify_pair(
         &self,
         a: &Occurrence,
         b: &Occurrence,
-        parts: &HashMap<DefinitionId, Vec<Part>>,
-        contents: &HashMap<(DefinitionId, usize), u64>,
+        parts: &HashMap<DefinitionId, Arc<crate::parts_cache::CachedParts>>,
         worlds: &WorldMeshes,
-        chord_fraction: f64,
+        options: &crate::interference::InterferenceOptions,
         tolerance: f64,
-        clearance: f64,
     ) -> Option<Option<PairReport>> {
+        let chord_fraction = options.chord_fraction;
         let mut last: Option<Option<PairReport>> = None;
         for level in 1..=MAX_LEVELS {
             let fraction = chord_fraction / 8f64.powi(level as i32);
@@ -64,9 +60,9 @@ impl Assembly {
             let mut finer_occurrence = |o: &Occurrence| -> Option<Occurrence> {
                 let mut bodies = Vec::with_capacity(o.bodies.len());
                 for (brep, _, body) in &o.bodies {
-                    let part = parts.get(&o.definition)?.get(*body)?;
-                    let local_brep = part.brep();
-                    let content = *contents.get(&(o.definition, *body))?;
+                    let cached = parts.get(&o.definition)?;
+                    let local_brep = cached.parts.get(*body)?.brep();
+                    let content = *cached.contents.get(*body)?;
                     let size = crate::interference_refine::bounds_diagonal(local_brep).max(1e-12);
                     // The subdivision cap rises with the chord: at the
                     // default 64 an r = 10 bore keeps a 0.012 sagitta
@@ -104,8 +100,7 @@ impl Assembly {
             let (Some(fa), Some(fb)) = (finer_occurrence(a), finer_occurrence(b)) else {
                 return None;
             };
-            let check =
-                self.check_pair(&fa, &fb, &local, tolerance, clearance, level == MAX_LEVELS);
+            let check = self.check_pair(&fa, &fb, &local, options, tolerance, level == MAX_LEVELS);
             if check.settled {
                 return Some(check.report);
             }

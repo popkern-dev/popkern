@@ -11,6 +11,8 @@ mod helpers_pcurve_coherence;
 #[path = "operation_no_intersection.rs"]
 pub(crate) mod no_intersection;
 
+#[path = "operation_contact.rs"]
+mod contact;
 #[path = "operation_containment.rs"]
 mod containment;
 #[path = "operation_postprocess.rs"]
@@ -208,6 +210,11 @@ pub(super) fn execute_boolean_pipeline(
             &intersection_result.aabbs_b,
             tolerance,
         );
+    }
+
+    // Bodies that only touch (opposite contact faces, point records).
+    if let Some(result) = contact::touching_only(op, &a, &b, &intersection_result, tolerance) {
+        return Ok(result);
     }
 
     // Clone originals for graph merge (graph merge reads originals, not split).

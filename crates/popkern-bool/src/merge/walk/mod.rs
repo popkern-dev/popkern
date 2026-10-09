@@ -600,8 +600,24 @@ pub(crate) fn walk_all_fragments_ext(
             // hole. Small loops keep the size rule — demoting small
             // same-winding loops was measured to break six suites.
             let separate_by_shape = if remaining_areas[i].abs() >= threshold {
-                if face_on_workpiece {
-                    let winding_dot = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
+                let winding_dot = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
+                // A ring of the face's OWN boundary edges (no record
+                // piece) winding against the outer is the face's
+                // original hole, on either operand: the tool-side cap
+                // semantics below belong to record rings. Without
+                // this a thin annulus kept from the tool (a revolved
+                // cavity's step, inner/outer area 0.71) lost its hole
+                // and served as two overlapping discs (PK-755).
+                let own_hole = winding_dot < -1e-9
+                    && lp.iter().all(|&h| {
+                        !matches!(
+                            graph.half_edges[h].source,
+                            super::graph::EdgeSource::Shared { .. }
+                        )
+                    });
+                if own_hole {
+                    false
+                } else if face_on_workpiece {
                     winding_dot >= -1e-9
                 } else {
                     true

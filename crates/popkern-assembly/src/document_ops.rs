@@ -164,6 +164,8 @@ impl Document {
 impl Assembly {
     /// Every part definition's model with its name, in definition order.
     pub fn part_models_mut(&mut self) -> Vec<(Option<String>, &mut Model)> {
+        // The caller may change any model: every built body is stale.
+        self.parts_cache.clear();
         self.definitions
             .iter_mut()
             .filter_map(|d| match &mut d.content {

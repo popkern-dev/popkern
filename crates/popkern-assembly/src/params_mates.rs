@@ -147,6 +147,46 @@ impl Assembly {
             })
             .fold(0.0_f64, f64::max);
         let steps = ((widest / MAX_ANGLE_STEP).ceil() as usize).max(1);
+        // The jump in one solve first: the solve predicts every
+        // revolute's turn exactly (`mate_predict`), so a revolute chain
+        // lands on its own branch. A cluster it could not predict (a
+        // loop fixed by roots that moved differently), or a loop owning
+        // a driven mate, keeps continuation: its assembly mode is the
+        // solve's.
+        if steps > 1 {
+            for (mate, t) in self.mates.iter_mut().zip(&targets) {
+                let Some((_, to)) = *t else { continue };
+                match &mut mate.kind {
+                    MateKind::Angle { degrees, .. } => *degrees = to,
+                    MateKind::Distance { distance, .. } => *distance = to,
+                    _ => {}
+                }
+            }
+            let owners: Vec<String> = self
+                .mates
+                .iter()
+                .zip(&targets)
+                .filter(|(_, t)| t.is_some())
+                .flat_map(|(m, _)| [m.a.instance.clone(), m.b.instance.clone()])
+                .map(|i| i.split('/').next().unwrap_or("").to_string())
+                .collect();
+            match self.solve_in_place(false) {
+                Ok(report)
+                    if report.clusters.iter().all(|c| {
+                        c.predicted
+                            && (c.roots.len() == 1 || !c.roots.iter().any(|r| owners.contains(r)))
+                    }) =>
+                {
+                    return Ok(());
+                }
+                _ => {
+                    self.mates = mates.clone();
+                    for (instance, placement) in self.root.iter_mut().zip(&placements) {
+                        instance.placement = *placement;
+                    }
+                }
+            }
+        }
         for k in 1..=steps {
             let f = k as f64 / steps as f64;
             for (mate, t) in self.mates.iter_mut().zip(&targets) {
