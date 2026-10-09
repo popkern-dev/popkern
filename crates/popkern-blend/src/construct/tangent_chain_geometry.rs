@@ -414,7 +414,10 @@ pub(super) struct Link<'a> {
 /// The third edge at a junction and its side.
 #[derive(Clone, Copy)]
 pub(super) struct Third {
-    pub(super) edge: EdgeHandle,
+    /// `None` at a valence-2 junction: both supports continue as the
+    /// same faces across it (an edge split mid-run, as a per-edge
+    /// corner fillet leaves its rim arc), so nothing is shortened.
+    pub(super) edge: Option<EdgeHandle>,
     pub(super) on_p: bool,
 }
 

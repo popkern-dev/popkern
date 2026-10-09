@@ -30,7 +30,7 @@ const SECTION_ACCEPT: f64 = 1.0e-9;
 /// tried (a reflected frame silently traces the wrong sweep).
 /// Returns the verified curve plus the snapped feet.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn verified_circle_section(
+pub(in crate::construct) fn verified_circle_section(
     origin: &Point3,
     axis: &Vec3,
     radius: f64,
@@ -94,7 +94,7 @@ pub(super) fn verified_circle_section(
 /// tilt). Feet are projected into the plane and normalized onto the
 /// section in basis coefficients; both sweep orientations tried.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn verified_ellipse_section(
+pub(in crate::construct) fn verified_ellipse_section(
     origin: &Point3,
     axis: &Vec3,
     radius: f64,

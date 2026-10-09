@@ -48,7 +48,7 @@ use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_math::PortableMath;
 
 #[path = "strip_end_section_curves.rs"]
-mod strip_end_section_curves;
+pub(super) mod strip_end_section_curves;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};

@@ -2,11 +2,13 @@
 mod apex_face_lift;
 mod apply_types;
 pub(crate) mod g1_junction;
+mod open_chains;
+mod tangent_chain_cap;
+mod tangent_chain_face_end;
 mod tangent_chain_geometry;
 mod tangent_chain_junction;
 mod tangent_chain_surgery;
 mod tangent_chain_trace;
-mod vanishing_ends;
 pub use apply_types::{ApplyBlendError, ApplyBlendResult, EdgeGeometry, apply_cancel_poll};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;

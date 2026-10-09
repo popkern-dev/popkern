@@ -46,6 +46,7 @@ use popkern_core::topology::{
 };
 
 use super::EdgeGeometry;
+use super::tangent_chain_cap::{Cap, ChainEnd, prepare_cap, wire_cap};
 use super::tangent_chain_junction::strip_rail;
 use crate::analysis::Convexity;
 use crate::error::BlendFailure;
@@ -72,7 +73,7 @@ pub(crate) fn apply_tangent_chain(
     let mut work = brep.clone();
     let first = edge_geometries[members[0]].analysis.edge;
     let h0 = work.edges[first].half_edge;
-    let strips = build(&mut work, edge_geometries, members, tolerance, h0, true)?;
+    let strips = build(&mut work, edge_geometries, members, tolerance, h0, None)?;
     *brep = work;
     Ok(strips)
 }
@@ -114,11 +115,14 @@ pub(crate) fn apply_closed_chains(
     }
 }
 
-/// Build an OPEN tangent chain whose two ends VANISH (PK-764,
-/// `docs/architecture/fillet-vanishing-ends.md`): `h0` is the first
-/// member's half-edge leaving the chain's start vertex. The junctions
-/// are built as in a closed chain; at each end the strips run out to
-/// the end vertex itself (both rails end there, no section arc).
+/// Build an OPEN tangent chain: `h0` is the first member's half-edge
+/// leaving the chain's start vertex, `ends` its start and end kinds.
+/// The junctions are built as in a closed chain. At a VANISHING end
+/// (PK-764, `docs/architecture/fillet-vanishing-ends.md`) the strip
+/// runs out to the end vertex itself (both rails end there, no section
+/// arc); at a TANGENT CAP (PK-735,
+/// `docs/architecture/fillet-open-tangent-chains.md`) it stops on its
+/// section, closed by a planar cap face.
 ///
 /// # Errors
 ///
@@ -128,10 +132,18 @@ pub(crate) fn apply_open_tangent_chain(
     edge_geometries: &[EdgeGeometry],
     members: &[usize],
     h0: HalfEdgeHandle,
+    ends: (ChainEnd, ChainEnd),
     tolerance: &Tolerance,
 ) -> Result<Vec<FaceHandle>, BlendFailure> {
     let mut work = brep.clone();
-    let strips = build(&mut work, edge_geometries, members, tolerance, h0, false)?;
+    let strips = build(
+        &mut work,
+        edge_geometries,
+        members,
+        tolerance,
+        h0,
+        Some(ends),
+    )?;
     *brep = work;
     Ok(strips)
 }
@@ -142,8 +154,9 @@ fn build(
     members: &[usize],
     tolerance: &Tolerance,
     h0: HalfEdgeHandle,
-    closed: bool,
+    ends: Option<(ChainEnd, ChainEnd)>,
 ) -> Result<Vec<FaceHandle>, BlendFailure> {
+    let closed = ends.is_none();
     let at = brep
         .vertices
         .get(brep.half_edges[h0].origin)
@@ -208,11 +221,29 @@ fn build(
             vq_of.push(v);
             vp_of.push(fresh(brep, cp));
         }
-        shorten_third(brep, thirds[i].edge, v);
+        if let Some(edge) = thirds[i].edge {
+            shorten_third(brep, edge, v);
+        }
     }
 
     // Edges and half-edges.
     let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].shell;
+    // Tangent caps at the open ends.
+    let cap_at = |brep: &mut BRep, kind: Option<ChainEnd>, at_start: bool| {
+        let link = if at_start { &links[0] } else { &links[k - 1] };
+        match kind {
+            Some(ChainEnd::TangentCap) => {
+                prepare_cap(brep, link, at_start, shell, band, tolerance).map(Some)
+            }
+            Some(ChainEnd::EndFace) => super::tangent_chain_face_end::prepare_face_end(
+                brep, link, at_start, band, tolerance,
+            )
+            .map(Some),
+            _ => Ok(None),
+        }
+    };
+    let start_cap: Option<Cap> = cap_at(brep, ends.map(|e| e.0), true)?;
+    let end_cap: Option<Cap> = cap_at(brep, ends.map(|e| e.1), false)?;
     let mut x_edges = Vec::with_capacity(nj);
     let mut centers = Vec::with_capacity(nj);
     for i in 0..nj {
@@ -248,6 +279,7 @@ fn build(
         }));
     }
     let mut strips = Vec::with_capacity(k);
+    let mut supports = Vec::with_capacity(k);
     // Half-edges of X_i: (in strip i: Q→P, in strip i+1: P→Q).
     let mut x_hes: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = Vec::with_capacity(nj);
     for i in 0..nj {
@@ -269,13 +301,19 @@ fn build(
         let after = if closed || i + 1 < k { Some(i) } else { None };
         let h = link.h;
         let tw = brep.half_edges[h].twin;
-        let (pa, qa) = match before {
-            Some(j) => (vp_of[j], vq_of[j]),
-            None => (start_vertex, start_vertex),
+        // A cap end stops on the cap's section; a vanishing end runs
+        // out to the end vertex.
+        let start_end = start_cap.filter(|_| i == 0);
+        let end_end = end_cap.filter(|_| i + 1 == k);
+        let (pa, qa, x_before) = match (before, start_end) {
+            (Some(j), _) => (vp_of[j], vq_of[j], Some(x_hes[j].1)),
+            (None, Some(cap)) => (cap.vp, cap.vq, Some(cap.strip_x())),
+            (None, None) => (start_vertex, start_vertex, None),
         };
-        let (pb, qb) = match after {
-            Some(j) => (vp_of[j], vq_of[j]),
-            None => (end_vertex, end_vertex),
+        let (pb, qb, x_after) = match (after, end_end) {
+            (Some(j), _) => (vp_of[j], vq_of[j], Some(x_hes[j].0)),
+            (None, Some(cap)) => (cap.vp, cap.vq, Some(cap.strip_x())),
+            (None, None) => (end_vertex, end_vertex, None),
         };
         // The arcs are oriented at their START point, so take the chain
         // direction there (at the end of a quarter arc it is
@@ -324,9 +362,9 @@ fn build(
         // Strip loop: P trim back, section X_prev (P→Q), Q trim, X_i
         // (Q→P); a vanishing end has no section — its trims meet there.
         let mut ring = vec![fp];
-        ring.extend(before.map(|j| x_hes[j].1));
+        ring.extend(x_before);
         ring.push(fq);
-        ring.extend(after.map(|j| x_hes[j].0));
+        ring.extend(x_after);
         for (j, &he) in ring.iter().enumerate() {
             let nx = ring[(j + 1) % ring.len()];
             brep.half_edges[he].next = nx;
@@ -335,16 +373,35 @@ fn build(
         }
         brep.loops[lp].half_edge = fp;
         strips.push(face);
+        supports.push((sp, sq));
         // The old chain edge goes.
         brep.remove_half_edge_reanchored(h);
         brep.remove_half_edge_reanchored(tw);
         brep.edges.remove(link.eg.analysis.edge);
     }
-    let tips = if closed {
-        Vec::new()
-    } else {
-        vec![start_vertex, end_vertex]
-    };
+    for (cap, i) in [(start_cap, 0), (end_cap, k - 1)] {
+        if let Some(cap) = cap {
+            wire_cap(brep, &cap, supports[i].0, supports[i].1)?;
+        }
+    }
+    let caps: Vec<Cap> = start_cap.into_iter().chain(end_cap).collect();
+    // Vertices whose outgoing half-edge may have gone: junctions,
+    // vanishing tips, cap ends and contacts.
+    let mut tips = Vec::new();
+    if let Some((first, last)) = ends {
+        if first == ChainEnd::Vanishing {
+            tips.push(start_vertex);
+        }
+        if last == ChainEnd::Vanishing {
+            tips.push(end_vertex);
+        }
+    }
+    for c in &caps {
+        if !c.end_face {
+            tips.push(c.v);
+        }
+        tips.extend([c.vp, c.vq]);
+    }
     for v in vp_of.iter().chain(vq_of.iter()).chain(tips.iter()) {
         if (!brep.half_edges.contains_key(brep.vertices[*v].outgoing)
             || brep.half_edges[brep.vertices[*v].outgoing].origin != *v)
@@ -361,22 +418,37 @@ fn build(
     for (i, &face) in strips.iter().enumerate() {
         let convex = matches!(links[i].eg.analysis.convexity, Convexity::Convex);
         // Oriented from a section on the strip's own boundary: its
-        // following one, else (an open chain's last strip) the one
-        // before it.
-        let Some(j) = (if i < nj { Some(i) } else { i.checked_sub(1) }) else {
+        // following junction, else the one before it, else its cap.
+        let cap_section = |cap: Option<Cap>| cap.map(|c| (c.center, brep.half_edges[c.x_pq].edge));
+        let section = if i < nj {
+            Some((centers[i], x_edges[i]))
+        } else if i > 0 {
+            Some((centers[i - 1], x_edges[i - 1]))
+        } else {
+            None
+        }
+        .or_else(|| cap_section(start_cap.filter(|_| i == 0)))
+        .or_else(|| cap_section(end_cap.filter(|_| i + 1 == k)));
+        let Some((center, x)) = section else {
             return Err(decline("a one-edge open chain has no section".into(), at));
         };
-        let mid = brep.edges[x_edges[j]]
+        let Some(mid) = brep.edges[x]
             .curve
             .as_ref()
             .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)))
-            .unwrap_or(contacts[j].0);
-        orient_strip(brep, face, convex, centers[j], mid);
+        else {
+            return Err(decline("a strip section has no curve".into(), at));
+        };
+        orient_strip(brep, face, convex, center, mid);
     }
+    let cap_edges: Vec<_> = caps.iter().flat_map(|c| c.edges(brep)).collect();
     let mut faces: Vec<FaceHandle> = strips.clone();
+    faces.extend(caps.iter().map(|c| c.face));
     for he in brep.half_edges.values() {
         let f = brep.loops[he.loop_].face;
-        let new_edge = strips.contains(&f) || thirds.iter().any(|t| t.edge == he.edge);
+        let new_edge = strips.contains(&f)
+            || thirds.iter().any(|t| t.edge == Some(he.edge))
+            || cap_edges.contains(&he.edge);
         if new_edge && !faces.contains(&f) {
             faces.push(f);
         }
@@ -391,6 +463,9 @@ fn build(
     for face in faces {
         brep.recompute_face_pcurves(face)
             .map_err(|e| decline(format!("pcurves of {face:?}: {e}"), at))?;
+    }
+    for cap in &caps {
+        super::tangent_chain_cap::check_cap_winding(brep, cap)?;
     }
     if popkern_core::trace::trace_enabled("tangent-chain") {
         super::tangent_chain_trace::trace_edge_ends(brep, &strips);

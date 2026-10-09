@@ -126,9 +126,9 @@ pub(super) fn junction_section(
     let v = brep.half_edges[hi.twin].origin;
     let vp = brep.vertices[v].position;
     let valence = brep.half_edges.values().filter(|he| he.origin == v).count();
-    if valence != 3 {
+    if valence != 2 && valence != 3 {
         return Err(decline(
-            format!("junction {v:?} has valence {valence}, not 3"),
+            format!("junction {v:?} has valence {valence}, not 2 or 3"),
             vp,
         ));
     }
@@ -136,13 +136,18 @@ pub(super) fn junction_section(
     let next_q = brep.half_edges[brep.half_edges[b.h].twin].next;
     let third = if next_p != b.h {
         Third {
-            edge: brep.half_edges[next_p].edge,
+            edge: Some(brep.half_edges[next_p].edge),
             on_p: true,
         }
     } else if next_q != hi.twin {
         Third {
-            edge: brep.half_edges[next_q].edge,
+            edge: Some(brep.half_edges[next_q].edge),
             on_p: false,
+        }
+    } else if valence == 2 {
+        Third {
+            edge: None,
+            on_p: true,
         }
     } else {
         return Err(decline(format!("junction {v:?} has no third edge"), vp));
@@ -197,21 +202,24 @@ pub(super) fn junction_section(
     };
     // The third edge must reach its side's contact: it is kept and
     // shortened to it.
+    let Some(third_edge) = third.edge else {
+        return Ok((third, (cp, cq)));
+    };
     let on_third = if third.on_p { cp } else { cq };
-    let t_curve = brep.edges[third.edge].curve.clone();
+    let t_curve = brep.edges[third_edge].curve.clone();
     let off = match &t_curve {
         Some(c) => c
             .geometry
             .closest_point(&on_third)
             .map(|s| c.geometry.point_at(s).distance_to(&on_third))
             .unwrap_or(f64::INFINITY),
-        None => segment_distance(brep, third.edge, on_third),
+        None => segment_distance(brep, third_edge, on_third),
     };
     if off > band {
         return Err(decline(
             format!(
                 "third edge {:?} misses the section contact by {off:.3e} (contacts {cp:?} / {cq:?})",
-                third.edge
+                third_edge
             ),
             vp,
         ));

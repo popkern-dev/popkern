@@ -141,8 +141,8 @@ pub(super) fn run_perpendicular_splits(
         failures,
     );
 
-    // Open tangent chains whose ends vanish (PK-764).
-    super::vanishing_ends::apply_vanishing_chains(
+    // Open tangent chains: vanishing ends (PK-764), tangent caps (PK-735).
+    super::open_chains::apply_open_chains(
         result,
         edge_geometries,
         tolerance,
