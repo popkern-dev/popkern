@@ -2,7 +2,8 @@
 // (design docs/architecture/six-axis-arm.md). Six cycloidal joint
 // modules — the same modules as cycloidal_joint.rhai, sizes L, L, M,
 // S, S, S — drive seven links: base, shoulder, upper arm, forearm,
-// wrist 1, wrist 2 and an ISO 9409-1-50-4-M6 tool flange.
+// wrist 1, wrist 2 and an ISO 9409-1-50-4-M6 tool flange carrying a
+// parallel-jaw gripper.
 //
 // Every link is authored at home (every joint at 0) in world
 // coordinates and placed at identity, so its placement IS its motion
@@ -14,10 +15,12 @@
 // discs and the roller cage of each joint are free roots that follow
 // the joint's slider at their ratios.
 //
-// Sliders: j1..j6 (degrees, §4.1 limits) and the tube lengths
-// upper_arm and forearm. A tube length drives its tube part and the
-// distance mate between the arm's two end castings, which are two
-// roots joined along the tube's axis.
+// Sliders: j1..j6 (degrees, §4.1 limits), the tube lengths upper_arm
+// and forearm, and grip (0..80). A tube length drives its tube part and
+// the distance mate between the arm's two end castings, which are two
+// roots joined along the tube's axis. The gripper's two fingers are one
+// part, the second instance turned 180° about the tool axis; each
+// slides on the gripper body, its jaw face grip/2 from the axis.
 //
 // Fasteners: socket cap screws (real threads, fastener family) in
 // counterbored holes. Each mount ring clamps a housing's lip; each foot
@@ -847,6 +850,94 @@ fn fill_link(sub, castings, prev, next, parts, mods, arm, bolts, pi) {
     }
 }
 
+// ---- Gripper (§4.2, PK-724): a parallel jaw on the tool flange ----
+// World coordinates at home: the tool axis is the line x = tx, z = tz
+// along −y; the flange face is y = ty. The body: an adapter disc on the
+// flange (a spigot in its centring bore, four counterbored M6 screws
+// into the ISO tapped holes, a dowel), then a jaw block with an open
+// slide channel along x on its far face. Each finger: a carriage in the
+// channel and a jaw beyond the block; finger B is finger A turned 180°
+// about the tool axis.
+fn gripper_layout(m6) {
+    let face = m6.g.len + 29.0;
+    let f = m_point(m6.M, [0.0, 0.0, face]);
+    #{
+        tx: f[0], ty: f[1], tz: f[2],
+        face: face,
+        adapter: 10.0, adapter_r: 34.0,
+        block_y: 30.0, block_x: 62.0, block_z: 20.0,
+        chan_z: 8.0, chan_d: 10.0,
+        finger_w: 18.0, jaw_len: 60.0, jaw_z: 12.0, carriage_z: 7.5,
+        grip0: 40.0, travel: 80.0,
+    }
+}
+// The ISO 9409 screw positions on the module frame (PCD 50, 22.5° + 90k).
+fn iso_angle(k, pi) { pi / 8.0 + pi * k / 2.0 }
+fn gripper_body(m, m6, gl, pi) {
+    let d = m_dir(m6.M, [0.0, 0.0, 1.0]);
+    let a0 = gl.face;
+    // Adapter disc, then the spigot into the centring bore (0.05 radial
+    // clearance, 0.5 short of its floor).
+    let body = axial_disc(m, m6, a0, a0 + gl.adapter, gl.adapter_r, "adapter");
+    body = body.union(m.tool(|t| axial_disc(t, m6, a0 - 5.5, a0 + 1.0, 15.7, "spigot_sketch")),
+        #{ label: "spigot" });
+    // The jaw block, overlapping the adapter 0.5 (its faces never
+    // coplanar with the disc's).
+    let y_top = gl.ty - gl.adapter + 0.5;
+    let y_bot = y_top - gl.block_y;
+    body = body.union(m.tool(|t| box(t, gl.tx - gl.block_x, gl.tx + gl.block_x, y_bot, y_top,
+        gl.tz - gl.block_z, gl.tz + gl.block_z, "block_sketch")), #{ label: "block" });
+    // The slide channel, open along x and on the far face.
+    body = body.subtract(m.tool(|t| box(t, gl.tx - gl.block_x - 1.0, gl.tx + gl.block_x + 1.0,
+        y_bot - 1.0, y_bot + gl.chan_d, gl.tz - gl.chan_z, gl.tz + gl.chan_z, "channel_sketch")),
+        #{ label: "channel" });
+    // Four counterbored M6 holes on the ISO pattern, from the adapter's
+    // far face toward the flange; the pockets open past the block side.
+    let screws = m.tool(|t| {
+        let all = ();
+        for k in 0..4 {
+            let ang = iso_angle(k, pi);
+            let u = 25.0 * cos(ang);
+            let v = 25.0 * sin(ang);
+            let top = m_point(m6.M, [u, v, a0 + gl.adapter + 40.0]);
+            let pocket = rod_at(t, top, m_dir(m6.M, [0.0, 0.0, -1.0]), 5.5, 46.5, "m6_pocket_" + k);
+            let hole = rod_at(t, m_point(m6.M, [u, v, a0 + 4.0]), m_dir(m6.M, [0.0, 0.0, -1.0]), 3.3,
+                5.0, "m6_clear_" + k);
+            let both = pocket.union(hole);
+            all = if k == 0 { both } else { all.union(both) };
+        }
+        all
+    });
+    body = body.subtract(screws, #{ label: "flange_screws" });
+    // Dowel hole Ø6 matching the flange's.
+    let dw = 3.0 * pi / 8.0;
+    body.subtract(m.tool(|t| rod_at(t, m_point(m6.M, [25.0 * cos(dw), 25.0 * sin(dw), a0 - 1.0]),
+        m_dir(m6.M, [0.0, 0.0, 1.0]), 3.0, 9.0, "dowel_hole")), #{ label: "dowel_hole" })
+}
+// Finger A at grip0: jaw face at x = tx + grip0/2, the finger reaching
+// out to +x.
+fn finger_body(m, gl) {
+    let x0 = gl.tx + gl.grip0 / 2.0;
+    let x1 = x0 + gl.finger_w;
+    let y_block = gl.ty - gl.adapter + 0.5 - gl.block_y;
+    let body = box(m, x0, x1, y_block - 0.5 - gl.jaw_len, y_block - 0.5, gl.tz - gl.jaw_z, gl.tz + gl.jaw_z,
+        "jaw");
+    body.union(m.tool(|t| box(t, x0 + 1.0, x1 - 1.0, y_block - 2.5, y_block + gl.chan_d - 0.5,
+        gl.tz - gl.carriage_z, gl.tz + gl.carriage_z, "carriage_sketch")), #{ label: "carriage" })
+}
+// A finger slides along x on the body: its y and z planes held, its jaw
+// face `sign` × grip/2 from the tool axis.
+fn finger_mates(a, link6, finger, gl, sign) {
+    // In the finger's own frame (finger B is turned 180° about the
+    // tool axis, so its z and x normals face the other way in world).
+    let at = [gl.tx, gl.ty - 20.0, gl.tz];
+    a.coincident(link6.plane(at, [0.0, 1.0, 0.0]), finger.plane(at, [0.0, 1.0, 0.0]), #{ aligned: true });
+    a.coincident(link6.plane(at, [0.0, 0.0, 1.0]), finger.plane(at, [0.0, 0.0, 1.0]), #{ aligned: sign > 0.0 });
+    a.distance(link6.plane(at, [1.0, 0.0, 0.0]),
+        finger.plane([gl.tx + gl.grip0 / 2.0, at[1], at[2]], [1.0, 0.0, 0.0]),
+        p("grip"), #{ aligned: sign > 0.0, scale: 0.5 * sign });
+}
+
 // ---- Pose presets (§4.4) ----
 fn home(a) {
     for k in 1..7 { a.set_param("j" + k, 0.0); }
@@ -912,6 +1003,13 @@ let fore_end = a.part("forearm_end", |m| arm_end_body(m, mods[3], arm.fore_y, ar
 let wrist_1 = a.part("wrist_1", |m| wrist_1_body(m, mods[3], mods[4], pi));
 let wrist_2 = a.part("wrist_2", |m| wrist_2_body(m, mods[4], mods[5], pi));
 let tool_flange = a.part("tool_flange", |m| tool_flange_body(m, mods[5], pi));
+let gl = gripper_layout(mods[5]);
+let gripper = a.part("gripper_body", |m| gripper_body(m, mods[5], gl, pi));
+let finger = a.part("finger", |m| finger_body(m, gl));
+let dowel = a.part("dowel_pin", |m| rod_at(m, m_point(mods[5].M, [25.0 * cos(3.0 * pi / 8.0),
+    25.0 * sin(3.0 * pi / 8.0), gl.face - 6.0]), m_dir(mods[5].M, [0.0, 0.0, 1.0]), 2.98, 12.0, "pin"));
+a.param("grip", gl.grip0, "m");
+a.limits("grip", 0.0, gl.travel);
 a.drive("upper_arm", [upper_tube]);
 a.drive("forearm", [fore_tube]);
 // Each tube keeps at least 60 mm between its end castings.
@@ -923,6 +1021,7 @@ let bolt = a.part("bolt", #{ size: "M5", length: 12.0 }, |m, q| {
 });
 let bolts = #{ M5: bolt, M4: bolt.variant(#{ size: "M4", length: 12.0 }) };
 let bolt_m8 = bolt.variant(#{ size: "M8", length: 20.0 });
+let bolt_m6 = bolt.variant(#{ size: "M6", length: 12.0 });
 for d in [base, shoulder, upper_root, upper_end, fore_root, fore_end, wrist_1, wrist_2] {
     a.appearance(d, #{ color: "white", metal: 0.1, rough: 0.5 });
 }
@@ -930,7 +1029,10 @@ for d in [upper_tube, fore_tube] {
     a.appearance(d, #{ color: "aluminium", metal: 0.7, rough: 0.3 });
 }
 a.appearance(tool_flange, #{ color: "steel", metal: 0.85, rough: 0.25 });
-for d in [bolts.M5, bolts.M4, bolt_m8] {
+a.appearance(gripper, #{ color: "gray", metal: 0.3, rough: 0.5 });
+a.appearance(finger, #{ color: "orange", metal: 0.1, rough: 0.6 });
+a.appearance(dowel, #{ color: "steel", metal: 0.9, rough: 0.2 });
+for d in [bolts.M5, bolts.M4, bolt_m8, bolt_m6] {
     a.appearance(d, #{ color: "black", metal: 0.6, rough: 0.4 });
 }
 
@@ -968,7 +1070,15 @@ let link_5 = a.subassembly("link_5", |sub| {
     fill_link(sub, [[wrist_2, "wrist_2"]], 4, 5, parts, mods, arm, bolts, pi);
 });
 let link_6 = a.subassembly("link_6", |sub| {
-    fill_link(sub, [[tool_flange, "tool_flange"]], 5, -1, parts, mods, arm, bolts, pi);
+    fill_link(sub, [[tool_flange, "tool_flange"], [gripper, "gripper"], [dowel, "dowel"]], 5, -1,
+        parts, mods, arm, bolts, pi);
+    // The gripper's four M6 screws, heads on their pocket floors.
+    let d = m_dir(mods[5].M, [0.0, 0.0, -1.0]);
+    for k in 0..4 {
+        let ang = iso_angle(k, pi);
+        let at = m_point(mods[5].M, [25.0 * cos(ang), 25.0 * sin(ang), gl.face + 3.5]);
+        sub.place(bolt_m6, "gripper_screw_" + k).frame(at, d, m_dir(mods[5].M, [cos(ang), sin(ang), 0.0]));
+    }
 });
 
 // ---- Joints ----
@@ -988,6 +1098,11 @@ for k in 0..6 {
     if k == 1 { tube_mates(a, roots[2], roots[3], 0.0, -ua, zc, "upper_arm"); }
     if k == 2 { tube_mates(a, roots[4], roots[5], -ua, -ua - fa, zc, "forearm"); }
 }
+// Fingers: free roots sliding on the gripper body, opened by `grip`.
+let finger_a = a.place(finger, "finger_a");
+let finger_b = a.place(finger, "finger_b").rotate(axis_at([gl.tx, 0.0, gl.tz], [0.0, 1.0, 0.0]), 180.0);
+finger_mates(a, roots[8], finger_a, gl, 1.0);
+finger_mates(a, roots[8], finger_b, gl, -1.0);
 a.assert_watertight();
 
 // The displayed pose: home, ready or reach.
