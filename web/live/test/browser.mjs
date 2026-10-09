@@ -178,7 +178,9 @@ async function waitFor(expression, timeoutMs, label) {
   }
   throw new Error(`timed out waiting for ${label}`);
 }
-const statusText = () => evaluate(`document.getElementById("status").textContent`);
+// Polls read the status null-safely: under load the first polls can
+// land while the navigation still shows about:blank (no #status yet).
+const statusText = () => evaluate(`document.getElementById("status")?.textContent ?? ""`);
 
 const out = { origin };
 try {
@@ -188,7 +190,7 @@ try {
   const navStarted = Date.now();
   await send("Page.navigate", { url: `${origin}/` });
   out.status_after_first_run = await waitFor(
-    `(() => { const s = document.getElementById("status").textContent; return /^(served|script error|kernel decline|gate failure|page error|worker error|kernel failed)/.test(s) ? s : null; })()`,
+    `(() => { const s = document.getElementById("status")?.textContent ?? ""; return /^(served|script error|kernel decline|gate failure|page error|worker error|kernel failed)/.test(s) ? s : null; })()`,
     120000,
     "the first run",
   );
@@ -216,7 +218,7 @@ try {
   // served fillet's seams after render and swaps in the certified rows.
   const certifyStarted = Date.now();
   out.status_after_certify = await waitFor(
-    `(() => { const s = document.getElementById("status").textContent; return /continuity (certified|certification stopped)/.test(s) ? s : null; })()`,
+    `(() => { const s = document.getElementById("status")?.textContent ?? ""; return /continuity (certified|certification stopped)/.test(s) ? s : null; })()`,
     120000,
     "continuity certification",
   );
@@ -343,7 +345,7 @@ try {
       const before = await statusText();
       const started = Date.now();
       await evaluate(`window.popkernLive.loadExample("${file}")`);
-      const status = await waitFor(`(() => { const s = document.getElementById("status").textContent; return s.startsWith("served (pre-built)") && s !== ${JSON.stringify(before)} ? s : null; })()`, 30000, `the ${file} example`);
+      const status = await waitFor(`(() => { const s = document.getElementById("status")?.textContent ?? ""; return s.startsWith("served (pre-built)") && s !== ${JSON.stringify(before)} ? s : null; })()`, 30000, `the ${file} example`);
       return { status, wall_ms: Date.now() - started, live: await evaluate(`window.popkernLive.live`) };
     };
     out.prebuilt = await choose("pyramid_apex.rhai");
@@ -699,7 +701,7 @@ m`)};
       editor_is_default: await evaluate(`window.popkernLive.defaultScript().then((d) => window.popkernLive.editor.value === d)`),
     };
     await evaluate(`document.getElementById("draft-restore").click()`);
-    out.returning.restored = await waitFor(`(() => { const s = document.getElementById("status").textContent; return /^served: /.test(s) ? s : null; })()`, 60000, "the restored draft");
+    out.returning.restored = await waitFor(`(() => { const s = document.getElementById("status")?.textContent ?? ""; return /^served: /.test(s) ? s : null; })()`, 60000, "the restored draft");
     out.returning.editor_restored = await evaluate(`window.popkernLive.editor.value.startsWith("// edited last time")`);
     out.returning.notice_after = await evaluate(`!document.getElementById("draft-notice").hidden`);
     out.returning.scratch_open = await evaluate(`window.popkernLive.projects.current?.id === "scratch"`);

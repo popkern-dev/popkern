@@ -75,6 +75,26 @@ impl Svd {
         self.sigma.iter().filter(|&&s| s > cut).count()
     }
 
+    /// The Levenberg–Marquardt step for `A x = b` with damping `lambda`:
+    /// `x = V (Σ² + λ²)⁻¹ Σ Uᵀ b` — between the Gauss–Newton step
+    /// (λ → 0) and a short gradient step (λ large).
+    pub fn damped_solve(&self, b: &[f64], lambda: f64) -> Vec<f64> {
+        let mut x = vec![0.0; self.n];
+        for j in 0..self.n {
+            let s = self.sigma[j];
+            if s == 0.0 {
+                continue;
+            }
+            // u_j = us_j / s; coefficient = s (u_j · b) / (s² + λ²).
+            let coefficient: f64 = self.us[j].iter().zip(b).map(|(u, bi)| u * bi).sum::<f64>()
+                / (s * s + lambda * lambda);
+            for (k, xk) in x.iter_mut().enumerate() {
+                *xk += coefficient * self.v[j][k];
+            }
+        }
+        x
+    }
+
     /// The truncated pseudo-inverse applied to `b` (`x = V Σ⁺ Uᵀ b`):
     /// the minimum-norm least-squares solution of `A x = b`.
     pub fn solve(&self, b: &[f64], rel: f64) -> Vec<f64> {

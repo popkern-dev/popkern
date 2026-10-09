@@ -11,7 +11,9 @@
 //! - Steps: Gauss–Newton with the truncated-SVD pseudo-inverse (the
 //!   minimum-norm step — redundant mates are harmless and unconstrained
 //!   motions stay where the user placed them) and a backtracking line
-//!   search. The Jacobian is central-differenced (h = 1e-7): the
+//!   search. A stall short of the tolerance (a stationary point that is
+//!   not a solution) retries from the start with Levenberg–Marquardt;
+//!   a conflict therefore costs both before it is reported. The Jacobian is central-differenced (h = 1e-7): the
 //!   acceptance test is on the residual itself, so Jacobian error only
 //!   costs iterations, never accuracy.
 //! - Diagnostics at the solution: free DoF per instance (the Jacobian's
