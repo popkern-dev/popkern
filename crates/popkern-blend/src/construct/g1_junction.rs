@@ -167,24 +167,89 @@ pub(crate) fn closed_tangent_chains(
 
 /// At a tangent-chain junction `vertex` between fillet edge `fillet`
 /// and its filleted neighbour `other`, the anchor is the section
-/// contact — the trim's point nearest the junction, interior to the
-/// face — not a corner walk `r` along the tangent neighbour, which
-/// lands off the section entirely (measured: (27, −15) for the
-/// section (27, −12) on a rounded-rectangle rim). `None` when the
-/// neighbour does not continue `fillet` tangentially.
+/// contact on `trim`'s face — not a corner walk `r` along the tangent
+/// neighbour, which lands off the section entirely (measured: (27, −15)
+/// for the section (27, −12) on a rounded-rectangle rim). It is the
+/// EXACT section's contact (the ball of `radius` in the plane normal to
+/// the chain at the junction, touching both supports), so both strips
+/// meeting there land on one point: each strip's own trim stops short
+/// or overshoots differently (measured, PK-770: (25.580, 15.493) and
+/// (25.493, 15.580) for the exact (25.536, 15.536) at a split corner
+/// arc). The trim's nearest point seeds the solve and is the fallback.
+/// `None` when the neighbour does not continue `fillet` tangentially.
 pub(crate) fn junction_section_contact(
     brep: &BRep,
     fillet: EdgeHandle,
     other: EdgeHandle,
     vertex: VertexHandle,
     trim: &popkern_core::geometry::NurbsCurve,
+    radius: f64,
 ) -> Option<popkern_core::geometry::Point3> {
     if !tangent_at_vertex(brep, fillet, other, vertex) {
         return None;
     }
     let p = brep.vertices.get(vertex)?.position;
     let s = trim.closest_point(&p)?;
-    Some(trim.point_at(s))
+    let seed = trim.point_at(s);
+    Some(exact_junction_contact(brep, fillet, vertex, seed, radius).unwrap_or(seed))
+}
+
+/// The exact section contact nearest `seed` at `vertex` (see
+/// [`junction_section_contact`]).
+fn exact_junction_contact(
+    brep: &BRep,
+    fillet: EdgeHandle,
+    vertex: VertexHandle,
+    seed: popkern_core::geometry::Point3,
+    radius: f64,
+) -> Option<popkern_core::geometry::Point3> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let p = brep.vertices.get(vertex)?.position;
+    let he = brep.half_edges.get(brep.edges.get(fillet)?.half_edge)?;
+    let surface = |h: popkern_core::topology::HalfEdgeHandle| {
+        let l = brep.half_edges.get(h)?.loop_;
+        Some(
+            brep.faces
+                .get(brep.loops.get(l)?.face)?
+                .surface
+                .as_ref()?
+                .geometry
+                .clone(),
+        )
+    };
+    let (sp, sq) = (surface(brep.edges[fillet].half_edge)?, surface(he.twin)?);
+    let n = edge_tangent(brep, fillet, vertex)?;
+    // Ball-centre guess: from the seed, `radius` along the seed's
+    // support normal, on the side whose distance to the other
+    // support is nearest `radius` (convex and concave alike).
+    let on = |s: &popkern_core::geometry::surface::SurfaceGeometry| {
+        s.closest_point(&seed)
+            .map(|(u, v)| s.point_at(u, v).distance_to(&seed))
+            .unwrap_or(f64::INFINITY)
+    };
+    let (own, far) = if on(&sp) <= on(&sq) {
+        (&sp, &sq)
+    } else {
+        (&sq, &sp)
+    };
+    let (u, v) = own.closest_point(&seed)?;
+    let normal = own.normal_at(u, v).normalized()?;
+    let miss = |c: popkern_core::geometry::Point3| {
+        far.closest_point(&c)
+            .map(|(u, v)| (far.point_at(u, v).distance_to(&c) - radius).abs())
+            .unwrap_or(f64::INFINITY)
+    };
+    let guess = [seed + normal * radius, seed + normal * (-radius)]
+        .into_iter()
+        .min_by(|a, b| miss(*a).total_cmp(&miss(*b)))?;
+    let (_, cp, cq) = super::tangent_chain_geometry::exact_section(&sp, &sq, p, n, radius, guess)?;
+    let contact = if cp.distance_to(&seed) <= cq.distance_to(&seed) {
+        cp
+    } else {
+        cq
+    };
+    // A gross jump is a different ball, not fit slack: keep the seed.
+    (contact.distance_to(&seed) <= 0.25 * radius).then_some(contact)
 }
 
 /// Build every closed tangent chain (`apply_tangent_chain`), recording

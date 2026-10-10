@@ -2,6 +2,7 @@
 mod apex_face_lift;
 mod apply_types;
 pub(crate) mod g1_junction;
+mod junction_section_settle;
 mod open_chains;
 mod tangent_chain_cap;
 mod tangent_chain_face_end;

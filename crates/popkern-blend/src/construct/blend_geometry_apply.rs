@@ -159,7 +159,7 @@ pub fn apply_blend_geometry(
             );
             // Tangent-chain junctions are continuations, not corners
             // (PK-733): their strips meet on the junction section,
-            // which `g1_junction_settle` authors after the corners.
+            // which `junction_section_settle` authors after the corners.
             let junctions = super::g1_junction::junction_vertices(
                 brep,
                 edge_geometries.iter().map(|eg| {

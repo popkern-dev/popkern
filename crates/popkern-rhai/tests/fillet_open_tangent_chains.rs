@@ -182,6 +182,23 @@ m
     )
 }
 
+/// The one-corner block's chain plus the vertical edge AND the top
+/// edge y = -20 at its (30, -20) end: three fillets meet there in a
+/// vertex blend (PK-770).
+fn one_corner_block_vertex_blend(r: f64) -> String {
+    let three = rim_at(&[[22.0, 20.0, 20.0], [30.0, 12.0, 20.0]]);
+    format!(
+        r#"
+let m = model();
+let b = m.profile(xy()).rect(60.0, 40.0).sketch("block").extrude(blind(20.0));
+b = b.fillet(edges().straight().direction("z").at_vertex([30.0, 20.0, 0.0]), 8.0, #{{ label: "corner" }});
+b = b.fillet({three}.or(edges().straight().direction("z").at_vertex([30.0, -20.0, 0.0])).or(edges().at_height(20.0).straight().direction("x").at_vertex([30.0, -20.0, 20.0])), {r:?}, #{{ label: "rim" }});
+m.assert_watertight();
+m
+"#
+    )
+}
+
 /// An 80 × 60 × 20 block with a 50 × 30 pocket 12 deep whose one
 /// vertical corner (25, 15) is rounded 6: the floor rim's line, arc,
 /// line chain plus the pocket's vertical edge at (25, -15) — a concave
@@ -337,6 +354,25 @@ fn a_concave_chain_ending_at_a_pocket_corner_meets_the_wall_fillet_in_a_mitre() 
 }
 
 #[test]
+fn a_chain_ending_at_a_three_fillet_corner_serves_through_the_vertex_blend() {
+    // The chain's junctions are settled on their exact sections in the
+    // per-edge pipeline (PK-770), which owns the vertex blend; the
+    // served volume is cross-checked against OCC in the validity test.
+    // The fillets remove material, at most the mitre-class amount plus
+    // the y = -20 edge's full prism.
+    for r in [1.0, 3.0] {
+        let got = served_volume(&one_corner_block_vertex_blend(r));
+        let mitre = served_volume(&one_corner_block_mitre(r));
+        let (a, _) = section(r);
+        assert!(
+            got < mitre && got > mitre - a * 60.0,
+            "r = {r}: vertex-blend body {got} outside ({}, {mitre})",
+            mitre - a * 60.0
+        );
+    }
+}
+
+#[test]
 fn a_chain_runs_out_on_an_oblique_end_face_on_its_ellipse_section() {
     let c = 8.0;
     for r in [1.0, 3.0] {
@@ -394,6 +430,7 @@ fn opencascade_reads_each_open_chain_class_as_one_valid_solid() {
         ("sharp", one_corner_block(3.0)),
         ("mitre", one_corner_block_mitre(3.0)),
         ("concave_mitre", one_corner_pocket_mitre(2.0)),
+        ("vertex_blend", one_corner_block_vertex_blend(3.0)),
         ("oblique", trapezoid_block(3.0)),
         ("hook", hook_block(3.0)),
     ] {
@@ -418,11 +455,21 @@ fn opencascade_reads_each_open_chain_class_as_one_valid_solid() {
             check["passed"], true,
             "{name}: OCC rejects the STEP: {check}"
         );
-        let solids = run("occ_solids.py");
-        assert_eq!(
-            solids["solids"].as_array().map(Vec::len),
-            Some(1),
-            "{name}: one solid: {solids}"
+        let out = std::process::Command::new(&python)
+            .arg(tools.join("occ_solids.py"))
+            .arg(&step)
+            .arg("--adaptive")
+            .output()
+            .expect("oracle");
+        let solids: serde_json::Value = serde_json::from_slice(&out.stdout).expect("oracle json");
+        let list = solids["solids"].as_array().cloned().unwrap_or_default();
+        assert_eq!(list.len(), 1, "{name}: one solid: {solids}");
+        // Our volume agrees with OCC's adaptive integration.
+        let occ = list[0]["volume"].as_f64().expect("volume");
+        let ours = served_volume(&source);
+        assert!(
+            (ours - occ).abs() / occ < 1e-4,
+            "{name}: volume {ours} vs OCC {occ}"
         );
     }
 }

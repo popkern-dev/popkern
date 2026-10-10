@@ -189,6 +189,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                                 he.edge,
                                 if forward { origin } else { dest },
                                 curve,
+                                radius,
                             )
                     {
                         *slot = Some((contact, JUNCTION_SECTION));

@@ -92,7 +92,11 @@ pub(crate) fn settle_terminal_arc_stubs(
         .keys()
         .filter(|f| !pre_faces.contains(f))
         .collect();
-    settle_terminal_faces_with_mode(result, &created, tolerance, planar_mode)
+    let report = settle_terminal_faces_with_mode(result, &created, tolerance, planar_mode);
+    // Tangent-chain junction corners, once the terminal pass has moved
+    // them onto their section arcs (PK-770).
+    super::junction_section_settle::settle_junction_sections(source, result, tolerance);
+    report
 }
 
 /// Settle stale chain-end corners on an explicit set of candidate
