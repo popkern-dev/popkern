@@ -145,3 +145,71 @@ m
         );
     }
 }
+
+/// An OFFSET-axis tee (PK-736): the r30 branch's axis runs 5 off the
+/// r40 main axis, so the main cylinder's seam crosses the saddle where
+/// the section plane at the split vertex does not contain it (the
+/// contact sat 0.317 off the seam at r = 2, 0.870 at r = 6). The chain
+/// junction slides along the chain to the station whose contact lies on
+/// the seam. The fillet still adds the section along a fixed saddle,
+/// so (V − V₀) / r² agrees across radii, and OCC reads one valid solid.
+#[test]
+fn offset_axis_tee_saddle_fillets_with_junctions_slid_onto_the_seam() {
+    let tee = |fillet: Option<f64>| {
+        let line = fillet
+            .map(|r| {
+                format!(
+                    r#"b = b.fillet(edges().between("cylinder", "cylinder"), {r:?}, #{{ label: "saddle" }});"#
+                )
+            })
+            .unwrap_or_default();
+        format!(
+            r#"
+let m = model();
+let main = m.profile(xy()).circle(40.0).sketch("main").extrude(blind(120.0));
+let branch = m.tool(|t| t.profile(yz()).circle(30.0).at(5.0, 60.0).sketch("branch").extrude(blind(100.0)));
+let b = main.union(branch, #{{ label: "tee" }});
+{line}
+m.assert_watertight();
+m
+"#
+        )
+    };
+    let v0 = served_volume(&tee(None));
+    let ratios: Vec<f64> = [2.0, 4.0, 6.0]
+        .iter()
+        .map(|&r| (served_volume(&tee(Some(r))) - v0) / (r * r))
+        .collect();
+    let (lo, hi) = ratios
+        .iter()
+        .fold((f64::MAX, f64::MIN), |(a, b), &x| (a.min(x), b.max(x)));
+    assert!(lo > 0.0, "a concave fillet adds material: {ratios:?}");
+    assert!(
+        (hi - lo) / hi < 0.03,
+        "section scaling inconsistent: {ratios:?}"
+    );
+    // OpenCASCADE reads the served body as one valid solid.
+    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    let python = home.join("venvs/ocp/bin/python");
+    let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/occ-oracle");
+    if !python.exists() || !tools.exists() {
+        return;
+    }
+    let mut host = ScriptHost::new();
+    let mut model = host
+        .run(&tee(Some(6.0)), "chain.rhai")
+        .expect("serves")
+        .model
+        .expect("model");
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pk736");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let step = dir.join("offset_tee.step");
+    model.to_step(&step).expect("STEP export");
+    let out = std::process::Command::new(&python)
+        .arg(tools.join("occ_check.py"))
+        .arg(&step)
+        .output()
+        .expect("oracle");
+    let check: serde_json::Value = serde_json::from_slice(&out.stdout).expect("oracle json");
+    assert_eq!(check["passed"], true, "OCC rejects the STEP: {check}");
+}

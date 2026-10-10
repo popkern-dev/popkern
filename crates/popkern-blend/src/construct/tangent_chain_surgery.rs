@@ -53,8 +53,8 @@ use crate::analysis::Convexity;
 use crate::error::BlendFailure;
 
 use super::tangent_chain_geometry::{
-    ball_center, blank, chain_tangent, chain_tangent_at_origin, decline, insert_edge, orient_strip,
-    section_arc, shorten_third, substitute, trim_piece,
+    blank, chain_tangent_at_origin, decline, insert_edge, orient_strip, section_arc, shorten_third,
+    substitute, trim_piece,
 };
 
 /// Order the chain `members` (indices into `edge_geometries`) and
@@ -148,15 +148,17 @@ fn build(
     let mut thirds = Vec::with_capacity(nj);
     let mut contacts: Vec<(Point3, Point3)> = Vec::with_capacity(nj);
     let mut mitres: Vec<Option<Mitre>> = Vec::with_capacity(nj);
+    let mut sections: Vec<(Point3, Vec3)> = Vec::with_capacity(nj);
     for i in 0..nj {
         let (a, b) = (&links[i], &links[(i + 1) % k]);
         let v = brep.half_edges[brep.half_edges[a.h].twin].origin;
         let (ea, eb) = (brep.half_edges[a.h].edge, brep.half_edges[b.h].edge);
         if super::g1_junction::tangent_at_vertex(brep, ea, eb, v) {
-            let (third, contact) =
+            let (third, contact, section) =
                 super::tangent_chain_junction::junction_section(brep, a, b, band)?;
             thirds.push(third);
             contacts.push(contact);
+            sections.push(section);
             mitres.push(None);
         } else {
             let m = mitre_section(brep, a, b, band)?;
@@ -169,6 +171,7 @@ fn build(
                 edge: None,
                 on_p: true,
             });
+            sections.push((m.center, Vec3::new(0.0, 0.0, 0.0)));
             mitres.push(Some(m));
         }
     }
@@ -241,20 +244,10 @@ fn build(
             x_edges.push(insert_edge(brep, m.curve.clone()));
             continue;
         }
-        let tangent = chain_tangent(brep, links[i].h)
-            .ok_or_else(|| decline("junction tangent undefined".into(), cp))?;
+        // The junction's exact section (at V, or slid along the chain to
+        // where its contact meets the third edge, PK-736).
+        let (center, tangent) = sections[i];
         let radius = links[i].eg.radius_at_end;
-        let support_p = brep.faces[brep.loops[brep.half_edges[links[i].h].loop_].face]
-            .surface
-            .as_ref()
-            .map(|s| s.geometry.clone())
-            .ok_or_else(|| decline("support without a surface".into(), cp))?;
-        let center = ball_center(&support_p, cp, cq, tangent, radius).ok_or_else(|| {
-            decline(
-                format!("no ball of radius {radius} touches both contacts"),
-                cp,
-            )
-        })?;
         centers.push(center);
         let curve = section_arc(cp, cq, center, tangent, radius).ok_or_else(|| {
             decline(

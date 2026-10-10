@@ -6,7 +6,7 @@
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
@@ -113,15 +113,18 @@ pub(super) fn chain_links<'a>(
 }
 
 /// The junction between links `a` and `b` (`v = dest(a.h)`): its third
-/// edge and the exact section contacts on `a`'s P and Q supports — the
-/// third edge's side snapped onto it (the third edge is kept and
-/// shortened to its contact).
+/// edge, the exact section contacts on `a`'s P and Q supports (the
+/// third edge's side snapped onto it: the third edge is kept and
+/// shortened to its contact), and the section's ball centre and normal.
+/// When the section at V misses the third edge, the junction slides
+/// along the chain to the station where its contact lies on it
+/// (`tangent_chain_station`, PK-736).
 pub(super) fn junction_section(
     brep: &BRep,
     a: &Link<'_>,
     b: &Link<'_>,
     band: f64,
-) -> Result<(Third, (Point3, Point3)), BlendFailure> {
+) -> Result<JunctionSection, BlendFailure> {
     let hi = &brep.half_edges[a.h];
     let v = brep.half_edges[hi.twin].origin;
     let vp = brep.vertices[v].position;
@@ -194,7 +197,7 @@ pub(super) fn junction_section(
     };
     let r = a.eg.radius_at_end;
     let seed = ball_center(&sp, cp0, cq0, tangent, r).unwrap_or(vp);
-    let Some((_, cp, cq)) = exact_section(&sp, &sq, vp, tangent, r, seed) else {
+    let Some((center, cp, cq)) = exact_section(&sp, &sq, vp, tangent, r, seed) else {
         return Err(decline(
             format!("no ball of radius {r} sits on both supports at {v:?}"),
             vp,
@@ -203,7 +206,7 @@ pub(super) fn junction_section(
     // The third edge must reach its side's contact: it is kept and
     // shortened to it.
     let Some(third_edge) = third.edge else {
-        return Ok((third, (cp, cq)));
+        return Ok((third, (cp, cq), (center, tangent)));
     };
     let on_third = if third.on_p { cp } else { cq };
     let t_curve = brep.edges[third_edge].curve.clone();
@@ -215,7 +218,21 @@ pub(super) fn junction_section(
             .unwrap_or(f64::INFINITY),
         None => segment_distance(brep, third_edge, on_third),
     };
-    if off > band {
+    let (cp, cq, center, normal) = if off <= band {
+        (cp, cq, center, tangent)
+    } else if let Some(st) = super::tangent_chain_station::station_on_third(
+        brep,
+        (hi.edge, brep.half_edges[b.h].edge),
+        v,
+        (&sp, &sq),
+        third_edge,
+        third.on_p,
+        r,
+        (center, tangent),
+        band,
+    ) {
+        (st.cp, st.cq, st.center, st.normal)
+    } else {
         return Err(decline(
             format!(
                 "third edge {:?} misses the section contact by {off:.3e} (contacts {cp:?} / {cq:?})",
@@ -223,7 +240,8 @@ pub(super) fn junction_section(
             ),
             vp,
         ));
-    }
+    };
+    let on_third = if third.on_p { cp } else { cq };
     // The kept third edge carries the vertex: land the contact
     // exactly on it (the solved foot sits within the band, ~1e-6
     // off a seam line — an OpenLoop at validation otherwise).
@@ -240,8 +258,12 @@ pub(super) fn junction_section(
     } else {
         (cp, snapped)
     };
-    Ok((third, (cp, cq)))
+    Ok((third, (cp, cq), (center, normal)))
 }
+
+/// A junction's third edge, contacts `(P, Q)` and section `(centre,
+/// normal)`.
+pub(super) type JunctionSection = (Third, (Point3, Point3), (Point3, Vec3));
 
 /// A swept strip's own boundary rail between `a` and `b`: the
 /// iso-curve of the strip surface both points lie on. The walker's
@@ -295,6 +317,19 @@ pub(super) fn strip_rail(
         (false, true) => (va, at_bound(va, v0, v1, eps_v).unwrap_or(vb)),
         _ => (va, vb),
     };
+    // A point a hair inside the chart (a junction slid off its strip's
+    // stations, PK-736: v = 0.999999) is on the boundary when the
+    // boundary's own point there is within `band` of it.
+    let snap_v = |u: f64, v: f64, p: Point3| {
+        at_bound(v, v0, v1, eps_v)
+            .or_else(|| {
+                [v0, v1]
+                    .into_iter()
+                    .find(|&b| surface.point_at(u, b).distance_to(&p) <= band)
+            })
+            .unwrap_or(v)
+    };
+    let (va, vb) = (snap_v(ua, va, a), snap_v(ub, vb, b));
     let (curve, mut sa, mut sb) = if let (Some(fa), Some(fb)) =
         (at_bound(va, v0, v1, eps_v), at_bound(vb, v0, v1, eps_v))
         && fa == fb
