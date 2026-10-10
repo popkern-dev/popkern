@@ -72,13 +72,30 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         let surf_a = brep.faces.get(face_a).and_then(|f| f.surface.as_ref())?;
         let surf_b = brep.faces.get(face_b).and_then(|f| f.surface.as_ref())?;
 
-        // Check same orientation
-        if surf_a.orientation != surf_b.orientation {
+        // Check same surface (analytic comparison only; the locus,
+        // whatever its parameterisation or normal sign)
+        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
             return Some(false);
         }
 
-        // Check same surface (analytic comparison only)
-        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
+        // Same ORIENTED surface: the two faces' outward normals agree
+        // at the shared edge. The stored flags alone are not a
+        // comparison: a cap with normal +z marked reversed IS a face
+        // with normal −z marked forward (measured, PK-750: a rotated
+        // rod's bottom cap stayed split from a flush box's coplanar
+        // bottom along their chord while the top merged).
+        let mid = {
+            use popkern_core::geometry::curve::CurveEval as _;
+            let c = edge.curve.as_ref()?;
+            c.geometry.point_at(0.5 * (c.t_start + c.t_end))
+        };
+        let outward = |s: &popkern_core::geometry::surface::SurfaceOnFace| {
+            use popkern_core::geometry::surface::SurfaceEval as _;
+            let (u, v) = s.geometry.closest_point(&mid)?;
+            let n = s.geometry.normal_at(u, v);
+            Some(if s.orientation { n } else { n * -1.0 })
+        };
+        if outward(surf_a)?.dot(&outward(surf_b)?) <= 0.0 {
             return Some(false);
         }
 

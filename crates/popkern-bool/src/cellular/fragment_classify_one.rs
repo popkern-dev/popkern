@@ -15,7 +15,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::fragment_interior::{fragment_interior_sample, planar_outward_normal};
 use super::fragment_sample_helpers::{
-    non_shared_chord_midpoints, point_near_any_edge, sample_fragment_point,
+    non_shared_chord_midpoints, point_near_any_edge, point_near_any_surface, sample_fragment_point,
 };
 use crate::adaptive_precision::robust_point_in_solid_final;
 use crate::error::PointClassification;
@@ -260,6 +260,17 @@ pub(super) fn sample_and_classify(
                     brep_b,
                 )
                 .unwrap_or(shortcut)
+            } else if !cut && point_near_any_surface(other.0, other.1, &shortcut, eps_probe * 10.0)
+            {
+                // An UNCUT fragment is one class throughout, but its
+                // boundary may lie ON the other body: a box face
+                // tangent to a rod along its own edge put the
+                // midpoint on the rod and classified the face Inside
+                // while its mirror twin sampled its far edge (PK-750).
+                frag_surface
+                    .as_ref()
+                    .and_then(|(s, o)| fragment_interior_sample(graph, fragment, s, *o, true))
+                    .unwrap_or(shortcut)
             } else {
                 shortcut
             }

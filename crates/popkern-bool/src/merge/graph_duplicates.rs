@@ -38,8 +38,9 @@ const MIDPOINT_FRACTION: f64 = 0.05;
 /// docs).
 pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
     let mut to_remove: Vec<usize> = Vec::new();
+    let mut seam_substitutes: Vec<(super::graph::FaceRef, usize)> = Vec::new();
 
-    for he_indices in graph.face_edges.values() {
+    for (face, he_indices) in &graph.face_edges {
         let ends = |idx: usize| -> (Point3, Point3) {
             let he = &graph.half_edges[idx];
             (
@@ -70,18 +71,31 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
                     ENDPOINT_TOL * ENDPOINT_TOL,
                 )
             };
-            let is_dup = shared.iter().any(|&s| {
+            let dup_of = shared.iter().copied().find(|&s| {
                 let (sp0, sp1) = ends(s);
                 let same_ends = (close(&sp0, &p0) && close(&sp1, &p1))
                     || (close(&sp0, &p1) && close(&sp1, &p0));
                 same_ends && same_curve(curve_of(graph, idx), curve_of(graph, s), p0, p1)
             });
-            if is_dup {
+            if let Some(s) = dup_of {
                 to_remove.push(idx);
+                // The operand edge was this face's SEAM (both halves
+                // on the face): the record now carries the seam, and
+                // the chart must give it two border copies, not treat
+                // it as an interior cut (PK-750).
+                let twin = graph.half_edges[idx].twin;
+                if graph.half_edges[twin].face.as_ref() == Some(face) {
+                    seam_substitutes.push((*face, s));
+                }
             }
         }
     }
 
+    for (face, s) in seam_substitutes {
+        let twin = graph.half_edges[s].twin;
+        graph.seam_substitutes.insert((face, s));
+        graph.seam_substitutes.insert((face, twin));
+    }
     for &idx in &to_remove {
         if let Some(f) = graph.half_edges[idx].face
             && let Some(edges) = graph.face_edges.get_mut(&f)
@@ -120,8 +134,52 @@ fn same_curve(
         .geometry
         .point_at(0.5 * (operand.t_start + operand.t_end));
     let extent = p0.distance_to(&p1).max(mid.distance_to(&p0));
-    let Some(t) = shared.geometry.closest_point(&mid) else {
-        return true;
-    };
-    shared.geometry.point_at(t).distance_to(&mid) <= MIDPOINT_FRACTION * extent
+    distance_to_piece(shared, &mid) <= MIDPOINT_FRACTION * extent
+}
+
+/// The distance from `p` to the PIECE of `curve` over its own
+/// parameter window, not to its whole carrier. A record on a rim circle
+/// carries the full circle with a window `[0.75, 1.25]`. Projecting onto
+/// the carrier put the rim's OTHER arc (same end nodes, the far side of
+/// the circle) at distance 0, so a box whose caps are flush with a
+/// rod's dropped the rod's far rim arc as a "duplicate" and lost half
+/// its wall (PK-750).
+fn distance_to_piece(curve: &CurveOnEdge, p: &Point3) -> f64 {
+    closest_on_piece(curve, p).1
+}
+
+/// The closest point of `curve`'s PIECE (its own parameter window) to
+/// `p`: `(t, distance)`. Dense samples over the window seed a Newton
+/// refinement clamped to it.
+pub(crate) fn closest_on_piece(curve: &CurveOnEdge, p: &Point3) -> (f64, f64) {
+    const SAMPLES: usize = 32;
+    let (lo, hi) = (
+        curve.t_start.min(curve.t_end),
+        curve.t_start.max(curve.t_end),
+    );
+    let at = |t: f64| curve.geometry.point_at(t).distance_to(p);
+    let mut t = lo;
+    let mut best = at(lo);
+    for k in 1..=SAMPLES {
+        let s = lo + (hi - lo) * k as f64 / SAMPLES as f64;
+        let d = at(s);
+        if d < best {
+            (t, best) = (s, d);
+        }
+    }
+    for _ in 0..8 {
+        let diff = curve.geometry.point_at(t) - *p;
+        let d1 = curve.geometry.derivative_at(t, 1);
+        let fp = d1.dot(&d1) + diff.dot(&curve.geometry.derivative_at(t, 2));
+        if fp.abs() < 1e-30 {
+            break;
+        }
+        let next = (t - diff.dot(&d1) / fp).clamp(lo, hi);
+        let d = at(next);
+        if d >= best {
+            break;
+        }
+        (t, best) = (next, d);
+    }
+    (t, best)
 }

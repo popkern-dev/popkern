@@ -187,6 +187,10 @@ pub(crate) fn cellular_graph_merge(
         tolerance,
     );
 
+    for (face_ref, reason) in &walk_fallbacks {
+        crate::chart_walk_fallback::record_chart_walk_fallback(face_ref, reason);
+    }
+
     // Phase 6 (CELLULAR): Classify fragments by cell membership.
     let selections = super::classify_fragments::classify_fragments_cellular(
         &fragments,

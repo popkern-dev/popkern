@@ -6,6 +6,7 @@
 
 mod boundary_predicates;
 pub(crate) mod chart_boundary_substitute;
+pub(crate) mod chart_boundary_substitute_periodic;
 pub(crate) mod chart_branch_float;
 pub(crate) mod chart_branches;
 pub(crate) mod chart_cell_fold;

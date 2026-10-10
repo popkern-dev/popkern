@@ -113,24 +113,23 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
             let f = |z: f64| 0.5 * z * (r * r - z * z).sqrt() + 0.5 * r * r * (z / r).asin();
             4.0 * std::f64::consts::PI * big_r * (f(h) - f(-r))
         };
-        // Serves clean through 1e-3; at 1e-2 (3% of the tube radius)
-        // the assembly genuinely degrades and must DECLINE with its
-        // stranded-record diagnostic, never serve the torn body.
+        // Serves clean at every tolerance. At 1e-2 (3% of the tube
+        // radius) it declined until the torus's reversed meridian arcs
+        // found their crossings with the box (PK-750: a reversed edge's
+        // window errored and every crossing was dropped); it now serves
+        // validator-clean with the same volume, but 8 pieces stay fitted
+        // NURBS where every finer tolerance serves exact arcs (PK-779).
         match popkern_bool::subtraction(torus, box_, t, None) {
             Ok(b) => {
-                assert!(
-                    lin < 5e-3,
-                    "torus-box at {lin:e} served — if the coarse regime now \
-                     serves, it must be clean (below) and this pin updated"
-                );
                 assert!(
                     b.validate_all().is_empty(),
                     "torus-box at {lin:e} must be validator-clean"
                 );
-                assert_eq!(
-                    nurbs_edges(&b),
-                    0,
-                    "torus-box at {lin:e}: every rim and meridian piece is an exact arc"
+                let fitted = if lin < 5e-3 { 0 } else { 8 };
+                assert!(
+                    nurbs_edges(&b) <= fitted,
+                    "torus-box at {lin:e}: {} fitted pieces (at most {fitted}; PK-779 owns 1e-2)",
+                    nurbs_edges(&b)
                 );
                 let v = volume(&b);
                 let rel = (v - truth_torus).abs() / truth_torus;
@@ -139,17 +138,7 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
                     "torus-box at {lin:e}: vol {v:.4} vs {truth_torus:.4}"
                 );
             }
-            Err(e) => {
-                assert!(
-                    lin >= 5e-3,
-                    "torus-box at {lin:e} must serve, got decline: {e}"
-                );
-                let msg = format!("{e}");
-                assert!(
-                    msg.contains("stranded") || msg.contains("not closed") || msg.contains("gap"),
-                    "decline must carry assembly diagnostics: {msg}"
-                );
-            }
+            Err(e) => panic!("torus-box at {lin:e} must serve, got decline: {e}"),
         }
 
         // The same torus cut IN its equator plane (z = 0): the tool's

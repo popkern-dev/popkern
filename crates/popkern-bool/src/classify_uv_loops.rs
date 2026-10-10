@@ -5,6 +5,7 @@
 //! ratchet.
 
 use popkern_core::topology::{BRep, FaceHandle};
+use popkern_math::PortableMath;
 
 /// Polygon stations per CURVED pcurve in [`uv_point_in_loop`]: a full
 /// circle at 64 stations has sagitta r·(1 − cos(π/64)) ≈ 0.0012·r,
@@ -92,6 +93,18 @@ pub(crate) fn uv_point_in_loop(
 /// 0.67-off phantom on an ellipse-fronted top face that flipped a
 /// tool fragment to Inside — is rejected. Partial rings
 /// mid-pipeline still abstain entirely.
+///
+/// Near the rim the decision is EXACT, not abstained: the curved
+/// polygon's error is its measured chord sagitta, so outside twice that
+/// (plus linear tolerance) polygon parity is decisive, and inside it the
+/// hit is projected onto the true pcurve over the nearest segment's
+/// window and its side read against the ring's winding. Only a hit
+/// within linear tolerance of the rim abstains. The previous blanket
+/// band of 0.2% of the face's span (0.036 on a 9-wide cap) accepted
+/// rays crossing the cap plane up to 0.01 OUTSIDE a rod's rim: a point
+/// 1e-3 below the rim read Inside the rod, a coplanar cap's outward
+/// normal calibrated inverted, and a flush union dropped both copies of
+/// the overlap (PK-750).
 pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
         return true;
@@ -103,12 +116,10 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
     if !brep.half_edges.contains_key(start) {
         return true;
     }
-    // Collect each half-edge's pcurve segment, then chain them
-    // orientation-aware: a stored pcurve may run against the loop
-    // traversal (twin-shared spans), so each segment is flipped to
-    // continue from the previous tail.
-    let mut has_curved = false;
-    let mut segs: Vec<((f64, f64), (f64, f64))> = Vec::new();
+    // Each half-edge's pcurve as polygon segments, each remembering the
+    // pcurve window it chords (curved pcurves only).
+    let mut segs: Vec<Seg<'_>> = Vec::new();
+    let mut sagitta: f64 = 0.0;
     let mut he = start;
     let cap = brep.half_edges.len() + 1;
     for _ in 0..cap {
@@ -125,16 +136,27 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
         if linear_content {
             let p0 = pc.point_at(t0);
             let p1 = pc.point_at(t1);
-            segs.push(((p0.x, p0.y), (p1.x, p1.y)));
+            segs.push(Seg {
+                a: (p0.x, p0.y),
+                b: (p1.x, p1.y),
+                curve: None,
+            });
         } else {
-            has_curved = true;
-            // Curved pcurve: densify into chained sub-segments.
-            let n = 64;
+            // Curved pcurve: densify, measuring each chord's sagitta.
+            let n = CURVED_LOOP_STATIONS;
             let mut prev = pc.point_at(t0);
             for i in 1..=n {
-                let t = t0 + (t1 - t0) * i as f64 / n as f64;
-                let q = pc.point_at(t);
-                segs.push(((prev.x, prev.y), (q.x, q.y)));
+                let ta = t0 + (t1 - t0) * (i - 1) as f64 / n as f64;
+                let tb = t0 + (t1 - t0) * i as f64 / n as f64;
+                let q = pc.point_at(tb);
+                let m = pc.point_at(0.5 * (ta + tb));
+                let chord_mid = ((prev.x + q.x) * 0.5, (prev.y + q.y) * 0.5);
+                sagitta = sagitta.max((m.x - chord_mid.0).phypot(m.y - chord_mid.1));
+                segs.push(Seg {
+                    a: (prev.x, prev.y),
+                    b: (q.x, q.y),
+                    curve: Some((pc, ta, tb)),
+                });
                 prev = q;
             }
         }
@@ -146,78 +168,103 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
     if segs.len() < 3 {
         return true;
     }
-    let mut ring: Vec<(f64, f64)> = Vec::with_capacity(segs.len());
+    // Chain the segments head to tail (a stored pcurve may run against
+    // the traversal); `ring[k] -> ring[k + 1]` is segment k.
     let d2 = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2);
-    let (mut tail, first_tail) = {
-        // Orient the first segment by whichever end the SECOND
-        // segment continues from.
-        let (a0, a1) = segs[0];
-        let (b0, b1) = segs[1];
-        let fwd = d2(a1, b0).min(d2(a1, b1));
-        let rev = d2(a0, b0).min(d2(a0, b1));
-        if fwd <= rev {
-            ring.push(a0);
-            (a1, a0)
-        } else {
-            ring.push(a1);
-            (a0, a1)
-        }
+    let mut ring: Vec<(f64, f64)> = Vec::with_capacity(segs.len());
+    let mut chained: Vec<&Seg<'_>> = Vec::with_capacity(segs.len());
+    let mut tail = {
+        let (s0, s1) = (&segs[0], &segs[1]);
+        let fwd = d2(s0.b, s1.a).min(d2(s0.b, s1.b));
+        let rev = d2(s0.a, s1.a).min(d2(s0.a, s1.b));
+        ring.push(if fwd <= rev { s0.a } else { s0.b });
+        chained.push(s0);
+        if fwd <= rev { s0.b } else { s0.a }
     };
-    for &(p0, p1) in segs.iter().skip(1) {
-        if d2(tail, p0) <= d2(tail, p1) {
-            ring.push(p0);
-            tail = p1;
+    for seg in segs.iter().skip(1) {
+        if d2(tail, seg.a) <= d2(tail, seg.b) {
+            ring.push(seg.a);
+            tail = seg.b;
         } else {
-            ring.push(p1);
-            tail = p0;
+            ring.push(seg.b);
+            tail = seg.a;
         }
+        chained.push(seg);
     }
-    let _ = first_tail;
-    // Dead-band: within sampling error of the boundary, abstain
-    // (keep the hit) — the polygon is approximate for curved rims.
     let n = ring.len();
-    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-    for &(x, y) in &ring {
-        lo_u = lo_u.min(x);
-        hi_u = hi_u.max(x);
-        lo_v = lo_v.min(y);
-        hi_v = hi_v.max(y);
+    let crossings = (0..n)
+        .filter(|&i| {
+            let ((x0, y0), (x1, y1)) = (ring[i], ring[(i + 1) % n]);
+            (y0 > v) != (y1 > v) && x0 + (v - y0) / (y1 - y0) * (x1 - x0) > u
+        })
+        .count();
+    let polygon_inside = crossings % 2 == 1;
+    if sagitta <= 0.0 {
+        return polygon_inside; // linear ring: exact
     }
-    // The dead-band exists for SAMPLING error only: linear rings are
-    // exact and get none (a 1 mm band on an exact ring re-admitted
-    // the very phantoms the gate exists to reject).
-    let band = if has_curved {
-        0.002 * ((hi_u - lo_u) + (hi_v - lo_v)).max(1e-9)
-    } else {
-        0.0
-    };
-    if band > 0.0 {
-        let mut min_d = f64::MAX;
-        for i in 0..n {
-            let (x0, y0) = ring[i];
-            let (x1, y1) = ring[(i + 1) % n];
-            let (dx, dy) = (x1 - x0, y1 - y0);
-            let l2 = (dx * dx + dy * dy).max(1e-300);
-            let t = (((u - x0) * dx + (v - y0) * dy) / l2).clamp(0.0, 1.0);
-            let d = ((u - x0 - dx * t).powi(2) + (v - y0 - dy * t).powi(2)).sqrt();
-            min_d = min_d.min(d);
-        }
-        if min_d < band {
-            return true;
-        }
-    }
-    let mut crossings = 0;
+    // Nearest segment; outside the sampling band the polygon decides.
+    let tol = brep.tolerance.linear();
+    let band = 2.0 * sagitta + tol;
+    let (mut near, mut near_d) = (0, f64::MAX);
     for i in 0..n {
-        let (x0, y0) = ring[i];
-        let (x1, y1) = ring[(i + 1) % n];
-        if (y0 > v) != (y1 > v) {
-            let xc = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
-            if xc > u {
-                crossings += 1;
-            }
+        let ((x0, y0), (x1, y1)) = (ring[i], ring[(i + 1) % n]);
+        let (dx, dy) = (x1 - x0, y1 - y0);
+        let l2 = (dx * dx + dy * dy).max(1e-300);
+        let t = (((u - x0) * dx + (v - y0) * dy) / l2).clamp(0.0, 1.0);
+        let d = (u - x0 - dx * t).phypot(v - y0 - dy * t);
+        if d < near_d {
+            (near, near_d) = (i, d);
         }
     }
-    crossings % 2 == 1
+    if near_d >= band {
+        return polygon_inside;
+    }
+    let Some((pc, ta, tb)) = chained[near].curve else {
+        return polygon_inside; // nearest is an exact linear piece
+    };
+    // Exact foot on the pcurve over the segment's window widened by one
+    // segment each side (ternary search on a locally unimodal distance).
+    let w = (tb - ta).abs();
+    let (mut lo, mut hi) = (ta.min(tb) - w, ta.max(tb) + w);
+    let (r0, r1) = pc.parameter_range();
+    (lo, hi) = (lo.max(r0.min(r1)), hi.min(r0.max(r1)));
+    let dist = |t: f64| {
+        let p = pc.point_at(t);
+        (p.x - u).phypot(p.y - v)
+    };
+    for _ in 0..60 {
+        let (m1, m2) = (lo + (hi - lo) / 3.0, hi - (hi - lo) / 3.0);
+        if dist(m1) <= dist(m2) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    let tf = 0.5 * (lo + hi);
+    if dist(tf) <= tol {
+        return true; // on the rim within tolerance: abstain (keep)
+    }
+    // Side of the hit against the ring's traversal: the segment's
+    // traversal direction (ring order) and the ring's winding.
+    let foot = pc.point_at(tf);
+    let (a, b) = (ring[near], ring[(near + 1) % n]);
+    let along = (b.0 - a.0, b.1 - a.1);
+    let left = along.0 * (v - foot.y) - along.1 * (u - foot.x) > 0.0;
+    let area2: f64 = (0..n)
+        .map(|i| {
+            let ((x0, y0), (x1, y1)) = (ring[i], ring[(i + 1) % n]);
+            x0 * y1 - x1 * y0
+        })
+        .sum();
+    left == (area2 > 0.0)
+}
+
+/// One polygon segment of a loop ring and, for a curved pcurve, the
+/// pcurve window it chords.
+struct Seg<'a> {
+    a: (f64, f64),
+    b: (f64, f64),
+    curve: Option<(&'a popkern_core::geometry::pcurve::Pcurve, f64, f64)>,
 }
 
 /// True when the surface hit at `(u, v)` lands inside one of the

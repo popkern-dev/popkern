@@ -140,7 +140,14 @@ fn detect_edges_vs_faces(
             None => continue,
         };
         let (edge_curve, t_range) = match stored {
-            Some(c) => (c.geometry.clone(), (c.t_start, c.t_end)),
+            // The solver takes an ASCENDING window: a curve stored
+            // with t_start > t_end (a reversed arc) errored "t_range
+            // invalid" and every crossing of that edge was silently
+            // dropped (measured, PK-750: a sketch rod's top half-rims).
+            Some(c) => (
+                c.geometry.clone(),
+                (c.t_start.min(c.t_end), c.t_start.max(c.t_end)),
+            ),
             None => {
                 let direction = v_end - v_start;
                 if direction.length_squared() < tolerance.numerical_floor().powi(2) {
@@ -203,6 +210,20 @@ fn detect_edges_vs_faces(
                     u_min = mid - 0.5 * period;
                     u_max = mid + 0.5 * period;
                 }
+            }
+
+            // An edge lying IN the surface has no crossings, only a
+            // coincidence (see `edge_lies_on_surface`).
+            if crate::intersect_edge_face_coincident::edge_lies_on_surface(
+                &edge_curve,
+                t_range,
+                surface_on_face,
+                tolerance,
+            ) {
+                if popkern_core::trace::trace_enabled("edge-face-hits") {
+                    eprintln!("  [hit-skip] edge {edge_h:?} lies on face {face_h:?}'s surface");
+                }
+                continue;
             }
 
             // COMPLETE crossing enumeration (PK-679): the tuned grid's
@@ -306,7 +327,16 @@ fn detect_edges_vs_faces(
                         // open loop).
                         let eps = tolerance.linear();
                         let (t_lo, t_hi) = (t_range.0.min(t_range.1), t_range.0.max(t_range.1));
-                        if t < t_lo + eps || t > t_hi - eps {
+                        if t < t_lo + eps
+                            || t > t_hi - eps
+                            || crate::intersect_edge_face_coincident::touches_at_endpoint(
+                                &edge_curve,
+                                (t_lo, t_hi),
+                                t,
+                                surface_on_face,
+                                tolerance,
+                            )
+                        {
                             if popkern_core::trace::trace_enabled("edge-face-hits") {
                                 eprintln!(
                                     "  [hit-reject] endpoint t={t:.4} window [{t_lo:.4},{t_hi:.4}] edge {edge_h:?} face {face_h:?}"

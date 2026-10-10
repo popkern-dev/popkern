@@ -457,6 +457,14 @@ fn build_face_subdivision_inner(
             surface,
             original_brep,
         );
+    } else if !overlap_pairs.is_empty() {
+        super::chart_boundary_substitute_periodic::resolve_periodic_boundary_substitutes(
+            graph,
+            face,
+            &mut sub,
+            original_brep,
+            tolerance,
+        );
     }
 
     // GAP-SUBSTITUTE completion (non-periodic charts): the coincident
@@ -628,7 +636,7 @@ fn build_face_subdivision_inner(
             if popkern_core::trace::trace_enabled("branch-pairing") {
                 eprintln!("  [bp-face] {face:?}");
             }
-            anchor_periodic(graph, &mut sub, period, &ends, ring_sigma)
+            anchor_periodic(graph, face, &mut sub, period, &ends, ring_sigma)
         }
         None => {
             if let Some(s) = ring_sigma.or_else(|| boundary_shoelace_sigma(graph, &sub)) {

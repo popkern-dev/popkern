@@ -23,6 +23,7 @@ use crate::merge::graph::IntersectionGraph;
 /// bounded balance search, then per-node u-clustering into branches.
 pub(super) fn anchor_periodic(
     graph: &IntersectionGraph,
+    face: &crate::merge::graph::FaceRef,
     sub: &mut FaceChartSubdivision,
     period: f64,
     ends: &dyn Fn(usize) -> (usize, usize),
@@ -39,15 +40,21 @@ pub(super) fn anchor_periodic(
     // [0,6.28] wall strip, its branch clusters split 1-in/0-out, and
     // the wall declined to the 3D-Newell fallback). Shared sources
     // are excluded.
+    // A Shared pair that took over the face's own seam (the
+    // duplicate-cover pass removed the operand seam in its favour) IS
+    // the seam: PK-750's flush box removed a rod's seam for a cut line
+    // lying on it, and the chart, seeing no seam, anchored the rim
+    // record a period off.
     let seam_hes: BTreeSet<usize> = hes
         .iter()
         .copied()
         .filter(|&h| {
-            sub.embeddings[&h].seam_like
-                && !matches!(
-                    graph.half_edges[h].source,
-                    crate::merge::graph::EdgeSource::Shared { .. }
-                )
+            graph.seam_substitutes.contains(&(*face, h))
+                || (sub.embeddings[&h].seam_like
+                    && !matches!(
+                        graph.half_edges[h].source,
+                        crate::merge::graph::EdgeSource::Shared { .. }
+                    ))
         })
         .collect();
     let seam_nodes: BTreeSet<usize> = seam_hes

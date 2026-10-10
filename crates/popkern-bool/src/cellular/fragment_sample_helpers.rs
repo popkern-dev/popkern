@@ -5,6 +5,7 @@
 
 use popkern_core::topology::BRep;
 
+use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::tolerance::Tolerance;
 
 use crate::merge::graph::IntersectionGraph;
@@ -221,4 +222,31 @@ pub(super) fn is_degenerate_fragment(
         }
         _ => false,
     }
+}
+
+/// Whether `p` lies within `band` of a face surface of `brep` (face
+/// boxes pre-filter, then the exact closest point on the carrier). The
+/// carrier, not the trimmed face, decides, so a hit can over-report;
+/// callers use it only to switch to an interior sample, never to
+/// decide a class (PK-750).
+pub(super) fn point_near_any_surface(
+    brep: &BRep,
+    aabbs: &[(popkern_core::topology::FaceHandle, Aabb)],
+    p: &popkern_core::geometry::Point3,
+    band: f64,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let probe = Aabb { min: *p, max: *p };
+    aabbs.iter().any(|(face, b)| {
+        b.overlaps(&probe, band)
+            && brep
+                .faces
+                .get(*face)
+                .and_then(|f| f.surface.as_ref())
+                .and_then(|s| {
+                    let (u, v) = s.geometry.closest_point(p)?;
+                    Some(s.geometry.point_at(u, v).distance_to(p) < band)
+                })
+                .unwrap_or(false)
+    })
 }

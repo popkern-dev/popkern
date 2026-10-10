@@ -114,6 +114,11 @@ pub(crate) struct IntersectionGraph {
     /// unordered iteration made boolean output face handles vary
     /// run-to-run (PK-099 determinism hunt).
     pub face_edges: BTreeMap<FaceRef, Vec<usize>>,
+    /// Shared half-edges that took over an operand SEAM on a face: the
+    /// duplicate-cover pass removed the seam's own half-edges in their
+    /// favour, so the chart treats them as that face's seam copies
+    /// (PK-750; see `graph_duplicates`).
+    pub seam_substitutes: std::collections::BTreeSet<(FaceRef, usize)>,
 }
 
 impl IntersectionGraph {
@@ -123,6 +128,7 @@ impl IntersectionGraph {
             nodes: Vec::new(),
             half_edges: Vec::new(),
             face_edges: BTreeMap::new(),
+            seam_substitutes: std::collections::BTreeSet::new(),
         }
     }
 
