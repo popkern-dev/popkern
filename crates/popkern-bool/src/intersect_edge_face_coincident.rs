@@ -60,6 +60,95 @@ pub(crate) fn touches_at_endpoint(
     edge_lies_on_surface(curve, (t, end), surface, tolerance)
 }
 
+/// Positions whose parameter box bounds `face` for the edge-face trim
+/// test. On a PLANE the loop's vertices alone under-cover any curved
+/// boundary: a seat disc with a notch has a few vertices and a rim
+/// bulging far beyond them, and the hit of a pocket's seam line inside
+/// the disc was rejected as off the face (measured, PK-751: the record
+/// ring then crossed the seam unsplit and the pocket wall's chart
+/// overwrapped). There, each conic edge adds its exact extremes along
+/// the plane's OWN u and v axes over its window, and a NURBS edge its
+/// (in-plane) control points: the box is the face's, in any rotation. A
+/// 3D bounding box projected into a rotated plane's frame is far larger
+/// than the face and re-admits the phantom hits the test exists to
+/// reject (measured: a scene rotated 30° served 1.6e-3 too much
+/// volume). Other charts keep their vertex positions (their u is
+/// periodic and their trim test is tuned around it).
+pub(crate) fn trim_box_positions(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+) -> Vec<popkern_core::geometry::Point3> {
+    let mut points = brep.face_outer_loop_positions(face);
+    let Some(f) = brep.faces.get(face) else {
+        return points;
+    };
+    let Some(SurfaceGeometry::Plane { u_axis, v_axis, .. }) =
+        f.surface.as_ref().map(|s| &s.geometry)
+    else {
+        return points;
+    };
+    let Some(l) = brep.loops.get(f.outer_loop) else {
+        return points;
+    };
+    let start = l.half_edge;
+    let mut he = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(h) = brep.half_edges.get(he) else {
+            break;
+        };
+        if let Some(c) = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()) {
+            in_plane_extremes(c, (*u_axis, *v_axis), &mut points);
+        }
+        he = h.next;
+        if he == start {
+            break;
+        }
+    }
+    points
+}
+
+/// The points of `c` extreme along each of `axes` over its window (exact
+/// for circles, arcs and ellipses), or its control points (NURBS).
+fn in_plane_extremes(
+    c: &popkern_core::geometry::curve::CurveOnEdge,
+    axes: (popkern_core::geometry::Vec3, popkern_core::geometry::Vec3),
+    points: &mut Vec<popkern_core::geometry::Point3>,
+) {
+    use popkern_core::geometry::PortableMath as _;
+    match &c.geometry {
+        CurveGeometry::Circle { center, .. }
+        | CurveGeometry::Arc { center, .. }
+        | CurveGeometry::Ellipse { center, .. } => {
+            // p(t) = centre + U cos t + V sin t, read back through the
+            // curve's own evaluator.
+            let u = c.geometry.point_at(0.0) - *center;
+            let v = c.geometry.point_at(std::f64::consts::FRAC_PI_2) - *center;
+            let (lo, hi) = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+            let tau = std::f64::consts::TAU;
+            let full = !(lo.is_finite() && hi.is_finite()) || hi - lo >= tau;
+            if !full {
+                points.push(c.geometry.point_at(lo));
+                points.push(c.geometry.point_at(hi));
+            }
+            for axis in [axes.0, axes.1] {
+                let peak = v.dot(&axis).patan2(u.dot(&axis));
+                for base in [peak, peak + std::f64::consts::PI] {
+                    let t = if full {
+                        base
+                    } else {
+                        base + ((lo - base) / tau).ceil() * tau
+                    };
+                    if full || t <= hi {
+                        points.push(*center + u * t.pcos() + v * t.psin());
+                    }
+                }
+            }
+        }
+        CurveGeometry::Nurbs(n) => points.extend(n.control_points.iter().copied()),
+        _ => crate::intersect::conservative_curve_extent(c, points),
+    }
+}
+
 #[cfg(test)]
 #[path = "intersect_edge_face_coincident_tests.rs"]
 mod tests;

@@ -281,7 +281,8 @@ fn detect_edges_vs_faces(
             // window above): a closed wall's loop visits its 1–2 seam
             // vertices twice, so the RAW position count lies about
             // the trim information available.
-            let face_positions = face_brep.face_outer_loop_positions(*face_h);
+            let face_positions =
+                crate::intersect_edge_face_coincident::trim_box_positions(face_brep, *face_h);
             let trim_box = if distinct_positions >= 3 {
                 Some(
                     popkern_core::geometry::uv_projection::exact_bounded_parameter_range(

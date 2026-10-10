@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""OpenCASCADE fuse oracle: an independent union of popkern's operands
-(PK-758).
+"""OpenCASCADE boolean oracle: an independent union (or cut) of popkern's
+operands (PK-758, PK-751).
 
 Usage:
-    <ocp-venv>/bin/python tools/occ-oracle/occ_fuse.py A.step B.step [C.step ...]
+    <ocp-venv>/bin/python tools/occ-oracle/occ_fuse.py [--op fuse|cut] A.step B.step [C.step ...]
 
-Reads every solid of every file, fuses them all with BRepAlgoAPI_Fuse,
-and reports the fused shape's validity and adaptive volume (1e-9
-relative, BRepGProp). A popkern union served from the same operands is
-compared against this volume: the two kernels share no boolean code.
+Reads every solid of every file and folds them left to right with
+BRepAlgoAPI_Fuse (default) or BRepAlgoAPI_Cut (the first operand minus
+each later one), then reports the result's validity and adaptive volume
+(1e-9 relative, BRepGProp). A popkern result served from the same
+operands is compared against this volume: the two kernels share no
+boolean code.
 
 Output: one JSON object on stdout:
     done      the fuse completed
@@ -31,8 +33,8 @@ def load(path):
     return reader.OneShape()
 
 
-def main(paths):
-    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+def main(paths, op="fuse"):
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
     from OCP.BRepCheck import BRepCheck_Analyzer
     from OCP.BRepGProp import BRepGProp
     from OCP.GProp import GProp_GProps
@@ -42,12 +44,12 @@ def main(paths):
     shapes = [load(p) for p in paths]
     fused = shapes[0]
     for other in shapes[1:]:
-        op = BRepAlgoAPI_Fuse(fused, other)
-        op.Build()
-        if not op.IsDone():
+        algo = BRepAlgoAPI_Cut(fused, other) if op == "cut" else BRepAlgoAPI_Fuse(fused, other)
+        algo.Build()
+        if not algo.IsDone():
             print(json.dumps({"done": False}))
             return 1
-        fused = op.Shape()
+        fused = algo.Shape()
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(fused, props, 1e-9)
     solids = 0
@@ -69,4 +71,8 @@ def main(paths):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    args = sys.argv[1:]
+    op = "fuse"
+    if len(args) >= 2 and args[0] == "--op":
+        op, args = args[1], args[2:]
+    sys.exit(main(args, op))

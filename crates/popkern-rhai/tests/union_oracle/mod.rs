@@ -18,11 +18,24 @@ pub fn run(prelude: &str, body: &str, name: &str) -> Result<popkern_script::Mode
 /// OCC's verdict on `served` (one valid solid) and its own fuse of the
 /// `operands` (each a body expression over `m`, after `prelude`):
 /// `(served volume, fused volume)`, or `None` without the OCP venv.
+#[allow(dead_code)] // each test binary uses the operations it needs
 pub fn occ_volumes(
     prelude: &str,
     operands: &[&str],
     served: &mut popkern_script::Model,
     name: &str,
+) -> Option<(f64, f64)> {
+    occ_volumes_op(prelude, operands, served, name, "fuse")
+}
+
+/// [`occ_volumes`] for OCC's `op`: "fuse", or "cut" (the first operand
+/// minus each later one).
+pub fn occ_volumes_op(
+    prelude: &str,
+    operands: &[&str],
+    served: &mut popkern_script::Model,
+    name: &str,
+    op: &str,
 ) -> Option<(f64, f64)> {
     let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
     let python = home.join("venvs/ocp/bin/python");
@@ -66,7 +79,15 @@ pub fn occ_volumes(
         parts.push(path);
     }
     let refs: Vec<&std::path::Path> = parts.iter().map(|p| p.as_path()).collect();
-    let fused = oracle("occ_fuse.py", &refs, &[]);
+    let fused = {
+        let out = std::process::Command::new(&python)
+            .arg(tools.join("occ_fuse.py"))
+            .args(["--op", op])
+            .args(&refs)
+            .output()
+            .expect("oracle");
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).expect("oracle json")
+    };
     assert_eq!(fused["done"], true, "{name}: OCC fuse {fused}");
     Some((
         served_volume,
