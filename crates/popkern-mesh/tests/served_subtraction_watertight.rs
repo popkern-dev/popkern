@@ -36,19 +36,18 @@ fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
         .brep
 }
 
-#[test]
-fn served_subtraction_watertightness() {
-    let tol = Tolerance::default();
-    let part = rim_filleted_cylinder(tol);
-    let cutter = BRep::unit_cube(tol)
+fn cube_cutter(tol: Tolerance) -> BRep {
+    BRep::unit_cube(tol)
         .expect("cube")
         .transform(&Transform3::scale_uniform(1.8))
         .expect("scale")
         .transform(&Transform3::translation(-0.9, -0.9, 0.6))
-        .expect("translate");
-    let result = popkern_bool::subtraction(part, cutter, tol, None).expect("difference");
+        .expect("translate")
+}
 
-    let mesh = popkern_mesh::tessellate(&result, &popkern_mesh::TessellationOptions::default())
+/// Open mesh edges of `result`'s tessellation (welded at 1e-6).
+fn open_mesh_edges(result: &BRep) -> usize {
+    let mesh = popkern_mesh::tessellate(result, &popkern_mesh::TessellationOptions::default())
         .expect("tessellation");
     let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
     let mut canon: Vec<Point3> = Vec::new();
@@ -77,9 +76,54 @@ fn served_subtraction_watertightness() {
             *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
         }
     }
-    let open = counts.values().filter(|&&c| c == 1).count();
+    counts.values().filter(|&&c| c == 1).count()
+}
+
+#[test]
+fn served_subtraction_watertightness() {
+    let tol = Tolerance::default();
+    let result = popkern_bool::subtraction(rim_filleted_cylinder(tol), cube_cutter(tol), tol, None)
+        .expect("difference");
+    let open = open_mesh_edges(&result);
     assert_eq!(
         open, 0,
         "served subtraction must tessellate watertight (PK-295), {open} open mesh edges"
+    );
+}
+
+/// The fillet torus band's boundary on the cylinder lies EXACTLY on the
+/// torus's v = 0 tube seam (PK-774). A rim circle carrying centre
+/// roundoff (a fitted 1.7999999999999987 for 1.8) put the boundary a
+/// hair below the seam, the record points projected to v = 2π − ε, the
+/// walk split the band's records across the seam and the subtraction
+/// left a loop open by 0.87. The band's embeddings now fold into its own
+/// circular v window, so every nudge serves the same watertight body.
+#[test]
+fn a_band_bounded_on_its_v_seam_serves_whatever_side_roundoff_puts_it() {
+    let tol = Tolerance::default();
+    let mut faces = Vec::new();
+    for dz in [0.0, -1.3e-15, 1.0e-14, -1.0e-14, 3.0e-14] {
+        let mut part = rim_filleted_cylinder(tol);
+        let mut nudged = 0;
+        for d in part.edges.values_mut() {
+            if let Some(c) = d.curve.as_mut()
+                && let popkern_core::geometry::curve::CurveGeometry::Arc { center, radius, .. } =
+                    &mut c.geometry
+                && (center.z - 1.8).abs() < 1e-9
+                && (*radius - 1.0).abs() < 1e-9
+            {
+                center.z += dz;
+                nudged += 1;
+            }
+        }
+        assert_eq!(nudged, 1, "the band's cylinder-side rim circle");
+        let result = popkern_bool::subtraction(part, cube_cutter(tol), tol, None)
+            .unwrap_or_else(|e| panic!("dz {dz:e}: {e:?}"));
+        assert_eq!(open_mesh_edges(&result), 0, "dz {dz:e}: open mesh edges");
+        faces.push(result.faces.len());
+    }
+    assert!(
+        faces.windows(2).all(|w| w[0] == w[1]),
+        "face counts {faces:?}"
     );
 }

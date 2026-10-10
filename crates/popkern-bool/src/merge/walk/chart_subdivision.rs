@@ -300,6 +300,13 @@ fn build_face_subdivision_inner(
     // by whole-period shifts, and the rest of the pipeline runs the
     // aperiodic path. Faces that WRAP a period (no resolvable cell)
     // remain out of scope and take the recorded 3D-Newell fallback.
+    // A v-bounded band (see below) folds its embeddings' v into its own
+    // v window: a record point ON the band's v-seam boundary projects
+    // to v = 2π − ε or +ε by roundoff, a whole period from the band
+    // (measured, PK-774: a rim fillet torus band minus a cube, the
+    // band's records split across the seam and the walk read one wound
+    // orbit — a loop left open by 0.87).
+    let mut band_window = None;
     let cell_fold = if v_period.is_some() {
         match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
             Some(cell) => Some((cell, u_period, v_period)),
@@ -315,11 +322,16 @@ fn build_face_subdivision_inner(
             // serve kept two once-used rim circles). Faces wrapping
             // BOTH periods (a closed profile revolved full circle as
             // one face) stay out of scope and decline.
-            None if face_v_extent_bounded(original_brep, face.face, v_period) => None,
-            None => {
-                sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
-                return sub;
-            }
+            None => match face_v_window(original_brep, face.face, v_period) {
+                Some(window) => {
+                    band_window = Some(window);
+                    None
+                }
+                None => {
+                    sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
+                    return sub;
+                }
+            },
         }
     } else {
         None
@@ -354,7 +366,23 @@ fn build_face_subdivision_inner(
     }
     if let Some((cell, pu, pv)) = &cell_fold {
         super::chart_cell_fold::fold_embeddings_into_cell(
-            graph, surface, &mut sub, cell, pu, pv, face,
+            graph,
+            surface,
+            &mut sub,
+            (cell.u_range, cell.v_range),
+            pu,
+            pv,
+            face,
+        );
+    } else if let Some(window) = band_window {
+        super::chart_cell_fold::fold_embeddings_into_cell(
+            graph,
+            surface,
+            &mut sub,
+            ((0.0, 0.0), window),
+            &None,
+            &v_period,
+            face,
         );
     }
     sub.u_period = u_period;
@@ -637,22 +665,22 @@ pub(crate) fn face_surface<'a>(
     Some((&s.geometry, s.orientation))
 }
 
-/// True when the face's boundary pcurves span strictly less than the
-/// surface's v-period: the face is a v-bounded band of a
-/// doubly-periodic surface, and its chart never touches the v-seam.
-fn face_v_extent_bounded(
+/// The face's v window `(lo, hi)` when its boundary pcurves span
+/// strictly less than the surface's v-period: the face is a v-bounded
+/// band of a doubly-periodic surface, and its chart never needs the
+/// v-seam. The window is the smallest CIRCULAR arc covering every
+/// boundary sample (the complement of the largest gap between them,
+/// mod the period), so a band whose boundary lies on the v-seam, its
+/// samples split between 2π − ε and +ε by roundoff, still reads as one
+/// band (PK-774).
+fn face_v_window(
     brep: &popkern_core::topology::BRep,
     face: popkern_core::topology::FaceHandle,
     v_period: Option<f64>,
-) -> bool {
-    let Some(period) = v_period else {
-        return false;
-    };
-    let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
-        return false;
-    };
-    let mut lo = f64::INFINITY;
-    let mut hi = f64::NEG_INFINITY;
+) -> Option<(f64, f64)> {
+    let period = v_period?;
+    let boundary = crate::clip::face_uv_boundary(brep, face)?;
+    let mut vs: Vec<f64> = Vec::new();
     for contour in
         std::iter::once(boundary).chain(crate::clip::face_uv_inner_boundaries(brep, face))
     {
@@ -660,10 +688,22 @@ fn face_v_extent_bounded(
             let (t0, t1) = pcurve.parameter_range();
             for i in 0..=16 {
                 let q = pcurve.point_at(t0 + (t1 - t0) * i as f64 / 16.0);
-                lo = lo.min(q.y);
-                hi = hi.max(q.y);
+                if q.y.is_finite() {
+                    vs.push(q.y.rem_euclid(period));
+                }
             }
         }
     }
-    lo.is_finite() && hi - lo < period * (1.0 - 1.0e-6)
+    vs.sort_by(f64::total_cmp);
+    let (first, last) = (*vs.first()?, *vs.last()?);
+    // The largest gap between consecutive samples, the wrap included.
+    let (mut gap, mut start) = (first + period - last, first);
+    for w in vs.windows(2) {
+        if w[1] - w[0] > gap {
+            gap = w[1] - w[0];
+            start = w[1];
+        }
+    }
+    let extent = period - gap;
+    (extent < period * (1.0 - 1.0e-6)).then_some((start, start + extent))
 }

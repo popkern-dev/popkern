@@ -7,16 +7,16 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::chart_subdivision::FaceChartSubdivision;
-use crate::clip::chart_cell::ChartCell;
 use crate::merge::graph::{FaceRef, IntersectionGraph};
 
-/// Fold every embedding of `sub` into `cell` by whole-period shifts
-/// per run, anchored to the run's graph-node endpoints.
+/// Fold every embedding of `sub` into the chart window `cell` (its u
+/// and v ranges) by whole-period shifts per run, anchored to the run's
+/// graph-node endpoints. An axis without a period is left alone.
 pub(crate) fn fold_embeddings_into_cell(
     graph: &IntersectionGraph,
     surface: &SurfaceGeometry,
     sub: &mut FaceChartSubdivision,
-    cell: &ChartCell,
+    cell: ((f64, f64), (f64, f64)),
     pu: &Option<f64>,
     pv: &Option<f64>,
     face: &FaceRef,
@@ -41,10 +41,7 @@ pub(crate) fn fold_embeddings_into_cell(
     let node_uv = |n: usize| -> Option<(f64, f64)> {
         let pos = graph.nodes[n].position;
         let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, &pos)?;
-        Some((
-            fold_to_cell(u, cell.u_range, pu),
-            fold_to_cell(v, cell.v_range, pv),
-        ))
+        Some((fold_to_cell(u, cell.0, pu), fold_to_cell(v, cell.1, pv)))
     };
     let keys: Vec<usize> = sub.embeddings.keys().copied().collect();
     for h in keys {
@@ -76,22 +73,8 @@ pub(crate) fn fold_embeddings_into_cell(
             }
         };
         let (a0, a1) = (node_uv(n0), node_uv(n1));
-        let du = anchor(
-            pu,
-            start.0,
-            end.0,
-            a0.map(|q| q.0),
-            a1.map(|q| q.0),
-            cell.u_range,
-        );
-        let dv = anchor(
-            pv,
-            start.1,
-            end.1,
-            a0.map(|q| q.1),
-            a1.map(|q| q.1),
-            cell.v_range,
-        );
+        let du = anchor(pu, start.0, end.0, a0.map(|q| q.0), a1.map(|q| q.0), cell.0);
+        let dv = anchor(pv, start.1, end.1, a0.map(|q| q.1), a1.map(|q| q.1), cell.1);
         if du != 0.0 || dv != 0.0 {
             for q in emb.uv.iter_mut() {
                 q.0 += du;
