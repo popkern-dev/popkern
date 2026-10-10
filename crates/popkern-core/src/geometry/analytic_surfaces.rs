@@ -341,7 +341,11 @@ impl SurfaceEval for SurfaceGeometry {
         if let SurfaceGeometry::Nurbs(nurbs) = self {
             return nurbs.closest_point(point);
         }
-        closest_point_gauss_newton_bounded(self, point, self.is_periodic())
+        // Analytic surfaces invert their own parameterisation exactly
+        // (PK-737: the multi-start missed a near-axis cylinder foot by
+        // 0.18); the patch types keep the bounded multi-start.
+        super::analytic_closest::analytic_closest_point(self, point)
+            .or_else(|| closest_point_gauss_newton_bounded(self, point, self.is_periodic()))
     }
 
     fn bounding_box(&self, u_range: (f64, f64), v_range: (f64, f64)) -> Aabb {

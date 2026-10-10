@@ -67,11 +67,11 @@ pub(super) fn chain_links<'a>(
         };
         let p_trim = (
             p_trim.0,
-            verified_circle(p_trim.1, support(p).as_ref(), tolerance),
+            verified_circle(p_trim.0, p_trim.1, support(p).as_ref(), tolerance),
         );
         let q_trim = (
             q_trim.0,
-            verified_circle(q_trim.1, support(q).as_ref(), tolerance),
+            verified_circle(q_trim.0, q_trim.1, support(q).as_ref(), tolerance),
         );
         if matches!(eg.analysis.convexity, Convexity::Mixed) {
             return Err(decline(format!("edge {edge:?} changes convexity"), at));

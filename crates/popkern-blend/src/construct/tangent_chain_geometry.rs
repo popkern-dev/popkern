@@ -163,7 +163,7 @@ pub(super) fn exact_section(
 ) -> Option<(Point3, Point3, Point3)> {
     let n = n.normalized()?;
     let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(n);
-    let foot = |s: &SurfaceGeometry, c: Point3| -> Option<Point3> { exact_foot(s, c) };
+    let foot = |s: &SurfaceGeometry, c: Point3| -> Option<Point3> { surface_foot(s, c) };
     let resid = |a: f64, b: f64| -> Option<[f64; 2]> {
         let c = v + e1 * a + e2 * b;
         Some([
@@ -338,8 +338,16 @@ pub(super) fn substitute(brep: &mut BRep, old: HalfEdgeHandle, new: HalfEdgeHand
 }
 
 /// `circle` when its points lie on `support` within 10 × the linear
-/// tolerance (16 samples), else `None` — the fitted trim stands in.
+/// tolerance (16 samples) AND it carries the fitted `trim` (the trim's
+/// samples lie on it, within 5% of its radius: fitted trims stray
+/// ~1e-3 from the exact circle, a misplaced circle by its whole offset),
+/// else `None`: the fitted trim stands in. On an unbounded support the
+/// first test alone cannot place the circle. A pocket-floor rim's wall
+/// circle carried the cylinder origin's height (z = 0 for contacts at
+/// z = 10) and lies on the infinite wall; only a failing multi-start
+/// projection rejected it, until PK-737 made the projection exact.
 pub(super) fn verified_circle(
+    trim: &NurbsCurve,
     circle: Circle,
     support: Option<&SurfaceGeometry>,
     tolerance: &popkern_core::tolerance::Tolerance,
@@ -356,50 +364,25 @@ pub(super) fn verified_circle(
             .map(|(u, v)| support.point_at(u, v).distance_to(&p) <= band)
             .unwrap_or(false)
     });
-    on.then_some((center, normal, radius))
+    // The fitted trim's samples on the circle.
+    let carry = (band * 10.0).max(0.05 * radius);
+    let (t0, t1) = trim.parameter_range();
+    let carries = (0..=8).all(|k| {
+        let q = trim.point_at(t0 + (t1 - t0) * f64::from(k) / 8.0);
+        let d = q - center;
+        let axial = d.dot(&n);
+        let radial = (d - n * axial).length();
+        axial.abs().phypot(radial - radius) <= carry
+    });
+    (on && carries).then_some((center, normal, radius))
 }
 
-/// The foot of `p` on `surface`: exact for the analytic primitives (the
-/// generic Gauss–Newton projection stalled 0.18 off a cylinder for a
-/// point one unit from its axis — measured on a rounded rim's r = 7
-/// junction), the surface's own projection otherwise.
-pub(super) fn exact_foot(surface: &SurfaceGeometry, p: Point3) -> Option<Point3> {
-    match surface {
-        SurfaceGeometry::Plane { origin, normal, .. } => {
-            let n = normal.normalized()?;
-            Some(p - n * (p - *origin).dot(&n))
-        }
-        SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius,
-        } => {
-            let a = axis.normalized()?;
-            let d = p - *origin;
-            let on_axis = *origin + a * d.dot(&a);
-            let radial = (p - on_axis).normalized()?;
-            Some(on_axis + radial * *radius)
-        }
-        SurfaceGeometry::Sphere { center, radius } => {
-            Some(*center + (p - *center).normalized()? * *radius)
-        }
-        SurfaceGeometry::Torus {
-            center,
-            axis,
-            major_radius,
-            minor_radius,
-        } => {
-            let a = axis.normalized()?;
-            let d = p - *center;
-            let in_plane = d - a * d.dot(&a);
-            let ring = *center + in_plane.normalized()? * *major_radius;
-            Some(ring + (p - ring).normalized()? * *minor_radius)
-        }
-        _ => {
-            let (u, w) = surface.closest_point(&p)?;
-            Some(surface.point_at(u, w))
-        }
-    }
+/// The foot of `p` on `surface`: its closest point, exact for analytic
+/// surfaces (PK-737; this helper once carried the closed forms itself,
+/// working around the multi-start's 0.18 miss near a cylinder's axis).
+pub(super) fn surface_foot(surface: &SurfaceGeometry, p: Point3) -> Option<Point3> {
+    let (u, w) = surface.closest_point(&p)?;
+    Some(surface.point_at(u, w))
 }
 
 /// One chain edge in chain order.

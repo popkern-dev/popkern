@@ -61,6 +61,17 @@ pub fn compute_trim_curves(
 
     let circle_of = |fp: &[Point3]| -> Option<(Point3, popkern_core::geometry::Vec3, f64)> {
         let (center, radius) = crate::fillet_surface_analytic::fit_exact_circle_center(fp)?;
+        // A circle through (near-)collinear contacts is no circle: a
+        // straight edge's footprint fitted an 8e15-radius "arc" that
+        // reached the trims once exact projections stopped failing on
+        // its far points (PK-737).
+        let extent = fp
+            .iter()
+            .map(|p| p.distance_to(&fp[0]))
+            .fold(0.0_f64, f64::max);
+        if radius > 1e3 * extent {
+            return None;
+        }
         let mut nx = 0.0;
         let mut ny = 0.0;
         let mut nz = 0.0;

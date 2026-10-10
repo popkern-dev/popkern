@@ -6,6 +6,7 @@ pub(crate) mod dense;
 pub mod transform;
 mod uv_projection_padding;
 pub use transform::Transform3;
+mod analytic_closest;
 pub mod analytic_surfaces;
 pub mod bernstein_poly;
 pub mod certify;

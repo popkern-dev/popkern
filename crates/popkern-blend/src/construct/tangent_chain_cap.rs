@@ -23,8 +23,8 @@ use popkern_core::topology::{
 
 use super::g1_junction::tangent_at_vertex;
 use super::tangent_chain_geometry::{
-    Link, ball_center, blank, chain_tangent, chain_tangent_at_origin, decline, exact_foot,
-    exact_section, insert_edge, nearest, section_arc, segment_distance,
+    Link, ball_center, blank, chain_tangent, chain_tangent_at_origin, decline, exact_section,
+    insert_edge, nearest, section_arc, segment_distance, surface_foot,
 };
 use crate::error::BlendFailure;
 
@@ -217,7 +217,7 @@ pub(super) fn prepare_cap(
         }
         let surface = if on_p { &sp } else { &sq };
         let mid = vpos + (c - vpos) * 0.5;
-        let off = exact_foot(surface, mid).map_or(f64::INFINITY, |f| f.distance_to(&mid));
+        let off = surface_foot(surface, mid).map_or(f64::INFINITY, |f| f.distance_to(&mid));
         if off > band {
             return Err(decline(
                 format!("cap line at chain end {v:?} leaves its curved support by {off:.3e}"),

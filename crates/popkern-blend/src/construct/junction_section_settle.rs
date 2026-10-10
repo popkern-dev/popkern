@@ -11,9 +11,14 @@
 //! closed and open chain surgery builds its own; this is the per-edge
 //! analogue.
 //!
+//! The same signature appears on a strip's RAIL split at a valence-2
+//! vertex (a torus strip's contact with a corner cylinder, split at the
+//! cylinder's seam): its fitted pieces sat 1.7e-3 off, and the circle
+//! through their three points is the exact contact circle.
+//!
 //! **Repair, by construction.** A vertex M on exactly two edges, both
-//! between the same two CREATED faces (the strips), is a junction
-//! corner. Its two stubs' far ends and M lie on the section circle, and
+//! between the same two CREATED faces (strips, or supports the blend
+//! split), is a junction corner or a split rail. Its two stubs' far ends and M lie on the section circle, and
 //! three points determine it. The circle is accepted only when its arcs
 //! lie on BOTH strips: the arc midpoints are within the acceptance band
 //! of each strip surface. Both stubs are then re-authored as the exact
@@ -37,7 +42,9 @@ fn circle_through(a: Point3, b: Point3, c: Point3) -> Option<(Point3, Vec3, f64)
     let (ab, ac) = (b - a, c - a);
     let n = ab.cross(&ac);
     let n2 = n.dot(&n);
-    if n2 < 1e-24 {
+    // Nearly collinear points define no section (measured: a straight
+    // rail's three points gave an 8e15-radius "arc").
+    if n2 <= (1e-6 * ab.length() * ac.length()).powi(2) {
         return None;
     }
     let to_center = (n.cross(&ab) * ac.dot(&ac) + ac.cross(&n) * ab.dot(&ab)) * (0.5 / n2);
