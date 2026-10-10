@@ -7,6 +7,7 @@ mod tangent_chain_cap;
 mod tangent_chain_face_end;
 mod tangent_chain_geometry;
 mod tangent_chain_junction;
+mod tangent_chain_mitre;
 mod tangent_chain_surgery;
 mod tangent_chain_trace;
 mod terminal_torus_section;

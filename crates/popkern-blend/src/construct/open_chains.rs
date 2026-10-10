@@ -123,6 +123,47 @@ fn end_kind(
     }
 }
 
+/// Mitre corners among the fillet edges: valence-3 vertices where
+/// exactly two of them meet NOT tangent, the third edge unfilleted,
+/// and neither strip vanishes there (an equal-radius tee's singular
+/// point joins two saddle chains at an angle on a valence-3 vertex: a
+/// vanishing end, not a mitre).
+fn mitre_corners(
+    brep: &BRep,
+    edge_geometries: &[EdgeGeometry],
+) -> std::collections::BTreeSet<VertexHandle> {
+    let mut by_vertex: std::collections::BTreeMap<VertexHandle, Vec<&EdgeGeometry>> =
+        Default::default();
+    for g in edge_geometries {
+        if g.analysis.vertex_start == g.analysis.vertex_end {
+            continue;
+        }
+        for v in [g.analysis.vertex_start, g.analysis.vertex_end] {
+            by_vertex.entry(v).or_default().push(g);
+        }
+    }
+    by_vertex
+        .into_iter()
+        .filter(|(v, gs)| {
+            gs.len() == 2
+                && brep
+                    .half_edges
+                    .values()
+                    .filter(|he| he.origin == *v)
+                    .count()
+                    == 3
+                && !gs.iter().any(|g| vanishes_at(brep, g, *v))
+                && !super::g1_junction::tangent_at_vertex(
+                    brep,
+                    gs[0].analysis.edge,
+                    gs[1].analysis.edge,
+                    *v,
+                )
+        })
+        .map(|(v, _)| v)
+        .collect()
+}
+
 /// One open tangent chain: its members (indices into the edge
 /// geometries, ascending), the half-edge leaving its start vertex along
 /// its first member, and its start and end kinds.
@@ -139,7 +180,7 @@ type OpenChain = (
 /// half-ellipse S− → seam crossing → S+ (vanishing), part of a rounded
 /// rim (tangent caps), or one edge alone.
 pub(super) fn open_tangent_chains(brep: &BRep, edge_geometries: &[EdgeGeometry]) -> Vec<OpenChain> {
-    let junctions = super::g1_junction::junction_vertices(
+    let tangent_junctions = super::g1_junction::junction_vertices(
         brep,
         edge_geometries.iter().map(|g| {
             (
@@ -149,6 +190,10 @@ pub(super) fn open_tangent_chains(brep: &BRep, edge_geometries: &[EdgeGeometry])
             )
         }),
     );
+    // Links join members: tangent junctions, and mitre corners (two
+    // fillet edges meeting at an angle, the third edge sharp, PK-768).
+    let mut junctions = tangent_junctions.clone();
+    junctions.extend(mitre_corners(brep, edge_geometries));
     let fillet_edges: Vec<_> = edge_geometries.iter().map(|g| g.analysis.edge).collect();
     let ends = |g: &EdgeGeometry| [g.analysis.vertex_start, g.analysis.vertex_end];
     let kind = |g: &EdgeGeometry, v: VertexHandle| end_kind(brep, g, v, &fillet_edges);
@@ -213,12 +258,17 @@ pub(super) fn open_tangent_chains(brep: &BRep, edge_geometries: &[EdgeGeometry])
         let (2, [Some(k0), Some(k1)]) = (free.len(), kinds.as_slice()) else {
             continue;
         };
-        // A lone edge between two end faces is an ordinary fillet: the
-        // per-edge pipeline owns it (its corner and terminal machinery
-        // serve it). The surgery takes a chain only for what that
-        // pipeline cannot build — a junction, a tangent cap or a
-        // vanishing end.
-        if group.len() == 1 && *k0 == ChainEnd::EndFace && *k1 == ChainEnd::EndFace {
+        // The surgery takes a chain only for what the per-edge pipeline
+        // cannot build — a tangent junction, a tangent cap or a
+        // vanishing end. Lone edges and mitre pairs between end faces
+        // are ordinary fillets: the per-edge corner and terminal
+        // machinery owns them.
+        let tangent_inside = group.iter().any(|&g| {
+            ends(&edge_geometries[g])
+                .iter()
+                .any(|v| tangent_junctions.contains(v))
+        });
+        if !tangent_inside && *k0 == ChainEnd::EndFace && *k1 == ChainEnd::EndFace {
             continue;
         }
         let (g0, v0) = free[0];

@@ -48,6 +48,7 @@ use popkern_core::topology::{
 use super::EdgeGeometry;
 use super::tangent_chain_cap::{Cap, ChainEnd, prepare_cap, wire_cap};
 use super::tangent_chain_junction::strip_rail;
+use super::tangent_chain_mitre::{Mitre, cut_mitre_corner, mitre_section, mitre_vertices};
 use crate::analysis::Convexity;
 use crate::error::BlendFailure;
 
@@ -76,43 +77,6 @@ pub(crate) fn apply_tangent_chain(
     let strips = build(&mut work, edge_geometries, members, tolerance, h0, None)?;
     *brep = work;
     Ok(strips)
-}
-
-/// Build every closed tangent chain (`apply_tangent_chain`), recording
-/// its members as handled and its strips and supports as protected; a
-/// declined chain's failure joins `failures`.
-pub(crate) fn apply_closed_chains(
-    result: &mut BRep,
-    edge_geometries: &[EdgeGeometry],
-    tolerance: &Tolerance,
-    chain_members: &mut std::collections::HashSet<usize>,
-    protected: &mut Vec<FaceHandle>,
-    failures: &mut Vec<(popkern_core::topology::EdgeHandle, BlendFailure)>,
-) {
-    for chain in super::g1_junction::closed_tangent_chains(result, edge_geometries) {
-        match apply_tangent_chain(result, edge_geometries, &chain, tolerance) {
-            Ok(strips) => {
-                if popkern_core::trace::trace_enabled("fillet") {
-                    eprintln!(
-                        "  [tangent-chain] built {} strip(s) for {chain:?}",
-                        strips.len()
-                    );
-                }
-                protected.extend(strips);
-                for &i in &chain {
-                    protected.push(edge_geometries[i].analysis.face_1);
-                    protected.push(edge_geometries[i].analysis.face_2);
-                }
-            }
-            Err(failure) => {
-                if popkern_core::trace::trace_enabled("fillet") {
-                    eprintln!("  [tangent-chain] declined {chain:?}: {failure:?}");
-                }
-                failures.push((edge_geometries[chain[0]].analysis.edge, failure));
-            }
-        }
-        chain_members.extend(chain);
-    }
 }
 
 /// Build an OPEN tangent chain: `h0` is the first member's half-edge
@@ -179,18 +143,34 @@ fn build(
     let start_vertex = brep.half_edges[links[0].h].origin;
     let end_vertex = brep.half_edges[brep.half_edges[links[k - 1].h].twin].origin;
 
-    // Junction analysis: v_i = dest(h_i), third edge, section contacts.
+    // Junction analysis: v_i = dest(h_i), third edge, section contacts;
+    // a junction where the next link is not tangent is a MITRE (PK-768).
     let mut thirds = Vec::with_capacity(nj);
     let mut contacts: Vec<(Point3, Point3)> = Vec::with_capacity(nj);
+    let mut mitres: Vec<Option<Mitre>> = Vec::with_capacity(nj);
     for i in 0..nj {
-        let (third, contact) = super::tangent_chain_junction::junction_section(
-            brep,
-            &links[i],
-            &links[(i + 1) % k],
-            band,
-        )?;
-        thirds.push(third);
-        contacts.push(contact);
+        let (a, b) = (&links[i], &links[(i + 1) % k]);
+        let v = brep.half_edges[brep.half_edges[a.h].twin].origin;
+        let (ea, eb) = (brep.half_edges[a.h].edge, brep.half_edges[b.h].edge);
+        if super::g1_junction::tangent_at_vertex(brep, ea, eb, v) {
+            let (third, contact) =
+                super::tangent_chain_junction::junction_section(brep, a, b, band)?;
+            thirds.push(third);
+            contacts.push(contact);
+            mitres.push(None);
+        } else {
+            let m = mitre_section(brep, a, b, band)?;
+            contacts.push(if m.p_is_g {
+                (m.on_g, m.on_shared)
+            } else {
+                (m.on_shared, m.on_g)
+            });
+            thirds.push(super::tangent_chain_geometry::Third {
+                edge: None,
+                on_p: true,
+            });
+            mitres.push(Some(m));
+        }
     }
 
     if popkern_core::trace::trace_enabled("tangent-chain") {
@@ -201,8 +181,16 @@ fn build(
     // side is new.
     let mut vp_of = Vec::with_capacity(nj);
     let mut vq_of = Vec::with_capacity(nj);
+    let mut corners = Vec::new();
     for i in 0..nj {
         let v = brep.half_edges[brep.half_edges[links[i].h].twin].origin;
+        if let Some(m) = &mitres[i] {
+            let (vp, vq, corner) = mitre_vertices(brep, m, v, tolerance)?;
+            vp_of.push(vp);
+            vq_of.push(vq);
+            corners.push((i, corner, v, if m.p_is_g { vp } else { vq }));
+            continue;
+        }
         let (cp, cq) = contacts[i];
         let fresh = |brep: &mut BRep, position: Point3| {
             brep.vertices.insert(Vertex {
@@ -248,6 +236,11 @@ fn build(
     let mut centers = Vec::with_capacity(nj);
     for i in 0..nj {
         let (cp, cq) = contacts[i];
+        if let Some(m) = &mitres[i] {
+            centers.push(m.center);
+            x_edges.push(insert_edge(brep, m.curve.clone()));
+            continue;
+        }
         let tangent = chain_tangent(brep, links[i].h)
             .ok_or_else(|| decline("junction tangent undefined".into(), cp))?;
         let radius = links[i].eg.radius_at_end;
@@ -287,7 +280,9 @@ fn build(
         let b = brep.half_edges.insert(blank(vp_of[i], x_edges[i]));
         brep.half_edges[a].twin = b;
         brep.half_edges[b].twin = a;
-        brep.edges[x_edges[i]].half_edge = b; // curve runs P → Q
+        // The curve runs P → Q (a mitre's M may run Q → P).
+        let p_to_q = mitres[i].as_ref().is_none_or(|m| m.starts_at_p);
+        brep.edges[x_edges[i]].half_edge = if p_to_q { b } else { a };
         x_hes.push((a, b));
     }
     for (i, link) in links.iter().enumerate() {
@@ -378,6 +373,12 @@ fn build(
         brep.remove_half_edge_reanchored(h);
         brep.remove_half_edge_reanchored(tw);
         brep.edges.remove(link.eg.analysis.edge);
+    }
+    for &(j, corner, v, m2) in &corners {
+        let g_side =
+            |(sp, sq): (HalfEdgeHandle, HalfEdgeHandle)| if m2 == vp_of[j] { sp } else { sq };
+        let both = [g_side(supports[j]), g_side(supports[(j + 1) % k])];
+        cut_mitre_corner(brep, corner, v, m2, both)?;
     }
     for (cap, i) in [(start_cap, 0), (end_cap, k - 1)] {
         if let Some(cap) = cap {

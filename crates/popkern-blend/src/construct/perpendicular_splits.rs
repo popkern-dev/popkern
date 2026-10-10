@@ -132,7 +132,7 @@ pub(super) fn run_perpendicular_splits(
     // construction — a loop of edges joined on one tangent line at
     // every junction has no ends for the anchor stage to place.
     let mut chain_members: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    super::tangent_chain_surgery::apply_closed_chains(
+    super::g1_junction::apply_closed_chains(
         result,
         edge_geometries,
         tolerance,

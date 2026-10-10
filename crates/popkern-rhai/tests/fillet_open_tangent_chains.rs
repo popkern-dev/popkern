@@ -165,6 +165,45 @@ m
     )
 }
 
+/// The one-corner block's chain plus the vertical edge at its
+/// (30, -20) end: the chain's end meets that fillet in a mitre corner,
+/// the top edge y = -20 staying sharp.
+fn one_corner_block_mitre(r: f64) -> String {
+    let three = rim_at(&[[22.0, 20.0, 20.0], [30.0, 12.0, 20.0]]);
+    format!(
+        r#"
+let m = model();
+let b = m.profile(xy()).rect(60.0, 40.0).sketch("block").extrude(blind(20.0));
+b = b.fillet(edges().straight().direction("z").at_vertex([30.0, 20.0, 0.0]), 8.0, #{{ label: "corner" }});
+b = b.fillet({three}.or(edges().straight().direction("z").at_vertex([30.0, -20.0, 0.0])), {r:?}, #{{ label: "rim" }});
+m.assert_watertight();
+m
+"#
+    )
+}
+
+/// An 80 × 60 × 20 block with a 50 × 30 pocket 12 deep whose one
+/// vertical corner (25, 15) is rounded 6: the floor rim's line, arc,
+/// line chain plus the pocket's vertical edge at (25, -15) — a concave
+/// mitre at the chain's (25, -15, 8) end.
+fn one_corner_pocket_mitre(r: f64) -> String {
+    let rim = rim_at(&[[19.0, 15.0, 8.0], [25.0, 9.0, 8.0]]);
+    format!(
+        r#"
+let m = model();
+let b = m.profile(xy()).rect(80.0, 60.0).sketch("block").extrude(blind(20.0));
+let pocket = m.tool(|t| {{
+    let p = t.profile(xy_at(8.0)).rect(50.0, 30.0).sketch("pocket").extrude(blind(20.0));
+    p.fillet(edges().straight().direction("z").at_vertex([25.0, 15.0, 8.0]), 6.0, #{{ label: "pocket_corner" }});
+}});
+b = b.subtract(pocket, #{{ label: "pocket" }});
+b = b.fillet({rim}.or(edges().straight().direction("z").at_vertex([25.0, -15.0, 8.0])), {r:?}, #{{ label: "rim" }});
+m.assert_watertight();
+m
+"#
+    )
+}
+
 /// The trapezoid block: its -x end face slants from (-30, -20) to
 /// (-20, 20), x = -30 + (y + 20) / 4.
 fn trapezoid_block(r: f64) -> String {
@@ -257,6 +296,47 @@ fn a_chain_ending_at_sharp_corners_runs_out_on_the_end_faces() {
 }
 
 #[test]
+fn a_chain_ending_at_a_corner_meets_another_fillet_in_a_mitre() {
+    // Each strip's removal prism is cut by the mitre plane (y + z = 0):
+    // its centroid line runs to y = -(20 - x̄) (the x = 30 line) and to
+    // z = 20 - x̄ (the vertical fillet, from the base).
+    let c = 8.0;
+    for r in [1.0, 3.0] {
+        let (_, x) = section(r);
+        let block = 60.0 * 40.0 * 20.0 - (1.0 - std::f64::consts::PI / 4.0) * c * c * 20.0;
+        let straight = 52.0 + (32.0 - x) + (20.0 - x);
+        let want = block - chain_change(straight, 1.0, c, r);
+        assert_rel(
+            served_volume(&one_corner_block_mitre(r)),
+            want,
+            &format!("mitre-ended chain r = {r}"),
+        );
+    }
+}
+
+#[test]
+fn a_concave_chain_ending_at_a_pocket_corner_meets_the_wall_fillet_in_a_mitre() {
+    // Material ADDED: the floor rim (line 19 + 6-arc + line to the
+    // mitre plane) and the wall fillet from the floor up to the pocket
+    // top (z = 20, a sharp run-out on the block's top face).
+    let c = 6.0;
+    for r in [1.0, 2.0] {
+        let (_, x) = section(r);
+        let pocket = (50.0 * 30.0 - (1.0 - std::f64::consts::PI / 4.0) * c * c) * 12.0;
+        // Lines: y = 15 from x = -25 to 19 (44), x = 25 from y = 9 to
+        // the mitre plane at y = -(15 - x̄) (24 - x̄); the wall fillet
+        // from the mitre plane z = 8 + x̄ up to z = 20 (12 - x̄).
+        let straight = 44.0 + (24.0 - x) + (12.0 - x);
+        let want = 80.0 * 60.0 * 20.0 - pocket + chain_change(straight, 1.0, c, r);
+        assert_rel(
+            served_volume(&one_corner_pocket_mitre(r)),
+            want,
+            &format!("concave mitre r = {r}"),
+        );
+    }
+}
+
+#[test]
 fn a_chain_runs_out_on_an_oblique_end_face_on_its_ellipse_section() {
     let c = 8.0;
     for r in [1.0, 3.0] {
@@ -312,6 +392,8 @@ fn opencascade_reads_each_open_chain_class_as_one_valid_solid() {
         ("pocket_three", rounded_pocket(&three.0, 2.0)),
         ("lines", rounded_box(LONG_LINES, 3.0)),
         ("sharp", one_corner_block(3.0)),
+        ("mitre", one_corner_block_mitre(3.0)),
+        ("concave_mitre", one_corner_pocket_mitre(2.0)),
         ("oblique", trapezoid_block(3.0)),
         ("hook", hook_block(3.0)),
     ] {

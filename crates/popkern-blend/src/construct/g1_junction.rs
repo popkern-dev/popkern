@@ -186,3 +186,48 @@ pub(crate) fn junction_section_contact(
     let s = trim.closest_point(&p)?;
     Some(trim.point_at(s))
 }
+
+/// Build every closed tangent chain (`apply_tangent_chain`), recording
+/// its members as handled and its strips and supports as protected; a
+/// declined chain's failure joins `failures`.
+pub(crate) fn apply_closed_chains(
+    result: &mut BRep,
+    edge_geometries: &[super::EdgeGeometry],
+    tolerance: &popkern_core::tolerance::Tolerance,
+    chain_members: &mut std::collections::HashSet<usize>,
+    protected: &mut Vec<popkern_core::topology::FaceHandle>,
+    failures: &mut Vec<(
+        popkern_core::topology::EdgeHandle,
+        crate::error::BlendFailure,
+    )>,
+) {
+    for chain in super::g1_junction::closed_tangent_chains(result, edge_geometries) {
+        match super::tangent_chain_surgery::apply_tangent_chain(
+            result,
+            edge_geometries,
+            &chain,
+            tolerance,
+        ) {
+            Ok(strips) => {
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!(
+                        "  [tangent-chain] built {} strip(s) for {chain:?}",
+                        strips.len()
+                    );
+                }
+                protected.extend(strips);
+                for &i in &chain {
+                    protected.push(edge_geometries[i].analysis.face_1);
+                    protected.push(edge_geometries[i].analysis.face_2);
+                }
+            }
+            Err(failure) => {
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!("  [tangent-chain] declined {chain:?}: {failure:?}");
+                }
+                failures.push((edge_geometries[chain[0]].analysis.edge, failure));
+            }
+        }
+        chain_members.extend(chain);
+    }
+}
