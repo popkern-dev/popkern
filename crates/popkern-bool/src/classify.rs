@@ -107,6 +107,16 @@ fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f
     let mut positions = face_vertex_positions(brep, face_handle);
     if positions.len() < 3 {
         positions = brep.face_outer_loop_sample_positions(face_handle, 8);
+    } else if matches!(surface_on_face.geometry, SurfaceGeometry::Plane { .. }) {
+        // A plane's curved rim bulges past its vertices: a disc foot
+        // whose loop carries only a boss notch's corners windowed v
+        // to [1.8, 17] while the disc spans 120, a ray's crossing of
+        // the foot was never searched, and a point below the foot read
+        // Inside (PK-752). The exact in-plane extents of each edge are
+        // the face's own box: no wider than the face (straight edges
+        // add nothing), so the phantom-crossing hazard of a padded box
+        // does not return.
+        positions = crate::intersect_edge_face_coincident::trim_box_positions(brep, face_handle);
     }
     if positions.is_empty() {
         return ((-100.0, 100.0), (-100.0, 100.0));
@@ -522,3 +532,7 @@ mod tests;
 #[cfg(test)]
 #[path = "classify_edge_tests.rs"]
 mod edge_tests;
+
+#[cfg(test)]
+#[path = "classify_plane_window_tests.rs"]
+mod plane_window_tests;

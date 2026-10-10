@@ -29,9 +29,6 @@
 // / tapped_M5 / tapped_M6 (PK-744), so a screw and its bore overlap by
 // the thread depth.
 //
-// Containment (recorded in the ledger): the arm-root feet are extruded
-// from their far face (PK-752), and the wrist castings union their webs
-// before their rings so no union joins two lumps (PK-753).
 let a = assembly("six_axis_arm");
 let pi = 3.141592653589793;
 
@@ -644,11 +641,7 @@ fn shoulder_body(m, m1, m2, pi) {
 // boss along the arm (x from x0 to x1) clear of its bolt pockets, which
 // stay open to the flange face.
 fn arm_root_body(m, md, ty, r, rf, x0, x1, pi) {
-    // Containment (PK-752): the foot is extruded from its far face so
-    // its seam lies away from the boss; a tee whose curve crosses the
-    // seam declines today.
-    let body = rod_at(m, m_point(md.M, [0.0, 0.0, md.g.len + 23.0]), m_dir(md.M, [0.0, 0.0, -1.0]),
-        rf, 12.0, "foot");
+    let body = axial_disc(m, md, md.g.len + 11.0, md.g.len + 23.0, rf, "foot");
     let zc = md.o[2];
     body = body.union(m.tool(|t| rod_at(t, [x0, ty, zc], [1.0, 0.0, 0.0], r, x1 - x0, "boss")),
         #{ label: "boss" });
@@ -685,16 +678,14 @@ fn tube_body(m, x1, y, z, r, ri, length, bore_length) {
 // Wrist 1: a foot on j4's flange, j5's mount ring, and a two-step web
 // kept within 42 mm of the j4 axis (it turns past the forearm's boss).
 fn wrist_1_body(m, m4, m5, pi) {
-    // Containment (PK-753): each union grows one connected body; a
-    // union joining two lumps declines today.
     let x = m4.o[0];
     let body = foot_disc(m, m4);
+    body = body.union(m.tool(|t| axial_disc(t, m5, m5.g.len, m5.g.len + 10.0, m5.ring_out, "ring_sketch")),
+        #{ label: "ring" });
     body = body.union(m.tool(|t| box(t, x - 14.0, x + 14.0, -86.0, -30.0, 126.0, 150.0, "web_sketch")),
         #{ label: "web" });
     body = body.union(m.tool(|t| box(t, x - 12.0, x + 12.0, -92.0, -40.0, 124.0, 129.0, "web_low_sketch")),
         #{ label: "web_low" });
-    body = body.union(m.tool(|t| axial_disc(t, m5, m5.g.len, m5.g.len + 10.0, m5.ring_out, "ring_sketch")),
-        #{ label: "ring" });
     body = body.subtract(m.tool(|t| ring_bore(t, m5)), #{ label: "j5_bore" });
     body = body.subtract(m.tool(|t| foot_holes(t, m4, 55.0, pi)), #{ label: "j4_foot" });
     body.subtract(m.tool(|t| ring_holes(t, m5, 30.0, pi)), #{ label: "j5_mount" })
@@ -702,15 +693,14 @@ fn wrist_1_body(m, m4, m5, pi) {
 // Wrist 2: a foot under j5's flange, j6's mount ring, and a web that
 // steps over j6's housing lip.
 fn wrist_2_body(m, m5, m6, pi) {
-    // Containment (PK-753): unions grow one connected body.
     let x = m5.o[0];
     let body = foot_disc(m, m5);
+    body = body.union(m.tool(|t| axial_disc(t, m6, m6.g.len, m6.g.len + 10.0, 54.0, "ring_sketch")),
+        #{ label: "ring" });
     body = body.union(m.tool(|t| box(t, x - 18.0, x + 18.0, -205.5, -150.0, 110.5, 121.0, "web_sketch")),
         #{ label: "web" });
     body = body.union(m.tool(|t| box(t, x - 16.0, x + 16.0, -213.0, -204.5, 104.0, 121.5, "web_low_sketch")),
         #{ label: "web_low" });
-    body = body.union(m.tool(|t| axial_disc(t, m6, m6.g.len, m6.g.len + 10.0, 54.0, "ring_sketch")),
-        #{ label: "ring" });
     body = body.subtract(m.tool(|t| ring_bore(t, m6)), #{ label: "j6_bore" });
     body = body.subtract(m.tool(|t| foot_holes(t, m5, 10.0, pi)), #{ label: "j5_foot" });
     body.subtract(m.tool(|t| ring_holes(t, m6, 30.0, pi)), #{ label: "j6_mount" })
