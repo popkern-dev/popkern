@@ -205,3 +205,59 @@ fn newton_plane_sphere_converges_inside_cap() {
         expected
     );
 }
+
+/// A warm start already under the residual tolerance is polished to the
+/// numerical floor (PK-738): before, it returned at ~1e-7 while a cold
+/// start overshot to ~1e-16, so station accuracy depended on how
+/// densely the walker sampled.
+#[test]
+fn a_warm_start_under_tolerance_is_polished_to_full_precision() {
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let cylinder = SurfaceGeometry::Cylinder {
+        origin: Point3::new(2.0, 0.0, 1.0),
+        axis: Vec3::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+    };
+    let request = |uv0: (f64, f64), uv1: (f64, f64)| ContactRequest {
+        surface_0: &plane,
+        surface_1: &cylinder,
+        side_0: BallSide::Outside,
+        side_1: BallSide::Outside,
+        radius: 0.5,
+        initial_uv0: uv0,
+        uv0_range: ((-10.0, 10.0), (-10.0, 10.0)),
+        initial_uv1: uv1,
+        uv1_range: ((-10.0, 10.0), (-10.0, 10.0)),
+        spine_point: Point3::new(0.6, 0.0, 0.5),
+        spine_plane_normal: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let options = ContactOptions::default();
+    let cold = solve_rolling_ball_contact(
+        &request((0.5, 0.0), (3.5, 0.0)),
+        &options,
+        &unit_tol(),
+        None,
+    )
+    .expect("cold start converges");
+    // Warm start 1e-7 off the solution: its first residual is already
+    // under the 1e-6 tolerance.
+    let near = |(u, v): (f64, f64)| (u + 1e-7, v);
+    let warm = solve_rolling_ball_contact(
+        &request(near(cold.uv0), near(cold.uv1)),
+        &options,
+        &unit_tol(),
+        None,
+    )
+    .expect("warm start converges");
+    assert!(
+        warm.residual <= 1e-12,
+        "warm-start residual {:.3e} not polished",
+        warm.residual
+    );
+    assert!(warm.center.distance_to(&cold.center) <= 1e-12);
+}

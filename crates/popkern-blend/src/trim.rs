@@ -154,6 +154,74 @@ fn project_uv_grid_search(surface: &SurfaceGeometry, point: &Point3) -> Result<(
     Ok((best_u, best_v))
 }
 
+/// A torus strip's contact circles, exactly (PK-738): each is a
+/// v-iso circle of the torus, and where the support is a coaxial
+/// cylinder or a plane normal to the axis it is known in closed form —
+/// a coaxial cylinder of radius `Rc` touches the tube on the circle
+/// centred at the torus centre, radius `Rc`; a plane at axial height
+/// `h` touches it on the circle centred `h` along the axis, radius `R`.
+/// The fitted circle (`circle_of`) carried roundoff in its centre
+/// (z = 1.7999999999999987 for an exact 1.8): a boundary lying on the
+/// torus's v = 0 seam then sat a hair either side of it by chance, and
+/// a later boolean read the strip's chart as wound (a loop left open by
+/// 0.87). A fitted circle is replaced only when the exact one agrees
+/// with it within 1e-6 of the torus size.
+pub(crate) fn exact_torus_contact_circles(
+    trims: &mut TrimCurves,
+    strip: &SurfaceGeometry,
+    analysis: &crate::analysis::EdgeAnalysis,
+) {
+    let SurfaceGeometry::Torus {
+        center,
+        axis,
+        major_radius,
+        minor_radius,
+    } = *strip
+    else {
+        return;
+    };
+    let Some(a) = axis.normalized() else {
+        return;
+    };
+    let scale = major_radius + minor_radius;
+    let exact = |support: &SurfaceGeometry| -> Option<(Point3, popkern_core::geometry::Vec3, f64)> {
+        match *support {
+            SurfaceGeometry::Plane { origin, normal, .. } => {
+                let n = normal.normalized()?;
+                if n.cross(&a).length() > 1e-9 {
+                    return None;
+                }
+                let h = (origin - center).dot(&a);
+                ((h.abs() - minor_radius).abs() <= 1e-6 * scale)
+                    .then(|| (center + a * h, axis, major_radius))
+            }
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis: c_axis,
+                radius,
+            } => {
+                let ca = c_axis.normalized()?;
+                let off = center - origin;
+                let off_axis = (off - ca * off.dot(&ca)).length();
+                (ca.cross(&a).length() <= 1e-9 && off_axis <= 1e-9 * scale)
+                    .then_some((center, axis, radius))
+            }
+            _ => None,
+        }
+    };
+    for (circle, support) in [
+        (&mut trims.circle_1, &analysis.surface_1),
+        (&mut trims.circle_2, &analysis.surface_2),
+    ] {
+        let (Some(fitted), Some(e)) = (*circle, exact(support)) else {
+            continue;
+        };
+        if fitted.0.distance_to(&e.0) <= 1e-6 * scale && (fitted.2 - e.2).abs() <= 1e-6 * scale {
+            *circle = Some(e);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

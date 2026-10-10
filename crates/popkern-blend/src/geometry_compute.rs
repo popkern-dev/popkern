@@ -233,12 +233,13 @@ pub(crate) fn compute_fillet_geometry(
 
     let (rows_1, rows_2) =
         fillet_surface::strip_row_points(&center_result, &fillet_result, wants_g2);
-    let trim_curves =
+    let mut trim_curves =
         trim::compute_trim_curves(&analysis.surface_1, &rows_1, &analysis.surface_2, &rows_2)
             .map_err(|e| BlendFailure::IntersectionFailed {
                 reason: e,
                 location: Some(edge_midpoint),
             })?;
+    trim::exact_torus_contact_circles(&mut trim_curves, &fillet_result.surface, analysis);
 
     // §18 telemetry: when the walker produced the center curve,
     // `center_result.contact_solutions` carries one

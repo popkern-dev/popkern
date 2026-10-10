@@ -153,6 +153,15 @@ pub fn solve_rolling_ball_contact(
         // A full-period axis of a periodic chart has no boundary: a
         // solution resting exactly on the seam iso-line is interior.
         if residual_norm < effective_tol {
+            // Polish to full precision (PK-738): a warm start already
+            // under the tolerance stopped at ~1e-8, a cold one overshot
+            // to ~1e-16, so station accuracy depended on walk density.
+            let (uv0, uv1, residual_norm, c0, c1) =
+                if matches!(options.quality, ContactQuality::Final) {
+                    polish(request, (uv0, uv1, residual_norm, c0, c1), floor)
+                } else {
+                    (uv0, uv1, residual_norm, c0, c1)
+                };
             if uv_on_boundary_periodic(uv0, request.uv0_range, period_0) {
                 return Err(ContactError::OutOfBounds {
                     surface_index: 0,
@@ -400,4 +409,53 @@ fn residual_norm_at(
 
 fn midpoint(a: Point3, b: Point3) -> Point3 {
     Point3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+}
+
+/// A converged contact state: both surfaces' parameters, the residual
+/// norm and the two ball centres.
+type Converged = ((f64, f64), (f64, f64), f64, Point3, Point3);
+
+/// Up to two plain Newton steps from a converged contact, keeping each
+/// only while it lowers the residual: quadratic convergence takes a
+/// residual just under the tolerance to the numerical floor.
+fn polish(request: &ContactRequest, start: Converged, floor: f64) -> Converged {
+    let eval = |uv0: (f64, f64), uv1: (f64, f64)| {
+        build_jacobian_and_residual(
+            request.surface_0,
+            request.surface_1,
+            request.side_0,
+            request.side_1,
+            request.radius,
+            uv0,
+            uv1,
+            request.spine_point,
+            request.spine_plane_normal,
+            floor,
+        )
+    };
+    let norm = |r: [f64; 4]| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] + r[3] * r[3]).sqrt();
+    let mut best = start;
+    for _ in 0..2 {
+        let (uv0, uv1, residual, _, _) = best;
+        if residual <= floor {
+            break;
+        }
+        let Some((jacobian, r, ..)) = eval(uv0, uv1) else {
+            break;
+        };
+        let Some(step) = solve_4x4(jacobian, [-r[0], -r[1], -r[2], -r[3]], floor) else {
+            break;
+        };
+        let next0 = (uv0.0 + step[0], uv0.1 + step[1]);
+        let next1 = (uv1.0 + step[2], uv1.1 + step[3]);
+        let Some((_, r2, c0, c1, ..)) = eval(next0, next1) else {
+            break;
+        };
+        let res2 = norm(r2);
+        if res2 >= residual {
+            break;
+        }
+        best = (next0, next1, res2, c0, c1);
+    }
+    best
 }
