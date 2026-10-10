@@ -6,6 +6,7 @@
 //! the true radial foot (a rounded-rim fillet junction at r = 7, found
 //! by PK-733). Each analytic surface has a closed-form inverse of its
 //! own parameterisation:
+//! - plane: projection onto the (u, v) axes;
 //! - cylinder: the axial coordinate and the radial angle;
 //! - sphere: longitude and colatitude in the world frame the
 //!   parameterisation uses;
@@ -14,12 +15,11 @@
 //! - torus: the radial angle, then the tube angle about the tube
 //!   centre.
 //!
-//! **Planes** keep the Gauss-Newton projection: on a linear surface it
-//! converges to the exact foot in one step, so there is no defect to
-//! fix. An exact Gram solve differs from it only at roundoff, and that
-//! flipped setback-rim ladder decisions (measured: hexagon6_blunt rim G2
-//! 7.65e-4 → 1.08e-3, pentagon5_blunt 6.58e-4 → 5.08e-4). That
-//! roundoff sensitivity is its own defect, PK-773.
+//! **Planes** solve the 2 × 2 Gram system. That is the Gauss-Newton
+//! foot to roundoff, in closed form instead of a 29-start search.
+//! Enabling it first moved setback-rim end layers by up to 41%, an
+//! end-layer ill-conditioning (PK-776). The rim gate splits interior and
+//! end layer with the perturbation band measured (PK-773).
 //!
 //! **Branches.** Periodic parameters are returned in the principal
 //! branch `[0, 2π)` of `parameter_range`. **Degenerate points**, where
@@ -54,9 +54,9 @@ fn angle_about(axis: Vec3, radial: Vec3, scale: f64) -> f64 {
     principal(radial.dot(&perp2).patan2(radial.dot(&perp1)))
 }
 
-/// The exact closest point's `(u, v)` on a curved analytic surface;
-/// `None` for planes (see the module docs), free-form surfaces (NURBS,
-/// Gregory, polyhedral spline) and a degenerate frame (a zero axis).
+/// The exact closest point's `(u, v)` on an analytic surface; `None`
+/// for free-form surfaces (NURBS, Gregory, polyhedral spline) and a
+/// degenerate frame (a zero axis or plane basis).
 pub(crate) fn analytic_closest_point(surface: &SurfaceGeometry, p: &Point3) -> Option<(f64, f64)> {
     match surface {
         SurfaceGeometry::Cylinder {
@@ -127,8 +127,24 @@ pub(crate) fn analytic_closest_point(surface: &SurfaceGeometry, p: &Point3) -> O
             };
             Some((u, v))
         }
-        SurfaceGeometry::Plane { .. }
-        | SurfaceGeometry::Nurbs(_)
+        SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        } => {
+            // The 2 × 2 Gram system (the axes need not be unit or
+            // orthogonal).
+            let d = *p - *origin;
+            let (uu, uv, vv) = (u_axis.dot(u_axis), u_axis.dot(v_axis), v_axis.dot(v_axis));
+            let (du, dv) = (d.dot(u_axis), d.dot(v_axis));
+            let det = uu * vv - uv * uv;
+            if det.abs() <= 1e-300 {
+                return None;
+            }
+            Some(((du * vv - dv * uv) / det, (dv * uu - du * uv) / det))
+        }
+        SurfaceGeometry::Nurbs(_)
         | SurfaceGeometry::Gregory(_)
         | SurfaceGeometry::PolyhedralSpline(_) => None,
     }

@@ -34,8 +34,11 @@ struct Fixture {
     n: usize,
     height: f64,
     radii: Vec<f64>,
-    /// Worst rim transverse-curvature bar (form norm, 1/length).
+    /// Worst rim transverse-curvature bar away from the rim ends (form
+    /// norm, 1/length).
     rim_g2_bar: f64,
+    /// Worst rim transverse-curvature bar in the end layers.
+    rim_end_bar: f64,
     /// Worst rim g1 bar (normal-angle sine).
     rim_g1_bar: f64,
     /// Evidence verdict the fixture must reach.
@@ -50,6 +53,7 @@ fn family() -> Vec<Fixture> {
             height: 1.2,
             radii: vec![0.16; 5],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[0],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[0],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[0]),
             achieved: ContinuityLevel::G2,
         },
@@ -59,6 +63,7 @@ fn family() -> Vec<Fixture> {
             height: 3.0,
             radii: vec![0.05; 5],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[1],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[1],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[1]),
             achieved: ContinuityLevel::G2,
         },
@@ -68,6 +73,7 @@ fn family() -> Vec<Fixture> {
             height: 3.0,
             radii: vec![0.05; 6],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[2],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[2],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[2]),
             achieved: ContinuityLevel::G2,
         },
@@ -77,6 +83,7 @@ fn family() -> Vec<Fixture> {
             height: 0.8,
             radii: vec![0.04, 0.06, 0.05, 0.07, 0.05, 0.06],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[3],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[3],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[3]),
             achieved: ContinuityLevel::G2,
         },
@@ -89,6 +96,7 @@ fn family() -> Vec<Fixture> {
             height: 0.8,
             radii: vec![0.02, 0.04, 0.06, 0.04, 0.02],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[4],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[4],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[4]),
             // G2 since PK-582 (PK-580): its failing "fan-internal"
             // cap-cap seams were the spokes carrying the rim's junction
@@ -103,6 +111,7 @@ fn family() -> Vec<Fixture> {
             height: 0.8,
             radii: vec![0.02, 0.04, 0.06, 0.06, 0.04, 0.02],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[5],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[5],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[5]),
             // G1 without PK-582's spoke re-reconcile, like
             // pentagon5_variable (PK-580 row 905).
@@ -114,27 +123,37 @@ fn family() -> Vec<Fixture> {
             height: 0.8,
             radii: vec![0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06],
             rim_g2_bar: 1.25 * RIM_G2_MEASURED[6],
+            rim_end_bar: 1.25 * RIM_END_MEASURED[6],
             rim_g1_bar: RIM_G1_BAR.max(1.25 * RIM_G1_MEASURED[6]),
             achieved: ContinuityLevel::G2,
         },
     ]
 }
 
-/// Worst rim form-norm curvature jump, in family order, measured
-/// 2026-09-27 after the PK-584 band refit and the PK-581 curvature-unit
-/// weighting of the rim curvature pass, against the 4.088e-5 / 5.978e-4
-/// / 9.026e-4 / 1.825e-4 / 2.281e-3 before them. pentagon5_variable fell
-/// 2.28e-3 -> 1.32e-3. Its remainder is an end layer ~0.02 from a
-/// spoke-junction dual end, where the strip's transverse curvature ramps
-/// to 0 and the junction point is pinned by the spoke boundary cell.
-/// pentagon5_blunt stays +13% from the band refit: the setback-corner
-/// k = 2 cell is the neighbour rim's fixed cross-curvature end cell.
+/// Worst rim form-norm curvature jump away from the rim ends, in
+/// family order (measured 2026-10-10, PK-773). History: after the PK-584
+/// band refit and the PK-581 curvature-unit weighting the whole-rim
+/// worsts were 4.054e-5 / 6.753e-4 / 8.488e-4 / 1.817e-4 / 1.323e-3 /
+/// 2.481e-3 / 7.760e-4; every one but the variable fixtures sat in an end
+/// layer.
 ///
-/// hexagon6_variable and octagon8_mixed joined the family with PK-582
-/// (measured 2026-09-28); hexagon6_variable's rim carries the same
-/// spoke-junction end layer as pentagon5_variable (PK-581).
+/// The rim is gated in two parts because the END LAYERS (the last ~2%
+/// of each rim, a spoke-junction dual end where the strip's transverse
+/// curvature ramps; PK-581) are roundoff-ill-conditioned. Plane
+/// projections differing only at roundoff (the Gauss-Newton foot vs an
+/// exact Gram solve, PK-737) moved hexagon6_blunt's end layer
+/// 7.65e-4 -> 1.08e-3 and pentagon5_blunt's 6.58e-4 -> 5.08e-4, with no
+/// construction decision changing and the interiors within 9%. Each
+/// constant is the larger of the two measurements, so the ratchet sits
+/// above the perturbation band rather than inside it. The end layer's
+/// conditioning is PK-776.
 const RIM_G2_MEASURED: [f64; 7] = [
-    4.054e-5, 6.753e-4, 8.488e-4, 1.817e-4, 1.323e-3, 2.481e-3, 7.760e-4,
+    1.545e-5, 1.700e-4, 2.426e-4, 1.212e-4, 1.329e-3, 2.401e-3, 4.326e-4,
+];
+
+/// Worst rim form-norm curvature jump in the end layers (see above).
+const RIM_END_MEASURED: [f64; 7] = [
+    4.267e-5, 6.576e-4, 1.079e-3, 1.780e-4, 1.287e-3, 2.379e-3, 8.021e-4,
 ];
 
 /// Worst rim g1, in family order, after the PK-584 band refit (was
@@ -190,9 +209,23 @@ fn build(fx: &Fixture) -> (BlendResult, BTreeSet<FaceHandle>) {
     (result, pre)
 }
 
+/// Samples at each rim end read as the END LAYER (4 of 201, ~2% of
+/// the rim at either end).
+const END_LAYER: usize = 4;
+
 /// Worst rim form jump and g1 over every cap↔non-support seam.
 fn rim_worst(brep: &BRep, caps: &BTreeSet<FaceHandle>, pre: &BTreeSet<FaceHandle>) -> (f64, f64) {
-    let (mut g2, mut g1) = (0.0f64, 0.0f64);
+    let (interior, end, g1) = rim_split(brep, caps, pre);
+    (interior.max(end), g1)
+}
+
+/// Worst rim form jump in the interior and in the end layers, and g1.
+fn rim_split(
+    brep: &BRep,
+    caps: &BTreeSet<FaceHandle>,
+    pre: &BTreeSet<FaceHandle>,
+) -> (f64, f64, f64) {
+    let (mut g2, mut end, mut g1) = (0.0f64, 0.0f64, 0.0f64);
     for (eh, e) in brep.edges.iter() {
         let he = &brep.half_edges[e.half_edge];
         let fa = brep.loops[he.loop_].face;
@@ -203,12 +236,18 @@ fn rim_worst(brep: &BRep, caps: &BTreeSet<FaceHandle>, pre: &BTreeSet<FaceHandle
             continue;
         }
         let profile = seam_profile(brep, eh, 201, 1.0e-3).expect("rim seam profile");
-        for s in &profile {
-            g2 = g2.max(s.form_jump.or(s.sampled_jump()).unwrap_or(0.0));
+        let n = profile.len();
+        for (i, s) in profile.iter().enumerate() {
+            let jump = s.form_jump.or(s.sampled_jump()).unwrap_or(0.0);
+            if i < END_LAYER || i + END_LAYER >= n {
+                end = end.max(jump);
+            } else {
+                g2 = g2.max(jump);
+            }
             g1 = g1.max(s.g1.unwrap_or(0.0));
         }
     }
-    (g2, g1)
+    (g2, end, g1)
 }
 
 #[test]
@@ -217,7 +256,7 @@ fn setback_family_rims_meet_g2_and_every_corner_is_compatible() {
     for fx in family() {
         let (result, pre) = build(&fx);
         let caps: BTreeSet<FaceHandle> = result.corner_patches.iter().map(|p| p.face).collect();
-        let (g2, g1) = rim_worst(&result.brep, &caps, &pre);
+        let (g2, end, g1) = rim_split(&result.brep, &caps, &pre);
         let blend: Vec<FaceHandle> = result
             .brep
             .faces
@@ -234,13 +273,19 @@ fn setback_family_rims_meet_g2_and_every_corner_is_compatible() {
         let corners = &result.repair_report.setback_corners;
         let worst_corner = corners.iter().map(|c| c.form_jump).fold(0.0, f64::max);
         eprintln!(
-            "{}: rim g2 {g2:.3e} (bar {:.3e}) g1 {g1:.3e}; achieved {:?}; {} corners, worst |ΔII| {worst_corner:.3e}",
+            "{}: rim g2 {g2:.3e} (bar {:.3e}) end {end:.3e} (bar {:.3e}) g1 {g1:.3e}; achieved {:?}; {} corners, worst |ΔII| {worst_corner:.3e}",
             fx.name,
             fx.rim_g2_bar,
+            fx.rim_end_bar,
             evidence.achieved,
             corners.len()
         );
         assert!(g2 <= fx.rim_g2_bar, "{}: rim g2 {g2:.3e}", fx.name);
+        assert!(
+            end <= fx.rim_end_bar,
+            "{}: rim end layer {end:.3e}",
+            fx.name
+        );
         assert!(g1 <= fx.rim_g1_bar, "{}: rim g1 {g1:.3e}", fx.name);
         assert_eq!(evidence.achieved, fx.achieved, "{}", fx.name);
         // Row 886: one record per setback corner (n at an n-gon apex),
@@ -296,8 +341,8 @@ fn a_seeded_depth2_error_reads_over_the_rim_bar() {
             }
         }
     }
-    let (seeded, g1) = rim_worst(&result.brep, &caps, &pre);
-    eprintln!("clean {clean:.3e} seeded {seeded:.3e} (g1 {g1:.3e})");
+    let (seeded, _, g1) = rim_split(&result.brep, &caps, &pre);
+    eprintln!("clean {clean:.3e} seeded interior {seeded:.3e} (g1 {g1:.3e})");
     assert!(seeded > 10.0 * fx.rim_g2_bar, "seeded {seeded:.3e}");
     assert!(g1 <= RIM_G1_BAR, "the seed must stay G1: {g1:.3e}");
 }

@@ -62,7 +62,7 @@ fn a_point_on_the_axis_takes_angle_zero() {
 }
 
 #[test]
-fn sphere_torus_and_cone_feet_are_exact() {
+fn sphere_torus_cone_and_plane_feet_are_exact() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.5, 0.5, -1.0),
         radius: 3.0,
@@ -90,7 +90,6 @@ fn sphere_torus_and_cone_feet_are_exact() {
         assert_exact(&torus, p);
         assert_exact(&cone, p);
     }
-    // Planes keep the Gauss-Newton projection.
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(1.0, 1.0, 1.0),
         normal: Vec3::new(0.0, 0.0, 1.0),
@@ -98,7 +97,7 @@ fn sphere_torus_and_cone_feet_are_exact() {
         v_axis: Vec3::new(0.0, 1.0, 0.0),
     };
     for p in points {
-        assert!(analytic_closest_point(&plane, &p).is_none());
+        assert_exact(&plane, p);
     }
 }
 
