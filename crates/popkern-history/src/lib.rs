@@ -330,3 +330,7 @@ impl Default for FeatureTree {
         Self::new()
     }
 }
+
+#[cfg(test)]
+#[path = "quantity_literal_tests.rs"]
+mod quantity_literal_tests;

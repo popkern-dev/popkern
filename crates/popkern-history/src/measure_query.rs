@@ -190,7 +190,7 @@ pub fn expression_measure_refs(expr: &crate::expression::Expression) -> Vec<Enti
     use crate::expression::Expression;
     match expr {
         Expression::Measure(query) => query.entity_names().into_iter().cloned().collect(),
-        Expression::Literal(_) | Expression::Param(_) => vec![],
+        Expression::Literal(_) | Expression::Quantity { .. } | Expression::Param(_) => vec![],
         Expression::BinOp(l, _, r) | Expression::Compare(l, _, r) => {
             let mut refs = expression_measure_refs(l);
             refs.extend(expression_measure_refs(r));

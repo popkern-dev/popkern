@@ -15,6 +15,8 @@ use crate::unit::Unit;
 pub(super) enum Token {
     /// A numeric literal in SI units (unit already applied).
     Number(f64),
+    /// A unit-suffixed numeric literal: its SI value and its unit.
+    Quantity(f64, Unit),
     /// An identifier, possibly dotted (e.g. `"extrude1.distance"`).
     Ident(String),
     /// `+`
@@ -210,12 +212,10 @@ impl<'a> Lexer<'a> {
             .parse()
             .map_err(|_| ParseError::new(col, "invalid number"))?;
 
-        let unit = self.try_lex_unit();
-        let value = match unit {
-            Some(u) => u.to_si(raw),
-            None => raw,
-        };
-        Ok(Token::Number(value))
+        Ok(match self.try_lex_unit() {
+            Some(u) => Token::Quantity(u.to_si(raw), u),
+            None => Token::Number(raw),
+        })
     }
 
     /// Try to consume a unit suffix immediately after a number (no whitespace).

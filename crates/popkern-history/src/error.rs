@@ -76,6 +76,15 @@ pub enum HistoryError {
         /// The kind that was supplied.
         got: crate::unit::DimensionKind,
     },
+    /// A bare (unsuffixed) number is summed with a dimensioned quantity:
+    /// `L - 180` for a length `L` means `L - 180mm` (PK-754).
+    #[error(
+        "dimension mismatch: a bare number is added to a {dimension:?}; write it with a unit suffix (e.g. 180mm, 10deg)"
+    )]
+    UnitlessLiteralInSum {
+        /// The dimension of the other operand.
+        dimension: crate::unit::DimensionKind,
+    },
     /// An expression references a parameter that could not be resolved.
     #[error("expression references unknown parameter {0:?}")]
     ExpressionUnresolved(crate::parameter::ParameterId),

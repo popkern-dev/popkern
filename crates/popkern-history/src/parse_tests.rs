@@ -50,7 +50,7 @@ fn test_literal_mm() {
     let t = ParameterTable::new();
     let expr = parse_expression("50mm", &t).unwrap();
     let expected = Unit::Millimeters.to_si(50.0);
-    assert!(matches!(expr, Expression::Literal(v) if (v - expected).abs() < 1e-12));
+    assert!(matches!(expr, Expression::Quantity { value: v, .. } if (v - expected).abs() < 1e-12));
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn test_literal_deg() {
     let t = ParameterTable::new();
     let expr = parse_expression("45deg", &t).unwrap();
     let expected = Unit::Degrees.to_si(45.0);
-    assert!(matches!(expr, Expression::Literal(v) if (v - expected).abs() < 1e-12));
+    assert!(matches!(expr, Expression::Quantity { value: v, .. } if (v - expected).abs() < 1e-12));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn test_literal_in() {
     let t = ParameterTable::new();
     let expr = parse_expression("3.5in", &t).unwrap();
     let expected = Unit::Inches.to_si(3.5);
-    assert!(matches!(expr, Expression::Literal(v) if (v - expected).abs() < 1e-12));
+    assert!(matches!(expr, Expression::Quantity { value: v, .. } if (v - expected).abs() < 1e-12));
 }
 
 #[test]
@@ -74,21 +74,25 @@ fn test_literal_cm() {
     let t = ParameterTable::new();
     let expr = parse_expression("2cm", &t).unwrap();
     let expected = Unit::Centimeters.to_si(2.0);
-    assert!(matches!(expr, Expression::Literal(v) if (v - expected).abs() < 1e-12));
+    assert!(matches!(expr, Expression::Quantity { value: v, .. } if (v - expected).abs() < 1e-12));
 }
 
 #[test]
 fn test_literal_rad() {
     let t = ParameterTable::new();
     let expr = parse_expression("1rad", &t).unwrap();
-    assert!(matches!(expr, Expression::Literal(v) if (v - 1.0).abs() < 1e-12));
+    assert!(
+        matches!(expr, Expression::Quantity { value, unit: Unit::Radians } if (value - 1.0).abs() < 1e-12)
+    );
 }
 
 #[test]
 fn test_literal_m() {
     let t = ParameterTable::new();
     let expr = parse_expression("1m", &t).unwrap();
-    assert!(matches!(expr, Expression::Literal(v) if (v - 1.0).abs() < 1e-12));
+    assert!(
+        matches!(expr, Expression::Quantity { value, unit: Unit::Meters } if (value - 1.0).abs() < 1e-12)
+    );
 }
 
 #[test]
@@ -133,7 +137,9 @@ fn test_arithmetic_add_mul() {
                 }
                 _ => panic!("expected inner BinOp(Mul)"),
             }
-            assert!(matches!(*right, Expression::Literal(v) if (v - expected_mm).abs() < 1e-12));
+            assert!(
+                matches!(*right, Expression::Quantity { value: v, .. } if (v - expected_mm).abs() < 1e-12)
+            );
         }
         _ => panic!("expected BinOp(Add)"),
     }
@@ -195,15 +201,19 @@ fn test_ternary() {
                     assert!(matches!(*left, Expression::Param(id) if id == a_id));
                     let expected = Unit::Millimeters.to_si(10.0);
                     assert!(
-                        matches!(*right, Expression::Literal(v) if (v - expected).abs() < 1e-12)
+                        matches!(*right, Expression::Quantity { value: v, .. } if (v - expected).abs() < 1e-12)
                     );
                 }
                 _ => panic!("expected Compare"),
             }
             let expected_5 = Unit::Millimeters.to_si(5.0);
             let expected_3 = Unit::Millimeters.to_si(3.0);
-            assert!(matches!(*then_e, Expression::Literal(v) if (v - expected_5).abs() < 1e-12));
-            assert!(matches!(*else_e, Expression::Literal(v) if (v - expected_3).abs() < 1e-12));
+            assert!(
+                matches!(*then_e, Expression::Quantity { value: v, .. } if (v - expected_5).abs() < 1e-12)
+            );
+            assert!(
+                matches!(*else_e, Expression::Quantity { value: v, .. } if (v - expected_3).abs() < 1e-12)
+            );
         }
         _ => panic!("expected Conditional"),
     }

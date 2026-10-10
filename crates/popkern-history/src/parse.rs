@@ -338,6 +338,10 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Expression::Literal(v))
             }
+            Some(Token::Quantity(value, unit)) => {
+                self.advance();
+                Ok(Expression::Quantity { value, unit })
+            }
             Some(Token::Ident(name)) => {
                 self.advance();
                 match self.table.resolve_name(&name) {

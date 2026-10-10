@@ -318,3 +318,36 @@ fn unspellable_features_decline_by_name() {
         }
     }
 }
+
+/// PK-754: a unit-suffixed literal in a parameter expression keeps its
+/// spelling and dimension through emission; a bare number added to a
+/// length is refused with a unit-suffix hint instead of silently
+/// meaning metres.
+#[test]
+fn suffixed_literals_survive_emission_and_bare_sums_are_refused() {
+    let mut host = ScriptHost::new();
+    let source = r#"
+let m = model();
+m.param("size", 1.0, "m");
+m.param_expr("height", "size - 250mm", "m");
+let cube = m.profile(xy()).rect(p("size"), p("size")).sketch("base").extrude(blind(p("height")));
+m
+"#;
+    let mut original = run(&mut host, source, "suffixed.rhai");
+    let emitted = to_rhai(&mut original).expect("emit");
+    assert!(
+        emitted.contains("m.param_expr(\"height\", \"size - 250mm\", \"m\");"),
+        "{emitted}"
+    );
+    let mut again = run(&mut host, &emitted, "emitted.rhai");
+    assert_eq!(to_rhai(&mut again).expect("emit"), emitted, "fixed point");
+    assert_eq!(
+        positions(&again.to_part().expect("part")),
+        positions(&original.to_part().expect("part"))
+    );
+    let bare = source.replace("size - 250mm", "size - 250");
+    let err = host
+        .run(&bare, "bare.rhai")
+        .expect_err("bare literal in a sum");
+    assert!(err.render().contains("unit suffix"), "{}", err.render());
+}

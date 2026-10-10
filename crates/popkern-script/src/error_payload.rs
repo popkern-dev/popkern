@@ -176,6 +176,11 @@ fn history_payload(error: &HistoryError) -> Value {
             "parameter": format!("{param:?}"),
             "expected": format!("{expected:?}"), "got": format!("{got:?}"),
         }),
+        HistoryError::UnitlessLiteralInSum { dimension } => json!({
+            "kind": "ParameterError", "reason": "dimension_mismatch",
+            "expected": format!("{dimension:?}"), "got": "Dimensionless",
+            "hint": "unit_suffix",
+        }),
         HistoryError::SuppressIfNotDimensionless(kind) => json!({
             "kind": "ParameterError", "reason": "dimension_mismatch",
             "expected": "Dimensionless", "got": format!("{kind:?}"),
