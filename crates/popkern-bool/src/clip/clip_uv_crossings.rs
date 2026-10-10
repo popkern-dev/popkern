@@ -433,7 +433,17 @@ pub(crate) fn find_uv_crossings(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    Some(collapse_crossing_reports(
-        brep, face, curve_uv, crossings, tolerance,
-    ))
+    let mut crossings = collapse_crossing_reports(brep, face, curve_uv, crossings, tolerance);
+    // A closed query on the boundary at its closure point (PK-775).
+    let period = surface_is_periodic.then(period_of);
+    if let Some(c) = super::clip_lift_crossings::closure_crossing(
+        brep,
+        &boundary_nurbs,
+        curve_uv,
+        &crossings,
+        period,
+    ) {
+        crossings.insert(0, c);
+    }
+    Some(crossings)
 }

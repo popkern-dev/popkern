@@ -1,6 +1,7 @@
 //! Period-branch normalization for the UV clip query (split from
 //! `clip_uv_crossings.rs` under the 500-line file cap).
 
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -86,7 +87,6 @@ pub(super) fn normalize_query_branch(
             // as the no-material fallback.
             let mut samples: Vec<(f64, f64)> = Vec::new();
             for (_, pc) in boundary_nurbs {
-                use popkern_core::geometry::curve::CurveEval as _;
                 let (t0, t1) = pc.parameter_range();
                 for i in 0..=16 {
                     let t = t0 + (t1 - t0) * i as f64 / 16.0;
@@ -197,6 +197,55 @@ pub(super) fn normalize_query_branch(
     }
 
     normalized
+}
+
+/// The v-branch counterpart for a v-BOUNDED face of a v-periodic chart
+/// (a torus band): translate a record's pcurve rigidly by whole
+/// v-periods so its v-centre lands nearest the boundary's (PK-775).
+/// Applied once, before the clip, so crossings, containment and the
+/// extracted pieces all see one branch. The torus×plane
+/// marcher authored a cube-wall record on v ∈ [5.24, 7.33], the 2π
+/// branch of a band on v ∈ [0, π/2]; with u alone normalized no crossing
+/// was found and the record dropped as Outside. A face wrapping v keeps
+/// its record as authored.
+pub(crate) fn normalize_v_branch(brep: &BRep, face: FaceHandle, normalized: &mut NurbsCurve) {
+    use popkern_core::geometry::SurfaceEval as _;
+    let Some(period) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .and_then(|s| s.geometry.parameter_periodicity().1)
+        .filter(|p| *p > 0.0)
+    else {
+        return;
+    };
+    let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
+        return;
+    };
+    let (lo, hi, sum, n) = boundary
+        .iter()
+        .flat_map(|(_, pc)| {
+            let (t0, t1) = pc.parameter_range();
+            (0..=8).map(move |i| pc.point_at(t0 + (t1 - t0) * f64::from(i) / 8.0).y)
+        })
+        .fold(
+            (f64::INFINITY, f64::NEG_INFINITY, 0.0, 0usize),
+            |(lo, hi, s, n), v| (lo.min(v), hi.max(v), s + v, n + 1),
+        );
+    if n == 0 || hi - lo >= period * (1.0 - 1e-6) {
+        return;
+    }
+    let q = &normalized.control_points;
+    let q_center = q.iter().map(|p| p.y).sum::<f64>() / q.len().max(1) as f64;
+    let k = ((sum / n as f64 - q_center) / period).round();
+    if k != 0.0 {
+        for p in &mut normalized.control_points {
+            p.y += k * period;
+        }
+        if popkern_core::trace::trace_enabled("clip") {
+            eprintln!("    [uvclip-branch] {face:?} query v shifted by {k:+.0} period(s)");
+        }
+    }
 }
 
 /// A split containment vote on a record with no boundary crossings —

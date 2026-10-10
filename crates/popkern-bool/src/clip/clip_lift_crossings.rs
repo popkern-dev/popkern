@@ -53,6 +53,80 @@ pub(super) fn is_once_winding_loop(curve_uv: &NurbsCurve, period: f64) -> bool {
 
 /// Whether the boundary pcurves unroll more than one period in u
 /// (a multi-turn chart).
+/// The crossing a CLOSED query makes at its own closure point, when
+/// that point lies on the face boundary and the crossing count is odd
+/// (PK-775). The intersector misses a hit exactly at a curve's
+/// parameter end. A torus band's cube-wall record starts and ends on
+/// the band's v = 0 rim, so it saw its one interior crossing only; an
+/// odd count gave no hull and the record dropped as Outside. A closed
+/// curve crosses an even number of times, so the missing hit is the
+/// closure. The query is closed, and its closure point on the
+/// boundary, within 1e-5 of the boundary's uv diagonal: the record's uv
+/// fit leaves its ends ~8e-7 apart on a 6.3-wide chart.
+pub(super) fn closure_crossing(
+    brep: &BRep,
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    crossings: &[UvCrossing],
+    period: Option<f64>,
+) -> Option<UvCrossing> {
+    if crossings.len().is_multiple_of(2) {
+        return None;
+    }
+    let (t0, t1) = curve_uv.parameter_range();
+    let (a, b) = (curve_uv.point_at(t0), curve_uv.point_at(t1));
+    let du = b.x - a.x;
+    let du = match period {
+        Some(p) if p > 0.0 => du - p * (du / p).round(),
+        _ => du,
+    };
+    let (u_lo, u_hi, v_lo, v_hi) = boundary
+        .iter()
+        .flat_map(|(_, pc)| pc.control_points.iter())
+        .fold(
+            (
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            ),
+            |(a, b, c, d), p| (a.min(p.x), b.max(p.x), c.min(p.y), d.max(p.y)),
+        );
+    let diag = popkern_math::PortableMath::phypot(u_hi - u_lo, v_hi - v_lo);
+    let band = (diag * 1e-5).max(1e-12);
+    if du.abs() > band || (b.y - a.y).abs() > band {
+        return None; // not closed in the chart
+    }
+    let mut best: Option<(f64, UvCrossing)> = None;
+    for (he, pc) in boundary {
+        let twin = brep.half_edges[*he].twin;
+        if brep.half_edges.contains_key(twin)
+            && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
+        {
+            continue; // a seam use
+        }
+        for lift in [0.0, -1.0, 1.0] {
+            let shift = period.map_or(0.0, |p| lift * p);
+            let q = popkern_core::geometry::Point3::new(a.x + shift, a.y, 0.0);
+            let Some(s) = pc.closest_point(&q) else {
+                continue;
+            };
+            let d = pc.point_at(s).distance_to(&q);
+            if d <= band && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                best = Some((
+                    d,
+                    UvCrossing {
+                        t_curve: t0,
+                        boundary_he: *he,
+                        t_boundary: s,
+                    },
+                ));
+            }
+        }
+    }
+    best.map(|(_, c)| c)
+}
+
 #[cfg(test)]
 fn boundary_is_multi_turn(boundary: &[(HalfEdgeHandle, NurbsCurve)], period: f64) -> bool {
     let (lo, hi) = boundary_u_range(boundary);
@@ -82,6 +156,45 @@ pub(super) fn boundary_leaves_loop_window(
         });
     let gate = LOOP_CLOSURE_FRACTION * period;
     b_lo < q_lo - gate || b_hi > q_hi + gate
+}
+
+/// Whether a sub-period query leaves the window of a face that WRAPS a
+/// whole period, so that some of its crossings exist only on another
+/// lift (PK-775). The face's seam need not sit at u = 0: a rigid
+/// rotation re-anchors a rotational chart and leaves the seam at the
+/// shift angle. Two measured shapes are covered:
+/// - a CLOSED record straddling the moved seam (a torus band's trim on
+///   [−0.002, 6.281] against a cube-wall record on [5.83, 6.73], which
+///   met the band's rim only on its k = −1 lift);
+/// - a record lying ENTIRELY outside the window (a cylinder wall on
+///   [−0.89, 5.39] against a cube-wall line at u = 5.5).
+///
+/// An OPEN record straddling a seam is the ±π dance's tuned class:
+/// lifting it added phantom crossings at an equal-radius tee's
+/// tangential singular points, and the union stranded record sides.
+pub(super) fn query_leaves_wrapping_window(
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    period: f64,
+) -> bool {
+    let (b_lo, b_hi) = boundary_u_range(boundary);
+    let (q_lo, q_hi) = curve_uv
+        .control_points
+        .iter()
+        .map(|p| p.x)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+            (lo.min(u), hi.max(u))
+        });
+    let gate = LOOP_CLOSURE_FRACTION * period;
+    let wraps = ((b_hi - b_lo) - period).abs() < gate;
+    if !wraps || q_hi - q_lo >= period - gate {
+        return false;
+    }
+    let (t0, t1) = curve_uv.parameter_range();
+    let closed = curve_uv.point_at(t0).distance_to(&curve_uv.point_at(t1)) < 1e-5 * period;
+    let straddles = q_lo < b_lo - gate || q_hi > b_hi + gate;
+    let outside = q_lo > b_hi + gate || q_hi < b_lo - gate;
+    (closed && straddles) || outside
 }
 
 fn boundary_u_range(boundary: &[(HalfEdgeHandle, NurbsCurve)]) -> (f64, f64) {
@@ -200,7 +313,8 @@ pub(super) fn extend_with_lifted_loop_crossings(
     tolerance: &Tolerance,
 ) {
     if !(is_once_winding_loop(curve_uv, period)
-        && boundary_leaves_loop_window(boundary, curve_uv, period))
+        && boundary_leaves_loop_window(boundary, curve_uv, period)
+        || query_leaves_wrapping_window(boundary, curve_uv, period))
     {
         return;
     }

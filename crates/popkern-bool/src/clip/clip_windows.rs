@@ -62,6 +62,11 @@ pub(crate) fn clip_curve_uv_space(
     // produced anything keeps its tuned output (the flush-gusset
     // union has a negative-branch face whose producing records must
     // not move).
+    // One v-branch per torus band, before any clip stage (PK-775).
+    let mut on_branch = curve.clone();
+    super::clip_branch_normalize::normalize_v_branch(brep_a, face_a, &mut on_branch.curve_uv1);
+    super::clip_branch_normalize::normalize_v_branch(brep_b, face_b, &mut on_branch.curve_uv2);
+    let curve = &on_branch;
     let mut first_residues: Vec<crate::clip::TrimResidue> = Vec::new();
     let out = clip_curve_uv_space_tuned(
         brep_a,

@@ -127,3 +127,58 @@ fn a_band_bounded_on_its_v_seam_serves_whatever_side_roundoff_puts_it() {
         "face counts {faces:?}"
     );
 }
+
+/// Volume of a closed tessellation by the divergence theorem.
+fn mesh_volume(result: &BRep) -> f64 {
+    let mesh = popkern_mesh::tessellate(result, &popkern_mesh::TessellationOptions::default())
+        .expect("tessellation");
+    mesh.triangles
+        .iter()
+        .map(|t| {
+            let [a, b, c] = t.map(|i| mesh.vertices[i].position);
+            let (a, b, c) = (
+                popkern_core::geometry::Vec3::new(a.x, a.y, a.z),
+                popkern_core::geometry::Vec3::new(b.x, b.y, b.z),
+                popkern_core::geometry::Vec3::new(c.x, c.y, c.z),
+            );
+            a.dot(&b.cross(&c)) / 6.0
+        })
+        .sum()
+}
+
+/// The same scene rigidly rotated must serve the same body (PK-775).
+/// A rotation re-anchors a rotational chart: the cylinder's and the
+/// torus band's u-seams move to the shift angle (u ∈ [−0.002, 6.281]
+/// at 7°), and the torus×plane marcher may author a record on the band's
+/// 2π v-branch. Each angle has failed differently: a record straddling
+/// the band's moved seam met its rim only on another lift; a closed
+/// record whose closure point lies on the rim saw one crossing; a 2π-
+/// branch record found none. Each case dropped as Outside, the cellular
+/// assembly went non-manifold and graph-merge left the 0.87 gap or
+/// curveless edges.
+#[test]
+fn the_rigidly_rotated_scene_serves_the_same_body_at_every_angle() {
+    let tol = Tolerance::default();
+    let base = popkern_bool::subtraction(rim_filleted_cylinder(tol), cube_cutter(tol), tol, None)
+        .expect("0°");
+    let (faces0, volume0) = (base.faces.len(), mesh_volume(&base));
+    for deg in [7.0_f64, 13.0, 30.0, 41.0, 77.0] {
+        let t = Transform3::rotation_around_axis(
+            Point3::new(0.0, 0.0, 0.0),
+            popkern_core::geometry::Vec3::new(1.0, 0.3, 0.0),
+            deg.to_radians(),
+        )
+        .expect("rotation");
+        let part = rim_filleted_cylinder(tol).transform(&t).expect("part");
+        let cutter = cube_cutter(tol).transform(&t).expect("cutter");
+        let result = popkern_bool::subtraction(part, cutter, tol, None)
+            .unwrap_or_else(|e| panic!("{deg}°: {e:?}"));
+        assert_eq!(open_mesh_edges(&result), 0, "{deg}°: open mesh edges");
+        assert_eq!(result.faces.len(), faces0, "{deg}°: face count");
+        let v = mesh_volume(&result);
+        assert!(
+            (v - volume0).abs() / volume0 < 1e-3,
+            "{deg}°: volume {v} vs {volume0} at 0°"
+        );
+    }
+}
