@@ -161,7 +161,7 @@ pub(crate) fn cellular_graph_merge(
             .iter()
             .any(|o| !o.full_overlap)
         {
-            remove_collinear_duplicates(&mut graph);
+            remove_collinear_duplicates(&mut graph, tolerance.linear());
         }
     }
 

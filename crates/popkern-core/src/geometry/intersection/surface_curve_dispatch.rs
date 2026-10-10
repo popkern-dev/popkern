@@ -109,6 +109,28 @@ pub(super) fn dispatch(
             tolerance,
         ),
 
+        (
+            SurfaceGeometry::Plane {
+                origin,
+                normal,
+                u_axis,
+                v_axis,
+            },
+            CurveGeometry::Circle { .. } | CurveGeometry::Arc { .. },
+        ) => super::super::plane_circle::intersect_plane_circle(
+            super::super::plane_circle::PlaneFrame {
+                origin,
+                normal,
+                u_axis,
+                v_axis,
+            },
+            curve,
+            t_range,
+            (u_range, v_range),
+            tolerance,
+        )
+        .unwrap_or_default(),
+
         _ => surface_curve_general::intersect_surface_curve_general(
             surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
         ),

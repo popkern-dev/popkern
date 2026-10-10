@@ -22,6 +22,7 @@ pub mod marching;
 mod newton;
 mod nurbs_nurbs;
 mod overlap;
+mod plane_circle;
 pub(crate) mod plane_cone;
 pub(crate) mod plane_cylinder;
 mod plane_cylinder_pcurve;

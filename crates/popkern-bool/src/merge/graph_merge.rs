@@ -144,7 +144,7 @@ pub(crate) fn graph_merge(
         .iter()
         .any(|o| !o.full_overlap)
     {
-        remove_collinear_duplicates(&mut graph);
+        remove_collinear_duplicates(&mut graph, tolerance.linear());
     }
 
     // Sort radial edges at all nodes.

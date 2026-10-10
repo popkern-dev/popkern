@@ -282,3 +282,78 @@ pub(crate) fn hit_inside_inner_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
 // ---------------------------------------------------------------------------
 // 4. Point-in-solid with multi-ray voting
 // ---------------------------------------------------------------------------
+
+/// True when the hit at `(u, v)` lands strictly inside one of a
+/// SINGLY-periodic face's holes (inner loops). Each hole contour is
+/// unwrapped to continuity (a compact hole straddling the u seam sits on
+/// both branches) and the query is moved to the contour's branch; a
+/// contour still wider than half the period is torn and abstains, as do
+/// hits within 20 × linear of a hole rim. Measured (PK-758): a web's
+/// notch through a ring wall is a hole of the wall; ray hits inside it
+/// counted as wall crossings and a sample inside the web read Outside.
+pub(crate) fn hit_inside_periodic_hole(
+    brep: &BRep,
+    face: FaceHandle,
+    period: f64,
+    u: f64,
+    v: f64,
+) -> bool {
+    let band = brep.tolerance.linear() * 20.0;
+    crate::clip::face_uv_inner_boundaries(brep, face)
+        .iter()
+        .any(|contour| {
+            let mut ring: Vec<(f64, f64)> = Vec::new();
+            for (_he, pc) in contour {
+                let (t0, t1) = pc.parameter_range();
+                for i in 0..CURVED_LOOP_STATIONS {
+                    let q = pc.point_at(t0 + (t1 - t0) * i as f64 / CURVED_LOOP_STATIONS as f64);
+                    let x = match ring.last() {
+                        Some(&(pu, _)) => q.x - ((q.x - pu) / period).round() * period,
+                        None => q.x,
+                    };
+                    ring.push((x, q.y));
+                }
+            }
+            let n = ring.len();
+            if n < 3 {
+                return false;
+            }
+            let (lo, hi) = ring
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), q| {
+                    (lo.min(q.0), hi.max(q.0))
+                });
+            if hi - lo > 0.5 * period {
+                return false;
+            }
+            let centre = 0.5 * (lo + hi);
+            let u = u + ((centre - u) / period).round() * period;
+            let mut inside = false;
+            let mut near = f64::INFINITY;
+            for i in 0..n {
+                let ((x0, y0), (x1, y1)) = (ring[i], ring[(i + 1) % n]);
+                if (y0 > v) != (y1 > v) && x0 + (v - y0) / (y1 - y0) * (x1 - x0) > u {
+                    inside = !inside;
+                }
+                let (dx, dy) = (x1 - x0, y1 - y0);
+                let l2 = (dx * dx + dy * dy).max(1e-300);
+                let t = (((u - x0) * dx + (v - y0) * dy) / l2).clamp(0.0, 1.0);
+                near = near.min((u - x0 - dx * t).phypot(v - y0 - dy * t));
+            }
+            inside && near > band
+        })
+}
+
+/// [`hit_inside_periodic_hole`] on a singly-periodic chart, false on
+/// any other surface.
+pub(crate) fn hit_in_periodic_hole(
+    brep: &BRep,
+    face: FaceHandle,
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    (u, v): (f64, f64),
+) -> bool {
+    match crate::clip::classification_chart_periods(surface) {
+        (Some(p), None) => hit_inside_periodic_hole(brep, face, p, u, v),
+        _ => false,
+    }
+}

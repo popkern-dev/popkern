@@ -36,7 +36,7 @@ const MIDPOINT_FRACTION: f64 = 0.05;
 /// Remove non-shared half-edges that duplicate a shared half-edge on
 /// the same face: same end nodes AND the same curve (see the module
 /// docs).
-pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
+pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear: f64) {
     let mut to_remove: Vec<usize> = Vec::new();
     let mut seam_substitutes: Vec<(super::graph::FaceRef, usize)> = Vec::new();
 
@@ -75,7 +75,7 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
                 let (sp0, sp1) = ends(s);
                 let same_ends = (close(&sp0, &p0) && close(&sp1, &p1))
                     || (close(&sp0, &p1) && close(&sp1, &p0));
-                same_ends && same_curve(curve_of(graph, idx), curve_of(graph, s), p0, p1)
+                same_ends && same_curve(curve_of(graph, idx), curve_of(graph, s), (p0, p1), linear)
             });
             if let Some(s) = dup_of {
                 to_remove.push(idx);
@@ -121,11 +121,18 @@ fn curve_of(graph: &IntersectionGraph, idx: usize) -> Option<&CurveOnEdge> {
 /// on the shared curve `shared`. Without a curve on either side the
 /// endpoint match alone decides (the historical straight-segment
 /// contract).
+///
+/// The band is the smaller of the chord fraction and 100 × linear: fit
+/// slop scales with the model tolerance, while a THIN lens is still
+/// two curves (measured, PK-758: a boss rising 0.5 above a ring's notch
+/// edge over a 13-long chord sat inside 5% of the chord, the notch edge
+/// was removed as a "duplicate" of the boss record, and the ring wall's
+/// walk lost a boundary piece).
 fn same_curve(
     operand: Option<&CurveOnEdge>,
     shared: Option<&CurveOnEdge>,
-    p0: Point3,
-    p1: Point3,
+    (p0, p1): (Point3, Point3),
+    linear: f64,
 ) -> bool {
     let (Some(operand), Some(shared)) = (operand, shared) else {
         return true;
@@ -134,7 +141,8 @@ fn same_curve(
         .geometry
         .point_at(0.5 * (operand.t_start + operand.t_end));
     let extent = p0.distance_to(&p1).max(mid.distance_to(&p0));
-    distance_to_piece(shared, &mid) <= MIDPOINT_FRACTION * extent
+    let band = (MIDPOINT_FRACTION * extent).min(100.0 * linear);
+    distance_to_piece(shared, &mid) <= band
 }
 
 /// The distance from `p` to the PIECE of `curve` over its own

@@ -408,7 +408,19 @@ pub(super) fn ray_crossing_count(
                     // hole "hit" at t=1.28 made a below-body sample
                     // read Inside and the void cylinder was kept,
                     // PK-464).
-                    if is_plane && hit_inside_inner_loop(brep, *face_handle, *u, *v) {
+                    // Curved FINAL faces drop hits in their holes too
+                    // (a web's notch through a ring wall, PK-758).
+                    let curved_hole = !is_plane
+                        && skip_hole_hits
+                        && crate::classify_uv_loops::hit_in_periodic_hole(
+                            brep,
+                            *face_handle,
+                            surface,
+                            (*u, *v),
+                        );
+                    if curved_hole
+                        || (is_plane && hit_inside_inner_loop(brep, *face_handle, *u, *v))
+                    {
                         continue;
                     }
                     if popkern_core::trace::trace_enabled("ray-classify") {
