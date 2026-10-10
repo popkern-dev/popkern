@@ -14,7 +14,7 @@
 //! classification drops hits inside curved faces' holes; and the
 //! duplicate-cover test no longer calls a 0.5-thick lens one curve.
 
-use popkern_rhai::ScriptHost;
+mod union_oracle;
 
 struct Casting {
     ring: String,
@@ -48,15 +48,6 @@ fn near_tangent_cap(cap_x: f64) -> Casting {
     }
 }
 
-fn run(body: &str, name: &str) -> Result<popkern_script::Model, String> {
-    let source = format!("let m = model();\n{body}\nm\n");
-    let mut host = ScriptHost::new();
-    let outcome = host
-        .run(&source, name)
-        .map_err(|e| format!("{name}: {}", e.render()))?;
-    outcome.model.ok_or_else(|| "no model".into())
-}
-
 fn union_script(c: &Casting) -> String {
     format!(
         "let d = {};\nd = d.union(m.tool(|t| {}), #{{ label: \"web\" }});\nd = d.union(m.tool(|t| {}), #{{ label: \"boss\" }});\nm.assert_watertight();",
@@ -66,64 +57,16 @@ fn union_script(c: &Casting) -> String {
     )
 }
 
-/// OCC's oracle on popkern's union and on its own fuse of the three
-/// operands: (served volume, fused volume), or `None` without the venv.
-fn occ_volumes(c: &Casting, served: &mut popkern_script::Model, name: &str) -> Option<(f64, f64)> {
-    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
-    let python = home.join("venvs/ocp/bin/python");
-    let tools = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/occ-oracle");
-    if !python.exists() || !tools.exists() {
-        eprintln!("[pk758] OCC oracle absent; volumes not cross-checked");
-        return None;
-    }
-    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pk758");
-    std::fs::create_dir_all(&dir).expect("dir");
-    let step = dir.join(format!("{name}.step"));
-    served.to_step(&step).expect("STEP export");
-    let oracle = |script: &str, args: &[&std::path::Path], extra: &[&str]| -> serde_json::Value {
-        let out = std::process::Command::new(&python)
-            .arg(tools.join(script))
-            .args(args)
-            .args(extra)
-            .output()
-            .expect("oracle");
-        serde_json::from_slice(&out.stdout).expect("oracle json")
-    };
-    let check = oracle("occ_check.py", &[&step], &[]);
-    assert_eq!(
-        check["passed"], true,
-        "{name}: OCC rejects the STEP: {check}"
-    );
-    let solids = oracle("occ_solids.py", &[&step], &["--adaptive"]);
-    let rows = solids["solids"].as_array().expect("solids");
-    assert_eq!(rows.len(), 1, "{name}: one solid {solids}");
-    let served_volume = rows[0]["volume"].as_f64().expect("volume");
-    let mut parts = Vec::new();
-    for (k, body) in [&c.ring, &c.web, &c.boss].into_iter().enumerate() {
-        let mut model =
-            run(&format!("let d = {body};"), &format!("{name}_{k}.rhai")).expect("operand");
-        let path = dir.join(format!("{name}_operand_{k}.step"));
-        model.to_step(&path).expect("operand STEP");
-        parts.push(path);
-    }
-    let refs: Vec<&std::path::Path> = parts.iter().map(|p| p.as_path()).collect();
-    let fused = oracle("occ_fuse.py", &refs, &[]);
-    assert_eq!(fused["done"], true, "{name}: OCC fuse {fused}");
-    Some((
-        served_volume,
-        fused["volume"].as_f64().expect("fused volume"),
-    ))
-}
-
 /// Serve the union; with the OCC venv, its volume must match OCC's own
 /// fuse of the operands within 1e-9 relative (measured: 1e-13..2e-10).
 fn serves(c: &Casting, name: &str) -> Result<(), String> {
-    let mut model = run(&union_script(c), &format!("{name}.rhai"))?;
+    let mut model = union_oracle::run("", &union_script(c), &format!("{name}.rhai"))?;
     let report = popkern_rhai::report_value(&model);
     if report["failures"] != 0 {
         return Err(format!("{name}: {report}"));
     }
-    if let Some((served, fused)) = occ_volumes(c, &mut model, name) {
+    let operands = [c.ring.as_str(), c.web.as_str(), c.boss.as_str()];
+    if let Some((served, fused)) = union_oracle::occ_volumes("", &operands, &mut model, name) {
         let rel = (served - fused).abs() / fused;
         if rel > 1e-9 {
             return Err(format!(

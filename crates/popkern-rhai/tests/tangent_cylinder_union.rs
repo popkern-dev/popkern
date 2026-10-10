@@ -155,13 +155,13 @@ fn the_stadium_serves_through_tangency() {
     let linear = popkern_core::tolerance::Tolerance::default().linear();
     let mut failures = Vec::new();
     for delta in [-0.1, -1e-3, -1e-6, 1e-6, 1e-3, 0.1] {
-        // δ = −1e-3: the cap × side-face plane-plane records run past
-        // both faces (one spans x ∈ [−6.095, −6], outside the box), and
-        // validation declines the result honestly. Owned by PK-753;
-        // the pin flips when that lands.
+        // δ = −1e-3: the box face sits 1e-3 inside tangency over a
+        // coplanar cap overlap; a rim arc dipping 1e-3 below the box
+        // face lands on it and validation declines honestly (the
+        // near-tangency class, PK-780); the pin flips when that lands.
         if delta == -1e-3 {
             let Err(e) = serve(&stadium(R + delta), "stadium_near.rhai") else {
-                panic!("PK-753: the near-tangent stadium now serves; promote it");
+                panic!("PK-780: the near-tangent stadium now serves; promote it");
             };
             assert!(e.contains("result validation failed"), "{e}");
             continue;
