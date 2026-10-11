@@ -71,7 +71,9 @@ pub(crate) fn wall_clear_of_cylinder(
 }
 
 /// Insert every live span's midpoint in each direction of degree > 1
-/// (a degree-1 direction's net already lies on the surface).
+/// (a degree-1 direction's net already lies on the surface), each row
+/// and column in one refinement pass: single insertion rebuilt the
+/// whole net per knot, quadratic in the wall's spans (PK-786).
 fn refined(wall: &NurbsSurface) -> Option<NurbsSurface> {
     let mids = |knots: &[f64]| -> Vec<f64> {
         knots
@@ -81,11 +83,63 @@ fn refined(wall: &NurbsSurface) -> Option<NurbsSurface> {
             .collect()
     };
     let mut out = wall.clone();
-    if wall.degree_u > 1 {
-        out = out.insert_knots_u(&mids(&wall.knots_u)).ok()?;
-    }
     if wall.degree_v > 1 {
-        out = out.insert_knots_v(&mids(&wall.knots_v)).ok()?;
+        out = refine_direction(&out, &mids(&wall.knots_v), false)?;
+    }
+    if wall.degree_u > 1 {
+        out = refine_direction(&out, &mids(&wall.knots_u), true)?;
+    }
+    Some(out)
+}
+
+/// `wall` with `inserts` refined into its u (`along_u`) or v knots,
+/// line by line (u-major storage: grid `(i_u, i_v)` is
+/// `i_u * num_v + i_v`).
+fn refine_direction(wall: &NurbsSurface, inserts: &[f64], along_u: bool) -> Option<NurbsSurface> {
+    use crate::geometry::nurbs_ops::knot_refinement::refine_knot_vector_points;
+    let (num_u, num_v) = (wall.num_u, wall.num_v);
+    let (lines, len, degree, knots) = if along_u {
+        (num_v, num_u, wall.degree_u, &wall.knots_u)
+    } else {
+        (num_u, num_v, wall.degree_v, &wall.knots_v)
+    };
+    let index = |line: usize, k: usize| {
+        if along_u {
+            k * num_v + line
+        } else {
+            line * num_v + k
+        }
+    };
+    let new_len = len + inserts.len();
+    let mut points = vec![Point3::new(0.0, 0.0, 0.0); lines * new_len];
+    let mut weights = vec![0.0; lines * new_len];
+    let mut new_knots = Vec::new();
+    for line in 0..lines {
+        let pts: Vec<Point3> = (0..len)
+            .map(|k| wall.control_points[index(line, k)])
+            .collect();
+        let wts: Vec<f64> = (0..len).map(|k| wall.weights[index(line, k)]).collect();
+        let (nk, np, nw) = refine_knot_vector_points(degree, knots, &pts, &wts, inserts)?;
+        for (k, (pt, w)) in np.into_iter().zip(nw).enumerate() {
+            let at = if along_u {
+                k * num_v + line
+            } else {
+                line * new_len + k
+            };
+            points[at] = pt;
+            weights[at] = w;
+        }
+        new_knots = nk;
+    }
+    let mut out = wall.clone();
+    out.control_points = points;
+    out.weights = weights;
+    if along_u {
+        out.knots_u = new_knots;
+        out.num_u = new_len;
+    } else {
+        out.knots_v = new_knots;
+        out.num_v = new_len;
     }
     Some(out)
 }

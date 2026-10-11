@@ -43,6 +43,10 @@ const MIN_TRANSVERSAL_SIN: f64 = 0.05;
 /// the most accumulated flips, so they maximize the chance of
 /// catching a wrong flip edge.
 const AUDITS_PER_COMPONENT: usize = 2;
+/// Next-deepest members held in reserve: an audit whose ray lands ON
+/// operand B's boundary is inconclusive, and a reserve is
+/// ray-classified in its place (see `Component::reserves`).
+const AUDIT_RESERVES: usize = 4;
 
 /// One propagation component over eligible operand-A fragments.
 pub(super) struct Component {
@@ -53,6 +57,15 @@ pub(super) struct Component {
     pub seed: usize,
     /// Ray-audited members: (fragment index, expected parity).
     pub audits: Vec<(usize, bool)>,
+    /// The next-deepest members, in depth order, with their expected
+    /// parity: each replaces an audit whose verdict is inconclusive.
+    /// An audit sample can sit within tolerance of operand B (a cap
+    /// rim's arc midpoint where the thread groove meets the rim), and
+    /// declining the whole component for it sent a 167-fragment
+    /// thread wall back to per-fragment rays: the 80 mm rod's merge
+    /// took 30 s instead of 1.5 s (PK-786). Reserves are deferred like
+    /// any member until one is needed.
+    pub reserves: Vec<(usize, bool)>,
 }
 
 /// The plan: which fragments defer to which component.
@@ -212,6 +225,12 @@ pub(super) fn build_plan(
             .take(AUDITS_PER_COMPONENT)
             .map(|&m| (m, parity[m] ^ seed_parity))
             .collect();
+        let reserves: Vec<(usize, bool)> = by_depth
+            .iter()
+            .skip(AUDITS_PER_COMPONENT)
+            .take(AUDIT_RESERVES)
+            .map(|&m| (m, parity[m] ^ seed_parity))
+            .collect();
         for &(m, _) in &members {
             if m != seed && !audits.iter().any(|&(a, _)| a == m) {
                 deferred[m] = Some(components.len());
@@ -226,6 +245,7 @@ pub(super) fn build_plan(
             members,
             seed,
             audits,
+            reserves,
         });
     }
     if components.is_empty() {

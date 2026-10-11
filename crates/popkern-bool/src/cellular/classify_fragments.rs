@@ -229,12 +229,44 @@ pub(super) fn classify_fragments_cellular(
                 seed_class,
                 Some(PointClassification::Inside | PointClassification::Outside)
             );
-            let audits_ok = propagatable
-                && comp.audits.iter().all(|&(a, par)| {
-                    let expected = seed_class.map(|c| if par { flipped(c) } else { c });
-                    results[a].as_ref().map(|r| r.1) == expected
-                });
-            if audits_ok {
+            // Audits decide in depth order. One that is not plain
+            // In/Out (its sample sits on operand B's boundary) is
+            // inconclusive: it neither confirms nor contradicts, and
+            // the next reserve is ray-classified in its place. Any
+            // decisive disagreement declines the component.
+            use crate::propagation_report::PropagationDeclineReason as Decline;
+            let decline = if propagatable {
+                let mut decisive = 0usize;
+                let mut agree = true;
+                let mut candidates = comp.audits.iter().chain(&comp.reserves);
+                while agree && decisive < comp.audits.len() {
+                    let Some(&(a, par)) = candidates.next() else {
+                        break;
+                    };
+                    let got = results[a]
+                        .get_or_insert_with(|| {
+                            super::fragment_classify_one::sample_and_classify(&ctx, &fragments[a])
+                        })
+                        .1;
+                    if matches!(
+                        got,
+                        PointClassification::Inside | PointClassification::Outside
+                    ) {
+                        decisive += 1;
+                        agree = seed_class.map(|c| if par { flipped(c) } else { c }) == Some(got);
+                    }
+                }
+                if !agree {
+                    Some(Decline::AuditDisagrees)
+                } else if decisive < comp.audits.len() {
+                    Some(Decline::AuditsInconclusive)
+                } else {
+                    None
+                }
+            } else {
+                Some(Decline::SeedNotPlain)
+            };
+            if decline.is_none() {
                 let mut filled = 0usize;
                 for &(m, par) in &comp.members {
                     // EVERY member of an accepted component is
@@ -273,13 +305,8 @@ pub(super) fn classify_fragments_cellular(
                         comp.audits.len()
                     );
                 }
-            } else {
-                if popkern_core::trace::trace_enabled("cellular") {
-                    eprintln!(
-                        "  [propagate] component of {} DECLINED (seed {seed_class:?}, audit mismatch or non-plain) — per-fragment",
-                        comp.members.len()
-                    );
-                }
+            } else if let Some(reason) = decline {
+                crate::propagation_report::record_propagation_decline(comp.members.len(), reason);
                 for &(m, _) in &comp.members {
                     if results[m].is_none() {
                         results[m] = Some(super::fragment_classify_one::sample_and_classify(

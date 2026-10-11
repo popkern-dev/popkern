@@ -33,6 +33,7 @@ fn mesh_volume(part: &Part) -> f64 {
 fn rod(length: f64) -> Part {
     let spec = ThreadSpec::parse("M2.5").expect("M2.5");
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let _ = popkern_bool::propagation_report::take_propagation_declines();
     ThreadedRod::new(spec, length)
         .build(Tolerance::default())
         .expect("rod serves")
@@ -44,6 +45,13 @@ fn assert_cellular_watertight(part: &Part, fixture: &str) {
         fallbacks.is_empty(),
         "{fixture}: {} boolean(s) fell back to graph-merge: {fallbacks:?}",
         fallbacks.len()
+    );
+    // A thread wall classified fragment by fragment is quadratic in
+    // turns (PK-496); every planned component must propagate.
+    let declines = popkern_bool::propagation_report::take_propagation_declines();
+    assert!(
+        declines.is_empty(),
+        "{fixture}: verdict propagation declined: {declines:?}"
     );
     assert_eq!(
         part.open_edge_count().expect("mesh"),
@@ -88,6 +96,7 @@ fn slotted_m2p5_rod_serves_cellular() {
         .extrude(0.8)
         .expect("slot");
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let _ = popkern_bool::propagation_report::take_propagation_declines();
     let slotted = part.subtract(&slot).expect("slotted rod serves");
     assert_cellular_watertight(&slotted, "M2.5 x 12 slotted rod");
     // OCC tessellated 45.815; the unslotted rod's 46.869 less the
@@ -105,7 +114,27 @@ fn m2p5_fifty_mm_rod_cut_at_mid_length_serves_cellular() {
         .extrude(30.0)
         .expect("cut box");
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let _ = popkern_bool::propagation_report::take_propagation_declines();
     let half = part.subtract(&cut).expect("cut rod serves");
     assert_cellular_watertight(&half, "M2.5 x 50 rod cut at z 25.3");
     assert_volume(&half, 98.9985, "M2.5 x 50 rod cut at z 25.3");
+}
+
+/// PK-786: the release perf gate's M6 x 80 rod (80 turns, no tip
+/// chamfer). An audit of its thread-wall component sampled the bottom
+/// cap's rim arc where the groove meets the rim, within tolerance of
+/// the tool; the audit read OnBoundary, the whole 167-fragment wall
+/// declined to per-fragment rays, and the merge stage took 30 s
+/// instead of 1.5 s. An inconclusive audit now hands its place to the
+/// next-deepest member.
+#[test]
+fn m6_eighty_mm_rod_wall_propagates_one_verdict() {
+    let spec = ThreadSpec::parse("M6").expect("M6");
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let _ = popkern_bool::propagation_report::take_propagation_declines();
+    let part = ThreadedRod::new(spec, 80.0)
+        .tip_chamfer(false)
+        .build(Tolerance::default())
+        .expect("rod serves");
+    assert_cellular_watertight(&part, "M6 x 80 rod");
 }

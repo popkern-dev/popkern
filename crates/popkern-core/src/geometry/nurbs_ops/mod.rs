@@ -4,6 +4,7 @@
 pub(crate) mod basis;
 pub mod degree_elevation;
 pub mod knot_insertion;
+pub(crate) mod knot_refinement;
 pub mod knot_removal;
 pub mod splitting;
 

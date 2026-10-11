@@ -61,6 +61,20 @@ f 4 1 5 7
 f 8 9 10
 ";
 
+/// The budgets in this file run one at a time. libtest runs them in
+/// parallel by default, and the CI runner has two cores: on CI the
+/// cage tests overlapped both thread-cut builds unevenly, so the ratio
+/// measured contention as well as scaling. PK-786 measured 3.54 on CI
+/// (len 40 = 25.4 s, len 80 = 90.0 s). After its fixes, serialized
+/// runs measure 2.77-2.80 locally (len 40 = 9.0 s, len 80 = 25.1 s).
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 fn debug_skip(name: &str) -> bool {
     if cfg!(debug_assertions) {
         eprintln!("perf budget [{name}]: skipped in debug — enforced by the CI release perf job");
@@ -100,6 +114,7 @@ fn smooth_mesh_cube_cage_within_budget() {
     if debug_skip("smooth-mesh cube cage") {
         return;
     }
+    let _serial = serial();
     let measured = best_of(3, || {
         let (_, report) = smooth_solid_from_obj(
             CUBE_CAGE,
@@ -125,6 +140,7 @@ fn smooth_mesh_normalized_cage_within_budget() {
     if debug_skip("smooth-mesh truncated-corner cage (1 CC step)") {
         return;
     }
+    let _serial = serial();
     let measured = best_of(3, || {
         let (_, report) = smooth_solid_from_obj(
             TRUNCATED_CORNER_CAGE,
@@ -161,6 +177,7 @@ fn thread_cut_serve_cost_stays_subquadratic() {
     if debug_skip("thread-cut serve cost ratio (40 vs 80)") {
         return;
     }
+    let _serial = serial();
     let build = |len: f64| {
         let t0 = Instant::now();
         let spec = ThreadSpec::parse("M6").expect("M6");
@@ -174,6 +191,9 @@ fn thread_cut_serve_cost_stays_subquadratic() {
     let t40 = build(40.0);
     let t80 = build(80.0);
     let ratio = t80.as_secs_f64() / t40.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [thread-cut ratio]: len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} (gate 3.5)"
+    );
     assert!(
         ratio <= 3.5,
         "thread-cut cost curve regressed toward quadratic: \

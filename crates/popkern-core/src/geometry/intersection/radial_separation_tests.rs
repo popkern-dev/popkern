@@ -87,3 +87,47 @@ fn a_bulging_net_is_certified_after_refinement() {
     // onto the wall and the inside certificate holds.
     assert!(clear(&tube(1.0, 1.0), 1.2));
 }
+
+/// One-pass refinement (PK-786) builds the same net as span-midpoint
+/// insertion one knot at a time, in both directions of a rational
+/// bi-quadratic patch with uneven spans.
+#[test]
+fn refinement_matches_single_insertion() {
+    let (num_u, num_v) = (5, 4);
+    let mut control_points = Vec::new();
+    let mut weights = Vec::new();
+    for i in 0..num_u {
+        for j in 0..num_v {
+            let (u, v) = (i as f64, j as f64);
+            control_points.push(Point3::new(u, v, (0.9 * u).sin() + 0.3 * v * v));
+            weights.push(1.0 + 0.1 * ((i + 2 * j) % 3) as f64);
+        }
+    }
+    let wall = NurbsSurface {
+        degree_u: 2,
+        degree_v: 2,
+        knots_u: vec![0.0, 0.0, 0.0, 0.3, 0.7, 1.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 0.0, 0.6, 1.0, 1.0, 1.0],
+        control_points,
+        num_u,
+        num_v,
+        weights,
+    };
+    let refined = super::refined(&wall).expect("refines");
+    let reference = wall
+        .insert_knots_u(&[0.15, 0.5, 0.85])
+        .and_then(|s| s.insert_knots_v(&[0.3, 0.8]))
+        .expect("single insertion");
+    assert_eq!(
+        (refined.num_u, refined.num_v),
+        (reference.num_u, reference.num_v)
+    );
+    assert_eq!(refined.knots_u, reference.knots_u);
+    assert_eq!(refined.knots_v, reference.knots_v);
+    for (a, b) in refined.control_points.iter().zip(&reference.control_points) {
+        assert!(a.distance_to(b) < 1e-12, "{a:?} vs {b:?}");
+    }
+    for (a, b) in refined.weights.iter().zip(&reference.weights) {
+        assert!((a - b).abs() < 1e-12, "weight {a} vs {b}");
+    }
+}
