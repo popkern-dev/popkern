@@ -25,6 +25,9 @@
 //! run first (cheap); tier 2 only kicks in on cases that pass
 //! the Jacobian check.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::GregoryPatch;
 #[cfg(test)]
 use crate::geometry::Point3;

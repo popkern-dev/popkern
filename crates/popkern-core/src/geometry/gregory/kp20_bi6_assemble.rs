@@ -6,7 +6,7 @@
 //! projection. It deliberately remains separate from the KP15
 //! assembler and takes guide-sampled patches as input until the full
 //! KP18 c-net guide builder is wired.
-
+#![allow(clippy::needless_range_loop)] // coefficient-grid index algebra (PK-795)
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, initialise_kp20_macro_patches_from_tensor_border,

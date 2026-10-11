@@ -6,6 +6,9 @@
 //! called against the bicubic — the "no regression" invariant
 //! of step 2.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::{Point3, Vec3};
 

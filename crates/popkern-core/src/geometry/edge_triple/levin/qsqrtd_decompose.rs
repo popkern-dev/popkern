@@ -29,6 +29,8 @@
 //! catches the panic at `Mul`/`Add` between incompatible radicands.
 
 #![allow(dead_code)]
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 
 use super::qsqrtd::QSqrtD;
 use super::rational::{Mat4SymRat, Rat};

@@ -1,7 +1,7 @@
+#![allow(clippy::needless_range_loop)] // coefficient-grid index algebra (PK-795)
 use super::*;
 use crate::geometry::Point3;
-use crate::geometry::gregory::Kp20Bi6Patch;
-use crate::geometry::gregory::tri6_flat_index;
+use crate::geometry::gregory::{Kp20Bi6Patch, tri6_flat_index};
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)

@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_cap, fast_candidate_summary_from_changed_patches,

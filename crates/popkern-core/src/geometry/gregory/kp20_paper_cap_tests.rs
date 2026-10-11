@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::*;
 use crate::geometry::gregory::cc_characteristic_tensor_border::cc_characteristic_tensor_border;
 use crate::geometry::gregory::kp20_paper_guide::Kp20PaperGuideBorderPiece;

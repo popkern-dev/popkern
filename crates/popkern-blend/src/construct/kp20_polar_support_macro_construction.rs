@@ -1,5 +1,8 @@
 //! Alternate support-owned macro-patch construction for KP20 limited lift.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6Patch, Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,

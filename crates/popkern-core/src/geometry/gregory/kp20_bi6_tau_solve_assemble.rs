@@ -3,7 +3,7 @@
 //! The low-level F3 solver accepts independent row families. This module
 //! combines the paper row families for one sector while keeping the
 //! Catmull-Clark characteristic tensor-border as an explicit input.
-
+#![allow(clippy::needless_range_loop)] // coefficient-grid index algebra (PK-795)
 use super::bernstein_bi5::bernstein_bi5_all;
 use super::bernstein_bi6::bernstein_bi6_all;
 use super::direct_linalg::solve_dense_finite_guarded;

@@ -7,6 +7,9 @@
 //! sector and zero-residual provenance — and asserts the Rust port
 //! reproduces every deep-block CP to ≤ 1e-12.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::Point3;
 

@@ -47,6 +47,9 @@
 //! 6. Free parameters default to zero (caller passes to F_5
 //!    min).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::kp_polar_boundary_input::{PolarBoundaryInput, TensorBorder, TensorBorderBi3};
 use super::kp_polar_shared::catmull_clark_star_point;
 use super::kp15_bi6_cap::Bi6CapInput;

@@ -11,6 +11,9 @@
 //! with discontinuous normals would zero the G2 block and make its
 //! agreement vacuous.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::{SeamPolishEval, pack_seam_rows};
 use crate::construct::kp_lm_solver::LmEval;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;

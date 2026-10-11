@@ -4,6 +4,8 @@
 //! bounding box culling → Bezier clipping → Newton polish → deduplication.
 
 #![allow(dead_code)]
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 
 use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry};

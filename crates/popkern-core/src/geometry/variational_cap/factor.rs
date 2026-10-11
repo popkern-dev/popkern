@@ -26,6 +26,9 @@
 //! solution, orthogonal to the null space, so the ridge adds no linear
 //! term).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use std::sync::Arc;
 
 use faer::Mat;

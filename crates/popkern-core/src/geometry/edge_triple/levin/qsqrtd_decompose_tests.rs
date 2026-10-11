@@ -1,5 +1,8 @@
 //! Tests for symbolic eigenvector / plane extraction over `Q[√d]`.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::qsqrtd::{QSqrtD, to_f64};
 use super::qsqrtd_decompose::{
     extract_eigenvectors_qsqrtd, extract_planes_qsqrtd, lift_to_qsqrtd, null_vector_qsqrtd,

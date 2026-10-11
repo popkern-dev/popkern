@@ -40,6 +40,9 @@
 //! consistent across sectors (`d = d¹₃` on both sides of every spoke
 //! point `m`, `d = 0` at every corner `c`).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::cc_characteristic_tensor_border::cc_characteristic_tensor_border;
 use super::kp20_bi6_cap::{
     Kp20BoundaryHalf, Kp20MacroPatch, Kp20PieceId, kp20_eq14_border_d_profiles,

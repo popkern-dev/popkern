@@ -32,7 +32,10 @@
 //! scope). Sphere-tangent-to-cylinder externally is a tangent-curve
 //! case; sphere-kissing-sphere is *not* (0-D contact, no curve).
 
-#![allow(dead_code)] // helper module; dispatch wiring lands in 2b.41+.
+#![allow(dead_code)]
+// helper module; dispatch wiring lands in 2b.41+.
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 
 use num_bigint::BigInt;
 use num_traits::{One, Signed, Zero};

@@ -10,6 +10,9 @@
 //! a dense `(u, v)` grid, shape-metadata, corner/boundary behaviour,
 //! and flat-plane preservation.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use crate::geometry::Point3;
 use crate::geometry::gregory::RectangularGregoryBiNonic;
 use crate::geometry::surface::SurfaceEval;

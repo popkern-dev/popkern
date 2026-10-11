@@ -21,7 +21,6 @@ popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
 popkern-part = { path = "../popkern-part", features = ["text"] }
-popkern-history = { path = "../popkern-history" }
 popkern-sketch = { path = "../popkern-sketch" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
@@ -32,6 +31,7 @@ thiserror.workspace = true
 ttf-parser.workspace = true
 
 [dev-dependencies]
+popkern-history = { path = "../popkern-history" }
 # The PK-329 determinism pins build their own rayon pools.
 rayon.workspace = true
 

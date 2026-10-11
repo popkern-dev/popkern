@@ -3,6 +3,9 @@
 //! scalar unknowns `3·index + axis`, accumulated into `AᵀA` / `Aᵀb`,
 //! solved by Cholesky with a scale-free ridge.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Vec3;
 
 use super::ring_fit::Affine;

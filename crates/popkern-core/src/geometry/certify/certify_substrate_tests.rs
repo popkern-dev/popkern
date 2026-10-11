@@ -2,6 +2,9 @@
 //! the enclosures, and point enclosures agree with the kernel's own
 //! evaluators (formula correctness).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
 use crate::geometry::nurbs_surface::NurbsSurface;

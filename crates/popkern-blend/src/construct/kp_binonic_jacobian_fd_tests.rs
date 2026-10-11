@@ -8,6 +8,9 @@
 //! full, so the fixture uses a smooth synthetic ring (no heavyweight
 //! K-P builder) and a deterministic pseudo-random `M`.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::kp_binonic_jacobian::{analytic_ring_jacobian, outer_fillet_jacobian};
 use super::{outer_fillet_residual_vector, residual_vector};
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;

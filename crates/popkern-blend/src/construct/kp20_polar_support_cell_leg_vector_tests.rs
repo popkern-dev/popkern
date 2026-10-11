@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use std::collections::HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;

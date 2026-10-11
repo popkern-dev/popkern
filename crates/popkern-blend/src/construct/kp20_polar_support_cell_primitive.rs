@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, RectangularGregoryBiNonic,
     elevate_bi6_grid_to_bi9,

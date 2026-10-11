@@ -7,6 +7,9 @@
 //! Shares the `Bivar` arithmetic helpers with the cubic conversion
 //! via the `rectangular_to_nurbs` module.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular_deg5::RectangularGregoryDeg5;
 use super::rectangular_to_nurbs::{
     Bivar, accumulate_scaled, bernstein_basis_55, denom_bernstein, linear_bernstein,

@@ -1,5 +1,8 @@
 //! Direct exact-boundary K-P binonic spoke-row optimizer.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use super::kp_spoke_normal_sine::{
     RING_SPOKE_G1_GATE, lean_penalty, ring_chord_residual, ring_spoke_senses, spoke_fold_count,

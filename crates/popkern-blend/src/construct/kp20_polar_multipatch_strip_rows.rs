@@ -1,5 +1,8 @@
 //! KP20 support-strip row placement and tangent-row reauthoring.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::gregory::{Kp20Bi6Patch, Kp20PieceId};
 use popkern_core::geometry::{Point3, Vec3};
 

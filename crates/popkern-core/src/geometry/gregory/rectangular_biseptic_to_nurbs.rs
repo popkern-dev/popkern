@@ -9,6 +9,9 @@
 //! NURBS on `[0, 1]²` that matches `point_at` to floating-point
 //! precision. ε-regularised at the four corners.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular_biseptic::RectangularGregoryBiseptic;
 use super::rectangular_to_nurbs::{
     Bivar, accumulate_scaled, bernstein_basis_77, denom_bernstein, linear_bernstein,

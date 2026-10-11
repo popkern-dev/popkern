@@ -17,6 +17,9 @@
 //! and no boolean. When no vertex near a crossing is that deep, the
 //! check falls back to certification as before.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::{Aabb, WorldMesh};

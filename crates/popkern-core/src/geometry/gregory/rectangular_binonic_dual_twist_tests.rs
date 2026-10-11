@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::rectangular_binonic::RectangularGregoryBiNonic;
 use super::rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
 use crate::geometry::Point3;

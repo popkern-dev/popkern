@@ -1,6 +1,9 @@
 //! Surface jet enclosures: every partial up to [`MAX_JET_ORDER`] over a
 //! parameter box, dispatched per surface kind.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::analytic_jet::{AnalyticJetSource, frame_of};
 use super::interval::Iv;
 use super::interval_vec::IvVec3;

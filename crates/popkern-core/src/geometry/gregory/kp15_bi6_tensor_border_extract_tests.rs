@@ -1,5 +1,8 @@
 //! Tests for the tensor-border extractor.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::gregory::kp15_bi6_cap::assemble_bi6_polar_cap;
 use crate::geometry::gregory::kp15_bi6_polar_bridge::convert_polar_to_bi6_cap_input;

@@ -1,5 +1,8 @@
 //! Analytic ring-Jacobian helpers for bi-nonic guide optimization.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::gregory::{
     RectangularGregoryBiNonic, bernstein_binonic_all, bernstein_binonic_deriv_all,
 };

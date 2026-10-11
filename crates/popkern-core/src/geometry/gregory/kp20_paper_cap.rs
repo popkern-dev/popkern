@@ -25,6 +25,9 @@
 //! frame for the eq (8)/(9) Jacobians) and (P1, P4) of sector `s`
 //! (transposed indices).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_paper_cap_sample::kp20_sample_paper_cap_sector;
 use super::kp20_paper_cap_strip::{Kp20StripEnforcement, project_strip};

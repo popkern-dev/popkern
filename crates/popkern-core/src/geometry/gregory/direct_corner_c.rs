@@ -49,6 +49,9 @@
 //! system in the multipliers `λ_k` — Gaussian elimination for
 //! `N ≤ 8` is deterministic and fast.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use crate::geometry::gregory::direct_errors::DirectConstructionError;
 use crate::geometry::gregory::direct_input::{DirectBoundaryInput, TangentPlane};
 use crate::geometry::gregory::direct_linalg::{orthonormal_tangent_basis, solve_dense};

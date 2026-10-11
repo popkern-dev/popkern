@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::*;
 use crate::geometry::Point3;
 use crate::geometry::gregory::{Kp20RegularCNet, TensorBorderBi3, kp20_apply_g2_strip};

@@ -1,5 +1,8 @@
 //! Tests for `pns_adapter`.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::topology::{FaceHandle, VertexHandle};
 

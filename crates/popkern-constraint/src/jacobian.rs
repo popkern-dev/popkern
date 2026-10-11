@@ -60,10 +60,7 @@ pub(crate) fn assemble(sketch: &Sketch) -> EquationSystem {
                 return false;
             }
             // Skip intra-set constraints.
-            if rigid_set::all_in_same_rigid_set(sketch, &e.constraint).is_some() {
-                return false;
-            }
-            true
+            rigid_set::all_in_same_rigid_set(sketch, &e.constraint).is_none()
         })
         .map(|e| equation_count(&e.constraint))
         .sum();

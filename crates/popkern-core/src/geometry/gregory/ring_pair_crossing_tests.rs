@@ -1,5 +1,8 @@
 //! Tests for ring-level pairwise crossing detection.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::Point3;
 

@@ -1,5 +1,8 @@
 //! Unit tests for the chart-orientation repair (PK-249).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use popkern_core::geometry::Point3;
 

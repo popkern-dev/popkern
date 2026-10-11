@@ -48,6 +48,9 @@
 //! has 12 DOF per side over 2 constraint dimensions (n · xtan
 //! and n · xtan2) — comfortably full-rank.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 

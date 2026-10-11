@@ -2,6 +2,9 @@
 //! Jacobian summary, and the printed eq (21)/(22) cubic-expansion
 //! comparison. Companion to `kp20_paper_tau`.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::kp20_bi6_cap::{Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_tau::Kp20TauMap;
 use super::kp20_bi6_tau_solve_assemble::Kp20PlanarTauPaperSolveError;

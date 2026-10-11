@@ -1,5 +1,8 @@
 //! De Casteljau subdivision helpers for KP20 bi-6 patches.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 #[path = "kp20_polar_support_cell_boundary_projection.rs"]
 pub(super) mod support_cell_boundary_projection;
 #[path = "kp20_polar_support_cell_cap_vertex_split.rs"]

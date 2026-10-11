@@ -3,7 +3,7 @@
 //! The KP20 macro-patch has four bi-6 pieces per sector. These helpers
 //! provide a stable default subdivision of the triangular guide domain
 //! into the four sector-local pieces used by the side-by-side assembler.
-
+#![allow(clippy::needless_range_loop)] // coefficient-grid index algebra (PK-795)
 use super::bernstein_tri6::flat_index as tri6_flat_index;
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_guide_sample::{

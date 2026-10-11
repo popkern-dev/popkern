@@ -1,5 +1,8 @@
 //! Tests for the ring-wide cross-field fit (PK-400).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use popkern_core::geometry::gregory::{bernstein6, split_sextic_row};
 

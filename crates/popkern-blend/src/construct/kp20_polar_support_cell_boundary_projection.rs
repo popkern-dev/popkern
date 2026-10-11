@@ -9,6 +9,9 @@
 //! or signals that the target lies off the boundary or that Newton
 //! could not converge inside the iteration cap.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::gregory::Kp20Bi6Patch;
 use popkern_core::geometry::{Point3, Vec3};
 

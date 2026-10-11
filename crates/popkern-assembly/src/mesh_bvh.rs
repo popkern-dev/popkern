@@ -9,6 +9,9 @@
 //! between triangles `ta`, `tb` bounds the true distance of the faces
 //! they sample from below by `d − eps(ta) − eps(tb)`.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::uv_projection::project_point_to_uv_near;

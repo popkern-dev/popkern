@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::*;
 
 fn unit_plane_patch() -> Kp20Bi6Patch {

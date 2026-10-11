@@ -1,5 +1,8 @@
 //! Candidate-only KP20 inner-pole patch prototype.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::Kp20Bi6Patch;
 

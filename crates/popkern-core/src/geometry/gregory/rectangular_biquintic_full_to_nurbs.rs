@@ -28,6 +28,9 @@
 //! `B_i^5 B_j^5 · (w_v P_{k,u} + w_u P_{k,v}) · (D / D_k)`,
 //! identical to the deg5 form.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular_biquintic_full::RectangularGregoryBiquinticFull;
 use super::rectangular_to_nurbs::{
     Bivar, accumulate_scaled, bernstein_basis_55, denom_bernstein, linear_bernstein,

@@ -3,6 +3,9 @@
 //! when every patch is individually fold-free — the class the
 //! per-patch gates cannot see.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use popkern_core::geometry::Point3;
 

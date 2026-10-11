@@ -21,6 +21,9 @@
 //! 5e-4. The along-rim term is fixed by the rim (Meusnier). Each row is
 //! divided by its target, so the least-squares term reads Σ (r/target)².
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use faer::Mat;
 
 use super::measure::{RimSample, cap_jet_owned, rim_owner, rim_uv};

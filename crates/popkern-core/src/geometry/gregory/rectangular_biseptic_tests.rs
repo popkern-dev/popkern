@@ -1,6 +1,9 @@
 //! Unit tests for
 //! [`super::rectangular_biseptic::RectangularGregoryBiseptic`].
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular_biseptic::*;
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};

@@ -1,5 +1,8 @@
 //! K-P bi-nonic promotion helpers for three-quad decompositions.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::construct::kp_binonic_optimizer;
 use crate::construct::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;

@@ -4,6 +4,9 @@
 //! Extracted from the implementation file to keep the latter
 //! under the 500-line structural cap.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular_biquintic_full::*;
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};

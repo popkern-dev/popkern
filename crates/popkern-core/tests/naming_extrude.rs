@@ -2,6 +2,9 @@
 //! operator correctly assigns stable names to lateral faces, caps, edges,
 //! and vertices when a `TrackingContext` is provided.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use std::collections::HashSet;
 
 use popkern_core::geometry::{Point3, Vec3};

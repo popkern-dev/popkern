@@ -1,6 +1,9 @@
 //! The structured null space and solves against their dense
 //! definitions (PK-620).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use faer::Mat;
 
 use super::chart::CharacteristicMap;

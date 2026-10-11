@@ -1,5 +1,8 @@
 //! Candidate-only KP20 multipatch construction validation.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Point3;
 
 use super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport;

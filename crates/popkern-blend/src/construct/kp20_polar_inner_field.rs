@@ -1,5 +1,5 @@
 //! Fold-site-local interior-field refinements for KP20 lifted candidates.
-
+#![allow(clippy::needless_range_loop)] // coefficient-grid index algebra (PK-795)
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{

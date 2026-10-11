@@ -8,7 +8,6 @@ description = "STEP/IGES import and export for the popkern BRep kernel"
 [dependencies]
 popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
-winnow = "0.7"
 thiserror.workspace = true
 
 [dev-dependencies]

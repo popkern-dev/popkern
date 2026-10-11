@@ -1,5 +1,8 @@
 //! Exact-worst origin-piece shaping for KP20 multipatch candidates.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::Kp20Bi6Patch;
 

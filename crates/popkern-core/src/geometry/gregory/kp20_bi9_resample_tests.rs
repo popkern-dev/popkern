@@ -1,3 +1,5 @@
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
 use super::*;
 use crate::geometry::gregory::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::gregory::kp20_paper_guide::{Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece};

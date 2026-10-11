@@ -41,6 +41,9 @@
 //! * Chiyokura, H., & Kimura, F. (1983). "Design of Solids with Free-form Surfaces."
 //! * Piegl, L., & Tiller, W. (1997). "The NURBS Book", §9.
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::rectangular::RectangularGregory;
 use crate::geometry::Point3;
 use crate::geometry::nurbs_surface::NurbsSurface;

@@ -1,5 +1,8 @@
 //! Tests for LSQ design matrix assembly (I.11e.3).
 
+// Index loops follow the coefficient-grid index algebra (PK-795).
+#![allow(clippy::needless_range_loop)]
+
 use super::super::kp13_bi5_boundary::TensorBorder;
 use super::*;
 
