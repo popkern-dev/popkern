@@ -295,3 +295,61 @@ fn a_fin_root_arc_fillets_with_oblique_terminal_discs() {
         after.validate_curve_surface()
     );
 }
+
+/// Every root edge of every fin at once: the two side roots, the
+/// bottom and top root arcs (each arc piece where the housing seam
+/// splits one).
+const ROOT_LOOP: &str = r#"edges().between("plane", "cylinder").at_height(20.0).or(edges().between("plane", "cylinder").at_height(80.0)).or(edges().straight().direction("z").between("plane", "cylinder"))"#;
+
+/// `source` with its fillet selecting the full root loops.
+fn with_root_loops(source: &str) -> String {
+    source
+        .lines()
+        .map(|l| {
+            if l.contains(".fillet(") {
+                let label = if l.contains("fin_roots") {
+                    "fin_roots"
+                } else {
+                    "root"
+                };
+                format!("h = h.fillet({ROOT_LOOP}, 1.0, #{{ label: \"{label}\" }});")
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A fin's full root loop (PK-742). Each corner where a side root meets
+/// a root arc is an ASYMMETRIC reflex mitre: the side plane is offset
+/// from radial on the housing, so the side strip's wall rail and the
+/// arc strip's cap rail reach the fin's sharp bottom edge at different
+/// points (0.964 r and 1.0003 r from the corner). The strips' mitre ends
+/// at P, where the side strip's straight wall rail meets the torus,
+/// 6.4e-4 below the edge; the torus and the side wall share a short
+/// edge P → Q; and the torus's housing rail between the two mitre
+/// points is its contact circle, not a chord. That is the topology of
+/// OpenCASCADE's fillet of the same loop. OCC's fillet volume change is
+/// 25.149473 for one fin at 30° and 603.618865 for 24 fins half a pitch
+/// off the seam. Popkern's STEP export, read back in OCC, matches OCC's
+/// filleted bodies to 6.7e-9 and 9.3e-8 relative. Here the change is
+/// gated at the mesh volume's resolution, as above.
+#[test]
+fn a_fin_root_loop_mitres_its_asymmetric_corners() {
+    for (source, occ_change, what) in [
+        (
+            with_root_loops(&single_fin(30.0, &[1.0])),
+            25.149472714983858,
+            "one fin at 30°",
+        ),
+        (
+            with_root_loops(&fin_ring(24, 0.5, 1.0)),
+            603.6188648476964,
+            "24 fins off the seam",
+        ),
+    ] {
+        let (_, change) = fillet_change(&source);
+        assert_rel(change, occ_change, 1e-2, what);
+    }
+}

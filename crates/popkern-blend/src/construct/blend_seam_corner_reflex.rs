@@ -40,6 +40,9 @@ use super::blend_seam_corner_repair::{commit_edge_authoring, neighbour_chart_poi
 use super::blend_seam_corner_swept::surface_distance;
 use super::surface_pair_march as marched;
 
+#[path = "blend_seam_corner_reflex_wall_end.rs"]
+mod wall_end;
+
 /// One recognized reflex pair corner.
 struct ReflexChain {
     corner: VertexHandle,
@@ -48,6 +51,10 @@ struct ReflexChain {
     /// The shared wall stub `V–T`'s half-edge from `T` to `V`.
     stub_from_t: HalfEdgeHandle,
     strips: (FaceHandle, FaceHandle),
+    /// The chain's far end when it sits on one strip's wall rail but
+    /// off the other strip: an asymmetric mitre on a curved support
+    /// (PK-742), moved to the rail's true end before the seam is built.
+    wall_end: Option<wall_end::WallEnd>,
 }
 
 /// Settle every reflex pair corner among the strips the operation
@@ -134,12 +141,24 @@ fn recognize(
             let twin = brep.half_edges[h].twin;
             brep.half_edges[twin].origin
         };
-        let (Some(x0), Some(x1)) = (
+        let (Some(mut x0), Some(mut x1)) = (
             brep.vertices.get(far(outgoing[0])).map(|d| d.position),
             brep.vertices.get(far(outgoing[1])).map(|d| d.position),
         ) else {
             continue;
         };
+        // One end may sit on a strip's wall rail but off the other
+        // strip (PK-742): its true position is where the rail meets it.
+        let mut asymmetric = None;
+        for (i, x) in [&mut x0, &mut x1].into_iter().enumerate() {
+            if !on_both(*x)
+                && let Some(end) = wall_end::find(brep, far(outgoing[i]), fa, pos_tol)
+            {
+                *x = end.target;
+                asymmetric = Some(end);
+                break;
+            }
+        }
         if !on_both(x0) || !on_both(x1) || x0.distance_to(&x1) <= pos_tol {
             continue;
         }
@@ -156,6 +175,7 @@ fn recognize(
             seam: edges[0],
             stub_from_t: brep.half_edges[outgoing[1]].twin,
             strips: fa,
+            wall_end: asymmetric,
         });
     }
     out
@@ -163,6 +183,12 @@ fn recognize(
 
 fn repair(brep: &mut BRep, c: &ReflexChain, tolerance: &Tolerance) -> Result<(), Reason> {
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
+    if let Some(end) = &c.wall_end {
+        brep.vertices
+            .get_mut(end.vertex)
+            .ok_or(Reason::EulerRejected)?
+            .position = end.target;
+    }
     let corner_pos = brep
         .vertices
         .get(c.corner)
@@ -210,6 +236,15 @@ fn repair(brep: &mut BRep, c: &ReflexChain, tolerance: &Tolerance) -> Result<(),
     commit_edge_authoring(brep, c.seam, seam_curve, staged);
     if brep.measure_edge_deviation(c.seam) > pos_tol {
         return Err(Reason::ValidationFailed);
+    }
+    if let Some(end) = &c.wall_end {
+        wall_end::reauthor_incident(brep, end.vertex, c.seam, pos_tol)?;
+    }
+    // Both seam ends: a support rail ending at the mitre point may span
+    // past the root edge's trim (PK-742).
+    for he in [primary, twin] {
+        let v = brep.half_edges.get(he).ok_or(Reason::EulerRejected)?.origin;
+        wall_end::reauthor_contact_rails(brep, v, c.strips, pos_tol)?;
     }
     brep.validate().map_err(|_| Reason::ValidationFailed)?;
     Ok(())
