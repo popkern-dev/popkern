@@ -17,6 +17,11 @@ mod surface_curve_grid;
 use surface_curve_grid::{
     GRID_N, SurfaceCell, interior_knots_in, padded_cell_memo, surface_grid_cached,
 };
+#[path = "surface_curve_pair_roots.rs"]
+mod surface_curve_pair_roots;
+use surface_curve_pair_roots::{
+    PairCell, Root, curve_period, isolate_further_roots, lift_into_window,
+};
 
 // ---------------------------------------------------------------------------
 // Curve AABB
@@ -231,6 +236,9 @@ pub(crate) fn intersect_surface_curve_general(
     // --- Step 4: AABB culling + Newton polish ---
     let margin = tolerance.linear() * 10.0; // small margin for AABB overlap test
     let mut point_results: Vec<(f64, f64, f64, Point3)> = Vec::new();
+    let dedup_dist = tolerance.linear() * 10.0;
+    let t_period = curve_period(curve);
+    let (u_period, v_period) = surface.periodicity();
 
     // Per-span refinement for hit cells: the density clamp keeps the
     // coarse grid bounded (a 198-span thread wall grids at 48), so a
@@ -392,15 +400,39 @@ pub(crate) fn intersect_surface_curve_general(
                             solved.as_ref().map(|(t, u, v, _)| (*t, *u, *v))
                         );
                     }
-                    if let Some((t, u, v, pt)) = solved {
-                        // Check that the result is within the requested ranges.
-                        if t >= t_range.0 - tolerance.parametric_base()
-                            && t <= t_range.1 + tolerance.parametric_base()
-                            && u >= u_range.0 - tolerance.parametric_base()
-                            && u <= u_range.1 + tolerance.parametric_base()
-                            && v >= v_range.0 - tolerance.parametric_base()
-                            && v <= v_range.1 + tolerance.parametric_base()
-                        {
+                    // A pair with a root stays ambiguous while a piece
+                    // of the segment no root explains still meets the
+                    // cell (PK-781): isolate its further roots.
+                    let mut pair_roots: Vec<Root> = solved.into_iter().collect();
+                    let pair = PairCell {
+                        curve,
+                        surface,
+                        lo: sub.min,
+                        hi: sub.max,
+                        u_mid,
+                        v_mid,
+                        margin,
+                        tolerance,
+                    };
+                    let first = solved.map(|r| r.0);
+                    if first.is_some() {
+                        isolate_further_roots(
+                            &pair,
+                            cseg.t_range,
+                            first,
+                            dedup_dist,
+                            &mut pair_roots,
+                        );
+                    }
+                    for (t, u, v, pt) in pair_roots {
+                        // Within the requested ranges; periodic
+                        // parameters lift by whole periods into them.
+                        let pb = tolerance.parametric_base();
+                        let lifted = lift_into_window(t, t_range, pb, t_period).and_then(|t| {
+                            let u = lift_into_window(u, u_range, pb, u_period)?;
+                            Some((t, u, lift_into_window(v, v_range, pb, v_period)?))
+                        });
+                        if let Some((t, u, v)) = lifted {
                             point_results.push((t, u, v, pt));
                         }
                     }
@@ -410,7 +442,6 @@ pub(crate) fn intersect_surface_curve_general(
     }
 
     // --- Step 5: deduplicate ---
-    let dedup_dist = tolerance.linear() * 10.0;
     let mut unique: Vec<(f64, f64, f64, Point3)> = Vec::new();
     'outer: for (t, u, v, pt) in point_results {
         for &(et, _eu, _ev, ref ep) in &unique {
