@@ -144,14 +144,17 @@ pub(crate) fn cellular_assemble(
     // edge (creating both left a non-manifold seam along a flush
     // gusset's wall line); the loop wiring then consumes complementary
     // directions. Judged at the tolerance: `assemble_span_unify.rs`.
-    let mut spans = super::assemble_span_unify::SpanRegistry::new(tolerance.linear() * 10.0);
+    let mut spans = super::assemble_span_unify::SpanRegistry::new(
+        tolerance.linear() * 10.0,
+        tolerance.linear(),
+    );
     let span_points = |key: usize| super::assemble_edge_geometry::span_sample_points(graph, key);
     for (&key, &sample_ghe) in &canonical_edges {
         if is_degenerate_key(key) {
             continue;
         }
         let (nodes, pa, pb, mid) = span_points(key);
-        if let Some(prior_key) = spans.prior_for(nodes, pa, pb, mid) {
+        if let Some(prior_key) = spans.prior_for(graph, key, (nodes, pa, pb, mid)) {
             // Align directions: the two graph pairs may run opposite
             // ways along the same span. Handing both sides the same
             // forward half-edge produced direction conflicts and the

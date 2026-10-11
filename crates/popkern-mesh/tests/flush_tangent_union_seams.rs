@@ -7,13 +7,20 @@
 //! the same half stadium on its charts — no graph-merge fallback, no
 //! face walked off-chart — watertight, with its volume.
 //!
-//! Each placement has failed differently: rays crossing the cap plane
+//! Each placement has failed differently (PK-777 added the last two): rays crossing the cap plane
 //! just outside the rim counted as cap hits (a below-rim probe read
 //! Inside the rod, the cap's outward normal calibrated inverted, and
 //! both copies of the coplanar overlap were dropped); the redundant-
 //! edge pass compared orientation FLAGS, not oriented normals, and left
 //! an anti-parallel-normal cap split; a cut line lying on the seam left
-//! the chart without a seam.
+//! the chart without a seam; with the seam vertex inside the overlap
+//! the cap's rim piece and the box's overlap record on the same arc
+//! became two edges (the assembler compared PARAMETER midpoints, and
+//! an angle arc and a rational quarter-circle span disagree off the
+//! quarter grid) and the union declined non-manifold at every seam
+//! angle but 0°; and a closed rim's closest-point clamp read a record
+//! near the seam off the wall's boundary, so the wall's chart declined
+//! at −60° and −75°.
 
 use popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events;
 use popkern_bool::merge_fallback::take_merge_fallback_events;
@@ -88,23 +95,10 @@ fn mesh_volume_and_open_edges(body: &BRep) -> (f64, usize) {
 fn a_seamed_rod_unions_with_the_flush_tangent_box_wherever_its_seam_lies() {
     let want = (12.0 * 2.0 * R + 0.5 * std::f64::consts::PI * R * R) * H;
     let mut failures = Vec::new();
-    for seam_deg in [90.0, 270.0, 180.0, 0.0, 135.0, 45.0] {
-        // 45°: the rim's seam vertex splits the shared overlap arc off
-        // the axis line and the two kept bottom pieces traverse it the
-        // same way; the union declines honestly (PK-777). The pin
-        // flips when that lands.
-        if seam_deg == 45.0 {
-            let e = boolean(
-                BoolOperation::Union,
-                seamed_rod(seam_deg),
-                slab(),
-                Tolerance::default(),
-                None,
-            )
-            .expect_err("PK-777: the 45° seam now serves; promote it");
-            assert!(e.to_string().contains("merge failed"), "{e}");
-            continue;
-        }
+    // Every 15° of seam azimuth: on either tangent line (±90°), inside
+    // the coplanar overlap, and on the far side.
+    for k in -6..=18 {
+        let seam_deg = 15.0 * k as f64;
         let _ = take_merge_fallback_events();
         let _ = take_chart_walk_fallback_events();
         let served = boolean(
@@ -131,9 +125,10 @@ fn a_seamed_rod_unions_with_the_flush_tangent_box_wherever_its_seam_lies() {
             failures.push(format!("{seam_deg}°: fallbacks {merges:?} {walks:?}"));
         }
         // Top, bottom, two flat sides, the far box side, the half wall.
-        // At 0° the rim's seam vertex splits the shared cap arc into two
-        // edges and the coplanar caps stay split (8 faces, PK-778).
-        let faces = if seam_deg == 0.0 { 8 } else { 6 };
+        // A seam vertex strictly inside the overlap splits the shared
+        // cap arc into two edges and the coplanar caps stay split (8
+        // faces, PK-778).
+        let faces = if seam_deg.abs() < 90.0 { 8 } else { 6 };
         if body.faces.len() != faces {
             failures.push(format!(
                 "{seam_deg}°: {} faces, want {faces}",

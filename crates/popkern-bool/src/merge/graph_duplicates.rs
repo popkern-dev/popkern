@@ -159,6 +159,14 @@ fn distance_to_piece(curve: &CurveOnEdge, p: &Point3) -> f64 {
 /// The closest point of `curve`'s PIECE (its own parameter window) to
 /// `p`: `(t, distance)`. Dense samples over the window seed a Newton
 /// refinement clamped to it.
+///
+/// A CLOSED piece (a full rim circle, window [0, 2π]) has two window
+/// ends at one point: a foot just short of the closing end tied with
+/// the opening end's sample, Newton from t = 0 stepped negative and
+/// was clamped back, and the piece read 0.30 away from a point lying
+/// on it (PK-777: the periodic boundary-substitute resolver then kept
+/// both directions of a rim record and the wall's chart declined).
+/// Both ends seed the polish there.
 pub(crate) fn closest_on_piece(curve: &CurveOnEdge, p: &Point3) -> (f64, f64) {
     const SAMPLES: usize = 32;
     let (lo, hi) = (
@@ -175,19 +183,40 @@ pub(crate) fn closest_on_piece(curve: &CurveOnEdge, p: &Point3) -> (f64, f64) {
             (t, best) = (s, d);
         }
     }
-    for _ in 0..8 {
-        let diff = curve.geometry.point_at(t) - *p;
-        let d1 = curve.geometry.derivative_at(t, 1);
-        let fp = d1.dot(&d1) + diff.dot(&curve.geometry.derivative_at(t, 2));
-        if fp.abs() < 1e-30 {
-            break;
+    let polish = |mut t: f64, mut best: f64| -> (f64, f64) {
+        for _ in 0..8 {
+            let diff = curve.geometry.point_at(t) - *p;
+            let d1 = curve.geometry.derivative_at(t, 1);
+            let fp = d1.dot(&d1) + diff.dot(&curve.geometry.derivative_at(t, 2));
+            if fp.abs() < 1e-30 {
+                break;
+            }
+            let next = (t - diff.dot(&d1) / fp).clamp(lo, hi);
+            let d = at(next);
+            if d >= best {
+                break;
+            }
+            (t, best) = (next, d);
         }
-        let next = (t - diff.dot(&d1) / fp).clamp(lo, hi);
-        let d = at(next);
-        if d >= best {
-            break;
+        (t, best)
+    };
+    let found = polish(t, best);
+    let closed = hi > lo
+        && curve
+            .geometry
+            .point_at(lo)
+            .distance_to(&curve.geometry.point_at(hi))
+            <= 1e-12 * (1.0 + p.distance_to(&curve.geometry.point_at(lo)));
+    if closed && (t == lo || t == hi) {
+        let other = if t == lo { hi } else { lo };
+        let alt = polish(other, at(other));
+        if alt.1 < found.1 {
+            return alt;
         }
-        (t, best) = (next, d);
     }
-    (t, best)
+    found
 }
+
+#[cfg(test)]
+#[path = "graph_duplicates_tests.rs"]
+mod tests;

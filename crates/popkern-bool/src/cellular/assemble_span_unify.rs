@@ -13,26 +13,49 @@
 //! faces with curveless edges (PK-420). An exact key is still tried
 //! first (the tuned fast path); a tolerance scan over the registered
 //! spans decides the rest.
+//!
+//! The scan compares GEOMETRY, not parameterisations (PK-777): a rod
+//! cap's rim piece is an angle-parameterised arc while the flush box's
+//! overlap record on the same arc is a rational quarter-circle span,
+//! and their parameter midpoints coincide only on spans symmetric about
+//! the quarter grid. With the rod's seam inside the overlap the two
+//! midpoints sat 0.14 apart on one arc, the pairs became two edges each
+//! used once, and the union declined non-manifold at every seam angle
+//! off the axis line. Two spans with matching ends are one edge when
+//! each one's midpoint lies on the other's piece; two distinct curves
+//! through one node pair (a lens) fail that in both directions. The
+//! on-piece band is the LINEAR tolerance, not the 10x endpoint gate: the
+//! seam-straddling spans agree to 4e-15, while a cap plane 1e-6 past a
+//! ring's extreme leaves a lens 1e-6 wide whose two curves sat inside
+//! the 10x gate, were unified, and the union served 4.7e-4 off OCC's
+//! fuse volume instead of declining (measured, tangent_boss_union).
 
 use std::collections::HashMap;
 
 use popkern_core::geometry::Point3;
+
+use crate::merge::graph::IntersectionGraph;
+use crate::merge::graph_duplicates::closest_on_piece;
 
 /// Registered spans: `(start, end, midpoint, edge key)`.
 pub(super) struct SpanRegistry {
     exact: HashMap<(usize, usize, i64, i64, i64), usize>,
     spans: Vec<(Point3, Point3, Point3, usize)>,
     gate: f64,
+    coincide: f64,
 }
 
 impl SpanRegistry {
     /// `gate` is the distance within which two spans' ends and
-    /// midpoints are the same point.
-    pub(super) fn new(gate: f64) -> Self {
+    /// midpoints are the same point; `coincide` (the linear tolerance)
+    /// is the band within which one span's midpoint lies on the other's
+    /// curve piece.
+    pub(super) fn new(gate: f64, coincide: f64) -> Self {
         Self {
             exact: HashMap::new(),
             spans: Vec::new(),
             gate,
+            coincide,
         }
     }
 
@@ -42,27 +65,29 @@ impl SpanRegistry {
         (lo, hi, q(mid.x), q(mid.y), q(mid.z))
     }
 
-    /// The key of a registered span coincident with `(a, b, mid)`, in
-    /// either direction.
+    /// The key of a registered span coincident with graph pair `key`'s
+    /// span `(a, b, mid)`, in either direction.
     pub(super) fn prior_for(
         &self,
-        nodes: (usize, usize),
-        a: Point3,
-        b: Point3,
-        mid: Point3,
+        graph: &IntersectionGraph,
+        key: usize,
+        (nodes, a, b, mid): ((usize, usize), Point3, Point3, Point3),
     ) -> Option<usize> {
-        if let Some(&key) = self.exact.get(&Self::exact_key(nodes, mid)) {
-            return Some(key);
+        if let Some(&prior) = self.exact.get(&Self::exact_key(nodes, mid)) {
+            return Some(prior);
         }
-        let g = self.gate;
+        let (g, on) = (self.gate, self.coincide);
         self.spans
             .iter()
-            .find(|(pa, pb, pm, _)| {
-                pm.distance_to(&mid) <= g
-                    && ((pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
-                        || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g))
+            .find(|(pa, pb, pm, prior)| {
+                let same_ends = (pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
+                    || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g);
+                same_ends
+                    && (pm.distance_to(&mid) <= g
+                        || (piece_distance(graph, *prior, &mid) <= on
+                            && piece_distance(graph, key, pm) <= on))
             })
-            .map(|(_, _, _, key)| *key)
+            .map(|(_, _, _, prior)| *prior)
     }
 
     /// Register a span under `key`.
@@ -76,5 +101,30 @@ impl SpanRegistry {
     ) {
         self.exact.insert(Self::exact_key(nodes, mid), key);
         self.spans.push((a, b, mid, key));
+    }
+}
+
+/// The distance from `p` to graph pair `key`'s curve PIECE (its own
+/// parameter window); a curveless pair is its straight chord.
+fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
+    let he = &graph.half_edges[key];
+    match he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+    {
+        Some(curve) => closest_on_piece(curve, p).1,
+        None => {
+            let a = graph.nodes[he.origin].position;
+            let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+            let ab = b - a;
+            let len2 = ab.dot(&ab);
+            let s = if len2 > 0.0 {
+                ((*p - a).dot(&ab) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a + ab * s).distance_to(p)
+        }
     }
 }
