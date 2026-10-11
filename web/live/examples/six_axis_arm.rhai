@@ -652,8 +652,7 @@ fn arm_root_body(m, md, ty, r, rf, x0, x1, pi) {
 // faces to merge; its top 1 mm below the boss top, never tangent), and
 // the boss the tube butts against (x from x0 to x1), starting 2 mm
 // clear of the ring so its cap never grazes the rim.
-// Containment (PK-757): the ring and web are two solids, not one
-// sketched outline — a major-arc outline minus a bore meshes open today.
+// The ring and web are two solids, the web inset in the ring's band.
 fn arm_end_body(m, md, ty, r, x0, x1, hw, pi) {
     let body = axial_disc(m, md, md.g.len, md.g.len + 10.0, md.ring_out, "ring");
     let c = m_point(md.M, [0.0, 0.0, md.g.len]);
