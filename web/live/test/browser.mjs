@@ -178,6 +178,30 @@ async function waitFor(expression, timeoutMs, label) {
   }
   throw new Error(`timed out waiting for ${label}`);
 }
+// A wait that tolerates load but not a stall (PK-784): it keeps
+// waiting while `progress` (an expression read each poll) keeps
+// changing, fails when it has not changed for `stallMs`, and caps the
+// whole wait at `capMs`; the error names the last progress seen. A
+// fixed wall-clock deadline failed the certification wait under full
+// test-suite load while the page was still advancing seam by seam.
+async function waitForProgress(expression, progress, stallMs, capMs, label) {
+  const started = Date.now();
+  let last = null;
+  let changed = Date.now();
+  while (Date.now() - started < capMs) {
+    const value = await evaluate(expression);
+    if (value) return value;
+    const now = await evaluate(progress);
+    if (now !== last) {
+      last = now;
+      changed = Date.now();
+    } else if (Date.now() - changed > stallMs) {
+      throw new Error(`stalled waiting for ${label} at ${JSON.stringify(last)}`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`timed out waiting for ${label} at ${JSON.stringify(last)}`);
+}
 // Polls read the status null-safely: under load the first polls can
 // land while the navigation still shows about:blank (no #status yet).
 const statusText = () => evaluate(`document.getElementById("status")?.textContent ?? ""`);
@@ -217,9 +241,11 @@ try {
   // Deferred continuity certification (PK-561): the page certifies the
   // served fillet's seams after render and swaps in the certified rows.
   const certifyStarted = Date.now();
-  out.status_after_certify = await waitFor(
+  out.status_after_certify = await waitForProgress(
     `(() => { const s = document.getElementById("status")?.textContent ?? ""; return /continuity (certified|certification stopped)/.test(s) ? s : null; })()`,
+    `document.getElementById("status")?.textContent ?? ""`,
     120000,
+    900000,
     "continuity certification",
   );
   out.certify_wall_ms = Date.now() - certifyStarted;
