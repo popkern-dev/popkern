@@ -29,7 +29,7 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         data.push(0);
     }
     data.extend_from_slice(&bit_len.to_be_bytes());
-    for block in data.chunks_exact(64) {
+    for block in data.as_chunks::<64>().0 {
         let mut w = [0u32; 64];
         let (words, _) = block.as_chunks::<4>();
         for (i, word) in words.iter().enumerate() {

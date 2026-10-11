@@ -31,7 +31,9 @@ fn volume(positions: &[f32], indices: &[u32]) -> f64 {
         ]
     };
     indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|t| {
             let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
             a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
@@ -44,9 +46,9 @@ fn volume(positions: &[f32], indices: &[u32]) -> f64 {
 fn read_words(path: &Path) -> Vec<[u8; 4]> {
     std::fs::read(path)
         .unwrap_or_default()
-        .chunks_exact(4)
-        .map(|b| [b[0], b[1], b[2], b[3]])
-        .collect()
+        .as_chunks::<4>()
+        .0
+        .to_vec()
 }
 
 fn main() -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {

@@ -389,7 +389,7 @@ pub(crate) fn sample_edge_seam(
             && let Some(t_perp) = n_avg.cross(&seam_dir).normalized()
         {
             let jump_perp = kappa_jump(t_perp);
-            let jump_diag = (seam_dir + t_perp).normalized().and_then(&kappa_jump);
+            let jump_diag = (seam_dir + t_perp).normalized().and_then(kappa_jump);
             reading.jump_perp = jump_perp;
             reading.jump_diag = jump_diag;
             if popkern_core::trace::trace_enabled("seam-curvature") {

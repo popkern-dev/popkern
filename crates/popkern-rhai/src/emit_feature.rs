@@ -290,7 +290,7 @@ pub fn statement(
                 .iter()
                 .map(|s| {
                     body_of_operation(tree, s.operation)
-                        .map(&tool_var)
+                        .map(tool_var)
                         .ok_or_else(|| {
                             EmitError::not_applicable(
                                 label,

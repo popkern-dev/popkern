@@ -19,9 +19,9 @@ jobs:
       # macOS minutes bill at 10×.
       matrix:
         include:
-          - rust: stable
+          - rust: pinned
             os: ubuntu-latest
-          - rust: stable
+          - rust: pinned
             os: macos-latest
           - rust: nightly
             os: ubuntu-latest
@@ -44,10 +44,17 @@ jobs:
             /usr/share/dotnet /opt/ghc /usr/local/.ghcup
           df -h /
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
+      # PK-793: rust-toolchain.toml pins rustc, clippy and rustfmt so
+      # local gates and CI agree; `rustup toolchain install` with no
+      # argument installs exactly that pin. The nightly leg overrides it.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - name: Override with nightly
+        if: matrix.rust == 'nightly'
+        run: |
+          rustup toolchain install nightly --profile minimal -c rustfmt,clippy
+          echo "RUSTUP_TOOLCHAIN=nightly" >> "$GITHUB_ENV"
 
       - uses: Swatinem/rust-cache@v2
 
@@ -55,16 +62,21 @@ jobs:
       # outputs; one leg owns them instead of every leg repeating the
       # same work (doc alone recompiles the 743k-line workspace).
       - name: Format check
-        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+        if: matrix.rust == 'pinned' && matrix.os == 'ubuntu-latest'
         run: cargo fmt --all --check
 
       - name: Check without default features
         # The cfg(not(feature)) fallback arms (sequential dispatch,
         # windowless viz) are never compiled otherwise.
-        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+        if: matrix.rust == 'pinned' && matrix.os == 'ubuntu-latest'
         run: cargo check --workspace --no-default-features
 
+      # PK-793: the pinned clippy gates. Nightly clippy runs as an
+      # early warning for lints the next pin bump will bring; it does
+      # not fail the leg (nightly 2026-10 broadened needless_range_loop
+      # over ~100 numeric grid loops in popkern-core, PK-795).
       - name: Clippy
+        continue-on-error: ${{ matrix.rust == 'nightly' }}
         run: cargo clippy --all-targets -- -D warnings
 
       - name: Install cargo-nextest
@@ -88,7 +100,7 @@ jobs:
         run: cargo test --doc --workspace
 
       - name: Doc build
-        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+        if: matrix.rust == 'pinned' && matrix.os == 'ubuntu-latest'
         run: cargo doc --no-deps --document-private-items
 
   perf:
@@ -101,7 +113,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
 
@@ -149,10 +162,8 @@ jobs:
             /usr/share/dotnet /opt/ghc /usr/local/.ghcup
           df -h /
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-          components: clippy
+      - name: Install the pinned toolchain (wasm target included)
+        run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
 
@@ -199,7 +210,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
 
       - name: Install cargo-deny and cargo-about
         uses: taiki-e/install-action@v2

@@ -1,0 +1,14 @@
+# PK-793: one toolchain for local gates and CI. CI previously tracked
+# moving `stable` while local machines lagged. Clippy 1.99 added
+# lints (needless_borrows_for_generic_args on `&closure`,
+# chunks_exact with a constant size) that 1.97 did not have, so every
+# push failed CI's clippy step while local gates passed, and no CI
+# test step ran for days. Bump this deliberately: install the new
+# version, run `cargo clippy --workspace --all-targets -- -D warnings`
+# plus the wasm-target clippy for popkern-live, fix, then commit the
+# bump with the fixes. CI's nightly leg overrides this pin.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
