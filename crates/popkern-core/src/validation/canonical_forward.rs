@@ -68,6 +68,11 @@ impl BRep {
     /// their chart-branch handling and are exempt, matching the
     /// merge's closed-edge witness exemption.
     pub fn audit_canonical_forward(&self) -> Vec<CanonicalForwardVerdict> {
+        let winding: std::collections::HashMap<crate::topology::FaceHandle, Option<bool>> = self
+            .audit_winding_honesty()
+            .into_iter()
+            .map(|v| (v.face, v.honest))
+            .collect();
         let mut out = Vec::new();
         for (eh, edge) in &self.edges {
             let Some(he) = self.half_edges.get(edge.half_edge) else {
@@ -84,7 +89,7 @@ impl BRep {
             if f_can.is_none() || f_twin.is_none() || f_can == f_twin {
                 continue; // dangling or seam
             }
-            let state = self.closed_edge_state(edge.half_edge, he.twin);
+            let state = self.closed_edge_state(edge.half_edge, he.twin, &winding);
             out.push(CanonicalForwardVerdict { edge: eh, state });
         }
         // Pass 2 (stage 3): seam-adjacent rim junctions defeat the
@@ -180,6 +185,7 @@ impl BRep {
         &self,
         canonical: HalfEdgeHandle,
         twin: HalfEdgeHandle,
+        winding: &std::collections::HashMap<crate::topology::FaceHandle, Option<bool>>,
     ) -> CanonicalForwardState {
         use CanonicalForwardState as S;
         let claim_can = self.pcurve_traversal_claim(canonical);
@@ -201,6 +207,23 @@ impl BRep {
                 // arbitration, which reuses it in pass 2.
                 let cont_can = self.pcurve_chain_continuous(canonical);
                 let cont_twin = self.pcurve_chain_continuous(twin);
+                // Winding witness: a loop reversed as a whole stays
+                // chain-continuous, so the chain test passes it and
+                // convicts the honest partner (PK-741: a housing wall
+                // whose rims and seams were re-authored around a lying
+                // rim convicted both honest caps). Such a face's loops
+                // wind against its own orientation flag. When exactly
+                // one side's face is winding-dishonest, its pcurve is
+                // the liar; otherwise the chain decides.
+                let honest_face = |heh: HalfEdgeHandle| {
+                    let face = self.loops.get(self.half_edges.get(heh)?.loop_)?.face;
+                    winding.get(&face).copied().flatten()
+                };
+                let (cont_can, cont_twin) = match (honest_face(canonical), honest_face(twin)) {
+                    (Some(false), Some(true)) => (Some(false), Some(true)),
+                    (Some(true), Some(false)) => (Some(true), Some(false)),
+                    _ => (cont_can, cont_twin),
+                };
                 super::canonical_forward_arbitration::resolve_one_liar(
                     fc, cont_can, cont_twin, canonical, twin,
                 )
@@ -213,7 +236,7 @@ impl BRep {
     /// `Some(true)` when `heh`'s pcurve traces the stored edge curve
     /// in increasing t (accounting for periodic wrap), `Some(false)`
     /// for decreasing, `None` when unmeasurable.
-    pub(super) fn pcurve_traversal_claim(&self, heh: HalfEdgeHandle) -> Option<bool> {
+    pub(crate) fn pcurve_traversal_claim(&self, heh: HalfEdgeHandle) -> Option<bool> {
         let he = self.half_edges.get(heh)?;
         let pc = he.pcurve.as_ref()?;
         let face = self.loops.get(he.loop_)?.face;

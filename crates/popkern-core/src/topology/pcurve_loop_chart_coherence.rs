@@ -14,8 +14,8 @@
 //! quarter-point chain aligns v on v-periodic charts (torus), so v
 //! needs the same closure u always did.
 
-use super::super::FaceHandle;
 use super::super::brep::BRep;
+use super::super::{FaceHandle, HalfEdgeHandle};
 use crate::geometry::pcurve::Pcurve;
 
 /// Which chart coordinate a coherence pass operates on.
@@ -193,18 +193,41 @@ impl BRep {
                 if net.abs() <= 0.5 * period {
                     break;
                 }
-                let mut flipped = false;
-                for (i, &heh) in hes.iter().enumerate() {
+                // Which full-period member to flip. An honest closed
+                // edge's two pcurves claim OPPOSITE traversals of its
+                // curve; a member whose claim agrees with its twin's is
+                // the liar, and flipping it restores the opposition.
+                // Flipping the first qualifying member instead turned a
+                // housing wall's honest bottom rim when its top rim
+                // lied (PK-741, from PK-730's net-4π wall). Members with
+                // no such evidence keep the first-qualifying order.
+                let reduces = |i: usize| {
                     let d = deltas[i];
-                    if d.abs() >= period * (1.0 - 1e-6)
+                    d.abs() >= period * (1.0 - 1e-6)
                         && (net - 2.0 * d).abs() < net.abs() - 0.25 * period
-                        && let Some(rev) =
-                            self.half_edges[heh].pcurve.as_ref().map(|p| p.reversed())
-                    {
-                        self.half_edges[heh].pcurve = Some(rev);
-                        flipped = true;
-                        break;
+                };
+                let lies = |heh: HalfEdgeHandle| {
+                    let twin = self.half_edges[heh].twin;
+                    match (
+                        self.pcurve_traversal_claim(heh),
+                        self.pcurve_traversal_claim(twin),
+                    ) {
+                        (Some(a), Some(b)) => a == b,
+                        _ => false,
                     }
+                };
+                let pick = (0..hes.len())
+                    .find(|&i| reduces(i) && lies(hes[i]))
+                    .or_else(|| (0..hes.len()).find(|&i| reduces(i)));
+                let mut flipped = false;
+                if let Some(i) = pick
+                    && let Some(rev) = self.half_edges[hes[i]]
+                        .pcurve
+                        .as_ref()
+                        .map(|p| p.reversed())
+                {
+                    self.half_edges[hes[i]].pcurve = Some(rev);
+                    flipped = true;
                 }
                 if !flipped {
                     break;
