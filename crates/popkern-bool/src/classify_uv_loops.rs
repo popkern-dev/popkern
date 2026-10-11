@@ -106,15 +106,25 @@ pub(crate) fn uv_point_in_loop(
 /// normal calibrated inverted, and a flush union dropped both copies of
 /// the overlap (PK-750).
 pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
-    let Some(face_data) = brep.faces.get(face) else {
-        return true;
-    };
-    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
-        return true;
-    };
-    let start = loop_data.half_edge;
+    brep.faces
+        .get(face)
+        .and_then(|f| point_in_loop_exact(brep, f.outer_loop, u, v))
+        .unwrap_or(true)
+}
+
+/// The exact-near-the-rim containment of [`hit_inside_outer_loop`] for
+/// any loop `lh`: `None` when the ring is incomplete (a half-edge
+/// without a pcurve) or has fewer than three segments — no verdict. A
+/// point within linear tolerance of the rim reads inside.
+pub(crate) fn point_in_loop_exact(
+    brep: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+    u: f64,
+    v: f64,
+) -> Option<bool> {
+    let start = brep.loops.get(lh)?.half_edge;
     if !brep.half_edges.contains_key(start) {
-        return true;
+        return None;
     }
     // Each half-edge's pcurve as polygon segments, each remembering the
     // pcurve window it chords (curved pcurves only).
@@ -124,9 +134,7 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
     let cap = brep.half_edges.len() + 1;
     for _ in 0..cap {
         let d = &brep.half_edges[he];
-        let Some(pc) = d.pcurve.as_ref() else {
-            return true; // incomplete ring — no verdict
-        };
+        let pc = d.pcurve.as_ref()?; // incomplete ring: no verdict
         let linear_content = match &pc.geometry {
             popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => true,
             popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(c) => c.degree == 1,
@@ -166,7 +174,7 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
         }
     }
     if segs.len() < 3 {
-        return true;
+        return None;
     }
     // Chain the segments head to tail (a stored pcurve may run against
     // the traversal); `ring[k] -> ring[k + 1]` is segment k.
@@ -200,7 +208,7 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
         .count();
     let polygon_inside = crossings % 2 == 1;
     if sagitta <= 0.0 {
-        return polygon_inside; // linear ring: exact
+        return Some(polygon_inside); // linear ring: exact
     }
     // Nearest segment; outside the sampling band the polygon decides.
     let tol = brep.tolerance.linear();
@@ -217,10 +225,10 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
         }
     }
     if near_d >= band {
-        return polygon_inside;
+        return Some(polygon_inside);
     }
     let Some((pc, ta, tb)) = chained[near].curve else {
-        return polygon_inside; // nearest is an exact linear piece
+        return Some(polygon_inside); // nearest is an exact linear piece
     };
     // Exact foot on the pcurve over the segment's window widened by one
     // segment each side (ternary search on a locally unimodal distance).
@@ -242,7 +250,7 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
     }
     let tf = 0.5 * (lo + hi);
     if dist(tf) <= tol {
-        return true; // on the rim within tolerance: abstain (keep)
+        return Some(true); // on the rim within tolerance: abstain (keep)
     }
     // Side of the hit against the ring's traversal: the segment's
     // traversal direction (ring order) and the ring's winding.
@@ -256,7 +264,28 @@ pub(crate) fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f6
             x0 * y1 - x1 * y0
         })
         .sum();
-    left == (area2 > 0.0)
+    Some(left == (area2 > 0.0))
+}
+
+/// Exact REGION containment on a non-periodic chart: inside the outer
+/// loop and outside every inner loop, each decided by
+/// [`point_in_loop_exact`]. `None` when any ring gives no verdict.
+pub(crate) fn point_in_face_region_exact(
+    brep: &BRep,
+    face: FaceHandle,
+    u: f64,
+    v: f64,
+) -> Option<bool> {
+    let f = brep.faces.get(face)?;
+    if !point_in_loop_exact(brep, f.outer_loop, u, v)? {
+        return Some(false);
+    }
+    for &lh in &f.inner_loops {
+        if point_in_loop_exact(brep, lh, u, v)? {
+            return Some(false);
+        }
+    }
+    Some(true)
 }
 
 /// One polygon segment of a loop ring and, for a curved pcurve, the

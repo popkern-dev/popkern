@@ -248,9 +248,16 @@ fn face_boundary_wraps(brep: &BRep, face: FaceHandle) -> bool {
     false
 }
 
-/// True when every boundary vertex of `sliver` lies on `absorber`'s
-/// surface within `distance`. Faces without surface geometry accept
-/// (topology-only models keep the historical behavior).
+/// True when every boundary vertex AND sampled edge-curve station of
+/// `sliver` lies on `absorber`'s surface within `distance`. Faces
+/// without surface geometry accept (topology-only models keep the
+/// historical behavior).
+///
+/// Vertices alone are blind to curved edges: a boss wall strip 0.16
+/// wide standing 1e-4 proud of a web's top face has its four corners
+/// ON the web plane while its end arcs bulge 1e-4 off it. It was
+/// absorbed after the serve gate, and the served body carried two edges
+/// 100x linear off their wired face (PK-780).
 fn sliver_lies_on_face_surface(
     brep: &BRep,
     sliver: FaceHandle,
@@ -266,7 +273,9 @@ fn sliver_lies_on_face_surface(
         return true;
     };
     let mut worst = 0.0_f64;
-    let contained = face_vertex_positions(brep, sliver).iter().all(|p| {
+    let mut probes = face_vertex_positions(brep, sliver);
+    probes.extend(sampled_boundary_polygon(brep, sliver));
+    let contained = probes.iter().all(|p| {
         match project_point_to_uv(surface, p) {
             Some((u, v)) => {
                 let d = p.distance_to(&surface.point_at(u, v));

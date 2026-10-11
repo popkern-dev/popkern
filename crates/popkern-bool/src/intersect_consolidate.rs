@@ -77,7 +77,24 @@ pub(super) fn consolidate_records(
         extents.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let median_extent = extents[extents.len() / 2].max(tolerance.linear());
         let gate = (0.05 * median_extent).max(tolerance.linear() * 10.0);
-        // Duplicates: same endpoints (either direction) + same midpoint.
+        // LATERAL band: a duplicate lies ON the other record's curve.
+        // The slop gate above measures where two traces of one branch
+        // END and how their parameterisations drift ALONG it; across
+        // the curve they agree to fit slop. Two distinct branches can
+        // sit inside the slop gate: a boss whose top generator clears a
+        // web's top face by 1e-3 meets that plane in two exact lines
+        // 0.51 apart on records 28 long (gate 1.4), the second was
+        // dropped as a "duplicate" of the first, and the web top lost
+        // the strip under the boss (PK-780). The band is the graph's
+        // duplicate band (`graph_duplicates`, PK-758).
+        let band = gate.min(tolerance.linear() * 100.0);
+        let on_curve = |i: usize, p: &popkern_core::geometry::Point3| -> bool {
+            let c = &records[i].curve.curve_3d;
+            crate::curve_projection::project_onto_curve_dense(c, p)
+                .is_some_and(|t| c.point_at(t).distance_to(p) <= band)
+        };
+        // Duplicates: same endpoints (either direction) + each midpoint
+        // on the other's curve.
         for a in 0..idxs.len() {
             if drop[idxs[a]] {
                 continue;
@@ -90,7 +107,11 @@ pub(super) fn consolidate_records(
                     && info[a].1.distance_to(&info[b].1) < gate;
                 let rev = info[a].0.distance_to(&info[b].1) < gate
                     && info[a].1.distance_to(&info[b].0) < gate;
-                if (fwd || rev) && info[a].2.distance_to(&info[b].2) < gate {
+                if (fwd || rev)
+                    && info[a].2.distance_to(&info[b].2) < gate
+                    && on_curve(idxs[a], &info[b].2)
+                    && on_curve(idxs[b], &info[a].2)
+                {
                     drop[idxs[b]] = true;
                 }
             }
@@ -147,6 +168,9 @@ pub(super) fn consolidate_records(
                 ) else {
                     continue;
                 };
+                if !on_curve(idxs[a], &info[b].2) {
+                    continue;
+                }
                 // A duplicate OVERLAPS the polyline: its projections
                 // spread along it comparably to its own extent. A
                 // CHAINED continuation shorter than the gate projects

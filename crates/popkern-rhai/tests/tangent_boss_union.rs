@@ -13,6 +13,20 @@
 //! wall's u seam, so the hole filter unwraps hole contours and ray
 //! classification drops hits inside curved faces' holes; and the
 //! duplicate-cover test no longer calls a 0.5-thick lens one curve.
+//!
+//! PK-780 added four, each negative-controlled on these sweeps: the
+//! pierce override votes planar faces with EXACT rim containment (an
+//! 8-station octagon cut 3.2 inside the boss cap's rim, and the cap
+//! 0.1-0.3 inside the ring's extreme stranded its top sliver); record
+//! consolidation drops a "duplicate" only when it lies ON the other
+//! record (two exact lines 0.51 apart, from a boss 1e-3 proud of the
+//! web, sat inside the 1.4 slop gate); the dense record projection
+//! polishes a closed record from both window ends (a junction 1.4e-3
+//! short of the rim record's seam read 0.26 off it); and sliver
+//! absorption checks the sliver's edge curves, not just its corners
+//! (a 1e-4-proud boss strip was merged into the web plane after the
+//! serve gate). OCC's own fuse is wrong 1e-6 from the ring extreme;
+//! that point is judged against fuses 1e-3 and 2e-3 away.
 
 mod union_oracle;
 
@@ -57,22 +71,59 @@ fn union_script(c: &Casting) -> String {
     )
 }
 
-/// Serve the union; with the OCC venv, its volume must match OCC's own
-/// fuse of the operands within 1e-9 relative (measured: 1e-13..2e-10).
-fn serves(c: &Casting, name: &str) -> Result<(), String> {
+/// Serve the union: `(served, fused)` volumes from the OCC venv (our
+/// STEP's adaptive volume, OCC's own fuse of the operands), `None`
+/// without it.
+fn served_and_fused(c: &Casting, name: &str) -> Result<Option<(f64, f64)>, String> {
     let mut model = union_oracle::run("", &union_script(c), &format!("{name}.rhai"))?;
     let report = popkern_rhai::report_value(&model);
     if report["failures"] != 0 {
         return Err(format!("{name}: {report}"));
     }
     let operands = [c.ring.as_str(), c.web.as_str(), c.boss.as_str()];
-    if let Some((served, fused)) = union_oracle::occ_volumes("", &operands, &mut model, name) {
+    Ok(union_oracle::occ_volumes("", &operands, &mut model, name))
+}
+
+/// Serve the union; with the OCC venv, its volume must match OCC's own
+/// fuse of the operands within 1e-9 relative (measured: 1e-13..2e-10).
+fn serves(c: &Casting, name: &str) -> Result<(), String> {
+    if let Some((served, fused)) = served_and_fused(c, name)? {
         let rel = (served - fused).abs() / fused;
         if rel > 1e-9 {
             return Err(format!(
                 "{name}: volume {served} vs OCC fuse {fused} (rel {rel:.2e})"
             ));
         }
+    }
+    Ok(())
+}
+
+/// [`serves`] for a cap within 1e-5 of the ring's extreme, where OCC's
+/// own fuse is not an oracle: at a cap 1e-6 past the extreme it reads
+/// 135 below the fuse 1e-3 further out, while the volume is linear in
+/// the cap position to ~1e-3 there (measured; the cap section exposed
+/// beyond the web is ~5386, the ring lens it gains is O(√Δ)). The
+/// reference is the linear extrapolation of OCC's fuses at 1e-3 and
+/// 2e-3 from the extreme on the same side, within 1e-8 relative.
+fn serves_near_extreme(cap_x: f64) -> Result<(), String> {
+    let name = format!("cap_{cap_x}");
+    let Some((served, _)) = served_and_fused(&near_tangent_cap(cap_x), &name)? else {
+        return Ok(());
+    };
+    let side = if cap_x < -367.0 { -1.0 } else { 1.0 };
+    let (x1, x2) = (-367.0 + side * 1e-3, -367.0 + side * 2e-3);
+    let fused_at = |x: f64| -> Result<f64, String> {
+        served_and_fused(&near_tangent_cap(x), &format!("cap_ref_{x}"))?
+            .map(|(_, fused)| fused)
+            .ok_or_else(|| "OCC oracle vanished".to_string())
+    };
+    let (f1, f2) = (fused_at(x1)?, fused_at(x2)?);
+    let want = f1 + (cap_x - x1) * (f1 - f2) / (x1 - x2);
+    let rel = (served - want).abs() / want;
+    if rel > 1e-8 {
+        return Err(format!(
+            "{name}: volume {served} vs extrapolated OCC fuse {want} (rel {rel:.2e})"
+        ));
     }
     Ok(())
 }
@@ -92,14 +143,14 @@ fn pinned_to_pk780(c: &Casting, name: &str) {
 #[test]
 fn the_tangent_boss_casting_serves_through_tangency() {
     let mut failures = Vec::new();
-    for delta in [0.0, 1e-6, -1e-3, -0.1, 0.1] {
+    for delta in [0.0, 1e-6, 1e-4, 1e-3, 3e-3, 1e-2, -1e-3, -0.1, 0.1] {
         let name = format!("boss_{delta:e}");
         if let Err(e) = serves(&tangent_boss(-50.0 + delta, -770.0), &name) {
             failures.push(e);
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
-    for delta in [-1e-6, 1e-3] {
+    for delta in [-1e-6, 1e-7] {
         pinned_to_pk780(
             &tangent_boss(-50.0 + delta, -770.0),
             &format!("boss_{delta:e}"),
@@ -110,13 +161,26 @@ fn the_tangent_boss_casting_serves_through_tangency() {
 #[test]
 fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
     let mut failures = Vec::new();
-    for cap_x in [-368.0, -367.0 + 1e-6, -367.001, -366.999, -366.9] {
+    for cap_x in [
+        -368.0,
+        -367.5,
+        -367.3,
+        -367.1,
+        -367.05,
+        -367.0 + 1e-6,
+        -367.001,
+        -366.999,
+        -366.9,
+    ] {
         if let Err(e) = serves(&near_tangent_cap(cap_x), &format!("cap_{cap_x}")) {
             failures.push(e);
         }
     }
+    if let Err(e) = serves_near_extreme(-367.0 - 1e-6) {
+        failures.push(e);
+    }
     assert!(failures.is_empty(), "{failures:#?}");
-    for cap_x in [-367.0 - 1e-6, -367.1] {
+    for cap_x in [-367.0, -367.00001, -367.0001] {
         pinned_to_pk780(&near_tangent_cap(cap_x), &format!("cap_{cap_x}"));
     }
 }

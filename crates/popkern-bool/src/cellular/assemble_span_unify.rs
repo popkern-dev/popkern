@@ -27,8 +27,12 @@
 //! on-piece band is the LINEAR tolerance, not the 10x endpoint gate: the
 //! seam-straddling spans agree to 4e-15, while a cap plane 1e-6 past a
 //! ring's extreme leaves a lens 1e-6 wide whose two curves sat inside
-//! the 10x gate, were unified, and the union served 4.7e-4 off OCC's
-//! fuse volume instead of declining (measured, tangent_boss_union).
+//! the 10x gate, were unified, and the union served 3.7 (1.3e-5) off
+//! its volume (measured, tangent_boss_union at 8c35140c, against the
+//! fuse volumes OCC computes 1e-3 and 2e-3 away; OCC's own fuse is
+//! wrong that close). Since PK-780's closed-record projection that
+//! lens no longer reaches the registry, so no fixture separates the
+//! two bands today; the linear band stays as the coincidence rule.
 
 use std::collections::HashMap;
 

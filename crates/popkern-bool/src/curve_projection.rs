@@ -31,21 +31,39 @@ pub(crate) fn project_onto_curve_dense(
         }
     }
     let step_cap = ((t1 - t0) / n as f64).abs();
-    let mut t = bt;
-    for _ in 0..20 {
-        let p = curve.point_at(t);
-        let d1 = curve.derivative_at(t, 1);
-        let d2 = curve.derivative_at(t, 2);
-        let diff = p - *q;
-        let f = diff.dot(&d1);
-        let fp = d1.dot(&d1) + diff.dot(&d2);
-        if fp.abs() < 1e-18 {
-            break;
+    let polish = |mut t: f64| -> f64 {
+        for _ in 0..20 {
+            let p = curve.point_at(t);
+            let d1 = curve.derivative_at(t, 1);
+            let d2 = curve.derivative_at(t, 2);
+            let diff = p - *q;
+            let f = diff.dot(&d1);
+            let fp = d1.dot(&d1) + diff.dot(&d2);
+            if fp.abs() < 1e-18 {
+                break;
+            }
+            let dt = (-f / fp).clamp(-step_cap, step_cap);
+            t = (t + dt).clamp(t0.min(t1), t0.max(t1));
+            if dt.abs() < 1e-13 {
+                break;
+            }
         }
-        let dt = (-f / fp).clamp(-step_cap, step_cap);
-        t = (t + dt).clamp(t0.min(t1), t0.max(t1));
-        if dt.abs() < 1e-13 {
-            break;
+        t
+    };
+    let t = polish(bt);
+    // A CLOSED record's two window ends are one point: a foot just
+    // short of the closing end ties with the opening end's sample, the
+    // polish from t0 steps outside the window and is clamped back, and
+    // the projection reads a point lying on the record 0.26 off it
+    // (PK-780: a boss rim's junction 1.4e-3 before the record's seam
+    // was rejected and the far re-trim ran the piece over the rim's
+    // top arc to the other junction). Both ends seed the polish there.
+    let (start, end) = (curve.point_at(t0), curve.point_at(t1));
+    let closed = start.distance_to(&end) <= 1e-12 * (1.0 + start.distance_to(q));
+    if closed && (bt == t0 || bt == t1) {
+        let alt = polish(if bt == t0 { t1 } else { t0 });
+        if curve.point_at(alt).distance_to(q) < curve.point_at(t).distance_to(q) {
+            return Some(alt);
         }
     }
     Some(t)

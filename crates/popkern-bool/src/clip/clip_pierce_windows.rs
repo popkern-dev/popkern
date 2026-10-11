@@ -296,17 +296,17 @@ pub(super) fn pierce_windows(
         let mut b_yes = 0i32;
         for k in 1..=5 {
             let t = t_lo + (t_hi - t_lo) * k as f64 / 6.0;
-            let in_a = crate::split_inner_loop::point_inside_face_region_uv(
+            let in_a = region_contains(
                 brep_a,
                 face_a,
                 fold(curve.curve_uv1.point_at(t), &fold_a),
-                &brep_a.tolerance,
+                &fold_a,
             );
-            let in_b = crate::split_inner_loop::point_inside_face_region_uv(
+            let in_b = region_contains(
                 brep_b,
                 face_b,
                 fold(curve.curve_uv2.point_at(t), &fold_b),
-                &brep_b.tolerance,
+                &fold_b,
             );
             decisive += 1;
             a_yes += i32::from(in_a);
@@ -347,6 +347,33 @@ pub(super) fn pierce_windows(
         }
     }
     out
+}
+
+/// A vote sample's face-region containment. On a chart with no period
+/// the decision is EXACT near curved rims ([`point_in_face_region_exact`]):
+/// the tuned test polygonises each boundary pcurve at 8 stations, and a
+/// boss cap of radius 42.5 became an octagon whose chords cut 3.2 inside
+/// its rim. Votes 0.18 inside the rim (a ring-wall record between the
+/// cap's top and the web notch, the boss cap 0.1 inside the ring's
+/// extreme) read Outside, the override dropped that window, and the
+/// union stranded the cap's top sliver (PK-780). Periodic charts and
+/// rings without pcurves keep the tuned test.
+///
+/// [`point_in_face_region_exact`]: crate::classify_uv_loops::point_in_face_region_exact
+fn region_contains(
+    brep: &BRep,
+    face: FaceHandle,
+    uv: popkern_core::geometry::Point3,
+    chart: &(Option<f64>, Option<f64>, (f64, f64)),
+) -> bool {
+    if chart.0.is_none()
+        && chart.1.is_none()
+        && let Some(inside) =
+            crate::classify_uv_loops::point_in_face_region_exact(brep, face, uv.x, uv.y)
+    {
+        return inside;
+    }
+    crate::split_inner_loop::point_inside_face_region_uv(brep, face, uv, &brep.tolerance)
 }
 
 /// The PIERCE-AUTHORITY override applied to a tuned joint window set
