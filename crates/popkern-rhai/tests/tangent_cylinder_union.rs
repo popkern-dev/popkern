@@ -156,12 +156,12 @@ fn the_stadium_serves_through_tangency() {
     let mut failures = Vec::new();
     for delta in [-0.1, -1e-3, -1e-6, 1e-6, 1e-3, 0.1] {
         // δ = −1e-3: the box face sits 1e-3 inside tangency over a
-        // coplanar cap overlap; a rim arc dipping 1e-3 below the box
-        // face lands on it and validation declines honestly (the
-        // near-tangency class, PK-780); the pin flips when that lands.
+        // coplanar cap overlap; 1e-3 trim residues weld the box corner
+        // onto the rod's rim seam vertex and validation declines
+        // honestly (PK-790); the pin flips when that lands.
         if delta == -1e-3 {
             let Err(e) = serve(&stadium(R + delta), "stadium_near.rhai") else {
-                panic!("PK-780: the near-tangent stadium now serves; promote it");
+                panic!("PK-790: the near-tangent stadium now serves; promote it");
             };
             assert!(e.contains("result validation failed"), "{e}");
             continue;

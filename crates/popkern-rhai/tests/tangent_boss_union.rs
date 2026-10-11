@@ -128,11 +128,12 @@ fn serves_near_extreme(cap_x: f64) -> Result<(), String> {
     Ok(())
 }
 
-/// A sweep point PK-780 owns: it must decline honestly (a boolean
-/// decline, never an invalid serve); the pin flips when it serves.
-fn pinned_to_pk780(c: &Casting, name: &str) {
+/// A sweep point a follow-up task owns: it must decline honestly (a
+/// boolean decline, never an invalid serve); the pin flips when it
+/// serves.
+fn pinned(c: &Casting, name: &str, task: &str) {
     match serves(c, name) {
-        Ok(()) => panic!("PK-780: {name} now serves; promote it to the served set"),
+        Ok(()) => panic!("{task}: {name} now serves; promote it to the served set"),
         Err(e) => assert!(
             e.contains("merge failed") || e.contains("result validation failed"),
             "{name}: {e}"
@@ -151,9 +152,11 @@ fn the_tangent_boss_casting_serves_through_tangency() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     for delta in [-1e-6, 1e-7] {
-        pinned_to_pk780(
+        // Within the linear tolerance of tangency (PK-789).
+        pinned(
             &tangent_boss(-50.0 + delta, -770.0),
             &format!("boss_{delta:e}"),
+            "PK-789",
         );
     }
 }
@@ -181,6 +184,7 @@ fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     for cap_x in [-367.0, -367.00001, -367.0001] {
-        pinned_to_pk780(&near_tangent_cap(cap_x), &format!("cap_{cap_x}"));
+        // The cap rim's apex inside the ring-wall lens (PK-788).
+        pinned(&near_tangent_cap(cap_x), &format!("cap_{cap_x}"), "PK-788");
     }
 }
