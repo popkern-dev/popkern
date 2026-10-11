@@ -49,48 +49,8 @@ pub(super) fn orient_face_meshes_coherently(
         .map(|(fi, fm)| (fm.face, fi))
         .collect();
 
-    // Boundary directed segments per face mesh: triangle edges used
-    // exactly once (position-welded so duplicated boundary vertices
-    // at the same position don't hide the match).
-    let boundary_segments: Vec<Vec<(Point3, Point3)>> = face_meshes
-        .iter()
-        .map(|fm| {
-            let key =
-                |p: &Point3| -> PositionBitKey { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
-            let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::new();
-            for t in &fm.triangles {
-                for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                    let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
-                    if ka == kb {
-                        continue;
-                    }
-                    if ka < kb {
-                        *counts.entry((ka, kb)).or_default() += 1;
-                    } else {
-                        *counts.entry((kb, ka)).or_default() -= 1;
-                    }
-                }
-            }
-            let from_bits = |k: (u64, u64, u64)| -> Point3 {
-                Point3::new(
-                    f64::from_bits(k.0),
-                    f64::from_bits(k.1),
-                    f64::from_bits(k.2),
-                )
-            };
-            counts
-                .into_iter()
-                .filter(|&(_, c)| c != 0)
-                .map(|((ka, kb), c)| {
-                    if c > 0 {
-                        (from_bits(ka), from_bits(kb))
-                    } else {
-                        (from_bits(kb), from_bits(ka))
-                    }
-                })
-                .collect()
-        })
-        .collect();
+    let boundary_segments: Vec<Vec<(Point3, Point3)>> =
+        face_meshes.iter().map(boundary_segments).collect();
 
     // Each face's segment start points, indexed: a segment can only
     // vote on an edge when its start lies within the projection
@@ -424,6 +384,51 @@ pub(super) fn orient_face_meshes_coherently(
     }
 }
 
+/// The face mesh's boundary as directed segments: triangle edges used
+/// once, welded by position so duplicated boundary vertices at one
+/// position still match. Sorted by position bits: the counting map
+/// iterates in its per-instance random order, and the votes sum these
+/// segments' advances, so an unsorted list made the vote weights vary
+/// in the last bits from run to run (PK-796).
+fn boundary_segments(fm: &crate::mesh::FaceMesh) -> Vec<(Point3, Point3)> {
+    use std::collections::HashMap;
+    let key = |p: &Point3| -> PositionBitKey { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
+    let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::new();
+    for t in &fm.triangles {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
+            if ka == kb {
+                continue;
+            }
+            if ka < kb {
+                *counts.entry((ka, kb)).or_default() += 1;
+            } else {
+                *counts.entry((kb, ka)).or_default() -= 1;
+            }
+        }
+    }
+    let from_bits = |k: (u64, u64, u64)| -> Point3 {
+        Point3::new(
+            f64::from_bits(k.0),
+            f64::from_bits(k.1),
+            f64::from_bits(k.2),
+        )
+    };
+    let mut segments: Vec<(Point3, Point3)> = counts
+        .into_iter()
+        .filter(|&(_, c)| c != 0)
+        .map(|((ka, kb), c)| {
+            if c > 0 {
+                (from_bits(ka), from_bits(kb))
+            } else {
+                (from_bits(kb), from_bits(ka))
+            }
+        })
+        .collect();
+    segments.sort_unstable_by_key(|(p, q)| (key(p), key(q)));
+    segments
+}
+
 /// Whether a component is topologically closed: every edge of every
 /// member face has its other face in the component too. (Balancing
 /// the meshes' boundary segments read closed bodies as open — face
@@ -469,3 +474,7 @@ fn component_is_closed(
             })
     })
 }
+
+#[cfg(test)]
+#[path = "tessellate_orientation_tests.rs"]
+mod tests;
