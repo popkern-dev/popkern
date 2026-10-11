@@ -15,7 +15,8 @@ use crate::tolerance::Tolerance;
 #[path = "surface_curve_grid.rs"]
 mod surface_curve_grid;
 use surface_curve_grid::{
-    GRID_N, SurfaceCell, interior_knots_in, padded_cell_memo, surface_grid_cached,
+    GRID_N, SurfaceCell, exact_conic_segment_box, interior_knots_in, padded_cell_memo,
+    surface_grid_cached,
 };
 #[path = "surface_curve_pair_roots.rs"]
 mod surface_curve_pair_roots;
@@ -221,7 +222,8 @@ pub(crate) fn intersect_surface_curve_general(
     let curve_segments: Vec<CurveSegment> = bezier_segments
         .into_iter()
         .map(|(seg, tr)| {
-            let (bmin, bmax) = curve_aabb(&seg, tr);
+            let (bmin, bmax) =
+                exact_conic_segment_box(curve, &seg, tr).unwrap_or_else(|| curve_aabb(&seg, tr));
             CurveSegment {
                 t_range: tr,
                 min: bmin,

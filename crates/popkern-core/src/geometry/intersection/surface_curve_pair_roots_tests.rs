@@ -130,16 +130,20 @@ fn a_circle_isolates_two_crossings_of_one_segment_cell_pair() {
 
 /// The PK-781 sweep: arcs (own and one-turn-shifted windows) and
 /// circles (full and partial windows) through rods of three radii,
-/// offset through tangency. Within 5% of tangency the crossing pair
-/// pokes less than ~0.1 r past the circle, inside the padded cell box's
-/// deliberate sagitta under-cover (PK-785); the sweep stops short of it.
+/// offset through tangency to 0.999 r. At 0.99 r and beyond, a 0.02 rod
+/// is pierced only 2e-4..2e-5 deep, and a 16-sample arc-segment box
+/// missed the arc's apex by more than that: all four arc misses were
+/// that cull (PK-785; the segment box is now exact).
 #[test]
 fn conics_through_rods_find_every_analytic_crossing() {
     let mut missed = Vec::new();
     let mut cases = 0;
     for r in [1.0, 0.2, 0.02] {
-        for k in 0..=20 {
-            let d = r * (-0.95 + 1.9 * k as f64 / 20.0);
+        let offsets = (0..=20)
+            .map(|k| -0.95 + 1.9 * k as f64 / 20.0)
+            .chain([-0.999, -0.99, 0.99, 0.999]);
+        for f in offsets {
+            let d = r * f;
             for phi in [0.0, 0.3, 1.0, 2.5, 4.0] {
                 let near = (phi - 0.5, phi + 0.5);
                 for (name, curve, window) in [

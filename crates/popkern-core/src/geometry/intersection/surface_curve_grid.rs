@@ -5,6 +5,10 @@
 use crate::geometry::Point3;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
+#[path = "conic_segment_box.rs"]
+mod conic_segment_box;
+pub(super) use conic_segment_box::exact_conic_segment_box;
+
 /// Number of cells per axis in the surface bounding-box grid.
 pub(super) const GRID_N: usize = 8;
 
