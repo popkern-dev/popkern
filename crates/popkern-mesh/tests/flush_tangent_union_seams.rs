@@ -20,7 +20,10 @@
 //! quarter grid) and the union declined non-manifold at every seam
 //! angle but 0°; and a closed rim's closest-point clamp read a record
 //! near the seam off the wall's boundary, so the wall's chart declined
-//! at −60° and −75°.
+//! at −60° and −75°. With the seam vertex inside the overlap the shared
+//! cap arc is a two-edge chain, and the chain merge still compared
+//! orientation flags: the caps stayed split (8 faces) at every such
+//! placement (PK-778).
 
 use popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events;
 use popkern_bool::merge_fallback::take_merge_fallback_events;
@@ -124,11 +127,11 @@ fn a_seamed_rod_unions_with_the_flush_tangent_box_wherever_its_seam_lies() {
         if !merges.is_empty() || !walks.is_empty() {
             failures.push(format!("{seam_deg}°: fallbacks {merges:?} {walks:?}"));
         }
-        // Top, bottom, two flat sides, the far box side, the half wall.
-        // A seam vertex strictly inside the overlap splits the shared
-        // cap arc into two edges and the coplanar caps stay split (8
-        // faces, PK-778).
-        let faces = if seam_deg.abs() < 90.0 { 8 } else { 6 };
+        // Top, bottom, two flat sides, the far box side, the half wall,
+        // wherever the seam lies: a seam vertex inside the overlap splits
+        // the shared cap arc into a two-edge chain, which merges like a
+        // single edge (PK-778).
+        let faces = 6;
         if body.faces.len() != faces {
             failures.push(format!(
                 "{seam_deg}°: {} faces, want {faces}",

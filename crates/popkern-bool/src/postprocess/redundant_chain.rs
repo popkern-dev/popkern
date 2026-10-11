@@ -22,7 +22,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use std::collections::BTreeMap;
 
 /// The two faces an edge separates, when they are distinct,
-/// co-surfacial and equally oriented.
+/// co-surfacial and equally oriented (outward normals, not flags).
 fn mergeable_face_pair(
     brep: &BRep,
     eh: EdgeHandle,
@@ -41,8 +41,8 @@ fn mergeable_face_pair(
     }
     let surf_a = brep.faces.get(face_a)?.surface.as_ref()?;
     let surf_b = brep.faces.get(face_b)?.surface.as_ref()?;
-    if surf_a.orientation != surf_b.orientation
-        || !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
+    if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
+        || !super::redundant_edge::outward_normals_agree(brep, eh, surf_a, surf_b)?
     {
         return None;
     }

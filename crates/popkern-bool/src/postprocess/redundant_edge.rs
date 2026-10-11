@@ -5,6 +5,7 @@
 //! unnecessary and can be removed to simplify the result.
 
 use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
+use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
 
@@ -78,24 +79,7 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
             return Some(false);
         }
 
-        // Same ORIENTED surface: the two faces' outward normals agree
-        // at the shared edge. The stored flags alone are not a
-        // comparison: a cap with normal +z marked reversed IS a face
-        // with normal −z marked forward (measured, PK-750: a rotated
-        // rod's bottom cap stayed split from a flush box's coplanar
-        // bottom along their chord while the top merged).
-        let mid = {
-            use popkern_core::geometry::curve::CurveEval as _;
-            let c = edge.curve.as_ref()?;
-            c.geometry.point_at(0.5 * (c.t_start + c.t_end))
-        };
-        let outward = |s: &popkern_core::geometry::surface::SurfaceOnFace| {
-            use popkern_core::geometry::surface::SurfaceEval as _;
-            let (u, v) = s.geometry.closest_point(&mid)?;
-            let n = s.geometry.normal_at(u, v);
-            Some(if s.orientation { n } else { n * -1.0 })
-        };
-        if outward(surf_a)?.dot(&outward(surf_b)?) <= 0.0 {
+        if !outward_normals_agree(brep, eh, surf_a, surf_b)? {
             return Some(false);
         }
 
@@ -129,4 +113,29 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         Some(shared_count == 1)
     })()
     .unwrap_or(false)
+}
+
+/// Same ORIENTED surface: the two faces' outward normals agree at edge
+/// `eh`'s midpoint. The stored flags alone are not a comparison: a cap
+/// with normal +z marked reversed IS a face with normal −z marked
+/// forward (measured, PK-750: a rotated rod's bottom cap stayed split
+/// from a flush box's coplanar bottom along their chord while the top
+/// merged; PK-778: the same flag test in the shared-CHAIN path kept the
+/// caps split wherever the rod's seam vertex divided the shared rim).
+pub(crate) fn outward_normals_agree(
+    brep: &BRep,
+    eh: EdgeHandle,
+    surf_a: &SurfaceOnFace,
+    surf_b: &SurfaceOnFace,
+) -> Option<bool> {
+    use popkern_core::geometry::curve::CurveEval as _;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let c = brep.edges.get(eh)?.curve.as_ref()?;
+    let mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+    let outward = |s: &SurfaceOnFace| {
+        let (u, v) = s.geometry.closest_point(&mid)?;
+        let n = s.geometry.normal_at(u, v);
+        Some(if s.orientation { n } else { n * -1.0 })
+    };
+    Some(outward(surf_a)?.dot(&outward(surf_b)?) > 0.0)
 }
