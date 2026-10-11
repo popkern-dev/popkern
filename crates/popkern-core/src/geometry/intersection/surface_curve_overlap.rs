@@ -153,18 +153,33 @@ pub(crate) fn detect_surface_curve_overlaps(
     // --- Step 1: evaluate the distance from each sample to the surface -------
 
     let mut on_surface = [false; NUM_SAMPLES];
-
-    for (i, slot) in on_surface.iter_mut().enumerate() {
+    let on = |i: usize| {
         let frac = if NUM_SAMPLES > 1 {
             i as f64 / (NUM_SAMPLES - 1) as f64
         } else {
             0.0
         };
-        let t = t0 + frac * (t1 - t0);
-        let p = curve.point_at(t);
-
-        let sq = closest_point_sq_dist(surface, p.x, p.y, p.z, u_range, v_range);
-        *slot = sq < lin_sq;
+        let p = curve.point_at(t0 + frac * (t1 - t0));
+        closest_point_sq_dist(surface, p.x, p.y, p.z, u_range, v_range) < lin_sq
+    };
+    // Every run of MIN_RUN consecutive samples contains an index that is
+    // a multiple of MIN_RUN, so when none of those is on the surface
+    // there is no overlap: the remaining closest-point solves are
+    // skipped, with the same result. That is the common case (an edge,
+    // or a classification ray, against a face it crosses), and the
+    // solves were a fifth of a thread cut's intersection stage (PK-762).
+    let mut any_stride = false;
+    for i in (0..NUM_SAMPLES).step_by(MIN_RUN) {
+        on_surface[i] = on(i);
+        any_stride |= on_surface[i];
+    }
+    if !any_stride {
+        return Vec::new();
+    }
+    for (i, slot) in on_surface.iter_mut().enumerate() {
+        if i % MIN_RUN != 0 {
+            *slot = on(i);
+        }
     }
 
     // --- Step 2: find contiguous runs of MIN_RUN+ on-surface samples ---------

@@ -360,3 +360,26 @@ fn hex_head_chamfer_meets_the_face_on_its_circle() {
         "exposed face reaches r = {r_face}, chamfer circle 4.75"
     );
 }
+
+/// PK-762: full-thread socket cap screws (the arm's M4..M8 bolts)
+/// serve through the cellular pipeline. With only the groove tool's
+/// centre floored at the head plane, its profile half-width notched the
+/// head's underside; the cellular result was non-manifold and every
+/// such screw paid a graph-merge retry (M5x12 5.3 s, of it 2.7 s the
+/// retry; the arm's four bolt definitions 21 s of its 75 s build).
+#[test]
+fn full_thread_socket_cap_screws_serve_cellular() {
+    for (size, length) in [("M4", 10.0), ("M5", 12.0), ("M6", 16.0), ("M8", 20.0)] {
+        let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+        let spec = ThreadSpec::parse(size).expect("spec");
+        let screw = SocketCapScrew::new(spec, length)
+            .build(Tolerance::default())
+            .expect("socket cap screw");
+        assert_cellular_served(&format!("{size}x{length} socket cap, full thread"));
+        assert_eq!(
+            screw.open_edge_count().expect("mesh"),
+            0,
+            "{size}x{length} watertight"
+        );
+    }
+}

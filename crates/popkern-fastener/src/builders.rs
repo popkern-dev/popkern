@@ -204,7 +204,7 @@ fn headed_screw(
         &groove,
         z_start,
         length,
-        Some(head_clear_z + 0.1 * lead),
+        Some(head_clear_z + groove.axial_half_width() + 0.1 * lead),
         None,
         "external thread",
         tolerance,

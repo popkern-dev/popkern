@@ -32,6 +32,16 @@ pub(crate) struct ToolProfile {
 
 #[cfg_attr(not(test), allow(dead_code))] // test-oracle accessors
 impl ToolProfile {
+    /// Largest axial reach of the profile from its centre. A headed
+    /// screw floors its thread tool by this much above the head plane:
+    /// floored by its centre only, the groove notched the head's
+    /// underside, and every full-thread screw's cut fell back from the
+    /// cellular boolean to the graph-merge retry (PK-762: M5x12 5.3 s,
+    /// 2.7 s of it the retry).
+    pub fn axial_half_width(&self) -> f64 {
+        self.points.iter().fold(0.0_f64, |m, p| m.max(p.1.abs()))
+    }
+
     /// Largest radial coordinate of the profile.
     pub fn radial_max(&self) -> f64 {
         self.points.iter().fold(f64::MIN, |m, p| m.max(p.0))
