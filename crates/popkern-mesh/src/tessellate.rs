@@ -648,6 +648,17 @@ pub(crate) fn tessellate_brep(
     options: &TessellationOptions,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<TriMesh, MeshError> {
+    tessellate_brep_reusing(brep, options, tracker, true)
+}
+
+/// [`tessellate_brep`], with `reuse_checks` false rebuilding every face
+/// in the final pass: the reference the reuse is tested against.
+fn tessellate_brep_reusing(
+    brep: &BRep,
+    options: &TessellationOptions,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+    reuse_checks: bool,
+) -> Result<TriMesh, MeshError> {
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -679,6 +690,12 @@ pub(crate) fn tessellate_brep(
     // unchanged-boundary face can only reproduce requests that were
     // already inserted or are permanently deduped.
     let mut active: Option<std::collections::HashSet<FaceHandle>> = None;
+    // Each check builds the face's boundary-first mesh, the same pure
+    // function of its edge samples that the final pass would run. Keep
+    // it until a split changes one of the face's edges. Rebuilding
+    // every face in the final pass doubled the mesh cost of a thread
+    // rod, whose rounds usually end with no requests (PK-794).
+    let mut checked: HashMap<FaceHandle, Option<crate::mesh::FaceMesh>> = HashMap::new();
     for round in 0..ENCROACHMENT_ROUNDS {
         // §17 per-round poll (the per-face closures also short-circuit
         // on a fired token, so a cancelled round finishes fast).
@@ -692,15 +709,14 @@ pub(crate) fn tessellate_brep(
             .filter(|&fh| brep.faces[fh].surface.is_some())
             .filter(|fh| active.as_ref().is_none_or(|set| set.contains(fh)))
             .collect();
-        let requests = crate::face_pass::collect_split_requests(
-            brep,
-            &faces,
-            &edge_samples,
-            options,
-            bf_trace,
-            cancel,
-        );
+        let checks =
+            crate::face_pass::check_faces(brep, &faces, &edge_samples, options, bf_trace, cancel);
         stage_gate!();
+        let mut requests = Vec::new();
+        for check in checks {
+            requests.extend(check.requests);
+            checked.insert(check.face, check.mesh);
+        }
         if requests.is_empty() {
             break;
         }
@@ -745,10 +761,11 @@ pub(crate) fn tessellate_brep(
         if inserted == 0 {
             break;
         }
-        active = Some(crate::face_pass::faces_incident_to_edges(
-            brep,
-            &split_edges,
-        ));
+        let changed = crate::face_pass::faces_incident_to_edges(brep, &split_edges);
+        for face in &changed {
+            checked.remove(face);
+        }
+        active = Some(changed);
     }
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
@@ -759,9 +776,16 @@ pub(crate) fn tessellate_brep(
         .keys()
         .filter(|&fh| brep.faces[fh].surface.is_some())
         .collect();
+    // The face pass's entity count is the faces it built afresh: those
+    // with no check on the final edge samples.
+    if !reuse_checks {
+        checked.clear();
+    }
+    let built = faces.iter().filter(|f| !checked.contains_key(f)).count();
     let outcomes = crate::face_pass::tessellate_face_pass(
         brep,
         &faces,
+        checked,
         &edge_samples,
         options,
         bf_trace,
@@ -789,7 +813,7 @@ pub(crate) fn tessellate_brep(
             }
         }
     }
-    tracker.finish_stage("tessellate.face_pass", t0, face_meshes.len());
+    tracker.finish_stage("tessellate.face_pass", t0, built);
     // The projection-based sewing stopgap applies ONLY to uniform-grid-path
     // faces: boundary-first faces carry exact canonical boundary
     // points, and re-projecting them can snap a point onto a
@@ -968,6 +992,10 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "tessellate_reuse_tests.rs"]
+mod reuse_tests;
 
 #[cfg(test)]
 #[path = "tessellate_edge_tests.rs"]

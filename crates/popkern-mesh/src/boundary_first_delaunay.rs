@@ -19,6 +19,17 @@ use std::collections::HashMap;
 /// identical. Whenever the walk or the seed cannot decide (a degenerate
 /// triangle, a point on a vertex, a walk that leaves the hull or does
 /// not settle), the insertion falls back to the full scan.
+///
+/// Points are inserted in a biased randomized insertion order
+/// ([`insertion_order`]), not in input order. Input order is ring
+/// order: thousands of samples along one long boundary, then the
+/// lattice. That order kept every intermediate triangulation full of
+/// slivers fanned to the super-triangle, so cavities grew with the
+/// point count (131 triangles per insertion at 9.3k points, 176 at 17k
+/// on an M6 thread wall) and the triangulation was superlinear
+/// (PK-794). Any order yields a Delaunay triangulation; where points
+/// are exactly cocircular (a square lattice cell) the order picks the
+/// diagonal, and every choice is equally Delaunay.
 pub(super) fn bowyer_watson(points: &[(f64, f64)]) -> Option<Vec<[usize; 3]>> {
     triangulate(points, true)
 }
@@ -53,7 +64,8 @@ fn triangulate(points: &[(f64, f64)], walk: bool) -> Option<Vec<[usize; 3]>> {
     let mut mesh = Adjacency::default();
     mesh.push([s0, s0 + 1, s0 + 2]);
     let mut hint = 0usize;
-    for (pi, &p) in points.iter().enumerate() {
+    for pi in insertion_order(points) {
+        let p = points[pi];
         let mut bad = walk
             .then(|| mesh.conflict_region(&pts, p, hint))
             .flatten()
@@ -95,6 +107,75 @@ fn triangulate(points: &[(f64, f64)], walk: bool) -> Option<Vec<[usize; 3]>> {
     let mut tris = mesh.tris;
     tris.retain(|t| t.iter().all(|&i| i < s0));
     if tris.is_empty() { None } else { Some(tris) }
+}
+
+/// Biased randomized insertion order (Amenta, Choi & Rote 2003): a
+/// fixed-seed shuffle split into rounds that double in size, each round
+/// sorted along a Hilbert curve over the points' bounding square. The
+/// shuffle bounds the expected cavity size; the curve keeps
+/// consecutive points close, so the visibility walk from the last new
+/// triangle is short. Deterministic: same points, same order.
+fn insertion_order(points: &[(f64, f64)]) -> Vec<usize> {
+    let n = points.len();
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut state = 0x9E37_79B9_7F4A_7C15_u64;
+    for i in (1..n).rev() {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        order.swap(i, (state % (i as u64 + 1)) as usize);
+    }
+    let (mut x0, mut y0, mut extent) = (f64::INFINITY, f64::INFINITY, 0.0_f64);
+    for &(x, y) in points {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+    }
+    for &(x, y) in points {
+        extent = extent.max(x - x0).max(y - y0);
+    }
+    let cells = f64::from(HILBERT_SIDE - 1) / extent.max(f64::MIN_POSITIVE);
+    let key = |i: usize| {
+        let (x, y) = points[i];
+        // Saturating float-to-int casts: NaN maps to 0, which only
+        // costs locality, never correctness.
+        hilbert_index(((x - x0) * cells) as u32, ((y - y0) * cells) as u32)
+    };
+    let mut ends = vec![n];
+    while ends[ends.len() - 1] > 64 {
+        ends.push(ends[ends.len() - 1] / 2);
+    }
+    ends.push(0);
+    ends.reverse();
+    for w in ends.windows(2) {
+        order[w[0]..w[1]].sort_by_key(|&i| (key(i), i));
+    }
+    order
+}
+
+/// Side of the Hilbert grid: 2^16 cells per axis.
+const HILBERT_SIDE: u32 = 1 << 16;
+
+/// Distance of cell `(x, y)` along the Hilbert curve filling the
+/// `HILBERT_SIDE` square.
+fn hilbert_index(mut x: u32, mut y: u32) -> u64 {
+    x = x.min(HILBERT_SIDE - 1);
+    y = y.min(HILBERT_SIDE - 1);
+    let mut d = 0u64;
+    let mut s = HILBERT_SIDE / 2;
+    while s > 0 {
+        let rx = u32::from(x & s > 0);
+        let ry = u32::from(y & s > 0);
+        d += u64::from(s) * u64::from(s) * u64::from((3 * rx) ^ ry);
+        if ry == 0 {
+            if rx == 1 {
+                x = HILBERT_SIDE - 1 - x;
+                y = HILBERT_SIDE - 1 - y;
+            }
+            std::mem::swap(&mut x, &mut y);
+        }
+        s /= 2;
+    }
+    d
 }
 
 /// Unset neighbour slot.

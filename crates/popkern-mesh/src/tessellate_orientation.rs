@@ -92,11 +92,24 @@ pub(super) fn orient_face_meshes_coherently(
         })
         .collect();
 
+    // Each face's segment start points, indexed: a segment can only
+    // vote on an edge when its start lies within the projection
+    // tolerance of the edge's polyline, so each edge visits only the
+    // segments starting inside its windows' grown boxes. Testing every
+    // segment of both faces against every edge was quadratic on a
+    // thread rod, whose wall has both more edges and more segments per
+    // turn (orientation 1.0 s -> 3.6 s at 40 -> 80 mm, PK-794).
+    let segment_starts: Vec<crate::point_box_index::PointBoxIndex> = boundary_segments
+        .iter()
+        .map(|segs| crate::point_box_index::PointBoxIndex::build(segs.iter().map(|s| s.0)))
+        .collect();
+
     // Signed arc-length advance of a face's boundary along a
     // canonical edge polyline. Positive = traverses the edge in
     // increasing parameter, negative = decreasing; magnitude = the
     // summed length of matched segments (the vote's weight).
     let advance_along = |segs: &[(Point3, Point3)],
+                         starts: &crate::point_box_index::PointBoxIndex,
                          polyline: &[(f64, Point3)],
                          curve: &dyn popkern_core::geometry::curve::CurveEval|
      -> f64 {
@@ -162,8 +175,32 @@ pub(super) fn orient_face_meshes_coherently(
             .first()
             .zip(polyline.last())
             .is_some_and(|(a, b)| a.1.distance_to(&b.1) <= tol);
+        // Candidates: segments starting inside a window's box grown by
+        // the tolerance (plus rounding slack), a superset of those
+        // whose start `project` accepts. Visiting them in segment
+        // order adds the same terms in the same order as a full scan.
+        let mut candidates = Vec::new();
+        for w in polyline.windows(2) {
+            let (a, b) = (w[0].1, w[1].1);
+            let grow = tol * (1.0 + 1e-9)
+                + 1e-12 * (1.0 + a.x.abs().max(a.y.abs()).max(a.z.abs()))
+                + 1e-12 * b.x.abs().max(b.y.abs()).max(b.z.abs());
+            let lo = Point3::new(
+                a.x.min(b.x) - grow,
+                a.y.min(b.y) - grow,
+                a.z.min(b.z) - grow,
+            );
+            let hi = Point3::new(
+                a.x.max(b.x) + grow,
+                a.y.max(b.y) + grow,
+                a.z.max(b.z) + grow,
+            );
+            starts.query(lo, hi, &mut candidates);
+        }
+        candidates.sort_unstable();
+        candidates.dedup();
         let mut advance = 0.0_f64;
-        for (p, q) in segs {
+        for (p, q) in candidates.into_iter().map(|k| &segs[k]) {
             if let (Some((sp, dp)), Some((sq, dq))) = (project(p), project(q)) {
                 // A segment is ON the edge when the curve passes within
                 // a quarter of the segment's own length of both ends (a
@@ -240,8 +277,8 @@ pub(super) fn orient_face_meshes_coherently(
                 (t, eval.point_at(t))
             })
             .collect();
-        let d1 = advance_along(&boundary_segments[f1], &polyline, eval);
-        let d2 = advance_along(&boundary_segments[f2], &polyline, eval);
+        let d1 = advance_along(&boundary_segments[f1], &segment_starts[f1], &polyline, eval);
+        let d2 = advance_along(&boundary_segments[f2], &segment_starts[f2], &polyline, eval);
         // Require a non-trivial matched length on BOTH sides before
         // trusting the vote (a lone straggler segment is sew noise).
         let mut edge_len = 0.0;

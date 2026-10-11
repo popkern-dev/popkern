@@ -199,10 +199,18 @@ fn find_and_cut_slit(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
 /// weld. Runs after the unwrap (the pinch is a property of the
 /// unwrapped chart) and on every chart.
 pub(super) fn dissolve_pinches(ring: BoundaryRing) -> Vec<BoundaryRing> {
+    dissolve_pinches_among(ring, pinch_candidates)
+}
+
+/// The pairs of ring points [`find_and_cut_pinch`] tests, given the
+/// ring and its uv coincidence epsilon.
+type PinchCandidates = fn(&BoundaryRing, f64) -> Vec<(usize, usize)>;
+
+fn dissolve_pinches_among(ring: BoundaryRing, candidates: PinchCandidates) -> Vec<BoundaryRing> {
     let mut out = Vec::new();
     let mut work = vec![ring];
     while let Some(ring) = work.pop() {
-        match find_and_cut_pinch(&ring) {
+        match find_and_cut_pinch(&ring, candidates) {
             Some(pieces) => work.extend(pieces),
             None => out.push(ring),
         }
@@ -218,7 +226,10 @@ pub(super) fn dissolve_pinches(ring: BoundaryRing) -> Vec<BoundaryRing> {
     out
 }
 
-fn find_and_cut_pinch(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
+fn find_and_cut_pinch(
+    ring: &BoundaryRing,
+    candidates: PinchCandidates,
+) -> Option<Vec<BoundaryRing>> {
     let n = ring.uv.len();
     if n < 6 || ring.sources.len() != n {
         return None;
@@ -243,36 +254,84 @@ fn find_and_cut_pinch(ring: &BoundaryRing) -> Option<Vec<BoundaryRing>> {
         .map(|(a, b)| a.distance_to(b))
         .fold(0.0_f64, f64::max);
     let eps_pos = (1.0 + scale) * 1e-9;
-    for i in 0..n {
-        for j in (i + 3)..n {
-            if i == 0 && j + 3 > n {
-                continue; // too close around the wrap to bound a lobe
-            }
-            let (pu, pv) = ring.uv[i];
-            let (qu, qv) = ring.uv[j];
-            if (pu - qu).phypot(pv - qv) > eps_uv || ring.pos[i].distance_to(&ring.pos[j]) > eps_pos
-            {
-                continue;
-            }
-            let take = |indices: Vec<usize>| BoundaryRing {
-                uv: indices.iter().map(|&k| ring.uv[k]).collect(),
-                pos: indices.iter().map(|&k| ring.pos[k]).collect(),
-                sources: indices.iter().map(|&k| ring.sources[k]).collect(),
-            };
-            let lobe_a = take((i..j).collect());
-            let lobe_b = take((j..n).chain(0..i).collect());
-            if lobe_a.uv.len() < 3 || lobe_b.uv.len() < 3 {
-                continue;
-            }
-            if popkern_core::trace::trace_enabled("boundary-first") {
-                eprintln!(
-                    "    [bf] pinch dissolved at uv ({pu:.4},{pv:.4}): ring cut into {} + {} points",
-                    lobe_a.uv.len(),
-                    lobe_b.uv.len()
-                );
-            }
-            return Some(vec![lobe_a, lobe_b]);
+    for (i, j) in candidates(ring, eps_uv) {
+        if i == 0 && j + 3 > n {
+            continue; // too close around the wrap to bound a lobe
         }
+        let (pu, pv) = ring.uv[i];
+        let (qu, qv) = ring.uv[j];
+        if (pu - qu).phypot(pv - qv) > eps_uv || ring.pos[i].distance_to(&ring.pos[j]) > eps_pos {
+            continue;
+        }
+        let take = |indices: Vec<usize>| BoundaryRing {
+            uv: indices.iter().map(|&k| ring.uv[k]).collect(),
+            pos: indices.iter().map(|&k| ring.pos[k]).collect(),
+            sources: indices.iter().map(|&k| ring.sources[k]).collect(),
+        };
+        let lobe_a = take((i..j).collect());
+        let lobe_b = take((j..n).chain(0..i).collect());
+        if lobe_a.uv.len() < 3 || lobe_b.uv.len() < 3 {
+            continue;
+        }
+        if popkern_core::trace::trace_enabled("boundary-first") {
+            eprintln!(
+                "    [bf] pinch dissolved at uv ({pu:.4},{pv:.4}): ring cut into {} + {} points",
+                lobe_a.uv.len(),
+                lobe_b.uv.len()
+            );
+        }
+        return Some(vec![lobe_a, lobe_b]);
     }
     None
 }
+
+/// Every pair `(i, j)`, `j >= i + 3`, that could be a pinch, in
+/// lexicographic order: the pairs whose uv points share or neighbour a
+/// grid cell of side `eps_uv`, which covers every pair within `eps_uv`.
+/// The caller applies the exact pinch test to each, so the first pair
+/// it accepts is the one an all-pairs scan would accept. That scan was
+/// O(n^2) per ring and took 0.9 s on one 80 mm thread wall's
+/// 15.6k-sample ring (PK-794). A ring with a non-finite coordinate
+/// keeps the all-pairs order: NaN passes the scan's distance test.
+fn pinch_candidates(ring: &BoundaryRing, eps_uv: f64) -> Vec<(usize, usize)> {
+    let finite = ring.uv.iter().all(|&(u, v)| u.is_finite() && v.is_finite())
+        && ring
+            .pos
+            .iter()
+            .all(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite());
+    if !finite {
+        return all_pinch_pairs(ring, eps_uv);
+    }
+    let cell = |(u, v): (f64, f64)| ((u / eps_uv).floor() as i64, (v / eps_uv).floor() as i64);
+    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (k, &uv) in ring.uv.iter().enumerate() {
+        grid.entry(cell(uv)).or_default().push(k);
+    }
+    let mut pairs = Vec::new();
+    for (i, &uv) in ring.uv.iter().enumerate() {
+        let (cu, cv) = cell(uv);
+        for du in -1..=1 {
+            for dv in -1..=1 {
+                if let Some(members) = grid.get(&(cu.saturating_add(du), cv.saturating_add(dv))) {
+                    pairs.extend(members.iter().filter(|&&j| j >= i + 3).map(|&j| (i, j)));
+                }
+            }
+        }
+    }
+    pairs.sort_unstable();
+    pairs.dedup();
+    pairs
+}
+
+/// Every pair `(i, j)`, `j >= i + 3`, in lexicographic order.
+fn all_pinch_pairs(ring: &BoundaryRing, _eps_uv: f64) -> Vec<(usize, usize)> {
+    let n = ring.uv.len();
+    (0..n)
+        .flat_map(|i| ((i + 3)..n).map(move |j| (i, j)))
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "boundary_first_slit_tests.rs"]
+mod tests;

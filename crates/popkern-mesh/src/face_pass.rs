@@ -34,40 +34,61 @@ pub(crate) enum FacePassOutcome {
     },
 }
 
-/// Collect encroachment split requests for `faces`, in face order.
+/// One face's encroachment check: the split requests it raised and
+/// the boundary-first mesh built alongside them (`None` when the
+/// boundary-first path declined and the face needs the uniform-grid
+/// fallback).
+pub(crate) struct FaceCheck {
+    /// The face checked.
+    pub(crate) face: FaceHandle,
+    /// Its split requests, in the order the face raised them.
+    pub(crate) requests: Vec<SplitRequest>,
+    /// The boundary-first mesh, before the final pass's normal repair
+    /// and angular refinement.
+    pub(crate) mesh: Option<FaceMesh>,
+}
+
+/// Run the encroachment check for `faces`, in face order.
 ///
-/// Each face's request list is computed independently; the flattened
-/// sequence is identical to running the faces sequentially, so the
-/// caller's insert-and-dedup pass sees the same requests in the same
-/// order at any thread count.
-pub(crate) fn collect_split_requests(
+/// Each face is checked independently, so flattening the requests in
+/// face order gives the same sequence as running the faces one by one.
+/// The caller's insert-and-dedup pass sees the same requests in the
+/// same order at any thread count. A face skipped by a fired cancel
+/// token is left out; the caller's round poll then discards the run.
+pub(crate) fn check_faces(
     brep: &BRep,
     faces: &[FaceHandle],
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     options: &TessellationOptions,
     trace: bool,
     cancel: Option<&popkern_core::cancellation::CancellationToken>,
-) -> Vec<SplitRequest> {
-    let per_face = |face_handle: FaceHandle| -> Vec<SplitRequest> {
+) -> Vec<FaceCheck> {
+    let per_face = |face_handle: FaceHandle| -> Option<FaceCheck> {
         // PK-276: a fired token short-circuits the remaining per-face
         // work; the caller's round poll surfaces the cancellation, and
         // a cancelled run's output is discarded wholesale, so the
         // truncated request list never reaches a served mesh.
         if cancel.is_some_and(|t| t.is_cancelled()) {
-            return Vec::new();
+            return None;
         }
         let mut requests = Vec::new();
-        crate::boundary_first::tessellate_face_boundary_first(
+        let mesh = crate::boundary_first::tessellate_face_boundary_first(
             brep,
             face_handle,
             edge_samples,
             options,
             &mut requests,
         );
-        requests
+        Some(FaceCheck {
+            face: face_handle,
+            requests,
+            mesh,
+        })
     };
-    let nested = dispatch(faces, trace, per_face);
-    nested.into_iter().flatten().collect()
+    dispatch(faces.to_vec(), trace, per_face)
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// Run the final tessellation pass for `faces`, in face order.
@@ -76,77 +97,90 @@ pub(crate) fn collect_split_requests(
 /// with canonical samples. Uniform-grid errors are carried in the outcome so
 /// the caller can propagate the first one in face order — positionally
 /// identical to the retired sequential loop's early `?` return.
+///
+/// `checked` holds the boundary-first result of every face whose
+/// encroachment check ran on the final edge samples. Such a face is not
+/// rebuilt: its boundary-first mesh is a pure function of its own
+/// edges' samples, which have not changed since the check (PK-794).
 pub(crate) fn tessellate_face_pass(
     brep: &BRep,
     faces: &[FaceHandle],
+    mut checked: HashMap<FaceHandle, Option<FaceMesh>>,
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     options: &TessellationOptions,
     trace: bool,
     cancel: Option<&popkern_core::cancellation::CancellationToken>,
 ) -> Vec<FacePassOutcome> {
-    let per_face = |face_handle: FaceHandle| -> FacePassOutcome {
-        // PK-276: a fired token short-circuits remaining faces with a
-        // Cancelled outcome; the caller polls before consuming, so the
-        // whole pass surfaces as MeshError::Cancelled.
-        if cancel.is_some_and(|t| t.is_cancelled()) {
-            return FacePassOutcome::UniformGrid {
-                seam_spine: false,
-                mesh: Err(MeshError::Cancelled),
-            };
-        }
-        let mut sink = Vec::new();
-        if let Some(fm) = crate::boundary_first::tessellate_face_boundary_first(
-            brep,
-            face_handle,
-            edge_samples,
-            options,
-            &mut sink,
-        ) {
-            let mut fm = fm;
-            if let Some(sof) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry);
-                // Angular facet bound: boundary-first meshes only (the
-                // uniform-grid fallback below stays chord-only — see
-                // `tessellate_face_with_samples`).
-                if let Some(max_angle) = options.angular_bound() {
-                    crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
-                }
+    let items: Vec<(FaceHandle, Option<Option<FaceMesh>>)> = faces
+        .iter()
+        .map(|&face_handle| (face_handle, checked.remove(&face_handle)))
+        .collect();
+    let per_face =
+        |(face_handle, checked): (FaceHandle, Option<Option<FaceMesh>>)| -> FacePassOutcome {
+            // PK-276: a fired token short-circuits remaining faces with a
+            // Cancelled outcome; the caller polls before consuming, so the
+            // whole pass surfaces as MeshError::Cancelled.
+            if cancel.is_some_and(|t| t.is_cancelled()) {
+                return FacePassOutcome::UniformGrid {
+                    seam_spine: false,
+                    mesh: Err(MeshError::Cancelled),
+                };
             }
-            return FacePassOutcome::BoundaryFirst(fm);
-        }
-        if trace {
-            let kind = brep
-                .faces
-                .get(face_handle)
-                .and_then(|f| f.surface.as_ref())
-                .map(|sof| match &sof.geometry {
-                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
-                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
-                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
-                    popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
-                    _ => "Other",
-                })
-                .unwrap_or("None");
-            eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
-        }
-        let mut mesh = crate::tessellate::tessellate_face_with_samples(
-            brep,
-            face_handle,
-            options,
-            Some(edge_samples),
-        );
-        if let (Ok(fm), Some(sof)) = (
-            mesh.as_mut(),
-            brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()),
-        ) {
-            crate::vertex_normal::repair_singular_normals(fm, &sof.geometry);
-        }
-        FacePassOutcome::UniformGrid {
-            seam_spine: crate::tessellate::outer_loop_is_seam_spine(brep, face_handle),
-            mesh,
-        }
-    };
-    dispatch(faces, trace, per_face)
+            let boundary_first = checked.unwrap_or_else(|| {
+                crate::boundary_first::tessellate_face_boundary_first(
+                    brep,
+                    face_handle,
+                    edge_samples,
+                    options,
+                    &mut Vec::new(),
+                )
+            });
+            if let Some(fm) = boundary_first {
+                let mut fm = fm;
+                if let Some(sof) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                    crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry);
+                    // Angular facet bound: boundary-first meshes only (the
+                    // uniform-grid fallback below stays chord-only — see
+                    // `tessellate_face_with_samples`).
+                    if let Some(max_angle) = options.angular_bound() {
+                        crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
+                    }
+                }
+                return FacePassOutcome::BoundaryFirst(fm);
+            }
+            if trace {
+                let kind = brep
+                    .faces
+                    .get(face_handle)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|sof| match &sof.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                        popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                        popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                        popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
+                        _ => "Other",
+                    })
+                    .unwrap_or("None");
+                eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
+            }
+            let mut mesh = crate::tessellate::tessellate_face_with_samples(
+                brep,
+                face_handle,
+                options,
+                Some(edge_samples),
+            );
+            if let (Ok(fm), Some(sof)) = (
+                mesh.as_mut(),
+                brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()),
+            ) {
+                crate::vertex_normal::repair_singular_normals(fm, &sof.geometry);
+            }
+            FacePassOutcome::UniformGrid {
+                seam_spine: crate::tessellate::outer_loop_is_seam_spine(brep, face_handle),
+                mesh,
+            }
+        };
+    dispatch(items, trace, per_face)
 }
 
 /// Faces incident to any edge in `edges` (both half-edge sides).
@@ -179,25 +213,25 @@ pub(crate) fn faces_incident_to_edges(
     faces
 }
 
-/// Map `per_face` over `faces`, parallel when the `parallel` feature
+/// Map `per_face` over `items`, parallel when the `parallel` feature
 /// (default) is on and tracing is off. The parallel arm uses an
 /// indexed `map` + `collect`, which rayon guarantees to be positionally
 /// ordered — output is identical to the sequential arm.
-fn dispatch<T: Send>(
-    faces: &[FaceHandle],
+fn dispatch<I: Send, T: Send>(
+    items: Vec<I>,
     trace: bool,
-    per_face: impl Fn(FaceHandle) -> T + Sync,
+    per_face: impl Fn(I) -> T + Sync,
 ) -> Vec<T> {
     #[cfg(feature = "parallel")]
     {
         if !trace {
             use rayon::prelude::*;
-            return faces.par_iter().map(|&fh| per_face(fh)).collect();
+            return items.into_par_iter().map(&per_face).collect();
         }
     }
     #[cfg(not(feature = "parallel"))]
     let _ = trace;
-    faces.iter().map(|&fh| per_face(fh)).collect()
+    items.into_iter().map(per_face).collect()
 }
 
 #[cfg(test)]

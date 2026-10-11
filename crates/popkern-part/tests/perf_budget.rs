@@ -66,7 +66,8 @@ f 8 9 10
 /// cage tests overlapped both thread-cut builds unevenly, so the ratio
 /// measured contention as well as scaling. PK-786 measured 3.54 on CI
 /// (len 40 = 25.4 s, len 80 = 90.0 s). After its fixes, serialized
-/// runs measure 2.77-2.80 locally (len 40 = 9.0 s, len 80 = 25.1 s).
+/// runs measured 2.77-2.80 locally (len 40 = 9.0 s, len 80 = 25.1 s);
+/// after PK-794's, 1.90-1.92 (len 40 = 4.6 s, len 80 = 8.8 s).
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn serial() -> std::sync::MutexGuard<'static, ()> {
@@ -165,12 +166,15 @@ fn smooth_mesh_normalized_cage_within_budget() {
 /// multi-wrap walls — N² — until A-side verdict propagation
 /// (one audited seed ray per component) and the span-hull projection
 /// pre-gate landed. This gate is a RATIO, not an absolute budget:
-/// doubling the turn count may at most ~triple the build (measured
-/// clean 2026-09-23 after PK-511's pierce-inventory cache: boolean
-/// 18.6 s → 46.6 s, ratio 2.5; intersection stage is linear at
-/// 2.06×). A quadratic regression measures
-/// ≥ 3.9. Ratios stay meaningful under uniform CI contention, unlike
-/// wall-clock budgets.
+/// doubling the turn count may at most triple the build plus mesh.
+/// Measured 2.5 after PK-511's pierce-inventory cache (2026-09-23).
+/// PK-794 (2026-10-11) made the remaining stages linear (Delaunay
+/// insertion order, pinch search, orientation votes, Bezier
+/// decomposition, one face build per tessellation), and it measures
+/// 1.90-1.92. The gate moved from 3.5 to 3.0: at 3.5 the mesh stage
+/// had grown 3.3x per doubling underneath it unnoticed. A quadratic
+/// stage measures >= 3.9. Ratios stay meaningful under uniform CI
+/// contention, unlike wall-clock budgets.
 #[test]
 fn thread_cut_serve_cost_stays_subquadratic() {
     use popkern_part::fastener::{ThreadSpec, ThreadedRod};
@@ -192,13 +196,13 @@ fn thread_cut_serve_cost_stays_subquadratic() {
     let t80 = build(80.0);
     let ratio = t80.as_secs_f64() / t40.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [thread-cut ratio]: len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} (gate 3.5)"
+        "perf budget [thread-cut ratio]: len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} (gate 3.0)"
     );
     assert!(
-        ratio <= 3.5,
+        ratio <= 3.0,
         "thread-cut cost curve regressed toward quadratic: \
-         len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} > 3.5 \
-         (measured 2.5 at PK-511 close; quadratic ≥ 3.9)"
+         len 40 = {t40:?}, len 80 = {t80:?}, ratio {ratio:.2} > 3.0 \
+         (measured 1.9 at PK-794 close; quadratic >= 3.9)"
     );
 }
 

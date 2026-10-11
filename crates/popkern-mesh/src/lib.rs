@@ -16,6 +16,7 @@ mod face_pass;
 mod facet_angle;
 mod mesh;
 pub mod offset_oracle;
+mod point_box_index;
 pub mod point_query;
 mod tessellate;
 mod trim;

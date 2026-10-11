@@ -18,6 +18,9 @@ use surface_curve_grid::{
     GRID_N, SurfaceCell, exact_conic_segment_box, interior_knots_in, padded_cell_memo,
     surface_grid_cached,
 };
+#[path = "surface_curve_bezier.rs"]
+mod surface_curve_bezier;
+use surface_curve_bezier::decompose_to_bezier_segments;
 #[path = "surface_curve_pair_roots.rs"]
 mod surface_curve_pair_roots;
 use surface_curve_pair_roots::{
@@ -112,84 +115,6 @@ fn aabb_overlap(
         && a_max.y + margin >= b_min.y
         && a_min.z - margin <= b_max.z
         && a_max.z + margin >= b_min.z
-}
-
-// ---------------------------------------------------------------------------
-// Bezier decomposition
-// ---------------------------------------------------------------------------
-
-/// Decompose a NURBS curve into Bezier segments by splitting at all interior
-/// knots (knots with multiplicity < degree are raised to full multiplicity,
-/// then the result is split).
-fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f64))> {
-    let (t_min, t_max) = nurbs.parameter_range();
-    let degree = nurbs.degree;
-
-    // Collect unique interior knot values.
-    let mut interior_knots: Vec<f64> = Vec::new();
-    for &k in &nurbs.knots {
-        if k > t_min
-            && k < t_max
-            && interior_knots
-                .last()
-                .is_none_or(|&last| (k - last).abs() > 1e-14)
-        {
-            interior_knots.push(k);
-        }
-    }
-
-    if interior_knots.is_empty() {
-        // Already a single Bezier segment.
-        return vec![(nurbs.clone(), (t_min, t_max))];
-    }
-
-    // For each interior knot, count its current multiplicity and insert enough
-    // times to raise it to `degree`.  We collect all insertions.
-    let mut knots_to_insert: Vec<f64> = Vec::new();
-    for &k in &interior_knots {
-        let mult = nurbs
-            .knots
-            .iter()
-            .filter(|&&v| (v - k).abs() < 1e-14)
-            .count();
-        let needed = degree.saturating_sub(mult);
-        for _ in 0..needed {
-            knots_to_insert.push(k);
-        }
-    }
-
-    let refined = if knots_to_insert.is_empty() {
-        nurbs.clone()
-    } else {
-        match nurbs.insert_knots(&knots_to_insert) {
-            Ok(c) => c,
-            Err(_) => nurbs.clone(),
-        }
-    };
-
-    // Now split at each interior knot.
-    let mut segments: Vec<(NurbsCurve, (f64, f64))> = Vec::new();
-    let mut remaining = refined;
-
-    for &k in &interior_knots {
-        let (r_min, _r_max) = remaining.parameter_range();
-        match remaining.split_at(k) {
-            Ok((left, right)) => {
-                let left_range = left.parameter_range();
-                segments.push((left, (r_min.max(left_range.0), k.min(left_range.1))));
-                remaining = right;
-            }
-            Err(_) => {
-                // If split fails (e.g. knot at boundary), skip.
-            }
-        }
-    }
-
-    // Add the last segment.
-    let rem_range = remaining.parameter_range();
-    segments.push((remaining, rem_range));
-
-    segments
 }
 
 // ---------------------------------------------------------------------------
