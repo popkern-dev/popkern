@@ -72,9 +72,9 @@ jobs:
         run: cargo check --workspace --no-default-features
 
       # PK-793: the pinned clippy gates. Nightly clippy runs as an
-      # early warning for lints the next pin bump will bring; it does
-      # not fail the leg (nightly 2026-10 broadened needless_range_loop
-      # over ~100 numeric grid loops in popkern-core, PK-795).
+      # early warning for lints the next pin bump will bring. It does
+      # not fail the leg: fix its findings before bumping the pin
+      # (PK-795 did this for the 2026-10 needless_range_loop broadening).
       - name: Clippy
         continue-on-error: ${{ matrix.rust == 'nightly' }}
         run: cargo clippy --all-targets -- -D warnings
