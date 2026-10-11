@@ -131,29 +131,30 @@ fn family() -> Vec<Fixture> {
 }
 
 /// Worst rim form-norm curvature jump away from the rim ends, in
-/// family order (measured 2026-10-10, PK-773). History: after the PK-584
-/// band refit and the PK-581 curvature-unit weighting the whole-rim
-/// worsts were 4.054e-5 / 6.753e-4 / 8.488e-4 / 1.817e-4 / 1.323e-3 /
-/// 2.481e-3 / 7.760e-4; every one but the variable fixtures sat in an end
-/// layer.
+/// family order (measured 2026-10-11, PK-776). History: 1.545e-5 /
+/// 1.700e-4 / 2.426e-4 / 1.212e-4 / 1.329e-3 / 2.401e-3 / 4.326e-4 at
+/// PK-773. The curvature stations' exact row second derivative halved
+/// the blunt fixtures; before it, a central difference clamped into
+/// `[h, 1 − h]` read the wrong station at the row ends.
 ///
-/// The rim is gated in two parts because the END LAYERS (the last ~2%
-/// of each rim, a spoke-junction dual end where the strip's transverse
-/// curvature ramps; PK-581) are roundoff-ill-conditioned. Plane
-/// projections differing only at roundoff (the Gauss-Newton foot vs an
-/// exact Gram solve, PK-737) moved hexagon6_blunt's end layer
-/// 7.65e-4 -> 1.08e-3 and pentagon5_blunt's 6.58e-4 -> 5.08e-4, with no
-/// construction decision changing and the interiors within 9%. Each
-/// constant is the larger of the two measurements, so the ratchet sits
-/// above the perturbation band rather than inside it. The end layer's
-/// conditioning is PK-776.
+/// The rim is gated in two parts, interior and END LAYERS (the last ~2%
+/// of each rim, a spoke-junction dual end; PK-581). The end layers used
+/// to be roundoff-ill-conditioned: a one-ulp change of the pyramid
+/// height moved them by up to 94%. That noise came from three
+/// finite-difference support normals in the rim passes and from the
+/// seam measurement's exact rational form of the dual-jet corner
+/// pieces, ill-conditioned next to activated corners. Both are exact
+/// now (PK-776), and `rim_measures_are_well_conditioned` pins the
+/// move under 2%, so each constant is a single measurement.
 const RIM_G2_MEASURED: [f64; 7] = [
-    1.545e-5, 1.700e-4, 2.426e-4, 1.212e-4, 1.329e-3, 2.401e-3, 4.326e-4,
+    6.899e-6, 7.616e-5, 9.818e-5, 8.853e-5, 1.237e-3, 2.167e-3, 2.079e-4,
 ];
 
 /// Worst rim form-norm curvature jump in the end layers (see above).
+/// Was 4.267e-5 / 6.576e-4 / 1.079e-3 / 1.780e-4 / 1.287e-3 / 2.379e-3 /
+/// 8.021e-4, each the larger of two perturbed measurements.
 const RIM_END_MEASURED: [f64; 7] = [
-    4.267e-5, 6.576e-4, 1.079e-3, 1.780e-4, 1.287e-3, 2.379e-3, 8.021e-4,
+    3.930e-5, 5.306e-4, 8.080e-4, 1.162e-4, 1.168e-3, 2.071e-3, 1.788e-4,
 ];
 
 /// Worst rim g1, in family order, after the PK-584 band refit (was
@@ -169,8 +170,13 @@ const RIM_G1_MEASURED: [f64; 7] = [
 const RIM_G1_BAR: f64 = 1.0e-7;
 
 fn build(fx: &Fixture) -> (BlendResult, BTreeSet<FaceHandle>) {
+    build_at(fx, fx.height)
+}
+
+/// [`build`] with the pyramid height overridden.
+fn build_at(fx: &Fixture, height: f64) -> (BlendResult, BTreeSet<FaceHandle>) {
     let tol = Tolerance::default();
-    let pyr = BRep::n_gonal_pyramid(fx.n, 1.0, fx.height, tol).expect("pyramid");
+    let pyr = BRep::n_gonal_pyramid(fx.n, 1.0, height, tol).expect("pyramid");
     let apex = pyr
         .vertices
         .iter()
@@ -300,6 +306,44 @@ fn setback_family_rims_meet_g2_and_every_corner_is_compatible() {
             assert_eq!(c.compatible_order, 2, "{}: {c:?}", fx.name);
             assert!(c.form_jump < 1e-6, "{}: {c:?}", fx.name);
         }
+    }
+}
+
+/// PK-776: the rim measures are a well-conditioned function of the
+/// input. A one-ulp change of the pyramid height moves the interior and
+/// end-layer rim G2 by under 2% on the two fixtures that moved most
+/// before (octagon8_mixed's end layers by 94%, pentagon5_blunt's by 24%;
+/// both now under 0.7%). Negative controls, each removing one mechanism
+/// on its own: a finite-difference support normal in the rim jet (40%),
+/// the curvature stations (25%) or the band refit (46%), and the seam
+/// measurement's exact rational form for dual-jet patches (38%).
+#[test]
+fn rim_measures_are_well_conditioned() {
+    for name in ["octagon8_mixed", "pentagon5_blunt"] {
+        let fx = family()
+            .into_iter()
+            .find(|f| f.name == name)
+            .expect("family member");
+        let measure = |height: f64| {
+            let (result, pre) = build_at(&fx, height);
+            let caps: BTreeSet<FaceHandle> = result.corner_patches.iter().map(|p| p.face).collect();
+            let (g2, end, _) = rim_split(&result.brep, &caps, &pre);
+            (g2, end)
+        };
+        let (g2, end) = measure(fx.height);
+        let (g2_up, end_up) = measure(fx.height.next_up());
+        let moved = |a: f64, b: f64| (a - b).abs() / a.max(b);
+        eprintln!(
+            "{name}: rim g2 {g2:.4e} -> {g2_up:.4e}, end {end:.4e} -> {end_up:.4e} under one ulp of height"
+        );
+        assert!(
+            moved(g2, g2_up) < 0.02,
+            "{name}: rim g2 {g2:.4e} vs {g2_up:.4e}"
+        );
+        assert!(
+            moved(end, end_up) < 0.02,
+            "{name}: end layer {end:.4e} vs {end_up:.4e}"
+        );
     }
 }
 

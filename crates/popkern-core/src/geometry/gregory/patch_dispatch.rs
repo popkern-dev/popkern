@@ -131,6 +131,41 @@ impl GregoryPatch {
         }
     }
 
+    /// Second partials `(S_uu, S_uv, S_vv)` in closed form from the
+    /// patch's own evaluator, for the variants that have one: the
+    /// polynomial bi-nonic and two-stripe patches, and the dual-jet
+    /// patch, whose claim blends are bounded ratios. `None` for the
+    /// rest, whose second partials are finite differences.
+    ///
+    /// Point jets read these rather than the exact rational form
+    /// (`certify::surface_jet::gregory_exact_form`). That form is the
+    /// same surface as `N / D` with `D` vanishing quadratically at each
+    /// activated dual-jet corner, so its second derivatives carry
+    /// roundoff amplified by about `D^-1.5` there. A millimetre from a
+    /// corner that was ~1e-5 of the curvature, enough to move a seam's
+    /// measured G2 jump by 3x under a one-ulp change of the input
+    /// (PK-776).
+    pub fn analytic_second_partials(&self, u: f64, v: f64) -> Option<(Vec3, Vec3, Vec3)> {
+        match self {
+            GregoryPatch::RectangularTwoStripe(r) => Some((
+                r.second_partial_uu(u, v),
+                r.second_partial_uv(u, v),
+                r.second_partial_vv(u, v),
+            )),
+            GregoryPatch::RectangularBiNonic(r) => Some((
+                r.second_partial_uu(u, v),
+                r.second_partial_uv(u, v),
+                r.second_partial_vv(u, v),
+            )),
+            GregoryPatch::RectangularBiNonicDualJet(r) => Some((
+                r.second_partial_uu(u, v),
+                r.second_partial_uv(u, v),
+                r.second_partial_vv(u, v),
+            )),
+            _ => None,
+        }
+    }
+
     /// The 10×10 bi-nonic control grid, for the bi-nonic family
     /// (plain and dual-jet). `None` for every other variant.
     ///

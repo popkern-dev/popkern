@@ -175,6 +175,7 @@ pub(crate) mod strip_pocket_expel;
 pub(crate) mod strip_rail_coparameterization;
 mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
+pub(crate) mod surface_foot;
 mod terminal_arc_author;
 mod terminal_arc_fit_trim;
 mod terminal_arc_oblique;

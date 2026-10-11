@@ -27,10 +27,11 @@
 
 use popkern_core::geometry::gregory::{DualJetCell, GregoryPatch};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::bezier9_eval;
+use popkern_core::geometry::uv_projection::project_point_to_uv;
+
 use super::dense_spd_solve::VecLsq;
 use super::setback_cluster_field::{
     CLUSTER_FIELD_UNKNOWNS, ClusterFields, fan_side, spoke_dual_end,
@@ -59,7 +60,8 @@ fn dual_end_d1_cells(side: usize) -> [DualJetCell; 2] {
 }
 
 /// Support normal at the landed point `p`: nearest candidate surface
-/// within the rim band, finite-difference normal at its projection.
+/// within the rim band, its exact normal at the projection (see
+/// `surface_foot`; it was a finite-difference normal, PK-776).
 fn support_normal(
     candidates: &[SurfaceGeometry],
     p: &Point3,
@@ -74,16 +76,8 @@ fn support_normal(
             best = Some((d, idx, (u, v)));
         }
     }
-    let (_, idx, (u, v)) = best?;
-    let sfc = &candidates[idx];
-    let h = 1e-6;
-    let du = sfc.point_at(u + h, v) - sfc.point_at(u - h, v);
-    let dv = sfc.point_at(u, v + h) - sfc.point_at(u, v - h);
-    let (lu, lv) = (du.length(), dv.length());
-    if lu.min(lv) < 1e-3 * lu.max(lv) {
-        return None;
-    }
-    du.cross(&dv).normalized()
+    let (_, idx, uv) = best?;
+    crate::construct::surface_foot::unit_normal(&candidates[idx], uv)
 }
 
 /// The target surfaces for one rim side: its whole-row support when

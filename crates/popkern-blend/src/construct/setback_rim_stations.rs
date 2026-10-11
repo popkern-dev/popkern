@@ -39,6 +39,22 @@ pub(super) fn bezier9_derive(row: &[Point3; 10], t: f64) -> Vec3 {
     Vec3::new(p[0].x, p[0].y, p[0].z)
 }
 
+/// Second derivative of the degree-9 row: `72 · Σ Δ²P_k · B_k^7(t)`,
+/// by de Casteljau on the second differences. It was a central
+/// difference of `bezier9_derive` with `t` clamped into `[h, 1 − h]`,
+/// so it read the wrong station at both row ends. The exact value
+/// halves the family's interior rim G2 (PK-776).
+fn bezier9_second(row: &[Point3; 10], t: f64) -> Vec3 {
+    let mut p: [Vec3; 8] =
+        core::array::from_fn(|k| ((row[k + 2] - row[k + 1]) - (row[k + 1] - row[k])) * 72.0);
+    for level in (1..8).rev() {
+        for i in 0..level {
+            p[i] = p[i] + (p[i + 1] - p[i]) * t;
+        }
+    }
+    p[0]
+}
+
 /// Strip-side normal + transverse normal curvature at `p` in
 /// direction `t_perp`, from the nearest strip within the rim band.
 fn strip_normal_curvature(
@@ -116,11 +132,7 @@ pub(super) fn side_stations(
         let b_v = (p1 - p0) * 9.0;
         let b_vv = ((p2 - p1) - (p1 - p0)) * 72.0;
         let b_uv = (bezier9_derive(&row1, t) - b_u) * 9.0;
-        let b_uu = {
-            let h = 1e-4;
-            let tc = t.clamp(h, 1.0 - h);
-            (bezier9_derive(&row0, tc + h) - bezier9_derive(&row0, tc - h)) * (0.5 / h)
-        };
+        let b_uu = bezier9_second(&row0, t);
         // Shared frame: rim tangent, strip normal, and its transverse
         // (the first curvature call only fetches the normal; the
         // second measures in the true t_perp).
@@ -253,16 +265,8 @@ pub(super) fn align_rim_end_tangents(
     worst
 }
 
-/// Unit normal of `sfc` at the projection of `p` (central
-/// differences; `None` at a degenerate chart point).
+/// Unit normal of `sfc` at the projection of `p`, from its own
+/// partials (`None` at a degenerate chart point; see `surface_foot`).
 fn support_normal_at(sfc: &SurfaceGeometry, p: &Point3) -> Option<Vec3> {
-    let (u, v) = project_point_to_uv(sfc, p)?;
-    let h = 1e-6;
-    let du = sfc.point_at(u + h, v) - sfc.point_at(u - h, v);
-    let dv = sfc.point_at(u, v + h) - sfc.point_at(u, v - h);
-    let (lu, lv) = (du.length(), dv.length());
-    if lu.min(lv) < 1e-3 * lu.max(lv) {
-        return None;
-    }
-    du.cross(&dv).normalized()
+    crate::construct::surface_foot::unit_normal(sfc, project_point_to_uv(sfc, p)?)
 }

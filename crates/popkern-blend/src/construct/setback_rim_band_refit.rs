@@ -293,7 +293,10 @@ fn junction_coupling(
 
 /// Support deviation of a rim row at the refit stations, with the
 /// support normal at each foot point, projected by continuation (each
-/// station seeded from the previous one's uv).
+/// station seeded from the previous one's uv). The normal is the
+/// support's own `S_u × S_v`: a finite-difference normal's ~1e-10 noise
+/// moved the cap's rim G2 by up to 46% under a one-ulp input change
+/// (PK-776, `surface_foot`).
 fn deviation_field(
     support: &SurfaceGeometry,
     row0: &[Point3; 10],
@@ -308,10 +311,11 @@ fn deviation_field(
             None => project_point_to_uv(support, &p)?,
         };
         prev = Some((u, v));
-        let h = 1e-6;
-        let du = support.point_at(u + h, v) - support.point_at(u - h, v);
-        let dv = support.point_at(u, v + h) - support.point_at(u, v - h);
-        out.push((support.point_at(u, v) - p, du.cross(&dv).normalized()));
+        let normal = support
+            .partial_u(u, v)
+            .cross(&support.partial_v(u, v))
+            .normalized();
+        out.push((support.point_at(u, v) - p, normal));
     }
     Some(out)
 }

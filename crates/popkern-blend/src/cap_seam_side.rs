@@ -41,6 +41,24 @@ impl SurfaceJetCache {
         surface: &SurfaceGeometry,
         uv: (f64, f64),
     ) -> Option<[Vec3; 5]> {
+        // A Gregory patch with closed-form seconds is read directly:
+        // its exact rational form is ill-conditioned next to activated
+        // dual-jet corners (see `GregoryPatch::analytic_second_partials`).
+        if let SurfaceGeometry::Gregory(patch) = surface
+            && let Some((suu, suv, svv)) = patch.analytic_second_partials(uv.0, uv.1)
+        {
+            let jet = [
+                patch.partial_u(uv.0, uv.1),
+                patch.partial_v(uv.0, uv.1),
+                suu,
+                suv,
+                svv,
+            ];
+            return jet
+                .iter()
+                .all(|d| d.x.is_finite() && d.y.is_finite() && d.z.is_finite())
+                .then_some(jet);
+        }
         let mut map = self.forms.borrow_mut();
         let form = map
             .entry(face)
