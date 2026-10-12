@@ -107,8 +107,22 @@ impl Assembly {
             for (i, part) in cached.parts.iter().enumerate() {
                 let brep = part.brep();
                 let size = bounds_diagonal(brep).max(1e-12);
+                // Within a positive clearance band, triangle deviations
+                // must stay well inside it: a chord relative to the
+                // part's size alone gave a 300 mm casting ~3 mm
+                // deviations, so pairs a few millimetres clear could
+                // neither prune nor settle at this level and every
+                // swing step certified them on finer meshes (PK-760: a
+                // base-yaw swing spent 138 of its 150 pair-seconds on
+                // twelve screws that were never within the clearance).
+                let fractional = options.chord_fraction * size;
+                let chord_height = if options.clearance > 0.0 && options.clearance.is_finite() {
+                    fractional.min(0.25 * options.clearance)
+                } else {
+                    fractional
+                };
                 let chord = popkern_mesh::TessellationOptions {
-                    chord_height: options.chord_fraction * size,
+                    chord_height,
                     ..popkern_mesh::TessellationOptions::default()
                 };
                 let mesh = self

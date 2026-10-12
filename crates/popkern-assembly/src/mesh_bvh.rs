@@ -81,6 +81,10 @@ pub struct LocalMesh {
     pub bounds: Aabb,
     /// The largest triangle deviation.
     pub max_eps: f64,
+    /// The hierarchy's triangle order and nodes, built once here; a
+    /// placement transforms the triangles and refits the node boxes.
+    order: Vec<usize>,
+    nodes: Vec<Node>,
 }
 
 impl LocalMesh {
@@ -93,6 +97,8 @@ impl LocalMesh {
             uvs: Vec::with_capacity(mesh.triangles.len()),
             bounds: Aabb::empty(),
             max_eps: 0.0,
+            order: Vec::new(),
+            nodes: Vec::new(),
         };
         for (t, tri) in mesh.triangles.iter().enumerate() {
             let corners = [
@@ -119,6 +125,15 @@ impl LocalMesh {
             out.faces.push(face);
             out.uvs.push(uvs);
         }
+        out.order = (0..out.tris.len()).collect();
+        build(
+            &out.tris,
+            &out.eps,
+            &mut out.order,
+            0,
+            out.tris.len(),
+            &mut out.nodes,
+        );
         out
     }
 }
@@ -190,12 +205,22 @@ mod overlap;
 pub use overlap::certain_overlap;
 
 impl WorldMesh {
-    /// Place `local` at `world` and build the hierarchy.
+    /// Place `local` at `world`: its triangles transformed, in the
+    /// hierarchy order `local` built once, with every node box refitted
+    /// to them bottom-up (children follow their parent in `nodes`).
+    ///
+    /// A sweep re-places every moving occurrence at every step, and
+    /// rebuilding each one's hierarchy (a sort per level) was most of
+    /// a base-yaw swing step (PK-760). The refitted boxes are the exact
+    /// world bounds of the same triangles, so every query (closest
+    /// pair, crossing) visits a valid hierarchy and returns the same
+    /// geometric answer.
     pub fn new(local: &LocalMesh, world: &Placement) -> WorldMesh {
-        let placed: Vec<Tri> = local
-            .tris
+        let tris: Vec<Tri> = local
+            .order
             .iter()
-            .map(|t| {
+            .map(|&i| {
+                let t = &local.tris[i];
                 [
                     world.apply_point(&t[0]),
                     world.apply_point(&t[1]),
@@ -203,14 +228,33 @@ impl WorldMesh {
                 ]
             })
             .collect();
-        let mut order: Vec<usize> = (0..placed.len()).collect();
-        let mut nodes = Vec::new();
-        build(&placed, &local.eps, &mut order, 0, placed.len(), &mut nodes);
+        let mut nodes = local.nodes.clone();
+        for k in (0..nodes.len()).rev() {
+            let mut bounds = Aabb::empty();
+            match nodes[k].children {
+                None => {
+                    for t in &tris[nodes[k].first..nodes[k].first + nodes[k].count] {
+                        for p in t {
+                            bounds.add(p);
+                        }
+                    }
+                }
+                Some((l, r)) => {
+                    for c in [l, r] {
+                        for axis in 0..3 {
+                            bounds.lo[axis] = bounds.lo[axis].min(nodes[c].bounds.lo[axis]);
+                            bounds.hi[axis] = bounds.hi[axis].max(nodes[c].bounds.hi[axis]);
+                        }
+                    }
+                }
+            }
+            nodes[k].bounds = bounds;
+        }
         let bounds = nodes.first().map(|n| n.bounds).unwrap_or_else(Aabb::empty);
         WorldMesh {
-            tris: order.iter().map(|&i| placed[i]).collect(),
-            eps: order.iter().map(|&i| local.eps[i]).collect(),
-            local: order,
+            tris,
+            eps: local.order.iter().map(|&i| local.eps[i]).collect(),
+            local: local.order.clone(),
             nodes,
             bounds,
         }
