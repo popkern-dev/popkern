@@ -200,7 +200,7 @@ fn sample_candidates(
     }
 }
 
-/// Decompose a NURBS curve into Bezier segments by splitting at interior knots.
+/// Decompose a NURBS curve into Bezier segments over the window `t_range`.
 /// Returns a list of (segment, parameter_range) pairs.
 fn decompose_to_bezier(curve: &NurbsCurve, t_range: (f64, f64)) -> Vec<(NurbsCurve, (f64, f64))> {
     // Clip the curve to the requested window FIRST: an un-clipped
@@ -226,52 +226,24 @@ fn decompose_to_bezier(curve: &NurbsCurve, t_range: (f64, f64)) -> Vec<(NurbsCur
         }
         working
     };
-    let degree = curve.degree;
-    let n = curve.control_points.len();
-
-    // Find distinct interior knot values within the requested range.
-    // Interior knots are those between knots[degree] and knots[n].
-    let mut interior_knots: Vec<f64> = Vec::new();
-    for i in (degree + 1)..n {
-        let k = curve.knots[i];
-        if k > t_range.0
-            && k < t_range.1
-            && interior_knots
-                .last()
-                .is_none_or(|&last| (k - last).abs() > 1e-14)
-        {
-            interior_knots.push(k);
-        }
-    }
-
-    if interior_knots.is_empty() {
-        // Already a single Bezier segment
-        return vec![(curve.clone(), t_range)];
-    }
-
-    // Split sequentially at each interior knot
-    let mut segments: Vec<(NurbsCurve, (f64, f64))> = Vec::new();
-    let mut remaining = curve.clone();
-    let mut current_start = t_range.0;
-
-    for &knot in &interior_knots {
-        match remaining.split_at(knot) {
-            Ok((left, right)) => {
-                segments.push((left, (current_start, knot)));
-                remaining = right;
-                current_start = knot;
-            }
-            Err(_) => {
-                // If split fails (e.g., knot at boundary), skip
-                continue;
-            }
-        }
-    }
-
-    // Add the final segment
-    segments.push((remaining, (current_start, t_range.1)));
-
+    // One knot-refinement pass raises every interior knot to full
+    // multiplicity and slices the Bezier segments (as the surface x
+    // curve grid does, PK-794). Splitting at one knot at a time
+    // re-inserted into the remaining curve per knot, quadratic in the
+    // span count: a quarter of a tapped hole's clip time went to
+    // splitting thread-flank boundary curves (PK-744).
+    let segments = super::surface_curve_general::decompose_to_bezier_segments(curve);
+    let last = segments.len().saturating_sub(1);
     segments
+        .into_iter()
+        .enumerate()
+        .map(|(k, (segment, (a, b)))| {
+            // The window's own ends, not the clip's rounding of them.
+            let a = if k == 0 { t_range.0 } else { a };
+            let b = if k == last { t_range.1 } else { b };
+            (segment, (a, b))
+        })
+        .collect()
 }
 
 /// Compute axis-aligned bounding box from control points.

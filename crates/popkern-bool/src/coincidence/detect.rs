@@ -49,6 +49,38 @@ pub(crate) fn detect_coincidences(
 fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut CoincidenceMap) {
     use popkern_core::geometry::CurveEval;
 
+    // An endpoint of A on B's edge lies within snap of that edge's
+    // curve, so outside the curve's conservative box padded by snap it
+    // cannot pass: the pair's two closest-point solves are skipped with
+    // the same verdict. Every A edge met every B edge with two solves,
+    // and a tapped housing's earlier threads made each tap pay for all
+    // of them (PK-744).
+    let pad = tol.snap * (1.0 + 1e-9) + f64::EPSILON;
+    let b_boxes: std::collections::HashMap<_, _> = b
+        .edges
+        .iter()
+        .filter_map(|(h, e)| {
+            let curve = e.curve.as_ref()?;
+            Some((
+                h,
+                super::edge_box::conservative_curve_box(
+                    &curve.geometry,
+                    (curve.t_start, curve.t_end),
+                )?,
+            ))
+        })
+        .collect();
+    let near = |eb_h, p: &popkern_core::geometry::Point3| {
+        b_boxes.get(&eb_h).is_none_or(|bx: &Aabb| {
+            p.x >= bx.min.x - pad
+                && p.y >= bx.min.y - pad
+                && p.z >= bx.min.z - pad
+                && p.x <= bx.max.x + pad
+                && p.y <= bx.max.y + pad
+                && p.z <= bx.max.z + pad
+        })
+    };
+
     for (ea_h, ea) in &a.edges {
         if ea.curve.is_none() {
             continue;
@@ -78,6 +110,9 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
                 Some(t) => t,
                 None => continue,
             };
+            if !near(eb_h, &a_start) || !near(eb_h, &a_end) {
+                continue;
+            }
             let b_start = b.vertices[he_b.origin].position;
             let b_end = b.vertices[twin_b.origin].position;
 

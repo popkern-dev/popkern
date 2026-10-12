@@ -20,7 +20,7 @@ use surface_curve_grid::{
 };
 #[path = "surface_curve_bezier.rs"]
 mod surface_curve_bezier;
-use surface_curve_bezier::decompose_to_bezier_segments;
+pub(super) use surface_curve_bezier::decompose_to_bezier_segments;
 #[path = "surface_curve_pair_roots.rs"]
 mod surface_curve_pair_roots;
 use surface_curve_pair_roots::{

@@ -254,6 +254,68 @@ fn lone_socket_screw_tip_chamfer_within_budget() {
     assert_budget("lone M5x12 socket cap screw", chamfered, 5000);
 }
 
+/// Twelve M5 taps on a housing's bolt circle (the six-axis arm's R5
+/// fixture, PK-744): the twelfth tap must cost about what it costs on
+/// the bare housing. Every tap's booleans used to re-measure the
+/// earlier taps' threads: check 9 ran the cold multisheet projection
+/// on every sample of every edge before trying the edge's own pcurve,
+/// and edge overlap detection solved closest points for every pair of
+/// operand edges. The gate times the SAME tap (best of 3) on the bare
+/// housing and on the housing holding the other eleven, so only the
+/// accumulated body differs: a RATIO, robust to uniform CI
+/// contention. Measured 1.61-1.63; 2.29-2.74 with check 9's cold
+/// search always run (the gate's negative control). Without the
+/// edge-pair prescreen it reads 1.68-1.70, the twelfth tap 2.06-2.22 s
+/// against 1.87 s: real, but under the ratio's resolution, so that
+/// mechanism is pinned by its conservative-box tests instead.
+#[test]
+fn tapped_housing_taps_cost_what_the_first_did() {
+    use popkern_part::fastener::{HoleDepth, TapOptions, ThreadSpec};
+    use popkern_part::prelude::*;
+    if debug_skip("tapped housing per-tap growth") {
+        return;
+    }
+    let _serial = serial();
+    let spec = ThreadSpec::parse("M5").expect("M5");
+    let housing = Profile::on(Plane::XY)
+        .circle(55.0)
+        .extrude(30.0)
+        .expect("housing");
+    let tap = |part: &popkern_part::Part, k: usize| {
+        let a = std::f64::consts::TAU * (k as f64 + 0.5) / 12.0;
+        part.tapped_hole(
+            &spec,
+            popkern_core::geometry::Point3::new(42.0 * a.cos(), 42.0 * a.sin(), 30.0),
+            popkern_core::geometry::Vec3::new(0.0, 0.0, -1.0),
+            HoleDepth::Blind(10.0),
+            &TapOptions::default(),
+        )
+        .expect("tap")
+    };
+    let mut eleven = housing.clone();
+    for k in 0..11 {
+        eleven = tap(&eleven, k);
+    }
+    let bare = best_of(3, || {
+        tap(&housing, 11);
+    });
+    let mut twelve = None;
+    let last = best_of(3, || {
+        twelve = Some(tap(&eleven, 11));
+    });
+    let ratio = last.as_secs_f64() / bare.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [tapped housing growth]: bare {bare:?}, twelfth {last:?}, ratio {ratio:.2} (gate 2.0)"
+    );
+    assert!(
+        ratio <= 2.0,
+        "the twelfth tap costs {ratio:.2}x the same tap on the bare housing \
+         ({last:?} vs {bare:?}) > 2.0: tap cost grows with the body"
+    );
+    let twelve = twelve.expect("built");
+    assert_eq!(twelve.open_edge_count().expect("mesh"), 0, "watertight");
+}
+
 /// The PnS mask tables are optional (ACM ToMS package, untracked —
 /// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
 /// runtime; on checkouts without the package they skip with a visible

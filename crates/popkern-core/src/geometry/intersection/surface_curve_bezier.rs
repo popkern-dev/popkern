@@ -17,7 +17,9 @@ use crate::geometry::nurbs_ops::knot_refinement::refine_knot_vector_points;
 /// refined knot vector is not exactly clamped Bezier form, such as an
 /// unclamped curve or knots closer than 1e-14 but not equal, takes the
 /// reference path.
-pub(super) fn decompose_to_bezier_segments(nurbs: &NurbsCurve) -> Vec<(NurbsCurve, (f64, f64))> {
+pub(in crate::geometry::intersection) fn decompose_to_bezier_segments(
+    nurbs: &NurbsCurve,
+) -> Vec<(NurbsCurve, (f64, f64))> {
     let (interior_knots, knots_to_insert) = interior_knots_and_insertions(nurbs);
     if interior_knots.is_empty() {
         // Already a single Bezier segment.

@@ -13,6 +13,7 @@ pub mod types;
 
 pub(crate) mod classify;
 pub(crate) mod detect;
+mod edge_box;
 #[allow(dead_code)]
 pub(crate) mod overlap_boundary;
 

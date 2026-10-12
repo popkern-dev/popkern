@@ -182,7 +182,6 @@ impl BRep {
             for fraction in SAMPLE_FRACTIONS {
                 let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
                 let point = curve.geometry.point_at(t);
-                let cold = project_point_to_uv_multisheet(&surface.geometry, &point);
                 let seeded = prev_uv.and_then(|(pu, pv)| {
                     crate::geometry::uv_projection::project_point_to_uv_near(
                         &surface.geometry,
@@ -202,12 +201,33 @@ impl BRep {
                         )
                     })
                 });
-                let best = [cold, seeded]
+                let witness = |uv: (f64, f64)| {
+                    (
+                        point.distance_to(&surface.geometry.point_at(uv.0, uv.1)),
+                        uv,
+                    )
+                };
+                let nearer = |a: &(f64, (f64, f64)), b: &(f64, (f64, f64))| {
+                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                };
+                // The seeded witnesses first: a sample one of them
+                // places within the band passes whatever the cold
+                // search finds, and the cold multisheet search was the
+                // cost of every boolean's and fastener's check 9 over
+                // a tapped housing's earlier threads (PK-744).
+                let warm = seeded
                     .into_iter()
-                    .flatten()
                     .chain(pcurve_seeded)
-                    .map(|(u, v)| (point.distance_to(&surface.geometry.point_at(u, v)), (u, v)))
-                    .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    .map(witness)
+                    .min_by(nearer);
+                let best = match warm {
+                    Some(w) if w.0 <= tolerance => Some(w),
+                    _ => project_point_to_uv_multisheet(&surface.geometry, &point)
+                        .map(witness)
+                        .into_iter()
+                        .chain(warm)
+                        .min_by(nearer),
+                };
                 let Some((deviation, uv)) = best else {
                     // No closest-point solve for this surface
                     // kind: the pairing is unverifiable here, not
