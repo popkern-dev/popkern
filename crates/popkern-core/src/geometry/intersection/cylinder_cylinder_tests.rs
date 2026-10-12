@@ -191,3 +191,47 @@ fn millimetre_pierce_loops_are_fitted_to_tolerance() {
         );
     }
 }
+
+/// PK-782: two perpendicular r 5 cylinders whose axes are 9.53 apart
+/// meet in one small loop (0.47 of overlap). Sampled uniformly in the
+/// ruling angle, its tangency ends (roots moving as √(θ − θ_end))
+/// never fitted to tolerance and the loop densified to the cap, 32770
+/// points, each later crossing test against it taking seconds. Cosine
+/// spacing makes the loop smooth in its sampling parameter: one loop,
+/// a few hundred points, on both cylinders within the fit budget.
+#[test]
+fn a_small_near_tangent_loop_fits_in_hundreds_of_points() {
+    let a = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 5.0,
+    };
+    let b = SurfaceGeometry::Cylinder {
+        origin: Point3::new(9.53, 0.0, 60.0),
+        axis: Vec3::new(0.0, 1.0, 0.0),
+        radius: 5.0,
+    };
+    let tol = Tolerance::default();
+    let loops = try_cylinder_cylinder(&a, (0.0, 120.0), &b, (-20.0, 20.0), &tol).expect("analytic");
+    assert_eq!(loops.len(), 1, "one loop");
+    let SurfaceSurfaceIntersection::Curve(cos) = &loops[0] else {
+        panic!("a curve");
+    };
+    let points = cos.curve_3d.control_points.len();
+    assert!(points <= 500, "{points} control points");
+    let (t0, t1) = cos.curve_3d.parameter_range();
+    let worst = (0..=4000)
+        .map(|i| {
+            let p = cos
+                .curve_3d
+                .point_at(t0 + (t1 - t0) * f64::from(i) / 4000.0);
+            let da = ((p.x * p.x + p.y * p.y).sqrt() - 5.0).abs();
+            let db = (((p.x - 9.53).powi(2) + (p.z - 60.0).powi(2)).sqrt() - 5.0).abs();
+            da.max(db)
+        })
+        .fold(0.0, f64::max);
+    assert!(
+        worst <= 0.1 * tol.linear(),
+        "off the cylinders by {worst:e}"
+    );
+}

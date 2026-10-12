@@ -196,20 +196,17 @@ pub(crate) fn try_cylinder_cylinder(
                             break;
                         }
                     }
-                    let exit_neg = ((k + 1) % n) as f64 / n as f64 * TAU;
-                    let exit_pos = k as f64 / n as f64 * TAU;
-                    let theta_out = refine(
-                        if exit_neg > exit_pos {
-                            exit_neg
-                        } else {
-                            exit_neg + TAU
-                        },
-                        if exit_pos >= theta_in {
-                            exit_pos
-                        } else {
-                            exit_pos + TAU
-                        },
-                    );
+                    // The exit bracket [last positive, first non-positive]
+                    // unwrapped TOGETHER past θ_in: an interval running
+                    // through θ = 0 bracketed [26°, 385°] when each end
+                    // was unwrapped on its own, and the loop ran the full
+                    // turn through negative discriminants (PK-782: 9.53
+                    // off the second cylinder, densified to 32770 points).
+                    let mut exit_pos = k as f64 / n as f64 * TAU;
+                    if exit_pos < theta_in {
+                        exit_pos += TAU;
+                    }
+                    let theta_out = refine(exit_pos + TAU / n as f64, exit_pos);
                     let theta_out = if theta_out > theta_in {
                         theta_out
                     } else {
@@ -221,13 +218,22 @@ pub(crate) fn try_cylinder_cylinder(
             for (theta_in, theta_out) in intervals {
                 let span = theta_out - theta_in;
                 let m = ((span / TAU * density as f64).ceil() as usize).max(16);
+                // Cosine spacing: at the tangency ends the roots move as
+                // √(θ − θ_end), which no uniform θ sampling fits — a
+                // 50° loop of two r5 cylinders densified to the cap,
+                // 32770 points (PK-782). In φ, with θ the cosine map,
+                // √disc ∝ sin φ and the loop is smooth.
+                let at = |i: usize| {
+                    let phi = std::f64::consts::PI * i as f64 / m as f64;
+                    theta_in + span * 0.5 * (1.0 - phi.pcos())
+                };
                 let mut pts: Vec<(f64, f64)> = Vec::with_capacity(2 * m + 2);
                 for i in 0..=m {
-                    let theta = theta_in + span * i as f64 / m as f64;
+                    let theta = at(i);
                     pts.push((theta, root(theta, true)));
                 }
                 for i in (0..=m).rev() {
-                    let theta = theta_in + span * i as f64 / m as f64;
+                    let theta = at(i);
                     pts.push((theta, root(theta, false)));
                 }
                 // Close back to the start point (same tangency point).
