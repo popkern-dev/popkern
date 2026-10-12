@@ -3,11 +3,10 @@
 //! `radial_level_curve.rs` under the 500-line file budget. The
 //! mechanism rationale lives in the parent module's header.
 
-use popkern_math::PortableMath;
 use std::f64::consts::{PI, TAU};
 
 use super::radial_level_curve_trace::{bisect_radial, branch_angle};
-use super::{CylinderFrame, StationDir, StationSample, wall_uv};
+use super::{AxisymmetricFrame, StationDir, StationSample, wall_uv};
 use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::marching::MarchSample;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -25,7 +24,7 @@ pub(super) fn split_trace(
     dir: StationDir,
     trace: &[StationSample],
     r_range: (f64, f64),
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
     cyl_v_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<Vec<(StationSample, f64)>> {
@@ -118,7 +117,7 @@ pub(super) fn solve_seam_crossing(
     b: &StationSample,
     target: f64,
     r_range: (f64, f64),
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
 ) -> Option<StationSample> {
     let (s_a, r_a) = match dir {
         StationDir::AlongV => (a.v_wall, a.u_wall),
@@ -149,7 +148,7 @@ pub(super) fn solve_seam_crossing(
         let mut width = (2.0 * (r_a - r_b).abs()).max(1e-4 * span);
         let eval = |r: f64| {
             let (u, v) = wall_uv(dir, s, r);
-            frame.radial(&wall.point_at(u, v)) - frame.radius
+            frame.level(&wall.point_at(u, v))
         };
         let mut bracket = None;
         for _ in 0..16 {
@@ -233,7 +232,7 @@ pub(super) fn record_on_surfaces(
     record: &crate::geometry::curve_on_surface::CurveOnSurface,
     wall_first: bool,
     wall: &SurfaceGeometry,
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
     surface_band: f64,
     drift_band: f64,
 ) -> bool {
@@ -247,7 +246,7 @@ pub(super) fn record_on_surfaces(
         let t = t0 + (t1 - t0) * i as f64 / CHECKS as f64;
         let p = record.curve_3d.point_at(t);
         // On-cylinder: exact analytic distance to the surface.
-        worst_radial = worst_radial.max((frame.radial(&p) - frame.radius).abs());
+        worst_radial = worst_radial.max(frame.distance(&p));
         let (wall_uv_curve, cyl_uv_curve) = if wall_first {
             (&record.curve_uv1, &record.curve_uv2)
         } else {
@@ -257,10 +256,7 @@ pub(super) fn record_on_surfaces(
         let wuv = wall_uv_curve.point_at(t);
         worst_wall_drift = worst_wall_drift.max(wall.point_at(wuv.x, wuv.y).distance_to(&p));
         let cuv = cyl_uv_curve.point_at(t);
-        let cyl_point = frame.origin
-            + frame.e1 * (frame.radius * cuv.x.pcos())
-            + frame.e2 * (frame.radius * cuv.x.psin())
-            + frame.axis_raw * cuv.y;
+        let cyl_point = frame.chart_point(cuv.x, cuv.y);
         worst_cyl_drift = worst_cyl_drift.max(cyl_point.distance_to(&p));
     }
     let ok = worst_radial <= surface_band

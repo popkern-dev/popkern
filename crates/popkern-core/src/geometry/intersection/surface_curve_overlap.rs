@@ -5,6 +5,7 @@
 //! iteration.  Contiguous runs of 3 or more samples within linear tolerance are
 //! reported as `SurfaceCurveIntersection::Overlap`.
 
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry};
 use crate::geometry::intersection::SurfaceCurveIntersection;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -127,6 +128,32 @@ fn closest_point_sq_dist(
     best
 }
 
+/// Box around a positive-weight NURBS surface's control points, widened
+/// by `pad`: the surface lies in the control points' convex hull, so a
+/// point outside the box is farther than `pad` from every surface
+/// point and its closest-point solve can be skipped (most samples of
+/// a classification ray against a face it crosses lie outside; the
+/// solves were a fifth of a lone screw's build, PK-799). `None` (no
+/// rejection) for analytic surfaces and non-positive weights.
+fn control_hull_box(surface: &SurfaceGeometry, pad: f64) -> Option<(Point3, Point3)> {
+    let SurfaceGeometry::Nurbs(ns) = surface else {
+        return None;
+    };
+    if ns.control_points.is_empty() || ns.weights.iter().any(|&w| w <= 0.0) {
+        return None;
+    }
+    let mut lo = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let mut hi = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for p in &ns.control_points {
+        lo = Point3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = Point3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    Some((
+        Point3::new(lo.x - pad, lo.y - pad, lo.z - pad),
+        Point3::new(hi.x + pad, hi.y + pad, hi.z + pad),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -153,6 +180,7 @@ pub(crate) fn detect_surface_curve_overlaps(
     // --- Step 1: evaluate the distance from each sample to the surface -------
 
     let mut on_surface = [false; NUM_SAMPLES];
+    let hull = control_hull_box(surface, tolerance.linear());
     let on = |i: usize| {
         let frac = if NUM_SAMPLES > 1 {
             i as f64 / (NUM_SAMPLES - 1) as f64
@@ -160,6 +188,11 @@ pub(crate) fn detect_surface_curve_overlaps(
             0.0
         };
         let p = curve.point_at(t0 + frac * (t1 - t0));
+        if hull.is_some_and(|(lo, hi)| {
+            p.x < lo.x || p.y < lo.y || p.z < lo.z || p.x > hi.x || p.y > hi.y || p.z > hi.z
+        }) {
+            return false;
+        }
         closest_point_sq_dist(surface, p.x, p.y, p.z, u_range, v_range) < lin_sq
     };
     // Every run of MIN_RUN consecutive samples contains an index that is
@@ -214,237 +247,6 @@ pub(crate) fn detect_surface_curve_overlaps(
     results
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::geometry::curve::CurveGeometry;
-    use crate::geometry::surface::SurfaceGeometry;
-    use crate::geometry::{Point3, Vec3};
-    use crate::tolerance::Tolerance;
-
-    // -----------------------------------------------------------------------
-    // Helper: extract t_range from an Overlap result.
-    // -----------------------------------------------------------------------
-    fn overlap_ranges(results: &[SurfaceCurveIntersection]) -> Vec<(f64, f64)> {
-        results
-            .iter()
-            .filter_map(|r| {
-                if let SurfaceCurveIntersection::Overlap { t_range } = r {
-                    Some(*t_range)
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 1: Line lying in z=0 plane → full overlap.
-    //
-    // The XY-plane (z=0) has equation origin=(0,0,0), normal=(0,0,1).
-    // A line along x at z=0: origin=(0,0,0), direction=(1,0,0).
-    // Every point on the line has z=0, so every sample is on the plane.
-    // Expected: one Overlap covering (nearly) the full t_range [0, 1].
-    // -----------------------------------------------------------------------
-    #[test]
-    fn line_in_plane_full_overlap() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let line = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            direction: Vec3::new(1.0, 0.0, 0.0),
-        };
-        let tol = Tolerance::default();
-
-        let results = detect_surface_curve_overlaps(
-            &plane,
-            (-10.0, 10.0),
-            (-10.0, 10.0),
-            &line,
-            (0.0, 1.0),
-            &tol,
-        );
-
-        let ranges = overlap_ranges(&results);
-        assert!(
-            !ranges.is_empty(),
-            "Expected at least one overlap; got none"
-        );
-
-        // The returned range should span nearly the full [0,1] interval.
-        let (t_first, t_last) = ranges[0];
-        assert!(
-            t_first <= 0.1,
-            "Overlap should start near t=0, got t_first={t_first}"
-        );
-        assert!(
-            t_last >= 0.9,
-            "Overlap should end near t=1, got t_last={t_last}"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 2: Line NOT lying in the plane → no overlap.
-    //
-    // Same plane z=0.  Line along z-axis: origin=(0,0,0), direction=(0,0,1).
-    // Only the point at t=0 touches the plane; no 3-consecutive run.
-    // Expected: empty.
-    // -----------------------------------------------------------------------
-    #[test]
-    fn line_not_on_plane_empty() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        // Line goes from z=1 to z=2 — nowhere near z=0.
-        let line = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 1.0),
-            direction: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let tol = Tolerance::default();
-
-        let results = detect_surface_curve_overlaps(
-            &plane,
-            (-10.0, 10.0),
-            (-10.0, 10.0),
-            &line,
-            (0.0, 1.0),
-            &tol,
-        );
-
-        assert!(
-            results.is_empty(),
-            "Expected no overlaps for line not on plane; got {:?}",
-            results
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 3: Line tangent at a single point → no overlap (run too short).
-    //
-    // Plane z=0.  Line from (0,0,-0.5) in direction (0,0,1): crosses at t=0.5.
-    // Only one sample is on-surface (at best), so no run of ≥3.
-    // Expected: empty.
-    // -----------------------------------------------------------------------
-    #[test]
-    fn line_crossing_plane_not_an_overlap() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        // Line crosses z=0 at t=0.5; all other samples are off the plane.
-        let line = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, -0.5),
-            direction: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let tol = Tolerance::default();
-
-        let results = detect_surface_curve_overlaps(
-            &plane,
-            (-5.0, 5.0),
-            (-5.0, 5.0),
-            &line,
-            (0.0, 1.0),
-            &tol,
-        );
-
-        assert!(
-            results.is_empty(),
-            "A crossing intersection should not produce an overlap; got {:?}",
-            results
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 4: Line on a cylinder surface → overlap.
-    //
-    // Unit cylinder: axis = z, radius = 1.
-    // A line that runs along the surface at angle θ=0 (i.e. x=1, y=0):
-    //   origin=(1,0,0), direction=(0,0,1).
-    // Every point has x=1, y=0, which is on the cylinder of radius 1.
-    // Expected: one overlap covering the full t_range [0, 5].
-    // -----------------------------------------------------------------------
-    #[test]
-    fn line_on_cylinder_overlap() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        };
-        // Generator line on the cylinder at θ=0.
-        let line = CurveGeometry::Line {
-            origin: Point3::new(1.0, 0.0, 0.0),
-            direction: Vec3::new(0.0, 0.0, 1.0),
-        };
-        let tol = Tolerance::default();
-
-        let results = detect_surface_curve_overlaps(
-            &cyl,
-            (0.0, std::f64::consts::TAU),
-            (-10.0, 10.0),
-            &line,
-            (0.0, 5.0),
-            &tol,
-        );
-
-        let ranges = overlap_ranges(&results);
-        assert!(
-            !ranges.is_empty(),
-            "Expected overlap for line on cylinder; got none"
-        );
-        let (t_first, t_last) = ranges[0];
-        assert!(
-            t_first <= 0.5,
-            "Overlap should start near t=0, got {t_first}"
-        );
-        assert!(t_last >= 4.5, "Overlap should end near t=5, got {t_last}");
-    }
-
-    // -----------------------------------------------------------------------
-    // Test 5: Multiple disjoint overlap segments.
-    //
-    // Use a loose enough tolerance so we can construct the scenario from a
-    // plane, but deliberately skip the middle third of the t_range with a
-    // very-off-plane segment.  We fake this by giving the overlap detector a
-    // large linear tolerance and a line that is exactly on the plane for the
-    // first and last thirds but 1.0 above the plane in the middle.
-    //
-    // Because we only have analytic curves we can't easily bend the curve.
-    // Instead we verify the no-overlap (middle) case separately, and trust
-    // that the run-detection logic is correct by inspecting the code coverage
-    // from the other tests.  This test simply confirms that the function
-    // returns a `Vec` (possibly empty) without panicking when called with a
-    // variety of inputs.
-    // -----------------------------------------------------------------------
-    #[test]
-    fn no_panic_on_degenerate_ranges() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        let line = CurveGeometry::Line {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            direction: Vec3::new(1.0, 0.0, 0.0),
-        };
-        // A single-sample degenerate t_range should not panic.
-        let tol = Tolerance::default();
-        let results =
-            detect_surface_curve_overlaps(&plane, (0.0, 1.0), (0.0, 1.0), &line, (0.0, 0.0), &tol);
-        // No crash is the main assertion; result may be empty or a single point.
-        let _ = results;
-    }
-}
+#[path = "surface_curve_overlap_tests.rs"]
+mod tests;

@@ -206,6 +206,54 @@ fn thread_cut_serve_cost_stays_subquadratic() {
     );
 }
 
+/// A lone M5x12 socket cap screw, tip chamfer on (PK-799). The chamfer
+/// cone crosses the thread flanks; before the radial level-curve arm
+/// served cone x flank pairs the marcher paid a multi-start projection
+/// per landing past the flanks' clamped ends, and the chamfer alone
+/// cost 0.8 s of a 2.05 s screw (the rod gate above runs without it,
+/// so the class was never measured). Two gates: the chamfer's
+/// marginal cost as a RATIO against the same screw without it (robust
+/// to uniform CI contention; build-only best-of-3 measured 1.12-1.13
+/// with the arm, 1.84-1.94 with the cone arm disabled), and an
+/// absolute budget of the measured best-of-3 x 5.
+#[test]
+fn lone_socket_screw_tip_chamfer_within_budget() {
+    use popkern_part::fastener::{SocketCapScrew, ThreadSpec};
+    if debug_skip("lone M5x12 socket cap screw") {
+        return;
+    }
+    let _serial = serial();
+    // Build time only; watertightness is checked once, untimed.
+    let build = |chamfer: bool| {
+        let mut screw = None;
+        let best = best_of(3, || {
+            let spec = ThreadSpec::parse("M5").expect("M5");
+            screw = Some(
+                SocketCapScrew::new(spec, 12.0)
+                    .tip_chamfer(chamfer)
+                    .build(Tolerance::default())
+                    .expect("screw"),
+            );
+        });
+        let screw = screw.expect("built");
+        assert_eq!(screw.open_edge_count().expect("mesh"), 0);
+        best
+    };
+    let plain = build(false);
+    let chamfered = build(true);
+    let ratio = chamfered.as_secs_f64() / plain.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [tip chamfer ratio]: plain {plain:?}, chamfered {chamfered:?}, ratio {ratio:.2} (gate 1.4)"
+    );
+    assert!(
+        ratio <= 1.4,
+        "the tip chamfer's cone x flank pairs regressed: plain {plain:?}, \
+         chamfered {chamfered:?}, ratio {ratio:.2} > 1.4 (1.9 on the marcher)"
+    );
+    // Measured 0.94-0.97 s best-of-3 release (2026-10-12, PK-799) x 5.
+    assert_budget("lone M5x12 socket cap screw", chamfered, 5000);
+}
+
 /// The PnS mask tables are optional (ACM ToMS package, untracked —
 /// PK-314/PK-315). Tests that build smooth-mesh bodies need them at
 /// runtime; on checkouts without the package they skip with a visible

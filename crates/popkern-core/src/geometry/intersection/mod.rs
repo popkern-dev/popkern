@@ -339,6 +339,9 @@ pub fn intersect_curves(
 mod tests;
 
 #[cfg(test)]
+#[path = "radial_level_curve_cone_tests.rs"]
+mod radial_level_curve_cone_tests;
+#[cfg(test)]
 #[path = "radial_level_curve_tests.rs"]
 mod radial_level_curve_tests;
 #[cfg(test)]

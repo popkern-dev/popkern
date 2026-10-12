@@ -23,7 +23,7 @@ use crate::tolerance::Tolerance;
 /// The kill-switch test mutates process environment; every test in
 /// this file serializes on this lock so the arm-must-fire assertions
 /// never race the pinned-marching window.
-fn env_lock() -> MutexGuard<'static, ()> {
+pub(super) fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     match LOCK.get_or_init(|| Mutex::new(())).lock() {
         Ok(g) => g,
@@ -74,7 +74,7 @@ fn quarter_knots(turns: f64) -> Vec<f64> {
 }
 
 /// Ruled band: u ∈ [0,1] radial (r1 → r2), v along the helix.
-fn helical_band(r1: f64, r2: f64, turns: f64, pitch: f64) -> SurfaceGeometry {
+pub(super) fn helical_band(r1: f64, r2: f64, turns: f64, pitch: f64) -> SurfaceGeometry {
     let (inner, w_inner) = helix_row(r1, turns, pitch, 0.0);
     let (outer, _) = helix_row(r2, turns, pitch, 0.0);
     let num_v = inner.len();
@@ -103,7 +103,7 @@ fn shank_cylinder(radius: f64) -> SurfaceGeometry {
     }
 }
 
-fn curves(
+pub(super) fn curves(
     result: Vec<SurfaceSurfaceIntersection>,
 ) -> Vec<crate::geometry::curve_on_surface::CurveOnSurface> {
     result

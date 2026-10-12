@@ -238,6 +238,7 @@ fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::
         .unwrap_or(popkern_core::geometry::Vec3::zero())
 }
 
+use crate::clip_boundary_edges::junction_window;
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
 pub(crate) use crate::clip_boundary_edges::{
@@ -279,23 +280,41 @@ fn refine_against_face(
             // (4x): the fit slop that displaces the endpoint from the
             // junction displaces it from the boundary edge by the
             // same lateral amount.
-            let near = (&c.geometry as &dyn popkern_core::geometry::curve::CurveEval)
+            let full = (t0.min(t1), t0.max(t1));
+            let near_t = (&c.geometry as &dyn popkern_core::geometry::curve::CurveEval)
                 .closest_point(p)
-                .map(|t| {
-                    let tc = t.clamp(t0.min(t1), t0.max(t1));
-                    c.geometry.point_at(tc).distance_to(p) < band_eff * 8.0
-                })
-                .unwrap_or(false);
-            if near {
-                let range = (t0.min(t1), t0.max(t1));
-                if let Ok(result) = intersect_surface_curve(
-                    other_surface,
-                    other_windows.0,
-                    other_windows.1,
-                    &clone_curve_geometry(&c.geometry),
-                    range,
-                    tolerance,
-                ) {
+                .map(|t| t.clamp(full.0, full.1))
+                .filter(|&tc| c.geometry.point_at(tc).distance_to(p) < band_eff * 8.0);
+            if let Some(tc) = near_t {
+                let geometry = clone_curve_geometry(&c.geometry);
+                let solve = |range| {
+                    intersect_surface_curve(
+                        other_surface,
+                        other_windows.0,
+                        other_windows.1,
+                        &geometry,
+                        range,
+                        tolerance,
+                    )
+                };
+                let window = junction_window(&c.geometry, tc, full, 24.0 * band_eff);
+                // A window inside a touch's tolerance band (a rim circle
+                // tangent to a cylinder stays within tolerance for
+                // ~1e-3 rad) reads as an overlap; the whole edge then
+                // resolves the contact to its touch point.
+                let windowed = solve(window);
+                let result = match windowed {
+                    Ok(r)
+                        if window != full
+                            && r.intersections
+                                .iter()
+                                .any(|i| matches!(i, SurfaceCurveIntersection::Overlap { .. })) =>
+                    {
+                        solve(full)
+                    }
+                    other => other,
+                };
+                if let Ok(result) = result {
                     for isect in &result.intersections {
                         if let SurfaceCurveIntersection::Point { point, t, .. } = isect {
                             let d = point.distance_to(p);

@@ -24,21 +24,22 @@
 //!
 //! Design: docs/decisions/pk461-radial-level-curve-ssi.md.
 
-use crate::geometry::analytic_surfaces::orthonormal_basis;
+use crate::geometry::Point3;
 use crate::geometry::intersection::marching::MarchSample;
 use crate::geometry::intersection::surface_surface::{
     SurfaceSurfaceIntersection, fit_march_samples,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
-use popkern_math::PortableMath;
 
 #[path = "radial_level_curve_emit.rs"]
 mod radial_level_curve_emit;
+#[path = "radial_level_curve_frame.rs"]
+mod radial_level_curve_frame;
 #[path = "radial_level_curve_trace.rs"]
 mod radial_level_curve_trace;
 use radial_level_curve_emit::{make_sample, record_on_surfaces, split_trace};
+use radial_level_curve_frame::AxisymmetricFrame;
 use radial_level_curve_trace::{DensePass, dense_pass, station_scan, trace_wraps};
 
 /// Graze band as a multiple of linear tolerance: a non-bracket sample
@@ -57,30 +58,6 @@ const MAX_STATIONS: usize = 500_000;
 /// Minimum unwrapped chart excursion, in periods, for the arm to
 /// claim the pair (the multi-wrap scope).
 const MIN_WRAPS: f64 = 1.5;
-/// Cylinder frame: unit axis with the same chart basis `point_at`
-/// uses, plus the raw axis for the `v = rel·axis/|axis|²` inversion.
-struct CylinderFrame {
-    origin: Point3,
-    axis_raw: Vec3,
-    axis: Vec3,
-    e1: Vec3,
-    e2: Vec3,
-    radius: f64,
-}
-
-impl CylinderFrame {
-    fn radial(&self, p: &Point3) -> f64 {
-        let rel = *p - self.origin;
-        (rel - self.axis * rel.dot(&self.axis)).length()
-    }
-    /// Principal-branch angle in (-π, π] and axial chart coordinate.
-    fn theta_v(&self, p: &Point3) -> (f64, f64) {
-        let rel = *p - self.origin;
-        let theta = rel.dot(&self.e2).patan2(rel.dot(&self.e1));
-        let v = rel.dot(&self.axis_raw) / self.axis_raw.length_squared();
-        (theta, v)
-    }
-}
 
 /// Which wall chart direction the trace runs along (the other is the
 /// radial direction the level set crosses).
@@ -118,12 +95,14 @@ pub(crate) fn try_radial_level_curve(
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     let (wall_first, wall, wall_u_range, wall_v_range, cyl, cyl_v_range) =
         match (surface1, surface2) {
-            (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Cylinder { .. }) => {
-                (true, surface1, u1_range, v1_range, surface2, v2_range)
-            }
-            (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Nurbs(_)) => {
-                (false, surface2, u2_range, v2_range, surface1, v1_range)
-            }
+            (
+                SurfaceGeometry::Nurbs(_),
+                SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. },
+            ) => (true, surface1, u1_range, v1_range, surface2, v2_range),
+            (
+                SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. },
+                SurfaceGeometry::Nurbs(_),
+            ) => (false, surface2, u2_range, v2_range, surface1, v1_range),
             _ => return None,
         };
     let arm_enabled = std::env::var_os("POPKERN_ANALYTIC_HELICAL_SSI")
@@ -168,24 +147,7 @@ pub(crate) fn try_radial_level_curve(
             return None;
         }
     }
-    let SurfaceGeometry::Cylinder {
-        origin,
-        axis,
-        radius,
-    } = cyl
-    else {
-        return None;
-    };
-    let axis_unit = axis.normalized()?;
-    let (e1, e2) = orthonormal_basis(axis_unit);
-    let frame = CylinderFrame {
-        origin: *origin,
-        axis_raw: *axis,
-        axis: axis_unit,
-        e1,
-        e2,
-        radius: *radius,
-    };
+    let frame = AxisymmetricFrame::from_surface(cyl, cyl_v_range)?;
     let graze = GRAZE_BAND_FACTOR * tolerance.linear();
 
     // Control-hull prescreen: a rational surface lies in its control
@@ -199,7 +161,7 @@ pub(crate) fn try_radial_level_curve(
         .iter()
         .map(|p| frame.radial(p))
         .fold(0.0_f64, f64::max);
-    if frame.radius > hull_max + graze {
+    if frame.slope == 0.0 && frame.radius > hull_max + graze {
         return None;
     }
 
@@ -259,7 +221,7 @@ fn trace_direction(
     wall_u: (f64, f64),
     wall_v: (f64, f64),
     dir: StationDir,
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
     cyl_v_range: (f64, f64),
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
@@ -368,8 +330,10 @@ fn trace_direction(
     // Multi-wrap scope: EVERY level curve must wrap beyond the gate,
     // or the whole pair stays on the marching path (mixed emission is
     // not a thing — the arm answers for the pair or not at all).
+    // Cones are exempt: the arm is their only path off the marcher's
+    // flank-end re-branching, and a chamfer's trace wraps about once.
     for t in &traces {
-        if trace_wraps(t) <= MIN_WRAPS {
+        if frame.slope == 0.0 && trace_wraps(t) <= MIN_WRAPS {
             trace_decline("sub-wrap scope", k, trace_wraps(t));
             return None;
         }

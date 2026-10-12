@@ -5,7 +5,7 @@
 
 use std::f64::consts::{PI, TAU};
 
-use super::{CylinderFrame, StationDir, StationSample, trace_decline, wall_uv};
+use super::{AxisymmetricFrame, StationDir, StationSample, trace_decline, wall_uv};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 /// Scan one station line: bracket cells where `ρ − R` changes sign.
@@ -17,14 +17,14 @@ pub(super) fn station_scan(
     s: f64,
     r_range: (f64, f64),
     n_r: usize,
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
     graze: f64,
 ) -> Option<Vec<usize>> {
     let mut rho = Vec::with_capacity(n_r);
     for i in 0..n_r {
         let r = r_range.0 + (r_range.1 - r_range.0) * i as f64 / (n_r - 1) as f64;
         let (u, v) = wall_uv(dir, s, r);
-        rho.push(frame.radial(&wall.point_at(u, v)) - frame.radius);
+        rho.push(frame.level(&wall.point_at(u, v)));
     }
     // Sign classes fold an exact-zero sample into the negative side
     // so a crossing that lands exactly on a grid sample still yields
@@ -53,11 +53,11 @@ pub(super) fn bisect_radial(
     s: f64,
     mut lo: f64,
     mut hi: f64,
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
 ) -> f64 {
     let eval = |r: f64| {
         let (u, v) = wall_uv(dir, s, r);
-        frame.radial(&wall.point_at(u, v)) - frame.radius
+        frame.level(&wall.point_at(u, v))
     };
     let f_lo = eval(lo);
     for _ in 0..60 {
@@ -96,7 +96,7 @@ pub(super) fn dense_pass(
     n_r: usize,
     n_dense: usize,
     k: usize,
-    frame: &CylinderFrame,
+    frame: &AxisymmetricFrame,
     graze: f64,
 ) -> DensePass {
     let mut traces: Vec<Vec<StationSample>> =

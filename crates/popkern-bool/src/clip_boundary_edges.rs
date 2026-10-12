@@ -2,6 +2,7 @@
 //! crossing certificates (split from `clip_endpoint_refine.rs` under
 //! the 500-line file budget).
 
+use popkern_core::geometry::curve::{CurveEval as _, CurveGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// The OUTER loop's edge handles only (the refinement's lateral
@@ -100,4 +101,38 @@ pub(crate) fn boundary_edges(
         }
     }
     out
+}
+
+/// Parameter window of `curve` around `tc` holding every point within
+/// `reach` (chord) of `curve(tc)`. Every junction the acceptance
+/// admits lies within 16 bands of the endpoint, which is within 8
+/// bands of `curve(tc)`, so the windowed solve finds the same
+/// candidates as a whole-edge solve; on a thread flank's full-length
+/// boundary helix the whole-edge solve was 16% of a lone screw's
+/// build (PK-799). The window is sized from the local speed with 4x
+/// headroom (arc length at this reach equals chord to well under
+/// that). It falls back to the whole range where the speed is
+/// degenerate, and where it would clamp at an end of a closed edge:
+/// the junction may then lie across the seam, at the range's other
+/// end (a rim circle's start vertex).
+pub(crate) fn junction_window(
+    curve: &CurveGeometry,
+    tc: f64,
+    full: (f64, f64),
+    reach: f64,
+) -> (f64, f64) {
+    let h = (full.1 - full.0) * 1e-6;
+    let speed = curve
+        .point_at((tc + h).min(full.1))
+        .distance_to(&curve.point_at((tc - h).max(full.0)))
+        / ((tc + h).min(full.1) - (tc - h).max(full.0)).max(f64::MIN_POSITIVE);
+    if !(speed.is_finite() && speed > 0.0) {
+        return full;
+    }
+    let half = 4.0 * reach / speed;
+    let clamps = tc - half < full.0 || tc + half > full.1;
+    if clamps && curve.point_at(full.0).distance_to(&curve.point_at(full.1)) <= reach {
+        return full;
+    }
+    ((tc - half).max(full.0), (tc + half).min(full.1))
 }
