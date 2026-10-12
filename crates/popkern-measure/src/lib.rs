@@ -10,6 +10,7 @@ mod error;
 pub use error::MeasureError;
 
 mod face_helpers;
+mod planar_area;
 
 mod edge;
 

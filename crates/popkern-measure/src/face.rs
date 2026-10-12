@@ -9,31 +9,11 @@ use popkern_math::PortableMath;
 use popkern_mesh::TessellationOptions;
 
 use crate::MeasureError;
-use crate::face_helpers::{loop_positions, pcurve_uv_range};
+use crate::face_helpers::pcurve_uv_range;
 
 // ---------------------------------------------------------------------------
 // Private geometry utilities
 // ---------------------------------------------------------------------------
-
-/// Compute the area of a planar polygon given its 3-D vertex positions using
-/// the generalised Shoelace formula (cross-product method).
-fn planar_polygon_area(positions: &[Point3], normal: Vec3) -> f64 {
-    if positions.len() < 3 {
-        return 0.0;
-    }
-    let origin = positions[0];
-    let mut sum = Vec3::zero();
-    for i in 1..positions.len() - 1 {
-        let a = positions[i] - origin;
-        let b = positions[i + 1] - origin;
-        sum = Vec3::new(
-            sum.x + a.cross(&b).x,
-            sum.y + a.cross(&b).y,
-            sum.z + a.cross(&b).z,
-        );
-    }
-    0.5 * sum.dot(&normal).abs()
-}
 
 /// Compute face area by tessellating and summing triangle areas.
 fn tessellate_area(
@@ -72,8 +52,10 @@ fn triangle_area(a: Point3, b: Point3, c: Point3) -> f64 {
 
 /// Compute the surface area of a face.
 ///
-/// Exact analytic formulas are used for `Plane`, `Cylinder`, `Sphere`,
-/// `Cone`, and `Torus` faces that have no inner-loop holes. For `Nurbs` and
+/// `Plane` faces are exact for any boundary: the area integral runs
+/// over the edge curves, holes included. Exact analytic formulas are
+/// used for `Cylinder`, `Sphere`, `Cone`, and `Torus` faces that have
+/// no inner-loop holes. For `Nurbs` and
 /// any curved face that contains holes, the face is tessellated and triangle
 /// areas are summed.
 pub fn face_area(
@@ -92,15 +74,11 @@ pub fn face_area(
 
     match &surface_on_face.geometry {
         SurfaceGeometry::Plane { normal, .. } => {
-            let n = *normal;
-            let outer_positions = loop_positions(brep, face_data.outer_loop);
-            let outer_area = planar_polygon_area(&outer_positions, n);
-            let hole_area: f64 = face_data
-                .inner_loops
-                .iter()
-                .map(|&lh| planar_polygon_area(&loop_positions(brep, lh), n))
-                .sum();
-            Ok(outer_area - hole_area)
+            crate::planar_area::planar_face_vector_area(brep, face)
+                .map(|area| area.dot(normal).abs())
+                .ok_or_else(|| {
+                    MeasureError::DegenerateGeometry("planar face loop is not a ring".into())
+                })
         }
         // Cylinder: area element = radius * du * dv.
         SurfaceGeometry::Cylinder { radius, .. } if face_data.inner_loops.is_empty() => {

@@ -149,7 +149,9 @@ fn native_divergence_volume(brep: &BRep) -> Result<f64, MeasureError> {
         };
         let orient_sign = if sof.orientation { 1.0 } else { -1.0 };
         let contrib = match &sof.geometry {
-            SurfaceGeometry::Plane { .. } => planar_face_divergence_contribution(brep, face_h),
+            SurfaceGeometry::Plane { .. } => {
+                crate::planar_area::planar_face_divergence(brep, face_h)
+            }
             SurfaceGeometry::Gregory(_) if face.inner_loops.is_empty() => {
                 match crate::face_helpers::pcurve_uv_range(brep, face_h) {
                     Some(((u0, u1), (v0, v1)))
@@ -169,41 +171,6 @@ fn native_divergence_volume(brep: &BRep) -> Result<f64, MeasureError> {
         total += orient_sign * contrib;
     }
     Ok(total.abs())
-}
-
-/// Exact divergence contribution from a planar face via fan
-/// triangulation of its outer loop minus its inner loops (holes),
-/// matching `exact_polyhedral_volume`'s per-face arithmetic.
-fn planar_face_divergence_contribution(
-    brep: &BRep,
-    face: popkern_core::topology::FaceHandle,
-) -> f64 {
-    let mut v = 0.0_f64;
-    let Some(f) = brep.faces.get(face) else {
-        return 0.0;
-    };
-    let positions = crate::face_helpers::loop_positions(brep, f.outer_loop);
-    if positions.len() >= 3 {
-        let v0 = to_vec3(positions[0]);
-        for i in 1..positions.len() - 1 {
-            let v1 = to_vec3(positions[i]);
-            let v2 = to_vec3(positions[i + 1]);
-            v += signed_tet_volume(v0, v1, v2);
-        }
-    }
-    for &inner_loop in &f.inner_loops {
-        let hole_positions = crate::face_helpers::loop_positions(brep, inner_loop);
-        if hole_positions.len() < 3 {
-            continue;
-        }
-        let h0 = to_vec3(hole_positions[0]);
-        for i in 1..hole_positions.len() - 1 {
-            let h1 = to_vec3(hole_positions[i]);
-            let h2 = to_vec3(hole_positions[i + 1]);
-            v += signed_tet_volume(h0, h1, h2);
-        }
-    }
-    v
 }
 
 /// Divergence contribution from a single curved face via fine
@@ -282,44 +249,17 @@ fn gauss_legendre_face_volume(
     du * dv * sum / 3.0
 }
 
-/// Exact volume for a polyhedron with only planar faces via the divergence theorem.
-///
-/// Each face polygon is fan-triangulated from its first vertex and the signed
-/// tetrahedral contribution `v0 · (v1 × v2) / 6` is accumulated. Inner loops
-/// (holes) are handled by the same accumulation — their opposite winding
-/// automatically subtracts their area from the enclosing face contribution.
+/// Exact volume of a body bounded only by planar faces, via the
+/// divergence theorem: each face contributes `⅓ (o · A)` from its
+/// exact vector area `A` (edge curves integrated, so arcs and
+/// circular holes count) and any vertex `o`. Inner loops wind
+/// opposite to the outer one, so holes subtract themselves.
 fn exact_polyhedral_volume(brep: &BRep) -> Result<f64, MeasureError> {
-    let mut volume = 0.0_f64;
-
-    for (_, face) in &brep.faces {
-        let positions = crate::face_helpers::loop_positions(brep, face.outer_loop);
-        if positions.len() < 3 {
-            continue;
-        }
-        // Fan triangulation from the first vertex.
-        let v0 = to_vec3(positions[0]);
-        for i in 1..positions.len() - 1 {
-            let v1 = to_vec3(positions[i]);
-            let v2 = to_vec3(positions[i + 1]);
-            volume += signed_tet_volume(v0, v1, v2);
-        }
-
-        // Inner loops (holes): their opposite winding already gives the correct
-        // sign, so we just accumulate their contributions directly.
-        for &inner_loop in &face.inner_loops {
-            let hole_positions = crate::face_helpers::loop_positions(brep, inner_loop);
-            if hole_positions.len() < 3 {
-                continue;
-            }
-            let h0 = to_vec3(hole_positions[0]);
-            for i in 1..hole_positions.len() - 1 {
-                let h1 = to_vec3(hole_positions[i]);
-                let h2 = to_vec3(hole_positions[i + 1]);
-                volume += signed_tet_volume(h0, h1, h2);
-            }
-        }
-    }
-
+    let volume: f64 = brep
+        .faces
+        .keys()
+        .map(|face| crate::planar_area::planar_face_divergence(brep, face))
+        .sum();
     Ok(volume.abs())
 }
 

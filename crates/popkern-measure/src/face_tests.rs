@@ -304,3 +304,59 @@ fn torus_rectangular_patch_area_exact() {
         "expected {expected}, got {area}"
     );
 }
+
+/// Planar face of `brep` whose plane passes through height `z` with a
+/// normal along z.
+fn planar_face_at_z(brep: &BRep, z: f64) -> popkern_core::topology::FaceHandle {
+    brep.faces
+        .iter()
+        .find_map(|(fh, fd)| {
+            let s = fd.surface.as_ref()?;
+            let SurfaceGeometry::Plane { origin, normal, .. } = &s.geometry else {
+                return None;
+            };
+            ((origin.z - z).abs() < 1e-9 && normal.z.abs() > 0.999).then_some(fh)
+        })
+        .expect("planar face at z")
+}
+
+#[test]
+fn disc_cap_bounded_by_one_circle_edge_has_circle_area() {
+    // PK-771: a cap whose only boundary is one closed circle edge has
+    // a one-vertex "polygon", so the vertex shoelace returned 0.
+    let cyl = BRep::cylinder(1.5, 2.0, Tolerance::default()).unwrap();
+    let tol = Tolerance::default();
+    for z in [0.0, 2.0] {
+        let area = face_area(&cyl, planar_face_at_z(&cyl, z), &tol).unwrap();
+        let expected = std::f64::consts::PI * 2.25;
+        assert!(
+            (area - expected).abs() < 1e-12,
+            "z={z}: {area} vs {expected}"
+        );
+    }
+}
+
+#[test]
+fn bored_face_area_subtracts_its_circular_holes() {
+    // PK-771: a unit cube with a r=0.15 through-bore; the bored top and
+    // bottom faces carry a circular inner loop the polygon formula
+    // dropped (it returned 1.0).
+    use popkern_core::geometry::transform::Transform3;
+    let tol = Tolerance::default();
+    let cube = BRep::unit_cube(tol).unwrap();
+    let bore = BRep::cylinder(0.15, 3.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -1.0))
+        .unwrap();
+    let bored = popkern_bool::subtraction(cube, bore, tol, None).unwrap();
+    let expected = 1.0 - std::f64::consts::PI * 0.0225;
+    for z in [0.0, 1.0] {
+        let face = planar_face_at_z(&bored, z);
+        assert_eq!(bored.faces[face].inner_loops.len(), 1, "z={z} hole loop");
+        let area = face_area(&bored, face, &tol).unwrap();
+        assert!(
+            (area - expected).abs() < 1e-12,
+            "z={z}: {area} vs {expected}"
+        );
+    }
+}
