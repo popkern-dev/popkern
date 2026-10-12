@@ -117,19 +117,20 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
         // radius) it declined until the torus's reversed meridian arcs
         // found their crossings with the box (PK-750: a reversed edge's
         // window errored and every crossing was dropped); it now serves
-        // validator-clean with the same volume, but 8 pieces stay fitted
-        // NURBS where every finer tolerance serves exact arcs (PK-779).
+        // validator-clean with the same volume, every rim an exact arc as
+        // at every finer tolerance (PK-779: circle recognition once
+        // demanded a chord of 100 x the tolerance and left the 1e-2 rims
+        // fitted).
         match popkern_bool::subtraction(torus, box_, t, None) {
             Ok(b) => {
                 assert!(
                     b.validate_all().is_empty(),
                     "torus-box at {lin:e} must be validator-clean"
                 );
-                let fitted = if lin < 5e-3 { 0 } else { 8 };
-                assert!(
-                    nurbs_edges(&b) <= fitted,
-                    "torus-box at {lin:e}: {} fitted pieces (at most {fitted}; PK-779 owns 1e-2)",
-                    nurbs_edges(&b)
+                assert_eq!(
+                    nurbs_edges(&b),
+                    0,
+                    "torus-box at {lin:e}: every rim is an exact arc"
                 );
                 let v = volume(&b);
                 let rel = (v - truth_torus).abs() / truth_torus;

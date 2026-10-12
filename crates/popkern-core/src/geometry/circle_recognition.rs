@@ -135,10 +135,14 @@ pub fn recognize_circular(
     if max_deviation > gate {
         return None;
     }
-    // The arc must subtend enough angle for the fit to be determined:
-    // a chord shorter than the radius's gate resolves nothing.
+    // The arc must subtend enough to determine its circle: a long chord,
+    // or a bulge well above the gate. The chord rule alone, in units of
+    // the gate, refused every quarter rim at a coarse tolerance (PK-779:
+    // a 0.717 rim's 0.55 chord against 100 × 1e-2, its sagitta 0.21
+    // resolving the circle twenty times over), so the boolean served
+    // fitted rims only at 1e-2.
     let chord = pts[0].distance_to(&pts[SAMPLES / 2]);
-    if !closed && chord < gate * 100.0 {
+    if !closed && chord < gate * 100.0 && chord_sagitta(&pts) < gate * 10.0 {
         return None;
     }
     // Orient the normal to the traversal's right-hand sense.

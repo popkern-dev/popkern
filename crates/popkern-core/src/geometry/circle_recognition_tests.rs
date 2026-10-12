@@ -111,3 +111,33 @@ fn a_straight_nurbs_seam_is_not_a_circle_at_a_coarse_gate() {
     .to_nurbs();
     assert!(recognize_circular(&shallow, shallow.parameter_range(), 1e-3).is_some());
 }
+
+/// PK-779: at a coarse gate a quarter arc whose chord is under 100
+/// gates still determines its circle by its bulge (sagitta 0.21 against
+/// a 1e-2 gate), while a flat arc with neither a long chord nor a bulge
+/// over 10 gates stays unrecognised.
+#[test]
+fn a_quarter_rim_is_recognised_at_a_coarse_gate() {
+    let quarter = crate::geometry::curve::CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.1),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.717,
+        start_angle: 0.0,
+        end_angle: std::f64::consts::FRAC_PI_2,
+    }
+    .to_nurbs();
+    let range = quarter.parameter_range();
+    let fit = recognize_circular(&quarter, range, 1e-2).expect("recognised");
+    assert!((fit.radius - 0.717).abs() < 1e-6, "radius {}", fit.radius);
+    // A 0.5-long arc of radius 50: sagitta 6.25e-4, under 10 gates.
+    let flat = crate::geometry::curve::CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 50.0,
+        start_angle: 0.0,
+        end_angle: 0.01,
+    }
+    .to_nurbs();
+    let range = flat.parameter_range();
+    assert!(recognize_circular(&flat, range, 1e-2).is_none());
+}
