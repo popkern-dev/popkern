@@ -654,10 +654,8 @@ fn hull_decisively_outside(
             hi = (hi.0.max(q.x), hi.1.max(q.y));
         }
     }
-    let within = |t: f64| {
-        let q = curve_uv.point_at(t);
-        q.x >= lo.0 - band && q.x <= hi.0 + band && q.y >= lo.1 - band && q.y <= hi.1 + band
-    };
+    use super::clip_branch_normalize::on_periodic_box as on_box; // period-aware (PK-765)
+    let within = |t: f64| on_box(brep, face, curve_uv.point_at(t), lo, hi, band);
     if !(within(t_min) && within(t_max)) {
         return false;
     }

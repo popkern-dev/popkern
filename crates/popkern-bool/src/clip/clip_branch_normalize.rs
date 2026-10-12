@@ -366,3 +366,33 @@ pub(super) fn translate_onto_principal_branch(curve: &NurbsCurve, period: f64) -
 #[cfg(test)]
 #[path = "clip_branch_normalize_tests.rs"]
 mod tests;
+
+/// Whether the uv point `q` lies on the box `lo..hi` (widened by
+/// `band`) once shifted by whole periods of `face`'s periodic chart
+/// directions. A record traced on the branch one period below the
+/// face's chart (u in [-pi, 0] on a [0, 2pi] cylinder face) failed the
+/// literal test, and the clip kept a hull lying outside the face
+/// (PK-765: an equal-radius tee whose branch seam runs through the
+/// singular point served a phantom half-ellipse at v = -40, then
+/// declined on its curveless edge).
+pub(super) fn on_periodic_box(
+    brep: &BRep,
+    face: FaceHandle,
+    q: popkern_core::geometry::Point3,
+    lo: (f64, f64),
+    hi: (f64, f64),
+    band: f64,
+) -> bool {
+    let (u_period, v_period) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map_or((None, None), |s| {
+            popkern_core::geometry::surface::SurfaceEval::parameter_periodicity(&s.geometry)
+        });
+    let in_span = |x: f64, lo: f64, hi: f64, period: Option<f64>| match period {
+        Some(p) if p > 0.0 => x + ((lo - band - x) / p).ceil() * p <= hi + band,
+        _ => x >= lo - band && x <= hi + band,
+    };
+    in_span(q.x, lo.0, hi.0, u_period) && in_span(q.y, lo.1, hi.1, v_period)
+}
