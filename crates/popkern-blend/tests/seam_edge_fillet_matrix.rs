@@ -243,87 +243,42 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         mesh_gauges::welded_open_edges(&united)
     );
     use popkern_core::geometry::surface::SurfaceGeometry;
-    // PK-141 frontier pin (iteration 3): GEOMETRY for all six chain
-    // pieces now computes (walker + exact-pair fallback + center
-    // curves trimmed to the edge span — the padded carrier-line
-    // twist class is fixed), and the transactional apply surfaces
-    // the remaining APPLY-phase wall: the anchor-split/multi-chord stages still
-    // assume straight cube-like neighborhoods on curved supports —
-    // measured classes: tangent-offset anchors missed curved edges
-    // (curve-aware split fallback landed, 2 edges advanced),
-    // "multi-chord sub-chord anchors not found on any sub-face",
-    // and "no descendant half-edge has its twin on <face>". The
-    // curved-support apply is the recorded design fork. Flip to the
-    // completion gate (defects (0,0,0) + >=6 blend faces) when it
-    // lands.
-    let r = match fillet_edges(&united, &specs, &FilletOptions::default(), tol, None) {
-        Err(e) => {
-            let msg = format!("{e:?}");
-            assert!(
-                msg.contains("PartialFailure")
-                    && (msg.contains("multi-chord")
-                        || msg.contains("no descendant half-edge")
-                        || msg.contains("no edge contains anchor")
-                        // PK-740 lands the boss base's reflex mitre
-                        // anchors; the curved-support asymmetric
-                        // mitre seam (PK-742) declines at the
-                        // curve-surface gate.
-                        || msg.contains("off their faces")),
-                "decline must name the curved-support apply classes: {}",
-                &msg[..msg.len().min(300)]
-            );
-            eprintln!(
-                "[seam-matrix] boss chain: apply-phase curved-support classes surfaced \
-                 transactionally (geometry for all six pieces computes)"
-            );
-            return;
-        }
-        Ok(r) => r,
-    };
+    // The completion gate (PK-798). The chain is a rectangular boss's
+    // root loop on the wall, its two root arcs split by the wall seam:
+    // the curved-support apply classes PK-141 pinned as transactional
+    // declines (multi-chord anchors, descendant half-edges, the PK-742
+    // mitre seam's curve-surface gate) closed when the wall split took
+    // the seam visit on the cut's own chart branch and the reflex
+    // corners' contact rails stopped wrapping round the torus. Each
+    // arc's two halves serve one torus strip and each straight side a
+    // cylinder strip. OCC reads the same body's STEP export (the
+    // finned-housing script at this scale) as valid, 4.2e-8 relative
+    // to OCC's own fillet of the six edges (6.3616551).
+    let r = fillet_edges(&united, &specs, &FilletOptions::default(), tol, None)
+        .unwrap_or_else(|e| panic!("boss chain must serve: {e:?}"));
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-177 COMPLETION GATE: the full defect stack cleared —
-    // corner chords, tangent-stall rails, same-face slits, the
-    // cross-seam join chord, stale junction endpoints (vertex +
-    // neighbor + junction-triple settles), with the interpolating
-    // smooth loft and the corner carve underneath. The boss serves
-    // with ZERO validation defects.
     assert_eq!(
         (structural, open, other),
         (0, 0, 0),
         "boss chain fillet body must validate clean"
     );
-    let mut census: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
-    for (_, f) in r.brep.faces.iter() {
-        let k = match f.surface.as_ref().map(|s| &s.geometry) {
-            Some(SurfaceGeometry::Plane { .. }) => "plane",
-            Some(SurfaceGeometry::Cylinder { .. }) => "cylinder",
-            Some(SurfaceGeometry::Nurbs(_)) => "nurbs",
-            Some(SurfaceGeometry::Torus { .. }) => "torus",
-            Some(SurfaceGeometry::Sphere { .. }) => "sphere",
-            Some(_) => "other",
-            None => "none",
-        };
-        *census.entry(k).or_default() += 1;
-    }
-    eprintln!("[seam-matrix] boss face census: {census:?}");
-    let blend_faces = census.get("nurbs").copied().unwrap_or(0)
-        + census.get("torus").copied().unwrap_or(0)
-        + census.get("sphere").copied().unwrap_or(0);
-    // PK-141 measured completion state: 4 blend faces serve the six
-    // chain pieces (region-merged strips + one corner cap; curved-
-    // support anchor discovery lets one junction blend build — the
-    // other five corner territories still ride the merged strips).
-    // Pin the measured census; revisit toward 6 when the corner-cap
-    // layer lands.
     assert!(
-        blend_faces >= 6,
-        "boss chain blend-face census regressed: {blend_faces} < 6"
+        r.brep.validate_curve_surface().is_ok(),
+        "{:?}",
+        r.brep.validate_curve_surface()
     );
-    eprintln!(
-        "[seam-matrix] boss chain COMPLETED clean: {blend_faces} blend faces, conformity {} \
-         (curved-support strip tessellation debt, measurement only)",
-        mesh_gauges::welded_open_edges(&r.brep)
-    );
+    let count = |want: fn(&SurfaceGeometry) -> bool| {
+        r.brep
+            .faces
+            .values()
+            .filter(|f| f.surface.as_ref().is_some_and(|s| want(&s.geometry)))
+            .count()
+    };
+    let tori = count(|g| matches!(g, SurfaceGeometry::Torus { .. }));
+    let cylinders = count(|g| matches!(g, SurfaceGeometry::Cylinder { .. }));
+    eprintln!("[seam-matrix] boss chain served: {tori} torus strips, {cylinders} cylinders");
+    assert_eq!(tori, 2, "one torus strip per root arc");
+    assert_eq!(cylinders, 3, "the wall and two side strips");
 }
 
 fn export_step_solid(brep: &BRep, path: &std::path::Path) -> Result<(), String> {

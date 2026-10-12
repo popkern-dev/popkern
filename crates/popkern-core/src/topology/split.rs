@@ -11,7 +11,7 @@ use crate::error::CoreError;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
-use crate::topology::*;
+use crate::topology::{split_helpers::chart_branch_occurrences, *};
 
 #[path = "split_results.rs"]
 mod split_results;
@@ -414,7 +414,7 @@ impl BRep {
             ))
         })?;
 
-        // Capture the original surface before mef (which doesn't copy it).
+        let (he_entry, he_exit) = chart_branch_occurrences(self, he_entry, he_exit, trim_curve_uv);
         let original_surface = self.faces[face].surface.clone();
 
         let entry_at_start = tolerance.points_coincident(

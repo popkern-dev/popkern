@@ -150,3 +150,72 @@ pub(crate) fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
         weights: reversed_weights,
     }
 }
+
+/// The chart-branch occurrences of a cut's endpoints. A vertex a loop
+/// visits more than once (a periodic face's seam vertex, reached once
+/// up the seam and once down its twin) matches the cut's 3D endpoint at
+/// every visit; the cut belongs at the one on its pcurve's branch
+/// (PK-798: a fin's root rail ending on the housing seam at u = 2π was
+/// cut at the u = 0 visit, and the split traded the housing for the
+/// territory under the fin). Each visit is measured by the nearest
+/// end of its two incident half-edges' pcurves to the trim's uv end.
+/// A vertex visited once, or a visit without pcurve evidence, keeps the
+/// first match.
+pub(crate) fn chart_branch_occurrences(
+    brep: &crate::topology::BRep,
+    he_entry: crate::topology::HalfEdgeHandle,
+    he_exit: crate::topology::HalfEdgeHandle,
+    trim_uv: &NurbsCurve,
+) -> (
+    crate::topology::HalfEdgeHandle,
+    crate::topology::HalfEdgeHandle,
+) {
+    use crate::geometry::curve::CurveEval;
+    let (t0, t1) = trim_uv.parameter_range();
+    let pick = |found: crate::topology::HalfEdgeHandle, uv: crate::geometry::Point3| {
+        let vertex = brep.half_edges[found].origin;
+        let visits: Vec<_> = loop_half_edges(brep, found)
+            .into_iter()
+            .filter(|&he| brep.half_edges[he].origin == vertex)
+            .collect();
+        if visits.len() < 2 {
+            return found;
+        }
+        let miss = |he: crate::topology::HalfEdgeHandle| -> Option<f64> {
+            let prev = brep.half_edges[he].prev;
+            let mut best: Option<f64> = None;
+            for pc in [&brep.half_edges[he].pcurve, &brep.half_edges[prev].pcurve] {
+                let pc = pc.as_ref()?;
+                for t in [pc.t_start, pc.t_end] {
+                    let p = pc.point_at(t);
+                    let d = ((p.x - uv.x).powi(2) + (p.y - uv.y).powi(2)).sqrt();
+                    best = Some(best.map_or(d, |b: f64| b.min(d)));
+                }
+            }
+            best
+        };
+        let measured: Option<Vec<(crate::topology::HalfEdgeHandle, f64)>> =
+            visits.iter().map(|&he| miss(he).map(|d| (he, d))).collect();
+        measured
+            .and_then(|m| m.into_iter().min_by(|a, b| a.1.total_cmp(&b.1)))
+            .map_or(found, |(he, _)| he)
+    };
+    (
+        pick(he_entry, trim_uv.point_at(t0)),
+        pick(he_exit, trim_uv.point_at(t1)),
+    )
+}
+
+/// The half-edges of `start`'s loop, in order from `start`.
+fn loop_half_edges(
+    brep: &crate::topology::BRep,
+    start: crate::topology::HalfEdgeHandle,
+) -> Vec<crate::topology::HalfEdgeHandle> {
+    let mut out = vec![start];
+    let mut cursor = brep.half_edges[start].next;
+    while cursor != start && out.len() <= brep.half_edges.len() {
+        out.push(cursor);
+        cursor = brep.half_edges[cursor].next;
+    }
+    out
+}

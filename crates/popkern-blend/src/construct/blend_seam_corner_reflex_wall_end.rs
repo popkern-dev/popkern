@@ -240,6 +240,34 @@ pub(super) fn reauthor_incident(
     Ok(())
 }
 
+/// `to` moved by whole periods onto the branch the rail runs along from
+/// `from`: the travel the strip half-edge's own pcurve makes (`seeds`),
+/// else the shorter way. A strip crossing its own chart seam projects
+/// the seam end onto either branch (PK-798: a torus root strip split by
+/// the housing seam, where the torus seam also lies), and the iso walk
+/// between branches ran the long way round the torus, every sample
+/// still on the housing's contact circle.
+fn same_branch(
+    surface: &SurfaceGeometry,
+    from: (f64, f64),
+    to: (f64, f64),
+    seeds: Option<((f64, f64), (f64, f64))>,
+) -> (f64, f64) {
+    let (pu, pv) = surface.periodicity();
+    let travel = seeds.map(|(a, b)| (b.0 - a.0, b.1 - a.1));
+    let unwrap = |f: f64, t: f64, period: Option<f64>, want: Option<f64>| match period {
+        Some(p) if p > 0.0 => {
+            let target = want.unwrap_or(0.0);
+            t - p * ((t - f - target) / p).round()
+        }
+        _ => t,
+    };
+    (
+        unwrap(from.0, to.0, pu, travel.map(|d| d.0)),
+        unwrap(from.1, to.1, pv, travel.map(|d| d.1)),
+    )
+}
+
 /// Re-author each strip-to-support edge at `vertex` that is off its
 /// faces as the strip's contact iso-curve between its ends.
 ///
@@ -308,6 +336,7 @@ pub(super) fn reauthor_contact_rails(
             project_seeded(&g_strip, &from, seeds.map(|s| s.0)).ok_or(Reason::EulerRejected)?;
         let uv_to =
             project_seeded(&g_strip, &to, seeds.map(|s| s.1)).ok_or(Reason::EulerRejected)?;
+        let uv_to = same_branch(&g_strip, uv_from, uv_to, seeds);
         let iso_tol = 1e-9 * (1.0 + uv_from.0.abs().max(uv_from.1.abs()));
         let along = |t: f64| -> (f64, f64) {
             if (uv_from.1 - uv_to.1).abs() <= iso_tol {

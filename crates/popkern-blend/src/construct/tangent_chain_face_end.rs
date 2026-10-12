@@ -7,17 +7,27 @@
 //! rails' crossings of F; `a` and `b` are split there and the corner —
 //! V and the two corner pieces — is cut away, the section taking its
 //! place in F's loop.
+//!
+//! At a REFLEX corner (PK-798: a fin's root arc split by the housing
+//! seam, so the arc runs as a tangent chain) one rail crosses F's plane
+//! on its support past V, on the extension of F's edge on that side,
+//! and the strip's end overhangs F. The corner then stays: a new
+//! terminal DISC in F's plane closes the strip, bounded by the section,
+//! the split piece of the other edge through V, and a new line on the
+//! overhung support from V to its crossing. That is the disc the
+//! per-edge pipeline builds for a lone root arc (PK-740).
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, Face, HalfEdgeHandle, LoopHandle};
+use popkern_math::PortableMath;
 
 use super::tangent_chain_cap::{Cap, CapSide};
 use super::tangent_chain_geometry::{
     Circle, Link, ball_center, blank, chain_tangent, chain_tangent_at_origin, decline,
-    exact_section, insert_edge,
+    exact_section, insert_edge, surface_foot,
 };
 use crate::error::BlendFailure;
 
@@ -65,12 +75,67 @@ fn rail_crossing(
     best
 }
 
-/// The point of `edge`'s curve nearest `p`, with its distance.
-fn on_edge(brep: &BRep, edge: EdgeHandle, p: Point3) -> Option<(Point3, f64)> {
+/// The crossing of the exact `circle` with the plane `(origin, n)`
+/// nearest `near`: `A cos θ + B sin θ = C` in the circle's basis. `None`
+/// when the circle misses the plane or lies in it.
+fn circle_crossing(
+    circle: (Point3, Vec3, f64),
+    origin: Point3,
+    n: Vec3,
+    near: Point3,
+) -> Option<Point3> {
+    let (center, normal, radius) = circle;
+    let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(normal);
+    let (a, b) = (radius * e1.dot(&n), radius * e2.dot(&n));
+    let c = (origin - center).dot(&n);
+    let amp = (a * a + b * b).sqrt();
+    if amp <= f64::EPSILON * radius.max(1.0) || c.abs() > amp {
+        return None;
+    }
+    let phase = b.patan2(a);
+    let spread = (c / amp).clamp(-1.0, 1.0).pacos();
+    [phase + spread, phase - spread]
+        .into_iter()
+        .map(|t| center + e1 * (radius * t.pcos()) + e2 * (radius * t.psin()))
+        .min_by(|p, q| p.distance_to(&near).total_cmp(&q.distance_to(&near)))
+}
+
+/// Where a rail's crossing of F lands relative to F's edge from V.
+#[derive(Clone, Copy)]
+enum Landing {
+    /// On the edge: its corner piece through V is cut away.
+    OnEdge(Point3),
+    /// On the edge's extension past V: the strip overhangs F there.
+    PastCorner(Point3),
+}
+
+impl Landing {
+    fn point(self) -> Point3 {
+        match self {
+            Landing::OnEdge(p) | Landing::PastCorner(p) => p,
+        }
+    }
+}
+
+/// Land the crossing `raw` on `edge` (an edge of F through V): on its
+/// trimmed range, or on its extension beyond V. `None` when it lies
+/// off the edge's curve or past its far end.
+fn landing(brep: &BRep, edge: EdgeHandle, raw: Point3, vpos: Point3, band: f64) -> Option<Landing> {
     let curve = brep.edges[edge].curve.as_ref()?;
-    let s = curve.geometry.closest_point(&p)?;
-    let q = curve.geometry.point_at(s);
-    Some((q, q.distance_to(&p)))
+    let s = curve.geometry.closest_point(&raw)?;
+    let (lo, hi) = (
+        curve.t_start.min(curve.t_end),
+        curve.t_start.max(curve.t_end),
+    );
+    let on_curve = curve.geometry.point_at(s);
+    let clamped = curve.geometry.point_at(s.clamp(lo, hi));
+    if clamped.distance_to(&raw) <= band {
+        Some(Landing::OnEdge(clamped))
+    } else if on_curve.distance_to(&raw) <= band && clamped.distance_to(&vpos) <= band {
+        Some(Landing::PastCorner(on_curve))
+    } else {
+        None
+    }
 }
 
 /// Solve the strip's end on F at the chain end (`at_start`: the origin
@@ -140,21 +205,35 @@ pub(super) fn prepare_face_end(
     let strip = &link.eg.surface;
     let crossing = |trim: (&NurbsCurve, Circle),
                     edge: EdgeHandle|
-     -> Result<Point3, BlendFailure> {
+     -> Result<Landing, BlendFailure> {
         let raw = rail_crossing(trim.0, origin, n, vpos, band)
             .ok_or_else(|| decline(format!("a rail does not cross the end face at {v:?}"), vpos))?;
-        let (on, off) = on_edge(brep, edge, raw)
-            .ok_or_else(|| decline(format!("end-face edge {edge:?} has no curve"), vpos))?;
-        if off > band {
+        // An exact circular rail crosses F exactly: the bisection runs
+        // on its fitted trim, which strays ~1e-5 from the circle (the
+        // strip's rail edge is the circle, so the contact must be too).
+        let raw = trim
+            .1
+            .and_then(|circle| circle_crossing(circle, origin, n, raw))
+            .unwrap_or(raw);
+        landing(brep, edge, raw, vpos, band).ok_or_else(|| {
+            decline(
+                format!("rail crosses the end face off its edge {edge:?}"),
+                vpos,
+            )
+        })
+    };
+    let (lp, lq) = (crossing(link.p_trim, a)?, crossing(link.q_trim, b)?);
+    let reflex = match (lp, lq) {
+        (Landing::OnEdge(_), Landing::OnEdge(_)) => false,
+        (Landing::PastCorner(_), Landing::PastCorner(_)) => {
             return Err(decline(
-                format!("rail crosses the end face {off:.3e} off its edge {edge:?}"),
+                format!("both rails overhang the end face at {v:?}"),
                 vpos,
             ));
         }
-        Ok(on)
+        _ => true,
     };
-    let cp = crossing(link.p_trim, a)?;
-    let cq = crossing(link.q_trim, b)?;
+    let (cp, cq) = (lp.point(), lq.point());
     // The section by F from the P crossing to the Q crossing.
     let (curve, cp, cq) = match strip {
         SurfaceGeometry::Cylinder {
@@ -218,7 +297,7 @@ pub(super) fn prepare_face_end(
     };
     // Split F's corner edges at the crossings: the pieces through V are
     // the corner, cut away when the strip is wired.
-    let mut split = |edge: EdgeHandle, at: Point3| -> Result<_, BlendFailure> {
+    let split = |brep: &mut BRep, edge: EdgeHandle, at: Point3| -> Result<_, BlendFailure> {
         let res = brep
             .split_edge_at_point(edge, at, tolerance)
             .map_err(|e| decline(format!("end-face edge {edge:?} split: {e}"), at))?;
@@ -234,8 +313,34 @@ pub(super) fn prepare_face_end(
         };
         Ok((res.vertex, CapSide::Third(corner)))
     };
-    let (vp, side_p) = split(a, cp)?;
-    let (vq, side_q) = split(b, cq)?;
+    // An overhung side gets a new line on its support from V.
+    let support_of = |brep: &BRep, he: HalfEdgeHandle| {
+        brep.faces[brep.loops[brep.half_edges[he].loop_].face]
+            .surface
+            .as_ref()
+            .map(|s| s.geometry.clone())
+    };
+    let overhang = |brep: &mut BRep, on: HalfEdgeHandle, c: Point3| {
+        let surface = support_of(brep, on)
+            .ok_or_else(|| decline(format!("chain end {v:?} lacks a support"), vpos))?;
+        let mid = vpos + (c - vpos) * 0.5;
+        let off = surface_foot(&surface, mid).map_or(f64::INFINITY, |f| f.distance_to(&mid));
+        if off > band {
+            return Err(decline(
+                format!("overhang line at {v:?} leaves its support by {off:.3e}"),
+                vpos,
+            ));
+        }
+        Ok(super::tangent_chain_cap::support_line(brep, v, c))
+    };
+    let (vp, side_p) = match lp {
+        Landing::OnEdge(_) => split(brep, a, cp)?,
+        Landing::PastCorner(_) => overhang(brep, h, cp)?,
+    };
+    let (vq, side_q) = match lq {
+        Landing::OnEdge(_) => split(brep, b, cq)?,
+        Landing::PastCorner(_) => overhang(brep, tw, cq)?,
+    };
     // The section edge, its curve running P → Q.
     let starts_at_p = curve.geometry.point_at(curve.t_start).distance_to(&cp)
         <= curve.geometry.point_at(curve.t_end).distance_to(&cp);
@@ -260,6 +365,31 @@ pub(super) fn prepare_face_end(
         }
         _ => vpos,
     };
+    // A reflex end keeps F and closes the strip on a new disc in F's
+    // plane (oriented with its loop when wired).
+    let face = if reflex {
+        let (u_axis, v_axis) = popkern_core::geometry::analytic_curves::circle_basis(n);
+        let shell = brep.faces[f].shell;
+        brep.faces.insert(Face {
+            outer_loop: LoopHandle::default(),
+            inner_loops: vec![],
+            shell,
+            surface: Some(SurfaceOnFace {
+                geometry: SurfaceGeometry::Plane {
+                    origin,
+                    normal: n,
+                    u_axis,
+                    v_axis,
+                },
+                orientation: true,
+            }),
+            name: None,
+            tolerance: None,
+            role: Default::default(),
+        })
+    } else {
+        f
+    };
     Ok(Cap {
         v,
         vp,
@@ -267,8 +397,8 @@ pub(super) fn prepare_face_end(
         x_pq,
         x_qp,
         center,
-        face: f,
-        end_face: true,
+        face,
+        end_face: !reflex,
         at_start,
         side_p,
         side_q,

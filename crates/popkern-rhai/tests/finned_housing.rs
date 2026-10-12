@@ -353,3 +353,85 @@ fn a_fin_root_loop_mitres_its_asymmetric_corners() {
         assert_rel(change, occ_change, 1e-2, what);
     }
 }
+
+/// Fins centred on the housing seam (PK-798). The seam splits each root
+/// arc into two tangent edges at a vertex the housing's loop visits
+/// twice (up the seam and back down its twin), and the torus strips'
+/// own chart seam lies there too.
+/// - The bottom arc alone is an open tangent chain whose ends overhang
+///   the fin's side planes at reflex corners: each end closes on a disc
+///   in the side plane (merged into it), the rails crossing it exactly.
+/// - In the full root loops the housing is split at the seam visit on
+///   the cut's own chart branch, and the corner rails are re-authored
+///   along the torus without wrapping round it.
+///
+/// OCC's fillet of the same edges changes the volume by 0.643958 (arc),
+/// 25.151835 (one fin's loop) and 603.620279 (24 fins on the seam);
+/// popkern's STEP export, read back in OCC, matches OCC's filleted
+/// bodies to 7.8e-11, 6.8e-10 and 8.6e-8 relative. The arc's change
+/// sits under the housing mesh's chord noise, so it pins structure.
+#[test]
+fn seam_fin_root_arcs_and_loops_fillet() {
+    let arc: String = single_fin(0.0, &[1.0])
+        .lines()
+        .map(|l| {
+            if l.contains(".fillet(") {
+                format!(
+                    "h = h.fillet(edges().between(\"plane\", \"cylinder\").at_height({Z0:?}), 1.0, #{{ label: \"root\" }});"
+                )
+            } else {
+                l.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let brep_of = |source: &str| {
+        let mut host = ScriptHost::new();
+        let outcome = host
+            .run(source, "seam_arc.rhai")
+            .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
+        let mut model = outcome.model.expect("model");
+        model.to_part().expect("part").brep().clone()
+    };
+    let unfilleted: String = arc
+        .lines()
+        .filter(|l| !l.contains(".fillet("))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (before, after) = (brep_of(&unfilleted), brep_of(&arc));
+    let torus = after
+        .faces
+        .values()
+        .filter(|f| {
+            f.surface.as_ref().is_some_and(|s| {
+                matches!(
+                    s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+                )
+            })
+        })
+        .count();
+    assert_eq!(torus, 2, "one torus strip per arc half");
+    assert_eq!(after.faces.len(), before.faces.len() + 2);
+    assert!(after.validate().is_ok(), "{:?}", after.validate());
+    assert!(
+        after.validate_curve_surface().is_ok(),
+        "{:?}",
+        after.validate_curve_surface()
+    );
+    for (source, occ_change, what) in [
+        (
+            with_root_loops(&single_fin(0.0, &[1.0])),
+            25.15183519164566,
+            "one fin on the seam",
+        ),
+        (
+            with_root_loops(&fin_ring(24, 0.0, 1.0)),
+            603.6202791896649,
+            "24 fins on the seam",
+        ),
+    ] {
+        let (_, change) = fillet_change(&source);
+        assert_rel(change, occ_change, 1e-2, what);
+    }
+}

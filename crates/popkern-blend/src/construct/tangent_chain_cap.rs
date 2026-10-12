@@ -103,6 +103,30 @@ fn fresh_vertex(brep: &mut BRep, position: Point3) -> VertexHandle {
     })
 }
 
+/// A new straight edge on a support from `v` to a new contact vertex
+/// at `c`, as a cap side: half-edges `(V → c, c → V)`, unlinked.
+pub(super) fn support_line(brep: &mut BRep, v: VertexHandle, c: Point3) -> (VertexHandle, CapSide) {
+    let vpos = brep.vertices[v].position;
+    let vc = fresh_vertex(brep, c);
+    let edge = insert_edge(
+        brep,
+        CurveOnEdge {
+            geometry: CurveGeometry::Line {
+                origin: vpos,
+                direction: c - vpos,
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        },
+    );
+    let out = brep.half_edges.insert(blank(v, edge));
+    let back = brep.half_edges.insert(blank(vc, edge));
+    brep.half_edges[out].twin = back;
+    brep.half_edges[back].twin = out;
+    brep.edges[edge].half_edge = out;
+    (vc, CapSide::Line(out, back))
+}
+
 fn support(brep: &BRep, he: HalfEdgeHandle) -> Option<SurfaceGeometry> {
     brep.faces[brep.loops[brep.half_edges[he].loop_].face]
         .surface
@@ -224,24 +248,7 @@ pub(super) fn prepare_cap(
                 vpos,
             ));
         }
-        let vc = fresh_vertex(brep, c);
-        let edge = insert_edge(
-            brep,
-            CurveOnEdge {
-                geometry: CurveGeometry::Line {
-                    origin: vpos,
-                    direction: c - vpos,
-                },
-                t_start: 0.0,
-                t_end: 1.0,
-            },
-        );
-        let out = brep.half_edges.insert(blank(v, edge));
-        let back = brep.half_edges.insert(blank(vc, edge));
-        brep.half_edges[out].twin = back;
-        brep.half_edges[back].twin = out;
-        brep.edges[edge].half_edge = out;
-        Ok((vc, CapSide::Line(out, back)))
+        Ok(support_line(brep, v, c))
     };
     let (vp, side_p) = side(brep, true, cp)?;
     let (vq, side_q) = side(brep, false, cq)?;
