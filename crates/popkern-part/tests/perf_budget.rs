@@ -296,13 +296,17 @@ fn tapped_housing_taps_cost_what_the_first_did() {
     for k in 0..11 {
         eleven = tap(&eleven, k);
     }
-    let bare = best_of(3, || {
-        tap(&housing, 11);
-    });
+    // Interleaved, so both sides of the ratio see the same contention.
+    let (mut bare, mut last) = (Duration::MAX, Duration::MAX);
     let mut twelve = None;
-    let last = best_of(3, || {
+    for _ in 0..3 {
+        let t0 = Instant::now();
+        tap(&housing, 11);
+        bare = bare.min(t0.elapsed());
+        let t0 = Instant::now();
         twelve = Some(tap(&eleven, 11));
-    });
+        last = last.min(t0.elapsed());
+    }
     let ratio = last.as_secs_f64() / bare.as_secs_f64().max(1e-9);
     eprintln!(
         "perf budget [tapped housing growth]: bare {bare:?}, twelfth {last:?}, ratio {ratio:.2} (gate 2.0)"

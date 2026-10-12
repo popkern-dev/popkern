@@ -28,6 +28,21 @@ pub(super) fn point_near_any_edge(
             .map(|t| brep.vertices[t.origin].position)
             .unwrap_or(a);
         if let Some(c) = edge.curve.as_ref() {
+            // Every chord below lies in the curve's conservative box,
+            // so a point `band` outside it is near none of them (PK-743:
+            // each fragment sample walked every edge of a 64-slot disc).
+            if let Some(bx) = crate::coincidence::edge_box::conservative_curve_box(
+                &c.geometry,
+                (c.t_start, c.t_end),
+            ) && (p.x < bx.min.x - band
+                || p.y < bx.min.y - band
+                || p.z < bx.min.z - band
+                || p.x > bx.max.x + band
+                || p.y > bx.max.y + band
+                || p.z > bx.max.z + band)
+            {
+                continue;
+            }
             let mut prev = c.geometry.point_at(c.t_start);
             for i in 1..=16 {
                 let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 16.0;

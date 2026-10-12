@@ -50,6 +50,7 @@
 //! pipeline itself dominates.
 
 use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_bool::{BoolOperation, boolean};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -242,4 +243,61 @@ fn torus_carrying_cylinder_union_within_budget() {
     });
     // Measured 24.24 ms best-of-5 release (2026-08-14) × 5 ≈ 125 ms.
     assert_budget("torus-carrying cylinder union", measured, 125);
+}
+
+/// The 64-slot disc (the six-axis arm's R4 fixture, PK-743): the 64th
+/// slot cut against the first. Point-in-face tests visited every hole
+/// in full: the clip's hole containment sampled each hole contour, each
+/// classification ray hit sampled each inner loop, and every fragment
+/// sample walked every edge of the body. Conservative boxes (pcurve
+/// forms, edge curves) skip them with the same verdicts. Measured
+/// 3.76-3.81 interleaved (slot 0 ~20 ms, slot 63 74-78 ms); with either
+/// contour prescreen off 6.9-7.6 on a quiet machine. Heavy contention
+/// compresses the ratio (a control read 4.06 at load 30), so the gate
+/// sits at 4.6: it can pass under load, never fail because of it.
+/// The rest of the growth is attributed in PK-743's follow-ups (the
+/// walk's untouched faces, naming lineage, post-validation passes).
+#[test]
+fn slotted_disc_late_cut_stays_near_the_first() {
+    if debug_skip("64-slot disc, slot 63 vs slot 0") {
+        return;
+    }
+    let tol = tol();
+    let slot = |k: usize| {
+        let a = std::f64::consts::TAU * k as f64 / 64.0;
+        let (ca, sa, w) = (a.cos(), a.sin(), 0.6);
+        let pts = [
+            Point3::new(22.0 * ca + w * sa, 22.0 * sa - w * ca, -1.0),
+            Point3::new(27.0 * ca + w * sa, 27.0 * sa - w * ca, -1.0),
+            Point3::new(27.0 * ca - w * sa, 27.0 * sa + w * ca, -1.0),
+            Point3::new(22.0 * ca - w * sa, 22.0 * sa + w * ca, -1.0),
+        ];
+        BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 4.0, tol).expect("slot prism")
+    };
+    let cut = |body: &BRep, k: usize| {
+        boolean(BoolOperation::Subtraction, body.clone(), slot(k), tol, None).expect("slot cut")
+    };
+    let disc = BRep::cylinder(30.0, 1.5, tol).expect("disc");
+    let mut body = disc.clone();
+    for k in 0..63 {
+        body = cut(&body, k);
+    }
+    // Interleaved, so both sides of the ratio see the same contention.
+    let (mut first, mut last) = (Duration::MAX, Duration::MAX);
+    for _ in 0..7 {
+        let t0 = Instant::now();
+        cut(&disc, 0);
+        first = first.min(t0.elapsed());
+        let t0 = Instant::now();
+        cut(&body, 63);
+        last = last.min(t0.elapsed());
+    }
+    let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 4.6)"
+    );
+    assert!(
+        ratio <= 4.6,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 4.6"
+    );
 }

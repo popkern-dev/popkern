@@ -35,6 +35,25 @@ pub(crate) fn uv_point_in_loop(
     if !brep.half_edges.contains_key(start) {
         return None;
     }
+    // Outside the conservative box of the pcurves the ring is sampled
+    // from, the even-odd verdict is `false` (PK-743: every classification
+    // ray hit on a face tested each of its 64 hole loops in full).
+    let mut pcurves = Vec::new();
+    let mut walk = start;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let d = &brep.half_edges[walk];
+        pcurves.extend(d.pcurve.as_ref());
+        walk = d.next;
+        if walk == start {
+            break;
+        }
+    }
+    if !pcurves.is_empty()
+        && crate::pcurve_box::contour_uv_box(pcurves.iter().copied())
+            .is_some_and(|bx| crate::pcurve_box::outside(&bx, u, v, 0.0))
+    {
+        return Some(false);
+    }
     let mut ring: Vec<(f64, f64)> = Vec::new();
     let mut he = start;
     let cap = brep.half_edges.len() + 1;

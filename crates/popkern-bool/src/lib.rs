@@ -61,6 +61,7 @@ pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
 pub(crate) mod merge;
 pub mod merge_fallback;
+mod pcurve_box;
 pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod propagation_report;

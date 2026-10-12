@@ -291,6 +291,14 @@ fn hole_contour_contains(
     uv_point: Point3,
     tolerance: &Tolerance,
 ) -> bool {
+    // Outside the contour's conservative box it is outside the sampled
+    // polygon too: skip the 32 evaluations per hole edge (a disc with
+    // 64 slots tested every hole for every point, PK-743).
+    if crate::pcurve_box::contour_uv_box(contour.iter().map(|(_, pc)| pc))
+        .is_some_and(|bx| crate::pcurve_box::outside(&bx, uv_point.x, uv_point.y, 0.0))
+    {
+        return false;
+    }
     let mut hole_polygon = Vec::new();
     let samples_per_edge = 32;
     for (_he, pcurve) in contour {
