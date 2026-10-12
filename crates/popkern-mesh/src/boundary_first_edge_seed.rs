@@ -51,6 +51,18 @@ pub(super) fn knot_seed_and_coarsen(
             .filter(|&f| f > 1e-9 && f < 1.0 - 1e-9)
             .collect();
         seeds.dedup_by(|a, b| (*a - *b).abs() * span < 1e-12 * span.max(1.0));
+        // A seed within a quarter of its own knot span of an edge end
+        // stays out (PK-690): an edge trimmed just past a knot (the
+        // screw thread ends 1.2e-5 of a 1/13 span past one) kept a
+        // sample 1% of the local spacing from its vertex, and the
+        // needle triangle on that pair folded 82° off the surface.
+        // Dropping it leaves the end interval under 1.25 spans, still
+        // short enough that the sagitta test cannot alias.
+        seeds.retain(|&f| {
+            let k = t0 + f * (t1 - t0);
+            let span = knot_span_at(&nc.knots, k);
+            (k - t0).abs() >= 0.25 * span && (t1 - k).abs() >= 0.25 * span
+        });
         // Respect the sample budget: subsample evenly if a very
         // fine knot vector alone would exceed it.
         let budget = 4096usize;
@@ -110,6 +122,21 @@ pub(super) fn knot_seed_and_coarsen(
             *fractions = kept.iter().map(|&i| fractions[i]).collect();
         }
     }
+}
+
+/// Length of the shorter nonzero knot span touching knot value `k`.
+fn knot_span_at(knots: &[f64], k: f64) -> f64 {
+    let below = knots
+        .iter()
+        .copied()
+        .filter(|&x| x < k - 1e-12)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let above = knots
+        .iter()
+        .copied()
+        .filter(|&x| x > k + 1e-12)
+        .fold(f64::INFINITY, f64::min);
+    (k - below).min(above - k)
 }
 
 /// Seed a CLOSED edge (a full circle bounding a face on its own) with
