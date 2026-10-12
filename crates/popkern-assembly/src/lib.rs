@@ -48,6 +48,7 @@ pub mod joints;
 mod mate_clusters;
 pub mod mate_linalg;
 mod mate_predict;
+mod mate_reduced;
 pub mod mate_solve;
 mod mate_steps;
 pub mod mates;

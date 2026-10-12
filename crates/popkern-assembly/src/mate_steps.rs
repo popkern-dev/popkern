@@ -43,6 +43,21 @@ pub(crate) fn gauss_newton(problem: &Problem<'_>) -> Result<(Vec<f64>, usize), A
         iterations += li;
         if max_abs(&lr) < max_abs(&r) {
             x = lx;
+            r = lr;
+        }
+    }
+    // Both full-coordinate solves missed: a revolute chain's joint-space
+    // solve (PK-763), verified on the cluster's own residual.
+    if max_abs(&r) > MATE_TOLERANCE
+        && n > 0
+        && let Some(rx) = crate::mate_reduced::rescue(
+            problem,
+            max_abs(&problem.residual(&vec![0.0; n])?) > crate::mate_reduced::BRANCH_JUMP,
+        )?
+    {
+        let rr = problem.residual(&rx)?;
+        if max_abs(&rr) < max_abs(&r) {
+            x = rx;
         }
     }
     Ok((x, iterations))

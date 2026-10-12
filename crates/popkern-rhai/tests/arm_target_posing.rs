@@ -4,21 +4,23 @@
 //! concentric + coincident to a target that three distance mates place,
 //! all driven by one parameter `s` (home → target in one jump).
 //!
-//! The measured classes are the acceptance (the arm stays joint-driven:
-//! E4's ≥ 99% bar is not met by any local solve from home):
+//! The measured classes are the acceptance (E4's ≥ 99% bar):
 //!
-//! - **Converged** from home in one jump: ≥ 90 of 100 seeded reachable
-//!   targets (85 with Gauss–Newton alone; the Levenberg–Marquardt retry
-//!   from the start recovers the rest of the solver-basin class), each
-//!   on its target to 1e-9 mm.
+//! - **Converged** from home in one jump: ≥ 99 of 100 seeded reachable
+//!   targets, each on its target to 1e-9 mm. Measured 100: 85 with
+//!   Gauss–Newton alone, 90 with the Levenberg–Marquardt retry, 95 with
+//!   the revolute chain's joint-space solve (PK-763), 100 with its
+//!   branch seeds for a jump (each joint a half turn over).
 //! - **Solver-basin misses**: targets a damped least-squares oracle in
-//!   joint space reaches from home but the mate solve does not: ≤ 4.
+//!   joint space reaches from home but the mate solve does not: none.
 //! - **Branch misses**: the remainder, reachable only on another IK
-//!   branch (no local method from home reaches them) — PK-763.
+//!   branch.
 //! - Every miss is refused transactionally; an unreachable target is a
 //!   `MateConflict` with its residual and nothing moves.
 //! - **Continuity**: 5 mm target moves never flip a branch (no joint
-//!   turns over 10° per step).
+//!   turns over 10° per step): a request under 2% of the model is a
+//!   continuous edit and branch seeds stay off (with them on, a 5 mm
+//!   step at a branch's reach turned a joint 112°).
 
 mod arm_support;
 
@@ -337,9 +339,9 @@ fn the_flange_reaches_seeded_targets_by_mates_in_the_measured_classes() {
         "[pk726] converged {converged}/100; solver-basin misses {basin_misses:?}; \
          branch misses {branch_misses:?}"
     );
-    assert!(converged >= 90, "converged {converged}/100");
+    assert!(converged >= 99, "converged {converged}/100");
     assert!(
-        basin_misses.len() <= 4,
+        basin_misses.is_empty(),
         "solver-basin misses {basin_misses:?}"
     );
     // The Levenberg–Marquardt retry's fixture: Gauss–Newton alone

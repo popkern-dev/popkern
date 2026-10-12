@@ -317,7 +317,7 @@ pub(crate) struct Problem<'a> {
 }
 
 impl Problem<'_> {
-    fn placement(&self, x: &[f64], k: usize, root: usize) -> Placement {
+    pub(crate) fn placement(&self, x: &[f64], k: usize, root: usize) -> Placement {
         let base = self.base[root];
         let w = Vec3::new(x[6 * k], x[6 * k + 1], x[6 * k + 2]);
         let t = Vec3::new(x[6 * k + 3], x[6 * k + 4], x[6 * k + 5]) * self.size;
@@ -396,7 +396,7 @@ impl Problem<'_> {
 }
 
 /// The residual rows of one mate between world primitives.
-fn mate_rows(
+pub(crate) fn mate_rows(
     mate: &Mate,
     a: &Primitive,
     b: &Primitive,
