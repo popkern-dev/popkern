@@ -10,6 +10,7 @@ mod angular_refine;
 mod boundary_first;
 mod boundary_sew;
 mod crack_zipper;
+mod crease_flip;
 mod error;
 mod export;
 mod face_pass;

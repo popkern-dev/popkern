@@ -59,6 +59,20 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
 /// is within `max_angle` radians, or no admissible interior split
 /// remains, or the growth budget is spent.
 pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, max_angle: f64) {
+    let all: Vec<usize> = (0..mesh.triangles.len()).collect();
+    refine_face_mesh_from(mesh, surface, max_angle, &all);
+}
+
+/// [`refine_face_mesh`] starting from the triangles `seeds` only:
+/// after crease flips, only the flipped triangles can have left the
+/// bound, and re-checking the rest re-measured every chord-foot error
+/// of a 35k-triangle coil tube for nothing.
+pub(crate) fn refine_face_mesh_from(
+    mesh: &mut FaceMesh,
+    surface: &SurfaceGeometry,
+    max_angle: f64,
+    seeds: &[usize],
+) {
     if mesh.triangles.is_empty() || matches!(surface, SurfaceGeometry::Plane { .. }) {
         return;
     }
@@ -173,7 +187,11 @@ pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, m
     // its neighbour's longest first FORCES the neighbour's own
     // longest-edge split; lengths grow strictly along the path, so it
     // terminates.
-    let mut queue: Vec<(usize, bool)> = (0..mesh.triangles.len()).map(|t| (t, false)).collect();
+    let mut queue: Vec<(usize, bool)> = seeds
+        .iter()
+        .filter(|&&t| t < mesh.triangles.len())
+        .map(|&t| (t, false))
+        .collect();
     while let Some((ti, forced)) = queue.pop() {
         if mesh.triangles.len() + 2 > budget {
             break;

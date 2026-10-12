@@ -144,6 +144,27 @@ pub(crate) fn tessellate_face_pass(
                     // `tessellate_face_with_samples`).
                     if let Some(max_angle) = options.angular_bound() {
                         crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
+                        // Crease flips (see `crease_flip`): a first pass
+                        // free of the spread bound, refinement to restore
+                        // it, then a pass that keeps it. A face the first
+                        // pass leaves alone is done.
+                        let geometry = &sof.geometry;
+                        let chord = options.chord_height;
+                        let flipped = crate::crease_flip::flip_creases(
+                            &mut fm,
+                            geometry,
+                            chord,
+                            max_angle,
+                            f64::INFINITY,
+                        );
+                        if !flipped.is_empty() {
+                            crate::angular_refine::refine_face_mesh_from(
+                                &mut fm, geometry, max_angle, &flipped,
+                            );
+                            crate::crease_flip::flip_creases(
+                                &mut fm, geometry, chord, max_angle, max_angle,
+                            );
+                        }
                     }
                 }
                 return FacePassOutcome::BoundaryFirst(fm);

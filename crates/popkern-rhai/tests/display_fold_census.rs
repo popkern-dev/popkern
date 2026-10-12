@@ -19,15 +19,15 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
     ("countersunk_joint", 1, 3, 15.0),
     ("hex_bolt", 0, 3, 19.0),
     ("threaded_stud", 0, 1, 18.5),
-    // PK-687.
-    ("coil_spring", 0, 12228, 49.5),
-    ("coil_spring", 1, 2736, 25.5),
-    ("coil_spring", 2, 12879, 31.5),
-    // PK-688.
-    ("propeller", 0, 3771, 85.0),
-    // PK-689.
-    ("mixed_radius_corner", 0, 85, 29.5),
-    ("pyramid_apex", 0, 144, 30.0),
+    // PK-687 (crease flips took the coil from 12228/2736/12879 to 266/116/242).
+    ("coil_spring", 0, 266, 49.5),
+    ("coil_spring", 1, 116, 25.5),
+    ("coil_spring", 2, 242, 23.0),
+    // PK-688 (crease flips: 3771 -> 597, worst 84.9° -> 30.8°).
+    ("propeller", 0, 597, 31.0),
+    // PK-689 (crease flips: 85 -> 1 and 144 -> 15).
+    ("mixed_radius_corner", 0, 1, 21.0),
+    ("pyramid_apex", 0, 15, 29.0),
 ];
 
 fn facet_normal(p: [Point3; 3]) -> Vec3 {
