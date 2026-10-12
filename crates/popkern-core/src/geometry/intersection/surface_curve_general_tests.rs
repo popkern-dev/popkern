@@ -323,3 +323,54 @@ fn nurbs_plane_z(z: f64) -> SurfaceGeometry {
         weights: vec![1.0; n * n],
     })
 }
+
+/// PK-791: a rational NURBS circle cut by a plane 0.999 r from its
+/// centre crosses it twice, 0.0447 r apart around the circle's extreme
+/// toward the plane. Between sampled stations a segment bulges past its
+/// sampled box by up to the stations' sagitta (1.2e-3 r at 16 samples
+/// per quarter arc), so a sampled box could cull the crossing pair. The
+/// same circle in every NURBS layout (its start swept through a full
+/// turn) must report both crossings.
+#[test]
+fn near_tangent_nurbs_circle_crossings_survive_segment_culling() {
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.999, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let tol = Tolerance::default();
+    let mut misses = Vec::new();
+    for k in 0..30 {
+        let start = std::f64::consts::TAU * k as f64 / 30.0;
+        let nurbs = CurveGeometry::Arc {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+            start_angle: start,
+            end_angle: start + std::f64::consts::TAU,
+        }
+        .to_nurbs();
+        let (t0, t1) = nurbs.parameter_range();
+        let curve = CurveGeometry::Nurbs(nurbs);
+        let hits = intersect_surface_curve_general(
+            &plane,
+            (-10.0, 10.0),
+            (-10.0, 10.0),
+            &curve,
+            (t0, t1),
+            &tol,
+            false,
+        )
+        .iter()
+        .filter(|r| matches!(r, SurfaceCurveIntersection::Point { .. }))
+        .count();
+        if hits != 2 {
+            misses.push((k, hits));
+        }
+    }
+    assert!(
+        misses.is_empty(),
+        "start phases missing crossings: {misses:?}"
+    );
+}

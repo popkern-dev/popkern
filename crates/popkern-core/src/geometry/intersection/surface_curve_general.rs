@@ -69,6 +69,56 @@ fn curve_aabb(nurbs: &NurbsCurve, t_range: (f64, f64)) -> (Point3, Point3) {
     (bmin, bmax)
 }
 
+/// A box containing the single-span rational Bezier `seg` (positive
+/// weights): the union of its control hulls after splitting it into
+/// `BEZIER_HULL_PIECES` by de Casteljau in homogeneous form. A sampled
+/// box is not a bound: a segment bulges past it by up to the stations'
+/// sagitta, and a near-tangent crossing pair there was culled (PK-791:
+/// a NURBS circle 0.999 r from a plane lost both crossings in 12 of 30
+/// start phases). The split hulls converge on the true box
+/// quadratically, so the bound costs little extra culling. `None` for
+/// a curve that is not one positive-weight span.
+fn bezier_hull_box(seg: &NurbsCurve) -> Option<(Point3, Point3)> {
+    const BEZIER_HULL_PIECES: usize = 4;
+    let p = seg.degree;
+    if seg.control_points.len() != p + 1 || seg.weights.iter().any(|&w| w <= 0.0) {
+        return None;
+    }
+    let mut pieces: Vec<Vec<[f64; 4]>> = vec![
+        seg.control_points
+            .iter()
+            .zip(&seg.weights)
+            .map(|(c, &w)| [c.x * w, c.y * w, c.z * w, w])
+            .collect(),
+    ];
+    while pieces.len() < BEZIER_HULL_PIECES {
+        let mut next = Vec::with_capacity(2 * pieces.len());
+        for poly in pieces {
+            let (mut left, mut right) = (Vec::with_capacity(p + 1), vec![[0.0; 4]; p + 1]);
+            let mut row = poly;
+            for level in 0..=p {
+                left.push(row[0]);
+                right[p - level] = row[row.len() - 1];
+                row = row
+                    .windows(2)
+                    .map(|w| std::array::from_fn(|i| 0.5 * (w[0][i] + w[1][i])))
+                    .collect();
+            }
+            next.push(left);
+            next.push(right);
+        }
+        pieces = next;
+    }
+    let mut lo = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let mut hi = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for h in pieces.iter().flatten() {
+        let q = Point3::new(h[0] / h[3], h[1] / h[3], h[2] / h[3]);
+        lo = Point3::new(lo.x.min(q.x), lo.y.min(q.y), lo.z.min(q.z));
+        hi = Point3::new(hi.x.max(q.x), hi.y.max(q.y), hi.z.max(q.z));
+    }
+    Some((lo, hi))
+}
+
 /// Check AABB overlap with a tolerance margin.
 /// Whether the straight segment `a`→`b` meets the box `[lo, hi]`
 /// grown by `margin` (slab test). Exact for a segment, where the
@@ -147,8 +197,9 @@ pub(crate) fn intersect_surface_curve_general(
     let curve_segments: Vec<CurveSegment> = bezier_segments
         .into_iter()
         .map(|(seg, tr)| {
-            let (bmin, bmax) =
-                exact_conic_segment_box(curve, &seg, tr).unwrap_or_else(|| curve_aabb(&seg, tr));
+            let (bmin, bmax) = exact_conic_segment_box(curve, &seg, tr)
+                .or_else(|| bezier_hull_box(&seg))
+                .unwrap_or_else(|| curve_aabb(&seg, tr));
             CurveSegment {
                 t_range: tr,
                 min: bmin,
