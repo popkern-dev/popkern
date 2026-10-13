@@ -231,7 +231,8 @@ pub enum CurveGeometry {
 }
 
 use crate::geometry::curve_to_nurbs::{
-    arc_to_nurbs, circle_to_nurbs, ellipse_to_nurbs, hyperbola_to_nurbs, parabola_to_nurbs,
+    arc_to_nurbs, circle_to_nurbs, conic_arc_to_nurbs, ellipse_to_nurbs, hyperbola_to_nurbs,
+    parabola_to_nurbs,
 };
 
 impl CurveGeometry {
@@ -253,21 +254,40 @@ impl CurveGeometry {
                 center,
                 normal,
                 radius,
-            } => circle_to_nurbs(*center, *normal, *radius),
+            } => match angular_sub_range(t_range, (0.0, std::f64::consts::TAU)) {
+                Some((a0, a1)) => arc_to_nurbs(*center, *normal, *radius, a0, a1),
+                None => circle_to_nurbs(*center, *normal, *radius),
+            },
+            // The parameter of a circle, arc or ellipse is its angle, so
+            // the requested range is the sub-arc an edge actually uses
+            // (PK-820: a moved countersink's planar pcurves spanned the
+            // whole declared arc, 4.9 off their edge).
             CurveGeometry::Arc {
                 center,
                 normal,
                 radius,
                 start_angle,
                 end_angle,
-            } => arc_to_nurbs(*center, *normal, *radius, *start_angle, *end_angle),
+            } => {
+                let (a0, a1) = angular_sub_range(t_range, (*start_angle, *end_angle))
+                    .unwrap_or((*start_angle, *end_angle));
+                arc_to_nurbs(*center, *normal, *radius, a0, a1)
+            }
             CurveGeometry::Ellipse {
                 center,
                 u_basis,
                 v_basis,
                 start_angle,
                 end_angle,
-            } => ellipse_to_nurbs(*center, *u_basis, *v_basis, *start_angle, *end_angle),
+            } => {
+                // A sub-range takes the exact segmentation: the
+                // shoulder construction splits at parameter = angle,
+                // which a rational quadratic meets only at quarter turns.
+                match angular_sub_range(t_range, (*start_angle, *end_angle)) {
+                    Some((a0, a1)) => conic_arc_to_nurbs(*center, *u_basis, *v_basis, a0, a1),
+                    None => ellipse_to_nurbs(*center, *u_basis, *v_basis, *start_angle, *end_angle),
+                }
+            }
             CurveGeometry::Parabola {
                 vertex,
                 linear,
@@ -293,6 +313,17 @@ impl CurveGeometry {
         let range = self.parameter_range();
         self.to_nurbs_in_range(range)
     }
+}
+
+/// The ordered angular range `t_range` when it is a proper, non-empty
+/// part of `declared` (a full turn or less), else `None`: the whole
+/// declared curve is then converted as before.
+fn angular_sub_range(t_range: (f64, f64), declared: (f64, f64)) -> Option<(f64, f64)> {
+    let (a0, a1) = (t_range.0.min(t_range.1), t_range.0.max(t_range.1));
+    let (d0, d1) = (declared.0.min(declared.1), declared.0.max(declared.1));
+    let width = a1 - a0;
+    let proper = width < (d1 - d0).min(std::f64::consts::TAU) - 1e-12;
+    (a0.is_finite() && a1.is_finite() && width > 1e-12 && proper).then_some((a0, a1))
 }
 
 fn nurbs_curve_in_range(nurbs: &NurbsCurve, t_range: (f64, f64)) -> Option<NurbsCurve> {

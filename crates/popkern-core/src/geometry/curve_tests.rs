@@ -325,3 +325,68 @@ fn closest_point_on_a_closed_curve_stays_in_its_range() {
         );
     }
 }
+
+/// PK-820: a sub-range converts only that sub-arc — its NURBS starts and
+/// ends on the curve at the range ends and every sample stays inside
+/// the requested angular window.
+#[test]
+fn conic_to_nurbs_in_range_converts_only_the_sub_arc() {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    let center = Point3::new(1.0, -2.0, 0.5);
+    let normal = Vec3::new(0.0, 0.0, 1.0);
+    let curves = [
+        CurveGeometry::Arc {
+            center,
+            normal,
+            radius: 3.0,
+            start_angle: -FRAC_PI_2,
+            end_angle: 3.0 * FRAC_PI_2,
+        },
+        CurveGeometry::Circle {
+            center,
+            normal,
+            radius: 3.0,
+        },
+        CurveGeometry::Ellipse {
+            center,
+            u_basis: Vec3::new(3.0, 0.0, 0.0),
+            v_basis: Vec3::new(0.0, 1.5, 0.0),
+            start_angle: -FRAC_PI_2,
+            end_angle: 3.0 * FRAC_PI_2,
+        },
+    ];
+    for curve in &curves {
+        for range in [(-0.389, 0.389), (0.3, 2.9), (PI, PI + 1.0)] {
+            let nurbs = curve.to_nurbs_in_range(range);
+            let (k0, k1) = nurbs.parameter_range();
+            let ends = [nurbs.point_at(k0), nurbs.point_at(k1)];
+            for (end, t) in ends.iter().zip([range.0, range.1]) {
+                assert!(
+                    end.distance_to(&curve.point_at(t)) < 1e-9,
+                    "{curve:?} {range:?}: an end strays from t = {t}"
+                );
+            }
+            // Every sample lies on the curve within the window (a
+            // dense window sampling: spacing under 2e-3 here).
+            for i in 0..=32 {
+                let p = nurbs.point_at(k0 + (k1 - k0) * f64::from(i) / 32.0);
+                let nearest = (0..=4000)
+                    .map(|j| {
+                        let t = range.0 + (range.1 - range.0) * f64::from(j) / 4000.0;
+                        curve.point_at(t).distance_to(&p)
+                    })
+                    .fold(f64::MAX, f64::min);
+                assert!(
+                    nearest < 2e-3,
+                    "{curve:?} {range:?}: sample outside the window"
+                );
+            }
+        }
+    }
+    // The declared range itself converts as before (byte-identical).
+    let arc = &curves[0];
+    assert_eq!(
+        arc.to_nurbs_in_range((-FRAC_PI_2, 3.0 * FRAC_PI_2)),
+        arc.to_nurbs()
+    );
+}

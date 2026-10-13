@@ -14,6 +14,19 @@ use popkern_math::PortableMath;
 mod conic_arc;
 use conic_arc::{quarter_grid_collides, uniform_segmented_conic_arc};
 
+/// Exact rational-quadratic NURBS of the conic arc
+/// `center + cos(t)·u_basis + sin(t)·v_basis` over any `[a0, a1]`
+/// (uniform segmentation, at most a quarter turn per piece).
+pub(super) fn conic_arc_to_nurbs(
+    center: Point3,
+    u_basis: Vec3,
+    v_basis: Vec3,
+    a0: f64,
+    a1: f64,
+) -> NurbsCurve {
+    uniform_segmented_conic_arc(center, u_basis, v_basis, a0, a1)
+}
+
 /// Parameter on a circle-derived rational NURBS whose POINT sits at
 /// the requested absolute angle (measured in the `(u, v)` basis about
 /// `center`).
