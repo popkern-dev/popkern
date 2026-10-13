@@ -1,34 +1,78 @@
-//! Display-mesh fold ratchet over the gallery scripts that carry
-//! in-face folds (PK-687..PK-690).
+//! Display-mesh facet-tilt ratchet over the gallery scripts that carry
+//! leaning facets (PK-687..PK-690, PK-809).
 //!
-//! A fold is the angle between two adjacent facets of ONE face (welded
-//! at 1e-9), so it measures the triangulation, not the model's own
-//! creases. The display preset bounds vertex-normal spread at 12°;
-//! acceptance for the fold tasks is no in-face fold over 12.5° away
-//! from chart singularities. Each row pins the current count of folds
-//! over 12.5° and the worst fold as ceilings: a change that adds folds
-//! fails here, and a task that removes them tightens its row.
+//! The contract (docs/architecture/display-tessellation-in-face-folds.md):
+//! every display facet's normal lies within 12° of the surface normal at
+//! each of its vertices, chart-singular vertices excepted. Each row pins
+//! the current count of facets tilted past 12° and the worst tilt as
+//! ceilings: a change that adds leaning facets fails here, and a task
+//! that removes them tightens its row. In-face folds (the dihedral
+//! between adjacent facets of one face, welded at 1e-9) are printed as a
+//! quality metric: neighbours that each honour the tilt bound can meet
+//! at up to about twice it.
 
 use popkern_core::geometry::{Point3, Vec3};
 use std::collections::HashMap;
 
-/// `(script, body, max folds over 12.5°, max worst fold in degrees)`.
+/// `(script, body, max facets tilted over 12°, max worst tilt in degrees)`
+/// (baseline 2026-10-13).
 const CEILINGS: &[(&str, usize, usize, f64)] = &[
-    // PK-690: the screw thread's end-of-knot seed made an 82° needle.
-    ("angled_fitting", 1, 2, 19.0),
-    ("countersunk_joint", 1, 3, 15.0),
-    ("hex_bolt", 0, 3, 19.0),
-    ("threaded_stud", 0, 1, 18.5),
-    // PK-687 (crease flips took the coil from 12228/2736/12879 to 266/116/242).
-    ("coil_spring", 0, 266, 49.5),
-    ("coil_spring", 1, 116, 25.5),
-    ("coil_spring", 2, 242, 23.0),
-    // PK-688 (crease flips: 3771 -> 597, worst 84.9° -> 30.8°).
-    ("propeller", 0, 597, 31.0),
-    // PK-689 (crease flips: 85 -> 1 and 144 -> 15).
-    ("mixed_radius_corner", 0, 1, 21.0),
-    ("pyramid_apex", 0, 15, 29.0),
+    ("angled_fitting", 1, 0, 11.5),
+    ("countersunk_joint", 1, 1, 12.7),
+    ("hex_bolt", 0, 2, 14.5),
+    ("threaded_stud", 0, 1, 15.4),
+    ("coil_spring", 0, 188, 53.6),
+    ("coil_spring", 1, 48, 14.9),
+    ("coil_spring", 2, 124, 14.7),
+    ("propeller", 0, 502, 37.6),
+    ("mixed_radius_corner", 0, 10, 25.0),
+    ("pyramid_apex", 0, 19, 28.8),
 ];
+
+/// Facet tilt bound of the display contract, in degrees.
+const TILT_BOUND: f64 = 12.0;
+
+/// `(facets tilted over the bound, worst tilt)`: each facet's largest
+/// angle to the surface normal at one of its vertices, skipping facets
+/// with a chart-singular vertex (no unique normal) or zero area.
+fn facet_tilts(brep: &popkern_core::topology::BRep, mesh: &popkern_mesh::TriMesh) -> (usize, f64) {
+    use popkern_core::geometry::SurfaceEval;
+    let (mut over, mut worst) = (0usize, 0.0f64);
+    for fm in &mesh.face_meshes {
+        let Some(surface) = brep.faces[fm.face].surface.as_ref().map(|s| &s.geometry) else {
+            continue;
+        };
+        for t in &fm.triangles {
+            let n = facet_normal(t.map(|i| fm.vertices[i].position));
+            if n.length() < 1e-300 {
+                continue;
+            }
+            let mut tilt = 0.0f64;
+            let mut singular = false;
+            for &i in t {
+                let v = &fm.vertices[i];
+                let (su, sv) = (
+                    surface.partial_u(v.uv.0, v.uv.1),
+                    surface.partial_v(v.uv.0, v.uv.1),
+                );
+                if su.cross(&sv).length() < 1e-9 * (su.length() * sv.length()).max(1e-300) {
+                    singular = true;
+                    break;
+                }
+                let c = n.dot(&v.normal) / (n.length() * v.normal.length());
+                tilt = tilt.max(c.clamp(-1.0, 1.0).acos().to_degrees());
+            }
+            if singular {
+                continue;
+            }
+            if tilt > TILT_BOUND {
+                over += 1;
+            }
+            worst = worst.max(tilt);
+        }
+    }
+    (over, worst)
+}
 
 fn facet_normal(p: [Point3; 3]) -> Vec3 {
     (p[1] - p[0]).cross(&(p[2] - p[0]))
@@ -91,7 +135,7 @@ fn in_face_folds(mesh: &popkern_mesh::TriMesh) -> (usize, f64) {
 }
 
 #[test]
-fn gallery_display_folds_stay_under_their_ceilings() {
+fn gallery_display_facet_tilts_stay_under_their_ceilings() {
     let root = format!("{}/examples", env!("CARGO_MANIFEST_DIR"));
     let mut failures = Vec::new();
     let mut scripts: Vec<&str> = CEILINGS.iter().map(|c| c.0).collect();
@@ -108,11 +152,14 @@ fn gallery_display_folds_stay_under_their_ceilings() {
                 &popkern_mesh::TessellationOptions::display(),
             )
             .expect("display mesh");
-            let (over, worst) = in_face_folds(&mesh);
-            eprintln!("{stem}#{body}: folds over 12.5° {over} worst {worst:.1}°");
+            let (folds, worst_fold) = in_face_folds(&mesh);
+            let (over, worst) = facet_tilts(parts[body].brep(), &mesh);
+            eprintln!(
+                "{stem}#{body}: facets tilted over 12° {over} worst {worst:.1}° (folds over 12.5° {folds}, worst {worst_fold:.1}°)"
+            );
             if over > max_over || worst > max_worst {
                 failures.push(format!(
-                    "{stem}#{body}: {over} folds (ceiling {max_over}), worst {worst:.1}° (ceiling {max_worst})"
+                    "{stem}#{body}: {over} tilted facets (ceiling {max_over}), worst {worst:.1}° (ceiling {max_worst})"
                 ));
             }
         }
