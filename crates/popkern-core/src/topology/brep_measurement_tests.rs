@@ -164,3 +164,27 @@ fn trace_direction_classifier_bands() {
         4
     ));
 }
+
+/// PK-820 negative control: a pcurve whose trace CONTAINS its edge (run
+/// on past the edge's end, as a sub-arc edge keeping its parent's
+/// pcurve does) agrees with every edge sample by trace, so only the
+/// end-identity rule catches it.
+#[test]
+fn superset_pcurve_is_flagged_by_its_ends() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let heh = brep.half_edges.keys().next().unwrap();
+    let pcurve = brep.half_edges[heh].pcurve.as_mut().unwrap();
+    let nurbs = pcurve.as_nurbs_mut().expect("cube pcurves are NURBS");
+    let (a, b) = (nurbs.control_points[0], nurbs.control_points[1]);
+    nurbs.control_points[1] = a + (b - a) * 1.5;
+    let report = brep.measure_half_edge_pcurve_deviation(heh).unwrap();
+    assert!(
+        report.trace_direction_agrees && report.max_trace_deviation < 1e-9,
+        "the superset trace covers the edge forward: {report:?}"
+    );
+    assert!(
+        report.max_deviation > 0.1,
+        "the pcurve's end must be measured off the edge's end, measured {:.3e}",
+        report.max_deviation
+    );
+}

@@ -282,7 +282,14 @@ fn measure_pcurve_deviation(
     let mut max_deviation = 0.0_f64;
     let mut worst_fraction = 0.0_f64;
     for (frac, same_fraction_dev, trace) in &per_sample {
-        let accepted_dev = if trace_direction_agrees {
+        // The pcurve's own ends must land on the edge's ends: trace
+        // agreement alone accepts a pcurve whose trace merely CONTAINS
+        // the edge (PK-820: a moved countersink's sub-arc edge kept its
+        // parent arc's whole pcurve, 4.9 off, and its face's trim
+        // polygon misread 82 of 99 sound triangles). End identity does
+        // not depend on parameterization, so it is never excused.
+        let at_end = *frac == 0.0 || *frac == 1.0;
+        let accepted_dev = if trace_direction_agrees && !at_end {
             same_fraction_dev.min(trace.distance)
         } else {
             *same_fraction_dev
