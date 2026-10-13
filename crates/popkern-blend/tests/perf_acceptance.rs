@@ -139,8 +139,14 @@ fn analytic_plane_plane_is_at_least_5x_faster_than_nurbs_sweep() {
     let _ = time_builds(&s1, &s2, &cr, true, 10);
     let _ = time_builds(&s1, &s2, &cr, false, 10);
 
-    let analytic = time_builds(&s1, &s2, &cr, true, ITERATIONS);
-    let nurbs = time_builds(&s1, &s2, &cr, false, ITERATIONS);
+    // Interleaved rounds, fastest of each side: suite load that lands
+    // on one sequential block skewed the ratio (it read under 5x once
+    // in a full workspace run while 9.7x alone).
+    let (mut analytic, mut nurbs) = (std::time::Duration::MAX, std::time::Duration::MAX);
+    for _ in 0..5 {
+        analytic = analytic.min(time_builds(&s1, &s2, &cr, true, ITERATIONS));
+        nurbs = nurbs.min(time_builds(&s1, &s2, &cr, false, ITERATIONS));
+    }
 
     // Verify each mode produced the expected surface type on a
     // single call (cheap sanity check that the toggle actually
