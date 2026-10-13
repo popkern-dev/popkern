@@ -47,13 +47,13 @@ const FLIP_BUDGET_PER_TRIANGLE: usize = 4;
 /// Strict-improvement margin (radians) a flip must clear.
 const IMPROVEMENT: f64 = 1.0e-9;
 
-type EdgeKey = (usize, usize);
+pub(crate) type EdgeKey = (usize, usize);
 
-fn key(a: usize, b: usize) -> EdgeKey {
+pub(crate) fn key(a: usize, b: usize) -> EdgeKey {
     (a.min(b), a.max(b))
 }
 
-fn angle_between(a: Vec3, b: Vec3) -> f64 {
+pub(crate) fn angle_between(a: Vec3, b: Vec3) -> f64 {
     let (la, lb) = (a.length(), b.length());
     if la < 1e-300 || lb < 1e-300 {
         return 0.0;
@@ -61,24 +61,24 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
     (a.dot(&b) / (la * lb)).clamp(-1.0, 1.0).pacos()
 }
 
-fn facet_normal(mesh: &FaceMesh, t: [usize; 3]) -> Vec3 {
+pub(crate) fn facet_normal(mesh: &FaceMesh, t: [usize; 3]) -> Vec3 {
     let p = |k: usize| mesh.vertices[t[k]].position;
     (p(1) - p(0)).cross(&(p(2) - p(0)))
 }
 
-fn chart_area(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
+pub(crate) fn chart_area(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
     let uv = |k: usize| mesh.vertices[t[k]].uv;
     let (a, b, c) = (uv(0), uv(1), uv(2));
     0.5 * ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0))
 }
 
 /// The vertex of `t` that is neither `a` nor `b`.
-fn apex(t: [usize; 3], a: usize, b: usize) -> Option<usize> {
+pub(crate) fn apex(t: [usize; 3], a: usize, b: usize) -> Option<usize> {
     t.iter().copied().find(|&v| v != a && v != b)
 }
 
 /// Whether `t` traverses `a → b`.
-fn runs(t: [usize; 3], a: usize, b: usize) -> bool {
+pub(crate) fn runs(t: [usize; 3], a: usize, b: usize) -> bool {
     (0..3).any(|k| t[k] == a && t[(k + 1) % 3] == b)
 }
 
@@ -96,7 +96,7 @@ fn quality(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
 }
 
 /// Largest angle between a triangle's vertex normals.
-fn spread(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
+pub(crate) fn spread(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
     (0..3)
         .map(|k| {
             angle_between(
@@ -121,7 +121,12 @@ fn crease(mesh: &FaceMesh, edge_tris: &HashMap<EdgeKey, Vec<usize>>, e: EdgeKey)
 /// Distance between a chord's midpoint and the surface point over its
 /// chart midpoint; `None` when that point leaves the chord's
 /// neighbourhood (the chart midpoint crossed a seam or singularity).
-fn chord_sag(mesh: &FaceMesh, surface: &SurfaceGeometry, a: usize, b: usize) -> Option<f64> {
+pub(crate) fn chord_sag(
+    mesh: &FaceMesh,
+    surface: &SurfaceGeometry,
+    a: usize,
+    b: usize,
+) -> Option<f64> {
     let (va, vb) = (&mesh.vertices[a], &mesh.vertices[b]);
     let uv = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
     let mid = Point3::new(

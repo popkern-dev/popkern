@@ -16,20 +16,19 @@ use std::collections::HashMap;
 
 /// `(script, body, max facets tilted over 12°, max worst tilt in degrees)`.
 const CEILINGS: &[(&str, usize, usize, f64)] = &[
-    // E1 (cross-face boundary split + cap flips + apex collapse) took
-    // countersunk, threaded_stud and coil #1 to 0; coil #0 188 -> 117
-    // (worst 53.1 -> 28.2) under the spread guard, pyramid 19 -> 4,
-    // mixed corner 10 -> 5.
+    // E1 (cross-face boundary caps) then E4 steps (3D Delaunay flips,
+    // shear-aware chart Delaunay, obtuse-facet bisection): from the
+    // 2026-10-13 baseline 0/1/2/1/188/48/124/502/10/19.
     ("angled_fitting", 1, 0, 11.5),
     ("countersunk_joint", 1, 0, 12.0),
     ("hex_bolt", 0, 1, 13.3),
     ("threaded_stud", 0, 0, 12.0),
-    ("coil_spring", 0, 117, 28.7),
+    ("coil_spring", 0, 57, 21.7),
     ("coil_spring", 1, 0, 12.0),
-    ("coil_spring", 2, 72, 14.1),
-    ("propeller", 0, 461, 37.6),
-    ("mixed_radius_corner", 0, 5, 13.4),
-    ("pyramid_apex", 0, 4, 14.4),
+    ("coil_spring", 2, 38, 14.1),
+    ("propeller", 0, 74, 17.3),
+    ("mixed_radius_corner", 0, 0, 12.0),
+    ("pyramid_apex", 0, 0, 12.0),
 ];
 
 /// Edges of the globally welded display mesh (bit-identical positions)

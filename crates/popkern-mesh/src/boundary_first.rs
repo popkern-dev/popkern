@@ -346,14 +346,23 @@ pub(crate) fn tessellate_face_boundary_first(
     // lattice (measured: plate-rim strips meshed boundary-only,
     // every triangle a rail-to-rail chord, volume 0.5% low — PK-218).
     // The same scale feeds the Delaunay incircle predicate below.
-    let (su, sv) = {
+    let (su, sv, shear, sv_sheared) = {
         let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
         let p = surface.point_at(um, vm);
         let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
         let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
-        let du = surface.point_at(um + eps_u, vm).distance_to(&p) / eps_u;
-        let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
-        (du.max(1e-9), dv.max(1e-9))
+        let pu = (surface.point_at(um + eps_u, vm) - p) * (1.0 / eps_u);
+        let pv = (surface.point_at(um, vm + eps_v) - p) * (1.0 / eps_v);
+        let (du, dv) = (pu.length().max(1e-9), pv.length().max(1e-9));
+        // The chart's shear (F of the first fundamental form) enters
+        // the Delaunay metric through its Cholesky factor: a twisted
+        // blade's chart maps uv-good triangles to near-collinear 3D
+        // caps under a diagonal scale (E4: propeller facets 176-178 deg
+        // obtuse, leaning 30-40 deg off their vertex normals).
+        let f = pu.dot(&pv);
+        let shear = f / du;
+        let rest = (dv * dv - shear * shear).max((1e-3 * dv).powi(2)).sqrt();
+        (du, dv, shear, rest)
     };
     // Per-direction lattice spacings (metric).
     let cells = ((su * (u1 - u0)) / n_u as f64, (sv * (v1 - v0)) / n_v as f64);
@@ -415,7 +424,7 @@ pub(crate) fn tessellate_face_boundary_first(
         pm.distance_to(&chord_mid) <= options.chord_height
     };
     // Delaunay metric: the surface metric, v compressed on ruled lattices.
-    let mut tri_scale = (su, sv);
+    let mut tri_scale = (su, shear, sv_sheared);
     if ruled_v {
         let compress = boundary_first_ruled_lattice::ruled_lattice(
             &rings,
@@ -429,6 +438,7 @@ pub(crate) fn tessellate_face_boundary_first(
         );
         if boundary_first_ruled_lattice::ruled_everywhere(surface, (u0, u1, v0, v1), chord) {
             tri_scale.1 *= compress;
+            tri_scale.2 *= compress;
         }
     } else {
         let mut census = [0usize; 3]; // region, clearance, kept

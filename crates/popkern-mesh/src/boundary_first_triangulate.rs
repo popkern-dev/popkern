@@ -8,7 +8,8 @@ use super::boundary_first_delaunay::bowyer_watson;
 use super::boundary_first_edge_samples;
 use super::boundary_first_ring_index::RingIndex;
 
-/// Delaunay of `uv_pts` in the metric-scaled chart, constrained to
+/// Delaunay of `uv_pts` in the metric-scaled chart (`(u, v) ->
+/// (u ku + v kuv, v kv)`: the chart metric's Cholesky factor), constrained to
 /// the boundary rings (`ring_ranges`: each ring's index range, closed),
 /// filtered to the trim region and wound counter-clockwise in the
 /// chart. A ring segment the unconstrained triangulation dropped is
@@ -28,7 +29,7 @@ use super::boundary_first_ring_index::RingIndex;
 pub(super) fn triangulate_region(
     face_handle: popkern_core::topology::FaceHandle,
     uv_pts: &[(f64, f64)],
-    (su, sv): (f64, f64),
+    (ku, kuv, kv): (f64, f64, f64),
     ring_index: &RingIndex,
     ring_ranges: &[(usize, usize)],
 ) -> Option<(Vec<[usize; 3]>, Vec<usize>)> {
@@ -45,7 +46,7 @@ pub(super) fn triangulate_region(
     }
     let bw_pts: Vec<(f64, f64)> = canon
         .iter()
-        .map(|&i| (uv_pts[i].0 * su, uv_pts[i].1 * sv))
+        .map(|&i| (uv_pts[i].0 * ku + uv_pts[i].1 * kuv, uv_pts[i].1 * kv))
         .collect();
     let mut tris = bowyer_watson(&bw_pts)?;
     boundary_first_edge_samples::delaunay_audit(face_handle, &bw_pts, &tris);

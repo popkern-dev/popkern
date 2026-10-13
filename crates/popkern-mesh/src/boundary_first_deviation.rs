@@ -43,7 +43,7 @@ pub(super) struct Chart<'a> {
     pub scale: (f64, f64),
     /// The chart's Delaunay scale (the metric, anisotropically
     /// compressed on ruled lattices).
-    pub tri_scale: (f64, f64),
+    pub tri_scale: (f64, f64, f64),
     /// Region, clearance and containment queries.
     pub ring_index: &'a RingIndex,
     /// Each ring's index range in the point list.
@@ -76,8 +76,11 @@ pub(super) fn refine_by_deviation(
             (start..end).map(move |a| (a, start + (a + 1 - start) % (end - start)))
         })
         .collect();
-    let (ku, kv) = chart.tri_scale;
-    let scaled: Vec<(f64, f64)> = uv_pts.iter().map(|&(u, v)| (u * ku, v * kv)).collect();
+    let (ku, kuv, kv) = chart.tri_scale;
+    let scaled: Vec<(f64, f64)> = uv_pts
+        .iter()
+        .map(|&(u, v)| (u * ku + v * kuv, v * kv))
+        .collect();
     let Some(mut cdt) = ConstrainedMesh::new(&scaled, triangles, &segments) else {
         return;
     };
@@ -91,7 +94,7 @@ pub(super) fn refine_by_deviation(
         }
         let kept = uv_pts.len();
         for q in &added {
-            if cdt.insert((q.0 * ku, q.1 * kv)).is_some() {
+            if cdt.insert((q.0 * ku + q.1 * kuv, q.1 * kv)).is_some() {
                 uv_pts.push(*q);
                 pos_pts.push(None);
             }
