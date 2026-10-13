@@ -54,7 +54,7 @@ use serde::{Deserialize, Serialize};
 use popkern_core::geometry::certify::SeamCertificate;
 
 pub use crate::blend_continuity_certification::ContinuityCertification;
-use crate::blend_continuity_certification::{certify_seam_for_evidence, evidence_certify_options};
+use crate::blend_continuity_certification::{certify_gated_seams, evidence_certify_options};
 use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 use crate::types::ContinuityLevel;
 
@@ -372,8 +372,6 @@ pub fn measure_blend_continuity_evidence_with(
         let worst = measure_edge_seam(&seam, samples_per_seam, EVIDENCE_END_MARGIN);
         let blend_face = [adjacency.face_b, adjacency.face_a][usize::from(a_in)];
         let gated = seam_intent.gated(kind, &worst, &adjacency, blend_face);
-        let certificate =
-            (gated && inline).then(|| certify_seam_for_evidence(brep, edge_handle, &certify));
         seams.push(SeamContinuityRecord {
             edge: edge_handle,
             kind,
@@ -385,11 +383,12 @@ pub fn measure_blend_continuity_evidence_with(
             worst_normal_angle_deg: worst.angle_deg,
             best_g1_normal: worst.best_g1,
             worst_g2_residual: worst.g2.max(worst.g2_transverse),
-            certificate,
+            certificate: None,
             certification_deferred: gated && !inline,
             skipped_curvature_samples: worst.skipped_curvature,
         });
     }
+    certify_gated_seams(brep, &mut seams, &certify, inline);
     let mut evidence = BlendContinuityEvidence {
         requested,
         achieved: ContinuityLevel::G0,

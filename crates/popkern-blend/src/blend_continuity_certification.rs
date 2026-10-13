@@ -126,3 +126,35 @@ pub(crate) fn certify_seam_for_evidence(
 ) -> SeamCertificate {
     certify_edge_seam(brep, edge, options)
 }
+
+/// Certify every gated seam of `seams` when `inline` (deferred
+/// certification leaves them to the caller). Each certificate is a
+/// pure function of the body and its seam, so the seams certify in
+/// parallel and land in the same records in the same order (PK-817:
+/// certification was ~90% of a fin root-loop fillet, 50-100 ms per
+/// seam, serially).
+pub(crate) fn certify_gated_seams(
+    brep: &BRep,
+    seams: &mut [crate::blend_continuity_evidence::SeamContinuityRecord],
+    options: &SeamCertifyOptions,
+    inline: bool,
+) {
+    if !inline {
+        return;
+    }
+    let certify_one = |record: &crate::blend_continuity_evidence::SeamContinuityRecord| {
+        record
+            .gated
+            .then(|| certify_seam_for_evidence(brep, record.edge, options))
+    };
+    #[cfg(feature = "parallel")]
+    let certificates: Vec<Option<SeamCertificate>> = {
+        use rayon::prelude::*;
+        seams.par_iter().map(certify_one).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let certificates: Vec<Option<SeamCertificate>> = seams.iter().map(certify_one).collect();
+    for (record, certificate) in seams.iter_mut().zip(certificates) {
+        record.certificate = certificate;
+    }
+}
