@@ -258,3 +258,48 @@ fn cone_moment_of_inertia_about_axis() {
         "cone Iz should be ~{expected}, got {moi_z}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Curved-body volume: exact-surface quadrature (PK-807)
+// ---------------------------------------------------------------------------
+
+/// Curved bodies integrate the exact surface over the tessellation's
+/// parameter triangles and take planar terms from the edge curves, so
+/// analytic bodies read their analytic volumes (the flat-facet volume
+/// was off by the facet sagitta: a sphere of radius 1 read -0.06%).
+#[test]
+fn curved_body_volumes_match_their_analytic_values() {
+    use std::f64::consts::PI;
+    let tol = Tolerance::default();
+    let cases = [
+        (
+            "cylinder r1 h2",
+            BRep::cylinder(1.0, 2.0, tol).unwrap(),
+            2.0 * PI,
+        ),
+        ("sphere r1", BRep::sphere(1.0, tol).unwrap(), 4.0 / 3.0 * PI),
+        (
+            "cone r1 h2",
+            BRep::cone(1.0, 2.0, tol).unwrap(),
+            2.0 / 3.0 * PI,
+        ),
+    ];
+    for (name, body, exact) in cases {
+        let v = body_volume(&body, &tol).unwrap();
+        assert!((v - exact).abs() < 1e-9 * exact, "{name}: {v} vs {exact}");
+    }
+}
+
+#[test]
+fn bored_cube_volume_is_exact() {
+    use popkern_core::geometry::transform::Transform3;
+    let tol = Tolerance::default();
+    let bore = BRep::cylinder(0.15, 3.0, tol)
+        .unwrap()
+        .transform(&Transform3::translation(0.5, 0.5, -1.0))
+        .unwrap();
+    let bored = popkern_bool::subtraction(BRep::unit_cube(tol).unwrap(), bore, tol, None).unwrap();
+    let exact = 1.0 - std::f64::consts::PI * 0.0225;
+    let v = body_volume(&bored, &tol).unwrap();
+    assert!((v - exact).abs() < 1e-9, "{v} vs {exact}");
+}

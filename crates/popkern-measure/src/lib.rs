@@ -31,6 +31,7 @@ mod angle;
 pub use angle::{dihedral_angle, edge_angle};
 
 mod body;
+mod body_quadrature;
 
 pub use body::{
     Axis, BoundingBox, body_bounding_box, body_centroid, body_moment_of_inertia, body_surface_area,

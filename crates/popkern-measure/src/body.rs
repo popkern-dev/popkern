@@ -117,22 +117,11 @@ pub fn body_volume(brep: &BRep, _tol: &Tolerance) -> Result<f64, MeasureError> {
         return native_divergence_volume(brep);
     }
 
-    // Fallback: tessellate and apply divergence theorem on triangles.
+    // Curved bodies: the fine tessellation's triangles integrated on
+    // the exact surface (see `body_quadrature`).
     let mesh = tessellate_fine(brep)?;
-
-    let volume: f64 = mesh
-        .triangles
-        .iter()
-        .map(|tri| {
-            let v0 = to_vec3(mesh.vertices[tri[0]].position);
-            let v1 = to_vec3(mesh.vertices[tri[1]].position);
-            let v2 = to_vec3(mesh.vertices[tri[2]].position);
-            signed_tet_volume(v0, v1, v2)
-        })
-        .sum::<f64>()
-        .abs();
-
-    Ok(volume)
+    let gate = 100.0 * brep.tolerance.linear().max(1e-9);
+    Ok(crate::body_quadrature::quadrature_volume(brep, &mesh, gate).abs())
 }
 
 /// Volume via divergence theorem, computing each face's contribution

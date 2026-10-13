@@ -1,9 +1,9 @@
 //! Exact area of a planar face from its boundary curves.
 //!
 //! By Stokes, a closed planar loop's vector area is `½ ∮ p × p′ dt`.
-//! Summing over every loop of the face, each traversed the way its
-//! half-edges run, subtracts the holes from the outer region: the
-//! inner loops wind opposite to the outer one. Integrating the edge
+//! The face's vector area is the outer loop's, less each hole's
+//! magnitude along the outer loop's normal (holes need not wind
+//! opposite to the outer loop). Integrating the edge
 //! CURVES (not the polygon through the vertices) is what makes a
 //! circular hole bounded by one closed edge count (PK-771).
 
@@ -44,9 +44,10 @@ const CONIC_PANEL: f64 = std::f64::consts::FRAC_PI_4;
 /// on four.
 const NURBS_SPAN_PANELS: usize = 4;
 
-/// Vector area of a planar face, `½ Σ ∮ (p − o) × p′ dt` over its
-/// outer and inner loops: its length is the net area (outer region
-/// minus holes) and it points along the loops' winding normal. `o`
+/// Vector area of a planar face: the outer loop's `½ ∮ (p − o) × p′ dt`
+/// less each inner loop's magnitude along it; its length is the net
+/// area (outer region minus holes) and it points along the outer
+/// loop's winding normal. `o`
 /// is any point; closed loops make the sum independent of it, and
 /// the face's first vertex keeps the products well conditioned.
 /// `None` when a loop is not a well-formed ring.
@@ -57,11 +58,19 @@ pub(crate) fn planar_face_vector_area(brep: &BRep, face: FaceHandle) -> Option<V
         .get(brep.loops.get(face_data.outer_loop)?.half_edge)
         .and_then(|he| brep.vertices.get(he.origin))?
         .position;
-    let mut twice = loop_moment(brep, face_data.outer_loop, origin)?;
+    // Holes subtract by magnitude along the outer loop's normal, not by
+    // their winding: an inner loop wound like its outer one (a tube
+    // cap's bore rim, measured on the arm's forearm tube) otherwise
+    // ADDED its disc and the tube read 3.9x its volume.
+    let outer = loop_moment(brep, face_data.outer_loop, origin)?;
+    let Some(normal) = outer.normalized() else {
+        return Some(outer * 0.5);
+    };
+    let mut net = outer.dot(&normal);
     for &inner in &face_data.inner_loops {
-        twice = twice + loop_moment(brep, inner, origin)?;
+        net -= loop_moment(brep, inner, origin)?.dot(&normal).abs();
     }
-    Some(twice * 0.5)
+    Some(normal * (0.5 * net))
 }
 
 /// A planar face's divergence-theorem volume term `⅓ ∬ p · n dA`:
