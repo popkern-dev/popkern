@@ -125,6 +125,13 @@ pub(crate) struct StepCache {
     chain: Vec<(FeatureId, Option<StepKey>)>,
     /// The state at the freeze point, pinned when a replay passes it.
     frozen: Option<(usize, DocumentState)>,
+    /// Per feature, the step whose record last wrote the node's
+    /// `last_result` (executed under that key or republished from it).
+    /// A republish from the same key would rewrite an equal value, so
+    /// it skips the copy (PK-805: every recorded feature re-copied the
+    /// naming history of every earlier one). Any other write clears
+    /// the entry; an empty map only costs copies.
+    node_results: HashMap<FeatureId, StepKey>,
 }
 
 impl Default for StepCache {
@@ -142,6 +149,7 @@ impl StepCache {
             tick: 0,
             chain: Vec::new(),
             frozen: None,
+            node_results: HashMap::new(),
         }
     }
 
@@ -234,10 +242,30 @@ impl StepCache {
     }
 
     /// Remove every record, the chain and the frozen state.
+    /// Record which step's record the node of `id` now holds as its
+    /// `last_result` (`None`: a write no record matches).
+    pub(crate) fn note_node_result(&mut self, id: FeatureId, key: Option<StepKey>) {
+        match key {
+            Some(key) => {
+                self.node_results.insert(id, key);
+            }
+            None => {
+                self.node_results.remove(&id);
+            }
+        }
+    }
+
+    /// Whether the node of `id` holds the `last_result` the record of
+    /// `key` wrote.
+    pub(crate) fn node_holds(&self, id: FeatureId, key: StepKey) -> bool {
+        self.node_results.get(&id) == Some(&key)
+    }
+
     pub(crate) fn clear(&mut self) {
         self.records.clear();
         self.chain.clear();
         self.frozen = None;
+        self.node_results.clear();
     }
 
     /// Estimated bytes of every kept state, shared bodies counted once.

@@ -117,3 +117,23 @@ fn migration_edit_failures_carry_the_same_payload() {
     // The rejected edit is rolled back: the original fillet still serves.
     assert!(m.replay().expect("replay").failures().next().is_none());
 }
+
+#[test]
+fn a_declined_feature_recorded_again_declines_again() {
+    // PK-805: the recorder reads only the EXECUTED steps' results
+    // (`replay_appended`). Re-recording a rolled-back failure verbatim
+    // repeats the step's content but not its feature id, and cached
+    // records resume only for their own id, so the second attempt
+    // executes and declines again rather than replaying a stale serve.
+    let mut m = Model::new();
+    let cube = unit_cube(&mut m);
+    for attempt in 0..2 {
+        let err = cube
+            .fillet(&mut m, edges(), 0.9)
+            .expect_err("r = 0.9 on every unit-cube edge cannot construct");
+        assert!(
+            err.feature_failure().is_some(),
+            "attempt {attempt}: {err:?}"
+        );
+    }
+}

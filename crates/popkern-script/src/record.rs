@@ -38,7 +38,9 @@ pub(crate) fn record_feature(
         .feature(id)
         .map(|n| n.label.clone())
         .unwrap_or_default();
-    let outcome = tree.replay(tolerance);
+    // Only the new feature's result is read: the earlier steps'
+    // results are not copied out (`replay_appended`).
+    let outcome = tree.replay_appended(tolerance);
     *geometry_current = tree.rollback_position().is_none();
     let failure = match outcome {
         Ok(result) => match result.feature_results.get(&id) {

@@ -92,6 +92,11 @@ impl FeatureTree {
         for i in from..to {
             let id = self.timeline[i];
             let published = self.replay_step(id, &mut body_breps, &mut carry, tolerance)?;
+            if published.last_result.is_some() {
+                // The node now holds what this step's record will.
+                let key = keys.get(i).copied().flatten();
+                self.cache.note_node_result(id, key);
+            }
             let touched = match &published.touched {
                 StepTouched::Nothing => Touched::Bodies(&none),
                 StepTouched::Bodies(set) => Touched::Bodies(set),
@@ -189,25 +194,49 @@ impl FeatureTree {
         keys: &[Option<StepKey>],
         from: usize,
         results: &mut HashMap<FeatureId, FeatureResult>,
+        prefix_results: bool,
     ) -> ReplayReport {
         let mut rows = ReplayReport::default();
         for key in keys.iter().take(from).flatten() {
-            let Some(record) = self.cache.get(*key).cloned() else {
+            // Copy only what republishing needs: the record's kept
+            // document state (bodies included) is never republished,
+            // a node already holding this record's `last_result` is
+            // not rewritten, and a caller that reads no prefix results
+            // gets none. Copying all three per prefix step made every
+            // recorded feature cost O(history) (PK-805).
+            let Some(id) = self.cache.get(*key).map(|r| r.feature) else {
                 continue;
             };
-            let id = record.feature;
-            results.insert(id, record.result);
-            if let Some(last) = record.last_result {
+            let holds = self.cache.node_holds(id, *key);
+            let Some(record) = self.cache.get(*key) else {
+                continue;
+            };
+            let result = prefix_results.then(|| record.result.clone());
+            let last_result = if holds {
+                None
+            } else {
+                record.last_result.clone()
+            };
+            let (deferred, merged_into, row) = (
+                record.deferred.clone(),
+                record.merged_into,
+                record.row.clone(),
+            );
+            if let Some(result) = result {
+                results.insert(id, result);
+            }
+            if let Some(last) = last_result {
                 self.features[id].last_result = Some(last);
+                self.cache.note_node_result(id, Some(*key));
             }
             self.forget_deferred_body(id);
-            if let Some(body) = record.deferred {
+            if let Some(body) = deferred {
                 self.deferred.bodies.insert(id, body);
             }
-            if let Some(host) = record.merged_into {
+            if let Some(host) = merged_into {
                 self.merged_into.insert(id, host);
             }
-            rows.features.extend(record.row);
+            rows.features.extend(row);
         }
         rows
     }
@@ -217,12 +246,15 @@ impl FeatureTree {
     /// publish the result: bodies, report, and the cache chain. The
     /// returned report carries the republished rows too when
     /// `report_cached` is set (a whole-document replay reports every
-    /// feature); otherwise only the executed steps' rows.
+    /// feature); otherwise only the executed steps' rows. The returned
+    /// `feature_results` carry the skipped steps' results only when
+    /// `prefix_results` is set (the executed steps' always).
     pub(crate) fn replay_resuming(
         &mut self,
         end: usize,
         limit: usize,
         report_cached: bool,
+        prefix_results: bool,
         tolerance: Tolerance,
     ) -> Result<ReplayResult, ReplayError> {
         let start = popkern_core::time::Stopwatch::start();
@@ -235,7 +267,7 @@ impl FeatureTree {
             _ => self.resume_point(&keys, limit.min(end)),
         };
         let mut out = self.replay_range(state, from, end, &keys, &tolerance)?;
-        let mut cached = self.republish_prefix(&keys, from, &mut out.results);
+        let mut cached = self.republish_prefix(&keys, from, &mut out.results, prefix_results);
         self.store_body_breps(&out.bodies);
         self.last_report.absorb(cached.clone(), &self.timeline);
         self.last_report.absorb(out.report.clone(), &self.timeline);

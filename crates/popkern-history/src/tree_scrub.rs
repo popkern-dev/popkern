@@ -37,7 +37,26 @@ impl FeatureTree {
     /// [`ReplayResult::feature_results`].
     pub fn replay(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
         let end = self.rollback_end();
-        self.replay_resuming(end, end, true, tolerance)
+        self.replay_resuming(end, end, true, true, tolerance)
+    }
+
+    /// [`FeatureTree::replay`] for a caller that only reads what the
+    /// replay EXECUTED: identical bodies, tree state and
+    /// [`FeatureTree::last_report`], but [`ReplayResult::feature_results`]
+    /// carries only the executed steps (the cached prefix's results,
+    /// naming histories included, are not copied out). A feature added
+    /// since the last replay always executes: cached records are
+    /// resumed only for the feature id that produced them. The recorder
+    /// appends one feature per call and reads that feature's result:
+    /// copying every earlier feature's history per call made a script
+    /// quadratic in its feature count (PK-805).
+    ///
+    /// # Errors
+    ///
+    /// As [`FeatureTree::replay`].
+    pub fn replay_appended(&mut self, tolerance: Tolerance) -> Result<ReplayResult, ReplayError> {
+        let end = self.rollback_end();
+        self.replay_resuming(end, end, true, false, tolerance)
     }
 
     /// Replay re-executing every step from `id` on: at most the steps
@@ -59,7 +78,7 @@ impl FeatureTree {
             .position(|&fid| fid == id)
             .ok_or(HistoryError::FeatureNotFound)?;
         let end = self.rollback_end();
-        self.replay_resuming(end, pos, false, tolerance)
+        self.replay_resuming(end, pos, false, true, tolerance)
     }
 
     /// Replay executing every step (only a frozen prefix is skipped).
@@ -73,7 +92,7 @@ impl FeatureTree {
         tolerance: Tolerance,
     ) -> Result<ReplayResult, ReplayError> {
         let end = self.rollback_end();
-        self.replay_resuming(end, 0, true, tolerance)
+        self.replay_resuming(end, 0, true, true, tolerance)
     }
 
     fn rollback_end(&self) -> usize {
