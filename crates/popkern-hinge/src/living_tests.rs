@@ -112,8 +112,10 @@ fn two_hundred_slots_build_in_one_extrusion() {
     // Gated as an interleaved ratio, min of three runs, so suite
     // contention scales both sides (PK-810: an absolute 1.0 s budget
     // tripped at 1.11 s under full-suite load). 50 -> 200 slots reads
-    // 10.8x today (growth ~n^1.7); a quadratic reads 16x and the
-    // PK-709 regression 200x, which the 5 s backstop also catches.
+    // 5.0x (linear is 4x) since the sketch self-intersection check
+    // sweeps boxes instead of testing every edge pair (PK-811, which
+    // read 10.8x); a quadratic reads 16x and the PK-709 regression 200x,
+    // which the 5 s backstop also catches.
     // Load can still land on one side of a single interleaved
     // measurement (nextest's parallel crate run read 14.5x once), so
     // up to three measurements run and the best ratio counts: a real
@@ -133,7 +135,7 @@ fn two_hundred_slots_build_in_one_extrusion() {
         if l / s.max(1e-9) < ratio {
             (ratio, small, large) = (l / s.max(1e-9), s, l);
         }
-        if ratio < 14.0 {
+        if ratio < 8.0 {
             break;
         }
     }
@@ -143,7 +145,7 @@ fn two_hundred_slots_build_in_one_extrusion() {
         body.faces.len()
     );
     assert!(
-        ratio < 14.0,
+        ratio < 8.0,
         "200 slots cost {ratio:.1}x 50 slots ({large:.3} s vs {small:.3} s): growth is quadratic"
     );
     assert!(large < 5.0, "200 slots took {large:.3} s");

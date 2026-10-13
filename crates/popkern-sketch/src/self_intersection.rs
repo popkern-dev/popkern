@@ -51,19 +51,46 @@ fn check_loop_self_intersection(
     // Polyline-approximate each edge for intersection testing.
     let polylines: Vec<Vec<(f64, f64)>> = edges.iter().map(|e| sample_edge(e, sketch)).collect();
 
-    for i in 0..n {
-        for j in (i + 1)..n {
-            // Skip adjacent edges (they share a vertex naturally).
-            if are_adjacent(i, j, n) {
-                continue;
+    // Only polylines whose boxes overlap can cross. Sort-and-sweep
+    // over the boxes finds those pairs in O(n log n + k); they are then
+    // tested in (i, j) order, so the reported crossing is the one the
+    // all-pairs scan found first (PK-811: the all-pairs scan was 80% of
+    // a 200-slot living hinge's build, quadratic in the slot count).
+    // Adjacent edges share a vertex naturally and are skipped.
+    let boxes: Vec<[f64; 4]> = polylines
+        .iter()
+        .map(|poly| {
+            poly.iter().fold(
+                [
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                ],
+                |b, p| [b[0].min(p.0), b[1].max(p.0), b[2].min(p.1), b[3].max(p.1)],
+            )
+        })
+        .collect();
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| boxes[a][0].total_cmp(&boxes[b][0]));
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (k, &a) in order.iter().enumerate() {
+        for &b in &order[k + 1..] {
+            if boxes[b][0] > boxes[a][1] {
+                break;
             }
-
-            if let Some((x, y)) = check_polyline_crossing(&polylines[i], &polylines[j], tolerance) {
-                return Err(SketchError::SelfIntersectingProfile(x, y));
+            let y_overlap = boxes[b][2] <= boxes[a][3] && boxes[a][2] <= boxes[b][3];
+            if y_overlap && !are_adjacent(a, b, n) {
+                pairs.push((a.min(b), a.max(b)));
             }
         }
     }
-
+    pairs.sort_unstable();
+    for (i, j) in pairs {
+        if let Some((x, y)) = check_polyline_crossing(&polylines[i], &polylines[j], tolerance) {
+            return Err(SketchError::SelfIntersectingProfile(x, y));
+        }
+    }
     Ok(())
 }
 
