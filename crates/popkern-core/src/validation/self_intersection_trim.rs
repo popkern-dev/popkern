@@ -343,7 +343,12 @@ impl BRep {
         point: &Point3,
         linear_tol: f64,
     ) -> Option<TrimContainment> {
-        let (u, v) = crate::geometry::uv_projection::project_point_to_uv(surface, point)?;
+        // Multi-sheet: on a multi-turn helical face the construction
+        // projector's basins land on a neighbouring turn, and the
+        // distance guard below then reads a point ON the face Outside
+        // (PK-821) — hiding a real crossing there.
+        let (u, v) =
+            crate::geometry::uv_projection::project_point_to_uv_multisheet(surface, point)?;
         let projected = surface.point_at(u, v);
         if projected.distance_to(point) > linear_tol * 10.0 {
             return Some(TrimContainment::Outside);

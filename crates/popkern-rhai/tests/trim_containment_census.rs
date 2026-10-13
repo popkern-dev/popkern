@@ -5,6 +5,10 @@
 //! (six chords per corner arc left the sliver between chord and arc
 //! Outside) and a die's spherical pip, a polar cap whose seam pcurves
 //! both sit on one branch (the cap's polygon collapsed to zero area).
+//! Centroids project with `face_point_trim_containment` (multi-sheet):
+//! on multi-turn helical thread and coil faces the construction
+//! projector landed 1551..2806 centroids per body on a neighbouring
+//! turn (PK-821).
 
 use popkern_core::validation::FaceUvContainment;
 
@@ -37,13 +41,9 @@ fn outside_counts(script: &str) -> Vec<(String, usize, usize)> {
                     (a.y + b.y + c.y) / 3.0,
                     (a.z + b.z + c.z) / 3.0,
                 );
-                let Some((u, v)) =
-                    popkern_core::geometry::uv_projection::project_point_to_uv(surface, &centroid)
-                else {
-                    continue;
-                };
-                if brep.face_uv_trim_containment(fm.face, surface, u, v)
-                    == Some(FaceUvContainment::Outside)
+                if brep
+                    .face_point_trim_containment(fm.face, &centroid)
+                    .is_some_and(|c| c.containment == FaceUvContainment::Outside)
                 {
                     outside += 1;
                 }
@@ -76,4 +76,20 @@ fn a_die_pip_cap_contains_its_own_triangles() {
         rows.is_empty(),
         "sphere triangles classified Outside: {rows:?}"
     );
+}
+
+#[test]
+fn helical_thread_and_coil_faces_contain_their_own_triangles() {
+    for script in [
+        "hex_bolt",
+        "angled_fitting",
+        "countersunk_joint",
+        "coil_spring",
+    ] {
+        let rows = outside_counts(script);
+        assert!(
+            rows.is_empty(),
+            "{script}: triangles classified Outside: {rows:?}"
+        );
+    }
 }

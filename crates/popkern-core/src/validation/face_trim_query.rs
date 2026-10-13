@@ -59,3 +59,42 @@ impl BRep {
         })
     }
 }
+
+/// A point's place on a face: its chart parameters, its distance from
+/// the surface there, and its trim containment.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FacePointContainment {
+    /// Chart parameters of the point's closest preimage.
+    pub uv: (f64, f64),
+    /// Distance from the point to the surface at `uv`.
+    pub distance: f64,
+    /// Trim containment of `uv`.
+    pub containment: FaceUvContainment,
+}
+
+impl BRep {
+    /// Classify a 3D point against `face`: project it onto the face's
+    /// surface with the multi-sheet projection (a point ON a multi-turn
+    /// helical face must not land on a neighbouring turn — the
+    /// construction projector's tuned basins did for 1551..2806 display
+    /// triangle centroids per threaded body, all read Outside, PK-821)
+    /// and classify the preimage. The caller judges `distance` against
+    /// its own tolerance (a display facet's centroid sits its sagitta
+    /// off the surface). `None` when the face has no surface or the
+    /// projection or trim data is unusable.
+    pub fn face_point_trim_containment(
+        &self,
+        face: FaceHandle,
+        point: &crate::geometry::Point3,
+    ) -> Option<FacePointContainment> {
+        use crate::geometry::surface::SurfaceEval;
+        let surface = &self.faces.get(face)?.surface.as_ref()?.geometry;
+        let (u, v) =
+            crate::geometry::uv_projection::project_point_to_uv_multisheet(surface, point)?;
+        Some(FacePointContainment {
+            uv: (u, v),
+            distance: surface.point_at(u, v).distance_to(point),
+            containment: self.face_uv_trim_containment(face, surface, u, v)?,
+        })
+    }
+}
