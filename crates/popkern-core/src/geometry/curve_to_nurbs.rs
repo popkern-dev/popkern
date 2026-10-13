@@ -183,16 +183,19 @@ pub(super) fn ellipse_full_to_nurbs(center: Point3, u_basis: Vec3, v_basis: Vec3
     }
 }
 
-/// Build a NURBS elliptical arc by constructing the full ellipse
-/// and splitting to the arc range.
+/// Build a NURBS elliptical arc over the angles `start_angle` to
+/// `end_angle` taken in increasing order (as [`arc_to_nurbs`] does): the
+/// full ellipse for a whole turn from 0, else the exact uniform
+/// segmentation.
 ///
-/// Terminal-sliver guard (PK-257): when an endpoint lands within
-/// atan2-noise of the full ellipse's quarter grid, the split strands
-/// a sub-tolerance nano piece with a full-multiplicity break (the
-/// PK-255 class — oblique fillet-end sections are ellipse arcs and
-/// carried it exactly like the circular ones). Those arcs take the
-/// uniform segmentation; the rational-quadratic shoulder construction
-/// is exact on ellipses by affine invariance.
+/// Splitting the full ellipse at `t = angle` (the former construction)
+/// cut it at the wrong points — a rational quadratic's parameter meets
+/// the angle only at quarter turns (a 3 x 1.5 arc over [0.3, 2.9] ended
+/// 2.7e-2 off its end points) — and returned the WHOLE ellipse for a
+/// negative or decreasing range (measured on pyramid3: blend end
+/// sections over [-1.012, -pi] converted to a full r = 0.1 circle, end
+/// error 0.2; PK-824). The segmentation is exact by affine invariance
+/// and never strands a terminal sliver (PK-257).
 pub(super) fn ellipse_to_nurbs(
     center: Point3,
     u_basis: Vec3,
@@ -200,26 +203,13 @@ pub(super) fn ellipse_to_nurbs(
     start_angle: f64,
     end_angle: f64,
 ) -> NurbsCurve {
-    if quarter_grid_collides(0.0, start_angle, end_angle) {
-        return uniform_segmented_conic_arc(center, u_basis, v_basis, start_angle, end_angle);
+    use std::f64::consts::TAU;
+    let a0 = start_angle.min(end_angle);
+    let a1 = start_angle.max(end_angle).min(a0 + TAU);
+    if a0 == 0.0 && a1 == TAU {
+        return ellipse_full_to_nurbs(center, u_basis, v_basis);
     }
-    let full = ellipse_full_to_nurbs(center, u_basis, v_basis);
-    let right = if start_angle > 0.0 {
-        match full.split_at(start_angle) {
-            Ok((_l, r)) => r,
-            Err(_) => full,
-        }
-    } else {
-        full
-    };
-    if end_angle < std::f64::consts::TAU {
-        match right.split_at(end_angle) {
-            Ok((l, _r)) => l,
-            Err(_) => right,
-        }
-    } else {
-        right
-    }
+    uniform_segmented_conic_arc(center, u_basis, v_basis, a0, a1)
 }
 
 /// Build an exact degree-2 Bézier-equivalent NURBS for a parabolic

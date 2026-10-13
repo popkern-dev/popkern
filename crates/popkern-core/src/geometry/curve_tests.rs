@@ -383,6 +383,27 @@ fn conic_to_nurbs_in_range_converts_only_the_sub_arc() {
             }
         }
     }
+    // Declared ellipse arcs end on their own end points, in increasing
+    // angle order (PK-824: the split at t = angle missed them by 2.7e-2,
+    // and a negative or decreasing range came back as the whole ellipse).
+    for declared in [(0.3, 2.9), (-0.389, 0.389), (1.0, 5.0), (-1.012, -PI)] {
+        let ellipse = CurveGeometry::Ellipse {
+            center,
+            u_basis: Vec3::new(3.0, 0.0, 0.0),
+            v_basis: Vec3::new(0.0, 1.5, 0.0),
+            start_angle: declared.0,
+            end_angle: declared.1,
+        };
+        let n = ellipse.to_nurbs();
+        let (k0, k1) = n.parameter_range();
+        let (lo, hi) = (declared.0.min(declared.1), declared.0.max(declared.1));
+        for (end, t) in [(k0, lo), (k1, hi)] {
+            assert!(
+                n.point_at(end).distance_to(&ellipse.point_at(t)) < 1e-9,
+                "ellipse over {declared:?}: an end strays from t = {t}"
+            );
+        }
+    }
     // The declared range itself converts as before (byte-identical).
     let arc = &curves[0];
     assert_eq!(

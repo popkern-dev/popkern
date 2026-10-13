@@ -18,13 +18,12 @@
 //!   machine zero. The sign-change-honest fast path no longer calls
 //!   hover an intersection; these corners serve DirectApex with no
 //!   repair and no retry.
-//! - cube [0.15, 0.1, 0.1]: the first pass's cap rim wraps three
-//!   quarters round the r=0.1 strip, behind its axis (PK-792): the
-//!   strip's loops wind once round the cylinder and bound no region.
-//!   The historical "crossing cleared by the footprint repair" was the
-//!   trim classifier misreading the wrapped strip; the winding check
-//!   names the defect and the corner takes the exclusion re-run
-//!   (setback rung, clean) with no repair.
+//! - cube [0.15, 0.1, 0.1]: the historical "crossing the footprint
+//!   repair clears" was a cap rim wrapping three quarters round the
+//!   r=0.1 strip, built from reversed-range end-section ellipses that
+//!   converted to whole circles (PK-822/824). With exact conversion
+//!   the first pass bounds its faces and only creases: the PK-597
+//!   crease re-run serves the setback rung, no repair.
 //! - cube [0.05, 0.1, 0.2]: serves DirectApex clean with no repair
 //!   and no retry (PK-255: terminal-sliver knot hygiene + period-
 //!   honest acceptance sampling; quality bars pinned in-crate by
@@ -68,6 +67,10 @@ fn pyramid_default_result(radii: [f64; 4]) -> BlendResult {
 }
 
 fn cube_default_result(radii: [f64; 3]) -> BlendResult {
+    cube_result_with(radii, &FilletOptions::default())
+}
+
+fn cube_result_with(radii: [f64; 3], options: &FilletOptions) -> BlendResult {
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).unwrap();
     let corner = brep
@@ -98,7 +101,7 @@ fn cube_default_result(radii: [f64; 3]) -> BlendResult {
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None).expect("cube fillet")
+    fillet_edges(&brep, &specs, options, tol, None).expect("cube fillet")
 }
 
 /// Whether the serve took PK-597's crease re-run (a direct-apex cap
@@ -175,29 +178,49 @@ fn hover_pyramid_corners_serve_direct() {
     assert_direct_clean_serve("pyramid4 [0.04,0.06,0.05,0.055]", &result);
 }
 
-/// The cube [0.15, 0.1, 0.1] first pass is not a repairable crossing:
-/// its cap rim runs three quarters round the r = 0.1 strip, behind the
-/// axis through the solid, so the strip's loops wind once round the
-/// cylinder and bound no region of it (PK-792). The footprint repair
-/// moves cap interiors only and cannot shorten a rim — its historical
-/// "cleared" record was the trim classifier misreading the wrapped
-/// strip. The structural defect sends the corner straight to the
-/// exclusion re-run, which serves the setback rung clean.
+/// The cube [0.15, 0.1, 0.1] first pass bounds every face: its strip
+/// end sections were reversed-range ellipse arcs that converted to the
+/// WHOLE r = 0.1 circle, so the cap rim wrapped three quarters round the
+/// strip behind its axis (PK-822; the conversion is PK-824). That wrap
+/// was what three pins called a crossing the PK-251 footprint repair
+/// cleared. Now the first pass has no winding defect and no crossing:
+/// its cap only creases across its own seams, so PK-597's crease
+/// re-run serves the setback rung with no footprint repair.
 #[test]
-fn cube_wrapped_strip_rim_takes_the_exclusion_rerun() {
+fn cube_mixed_corner_first_pass_bounds_its_faces_and_crease_reruns() {
     let label = "cube [0.15,0.1,0.1]";
+    let first = cube_result_with(
+        [0.15, 0.1, 0.1],
+        &FilletOptions {
+            serving_self_intersection_retry: false,
+            ..FilletOptions::default()
+        },
+    );
+    let winding: Vec<_> = first
+        .brep
+        .validate_all()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::LoopPeriodWinding { .. }
+            )
+        })
+        .collect();
+    assert!(
+        winding.is_empty(),
+        "{label}: first pass trims bound regions: {winding:?}"
+    );
     let result = cube_default_result([0.15, 0.1, 0.1]);
     let repairs = &result.repair_report.serving_footprint_repairs;
     assert!(
         repairs.is_empty(),
-        "{label}: a wrapped rim is not footprint-repaired: {repairs:?}"
+        "{label}: no crossing to repair: {repairs:?}"
     );
-    let retries = &result.repair_report.serving_self_intersection_retries;
     assert!(
-        retries
-            .iter()
-            .any(|retry| retry.detail.contains("served trim bounds no region")),
-        "{label}: the wrapped rim takes the exclusion re-run: {retries:?}"
+        crease_rerun(&result),
+        "{label}: the crease re-run serves: {:?}",
+        result.repair_report.serving_self_intersection_retries
     );
     let errors = result.brep.validate_all();
     assert!(
