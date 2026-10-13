@@ -17,7 +17,7 @@ use crate::{cancellation, progress};
 mod probes;
 use probes::{
     served_direct_apex_creases, served_direct_apex_self_intersections,
-    serving_shape_declined_corners,
+    served_direct_apex_unbounded_trims, serving_shape_declined_corners,
 };
 
 /// Entry for [`fillet_edges`] + cancellable/progress variants: one
@@ -88,6 +88,7 @@ fn fillet_edges_serving(
     // base-corner class); excluding the corner BEFORE anchor splitting
     // re-places perp-walk anchors and the vertex-blend dispatch serves clean.
     let mut declined = serving_shape_declined_corners(&first);
+    declined.extend(served_direct_apex_unbounded_trims(&first));
     declined.extend(served_direct_apex_creases(&first));
     if offending.is_empty() && declined.is_empty() {
         return Ok(first);
@@ -191,7 +192,8 @@ fn fillet_edges_serving(
                 !offending.is_empty() || !declined.is_empty(),
             );
             let retried_offending = served_direct_apex_self_intersections(&retried);
-            let retried_declined = serving_shape_declined_corners(&retried);
+            let mut retried_declined = serving_shape_declined_corners(&retried);
+            retried_declined.extend(served_direct_apex_unbounded_trims(&retried));
             let retried_score = serve_score(
                 &retried,
                 &excluded,

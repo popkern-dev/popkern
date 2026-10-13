@@ -23,6 +23,7 @@ mod self_intersection_twist;
 pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
 mod canonical_forward_arbitration;
+mod loop_period_winding;
 mod pcurve_presence;
 mod winding_honesty;
 
@@ -233,6 +234,9 @@ impl BRep {
         // falls back to untrimmed grids. Serving-boundary only:
         // mid-pipeline states clear pcurves for re-authoring.
         errors.extend(self.validate_pcurve_presence_all());
+        // A face's loops must bound a region of a periodic chart
+        // (PK-792): a net period winding is an edge run the long way.
+        errors.extend(self.validate_loop_period_winding_all());
         if let Err(e) = self.validate_loop_closure() {
             errors.push(e);
         }

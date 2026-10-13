@@ -18,13 +18,13 @@
 //!   machine zero. The sign-change-honest fast path no longer calls
 //!   hover an intersection; these corners serve DirectApex with no
 //!   repair and no retry.
-//! - cube [0.15, 0.1, 0.1]: the one genuinely crossing fixture — the
-//!   cap sector crosses the neighbour r=0.1 strip's retained footprint
-//!   (sign changes through the cylinder). The serving repair CLEARS it
-//!   (material sense orients pushes out of material; the dip is
-//!   measured by scanning the crossing band's UV window, not inferred
-//!   at Greville abscissae). Serves DirectApex with one cleared repair
-//!   record and no retry.
+//! - cube [0.15, 0.1, 0.1]: the first pass's cap rim wraps three
+//!   quarters round the r=0.1 strip, behind its axis (PK-792): the
+//!   strip's loops wind once round the cylinder and bound no region.
+//!   The historical "crossing cleared by the footprint repair" was the
+//!   trim classifier misreading the wrapped strip; the winding check
+//!   names the defect and the corner takes the exclusion re-run
+//!   (setback rung, clean) with no repair.
 //! - cube [0.05, 0.1, 0.2]: serves DirectApex clean with no repair
 //!   and no retry (PK-255: terminal-sliver knot hygiene + period-
 //!   honest acceptance sampling; quality bars pinned in-crate by
@@ -175,41 +175,34 @@ fn hover_pyramid_corners_serve_direct() {
     assert_direct_clean_serve("pyramid4 [0.04,0.06,0.05,0.055]", &result);
 }
 
-/// The cube's interior crossing of a neighbour strip is repairable:
-/// the serving repair clears it (material-sense-oriented, scan-depth
-/// pushes) and no self-intersection retry runs.
+/// The cube [0.15, 0.1, 0.1] first pass is not a repairable crossing:
+/// its cap rim runs three quarters round the r = 0.1 strip, behind the
+/// axis through the solid, so the strip's loops wind once round the
+/// cylinder and bound no region of it (PK-792). The footprint repair
+/// moves cap interiors only and cannot shorten a rim — its historical
+/// "cleared" record was the trim classifier misreading the wrapped
+/// strip. The structural defect sends the corner straight to the
+/// exclusion re-run, which serves the setback rung clean.
 #[test]
-fn cube_interior_crossing_repairs_to_direct_serve() {
+fn cube_wrapped_strip_rim_takes_the_exclusion_rerun() {
+    let label = "cube [0.15,0.1,0.1]";
     let result = cube_default_result([0.15, 0.1, 0.1]);
     let repairs = &result.repair_report.serving_footprint_repairs;
-    assert_eq!(
-        repairs.len(),
-        1,
-        "cube [0.15,0.1,0.1]: repair must be recorded: {repairs:?}"
-    );
     assert!(
-        repairs[0].cleared && repairs[0].detail == "cleared",
-        "cube [0.15,0.1,0.1]: the repair must clear the crossing: {repairs:?}"
+        repairs.is_empty(),
+        "{label}: a wrapped rim is not footprint-repaired: {repairs:?}"
     );
-    // The cleared repair leaves no crossing to retry; the repaired cap
-    // still creases across its own seams (certified 2.4e-1), so PK-597's
-    // crease re-run serves the corner on the setback rung.
+    let retries = &result.repair_report.serving_self_intersection_retries;
     assert!(
-        result
-            .repair_report
-            .serving_self_intersection_retries
+        retries
             .iter()
-            .all(|retry| retry.detail.contains("served cap-cap crease")),
-        "cube [0.15,0.1,0.1]: a cleared repair must not take a self-intersection retry"
-    );
-    assert!(
-        crease_rerun(&result),
-        "cube [0.15,0.1,0.1]: the crease re-run serves"
+            .any(|retry| retry.detail.contains("served trim bounds no region")),
+        "{label}: the wrapped rim takes the exclusion re-run: {retries:?}"
     );
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "cube [0.15,0.1,0.1]: the re-run serve must validate clean: {errors:?}"
+        "{label}: the re-run serve must validate clean: {errors:?}"
     );
 }
 

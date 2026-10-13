@@ -397,6 +397,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::TwistedSurface { face } => {
             vec![EntityRef::Face(*face)]
         }
+        ValidationError::LoopPeriodWinding { face, .. } => {
+            vec![EntityRef::Face(*face)]
+        }
         ValidationError::Precision { .. } => Vec::new(),
     }
 }

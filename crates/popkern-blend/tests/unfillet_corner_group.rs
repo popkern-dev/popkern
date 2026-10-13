@@ -248,14 +248,14 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     );
 }
 
-/// PK-250/PK-253/PK-597 pin: with the serving-boundary retry opted in,
-/// the mixed [0.15, 0.1, 0.1] corner's direct-apex candidate crosses a
-/// strip (strip 9v1 Cylinder r=0.1 × cap sector Nurbs) and the PK-251
-/// footprint repair clears the crossing in place — but the repaired cap
-/// still creases across its own seams (certified cap-cap normal sine
-/// 2.4e-1, body G0), so PK-597's crease check sends the corner to the
-/// exclusion re-run. The retry record names the crease; the served body
-/// validates clean and certifies G1 (g1 1.6e-6).
+/// PK-250/PK-597/PK-792 pin: with the serving-boundary retry opted in,
+/// the mixed [0.15, 0.1, 0.1] corner's direct-apex candidate wraps its
+/// cap rim three quarters round strip 9v1 (Cylinder r = 0.1): the
+/// strip's loops wind once round the cylinder and bound no region of
+/// it, so the corner takes the exclusion re-run with no footprint
+/// repair (the historical "cleared" repair was the trim classifier
+/// misreading the wrapped strip). The served body validates clean and
+/// certifies G1 (g1 1.6e-6) on the setback rung.
 #[test]
 fn direct_mixed_15_10_10_retry_serves_clean() {
     let options = FilletOptions {
@@ -264,21 +264,16 @@ fn direct_mixed_15_10_10_retry_serves_clean() {
     };
     let r = capped_corner_result_with([0.15, 0.1, 0.1], &options);
     let repairs = &r.repair_report.serving_footprint_repairs;
-    assert_eq!(
-        repairs.len(),
-        1,
-        "exactly one serving footprint repair: {repairs:?}"
-    );
     assert!(
-        repairs[0].cleared,
-        "the repair clears the crossing in place: {repairs:?}"
+        repairs.is_empty(),
+        "a wrapped rim is not footprint-repaired: {repairs:?}"
     );
     let retries = &r.repair_report.serving_self_intersection_retries;
     assert!(
         retries
             .iter()
-            .any(|retry| retry.detail.contains("served cap-cap crease")),
-        "the creased cap takes the exclusion re-run: {retries:?}"
+            .any(|retry| retry.detail.contains("served trim bounds no region")),
+        "the wrapped rim takes the exclusion re-run: {retries:?}"
     );
     assert!(
         r.corner_patches.iter().all(|p| p.setback_cap),

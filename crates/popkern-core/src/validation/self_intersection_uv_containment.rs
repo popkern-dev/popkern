@@ -211,7 +211,10 @@ pub(super) fn assemble_periodic_polygon(
         .filter_map(|(i, s)| s.pole_jump_before.then_some(i))
         .collect();
 
-    let assemble = |raw_branch_chains: &[usize]| -> Vec<UvPoint> {
+    // `raw_branch_chains`: (chain start, extra whole periods) — a
+    // listed chain re-enters on its raw branch shifted by that many
+    // periods.
+    let assemble = |raw_branch_chains: &[(usize, f64)]| -> Vec<UvPoint> {
         let mut polygon: Vec<UvPoint> = Vec::with_capacity(raw.len());
         let mut anchor_k = 0.0_f64;
         for (i, s) in raw.iter().enumerate() {
@@ -222,7 +225,10 @@ pub(super) fn assemble_periodic_polygon(
                 push_distinct_uv(&mut polygon, folded);
                 continue;
             }
-            if s.pole_jump_before && raw_branch_chains.contains(&i) {
+            if let Some(&(_, extra)) = raw_branch_chains
+                .iter()
+                .find(|(start, _)| s.pole_jump_before && *start == i)
+            {
                 // Bridge along the degenerate row: enter the row at the
                 // previous chain's branch, exit at this chain's raw
                 // branch (shifted by the loop's query anchoring).
@@ -231,7 +237,7 @@ pub(super) fn assemble_periodic_polygon(
                 push_distinct_uv(
                     &mut polygon,
                     UvPoint {
-                        u: s.uv.u + anchor_k * TAU,
+                        u: s.uv.u + (anchor_k + extra) * TAU,
                         v,
                     },
                 );
@@ -273,15 +279,28 @@ pub(super) fn assemble_periodic_polygon(
     // all-fold first, and serve the first valid non-degenerate variant.
     let m = chain_starts.len();
     for mask in 1u32..(1 << m) {
-        let selected: Vec<usize> = chain_starts
+        let selected: Vec<(usize, f64)> = chain_starts
             .iter()
             .enumerate()
             .filter(|(bit, _)| (mask >> bit) & 1 == 1)
-            .map(|(_, &idx)| idx)
+            .map(|(_, &idx)| (idx, 0.0))
             .collect();
         let candidate = assemble(&selected);
         if candidate.len() >= 3 && closure_ok(&candidate) && area(&candidate).abs() > 1.0e-9 {
             return candidate;
+        }
+    }
+    // A loop that walks a seam down to a pole and back up on the SAME
+    // raw branch (both seam pcurves at u = 0, a spherical dimple whose
+    // cap holds the pole) has no branch to fall back on: the second
+    // copy belongs a whole period over, closing the cap along the pole
+    // row (PK-792: every point of such a cap read Outside).
+    for &start in &chain_starts {
+        for extra in [-1.0, 1.0] {
+            let candidate = assemble(&[(start, extra)]);
+            if candidate.len() >= 3 && closure_ok(&candidate) && area(&candidate).abs() > 1.0e-9 {
+                return candidate;
+            }
         }
     }
     folded_polygon

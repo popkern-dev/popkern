@@ -80,7 +80,8 @@ fn validation_error_residual(err: &ValidationError) -> Option<f64> {
 fn validation_error_face(err: &ValidationError) -> Option<FaceHandle> {
     match err {
         ValidationError::InconsistentOrientation { face }
-        | ValidationError::TwistedSurface { face } => Some(*face),
+        | ValidationError::TwistedSurface { face }
+        | ValidationError::LoopPeriodWinding { face, .. } => Some(*face),
         ValidationError::SelfIntersection { face_a, .. } => Some(*face_a),
         _ => None,
     }

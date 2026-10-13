@@ -159,6 +159,22 @@ pub enum ValidationError {
         total: usize,
     },
 
+    /// A face's loops leave a net winding around a periodic chart with
+    /// no collapsed row, so they bound no region of it: some edge runs
+    /// the long way round the period (PK-792).
+    #[error(
+        "Face {face:?}: its loops wind {winding_u} times round the u period and \
+         {winding_v} times round the v period instead of cancelling"
+    )]
+    LoopPeriodWinding {
+        /// The face whose trim bounds no region.
+        face: FaceHandle,
+        /// Net winding of all the face's loops round the u period.
+        winding_u: i64,
+        /// Net winding of all the face's loops round the v period.
+        winding_v: i64,
+    },
+
     /// A face's surface normal reverses direction (surface folds over itself).
     #[error("Twisted surface on face {face:?}")]
     TwistedSurface {

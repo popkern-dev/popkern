@@ -168,23 +168,27 @@ fn mirrored_corner_bridge_winding_serves_direct_clean() {
     assert_crease_rerun_serve("cube [0.15,0.1,0.1] @ (0,0,0)", &result);
 }
 
-/// The [0.15, 0.1, 0.1] neighbour's footprint repair still clears its
-/// strip crossing in place, but the repaired cap creases across its own
-/// seams (certified 2.4e-1, PK-597; its pre-PK-255 serve measured
-/// worst_g1 0.959), so the corner takes the exclusion re-run.
+/// The [0.15, 0.1, 0.1] neighbour's first pass wraps its cap rim three
+/// quarters round the r = 0.1 strip (the strip's loops wind once round
+/// the cylinder, PK-792), so the corner takes the exclusion re-run with
+/// no footprint repair — the historical "cleared" repair was the trim
+/// classifier misreading the wrapped strip.
 #[test]
-fn interior_crossing_neighbor_serves_repaired_at_commercial_quality() {
+fn wrapped_rim_neighbor_serves_the_exclusion_rerun_at_commercial_quality() {
     let result = cube_corner_result([0.15, 0.1, 0.1], [1.0, 1.0, 1.0]);
     let label = "cube [0.15,0.1,0.1] @ (1,1,1)";
     let repairs = &result.repair_report.serving_footprint_repairs;
-    assert_eq!(
-        repairs.len(),
-        1,
-        "{label}: repair must be recorded: {repairs:?}"
+    assert!(
+        repairs.is_empty(),
+        "{label}: a wrapped rim is not footprint-repaired: {repairs:?}"
     );
     assert!(
-        repairs[0].cleared,
-        "{label}: the repair must clear: {repairs:?}"
+        result
+            .repair_report
+            .serving_self_intersection_retries
+            .iter()
+            .any(|retry| retry.detail.contains("served trim bounds no region")),
+        "{label}: the wrapped rim names the re-run"
     );
     assert_crease_rerun_serve(label, &result);
 }

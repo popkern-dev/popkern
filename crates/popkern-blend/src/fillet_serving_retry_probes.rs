@@ -35,6 +35,40 @@ pub(super) fn serving_shape_declined_corners(
         .collect()
 }
 
+/// Served direct-apex corners whose region has a face whose loops
+/// bound no region of its periodic chart (an edge run the long way
+/// round, PK-792: a cube corner cap's rim wrapped three quarters round
+/// its r = 0.1 strip). Structural, so the corner takes the exclusion
+/// re-run directly: a footprint repair moves cap interiors only and
+/// cannot shorten a rim.
+pub(super) fn served_direct_apex_unbounded_trims(
+    result: &BlendResult,
+) -> Vec<(popkern_core::topology::VertexHandle, String)> {
+    result
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| {
+            matches!(route.route, crate::types::ApexConstructionRoute::DirectApex)
+                && !route.built_faces.is_empty()
+        })
+        .filter_map(|route| {
+            let region = crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
+                candidate_region(&result.brep, &route.built_faces);
+            result
+                .brep
+                .validate_loop_period_winding_among(&region)
+                .first()
+                .map(|error| {
+                    (
+                        route.vertex,
+                        format!("served trim bounds no region: {error}"),
+                    )
+                })
+        })
+        .collect()
+}
+
 /// Served direct-apex corners whose region self-intersects, with the
 /// validator's face-pair detail.
 pub(super) fn served_direct_apex_self_intersections(
