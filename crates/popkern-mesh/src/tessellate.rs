@@ -834,6 +834,16 @@ fn tessellate_brep_reusing(
     let t0 = popkern_core::time::Stopwatch::start();
     orient_face_meshes_coherently(brep, &mut face_meshes);
     tracker.finish_stage("tessellate.orient", t0, face_meshes.len());
+    // Display contract (facet tilt): leaning boundary facets split their
+    // boundary chord on the edge curve in every face carrying it.
+    if std::env::var("ZZ_NOE1").is_err()
+        && let Some(bound) = options.angular_bound()
+    {
+        let t0 = popkern_core::time::Stopwatch::start();
+        let changed =
+            crate::boundary_cap_split::split_leaning_boundary_caps(brep, &mut face_meshes, bound);
+        tracker.finish_stage("tessellate.boundary_caps", t0, changed.len());
+    }
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
     let mut mesh = TriMesh::from_face_meshes(face_meshes);

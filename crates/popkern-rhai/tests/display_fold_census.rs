@@ -14,20 +14,53 @@
 use popkern_core::geometry::{Point3, Vec3};
 use std::collections::HashMap;
 
-/// `(script, body, max facets tilted over 12°, max worst tilt in degrees)`
-/// (baseline 2026-10-13).
+/// `(script, body, max facets tilted over 12°, max worst tilt in degrees)`.
 const CEILINGS: &[(&str, usize, usize, f64)] = &[
+    // E1 (cross-face boundary split + cap flips + apex collapse) took
+    // countersunk, threaded_stud and coil #1 to 0; coil #0 188 -> 117
+    // (worst 53.1 -> 28.2) under the spread guard, pyramid 19 -> 4,
+    // mixed corner 10 -> 5.
     ("angled_fitting", 1, 0, 11.5),
-    ("countersunk_joint", 1, 1, 12.7),
-    ("hex_bolt", 0, 2, 14.5),
-    ("threaded_stud", 0, 1, 15.4),
-    ("coil_spring", 0, 188, 53.6),
-    ("coil_spring", 1, 48, 14.9),
-    ("coil_spring", 2, 124, 14.7),
-    ("propeller", 0, 502, 37.6),
-    ("mixed_radius_corner", 0, 10, 25.0),
-    ("pyramid_apex", 0, 19, 28.8),
+    ("countersunk_joint", 1, 0, 12.0),
+    ("hex_bolt", 0, 1, 13.3),
+    ("threaded_stud", 0, 0, 12.0),
+    ("coil_spring", 0, 117, 28.7),
+    ("coil_spring", 1, 0, 12.0),
+    ("coil_spring", 2, 72, 14.1),
+    ("propeller", 0, 461, 37.6),
+    ("mixed_radius_corner", 0, 5, 13.4),
+    ("pyramid_apex", 0, 4, 14.4),
 ];
+
+/// Edges of the globally welded display mesh (bit-identical positions)
+/// used by one triangle (open) or more than two (non-manifold).
+fn welded_defects(mesh: &popkern_mesh::TriMesh) -> (usize, usize) {
+    let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+    let ids: Vec<usize> = mesh
+        .vertices
+        .iter()
+        .map(|v| {
+            let n = weld.len();
+            let p = v.position;
+            *weld
+                .entry([p.x.to_bits(), p.y.to_bits(), p.z.to_bits()])
+                .or_insert(n)
+        })
+        .collect();
+    let mut uses: HashMap<(usize, usize), usize> = HashMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (ids[t[k]], ids[t[(k + 1) % 3]]);
+            if a != b {
+                *uses.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+    }
+    (
+        uses.values().filter(|&&c| c == 1).count(),
+        uses.values().filter(|&&c| c > 2).count(),
+    )
+}
 
 /// Facet tilt bound of the display contract, in degrees.
 const TILT_BOUND: f64 = 12.0;
@@ -157,6 +190,12 @@ fn gallery_display_facet_tilts_stay_under_their_ceilings() {
             eprintln!(
                 "{stem}#{body}: facets tilted over 12° {over} worst {worst:.1}° (folds over 12.5° {folds}, worst {worst_fold:.1}°)"
             );
+            let (open, nonmanifold) = welded_defects(&mesh);
+            if open + nonmanifold > 0 {
+                failures.push(format!(
+                    "{stem}#{body}: welded display mesh has {open} open and {nonmanifold} non-manifold edges"
+                ));
+            }
             if over > max_over || worst > max_worst {
                 failures.push(format!(
                     "{stem}#{body}: {over} tilted facets (ceiling {max_over}), worst {worst:.1}° (ceiling {max_worst})"

@@ -7,6 +7,7 @@
 
 mod adaptive;
 mod angular_refine;
+mod boundary_cap_split;
 mod boundary_first;
 mod boundary_sew;
 mod crack_zipper;
