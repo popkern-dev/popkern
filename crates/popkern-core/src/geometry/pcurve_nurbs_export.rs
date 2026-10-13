@@ -90,6 +90,52 @@ const ERROR_PROBES_PER_SPAN: usize = 4;
 /// Returns the fit and its measured deviation (the best fit found when
 /// the tolerance is out of reach).
 pub(super) fn analytic_to_nurbs_within(pcurve: &Pcurve, uv_tolerance: f64) -> (NurbsCurve, f64) {
+    let key = (format!("{pcurve:?}"), uv_tolerance.to_bits());
+    if let Some(hit) = EXPORT_MEMO
+        .get_or_init(Default::default)
+        .lock()
+        .ok()
+        .and_then(|memo| memo.map.get(&key).cloned())
+    {
+        return hit;
+    }
+    let fit = fit_analytic_within(pcurve, uv_tolerance);
+    if let Ok(mut memo) = EXPORT_MEMO.get_or_init(Default::default).lock() {
+        if memo.order.len() >= EXPORT_MEMO_CAPACITY
+            && let Some(oldest) = memo.order.pop_front()
+        {
+            memo.map.remove(&oldest);
+        }
+        if memo.map.insert(key.clone(), fit.clone()).is_none() {
+            memo.order.push_back(key);
+        }
+    }
+    fit
+}
+
+/// Memo of [`analytic_to_nurbs_within`], keyed by the pcurve's exact
+/// value (its `Debug` form prints every float in round-trip form) and
+/// the tolerance's bits. The fit is a pure function of both, so the
+/// memo cannot change an answer; it exists because the boolean clip
+/// re-converts the same boundary trims for every face pair and every
+/// later boolean on the body (PK-802: the 64-slot disc refitted its
+/// rim circle, a 256-span degree-5 solve of about 4 ms, four times
+/// per slot cut). Bounded first-in first-out.
+static EXPORT_MEMO: std::sync::OnceLock<std::sync::Mutex<ExportMemo>> = std::sync::OnceLock::new();
+
+/// Entries [`EXPORT_MEMO`] keeps.
+const EXPORT_MEMO_CAPACITY: usize = 512;
+
+type ExportKey = (String, u64);
+
+#[derive(Default)]
+struct ExportMemo {
+    map: std::collections::HashMap<ExportKey, (NurbsCurve, f64)>,
+    order: std::collections::VecDeque<ExportKey>,
+}
+
+/// The fit [`analytic_to_nurbs_within`] memoizes.
+fn fit_analytic_within(pcurve: &Pcurve, uv_tolerance: f64) -> (NurbsCurve, f64) {
     let ascending = if pcurve.t_start > pcurve.t_end {
         Pcurve {
             geometry: pcurve.geometry.clone(),

@@ -35,8 +35,18 @@ pub(crate) fn intersect_nurbs_nurbs(
         return results;
     }
 
-    // 1. Overlap detection
-    let overlaps = overlap::detect_overlaps(curve1, t1_range, curve2, t2_range, tolerance);
+    // 1. Overlap detection, prefiltered by curve2's span hulls (the
+    // same decomposition step 2 uses).
+    let segments2 = decompose_to_bezier(curve2, t2_range);
+    let hulls2: Vec<(Point3, Point3)> = if curve2.weights.iter().all(|&w| w > 0.0) {
+        segments2
+            .iter()
+            .map(|(seg, _)| control_box(&seg.control_points))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let overlaps = overlap::detect_overlaps(curve1, t1_range, curve2, t2_range, &hulls2, tolerance);
     if !overlaps.is_empty() {
         results.extend(overlaps);
         return results;
@@ -44,7 +54,6 @@ pub(crate) fn intersect_nurbs_nurbs(
 
     // 2. Bezier decomposition
     let segments1 = decompose_to_bezier(curve1, t1_range);
-    let segments2 = decompose_to_bezier(curve2, t2_range);
 
     // 3 & 4. Bounding box culling + Bezier clipping
     let mut candidates: Vec<(f64, f64)> = Vec::new();
@@ -125,6 +134,18 @@ pub(crate) fn intersect_nurbs_nurbs(
     });
 
     results
+}
+
+/// Axis-aligned box of a control polygon (a positive-weight span lies
+/// inside it).
+fn control_box(points: &[Point3]) -> (Point3, Point3) {
+    let mut lo = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let mut hi = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for p in points {
+        lo = Point3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = Point3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    (lo, hi)
 }
 
 /// Sample both curves and find close-approach parameter pairs as Newton seeds.

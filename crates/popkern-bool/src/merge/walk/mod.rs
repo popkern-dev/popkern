@@ -252,22 +252,22 @@ pub(crate) fn walk_all_fragments_ext(
                     // dot (the m6 nut's groove-wall chain pieces —
                     // routing those to chart roles stranded its mouth
                     // chamfer).
+                    // The twin test is cheap and false on most faces
+                    // (one orbit); the curve-sampled cancellation runs
+                    // only when it holds.
                     let wound = {
                         let largest = orbits.iter().enumerate().max_by_key(|(_, o)| o.len());
                         match largest {
-                            Some((li, lo))
-                                if walk_loop_measures::loop_newell_cancellation(graph, lo)
-                                    < 0.3 =>
-                            {
+                            Some((li, lo)) => {
                                 let largest_twins: std::collections::HashSet<usize> =
                                     lo.iter().map(|&h| graph.half_edges[h].twin).collect();
                                 orbits.iter().enumerate().any(|(oi, o)| {
                                     oi != li
                                         && !o.is_empty()
                                         && !o.iter().any(|h| largest_twins.contains(h))
-                                })
+                                }) && walk_loop_measures::loop_newell_cancellation(graph, lo) < 0.3
                             }
-                            _ => false,
+                            None => false,
                         }
                     };
                     if wound && popkern_core::trace::trace_enabled("boolean") {
@@ -522,7 +522,14 @@ pub(crate) fn walk_all_fragments_ext(
         // half the outer area) are inner loops (holes) that belong to
         // the same fragment.  Large loops form separate fragments (they
         // arise when an intersection curve splits a face).
-        let areas: Vec<f64> = loops.iter().map(|lp| signed_area(graph, lp)).collect();
+        // A lone loop is the outer by definition: its area (curve-
+        // sampled) decides nothing (PK-802: the election sampled every
+        // untouched face of a 64-slot disc on each later cut).
+        let areas: Vec<f64> = if loops.len() == 1 {
+            vec![0.0]
+        } else {
+            loops.iter().map(|lp| signed_area(graph, lp)).collect()
+        };
         let max_area = areas
             .iter()
             .map(|a| a.abs())
@@ -564,7 +571,13 @@ pub(crate) fn walk_all_fragments_ext(
         // twin-overlap detection.
         let outer_he_set: HashSet<usize> = outer_loop.iter().copied().collect();
 
-        let outer_newell = walk_geometry::loop_newell(graph, &outer_loop);
+        // Only the remaining loops (holes, separate pieces) are
+        // measured against the outer's winding.
+        let outer_newell = if loops.is_empty() {
+            popkern_core::geometry::Vec3::zero()
+        } else {
+            walk_geometry::loop_newell(graph, &outer_loop)
+        };
         // The winding override below applies to WORKPIECE (operand A)
         // faces only. On the TOOL side a large interior ring's both
         // directions serve as candidate caps for the result pieces (a

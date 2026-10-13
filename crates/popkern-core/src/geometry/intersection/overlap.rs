@@ -2,6 +2,7 @@
 
 #![allow(dead_code)]
 
+use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::intersection::CurveIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
@@ -73,26 +74,56 @@ fn closest_param_on_curve(
 
 /// Detect overlapping segments between two NURBS curves.
 /// Returns a list of [`CurveIntersection::Overlap`] entries.
+///
+/// `curve2_hulls` are control-hull boxes of Bezier spans covering
+/// `curve2` over `t2_range` (empty: no prefilter). With positive
+/// weights each span lies in its box, so a sample farther than the
+/// tolerance from every box is out of tolerance without the closest-
+/// point scan: the overlap runs, and so the result, are unchanged
+/// (PK-802: the scan ran 2900 evaluations of a 256-span rim circle per
+/// clip query, half a slot cut's single-threaded time).
 pub(crate) fn detect_overlaps(
     curve1: &NurbsCurve,
     t1_range: (f64, f64),
     curve2: &NurbsCurve,
     t2_range: (f64, f64),
+    curve2_hulls: &[(Point3, Point3)],
     tolerance: &Tolerance,
 ) -> Vec<CurveIntersection> {
     let (t1_lo, t1_hi) = t1_range;
+    let tol = tolerance.linear();
+    let hull_distance = |p: &Point3| {
+        curve2_hulls
+            .iter()
+            .map(|(lo, hi)| {
+                let d = |x: f64, a: f64, b: f64| (a - x).max(x - b).max(0.0);
+                let (dx, dy, dz) = (d(p.x, lo.x, hi.x), d(p.y, lo.y, hi.y), d(p.z, lo.z, hi.z));
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
 
     // Sample curve1 and find closest point on curve2 for each sample.
     let mut samples: Vec<Sample> = Vec::with_capacity(N_SAMPLES);
     for i in 0..N_SAMPLES {
         let t1 = t1_lo + (t1_hi - t1_lo) * (i as f64) / (N_SAMPLES as f64 - 1.0);
         let p1 = curve1.point_at(t1);
+        if !curve2_hulls.is_empty() {
+            let bound = hull_distance(&p1);
+            if bound >= tol {
+                samples.push(Sample {
+                    t1,
+                    t2: t2_range.0,
+                    dist: bound,
+                });
+                continue;
+            }
+        }
         let (t2, dist) = closest_param_on_curve(curve2, t2_range, &p1);
         samples.push(Sample { t1, t2, dist });
     }
 
     // Collect contiguous runs where dist < tolerance.linear().
-    let tol = tolerance.linear();
     let mut overlaps: Vec<CurveIntersection> = Vec::new();
 
     let mut run_start: Option<usize> = None;
@@ -149,7 +180,8 @@ mod tests {
             weights: vec![1.0, 1.0],
         };
         let c2 = c1.clone();
-        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &[], &Tolerance::default());
         assert_eq!(overlaps.len(), 1);
         if let CurveIntersection::Overlap {
             t1_range,
@@ -177,7 +209,8 @@ mod tests {
             control_points: vec![Point3::new(1.0, 0.0, 0.0), Point3::new(3.0, 0.0, 0.0)],
             weights: vec![1.0, 1.0],
         };
-        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &[], &Tolerance::default());
         assert_eq!(overlaps.len(), 1);
     }
 
@@ -195,7 +228,8 @@ mod tests {
             control_points: vec![Point3::new(0.0, 5.0, 0.0), Point3::new(1.0, 5.0, 0.0)],
             weights: vec![1.0, 1.0],
         };
-        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &[], &Tolerance::default());
         assert!(overlaps.is_empty());
     }
 
@@ -213,7 +247,8 @@ mod tests {
             ],
             weights: vec![1.0, 1.0, 1.0],
         };
-        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c1, (0.0, 1.0), &Tolerance::default());
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c1, (0.0, 1.0), &[], &Tolerance::default());
         assert_eq!(overlaps.len(), 1);
     }
 
@@ -244,7 +279,8 @@ mod tests {
         };
         // These curves cross at endpoints only; overlap should be empty or have only
         // endpoint-coincidence (which is too short to be MIN_CONSECUTIVE)
-        let overlaps = detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &Tolerance::default());
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &[], &Tolerance::default());
         // Either no overlap or very short runs filtered out
         // just verify it doesn't panic
         let _ = overlaps;

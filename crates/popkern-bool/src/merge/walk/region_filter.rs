@@ -88,8 +88,24 @@ pub(super) fn drop_hole_interior_record_pieces(
     if contours.is_empty() {
         return None;
     }
+    // Record midpoints first: a face no record piece reaches has
+    // nothing to filter, and a hole whose padded boundary box holds no
+    // midpoint cannot contain one, so its dense polygon is never built
+    // (PK-802: a disc face with 63 slot holes sampled 64k stations per
+    // cut to test the few pieces of the one new slot).
+    let mids: Vec<Point3> = he_indices
+        .iter()
+        .filter_map(|&idx| record_midpoint(graph, idx))
+        .collect();
+    if mids.is_empty() {
+        return None;
+    }
+    let periodic = u_period.is_some();
     let mut polygons: Vec<Vec<(f64, f64)>> = Vec::new();
     for contour in &contours {
+        if !contour_box_holds_any(brep, contour, &mids, periodic, tolerance) {
+            continue;
+        }
         let mut polygon = Vec::new();
         for (_he, pcurve) in contour {
             let (t0, t1) = pcurve.parameter_range();
@@ -169,27 +185,9 @@ pub(super) fn drop_hole_interior_record_pieces(
             kept.push(idx);
             continue;
         }
-        // A twin half-edge carries no curve of its own — its partner
-        // does, and the curve midpoint is direction-independent. The
-        // chord fallback is a last resort ONLY when neither direction
-        // has a curve: the chord of a wide arc dips off the curve by
-        // the full sagitta, and on the nut cap the tool tip-band's
-        // r = 3.15 arc (true midpoint azimuth −π/2, far outside the
-        // bore) chord-sampled at r = 1.90 INSIDE the bore — the twin
-        // dropped as hole-interior while its partner stayed, and the
-        // 2-in/1-out imbalance declined both caps to the 3D-Newell
-        // fallback (PK-464).
-        let curve = he
-            .curve
-            .as_ref()
-            .or_else(|| graph.half_edges[he.twin].curve.as_ref());
-        let mid: Point3 = match curve {
-            Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
-            None => {
-                let a = graph.nodes[he.origin].position;
-                let b = graph.nodes[graph.half_edges[he.twin].origin].position;
-                Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z))
-            }
+        let Some(mid) = record_midpoint(graph, idx) else {
+            kept.push(idx);
+            continue;
         };
         let Some((u, v)) =
             popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &mid)
@@ -218,4 +216,83 @@ pub(super) fn drop_hole_interior_record_pieces(
         );
     }
     Some(kept)
+}
+
+/// Midpoint of a Shared (record) half-edge; `None` for any other.
+///
+/// A twin half-edge carries no curve of its own — its partner does,
+/// and the curve midpoint is direction-independent. The chord fallback
+/// is a last resort ONLY when neither direction has a curve: the chord
+/// of a wide arc dips off the curve by the full sagitta, and on the nut
+/// cap the tool tip-band's r = 3.15 arc (true midpoint azimuth −π/2,
+/// far outside the bore) chord-sampled at r = 1.90 INSIDE the bore —
+/// the twin dropped as hole-interior while its partner stayed, and the
+/// 2-in/1-out imbalance declined both caps to the 3D-Newell fallback
+/// (PK-464).
+fn record_midpoint(graph: &IntersectionGraph, idx: usize) -> Option<Point3> {
+    let he = &graph.half_edges[idx];
+    if !matches!(he.source, EdgeSource::Shared { .. }) {
+        return None;
+    }
+    let curve = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+    Some(match curve {
+        Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
+        None => {
+            let a = graph.nodes[he.origin].position;
+            let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+            Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z))
+        }
+    })
+}
+
+/// Whether any of `mids` lies in the 3D box of a hole contour's edge
+/// curves, padded so the box holds the surface patch the contour
+/// bounds: by the rim band on a plane (the patch is the contour's own
+/// planar span), by the box diagonal on a periodic chart (the patch of
+/// a contour spanning under half a period bulges off its boundary by
+/// less than its chord). A contour with a curveless edge always holds.
+fn contour_box_holds_any(
+    brep: &BRep,
+    contour: &[(
+        popkern_core::topology::HalfEdgeHandle,
+        popkern_core::geometry::pcurve::Pcurve,
+    )],
+    mids: &[Point3],
+    periodic: bool,
+    tolerance: &Tolerance,
+) -> bool {
+    let mut lo = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
+    let mut hi = Point3::new(f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (he, _) in contour {
+        let Some(curve) = brep
+            .half_edges
+            .get(*he)
+            .and_then(|h| brep.edges.get(h.edge))
+            .and_then(|e| e.curve.as_ref())
+        else {
+            return true;
+        };
+        let b = curve.geometry.curve_bounding_box((
+            curve.t_start.min(curve.t_end),
+            curve.t_start.max(curve.t_end),
+        ));
+        lo = Point3::new(lo.x.min(b.min.x), lo.y.min(b.min.y), lo.z.min(b.min.z));
+        hi = Point3::new(hi.x.max(b.max.x), hi.y.max(b.max.y), hi.z.max(b.max.z));
+    }
+    if !(lo.x.is_finite() && hi.x.is_finite()) {
+        return true;
+    }
+    let diagonal = lo.distance_to(&hi);
+    let pad = tolerance.linear() * 40.0 + if periodic { diagonal } else { 0.0 };
+    mids.iter().any(|m| {
+        m.x >= lo.x - pad
+            && m.x <= hi.x + pad
+            && m.y >= lo.y - pad
+            && m.y <= hi.y + pad
+            && m.z >= lo.z - pad
+            && m.z <= hi.z + pad
+    })
 }
