@@ -34,7 +34,7 @@ use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, compute_edge_geometry};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle};
 use popkern_math::PortableMath;
 
 #[path = "edge_reconcile_fit.rs"]
@@ -460,11 +460,40 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         brep.recompute_all_pcurves_lenient();
         return true;
     }
-    if let Some(he_mut) = brep.half_edges.get_mut(he) {
-        he_mut.pcurve = Some(triple.pcurve_a.clone());
-    }
-    if let Some(twin_mut) = brep.half_edges.get_mut(twin) {
-        twin_mut.pcurve = Some(triple.pcurve_b.clone());
+    // The triple's pcurves run the CURVE's way; a half-edge starting at
+    // the curve's end takes its pcurve reversed (a chamfer's boss-wall
+    // quarter arcs served both twins forward, 0.113 off, PK-819). A
+    // closed edge's one vertex cannot tell: kept as authored.
+    for (half_edge, pcurve) in [(he, &triple.pcurve_a), (twin, &triple.pcurve_b)] {
+        let backward = half_edge_runs_backward(brep, half_edge, (pick_t0, pick_t1));
+        if let Some(h) = brep.half_edges.get_mut(half_edge) {
+            h.pcurve = Some(if backward {
+                pcurve.reversed()
+            } else {
+                pcurve.clone()
+            });
+        }
     }
     true
+}
+
+/// Whether `half_edge` (on an open edge) starts at its edge curve's
+/// `range.1` end: its origin vertex is clearly nearer that end.
+fn half_edge_runs_backward(brep: &BRep, half_edge: HalfEdgeHandle, range: (f64, f64)) -> bool {
+    let Some(h) = brep.half_edges.get(half_edge) else {
+        return false;
+    };
+    let (Some(origin), Some(curve)) = (
+        brep.vertices.get(h.origin).map(|v| v.position),
+        brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()),
+    ) else {
+        return false;
+    };
+    let (a, b) = (
+        curve.geometry.point_at(range.0),
+        curve.geometry.point_at(range.1),
+    );
+    let chord = a.distance_to(&b);
+    let (da, db) = (origin.distance_to(&a), origin.distance_to(&b));
+    chord > brep.tolerance.linear() && db + 1.0e-3 * chord < da
 }

@@ -292,6 +292,9 @@ pub(super) fn author_strip_seam_curve(
     if let Some(period) = surface.parameter_periodicity().1 {
         uv_b.1 -= period * ((uv_b.1 - uv_a.1) / period).round();
     }
+    if let Some(iso) = exact_nurbs_iso_seam(surface, uv_a, uv_b, p_out, p_in, tolerance) {
+        return Some(iso);
+    }
     let n = 17usize;
     let mut pts: Vec<Point3> = (0..n)
         .map(|i| {
@@ -384,4 +387,51 @@ fn half_edge_winding_axis(brep: &BRep, he: HalfEdgeHandle) -> Option<Vec3> {
         );
     }
     n.normalized()
+}
+
+/// The exact seam on a NURBS strip whose seam runs along one iso line
+/// (the G2 rim revolution's meridian): the surface's own iso curve
+/// over the endpoints' parameter window. The 17-point polyline sagged
+/// 3.1e-4 off the surface between its knots while the seam's pcurves
+/// were the exact iso line (PK-819 pcurve-consistency census). `None`
+/// off the iso case or when an end misses its vertex.
+fn exact_nurbs_iso_seam(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    uv_a: (f64, f64),
+    uv_b: (f64, f64),
+    p_out: Point3,
+    p_in: Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<popkern_core::geometry::CurveOnEdge> {
+    let popkern_core::geometry::surface::SurfaceGeometry::Nurbs(nurbs) = surface else {
+        return None;
+    };
+    const ISO: f64 = 1.0e-9;
+    let (curve, t_start, t_end) = if (uv_b.0 - uv_a.0).abs() <= ISO {
+        (
+            nurbs.iso_curve_at_u(0.5 * (uv_a.0 + uv_b.0)),
+            uv_a.1,
+            uv_b.1,
+        )
+    } else if (uv_b.1 - uv_a.1).abs() <= ISO {
+        (
+            nurbs.iso_curve_at_v(0.5 * (uv_a.1 + uv_b.1)),
+            uv_a.0,
+            uv_b.0,
+        )
+    } else {
+        return None;
+    };
+    let gate = tolerance.linear();
+    if (t_end - t_start).abs() <= ISO
+        || curve.point_at(t_start).distance_to(&p_out) > gate
+        || curve.point_at(t_end).distance_to(&p_in) > gate
+    {
+        return None;
+    }
+    Some(popkern_core::geometry::CurveOnEdge {
+        geometry: popkern_core::geometry::CurveGeometry::Nurbs(curve),
+        t_start,
+        t_end,
+    })
 }

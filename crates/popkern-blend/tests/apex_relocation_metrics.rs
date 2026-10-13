@@ -111,6 +111,7 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             | ValidationError::CurveSurfaceDeviation { .. }
             | ValidationError::TwistedSurface { .. }
             | ValidationError::LoopPeriodWinding { .. }
+            | ValidationError::PcurveDeviation { .. }
             | ValidationError::Precision { .. }
             | ValidationError::SelfIntersection { .. } => out.other_geometric += 1,
         }

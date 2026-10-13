@@ -24,6 +24,7 @@ pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
 mod canonical_forward_arbitration;
 mod loop_period_winding;
+mod pcurve_consistency;
 mod pcurve_presence;
 mod winding_honesty;
 
@@ -237,6 +238,13 @@ impl BRep {
         // A face's loops must bound a region of a periodic chart
         // (PK-792): a net period winding is an edge run the long way.
         errors.extend(self.validate_loop_period_winding_all());
+        // Pcurves must run along their edges (PK-819/820): check 9
+        // measures edge-to-surface only.
+        errors.extend(self.validate_pcurve_consistency_all());
+        // Closed edges: twin pcurves must oppose, the canonical side
+        // running the curve forward (PK-478; a bored tube's start-cap
+        // hole ran with its outer loop, PK-819).
+        errors.extend(self.validate_canonical_forward_all());
         if let Err(e) = self.validate_loop_closure() {
             errors.push(e);
         }

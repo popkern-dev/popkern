@@ -140,13 +140,37 @@ impl BRep {
         let loop_ = self.loops.get(he.loop_)?;
         let face = self.faces.get(loop_.face)?;
         let surface = &face.surface.as_ref()?.geometry;
+        // Which way this half-edge runs the stored [t_start, t_end]:
+        // on an OPEN edge its origin vertex says (producers disagree on
+        // whether a descending range starts at the canonical side's
+        // origin — sketch laminas store lines t [1, 0] run from t_end,
+        // extruded profile arcs t [4.71, 1.57] run from t_start); a
+        // closed edge has one vertex, so the canonical convention
+        // decides.
+        let forward = {
+            use crate::geometry::curve::CurveEval;
+            let a = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
+            let b = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
+            let origin = self.vertices.get(he.origin).map(|v| v.position);
+            match origin {
+                Some(o) if a.distance_to(&b) > self.tolerance.linear() => {
+                    let (da, db) = (o.distance_to(&a), o.distance_to(&b));
+                    if (da - db).abs() > 1.0e-3 * a.distance_to(&b) {
+                        da < db
+                    } else {
+                        canonical_half_edge == heh
+                    }
+                }
+                _ => canonical_half_edge == heh,
+            }
+        };
         measure_pcurve_deviation(
             heh,
             loop_.face,
             pcurve,
             surface,
             curve_on_edge,
-            canonical_half_edge == heh,
+            forward,
             DEFAULT_EDGE_SAMPLES,
         )
     }

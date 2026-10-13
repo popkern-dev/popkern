@@ -159,6 +159,21 @@ pub enum ValidationError {
         total: usize,
     },
 
+    /// A half-edge's pcurve, mapped through its face's surface, strays
+    /// from its edge (ends, sense or trace): every trim consumer reads
+    /// the pcurve (PK-819, PK-820).
+    #[error(
+        "Half-edge {half_edge:?} on face {face:?}: pcurve strays {max_deviation:.3e} from its edge"
+    )]
+    PcurveDeviation {
+        /// The half-edge whose pcurve disagrees with its edge.
+        half_edge: HalfEdgeHandle,
+        /// The face owning the pcurve.
+        face: FaceHandle,
+        /// Worst accepted deviation (see `HalfEdgePcurveDeviation`).
+        max_deviation: f64,
+    },
+
     /// A face's loops leave a net winding around a periodic chart with
     /// no collapsed row, so they bound no region of it: some edge runs
     /// the long way round the period (PK-792).

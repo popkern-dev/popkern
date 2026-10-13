@@ -181,7 +181,9 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         ValidationError::SelfIntersection { .. } | ValidationError::TwistedSurface { .. } => {
             "surface_shape_invalid"
         }
-        ValidationError::LoopPeriodWinding { .. } => "trim_domain_invalid",
+        ValidationError::LoopPeriodWinding { .. } | ValidationError::PcurveDeviation { .. } => {
+            "trim_domain_invalid"
+        }
         ValidationError::EulerPoincare { .. }
         | ValidationError::DanglingReference { .. }
         | ValidationError::BrokenTwin { .. }
@@ -215,6 +217,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::MissingPcurves { .. } => "MissingPcurves",
         ValidationError::TwistedSurface { .. } => "TwistedSurface",
         ValidationError::LoopPeriodWinding { .. } => "LoopPeriodWinding",
+        ValidationError::PcurveDeviation { .. } => "PcurveDeviation",
         ValidationError::CanonicalBackward { .. } => "CanonicalBackward",
         ValidationError::Precision { .. } => "Precision",
     }

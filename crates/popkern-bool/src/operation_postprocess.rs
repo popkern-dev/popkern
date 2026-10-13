@@ -486,4 +486,5 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     if flips > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] post-processing: reconciled {flips} orientation flag(s)");
     }
+    crate::postprocess::repair_closed_edge_sense(result);
 }

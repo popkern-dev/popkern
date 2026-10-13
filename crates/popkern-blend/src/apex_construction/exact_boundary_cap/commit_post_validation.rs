@@ -81,7 +81,8 @@ fn validation_error_face(err: &ValidationError) -> Option<FaceHandle> {
     match err {
         ValidationError::InconsistentOrientation { face }
         | ValidationError::TwistedSurface { face }
-        | ValidationError::LoopPeriodWinding { face, .. } => Some(*face),
+        | ValidationError::LoopPeriodWinding { face, .. }
+        | ValidationError::PcurveDeviation { face, .. } => Some(*face),
         ValidationError::SelfIntersection { face_a, .. } => Some(*face_a),
         _ => None,
     }

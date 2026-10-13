@@ -395,8 +395,24 @@ fn author_fan_geometry(
             };
             let o_is_pole = he.origin == fan.pole_vertex;
             let d_is_pole = dest == fan.pole_vertex;
-            let (u0, v0) = uv_of(origin_pos, o_is_pole, phi_prev);
-            let (u1, v1) = uv_of(dest_pos, d_is_pole, Some(u0));
+            // A spoke is a meridian: its pole end takes its RING end's
+            // azimuth (the collapsed pole row carries the loop between
+            // spokes, as on a sphere). Interpolating from the previous
+            // spoke's azimuth ran the spoke's pcurve diagonally across
+            // the torus, 0.18 off its meridian (PK-819 pcurve-consistency
+            // census).
+            let (u0, v0, u1, v1) = if o_is_pole {
+                let (u1, v1) = uv_of(dest_pos, false, phi_prev);
+                (u1, v_pole, u1, v1)
+            } else {
+                let (u0, v0) = uv_of(origin_pos, false, phi_prev);
+                let (u1, v1) = if d_is_pole {
+                    (u0, v_pole)
+                } else {
+                    uv_of(dest_pos, false, Some(u0))
+                };
+                (u0, v0, u1, v1)
+            };
             body.half_edges[cursor].pcurve = Some(Pcurve::linear((u0, v0), (u1, v1), 0.0, 1.0));
             phi_prev = Some(u1);
             cursor = he.next;

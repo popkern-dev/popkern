@@ -400,6 +400,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::LoopPeriodWinding { face, .. } => {
             vec![EntityRef::Face(*face)]
         }
+        ValidationError::PcurveDeviation { half_edge, .. } => {
+            vec![EntityRef::HalfEdge(*half_edge)]
+        }
         ValidationError::Precision { .. } => Vec::new(),
     }
 }

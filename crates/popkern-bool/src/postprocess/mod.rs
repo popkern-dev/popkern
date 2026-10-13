@@ -22,3 +22,19 @@ pub mod spur_edge;
 #[cfg(test)]
 #[path = "postprocess_tests.rs"]
 mod tests;
+
+/// Closed-edge sense at the producer exit (PK-478's repair arm), after
+/// every pcurve author and the orientation reconcile its verdicts read:
+/// a bored tube's start-cap hole pcurve ran with its outer loop (the
+/// cap read outer + hole, PK-819) and a cone-through-cube union's apex
+/// rim served canonical-backward once the late slit sweep had run. The
+/// repair reverses only a chain-convicted pcurve or swaps a backward
+/// canonical side; it never acts on an indeterminate verdict.
+pub(crate) fn repair_closed_edge_sense(result: &mut popkern_core::topology::BRep) {
+    let repaired = result.repair_canonical_forward();
+    if repaired > 0 && popkern_core::trace::trace_enabled("boolean") {
+        eprintln!(
+            "[boolean] post-processing: {repaired} closed edge(s) repaired to canonical-forward"
+        );
+    }
+}

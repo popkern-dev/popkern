@@ -217,7 +217,11 @@ fn cone_through_cube_union_produces_result() {
         9,
         "cube 6 + frustum + base cap + apex piece"
     );
-    assert!(result.validate_all().is_empty());
+    assert!(
+        result.validate_all().is_empty(),
+        "{:?}",
+        result.validate_all()
+    );
 }
 
 #[test]
