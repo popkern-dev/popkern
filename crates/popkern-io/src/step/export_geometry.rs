@@ -8,21 +8,30 @@ use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveOnEdge, NurbsCurve, Point3, SurfaceOnFace, Vec3};
 
-/// True when the STEP plane placement written by `export_surface`
-/// (ẑ = u_axis × v_axis, chart-true) OPPOSES the stored popkern
-/// normal — the ADVANCED_FACE same_sense flag must flip to keep the
-/// face's material side unchanged.
-pub(crate) fn step_plane_sense_flip(surface: &SurfaceGeometry) -> bool {
-    if let SurfaceGeometry::Plane {
-        normal,
-        u_axis,
-        v_axis,
-        ..
-    } = surface
-    {
-        u_axis.cross(v_axis).dot(normal) < 0.0
-    } else {
-        false
+/// True when the ADVANCED_FACE same_sense flag must be the NEGATION of
+/// the face's orientation flag. The kernel flag says the outer loop
+/// runs counter-clockwise in the surface CHART (the winding-honesty
+/// contract); STEP's same_sense says it runs counter-clockwise about
+/// the written surface's normal. They differ where the chart normal
+/// `∂u × ∂v` opposes the written normal:
+/// - a plane whose chart-true placement (ẑ = u_axis × v_axis, as
+///   `export_surface` writes it) opposes the stored normal;
+/// - every sphere: popkern's colatitude chart normal points inward
+///   while SPHERICAL_SURFACE's normal points outward. The importer
+///   applies the same flip (`resolve_surface`); without it here every
+///   exported sphere face came back reversed and meshed its complement
+///   (PK-787: boss_plate's corner patches, 0.0703 mm² of triangles for
+///   a 0.01005 mm² face).
+pub(crate) fn step_sense_flip(surface: &SurfaceGeometry) -> bool {
+    match surface {
+        SurfaceGeometry::Plane {
+            normal,
+            u_axis,
+            v_axis,
+            ..
+        } => u_axis.cross(v_axis).dot(normal) < 0.0,
+        SurfaceGeometry::Sphere { .. } => true,
+        _ => false,
     }
 }
 
@@ -189,7 +198,7 @@ impl ExportContext {
                 // OpenCASCADE). Write ẑ = u × v so the derived chart
                 // matches the pcurves exactly; the ADVANCED_FACE
                 // same_sense flag carries the orientation difference
-                // (see `step_plane_sense_flip`).
+                // (see `step_sense_flip`).
                 let chart_normal = u_axis.cross(v_axis).normalized().unwrap_or(*normal);
                 let placement = self.export_placement(origin, &chart_normal, u_axis);
                 self.emit("PLANE", vec![str_param(""), ref_(placement)])
@@ -296,14 +305,14 @@ mod tests {
             u_axis: Vec3::new(1.0, 0.0, 0.0),
             v_axis: Vec3::new(0.0, 1.0, 0.0),
         };
-        assert!(!step_plane_sense_flip(&right));
+        assert!(!step_sense_flip(&right));
         let left = SurfaceGeometry::Plane {
             origin: Point3::new(0.0, 0.0, 0.0),
             normal: Vec3::new(0.0, 0.0, 1.0),
             u_axis: Vec3::new(0.0, 1.0, 0.0),
             v_axis: Vec3::new(1.0, 0.0, 0.0),
         };
-        assert!(step_plane_sense_flip(&left));
+        assert!(step_sense_flip(&left));
     }
 
     /// The written plane placement must satisfy the STEP reader's

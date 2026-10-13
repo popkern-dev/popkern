@@ -279,12 +279,12 @@ impl ExportContext {
         // Determine face orientation. Planes export with a
         // chart-true ẑ (= u_axis × v_axis); when that opposes the
         // stored normal the sense flag flips to compensate (see
-        // `step_plane_sense_flip`).
+        // `step_sense_flip`).
         let orientation = face.surface.as_ref().map(|s| s.orientation).unwrap_or(true)
             ^ face
                 .surface
                 .as_ref()
-                .map(|s| crate::step::export_geometry::step_plane_sense_flip(&s.geometry))
+                .map(|s| crate::step::export_geometry::step_sense_flip(&s.geometry))
                 .unwrap_or(false);
 
         let face_id = self.emit(
