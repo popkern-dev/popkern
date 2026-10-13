@@ -7,6 +7,7 @@ pub mod face_simplify;
 pub(crate) mod junction_reconcile;
 pub mod keyhole_loop;
 pub mod loop_repair;
+pub(crate) mod merge_rechart;
 pub mod parallel_weld;
 pub mod point_loop_retire;
 pub mod quality;

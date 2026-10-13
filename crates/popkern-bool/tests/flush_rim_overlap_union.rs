@@ -92,3 +92,81 @@ fn a_pin_flush_on_a_base_and_crossed_by_its_bar_unions_without_a_rim_sliver() {
     assert_eq!(walls, 2, "the pin wall's regions, no rim sliver");
     assert_eq!(out.faces.len(), 29, "faces");
 }
+
+/// Volume of an all-planar body with straight edges: the divergence
+/// theorem over each face's vertex fan.
+fn polyhedral_volume(brep: &BRep) -> f64 {
+    let mut volume = 0.0;
+    for face in brep.faces.values() {
+        for l in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+            let start = brep.loops[l].half_edge;
+            let mut points = Vec::new();
+            let mut h = start;
+            loop {
+                points.push(brep.vertices[brep.half_edges[h].origin].position);
+                h = brep.half_edges[h].next;
+                if h == start {
+                    break;
+                }
+            }
+            let o = points[0];
+            for w in points[1..].windows(2) {
+                let (a, b) = (w[0], w[1]);
+                volume += (o.x * (a.y * b.z - a.z * b.y) - o.y * (a.x * b.z - a.z * b.x)
+                    + o.z * (a.x * b.y - a.y * b.x))
+                    / 6.0;
+            }
+        }
+    }
+    volume.abs()
+}
+
+/// PK-806: a bar laid across two posts, its ends flush with the posts'
+/// outer faces and its sides and top flush with theirs. The second
+/// post's union merges the post's outer face into the base's coplanar
+/// side face; the merged face must carry its post-side pcurves in ITS
+/// chart (they kept the post face's, the face's uv boundary covered the
+/// base part only, and the bar union clipped every record on the post
+/// part away and declined: "6 edges carry no curve").
+#[test]
+fn a_bar_flush_across_two_posts_unions_on_its_charts() {
+    let base = union_on_charts(
+        rect(10.0, 10.0, [0.0, 0.0], 0.0, 5.0),
+        rect(1.0, 1.0, [-4.5, 0.0], 5.0, 2.0),
+        "left post",
+    );
+    let base = union_on_charts(base, rect(1.0, 1.0, [4.5, 0.0], 5.0, 2.0), "right post");
+    // Every pcurve starts where its half-edge's vertex projects into the
+    // face's own chart.
+    for (fh, face) in &base.faces {
+        let surface = &face.surface.as_ref().expect("surface").geometry;
+        for l in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+            let start = base.loops[l].half_edge;
+            let mut h = start;
+            loop {
+                let he = &base.half_edges[h];
+                if let Some(pc) = he.pcurve.as_ref() {
+                    let p = base.vertices[he.origin].position;
+                    let (u, v) =
+                        popkern_core::geometry::uv_projection::project_point_to_uv(surface, &p)
+                            .expect("projects");
+                    let q = pc.point_at(pc.parameter_range().0);
+                    assert!(
+                        (q.x - u).abs() + (q.y - v).abs() < 1e-6,
+                        "face {fh:?}: pcurve starts at ({:.3},{:.3}), vertex projects to ({u:.3},{v:.3})",
+                        q.x,
+                        q.y
+                    );
+                }
+                h = he.next;
+                if h == start {
+                    break;
+                }
+            }
+        }
+    }
+    let out = union_on_charts(base, rect(10.0, 1.0, [0.0, 0.0], 6.0, 1.0), "bar");
+    assert_eq!(out.faces.len(), 12, "posts, bar and base merge flush");
+    let volume = polyhedral_volume(&out);
+    assert!((volume - 512.0).abs() < 1e-9, "volume {volume} vs 512");
+}

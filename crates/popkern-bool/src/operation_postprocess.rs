@@ -142,7 +142,9 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
         let pre_e = result.edges.len();
         let pre_f = result.faces.len();
 
-        if result.kef(he).is_ok() {
+        let sides = crate::postprocess::merge_rechart::merge_sides(result, he);
+        if let Ok(kef) = result.kef(he) {
+            crate::postprocess::merge_rechart::rechart_inherited(result, &sides, kef.removed_face);
             // Validate after removal — if topology is corrupted, stop
             if result.validate().is_err() {
                 // Revert is impossible, but at least stop making it worse
