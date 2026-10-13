@@ -103,9 +103,9 @@ fn two_hundred_slots_build_in_one_extrusion() {
         bridge: 2.0,
         ..LivingHingeParams::slotted(span, 40.0)
     };
-    let (p50, p500) = (params(25.0), params(100.0));
+    let (p50, p200) = (params(25.0), params(100.0));
     assert_eq!(p50.slot_centres().len(), 50);
-    assert_eq!(p500.slot_centres().len(), 200);
+    assert_eq!(p200.slot_centres().len(), 200);
     // Recorded budget (design §8): one extrusion whose cost grows
     // linearly in the slot count (0.29 s for 200 slots measured
     // 2026-10-07; 58.7 s before PK-709 made the Euler checks linear).
@@ -114,18 +114,30 @@ fn two_hundred_slots_build_in_one_extrusion() {
     // tripped at 1.11 s under full-suite load). 50 -> 200 slots reads
     // 10.8x today (growth ~n^1.7); a quadratic reads 16x and the
     // PK-709 regression 200x, which the 5 s backstop also catches.
-    let (mut small, mut large) = (f64::MAX, f64::MAX);
+    // Load can still land on one side of a single interleaved
+    // measurement (nextest's parallel crate run read 14.5x once), so
+    // up to three measurements run and the best ratio counts: a real
+    // growth regression reads high on every one.
     let mut body = None;
+    let (mut ratio, mut small, mut large) = (f64::MAX, f64::MAX, f64::MAX);
     for _ in 0..3 {
-        let start = Instant::now();
-        living_hinge(&p50, Tolerance::default()).expect("50 slots");
-        small = small.min(start.elapsed().as_secs_f64());
-        let start = Instant::now();
-        body = Some(living_hinge(&p500, Tolerance::default()).expect("200 slots"));
-        large = large.min(start.elapsed().as_secs_f64());
+        let (mut s, mut l) = (f64::MAX, f64::MAX);
+        for _ in 0..3 {
+            let start = Instant::now();
+            living_hinge(&p50, Tolerance::default()).expect("50 slots");
+            s = s.min(start.elapsed().as_secs_f64());
+            let start = Instant::now();
+            body = Some(living_hinge(&p200, Tolerance::default()).expect("200 slots"));
+            l = l.min(start.elapsed().as_secs_f64());
+        }
+        if l / s.max(1e-9) < ratio {
+            (ratio, small, large) = (l / s.max(1e-9), s, l);
+        }
+        if ratio < 14.0 {
+            break;
+        }
     }
     let body = body.expect("200 slots built");
-    let ratio = large / small.max(1e-9);
     eprintln!(
         "200-slot living hinge: {large:.3} s, 50 slots {small:.3} s, ratio {ratio:.1}, {} faces",
         body.faces.len()
@@ -135,7 +147,7 @@ fn two_hundred_slots_build_in_one_extrusion() {
         "200 slots cost {ratio:.1}x 50 slots ({large:.3} s vs {small:.3} s): growth is quadratic"
     );
     assert!(large < 5.0, "200 slots took {large:.3} s");
-    assert_volume(&body, slotted_volume(&p500), "200 slots");
+    assert_volume(&body, slotted_volume(&p200), "200 slots");
 }
 
 #[test]
