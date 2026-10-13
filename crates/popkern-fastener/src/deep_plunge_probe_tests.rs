@@ -72,6 +72,49 @@ fn deep_plunge_chamfer_on_perpendicular_plate() {
     let profile =
         entry_ring_profile(r_in, r_mouth, eps, &forced, "probe chamfer").expect("profile");
     let ring = revolved_tool(&profile, "probe chamfer", tolerance).expect("ring");
+    // PK-493: the prefilter's face boxes are trim-scale — the thread's
+    // runout corner patches were boxed 3x their trim (the NURBS band's
+    // whole-surface grid and their helical edges' whole-curve hulls),
+    // and the chamfer stage paired 24 faces where 16 overlap.
+    let boxes = |b: &popkern_core::topology::BRep| popkern_bool::face_bounding_boxes(b);
+    for (fh, bx) in boxes(&threaded) {
+        let pts = threaded.face_outer_loop_sample_positions(fh, 64);
+        let (mut lo, mut hi) = ([f64::MAX; 3], [f64::MIN; 3]);
+        for p in &pts {
+            for (k, x) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[k] = lo[k].min(x);
+                hi[k] = hi[k].max(x);
+            }
+        }
+        let trim = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>().sqrt();
+        let boxed = ((bx.max.x - bx.min.x).powi(2)
+            + (bx.max.y - bx.min.y).powi(2)
+            + (bx.max.z - bx.min.z).powi(2))
+        .sqrt();
+        assert!(
+            boxed <= 1.5 * trim + 1e-9,
+            "face {fh:?} boxed {boxed:.3} for a {trim:.3} trim"
+        );
+    }
+    let (ba, bb) = (boxes(&threaded), boxes(&ring));
+    let overlap =
+        |a: &popkern_core::geometry::intersection::surface_subdivision::Aabb,
+         b: &popkern_core::geometry::intersection::surface_subdivision::Aabb| {
+            a.min.x <= b.max.x
+                && b.min.x <= a.max.x
+                && a.min.y <= b.max.y
+                && b.min.y <= a.max.y
+                && a.min.z <= b.max.z
+                && b.min.z <= a.max.z
+        };
+    let pairs = ba
+        .iter()
+        .flat_map(|(_, x)| bb.iter().filter(move |(_, y)| overlap(x, y)))
+        .count();
+    assert!(
+        pairs <= 16,
+        "chamfer-stage candidate face pairs {pairs} (24 before PK-493)"
+    );
     let out = subtract(&threaded, &ring, "probe chamfer cut", tolerance);
     match out {
         Ok(_) => eprintln!("[deep-plunge-probe] perpendicular deep plunge SERVES"),

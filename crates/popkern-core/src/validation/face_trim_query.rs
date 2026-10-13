@@ -98,3 +98,16 @@ impl BRep {
         })
     }
 }
+
+impl BRep {
+    /// The face's trim window in its chart: the bounding box of its
+    /// loops' pcurve samples, `((u_min, u_max), (v_min, v_max))`
+    /// (vertex-projected when no loop carries a pcurve). Sampled, so a
+    /// caller that must contain the face pads it.
+    pub fn face_trim_uv_window(&self, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
+        let surface = &self.faces.get(face)?.surface.as_ref()?.geometry;
+        Some(super::face_uv_window::face_trim_uv_window(
+            self, face, surface,
+        ))
+    }
+}

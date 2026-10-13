@@ -51,6 +51,7 @@ mod entity_naming;
 mod entity_naming_edges;
 pub mod error;
 mod error_remediation;
+mod face_box;
 pub mod history;
 pub mod imprint;
 pub mod instancing;
@@ -463,4 +464,17 @@ pub fn boolean_with_progress(
 /// Wedge-matching trace gate (fragment-walk successor diagnostics).
 pub(crate) fn trace_enabled_wedge() -> bool {
     popkern_core::trace::trace_enabled("wedge-match")
+}
+
+/// The axis-aligned boxes the boolean's face-pair prefilter uses, one
+/// per face with surface geometry. A box must contain its face (an
+/// under-covering box silently drops intersections); how tightly it
+/// does decides how many face pairs reach surface intersection.
+pub fn face_bounding_boxes(
+    brep: &popkern_core::topology::BRep,
+) -> Vec<(
+    popkern_core::topology::FaceHandle,
+    popkern_core::geometry::intersection::surface_subdivision::Aabb,
+)> {
+    intersect::compute_face_aabbs(brep)
 }

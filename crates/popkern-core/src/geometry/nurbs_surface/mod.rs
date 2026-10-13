@@ -10,6 +10,7 @@ mod eval_derivs;
 mod iso_curve;
 mod knot_ops;
 mod projection_seed_cache;
+mod sub_patch_hull;
 pub use projection_seed_cache::ProjectionSeedField;
 
 /// A Non-Uniform Rational B-Spline surface.
