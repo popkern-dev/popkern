@@ -52,22 +52,12 @@ pub(crate) fn execute_boolean_full(
     // true volume, 4 torn edges at the calibrated 5x-linear
     // threshold); the honest primary decline is served instead.
     // `component_material_sense` is a majority statistic seeded per
-    // body; `None` (degenerate sampling) disables the rescue.
-    let sense_of = |body: &BRep| {
-        body.faces
-            .iter()
-            .next()
-            .and_then(|(fh, _)| body.component_material_sense(fh))
-    };
-    let (sa, sb) = (sense_of(&a), sense_of(&b));
-    let mixed = {
-        use popkern_core::validation::MaterialSense::{FoldedInward, FoldedOutward};
-        matches!(
-            (sa, sb),
-            (Some(FoldedInward), Some(FoldedOutward)) | (Some(FoldedOutward), Some(FoldedInward))
-        )
-    };
-    let rescue_operands = mixed.then(|| (a.clone(), b.clone()));
+    // body; `None` (degenerate sampling) disables the rescue. It walks
+    // the whole body, and only a FAILED primary reads it, so it runs
+    // on the operand copies after the failure (PK-804: computed up
+    // front it was 7.6 ms of a 47 ms slot cut on a 255-face disc; the
+    // copies cost 0.3 ms).
+    let rescue_operands = (a.clone(), b.clone());
 
     // `progress` is consumed by the primary run; the rescue run is
     // internal and reports no progress.
@@ -77,9 +67,24 @@ pub(crate) fn execute_boolean_full(
         Err(BoolError::Cancelled) => return Err(BoolError::Cancelled),
         Err(e) => e,
     };
-    let Some((mut ra, mut rb)) = rescue_operands else {
-        return Err(err);
+    let (mut ra, mut rb) = rescue_operands;
+    let sense_of = |body: &BRep| {
+        body.faces
+            .iter()
+            .next()
+            .and_then(|(fh, _)| body.component_material_sense(fh))
     };
+    let (sa, sb) = (sense_of(&ra), sense_of(&rb));
+    let mixed = {
+        use popkern_core::validation::MaterialSense::{FoldedInward, FoldedOutward};
+        matches!(
+            (sa, sb),
+            (Some(FoldedInward), Some(FoldedOutward)) | (Some(FoldedOutward), Some(FoldedInward))
+        )
+    };
+    if !mixed {
+        return Err(err);
+    }
     {
         use popkern_core::validation::MaterialSense;
         if sa == Some(MaterialSense::FoldedInward) {
